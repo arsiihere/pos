@@ -44,6 +44,7 @@ export default tseslint.config(
       'apps/*/src/lib/ids.ts',
       'apps/*/src/lib/secrets.ts',
       'apps/*/src/main.ts',
+      'apps/cloud/src/cli/*.ts',
       '**/*.test.ts',
     ],
     rules: {
