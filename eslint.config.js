@@ -38,9 +38,9 @@ const dbClientImports = {
 };
 
 const qrcodeImports = {
-  paths: [
+  patterns: [
     {
-      name: 'qrcode',
+      group: ['qrcode', 'qrcode/*', 'qrcode/**'],
       message:
         'Import qrcode only from apps/hub/src/setup/issue-admin-bootstrap.ts and apps/hub/src/lib/qr.ts (M72, M77).',
     },
@@ -54,7 +54,10 @@ export default tseslint.config(
   {
     files: ['**/*.{ts,tsx,js,mjs,cjs}'],
     rules: {
-      'no-restricted-imports': ['error', { ...dbClientImports, ...qrcodeImports }],
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] },
+      ],
       'no-restricted-syntax': ['error', ...forbiddenCalls],
     },
   },
