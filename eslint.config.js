@@ -14,6 +14,18 @@ const forbiddenCalls = [
     selector: 'CallExpression[callee.object.name="Math"][callee.property.name="random"]',
     message: 'Math.random is forbidden; take an IdGen (F §6.7).',
   },
+  {
+    selector: 'CallExpression[callee.property.name="randomUUID"]',
+    message: 'crypto.randomUUID is forbidden; take a SecretGen (F §6.7).',
+  },
+  {
+    selector: 'CallExpression[callee.name="randomUUID"]',
+    message: 'randomUUID is forbidden; take a SecretGen (F §6.7).',
+  },
+  {
+    selector: 'CallExpression[callee.name="ulid"]',
+    message: 'ulid is forbidden; take an IdGen (F §6.7).',
+  },
 ];
 
 const dbClientImports = {
