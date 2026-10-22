@@ -65,10 +65,16 @@ These decisions were made during the brainstorming session. They apply across al
 | D52 | Immutable events and sync cursor. Event rows are never updated or deleted (enforced by database triggers). Sync progress is one cursor (`last_acked_seq`) per branch. The cloud accepts only gap-free batches and rejects a batch that would leave a gap in the sequence. | E5 |
 | D53 | Hub replacement and nightly USB backup. Every night the hub backs up its database to an attached USB drive (verified, last 7 kept, result audited). A replacement hub for an existing branch is provisioned with a replace-hub code, restores from the old disk, the USB backup or the cloud (in that order of preference), and pulls the missing tail of events from the cloud. Device tokens are stored hashed. | E0, E5 |
 | D54 | Mechanically enforced tenant scoping (strengthens D30). The tenant guard is on by default for every cloud route; opting out needs an explicit allowlist entry. All data access goes through a tenant-scoped repository base class. Automated tests fail on any unguarded route or cross-tenant leak. | E0, all cloud routes |
-| D55 | One backend framework. The cloud uses Fastify 5, the same framework as the hub; NestJS is dropped. | all cloud routes |
-| D56 | Windows cashier runs the hub-served React app in Chrome or Edge kiosk mode, auto-started at login; Tauri is dropped. Revisit if the cashier PC needs its own attached hardware. | E0, E8 |
+| D55 | One backend framework. Hub and cloud both use Fastify 5. | all cloud routes |
+| D56 | Windows cashier runs the hub-served React app in Chrome or Edge kiosk mode, auto-started at login. Revisit if the cashier PC needs its own attached hardware. | E0, E8 |
 | D57 | Pilot cloud is sized for cost: AWS ap-south-1, one small instance, the smallest single-AZ managed Postgres (free tier or credits where eligible). Latency is irrelevant in P1 because live operations run on the hub. The owner confirms the region (OQ10). | Cloud setup |
 | D58 | PRA conditional P1 blocker (amends D9). If Arif Chatkhara is required to issue PRA-integrated invoices (PRA e-IMS: invoice number and QR on each receipt), PRA integration is in P1 scope; otherwise D9 stands. Answered by OQ15. FBR and all other authorities stay out of P1. | E0, E8 |
+| D59 | Shared Standards. All module specs inherit one set of standards from the foundation spec §6: response envelope, error-code catalogue and HTTP status map, hub command and query conventions, versioned cloud routes (`/v1`) with an `Idempotency-Key` on creates, WebSocket message format, naming rules (one event per fact, e.g. ItemStarted, ItemDone, ItemServed; never a generic "changed" event), test and fixture conventions, migration conventions, and per-app folder layout. New error codes are defined in the module spec that introduces them and appended to the foundation list. | all |
+| D60 | Inferred completion facts. On a single-tap station the hub records the inferred "started" fact in the same transaction as the fire, so an item is never fired without being started. On an auto-done station the hub records an inferred "done" fact once the planned cook time has elapsed. | E3, E4 |
+| D61 | Keeping a table lock while building. While an order screen is open on a locked table, the device refreshes the lock at most once a minute (`TouchTableLock`); the hub also ignores refreshes under 50 seconds apart. A slow, large order no longer loses its lock to the lock TTL. | E2 |
+| D62 | Engine version on snapshots. Every engine snapshot records the engine version that wrote it. After an upgrade that changes the engine, the hub ignores old snapshots and rebuilds by replaying the full event log, then takes a fresh snapshot. | E5 |
+| D63 | Backup time defaults to the branch's quietest hour (fewest events over the last 14 days; 04:00 until there is enough data). A manager can set a fixed time instead. | E0 |
+| D64 | Foundation freeze. Foundation spec v1.7 is final. Later issues are handled in module specs or unit tests, not by reopening the foundation; the only foundation edit allowed is appending new error codes. | all |
 
 ---
 
@@ -340,7 +346,7 @@ Acceptance criteria:
 *As an owner, I want automatic local and cloud backups, and to restore a hub from backup in minutes.*
 
 Acceptance criteria:
-1. Local backup (D53): automated nightly (default 04:00, configurable) to a USB drive attached to the hub; each copy is integrity-checked; the last 7 are kept; success or failure is written to the audit log.
+1. Local backup (D53): automated nightly at the branch's quietest hour (computed from the last 14 days; 04:00 until then; a manager can set a fixed time — D63) to a USB drive attached to the hub; each copy is integrity-checked; the last 7 are kept; success or failure is written to the audit log.
 2. Cloud backup: all events synced to cloud on internet return as a gap-free copy (D52); full snapshot taken nightly.
 3. Restore target: hub operational from a backup within 15 minutes. A replacement hub for an existing branch is set up with a one-time replace-hub code from the cloud, restores from the old disk, the newest USB backup, or the cloud (in that order), then pulls any missing events from the cloud (D53).
 4. Backup status and last successful backup time (local and cloud) visible on the P1 owner view (D22); alert if no backup in > 24 hours.
@@ -440,6 +446,7 @@ Acceptance criteria:
 3. A locked table blocks creating or editing orders only (D39). Marking items served, requesting the bill, closing the bill, and marking the table as needing cleaning are allowed with the relevant role permission regardless of who holds the lock. Exception for order creation/editing: a user with the "take order anywhere" permission can open any table regardless of lock.
 4. Order takers are assigned to floors or specific tables by default; assignments managed by manager.
 5. Force-release lock: manager can release a lock from any device; the release is logged.
+6. While the order screen is open, the device keeps the lock alive (at most one refresh per minute, D61), so a long order is not lost to the lock TTL.
 6. Move table: transfers the live order to another free table; logged with reason.
 7. Merge tables: combines two live orders under one table number; all items and their existing ETAs are preserved.
 8. Split table: divides items across two new table numbers for separate billing; each split becomes an independent bill.
@@ -517,7 +524,8 @@ Out of scope (P1): audio callouts in other languages (P3).
 
 Edge cases:
 - Cook taps Done before Start → warning shown; Start must be tapped first unless the station's completion mode is single-tap (D43, which replaces the old "skip-start" option).
-- Station in auto-done mode (D43) → Done is applied automatically at the planned end unless tapped earlier; the ticket moves to the pass on its own.
+- Station in auto-done mode (D43, D60) → Done is applied automatically at the planned end unless tapped earlier; the ticket moves to the pass on its own; a late Done tap is rejected as already done.
+- Station in single-tap mode (D60) → the item shows as started the moment it is fired.
 - Multiple cooks at one station → each tap is logged under the logged-in cook.
 - KDS screen goes offline → auto-print fallback activates for that station (see E3 printing story below).
 
@@ -692,7 +700,7 @@ Acceptance criteria (D24):
 1. Hardware prerequisites (installation): SSD storage, BIOS "power on after AC loss" enabled, hub and kitchen printers on a UPS (target: 15-minute coverage), RTC battery checked or replaced, NTP configured, USB backup drive attached (D48, D53).
 2. Hub service starts automatically on OS boot (systemd); no manual action required.
 3. Durability: the hub acknowledges a device event only after it is durably committed to SQLite (WAL, `synchronous=FULL`); devices that do not receive an ack resend the event on reconnect; idempotent event IDs prevent duplicates.
-4. Recovery: on startup the hub loads the latest engine snapshot, replays all events with seq > snapshot.last_seq, and rebuilds all projections (open orders, table locks, stock counts, station queues).
+4. Recovery: on startup the hub applies any pending migrations, loads the latest engine snapshot, replays all events with seq > snapshot.last_seq, and rebuilds all projections from the event log (open orders, table locks, stock counts, station queues). A snapshot written by a different engine version is ignored, and the hub replays the full log instead (D62).
 5. Missed fire events: any item whose latest-start time has already passed at startup and that was never dispatched is dispatched as "fire now" immediately; items already fired before the outage are not fired again (their tickets are reprinted from the print queue, D44). If an order's target land time has also passed, a slip warning is sent to the order taker.
 6. Late device taps: Start/Done taps from a device's reconnect queue are accepted with the device's `occurred_at` timestamp; the hub records its own `recorded_at` separately.
 7. Print queue: resumes in order; any job that was sent but not confirmed by the printer is reprinted with a "REPRINT" header line (duplicate ticket acceptable; missing ticket is not).

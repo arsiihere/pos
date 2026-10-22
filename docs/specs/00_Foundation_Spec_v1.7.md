@@ -1,19 +1,35 @@
-# POS — Foundation Spec v1.6
+# POS — Foundation Spec v1.7
 
 | Field | Value |
 |-------|-------|
 | Doc type | Foundation Spec — Phase 0–1 |
-| Version | v1.6 |
+| Version | v1.7 — **final foundation version** (D64) |
 | Date | 2026-10-23 |
 | Tier | T2 Production |
-| Status | IN REVIEW — v1.6 applies the independent review of v1.5 (D43–D58). Once approved: engine core coding may begin; overrun handling waits for the tap-rate field test (D43); module specs wait for the §8 blockers |
+| Status | APPROVED — FINAL (2026-10-23). Engine core coding may begin; overrun handling waits for the tap-rate field test (D43); module specs wait for the §9 blockers |
 | Author | Arslan Ahmed Arif |
+
+> **Foundation freeze (D64).** v1.7 is the final version of the foundation spec. Issues found later are handled in the module specs (`docs/specs/README.md`) or as unit tests; they do not reopen this document. A module spec that needs a foundation-level change records it as a decision in its own spec, citing the section it overrides.
+
+### Changes in v1.7 (second independent review of v1.6)
+
+| Review item | Decision | Where |
+|---|---|---|
+| 1 — Shared Standards + spec index | D59 | §6, `docs/specs/README.md` |
+| 2 — inferred ItemDone intent; single_tap start in same txn | D60 | §4.7 |
+| 3 — lock loss during BUILDING | D61 | §4.3, §4.7 |
+| 4 — engine_version on snapshots | D62 | §5.8 |
+| 5 — §8 RLS row, §5.2 diagram, §5.8 step 4, chrony-wait, backup hour | D63 (backup hour); rest editorial | §8, §5.2, §5.8 |
+| 6 — OQ15 offline billing today | — (open question) | §7 OQ15 |
+| 7 — final-version note | D64 | header |
+
+Sections renumbered: Shared Standards is the new §6; Open questions, Deferred and What comes next are now §7, §8, §9.
 
 ### Changes in v1.6 (independent review of v1.5)
 
 | Review item | Decision | Where |
 |---|---|---|
-| 1, 15 — OQ4 tap dependency | D43 | §4.7 completion facts, §6 OQ4, §8 field test |
+| 1, 15 — OQ4 tap dependency | D43 | §4.7 completion facts, §7 OQ4, §9 field test |
 | 2 — tick mutations as events, no re-fire | D44 | §4.7, §5.8 step 6 |
 | 3 — swap engine state after COMMIT | D45 | §5.9 steps 8–9a |
 | 4 — schema_version + upcasters; integer money | D46, D47 | §4.1 |
@@ -24,9 +40,9 @@
 | 9 — immutable events, sync cursor, contiguity | D52 | §4.1, §5.5 |
 | 10 — hub replacement/restore + USB backup | D53 | §5.6, §5.8, §5.10 |
 | 11 — mechanical tenant scoping | D54 | §3.4 |
-| 12 — YAGNI: one framework, kiosk, cheapest cloud | D55, D56, D57 | §1, §5.1, §5.3, §7 |
-| 13, 16 — PRA requirements; P1 blocker | D58 | §3.5, §6 OQ15 |
-| 14 — Test 2 wording; §8 OQ list; status line | editorial (no decision) | §4.7 test 2, §8, header |
+| 12 — YAGNI: one framework, kiosk, cheapest cloud | D55, D56, D57 | §1, §5.1, §5.3, §8 |
+| 13, 16 — PRA requirements; P1 blocker | D58 | §3.5, §7 OQ15 |
+| 14 — Test 2 wording; §9 OQ list; status line | editorial (no decision) | §4.7 test 2, §9, header |
 
 ---
 
@@ -69,7 +85,7 @@ Concrete races and invariants that T2 is needed to protect:
 | Sensitive actions untraceable | Immutable append-only audit log (required by E6 story); `events` is INSERT-only, enforced by SQLite triggers (D52) |
 | Device retransmits a command already processed (D32) | `processed_commands` table: INSERT command_id + response in same transaction as event INSERT; repeated command_id returns stored response without writing new events |
 
-T3 patterns (RLS, sagas, outbox per-table, stampede protection, load tests) are not justified at P1 scale (3 branches, ~10 concurrent devices per branch, ~200 orders/rush) and fail the YAGNI test. They are listed under §7 Deferred.
+T3 patterns (RLS, sagas, outbox per-table, stampede protection, load tests) are not justified at P1 scale (3 branches, ~10 concurrent devices per branch, ~200 orders/rush) and fail the YAGNI test. They are listed under §8 Deferred.
 
 ### Already implemented
 
@@ -88,6 +104,7 @@ Nothing. Greenfield.
 - Cashier shift model (D21)
 - Event schema versioning and money representation (D46, D47)
 - Clock guard (D48), nightly local backup and hub replacement/restore (D53)
+- Shared Standards for all modules: envelope, errors, endpoints, WS, naming, tests, migrations, folders (§6, D59)
 
 ### Out of scope — covered in per-module specs
 
@@ -316,8 +333,10 @@ CREATE INDEX processed_commands_branch ON processed_commands (branch_id, recorde
            │                                           │─── resell (owner-enabled flag; default OFF)
            └───────────────────────────────────────────┘     └─ creates a ready-stock item (not stage-1; Group C)
 
-All transitions emit an ItemStageChanged event with: previous stage, next stage,
-actor_id, reason (required at stages 2+), and item_id.
+Each transition emits its own fact event (naming rule §6.6, D59): ItemStarted,
+ItemDone, ItemServed, ItemRemoved (stage 1), ItemVoided, ItemMovedToStock,
+ItemReturned, ItemResold. Each carries: item_id, previous_stage, next_stage,
+actor_id (null when source = 'inferred', D43), and reason (required at stages 2+).
 ```
 
 Guard: before accepting a stage transition, the hub reads the item's current stage from the projection. If the current stage does not match the expected previous stage the command is rejected with `ITEM_WRONG_STAGE`.
@@ -362,7 +381,14 @@ Lock is a separate projection (`table_locks` table), not embedded in the state m
 
 **Lock auto-release (D51):** a lock belongs to the holder's **session**, not only the staff member. It is released automatically, with a `TableLockReleased` event (written by the fire-scheduler tick, D44) and the table colour updated on every device, when either:
 - **Session ends:** the holding session logs out or passes its idle TTL (§5.7; 5 min default for order takers). `reason: 'session_expired'`.
-- **Lock TTL:** `branchNow − lastActivityAt > table_lock_ttl_ms` (configurable per branch, default 10 min). `lastActivityAt` is refreshed by every command the holder sends for that table. This covers a session kept alive by activity on another table. `reason: 'lock_ttl'`.
+- **Lock TTL:** `branchNow − lastActivityAt > table_lock_ttl_ms` (configurable per branch, default 10 min). `lastActivityAt` is refreshed by every command the holder sends for that table, including `TouchTableLock` (below). This covers a session kept alive by activity on another table. `reason: 'lock_ttl'`.
+
+**Keeping the lock while building (D61):** BUILDING is device-local (§4.4), so a waiter who takes 10+ minutes over a large order sends no commands and would lose the lock. While the order screen for a locked table is open, the device sends `TouchTableLock { table_id }` at most **once per minute**. The hub:
+1. checks that the caller's session holds the lock (otherwise `TABLE_LOCK_NOT_HELD`, 409);
+2. if the last `TableLockTouched` for this lock is less than 50 s old, returns success **without writing**. This is the server-side rate limit, so a misbehaving client cannot flood the log;
+3. otherwise writes `TableLockTouched { table_id, session_id }`; `applyEvent` sets `lastActivityAt`.
+
+The lock state still changes only through events (D44). Volume is bounded at 1 event per open order screen per minute (≤ 600/hour for a 10-device branch). The touch also counts as session activity, so it keeps the idle session alive while the order screen is open.
 
 Unsubmitted order edits live only on the device (BUILDING, §4.4) and survive the release. On the holder's next submit the hub re-checks the lock. If the table is free, the submit re-acquires the lock in the same transaction; if another actor now holds it, the hub returns `TABLE_ALREADY_LOCKED` with that actor's name. Manager force-release is unchanged and still audited.
 
@@ -453,7 +479,13 @@ type TickIntent =
                                    originalPromise: number }
   | { kind: 'TableLockReleased';   tableId: TableId;
                                    reason: 'session_expired' | 'lock_ttl' }   // D51
+  | { kind: 'ItemStarted';         itemId: OrderItemId; startedAt: number;
+                                   source: 'inferred' }                       // single_tap (D60)
+  | { kind: 'ItemDone';            itemId: OrderItemId; doneAt: number;
+                                   source: 'inferred' }                       // auto_done (D60)
 ```
+
+**Inferred completion facts (D60):** all intents from one tick are written in **one** transaction (D44). On a `single_tap` station, `getTickIntents` returns an `ItemStarted { source: 'inferred', startedAt: dueAt }` right after each `FireDispatched` for that station. The two events commit together, so an item is never fired without being started. On an `auto_done` station, `getTickIntents` returns `ItemDone { source: 'inferred', doneAt }` once `branchNow ≥ startedAt + prep_buffer_ms + cook_time_ms` and no tapped Done exists. A tapped Done that arrives later is rejected with `ITEM_WRONG_STAGE` (normal stage guard, §4.2).
 
 **Tick mutations are events (D44):** the engine state changes **only** through `applyEvent`. The fire scheduler (§5.2, every 500 ms) calls `getTickIntents`, writes one event per intent (`FireDispatched`, `ReservationsShifted`, `SlipWarned`, `TableLockReleased`) in a single `BEGIN IMMEDIATE` transaction, commits it, then applies the events (D45). Consequences:
 
@@ -551,7 +583,7 @@ The engine never reads taps directly. It consumes two facts per item: `ItemStart
 | `single_tap` | inferred when `FireDispatched` is committed (`started_at = dispatch time`) | tapped | Overrun detection from dispatch time; no late-start detection. Overrides D29 for this station only. Replaces the KDS "skip-start" option |
 | `auto_done` | tapped | inferred at `started_at + prep + cook` unless tapped earlier | No overrun can occur (`live_endsAt = planned_endsAt`); cascade never triggers; hold at pass releases on the inferred Done |
 
-What depends on the tap-rate field test (§8, OQ4): only **overrun handling** (D33 live end, late-start shift, D42 cascade) and **hold at pass**. These read only the completion facts above, so switching a station between modes is a config change with no engine code change. The engine core (slot and batch ETA, reservation timeline, hold-and-fire, D34–D37, D49) does not depend on taps and can be coded now. The field test result sets the default `completion_mode` per station type.
+What depends on the tap-rate field test (§9, OQ4): only **overrun handling** (D33 live end, late-start shift, D42 cascade) and **hold at pass**. These read only the completion facts above, so switching a station between modes is a config change with no engine code change. The engine core (slot and batch ETA, reservation timeline, hold-and-fire, D34–D37, D49) does not depend on taps and can be coded now. The field test result sets the default `completion_mode` per station type.
 
 **Overrun handling (D33):**
 
@@ -731,7 +763,8 @@ interface EngineState {
     lockedBy: StaffId;
     sessionId: SessionId;                     // lock dies with the session (D51)
     lockedAt: number;
-    lastActivityAt: number;                   // refreshed by every holder command on the table (D51)
+    lastActivityAt: number;                   // refreshed by every holder command on the table,
+                                              // incl. TableLockTouched (D51, D61)
   } | null>;
 }
 
@@ -829,12 +862,14 @@ pos/
 │  └───────────────┘   │  3. BEGIN IMMEDIATE (SQLite single writer)                  │  │
 │         │            │  4. check preconditions against projections                 │  │
 │         │            │  5. call @pos/engine pure function if ETA needed            │  │
-│         │            │  6. INSERT event (seq = next val)                           │  │
-│         │            │  7. UPDATE projections in same transaction                  │  │
-│         │ ack only   │  8. COMMIT (synchronous=FULL)                               │  │
-│         │ after      │  9. respond HTTP 200 {event_id, …} to device               │  │
+│         │            │  6. INSERT events + processed_commands (seq = next val)     │  │
+│         │            │  7. UPDATE projections; nextState = reduce(applyEvent)      │  │
+│         │ ack only   │  8. COMMIT (synchronous=FULL); on failure: ROLLBACK,        │  │
+│         │ after      │     discard nextState                                       │  │
+│         │            │  9. engineState = nextState — only after COMMIT (D45)       │  │
+│         │            │  10. respond HTTP 200 { data: … } to device                 │  │
 │         │ commit     └─────────────────────────────────────────────────────────────┘  │
-│         │                                    │ applyEvent()                           │
+│         │                                    │ swap after commit (step 9)             │
 │         │                     ┌──────────────▼─────────────────────────────────────┐  │
 │         │                     │  In-memory EngineState                             │  │
 │         ▼                     │  (@pos/engine — rebuilt from snapshot + replay     │  │
@@ -940,7 +975,7 @@ Hub                                                    Cloud
 - the batch's seqs are contiguous (`from_seq, from_seq+1, …` with no gaps), **and**
 - `from_seq ≤ last_received_seq + 1`. A batch that starts at or below `last_received_seq` is a retransmit; its overlap is dropped by `ON CONFLICT (event_id) DO NOTHING`.
 
-Otherwise the cloud writes nothing and replies `409 { error: 'SYNC_SEQ_GAP', last_received_seq }`. The hub then sets `last_acked_seq = min(last_acked_seq, last_received_seq)` and resends from there. A gap therefore cannot be silently skipped. Since the cloud's copy is gap-free, it is a usable source for hub restore (§5.10).
+Otherwise the cloud writes nothing and replies `409 { "error": { "code": "SYNC_SEQ_GAP", "details": { "last_received_seq": N } } }` (envelope §6.1). The hub then sets `last_acked_seq = min(last_acked_seq, last_received_seq)` and resends from there. A gap therefore cannot be silently skipped. Since the cloud's copy is gap-free, it is a usable source for hub restore (§5.10).
 
 Sync is idempotent by ULID event ID and by seq. Batch size ≤ 500 events; if more are pending, the hub polls again immediately after the ack.
 
@@ -1016,7 +1051,7 @@ Target: hub fully operational within 90 seconds of power returning, no manual ac
 - BIOS "power on after AC loss" enabled
 - Hub, router, and kitchen printers on a UPS
 - RTC (CMOS) battery checked; replaced if older than 2 years or if the BIOS clock was wrong at install (D48)
-- BIOS clock set to UTC; chrony installed. `hub.service` has `After=time-sync.target` with a 30 s bounded wait (inside the 90 s budget); after that wait, chrony slews only (D48)
+- BIOS clock set to UTC; chrony installed (not systemd-timesyncd). Enable `chrony-wait.service` (`chronyc waitsync`, ordered before `time-sync.target`) with a drop-in setting `TimeoutStartSec=30s`, so the wait fits inside the 90 s budget. `hub.service` has `After=time-sync.target` and `Wants=time-sync.target` (not `Requires=`), so a failed or timed-out wait never blocks the hub. Do **not** use `systemd-time-wait-sync.service`: it waits on systemd-timesyncd and does not reliably detect chrony sync. Confirm the installed unit with `systemctl cat chrony-wait.service`. After the wait, chrony slews only (D48)
 - USB backup drive labelled `POSBACKUP` plugged into the hub, mounted at a fixed path, and kept in the same locked enclosure as the hub (D53)
 
 **Startup sequence:**
@@ -1026,9 +1061,15 @@ systemd triggers hub process
   │
   ├─ 1. Open SQLite with WAL + synchronous=FULL
   │
-  ├─ 2. Load latest engine_snapshot:
+  ├─ 1a. Apply pending migrations (§6.8): pre-migration backup copy first;
+  │      each file in its own transaction; refuse to start on checksum mismatch
+  │
+  ├─ 2. Load latest engine_snapshot (D62):
   │      SELECT * FROM engine_snapshots
   │      WHERE branch_id = ? ORDER BY taken_at DESC LIMIT 1
+  │      if snapshot.engine_version ≠ ENGINE_STATE_VERSION (exported by @pos/engine):
+  │        skip the snapshot; state = empty; replay from seq 0 (full replay);
+  │        take a fresh snapshot once startup completes
   │
   ├─ 3. Replay events since snapshot:
   │      SELECT * FROM events WHERE branch_id = ? AND seq > snapshot.last_seq
@@ -1042,7 +1083,9 @@ systemd triggers hub process
   │
   ├─ 4. Consistency check on projection tables:
   │      Compare max(seq) in each projection table against max(seq) in events.
-  │      If projections are stale: rebuild from EngineState.
+  │      If projections are stale: rebuild them from the events table (replay
+  │      seq > projection's max seq through the projection writers). Never from
+  │      EngineState: projections hold data the engine does not (bills, shifts, audit).
   │
   ├─ 5. Resume print queue:
   │      SELECT * FROM print_jobs WHERE acked_at IS NULL ORDER BY created_at ASC
@@ -1068,10 +1111,13 @@ systemd triggers hub process
 ```
 
 **Nightly local backup (D53):**
-- At `backup_time` (default 04:00 branch local time, configurable), the hub copies the database with the SQLite online backup API (`db.backup()` in better-sqlite3) to `POSBACKUP/pos-<branch_id>-<YYYYMMDD>.sqlite`. Writes continue during the copy.
+- At `backup_time`, the hub copies the database with the SQLite online backup API (`db.backup()` in better-sqlite3) to `POSBACKUP/pos-<branch_id>-<YYYYMMDD>.sqlite`. Writes continue during the copy.
+- **`backup_time` default (D63):** the start of the branch's **quietest hour**: the local hour with the fewest committed events, averaged over the last 14 days, recomputed nightly. Ties go to the earliest hour after closing. Until 14 days of data exist, the default is 04:00. A manager can pin a fixed `backup_time` in hub admin, which overrides the computed value.
 - The copy is verified with `PRAGMA integrity_check` and by checking that its `MAX(seq)` matches the live database's `MAX(seq)` at backup start. The last 7 nightly files are kept.
 - The hub writes a `BackupCompleted { file, max_seq, bytes }` or `BackupFailed { reason }` audit event. The owner view (D22) shows the last successful local backup next to the cloud sync status, and alerts if there has been no successful backup for more than 24 hours.
 - Device tokens are stored only as SHA-256 hashes (§5.6), so a lost backup drive does not expose usable device tokens. PINs are already argon2id hashes (D40).
+
+**Engine version (D62):** `@pos/engine` exports an integer `ENGINE_STATE_VERSION`. It is bumped whenever the `EngineState` shape or the meaning of `applyEvent` changes; a CI check fails if either changes without a bump (the snapshot fixture test, §6.7). A snapshot written by a different version is never deserialised. Full replay is a pure reducer over the log; at pilot volume (well under 1 M events per branch per year) it fits inside the 90 s startup budget. Older-version snapshots are deleted after the fresh snapshot is written.
 
 **Snapshot schedule:**
 - Every 500 committed events (configurable)
@@ -1084,6 +1130,7 @@ CREATE TABLE engine_snapshots (
   branch_id    TEXT    NOT NULL,
   taken_at     INTEGER NOT NULL,      -- Unix ms
   last_seq     INTEGER NOT NULL,      -- hub seq of last event in this snapshot
+  engine_version INTEGER NOT NULL,    -- ENGINE_STATE_VERSION that wrote state_json (D62)
   state_json   TEXT    NOT NULL       -- JSON-serialised EngineState
 );
 CREATE INDEX eng_snap_branch ON engine_snapshots (branch_id, taken_at DESC);
@@ -1185,12 +1232,12 @@ Hub (Fastify)
   │ 9a. Only after COMMIT succeeds: engineState = nextState   (D45)
   │     (better-sqlite3 is synchronous, so no other command runs between 9 and 9a)
   │
-  │ 10. HTTP 200 → { event_ids: [...], etas: [...] }
+  │ 10. HTTP 200 → { data: { command_id, event_ids: [...], result: { etas: [...] } } }  (§6.3)
   │     Device removes command from local queue; shows ETAs to order taker
   │
   │ 11. WebSocket broadcast to all connected devices (committed events only):
   │     — OrderPlaced (table map color → ORDERED for all)
-  │     — FireScheduled events to KDS devices for this branch
+  │     — ItemAdded events to KDS devices (each carries latestStartAt; KDS sorts by it)
   │     — StockReserved (live countdown; item shows sold out when its count reaches 0)
   │
   └── (async) Sync agent picks up events with seq > last_acked_seq on next 5 s tick (D52)
@@ -1228,7 +1275,256 @@ Used when a branch's hub is dead, stolen or replaced. Target: the new hub is ope
 
 ---
 
-## §6. Open questions
+## §6. Shared Standards (D59)
+
+Every module spec inherits these standards and does not redefine them. A module adds only its own error codes (§6.2), commands and events (§6.6), and tables (§6.8). Library versions were checked 2026-10-23: Fastify 5 with `fastify-type-provider-zod` 7.x (requires Zod ≥ 4.2); Vitest 4.x (`test.projects`; the old workspace file is deprecated).
+
+### 6.1 Response envelope
+
+Every HTTP response body, on hub and cloud, is one of two shapes. A 2xx response never carries an error, and every response has a body (no 204).
+
+**Success:**
+
+```json
+{
+  "data": {
+    "command_id": "01JBF3Q8ZK4M2N6P7R9S0T1V2W",
+    "event_ids": ["01JBF3Q90A1B2C3D4E5F6G7H8J", "01JBF3Q90A1B2C3D4E5F6G7H8K"],
+    "result": {
+      "order_id": "01JBF3Q90A1B2C3D4E5F6G7H8M",
+      "target_land_time": 1761235500000,
+      "items": [
+        { "order_item_id": "01JBF3Q90A1B2C3D4E5F6G7H8N", "serve_mode": "sync", "eta": 1761235500000 },
+        { "order_item_id": "01JBF3Q90A1B2C3D4E5F6G7H8P", "serve_mode": "immediate", "eta": 1761235140000 }
+      ]
+    }
+  }
+}
+```
+
+Paginated lists add `"meta": { "next_cursor": "<opaque>" | null }` (§6.3).
+
+**Error:**
+
+```json
+{
+  "error": {
+    "code": "TABLE_ALREADY_LOCKED",
+    "message": "Table 12 is open on another device",
+    "details": { "table_id": "T12", "locked_by": { "staff_id": "01JB…", "display_name": "Bilal" } },
+    "request_id": "01JBF3QA7X2Y3Z4A5B6C7D8E9F"
+  }
+}
+```
+
+- `code` comes from the catalogue (§6.2). Clients branch on `code` only.
+- `message` is English fallback text for logs and developers. Clients show the translated text for the key `errors.<code>` (D12) and never display `message` directly.
+- `details` is typed per code in `@pos/domain` (an empty object when the code has none). It never contains stack traces, SQL, or another tenant's data.
+- `request_id` is a ULID generated per request and written to every log line for that request.
+- Validation failures use `VALIDATION_FAILED` with `details.issues: [{ "path": "payload.items.0.qty", "message": "…" }]` derived from the Zod error.
+
+**Idempotent replay (D32):** `processed_commands.response_json` stores `{ status, body }` for successful commands only. A retransmit returns the identical status and body with the header `Idempotent-Replay: true`. A rejected command writes nothing (no event, no stored response), so a retransmit is evaluated again. That is safe because the rejection had no side effects.
+
+### 6.2 Error codes
+
+**Naming:** `UPPER_SNAKE_CASE`, shaped `<SUBJECT>_<CONDITION>`. The subject is a domain noun (`TABLE`, `ITEM`, `ORDER`, `STOCK`, `SHIFT`, `VOID`, `SESSION`, `DEVICE`, `SYNC`, `CLIENT`). A code is part of the API contract: once merged it is never renamed or reused for another meaning (CLAUDE.md).
+
+**Single catalogue:** `@pos/domain/src/errors.ts` exports `ErrorCatalogue = { TABLE_ALREADY_LOCKED: { status: 409 }, … } as const`. Domain code throws `new DomainError(code, details)`. One Fastify error handler per app maps it to the envelope and status from the catalogue, and maps any other thrown value to `INTERNAL_ERROR`. A unit test fails if any `DomainError` code used in source is missing from the catalogue. **Adding codes (rule from the v1.7 review):** a new error code is defined in the module spec that introduces it (code, status, `details` shape, when it is returned) and appended to the status-map table above and to `errors.ts` in the same change. This is the only kind of foundation edit allowed after the freeze (D64); it never changes an existing code.
+
+**HTTP status map:**
+
+| Status | Meaning | Shared codes defined by the foundation |
+|---|---|---|
+| 400 | Malformed or schema-invalid request | `VALIDATION_FAILED` |
+| 401 | Missing, invalid or expired credentials | `DEVICE_TOKEN_INVALID`, `SESSION_INVALID`, `SESSION_EXPIRED`, `ADMIN_SESSION_REQUIRED`, `PAIRING_TOKEN_INVALID`, `REGISTRATION_CODE_INVALID`, `BRANCH_API_KEY_INVALID`, `JWT_INVALID` |
+| 403 | Authenticated but not allowed | `PERMISSION_DENIED`, `GUEST_NETWORK_FORBIDDEN` (D28), `DEVICE_REVOKED`, `BRANCH_MISMATCH` (hub only, §3.2) |
+| 404 | Not found, **or belongs to another tenant** (cloud never answers 403 across tenants, so foreign IDs are indistinguishable from missing ones) | `<ENTITY>_NOT_FOUND` (e.g. `ORDER_NOT_FOUND`, `TABLE_NOT_FOUND`), `ROUTE_NOT_FOUND` |
+| 409 | Current state forbids the action; it may succeed after the state changes | `TABLE_ALREADY_LOCKED`, `TABLE_LOCK_NOT_HELD` (D61), `ITEM_WRONG_STAGE` (§4.2), `VOID_PENDING` (D11), `SYNC_SEQ_GAP` (D52) |
+| 422 | Well-formed, but breaks a business rule that does not depend on concurrent state | Module-defined (e.g. `SPLIT_TOTAL_MISMATCH`, `REASON_REQUIRED`) |
+| 426 | Client build older than the hub supports | `CLIENT_UPGRADE_REQUIRED` |
+| 429 | Rate limit or lockout; `details.retry_after_ms` + `Retry-After` header | `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT` (§5.7) |
+| 500 | Bug | `INTERNAL_ERROR` |
+| 503 | Required dependency unavailable (cloud only; the hub has no remote dependency on its request path) | `SERVICE_UNAVAILABLE` |
+
+### 6.3 Hub HTTP conventions
+
+**Base:** `http://<hub-ip>:3000`, LAN only, with no version prefix. KDS and kiosk clients are served by the hub from the same build, so they cannot drift from it. The Capacitor app is the only client that can be older than the hub (its assets are bundled on the device). It therefore sends `X-Client-Version: <semver>` on every request, and the hub answers `426 CLIENT_UPGRADE_REQUIRED` below its configured `min_client_version`.
+
+**Route groups:**
+
+| Route | Purpose | Auth |
+|---|---|---|
+| `POST /commands/<command-name>` | Every staff write | `Authorization: Bearer <device_token>` + `X-Session-Token` |
+| `GET /queries/<resource>` | Reads (table map, open orders, menu cache, station queue) | device token; + session where the data is staff-specific |
+| `POST /auth/pin`, `POST /auth/logout` | Staff session (§5.7) | device token |
+| `POST /devices/pair` | Pairing (§5.6) | pairing token |
+| `POST /admin/commands/<command-name>`, `GET /admin/queries/<resource>` | Hub admin, same convention as staff commands | `X-Admin-Session` (D38) |
+| `/setup` | First-run and replace-hub provisioning | registration code only (D38, D53) |
+| `GET /ws` | Real-time (§6.5) | device token + session |
+| `GET /health` | systemd/installer check; returns startup step and `max_seq` | none (LAN only) |
+
+**Command endpoint convention:**
+1. `<command-name>` is the kebab-case form of `command_type` (`SubmitOrder` → `/commands/submit-order`). A body whose `command_type` does not match the path is rejected with `VALIDATION_FAILED`.
+2. Body = the `PosCommandSchema` envelope (§4.1). `payload` is validated by that command's Zod schema in `@pos/events`.
+3. Each command is one module, `{ commandType, payloadSchema, handle }`, registered in a command registry. A single generic route `POST /commands/:name` dispatches through the registry, so no hand-written command route can skip steps 4–5.
+4. Processing order is fixed, and every module spec's per-command script is a subset of it, in this order: idempotency fast path → `BEGIN IMMEDIATE` → idempotency re-check → precondition checks → pure engine call → INSERT events + `processed_commands` → projections + `nextState` → `COMMIT` → swap state (D45) → respond → WS broadcast (§5.9).
+5. One command = one transaction = all or nothing. A handler never calls another command.
+6. Response: `200 { data: { command_id, event_ids, result } }`; `result` is command-specific and defined in the module spec.
+7. Commands travel over HTTP only, never over WS, so the ack and idempotency rules have one path.
+
+**Query convention:** no transaction and no writes. Bounded lists (tables on a floor, open orders at one station) are returned whole. A list that can grow without bound (audit log, closed bills) takes `?cursor=<opaque>&limit=<n>` (default 50, max 200) and returns `meta.next_cursor`. Every query uses a fixed number of SQL statements, whatever the result size (no N+1, CLAUDE.md).
+
+### 6.4 Cloud HTTP conventions
+
+- **Base:** `https://<api-host>/v1`. Paths elsewhere in this spec (e.g. `/sync/events`) are shown without the prefix. The version prefix is justified because three hubs upgrade independently and all call the cloud. A breaking change ships as `/v2`, and `/v1` keeps serving until every hub reports a newer version (sync requests carry `hub_version`).
+- **Auth groups:** `/v1/sync/*` uses the branch API key; `/v1/owner/*` and `/v1/admin/*` use the JWT; `/v1/auth/*` and `/v1/health` are the tenant-scope allowlist (D54).
+- **Style:** cloud config (menu, staff, roles, branches) is canonical relational data, not event-sourced. Routes are plain REST resources: `GET/POST /v1/admin/menu-items`, `PATCH /v1/admin/menu-items/:id`. Same envelope (§6.1) and catalogue (§6.2).
+- **Idempotency:** every cloud `POST` that creates a resource requires an `Idempotency-Key` header (ULID). The key and response are stored per tenant for 24 h; a repeat returns the stored response. Justification: the owner and managers edit from phones on mobile data, where a retried "add staff member" would otherwise create duplicates. `/v1/sync/events` does not need the header: it is idempotent by `event_id` and `seq` (D52).
+
+### 6.5 WebSocket message format
+
+One JSON message per text frame. Shapes are Zod discriminated unions on `type` in `@pos/events/src/ws.ts` (`WsServerMessage`, `WsClientMessage`); both ends validate every frame.
+
+**Hub → device:**
+
+```json
+{ "type": "catch_up", "as_of_seq": 10452, "state": { "tables": [], "open_orders": [], "station_queue": [] } }
+{ "type": "event", "seq": 10453, "event": { "event_id": "01JB…", "event_type": "ItemStarted", "schema_version": 1, "payload": { "item_id": "01JB…", "started_at": 1761235020000, "source": "tap" } } }
+{ "type": "error", "error": { "code": "SESSION_EXPIRED", "message": "Session expired" } }
+```
+
+**Device → hub:**
+
+```json
+{ "type": "ack", "last_seq": 10453 }
+```
+
+- `catch_up.state` is scoped to the device's role (a KDS gets its stations' queues; an order taker gets the table map and its orders). Each module spec defines its part of the shape.
+- Only committed events are pushed (D45), in strictly ascending `seq`. A client that sees a gap reconnects with its `last_seq`; a duplicate `seq` is ignored.
+- Keepalive: the hub sends a protocol-level ping every 15 s and drops a socket with no pong for 30 s. Clients reconnect with backoff (max 5 s, §5.4).
+- Close codes: `4401` credentials invalid or expired, `4403` forbidden (guest network, revoked device), `4426` client upgrade required, `1012` hub restarting.
+- **Cloud owner view** (`wss://…/v1/owner/live`) carries projection updates, not events: `{ "type": "update", "resource": "branch_summary", "branch_id": "…", "data": { … } }`, plus the same `error` shape and close codes.
+
+### 6.6 Naming rules
+
+| Thing | Rule | Examples |
+|---|---|---|
+| Event type | PascalCase `<Subject><PastTenseVerb>`, one fact per event. No generic `…Updated` / `…Changed` events carrying a diff | `OrderPlaced`, `ItemStarted`, `StockReserved`, `FireDispatched`, `TableLockTouched` |
+| Command type | PascalCase `<Verb><Subject>`, imperative | `SubmitOrder`, `StartItem`, `VoidItem`, `TouchTableLock` |
+| Command path | kebab-case of the command type | `/commands/touch-table-lock` |
+| Schema files | `@pos/events/src/events/<stream>/<EventType>.v<N>.ts`; `@pos/events/src/commands/<CommandType>.ts` | `events/order/OrderPlaced.v1.ts` |
+| Wire and storage fields | `snake_case` (event and command payloads, HTTP bodies, SQL columns) | `order_item_id`, `target_land_time` |
+| In-memory TypeScript | `camelCase` (`EngineState`, services). Conversion happens only in the `@pos/events` codecs | `targetLandTime` |
+| Timestamps | `<name>_at`, integer Unix ms; hub-side times are `branchNow` (§4.7) | `recorded_at`, `started_at` |
+| Durations | `<name>_ms`, integer | `prep_buffer_ms`, `table_lock_ttl_ms` |
+| Money | `<name>_minor`, integer (D47) | `price_minor`, `tax_minor` |
+| IDs | `<entity>_id`, ULID string, no prefix | `order_id`, `load_id` |
+| Booleans | `is_` / `has_` prefix | `is_reprint` |
+| Enum values | lower_snake string literals | `'two_tap'`, `'session_expired'` |
+| SQL | tables plural snake_case; indexes `<table>_<purpose>` | `print_jobs`, `events_branch_seq` |
+
+### 6.7 Test conventions and fixtures
+
+**Runner:** Vitest 4.x. The root `vitest.config.ts` declares `test.projects: ['packages/*', 'apps/*']`; each project uses `defineProject`. Turborepo runs `test` per package.
+
+| Kind | Location | Rules |
+|---|---|---|
+| Unit | `*.test.ts` next to the source | Pure code only (engine, upcasters, codecs, money). No I/O, no timers |
+| Hub integration | `apps/hub/test/**/*.int.test.ts` | Real better-sqlite3 on a temp file per test file (WAL on, migrations applied); requests through Fastify `inject()`; no network |
+| Cloud integration | `apps/cloud/test/**/*.int.test.ts` | Real PostgreSQL 16 (docker compose service, same in dev and CI); migrations applied once per run; tables truncated between test files |
+| E2E | Pipeline step 9 (webapp-testing / Playwright) | Per module spec |
+
+**Determinism:** code under test never calls `Date.now()`, `performance.now()`, `Math.random()` or `ulid()` directly. It receives a `Clock` (`branchNow`) and an `IdGen`. Tests use `fixedClock(T)` / `steppingClock(T, stepMs)` and a deterministic ULID generator. Engine tests use the epoch `T = 1_761_000_000_000` (§4.7 tests are written relative to `T`).
+
+**Builders:** `@pos/events/testing`, a subpath export of the existing package (no new package), provides builders that return schema-valid objects with overridable fields: `anOrderPlaced({ … })`, `anItemStarted({ … })`, `aSlotStation({ capacity: 1 })`, `aBatchStation({ programs: { … } })`. Each builder has a test that its output parses with its own Zod schema.
+
+**Fixtures:**
+- `packages/events/fixtures/<EventType>.v<N>.json`: one stored sample per schema version, never edited after merge. The upcaster test upcasts every fixture to the latest version and compares it with `<EventType>.latest.json` (D46).
+- `packages/engine/fixtures/engine-state.v<ENGINE_STATE_VERSION>.json`: the state produced by a fixed event log. The test fails if `buildEngineState(log)` differs from the fixture while `ENGINE_STATE_VERSION` is unchanged (D62).
+
+**Traceability:** a test that implements a numbered spec test cites it in its name: `it('[§4.7 #12] overrun cascades down the station; promise unchanged')`. Every numbered test in a spec has exactly one matching test (checkable with grep).
+
+**Required per hub command:** happy path; one test per error code it can return; retransmit with the same `command_id` returns the identical response and writes no new events (D32); for commands that touch the engine, a forced COMMIT failure leaves `engineState` unchanged (D45).
+
+**Required per cloud route:** covered by the route-inventory and cross-tenant tests (D54); plus validation and happy path. There is no coverage-percentage target at T2: the rule is one test per spec rule.
+
+### 6.8 Migration conventions
+
+**Shared rules (SQLite and PostgreSQL):**
+- Plain SQL files, forward-only, no down migrations. Recovery from a bad migration is restore from backup (D53).
+- Named `NNNN_<snake_description>.sql` (4-digit, sequential, no gaps), in `apps/hub/src/db/migrations/` and `apps/cloud/src/db/migrations/`.
+- A merged migration is never edited (CLAUDE.md). Each app's runner (about 50 lines, no library) stores a SHA-256 checksum per applied file and refuses to start if an applied file has changed.
+- Money columns are `_minor` integers (D47). Times are integer Unix ms in both databases, so replicated event fields stay byte-identical between hub and cloud.
+- The content of the `events` table is never migrated. Payload changes go through `schema_version` and upcasters (D46). Its structure may only gain nullable or defaulted columns.
+
+**Hub (SQLite):**
+- Runs at startup as step 1a (§5.8), before the snapshot load. The applied version is `PRAGMA user_version`.
+- Before the first pending migration, the runner copies the database with `db.backup()` to `POSBACKUP/pre-migrate-<from>-<to>.sqlite` (local disk if the USB drive is missing). Justification: upgrades run unattended on restaurant hardware with no DBA, so a failed migration must be recoverable by restoring one file.
+- Each file runs in its own transaction, together with its `user_version` bump.
+- Column changes SQLite cannot `ALTER` use the table-rebuild pattern (create new → copy → drop → rename) inside the transaction. The runner sets `PRAGMA foreign_keys = OFF` before the transaction, because the pragma cannot change inside one, and runs `PRAGMA foreign_key_check` before commit.
+- Upgrades are scheduled outside service hours, since migrations add to boot time and so count against the 90 s target.
+
+**Cloud (PostgreSQL):**
+- Run as a deploy step (`pnpm --filter cloud migrate`) before the new app version starts, never on app boot. Applied versions are kept in `schema_migrations (version, name, checksum, applied_at)`.
+- Each file runs in a transaction, unless its first line is `-- migrate:no-transaction` (required for `CREATE INDEX CONCURRENTLY`).
+- **Expand/contract:** because hubs on older versions keep calling `/v1`, every migration must stay compatible with the previous app version. Add nullable or defaulted columns, backfill, and remove old columns only in a later release.
+- Every tenant table has `tenant_id` and `branch_id` `NOT NULL`, and every index on it leads with `tenant_id` (D30, D54).
+
+### 6.9 Folder layout per app
+
+Extends §5.1. A module spec adds files inside these folders; a new top-level folder needs a spec change.
+
+```
+apps/hub/
+├── src/
+│   ├── main.ts                    boot sequence (§5.8)
+│   ├── server.ts                  Fastify instance, plugins, error handler (§6.2)
+│   ├── config/                    hub config loader (branch_id, keys) — Zod-validated
+│   ├── db/                        connection.ts (WAL, synchronous=FULL), migrate.ts, migrations/
+│   ├── commands/<command-name>.ts one module per command, via the registry (§6.3)
+│   ├── queries/<resource>.ts
+│   ├── projections/<projection>.ts  event → SQL projection writers (live and rebuild, §5.8 step 4)
+│   ├── engine-host/               state holder (commit-then-swap), tick scheduler, snapshots
+│   ├── ws/                        catch-up builder, broadcaster
+│   ├── auth/                      device token, PIN, session, admin session
+│   ├── print/                     print queue, ESC/POS
+│   ├── sync/                      sync agent, restore pull (§5.10)
+│   ├── backup/                    nightly backup (D53, D63)
+│   ├── setup/                     /setup provisioning
+│   └── lib/                       clock (branchNow), ids, errors
+└── test/                          *.int.test.ts, helpers
+
+apps/cloud/
+├── src/
+│   ├── main.ts, server.ts
+│   ├── plugins/                   tenant-scope.ts (D54), jwt.ts, branch-key.ts, error-handler.ts
+│   ├── modules/<module>/          routes.ts, service.ts, repository.ts, schemas.ts
+│   │                              (sync, owner-view, menu, staff-roles, branches)
+│   ├── db/                        client.ts (not exported outside db/), tenant-scoped-repository.ts,
+│   │                              migrate.ts, migrations/
+│   └── lib/
+└── test/                          *.int.test.ts, route-inventory.int.test.ts (D54)
+
+apps/client/
+└── src/
+    ├── app/                       routing, shell detection
+    ├── features/<feature>/        ordering, tables, kds, cashier, admin
+    ├── api/                       typed command/query client, WS client (uses @pos/events)
+    ├── offline/command-queue/     one interface: Capacitor SQLite on Android, IndexedDB in kiosk (D56)
+    ├── i18n/                      translation keys (D12), errors.<code> keys
+    └── shells/                    capacitor/, kiosk/
+
+packages/domain/src/               ids.ts, money.ts, errors.ts (catalogue §6.2), enums.ts
+packages/events/src/               envelope.ts, codecs.ts, ws.ts, commands/, events/<stream>/, upcasters/
+packages/events/testing/           builders (subpath export @pos/events/testing)
+packages/events/fixtures/          versioned event samples (§6.7)
+packages/engine/src/               state.ts, apply-event.ts, eta/, hold-and-fire/, tick/, version.ts
+packages/engine/fixtures/          engine-state.v<N>.json (D62)
+```
+
+---
+
+## §7. Open questions
 
 Unresolved items that must be settled before the named module spec is written. **P1 blocker** = must be resolved before the named P1 work starts.
 
@@ -1237,7 +1533,7 @@ Unresolved items that must be settled before the named module spec is written. *
 | OQ1 | Hub hardware: Linux mini PC with SSD + UPS is the target (D24); exact model and budget not yet chosen. Must be confirmed before installation guide is written. | E5, installation |
 | OQ2 | Tablet model and Android OS version for Capacitor. Capacitor 6 requires Android 5.1+. Confirm Android 6+ before E3 (KDS) client spec. | E3 |
 | OQ3 | Card terminal model at Arif Chatkhara. Affects the "record amount manually" UX flow for the cashier terminal. | E8 |
-| OQ4 | **P1 blocker for overrun handling only (D43).** Will kitchen staff reliably tap Start and Done? D33 overrun, D42 cascade and hold at pass depend on it, as do P2 learned cook times. Resolved by the tap-rate field test (§8), which sets the default `completion_mode` per station. Does **not** block the engine core (ETA, reservations, hold-and-fire). | E4 overrun handling (P1), E4 learned times (P2) |
+| OQ4 | **P1 blocker for overrun handling only (D43).** Will kitchen staff reliably tap Start and Done? D33 overrun, D42 cascade and hold at pass depend on it, as do P2 learned cook times. Resolved by the tap-rate field test (§9), which sets the default `completion_mode` per station. Does **not** block the engine core (ETA, reservations, hold-and-fire). | E4 overrun handling (P1), E4 learned times (P2) |
 | OQ5 | Customer add-from-phone with a locked table: queue the addition until unlock, or a "customer channel" permission bypasses the lock? | E9 (P2) |
 | OQ6 | Pricing model (monthly vs yearly, per branch vs per device). Decide after 10–15 owner conversations (P3 gate). | E12 |
 | OQ7 | Which 3 features do owners outside the pilot say they would pay for? Required before any P3 story is built. | E7, E11 |
@@ -1248,35 +1544,35 @@ Unresolved items that must be settled before the named module spec is written. *
 | OQ12 | **Resolved.** First-run provisioning uses a setup wizard on the hub admin page (hub:3000/setup). The cloud generates a one-time branch registration code; the installer enters it in the wizard; the hub exchanges it for the branch API key and sets its branch_id automatically. No manual config file editing required. | — |
 | OQ13 | **Resolved.** Each branch has its own independent LAN and its own hub. Branches do not share a local network; cross-branch coordination is cloud-only. | — |
 | OQ14 | Printer connectivity: preference is network (LAN/TCP-IP) thermal printers for easier cable management in a busy kitchen. USB is the fallback. `node-escpos` supports both; confirm actual printer model before E3 (printing) spec. | E3 |
-| OQ15 | **P1 blocker (D58).** Does Arif Chatkhara currently issue PRA-integrated invoices (PRA e-IMS: invoice number and QR on each receipt)? If yes, PRA integration is required in P1. If yes, also confirm: does PRA require the PRA invoice number on the receipt at the time of sale (needs internet at bill close), or does it accept delayed posting while offline? **Owner: Arslan**, to check with the restaurant owner or accountant. | E8 Billing spec, P1 scope |
+| OQ15 | **P1 blocker (D58).** Does Arif Chatkhara currently issue PRA-integrated invoices (PRA e-IMS: invoice number and QR on each receipt)? If yes, PRA integration is required in P1. If yes, also confirm: does PRA require the PRA invoice number on the receipt at the time of sale (needs internet at bill close), or does it accept delayed posting while offline? **Also confirm how bills are issued today when the internet is down:** an offline bill with PRA submission later, or no bill at all without internet. This decides whether offline-first billing survives PRA. **Owner: Arslan**, to check with the restaurant owner or accountant. | E8 Billing spec, P1 scope |
 
 ---
 
-## §7. Deferred until needed
+## §8. Deferred until needed
 
 Patterns considered and deferred with the YAGNI test result:
 
 | Pattern | Why deferred |
 |---------|--------------|
 | Transactional outbox (separate outbox table) | The events table IS the outbox. `seq > sync_cursor.last_acked_seq` is the pending-sync set (D52). A separate outbox table adds complexity with no benefit at this scale. Revisit if sync volume exceeds SQLite read throughput (~P4). |
-| Row-level security (PostgreSQL RLS) | App-level tenant scoping guards (D30) are sufficient at P1–P3 scale. RLS would add query complexity and migration overhead without materially reducing risk when the guard layer is mandatory and enforced at code-review time. Revisit at P4 if multi-tenant SaaS mode introduces untrusted tenant-generated queries. |
+| Row-level security (PostgreSQL RLS) | App-level tenant scoping is mechanically enforced (D54): a default-on guard on every route, a tenant-scoped repository base class with no raw client export, and tests that fail on any unguarded route or cross-tenant read. RLS would duplicate that protection at the cost of per-connection session variables and policy migrations. Revisit at P3 (first paying tenant beyond the pilot) or P4 if any query path bypasses the repository layer (reporting tools, ad-hoc SQL access). |
 | Redis / external cache | No hot read path identified in P1. Hub reads projections from SQLite (local, sub-ms). Cloud owner view is low-traffic. Revisit when owner dashboard has > 50 concurrent sessions. |
 | Kubernetes / ECS | Single Docker container on one AWS instance is sufficient for P1–P3. Revisit at P4 multi-tenant scale. |
 | Message broker (SQS, RabbitMQ, Kafka) | All async work is intra-hub (fire scheduler, print queue) or point-to-point hub→cloud sync. No fan-out, no competing consumers. A broker would be over-engineering. |
 | Saga / distributed transaction | All business-critical mutations happen within a single SQLite transaction on the hub. No distributed write that would need compensation at P1. |
 | Cursor pagination on events | The sync endpoint streams events by ascending seq with a configurable page size. This is equivalent to keyset pagination and is already correct. No extra pattern needed. |
 | iOS app | Explicitly out of P1 (confirmed in Q5). Capacitor makes it a future packaging option with no core changes. |
-| Second backend framework (NestJS for cloud) — **removed (D55)** | The P1 cloud surface is small: sync ingest, restore pull, owner view (REST + one WS), menu/role admin, JWT auth. Fastify, already used on the hub, covers all of it with plugins (`@fastify/jwt`, `@fastify/websocket`, Zod type provider). One framework means one validation, error and test setup shared by hub and cloud, and one thing for a solo developer to learn. NestJS DI/modules pay off with a large team; revisit at P4 if the cloud team grows past 3 developers. |
-| Tauri shell for the Windows cashier — **removed (D56)** | The cashier app needs no native access: printing and drawer kick go through the hub's print queue over the LAN, and the app is useless without the hub anyway. Chrome or Edge in kiosk mode, auto-started at login (Windows Assigned Access where the edition supports it), with a service worker for assets and IndexedDB for the command queue, gives the same result without a Rust toolchain or a signed installer. Revisit if the cashier needs a device attached to the cashier PC itself (USB cash drawer, customer display, card terminal SDK). |
+| Second backend framework for the cloud — **removed (D55)** | The P1 cloud surface is small: sync ingest, restore pull, owner view (REST + one WS), menu/role admin, JWT auth. Fastify, already used on the hub, covers all of it with plugins (`@fastify/jwt`, `@fastify/websocket`, Zod type provider). One framework means one validation, error and test setup shared by hub and cloud, and one thing for a solo developer to learn. A DI/module framework pays off with a large team; revisit at P4 if the cloud team grows past 3 developers. |
+| Native desktop shell for the Windows cashier — **removed (D56)** | The cashier app needs no native access: printing and drawer kick go through the hub's print queue over the LAN, and the app is useless without the hub anyway. Chrome or Edge in kiosk mode, auto-started at login (Windows Assigned Access where the edition supports it), with a service worker for assets and IndexedDB for the command queue, gives the same result without a native toolchain or a signed installer. Revisit if the cashier needs a device attached to the cashier PC itself (USB cash drawer, customer display, card terminal SDK). |
 | Larger cloud footprint (multi-AZ RDS, bigger instances, latency-chosen region) — **deferred (D57)** | Cloud is off the hot path in P1: orders, ETAs and payments run on the hub; the cloud only receives async sync and serves the owner view. Pick the cheapest acceptable region (ap-south-1) and the smallest single-AZ managed Postgres (free tier or credits where eligible); the gap-free event copy plus local USB backups (D53) cover single-AZ risk. Revisit at P3 (paying tenants) or if owner-view latency is reported as a problem. |
 | Rewriting stored events on schema change — **rejected (D46)** | Upcasters on read keep events immutable and need no migration step. Revisit only if upcast chains exceed ~5 versions for one event type; then add a snapshot cut-over, still without rewriting rows. |
 | Fiscal integration beyond PRA — **deferred (D58)** | FBR and other authorities stay out of P1 (D9). Only PRA, and only if OQ15 says it is mandatory for the pilot. |
 
 ---
 
-## §8. What comes next
+## §9. What comes next
 
-This is the **Phase 1 foundation spec** — architecture and state machines only. All endpoint specs, data models, and cross-cutting concerns (Phases 2–6) are written per module.
+This is the **foundation spec**: architecture, state machines and Shared Standards (§6). Endpoint specs, data models and module-specific cross-cutting concerns are written per module, inheriting §6. It is frozen at v1.7 (D64). The index of all specs is `docs/specs/README.md`.
 
 **Suggested module spec order:**
 
@@ -1291,7 +1587,7 @@ This is the **Phase 1 foundation spec** — architecture and state machines only
 | 7 | Basic Owner View | D22 (cloud sync projections, read-only dashboard) | Billing, Sync |
 
 **Before coding (engine):**
-- Engine core (slot/batch ETA, reservation timeline, hold-and-fire, D34–D37, D44–D46, D49, D50) may be coded once v1.6 is approved.
+- Engine core (slot/batch ETA, reservation timeline, hold-and-fire, D34–D37, D44–D46, D49, D50) may be coded now (v1.7 approved).
 - Overrun handling (D33 live end, late-start shift, D42 cascade, hold at pass) waits for the **tap-rate field test** below. Its interfaces (completion facts, `completion_mode`) are fixed now by D43, so the core does not change when it lands.
 
 **Tap-rate field test (D43, resolves OQ4) — before coding overrun handling:**
