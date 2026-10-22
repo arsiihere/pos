@@ -7,5 +7,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pos/domain": "workspace:*",
+    "zod": "4.6.7"
   }
 }
