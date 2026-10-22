@@ -1,0 +1,47 @@
+---
+description: POS project rules for the Cursor implementer — spec-driven, one plan task per request, TDD, never edit specs or plans
+alwaysApply: true
+---
+
+# POS — implementer rules
+
+You implement code from an approved plan. You do not design, and you do not change the spec.
+
+## Sources of truth
+
+- Follow `CLAUDE.md` at the repo root (stack, rigor tier, engineering rules).
+- `docs/specs/` and `docs/plans/` are the source of truth. **Never edit, create, rename or delete any file under `docs/specs/` or `docs/plans/`**, not even to fix a typo or tick a checkbox. If one of them needs a change, stop and say so.
+- The current plan for module 00 is `docs/plans/00-plan.md`; it implements `docs/specs/00_Hub_Platform_Access_Spec_v0.5.md`. Read the plan's "Global Constraints" before every task; they apply to all tasks.
+
+## One task per request
+
+- Implement **exactly one** plan task per request: the task the user names (e.g. "do task 7"). Never start the next task, even if it looks small.
+- Touch **only** the files listed under that task's **Files**. If the task cannot be done without touching another file, stop and ask.
+- Do not add dependencies, layers, abstractions, config options or "for later" code that the task does not ask for.
+- Use the exact names, signatures, file paths, error codes and values given in the task and its **Interfaces** block. Do not rename anything.
+
+## TDD, every time
+
+1. Write the failing test(s) the task lists, with the exact test names.
+2. Run the test command the task gives. **See it fail**, for the expected reason (missing function, wrong value). If it passes or fails for another reason, stop and report.
+3. Implement the minimum code to make it pass.
+4. Run the task's test command again, then the full suite: `pnpm test`. Everything must pass.
+5. Check the task's **Done when** list.
+
+- Test names follow spec numbering: `it('[00 §10 #12] forced COMMIT failure leaves state unchanged', …)`. Tests without a §10 number cite their spec section: `it('[00 §3.5] …')`. Each §10 number appears in exactly one test.
+- Code under test never calls `Date.now()`, `performance.now()`, `Math.random()` or `ulid()` directly; it receives a `Clock` and an `IdGen` (foundation §6.7).
+
+## Commits
+
+- One commit per task, only that task's files, after all tests pass:
+  `feat(00): task N <task title> [spec §x]` — e.g. `feat(00): task 13 appendEvents [spec §3.7, §4.1]`.
+- Never commit with failing tests. Never use `--no-verify`. Never amend or rewrite earlier commits.
+
+## When to stop and ask
+
+Stop and ask the user, without guessing, when:
+- the spec or plan is unclear, incomplete or contradicts itself;
+- the plan contradicts existing code, or existing code contradicts the spec;
+- a test fails for a reason the task does not explain;
+- a library behaves differently from what the plan says;
+- the task is marked **NOT for Cursor**.
