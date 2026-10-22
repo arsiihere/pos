@@ -1,0 +1,21 @@
+# secrets
+.env
+.env.*
+!.env.example
+# deps / build (common stacks)
+node_modules/
+dist/
+build/
+.next/
+coverage/
+__pycache__/
+*.pyc
+.venv/
+venv/
+target/
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+# Claude personal settings
+.claude/settings.local.json
