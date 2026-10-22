@@ -5,12 +5,20 @@
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.0 — **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | v1.0.1 — **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`); v1.0.1 = patch closing MQ12 (M77). File name keeps `v1.0` (README naming uses major.minor) |
 | Date | 2026-10-23 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.0.1 (patch)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| MQ12 closed: hub-served pages show QR codes made with the same `qrcode@1.5.4`, rendered on the hub as SVG; lint allowlist extended | M77 | §6.4, §6.7, §6.30, §7.11, §8.2, §12.3 | #131 |
+
+No rule, endpoint or schema changes; three responses gain an SVG field.
 
 ### Changes in v1.0 (Review 2, `docs/reviews/00_review_2.md`)
 
@@ -213,6 +221,7 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M73 | **A locked owner account never verifies the password** (replaces M64's locked-account rule; Review 2 N2). While `login_locked_until > now`: run the dummy hash (equal timing), answer `401 LOGIN_INVALID` whatever the password, and do not change the account counter. The per-IP limiter still counts the attempt as a failure. The owner is told about the lock out of band (requirement on 01/07). `429 LOGIN_LOCKED_OUT` is no longer returned by login. | Under M64 a locked account still answered differently for the right password, so distributed guessing could continue through the lock. | — |
 | M74 | **`DeviceTokenRotated` is applied by `access_reconcile` only during boot catch-up** (mode `'catchup'`), never on the live path, where the new hash is written directly by `/devices/pair`. | A live apply would overwrite the fresh hash and lock out the device that just re-paired. | — |
 | M75 | **A skipped staff row keeps its previous row.** If a staff row is skipped for a weak or malformed `pin_hash` (M52) and the hub already has a row for that staff member, the previous row (with its old hash, roles and denials as last applied) stays, and the person is **not** treated as removed: no `staff_removed` session end, no `owner_removed` phone revoke. A staff member with no previous row is simply absent. A real PIN reset (valid new hash) still ends sessions (M50). | One bad row from 01 would otherwise force a re-pair of that person's phone and end their sessions. | — |
+| M77 | **QR codes on hub-served pages use `qrcode@1.5.4`** (closes MQ12), the library M72 already pins for the CLI. QR codes are rendered **on the hub** as SVG by one helper, `apps/hub/src/lib/qr.ts` → `qrSvg(text: string): string` (synchronous: `QRCode.create(text, { errorCorrectionLevel: 'M' })`, then an SVG `<path>` built from `modules`, 4-module quiet zone). Responses carry the SVG next to the URL: `first_admin_qr_svg` (§6.4), `pair_qr_svg` (§6.7), `approve_qr_svg` (§6.30); pages insert it as-is. No QR library is served to browsers. Lint: `qrcode` is importable only by `lib/qr.ts` and the CLI entry (`setup/issue-admin-bootstrap.ts`). | Screens cannot be paired by scanning (M44) and the first-admin link cannot be opened from a phone without a QR; rendering on the hub keeps the hub-served pages free of a bundler and of a second QR dependency, and keeps `handle` synchronous (D32 stored responses). | — |
 | M76 | **Pairing-request caps: 2 pending per requester IP, 10 pending in total.** Over the per-IP cap → `429 IP_LOCKED_OUT { retry_after_ms }` (time until that IP's oldest pending request expires); over the global cap → `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }`. `pair_requests` stores `requester_ip`. | One client on the staff WiFi could otherwise keep the 10 slots full and block kiosk/KDS pairing. | — |
 
 ### 3.2 Provisioning state
@@ -780,7 +789,7 @@ Processing:
 5. Zod-validate the response shape (malformed → `500 INTERNAL_ERROR`, nothing written). Individual bad rows are skipped by M52, not rejected.
 6. `writer.run`: `applyStaffDirectory`; append `HubProvisioned` unless one exists for this `branch_id`; `issueAdminBootstrap(tx, 'setup')` (M42, M72).
 7. Generate `backup_encryption_key` unless present; write config atomically (`provisioned`, `guest_network_cidrs`, `advertised_host`, key).
-8. `200 { data: { tenant_id, branch_id, branch_name, restarting: true, first_admin_url: "http://<advertised_host>:<port>/admin/bootstrap#t=<token>", first_admin_expires_at } }`; exit(0) after the response is flushed (M13). The setup page shows `first_admin_url` as a link and a QR.
+8. `200 { data: { tenant_id, branch_id, branch_name, restarting: true, first_admin_url: "http://<advertised_host>:<port>/admin/bootstrap#t=<token>", first_admin_qr_svg, first_admin_expires_at } }`; exit(0) after the response is flushed (M13). The setup page shows `first_admin_url` as a link and `first_admin_qr_svg` as the QR (M77).
 
 | | |
 |---|---|
@@ -831,7 +840,7 @@ Processing (one transaction):
 | Permission | `manage-devices` (D38) |
 | Payload | `{ device_type: 'tablet' \| 'phone', owner_staff_id?: ULID }`; `owner_staff_id` required iff `phone`; `cashier_kiosk` and `kds` pair by request (§6.30–§6.32, M44) → `400 VALIDATION_FAILED` |
 | Handler | If `phone`: `owner_staff_id` not in the directory → `404 STAFF_NOT_FOUND`. Generate 256-bit token (base64url) + `pairing_token_id`; `expires_at = branchNow + 600 000`; INSERT `pairing_tokens` (hash); event `DevicePairingTokenGenerated` |
-| Result | `{ pairing_token, pairing_token_id, expires_at, pair_url: "http://<advertised_host>:<port>/pair?t=<pairing_token>" }`; the admin UI renders `pair_url` as a QR |
+| Result | `{ pairing_token, pairing_token_id, expires_at, pair_url: "http://<advertised_host>:<port>/pair?t=<pairing_token>", pair_qr_svg }`; the admin UI shows `pair_qr_svg` (M77) |
 | Idempotency | D32; the stored response holds the plaintext token, which is useless after 10 min or one pair (accepted) |
 | Errors | §6.1; `404 STAFF_NOT_FOUND` |
 
@@ -1098,7 +1107,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 | Auth | none beyond host, provisioned, guest network, client version |
 | Input | `{ device_name: string(1–40) }` |
 | Processing | `writer.run` (no event): pending = `approved_at IS NULL AND expires_at > now`; ≥ 2 pending from this `requester_ip` → `429 IP_LOCKED_OUT { retry_after_ms }` (until that IP's oldest pending expires); ≥ 10 pending in total → `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }` (M76); generate `request_id` (ULID), `poll_secret` (256-bit), `display_code` (6 Crockford chars); INSERT with `poll_secret_hash`, `requester_ip`, `expires_at = now + 600 000` |
-| Response | `200 { data: { request_id, poll_secret, display_code, expires_at, approve_url: "http://<advertised_host>:<port>/admin/approve?r=<request_id>" } }`; the screen renders `approve_url` as a QR plus the display code |
+| Response | `200 { data: { request_id, poll_secret, display_code, expires_at, approve_url: "http://<advertised_host>:<port>/admin/approve?r=<request_id>", approve_qr_svg } }`; the screen shows `approve_qr_svg` plus the display code (M77) |
 | Errors | G-hub; `400`, `426`, `429 IP_LOCKED_OUT`, `503` |
 | Events | none (an unauthenticated request is not a staff fact; approval is) |
 
@@ -1205,7 +1214,7 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
 | `vitest` | 4.1.12 (5.x exists; MQ9) |
 | `eslint` / `typescript-eslint` | 10.13.0 / 8.72.0, flat config `eslint.config.js` |
 | `tsx` (dev, CLIs) | 4.23.15 |
-| `qrcode` (hub, CLI only, M72) | 1.5.4 (npm registry 2026-10-23) |
+| `qrcode` (hub: CLI M72, `lib/qr.ts` M77) | 1.5.4 (npm registry 2026-10-23) |
 
 ---
 
@@ -1305,7 +1314,7 @@ Appended to foundation §6.2 and `errors.ts` when this spec is approved.
 
 ## §10. Tests
 
-Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.int.test.ts` on a temp SQLite file through `inject()`; cloud in `apps/cloud/test/**/*.int.test.ts` on PostgreSQL 16. Test names cite `[00 §10 #n]`. Argon2 in tests uses the M8 minimum params (precomputed hashes keep the suite fast). Tests 1–84 keep their v0.5 numbers: §10.1 lists the unchanged ones, §10.2 the ones changed in v0.6, §10.3 the new ones (85–126 from v0.6, 127–130 from v1.0; #109 rewritten in v1.0).
+Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.int.test.ts` on a temp SQLite file through `inject()`; cloud in `apps/cloud/test/**/*.int.test.ts` on PostgreSQL 16. Test names cite `[00 §10 #n]`. Argon2 in tests uses the M8 minimum params (precomputed hashes keep the suite fast). Tests 1–84 keep their v0.5 numbers: §10.1 lists the unchanged ones, §10.2 the ones changed in v0.6, §10.3 the new ones (85–126 from v0.6, 127–130 from v1.0, 131 from v1.0.1; #109 rewritten in v1.0).
 
 ### 10.1 Unchanged tests (from v0.5)
 
@@ -1450,6 +1459,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 127 | M72: after the setup bootstrap token expires, `issue-admin-bootstrap` prints a new link; the new link opens an admin session; the old link → `401 PAIRING_TOKEN_INVALID`; a live token is expired by a second CLI run; `AdminBootstrapTokenIssued { issued_by: 'cli' }` is written; the CLI works while the hub process holds the database open |
 | 128 | M74: a live `/devices/pair` rotation leaves the new `token_hash` in place (the new token works after the commit and after `access_reconcile` ran live); the same event replayed in boot catch-up sets `'rotated:<event_id>'` |
 | 129 | M75: a directory push with a malformed hash for an existing staff member keeps their old row (old PIN still logs in), ends none of their sessions, revokes none of their phones, and lists the skip; for a new staff member the row is absent |
+| 131 | M77: the §6.4, §6.7 and §6.30 responses carry an SVG (`<svg` … `</svg>`, no `<script>`) equal to `qrSvg(url)` for their URL; `qrSvg` is deterministic and builds the matrix with `QRCode.create(url, { errorCorrectionLevel: 'M' })` (same module count and dark modules as the library's own `toString(…, { type: 'svg' })` for that URL); a lint scratch import of `qrcode` outside the two allowed files fails |
 | 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
 
 
@@ -1479,6 +1489,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | README R14 phones | 80–84, 91 |
 | Review 1 security fixes | 85, 86, 91, 92, 93, 94, 97, 99, 106, 108, 109 |
 | Review 2 fixes (N1, N2, A, C, D) | 127, 109, 128, 129, 130 |
+| M77 QR codes | 131 |
 
 ---
 
@@ -1543,7 +1554,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.27 | CLI `issue-registration-code` | shell + `SystemContext` | — | reissue (M22) | — | 57 |
 | 6.28 | `POST /v1/hubs/confirm` | branch key | — | natural | — | 90 |
 | 6.29 | `POST /admin/auth/bootstrap` | bootstrap token | `access-hub-admin` | single use | `SessionStarted`, lockouts | 92 |
-| 6.30 | `POST /pair/requests` | none (host, guest) | — | none needed | — | 95, 130 |
+| 6.30 | `POST /pair/requests` | none (host, guest) | — | none needed | — | 95, 130, 131 |
 | 6.34 | Hub CLI `issue-admin-bootstrap` | shell, service user | — | expires older tokens | `AdminBootstrapTokenIssued` | 127 |
 | 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95 |
 | 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96 |
@@ -1559,7 +1570,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | MQ9 | Vitest 5: stay on 4.x or record an upgrade. | nothing now |
 | MQ10 | iOS checks on a real iPhone (saved URL keeps `?t=`, standalone flag, storage past 7 days, flow inside 10 min). | phone client work |
 | MQ11 | Owner sign-off on the LAN plaintext risk and the phone SSID requirement (M54, README R16). | installation |
-| MQ12 | **QR rendering on hub-served pages.** The setup page (`first_admin_url`, §6.4) and the screen pair page (`approve_url`, §6.30, M44) need a QR code; §7.11 allows no library for it. Options: add one pinned QR library for the hub-served pages (M72 already pins `qrcode@1.5.4` for the CLI; it can also render SVG server-side), or let approval work by typing the 6-character display code. Until decided, those pages show the URL as text and the code in large type (plan Global Constraints). | kiosk/KDS pairing UX |
+| MQ12 | **Closed in v1.0.1 by M77:** QR codes on hub-served pages use `qrcode@1.5.4`, rendered as SVG on the hub. | — |
 
 ### 12.4 Deferred until needed
 

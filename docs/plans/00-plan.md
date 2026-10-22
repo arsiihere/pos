@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, Node.js 22, Fastify 5.12.7, fastify-type-provider-zod 7.0.0, Zod 4.6.7, better-sqlite3 13.0.3, @node-rs/argon2 2.2.2, @fastify/websocket 11.3.4, @fastify/jwt 10.2.5, pg 8.23.1, ulid 3.0.2, Vitest 4.1.12, ESLint 10.13.0 + typescript-eslint 8.72.0, tsx 4.23.15 (dev).
 
-**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (APPROVED) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
+**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1, APPROVED) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
 
 **Task status:** task **1** is done (commit `4abf807`). Tasks 2–5 are written for v1.0. **Tasks 5b and 5c** bring already-done tasks to v0.6 and v1.0: do them before task 6 (each only verifies if nothing needs changing). Tasks 6+ implement v1.0.
 
@@ -16,7 +16,7 @@
 
 Every task implicitly includes these. Values are copied from the spec.
 
-- **Versions (pin exactly, M26, M68):** `fastify@5.12.7`, `fastify-type-provider-zod@7.0.0`, `zod@4.6.7`, `better-sqlite3@13.0.3`, `@node-rs/argon2@2.2.2`, `@fastify/websocket@11.3.4`, `@fastify/jwt@10.2.5`, `pg@8.23.1`, `ulid@3.0.2`, `vitest@4.1.12`, `eslint@10.13.0`, `typescript-eslint@8.72.0`, `tsx@4.23.15` (dev), `qrcode@1.5.4` (hub, imported **only** by `apps/hub/src/setup/issue-admin-bootstrap.ts`, M72), `typescript@5` latest 5.x, Node 22. No other runtime dependency. CIDR: `node:net` `BlockList`. Crypto: `node:crypto`. No `@fastify/cors`.
+- **Versions (pin exactly, M26, M68):** `fastify@5.12.7`, `fastify-type-provider-zod@7.0.0`, `zod@4.6.7`, `better-sqlite3@13.0.3`, `@node-rs/argon2@2.2.2`, `@fastify/websocket@11.3.4`, `@fastify/jwt@10.2.5`, `pg@8.23.1`, `ulid@3.0.2`, `vitest@4.1.12`, `eslint@10.13.0`, `typescript-eslint@8.72.0`, `tsx@4.23.15` (dev), `qrcode@1.5.4` (hub, imported **only** by `apps/hub/src/setup/issue-admin-bootstrap.ts` (M72) and `apps/hub/src/lib/qr.ts` (M77)), `typescript@5` latest 5.x, Node 22. No other runtime dependency. CIDR: `node:net` `BlockList`. Crypto: `node:crypto`. No `@fastify/cors`.
 - **Determinism (F §6.7):** source never calls `Date.now()`, `performance.now()`, `Math.random()`, `crypto.randomUUID()` or `ulid()` directly. Use `Clock.branchNow()`, `IdGen.next()`, `SecretGen` (task 6). Exceptions: `apps/*/src/lib/{clock,ids,secrets}.ts`, `apps/*/src/main.ts`, `apps/cloud/src/cli/*.ts` entry points, `apps/hub/src/setup/issue-admin-bootstrap.ts` (CLI entry).
 - **Envelope (F §6.1):** `{ data }` (+ `meta`), or `{ error: { code, message, details, request_id } }`. No 204. Replays add `Idempotent-Replay: true`. 429/503 add `Retry-After` (seconds, rounded up) and `details.retry_after_ms`.
 - **Errors:** only `ErrorCatalogue` codes (task 2/5b). `throw new DomainError(code, details)`.
@@ -27,7 +27,7 @@ Every task implicitly includes these. Values are copied from the spec.
 - **Commit:** `feat(00): task N <title> [spec §x]`.
 - **Fixed values:** PIN `/^\d{4,6}$/` as a string; argon2id PHC `m ≥ 19456, t ≥ 2, p = 1`; lockout staff 5 / device or IP 10 in 300 000 ms / lock 900 000 ms, counters reset when a lock expires (M62); semaphores PIN 2, admin 1, wait 2 000 ms, then 503 `retry_after_ms: 1000`; pairing token TTL 600 000 ms; pairing request TTL 600 000 ms, max 10 pending, display code 6 Crockford chars, poll every 2 000 ms; bootstrap token TTL 1 800 000 ms (issuing one expires any live one); pairing requests max 2 pending per requester IP; registration code 12 Crockford chars, TTL 86 400 000 ms, same-attempt window 3 600 000 ms; sweeper 15 000 ms; heartbeat 60 000 ms; confirm retry 60 000 ms; retention batch 500 rows in `maintenance_hour` (default 4); WS auth timeout 5 000 ms, ping 15 000 ms, pong timeout 30 000 ms; owner login lock 10 failures / 900 000 ms window / 900 000 ms lock; owner per-IP limit 30 failures / 900 000 ms; refresh grace 30 000 ms; JWT 1 h HS256; refresh 30 d; query pages default 50, max 200; `cors_origins` default `["http://localhost"]`.
 - **Crockford alphabet:** `0123456789ABCDEFGHJKMNPQRSTVWXYZ`.
-- **QR codes:** the hub CLI (task 35c) prints a terminal QR with `qrcode@1.5.4`. The hub-served pages (setup page, screen pair page) also show QR codes in the spec, but a library for pages is not yet approved (spec 00 MQ12). Until it is decided, those pages show the URL as text and the code in large type; do not hand-write a QR encoder or add a dependency.
+- **QR codes (M72, M77):** one library, `qrcode@1.5.4`. The CLI prints a terminal QR (task 35c). Pages get an SVG made on the hub by `qrSvg(text)` in `apps/hub/src/lib/qr.ts` (task 33) and insert it as-is; no QR library is served to browsers; do not hand-write a QR encoder.
 
 ## Review Focus
 
@@ -50,7 +50,7 @@ packages/events/src/{envelope,registry,codecs,ws,directory,index}.ts
 packages/events/src/events/{hub,staff}/<EventType>.v1.ts
 packages/events/testing/index.ts
 packages/events/fixtures/<EventType>.v1.json, <EventType>.latest.json
-apps/hub/src/lib/{clock,ids,secrets,hash,semaphore,net,crypto-file,boot,health}.ts
+apps/hub/src/lib/{clock,ids,secrets,hash,semaphore,net,crypto-file,qr,boot,health}.ts
 apps/hub/src/config/{schema,load,write}.ts
 apps/hub/src/db/{connection,migrate,pre-migrate-backup}.ts, db/migrations/000{1,2,3}_*.sql
 apps/hub/src/engine-host/{append-events,state-holder,writer,auth-generation}.ts
@@ -192,11 +192,11 @@ Do this after 5b. Task 1 is done; tasks 2–5 may be done by then. Apply only wh
 **Files:** Modify only files created by tasks 1–5.
 
 **Changes (v0.6 → v1.0):**
-1. `eslint.config.js` (task 1): add `apps/hub/src/setup/issue-admin-bootstrap.ts` to the `Date.now` / `performance.now` exceptions (CLI entry, M72); add a `no-restricted-imports` rule allowing `qrcode` only in that file.
+1. `eslint.config.js` (task 1): add `apps/hub/src/setup/issue-admin-bootstrap.ts` to the `Date.now` / `performance.now` exceptions (CLI entry, M72); add a `no-restricted-imports` rule allowing `qrcode` only in that file and in `apps/hub/src/lib/qr.ts` (M77).
 2. `AdminBootstrapTokenIssued.v1` (task 5): add `issued_by: z.enum(['setup','cli','restore'])`; update its fixtures and builder. In-place v1 edit allowed only under the 5b condition (no stored events, nothing merged to `main`), else stop and ask.
 3. `errors.ts` (task 2): no change. `LOGIN_LOCKED_OUT` stays in the catalogue (reserved, M73).
 
-- [ ] **Step 1: Failing tests:** `[00 §4.2] AdminBootstrapTokenIssued requires issued_by` (in `packages/events/src/fixtures.test.ts` or a new `bootstrap-event.test.ts` beside it); `[00 §3.1 M72] lint allows qrcode only in the hub CLI entry` (a scratch import elsewhere fails `pnpm lint`; check, then delete the scratch file).
+- [ ] **Step 1: Failing tests:** `[00 §4.2] AdminBootstrapTokenIssued requires issued_by` (in `packages/events/src/fixtures.test.ts` or a new `bootstrap-event.test.ts` beside it); `[00 §3.1 M72, M77] lint allows qrcode only in the hub CLI entry and lib/qr.ts` (a scratch import elsewhere fails `pnpm lint`; check, then delete the scratch file).
 - [ ] **Step 2–4:** `pnpm test && pnpm lint` → FAIL → apply → PASS.
 - [ ] **Step 5: Commit** `feat(00): task 5c align shared packages with spec v1.0 [spec §4.2, M72]`
 
@@ -644,11 +644,11 @@ Route order per §3.7 **without** the fast path and the M39 re-check (task 23 ad
 
 ### Task 33: Hub `POST /setup/provision`, setup page, bootstrap token
 
-**Files:** Create `apps/hub/src/setup/{provision,cloud-client,page}.ts`, `apps/hub/src/auth/bootstrap-tokens.ts`, `apps/hub/test/helpers/stub-cloud.ts`, `apps/hub/test/setup/provision.int.test.ts`; Modify `apps/hub/src/server.ts`, `apps/hub/src/lib/boot.ts`.
+**Files:** Create `apps/hub/src/setup/{provision,cloud-client,page}.ts`, `apps/hub/src/auth/bootstrap-tokens.ts`, `apps/hub/src/lib/qr.ts`, `apps/hub/src/lib/qr.test.ts`, `apps/hub/test/helpers/stub-cloud.ts`, `apps/hub/test/setup/provision.int.test.ts`; Modify `apps/hub/src/server.ts`, `apps/hub/src/lib/boot.ts`.
 
-**Interfaces:** `CloudClient { registerHub(body, idempotencyKey); confirmHub(apiKey, body) }`; `httpCloudClient(baseUrl, timeoutMs = 10_000)` (global `fetch` + `AbortSignal.timeout`; errors `CloudUnreachableError`, `CloudError(status, code, details)`); `registerSetupRoutes(app, deps & { cloud, configPath, exit })`. Steps §6.4 1–8 (v0.6): input per M58 (`guest_network_cidrs` min 1, each valid; `advertised_host` ∈ `deps.ownIPv4`); step 6 also calls `issueAdminBootstrap(tx, 'setup')` from `auth/bootstrap-tokens.ts`: `issueAdminBootstrap(tx: WriterTx, issuedBy: 'setup'|'cli'|'restore', deps: { clock; ids; secrets }): { token: string; bootstrap_token_id: string; expires_at: number }` — sets `expires_at = now` on every live token, inserts a new one (hash; `expires_at = now + 1 800 000`), appends `AdminBootstrapTokenIssued { …, issued_by }` (actor null, device `'hub'`); response includes `first_admin_url` (`/admin/bootstrap#t=<token>`) and `first_admin_expires_at`. The setup page shows the link as text (QR: Global Constraints). The hub must not import cloud code: copy the 4-line `normaliseCode` into `provision.ts`.
+**Interfaces:** `CloudClient { registerHub(body, idempotencyKey); confirmHub(apiKey, body) }`; `httpCloudClient(baseUrl, timeoutMs = 10_000)` (global `fetch` + `AbortSignal.timeout`; errors `CloudUnreachableError`, `CloudError(status, code, details)`); `registerSetupRoutes(app, deps & { cloud, configPath, exit })`. Steps §6.4 1–8 (v0.6): input per M58 (`guest_network_cidrs` min 1, each valid; `advertised_host` ∈ `deps.ownIPv4`); step 6 also calls `issueAdminBootstrap(tx, 'setup')` from `auth/bootstrap-tokens.ts`: `issueAdminBootstrap(tx: WriterTx, issuedBy: 'setup'|'cli'|'restore', deps: { clock; ids; secrets }): { token: string; bootstrap_token_id: string; expires_at: number }` — sets `expires_at = now` on every live token, inserts a new one (hash; `expires_at = now + 1 800 000`), appends `AdminBootstrapTokenIssued { …, issued_by }` (actor null, device `'hub'`); response includes `first_admin_url` (`/admin/bootstrap#t=<token>`), `first_admin_qr_svg` and `first_admin_expires_at`. `lib/qr.ts`: `qrSvg(text: string): string` — synchronous; `QRCode.create(text, { errorCorrectionLevel: 'M' })`, then one `<svg viewBox>` with a single `<path>` of the dark modules and a 4-module quiet zone (M77). The setup page shows the link and inserts the SVG; add `qrcode@1.5.4` to `apps/hub/package.json` here if task 35c has not yet. Add `apps/hub/package.json` to Files when you do. The hub must not import cloud code: copy the 4-line `normaliseCode` into `provision.ts`.
 
-- [ ] **Step 1: Failing tests:** `[00 §10 #15]`, `#16`, `#17`, `#18`, `#19`, `#20` (as worded in spec §10); `[00 §10 #105] empty cidrs → 400; advertised_host not own → 400; malformed code → 400`.
+- [ ] **Step 1: Failing tests:** `[00 §10 #15]`, `#16`, `#17`, `#18`, `#19`, `#20` (as worded in spec §10); `[00 §10 #105] empty cidrs → 400; advertised_host not own → 400; malformed code → 400`; `[00 §3.1 M77] qrSvg is deterministic, contains no <script>, and has the same dark modules as QRCode.create for that text`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(00): task 33 setup provisioning and bootstrap token [spec §6.4, §3.2, M13, M14, M42, M58, M71]`
 
 ---
@@ -719,7 +719,7 @@ Behaviour (§6.34, M72): unprovisioned → throw "run setup instead"; `uid` ≠ 
 
 **Files:** Create `apps/hub/src/commands/generate-device-pairing-token.ts`, `apps/hub/src/auth/station-validator.ts`, `apps/hub/test/commands/generate-pairing-token.int.test.ts`; Modify `apps/hub/src/server.ts`.
 
-**Interfaces:** `registerStationValidator(fn)`, `stationExists(tx, id)` (false until registered). Command per §6.7 v0.6: payload `{ device_type: 'tablet'|'phone', owner_staff_id? }` (iff phone); result `{ pairing_token, pairing_token_id, expires_at, pair_url }`.
+**Interfaces:** `registerStationValidator(fn)`, `stationExists(tx, id)` (false until registered). Command per §6.7 v1.0.1: payload `{ device_type: 'tablet'|'phone', owner_staff_id? }` (iff phone); result `{ pairing_token, pairing_token_id, expires_at, pair_url, pair_qr_svg: qrSvg(pair_url) }` (M77).
 
 - [ ] **Step 1: Failing tests:** `[00 §10 #28]`, `[00 §10 #80]` (as worded in spec §10).
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(00): task 36 pairing token command [spec §6.7, M38, M44]`
@@ -741,9 +741,9 @@ Behaviour (§6.34, M72): unprovisioned → throw "run setup instead"; `uid` ≠ 
 
 **Files:** Create `apps/hub/src/auth/pair-requests.ts`, `apps/hub/test/auth/pair-requests.int.test.ts`; Modify `apps/hub/src/auth/pair-page.ts`, `apps/hub/src/server.ts`.
 
-**Interfaces:** `POST /pair/requests` (group `pair-request`) per §6.30 v1.0 (stores `requester_ip = req.ip`; ≥ 2 pending from that IP → `429 IP_LOCKED_OUT { retry_after_ms }` until its oldest pending expires; ≥ 10 pending → 503, M76); `GET /pair/requests/:id` (header `X-Poll-Secret`) per §6.31 — `approved` + token only while `now < expires_at`, else 404 even if approved; `clearExpiredDeliveryTokens(tx, now)` (called by the sweeper, task 41). Pair page without `t`: create a request, show `approve_url` as text and the display code in large type (QR: Global Constraints), poll every 2 000 ms, store the token; KDS → `POST /auth/station`.
+**Interfaces:** `POST /pair/requests` (group `pair-request`) per §6.30 v1.0 (stores `requester_ip = req.ip`; ≥ 2 pending from that IP → `429 IP_LOCKED_OUT { retry_after_ms }` until its oldest pending expires; ≥ 10 pending → 503, M76); `GET /pair/requests/:id` (header `X-Poll-Secret`) per §6.31 — `approved` + token only while `now < expires_at`, else 404 even if approved; `clearExpiredDeliveryTokens(tx, now)` (called by the sweeper, task 41). Response adds `approve_qr_svg: qrSvg(approve_url)` (M77). Pair page without `t`: create a request, show `approve_qr_svg` and the display code in large type, poll every 2 000 ms, store the token; KDS → `POST /auth/station`.
 
-- [ ] **Step 1: Failing tests:** `[00 §10 #95] create → pending → approved (insert the approval rows directly; the command is task 38b) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503`; `[00 §6.31] polled after approval but after expires_at → 404 and no delivery_token in the row (Review Focus 5)`; `[00 §10 #130] third pending request from one IP → 429 IP_LOCKED_OUT with retry_after_ms; other IPs still succeed; 11th pending overall → 503`.
+- [ ] **Step 1: Failing tests:** `[00 §10 #95] create → pending → approved (insert the approval rows directly; the command is task 38b) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503`; `[00 §6.31] polled after approval but after expires_at → 404 and no delivery_token in the row (Review Focus 5)`; `[00 §10 #130] third pending request from one IP → 429 IP_LOCKED_OUT with retry_after_ms; other IPs still succeed; 11th pending overall → 503`; `[00 §10 #131] the setup (§6.4), pairing-token (§6.7) and pairing-request (§6.30) responses carry an SVG equal to qrSvg(their URL), with no <script>`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(00): task 38 pairing requests [spec §6.30, §6.31, M44, M76]`
 
 ---
@@ -949,3 +949,4 @@ Done by the spec owner. The codes already exist in `errors.ts` (task 2 / 5b); th
 | 128 | 25b |
 | 129 | 19 |
 | 130 | 38 |
+| 131 | 38 (helper test in 33) |
