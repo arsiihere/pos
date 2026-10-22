@@ -15,10 +15,8 @@ describe('fixtures', () => {
     expect(v1Files).toHaveLength(14);
     for (const name of v1Files) {
       const v1 = JSON.parse(readFileSync(join(dir, name), 'utf8')) as unknown;
-      const latest = JSON.parse(readFileSync(join(dir, name.replace('.v1.json', '.latest.json')), 'utf8')) as {
-        payload: unknown;
-      };
-      expect(parseEvent(v1).payload).toEqual(latest.payload);
+      const latest = JSON.parse(readFileSync(join(dir, name.replace('.v1.json', '.latest.json')), 'utf8')) as unknown;
+      expect(parseEvent(v1)).toEqual(latest);
     }
   });
 

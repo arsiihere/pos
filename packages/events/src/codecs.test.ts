@@ -28,9 +28,14 @@ describe('codecs', () => {
       payload: z.object({ a: z.number(), b: z.string() }),
       upcastFromPrevious: (prev: unknown) => ({ ...(prev as { a: number }), b: 'x' }),
     });
-    expect(
-      parseEvent({ ...validEvent, event_type: 'TestThing', schema_version: 1, payload: { a: 1 } }).payload,
-    ).toEqual({ a: 1, b: 'x' });
+    const parsed = parseEvent({
+      ...validEvent,
+      event_type: 'TestThing',
+      schema_version: 1,
+      payload: { a: 1 },
+    });
+    expect(parsed.payload).toEqual({ a: 1, b: 'x' });
+    expect(parsed.schema_version).toBe(2);
   });
 
   it('[F §4.1] parseEvent rejects a bad payload', () => {
