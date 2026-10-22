@@ -4,5 +4,12 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pos/domain": "workspace:*",
+    "ulid": "3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1"
   }
 }
