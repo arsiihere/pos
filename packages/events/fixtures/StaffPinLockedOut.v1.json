@@ -1,0 +1,19 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "staff",
+  "stream_id": "01J00000000000000000000004",
+  "event_type": "StaffPinLockedOut",
+  "payload": {
+    "staff_id": "01J00000000000000000000004",
+    "locked_until": 1761000900000,
+    "failed_count": 5
+  }
+}

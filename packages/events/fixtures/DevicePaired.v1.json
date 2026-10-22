@@ -1,0 +1,23 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "hub",
+  "stream_id": "01J00000000000000000000005",
+  "event_type": "DevicePaired",
+  "payload": {
+    "device_id": "01J00000000000000000000005",
+    "device_name": "Till",
+    "device_type": "tablet",
+    "station_id": null,
+    "owner_staff_id": null,
+    "pairing_token_id": "01J00000000000000000000008",
+    "pairing_request_id": null
+  }
+}
