@@ -36,4 +36,14 @@ describe('fixtures', () => {
     expect(schema.safeParse({ ...base, pairing_token_id: null, pairing_request_id: null }).success).toBe(false);
     expect(schema.safeParse({ ...base, pairing_token_id: 't', pairing_request_id: 'r' }).success).toBe(false);
   });
+
+  it('[00 §4.2] AdminBootstrapTokenIssued requires issued_by', () => {
+    const schema = payloadSchema('AdminBootstrapTokenIssued', 1);
+    const base = { bootstrap_token_id: 'b', expires_at: 1, issued_by: 'setup' as const };
+    expect(schema.safeParse(base).success).toBe(true);
+    expect(schema.safeParse({ bootstrap_token_id: 'b', expires_at: 1 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, issued_by: 'cli' }).success).toBe(true);
+    expect(schema.safeParse({ ...base, issued_by: 'restore' }).success).toBe(true);
+    expect(schema.safeParse({ ...base, issued_by: 'owner' }).success).toBe(false);
+  });
 });

@@ -16,6 +16,25 @@ const forbiddenCalls = [
   },
 ];
 
+const dbClientImports = {
+  patterns: [
+    {
+      group: ['**/db/client', '**/db/client.js'],
+      message: 'Import the database client only from apps/cloud/src/db/ (D54).',
+    },
+  ],
+};
+
+const qrcodeImports = {
+  paths: [
+    {
+      name: 'qrcode',
+      message:
+        'Import qrcode only from apps/hub/src/setup/issue-admin-bootstrap.ts and apps/hub/src/lib/qr.ts (M72, M77).',
+    },
+  ],
+};
+
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/.turbo/**', '**/coverage/**'] },
   eslint.configs.recommended,
@@ -23,18 +42,7 @@ export default tseslint.config(
   {
     files: ['**/*.{ts,tsx,js,mjs,cjs}'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/db/client', '**/db/client.js'],
-              message:
-                'Import the database client only from apps/cloud/src/db/ (D54).',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': ['error', { ...dbClientImports, ...qrcodeImports }],
       'no-restricted-syntax': ['error', ...forbiddenCalls],
     },
   },
@@ -45,6 +53,7 @@ export default tseslint.config(
       'apps/*/src/lib/secrets.ts',
       'apps/*/src/main.ts',
       'apps/cloud/src/cli/*.ts',
+      'apps/hub/src/setup/issue-admin-bootstrap.ts',
       '**/*.test.ts',
     ],
     rules: {
@@ -54,7 +63,13 @@ export default tseslint.config(
   {
     files: ['apps/cloud/src/db/**/*.ts'],
     rules: {
-      'no-restricted-imports': 'off',
+      'no-restricted-imports': ['error', qrcodeImports],
+    },
+  },
+  {
+    files: ['apps/hub/src/setup/issue-admin-bootstrap.ts', 'apps/hub/src/lib/qr.ts'],
+    rules: {
+      'no-restricted-imports': ['error', dbClientImports],
     },
   },
 );
