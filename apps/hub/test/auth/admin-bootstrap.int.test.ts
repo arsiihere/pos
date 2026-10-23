@@ -45,6 +45,9 @@ describe('first-admin bootstrap', () => {
     const locked = await bootstrap(hub, fresh.token, 'S_OWNER', '0000');
     expect(locked.statusCode).toBe(429);
     expect(locked.json().error.code).toBe('IP_LOCKED_OUT');
+    const otherIp = await bootstrap(hub, fresh.token, 'S_OWNER', '0000', '203.0.113.9');
+    expect(otherIp.statusCode).toBe(401);
+    expect(otherIp.json().error.code).toBe('PIN_INVALID');
 
     const page = await hub.app.inject({ method: 'GET', url: '/admin/bootstrap' });
     expect(page.statusCode).toBe(200);
@@ -71,10 +74,11 @@ function issue(hub: TestHub): { token: string } {
   ).result;
 }
 
-function bootstrap(hub: TestHub, token: string, staffId: string, pin: string) {
+function bootstrap(hub: TestHub, token: string, staffId: string, pin: string, remoteAddress?: string) {
   return hub.app.inject({
     method: 'POST',
     url: '/admin/auth/bootstrap',
+    remoteAddress,
     payload: { bootstrap_token: token, staff_id: staffId, pin },
   });
 }
