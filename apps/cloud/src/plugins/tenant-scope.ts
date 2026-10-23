@@ -22,8 +22,22 @@ declare module 'fastify' {
 
 const SCOPES = new Set<TenantScope>(['jwt', 'branch-key', 'registration-code', 'none']);
 
+export interface ListedTenantScope {
+  method: string;
+  url: string;
+  tenantScope: TenantScope;
+}
+
+const listed = new WeakMap<FastifyInstance, ListedTenantScope[]>();
+
+export function listTenantScopes(app: FastifyInstance): ListedTenantScope[] {
+  return listed.get(app) ?? [];
+}
+
 export function registerTenantScope(app: FastifyInstance, deps: { pool: pg.Pool }): void {
   const problems: string[] = [];
+  const routes: ListedTenantScope[] = [];
+  listed.set(app, routes);
   const handlers: Record<Exclude<TenantScope, 'none'>, preHandlerHookHandler> = {
     jwt: async (request) => {
       const token = bearer(request.headers.authorization);
@@ -64,6 +78,7 @@ export function registerTenantScope(app: FastifyInstance, deps: { pool: pg.Pool 
         problems.push(`route has no tenantScope: ${label}`);
         continue;
       }
+      routes.push({ method, url: opts.url, tenantScope: scope });
       if (scope === 'none') {
         if (!isAllowlisted(method, opts.url)) problems.push(`tenantScope none is not allowlisted: ${label}`);
         continue;

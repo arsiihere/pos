@@ -1,5 +1,6 @@
 import { DomainError } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { listTenantScopes } from '../src/plugins/tenant-scope';
 import { createTestCloud } from './helpers/test-cloud';
 
 const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health'];
@@ -69,6 +70,12 @@ describe('tenant scope', () => {
       ALLOWLIST,
     );
     expect(declared.some((route) => route.tenantLevel === true && route.tenantScope === 'jwt')).toBe(true);
+    expect(listTenantScopes(cloud.app)).toEqual(
+      expect.arrayContaining([
+        { method: 'POST', url: '/v1/hubs/register', tenantScope: 'registration-code' },
+        { method: 'POST', url: '/v1/hubs/confirm', tenantScope: 'branch-key' },
+      ]),
+    );
     expect(typeof cloud.app.ownerCredentials.byEmail).toBe('function');
     expect(await cloud.app.ownerCredentials.byEmail('missing@example.com')).toBeNull();
   });
