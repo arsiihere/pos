@@ -195,6 +195,9 @@ importers:
       '@pos/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pos/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
