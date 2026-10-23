@@ -71,3 +71,7 @@ Commit `0fc5173`. Tests: `[F §6.1]` DomainError envelope and catalogue status; 
 ## Task 17 — Migrations 0002 and 0003
 Commit `508d917`. Tests: `[00 §5.1]` a second active staff or station session on one device violates the unique index; an ended session does not; an admin session does not occupy the slot; kds without a station and a phone without an owner are rejected; a station session with `staff_id` or `idle_ttl_ms` is rejected; a staff session without a device is rejected; an admin session without a device is allowed; `pairing_tokens` rejects `device_type 'kds'`. Full suite 68/68.
 SQL matches §5.1, including the `0003` directory cache.
+
+## Task 18 — StaffDirectory and resolve
+Commit `6c096aa`. Tests: `[00 §10 #78]` denial beats allowed, allowed beats requires_approval, approver roles are the sorted union, none is `not_granted`; `[00 §3.1 M11]` `ttlFor` is the max across roles and the fixture TTLs; `[00 §5.1]` `load()` matches `fromInput` through the cache tables. Full suite 71/71.
+`@node-rs/argon2@2.2.2` added to `@pos/hub` (not in the file list) for memoised `pinHash` (`m=19456`, `t=2`, `p=1`). `load()` issues the six selects and builds through `fromInput`. `S_WAIT` reuses `PIN.a`.
