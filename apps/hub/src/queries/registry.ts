@@ -173,8 +173,8 @@ function registerTestQueries(registry: ReturnType<typeof createQueryRegistry>): 
         cursor: z.string().optional(),
         limit: z.coerce.number().int().optional(),
       }),
-      handle(_ctx, q) {
-        return { data: { limit: q.limit ?? null } };
+      handle(ctx) {
+        return { data: { limit: ctx.page.limit } };
       },
     }),
   );

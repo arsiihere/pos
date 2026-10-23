@@ -31,6 +31,20 @@ describe('query route', () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     const device = pairDevice(hub, { type: 'tablet' });
+    const omitted = await hub.app.inject({
+      method: 'GET',
+      url: '/queries/test-page',
+      headers: { authorization: `Bearer ${device.token}` },
+    });
+    expect(omitted.statusCode).toBe(200);
+    expect(omitted.json().data).toEqual({ limit: 50 });
+    const max = await hub.app.inject({
+      method: 'GET',
+      url: '/queries/test-page?limit=200',
+      headers: { authorization: `Bearer ${device.token}` },
+    });
+    expect(max.statusCode).toBe(200);
+    expect(max.json().data).toEqual({ limit: 200 });
     const response = await hub.app.inject({
       method: 'GET',
       url: '/queries/test-page?limit=201',
