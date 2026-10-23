@@ -87,7 +87,22 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  installHubErrors(app);
 
+  attachRouteGuards(app, {
+    config: deps.config,
+    ownIPv4: deps.ownIPv4,
+    db: deps.db,
+    writer: deps.writer,
+    clock: deps.clock,
+    authGeneration: deps.authGeneration,
+  });
+  registerCommandRoutes(app, deps);
+  registerQueryRoutes(app, deps);
+  return app;
+}
+
+export function installHubErrors(app: FastifyInstance): void {
   app.setNotFoundHandler((request, reply) => {
     return reply.status(404).send(errorBody('ROUTE_NOT_FOUND', 'ROUTE_NOT_FOUND', {}, String(request.id)));
   });
@@ -113,18 +128,6 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     request.log.error({ err: error }, 'unhandled error');
     return reply.status(500).send(errorBody('INTERNAL_ERROR', 'INTERNAL_ERROR', {}, requestId));
   });
-
-  attachRouteGuards(app, {
-    config: deps.config,
-    ownIPv4: deps.ownIPv4,
-    db: deps.db,
-    writer: deps.writer,
-    clock: deps.clock,
-    authGeneration: deps.authGeneration,
-  });
-  registerCommandRoutes(app, deps);
-  registerQueryRoutes(app, deps);
-  return app;
 }
 
 function statusCodeOf(error: unknown): number | undefined {

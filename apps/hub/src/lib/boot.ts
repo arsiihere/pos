@@ -19,9 +19,11 @@ import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { createProjectionRegistry } from '../projections/registry.js';
-import { buildHubServer, type HubDeps } from '../server.js';
+import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
+import { httpCloudClient } from '../setup/cloud-client.js';
+import { registerSetupRoutes } from '../setup/provision.js';
 import { createBranchClock, type Clock } from './clock.js';
-import { installHealthErrors, readHeartbeat, registerHealth, startHeartbeat } from './health.js';
+import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
 import { cryptoSecrets } from './secrets.js';
 
@@ -63,7 +65,7 @@ export interface BootHandle {
 
 export async function boot(opts: BootOptions): Promise<BootHandle> {
   const startedMono = opts.monoNow();
-  const beat = { stop: () => undefined };
+  const beat: { stop: () => void } = { stop: () => undefined };
   let current = '0';
   let phase: 'booting' | 'setup' | 'ready' = 'booting';
   const config = loadHubConfig(opts.configPath);
@@ -82,12 +84,20 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     const provisioned = isProvisioned(config) ? config.provisioned : undefined;
     if (provisioned === undefined) {
       const deps = createDeps(config, db, readDb, wallClock(opts.wallNow, opts.monoNow), opts.ifaces);
-      const app = Fastify({ logger: false });
-      installHealthErrors(app);
+      const app = Fastify({ logger: false, genReqId: () => deps.ids.next() });
+      installHubErrors(app);
       attachRouteGuards(app, deps);
       phase = 'setup';
       current = '7';
       registerHealth(app, () => healthRead(phase, current, false, false, null, null, db));
+      registerSetupRoutes(app, {
+        ...deps,
+        cloud: httpCloudClient(config.cloud_base_url),
+        configPath: opts.configPath,
+        exit: (code) => {
+          process.exit(code);
+        },
+      });
       if (opts.listen === true) await app.listen({ host: '0.0.0.0', port: config.http_port });
       return handle(deps, app, db, readDb, () => current, beat);
     }
