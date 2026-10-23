@@ -175,6 +175,7 @@ describe('auth route guards', () => {
       { method: 'POST' as const, url: '/admin/auth', group: 'admin-device-public' as const },
     ];
     for (const route of routes) {
+      if (route.url === '/admin/auth') continue;
       hub.app.route({ method: route.method, url: route.url, config: { group: route.group }, handler: async () => ({ data: { ok: true } }) });
     }
     for (const route of routes) {

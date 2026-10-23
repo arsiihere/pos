@@ -10,8 +10,10 @@ import type { Writer } from './engine-host/writer.js';
 import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
+import { registerAdminRoutes } from './auth/admin-session.js';
 import { attachRouteGuards } from './auth/guards.js';
 import { registerCommandRoutes } from './commands/route.js';
+import { Semaphore } from './lib/semaphore.js';
 import { registerQueryRoutes } from './queries/registry.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 
@@ -99,6 +101,10 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   });
   registerCommandRoutes(app, deps);
   registerQueryRoutes(app, deps);
+  registerAdminRoutes(app, deps, {
+    pin: new Semaphore(deps.config.auth.argon2_concurrency),
+    admin: new Semaphore(deps.config.auth.admin_argon2_concurrency),
+  });
   return app;
 }
 
