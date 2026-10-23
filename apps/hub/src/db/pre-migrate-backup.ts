@@ -1,0 +1,49 @@
+/// <reference types="node" />
+import { readdirSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import type Database from 'better-sqlite3';
+import { type HubConfig, isProvisioned } from '../config/schema.js';
+import { encryptFile } from '../lib/crypto-file.js';
+import type { SecretGen } from '../lib/secrets.js';
+
+export function makePreMigrateBackup(o: {
+  db: Database.Database;
+  config: HubConfig;
+  secrets: SecretGen;
+}): (from: number, to: number) => Promise<void> {
+  return async (from, to) => {
+    if (!isProvisioned(o.config) || o.config.backup_encryption_key === undefined) return;
+    const base = `pre-migrate-${from}-${to}.sqlite`;
+    const plain = join(o.config.data_dir, base);
+    const key = Buffer.from(o.config.backup_encryption_key, 'base64');
+    const iv = o.secrets.bytes(12);
+    try {
+      await o.db.backup(plain);
+      try {
+        await encryptFile(plain, join(o.config.backup_dir, `${base}.enc`), key, iv);
+      } catch {
+        await encryptFile(plain, join(o.config.data_dir, `${base}.enc`), key, iv);
+      }
+    } finally {
+      try {
+        unlinkSync(plain);
+      } catch {
+        // Plaintext was never created, or already removed.
+      }
+    }
+  };
+}
+
+const PLAINTEXT = /^pre-migrate-.+\.sqlite$/;
+
+export function deleteLeftoverPlaintext(dataDir: string): string[] {
+  const removed: string[] = [];
+  for (const name of readdirSync(dataDir)) {
+    if (!PLAINTEXT.test(name)) continue;
+    const path = join(dataDir, name);
+    unlinkSync(path);
+    removed.push(path);
+  }
+  removed.sort();
+  return removed;
+}
