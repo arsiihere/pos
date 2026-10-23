@@ -10,6 +10,9 @@ import type { StateHolder } from './state-holder.js';
 export interface WriterTx {
   db: Database.Database;
   state: Readonly<unknown>;
+  clock: Clock;
+  ids: IdGen;
+  branchId: string;
   append(drafts: EventDraft[]): PosEvent[];
   onCommit(fn: () => void): void;
 }
@@ -53,6 +56,9 @@ export function createWriter<S>(o: {
           const tx: WriterTx = {
             db: o.db,
             state: o.state.get(),
+            clock: o.clock,
+            ids: o.ids,
+            branchId: o.branchId,
             append(drafts) {
               const events = appendEvents(o.db, drafts, {
                 clock: o.clock,
