@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "issue-admin-bootstrap": "tsx src/setup/issue-admin-bootstrap.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
