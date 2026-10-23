@@ -11,6 +11,7 @@ import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { attachRouteGuards } from './auth/guards.js';
+import { registerCommandRoutes } from './commands/route.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 
 const SECRET_HEADERS = [
@@ -117,6 +118,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     clock: deps.clock,
     authGeneration: deps.authGeneration,
   });
+  registerCommandRoutes(app, deps);
   return app;
 }
 

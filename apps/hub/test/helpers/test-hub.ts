@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
 import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
-import type { DirectoryInput } from '@pos/events';
+import type { DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
@@ -30,6 +30,7 @@ export interface TestHub {
   app: FastifyInstance;
   deps: HubDeps;
   clock: ReturnType<typeof fixedClock>;
+  published: PosEvent[][];
   logs(): string;
   close(): Promise<void>;
 }
@@ -45,6 +46,7 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
   const projections = createProjectionRegistry();
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
+  const published: PosEvent[][] = [];
   const deps: HubDeps = {
     config,
     db: fx.db,
@@ -61,7 +63,9 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
       projections,
       state,
       authGeneration,
-      publish: () => undefined,
+      publish: (events) => {
+        published.push(events);
+      },
     }),
     state,
     projections,
@@ -81,6 +85,7 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
     app,
     deps,
     clock,
+    published,
     logs: () => capture.text(),
     async close() {
       await app.close();
