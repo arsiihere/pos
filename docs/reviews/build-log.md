@@ -55,3 +55,7 @@ Commit `8326b38`. Tests: `[00 §10 #62]` UPDATE and DELETE raise `events are imm
 ## Task 13 — appendEvents
 Commit `6c7a4d6`. Tests: `[00 §10 #63]` 1 000 appends with every third rolled back leave seqs `1..666`; `[F §4.1]` outside a transaction throws and inserts nothing; `[F §4.1]` an invalid payload throws before insert, and a swallowed error still leaves the table empty. Full suite 48/48.
 `seq` is `COALESCE(MAX(seq), 0) + 1` per branch for the batch. Envelope and payload are checked with `parseEvent` before the one prepared INSERT. `@pos/events` was added to `@pos/hub` (not in the file list) so the hub can validate payloads.
+
+## Task 14 — projection registry forward catch-up
+Commit `d78b574`. Tests: `[00 §10 #67]` a checkpoint at 3 with `MAX(seq)` 5 replays only `seq > 3` and matches live rows; `[00 §3.1 M48]` `applyAll` advances every checkpoint, including a projection that ignores the events; `[00 §3.1 M48]` a missing checkpoint resets then replays, and a forward-only projection replays from 0 without reset. Full suite 51/51.
+`catchUp` reads pages of 1 000 through `parseEvent` (`mode: 'catchup'`). `afterCatchUp` runs inside the last catch-up transaction, or in its own transaction when nothing is behind. `replayed` counts events passed to `apply`.
