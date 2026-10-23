@@ -110,4 +110,19 @@ describe('hub server', () => {
       expect(REDACT_PATHS.some((path) => path.includes(name))).toBe(true);
     }
   });
+
+  it('[00 §7.2] secret body fields are redacted in logs', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const secrets = { pin: 'pin-value-9f3a', password: 'pw-value-9f3a', backup_encryption_key: 'backup-key-9f3a' };
+    hub.app.get('/log-body', { config: { group: 'health' } }, (req) => {
+      req.log.info(secrets, 'fields');
+      return { data: { ok: true } };
+    });
+    const res = await hub.app.inject({ method: 'GET', url: '/log-body' });
+    expect(res.statusCode).toBe(200);
+    const logs = hub.logs();
+    for (const value of Object.values(secrets)) expect(logs).not.toContain(value);
+    expect(logs).toContain('[Redacted]');
+  });
 });
