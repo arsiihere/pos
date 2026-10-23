@@ -5,6 +5,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const unlinkState = vi.hoisted(() => ({ failPlaintext: false }));
 
+vi.mock('../../src/lib/crypto-file', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/lib/crypto-file')>();
+  const { statSync } = await import('node:fs');
+  return {
+    ...actual,
+    async encryptFile(src: string, dst: string, key: Buffer, iv: Buffer) {
+      const mode = statSync(src).mode & 0o777;
+      if (mode !== 0o600) throw new Error(`plaintext mode ${mode.toString(8)}`);
+      return actual.encryptFile(src, dst, key, iv);
+    },
+  };
+});
+
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {

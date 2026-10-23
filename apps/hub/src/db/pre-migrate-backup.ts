@@ -19,6 +19,7 @@ export function makePreMigrateBackup(o: {
     const iv = o.secrets.bytes(12);
     try {
       await o.db.backup(plain);
+      fs.chmodSync(plain, 0o600);
       try {
         await encryptFile(plain, join(o.config.backup_dir, `${base}.enc`), key, iv);
       } catch {
