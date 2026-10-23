@@ -167,3 +167,8 @@ The IP case raises `pin_max_failures` to 100 so the staff lock at 5 does not hid
 ## Task 35c — issue-admin-bootstrap CLI
 Commit `e71193a`. Tests: `[00 §10 #127]` an expired setup token, a CLI link that opens an admin session, the old link `401 PAIRING_TOKEN_INVALID`, a later run expires the previous CLI token, `AdminBootstrapTokenIssued { issued_by: 'cli' }`, while a TestHub holds the same file open; `[00 §6.34]` unprovisioned throws `run setup instead`, and another uid throws with no event. Full suite 186/186.
 `runIssueAdminBootstrap` loads config, checks the uid against `data_dir`, opens `hub.sqlite` with no migrations, and builds a branch clock from the max-seq `recorded_at`. It registers `access_reconcile`, then `issueAdminBootstrap(tx, 'cli')`. Output is the URL, the ISO expiry, and a terminal QR. `qrcode@1.5.4` was already a hub dependency. The script is `tsx src/setup/issue-admin-bootstrap.ts`.
+
+## Task 36 — GenerateDevicePairingToken
+Commit `32d9ccc`. Follow-up `e2101d4` sets `DevicePairingTokenGenerated.stream_id` to the pairing token id. Tests: `[00 §10 #28]` tablet token, `kds` and `cashier_kiosk` are 400, a denied `manage-devices` is 403, retransmit returns the same token; `[00 §10 #80]` phone without an owner is 400, an unknown owner is 404, the token row stores `owner_staff_id`; `[00 §3.1 M31]` `stationExists` is false until `registerStationValidator`. Full suite 189/189 before the stream-id assertion; the pairing-token file passed after `e2101d4`.
+Ruling: `#80`'s device row is written by `POST /devices/pair` (task 37). This test checks the token row that pairing copies. `owner_staff_id` is any non-empty string because the fixture staff ids are not ULIDs. The plaintext token is base64url of 32 bytes.
+
