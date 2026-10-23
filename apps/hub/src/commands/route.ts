@@ -35,8 +35,17 @@ class IdempotentReplay extends Error {
   }
 }
 
+const commandRegistries = new WeakMap<FastifyInstance, ReturnType<typeof createCommandRegistry>>();
+
+export function commandRegistry(app: FastifyInstance): ReturnType<typeof createCommandRegistry> {
+  const registry = commandRegistries.get(app);
+  if (registry === undefined) throw new Error('command routes are not registered');
+  return registry;
+}
+
 export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDeps): void {
   const registry = createCommandRegistry();
+  commandRegistries.set(app, registry);
   registerTestCommands(registry);
   app.post(
     '/commands/:name',

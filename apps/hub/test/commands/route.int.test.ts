@@ -1,6 +1,9 @@
 import type { DirectoryInput } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { activity } from '../../src/auth/session-store';
+import { commandRegistry } from '../../src/commands/route';
+import { defineCommand } from '../../src/commands/registry';
 import { payloadHash } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -195,6 +198,32 @@ describe('command route', () => {
     expect(hub.deps.state.get()).toBe(state);
     expect(hub.published.length).toBe(published);
     expect(counts(hub)).toEqual(before);
+  });
+
+  it('[00 §6.1] a command registered on the live registry is served', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const { device, session } = await staff(hub, 'S_CASH');
+    commandRegistry(hub.app).register(
+      defineCommand({
+        commandType: 'TestLate',
+        payloadSchema: z.object({}),
+        sessionKind: 'device',
+        permission: 'reprint-ticket',
+        handle(_ctx, _payload, cmd) {
+          return { events: [], result: { command_id: cmd.command_id } };
+        },
+      }),
+    );
+    const response = await post(hub, {
+      name: 'test-late',
+      commandType: 'TestLate',
+      device,
+      session,
+      actorId: 'S_CASH',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.result).toEqual({ command_id: 'cmd-test-late' });
   });
 });
 
