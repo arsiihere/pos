@@ -47,3 +47,7 @@ Commit `a7ceb76`. Tests: `[F §6.8]` pending files and checksums; applied-file c
 ## Task 11 — encrypted pre-migration backup
 Commit `04c7ea0`. Tests: `[00 §10 #64]` encrypted backup decrypts to the old `user_version`; `[00 §10 #124]` missing `backup_dir` falls back to `data_dir`, both unwritable throws and no migration is applied; `[00 §10 #111]` leftover `pre-migrate-*.sqlite` deleted, `.enc` kept; `[00 §3.8]` unprovisioned skips the backup and migrations still run. Full suite 42/42.
 No-op when unprovisioned or `backup_encryption_key` is absent. Plaintext is `db.backup()` under `data_dir`, then `encryptFile` to `backup_dir` (any failure falls back to `data_dir`). The plaintext is unlinked in `finally`. `deleteLeftoverPlaintext` returns sorted absolute paths matching `pre-migrate-*.sqlite` exactly.
+
+## Task 12 — migration 0001 event store
+Commit `8326b38`. Tests: `[00 §10 #62]` UPDATE and DELETE raise `events are immutable` and the row stays; `[00 §5.1]` `processed_commands` requires `device_id`, `command_type`, `payload_hash` (`session_id` may be null); `[F §4.1]` `(branch_id, seq)` is unique and the same `seq` is allowed on another branch. Full suite 45/45.
+`0001_event_store.sql` is the foundation `events` table, indexes and immutability triggers, `sync_cursor`, `hub_heartbeat`, the spec 00 `processed_commands` shape, and `projection_checkpoints`. `freshDb()` opens a temp database and deletes the directory on cleanup.
