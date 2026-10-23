@@ -215,12 +215,14 @@ describe('applyStaffDirectory', () => {
     expect(writer.run((tx) => applyStaffDirectory(tx, dir(2, hash, [], ['S1']), () => undefined)).result).toEqual({
       applied: true,
     });
-    expect(writer.run((tx) => applyStaffDirectory(tx, dir(2, hash, [], ['S1']), () => undefined)).result).toEqual({
-      applied: false,
-    });
-    expect(writer.run((tx) => applyStaffDirectory(tx, dir(1, hash, [], ['S1']), () => undefined)).result).toEqual({
-      applied: false,
-    });
+    const replay = dir(2, hash, [], ['S1']);
+    replay.staff[0]!.display_name = 'Changed';
+    replay.staff.push({ staff_id: 'S_EXTRA', display_name: 'Extra', pin_hash: hash, role_ids: ['R1'], denied_permissions: [] });
+    expect(writer.run((tx) => applyStaffDirectory(tx, replay, () => undefined)).result).toEqual({ applied: false });
+    const older = dir(1, hash, [], ['S_OTHER']);
+    older.staff[0]!.display_name = 'Older';
+    expect(writer.run((tx) => applyStaffDirectory(tx, older, () => undefined)).result).toEqual({ applied: false });
+    expect(db.prepare('SELECT staff_id, display_name FROM staff').all()).toEqual([{ staff_id: 'S1', display_name: 'S1' }]);
     expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied')).toHaveLength(1);
     expect(db.prepare('SELECT directory_version FROM staff_directory_meta').pluck().get()).toBe(2);
     writer.run((tx) => applyStaffDirectory(tx, dir(3, hash, [], ['S1']), () => undefined));
