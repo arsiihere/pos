@@ -22,7 +22,7 @@ describe('hub server', () => {
   it('[F §6.1] DomainError becomes the error envelope and catalogue status', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
-    hub.app.get('/boom', () => {
+    hub.app.get('/boom', { config: { group: 'health' } }, () => {
       throw new DomainError('PERMISSION_DENIED', { permission: 'reprint-ticket' });
     });
     const res = await hub.app.inject({ method: 'GET', url: '/boom' });
@@ -39,7 +39,7 @@ describe('hub server', () => {
   it('[F §6.1] an unknown error becomes INTERNAL_ERROR without a stack', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
-    hub.app.get('/explode', () => {
+    hub.app.get('/explode', { config: { group: 'health' } }, () => {
       throw new Error('top-secret-stack');
     });
     const res = await hub.app.inject({ method: 'GET', url: '/explode' });
@@ -75,7 +75,7 @@ describe('hub server', () => {
     cleanups.push(() => hub.close());
     hub.app.withTypeProvider<ZodTypeProvider>().post(
       '/check',
-      { schema: { body: z.object({ qty: z.number().int() }) } },
+      { config: { group: 'health' }, schema: { body: z.object({ qty: z.number().int() }) } },
       () => ({ data: { ok: true } }),
     );
     const res = await hub.app.inject({
@@ -96,7 +96,7 @@ describe('hub server', () => {
   it('[00 §7.2] secret headers are redacted in logs', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
-    hub.app.get('/echo-auth', (req) => ({ data: { authorization: req.headers.authorization } }));
+    hub.app.get('/echo-auth', { config: { group: 'health' } }, (req) => ({ data: { authorization: req.headers.authorization } }));
     const res = await hub.app.inject({ method: 'GET', url: '/echo-auth', headers: { ...SECRET_HEADERS } });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.authorization).toBe(SECRET_HEADERS.authorization);

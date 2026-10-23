@@ -10,6 +10,7 @@ import type { Writer } from './engine-host/writer.js';
 import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
+import { attachRouteGuards } from './auth/guards.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 
 const SECRET_HEADERS = [
@@ -108,6 +109,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     return reply.status(500).send(errorBody('INTERNAL_ERROR', 'INTERNAL_ERROR', {}, requestId));
   });
 
+  attachRouteGuards(app, { config: deps.config, ownIPv4: deps.ownIPv4 });
   return app;
 }
 
