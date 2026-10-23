@@ -51,6 +51,8 @@ describe('first-admin bootstrap', () => {
     expect(page.body).toContain('location.hash');
     expect(page.body).toContain('history.replaceState');
     expect(page.body).toContain('X-Admin-Bootstrap');
+    expect(page.body).toContain("sessionStorage.setItem('admin_session_token'");
+    expect(page.body).not.toContain('localStorage');
     expect(page.body).not.toContain('?t=');
     expect(page.body).not.toContain('location.search');
   });

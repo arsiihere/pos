@@ -30,6 +30,9 @@ document.getElementById('login').addEventListener('submit', (event) => {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ bootstrap_token: token, staff_id: form.get('staff_id'), pin: form.get('pin') }),
+  }).then(async (res) => {
+    const body = await res.json();
+    if (res.status === 200) sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
   });
 });
 </script>
