@@ -1,7 +1,6 @@
 /// <reference types="node" />
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
-import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
 import '@pos/events';
@@ -57,6 +56,7 @@ export interface BootOptions {
   monoNow: () => number;
   listen?: boolean;
   ifaces?: string[];
+  logStream?: NodeJS.WritableStream;
 }
 
 export interface BootHandle {
@@ -87,7 +87,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     readDb = openReadOnly(join(config.data_dir, 'hub.sqlite'));
     const provisioned = isProvisioned(config) ? config.provisioned : undefined;
     if (provisioned === undefined) {
-      const deps = createDeps(config, db, readDb, wallClock(opts.wallNow, opts.monoNow), opts.ifaces);
+      const deps = createDeps(config, db, readDb, wallClock(opts.wallNow, opts.monoNow), opts.ifaces, opts.logStream);
       const app = Fastify({ logger: false, genReqId: () => deps.ids.next() });
       const allowHost = createHostMatcher({
         port: config.http_port,
@@ -126,7 +126,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       row === undefined
         ? { clock: wallClock(opts.wallNow, opts.monoNow), alarm: null }
         : createBranchClock({ wallNow: opts.wallNow, monoNow: opts.monoNow, lastRecordedAt: row.recorded_at });
-    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces);
+    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream);
     if (opened.alarm !== null) {
       const alarm = opened.alarm;
       deps.writer.run((tx) => {
@@ -262,6 +262,7 @@ function createDeps(
   readDb: Database.Database,
   clock: Clock,
   ifaces: string[] | undefined,
+  logStream: NodeJS.WritableStream | undefined,
 ): HubDeps {
   const provisioned = config.provisioned;
   const state = createStateHolder<unknown>({});
@@ -291,7 +292,7 @@ function createDeps(
     projections,
     authGeneration,
     ownIPv4: ifaces ?? localIPv4(),
-    logStream: discardLog(),
+    logStream: logStream ?? process.stdout,
   };
   return deps;
 }
@@ -304,12 +305,4 @@ function localIPv4(): string[] {
     }
   }
   return found;
-}
-
-function discardLog(): Writable {
-  return new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  });
 }

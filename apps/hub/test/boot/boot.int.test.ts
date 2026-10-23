@@ -1,8 +1,9 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfigError } from '../../src/config/schema';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
@@ -91,6 +92,28 @@ describe('boot', () => {
     );
   });
 
+  it('[00 §6.28] a confirm failure is logged and the branch api key is not', async () => {
+    const chunks: Buffer[] = [];
+    const logStream = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    });
+    const cfg = writeConfig({ provisioned: true, cloudBaseUrl: 'http://127.0.0.1:1' });
+    const booted = await boot({
+      configPath: cfg.path,
+      wallNow: () => WALL,
+      monoNow: () => 0,
+      logStream,
+    });
+    cleanups.push(() => booted.stop(), cfg.cleanup);
+    await vi.waitFor(() => {
+      expect(Buffer.concat(chunks).toString('utf8')).toContain('hub confirm failed');
+    });
+    expect(Buffer.concat(chunks).toString('utf8')).not.toContain('test-branch-api-key');
+  });
+
   it('[00 §3.10] invalid config → boot rejects with ConfigError', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pos-boot-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -100,7 +123,7 @@ describe('boot', () => {
   });
 });
 
-function writeConfig(o: { provisioned: boolean }): { path: string; dataDir: string; cleanup: () => void } {
+function writeConfig(o: { provisioned: boolean; cloudBaseUrl?: string }): { path: string; dataDir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'pos-boot-'));
   const dataDir = join(dir, 'data');
   const backupDir = join(dir, 'backup');
@@ -108,7 +131,7 @@ function writeConfig(o: { provisioned: boolean }): { path: string; dataDir: stri
   mkdirSync(backupDir);
   const path = join(dir, 'config.json');
   const body: Record<string, unknown> = {
-    cloud_base_url: 'https://cloud.example',
+    cloud_base_url: o.cloudBaseUrl ?? 'https://cloud.example',
     http_port: 3000,
     data_dir: dataDir,
     backup_dir: backupDir,
