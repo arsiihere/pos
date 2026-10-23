@@ -45,8 +45,9 @@ describe('GenerateDevicePairingToken', () => {
       expires_at: result.expires_at,
     });
     const event = hub.deps.db
-      .prepare(`SELECT payload FROM events WHERE event_type = 'DevicePairingTokenGenerated'`)
-      .get() as { payload: string };
+      .prepare(`SELECT stream_id, payload FROM events WHERE event_type = 'DevicePairingTokenGenerated'`)
+      .get() as { stream_id: string; payload: string };
+    expect(event.stream_id).toBe(result.pairing_token_id);
     expect(JSON.parse(event.payload)).toMatchObject({
       pairing_token_id: result.pairing_token_id,
       device_type: 'tablet',

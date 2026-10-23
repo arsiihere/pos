@@ -59,7 +59,7 @@ export function registerGenerateDevicePairingToken(app: FastifyInstance): void {
           events: [
             {
               stream_type: 'hub',
-              stream_id: ctx.branch.branchId,
+              stream_id: pairingTokenId,
               event_type: 'DevicePairingTokenGenerated',
               schema_version: 1,
               payload: {
