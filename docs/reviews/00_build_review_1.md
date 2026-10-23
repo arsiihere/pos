@@ -1,76 +1,65 @@
-# Build review 1 — module 00 tasks 1–5c
+# Build review 1 — module 00 tasks 1–10
 
 | Field | Value |
 |---|---|
-| Range | `f03c730` (plan commit, excluded) .. `a67ed30` |
-| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) and foundation §4.1, §6.2, §6.5–§6.7 where those tasks cite it |
-| Plan | `docs/plans/00-plan.md` tasks 1, 2, 3, 4, 5, 5b, 5c |
-| Done per `docs/reviews/build-log.md` | tasks 2, 3, 4, 5, 5b, 5c. Task 1 is commit `4abf807` and is in range. |
+| Range | `f03c730` (plan commit, excluded) .. `2b38dfa` |
+| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) and foundation §4.1, §4.7, §6.2, §6.5–§6.8 where those tasks cite it |
+| Plan | `docs/plans/00-plan.md` tasks 1, 2, 3, 4, 5, 5b, 5c, 6, 7, 8, 9, 10 |
+| Done per `docs/reviews/build-log.md` | tasks 2, 3, 4, 5, 5b, 5c, 6, 7, 8, 9, 10. Task 1 is commit `4abf807` and is in range. |
 | Date | 2026-10-23 |
-| Verdict | Fix the list below before task 6. Task 6 is not allowed to edit `eslint.config.js`. |
+| Verdict | Fix the list below before task 11. |
 
-Checked: spec deviations in the shared packages, §10 test numbering, tests that do not actually check the case they name, files outside each task's file list, secrets in logs, and contracts later tasks import.
+Checked: spec deviations, §10 test numbering (each number exactly once), tests that do not lock the case they name, files outside each task's file list, secrets in logs, and contracts later tasks import.
+
+The previous copy of this file (commit `7b39935`) reviewed tasks 1–5c. Those four items are fixed and are not reopened: `a431a56` (randomUUID / ulid lint), `b85ea82` (upcast `schema_version`), `ec251f1` (qrcode subpath), `5529476` (permission names). This pass re-reads that range and reviews tasks 6–10.
 
 ## What matches
 
-- `ErrorCatalogue` is the task 2 list, including reserved `LOGIN_LOCKED_OUT` 429. Statuses match spec §9 for the codes that test names.
-- `PERMISSIONS` is the E6 AC2 list, then `manage-devices`, then `access-hub-admin` (19 names). `assertKnownPermissions` throws `Error` and names the first unknown.
-- `[00 §10 #74]` is the only `[00 §10 #n]` test in the repo, and it appears once. Numbers owned by tasks 6+ are not due yet.
-- The 14 event payloads match spec §4.2, including `issued_by`, `credentials_changed_staff_ids`, `skipped`, `pair_request_id`, and the DevicePaired exactly-one source id. `HubProvisioned` has no `setup_attempt_id`. `SessionEndReason` includes `credentials_changed` and `hub_restored`.
-- `DirectorySchema`, `WsClientMessage` / `WsServerMessage`, and `WS_CLOSE` (4401, 4403, 4426, 1012) match the plan and foundation §6.5. The pushed `event` frame is the reduced shape.
-- No `console.log` or other logger. Payloads carry token ids, not PIN, password, or token secrets.
-- Task commits stay inside each task's file list, except the lockfile notes under Declined.
+- `ErrorCatalogue` is the task 2 list, including reserved `LOGIN_LOCKED_OUT` 429. Statuses match spec §9 for the codes that test names. `PERMISSIONS` is the 19 names in order. `[00 §10 #74]`, `[00 §10 #65]`, and `[00 §10 #122]` each appear once. Later §10 numbers are not due yet.
+- The 14 event payloads match spec §4.2, including `issued_by` and DevicePaired's exactly-one source id. `DirectorySchema`, `WsClientMessage` / `WsServerMessage`, and `WS_CLOSE` match the plan. `parseEvent` upcast sets `schema_version`, and the tests now check it.
+- No `console.log` or other logger. Config failures for a bad `backup_encryption_key` use the message `expected 32 bytes` and the field name; the key string is not in the `ZodError` message. Event payloads carry token ids, not PIN, password, or token secrets.
+- `createBranchClock` alarms when `wall <= lastRecordedAt`, with `delta_ms = wall − last`, and starts at `last + 1`. `payloadHash` sorts keys recursively. The guest matcher accepts `::ffff:192.168.20.7`. The host matcher lowercases and strips one trailing dot. Semaphore handoff is FIFO. `encryptFile` / `decryptFile` are `POSENC1\n` ‖ 12-byte IV ‖ ciphertext ‖ 16-byte tag, and a bad tag leaves neither output path. Config defaults, field names, mode `0600`, and the rename-crash case match §3.10. `openDb` sets WAL, `synchronous=FULL`, foreign keys, and `busy_timeout=5000`. The runner checksums raw bytes, skips backup when `user_version` is 0, rolls a failed file back, and honours `-- migrate:foreign-keys-off`.
 
 ## Declined
 
-- `pnpm-lock.yaml` in `4abf807` and `8f22dde`. `pnpm install` writes it for dependencies the task's `package.json` adds. Not a behavior change.
-- Doc commits `7e3ae75` and `98752c2` edit specs, the plan, README, and reviews. Those are the human doc updates, not implementation defects.
-- Build-log commits only touch `docs/reviews/build-log.md`.
-- The `**/db/client` import ban is in task 1, ahead of task 28. It matches the later rule and does not change an export task 6 imports.
-- `payloadSchema` returns `z.ZodType`. Zod 4 removed `ZodTypeAny`, which is what the plan text says. The code matches the library. Later tasks should copy `z.ZodType`. No spec change.
-- Payload enums are copied beside `@pos/domain` instead of derived from it. The values match `SessionEndReason`, `DeviceType`, `GrantType`, and `LockoutSubject` today.
-- Envelope ids are `z.string()`, as foundation §4.1 writes them. Event schemas do not constrain `stream_type`; task 5 says not to. Directory `pin_hash` and `permission` stay plain strings so the hub can apply M52.
-- `staff_count`, `role_count`, and `delta_ms` are unbounded ints. The plan only bounds `directory_version` and `session_idle_ttl_ms`. `delta_ms` must be allowed to be negative for task 6.
-- `ORDER_NOT_FOUND` and `TABLE_NOT_FOUND` are absent. Foundation §6.2 gives them as examples of later module codes.
-- `packages/events/testing` is outside the events `tsconfig` `include`. Vitest still runs `builders.test.ts`. No type error in the builders.
-- `passWithNoTests` remains on the events project. The tests are collected (16 tests after task 5c). Hub and cloud still have no tests, so their flag stays.
-- A Zod failure can echo input inside a `ZodError`. Nothing in these packages logs it, and these payloads do not carry secrets.
-- `ULID_RE` is `/^[0-9A-HJKMNP-TV-Z]{26}$/`, which is Crockford and rejects `I`, `L`, `O`, and `U`. The test only shows `I`. The regex is the contract; a second example would not change it.
-- Builder time `1_761_000_000_000` and fixture time `1761000000000` differ. Nothing requires them to match.
-- Tasks 5b and 5c did not rewrite payloads. Tasks 2–5 were already written from this plan, so the v0.6 and v1.0 shapes were already present. 5c's new test and the lint rule are the real delta.
+- `pnpm-lock.yaml` and the hub `package.json` dependency lines in tasks 4, 6, 9, and 10. Those tasks call `ulid`, `zod`, and `better-sqlite3`, which the plan pins and which are not yet in the hub package. `@types/node` and `@types/better-sqlite3` are dev-only. Not a behavior change.
+- Doc commits `7e3ae75` and `98752c2`, and the build-log commits. Human doc updates, not implementation defects.
+- `payloadSchema` returns `z.ZodType`. Zod 4 removed `ZodTypeAny`. Later tasks should copy `z.ZodType`.
+- Payload enums are copied beside `@pos/domain`. The values match today.
+- `canonicalJson` turns an own `undefined` value into `null`, while `JSON.stringify` omits that key. Command and event payloads are parsed JSON or Zod output, which do not contain `undefined`.
+- `monotonicFactory` treats seed `0` as missing and calls `Date.now()`. `createBranchClock` with `lastRecordedAt >= 0` never returns 0 (`bootWall` is at least `last + 1`).
+- `listOwnIPv4` is untested. On Node 22 `family` is the string `'IPv4'`, and a fake iface map returns only the non-internal IPv4. The plan does not name a test.
+- Uppercase `::FFFF:` is not treated as IPv4-mapped. Node's `remoteAddress` and the review-focus example are lowercase. A non-match fails closed for the guest check only if some other layer uppercases the address; nothing in this module does.
+- Empty `guest_network_cidrs` parses. M58's "at least one CIDR" is the setup endpoint (task 33, #105), and the plan marks the config field optional.
+- Encrypted files are created with mode `0o600`, which the kernel masks with the umask, and §7.9 does not require `0600` or a directory fsync. Config writes do chmod and directory fsync, which §3.10 requires.
+- `chmodSync` sits outside the rename `try`. A successful `writeFileSync` followed by a throwing `chmod` would leave `.tmp`. That is not the #122 crash (rename), and a read-only directory already fails the write, which does delete `.tmp`.
+- Backup is not invoked when the callback throws, so later files are not applied. Task 11 owns that test (#124). The runner already awaits `backup` before the apply loop.
+- `06` decrypts with `decryptFile`, not a second decoder. The #65 test checks the magic and a tag failure. A self-consistent layout bug would still have to pass that tag check.
 
 ## Fix list
 
-### 1. Determinism lint does not ban `crypto.randomUUID()` or `ulid()`
+### 1. `branchNow` can be a fractional millisecond
 
-- **Where:** `eslint.config.js` `forbiddenCalls` (the `Date.now` / `performance.now` / `Math.random` selectors only). Task 1, commit `4abf807`. Still missing after task 5c edited this file.
-- **What's wrong:** Task 1 step 3 requires `no-restricted-syntax` for `crypto.randomUUID` as well. Global Constraints also forbid a direct `ulid()` call outside the listed exception files. A named import (`import { randomUUID } from 'node:crypto'` then `randomUUID()`, or `ulid()` from the `ulid` package) is not a `crypto.randomUUID` member call, so a member selector alone would miss it.
-- **Why it matters:** This lint is the only mechanical guard. Task 6 adds id and secret generation and its file list does not include `eslint.config.js`, so the hole stays open. `hash.ts` or a route can call `crypto.randomUUID()` or `ulid()` and `pnpm lint` still passes. The exception list already turns the rule off for `clock.ts`, `ids.ts`, `secrets.ts`, `main.ts`, the cloud CLI, `issue-admin-bootstrap.ts`, and tests, but that switch does nothing for calls that are not banned.
-- **Fix:** Add selectors for a callee property named `randomUUID`, a callee named `randomUUID`, and a callee named `ulid`, with the same Clock / IdGen / SecretGen messages. Leave the existing off-switch for the exception files.
+- **Where:** `apps/hub/src/lib/clock.ts` `branchNow` (`bootWall + (monoNow() - bootMono)`). Task 6, commit `a4b4482`. The test in `clock.test.ts` only advances `monoNow` by whole milliseconds.
+- **What's wrong:** `performance.now()` is fractional. A boot clock whose mono reading moves by `0.4` returns `….4`. `ulid` 3.0.2 `encodeTime` throws `Time must be an integer` on that value, so `ulidGen` throws. `recorded_at` and `occurred_at` are `z.number().int()` (foundation §4.1, §6.6).
+- **Why it matters:** Task 13 stamps `recorded_at` from `branchNow`, and every id goes through `ulidGen(clock)`. The first id after a fractional tick fails, and an event with a fractional `recorded_at` fails the envelope. The current test stays green.
+- **Fix:** `Math.floor` the sum in `branchNow`. In the existing `[F §4.7] branchNow never jumps with the wall clock` test, advance mono by a fraction and expect the floored integer. Then `ulidGen` on that clock must return a ULID.
 - **Spec change:** no.
 
-### 2. Upcast tests never check `schema_version`
+### 2. The backup test never has two pending files
 
-- **Where:** `packages/events/src/codecs.test.ts` (`[F §4.1, D46] parseEvent upcasts v1 to latest` asserts only `{ a: 1, b: 'x' }`). `packages/events/src/fixtures.test.ts` compares `parseEvent(v1).payload` to `.latest.json` and ignores the rest of that file. Task 4, commit `8f22dde`; fixtures in task 5, commit `e42d842`.
-- **What's wrong:** `parseEvent` does set `schema_version` to the latest version (`packages/events/src/codecs.ts`). The tests still pass if that assignment is removed, or if a `.latest.json` claims a different `schema_version` than the parsed event.
-- **Why it matters:** Replay and sync treat `schema_version` as the payload version (D46). A v2 payload left marked v1 is the bug this test exists to catch. The 14 real fixtures are still v1, so only the codec test actually walks an upcaster.
-- **Fix:** Expect `schema_version` 2 on the parsed test event. Expect `parseEvent(v1)` to deep-equal the whole `.latest.json` fixture.
+- **Where:** `apps/hub/test/db/migrate.int.test.ts`, `[F §6.8] calls backup once before the first pending file when user_version > 0`. Task 10, commit `a7ceb76`.
+- **What's wrong:** After `user_version` is 1 the test adds only `0002_b.sql` and expects `[[1, 2]]`. A runner that calls `backup` inside the per-file loop still passes. The implementation calls it once with the last pending version (`migrate.ts`, before the apply loop). The test does not lock that.
+- **Why it matters:** Foundation §6.8 copies the database once before the first pending file. Task 11 names that one file `pre-migrate-<from>-<to>`. A per-file callback writes one backup per file and the task 11 tests can still pass if they only add one migration.
+- **Fix:** In that same test, add `0002` and `0003` in one run and expect a single call `[1, 3]`.
 - **Spec change:** no.
 
-### 3. `qrcode` ban is the exact package name only
+### 3. Applied checksums are not required to be SHA-256
 
-- **Where:** `eslint.config.js` `qrcodeImports` (`paths: [{ name: 'qrcode' }]`). Task 5c, commit `64f5321`.
-- **What's wrong:** `paths[].name` matches `import … from 'qrcode'` and not `qrcode/lib/…`. The allowlist for `issue-admin-bootstrap.ts` and `lib/qr.ts` is the right idea; those files replace the rule and may import the package.
-- **Why it matters:** M77 is one library, imported only from those two files. A deep import elsewhere passes `pnpm lint`. Later QR tasks do not edit this file.
-- **Fix:** Restrict `qrcode`, `qrcode/*`, and `qrcode/**` on the base rule and on the cloud `db/` override. Keep the two allowlisted files on the db-client-only override so they can still import it. Do not spread a `patterns` object over the db-client `patterns` array; that would drop the db-client ban.
-- **Spec change:** no.
-
-### 4. The permission tests do not lock the catalogue or the first unknown name
-
-- **Where:** `packages/domain/src/permissions.test.ts`. Task 3, commit `96129e3`.
-- **What's wrong:** `[00 §3.6]` checks `PERMISSIONS.length === 19` and that the set has 19 entries. Any 19 strings pass. `[00 §10 #74]` uses one unknown name, so it does not show that `assertKnownPermissions` names the first unknown when several are declared. The implementation list is the right E6 list; the tests would not notice a rename.
-- **Why it matters:** Later commands and the seed roles import these strings. A renamed permission fails at runtime in task 22+, and this unit test stays green. Spec §3.6 says a unit test fails if a command declares a permission not in the catalogue; #74 is that test and must keep its name. There is still exactly one `[00 §10 #74]`.
-- **Fix:** In the existing `[00 §3.6]` test, expect the exact 19 names in order. In the existing `[00 §10 #74]` test, declare two unknowns and expect the message to name the first and not the second.
+- **Where:** `apps/hub/test/db/migrate.int.test.ts`, `[F §6.8] applies pending files and records checksums`. The assertion selects `version, name, applied_at` and omits `checksum`.
+- **What's wrong:** The second run proves the stored string still matches whatever function both sides use. Replacing `sha256hex` with another stable hash of the bytes keeps both tests green. Foundation §6.8 says SHA-256. The runner does use `sha256hex` of the raw file bytes.
+- **Why it matters:** Task 11's restore compares that column only by "the file changed". A wrong algorithm is stored on every hub that boots, and a later correct checker refuses to start.
+- **Fix:** In that same test, expect `checksum` to equal `sha256hex` of each fixture file's bytes.
 - **Spec change:** no.
 
 ## Needs spec change
