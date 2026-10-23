@@ -93,9 +93,11 @@ export function endSession(
 ): void {
   if (s.ended_at !== null) return;
   const now = tx.clock.branchNow();
-  tx.db
+  const updated = tx.db
     .prepare('UPDATE staff_sessions SET ended_at = ?, end_reason = ?, ended_by = ? WHERE session_id = ? AND ended_at IS NULL')
     .run(now, reason, endedBy, s.session_id);
+  if (updated.changes === 0) return;
+  s.ended_at = now;
   activity.forget(s.session_id);
   tx.append([
     {
