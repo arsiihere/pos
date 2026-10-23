@@ -67,3 +67,7 @@ After COMMIT, in order: `state.swap`, `lastSeq`, one `authGeneration.bump` if an
 ## Task 16 — Fastify server, error handler, request id, redaction
 Commit `0fc5173`. Tests: `[F §6.1]` DomainError envelope and catalogue status; unknown error `INTERNAL_ERROR` without the stack; unknown route `ROUTE_NOT_FOUND`; `[00 §7.2]` Zod `VALIDATION_FAILED` with `issues`; secret headers redacted and the handler still sees them. Full suite 64/64.
 `fastify@5.12.7` and `fastify-type-provider-zod@7.0.0` added to `@pos/hub` (not in the file list). `request_id` is `ids.next()` via `LogController`. Header redaction copies headers in the request serializer so the live request stays intact; pino redact covers the body field names. `createTestHub` does not call `ready()`, so tests can register routes first. Default `Host` is `192.168.10.2:3000`.
+
+## Task 17 — Migrations 0002 and 0003
+Commit `508d917`. Tests: `[00 §5.1]` a second active staff or station session on one device violates the unique index; an ended session does not; an admin session does not occupy the slot; kds without a station and a phone without an owner are rejected; a station session with `staff_id` or `idle_ttl_ms` is rejected; a staff session without a device is rejected; an admin session without a device is allowed; `pairing_tokens` rejects `device_type 'kds'`. Full suite 68/68.
+SQL matches §5.1, including the `0003` directory cache.
