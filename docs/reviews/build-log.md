@@ -111,3 +111,7 @@ Ruling: `access_reconcile` is registered after the clock-alarm write. Registerin
 ## Task 26 — health, heartbeat, HubStarted
 Commit `61b9dc7`. Tests: `[00 §10 #14]` guest `/health` is 200 in booting, ready, and setup; `[00 §10 #108]` guest body is `{ status }` and a staff address gets the full body; `[00 §10 #71]` `hub_down_at` is null on first boot and the stored heartbeat after that; `[F §5.8, D41]` no beat before 60 s, then `clock.branchNow()` each interval. Full suite 124/124.
 `hub_version` is `0.0.0` (the fixture value; the hub package has no version). `missed_fires` is 0; missed fires belong to module 03a. `boot.int.test.ts` is outside the file list: `#66` now expects `HubStarted` after `ClockAlarm`, and the alarm assertion is still the second row.
+
+## Task 26b — boot budget on 1 M events
+Commit `c8ad97c`. Test: `[00 §10 #100]` boot of the cached 1 M-event fixture stays under 5 s; the clock alarm uses the max-`seq` row even when an earlier row has a later `recorded_at`; `events_replayed` is 0. Full suite 125/125.
+The fixture is `os.tmpdir()/pos-big-fixture-v1.sqlite`, copied per run, and skipped when `POS_SKIP_BIG=1`. The only projection 00 registers is `access_reconcile`, so that is the checkpoint written at `MAX(seq)`. A decoy `TestNooped` row at `seq = N + 1` with `recorded_at = 1` is inserted on the copy; replaying it would throw, so a green boot is the "not replayed" check.
