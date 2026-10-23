@@ -16,6 +16,7 @@ import { deleteLeftoverPlaintext, makePreMigrateBackup } from '../db/pre-migrate
 import { createAuthGeneration } from '../engine-host/auth-generation.js';
 import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
+import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, type HubDeps } from '../server.js';
 import { createBranchClock, type Clock } from './clock.js';
@@ -110,10 +111,13 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
         tx.append([draft]);
       });
     }
+    registerAccessReconcile({ projections: deps.projections, writer: deps.writer, clock: deps.clock });
     current = '4';
     deps.projections.catchUp(db, provisioned.branch_id);
     current = '4a';
     void StaffDirectory.load(db);
+    current = '4b';
+    restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
     current = '5';
     await runStep('5', ctx);
     current = '6';

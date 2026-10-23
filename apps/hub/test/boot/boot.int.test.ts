@@ -26,8 +26,15 @@ describe('boot', () => {
       `INSERT INTO events (
         event_id, tenant_id, branch_id, stream_type, stream_id, event_type,
         schema_version, payload, occurred_at, recorded_at, actor_id, device_id, seq
-      ) VALUES (?, ?, ?, 'hub', 'branch-1', 'Seeded', 1, '{}', ?, ?, NULL, 'hub', 1)`,
-    ).run('seed-1', 'tenant-a', 'branch-1', WALL, WALL);
+      ) VALUES (?, ?, ?, 'hub', 'branch-1', 'HubProvisioned', 1, ?, ?, ?, NULL, 'hub', 1)`,
+    ).run(
+      'seed-1',
+      'tenant-a',
+      'branch-1',
+      JSON.stringify({ tenant_id: 'tenant-a', branch_id: 'branch-1', hub_version: '0' }),
+      WALL,
+      WALL,
+    );
     db.close();
     const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0 });
     cleanups.push(() => booted.stop(), cfg.cleanup);
@@ -35,7 +42,7 @@ describe('boot', () => {
     const rows = booted.deps.db
       .prepare('SELECT event_type, payload FROM events WHERE branch_id = ? ORDER BY seq')
       .all('branch-1') as Array<{ event_type: string; payload: string }>;
-    expect(rows.map((row) => row.event_type)).toEqual(['Seeded', 'ClockAlarm']);
+    expect(rows.map((row) => row.event_type)).toEqual(['HubProvisioned', 'ClockAlarm']);
     expect(JSON.parse(rows[1]!.payload)).toMatchObject({
       source: 'boot',
       wall_ms: WALL,
