@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { readdirSync, unlinkSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { type HubConfig, isProvisioned } from '../config/schema.js';
@@ -26,9 +26,10 @@ export function makePreMigrateBackup(o: {
       }
     } finally {
       try {
-        unlinkSync(plain);
-      } catch {
-        // Plaintext was never created, or already removed.
+        fs.unlinkSync(plain);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') throw error;
       }
     }
   };
@@ -38,10 +39,10 @@ const PLAINTEXT = /^pre-migrate-.+\.sqlite$/;
 
 export function deleteLeftoverPlaintext(dataDir: string): string[] {
   const removed: string[] = [];
-  for (const name of readdirSync(dataDir)) {
+  for (const name of fs.readdirSync(dataDir)) {
     if (!PLAINTEXT.test(name)) continue;
     const path = join(dataDir, name);
-    unlinkSync(path);
+    fs.unlinkSync(path);
     removed.push(path);
   }
   removed.sort();

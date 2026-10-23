@@ -1,7 +1,24 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const unlinkState = vi.hoisted(() => ({ failPlaintext: false }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]) {
+      if (unlinkState.failPlaintext && String(path).endsWith('pre-migrate-1-2.sqlite')) {
+        const error = new Error('busy') as NodeJS.ErrnoException;
+        error.code = 'EBUSY';
+        throw error;
+      }
+      return actual.unlinkSync(path);
+    },
+  };
+});
 import { HubConfigSchema, type HubConfig } from '../../src/config/schema';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
@@ -116,6 +133,35 @@ describe('pre-migration backup', () => {
     expect(existsSync(join(dataDir, 'pre-migrate-1-2.sqlite'))).toBe(false);
     expect(existsSync(join(dataDir, 'pre-migrate-1-2.sqlite.enc'))).toBe(true);
     expect(existsSync(join(dataDir, 'hub.sqlite'))).toBe(true);
+  });
+
+  it('[00 §3.8] a failed plaintext delete aborts the migration', async () => {
+    const { dataDir, backupDir } = scratch(dirs);
+    const db = openDb(join(dataDir, 'hub.sqlite'));
+    const migrations = join(dataDir, 'migrations');
+    mkdirSync(migrations);
+    writeFileSync(join(migrations, '0001_a.sql'), 'CREATE TABLE marker (id INTEGER PRIMARY KEY);\n');
+    await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    writeFileSync(join(migrations, '0002_b.sql'), 'CREATE TABLE after_backup (id INTEGER PRIMARY KEY);\n');
+    unlinkState.failPlaintext = true;
+    try {
+      await expect(
+        runMigrations(db, {
+          dir: migrations,
+          clock: fixedClock(T),
+          backup: makePreMigrateBackup({
+            db,
+            config: config({ data_dir: dataDir, backup_dir: backupDir }),
+            secrets: testSecrets(),
+          }),
+        }),
+      ).rejects.toThrow(/busy/);
+      expect(db.pragma('user_version', { simple: true })).toBe(1);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'after_backup'").get()).toBeUndefined();
+    } finally {
+      unlinkState.failPlaintext = false;
+      db.close();
+    }
   });
 
   it('[00 §3.8] unprovisioned → no backup file, migrations still run', async () => {
