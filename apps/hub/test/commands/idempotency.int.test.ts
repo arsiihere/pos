@@ -42,6 +42,34 @@ describe('command idempotency', () => {
     expect(replay.headers['idempotent-replay']).toBe('true');
     expect(replay.json()).toEqual(first.json());
     expect(counts(hub)).toEqual(before);
+
+    const idle = await staff(hub, 'S_CASH', true);
+    const committed = await post(hub, { ...idle, commandId: 'cmd-3-idle' });
+    expect(committed.statusCode).toBe(200);
+    const ttl = hub.deps.db.prepare('SELECT idle_ttl_ms FROM staff_sessions WHERE session_id = ?').pluck().get(idle.session.sessionId) as number;
+    hub.clock.advance(ttl + 1);
+    const beforeIdle = counts(hub);
+    const idleReplay = await post(hub, { ...idle, commandId: 'cmd-3-idle' });
+    expect(idleReplay.statusCode).toBe(200);
+    expect(idleReplay.headers['idempotent-replay']).toBe('true');
+    expect(idleReplay.json()).toEqual(committed.json());
+    const tokenOnly = await post(hub, { ...idle, commandId: 'cmd-3-idle', omitSession: true });
+    expect(tokenOnly.statusCode).toBe(200);
+    expect(tokenOnly.headers['idempotent-replay']).toBe('true');
+    expect(tokenOnly.json()).toEqual(committed.json());
+    expect(counts(hub)).toEqual(beforeIdle);
+    expect(hub.deps.db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').pluck().get(idle.session.sessionId)).toBeNull();
+
+    const fresh = await staff(hub, 'S_CASH', true);
+    hub.clock.advance(ttl + 1);
+    const expired = await post(hub, { ...fresh, commandId: 'cmd-3-new' });
+    expect(expired.statusCode).toBe(401);
+    expect(expired.json().error.code).toBe('SESSION_EXPIRED');
+    expect(hub.deps.db.prepare('SELECT end_reason FROM staff_sessions WHERE session_id = ?').pluck().get(fresh.session.sessionId)).toBe(
+      'idle_timeout',
+    );
+    expect(sessionEnded(hub, fresh.session.sessionId)).toEqual([expect.objectContaining({ reason: 'idle_timeout' })]);
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM processed_commands WHERE command_id = ?').pluck().get('cmd-3-new')).toBe(0);
   });
 
   it('[00 §10 #4] a retransmit from another device is 400 and nothing is replayed', async () => {
@@ -255,6 +283,15 @@ function adminStaff(hub: TestHub, staffId: string) {
   return { device, session };
 }
 
+function sessionEnded(hub: TestHub, sessionId: string): Array<{ reason?: string }> {
+  const rows = hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'SessionEnded'`).all() as Array<{
+    payload: string;
+  }>;
+  return rows
+    .map((row) => JSON.parse(row.payload) as { session_id?: string; reason?: string })
+    .filter((payload) => payload.session_id === sessionId);
+}
+
 function counts(hub: TestHub): { events: number; commands: number } {
   return {
     events: hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number,
@@ -274,6 +311,7 @@ function post(
     payload?: Record<string, unknown>;
     deviceId?: string;
     url?: string;
+    omitSession?: boolean;
   },
 ) {
   const name = o.name ?? 'test-noop';
@@ -283,8 +321,9 @@ function post(
     url: o.url ?? `/commands/${name}`,
     headers: {
       authorization: `Bearer ${o.device.token}`,
-      'x-session-token': o.session.token,
-      'x-admin-session': o.session.token,
+      ...(o.omitSession === true
+        ? {}
+        : { 'x-session-token': o.session.token, 'x-admin-session': o.session.token }),
     },
     payload: {
       command_id: o.commandId,

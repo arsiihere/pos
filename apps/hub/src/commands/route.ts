@@ -6,7 +6,7 @@ import { z, type ZodError } from 'zod';
 import type { HubConfig } from '../config/schema.js';
 import type { AuthGeneration } from '../engine-host/auth-generation.js';
 import { currentDirectory } from '../auth/guards.js';
-import { activity, type SessionRow } from '../auth/session-store.js';
+import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
 import type { Writer, WriterTx } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
@@ -40,7 +40,7 @@ export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDe
   registerTestCommands(registry);
   app.post(
     '/commands/:name',
-    { config: { group: 'device-session', allowStation: true, allowEnded: true } },
+    { config: { group: 'device' } },
     async (request, reply) => runCommand(app, deps, registry, request, reply, 'device'),
   );
   app.post('/admin/commands/:name', { config: { group: 'admin' } }, async (request, reply) =>
@@ -61,18 +61,18 @@ async function runCommand(
   if (commandDef === undefined || commandDef.sessionKind !== routeKind) throw new DomainError('ROUTE_NOT_FOUND');
   const command = parseCommand(request.body);
   if (toKebab(command.command_type) !== name) invalid('command_type', 'command_type does not match the path');
-  const session = request.session;
-  if (session === undefined) throw new DomainError('SESSION_INVALID');
-  const deviceId = session.kind === 'admin' && session.device_id === null ? 'hub-admin' : request.device?.device_id;
+  const deviceId = commandDeviceId(request, routeKind);
   if (deviceId === undefined || command.device_id !== deviceId) invalid('device_id', 'device_id does not match the token');
   const provisioned = deps.config.provisioned;
   if (provisioned === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
   if (command.tenant_id !== provisioned.tenant_id || command.branch_id !== provisioned.branch_id) {
     throw new DomainError('BRANCH_MISMATCH');
   }
-  const early = decide(readStored(deps.db, command.command_id), command, deviceId, session, routeKind);
+  const early = decide(readStored(deps.db, command.command_id), command, deviceId, request.session, routeKind);
   if (early?.kind === 'replay') return sendReplay(reply, early.stored);
   if (early?.kind === 'conflict') throw commandIdUsed();
+  const session = routeKind === 'device' ? requireCommandSession(request, deps) : request.session;
+  if (session === undefined) throw new DomainError('SESSION_INVALID');
   if (session.ended_at !== null) throw new DomainError('SESSION_EXPIRED');
   const actorId = session.kind === 'station' ? null : session.staff_id;
   if (command.actor_id !== actorId) invalid('actor_id', 'actor_id does not match the session');
@@ -137,15 +137,41 @@ async function runCommand(
   }
 }
 
+function commandDeviceId(request: FastifyRequest, routeKind: 'device' | 'admin'): string | undefined {
+  if (routeKind === 'admin' && request.session?.kind === 'admin' && request.session.device_id === null) return 'hub-admin';
+  return request.device?.device_id;
+}
+
+function requireCommandSession(request: FastifyRequest, deps: CommandRouteDeps): SessionRow {
+  const token = headerValue(request, 'x-session-token');
+  const session = token === undefined ? undefined : findSessionByToken(deps.db, token);
+  if (session === undefined || session.device_id !== request.device?.device_id) throw new DomainError('SESSION_INVALID');
+  if (session.kind !== 'staff' && session.kind !== 'station') throw new DomainError('SESSION_INVALID');
+  if (session.ended_at !== null) throw new DomainError('SESSION_EXPIRED');
+  if (isIdleExpired(session, deps.clock.branchNow())) {
+    endIdle(deps, token!);
+    throw new DomainError('SESSION_EXPIRED');
+  }
+  return session;
+}
+
+function endIdle(deps: CommandRouteDeps, token: string): void {
+  deps.writer.run((tx) => {
+    const fresh = findSessionByToken(tx.db, token);
+    if (fresh === undefined || fresh.ended_at !== null) return;
+    endSession(tx, fresh, 'idle_timeout', null, null, fresh.device_id ?? 'hub');
+  });
+}
+
 function decide(
   row: StoredCommand | undefined,
   command: PosCommand,
   deviceId: string,
-  session: SessionRow,
+  session: SessionRow | undefined,
   routeKind: 'device' | 'admin',
 ): { kind: 'replay'; stored: { status: number; body: unknown } } | { kind: 'conflict' } | undefined {
   if (row === undefined) return undefined;
-  const identity = routeKind === 'admin' ? row.session_id === session.session_id : row.device_id === deviceId;
+  const identity = routeKind === 'admin' ? session !== undefined && row.session_id === session.session_id : row.device_id === deviceId;
   if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload)) {
     return { kind: 'replay', stored: JSON.parse(row.response_json) as { status: number; body: unknown } };
   }
@@ -319,6 +345,13 @@ function zodIssues(error: ZodError): Array<{ path: string; message: string }> {
 
 function invalid(path: string, message: string): never {
   throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message }] });
+}
+
+function headerValue(request: FastifyRequest, name: string): string | undefined {
+  const value = request.headers[name];
+  const first = Array.isArray(value) ? value[0] : value;
+  if (first === undefined || first.length === 0) return undefined;
+  return first;
 }
 
 function routeName(request: FastifyRequest): string {
