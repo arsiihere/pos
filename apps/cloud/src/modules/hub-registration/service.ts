@@ -41,7 +41,12 @@ export async function registerHub(
     if (row === null || !codeIsUsable(row, input.idempotencyKey, now)) {
       throw new DomainError('REGISTRATION_CODE_INVALID');
     }
-    if (!input.acceptedKinds.includes(row.kind)) throw new DomainError('REGISTRATION_CODE_KIND_UNSUPPORTED');
+    if (!input.acceptedKinds.includes(row.kind)) {
+      throw new DomainError('REGISTRATION_CODE_KIND_UNSUPPORTED', {
+        kind: row.kind,
+        accepted_kinds: input.acceptedKinds,
+      });
+    }
     await client.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
       row.tenant_id,
       row.branch_id,

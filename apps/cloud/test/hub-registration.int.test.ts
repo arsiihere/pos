@@ -150,6 +150,7 @@ describe('POST /v1/hubs/register', () => {
     const response = await register(issued.code, ulid(ids), ['new_branch']);
     expect(response.statusCode).toBe(422);
     expect(response.json().error.code).toBe('REGISTRATION_CODE_KIND_UNSUPPORTED');
+    expect(response.json().error.details).toEqual({ kind: 'replace_hub', accepted_kinds: ['new_branch'] });
     const row = await cloud.pool.query<{ consumed_at: string | null }>(
       `SELECT consumed_at FROM registration_codes WHERE code_hash = $1`,
       [sha256(issued.code.replace(/-/g, ''))],
