@@ -1,132 +1,96 @@
-# Build review 1 — module 00 tasks 16–20
+# Build review 1 — module 00 tasks 21–25
 
 | Field | Value |
 |---|---|
-| Range | `f03c730` (plan commit, excluded) .. `f191b8f` |
-| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) and foundation §4.1, §6.1, §6.2, §6.8 where those tasks cite it |
-| Plan | `docs/plans/00-plan.md` tasks 1–20, including 5b and 5c |
-| Done per `docs/reviews/build-log.md` | tasks 2–20. Task 1 is commit `4abf807` and is in range. |
+| Range | `f03c730` (plan commit, excluded) .. `bb2267f` |
+| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) |
+| Plan | `docs/plans/00-plan.md` tasks 21–25 |
+| Done per `docs/reviews/build-log.md` | tasks 2–25. Task 1 is commit `4abf807`. |
 | Date | 2026-10-23 |
-| Verdict | Fix the list below before task 21. |
+| Verdict | Fix the list below before task 25b. |
 
-Checked: spec deviations, §10 test numbering (each number exactly once), tests that do not lock the case they name, files outside each task's file list, secrets in logs, and contracts later tasks import.
-
-The previous copy of this file reviewed tasks 1–15. Those items were fixed in `13a613e` .. `c9cdd5e` and are not reopened. This pass re-read that range, confirmed the backup helper still aborts on an encrypt or unlink failure and still chmod's the plaintext to `0600`, and reviewed tasks 16–20.
+Tasks 1–20 were reviewed in the earlier copies of this file. Those items were fixed in `13a613e` .. `54bf68a` and are not reopened. This pass re-read tasks 21–25 (`320aa6e`, `5315d03`, `0606a78`, `876e246`, `a446ac7`) against the spec and the plan, and checked that every `[00 §10 #n]` name in the suite is unique.
 
 ## What matches
 
-- The nineteen `[00 §10 #…]` tests in this range (`#21`, `#62`–`#65`, `#67`, `#70`, `#72`, `#74`, `#78`, `#83`, `#97`, `#101`–`#103`, `#111`, `#122`, `#124`, `#129`) each appear once. No later §10 number is claimed.
-- `0002_devices_sessions.sql` and `0003_staff_directory.sql` match §5.1, including the partial unique index, the station CHECKs, `requester_ip NOT NULL`, and `pairing_tokens` limited to `tablet`/`phone`.
-- `guardsFor` matches §3.9 for the guards this task owns: host on every group, provisioned on every group except `health` and `setup`, guest on every group except `health` (which sets `isGuest`), version on `device`, `device-session`, `pair`, `pair-request`, and `ws`.
-- `applyStaffDirectory` ignores an equal or older version before any write, skips a weak or malformed hash, an unknown role, an unknown role permission, and an unknown approver, keeps a malformed existing staff row out of `removed`, and ends a removed owner's phone with `DeviceRevoked { cause: 'owner_removed', actor_id: null }`. Session and revoke events use the §4.2 streams.
-- The error handler returns the §6.1 envelope. Secret headers are redacted and the handler still sees them. `console.warn` on a skip or an ignored version carries `kind`, `id`, and `reason` or the two version numbers, not a PIN, token, or key.
-- Names later tasks import (`buildHubServer`, `HubDeps`, `StaffDirectory`, `applyStaffDirectory`, `createSession`, `endSession`, `revokeDevice`, `activity`, `isIdleExpired`, `guardsFor`, `attachRouteGuards`) match the plan.
+- Each §10 number these tasks claim (`#1`–`#13`, `#58`, `#66`, `#85`, `#86`, `#98`, `#99`, `#106`, `#110`, `#115`–`#117`) appears in exactly one test. No `[00 §10 #n]` name is duplicated anywhere in the suite.
+- The command pipeline follows §3.7 on the paths the tests hit: registry, envelope, kebab name, token `device_id`, `tenant_id` / `branch_id` as `403 BRANCH_MISMATCH`, permission resolved inside `writer.run`, a handler `DomainError` rolls back and a retransmit is evaluated again, a reducer throw leaves state and `published` unchanged.
+- An already-ended session can replay (`allowEnded`). The in-transaction re-check rejects a revoke committed in the pre-writer hook (`403 DEVICE_REVOKED`) and a directory apply that removes the permission (`403 PERMISSION_DENIED`, session left open). Admin replay matches `session_id`.
+- Queries default `countsAsActivity` to false, touch memory only when it is true, and run `handle` on the read-only connection.
+- Boot follows §3.8 for the steps this task owns: config, leftover plaintext, migrations, registered steps 2 then 3 then 5 then 6, clock guard through `createBranchClock` (`wall <= last` → `ClockAlarm { source: 'boot' }`, `branchNow = last + 1`), catch-up, then the server. An unprovisioned hub does not run those steps. `main.ts` passes real clocks and exits 1.
+- No new code logs a PIN, token, password, `pin_hash`, or backup key.
 
 ## Declined
 
-- `pnpm-lock.yaml` and the hub `package.json` dependencies in tasks 16 and 18. The server imports Fastify and Zod; `pinHash` imports argon2. Not a behavior change.
-- `writer.ts` gained `clock`, `ids`, and `branchId` on `WriterTx` in task 19. Session and directory rows cannot be timestamped or addressed without them. The build log recorded the ruling.
-- `server.int.test.ts` gained `group: 'health'` in task 20. `ready()` throws on a route with no group, so the task 16 tests would not boot.
-- `createSession` draws the token from `cryptoSecrets`. `WriterTx` has no `SecretGen`. The token is returned to the caller. The call is not a banned `randomUUID`.
-- Task 20 guards do not record `authGeneration`. Task 21 sets `req.authGen` when the device and session guards run.
-- The socket half of #83. Task 45 closes `4403`.
-- #129 does not log the kept PIN in. Login is task 39. This task's job is the stored row.
-- An unknown path is not host-checked. §3.9 attaches guards from `onRoute`, and a path with no route has no group. Task 16's `404` test stands.
-- §7.2's `branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, and `ms` on every line. Task 16 requires `request_id`. Device and session ids do not exist until task 21. Nothing later reads those fields.
-- `127.0.0.1`, a trailing dot, and an uppercase host. Task 7 locks the matcher. The guard calls it.
-- An IPv4-mapped guest address. The same matcher. The guard passes `request.ip` through.
-- Malformed JSON becomes `500 INTERNAL_ERROR`. §7.1 says anything other than a `DomainError` or a Zod failure is `INTERNAL_ERROR`.
-- WS close codes `4403` and `4426`. No WS route exists yet. Tasks 44 and 45 own them.
-- A backup that fails both encrypt attempts and then fails to unlink leaves a mode `0600` file. The migration still throws, and boot step 1 deletes `pre-migrate-*.sqlite` on the next start.
+- `server.ts` and `guards.int.test.ts` outside task 21’s file list, and `test-hub.ts` outside task 22’s. Wiring so the guards and the publish recorder can see the hub. The build log recorded both rulings.
+- Test commands and `TestNooped` live on the command route. The plan puts them there, and `appendEvents` only accepts a registered event type.
+- Setup mode is an empty Fastify app. `/health` and `/setup` are tasks 26 and 33. The task 25 test locks the absence of command, query, admin, and auth routes.
+- `StaffDirectory.load` at step 4a is discarded. `attachRouteGuards` loads again at step 7, after catch-up. Step 4b does not change the directory.
+- `publish` runs inside `writer.run`, before the HTTP body is written. Task 15 owns that order. Sockets are task 45.
+- The login half of #98 (the other staff member gets 200, not 409). The plan leaves it to task 39.
+- #42’s “retransmit → identical response” is the revoke command’s own idempotency. A revoked device token is `403 DEVICE_REVOKED` at the guard (§3.9), which is what #116 locks.
+- Replay does not refresh session activity. M19 says a replay has no new effects. The device guard still records `deviceSeen`, because the device token is a guard that runs before the fast path.
+- Boot’s address list includes loopback. The host matcher already allows `127.0.0.1` and `localhost`. Setup mode’s extra addresses are the same non-internal IPv4 set `listOwnIPv4` returns.
+- `registerBootStep` is process-global and the boot tests do not remove their steps. Those closures only push onto arrays that nothing else reads, so a later `boot()` does not throw and does not change its own step list.
+- An unknown query name is `404` before the session check. §6.2’s session rule applies to a query that declares `session: 'required'`. An unregistered name is not one of those.
+- `pnpm-lock.yaml` and dependency additions. Already declined in the earlier pass.
 
 ## Fix list
 
-### 1. Route guards run after Zod
+### 1. A committed command on an idle session never reaches the replay path
 
-- **Where:** `apps/hub/src/auth/guards.ts` `onRoute` hook, which assigns `opts.preHandler`. Spec §7.1 and §3.7 put host, provisioned, guest, and version on `onRequest`, and Zod on `preValidation`.
-- **What's wrong:** Fastify runs `preValidation` before `preHandler`. A POST with `Host: evil.example:3000` and a body that fails the route schema returns `400 VALIDATION_FAILED`. The same body from a guest address, or on an unprovisioned hub, is also `400`.
-- **Why it matters:** M45 is a rebinding control. Task 22's command routes are schema-validated. A bad host, a guest, or an unprovisioned hub would answer `400` whenever the body is wrong, and the handler's schema becomes visible before the guard.
-- **Fix:** Attach the same handlers on `onRequest`, ahead of any route `onRequest`. Add `[00 §7.1] guards run before Zod`: a bad host, a guest address, and an unprovisioned hub each return their guard status for a body that fails Zod.
+- **Where:** `apps/hub/src/commands/route.ts` registers `POST /commands/:name` as `device-session` with `allowEnded: true`. `apps/hub/src/auth/guards.ts` `requireSession` ends an idle session and throws `401 SESSION_EXPIRED` in `onRequest`. The handler then requires `request.session` before `decide`.
+- **What's wrong:** M19 says the fast path on `POST /commands/:name` runs with the device token alone and has no new effects. §3.7 and §3.9 put the device-session check, including the idle check, after that path. `allowEnded` only lets an already-ended row through. A stored `command_id` whose session has gone idle is answered `401`, and the hub writes `SessionEnded { reason: 'idle_timeout' }`. A resend with no `X-Session-Token` is `401 SESSION_INVALID` for the same reason. #3 only calls `endSessionNow` and resends the old token, so this passes. §8.5 tells the device that `401 SESSION_*` means the command was never processed.
+- **Why it matters:** A tablet whose session idled out resends the committed command and keeps it in the queue. Task 25b and task 45 both follow `SessionEnded`. The idle end is a new effect on a path that must not write.
+- **Fix:** Give `/commands/:name` group `device`. After the tenant check, replay or `command_id` conflict from the token’s `device_id` with no session required. Only on a miss, apply the session rules: missing, unknown, or another device → `SESSION_INVALID`; idle → `endSession` then `SESSION_EXPIRED`; already ended → `SESSION_EXPIRED`. A station session stays allowed through to the command rule. In #3, on `/commands/test-noop`, advance past the TTL and resend the stored `command_id` (with the session token, and again with only the device token): both return the stored body, `Idempotent-Replay: true`, and the row is still open. A new `command_id` at TTL + 1 s on that route returns `401 SESSION_EXPIRED`, ends the row `idle_timeout`, and writes one `SessionEnded`. #98’s guard route at exactly the TTL stays 200.
 - **Spec change:** no.
 
-### 2. A directory row the cache cannot store aborts the apply
+### 2. An ended bootstrap admin session is reported as an invalid device
 
-- **Where:** `apps/hub/src/auth/apply-directory.ts` `keepGrant` and the staff loop, then `replaceCache`.
-- **What's wrong:** `DirectorySchema` allows an `allowed` grant with a non-null `approver_role_id`, two grants for one permission, two `role_ids` for one staff member, and two staff rows with one id. The §5.1 CHECK and primary keys then throw, and the transaction rolls back. `denied_permissions` is copied without `isPermission`, so an unknown denial is stored and is not listed in `skipped`.
-- **Why it matters:** M52 exists so one bad row cannot block a removal. A fired employee in the same push stays. A stored unknown denial starts denying that permission the moment a later module appends the name to the catalogue.
-- **Fix:** Skip and list those rows (`approver set on an allowed grant`, `duplicate permission`, `duplicate role`, `duplicate staff`, `unknown permission` on a denial). Keep the first legal reference. The rest of the push, including a removal, commits. Cover it with `[00 §3.1 M52] a grant or reference the cache cannot store is skipped and the rest applies`.
+- **Where:** `apps/hub/src/auth/guards.ts` `liveBootstrap` requires `ended_at === null`.
+- **What's wrong:** §3.9 exempts a request carrying a bootstrap admin session (`device_id` null) from the device token. The plan’s admin guard then answers missing, unknown, and ended with `401 ADMIN_SESSION_REQUIRED`. After logout, or on the retry after the idle end, the same header with no `Authorization` hits the device guard and returns `401 DEVICE_TOKEN_INVALID`. #115’s bootstrap case is a live session, so this passes.
+- **Why it matters:** §8.4 tells the client that `DEVICE_TOKEN_INVALID` means wipe the device token and pair again. The setup browser has no device token. Task 32’s bootstrap logout and task 39’s idle end both leave this header in place.
+- **Fix:** Treat `kind === 'admin'` and `device_id === null` as bootstrap whether or not the row has ended. The admin guard already returns `ADMIN_SESSION_REQUIRED` for an ended row. Extend #115 with an ended bootstrap session and no device token.
 - **Spec change:** no.
 
-### 3. A kept role whose approver was removed aborts the apply
+### 3. #117 does not call the session check it names
 
-- **Where:** `apps/hub/src/auth/apply-directory.ts` the loop that pushes `previous.roles` for a kept staff member. `[00 §10 #129]` only checks `pin_hash`.
-- **What's wrong:** M75 keeps the previous role. That role's `approver_role_id` is a foreign key. When the new directory omits both the role and the approver, the insert throws `FOREIGN KEY constraint failed` and the push rolls back. #129 would also pass if the hash were kept and the roles and denials were replaced.
-- **Why it matters:** The malformed row is the one M75 is for. A removal in that push does not happen, and the kept person's old PIN, role, and denials are not what the next boot loads.
-- **Fix:** When retaining a role, also retain any missing approver role from the previous cache, transitively. Extend #129 so a new display name, a new role, and an empty denial list leave the previous display name, role, and denial in place. Add the omitted-approver case to the M52-style apply test (or the same #129 test) and expect the directory version to advance and another staff member to be removed.
+- **Where:** `[00 §10 #117]` in `apps/hub/test/auth/guards-auth.int.test.ts`. It mounts `POST /commands/noop` and `GET /queries/orders` with group `device-session`.
+- **What's wrong:** Those static paths win over `POST /commands/:name` and `GET /queries/:resource`. The production query handler returns `404` for an unknown resource before `requireDeviceSession`. Ended → `SESSION_EXPIRED` and unknown → `SESSION_INVALID` are locked on the guard, not on the generic query route §6.2 assigns them to. After item 1, `/commands/:name` will not use the session guard either, so the command half of #117 would have the same hole.
+- **Why it matters:** A wrong status from `requireDeviceSession` (or from the command route’s own session check) still leaves #117 green. Task 27’s queries and every later command rely on those two codes.
+- **Fix:** Point the query half at `GET /queries/test-quiet`. Point the command half at `POST /commands/test-noop` with a real command body, so a validation failure cannot satisfy it. Keep the logout and station cases on the guard routes: logout is not mounted yet, and `allowStation` on a route config is what that guard is for.
 - **Spec change:** no.
 
-### 4. #70 does not lock an admin session or the after-commit swap
+### 4. Idle expiry is locked on the row, not on SessionEnded
 
-- **Where:** `apps/hub/test/auth/apply-directory.int.test.ts`, `[00 §10 #70]`. The code ends `staff` and `admin`, and calls `setDirectory` from `tx.onCommit`.
-- **What's wrong:** The test opens one staff session. Ending only `kind === 'staff'` passes. Calling `setDirectory` inside the transaction, before `beforeCommit`, also passes, because the assertion runs after `writer.run` returns.
-- **Why it matters:** Spec #70 says staff and admin sessions end `staff_removed`. The plan puts the directory swap on `onCommit` so a rolled-back apply cannot leave memory ahead of the cache. Task 22 resolves permissions from that object.
-- **Fix:** In that test, open an admin session for the removed staff member and expect `staff_removed` and a `SessionEnded` for it. Inside `beforeCommit` of the second apply, expect the in-memory directory to still grant `reprint-ticket`; after `run` returns, expect `not_granted`.
+- **Where:** `[00 §10 #98]` and the idle half of `[00 §10 #115]`. Both assert `end_reason`. The query route’s `requireDeviceSession` is a second copy of the same end, and nothing calls it past the TTL.
+- **What's wrong:** §3.4 and M46 require one `SessionEnded { reason: 'idle_timeout' }`. An `UPDATE` of the columns, skipping `endSession`, still passes. M55(f) allows the query path to write that event and nothing else; a query that only updates the row still passes #13, which never idles a session.
+- **Why it matters:** Task 25b’s `access_reconcile` and task 45’s socket close follow the event. A swept-looking row with no event is still open after a restore.
+- **Fix:** In #98 and the idle half of #115, expect one `SessionEnded` with `reason: 'idle_timeout'` and no second one. In #98, also `GET /queries/test-quiet` for a session that is past its TTL: `401 SESSION_EXPIRED`, one `SessionEnded`, and no other new event.
 - **Spec change:** no.
 
-### 5. Session ends are locked on the row, and #83 does not show one transaction
+### 5. Replay identity is not distinguished from the session
 
-- **Where:** `[00 §10 #101]` and `[00 §10 #83]` in `apply-directory.int.test.ts`. `endSession` and `revokeDevice` do append the events, and both writes sit inside `applyStaffDirectory`.
-- **What's wrong:** #101 asserts `end_reason` and never reads `SessionEnded`. Updating the columns and skipping the append passes. #83 asserts `revoked_at` after `run` returns, so a revoke in `onCommit` passes, and the phone session's `SessionEnded` is not required.
-- **Why it matters:** §4.2 says `SessionEnded` is the only signal that a session ended. Task 25's `access_reconcile` and task 45's socket close both follow the event. M38 revokes the phone in the directory transaction; a crash after commit must not leave it paired.
-- **Fix:** #101 expects a `SessionEnded` with `credentials_changed` for the staff and admin sessions and none for the other staff member. #83 records `directory_version` and `revoked_at` inside `beforeCommit` and expects both to already be the new values, and expects the phone session's `SessionEnded`.
+- **Where:** `[00 §10 #2]` resends with the same session. `[00 §10 #99]`’s other admin session is also a different device. `decide` matches `device_id` on `/commands` and `session_id` on `/admin/commands`.
+- **What's wrong:** Matching `/commands` on `session_id` still passes #2 and #4, because the other device has a different session. Matching `/admin/commands` on `device_id` still passes #99, because the other admin has a different device. M19’s key is the device. M47’s admin key is `session_id`. The unique index allows a second admin session on the same device; a second staff session has to wait until the first has ended.
+- **Why it matters:** A match on the wrong key replays one device’s stored response to another session, or refuses the replay M19 exists to return.
+- **Fix:** In #2, end the staff session, open another for the same staff member on the same device, and resend. Expect the stored body. In #99, open a second admin session on the first admin’s device and resend. Expect `400` and `command_id already used`.
 - **Spec change:** no.
 
-### 6. #102 does not prove an equal or older payload is not written
+### 6. The query limit bounds are not locked
 
-- **Where:** `[00 §10 #102]`. The equal and older calls send the same staff row the hub already has.
-- **What's wrong:** A version check that still replaces the cache, as long as it does not append and does not change `directory_version`, passes.
-- **Why it matters:** M51 is what stops a replayed push from restoring a fired employee's PIN. The task says no writes.
-- **Fix:** Send the equal and the older versions with a different display name and an extra staff id. Expect the stored name and the staff set to stay as the version-2 apply left them.
+- **Where:** `[00 §6.2] a limit above 200 is 400`. `pageParams` uses default 50 and `limit > 200`. The test sends only `limit=201`. `test-page` returns the raw query value, not `ctx.page.limit`.
+- **What's wrong:** `limit >= 200` still fails the test, because 201 is still rejected. An omitted limit can be stored as 1 or 500 and the response stays `{ limit: null }`.
+- **Why it matters:** §6.2’s max is 200 and the default is 50. Task 27’s lists use `pageParams`. A default of 500 is an unbounded read, which the no-N+1 rule is there to stop.
+- **Fix:** Have `test-page` return `ctx.page.limit`. Expect an omitted limit to be 50, `limit=200` to be 200, and `limit=201` to be `400 VALIDATION_FAILED`.
 - **Spec change:** no.
 
-### 7. Idle expiry is not locked at the boundary
+### 7. DEVICE_TYPE_NOT_ALLOWED has no details
 
-- **Where:** `apps/hub/src/auth/session-store.ts` `isIdleExpired`. No test calls it. The plan's formula is `idle_ttl_ms != null && now − max(row.last_activity_at, activity.get(id) ?? 0) > idle_ttl_ms`.
-- **What's wrong:** `>=` still passes task 21's #98, which moves the clock to TTL + 1 s. Ignoring `activity` still passes #98, because that test does not touch the session.
-- **Why it matters:** M46 says `>` . Task 41's sweeper and task 21's guard both call this function. A session touched in memory, or a session at exactly its TTL, would be ended early.
-- **Fix:** Add `[00 §3.1 M46] isIdleExpired is strict and an activity touch counts`: exactly the TTL is not expired, one millisecond later is, a touch moves that boundary, and `idle_ttl_ms == null` is never expired.
-- **Spec change:** no.
-
-### 8. A multi-digit client version is not locked
-
-- **Where:** `[00 §3.9] X-Client-Version below min returns 426`, which uses `0.9.0` and `1.0.0`. `isBelow` compares numeric components.
-- **What's wrong:** A string compare still passes those two values. `1.0.9` against a minimum of `1.0.10` is not below under a string compare (`"9" > "1"`) and is below under the numeric compare.
-- **Why it matters:** §3.9 says `< min_client_version`. Task 39's #36 rejects an old client. A string compare would let `1.0.9` through a `1.0.10` floor.
-- **Fix:** In that test, set `min_client_version` to `1.0.10` and expect `1.0.9` to be `426` and `1.0.10` to pass.
-- **Spec change:** no.
-
-### 9. Provisioned and guest are only tested on one group
-
-- **Where:** `[00 §10 #21]` blocks `/commands/test` (`device`) and lets `/health` and `/setup/provision` through. The guest test blocks `/commands/test` and lets `/health` through.
-- **What's wrong:** Skipping `provisioned` on `admin`, or skipping `guest` on `setup`, still passes.
-- **Why it matters:** §3.9 applies provisioned to every route except `/health` and `/setup*`, and guest to every route except `/health`. An open admin route before provisioning, or a setup route that answers a guest address, is the case the guards are for.
-- **Fix:** In #21, expect `409 HUB_NOT_PROVISIONED` for one route of each of `device`, `device-session`, `admin`, `admin-device-public`, `admin-bootstrap`, `pair`, `pair-request`, and `ws`. In the guest test, expect `403` for a `setup` route as well as the device route.
-- **Spec change:** no.
-
-### 10. Secret body fields are declared and never logged
-
-- **Where:** `[00 §7.2] secret headers are redacted in logs`. `REDACT_PATHS` lists `pin`, `password`, `backup_encryption_key`, and the other §7.2 names. The test sends headers only.
-- **What's wrong:** Dropping every body path and leaving the header serializer in place still passes. No request logs a body today, so the paths are unexecuted.
-- **Why it matters:** §7.2 and the plan's secret list exist so a later `log.info` of a parsed body cannot put a PIN or the backup key in journald. Task 48's #73 greps the auth logs for those values.
-- **Fix:** In that test file, log an object that carries `pin`, `password`, and `backup_encryption_key` and expect the captured stream to contain `[Redacted]` and none of the values. The handler's own view of the headers stays as it is.
-- **Spec change:** no.
-
-### 11. Denial is not locked against a requires-approval-only grant
-
-- **Where:** `[00 §10 #78]`. `S_DENY` is denied `reprint-ticket`, which `R_A` grants as `allowed`.
-- **What's wrong:** Checking the denial only when an `allowed` grant exists still passes. A staff member whose only grant is `requires_approval`, and who is denied that permission, is not in the table.
-- **Why it matters:** §3.6 returns `denied` before it looks at grants. Task 22's command rule treats `requires_approval` as a continue on an approvable command. A denial that lost to that grant would let the command through.
-- **Fix:** In the same truth table, add a staff member on `R_B` only, denied `apply-discount`, and expect `{ grant: 'denied' }`.
+- **Where:** `apps/hub/src/queries/registry.ts` throws `DEVICE_TYPE_NOT_ALLOWED` with no details. `[00 §6.2] a device type outside deviceTypes is 403` asserts the code only.
+- **What's wrong:** §9 gives that code `details: { device_type, allowed }`. The query path sends `{}`.
+- **Why it matters:** §6.9, §6.11, and §6.31 return the same code. One shape is what a client can branch on. An empty object forces every later caller to invent its own.
+- **Fix:** Throw `{ device_type, allowed }` with the token’s type and the query’s `deviceTypes`. Expect `{ device_type: 'kds', allowed: ['tablet'] }` from the existing test.
 - **Spec change:** no.
 
 ## Needs spec change
