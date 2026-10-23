@@ -95,7 +95,7 @@ export async function checkPin<T>(
         }));
         recordFailure(tx, o.subject.type, o.subject.id, now, subjectWindow, deps.config.auth.device_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
           stream_type: 'hub',
-          stream_id: o.subject.id,
+          stream_id: o.subject.type === 'ip' ? `ip:${o.subject.id}` : o.subject.id,
           event_type: 'DevicePinLockedOut',
           schema_version: 1,
           payload: { subject_type: o.subject.type, subject_id: o.subject.id, locked_until: lockedUntil, failed_count: count },

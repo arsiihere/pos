@@ -196,6 +196,7 @@ describe('PIN verification', () => {
     }
     const locked = lockEvents(hub, 'DevicePinLockedOut');
     expect(locked).toHaveLength(1);
+    expect(locked[0]?.stream_id).toBe('ip:203.0.113.8');
     expect(locked[0]?.payload).toMatchObject({ subject_type: 'ip', subject_id: '203.0.113.8', failed_count: 10 });
     await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({
       code: 'IP_LOCKED_OUT',
@@ -249,9 +250,12 @@ function lockRow(
     | undefined;
 }
 
-function lockEvents(hub: TestHub, eventType: string): Array<{ payload: Record<string, unknown> }> {
-  const rows = hub.deps.db.prepare('SELECT payload FROM events WHERE event_type = ? ORDER BY seq').all(eventType) as Array<{
+function lockEvents(hub: TestHub, eventType: string): Array<{ stream_id: string; payload: Record<string, unknown> }> {
+  const rows = hub.deps.db
+    .prepare('SELECT stream_id, payload FROM events WHERE event_type = ? ORDER BY seq')
+    .all(eventType) as Array<{
+    stream_id: string;
     payload: string;
   }>;
-  return rows.map((row) => ({ payload: JSON.parse(row.payload) as Record<string, unknown> }));
+  return rows.map((row) => ({ stream_id: row.stream_id, payload: JSON.parse(row.payload) as Record<string, unknown> }));
 }
