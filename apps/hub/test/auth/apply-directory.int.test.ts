@@ -93,7 +93,18 @@ describe('applyStaffDirectory', () => {
   });
 
   it('[00 §10 #83] removing the owner revokes their phones and leaves other devices', async () => {
-    const { db, writer } = await open();
+    let db!: Database.Database;
+    const seen: Array<{ version: unknown; revoked: unknown }> = [];
+    const opened = await open({
+      beforeCommit() {
+        seen.push({
+          version: db.prepare('SELECT directory_version FROM staff_directory_meta').pluck().get(),
+          revoked: db.prepare("SELECT revoked_at FROM devices WHERE device_id = 'phone-owner'").pluck().get(),
+        });
+      },
+    });
+    db = opened.db;
+    const { writer } = opened;
     const hash = await pinHash('1234');
     writer.run((tx) => applyStaffDirectory(tx, dir(1, hash, [], ['S_OWNER', 'S_OTHER']), () => undefined));
     insertDevice(db, { device_id: 'phone-owner', token_hash: 'tok-phone', device_type: 'phone', owner_staff_id: 'S_OWNER' });
@@ -116,9 +127,16 @@ describe('applyStaffDirectory', () => {
     });
     expect(db.prepare('SELECT revoked_at FROM devices WHERE device_id = ?').pluck().get('tablet-owner')).toBeNull();
     expect(db.prepare('SELECT revoked_at FROM devices WHERE device_id = ?').pluck().get('phone-other')).toBeNull();
+    expect(seen.at(-1)).toEqual({ version: 2, revoked: T });
     expect(db.prepare('SELECT end_reason FROM staff_sessions WHERE session_id = ?').pluck().get(phoneSession.sessionId)).toBe(
       'staff_removed',
     );
+    const ended = events(db).filter((event) => event.event_type === 'SessionEnded');
+    expect(ended).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ session_id: phoneSession.sessionId, reason: 'staff_removed', ended_by: null }),
+      }),
+    ]);
     const revoked = events(db).filter((event) => event.event_type === 'DeviceRevoked');
     expect(revoked).toEqual([
       expect.objectContaining({
@@ -177,6 +195,18 @@ describe('applyStaffDirectory', () => {
     );
     expect(db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').pluck().get(other.sessionId)).toBeNull();
     expect(findSessionByToken(db, staff.token)?.ended_at).toBe(T);
+    const ended = events(db).filter((event) => event.event_type === 'SessionEnded');
+    expect(ended).toHaveLength(2);
+    expect(ended).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({ session_id: staff.sessionId, reason: 'credentials_changed' }),
+        }),
+        expect.objectContaining({
+          payload: expect.objectContaining({ session_id: admin.sessionId, reason: 'credentials_changed' }),
+        }),
+      ]),
+    );
   });
 
   it('[00 §10 #102] equal or older directory versions are a no-op and a newer version applies', async () => {
