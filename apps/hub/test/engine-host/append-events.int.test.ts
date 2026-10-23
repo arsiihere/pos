@@ -50,7 +50,7 @@ describe('appendEvents', () => {
     const bad = draft(0);
     bad.payload = { tenant_id: TENANT };
     db.transaction(() => {
-      expect(() => appendEvents(db, [bad], ctx)).toThrow();
+      expect(() => appendEvents(db, [draft(1), bad], ctx)).toThrow();
     }).immediate();
     expect(db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(0);
   });
