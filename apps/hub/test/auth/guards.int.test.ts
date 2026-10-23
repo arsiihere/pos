@@ -103,6 +103,20 @@ describe('route guards', () => {
       (await hub.app.inject({ method: 'GET', url: '/admin/queries/devices', headers: { 'x-client-version': '0.9.0' } }))
         .statusCode,
     ).toBe(200);
+    const strict = await createTestHub({ config: { min_client_version: '1.0.10' } });
+    cleanups.push(() => strict.close());
+    strict.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
+    const olderPatch = await strict.app.inject({
+      method: 'GET',
+      url: '/commands/test',
+      headers: { 'x-client-version': '1.0.9' },
+    });
+    expect(olderPatch.statusCode).toBe(426);
+    expect(olderPatch.json().error.code).toBe('CLIENT_UPGRADE_REQUIRED');
+    expect(
+      (await strict.app.inject({ method: 'GET', url: '/commands/test', headers: { 'x-client-version': '1.0.10' } }))
+        .statusCode,
+    ).toBe(200);
   });
 
   it('[00 §7.1] guards run before Zod', async () => {
