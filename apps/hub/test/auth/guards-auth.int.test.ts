@@ -53,6 +53,19 @@ describe('auth route guards', () => {
     };
     expect(row).toEqual({ ended_at: hub.clock.branchNow(), end_reason: 'idle_timeout' });
     expect(activity.get(session.sessionId)).toBeUndefined();
+    expect(sessionEndedReasons(hub, session.sessionId)).toEqual(['idle_timeout']);
+    const quiet = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: device.deviceId });
+    const eventsBefore = hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
+    hub.clock.advance(ttl + 1);
+    const quietResponse = await hub.app.inject({
+      method: 'GET',
+      url: '/queries/test-quiet',
+      headers: { authorization: `Bearer ${device.token}`, 'x-session-token': quiet.token },
+    });
+    expect(quietResponse.statusCode).toBe(401);
+    expect(quietResponse.json().error.code).toBe('SESSION_EXPIRED');
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(eventsBefore + 1);
+    expect(sessionEndedReasons(hub, quiet.sessionId)).toEqual(['idle_timeout']);
   });
 
   it('[00 §10 #106] access-hub-admin removed makes the next admin request 403', async () => {
@@ -118,6 +131,7 @@ describe('auth route guards', () => {
     expect(idleResponse.statusCode).toBe(401);
     expect(idleResponse.json().error.code).toBe('ADMIN_SESSION_REQUIRED');
     expect(hub.deps.db.prepare('SELECT end_reason FROM staff_sessions WHERE session_id = ?').pluck().get(idle.sessionId)).toBe('idle_timeout');
+    expect(sessionEndedReasons(hub, idle.sessionId)).toEqual(['idle_timeout']);
     const bootstrap = openSession(hub, { kind: 'admin', staffId: 'S_OWNER' });
     const opened = await hub.app.inject({
       method: 'GET',
@@ -244,3 +258,13 @@ describe('auth route guards', () => {
     expect(allowedStation.statusCode).toBe(200);
   });
 });
+
+function sessionEndedReasons(hub: Awaited<ReturnType<typeof createTestHub>>, sessionId: string): string[] {
+  const rows = hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'SessionEnded'`).all() as Array<{
+    payload: string;
+  }>;
+  return rows
+    .map((row) => JSON.parse(row.payload) as { session_id?: string; reason?: string })
+    .filter((payload) => payload.session_id === sessionId)
+    .map((payload) => payload.reason ?? '');
+}
