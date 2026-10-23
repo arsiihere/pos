@@ -65,7 +65,8 @@ describe('POST /v1/hubs/register', () => {
 
   it('[00 §10 #22] register consumes the code, leaves the branch pending_hub, and returns only that branch\'s active staff', async () => {
     const { seeded, issued } = await branch('Gulberg', 'ada@example.com');
-    const response = await register(issued.code, ulid(ids));
+    const idempotencyKey = ulid(ids);
+    const response = await register(issued.code, idempotencyKey);
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.data.tenant_id).toBe(seeded.tenant_id);
@@ -76,15 +77,29 @@ describe('POST /v1/hubs/register', () => {
     expect(DirectorySchema.safeParse(body.data.directory).success).toBe(true);
     expect(body.data.directory.staff.map((staff: { staff_id: string }) => staff.staff_id)).toEqual([seeded.staff_id]);
     expect(body.data.directory.roles.map((role: { name: string }) => role.name)).toEqual(['Owner']);
+    const owner = body.data.directory.roles.find((role: { name: string }) => role.name === 'Owner');
+    expect(owner.permissions).toEqual(
+      expect.arrayContaining([{ permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null }]),
+    );
 
-    const row = await cloud.pool.query<{ status: string; hub_confirmed_at: string | null; consumed_attempt_id: string }>(
-      `SELECT b.status, b.hub_confirmed_at, c.consumed_attempt_id
+    const row = await cloud.pool.query<{
+      status: string;
+      hub_confirmed_at: string | null;
+      consumed_at: string;
+      consumed_attempt_id: string;
+    }>(
+      `SELECT b.status, b.hub_confirmed_at, c.consumed_at, c.consumed_attempt_id
          FROM branches b
          JOIN registration_codes c ON c.branch_id = b.branch_id
         WHERE b.branch_id = $1 AND c.code_hash = $2`,
       [issued.branch_id, sha256(issued.code.replace(/-/g, ''))],
     );
-    expect(row.rows[0]).toMatchObject({ status: 'pending_hub', hub_confirmed_at: null });
+    expect(row.rows[0]).toMatchObject({
+      status: 'pending_hub',
+      hub_confirmed_at: null,
+      consumed_at: String(T),
+      consumed_attempt_id: idempotencyKey,
+    });
     const keys = await cloud.pool.query<{ key_hash: string; revoked_at: string | null }>(
       `SELECT key_hash, revoked_at FROM branch_api_keys WHERE branch_id = $1`,
       [issued.branch_id],
