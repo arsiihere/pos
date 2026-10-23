@@ -206,3 +206,26 @@ export async function loadDirectory(
     },
   };
 }
+
+export async function confirmBranch(
+  client: pg.PoolClient,
+  tenantId: string,
+  branchId: string,
+  now: number,
+): Promise<number | null> {
+  const updated = await client.query<{ hub_confirmed_at: string }>(
+    `UPDATE branches
+        SET status = 'active', hub_confirmed_at = COALESCE(hub_confirmed_at, $3)
+      WHERE tenant_id = $1 AND branch_id = $2
+      RETURNING hub_confirmed_at`,
+    [tenantId, branchId, now],
+  );
+  const row = updated.rows[0];
+  if (row === undefined) return null;
+  await client.query(
+    `UPDATE registration_codes SET expires_at = $3
+      WHERE tenant_id = $1 AND branch_id = $2 AND consumed_at IS NULL AND expires_at > $3`,
+    [tenantId, branchId, now],
+  );
+  return Number(row.hub_confirmed_at);
+}

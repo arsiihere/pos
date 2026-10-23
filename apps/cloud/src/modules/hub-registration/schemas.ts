@@ -25,3 +25,14 @@ export const RegisterResponse = z.object({
 });
 
 export type RegisterBodyInput = z.infer<typeof RegisterBody>;
+
+export const ConfirmBody = z.object({
+  hub_version: z.string().regex(SEMVER),
+});
+
+export const ConfirmResponse = z.object({
+  data: z.object({
+    branch_id: z.string(),
+    hub_confirmed_at: z.number(),
+  }),
+});

@@ -5,8 +5,8 @@ import type pg from 'pg';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
-import { registerHub } from './service.js';
-import { IdempotencyKey, RegisterBody, RegisterResponse } from './schemas.js';
+import { confirmHub, registerHub } from './service.js';
+import { ConfirmBody, ConfirmResponse, IdempotencyKey, RegisterBody, RegisterResponse } from './schemas.js';
 
 export function registerHubRegistrationRoutes(
   app: FastifyInstance,
@@ -47,6 +47,21 @@ export function registerHubRegistrationRoutes(
           directory: result.directory,
         },
       });
+    },
+  );
+
+  app.withTypeProvider<ZodTypeProvider>().post(
+    '/v1/hubs/confirm',
+    {
+      config: { tenantScope: 'branch-key' },
+      schema: { body: ConfirmBody, response: { 200: ConfirmResponse } },
+    },
+    async (request, reply) => {
+      const tenant = request.tenant;
+      const branchId = tenant?.branchIds[0];
+      if (tenant === undefined || branchId === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
+      const result = await confirmHub(deps.pool, { tenantId: tenant.tenantId, branchId }, deps);
+      return reply.send({ data: result });
     },
   );
 }

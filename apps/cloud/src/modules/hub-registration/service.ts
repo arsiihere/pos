@@ -7,6 +7,7 @@ import type { SecretGen } from '../../lib/secrets.js';
 import {
   codeHash,
   codeIsUsable,
+  confirmBranch,
   consumeCode,
   insertApiKey,
   loadDirectory,
@@ -57,6 +58,27 @@ export async function registerHub(
       directory: loaded.directory,
       rotated,
     };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function confirmHub(
+  pool: pg.Pool,
+  input: { tenantId: string; branchId: string },
+  deps: { clock: Clock },
+): Promise<{ branch_id: string; hub_confirmed_at: number }> {
+  const now = deps.clock.branchNow();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const confirmedAt = await confirmBranch(client, input.tenantId, input.branchId, now);
+    if (confirmedAt === null) throw new DomainError('BRANCH_API_KEY_INVALID');
+    await client.query('COMMIT');
+    return { branch_id: input.branchId, hub_confirmed_at: confirmedAt };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
