@@ -27,6 +27,14 @@ describe('command idempotency', () => {
     expect(replay.headers['idempotent-replay']).toBe('true');
     expect(replay.json()).toEqual(first.json());
     expect(counts(hub)).toEqual(before);
+    endSessionNow(hub, bound.session.sessionId);
+    const second = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: bound.device.deviceId });
+    const beforeSecond = counts(hub);
+    const otherSession = await post(hub, { device: bound.device, session: second, commandId: 'cmd-2' });
+    expect(otherSession.statusCode).toBe(200);
+    expect(otherSession.headers['idempotent-replay']).toBe('true');
+    expect(otherSession.json()).toEqual(first.json());
+    expect(counts(hub)).toEqual(beforeSecond);
   });
 
   it('[00 §10 #3] a retransmit after the session ended replays the stored response', async () => {
@@ -267,6 +275,18 @@ describe('command idempotency', () => {
     expect(sameAdmin.statusCode).toBe(200);
     expect(sameAdmin.headers['idempotent-replay']).toBe('true');
     expect(sameAdmin.json()).toEqual(admin.json());
+    const secondAdmin = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: manager.device.deviceId });
+    const sameDevice = await post(hub, {
+      device: manager.device,
+      session: secondAdmin,
+      url: '/admin/commands/test-admin',
+      name: 'test-admin',
+      commandType: 'TestAdmin',
+      commandId: 'cmd-admin',
+      actorId: 'S_OWNER',
+    });
+    expect(sameDevice.statusCode).toBe(400);
+    expect(sameDevice.json().error.details.issues).toEqual([{ path: 'command_id', message: 'command_id already used' }]);
   });
 });
 
