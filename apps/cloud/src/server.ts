@@ -7,6 +7,9 @@ import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
+import { registerJwt } from './plugins/jwt.js';
+import { registerOwnerCredentials } from './plugins/owner-credentials.js';
+import { registerTenantScope } from './plugins/tenant-scope.js';
 
 const SECRET_FIELDS = [
   'pin',
@@ -39,5 +42,8 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   registerErrorHandler(app);
+  registerJwt(app, deps.env.JWT_SECRET, deps.clock);
+  registerOwnerCredentials(app, deps.pool);
+  registerTenantScope(app, { pool: deps.pool });
   return app;
 }

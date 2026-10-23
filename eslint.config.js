@@ -37,6 +37,16 @@ const dbClientImports = {
   ],
 };
 
+const credentialLookupImports = {
+  patterns: [
+    {
+      group: ['**/db/credential-lookup', '**/db/credential-lookup.js'],
+      message:
+        'Import credential-lookup only from plugins/tenant-scope.ts and plugins/owner-credentials.ts (M55).',
+    },
+  ],
+};
+
 const qrcodeImports = {
   patterns: [
     {
@@ -56,7 +66,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] },
+        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...credentialLookupImports.patterns] },
       ],
       'no-restricted-syntax': ['error', ...forbiddenCalls],
     },
@@ -78,13 +88,29 @@ export default tseslint.config(
   {
     files: ['apps/cloud/src/db/**/*.ts'],
     rules: {
-      'no-restricted-imports': ['error', qrcodeImports],
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...qrcodeImports.patterns, ...credentialLookupImports.patterns] },
+      ],
     },
   },
   {
     files: ['apps/hub/src/setup/issue-admin-bootstrap.ts', 'apps/hub/src/lib/qr.ts'],
     rules: {
-      'no-restricted-imports': ['error', dbClientImports],
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...dbClientImports.patterns, ...credentialLookupImports.patterns] },
+      ],
+    },
+  },
+  {
+    files: [
+      'apps/cloud/src/plugins/tenant-scope.ts',
+      'apps/cloud/src/plugins/owner-credentials.ts',
+      '**/*.test.ts',
+    ],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] }],
     },
   },
 );
