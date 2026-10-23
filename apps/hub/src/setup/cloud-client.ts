@@ -33,7 +33,7 @@ export interface CloudClient {
 }
 
 export function httpCloudClient(baseUrl: string, timeoutMs = 10_000): CloudClient {
-  const root = baseUrl.replace(/\/$/, '');
+  const root = baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
   return {
     registerHub(body, idempotencyKey) {
       return call(`${root}/v1/hubs/register`, {
