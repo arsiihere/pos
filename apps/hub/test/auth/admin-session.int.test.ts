@@ -95,6 +95,14 @@ describe('admin session', () => {
     expect(withBootstrap.json().data.staff).toEqual(withDevice.json().data.staff);
     const neither = await roster(hub, {});
     expect(neither.statusCode).toBe(401);
+    const ownerPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
+    const ownerRoster = await roster(hub, { authorization: `Bearer ${ownerPhone.token}` });
+    expect(ownerRoster.statusCode).toBe(200);
+    expect(ownerRoster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', locked_until: until }]);
+    const waiterPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_WAIT' });
+    const waiterRoster = await roster(hub, { authorization: `Bearer ${waiterPhone.token}` });
+    expect(waiterRoster.statusCode).toBe(200);
+    expect(waiterRoster.json().data.staff).toEqual([]);
   });
 
   it('[00 §10 #91] admin login requires an allowed device and the session stays on that device', async () => {
