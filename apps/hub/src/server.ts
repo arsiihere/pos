@@ -13,6 +13,7 @@ import type { SecretGen } from './lib/secrets.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
 import { attachRouteGuards } from './auth/guards.js';
+import { registerPairRoutes } from './auth/pairing.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
@@ -103,6 +104,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   });
   registerCommandRoutes(app, deps);
   registerGenerateDevicePairingToken(app);
+  registerPairRoutes(app, deps);
   registerQueryRoutes(app, deps);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
