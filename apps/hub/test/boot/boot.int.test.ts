@@ -72,6 +72,23 @@ describe('boot', () => {
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(booted.app.printRoutes()).not.toMatch(/commands|queries|admin|auth/);
     expect(ran).toBe(false);
+    const missing = await booted.app.inject({
+      method: 'GET',
+      url: '/commands/x',
+      headers: { host: 'localhost:3000' },
+    });
+    expect(missing.statusCode).toBe(409);
+    expect(missing.json().error.code).toBe('HUB_NOT_PROVISIONED');
+    const foreign = await booted.app.inject({
+      method: 'GET',
+      url: '/commands/x',
+      headers: { host: 'evil.example:3000' },
+    });
+    expect(foreign.statusCode).toBe(403);
+    expect(foreign.json().error.code).toBe('HOST_NOT_ALLOWED');
+    expect((await booted.app.inject({ method: 'GET', url: '/health', headers: { host: 'localhost:3000' } })).statusCode).toBe(
+      200,
+    );
   });
 
   it('[00 §3.10] invalid config → boot rejects with ConfigError', async () => {

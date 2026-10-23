@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { DomainError } from '@pos/domain';
 import '@pos/events';
 import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
@@ -24,6 +25,7 @@ import { httpCloudClient } from '../setup/cloud-client.js';
 import { startConfirmTask } from '../setup/confirm-task.js';
 import { registerSetupRoutes } from '../setup/provision.js';
 import { createBranchClock, type Clock } from './clock.js';
+import { createHostMatcher } from './net.js';
 import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
 import { cryptoSecrets } from './secrets.js';
@@ -87,7 +89,15 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     if (provisioned === undefined) {
       const deps = createDeps(config, db, readDb, wallClock(opts.wallNow, opts.monoNow), opts.ifaces);
       const app = Fastify({ logger: false, genReqId: () => deps.ids.next() });
-      installHubErrors(app);
+      const allowHost = createHostMatcher({
+        port: config.http_port,
+        advertisedHost: config.advertised_host ?? null,
+        ownIPv4: deps.ownIPv4,
+      });
+      installHubErrors(app, (request) => {
+        if (!allowHost(request.headers.host)) throw new DomainError('HOST_NOT_ALLOWED');
+        throw new DomainError('HUB_NOT_PROVISIONED');
+      });
       attachRouteGuards(app, deps);
       phase = 'setup';
       current = '7';

@@ -111,8 +111,12 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   return app;
 }
 
-export function installHubErrors(app: FastifyInstance): void {
+export function installHubErrors(app: FastifyInstance, notFound?: (request: FastifyRequest) => void): void {
   app.setNotFoundHandler((request, reply) => {
+    if (notFound !== undefined) {
+      notFound(request);
+      return;
+    }
     return reply.status(404).send(errorBody('ROUTE_NOT_FOUND', 'ROUTE_NOT_FOUND', {}, String(request.id)));
   });
 
