@@ -131,3 +131,7 @@ Ruling: HS256 is `node:crypto` on `app.jwt` (1 h; claims `sub`, `tenant_id`, `al
 ## Task 30 — SystemContext and seed-tenant
 Commit `11499d4`. Tests: `[00 §10 #56]` four roles with the §6.26 TTLs and grants, password and PIN verify, the owner holds `access-hub-admin` and `manage-devices`, a different-case email is refused; `[00 §10 #113]` now requires `cli/seed-tenant.ts` to import `SystemContext`, and every such importer stays under `cli/`. Full suite 143/143.
 Ruling: `@node-rs/argon2@2.2.2` and `tsx@4.23.15` were added to `@pos/cloud` (`pnpm-lock.yaml` updated). `pnpm-workspace.yaml` sets `allowBuilds.esbuild: true`, otherwise `pnpm install` exits because tsx's esbuild postinstall is not approved. Hashes are argon2id `m=19456, t=2, p=1`. The CLI prompts twice with no echo and throws if the two entries differ. Duplicate email throws `email already exists`, including a `23505` from the unique index.
+
+## Task 31 — issue-registration-code
+Commit `1298996`. Tests: `[00 §6.27]` `normaliseCode('abcd-efgh jkmn')` is `ABCDEFGHJKMN`; `[00 §10 #57]` a new branch stays `pending_hub`, Owner and Manager are assigned, the cashier is not, both owners gain the branch, reissue sets the old code's `expires_at` to now, and a confirmed branch is refused. Full suite 145/145.
+The stored hash is SHA-256 hex of the normalised 12-character code, matching the tenant-scope guard. Reissue inserts another `new_branch` code. Display form is `XXXX-XXXX-XXXX`. A confirmed branch throws `branch is confirmed`.
