@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
 import type { StaffDirectory } from '../../src/auth/staff-directory';
 import { StaffDirectory as Directory } from '../../src/auth/staff-directory';
-import { activity, createSession, findSessionByToken } from '../../src/auth/session-store';
+import { activity, createSession, findSessionByToken, isIdleExpired } from '../../src/auth/session-store';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
 import { createStateHolder } from '../../src/engine-host/state-holder';
@@ -25,6 +25,27 @@ describe('applyStaffDirectory', () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
     activity.drain();
     activity.drainDevices();
+  });
+
+  it('[00 §3.1 M46] isIdleExpired is strict and an activity touch counts', () => {
+    const row = {
+      session_id: 's-idle',
+      kind: 'staff' as const,
+      staff_id: 'S1',
+      station_id: null,
+      device_id: 'dev-1',
+      idle_ttl_ms: 1_000,
+      last_activity_at: 5_000,
+      ended_at: null,
+      token_hash: 'hash',
+    };
+    expect(isIdleExpired(row, 6_000)).toBe(false);
+    expect(isIdleExpired(row, 6_001)).toBe(true);
+    activity.touch(row.session_id, 6_000);
+    expect(isIdleExpired(row, 7_000)).toBe(false);
+    expect(isIdleExpired(row, 7_001)).toBe(true);
+    expect(isIdleExpired({ ...row, idle_ttl_ms: null }, 99_999)).toBe(false);
+    activity.forget(row.session_id);
   });
 
   it('[00 §10 #70] removed staff sessions end staff_removed and a permission change applies on the next read', async () => {
