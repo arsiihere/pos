@@ -104,10 +104,21 @@ describe('writer', () => {
     });
     expect(auth.current()).toBe(0);
     writer.run((tx) => {
-      tx.append([sessionEnded()]);
-      tx.append([hub('2')]);
+      tx.append([sessionEnded(), sessionEnded()]);
     });
     expect(auth.current()).toBe(1);
+    writer.run((tx) => {
+      tx.append([deviceRevoked()]);
+    });
+    expect(auth.current()).toBe(2);
+    writer.run((tx) => {
+      tx.append([deviceTokenRotated()]);
+    });
+    expect(auth.current()).toBe(3);
+    writer.run((tx) => {
+      tx.append([staffDirectoryApplied()]);
+    });
+    expect(auth.current()).toBe(4);
   });
 
   it('[00 §3.7] two appends in one run → consecutive seqs, one publish', async () => {
@@ -154,6 +165,52 @@ function hub(version: string): EventDraft {
     payload: { tenant_id: TENANT, branch_id: BRANCH, hub_version: version },
     occurred_at: T,
     actor_id: null,
+    device_id: 'device-1',
+  };
+}
+
+function deviceRevoked(): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: 'device-1',
+    event_type: 'DeviceRevoked',
+    schema_version: 1,
+    payload: { device_id: 'device-1', reason: null, cause: 'manual' },
+    occurred_at: T,
+    actor_id: 'staff-1',
+    device_id: 'device-1',
+  };
+}
+
+function deviceTokenRotated(): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: 'device-1',
+    event_type: 'DeviceTokenRotated',
+    schema_version: 1,
+    payload: { device_id: 'device-1', pair_request_id: 'pair-request-1' },
+    occurred_at: T,
+    actor_id: 'staff-1',
+    device_id: 'device-1',
+  };
+}
+
+function staffDirectoryApplied(): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: BRANCH,
+    event_type: 'StaffDirectoryApplied',
+    schema_version: 1,
+    payload: {
+      directory_version: 1,
+      staff_count: 1,
+      role_count: 1,
+      removed_staff_ids: [],
+      credentials_changed_staff_ids: [],
+      skipped: [],
+    },
+    occurred_at: T,
+    actor_id: 'staff-1',
     device_id: 'device-1',
   };
 }
