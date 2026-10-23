@@ -38,7 +38,9 @@ describe('auth route guards', () => {
       auth_gen: hub.deps.authGeneration.current(),
     });
     expect(activity.get(session.sessionId)).toBeUndefined();
+    expect(activity.deviceSeenAt(device.deviceId)).toBe(hub.clock.branchNow());
     expect(activity.drainDevices()).toEqual([[device.deviceId, hub.clock.branchNow()]]);
+    expect(activity.deviceSeenAt(device.deviceId)).toBeUndefined();
     hub.clock.advance(1);
     const expired = await hub.app.inject({
       method: 'POST',

@@ -36,6 +36,9 @@ export const activity = {
   deviceSeen(id: string, at: number): void {
     devicesSeen.set(id, at);
   },
+  deviceSeenAt(id: string): number | undefined {
+    return devicesSeen.get(id);
+  },
   drainDevices(): Array<[string, number]> {
     const items = [...devicesSeen.entries()];
     devicesSeen.clear();
