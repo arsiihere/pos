@@ -42,7 +42,7 @@ describe('boot', () => {
     const rows = booted.deps.db
       .prepare('SELECT event_type, payload FROM events WHERE branch_id = ? ORDER BY seq')
       .all('branch-1') as Array<{ event_type: string; payload: string }>;
-    expect(rows.map((row) => row.event_type)).toEqual(['HubProvisioned', 'ClockAlarm']);
+    expect(rows.map((row) => row.event_type)).toEqual(['HubProvisioned', 'ClockAlarm', 'HubStarted']);
     expect(JSON.parse(rows[1]!.payload)).toMatchObject({
       source: 'boot',
       wall_ms: WALL,

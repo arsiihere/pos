@@ -7,9 +7,10 @@ import '@pos/events';
 import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { attachRouteGuards } from '../auth/guards.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
-import { isProvisioned, type HubConfig } from '../config/schema.js';
+import { isConfirmed, isProvisioned, type HubConfig } from '../config/schema.js';
 import { openDb, openReadOnly } from '../db/connection.js';
 import { runMigrations } from '../db/migrate.js';
 import { deleteLeftoverPlaintext, makePreMigrateBackup } from '../db/pre-migrate-backup.js';
@@ -20,6 +21,7 @@ import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projectio
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, type HubDeps } from '../server.js';
 import { createBranchClock, type Clock } from './clock.js';
+import { installHealthErrors, readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
 import { cryptoSecrets } from './secrets.js';
 
@@ -28,6 +30,7 @@ const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url)
 export interface BootContext {
   config: HubConfig;
   db: Database.Database;
+  app?: FastifyInstance;
 }
 
 type BootStep = '2' | '3' | '5' | '6';
@@ -59,7 +62,10 @@ export interface BootHandle {
 }
 
 export async function boot(opts: BootOptions): Promise<BootHandle> {
+  const startedMono = opts.monoNow();
+  const beat = { stop: () => undefined };
   let current = '0';
+  let phase: 'booting' | 'setup' | 'ready' = 'booting';
   const config = loadHubConfig(opts.configPath);
   current = '1';
   deleteLeftoverPlaintext(config.data_dir);
@@ -77,9 +83,13 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     if (provisioned === undefined) {
       const deps = createDeps(config, db, readDb, wallClock(opts.wallNow, opts.monoNow), opts.ifaces);
       const app = Fastify({ logger: false });
+      installHealthErrors(app);
+      attachRouteGuards(app, deps);
+      phase = 'setup';
       current = '7';
+      registerHealth(app, () => healthRead(phase, current, false, false, null, null, db));
       if (opts.listen === true) await app.listen({ host: '0.0.0.0', port: config.http_port });
-      return handle(deps, app, db, readDb, () => current);
+      return handle(deps, app, db, readDb, () => current, beat);
     }
     const ctx: BootContext = { config, db };
     current = '2';
@@ -113,19 +123,49 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     }
     registerAccessReconcile({ projections: deps.projections, writer: deps.writer, clock: deps.clock });
     current = '4';
-    deps.projections.catchUp(db, provisioned.branch_id);
+    const caught = deps.projections.catchUp(db, provisioned.branch_id);
+    const eventsReplayed = Object.values(caught.replayed).reduce((sum, count) => sum + count, 0);
     current = '4a';
     void StaffDirectory.load(db);
     current = '4b';
     restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
     current = '5';
+    const app = buildHubServer(deps);
+    ctx.app = app;
+    registerHealth(app, () =>
+      healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, db),
+    );
     await runStep('5', ctx);
     current = '6';
     await runStep('6', ctx);
     current = '7';
-    const app = buildHubServer(deps);
     if (opts.listen === true) await app.listen({ host: '0.0.0.0', port: config.http_port });
-    return handle(deps, app, db, readDb, () => current);
+    const hubDownAt = readHeartbeat(db, provisioned.branch_id);
+    const hubUpAt = deps.clock.branchNow();
+    deps.writer.run((tx) => {
+      tx.append([
+        {
+          stream_type: 'hub',
+          stream_id: provisioned.branch_id,
+          event_type: 'HubStarted',
+          schema_version: 1,
+          payload: {
+            hub_down_at: hubDownAt,
+            hub_up_at: hubUpAt,
+            events_replayed: eventsReplayed,
+            missed_fires: 0,
+            boot_ms: Math.max(0, Math.round(opts.monoNow() - startedMono)),
+          },
+          occurred_at: hubUpAt,
+          actor_id: null,
+          device_id: 'hub',
+        },
+      ]);
+    });
+    current = '8';
+    phase = 'ready';
+    beat.stop = startHeartbeat(db, deps.clock, provisioned.branch_id);
+    return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
     readDb?.close();
     db.close();
@@ -139,17 +179,31 @@ function handle(
   db: Database.Database,
   readDb: Database.Database,
   step: () => string,
+  beat: { stop: () => void },
 ): BootHandle {
   return {
     deps,
     app,
     step,
     async stop() {
+      beat.stop();
       await app.close();
       readDb.close();
       db.close();
     },
   };
+}
+
+function healthRead(
+  status: 'booting' | 'setup' | 'ready',
+  bootStep: string,
+  provisioned: boolean,
+  confirmed: boolean,
+  branchId: string | null,
+  clockAlarm: { wall_ms: number; last_recorded_at: number; delta_ms: number } | null,
+  db: Database.Database,
+) {
+  return { status, bootStep, provisioned, confirmed, branchId, clockAlarm, db };
 }
 
 async function runStep(step: BootStep, ctx: BootContext): Promise<void> {
