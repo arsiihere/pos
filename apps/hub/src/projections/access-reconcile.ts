@@ -48,19 +48,28 @@ export function restoreEmptyStaffSessions(
   if (sessions.n > 0) return;
   const sessionEvents = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM events
-       WHERE branch_id = ? AND event_type IN ('SessionStarted', 'SessionEnded')`,
+      `SELECT 1 AS ok FROM events
+       WHERE branch_id = ? AND stream_type IN ('staff', 'station')
+         AND event_type IN ('SessionStarted', 'SessionEnded')
+       LIMIT 1`,
     )
-    .get(branchId) as { n: number };
-  if (sessionEvents.n === 0) return;
+    .get(branchId) as { ok: number } | undefined;
+  if (sessionEvents === undefined) return;
   const started = db
-    .prepare(`SELECT payload FROM events WHERE branch_id = ? AND event_type = 'SessionStarted' ORDER BY seq`)
+    .prepare(
+      `SELECT payload FROM events
+       WHERE branch_id = ? AND stream_type IN ('staff', 'station') AND event_type = 'SessionStarted'
+       ORDER BY seq`,
+    )
     .all(branchId) as Array<{ payload: string }>;
   const ended = new Set(
     (
-      db.prepare(`SELECT payload FROM events WHERE branch_id = ? AND event_type = 'SessionEnded'`).all(branchId) as Array<{
-        payload: string;
-      }>
+      db
+        .prepare(
+          `SELECT payload FROM events
+           WHERE branch_id = ? AND stream_type IN ('staff', 'station') AND event_type = 'SessionEnded'`,
+        )
+        .all(branchId) as Array<{ payload: string }>
     ).map((row) => sessionIdOf(row.payload)),
   );
   const open: RememberedSession[] = [];

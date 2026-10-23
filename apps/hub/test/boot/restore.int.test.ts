@@ -9,7 +9,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { boot } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
-import { registerAccessReconcile } from '../../src/projections/access-reconcile';
+import { registerAccessReconcile, restoreEmptyStaffSessions } from '../../src/projections/access-reconcile';
 import { createTestHub } from '../helpers/test-hub';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -278,6 +278,21 @@ describe('access reconciliation', () => {
     booted = await boot({ configPath, wallNow: () => WALL, monoNow: () => 0 });
     const caughtUp = booted.deps.db.prepare('SELECT token_hash FROM devices WHERE device_id = ?').pluck().get(device);
     expect(caughtUp).toBe(`rotated:${eventId}`);
+  });
+
+  it('[00 §3.1 M48] an empty staff_sessions table probes session streams instead of counting the event log', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const seen: string[] = [];
+    const prepare = hub.deps.db.prepare.bind(hub.deps.db);
+    hub.deps.db.prepare = ((sql: string) => {
+      seen.push(sql);
+      return prepare(sql);
+    }) as typeof hub.deps.db.prepare;
+    restoreEmptyStaffSessions(hub.deps.db, hub.deps.writer, hub.clock, BRANCH);
+    const eventSql = seen.filter((sql) => sql.includes('FROM events'));
+    expect(eventSql.some((sql) => /COUNT\s*\(\s*\*\s*\)/i.test(sql))).toBe(false);
+    expect(eventSql.some((sql) => sql.includes('stream_type') && sql.includes('LIMIT 1'))).toBe(true);
   });
 
   it('[00 §10 #68] cloud-only restore: SessionStarted without SessionEnded and empty staff_sessions → SessionEnded hub_restored', async () => {

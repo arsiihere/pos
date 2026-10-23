@@ -36,7 +36,8 @@ function complete(path: string, n: number): boolean {
           `SELECT last_seq FROM projection_checkpoints WHERE branch_id = ? AND projection = 'access_reconcile'`,
         )
         .get(BRANCH) as { last_seq: number } | undefined;
-      return seq.seq === n && checkpoint?.last_seq === n;
+      const live = db.prepare('SELECT COUNT(*) AS n FROM staff_sessions').get() as { n: number };
+      return seq.seq === n && checkpoint?.last_seq === n && live.n > 0;
     } finally {
       db.close();
     }
@@ -66,6 +67,12 @@ function fill(path: string, n: number): void {
     db.prepare(
       `INSERT INTO projection_checkpoints (branch_id, projection, last_seq) VALUES (?, 'access_reconcile', ?)`,
     ).run(BRANCH, n);
+    db.prepare(
+      `INSERT INTO staff_sessions (
+        session_id, branch_id, token_hash, kind, staff_id, station_id, device_id,
+        idle_ttl_ms, started_at, last_activity_at
+      ) VALUES ('sess-budget', ?, ?, 'staff', 'S_MGR', NULL, 'dev-budget', 3600000, ?, ?)`,
+    ).run(BRANCH, sha256hex('budget-session'), BASE, BASE);
     db.pragma('wal_checkpoint(TRUNCATE)');
   } finally {
     db.close();
