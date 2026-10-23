@@ -1,9 +1,10 @@
-import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedClock, T } from '../../src/lib/clock';
+import { sha256hex } from '../../src/lib/hash';
 import { openDb, openReadOnly } from '../../src/db/connection';
 import { MigrationChecksumError, runMigrations } from '../../src/db/migrate';
 
@@ -22,10 +23,20 @@ describe('sqlite migrations', () => {
     expect(result).toEqual({ from: 0, to: 2, applied: ['0001_a.sql', '0002_b.sql'] });
     expect(db.prepare('SELECT name FROM a').pluck().get()).toBe('a');
     expect(db.prepare('SELECT id FROM b').pluck().get()).toBe(2);
-    const rows = db.prepare('SELECT version, name, applied_at FROM migration_checksums ORDER BY version').all();
+    const rows = db.prepare('SELECT version, name, checksum, applied_at FROM migration_checksums ORDER BY version').all();
     expect(rows).toEqual([
-      { version: 1, name: '0001_a.sql', applied_at: T },
-      { version: 2, name: '0002_b.sql', applied_at: T },
+      {
+        version: 1,
+        name: '0001_a.sql',
+        checksum: sha256hex(readFileSync(join(fixtures, '0001_a.sql'))),
+        applied_at: T,
+      },
+      {
+        version: 2,
+        name: '0002_b.sql',
+        checksum: sha256hex(readFileSync(join(fixtures, '0002_b.sql'))),
+        applied_at: T,
+      },
     ]);
     const again = await runMigrations(db, { dir: fixtures, clock: fixedClock(T + 1) });
     expect(again).toEqual({ from: 2, to: 2, applied: [] });
