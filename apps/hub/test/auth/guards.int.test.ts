@@ -47,12 +47,26 @@ describe('route guards', () => {
     cleanups.push(() => hub.close());
     hub.app.get('/health', { config: { group: 'health' } }, async () => ({ data: { ok: true } }));
     hub.app.post('/setup/provision', { config: { group: 'setup' } }, async () => ({ data: { ok: true } }));
-    hub.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
+    const blockedGroups = [
+      'device',
+      'device-session',
+      'admin',
+      'admin-device-public',
+      'admin-bootstrap',
+      'pair',
+      'pair-request',
+      'ws',
+    ] as const;
+    for (const group of blockedGroups) {
+      hub.app.get(`/blocked/${group}`, { config: { group } }, async () => ({ data: { ok: true } }));
+    }
     expect((await hub.app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
     expect((await hub.app.inject({ method: 'POST', url: '/setup/provision' })).statusCode).toBe(200);
-    const blocked = await hub.app.inject({ method: 'GET', url: '/commands/test' });
-    expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().error.code).toBe('HUB_NOT_PROVISIONED');
+    for (const group of blockedGroups) {
+      const blocked = await hub.app.inject({ method: 'GET', url: `/blocked/${group}` });
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().error.code).toBe('HUB_NOT_PROVISIONED');
+    }
   });
 
   it('[00 §10 #97] a bad Host is rejected and localhost, the advertised host and a setup-mode own address pass', async () => {
@@ -167,6 +181,7 @@ describe('route guards', () => {
     cleanups.push(() => hub.close());
     hub.app.get('/health', { config: { group: 'health' } }, async (request) => ({ data: { isGuest: request.isGuest === true } }));
     hub.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
+    hub.app.post('/setup/provision', { config: { group: 'setup' } }, async () => ({ data: { ok: true } }));
     const guestHealth = await hub.app.inject({ method: 'GET', url: '/health', remoteAddress: '192.168.20.7' });
     expect(guestHealth.statusCode).toBe(200);
     expect(guestHealth.json().data.isGuest).toBe(true);
@@ -175,6 +190,9 @@ describe('route guards', () => {
     const guest = await hub.app.inject({ method: 'GET', url: '/commands/test', remoteAddress: '192.168.20.7' });
     expect(guest.statusCode).toBe(403);
     expect(guest.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+    const guestSetup = await hub.app.inject({ method: 'POST', url: '/setup/provision', remoteAddress: '192.168.20.7' });
+    expect(guestSetup.statusCode).toBe(403);
+    expect(guestSetup.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
     expect((await hub.app.inject({ method: 'GET', url: '/commands/test', remoteAddress: '192.168.10.5' })).statusCode).toBe(200);
   });
 });
