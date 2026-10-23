@@ -17,6 +17,7 @@ export function makePreMigrateBackup(o: {
     const plain = join(o.config.data_dir, base);
     const key = Buffer.from(o.config.backup_encryption_key, 'base64');
     const iv = o.secrets.bytes(12);
+    let failure: unknown;
     try {
       await o.db.backup(plain);
       fs.chmodSync(plain, 0o600);
@@ -25,14 +26,16 @@ export function makePreMigrateBackup(o: {
       } catch {
         await encryptFile(plain, join(o.config.data_dir, `${base}.enc`), key, iv);
       }
-    } finally {
-      try {
-        fs.unlinkSync(plain);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') throw error;
-      }
+    } catch (error) {
+      failure = error;
     }
+    try {
+      fs.unlinkSync(plain);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && failure === undefined) failure = error;
+    }
+    if (failure !== undefined) throw failure;
   };
 }
 
