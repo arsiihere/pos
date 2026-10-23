@@ -19,7 +19,7 @@ export function createBranchClock(o: {
   return {
     alarm,
     clock: {
-      branchNow: () => bootWall + (o.monoNow() - bootMono),
+      branchNow: () => Math.floor(bootWall + (o.monoNow() - bootMono)),
     },
   };
 }

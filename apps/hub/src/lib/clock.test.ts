@@ -1,5 +1,7 @@
+import { ULID_RE } from '@pos/domain';
 import { describe, expect, it } from 'vitest';
 import { createBranchClock } from './clock';
+import { ulidGen } from './ids';
 
 describe('clock', () => {
   it('[F §4.7] branchNow never jumps with the wall clock', () => {
@@ -14,8 +16,10 @@ describe('clock', () => {
     expect(clock.branchNow()).toBe(1_000_000);
     wall = 9_000_000;
     expect(clock.branchNow()).toBe(1_000_000);
-    mono = 50;
+    mono = 50.9;
     expect(clock.branchNow()).toBe(1_000_050);
+    expect(Number.isInteger(clock.branchNow())).toBe(true);
+    expect(ULID_RE.test(ulidGen(clock).next())).toBe(true);
   });
 
   it('[F §4.7, D48] boot wall ≤ last recorded_at → last+1 with an alarm (delta_ms = wall − last)', () => {
