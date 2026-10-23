@@ -69,51 +69,63 @@ export async function checkPin<T>(
     release();
   }
 
-  const outcome = deps.writer.run((tx) => {
-    const now = deps.clock.branchNow();
-    const subject = view(readLock(tx.db, tx.branchId, o.subject.type, o.subject.id), now, subjectWindow);
-    if (subject.locked && subject.lockedUntil !== null) {
-      throw new DomainError(subjectCode, { retry_after_ms: subject.lockedUntil - now });
-    }
-    const staffLock = view(readLock(tx.db, tx.branchId, 'staff', o.staffId), now, null);
-    if (staffLock.locked && staffLock.lockedUntil !== null) {
-      throw new DomainError('PIN_LOCKED_OUT', { retry_after_ms: staffLock.lockedUntil - now });
-    }
-    if (!matched) {
-      const staffCount = recordFailure(tx, 'staff', o.staffId, now, null, deps.config.auth.pin_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
-        stream_type: 'staff',
-        stream_id: o.staffId,
-        event_type: 'StaffPinLockedOut',
-        schema_version: 1,
-        payload: { staff_id: o.staffId, locked_until: lockedUntil, failed_count: count },
-        occurred_at: now,
-        actor_id: null,
-        device_id: o.eventDeviceId,
-      }));
-      recordFailure(tx, o.subject.type, o.subject.id, now, subjectWindow, deps.config.auth.device_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
-        stream_type: 'hub',
-        stream_id: o.subject.id,
-        event_type: 'DevicePinLockedOut',
-        schema_version: 1,
-        payload: { subject_type: o.subject.type, subject_id: o.subject.id, locked_until: lockedUntil, failed_count: count },
-        occurred_at: now,
-        actor_id: null,
-        device_id: o.eventDeviceId,
-      }));
-      return { kind: 'mismatch' as const, attemptsRemaining: Math.max(0, deps.config.auth.pin_max_failures - staffCount) };
-    }
-    tx.db
-      .prepare(
-        `UPDATE auth_lockouts SET failed_count = 0, locked_until = NULL
-         WHERE branch_id = ? AND subject_type = 'staff' AND subject_id = ?`,
-      )
-      .run(tx.branchId, o.staffId);
-    return { kind: 'match' as const, value: onMatch(tx) };
-  });
+  let staffReset = false;
+  let outcome: { result: { kind: 'mismatch'; attemptsRemaining: number } | { kind: 'match'; value: T } };
+  try {
+    outcome = deps.writer.run((tx) => {
+      const now = deps.clock.branchNow();
+      const subject = view(readLock(tx.db, tx.branchId, o.subject.type, o.subject.id), now, subjectWindow);
+      if (subject.locked && subject.lockedUntil !== null) {
+        throw new DomainError(subjectCode, { retry_after_ms: subject.lockedUntil - now });
+      }
+      const staffLock = view(readLock(tx.db, tx.branchId, 'staff', o.staffId), now, null);
+      if (staffLock.locked && staffLock.lockedUntil !== null) {
+        throw new DomainError('PIN_LOCKED_OUT', { retry_after_ms: staffLock.lockedUntil - now });
+      }
+      if (!matched) {
+        const staffCount = recordFailure(tx, 'staff', o.staffId, now, null, deps.config.auth.pin_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
+          stream_type: 'staff',
+          stream_id: o.staffId,
+          event_type: 'StaffPinLockedOut',
+          schema_version: 1,
+          payload: { staff_id: o.staffId, locked_until: lockedUntil, failed_count: count },
+          occurred_at: now,
+          actor_id: null,
+          device_id: o.eventDeviceId,
+        }));
+        recordFailure(tx, o.subject.type, o.subject.id, now, subjectWindow, deps.config.auth.device_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
+          stream_type: 'hub',
+          stream_id: o.subject.id,
+          event_type: 'DevicePinLockedOut',
+          schema_version: 1,
+          payload: { subject_type: o.subject.type, subject_id: o.subject.id, locked_until: lockedUntil, failed_count: count },
+          occurred_at: now,
+          actor_id: null,
+          device_id: o.eventDeviceId,
+        }));
+        return { kind: 'mismatch' as const, attemptsRemaining: Math.max(0, deps.config.auth.pin_max_failures - staffCount) };
+      }
+      resetStaffCounter(tx, o.staffId);
+      staffReset = true;
+      return { kind: 'match' as const, value: onMatch(tx) };
+    });
+  } catch (error) {
+    if (staffReset) deps.writer.run((tx) => resetStaffCounter(tx, o.staffId));
+    throw error;
+  }
   if (outcome.result.kind === 'mismatch') {
     throw new DomainError('PIN_INVALID', { attempts_remaining: outcome.result.attemptsRemaining });
   }
   return outcome.result.value;
+}
+
+function resetStaffCounter(tx: WriterTx, staffId: string): void {
+  tx.db
+    .prepare(
+      `UPDATE auth_lockouts SET failed_count = 0, locked_until = NULL
+       WHERE branch_id = ? AND subject_type = 'staff' AND subject_id = ?`,
+    )
+    .run(tx.branchId, staffId);
 }
 
 function recordFailure(

@@ -1,5 +1,5 @@
 import { verify } from '@node-rs/argon2';
-import { statusOf } from '@pos/domain';
+import { DomainError, statusOf } from '@pos/domain';
 import type { StaffDirectory } from '../../src/auth/staff-directory';
 import { Semaphore } from '../../src/lib/semaphore';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -152,6 +152,34 @@ describe('PIN verification', () => {
     expect(statusOf('SERVICE_UNAVAILABLE')).toBe(503);
     expect(verified).toBe(false);
     release();
+  });
+
+  it('[00 §3.5] a DomainError from the match callback keeps the staff counter reset and writes no session', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const directory = await directoryOf();
+    const deps = pinDeps(hub, directory, new Semaphore(2), async (_hash, pin) => pin === PIN.a);
+    const subject = device('dev-reject');
+    await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(2);
+    await expect(
+      checkPin(deps, input('S_OWNER', PIN.a, subject), () => {
+        throw new DomainError('DEVICE_SESSION_ACTIVE', {
+          staff_id: 'S_CASH',
+          display_name: 'Cashier',
+          can_take_over: true,
+        });
+      }),
+    ).rejects.toMatchObject({ code: 'DEVICE_SESSION_ACTIVE' });
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(0);
+    expect(lockRow(hub, 'device', 'dev-reject')?.failed_count).toBe(2);
+    const sessions = hub.deps.db.prepare('SELECT COUNT(*) AS n FROM staff_sessions').get() as { n: number };
+    expect(sessions.n).toBe(0);
+    const started = hub.deps.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE event_type = 'SessionStarted'`).get() as {
+      n: number;
+    };
+    expect(started.n).toBe(0);
   });
 
   it('[00 §3.5] ip subject locks with IP_LOCKED_OUT and DevicePinLockedOut subject_type ip', async () => {
