@@ -21,6 +21,7 @@ import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projectio
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { httpCloudClient } from '../setup/cloud-client.js';
+import { startConfirmTask } from '../setup/confirm-task.js';
 import { registerSetupRoutes } from '../setup/provision.js';
 import { createBranchClock, type Clock } from './clock.js';
 import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
@@ -66,6 +67,7 @@ export interface BootHandle {
 export async function boot(opts: BootOptions): Promise<BootHandle> {
   const startedMono = opts.monoNow();
   const beat: { stop: () => void } = { stop: () => undefined };
+  let stopConfirm: () => void = () => undefined;
   let current = '0';
   let phase: 'booting' | 'setup' | 'ready' = 'booting';
   const config = loadHubConfig(opts.configPath);
@@ -149,6 +151,19 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '6';
     await runStep('6', ctx);
     current = '7';
+    if (!isConfirmed(config)) {
+      stopConfirm = startConfirmTask({
+        cloud: httpCloudClient(config.cloud_base_url),
+        config,
+        configPath: opts.configPath,
+        clock: deps.clock,
+        log: {
+          error(obj, msg) {
+            app.log.error(obj, msg);
+          },
+        },
+      });
+    }
     if (opts.listen === true) await app.listen({ host: '0.0.0.0', port: config.http_port });
     const hubDownAt = readHeartbeat(db, provisioned.branch_id);
     const hubUpAt = deps.clock.branchNow();
@@ -174,9 +189,14 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     });
     current = '8';
     phase = 'ready';
-    beat.stop = startHeartbeat(db, deps.clock, provisioned.branch_id);
+    const stopHeart = startHeartbeat(db, deps.clock, provisioned.branch_id);
+    beat.stop = () => {
+      stopConfirm();
+      stopHeart();
+    };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
+    stopConfirm();
     readDb?.close();
     db.close();
     throw error;
