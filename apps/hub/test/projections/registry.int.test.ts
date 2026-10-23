@@ -219,6 +219,28 @@ describe('projection registry', () => {
     expect(current.db.prepare('SELECT last_seq FROM projection_checkpoints WHERE projection = ?').pluck().get('idle')).toBe(2);
   });
 
+  it('[00 §3.8] catch-up replays in pages of 1 000', async () => {
+    const { db } = await migrated();
+    db.exec('CREATE TABLE proj_counter (seq INTEGER PRIMARY KEY)');
+    db.exec('CREATE TABLE checkpoint_log (last_seq INTEGER NOT NULL)');
+    db.exec(
+      `CREATE TRIGGER log_cp_insert AFTER INSERT ON projection_checkpoints
+       BEGIN INSERT INTO checkpoint_log (last_seq) VALUES (new.last_seq); END`,
+    );
+    db.exec(
+      `CREATE TRIGGER log_cp_update AFTER UPDATE ON projection_checkpoints
+       BEGIN INSERT INTO checkpoint_log (last_seq) VALUES (new.last_seq); END`,
+    );
+    const registry = createProjectionRegistry();
+    registry.register(counter('counter'));
+    db.transaction(() => {
+      appendEvents(db, drafts(1001), context());
+    }).immediate();
+    registry.catchUp(db, BRANCH);
+    expect(rows(db)).toEqual(Array.from({ length: 1001 }, (_, n) => n + 1));
+    expect(db.prepare('SELECT last_seq FROM checkpoint_log ORDER BY rowid').pluck().all()).toEqual([1000, 1001]);
+  });
+
   async function migrated() {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
