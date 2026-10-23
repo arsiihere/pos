@@ -157,6 +157,69 @@ describe('POST /v1/hubs/register', () => {
     expect(row.rows[0]?.consumed_at).toBeNull();
   });
 
+  it('[00 §6.5] a same-attempt retry and a reissued code both return 200 and leave one live key', async () => {
+    const { seeded, issued } = await branch('Model', 'fay@example.com');
+    const idempotencyKey = ulid(ids);
+    const first = await register(issued.code, idempotencyKey);
+    expect(first.statusCode).toBe(200);
+    const reissued = await issueRegistrationCode(
+      sys(),
+      { tenantId: seeded.tenant_id, branchId: issued.branch_id },
+      { clock: cloud.clock, ids, secrets },
+    );
+
+    const hold = await cloud.pool.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query('SELECT branch_id FROM branches WHERE branch_id = $1 FOR UPDATE', [issued.branch_id]);
+      let settled = false;
+      const pending = register(reissued.code, ulid(ids)).finally(() => {
+        settled = true;
+      });
+      const deadline = Date.now() + 2_000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        if (settled) break;
+        const locks = await cloud.pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n
+             FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()`,
+        );
+        if (locks.rows[0]?.n !== '0') {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+
+      await hold.query(
+        `UPDATE branch_api_keys SET revoked_at = $3
+          WHERE tenant_id = $1 AND branch_id = $2 AND revoked_at IS NULL`,
+        [seeded.tenant_id, issued.branch_id, T],
+      );
+      await hold.query(
+        `INSERT INTO branch_api_keys (tenant_id, branch_id, key_id, key_hash, created_at)
+         VALUES ($1, $2, 'planted-key', $3, $4)`,
+        [seeded.tenant_id, issued.branch_id, sha256('planted-key'), T],
+      );
+      await hold.query('COMMIT');
+
+      const response = await pending;
+      expect(response.statusCode).toBe(200);
+      const retry = await register(issued.code, idempotencyKey);
+      expect(retry.statusCode).toBe(200);
+      const keys = await cloud.pool.query<{ key_hash: string; revoked_at: string | null }>(
+        `SELECT key_hash, revoked_at FROM branch_api_keys WHERE branch_id = $1 AND revoked_at IS NULL`,
+        [issued.branch_id],
+      );
+      expect(keys.rows).toEqual([{ key_hash: sha256(retry.json().data.branch_api_key), revoked_at: null }]);
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+  });
+
   it('[00 §10 #61] two registers of one code with different keys: one 200 and one 401', async () => {
     const { issued } = await branch('Bahria', 'eve@example.com');
     const [left, right] = await Promise.all([register(issued.code, ulid(ids)), register(issued.code, ulid(ids))]);

@@ -42,6 +42,10 @@ export async function registerHub(
       throw new DomainError('REGISTRATION_CODE_INVALID');
     }
     if (!input.acceptedKinds.includes(row.kind)) throw new DomainError('REGISTRATION_CODE_KIND_UNSUPPORTED');
+    await client.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
+      row.tenant_id,
+      row.branch_id,
+    ]);
     const branchApiKey = deps.secrets.token256();
     const rotated = await revokeLiveKey(client, row.tenant_id, row.branch_id, now);
     await insertApiKey(client, row, deps.ids.next(), sha256(branchApiKey), now);
