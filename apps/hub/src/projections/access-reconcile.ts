@@ -12,7 +12,6 @@ interface RememberedSession {
   kind: SessionKind;
   staff_id: string | null;
   station_id: string | null;
-  device_id: string | null;
 }
 
 export function registerAccessReconcile(deps: {
@@ -150,7 +149,6 @@ function rememberedFrom(payload: Record<string, unknown>): RememberedSession | u
     kind,
     staff_id: typeof payload.staff_id === 'string' ? payload.staff_id : null,
     station_id: typeof payload.station_id === 'string' ? payload.station_id : null,
-    device_id: typeof payload.device_id === 'string' ? payload.device_id : null,
   };
 }
 
@@ -180,6 +178,6 @@ function sessionEndedDraft(session: RememberedSession, now: number): EventDraft 
     },
     occurred_at: now,
     actor_id: null,
-    device_id: session.device_id ?? 'hub',
+    device_id: 'hub',
   };
 }

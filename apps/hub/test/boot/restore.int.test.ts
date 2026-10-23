@@ -167,6 +167,7 @@ describe('access reconciliation', () => {
       });
     });
     expect(sessionEnds(tail.db)).toEqual([{ session_id: 'sess-tail', reason: 'hub_restored' }]);
+    expect(tail.db.prepare(`SELECT device_id FROM events WHERE event_type = 'SessionEnded'`).pluck().get()).toBe('hub');
     await tail.stop();
 
     const cloudOnly = await bootSeeded((db) => {
