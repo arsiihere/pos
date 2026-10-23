@@ -1,0 +1,109 @@
+/// <reference types="node" />
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDb, openReadOnly } from '../../src/db/connection';
+import { sha256hex } from '../../src/lib/hash';
+
+const CACHE = join(tmpdir(), 'pos-big-fixture-v1.sqlite');
+const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
+const BRANCH = 'branch-1';
+const TENANT = 'tenant-a';
+const BASE = 1_700_000_000_000;
+const CHUNK = 50_000;
+
+export function buildBigFixture(path: string, n = 1_000_000): void {
+  if (!complete(CACHE, n)) {
+    rmSync(CACHE, { force: true });
+    rmSync(`${CACHE}-wal`, { force: true });
+    rmSync(`${CACHE}-shm`, { force: true });
+    fill(CACHE, n);
+  }
+  copyFileSync(CACHE, path);
+}
+
+function complete(path: string, n: number): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const db = openReadOnly(path);
+    try {
+      const seq = db.prepare('SELECT MAX(seq) AS seq FROM events WHERE branch_id = ?').get(BRANCH) as {
+        seq: number | null;
+      };
+      const checkpoint = db
+        .prepare(
+          `SELECT last_seq FROM projection_checkpoints WHERE branch_id = ? AND projection = 'access_reconcile'`,
+        )
+        .get(BRANCH) as { last_seq: number } | undefined;
+      return seq.seq === n && checkpoint?.last_seq === n;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+function fill(path: string, n: number): void {
+  const db = openDb(path);
+  try {
+    db.pragma('synchronous = OFF');
+    applyMigrations(db);
+    const insert = db.prepare(
+      `INSERT INTO events (
+        event_id, tenant_id, branch_id, stream_type, stream_id, event_type,
+        schema_version, payload, occurred_at, recorded_at, actor_id, device_id, seq
+      ) VALUES (?, ?, ?, 'hub', ?, 'TestNooped', 1, '{"command_id":"c"}', ?, ?, NULL, 'hub', ?)`,
+    );
+    const writeChunk = db.transaction((start: number, end: number) => {
+      for (let seq = start; seq <= end; seq += 1) {
+        const at = BASE + seq;
+        insert.run(`evt-${seq}`, TENANT, BRANCH, BRANCH, at, at, seq);
+      }
+    });
+    for (let start = 1; start <= n; start += CHUNK) writeChunk.immediate(start, Math.min(n, start + CHUNK - 1));
+    db.prepare(
+      `INSERT INTO projection_checkpoints (branch_id, projection, last_seq) VALUES (?, 'access_reconcile', ?)`,
+    ).run(BRANCH, n);
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } finally {
+    db.close();
+  }
+}
+
+function applyMigrations(db: ReturnType<typeof openDb>): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS migration_checksums (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      applied_at INTEGER NOT NULL
+    )`,
+  );
+  const files = readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+  for (const name of files) {
+    const version = Number(name.slice(0, name.indexOf('_')));
+    const bytes = readFileSync(join(migrationsDir, name));
+    const sql = bytes.toString('utf8');
+    const fkOff = (sql.split('\n', 1)[0]?.replace(/\r$/, '') ?? '') === '-- migrate:foreign-keys-off';
+    if (fkOff) db.pragma('foreign_keys = OFF');
+    try {
+      const run = db.transaction(() => {
+        db.exec(sql);
+        db.prepare('INSERT INTO migration_checksums (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)').run(
+          version,
+          name,
+          sha256hex(bytes),
+          0,
+        );
+        db.pragma(`user_version = ${version}`);
+      });
+      run.immediate();
+    } finally {
+      if (fkOff) db.pragma('foreign_keys = ON');
+    }
+  }
+}
