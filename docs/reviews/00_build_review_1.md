@@ -1,93 +1,81 @@
-# Build review 1 — module 00 tasks 1–28
+# Build review 1 — module 00 tasks 2–32b
 
 | Field | Value |
 |---|---|
-| Range | `f03c730` (plan commit, excluded) .. `f16e21d` |
+| Range | `f03c730` (plan commit, excluded) .. `b0125f9` |
 | Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) |
-| Plan | `docs/plans/00-plan.md` tasks 1–28 |
-| Done per `docs/reviews/build-log.md` | tasks 2–28. Task 1 is commit `4abf807`. |
+| Plan | `docs/plans/00-plan.md` tasks 2–32b |
+| Done per `docs/reviews/build-log.md` | tasks 2–32b. Task 1 is commit `4abf807`. |
 | Date | 2026-10-23 |
-| Verdict | Fix the list below before task 29. |
+| Verdict | Fix the list below before task 33. |
 
-Earlier copies of this file reviewed tasks 1–25. Those items were fixed in `13a613e` .. `14dcfc6` and are not reopened. This pass re-read the current tree for tasks 1–28 against the spec and the plan, and checked that every `[00 §10 #n]` name in the suite is unique.
+Earlier copies of this file reviewed tasks 1–28. Those items were fixed in `0a6c552` .. `db6a98d` and are not reopened. This pass re-read the tree through task 32b.
 
 ## What matches
 
-- Every §10 number the coverage table assigns to tasks 1–28 is present once: `#1`–`#14`, `#21`, `#58`, `#62`–`#68`, `#70`–`#72`, `#74`, `#75`, `#78`, `#83`, `#85`–`#88`, `#97`–`#103`, `#106`, `#108`, `#110`, `#111`, `#115`–`#117`, `#122`, `#124`, `#128`, `#129`. No `[00 §10 #n]` name is duplicated. Numbers owned by later tasks are absent.
-- The command pipeline follows §3.7 on the paths the tests hit: device replay before the idle check, admin replay by `session_id`, idle expiry writes one `SessionEnded`, an ended bootstrap session is `ADMIN_SESSION_REQUIRED`, query limits are 50 and 200, and `DEVICE_TYPE_NOT_ALLOWED` carries the device type.
-- `0001_platform.sql` matches §5.2 (tables, checks, partial unique indexes, no `idempotency_keys`, no `is_admin_role`). Repositories throw `TypeError('TenantContext required')` without a frozen context. Credential lookups are by email or hash only, and `forUpdate` appends `FOR UPDATE`.
-- Boot writes `ClockAlarm` then `HubStarted`. `/health` returns `{ status }` to a guest and the full body otherwise. `DeviceTokenRotated` changes `token_hash` only in catch-up mode.
-- No new code logs a PIN, token, password, `pin_hash`, or backup key. Directory warnings are version or `{ kind, id, reason }`.
+- Every `[00 §10 #n]` name in the suite is unique. Numbers owned by tasks 2–32b are present once: `#1`–`#14`, `#21`–`#25`, `#56`, `#57`, `#58`, `#61`–`#68`, `#70`–`#72`, `#74`–`#76`, `#78`, `#83`, `#85`–`#90`, `#97`–`#103`, `#106`, `#108`, `#110`, `#111`, `#113`, `#115`–`#117`, `#122`, `#124`, `#128`, `#129`. Later-task numbers are absent.
+- Register stays `pending_hub`, rotates a key on the same Idempotency-Key inside 1 h, and answers unknown, expired, and wrong-attempt codes with the same `401` body. Confirm uses `COALESCE` so a repeat keeps the first `hub_confirmed_at`. Reissue refuses a confirmed branch.
+- Seed roles match §6.26 (TTLs, Owner and Manager grants, Cashier approval, Order taker empty). `SystemContext` and `credential-lookup` import pins match M55 and M56.
+- No new code logs a PIN, token, password, registration code, branch API key, or `pin_hash`. `hub_registered` is `tenant_id`, `branch_id`, `kind`, `rotated`. Fastify's request serializer does not include the body or the `Authorization` header.
 
 ## Declined
 
-- In-transaction re-check compares the presented device token to `token_hash`. §3.7 and plan task 23 name only `revoked_at` → `DEVICE_REVOKED` and `ended_at` → `SESSION_EXPIRED`. `DeviceTokenRotated` bumps `authGeneration` so the re-check runs; it does not add a third code.
-- In-flight admin command after `access-hub-admin` is removed but the command permission remains. M61 is the guard on the next request (`#106` leaves the session open). Inside the transaction, §3.7 resolves the command's permission, which `#86` locks.
-- `server.ts`, `guards.int.test.ts`, `test-hub.ts`, and `boot.int.test.ts` outside some task file lists. The build log recorded those rulings. They do not hide a spec miss.
-- Publish runs inside `writer.run`, before the HTTP body. Task 15 owns that order. Task 45 attaches the socket there.
-- `hub_version` `0.0.0` and `missed_fires` 0. The build log recorded both. Missed fires belong to module 03a.
-- `StaffDirectory.load` at step 4a is discarded. Guards load again at step 7.
-- `pnpm-lock.yaml` and dependency additions the tasks needed to compile. Already declined.
-- Cloud `BIGINT` columns come back as strings from `node-pg`. The SQL types match §5.2. Task 32 coerces `directory_version` when it parses a directory.
+- Hand-rolled HS256 on `app.jwt` instead of `@fastify/jwt`. Task 29's file list excluded `package.json`. `sign` / `verify` match the claims task 47 needs (`sub`, `tenant_id`, `allowed_branch_ids`, 1 h).
+- `HUB_MIN_VERSION` is loaded and never compared. §6.5 and §6.28 do not say to reject an old `hub_version`. Inventing a status code would block task 33.
+- The registration-code guard rejects only an unknown hash. Expiry and the same-attempt rule run inside the register transaction. `#24` locks the three `401` bodies.
+- `server.ts`, `guards.int.test.ts`, `test-hub.ts`, `boot.int.test.ts`, and dependency additions outside some task file lists. The build log recorded those rulings.
+- `createSession` draws tokens from `cryptoSecrets`. The writer has no `SecretGen`. Callers receive the plaintext token from the return value.
 
 ## Needs spec change
 
-None.
+- **A replay after confirm revokes the key the hub just stored.** §6.5 step 3 rotates on every valid exchange, including the same Idempotency-Key while `now − consumed_at < 3 600 000`. §6.28 expires unconsumed codes only, so the consumed code stays usable. Confirm can succeed, the hub can store `branch_api_key` and stop, and a replay inside the hour then revokes that key. Module 06 would sync with a dead key. Closing it means changing M14 or §6.28 (for example: once `hub_confirmed_at` is set, the same-attempt exchange is `401` and does not rotate). Not changed here.
 
 ## Fix list
 
-### 1. A second `endSession` appends another `SessionEnded`
+### 1. Two live codes for one branch can 500
 
-- **Where:** `apps/hub/src/auth/session-store.ts` `endSession`. The early return checks the in-memory `ended_at` only. The `UPDATE … WHERE ended_at IS NULL` result is ignored, and the append always runs.
-- **What's wrong:** §3.4: "Every transition to ENDED writes exactly one `SessionEnded` … ENDED is terminal." Two `writer.run` calls can both hold a row read while it was active. The second update changes 0 rows and still appends. Logout, the sweeper, and force-logout (tasks 39, 41, 42) are separate transactions.
-- **Why it matters:** Module 02 releases locks on `SessionEnded`. A second event releases them twice.
-- **Fix:** If `changes === 0`, return before `activity.forget` and `append`. After a successful update, set `s.ended_at` so a second call with the same object returns at the top. Test `[00 §3.4] a second endSession on a stale row writes no SessionEnded`: end with `logout`, call again with the same object and reason `forced`, expect one event and `end_reason` `logout`.
+- **Where:** `apps/cloud/src/modules/hub-registration/service.ts` `registerHub`. The transaction locks the code row only. `branch_api_keys_one_active` is the other lock.
+- **What's wrong:** Reissue leaves the consumed code valid for the same Idempotency-Key for 1 h and inserts a second code. Two exchanges of those codes take different `FOR UPDATE` locks, then both `INSERT` a live key. PostgreSQL raises `23505`. The handler is not a `DomainError`, so the client gets `500 INTERNAL_ERROR`.
+- **Why it matters:** M22 is the recovery when setup retries. That retry and the new code are in flight together. Task 33 passes a cloud 500 through as `INTERNAL_ERROR` and does not rotate.
+- **Fix:** After the code is locked and accepted, `SELECT … FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, then revoke and insert. Test `[00 §6.5] a same-attempt retry and a reissued code both return 200 and leave one live key`: hold the branch row, insert a live key, release, and expect the waiting register to return 200 with that key revoked.
 - **Spec change:** no.
 
-### 2. Step 4b scans the event log on the boot §7.8 says skips it
+### 2. Confirm still succeeds after the key is revoked
 
-- **Where:** `apps/hub/src/projections/access-reconcile.ts` `restoreEmptyStaffSessions`. `apps/hub/test/helpers/big-fixture.ts` inserts no `staff_sessions` row. `[00 §10 #100]` copies that file.
-- **What's wrong:** M48 and §3.8 step 4b run only when `staff_sessions` is empty and session events exist, because an unindexed scan grows with history. The existence check is `COUNT(*)` on `events` filtered by `event_type`. Nothing indexes `event_type`. §7.8's 1 M-event target is "4b skipped". The fixture has an empty `staff_sessions`, so #100 pays the scan, and `events_replayed === 0` does not see it. After task 41 deletes ended sessions, a boot with nobody logged in takes the same path.
-- **Why it matters:** Tasks 44 and 45 open `/ws` only after boot. The scan sits in front of listen.
-- **Fix:** Probe with `events_stream` and stop at one row: `stream_type` `staff` or `station`, `event_type` in `SessionStarted` / `SessionEnded`, `LIMIT 1`. Read payloads through that index too. Insert one `staff_sessions` row in the 1 M fixture and treat a cache without that row as stale. Test `[00 §3.1 M48] an empty staff_sessions table probes session streams instead of counting the event log`: the prepared SQL uses `stream_type` and `LIMIT 1`, and does not `COUNT(*)` the events table.
+- **Where:** `apps/cloud/src/modules/hub-registration/service.ts` `confirmHub`. The branch-key guard checks `revoked_at` on another connection. The update does not look at the key.
+- **What's wrong:** `UPDATE branches` waits on the row lock, then sets `active` with whatever key the guard saw. A register that revoked that key and committed while confirm was waiting still gets `200`.
+- **Why it matters:** Task 33b writes `confirmed_at` and stops on `200`. The hub keeps the revoked key.
+- **Fix:** In the same transaction, lock the branch row and require a live `branch_api_keys` row for the presented key hash. Otherwise `401 BRANCH_API_KEY_INVALID` and do not change the branch. Test `[00 §6.28] confirm after the presented key is revoked is 401 and leaves the branch pending_hub`.
 - **Spec change:** no.
 
-### 3. `hub_restored` is stamped with the session's device
+### 3. `REGISTRATION_CODE_KIND_UNSUPPORTED` has empty details
 
-- **Where:** `apps/hub/src/projections/access-reconcile.ts` `sessionEndedDraft` sets `device_id` to `session.device_id ?? 'hub'`. `[00 §10 #88]`'s tail `SessionStarted` payload carries `device_id: 'dev-kept'`. `sessionEnds` reads the payload only.
-- **What's wrong:** M7: "System events use `device_id = 'hub'`." `staff_removed` and `credentials_changed` already pass `'hub'`. A restore ending is a system event. The envelope column is the remembered session's device.
-- **Why it matters:** Task 45 closes the socket from `session_id` and `reason`, so this does not change the close. The event 06 syncs is still attributed to the tablet.
-- **Fix:** Set `device_id: 'hub'` on both the catch-up and step 4b drafts. In #88's tail case, expect the `events.device_id` column of that `SessionEnded` to be `hub`.
+- **Where:** `registerHub` throws `new DomainError('REGISTRATION_CODE_KIND_UNSUPPORTED')`. `#25` checks the status and the code only.
+- **What's wrong:** §9 details are `{ kind, accepted_kinds }`. The body is `details: {}`.
+- **Why it matters:** Task 33 step 4 copies the cloud error through. The kind the hub sent is not in the body.
+- **Fix:** Pass `{ kind: row.kind, accepted_kinds: input.acceptedKinds }`. Extend `#25` to expect those details. Do not add a second `[00 §10 #25]` test.
 - **Spec change:** no.
 
-### 4. WebSocket guards throw HTTP errors, so task 44 cannot close `4403` or `4426`
+### 4. 429 and 503 never set `Retry-After`
 
-- **Where:** `apps/hub/src/auth/guards.ts` `host`, `guest`, and `version`. Group `ws` is `host`, `provisioned`, `guest`, `version`.
-- **What's wrong:** §3.9: a bad host or a guest address is `403` "(WS: close `4403`)"; a too-old client is `426` "(WS: `4426`)". §6.21 step 1 says the same, with zero frames. The hooks throw `DomainError`, so the upgrade never becomes a socket. Plan task 44 may modify `server.ts` and create `ws/server.ts`. It may not modify `guards.ts`. `GET /ws` has to use group `ws` or `ready()` fails (#72).
-- **Why it matters:** Task 44's tests `#48`, `#119`, and the WS half of #97 cannot observe a close frame while these hooks throw.
-- **Fix:** On group `ws` only, do not throw. Set `request.wsClose` to `4403` for a bad host or a guest address, and `4426` for a too-old version. A later ws guard returns when `wsClose` is already set, so a bad host stays `4403`. HTTP groups still throw. Test `[00 §3.9] a ws route records close 4403 for a bad host or a guest and 4426 for an old client`. Task 44's upgrade handler closes with that code and sends no frame.
+- **Where:** `apps/hub/src/server.ts` and `apps/cloud/src/plugins/error-handler.ts`. Nothing in the repo sets the header.
+- **What's wrong:** §7.1 `onSend` adds `Retry-After` for 429 and 503. The global constraint is seconds, rounded up, plus `details.retry_after_ms`.
+- **Why it matters:** Task 34 may not edit `server.ts`. Task 47 may not edit the cloud error handler. Both throw `DomainError` with `retry_after_ms` and cannot add the header in their file lists.
+- **Fix:** On 429 and 503, when `details.retry_after_ms` is a finite number ≥ 0, set `Retry-After` to `Math.ceil(ms / 1000)`. Tests `[00 §7.1] a 503 carries Retry-After rounded up from retry_after_ms` on the hub and `[00 §7.1] a 429 carries Retry-After rounded up from retry_after_ms` on the cloud. A 400 does not get the header.
 - **Spec change:** no.
 
-### 5. An idle bootstrap session is ended as `hub`, not `hub-admin`
+### 5. The cloud route inventory does not see the routes the server registered
 
-- **Where:** `apps/hub/src/auth/guards.ts` `endIdle` passes `fresh.device_id ?? 'hub'`. `[00 §10 #115]` idles a device-bound admin session. The bootstrap case in that test is a live session, then an already-ended one.
-- **What's wrong:** M7 and §3.4: the bootstrap session has no device and uses `device_id = 'hub-admin'` in events. `openSession` already writes `SessionStarted` with `hub-admin`. The idle `SessionEnded` uses `hub` because the row's `device_id` is null.
-- **Why it matters:** Task 35b and task 39 end this same session. The idle path is the one the guard owns now.
-- **Fix:** When `kind === 'admin'` and `device_id` is null, pass `'hub-admin'`. Use the same choice in `endSessionNow`. In #115, idle a bootstrap session and expect one `SessionEnded` whose `device_id` column is `hub-admin`.
+- **Where:** `apps/cloud/test/route-inventory.int.test.ts` `[00 §10 #76]`. `seen` is filled by an `onRoute` hook added after `createTestCloud()`.
+- **What's wrong:** Foundation §3.4: the inventory collects every route. The hook misses `POST /v1/hubs/register` and `POST /v1/hubs/confirm`. `onReady` still rejects a missing scope, so a wrong scope (`jwt` on confirm, `none` is already banned) stays green.
+- **Why it matters:** Task 49's file list does not include `tenant-scope.ts`. Its cross-tenant loop cannot see routes that were registered before the test's hook.
+- **Fix:** Record `{ method, url, tenantScope }` inside the existing `onRoute` hook and export `listTenantScopes(app)`. Extend `#76` so the list contains register as `registration-code` and confirm as `branch-key`. Do not add a second `[00 §10 #76]` test.
 - **Spec change:** no.
 
-### 6. The schema tests never lock "roles has no `is_admin_role`"
+### 6. Register's directory test does not lock the grants the hub will apply
 
-- **Where:** `apps/cloud/test/schema.int.test.ts`. Plan task 27, step 1, lists this next to the missing `idempotency_keys` table. The migration does not create the column. The approver insert names `(tenant_id, role_id, name, session_idle_ttl_ms)` only, so a nullable column or a column with a default still passes.
-- **What's wrong:** M57: "No `is_admin_role`." Nothing reads `information_schema.columns` for `roles`.
-- **Why it matters:** Task 30's `DEFAULT_ROLES` and task 31's "no flag" path stay green if the column appears.
-- **Fix:** `it('[00 §5.2] roles has no is_admin_role')` selects `column_name` for `roles` and expects no `is_admin_role`.
-- **Spec change:** no.
-
-### 7. A frozen `TenantContext` can still gain branches
-
-- **Where:** `apps/cloud/src/db/tenant-scoped-repository.ts` `isTenantContext` and `query`. The test helper deep-freezes `branchIds`. `#75` only passes an unfrozen outer object.
-- **What's wrong:** Plan task 28: `TenantContext` is frozen, and both repositories throw `TypeError('TenantContext required')` without one. `Object.freeze` on the outer object leaves the array mutable. `query` spreads `this.ctx.branchIds` at call time, so `branchIds.push(...)` widens the next scoped query.
-- **Why it matters:** Task 29 builds this object from the JWT `allowed_branch_ids`. A shallow freeze passes the guard.
-- **Fix:** `assertTenantContext` returns `Object.freeze({ tenantId, branchIds: Object.freeze([...branchIds]) })`. Test `[F §3.4] a shallow-frozen context cannot gain a branch`: freeze `{ tenantId, branchIds }`, construct the repository, push another branch of the same tenant, and expect the query to return the original branch only.
+- **Where:** `apps/cloud/test/hub-registration.int.test.ts` `[00 §10 #22]`. It checks staff ids and that `DirectorySchema` parses.
+- **What's wrong:** An owner role with `permissions: []` still parses. `consumed_at` is selected and not asserted. Task 33 applies this directory. Task 35 requires `access-hub-admin` on that owner. `#56` locks the seed tables, not `loadDirectory`.
+- **Why it matters:** A dropped permissions query stays green until admin login.
+- **Fix:** In the existing `#22` test, expect `consumed_at` set to the idempotency key, and expect the Owner role's permissions to include `access-hub-admin` with `grant_type: 'allowed'`. Do not add a second `[00 §10 #22]` test.
 - **Spec change:** no.
