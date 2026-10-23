@@ -124,7 +124,10 @@ describe('writer', () => {
   it('[00 §3.7] two appends in one run → consecutive seqs, one publish', async () => {
     const { db } = await migrated();
     const state = createStateHolder({ n: 0 });
-    state.setReducer((current, _event) => ({ n: current.n + 1 }));
+    state.setReducer((current) => ({ n: current.n + 1 }));
+    const order: string[] = [];
+    let onCommitInTransaction = true;
+    let seqAtBeforePublish = -1;
     const published: PosEvent[][] = [];
     const writer = createWriter({
       db,
@@ -135,9 +138,26 @@ describe('writer', () => {
       projections: createProjectionRegistry(),
       state,
       authGeneration: createAuthGeneration(),
-      publish: (events) => published.push(events),
+      publish: (events) => {
+        order.push('publish');
+        published.push(events);
+      },
+      testHooks: {
+        beforePublish() {
+          order.push('beforePublish');
+          seqAtBeforePublish = writer.lastSeq();
+        },
+      },
+    });
+    writer.addAfterCommit(() => {
+      order.push('afterCommit');
     });
     const { appended } = writer.run((tx) => {
+      tx.onCommit(() => {
+        order.push('onCommit');
+        onCommitInTransaction = db.inTransaction;
+        expect(state.get()).toEqual({ n: 2 });
+      });
       tx.append([hub('1')]);
       tx.append([hub('2')]);
     });
@@ -146,6 +166,9 @@ describe('writer', () => {
     expect(published[0]?.map((event) => event.seq)).toEqual([1, 2]);
     expect(state.get()).toEqual({ n: 2 });
     expect(writer.lastSeq()).toBe(2);
+    expect(onCommitInTransaction).toBe(false);
+    expect(seqAtBeforePublish).toBe(2);
+    expect(order).toEqual(['onCommit', 'afterCommit', 'beforePublish', 'publish']);
   });
 
   async function migrated() {
