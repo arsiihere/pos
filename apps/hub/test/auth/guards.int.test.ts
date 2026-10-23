@@ -3,15 +3,15 @@ import { guardsFor, listRouteGuards } from '../../src/auth/guards';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createTestHub } from '../helpers/test-hub';
+import { createTestHub, openSession, pairDevice, seedDirectory } from '../helpers/test-hub';
 
 const EXPECTED: Record<RouteGroup, string[]> = {
   health: ['host', 'isGuest'],
   setup: ['host', 'guest'],
-  device: ['host', 'provisioned', 'guest', 'version'],
-  'device-session': ['host', 'provisioned', 'guest', 'version'],
-  admin: ['host', 'provisioned', 'guest'],
-  'admin-device-public': ['host', 'provisioned', 'guest'],
+  device: ['host', 'provisioned', 'guest', 'version', 'device'],
+  'device-session': ['host', 'provisioned', 'guest', 'version', 'device', 'session'],
+  admin: ['host', 'provisioned', 'guest', 'device', 'admin'],
+  'admin-device-public': ['host', 'provisioned', 'guest', 'device'],
   'admin-bootstrap': ['host', 'provisioned', 'guest'],
   pair: ['host', 'provisioned', 'guest', 'version'],
   'pair-request': ['host', 'provisioned', 'guest', 'version'],
@@ -76,17 +76,19 @@ describe('route guards', () => {
     hub.app.post('/admin/auth', { config: { group: 'admin-device-public' } }, async () => ({ data: { ok: true } }));
     hub.app.post('/devices/pair', { config: { group: 'pair' } }, async () => ({ data: { ok: true } }));
     hub.app.post('/pair/requests', { config: { group: 'pair-request' } }, async () => ({ data: { ok: true } }));
+    const device = pairDevice(hub, { type: 'tablet' });
     for (const target of [
       { method: 'GET' as const, url: '/health' },
       { method: 'POST' as const, url: '/admin/auth' },
       { method: 'POST' as const, url: '/devices/pair' },
       { method: 'POST' as const, url: '/pair/requests' },
     ]) {
-      const denied = await hub.app.inject({ ...target, headers: { host: 'evil.example:3000' } });
+      const auth = target.url === '/admin/auth' ? { authorization: `Bearer ${device.token}` } : {};
+      const denied = await hub.app.inject({ ...target, headers: { host: 'evil.example:3000', ...auth } });
       expect(denied.statusCode).toBe(403);
       expect(denied.json().error.code).toBe('HOST_NOT_ALLOWED');
-      expect((await hub.app.inject({ ...target, headers: { host: 'localhost:3000' } })).statusCode).toBe(200);
-      expect((await hub.app.inject({ ...target, headers: { host: '192.168.10.2:3000' } })).statusCode).toBe(200);
+      expect((await hub.app.inject({ ...target, headers: { host: 'localhost:3000', ...auth } })).statusCode).toBe(200);
+      expect((await hub.app.inject({ ...target, headers: { host: '192.168.10.2:3000', ...auth } })).statusCode).toBe(200);
     }
     const setup = await createTestHub({ provisioned: false });
     cleanups.push(() => setup.close());
@@ -100,6 +102,10 @@ describe('route guards', () => {
   it('[00 §3.9] X-Client-Version below min returns 426 and an absent version passes', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
+    await seedDirectory(hub);
+    const device = pairDevice(hub, { type: 'tablet' });
+    const admin = openSession(hub, { kind: 'admin', staffId: 'S_MGR', deviceId: device.deviceId });
+    const deviceAuth = { authorization: `Bearer ${device.token}` };
     hub.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
     hub.app.get('/admin/queries/devices', { config: { group: 'admin' } }, async () => ({ data: { ok: true } }));
     const old = await hub.app.inject({
@@ -109,16 +115,23 @@ describe('route guards', () => {
     });
     expect(old.statusCode).toBe(426);
     expect(old.json().error.code).toBe('CLIENT_UPGRADE_REQUIRED');
-    expect((await hub.app.inject({ method: 'GET', url: '/commands/test' })).statusCode).toBe(200);
+    expect((await hub.app.inject({ method: 'GET', url: '/commands/test', headers: deviceAuth })).statusCode).toBe(200);
     expect(
-      (await hub.app.inject({ method: 'GET', url: '/commands/test', headers: { 'x-client-version': '1.0.0' } })).statusCode,
+      (await hub.app.inject({ method: 'GET', url: '/commands/test', headers: { ...deviceAuth, 'x-client-version': '1.0.0' } }))
+        .statusCode,
     ).toBe(200);
     expect(
-      (await hub.app.inject({ method: 'GET', url: '/admin/queries/devices', headers: { 'x-client-version': '0.9.0' } }))
-        .statusCode,
+      (
+        await hub.app.inject({
+          method: 'GET',
+          url: '/admin/queries/devices',
+          headers: { ...deviceAuth, 'x-admin-session': admin.token, 'x-client-version': '0.9.0' },
+        })
+      ).statusCode,
     ).toBe(200);
     const strict = await createTestHub({ config: { min_client_version: '1.0.10' } });
     cleanups.push(() => strict.close());
+    const strictDevice = pairDevice(strict, { type: 'tablet' });
     strict.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
     const olderPatch = await strict.app.inject({
       method: 'GET',
@@ -128,8 +141,13 @@ describe('route guards', () => {
     expect(olderPatch.statusCode).toBe(426);
     expect(olderPatch.json().error.code).toBe('CLIENT_UPGRADE_REQUIRED');
     expect(
-      (await strict.app.inject({ method: 'GET', url: '/commands/test', headers: { 'x-client-version': '1.0.10' } }))
-        .statusCode,
+      (
+        await strict.app.inject({
+          method: 'GET',
+          url: '/commands/test',
+          headers: { authorization: `Bearer ${strictDevice.token}`, 'x-client-version': '1.0.10' },
+        })
+      ).statusCode,
     ).toBe(200);
   });
 
@@ -179,6 +197,7 @@ describe('route guards', () => {
   it('[00 §3.9] a guest-network address is forbidden except on /health, which records isGuest', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
+    const device = pairDevice(hub, { type: 'tablet' });
     hub.app.get('/health', { config: { group: 'health' } }, async (request) => ({ data: { isGuest: request.isGuest === true } }));
     hub.app.get('/commands/test', { config: { group: 'device' } }, async () => ({ data: { ok: true } }));
     hub.app.post('/setup/provision', { config: { group: 'setup' } }, async () => ({ data: { ok: true } }));
@@ -193,6 +212,15 @@ describe('route guards', () => {
     const guestSetup = await hub.app.inject({ method: 'POST', url: '/setup/provision', remoteAddress: '192.168.20.7' });
     expect(guestSetup.statusCode).toBe(403);
     expect(guestSetup.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
-    expect((await hub.app.inject({ method: 'GET', url: '/commands/test', remoteAddress: '192.168.10.5' })).statusCode).toBe(200);
+    expect(
+      (
+        await hub.app.inject({
+          method: 'GET',
+          url: '/commands/test',
+          remoteAddress: '192.168.10.5',
+          headers: { authorization: `Bearer ${device.token}` },
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 });

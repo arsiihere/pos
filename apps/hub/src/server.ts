@@ -109,7 +109,14 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     return reply.status(500).send(errorBody('INTERNAL_ERROR', 'INTERNAL_ERROR', {}, requestId));
   });
 
-  attachRouteGuards(app, { config: deps.config, ownIPv4: deps.ownIPv4 });
+  attachRouteGuards(app, {
+    config: deps.config,
+    ownIPv4: deps.ownIPv4,
+    db: deps.db,
+    writer: deps.writer,
+    clock: deps.clock,
+    authGeneration: deps.authGeneration,
+  });
   return app;
 }
 

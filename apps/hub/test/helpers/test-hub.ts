@@ -1,7 +1,12 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
+import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
+import type { DirectoryInput } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
+import { applyStaffDirectory } from '../../src/auth/apply-directory';
+import { currentDirectory, swapDirectory } from '../../src/auth/guards';
+import { createSession, endSession, type SessionRow } from '../../src/auth/session-store';
 import { openReadOnly } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
@@ -9,11 +14,13 @@ import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter } from '../../src/engine-host/writer';
 import type { HubConfig } from '../../src/config/schema';
 import { fixedClock } from '../../src/lib/clock';
+import { sha256hex } from '../../src/lib/hash';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { freshDb } from './db';
+import { aDirectory } from './fixtures';
 import { createLogCapture } from './log-capture';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -116,4 +123,72 @@ function testConfig(dir: string, o?: { provisioned?: boolean; config?: Partial<H
     branch_api_key: 'test-branch-api-key',
   };
   return config;
+}
+
+export async function seedDirectory(h: TestHub, d?: DirectoryInput): Promise<void> {
+  const input = d ?? (await aDirectory());
+  h.deps.writer.run((tx) => {
+    applyStaffDirectory(tx, input, (next) => {
+      swapDirectory(h.app, next);
+    });
+  });
+}
+
+export function pairDevice(
+  h: TestHub,
+  o: { type: DeviceType; stationId?: string; ownerStaffId?: string },
+): { deviceId: string; token: string } {
+  const branchId = h.deps.config.provisioned?.branch_id;
+  if (branchId === undefined) throw new Error('pairDevice requires a provisioned hub');
+  const deviceId = h.deps.ids.next();
+  const token = h.deps.secrets.token256();
+  h.deps.db
+    .prepare(
+      `INSERT INTO devices (
+        device_id, branch_id, token_hash, device_name, device_type,
+        station_id, owner_staff_id, paired_at, paired_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      deviceId,
+      branchId,
+      sha256hex(token),
+      o.type,
+      o.type,
+      o.type === 'kds' ? (o.stationId ?? null) : null,
+      o.type === 'phone' ? (o.ownerStaffId ?? null) : null,
+      h.clock.branchNow(),
+      'S_MGR',
+    );
+  return { deviceId, token };
+}
+
+export function openSession(
+  h: TestHub,
+  o: { kind: SessionKind; staffId?: string; deviceId?: string; stationId?: string },
+): { sessionId: string; token: string } {
+  const station = o.kind === 'station';
+  return h.deps.writer.run((tx) =>
+    createSession(tx, {
+      kind: o.kind,
+      staffId: station ? null : (o.staffId ?? null),
+      stationId: station ? (o.stationId ?? null) : null,
+      deviceId: o.deviceId ?? null,
+      idleTtlMs: station ? null : currentDirectory(h.app).ttlFor(o.staffId ?? ''),
+      eventDeviceId: o.deviceId ?? (o.kind === 'admin' ? 'hub-admin' : 'hub'),
+    }),
+  ).result;
+}
+
+export function endSessionNow(h: TestHub, id: string, reason: SessionEndReason = 'logout'): void {
+  const row = h.deps.db
+    .prepare(
+      `SELECT session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, last_activity_at, ended_at, token_hash
+       FROM staff_sessions WHERE session_id = ?`,
+    )
+    .get(id) as SessionRow | undefined;
+  if (row === undefined) throw new Error(`session ${id} not found`);
+  h.deps.writer.run((tx) => {
+    endSession(tx, row, reason, null, null, row.device_id ?? 'hub');
+  });
 }
