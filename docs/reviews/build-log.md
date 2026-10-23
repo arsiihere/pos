@@ -99,3 +99,7 @@ Ruling: `/commands` allows an ended session through the guard so the fast path c
 ## Task 24 — Query registry and generic query route
 Commit `876e246`. Tests: `[00 §10 #13]` a query writes nothing and touches activity only when `countsAsActivity` is true; `[00 §6.2]` limit 201 is 400 `VALIDATION_FAILED`; `[00 §6.2]` a kds device on a tablet-only query is 403 `DEVICE_TYPE_NOT_ALLOWED`. Full suite 112/112.
 Ruling: the handler lives in `queries/registry.ts` because that is the source file the task lists. `/queries` uses group `device` and checks the session in the handler when `session` is `required`, so `allowStation` is per query. `ctx.db` is the read-only connection. `pageParams` defaults to 50 and rejects a limit outside 1–200.
+
+## Task 25 — Boot orchestrator and clock guard
+Commit `a446ac7`. Tests: `[00 §10 #66]` when wall time equals the last `recorded_at`, boot's first write is `ClockAlarm` with `source: 'boot'` and `branchNow` is that time plus 1; `[00 §3.8]` registered steps 2, 3, 5, and 6 run in that order; `[00 §3.8]` an unprovisioned hub mounts no command, query, admin, or auth route and does not run registered steps; `[00 §3.10]` a `{}` config rejects with `ConfigError`. Full suite 116/116.
+Ruling: the database file is `data_dir/hub.sqlite`, the name the backup tests already use. Setup mode is an empty Fastify app because `/health` belongs to task 26 and `server.ts` is not in this task's file list. Step 4b is left for task 25b. `main.ts` passes `Date.now` and `hrtime` and exits 1 on failure.
