@@ -72,13 +72,24 @@ export async function registerHub(
 
 export async function confirmHub(
   pool: pg.Pool,
-  input: { tenantId: string; branchId: string },
+  input: { tenantId: string; branchId: string; keyHash: string },
   deps: { clock: Clock },
 ): Promise<{ branch_id: string; hub_confirmed_at: number }> {
   const now = deps.clock.branchNow();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const locked = await client.query(
+      `SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`,
+      [input.tenantId, input.branchId],
+    );
+    if (locked.rows[0] === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
+    const key = await client.query(
+      `SELECT key_id FROM branch_api_keys
+        WHERE tenant_id = $1 AND branch_id = $2 AND key_hash = $3 AND revoked_at IS NULL`,
+      [input.tenantId, input.branchId, input.keyHash],
+    );
+    if (key.rows[0] === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
     const confirmedAt = await confirmBranch(client, input.tenantId, input.branchId, now);
     if (confirmedAt === null) throw new DomainError('BRANCH_API_KEY_INVALID');
     await client.query('COMMIT');

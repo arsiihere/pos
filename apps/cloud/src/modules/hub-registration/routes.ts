@@ -5,6 +5,7 @@ import type pg from 'pg';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
+import { sha256 } from './repository.js';
 import { confirmHub, registerHub } from './service.js';
 import { ConfirmBody, ConfirmResponse, IdempotencyKey, RegisterBody, RegisterResponse } from './schemas.js';
 
@@ -59,8 +60,17 @@ export function registerHubRegistrationRoutes(
     async (request, reply) => {
       const tenant = request.tenant;
       const branchId = tenant?.branchIds[0];
-      if (tenant === undefined || branchId === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
-      const result = await confirmHub(deps.pool, { tenantId: tenant.tenantId, branchId }, deps);
+      const header = request.headers.authorization;
+      const value = Array.isArray(header) ? header[0] : header;
+      const key = value === undefined ? undefined : /^Bearer\s+(\S+)\s*$/i.exec(value)?.[1];
+      if (tenant === undefined || branchId === undefined || key === undefined) {
+        throw new DomainError('BRANCH_API_KEY_INVALID');
+      }
+      const result = await confirmHub(
+        deps.pool,
+        { tenantId: tenant.tenantId, branchId, keyHash: sha256(key) },
+        deps,
+      );
       return reply.send({ data: result });
     },
   );

@@ -80,6 +80,52 @@ describe('POST /v1/hubs/confirm', () => {
     cloud.clock.set(T);
   });
 
+  it('[00 §6.28] confirm after the presented key is revoked is 401 and leaves the branch pending_hub', async () => {
+    cloud.clock.set(T);
+    const { issued, apiKey } = await registered('cy-confirm@example.com', 'Clifton');
+    const hold = await cloud.pool.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query('SELECT branch_id FROM branches WHERE branch_id = $1 FOR UPDATE', [issued.branch_id]);
+      let settled = false;
+      const pending = confirm(apiKey).finally(() => {
+        settled = true;
+      });
+      const deadline = Date.now() + 2_000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        if (settled) break;
+        const locks = await cloud.pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n
+             FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()`,
+        );
+        if (locks.rows[0]?.n !== '0') {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+      await hold.query(
+        `UPDATE branch_api_keys SET revoked_at = $2 WHERE branch_id = $1 AND revoked_at IS NULL`,
+        [issued.branch_id, T],
+      );
+      await hold.query('COMMIT');
+      const response = await pending;
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe('BRANCH_API_KEY_INVALID');
+      const row = await cloud.pool.query<{ status: string; hub_confirmed_at: string | null }>(
+        `SELECT status, hub_confirmed_at FROM branches WHERE branch_id = $1`,
+        [issued.branch_id],
+      );
+      expect(row.rows[0]).toEqual({ status: 'pending_hub', hub_confirmed_at: null });
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+  });
+
   it('[00 §10 #90] confirm sets active + hub_confirmed_at; repeat returns the same value; bad key → 401', async () => {
     cloud.clock.set(T);
     const { seeded, issued, apiKey } = await registered('bea-confirm@example.com', 'DHA');
