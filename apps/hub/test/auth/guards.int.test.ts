@@ -1,6 +1,8 @@
 import type { RouteGroup } from '../../src/auth/guards';
 import { guardsFor, listRouteGuards } from '../../src/auth/guards';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { createTestHub } from '../helpers/test-hub';
 
 const EXPECTED: Record<RouteGroup, string[]> = {
@@ -101,6 +103,49 @@ describe('route guards', () => {
       (await hub.app.inject({ method: 'GET', url: '/admin/queries/devices', headers: { 'x-client-version': '0.9.0' } }))
         .statusCode,
     ).toBe(200);
+  });
+
+  it('[00 §7.1] guards run before Zod', async () => {
+    const body = { qty: 'nope' };
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    hub.app.withTypeProvider<ZodTypeProvider>().post(
+      '/check',
+      { config: { group: 'device' }, schema: { body: z.object({ qty: z.number().int() }) } },
+      () => ({ data: { ok: true } }),
+    );
+    const badHost = await hub.app.inject({
+      method: 'POST',
+      url: '/check',
+      headers: { host: 'evil.example:3000', 'content-type': 'application/json' },
+      payload: body,
+    });
+    expect(badHost.statusCode).toBe(403);
+    expect(badHost.json().error.code).toBe('HOST_NOT_ALLOWED');
+    const guest = await hub.app.inject({
+      method: 'POST',
+      url: '/check',
+      headers: { 'content-type': 'application/json' },
+      payload: body,
+      remoteAddress: '192.168.20.7',
+    });
+    expect(guest.statusCode).toBe(403);
+    expect(guest.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+    const open = await createTestHub({ provisioned: false });
+    cleanups.push(() => open.close());
+    open.app.withTypeProvider<ZodTypeProvider>().post(
+      '/check',
+      { config: { group: 'device' }, schema: { body: z.object({ qty: z.number().int() }) } },
+      () => ({ data: { ok: true } }),
+    );
+    const unprovisioned = await open.app.inject({
+      method: 'POST',
+      url: '/check',
+      headers: { 'content-type': 'application/json' },
+      payload: body,
+    });
+    expect(unprovisioned.statusCode).toBe(409);
+    expect(unprovisioned.json().error.code).toBe('HUB_NOT_PROVISIONED');
   });
 
   it('[00 §3.9] a guest-network address is forbidden except on /health, which records isGuest', async () => {

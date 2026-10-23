@@ -1,5 +1,5 @@
 import { DomainError } from '@pos/domain';
-import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
+import type { FastifyInstance, onRequestHookHandler } from 'fastify';
 import type { HubConfig } from '../config/schema.js';
 import { isProvisioned } from '../config/schema.js';
 import { createHostMatcher, createNetMatcher } from '../lib/net.js';
@@ -73,7 +73,7 @@ export function attachRouteGuards(app: FastifyInstance, deps: { config: HubConfi
     ownIPv4: deps.ownIPv4,
   });
   const guestNet = createNetMatcher(deps.config.guest_network_cidrs ?? []);
-  const handlers: Record<string, preHandlerHookHandler> = {
+  const handlers: Record<string, onRequestHookHandler> = {
     async host(request) {
       if (!allowHost(request.headers.host)) throw new DomainError('HOST_NOT_ALLOWED');
     },
@@ -102,8 +102,8 @@ export function attachRouteGuards(app: FastifyInstance, deps: { config: HubConfi
       return;
     }
     const names = guardsFor(group);
-    const prior = opts.preHandler === undefined ? [] : [opts.preHandler].flat();
-    opts.preHandler = [...names.map((name) => handlers[name]!), ...prior];
+    const prior = opts.onRequest === undefined ? [] : [opts.onRequest].flat();
+    opts.onRequest = [...names.map((name) => handlers[name]!), ...prior];
     routes.push({ method: String(opts.method), url: opts.url, guards: names });
   });
   app.addHook('onReady', async () => {
