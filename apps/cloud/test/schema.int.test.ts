@@ -109,6 +109,13 @@ describe('cloud schema', () => {
     );
   });
 
+  it('[00 §5.2] roles has no is_admin_role', async () => {
+    const rows = await pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'roles'`,
+    );
+    expect(rows.rows.map((row) => row.column_name)).not.toContain('is_admin_role');
+  });
+
   it('[00 §5.2] checksum change → migrate throws', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pos-cloud-mig-'));
     dirs.push(dir);
