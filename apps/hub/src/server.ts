@@ -95,7 +95,10 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   app.setErrorHandler((error, request, reply) => {
     const requestId = String(request.id);
     if (error instanceof DomainError) {
-      return reply.status(statusOf(error.code)).send(errorBody(error.code, error.message, error.details, requestId));
+      const status = statusOf(error.code);
+      const retryAfter = retryAfterHeader(status, error.details);
+      if (retryAfter !== undefined) void reply.header('Retry-After', retryAfter);
+      return reply.status(status).send(errorBody(error.code, error.message, error.details, requestId));
     }
     if (hasZodFastifySchemaValidationErrors(error)) {
       const issues = error.validation.map((issue) => ({
@@ -137,6 +140,13 @@ function redactHeaders(headers: FastifyRequest['headers']): Record<string, unkno
     copy[name] = HEADER_REDACT.has(name) ? '[Redacted]' : value;
   }
   return copy;
+}
+
+function retryAfterHeader(status: number, details: Record<string, unknown>): string | undefined {
+  if (status !== 429 && status !== 503) return undefined;
+  const ms = details.retry_after_ms;
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined;
+  return String(Math.ceil(ms / 1000));
 }
 
 function errorBody(code: ErrorCode, message: string, details: Record<string, unknown>, requestId: string) {

@@ -125,4 +125,21 @@ describe('hub server', () => {
     for (const value of Object.values(secrets)) expect(logs).not.toContain(value);
     expect(logs).toContain('[Redacted]');
   });
+
+  it('[00 §7.1] a 503 carries Retry-After rounded up from retry_after_ms', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    hub.app.get('/busy', { config: { group: 'health' } }, () => {
+      throw new DomainError('SERVICE_UNAVAILABLE', { retry_after_ms: 1500 });
+    });
+    hub.app.get('/bad', { config: { group: 'health' } }, () => {
+      throw new DomainError('VALIDATION_FAILED', { retry_after_ms: 1500 });
+    });
+    const busy = await hub.app.inject({ method: 'GET', url: '/busy' });
+    expect(busy.statusCode).toBe(503);
+    expect(busy.headers['retry-after']).toBe('2');
+    const bad = await hub.app.inject({ method: 'GET', url: '/bad' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.headers['retry-after']).toBeUndefined();
+  });
 });

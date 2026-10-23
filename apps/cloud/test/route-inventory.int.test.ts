@@ -1,3 +1,4 @@
+import { DomainError } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createTestCloud } from './helpers/test-cloud';
 
@@ -104,5 +105,32 @@ describe('tenant scope', () => {
     });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual({ data: { tenant_id: 't1' } });
+  });
+
+  it('[00 §7.1] a 429 carries Retry-After rounded up from retry_after_ms', async () => {
+    const cloud = await createTestCloud();
+    cleanups.push(() => cloud.close());
+    cloud.app.get('/v1/limited', { config: { tenantScope: 'jwt' } }, () => {
+      throw new DomainError('IP_LOCKED_OUT', { retry_after_ms: 1000 });
+    });
+    cloud.app.get('/v1/bad', { config: { tenantScope: 'jwt' } }, () => {
+      throw new DomainError('VALIDATION_FAILED', { retry_after_ms: 1000 });
+    });
+    await cloud.app.ready();
+    const token = cloud.app.jwt.sign({ sub: 'u1', tenant_id: 't1', allowed_branch_ids: ['b1'] });
+    const limited = await cloud.app.inject({
+      method: 'GET',
+      url: '/v1/limited',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.headers['retry-after']).toBe('1');
+    const bad = await cloud.app.inject({
+      method: 'GET',
+      url: '/v1/bad',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.headers['retry-after']).toBeUndefined();
   });
 });
