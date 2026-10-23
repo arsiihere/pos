@@ -179,26 +179,37 @@ describe('auth route guards', () => {
     const device = pairDevice(hub, { type: 'tablet' });
     const other = pairDevice(hub, { type: 'tablet' });
     const session = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: device.deviceId });
-    hub.app.post('/commands/noop', { config: { group: 'device-session' } }, async () => ({ data: { ok: true } }));
     hub.app.post('/auth/logout', { config: { group: 'device-session', allowEnded: true } }, async () => ({ data: { ok: true } }));
     hub.app.get('/queries/orders', { config: { group: 'device-session' } }, async () => ({ data: { ok: true } }));
     hub.app.get('/queries/station', { config: { group: 'device-session', allowStation: true } }, async () => ({ data: { ok: true } }));
-    for (const target of [
-      { method: 'POST' as const, url: '/commands/noop' },
-      { method: 'POST' as const, url: '/auth/logout' },
-    ]) {
-      const wrongDevice = await hub.app.inject({
-        method: target.method,
-        url: target.url,
-        headers: { authorization: `Bearer ${other.token}`, 'x-session-token': session.token },
-      });
-      expect(wrongDevice.statusCode, target.url).toBe(401);
-      expect(wrongDevice.json().error.code, target.url).toBe('SESSION_INVALID');
-    }
+    const wrongCommand = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/test-noop',
+      headers: { authorization: `Bearer ${other.token}`, 'x-session-token': session.token },
+      payload: {
+        command_id: 'cmd-117',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'TestNoop',
+        payload: {},
+        occurred_at: hub.clock.branchNow(),
+        actor_id: 'S_CASH',
+        device_id: other.deviceId,
+      },
+    });
+    expect(wrongCommand.statusCode).toBe(401);
+    expect(wrongCommand.json().error.code).toBe('SESSION_INVALID');
+    const wrongLogout = await hub.app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      headers: { authorization: `Bearer ${other.token}`, 'x-session-token': session.token },
+    });
+    expect(wrongLogout.statusCode).toBe(401);
+    expect(wrongLogout.json().error.code).toBe('SESSION_INVALID');
     endSessionNow(hub, session.sessionId);
     const ended = await hub.app.inject({
       method: 'GET',
-      url: '/queries/orders',
+      url: '/queries/test-quiet',
       headers: { authorization: `Bearer ${device.token}`, 'x-session-token': session.token },
     });
     expect(ended.statusCode).toBe(401);
@@ -211,7 +222,7 @@ describe('auth route guards', () => {
     expect(logout.statusCode).toBe(200);
     const unknown = await hub.app.inject({
       method: 'GET',
-      url: '/queries/orders',
+      url: '/queries/test-quiet',
       headers: { authorization: `Bearer ${device.token}`, 'x-session-token': 'no-such-token' },
     });
     expect(unknown.statusCode).toBe(401);
