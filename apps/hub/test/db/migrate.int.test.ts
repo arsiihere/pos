@@ -59,8 +59,9 @@ describe('sqlite migrations', () => {
     await runMigrations(db, { dir: migrations, clock: fixedClock(T), backup });
     expect(calls).toEqual([]);
     writeFileSync(join(migrations, '0002_b.sql'), 'CREATE TABLE b (id INTEGER PRIMARY KEY);\n');
+    writeFileSync(join(migrations, '0003_c.sql'), 'CREATE TABLE c (id INTEGER PRIMARY KEY);\n');
     await runMigrations(db, { dir: migrations, clock: fixedClock(T), backup });
-    expect(calls).toEqual([[1, 2]]);
+    expect(calls).toEqual([[1, 3]]);
     db.close();
   });
 
