@@ -151,3 +151,7 @@ Ruling: `registerSetupRoutes` takes an optional `writeConfig` so #20 can throw o
 ## Task 33b — hub confirm task
 Commit `db3b7e6`. Test: `[00 §3.1 M41]` a network error and a 503 are retried; success writes `confirmed_at` and stops. Full suite 165/165.
 Boot step 7 starts the task when the hub is provisioned and not confirmed, and `stop()` clears it. Any thrown confirm error is logged and retried; the loop stops only after the config write.
+
+## Task 34 — PIN verification and lockouts
+Commit `7072806`. Tests: `[00 §10 #59]` a correct PIN still in verify gets 429 `PIN_LOCKED_OUT` after parallel wrong PINs cross 5; `[00 §10 #107]` an expired staff lock then one wrong PIN has `attempts_remaining` 4; `[00 §3.5]` the 5th failure writes `StaffPinLockedOut` and a later success clears only the staff counter; `[00 §3.5]` a device window at 300 000 ms starts again at count 1; `[00 §3.5]` PIN `0123` matches its hash and `123` does not; `[00 §7.4]` a full semaphore for 2 s is 503 `retry_after_ms` 1000; `[00 §3.5]` an IP subject locks with `IP_LOCKED_OUT` and `DevicePinLockedOut { subject_type: 'ip' }`. Full suite 172/172.
+Expiry uses `locked_until > branchNow`, so the instant the lock time is reached the counter resets. A device or IP failure inside the window keeps `window_started_at`; at `window_started_at + 300 000` the next failure starts a new window.
