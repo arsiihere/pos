@@ -28,9 +28,14 @@ describe('applyStaffDirectory', () => {
   });
 
   it('[00 §10 #70] removed staff sessions end staff_removed and a permission change applies on the next read', async () => {
-    const { db, writer } = await open();
-    const hash = await pinHash('1234');
     let current: StaffDirectory | undefined;
+    const during: Array<string | undefined> = [];
+    const { db, writer } = await open({
+      beforeCommit() {
+        during.push(current?.resolve('S_KEEP', 'reprint-ticket').grant);
+      },
+    });
+    const hash = await pinHash('1234');
     writer.run((tx) => {
       applyStaffDirectory(tx, dir(1, hash, ['reprint-ticket'], ['S_KEEP', 'S_GONE']), (next) => {
         current = next;
@@ -47,25 +52,44 @@ describe('applyStaffDirectory', () => {
         eventDeviceId: 'dev-gone',
       }),
     ).result;
+    const admin = writer.run((tx) =>
+      createSession(tx, {
+        kind: 'admin',
+        staffId: 'S_GONE',
+        stationId: null,
+        deviceId: 'dev-gone',
+        idleTtlMs: 60_000,
+        eventDeviceId: 'dev-gone',
+      }),
+    ).result;
     writer.run((tx) => {
       applyStaffDirectory(tx, dir(2, hash, [], ['S_KEEP']), (next) => {
         current = next;
       });
     });
+    expect(during.at(-1)).toBe('allowed');
     expect(current?.resolve('S_KEEP', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
     expect(Directory.load(db).resolve('S_KEEP', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
     expect(findSessionByToken(db, session.token)?.ended_at).toBe(T);
-    expect(db.prepare("SELECT end_reason FROM staff_sessions WHERE session_id = ?").pluck().get(session.sessionId)).toBe(
-      'staff_removed',
-    );
+    for (const id of [session.sessionId, admin.sessionId]) {
+      expect(db.prepare('SELECT end_reason FROM staff_sessions WHERE session_id = ?').pluck().get(id)).toBe('staff_removed');
+    }
     const ended = events(db).filter((event) => event.event_type === 'SessionEnded');
-    expect(ended).toEqual([
-      expect.objectContaining({
-        actor_id: null,
-        device_id: 'hub',
-        payload: expect.objectContaining({ session_id: session.sessionId, reason: 'staff_removed', ended_by: null }),
-      }),
-    ]);
+    expect(ended).toHaveLength(2);
+    expect(ended).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor_id: null,
+          device_id: 'hub',
+          payload: expect.objectContaining({ session_id: session.sessionId, reason: 'staff_removed', ended_by: null }),
+        }),
+        expect.objectContaining({
+          actor_id: null,
+          device_id: 'hub',
+          payload: expect.objectContaining({ session_id: admin.sessionId, reason: 'staff_removed', ended_by: null }),
+        }),
+      ]),
+    );
   });
 
   it('[00 §10 #83] removing the owner revokes their phones and leaves other devices', async () => {
@@ -410,7 +434,7 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
   });
 
-  async function open(): Promise<{ db: Database.Database; writer: Writer }> {
+  async function open(hooks?: { beforeCommit?: () => void }): Promise<{ db: Database.Database; writer: Writer }> {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
     const clock = fixedClock(T);
@@ -427,6 +451,7 @@ describe('applyStaffDirectory', () => {
       state,
       authGeneration: createAuthGeneration(),
       publish: () => undefined,
+      testHooks: hooks,
     });
     return { db: fx.db, writer };
   }
