@@ -65,6 +65,7 @@ describe('query route', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(response.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+    expect(response.json().error.details).toEqual({ device_type: 'kds', allowed: ['tablet'] });
   });
 });
 

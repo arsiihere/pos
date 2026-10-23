@@ -82,7 +82,7 @@ function runQuery(
   if (routeKind === 'device' && def.session === 'required') requireDeviceSession(request, deps, def.allowStation === true);
   const deviceType = request.device?.device_type;
   if (def.deviceTypes !== undefined && (deviceType === undefined || !def.deviceTypes.includes(deviceType))) {
-    throw new DomainError('DEVICE_TYPE_NOT_ALLOWED');
+    throw new DomainError('DEVICE_TYPE_NOT_ALLOWED', { device_type: deviceType ?? null, allowed: def.deviceTypes });
   }
   const parsed = def.querySchema.safeParse(request.query);
   if (!parsed.success) throw new DomainError('VALIDATION_FAILED', { issues: zodIssues(parsed.error) });
