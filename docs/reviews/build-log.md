@@ -59,3 +59,7 @@ Commit `6c7a4d6`. Tests: `[00 §10 #63]` 1 000 appends with every third rolled b
 ## Task 14 — projection registry forward catch-up
 Commit `d78b574`. Tests: `[00 §10 #67]` a checkpoint at 3 with `MAX(seq)` 5 replays only `seq > 3` and matches live rows; `[00 §3.1 M48]` `applyAll` advances every checkpoint, including a projection that ignores the events; `[00 §3.1 M48]` a missing checkpoint resets then replays, and a forward-only projection replays from 0 without reset. Full suite 51/51.
 `catchUp` reads pages of 1 000 through `parseEvent` (`mode: 'catchup'`). `afterCatchUp` runs inside the last catch-up transaction, or in its own transaction when nothing is behind. `replayed` counts events passed to `apply`.
+
+## Task 15 — writer, after-commit hooks, auth generation
+Commit `79aa75b`. Tests: `[F D45]` state is still old inside `beforeCommit` and swaps after the run returns; `[F D45]` a throw in `beforeCommit` leaves state, events, `lastSeq`, generation and publish untouched; `[00 §3.1 M39]` `HubProvisioned` does not bump, and `SessionEnded` plus another event in one run bumps once; `[00 §3.7]` two appends publish once with seqs 1 and 2. Full suite 55/55. `pnpm typecheck` passed.
+After COMMIT, in order: `state.swap`, `lastSeq`, one `authGeneration.bump` if any appended type is in `AUTH_EVENTS`, `onCommit`, `addAfterCommit`, `beforePublish`, then `publish` when the batch is non-empty. `beforeCommit` runs inside the immediate transaction, so a throw rolls it back.
