@@ -108,12 +108,17 @@ export function applyStaffDirectory(
       denied_permissions,
     });
   }
-  for (const row of staff) {
-    for (const roleId of row.role_ids) {
-      if (roles.some((role) => role.role_id === roleId)) continue;
-      const old = previous.roles.get(roleId);
-      if (old !== undefined) roles.push(old);
+  const retainRole = (roleId: string): void => {
+    if (roles.some((role) => role.role_id === roleId)) return;
+    const old = previous.roles.get(roleId);
+    if (old === undefined) return;
+    roles.push(old);
+    for (const permission of old.permissions) {
+      if (permission.approver_role_id !== null) retainRole(permission.approver_role_id);
     }
+  };
+  for (const row of staff) {
+    for (const roleId of row.role_ids) retainRole(roleId);
   }
   const present = new Set(staff.map((row) => row.staff_id));
   const removed = [...previous.staff.keys()].filter((id) => !present.has(id)).sort();
@@ -266,6 +271,8 @@ function replaceCache(tx: WriterTx, d: { directory_version: number; roles: Store
   const insertDenial = tx.db.prepare('INSERT INTO staff_permission_denials (staff_id, permission) VALUES (?, ?)');
   for (const role of d.roles) {
     insertRole.run(role.role_id, tx.branchId, role.name, role.session_idle_ttl_ms);
+  }
+  for (const role of d.roles) {
     for (const permission of role.permissions) {
       insertPerm.run(role.role_id, permission.permission, permission.grant_type, permission.approver_role_id);
     }

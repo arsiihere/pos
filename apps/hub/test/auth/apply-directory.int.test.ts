@@ -306,7 +306,9 @@ describe('applyStaffDirectory', () => {
   it('[00 §10 #129] a malformed hash keeps an existing staff row and drops a new one', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
-    writer.run((tx) => applyStaffDirectory(tx, dir(1, hash, [], ['S_OLD']), () => undefined));
+    const first = dir(1, hash, ['reprint-ticket'], ['S_OLD']);
+    first.staff[0]!.denied_permissions = ['reprint-ticket'];
+    writer.run((tx) => applyStaffDirectory(tx, first, () => undefined));
     insertDevice(db, { device_id: 'phone-old', token_hash: 'tok-phone', device_type: 'phone', owner_staff_id: 'S_OLD' });
     insertDevice(db, { device_id: 'dev-old', token_hash: 'tok-old', device_type: 'tablet' });
     const session = writer.run((tx) =>
@@ -325,16 +327,23 @@ describe('applyStaffDirectory', () => {
         tx,
         {
           directory_version: 2,
-          roles: [{ role_id: 'R1', name: 'R1', session_idle_ttl_ms: 1_000, permissions: [] }],
+          roles: [{ role_id: 'R2', name: 'R2', session_idle_ttl_ms: 1_000, permissions: [] }],
           staff: [
-            { staff_id: 'S_OLD', display_name: 'S_OLD', pin_hash: malformed, role_ids: ['R1'], denied_permissions: [] },
-            { staff_id: 'S_NEW', display_name: 'S_NEW', pin_hash: malformed, role_ids: ['R1'], denied_permissions: [] },
+            { staff_id: 'S_OLD', display_name: 'Renamed', pin_hash: malformed, role_ids: ['R2'], denied_permissions: [] },
+            { staff_id: 'S_NEW', display_name: 'S_NEW', pin_hash: malformed, role_ids: ['R2'], denied_permissions: [] },
           ],
         },
         () => undefined,
       ),
     );
-    expect(db.prepare('SELECT pin_hash FROM staff WHERE staff_id = ?').pluck().get('S_OLD')).toBe(hash);
+    expect(db.prepare('SELECT pin_hash, display_name FROM staff WHERE staff_id = ?').get('S_OLD')).toEqual({
+      pin_hash: hash,
+      display_name: 'S_OLD',
+    });
+    expect(db.prepare('SELECT role_id FROM staff_roles WHERE staff_id = ?').pluck().all('S_OLD')).toEqual(['R1']);
+    expect(db.prepare('SELECT permission FROM staff_permission_denials WHERE staff_id = ?').pluck().all('S_OLD')).toEqual([
+      'reprint-ticket',
+    ]);
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_NEW'").get()).toBeUndefined();
     expect(db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').pluck().get(session.sessionId)).toBeNull();
     expect(db.prepare('SELECT revoked_at FROM devices WHERE device_id = ?').pluck().get('phone-old')).toBeNull();
@@ -347,6 +356,58 @@ describe('applyStaffDirectory', () => {
     );
     expect(applied?.payload.removed_staff_ids).toEqual([]);
     expect(applied?.payload.credentials_changed_staff_ids).toEqual([]);
+  });
+
+  it('[00 §3.1 M75] a kept role retains its approver when the new directory omits both', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const first: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        {
+          role_id: 'R_CASH',
+          name: 'Cashier',
+          session_idle_ttl_ms: 1_000,
+          permissions: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MGR' }],
+        },
+        { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 1_000, permissions: [] },
+      ],
+      staff: [
+        {
+          staff_id: 'S_OLD',
+          display_name: 'Old',
+          pin_hash: hash,
+          role_ids: ['R_CASH'],
+          denied_permissions: ['reprint-ticket'],
+        },
+        { staff_id: 'S_GONE', display_name: 'Gone', pin_hash: hash, role_ids: ['R_MGR'], denied_permissions: [] },
+      ],
+    };
+    writer.run((tx) => applyStaffDirectory(tx, first, () => undefined));
+    writer.run((tx) =>
+      applyStaffDirectory(
+        tx,
+        {
+          directory_version: 2,
+          roles: [{ role_id: 'R_NEW', name: 'New', session_idle_ttl_ms: 1_000, permissions: [] }],
+          staff: [
+            { staff_id: 'S_OLD', display_name: 'Changed', pin_hash: 'not-a-hash', role_ids: ['R_NEW'], denied_permissions: [] },
+          ],
+        },
+        () => undefined,
+      ),
+    );
+    expect(db.prepare('SELECT directory_version FROM staff_directory_meta').pluck().get()).toBe(2);
+    expect(db.prepare('SELECT pin_hash, display_name FROM staff WHERE staff_id = ?').get('S_OLD')).toEqual({
+      pin_hash: hash,
+      display_name: 'Old',
+    });
+    expect(db.prepare('SELECT role_id FROM staff_roles WHERE staff_id = ?').pluck().all('S_OLD')).toEqual(['R_CASH']);
+    expect(db.prepare('SELECT permission FROM staff_permission_denials WHERE staff_id = ?').pluck().all('S_OLD')).toEqual([
+      'reprint-ticket',
+    ]);
+    expect(db.prepare('SELECT role_id FROM roles ORDER BY role_id').pluck().all()).toEqual(['R_CASH', 'R_MGR', 'R_NEW']);
+    expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
   });
 
   async function open(): Promise<{ db: Database.Database; writer: Writer }> {
