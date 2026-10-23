@@ -193,6 +193,12 @@ describe('POST /setup/provision', () => {
     ]);
     expect(events(ctx.hub).filter((event) => event.event_type === 'HubProvisioned')).toHaveLength(1);
     expect(isProvisioned(loadHubConfig(ctx.configPath))).toBe(true);
+    const branchNow = ctx.hub.deps.clock.branchNow();
+    const live = ctx.hub.deps.db
+      .prepare(`SELECT COUNT(*) AS n FROM admin_bootstrap_tokens WHERE consumed_at IS NULL AND expires_at > ?`)
+      .get(branchNow) as { n: number };
+    expect(live.n).toBe(1);
+    expect(events(ctx.hub).filter((event) => event.event_type === 'AdminBootstrapTokenIssued')).toHaveLength(2);
   });
 
   it('[00 §10 #105] empty cidrs, an advertised host that is not ours, and a malformed code are 400', async () => {
