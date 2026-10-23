@@ -22,7 +22,7 @@ export async function issueRegistrationCode(
     const branchId = 'branchName' in input ? await createBranch(ctx, input.tenantId, input.branchName, now, deps.ids) : input.branchId;
     if (!('branchName' in input)) {
       const rows = await ctx.query<{ hub_confirmed_at: string | null }>(
-        `SELECT hub_confirmed_at FROM branches WHERE tenant_id = $1 AND branch_id = $2`,
+        `SELECT hub_confirmed_at FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`,
         [input.tenantId, branchId],
       );
       const branch = rows[0];

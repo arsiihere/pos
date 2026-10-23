@@ -131,6 +131,55 @@ describe('issue-registration-code', () => {
       { code_hash: sha256(normaliseCode(reissued.code)), expires_at: T + CODE_TTL_MS },
     ]);
 
+    const beforeRace = await pool.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM registration_codes WHERE tenant_id = $1 AND branch_id = $2`,
+      [seeded.tenant_id, issued.branch_id],
+    );
+    const hold = await pool.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
+        seeded.tenant_id,
+        issued.branch_id,
+      ]);
+      let settled = false;
+      const pending = issueRegistrationCode(
+        sys,
+        { tenantId: seeded.tenant_id, branchId: issued.branch_id },
+        deps,
+      ).finally(() => {
+        settled = true;
+      });
+      const deadline = Date.now() + 2_000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        if (settled) break;
+        const locks = await pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()`,
+        );
+        if (locks.rows[0]?.n !== '0') {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+      await hold.query(
+        `UPDATE branches SET status = 'active', hub_confirmed_at = $3 WHERE tenant_id = $1 AND branch_id = $2`,
+        [seeded.tenant_id, issued.branch_id, T],
+      );
+      await hold.query('COMMIT');
+      await expect(pending).rejects.toThrow(/confirmed/);
+      const afterRace = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM registration_codes WHERE tenant_id = $1 AND branch_id = $2`,
+        [seeded.tenant_id, issued.branch_id],
+      );
+      expect(afterRace.rows[0]?.n).toBe(beforeRace.rows[0]?.n);
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+
     await pool.query(`UPDATE branches SET status = 'active', hub_confirmed_at = $2 WHERE tenant_id = $1 AND branch_id = $3`, [
       seeded.tenant_id,
       T,
