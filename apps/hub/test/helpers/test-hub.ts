@@ -194,6 +194,7 @@ export function endSessionNow(h: TestHub, id: string, reason: SessionEndReason =
     .get(id) as SessionRow | undefined;
   if (row === undefined) throw new Error(`session ${id} not found`);
   h.deps.writer.run((tx) => {
-    endSession(tx, row, reason, null, null, row.device_id ?? 'hub');
+    const deviceId = row.kind === 'admin' && row.device_id === null ? 'hub-admin' : (row.device_id ?? 'hub');
+    endSession(tx, row, reason, null, null, deviceId);
   });
 }

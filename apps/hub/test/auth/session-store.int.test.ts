@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { endSession, type SessionRow } from '../../src/auth/session-store';
-import { createTestHub, openSession, pairDevice, seedDirectory } from '../helpers/test-hub';
+import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory } from '../helpers/test-hub';
 
 describe('session store', () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -33,5 +33,14 @@ describe('session store', () => {
     expect(hub.deps.db.prepare('SELECT end_reason FROM staff_sessions WHERE session_id = ?').pluck().get(opened.sessionId)).toBe(
       'logout',
     );
+  });
+
+  it('[00 §3.1 M7] ending a bootstrap session records device_id hub-admin', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await seedDirectory(hub);
+    const opened = openSession(hub, { kind: 'admin', staffId: 'S_OWNER' });
+    endSessionNow(hub, opened.sessionId);
+    expect(hub.deps.db.prepare(`SELECT device_id FROM events WHERE event_type = 'SessionEnded'`).pluck().get()).toBe('hub-admin');
   });
 });

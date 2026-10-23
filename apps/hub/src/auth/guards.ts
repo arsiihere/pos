@@ -248,7 +248,8 @@ function endIdle(deps: GuardDeps, token: string): void {
   deps.writer.run((tx) => {
     const fresh = findSessionByToken(tx.db, token);
     if (fresh === undefined || fresh.ended_at !== null) return;
-    endSession(tx, fresh, 'idle_timeout', null, null, fresh.device_id ?? 'hub');
+    const deviceId = fresh.kind === 'admin' && fresh.device_id === null ? 'hub-admin' : (fresh.device_id ?? 'hub');
+    endSession(tx, fresh, 'idle_timeout', null, null, deviceId);
   });
 }
 

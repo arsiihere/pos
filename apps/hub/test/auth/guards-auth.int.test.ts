@@ -139,7 +139,22 @@ describe('auth route guards', () => {
       headers: { 'x-admin-session': bootstrap.token },
     });
     expect(opened.statusCode).toBe(200);
-    endSessionNow(hub, bootstrap.sessionId);
+    const bootstrapTtl = hub.deps.db.prepare('SELECT idle_ttl_ms FROM staff_sessions WHERE session_id = ?').pluck().get(bootstrap.sessionId) as number;
+    hub.clock.advance(bootstrapTtl + 1);
+    const idleBootstrap = await hub.app.inject({
+      method: 'GET',
+      url: '/admin/queries/devices',
+      headers: { 'x-admin-session': bootstrap.token },
+    });
+    expect(idleBootstrap.statusCode).toBe(401);
+    expect(idleBootstrap.json().error.code).toBe('ADMIN_SESSION_REQUIRED');
+    const bootstrapEnd = (
+      hub.deps.db.prepare(`SELECT device_id, payload FROM events WHERE event_type = 'SessionEnded'`).all() as Array<{
+        device_id: string;
+        payload: string;
+      }>
+    ).find((row) => (JSON.parse(row.payload) as { session_id?: string }).session_id === bootstrap.sessionId);
+    expect(bootstrapEnd?.device_id).toBe('hub-admin');
     const endedBootstrap = await hub.app.inject({
       method: 'GET',
       url: '/admin/queries/devices',
