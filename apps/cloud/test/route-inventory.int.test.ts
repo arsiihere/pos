@@ -52,7 +52,7 @@ describe('tenant scope', () => {
       async () => ({ data: {} }),
     );
     cloud.app.get('/v1/sync/pull', { config: { tenantScope: 'branch-key' } }, async () => ({ data: {} }));
-    cloud.app.post('/v1/hubs/register', { config: { tenantScope: 'registration-code' } }, async () => ({ data: {} }));
+    cloud.app.post('/v1/sample/register', { config: { tenantScope: 'registration-code' } }, async () => ({ data: {} }));
     await cloud.app.ready();
 
     const declared = seen.filter((route) => route.method !== 'HEAD');

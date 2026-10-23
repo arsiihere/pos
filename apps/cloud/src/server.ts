@@ -9,6 +9,7 @@ import type { SecretGen } from './lib/secrets.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerJwt } from './plugins/jwt.js';
 import { registerOwnerCredentials } from './plugins/owner-credentials.js';
+import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
 
 const SECRET_FIELDS = [
@@ -45,5 +46,6 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerJwt(app, deps.env.JWT_SECRET, deps.clock);
   registerOwnerCredentials(app, deps.pool);
   registerTenantScope(app, { pool: deps.pool });
+  registerHubRegistrationRoutes(app, deps);
   return app;
 }
