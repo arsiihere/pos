@@ -9,7 +9,10 @@ type Queryable = pg.Pool | pg.PoolClient;
 
 export function assertTenantContext(value: unknown): TenantContext {
   if (!isTenantContext(value)) throw new TypeError('TenantContext required');
-  return value;
+  return Object.freeze({
+    tenantId: value.tenantId,
+    branchIds: Object.freeze([...value.branchIds]),
+  });
 }
 
 export class TenantScopedRepository {

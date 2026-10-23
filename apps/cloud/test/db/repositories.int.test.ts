@@ -159,4 +159,22 @@ describe('cloud repositories', () => {
       reader.release();
     }
   });
+
+  it('[F §3.4] a shallow-frozen context cannot gain a branch', async () => {
+    await pool.query(
+      `INSERT INTO branches (tenant_id, branch_id, name, status, created_at) VALUES ('t1', 'b1b', 'A2', 'pending_hub', $1)`,
+      [T],
+    );
+    try {
+      const branchIds = ['b1'];
+      const scoped = new TenantScopedRepository(Object.freeze({ tenantId: 't1', branchIds }), pool);
+      branchIds.push('b1b');
+      const branches = await scoped.query<{ branch_id: string }>(
+        'SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = ANY($2) ORDER BY branch_id',
+      );
+      expect(branches.map((row) => row.branch_id)).toEqual(['b1']);
+    } finally {
+      await pool.query(`DELETE FROM branches WHERE branch_id = 'b1b'`);
+    }
+  });
 });
