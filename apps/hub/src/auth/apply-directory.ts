@@ -36,12 +36,35 @@ export function applyStaffDirectory(
   const previous = readCache(tx.db);
   const skipped: Skip[] = [];
   const roleIds = new Set(d.roles.map((role) => role.role_id));
-  const roles = d.roles.map((role) => ({
-    ...role,
-    permissions: role.permissions.filter((permission) => keepGrant(role.role_id, permission, roleIds, skipped)),
-  }));
+  const roles: StoredRole[] = [];
+  const seenRoleIds = new Set<string>();
+  for (const role of d.roles) {
+    if (seenRoleIds.has(role.role_id)) {
+      warnSkip(skipped, { kind: 'role_assignment', id: role.role_id, reason: 'duplicate role' });
+      continue;
+    }
+    seenRoleIds.add(role.role_id);
+    const permissions: StoredRole['permissions'] = [];
+    const seenPermissions = new Set<string>();
+    for (const permission of role.permissions) {
+      if (!keepGrant(role.role_id, permission, roleIds, skipped)) continue;
+      if (seenPermissions.has(permission.permission)) {
+        warnSkip(skipped, { kind: 'permission', id: `${role.role_id}:${permission.permission}`, reason: 'duplicate permission' });
+        continue;
+      }
+      seenPermissions.add(permission.permission);
+      permissions.push(permission);
+    }
+    roles.push({ ...role, permissions });
+  }
   const staff: StoredStaff[] = [];
+  const seenStaff = new Set<string>();
   for (const row of d.staff) {
+    if (seenStaff.has(row.staff_id)) {
+      warnSkip(skipped, { kind: 'staff', id: row.staff_id, reason: 'duplicate staff' });
+      continue;
+    }
+    seenStaff.add(row.staff_id);
     const problem = hashProblem(row.pin_hash);
     const kept = previous.staff.get(row.staff_id);
     if (problem !== null) {
@@ -50,19 +73,39 @@ export function applyStaffDirectory(
       continue;
     }
     const role_ids: string[] = [];
+    const seenAssignments = new Set<string>();
     for (const roleId of row.role_ids) {
       if (!roleIds.has(roleId)) {
         warnSkip(skipped, { kind: 'role_assignment', id: `${row.staff_id}:${roleId}`, reason: 'unknown role' });
         continue;
       }
+      if (seenAssignments.has(roleId)) {
+        warnSkip(skipped, { kind: 'role_assignment', id: `${row.staff_id}:${roleId}`, reason: 'duplicate role' });
+        continue;
+      }
+      seenAssignments.add(roleId);
       role_ids.push(roleId);
+    }
+    const denied_permissions: string[] = [];
+    const seenDenials = new Set<string>();
+    for (const permission of row.denied_permissions) {
+      if (!isPermission(permission)) {
+        warnSkip(skipped, { kind: 'permission', id: `${row.staff_id}:${permission}`, reason: 'unknown permission' });
+        continue;
+      }
+      if (seenDenials.has(permission)) {
+        warnSkip(skipped, { kind: 'permission', id: `${row.staff_id}:${permission}`, reason: 'duplicate permission' });
+        continue;
+      }
+      seenDenials.add(permission);
+      denied_permissions.push(permission);
     }
     staff.push({
       staff_id: row.staff_id,
       display_name: row.display_name,
       pin_hash: row.pin_hash,
       role_ids,
-      denied_permissions: row.denied_permissions,
+      denied_permissions,
     });
   }
   for (const row of staff) {
@@ -123,6 +166,14 @@ function keepGrant(
 ): boolean {
   if (!isPermission(permission.permission)) {
     warnSkip(skipped, { kind: 'permission', id: `${roleId}:${permission.permission}`, reason: 'unknown permission' });
+    return false;
+  }
+  if (permission.grant_type === 'allowed' && permission.approver_role_id !== null) {
+    warnSkip(skipped, {
+      kind: 'permission',
+      id: `${roleId}:${permission.permission}`,
+      reason: 'approver set on an allowed grant',
+    });
     return false;
   }
   if (

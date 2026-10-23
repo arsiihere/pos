@@ -225,6 +225,84 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare("SELECT end_reason FROM staff_sessions WHERE staff_id = 'S_GONE'").pluck().get()).toBe('staff_removed');
   });
 
+  it('[00 §3.1 M52] a grant or reference the cache cannot store is skipped and the rest applies', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    writer.run((tx) => applyStaffDirectory(tx, dir(1, hash, ['reprint-ticket'], ['S_KEEP', 'S_GONE']), () => undefined));
+    insertDevice(db, { device_id: 'dev-gone', token_hash: 'tok-gone', device_type: 'tablet' });
+    writer.run((tx) =>
+      createSession(tx, {
+        kind: 'staff',
+        staffId: 'S_GONE',
+        stationId: null,
+        deviceId: 'dev-gone',
+        idleTtlMs: 60_000,
+        eventDeviceId: 'dev-gone',
+      }),
+    );
+    const next: DirectoryInput = {
+      directory_version: 2,
+      roles: [
+        {
+          role_id: 'R1',
+          name: 'R1',
+          session_idle_ttl_ms: 1_000,
+          permissions: [
+            { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: 'R1' },
+            { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+            { permission: 'manage-devices', grant_type: 'allowed', approver_role_id: null },
+            { permission: 'manage-devices', grant_type: 'requires_approval', approver_role_id: 'R1' },
+          ],
+        },
+        {
+          role_id: 'R1',
+          name: 'R1-again',
+          session_idle_ttl_ms: 2_000,
+          permissions: [{ permission: 'void-item', grant_type: 'allowed', approver_role_id: null }],
+        },
+      ],
+      staff: [
+        {
+          staff_id: 'S_KEEP',
+          display_name: 'S_KEEP',
+          pin_hash: hash,
+          role_ids: ['R1', 'R1', 'R_UNKNOWN'],
+          denied_permissions: ['not-a-permission', 'apply-discount', 'apply-discount'],
+        },
+        {
+          staff_id: 'S_KEEP',
+          display_name: 'Other',
+          pin_hash: hash,
+          role_ids: ['R1'],
+          denied_permissions: [],
+        },
+      ],
+    };
+    writer.run((tx) => applyStaffDirectory(tx, next, () => undefined));
+    expect(db.prepare('SELECT staff_id, display_name FROM staff').all()).toEqual([{ staff_id: 'S_KEEP', display_name: 'S_KEEP' }]);
+    expect(db.prepare('SELECT name, session_idle_ttl_ms FROM roles').all()).toEqual([{ name: 'R1', session_idle_ttl_ms: 1_000 }]);
+    expect(db.prepare('SELECT permission, grant_type, approver_role_id FROM role_permissions ORDER BY permission').all()).toEqual([
+      { permission: 'manage-devices', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+    ]);
+    expect(db.prepare('SELECT role_id FROM staff_roles').all()).toEqual([{ role_id: 'R1' }]);
+    expect(db.prepare('SELECT permission FROM staff_permission_denials').pluck().all()).toEqual(['apply-discount']);
+    expect(db.prepare("SELECT end_reason FROM staff_sessions WHERE staff_id = 'S_GONE'").pluck().get()).toBe('staff_removed');
+    const applied = events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(applied?.payload.skipped).toEqual(
+      expect.arrayContaining([
+        { kind: 'permission', id: 'R1:reprint-ticket', reason: 'approver set on an allowed grant' },
+        { kind: 'permission', id: 'R1:manage-devices', reason: 'duplicate permission' },
+        { kind: 'role_assignment', id: 'R1', reason: 'duplicate role' },
+        { kind: 'role_assignment', id: 'S_KEEP:R1', reason: 'duplicate role' },
+        { kind: 'role_assignment', id: 'S_KEEP:R_UNKNOWN', reason: 'unknown role' },
+        { kind: 'permission', id: 'S_KEEP:not-a-permission', reason: 'unknown permission' },
+        { kind: 'permission', id: 'S_KEEP:apply-discount', reason: 'duplicate permission' },
+        { kind: 'staff', id: 'S_KEEP', reason: 'duplicate staff' },
+      ]),
+    );
+  });
+
   it('[00 §10 #129] a malformed hash keeps an existing staff row and drops a new one', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
