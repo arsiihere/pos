@@ -12,6 +12,7 @@ import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { attachRouteGuards } from './auth/guards.js';
 import { registerCommandRoutes } from './commands/route.js';
+import { registerQueryRoutes } from './queries/registry.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 
 const SECRET_HEADERS = [
@@ -119,6 +120,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     authGeneration: deps.authGeneration,
   });
   registerCommandRoutes(app, deps);
+  registerQueryRoutes(app, deps);
   return app;
 }
 
