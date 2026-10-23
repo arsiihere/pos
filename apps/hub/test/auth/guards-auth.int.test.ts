@@ -125,6 +125,14 @@ describe('auth route guards', () => {
       headers: { 'x-admin-session': bootstrap.token },
     });
     expect(opened.statusCode).toBe(200);
+    endSessionNow(hub, bootstrap.sessionId);
+    const endedBootstrap = await hub.app.inject({
+      method: 'GET',
+      url: '/admin/queries/devices',
+      headers: { 'x-admin-session': bootstrap.token },
+    });
+    expect(endedBootstrap.statusCode).toBe(401);
+    expect(endedBootstrap.json().error.code).toBe('ADMIN_SESSION_REQUIRED');
   });
 
   it('[00 §10 #116] DEVICE_TOKEN_INVALID and DEVICE_REVOKED on commands, queries, auth pin and admin auth', async () => {

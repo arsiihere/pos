@@ -235,7 +235,7 @@ function liveBootstrap(request: FastifyRequest, deps: GuardDeps): boolean {
   const token = headerValue(request, 'x-admin-session');
   if (token === undefined) return false;
   const session = findSessionByToken(deps.db, token);
-  return session !== undefined && session.kind === 'admin' && session.device_id === null && session.ended_at === null;
+  return session !== undefined && session.kind === 'admin' && session.device_id === null;
 }
 
 interface DeviceRow {
