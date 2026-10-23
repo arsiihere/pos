@@ -1,12 +1,14 @@
 import { DomainError } from '@pos/domain';
 import { defineEvent, latestVersion, PosCommandSchema, type EventDraft, type PosCommand } from '@pos/events';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type Database from 'better-sqlite3';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
 import type { HubConfig } from '../config/schema.js';
+import type { AuthGeneration } from '../engine-host/auth-generation.js';
 import { currentDirectory } from '../auth/guards.js';
 import { activity, type SessionRow } from '../auth/session-store.js';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
-import type { Writer } from '../engine-host/writer.js';
+import type { Writer, WriterTx } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 import { payloadHash } from '../lib/hash.js';
 import type { IdGen } from '../lib/ids.js';
@@ -15,10 +17,22 @@ import { createCommandRegistry, defineCommand, toKebab, type CommandCtx, type Co
 
 interface CommandRouteDeps {
   config: HubConfig;
+  db: Database.Database;
   clock: Clock;
   ids: IdGen;
   secrets: SecretGen;
   writer: Writer;
+  authGeneration: AuthGeneration;
+  testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
+}
+
+class IdempotentReplay extends Error {
+  readonly stored: { status: number; body: unknown };
+
+  constructor(stored: { status: number; body: unknown }) {
+    super('idempotent replay');
+    this.stored = stored;
+  }
 }
 
 export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDeps): void {
@@ -26,21 +40,22 @@ export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDe
   registerTestCommands(registry);
   app.post(
     '/commands/:name',
-    { config: { group: 'device-session', allowStation: true } },
-    async (request) => runCommand(app, deps, registry, request, 'device'),
+    { config: { group: 'device-session', allowStation: true, allowEnded: true } },
+    async (request, reply) => runCommand(app, deps, registry, request, reply, 'device'),
   );
-  app.post('/admin/commands/:name', { config: { group: 'admin' } }, async (request) =>
-    runCommand(app, deps, registry, request, 'admin'),
+  app.post('/admin/commands/:name', { config: { group: 'admin' } }, async (request, reply) =>
+    runCommand(app, deps, registry, request, reply, 'admin'),
   );
 }
 
-function runCommand(
+async function runCommand(
   app: FastifyInstance,
   deps: CommandRouteDeps,
   registry: ReturnType<typeof createCommandRegistry>,
   request: FastifyRequest,
+  reply: FastifyReply,
   routeKind: 'device' | 'admin',
-): unknown {
+): Promise<unknown> {
   const name = routeName(request);
   const commandDef = registry.byPath(name);
   if (commandDef === undefined || commandDef.sessionKind !== routeKind) throw new DomainError('ROUTE_NOT_FOUND');
@@ -55,13 +70,24 @@ function runCommand(
   if (command.tenant_id !== provisioned.tenant_id || command.branch_id !== provisioned.branch_id) {
     throw new DomainError('BRANCH_MISMATCH');
   }
+  const early = decide(readStored(deps.db, command.command_id), command, deviceId, session, routeKind);
+  if (early?.kind === 'replay') return sendReplay(reply, early.stored);
+  if (early?.kind === 'conflict') throw commandIdUsed();
+  if (session.ended_at !== null) throw new DomainError('SESSION_EXPIRED');
   const actorId = session.kind === 'station' ? null : session.staff_id;
   if (command.actor_id !== actorId) invalid('actor_id', 'actor_id does not match the session');
   const payload = commandDef.payloadSchema.safeParse(command.payload);
   if (!payload.success) throw new DomainError('VALIDATION_FAILED', { issues: zodIssues(payload.error) });
-  const body = deps.writer.run((tx) => {
-    const directory = currentDirectory(app);
-    const permission = authorize(commandDef, session, directory);
+  const authGen = request.authGen ?? deps.authGeneration.current();
+  await deps.testHooks?.betweenGuardAndWriter?.();
+  try {
+    const body = deps.writer.run((tx) => {
+      const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind);
+      if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
+      if (again?.kind === 'conflict') throw commandIdUsed();
+      if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
+      const directory = currentDirectory(app);
+      const permission = authorize(commandDef, session, directory);
     const ctx: CommandCtx = {
       tx,
       state: tx.state,
@@ -101,10 +127,71 @@ function runCommand(
         JSON.stringify({ status: 200, body: response }),
         deps.clock.branchNow(),
       );
-    return response;
-  }).result;
-  activity.touch(session.session_id, deps.clock.branchNow());
-  return body;
+      return response;
+    }).result;
+    activity.touch(session.session_id, deps.clock.branchNow());
+    return body;
+  } catch (error) {
+    if (error instanceof IdempotentReplay) return sendReplay(reply, error.stored);
+    throw error;
+  }
+}
+
+function decide(
+  row: StoredCommand | undefined,
+  command: PosCommand,
+  deviceId: string,
+  session: SessionRow,
+  routeKind: 'device' | 'admin',
+): { kind: 'replay'; stored: { status: number; body: unknown } } | { kind: 'conflict' } | undefined {
+  if (row === undefined) return undefined;
+  const identity = routeKind === 'admin' ? row.session_id === session.session_id : row.device_id === deviceId;
+  if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload)) {
+    return { kind: 'replay', stored: JSON.parse(row.response_json) as { status: number; body: unknown } };
+  }
+  return { kind: 'conflict' };
+}
+
+function readStored(db: Database.Database, commandId: string): StoredCommand | undefined {
+  return db
+    .prepare(
+      `SELECT device_id, session_id, command_type, payload_hash, response_json
+       FROM processed_commands WHERE command_id = ?`,
+    )
+    .get(commandId) as StoredCommand | undefined;
+}
+
+function recheckAuth(tx: WriterTx, deviceId: string, sessionId: string): void {
+  if (deviceId !== 'hub-admin') {
+    const device = tx.db.prepare('SELECT revoked_at FROM devices WHERE device_id = ?').get(deviceId) as
+      | { revoked_at: number | null }
+      | undefined;
+    if (device?.revoked_at != null) throw new DomainError('DEVICE_REVOKED');
+  }
+  const row = tx.db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').get(sessionId) as
+    | { ended_at: number | null }
+    | undefined;
+  if (row?.ended_at != null) throw new DomainError('SESSION_EXPIRED');
+}
+
+function sendReplay(reply: FastifyReply, stored: { status: number; body: unknown }): unknown {
+  reply.header('Idempotent-Replay', 'true');
+  reply.status(stored.status);
+  return stored.body;
+}
+
+function commandIdUsed(): DomainError {
+  return new DomainError('VALIDATION_FAILED', {
+    issues: [{ path: 'command_id', message: 'command_id already used' }],
+  });
+}
+
+interface StoredCommand {
+  device_id: string;
+  session_id: string | null;
+  command_type: string;
+  payload_hash: string;
+  response_json: string;
 }
 
 function authorize(def: CommandDef, session: SessionRow, directory: StaffDirectory): Resolution | null {
@@ -160,6 +247,17 @@ function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>
           events: [testEvent(ctx, cmd, { stream_type: 'station', stream_id: ctx.actor.stationId ?? '' })],
           result: { actor_id: ctx.actor.staffId },
         };
+      },
+    }),
+  );
+  registry.register(
+    defineCommand({
+      commandType: 'TestAdmin',
+      payloadSchema: z.object({}),
+      sessionKind: 'admin',
+      permission: 'access-hub-admin',
+      handle(ctx, _payload, cmd) {
+        return { events: [testEvent(ctx, cmd)], result: { ok: true } };
       },
     }),
   );
