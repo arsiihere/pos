@@ -81,25 +81,29 @@ describe('pre-migration backup', () => {
     writeFileSync(join(lockedMigrations, '0001_a.sql'), 'CREATE TABLE marker (id INTEGER PRIMARY KEY);\n');
     await runMigrations(lockedDb, { dir: lockedMigrations, clock: fixedClock(T) });
     writeFileSync(join(lockedMigrations, '0002_b.sql'), 'CREATE TABLE after_backup (id INTEGER PRIMARY KEY);\n');
-    chmodSync(locked.dataDir, 0o555);
+    mkdirSync(join(locked.dataDir, 'pre-migrate-1-2.sqlite.enc'));
     chmodSync(locked.backupDir, 0o555);
-    await expect(
-      runMigrations(lockedDb, {
-        dir: lockedMigrations,
-        clock: fixedClock(T),
-        backup: makePreMigrateBackup({
-          db: lockedDb,
-          config: config({ data_dir: locked.dataDir, backup_dir: locked.backupDir }),
-          secrets: testSecrets(),
+    try {
+      await expect(
+        runMigrations(lockedDb, {
+          dir: lockedMigrations,
+          clock: fixedClock(T),
+          backup: makePreMigrateBackup({
+            db: lockedDb,
+            config: config({ data_dir: locked.dataDir, backup_dir: locked.backupDir }),
+            secrets: testSecrets(),
+          }),
         }),
-      }),
-    ).rejects.toThrow();
-    expect(lockedDb.pragma('user_version', { simple: true })).toBe(1);
-    expect(lockedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'after_backup'").get()).toBeUndefined();
-    expect(readdirSync(locked.dataDir).some((name) => name.startsWith('pre-migrate-'))).toBe(false);
-    chmodSync(locked.dataDir, 0o755);
-    chmodSync(locked.backupDir, 0o755);
-    lockedDb.close();
+      ).rejects.toThrow();
+      expect(lockedDb.pragma('user_version', { simple: true })).toBe(1);
+      expect(
+        lockedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'after_backup'").get(),
+      ).toBeUndefined();
+      expect(existsSync(join(locked.dataDir, 'pre-migrate-1-2.sqlite'))).toBe(false);
+    } finally {
+      chmodSync(locked.backupDir, 0o755);
+      lockedDb.close();
+    }
   });
 
   it('[00 §10 #111] a leftover pre-migrate-*.sqlite is deleted, .enc kept', () => {
