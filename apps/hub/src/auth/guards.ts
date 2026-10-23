@@ -58,6 +58,7 @@ declare module 'fastify' {
     device?: RequestDevice;
     session?: SessionRow;
     authGen?: number;
+    wsClose?: 4403 | 4426;
   }
 }
 
@@ -122,21 +123,41 @@ export function attachRouteGuards(app: FastifyInstance, deps: GuardDeps): void {
   const guestNet = createNetMatcher(deps.config.guest_network_cidrs ?? []);
   const handlers: Record<string, onRequestHookHandler> = {
     async host(request) {
-      if (!allowHost(request.headers.host)) throw new DomainError('HOST_NOT_ALLOWED');
+      if (request.wsClose !== undefined) return;
+      if (!allowHost(request.headers.host)) {
+        if (request.routeOptions.config.group === 'ws') {
+          request.wsClose = 4403;
+          return;
+        }
+        throw new DomainError('HOST_NOT_ALLOWED');
+      }
     },
-    async provisioned() {
+    async provisioned(request) {
+      if (request.wsClose !== undefined) return;
       if (!isProvisioned(deps.config)) throw new DomainError('HUB_NOT_PROVISIONED');
     },
     async guest(request) {
-      if (guestNet(request.ip)) throw new DomainError('GUEST_NETWORK_FORBIDDEN');
+      if (request.wsClose !== undefined) return;
+      if (guestNet(request.ip)) {
+        if (request.routeOptions.config.group === 'ws') {
+          request.wsClose = 4403;
+          return;
+        }
+        throw new DomainError('GUEST_NETWORK_FORBIDDEN');
+      }
     },
     async isGuest(request) {
       request.isGuest = guestNet(request.ip);
     },
     async version(request) {
+      if (request.wsClose !== undefined) return;
       const header = request.headers['x-client-version'];
       const version = Array.isArray(header) ? header[0] : header;
       if (version !== undefined && version.length > 0 && isBelow(version, deps.config.min_client_version)) {
+        if (request.routeOptions.config.group === 'ws') {
+          request.wsClose = 4426;
+          return;
+        }
         throw new DomainError('CLIENT_UPGRADE_REQUIRED');
       }
     },
