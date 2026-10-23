@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { activity } from '../../src/auth/session-store';
+import { defineQuery, queryRegistry } from '../../src/queries/registry';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 describe('query route', () => {
@@ -17,7 +19,24 @@ describe('query route', () => {
     const before = counts(hub);
     const quiet = await get(hub, bound, '/queries/test-quiet');
     expect(quiet.statusCode).toBe(200);
-    expect(quiet.json().data).toEqual({ ok: true });
+    expect(quiet.json().data).toEqual({
+      ok: true,
+      device_id: bound.device.deviceId,
+      session_id: bound.session.sessionId,
+      known_staff: true,
+    });
+    queryRegistry(hub.app).register(
+      defineQuery({
+        resource: 'test-registered',
+        sessionKind: 'device',
+        session: 'required',
+        querySchema: z.object({}),
+        handle: () => ({ data: { registered: true } }),
+      }),
+    );
+    const registered = await get(hub, bound, '/queries/test-registered');
+    expect(registered.statusCode).toBe(200);
+    expect(registered.json().data).toEqual({ registered: true });
     expect(counts(hub)).toEqual(before);
     expect(activity.get(bound.session.sessionId)).toBeUndefined();
     const active = await get(hub, bound, '/queries/test-activity');

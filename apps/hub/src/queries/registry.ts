@@ -3,13 +3,18 @@ import { DomainError, type DeviceType } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
-import { activity, endSession, findSessionByToken, isIdleExpired } from '../auth/session-store.js';
+import { currentDirectory, type RequestDevice } from '../auth/guards.js';
+import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
+import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 
 export interface QueryCtx {
   db: Database.Database;
   page: { cursor: string | null; limit: number };
+  directory: StaffDirectory;
+  device: RequestDevice | undefined;
+  session: SessionRow | undefined;
 }
 
 export interface QueryDef<Q extends z.ZodType = z.ZodType> {
@@ -59,18 +64,28 @@ export interface QueryRouteDeps {
   clock: Clock;
 }
 
+const queryRegistries = new WeakMap<FastifyInstance, ReturnType<typeof createQueryRegistry>>();
+
+export function queryRegistry(app: FastifyInstance): ReturnType<typeof createQueryRegistry> {
+  const registry = queryRegistries.get(app);
+  if (registry === undefined) throw new Error('query routes are not registered');
+  return registry;
+}
+
 export function registerQueryRoutes(app: FastifyInstance, deps: QueryRouteDeps): void {
   const registry = createQueryRegistry();
+  queryRegistries.set(app, registry);
   registerTestQueries(registry);
   app.get('/queries/:resource', { config: { group: 'device' } }, async (request) =>
-    runQuery(request, deps, registry, 'device'),
+    runQuery(app, request, deps, registry, 'device'),
   );
   app.get('/admin/queries/:resource', { config: { group: 'admin' } }, async (request) =>
-    runQuery(request, deps, registry, 'admin'),
+    runQuery(app, request, deps, registry, 'admin'),
   );
 }
 
 function runQuery(
+  app: FastifyInstance,
   request: FastifyRequest,
   deps: QueryRouteDeps,
   registry: ReturnType<typeof createQueryRegistry>,
@@ -87,7 +102,16 @@ function runQuery(
   const parsed = def.querySchema.safeParse(request.query);
   if (!parsed.success) throw new DomainError('VALIDATION_FAILED', { issues: zodIssues(parsed.error) });
   const page = pageParams(pagingOf(parsed.data));
-  const body = def.handle({ db: deps.readDb, page }, parsed.data);
+  const body = def.handle(
+    {
+      db: deps.readDb,
+      page,
+      directory: currentDirectory(app),
+      device: request.device,
+      session: request.session,
+    },
+    parsed.data,
+  );
   if (def.countsAsActivity === true && request.session !== undefined) {
     activity.touch(request.session.session_id, deps.clock.branchNow());
   }
@@ -147,7 +171,14 @@ function registerTestQueries(registry: ReturnType<typeof createQueryRegistry>): 
       querySchema: z.object({}),
       handle(ctx) {
         ctx.db.prepare('SELECT COUNT(*) FROM events').pluck().get();
-        return { data: { ok: true } };
+        return {
+          data: {
+            ok: true,
+            device_id: ctx.device?.device_id ?? null,
+            session_id: ctx.session?.session_id ?? null,
+            known_staff: ctx.directory.get('S_CASH') !== undefined,
+          },
+        };
       },
     }),
   );
