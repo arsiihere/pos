@@ -33,6 +33,7 @@ describe('StaffDirectory', () => {
     expect(directory.resolve('S_MULTI', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
     expect(directory.resolve('S_WIN', 'manage-devices')).toEqual({ grant: 'allowed' });
     expect(directory.resolve('S_NONE', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
+    expect(directory.resolve('S_DENY_APPROVAL', 'apply-discount')).toEqual({ grant: 'denied' });
     expect(directory.hasAdmin('S_WIN')).toBe(false);
     expect(directory.permissionsOf('S_DENY')['reprint-ticket']).toEqual({ grant: 'denied' });
     expect(Object.keys(directory.permissionsOf('S_DENY'))).toEqual([...PERMISSIONS]);
@@ -136,6 +137,13 @@ function truthTable(): DirectoryInput {
         pin_hash: 'hash-none',
         role_ids: [],
         denied_permissions: [],
+      },
+      {
+        staff_id: 'S_DENY_APPROVAL',
+        display_name: 'Deny approval',
+        pin_hash: 'hash-deny-approval',
+        role_ids: ['R_B'],
+        denied_permissions: ['apply-discount'],
       },
     ],
   };
