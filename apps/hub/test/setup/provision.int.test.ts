@@ -206,6 +206,7 @@ describe('POST /setup/provision', () => {
     cleanups.push(ctx.close);
     const cases = [
       { ...BODY, guest_network_cidrs: [] },
+      { ...BODY, guest_network_cidrs: ['192.168.020.0/24'] },
       { ...BODY, advertised_host: '203.0.113.9' },
       { ...BODY, registration_code: 'ABCD-EFGH-IJKL' },
     ];

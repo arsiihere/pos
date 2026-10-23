@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { BlockList } from 'node:net';
 import { DomainError, ErrorCatalogue, type ErrorCode } from '@pos/domain';
 import { DirectorySchema } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
@@ -179,7 +180,13 @@ function validCidr(cidr: string): boolean {
   if (match === null) return false;
   const prefix = Number(match[5]);
   if (prefix > 32) return false;
-  return match.slice(1, 5).every((octet) => Number(octet) <= 255);
+  if (!match.slice(1, 5).every((octet) => Number(octet) <= 255)) return false;
+  try {
+    new BlockList().addSubnet(cidr.slice(0, cidr.indexOf('/')), prefix, 'ipv4');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normaliseCode(input: string): string {
