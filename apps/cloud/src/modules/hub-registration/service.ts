@@ -37,7 +37,19 @@ export async function registerHub(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const row = await lockRegistrationCode(client, codeHash(input.registrationCode));
+    const hash = codeHash(input.registrationCode);
+    const peeked = await client.query<{ tenant_id: string; branch_id: string }>(
+      `SELECT tenant_id, branch_id FROM registration_codes WHERE code_hash = $1`,
+      [hash],
+    );
+    const peek = peeked.rows[0];
+    if (peek !== undefined) {
+      await client.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
+        peek.tenant_id,
+        peek.branch_id,
+      ]);
+    }
+    const row = await lockRegistrationCode(client, hash);
     if (row === null || !codeIsUsable(row, input.idempotencyKey, now)) {
       throw new DomainError('REGISTRATION_CODE_INVALID');
     }
@@ -47,10 +59,6 @@ export async function registerHub(
         accepted_kinds: input.acceptedKinds,
       });
     }
-    await client.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
-      row.tenant_id,
-      row.branch_id,
-    ]);
     const branchApiKey = deps.secrets.token256();
     const rotated = await revokeLiveKey(client, row.tenant_id, row.branch_id, now);
     await insertApiKey(client, row, deps.ids.next(), sha256(branchApiKey), now);

@@ -208,6 +208,12 @@ describe('POST /v1/hubs/register', () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       expect(waiting).toBe(true);
+      await hold.query(`SET LOCAL statement_timeout = '750ms'`);
+      await hold.query(
+        `UPDATE registration_codes SET expires_at = expires_at
+          WHERE tenant_id = $1 AND branch_id = $2 AND consumed_at IS NULL`,
+        [seeded.tenant_id, issued.branch_id],
+      );
 
       await hold.query(
         `UPDATE branch_api_keys SET revoked_at = $3
