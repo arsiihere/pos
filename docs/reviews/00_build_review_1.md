@@ -1,107 +1,132 @@
-# Build review 1 — module 00 tasks 1–15
+# Build review 1 — module 00 tasks 16–20
 
 | Field | Value |
 |---|---|
-| Range | `f03c730` (plan commit, excluded) .. `0a2b8cc` |
-| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) and foundation §4.1, §4.7, §5.9 D45, §6.2, §6.5–§6.8 where those tasks cite it |
-| Plan | `docs/plans/00-plan.md` tasks 1–15, including 5b and 5c |
-| Done per `docs/reviews/build-log.md` | tasks 2, 3, 4, 5, 5b, 5c, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15. Task 1 is commit `4abf807` and is in range. |
+| Range | `f03c730` (plan commit, excluded) .. `f191b8f` |
+| Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) and foundation §4.1, §6.1, §6.2, §6.8 where those tasks cite it |
+| Plan | `docs/plans/00-plan.md` tasks 1–20, including 5b and 5c |
+| Done per `docs/reviews/build-log.md` | tasks 2–20. Task 1 is commit `4abf807` and is in range. |
 | Date | 2026-10-23 |
-| Verdict | Fix the list below before task 16. |
+| Verdict | Fix the list below before task 21. |
 
 Checked: spec deviations, §10 test numbering (each number exactly once), tests that do not lock the case they name, files outside each task's file list, secrets in logs, and contracts later tasks import.
 
-Earlier copies of this file are fixed and are not reopened. Tasks 1–5c: `a431a56` (randomUUID / ulid lint), `b85ea82` (upcast `schema_version`), `ec251f1` (qrcode subpath), `5529476` (permission names). Tasks 6–10: `02156d6` (integer `branchNow`), `b96f87c` (one backup call), `20ca4b1` (SHA-256 checksum). This pass re-reads that range and reviews tasks 11–15.
+The previous copy of this file reviewed tasks 1–15. Those items were fixed in `13a613e` .. `c9cdd5e` and are not reopened. This pass re-read that range, confirmed the backup helper still aborts on an encrypt or unlink failure and still chmod's the plaintext to `0600`, and reviewed tasks 16–20.
 
 ## What matches
 
-- `[00 §10 #62]`, `#63`, `#64`, `#65`, `#67`, `#74`, `#111`, `#122`, and `#124` each appear once. No later §10 number is claimed early. The checksum half of #64 stays under `[F §6.8]`, which is how task 10 splits that spec row.
-- `0001_event_store.sql` matches the foundation `events` table, `events_branch_seq`, `events_stream`, both immutability triggers (`events are immutable`), `sync_cursor`, and `hub_heartbeat`, plus spec §5.1 `processed_commands` and `projection_checkpoints`.
-- `appendEvents` allocates `seq` inside the caller's transaction, validates the batch with `parseEvent` before the insert loop, and #63 leaves seqs `1..666` after the forced rollbacks.
-- `catchUp` replays `seq > checkpoint`, does not `reset` when a row exists, and #67 would throw if seq `3` were inserted again. `createWriter` follows the task 15 order: immediate transaction, append + `applyAll`, reduce, `beforeCommit`, then after COMMIT swap, `lastSeq`, one `authGeneration` bump, `onCommit`, `addAfterCommit`, `beforePublish`, `publish`.
-- `makePreMigrateBackup` is a no-op when unprovisioned or the key is absent, encrypts one snapshot, falls back to `data_dir` when `backup_dir` is missing, and deletes the plaintext on the success path. No `console.*` in this range. Event payloads carry ids, not a PIN, password, token, or `backup_encryption_key`.
-- Task file lists match, except task 13 also adds `@pos/events` to the hub `package.json` (see Declined). Names later tasks import (`Writer`, `WriterTx`, `appendEvents`, `createProjectionRegistry`, `AUTH_EVENTS`, `freshDb`, `deleteLeftoverPlaintext`, `makePreMigrateBackup`) match the plan.
+- The nineteen `[00 §10 #…]` tests in this range (`#21`, `#62`–`#65`, `#67`, `#70`, `#72`, `#74`, `#78`, `#83`, `#97`, `#101`–`#103`, `#111`, `#122`, `#124`, `#129`) each appear once. No later §10 number is claimed.
+- `0002_devices_sessions.sql` and `0003_staff_directory.sql` match §5.1, including the partial unique index, the station CHECKs, `requester_ip NOT NULL`, and `pairing_tokens` limited to `tablet`/`phone`.
+- `guardsFor` matches §3.9 for the guards this task owns: host on every group, provisioned on every group except `health` and `setup`, guest on every group except `health` (which sets `isGuest`), version on `device`, `device-session`, `pair`, `pair-request`, and `ws`.
+- `applyStaffDirectory` ignores an equal or older version before any write, skips a weak or malformed hash, an unknown role, an unknown role permission, and an unknown approver, keeps a malformed existing staff row out of `removed`, and ends a removed owner's phone with `DeviceRevoked { cause: 'owner_removed', actor_id: null }`. Session and revoke events use the §4.2 streams.
+- The error handler returns the §6.1 envelope. Secret headers are redacted and the handler still sees them. `console.warn` on a skip or an ignored version carries `kind`, `id`, and `reason` or the two version numbers, not a PIN, token, or key.
+- Names later tasks import (`buildHubServer`, `HubDeps`, `StaffDirectory`, `applyStaffDirectory`, `createSession`, `endSession`, `revokeDevice`, `activity`, `isIdleExpired`, `guardsFor`, `attachRouteGuards`) match the plan.
 
 ## Declined
 
-- `pnpm-lock.yaml` and `@pos/events` on the hub in task 13. `appendEvents` calls `parseEvent`. Not a behavior change.
-- Build-log commits. Review notes, not behavior.
-- A provisioned config with no `backup_encryption_key` skips the backup. The task interface says no-op when the key is absent.
-- `appendEvents` stores `parseEvent`'s upcast. Every 00 event is still v1, so `schema_version` equals the draft.
-- `publish` runs inside `writer.run` before the handler returns. Task 15 puts it there so task 45's `beforePublish` hook sees `lastSeq` already advanced.
-- `StateHolder.get()` is not a copy. D45 purity belongs to the reducer 03a registers.
-- Events appended inside `afterCatchUp` sit above the checkpoint just written. Task 25b's apply is idempotent, and HTTP is not open until boot step 7, so those events are not published.
-- `deleteLeftoverPlaintext` is not called from task 11. Boot step 1 (task 25) is the caller. #111 tests the function.
-- The encrypt fallback reuses one IV. `encryptFile` deletes its temp file and throws before a destination file exists, so only one ciphertext remains.
-- A checkpoint ahead of `MAX(seq)` is left in place. The immutability triggers make that state unreachable through this module.
-- Seq is tested on one branch. A hub has one branch.
-- `canonicalJson` and own `undefined`, `monotonicFactory` seed `0`, untested `listOwnIPv4`, uppercase `::FFFF:`, empty `guest_network_cidrs`, encrypted-file umask, and `chmodSync` outside the config rename `try`. Same declines as the tasks 1–10 pass. Nothing in tasks 11–15 makes them load-bearing.
-- Calling `writer.run` from `afterCatchUp` would be a savepoint. Task 25b says to append on the hook's `tx`, not to re-enter the writer.
+- `pnpm-lock.yaml` and the hub `package.json` dependencies in tasks 16 and 18. The server imports Fastify and Zod; `pinHash` imports argon2. Not a behavior change.
+- `writer.ts` gained `clock`, `ids`, and `branchId` on `WriterTx` in task 19. Session and directory rows cannot be timestamped or addressed without them. The build log recorded the ruling.
+- `server.int.test.ts` gained `group: 'health'` in task 20. `ready()` throws on a route with no group, so the task 16 tests would not boot.
+- `createSession` draws the token from `cryptoSecrets`. `WriterTx` has no `SecretGen`. The token is returned to the caller. The call is not a banned `randomUUID`.
+- Task 20 guards do not record `authGeneration`. Task 21 sets `req.authGen` when the device and session guards run.
+- The socket half of #83. Task 45 closes `4403`.
+- #129 does not log the kept PIN in. Login is task 39. This task's job is the stored row.
+- An unknown path is not host-checked. §3.9 attaches guards from `onRoute`, and a path with no route has no group. Task 16's `404` test stands.
+- §7.2's `branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, and `ms` on every line. Task 16 requires `request_id`. Device and session ids do not exist until task 21. Nothing later reads those fields.
+- `127.0.0.1`, a trailing dot, and an uppercase host. Task 7 locks the matcher. The guard calls it.
+- An IPv4-mapped guest address. The same matcher. The guard passes `request.ip` through.
+- Malformed JSON becomes `500 INTERNAL_ERROR`. §7.1 says anything other than a `DomainError` or a Zod failure is `INTERNAL_ERROR`.
+- WS close codes `4403` and `4426`. No WS route exists yet. Tasks 44 and 45 own them.
+- A backup that fails both encrypt attempts and then fails to unlink leaves a mode `0600` file. The migration still throws, and boot step 1 deletes `pre-migrate-*.sqlite` on the next start.
 
 ## Fix list
 
-### 1. #124 never reaches the encrypt fallback
+### 1. Route guards run after Zod
 
-- **Where:** `apps/hub/test/db/pre-migrate-backup.int.test.ts`, `[00 §10 #124]`. Task 11, commit `04c7ea0`. The second half `chmod`s `data_dir` to `0555` (`pre-migrate-backup.int.test.ts` around the locked-dir block).
-- **What's wrong:** `db.backup()` throws before either `encryptFile` call, because the plaintext path is inside that directory. A fallback that swallows the second encrypt error and lets migrations continue still passes, including "no `pre-migrate-*` file left", because the plaintext file was never created.
-- **Why it matters:** M21 and the task interface say both encrypt attempts failing throws and no migration is applied. That is the case where a provisioned hub would migrate with no encrypted copy.
-- **Fix:** Keep the missing-`backup_dir` half. Replace the locked-`data_dir` half with: `data_dir` writable, `backup_dir` mode `0555`, and `data_dir/pre-migrate-1-2.sqlite.enc` as a directory so the fallback `rename` throws. Expect the throw, `user_version` still `1`, and the plaintext snapshot gone.
+- **Where:** `apps/hub/src/auth/guards.ts` `onRoute` hook, which assigns `opts.preHandler`. Spec §7.1 and §3.7 put host, provisioned, guest, and version on `onRequest`, and Zod on `preValidation`.
+- **What's wrong:** Fastify runs `preValidation` before `preHandler`. A POST with `Host: evil.example:3000` and a body that fails the route schema returns `400 VALIDATION_FAILED`. The same body from a guest address, or on an unprovisioned hub, is also `400`.
+- **Why it matters:** M45 is a rebinding control. Task 22's command routes are schema-validated. A bad host, a guest, or an unprovisioned hub would answer `400` whenever the body is wrong, and the handler's schema becomes visible before the guard.
+- **Fix:** Attach the same handlers on `onRequest`, ahead of any route `onRequest`. Add `[00 §7.1] guards run before Zod`: a bad host, a guest address, and an unprovisioned hub each return their guard status for a body that fails Zod.
 - **Spec change:** no.
 
-### 2. A failed plaintext delete is ignored
+### 2. A directory row the cache cannot store aborts the apply
 
-- **Where:** `apps/hub/src/db/pre-migrate-backup.ts`, the `finally` around `unlinkSync`.
-- **What's wrong:** Every unlink error is swallowed, including `EBUSY` and `EPERM`. Encrypt can succeed, unlink can fail, and `makePreMigrateBackup` still resolves. `runMigrations` then applies the migration. Boot step 1, which would delete the leftover, has already run.
-- **Why it matters:** The file is the database, PIN hashes included (M21). It stays in `data_dir` for the rest of the process lifetime. The task says the plaintext is always deleted; a failed delete is a failed backup.
-- **Fix:** Rethrow any unlink error other than `ENOENT`, so the original `backup()` error still surfaces when the file was never created, and any other unlink failure aborts the migration. Test by making `unlinkSync` throw `EBUSY` for that plaintext path and expecting `user_version` to stay put.
+- **Where:** `apps/hub/src/auth/apply-directory.ts` `keepGrant` and the staff loop, then `replaceCache`.
+- **What's wrong:** `DirectorySchema` allows an `allowed` grant with a non-null `approver_role_id`, two grants for one permission, two `role_ids` for one staff member, and two staff rows with one id. The §5.1 CHECK and primary keys then throw, and the transaction rolls back. `denied_permissions` is copied without `isPermission`, so an unknown denial is stored and is not listed in `skipped`.
+- **Why it matters:** M52 exists so one bad row cannot block a removal. A fired employee in the same push stays. A stored unknown denial starts denying that permission the moment a later module appends the name to the catalogue.
+- **Fix:** Skip and list those rows (`approver set on an allowed grant`, `duplicate permission`, `duplicate role`, `duplicate staff`, `unknown permission` on a denial). Keep the first legal reference. The rest of the push, including a removal, commits. Cover it with `[00 §3.1 M52] a grant or reference the cache cannot store is skipped and the rest applies`.
 - **Spec change:** no.
 
-### 3. The plaintext snapshot is mode `0644`
+### 3. A kept role whose approver was removed aborts the apply
 
-- **Where:** `apps/hub/src/db/pre-migrate-backup.ts`, `db.backup(plain)` then `encryptFile`. `encryptFile` opens ciphertext with mode `0600`. The snapshot is created with the process umask.
-- **What's wrong:** Until unlink, and for the whole uptime if unlink fails, any local user can read the copy. Config writes chmod `0600` because §3.10 requires it. This file is the same database.
-- **Why it matters:** M21 exists because a copied hub database exposes every PIN. The copy should not be world-readable while it exists.
-- **Fix:** `chmod` the plaintext to `0600` as soon as `backup()` resolves. In the #64 test, observe that mode before encrypt.
-- **Spec change:** no. §7.9 does not set the mode; `0600` is stricter and matches the config file that holds the key.
-
-### 4. `AUTH_EVENTS` is only locked for `SessionEnded`
-
-- **Where:** `apps/hub/test/engine-host/writer.int.test.ts`, `[00 §3.1 M39]`. `AUTH_EVENTS` in `auth-generation.ts` lists `DeviceRevoked`, `DeviceTokenRotated`, `SessionEnded`, and `StaffDirectoryApplied`. The test appends one `SessionEnded` and one `HubProvisioned`.
-- **What's wrong:** `AUTH_EVENTS = ['SessionEnded']` still passes. Bumping once per auth event also passes, because the batch contains a single auth event. The writer bumps once per committed batch (`appended.some(...)`).
-- **Why it matters:** Task 23 #85 depends on `DeviceRevoked` moving the generation. Task 19 and task 37 depend on `StaffDirectoryApplied` and `DeviceTokenRotated`. M39 says one bump for the transaction, not one per event.
-- **Fix:** In that same test, commit each of the four types and expect the generation to rise by one per transaction, and commit two `SessionEnded` events in one `run` and expect a single bump.
+- **Where:** `apps/hub/src/auth/apply-directory.ts` the loop that pushes `previous.roles` for a kept staff member. `[00 §10 #129]` only checks `pin_hash`.
+- **What's wrong:** M75 keeps the previous role. That role's `approver_role_id` is a foreign key. When the new directory omits both the role and the approver, the insert throws `FOREIGN KEY constraint failed` and the push rolls back. #129 would also pass if the hash were kept and the roles and denials were replaced.
+- **Why it matters:** The malformed row is the one M75 is for. A removal in that push does not happen, and the kept person's old PIN, role, and denials are not what the next boot loads.
+- **Fix:** When retaining a role, also retain any missing approver role from the previous cache, transitively. Extend #129 so a new display name, a new role, and an empty denial list leave the previous display name, role, and denial in place. Add the omitted-approver case to the M52-style apply test (or the same #129 test) and expect the directory version to advance and another staff member to be removed.
 - **Spec change:** no.
 
-### 5. Catch-up mode, `afterCatchUp`, and reset-when-current are not locked
+### 4. #70 does not lock an admin session or the after-commit swap
 
-- **Where:** `apps/hub/test/projections/registry.int.test.ts`. `registry.ts` passes `'live'` from `applyAll` and `'catchup'` from `catchUp`, runs `afterCatchUp` inside the page transaction (and in its own transaction when nothing is behind), and sets `reset` only when the checkpoint row is missing. Every test projection ignores `mode`. No test registers a hook. No projection with `reset` is caught up once its checkpoint is already `MAX(seq)`.
-- **What's wrong:** These still pass: always call `apply` with `'live'`; leave `afterCatchUp` a no-op, or call it after the page transaction commits; call `reset` whenever `last_seq >= MAX(seq)`.
-- **Why it matters:** M74 / #128 keys off `'catchup'` versus `'live'`. #88's `hub_restored` insert has to commit with the page, and a hook throw has to roll that page back. A reset on an up-to-date projection wipes its rows on every boot.
-- **Fix:** Record `mode` on the #67 counter and expect `live` for the events at or below the checkpoint and `catchup` for the rest. Add a checkpoint already at `MAX(seq)` on a projection that has `reset`, and assert `reset` is not called and its rows stay. Assert a hook sees `db.inTransaction`, and that a throw from the hook leaves that page's checkpoint unmoved.
+- **Where:** `apps/hub/test/auth/apply-directory.int.test.ts`, `[00 §10 #70]`. The code ends `staff` and `admin`, and calls `setDirectory` from `tx.onCommit`.
+- **What's wrong:** The test opens one staff session. Ending only `kind === 'staff'` passes. Calling `setDirectory` inside the transaction, before `beforeCommit`, also passes, because the assertion runs after `writer.run` returns.
+- **Why it matters:** Spec #70 says staff and admin sessions end `staff_removed`. The plan puts the directory swap on `onCommit` so a rolled-back apply cannot leave memory ahead of the cache. Task 22 resolves permissions from that object.
+- **Fix:** In that test, open an admin session for the removed staff member and expect `staff_removed` and a `SessionEnded` for it. Inside `beforeCommit` of the second apply, expect the in-memory directory to still grant `reprint-ticket`; after `run` returns, expect `not_granted`.
 - **Spec change:** no.
 
-### 6. After-commit order is not locked
+### 5. Session ends are locked on the row, and #83 does not show one transaction
 
-- **Where:** `apps/hub/test/engine-host/writer.int.test.ts`, `[F D45]` and `[00 §3.7]`. `writer.ts` after COMMIT does swap, `lastSeq`, bump, `onCommit`, `addAfterCommit`, `beforePublish`, then `publish`.
-- **What's wrong:** The tests lock "a throw in `beforeCommit` means publish does not run" and "two appends publish once". Invoking `onCommit` inside the transaction, or calling `publish` before `beforePublish`, or updating `lastSeq` after `beforePublish`, still passes.
-- **Why it matters:** Task 19's `setDirectory` is an `onCommit` hook and must observe the committed database. Task 45 #112 registers the socket in `beforePublish` and drops the duplicate only if `lastSeq` already matches the new event.
-- **Fix:** On one successful `run`, record `db.inTransaction` inside `onCommit` (false), the state already swapped, and the sequence `onCommit` → `addAfterCommit` → `beforePublish` → `publish`, with `lastSeq` already the new seq inside `beforePublish`.
+- **Where:** `[00 §10 #101]` and `[00 §10 #83]` in `apply-directory.int.test.ts`. `endSession` and `revokeDevice` do append the events, and both writes sit inside `applyStaffDirectory`.
+- **What's wrong:** #101 asserts `end_reason` and never reads `SessionEnded`. Updating the columns and skipping the append passes. #83 asserts `revoked_at` after `run` returns, so a revoke in `onCommit` passes, and the phone session's `SessionEnded` is not required.
+- **Why it matters:** §4.2 says `SessionEnded` is the only signal that a session ended. Task 25's `access_reconcile` and task 45's socket close both follow the event. M38 revokes the phone in the directory transaction; a crash after commit must not leave it paired.
+- **Fix:** #101 expects a `SessionEnded` with `credentials_changed` for the staff and admin sessions and none for the other staff member. #83 records `directory_version` and `revoked_at` inside `beforeCommit` and expects both to already be the new values, and expects the phone session's `SessionEnded`.
 - **Spec change:** no.
 
-### 7. Catch-up page size is not locked
+### 6. #102 does not prove an equal or older payload is not written
 
-- **Where:** `apps/hub/src/projections/registry.ts` `PAGE = 1000`. #67 replays two events.
-- **What's wrong:** One unbounded `SELECT`, or a cursor that skips the 1001st row, still passes. Task 26b's 1 M-event boot sets every checkpoint to `MAX(seq)`, so it never enters the page loop.
-- **Why it matters:** A skipped page advances the checkpoint past events the projection never applied. Those rows are never replayed.
-- **Fix:** Catch up 1 001 events with no checkpoint and assert each seq is applied once. Record `projection_checkpoints.last_seq` after each upsert and expect `1000` then `1001`, which an unbounded single statement does not produce.
+- **Where:** `[00 §10 #102]`. The equal and older calls send the same staff row the hub already has.
+- **What's wrong:** A version check that still replaces the cache, as long as it does not append and does not change `directory_version`, passes.
+- **Why it matters:** M51 is what stops a replayed push from restoring a fired employee's PIN. The task says no writes.
+- **Fix:** Send the equal and the older versions with a different display name and an extra staff id. Expect the stored name and the staff set to stay as the version-2 apply left them.
 - **Spec change:** no.
 
-### 8. An invalid payload is only tested as a one-event batch
+### 7. Idle expiry is not locked at the boundary
 
-- **Where:** `apps/hub/test/engine-host/append-events.int.test.ts`, `[F §4.1] invalid payload inserts nothing`.
-- **What's wrong:** The swallowed error is a single bad draft. Validate-then-insert per event still passes: the bad draft throws before its own insert. A batch of one valid draft and one invalid draft would commit the valid row when the caller swallows the error. The implementation parses the whole batch first; the test does not require that.
-- **Why it matters:** The writer swallows nothing, but any caller that catches (the test's own shape, and a handler that maps a bad draft) would persist a partial batch. Foundation §4.1 is append-only and gap-free; a partial batch inside a committed transaction is a permanent prefix.
-- **Fix:** In that same test, append one valid draft and one invalid draft, swallow the throw inside the transaction, and expect zero rows.
+- **Where:** `apps/hub/src/auth/session-store.ts` `isIdleExpired`. No test calls it. The plan's formula is `idle_ttl_ms != null && now − max(row.last_activity_at, activity.get(id) ?? 0) > idle_ttl_ms`.
+- **What's wrong:** `>=` still passes task 21's #98, which moves the clock to TTL + 1 s. Ignoring `activity` still passes #98, because that test does not touch the session.
+- **Why it matters:** M46 says `>` . Task 41's sweeper and task 21's guard both call this function. A session touched in memory, or a session at exactly its TTL, would be ended early.
+- **Fix:** Add `[00 §3.1 M46] isIdleExpired is strict and an activity touch counts`: exactly the TTL is not expired, one millisecond later is, a touch moves that boundary, and `idle_ttl_ms == null` is never expired.
+- **Spec change:** no.
+
+### 8. A multi-digit client version is not locked
+
+- **Where:** `[00 §3.9] X-Client-Version below min returns 426`, which uses `0.9.0` and `1.0.0`. `isBelow` compares numeric components.
+- **What's wrong:** A string compare still passes those two values. `1.0.9` against a minimum of `1.0.10` is not below under a string compare (`"9" > "1"`) and is below under the numeric compare.
+- **Why it matters:** §3.9 says `< min_client_version`. Task 39's #36 rejects an old client. A string compare would let `1.0.9` through a `1.0.10` floor.
+- **Fix:** In that test, set `min_client_version` to `1.0.10` and expect `1.0.9` to be `426` and `1.0.10` to pass.
+- **Spec change:** no.
+
+### 9. Provisioned and guest are only tested on one group
+
+- **Where:** `[00 §10 #21]` blocks `/commands/test` (`device`) and lets `/health` and `/setup/provision` through. The guest test blocks `/commands/test` and lets `/health` through.
+- **What's wrong:** Skipping `provisioned` on `admin`, or skipping `guest` on `setup`, still passes.
+- **Why it matters:** §3.9 applies provisioned to every route except `/health` and `/setup*`, and guest to every route except `/health`. An open admin route before provisioning, or a setup route that answers a guest address, is the case the guards are for.
+- **Fix:** In #21, expect `409 HUB_NOT_PROVISIONED` for one route of each of `device`, `device-session`, `admin`, `admin-device-public`, `admin-bootstrap`, `pair`, `pair-request`, and `ws`. In the guest test, expect `403` for a `setup` route as well as the device route.
+- **Spec change:** no.
+
+### 10. Secret body fields are declared and never logged
+
+- **Where:** `[00 §7.2] secret headers are redacted in logs`. `REDACT_PATHS` lists `pin`, `password`, `backup_encryption_key`, and the other §7.2 names. The test sends headers only.
+- **What's wrong:** Dropping every body path and leaving the header serializer in place still passes. No request logs a body today, so the paths are unexecuted.
+- **Why it matters:** §7.2 and the plan's secret list exist so a later `log.info` of a parsed body cannot put a PIN or the backup key in journald. Task 48's #73 greps the auth logs for those values.
+- **Fix:** In that test file, log an object that carries `pin`, `password`, and `backup_encryption_key` and expect the captured stream to contain `[Redacted]` and none of the values. The handler's own view of the headers stays as it is.
+- **Spec change:** no.
+
+### 11. Denial is not locked against a requires-approval-only grant
+
+- **Where:** `[00 §10 #78]`. `S_DENY` is denied `reprint-ticket`, which `R_A` grants as `allowed`.
+- **What's wrong:** Checking the denial only when an `allowed` grant exists still passes. A staff member whose only grant is `requires_approval`, and who is denied that permission, is not in the table.
+- **Why it matters:** §3.6 returns `denied` before it looks at grants. Task 22's command rule treats `requires_approval` as a continue on an approvable command. A denial that lost to that grant would let the command through.
+- **Fix:** In the same truth table, add a staff member on `R_B` only, denied `apply-discount`, and expect `{ grant: 'denied' }`.
 - **Spec change:** no.
 
 ## Needs spec change
