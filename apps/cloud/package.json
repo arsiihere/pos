@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed-tenant": "tsx src/cli/seed-tenant.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.2.2",
     "@pos/domain": "workspace:*",
     "fastify": "5.12.7",
     "fastify-type-provider-zod": "7.0.0",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "22.19.1",
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.15"
   }
 }

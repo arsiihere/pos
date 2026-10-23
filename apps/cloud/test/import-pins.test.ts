@@ -34,6 +34,7 @@ describe('cloud import pins', () => {
       'apps/cloud/src/plugins/tenant-scope.ts',
     ]);
     const system = importers(/system-context|SystemContext/);
+    expect(system).toContain('apps/cloud/src/cli/seed-tenant.ts');
     expect(system.every((file) => file.startsWith('apps/cloud/src/cli/'))).toBe(true);
   });
 });

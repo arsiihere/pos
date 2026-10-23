@@ -37,6 +37,15 @@ const dbClientImports = {
   ],
 };
 
+const systemContextImports = {
+  patterns: [
+    {
+      group: ['**/cli/system-context', '**/cli/system-context.js'],
+      message: 'Import SystemContext only from apps/cloud/src/cli/ (M56).',
+    },
+  ],
+};
+
 const credentialLookupImports = {
   patterns: [
     {
@@ -66,7 +75,14 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...credentialLookupImports.patterns] },
+        {
+          patterns: [
+            ...dbClientImports.patterns,
+            ...qrcodeImports.patterns,
+            ...credentialLookupImports.patterns,
+            ...systemContextImports.patterns,
+          ],
+        },
       ],
       'no-restricted-syntax': ['error', ...forbiddenCalls],
     },
@@ -90,7 +106,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [...qrcodeImports.patterns, ...credentialLookupImports.patterns] },
+        { patterns: [...qrcodeImports.patterns, ...credentialLookupImports.patterns, ...systemContextImports.patterns] },
       ],
     },
   },
@@ -99,16 +115,32 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [...dbClientImports.patterns, ...credentialLookupImports.patterns] },
+        {
+          patterns: [...dbClientImports.patterns, ...credentialLookupImports.patterns, ...systemContextImports.patterns],
+        },
       ],
     },
   },
   {
-    files: [
-      'apps/cloud/src/plugins/tenant-scope.ts',
-      'apps/cloud/src/plugins/owner-credentials.ts',
-      '**/*.test.ts',
-    ],
+    files: ['apps/cloud/src/plugins/tenant-scope.ts', 'apps/cloud/src/plugins/owner-credentials.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...systemContextImports.patterns] },
+      ],
+    },
+  },
+  {
+    files: ['apps/cloud/src/cli/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...credentialLookupImports.patterns] },
+      ],
+    },
+  },
+  {
+    files: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] }],
     },
