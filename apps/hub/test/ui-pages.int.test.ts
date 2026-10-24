@@ -24,6 +24,7 @@ async function served(url: string): Promise<string> {
 const PAGES: PageCase[] = [
   { name: '/setup', html: async () => setupPage(), theme: 'light', ids: ['setup'] },
   { name: '/admin/bootstrap', html: () => served('/admin/bootstrap'), theme: 'light', ids: ['login', 'roster'] },
+  { name: '/admin/approve', html: () => served('/admin/approve'), theme: 'light', ids: ['screen'] },
 ];
 
 describe('hub pages on the UI kit', () => {

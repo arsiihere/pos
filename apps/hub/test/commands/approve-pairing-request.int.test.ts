@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { registerStationValidator } from '../../src/auth/station-validator';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
-import { jsonResponse, runPage } from '../helpers/page-sandbox';
+import { EN } from '../../src/lib/strings';
+import { jsonResponse, runPage, textOf } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -196,16 +197,70 @@ describe('ApprovePairingRequest', () => {
     if (form === undefined) throw new Error('login form missing');
     const pin = page.find('pin');
     if (pin === undefined) throw new Error('pin input missing');
+    expect(pin.type).toBe('password');
+    expect(pin.inputMode).toBe('numeric');
+    const message = () => textOf(page.find('auth_error'));
     pin.value = '0000';
-    const message = () => page.find('auth_error')?.textContent;
     await page.submit(form);
-    expect(message()).toBe('errors.PIN_INVALID');
+    expect(message()).toBe(EN['errors.PIN_INVALID']);
+    pin.value = '0000';
     await page.submit(form);
-    expect(message()).toBe('errors.PIN_INVALID · attempts_remaining 2');
+    expect(message()).toBe(`${EN['errors.PIN_INVALID']} ${EN['auth.attempts_left'].replace('{n}', '2')}`);
+    pin.value = '0000';
     await page.submit(form);
-    expect(message()).toBe('errors.PIN_LOCKED_OUT · 10 min');
+    expect(message()).toBe(`${EN['errors.PIN_LOCKED_OUT']} ${EN['auth.locked_for'].replace('{min}', '10')}`);
+    pin.value = '0000';
     await page.submit(form);
-    expect(message()).toBe('errors.DEVICE_LOCKED_OUT · 2 min');
+    expect(message()).toBe(`${EN['errors.DEVICE_LOCKED_OUT']} ${EN['auth.locked_for'].replace('{min}', '2')}`);
+    expect(textOf(page.screen)).not.toMatch(/errors\.|attempts_remaining/);
+  });
+
+  it('[00 §8.2] approve page on the kit: a bootstrap session goes straight to the form; Approve sends ApprovePairingRequest; an error keeps the form with a banner; success offers Approve another', async () => {
+    const hub = await open();
+    const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
+    const sent: Array<Record<string, unknown>> = [];
+    const answers = [
+      jsonResponse(404, { error: { code: 'PAIRING_REQUEST_NOT_FOUND', details: {} } }),
+      jsonResponse(200, { data: { command_id: 'c', event_ids: ['e'], result: { device_id: 'K1', device_type: 'cashier_kiosk', station_id: null } } }),
+    ];
+    const page = await runPage(html, {
+      session: { admin_session_token: 'admin-tok', admin_staff_id: 'S_OWNER', admin_bootstrap: '1' },
+      fetch: (url, init) => {
+        if (url !== '/admin/commands/approve-pairing-request') throw new Error(`unexpected ${url}`);
+        const request = init as { headers: Record<string, string>; body: string };
+        expect(request.headers['x-admin-session']).toBe('admin-tok');
+        expect(request.headers.authorization).toBeUndefined();
+        sent.push(JSON.parse(request.body));
+        return Promise.resolve(answers.shift());
+      },
+    });
+    const form = page.screen.children[0];
+    if (form === undefined) throw new Error('approve form missing');
+    const type = page.find('device_type');
+    expect(type?.options).toEqual([
+      { text: EN['approve.type_cashier_kiosk'], value: 'cashier_kiosk' },
+      { text: EN['approve.type_kds'], value: 'kds' },
+    ]);
+    page.find('display_code')!.value = 'ab s-12 3';
+    await page.submit(form);
+    expect(sent[0]).toMatchObject({
+      command_type: 'ApprovePairingRequest',
+      tenant_id: 'tenant-a',
+      branch_id: 'branch-1',
+      actor_id: 'S_OWNER',
+      device_id: 'hub-admin',
+      payload: { display_code: 'ABS123', device_type: 'cashier_kiosk' },
+    });
+    expect(page.screen.children[0]).toBe(form);
+    expect(textOf(form)).toContain(EN['errors.PAIRING_REQUEST_NOT_FOUND']);
+
+    page.find('display_code')!.value = 'ABC124';
+    await page.submit(form);
+    expect(textOf(page.screen)).toContain(EN['pairing.approved']);
+    const again = page.findAll((el) => el.textContent === EN['approve.another']);
+    expect(again).toHaveLength(1);
+    await page.click(again[0]!);
+    expect(page.find('display_code')?.value).toBe('');
   });
 
   it('[00 §10 #133] admin pages load with no credentials and embed no token; a guest IP is 403; approval by display code alone takes the single pending match, else 404; the approve page logs in from storage', async () => {
