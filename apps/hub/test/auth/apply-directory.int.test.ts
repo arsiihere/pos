@@ -114,18 +114,20 @@ describe('applyStaffDirectory', () => {
   });
 
   it('[00 §10 #83] removing the owner revokes their phones and leaves other devices', async () => {
-    let db!: Database.Database;
+    const late: { db?: Database.Database } = {};
     const seen: Array<{ version: unknown; revoked: unknown }> = [];
     const opened = await open({
       beforeCommit() {
+        const db = late.db;
+        if (db === undefined) return;
         seen.push({
           version: db.prepare('SELECT directory_version FROM staff_directory_meta').pluck().get(),
           revoked: db.prepare("SELECT revoked_at FROM devices WHERE device_id = 'phone-owner'").pluck().get(),
         });
       },
     });
-    db = opened.db;
-    const { writer } = opened;
+    late.db = opened.db;
+    const { db, writer } = opened;
     const hash = await pinHash('1234');
     writer.run((tx) => applyStaffDirectory(tx, dir(1, hash, [], ['S_OWNER', 'S_OTHER']), () => undefined));
     insertDevice(db, { device_id: 'phone-owner', token_hash: 'tok-phone', device_type: 'phone', owner_staff_id: 'S_OWNER' });

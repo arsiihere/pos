@@ -226,10 +226,10 @@ describe('access reconciliation', () => {
   it('[00 §10 #128] a live /devices/pair rotation keeps the new token_hash (the new token works after the live access_reconcile apply); the same event in boot catch-up sets \'rotated:<event_id>\'', async () => {
     const h = await createTestHub();
     const dir = h.deps.config.data_dir;
-    let booted: Awaited<ReturnType<typeof boot>> | undefined;
+    const late: { booted?: Awaited<ReturnType<typeof boot>> } = {};
     cleanups.push(async () => {
-      if (booted !== undefined) {
-        await booted.stop();
+      if (late.booted !== undefined) {
+        await late.booted.stop();
         rmSync(dir, { recursive: true, force: true });
         return;
       }
@@ -276,8 +276,8 @@ describe('access reconciliation', () => {
     await h.app.close();
     h.deps.readDb.close();
     h.deps.db.close();
-    booted = await boot({ configPath, wallNow: () => WALL, monoNow: () => 0 });
-    const caughtUp = booted.deps.db.prepare('SELECT token_hash FROM devices WHERE device_id = ?').pluck().get(device);
+    late.booted = await boot({ configPath, wallNow: () => WALL, monoNow: () => 0 });
+    const caughtUp = late.booted.deps.db.prepare('SELECT token_hash FROM devices WHERE device_id = ?').pluck().get(device);
     expect(caughtUp).toBe(`rotated:${eventId}`);
   });
 

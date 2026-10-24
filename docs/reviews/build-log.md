@@ -268,3 +268,17 @@ Commit below. Tests: `[00 §7.7]` `node --import tsx src/main.ts` (the unit's `E
 `apps/hub/deploy/hub.service` matches plan task 50 as amended (`WorkingDirectory=/opt/pos-hub/apps/hub`, `ExecStart=/usr/bin/node --import tsx src/main.ts`), plus `[Install] WantedBy=multi-user.target`. `systemd-analyze verify` on this dev box reports only `/usr/bin/node is not executable` (Node is under nvm here). A copy with the local node path verifies clean. `main.ts` reads `POS_HUB_CONFIG ?? DEFAULT_CONFIG_PATH`.
 Ruling: `eslint.config.js` (outside the file list) adds `apps/hub/test/smoke/smoke.ts` to the clock-ban exceptions beside `main.ts` and the CLIs, because the smoke script times wall clock. The script uses `TestNoop` as its no-op command and discards 20 warm-up requests per loop.
 Dev-box run (`pnpm --filter @pos/hub smoke`, two runs): `auth_pin_p95` 34.6–37.5 ms ok; `command_p95` 6.8–7.1 ms **MISS** (limit 5 ms); `boot_1m` 71.7–77.7 ms ok. Warm-up did not change the command miss (7.2 ms without it). This is a gap on the dev box, recorded here; the owner runs #79 on the mini PC.
+
+## Build review 1 fixes — commits `8b061c7`..`e15ca13` (recorded late, build review 2 item 9)
+These eight commits were made without build-log entries or spec citations. They are not rewritten; this entry records them.
+- `8b061c7` review item 1 — `[00 §6.4]` a flush failure after the provisioned config write still exits 0 (M13).
+- `719cd58` review item 2 — pair page resumes a stored token instead of creating a request; `#94` static check extended. Follow-up in task 54.
+- `dacea3c` review item 3 — §9 `details` on `DEVICE_TYPE_NOT_ALLOWED`, `DEVICE_NOT_OWNED`, `STAFF_NOT_FOUND`, `STATION_NOT_FOUND`; asserted in `#29`, `#36`, `#39`, `#80`, `#81`, `#91`, `#96`, `#114`.
+- `3646773`, `4308fa5` review item 4 — `#22` adds a second branch with its own active staff and role and asserts both are absent; the second commit seeds that branch without consuming a registration code.
+- `08a2ce0` review item 5 — `[00 §7.2]` cloud request logs redact `Authorization` bearer values.
+- `02d85b4` review item 6 — `[00 §5.1]` hub CHECKs: positive idle TTL, `grant_type` ↔ `approver_role_id`, phone pairing token ↔ `owner_staff_id`.
+- `e15ca13` review item 7 — `POST /devices/pair` body accepts only `tablet` and `phone` (§6.8); no test, as the review allowed.
+
+## Task 60 — hygiene and repo-wide lint (build review 2 item 9)
+Commit below. The earlier `prefer-const` errors in `apply-directory.int.test.ts:117` (`db`) and `restore.int.test.ts:229` (`booted`) are fixed. Both variables were read by a closure created before their one assignment. Each now goes through a `const late = {}` holder, and the rule stays on. `pnpm lint` exits 0 repo-wide. The two files pass 14/14; hub + packages 217/217 (1 skipped); `pnpm -r typecheck` clean. Every task 52–60 commit cites its spec section.
+Checked, no change: an ambiguous display-code match answers `404 PAIRING_REQUEST_NOT_FOUND`, as spec 00 v1.1 M79 ("none or more than one → `404`") and §6.32 ("must be exactly one, else `404`") say.
