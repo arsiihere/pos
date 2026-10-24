@@ -176,4 +176,13 @@ Ruling: `#80`'s device row is written by `POST /devices/pair` (task 37). This te
 Commit `29af341`. Tests: `[00 §10 #29]` happy path, expired and reused tokens are 401, a type mismatch is 403; `[00 §10 #30]` the same `pair_request_id` rotates the device token; `[00 §10 #84]` a removed phone owner is 401; `[00 §10 #118]` old client 426, guest 403, late or revoked rotation 401; `[00 §10 #94]` the pair page logs out and clears `sessionStorage` before pairing; `[00 §6.8]` a phone device stores `owner_staff_id` (the device half of #80). Full suite 195/195.
 Ruling: `branch_name` is not on the hub config or `HubProvisioned`, so the pair response sends an empty string. `guards.int.test.ts` is outside the file list: the `/devices/pair` stub collided with the real route, and an allowed host with an empty body is now 400. Rotation keeps the original `consumed_at`.
 
+## Task 38 — pairing requests
+Commit `772afcf`. Tests: `[00 §10 #95]` create, pending, approved poll twice, expiry 404, `clearExpiredDeliveryTokens`, wrong secret 404, 11th pending 503; `[00 §6.31]` an approved poll after `expires_at` is 404 and the clearer nulls `delivery_token`; `[00 §10 #130]` a third pending request from one IP is 429, other IPs still succeed, the 11th overall is 503; `[00 §10 #131]` setup, pairing-token and pairing-request SVGs match `qrSvg` and contain no `<script>`. Full suite 199/199.
+Ruling: the poll is one read and does not clear `delivery_token`; `clearExpiredDeliveryTokens` does. `branch_name` is `''`, same as task 37. `guards.int.test.ts` dropped the `/pair/requests` stub; an empty body on an allowed host is 400. The pair page's no-token branch now creates a request and still contains the words "Ask a manager".
+
+## Task 38b — ApprovePairingRequest
+Commit `4dfb62a`. Test: `[00 §10 #96]` a kds approval stores `station_id` and `DevicePaired.pairing_request_id`, a wrong display code and a second approval are 404, an unknown station is 404, a denied `manage-devices` is 403, and the result has no token. `GET /admin/approve` reads `r` and posts the command. Full suite 200/200.
+A kds approval calls `stationExists`. The plaintext device token is stored only as `delivery_token` for the screen poll.
+
+
 
