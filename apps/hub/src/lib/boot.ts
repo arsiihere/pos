@@ -8,6 +8,7 @@ import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { attachRouteGuards } from '../auth/guards.js';
+import { startSweeper } from '../auth/session-sweeper.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
 import { isConfirmed, isProvisioned, type HubConfig } from '../config/schema.js';
@@ -200,9 +201,11 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '8';
     phase = 'ready';
     const stopHeart = startHeartbeat(db, deps.clock, provisioned.branch_id);
+    const stopSweep = startSweeper(deps);
     beat.stop = () => {
       stopConfirm();
       stopHeart();
+      stopSweep();
     };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
