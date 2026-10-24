@@ -15,6 +15,7 @@ import { registerAdminRoutes } from './auth/admin-session.js';
 import { attachRouteGuards } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
+import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
@@ -105,6 +106,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   });
   registerCommandRoutes(app, deps);
   registerGenerateDevicePairingToken(app);
+  registerApprovePairingRequest(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
