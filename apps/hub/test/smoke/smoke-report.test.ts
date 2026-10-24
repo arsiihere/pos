@@ -18,7 +18,7 @@ describe('smoke report', () => {
     expect(miss.lines[1]).toMatch(/^\[00 §10 #79\] boot_1m 5001\.0 ms \(limit 5000 ms\) MISS$/);
   });
 
-  it('[00 §10 #79] p95 is the nearest-rank 95th percentile', () => {
+  it('[00 §7.8] p95 is the nearest-rank 95th percentile', () => {
     expect(p95(Array.from({ length: 100 }, (_, i) => i + 1))).toBe(95);
     expect(p95([3, 1, 2])).toBe(3);
   });
