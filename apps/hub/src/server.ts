@@ -24,7 +24,11 @@ import { registerGenerateDevicePairingToken } from './commands/generate-device-p
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
+import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
+import { registerSessionQuery } from './queries/session.js';
+import { registerSessionsQuery } from './queries/sessions.js';
+import { registerStaffRosterQuery } from './queries/staff-roster.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 
 const SECRET_HEADERS = [
@@ -118,6 +122,10 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
+  registerDevicesQuery(app);
+  registerSessionsQuery(app);
+  registerStaffRosterQuery(app, deps.clock);
+  registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
     admin: new Semaphore(deps.config.auth.admin_argon2_concurrency),
