@@ -51,6 +51,7 @@ describe('station session', () => {
     const denied = await station(hub, tablet.token);
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+    expect(denied.json().error.details).toEqual({ device_type: 'tablet', allowed: ['kds'] });
     expect(activeStations(hub, kds.deviceId)).toEqual([secondBody.session_id]);
   });
 });

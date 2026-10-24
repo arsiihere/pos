@@ -126,6 +126,7 @@ describe('ApprovePairingRequest', () => {
     );
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json().error.code).toBe('STATION_NOT_FOUND');
+    expect(unknown.json().error.details).toEqual({ station_id: 'missing' });
 
     const deniedDir = await aDirectory();
     const owner = deniedDir.staff.find((staff) => staff.staff_id === 'S_OWNER');

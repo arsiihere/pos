@@ -8,7 +8,9 @@ export function registerStationSessionRoutes(app: FastifyInstance, deps: HubDeps
   app.post('/auth/station', { config: { group: 'device' } }, async (request) => {
     const device = request.device;
     if (device === undefined) throw new DomainError('DEVICE_TOKEN_INVALID');
-    if (device.device_type !== 'kds' || device.station_id === null) throw new DomainError('DEVICE_TYPE_NOT_ALLOWED');
+    if (device.device_type !== 'kds' || device.station_id === null) {
+      throw new DomainError('DEVICE_TYPE_NOT_ALLOWED', { device_type: device.device_type, allowed: ['kds'] });
+    }
     const stationId = device.station_id;
     const outcome = deps.writer.run((tx) => {
       for (const session of activeSessionsOf(tx.db, { deviceId: device.device_id, kind: 'station' })) {

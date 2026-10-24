@@ -119,7 +119,9 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
         if (row === undefined || row.expires_at <= now || row.approved_at !== null || row.display_code !== payload.display_code) {
           throw new DomainError('PAIRING_REQUEST_NOT_FOUND');
         }
-        if (kds && stationId !== null && !stationExists(ctx.tx, stationId)) throw new DomainError('STATION_NOT_FOUND');
+        if (kds && stationId !== null && !stationExists(ctx.tx, stationId)) {
+          throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
+        }
         const actor = ctx.actor.staffId;
         if (actor === null) throw new DomainError('PERMISSION_DENIED', { permission: 'manage-devices' });
         const deviceId = ctx.ids.next();

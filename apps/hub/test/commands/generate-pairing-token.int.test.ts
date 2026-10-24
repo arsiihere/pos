@@ -93,6 +93,7 @@ describe('GenerateDevicePairingToken', () => {
     const unknown = await post(hub, admin, { device_type: 'phone', owner_staff_id: 'S_MISSING' });
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(unknown.json().error.details).toEqual({ staff_id: 'S_MISSING' });
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM pairing_tokens').pluck().get()).toBe(0);
 
     const created = await post(hub, admin, { device_type: 'phone', owner_staff_id: 'S_OWNER' });

@@ -53,7 +53,7 @@ export async function checkPin<T>(
     throw new DomainError('PIN_LOCKED_OUT', { retry_after_ms: staffNow.lockedUntil - openedAt });
   }
   const staff = deps.directory().get(o.staffId);
-  if (staff === undefined) throw new DomainError('STAFF_NOT_FOUND');
+  if (staff === undefined) throw new DomainError('STAFF_NOT_FOUND', { staff_id: o.staffId });
 
   let release: () => void;
   try {

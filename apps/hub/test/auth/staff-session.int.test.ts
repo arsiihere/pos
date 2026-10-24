@@ -129,6 +129,10 @@ describe('staff PIN session', () => {
     const kdsRes = await pin(hub, kds.token, 'S_CASH', PIN.c);
     expect(kdsRes.statusCode).toBe(403);
     expect(kdsRes.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+    expect(kdsRes.json().error.details).toEqual({
+      device_type: 'kds',
+      allowed: ['tablet', 'cashier_kiosk', 'phone'],
+    });
     expect(staffFailures(hub, 'S_CASH')).toBe(0);
 
     const guest = await pin(hub, tablet.token, 'S_CASH', PIN.c, {}, '192.168.20.7');
@@ -222,6 +226,7 @@ describe('staff PIN session', () => {
     const other = await pin(hub, phone.token, 'S_MGR', PIN.b);
     expect(other.statusCode).toBe(403);
     expect(other.json().error.code).toBe('DEVICE_NOT_OWNED');
+    expect(other.json().error.details).toEqual({ device_id: phone.deviceId });
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(other.json().error.details.can_take_over).toBeUndefined();
     expect(staffFailures(hub, 'S_MGR')).toBe(0);
@@ -236,6 +241,7 @@ describe('staff PIN session', () => {
     const missing = await pin(hub, tablet.token, 'S_MISSING', PIN.a);
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(missing.json().error.details).toEqual({ staff_id: 'S_MISSING' });
     expect(staffFailures(hub, 'S_MISSING')).toBe(0);
     expect(eventCount(hub)).toBe(before);
   });

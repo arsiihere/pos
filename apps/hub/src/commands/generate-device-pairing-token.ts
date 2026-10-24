@@ -27,7 +27,7 @@ export function registerGenerateDevicePairingToken(app: FastifyInstance): void {
           });
         }
         if (phone && (owner === null || ctx.directory.get(owner) === undefined)) {
-          throw new DomainError('STAFF_NOT_FOUND');
+          throw new DomainError('STAFF_NOT_FOUND', { staff_id: owner });
         }
         const createdBy = ctx.actor.staffId;
         if (createdBy === null) throw new DomainError('PERMISSION_DENIED', { permission: 'manage-devices' });

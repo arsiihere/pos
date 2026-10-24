@@ -72,6 +72,7 @@ describe('device pairing', () => {
     });
     expect(mismatch.statusCode).toBe(403);
     expect(mismatch.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+    expect(mismatch.json().error.details).toEqual({ device_type: 'phone', allowed: ['tablet'] });
   });
 
   it('[00 §10 #30] Retry with same pair_request_id → new token works, old token → 401, one DevicePaired, one DeviceTokenRotated', async () => {

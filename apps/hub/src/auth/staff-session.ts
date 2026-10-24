@@ -24,9 +24,14 @@ export function registerStaffSessionRoutes(app: FastifyInstance, deps: HubDeps, 
     const device = request.device;
     if (device === undefined) throw new DomainError('DEVICE_TOKEN_INVALID');
     const body = pinBody(request);
-    if (!LOGIN_TYPES.has(device.device_type)) throw new DomainError('DEVICE_TYPE_NOT_ALLOWED');
+    if (!LOGIN_TYPES.has(device.device_type)) {
+      throw new DomainError('DEVICE_TYPE_NOT_ALLOWED', {
+        device_type: device.device_type,
+        allowed: ['tablet', 'cashier_kiosk', 'phone'],
+      });
+    }
     if (device.device_type === 'phone' && device.owner_staff_id !== body.staff_id) {
-      throw new DomainError('DEVICE_NOT_OWNED');
+      throw new DomainError('DEVICE_NOT_OWNED', { device_id: device.device_id });
     }
     const outcome = await checkPin(
       {
@@ -93,7 +98,7 @@ function openStaffSession(
 } {
   const directory = currentDirectory(app);
   const staff = directory.get(staffId);
-  if (staff === undefined) throw new DomainError('STAFF_NOT_FOUND');
+  if (staff === undefined) throw new DomainError('STAFF_NOT_FOUND', { staff_id: staffId });
   const now = tx.clock.branchNow();
   const holders = activeSessionsOf(tx.db, { deviceId }).filter((session) => session.kind === 'staff' || session.kind === 'station');
   for (const session of holders) {

@@ -68,7 +68,12 @@ function pairWithToken(
     )
     .get(sha256hex(body.pairing_token)) as TokenRow | undefined;
   if (row === undefined || row.expires_at <= now) throw new DomainError('PAIRING_TOKEN_INVALID');
-  if (row.device_type !== body.device_type) throw new DomainError('DEVICE_TYPE_NOT_ALLOWED');
+  if (row.device_type !== body.device_type) {
+    throw new DomainError('DEVICE_TYPE_NOT_ALLOWED', {
+      device_type: body.device_type,
+      allowed: [row.device_type],
+    });
+  }
   if (row.consumed_at !== null) return rotate(deps, tx, row, body.pair_request_id, now);
   if (row.device_type === 'phone') {
     const owner = row.owner_staff_id;

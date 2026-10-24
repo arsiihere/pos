@@ -125,11 +125,16 @@ describe('admin session', () => {
     const kdsRes = await login(hub, kds.token, 'S_OWNER', PIN.a);
     expect(kdsRes.statusCode).toBe(403);
     expect(kdsRes.json().error.code).toBe('DEVICE_TYPE_NOT_ALLOWED');
+    expect(kdsRes.json().error.details).toEqual({
+      device_type: 'kds',
+      allowed: ['tablet', 'cashier_kiosk', 'phone'],
+    });
 
     const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
     const other = await login(hub, phone.token, 'S_MGR', PIN.b);
     expect(other.statusCode).toBe(403);
     expect(other.json().error.code).toBe('DEVICE_NOT_OWNED');
+    expect(other.json().error.details).toEqual({ device_id: phone.deviceId });
     expect(staffFailures(hub, 'S_MGR')).toBe(0);
     const owner = await login(hub, phone.token, 'S_OWNER', PIN.a);
     expect(owner.statusCode).toBe(200);
@@ -177,6 +182,7 @@ describe('admin session', () => {
     const missing = await login(hub, tablet.token, 'S_MISSING', PIN.a);
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(missing.json().error.details).toEqual({ staff_id: 'S_MISSING' });
     for (let i = 0; i < 5; i += 1) {
       expect((await login(hub, tablet.token, 'S_OWNER', '0000')).json().error.code).toBe('PIN_INVALID');
     }
