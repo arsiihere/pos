@@ -176,6 +176,28 @@ describe('websocket publish', () => {
     await owned.untilClose();
     expect(owned.messages.some((message) => eventOf(message, 'DeviceRevoked')?.cause === 'owner_removed')).toBe(true);
     expect((await settled(owned)).code).toBe(4403);
+
+    const rotating = pairDevice(hub, { type: 'tablet' });
+    const rotatingStaff = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: rotating.deviceId });
+    const rotatingWs = await connect(hub);
+    rotatingWs.send({ type: 'auth', device_token: rotating.token, session_token: rotatingStaff.token });
+    await rotatingWs.untilCount(1);
+    const bystander = pairDevice(hub, { type: 'tablet' });
+    const bystanderStaff = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: bystander.deviceId });
+    const bystanderWs = await connect(hub);
+    bystanderWs.send({ type: 'auth', device_token: bystander.token, session_token: bystanderStaff.token });
+    await bystanderWs.untilCount(1);
+
+    hub.deps.writer.run((tx) => {
+      tx.append([deviceTokenRotated(rotating.deviceId)]);
+    });
+    await rotatingWs.untilCount(2);
+    expect(eventOf(rotatingWs.messages.at(-1), 'DeviceTokenRotated')).toMatchObject({
+      device_id: rotating.deviceId,
+    });
+    expect((await rotatingWs.untilClose()).code).toBe(4401);
+    expect(bystanderWs.messages.some((message) => eventOf(message, 'DeviceTokenRotated') !== undefined)).toBe(false);
+    expect((bystanderWs.raw as { readyState?: number }).readyState).toBe(1);
   });
 
   it('[00 §6.21] shutdown closes an open socket with 1012', async () => {
@@ -244,6 +266,19 @@ function station(hub: TestHub, token: string) {
     const body = response.json() as { data?: { session_token: string; session_id: string } };
     return { statusCode: response.statusCode, session_token: body.data?.session_token ?? '', session_id: body.data?.session_id ?? '' };
   });
+}
+
+function deviceTokenRotated(deviceId: string): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: deviceId,
+    event_type: 'DeviceTokenRotated',
+    schema_version: 1,
+    payload: { device_id: deviceId, pair_request_id: 'pair-rotate' },
+    occurred_at: 1_761_000_000_000,
+    actor_id: null,
+    device_id: 'hub',
+  };
 }
 
 function hubStarted(): EventDraft {
