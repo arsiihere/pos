@@ -177,7 +177,7 @@ describe('auth route guards', () => {
       { method: 'POST' as const, url: '/admin/auth', group: 'admin-device-public' as const },
     ];
     for (const route of routes) {
-      if (route.url === '/admin/auth') continue;
+      if (route.url === '/admin/auth' || route.url === '/auth/pin') continue;
       hub.app.route({ method: route.method, url: route.url, config: { group: route.group }, handler: async () => ({ data: { ok: true } }) });
     }
     for (const route of routes) {
@@ -211,7 +211,6 @@ describe('auth route guards', () => {
     const device = pairDevice(hub, { type: 'tablet' });
     const other = pairDevice(hub, { type: 'tablet' });
     const session = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: device.deviceId });
-    hub.app.post('/auth/logout', { config: { group: 'device-session', allowEnded: true } }, async () => ({ data: { ok: true } }));
     hub.app.get('/queries/orders', { config: { group: 'device-session' } }, async () => ({ data: { ok: true } }));
     hub.app.get('/queries/station', { config: { group: 'device-session', allowStation: true } }, async () => ({ data: { ok: true } }));
     const wrongCommand = await hub.app.inject({

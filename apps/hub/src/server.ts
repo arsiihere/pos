@@ -12,6 +12,7 @@ import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
+import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { attachRouteGuards } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
@@ -116,6 +117,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   };
   registerAdminRoutes(app, deps, semaphores);
   registerAdminBootstrapRoutes(app, deps, semaphores.admin);
+  registerStaffSessionRoutes(app, deps, semaphores.pin);
   return app;
 }
 
