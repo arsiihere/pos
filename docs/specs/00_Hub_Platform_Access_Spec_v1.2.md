@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.2 — **DRAFT** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
 | Date | 2026-10-24 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
