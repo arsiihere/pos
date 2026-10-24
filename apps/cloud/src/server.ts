@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type pg from 'pg';
@@ -14,6 +14,8 @@ import { registerHubRegistrationRoutes } from './modules/hub-registration/routes
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
 
+const SECRET_HEADERS = ['authorization'] as const;
+
 const SECRET_FIELDS = [
   'pin',
   'password',
@@ -23,21 +25,34 @@ const SECRET_FIELDS = [
   'branch_api_key',
 ] as const;
 
+const HEADER_REDACT = new Set<string>(SECRET_HEADERS);
+
 export interface CloudDeps {
   pool: pg.Pool;
   env: CloudEnv;
   clock: Clock;
   ids: IdGen;
   secrets: SecretGen;
+  logStream?: NodeJS.WritableStream;
 }
 
 export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   const app = Fastify({
     logger: {
       level: 'info',
+      ...(deps.logStream !== undefined ? { stream: deps.logStream } : {}),
       redact: {
         paths: SECRET_FIELDS.flatMap((name) => [name, `*.${name}`, `*.*.${name}`]),
         censor: '[Redacted]',
+      },
+      serializers: {
+        req(req: FastifyRequest) {
+          return {
+            method: req.method,
+            url: req.url,
+            headers: redactHeaders(req.headers),
+          };
+        },
       },
     },
     genReqId: () => deps.ids.next(),
@@ -52,4 +67,12 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerOwnerAuthRoutes(app, deps);
   registerHealthRoutes(app, deps);
   return app;
+}
+
+function redactHeaders(headers: FastifyRequest['headers']): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    copy[name] = HEADER_REDACT.has(name) ? '[Redacted]' : value;
+  }
+  return copy;
 }
