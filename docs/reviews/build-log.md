@@ -236,3 +236,7 @@ skipped – needs owner/Claude. Marked NOT for Cursor; it edits the foundation s
 
 
 
+
+## Task 52 — hub recovery CLI runs through pnpm (build review 2 item 1)
+Commit below. Test: `[00 §6.34]` spawns `pnpm --filter @pos/hub issue-admin-bootstrap` with `POS_HUB_CONFIG` on a provisioned temp config; exit 0 and an `/admin/bootstrap#t=` line. Before the change it failed with `tsx: not found`. Hub + packages 212/212 (1 skipped, big fixture). Cloud not run: Postgres on 5433 down.
+`tsx@4.23.15` is a runtime `dependency` of `@pos/hub` (it runs on the hub, §7.11); `pnpm-lock.yaml` updated. `pnpm lint` already fails on `prefer-const` in `apply-directory.int.test.ts:117` and `restore.int.test.ts:229`, both outside this item, so they are left as they are.

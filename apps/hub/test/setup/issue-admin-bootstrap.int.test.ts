@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -65,6 +66,20 @@ describe('issue-admin-bootstrap CLI', () => {
     await expect(runCli(hub, writeConfig(hub), ownerUid(hub) + 1)).rejects.toThrow();
     expect(cliIssues(hub)).toHaveLength(before);
   });
+
+  it('[00 §6.34] pnpm --filter @pos/hub issue-admin-bootstrap runs the CLI and prints the link', async () => {
+    const hub = await open();
+    const configPath = writeConfig(hub);
+    const run = spawnSync('pnpm', ['--filter', '@pos/hub', 'issue-admin-bootstrap'], {
+      cwd: join(import.meta.dirname, '../../../..'),
+      env: { ...process.env, POS_HUB_CONFIG: configPath },
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    expect(run.stderr).not.toMatch(/not found/);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toMatch(/\/admin\/bootstrap#t=/);
+  }, 70_000);
 });
 
 async function open(provisioned = true): Promise<TestHub> {
