@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "issue-admin-bootstrap": "tsx src/setup/issue-admin-bootstrap.ts",
+    "smoke": "tsx test/smoke/smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

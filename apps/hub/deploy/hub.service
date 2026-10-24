@@ -1,0 +1,16 @@
+[Unit]
+Description=POS hub
+After=time-sync.target network-online.target
+Wants=time-sync.target network-online.target
+
+[Service]
+Type=simple
+User=poshub
+WorkingDirectory=/opt/pos-hub/apps/hub
+Environment=POS_HUB_CONFIG=/etc/pos-hub/config.json
+ExecStart=/usr/bin/node --import tsx src/main.ts
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

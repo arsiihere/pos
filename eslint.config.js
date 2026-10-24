@@ -95,6 +95,7 @@ export default tseslint.config(
       'apps/*/src/main.ts',
       'apps/cloud/src/cli/*.ts',
       'apps/hub/src/setup/issue-admin-bootstrap.ts',
+      'apps/hub/test/smoke/smoke.ts',
       '**/*.test.ts',
     ],
     rules: {

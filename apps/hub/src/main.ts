@@ -2,7 +2,7 @@ import { DEFAULT_CONFIG_PATH } from './config/schema.js';
 import { boot } from './lib/boot.js';
 
 boot({
-  configPath: DEFAULT_CONFIG_PATH,
+  configPath: process.env.POS_HUB_CONFIG ?? DEFAULT_CONFIG_PATH,
   wallNow: () => Date.now(),
   monoNow: () => Number(process.hrtime.bigint() / 1_000_000n),
   listen: true,
