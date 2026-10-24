@@ -51,9 +51,16 @@ function deleteKey(db, key) {
 async function resumePaired(db, deviceToken) {
   const deviceType = await readKey(db, 'device_type');
   if (deviceType === 'kds') {
-    await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
+    const res = await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
+    if (res.status === 401 || res.status === 403) {
+      await deleteKey(db, 'token');
+      await deleteKey(db, 'device_id');
+      await deleteKey(db, 'device_type');
+      return false;
+    }
   }
   screen.textContent = 'login';
+  return true;
 }
 const screen = document.getElementById('screen');
 openDeviceDb().then(async (db) => {
@@ -65,10 +72,8 @@ openDeviceDb().then(async (db) => {
   }
   const pairingToken = new URLSearchParams(location.search).get('t');
   if (!pairingToken) {
-    if (deviceToken) {
-      await resumePaired(db, deviceToken);
-      return;
-    }
+    if (deviceToken && (await resumePaired(db, deviceToken))) return;
+    let retried = false;
     const start = () => {
       screen.textContent = 'Ask a manager to pair this screen';
       fetch('/pair/requests', {
@@ -77,6 +82,11 @@ openDeviceDb().then(async (db) => {
         body: JSON.stringify({ device_name: 'screen' }),
       }).then(async (res) => {
         const body = await res.json();
+        if ((res.status === 429 || res.status === 503) && !retried) {
+          retried = true;
+          setTimeout(start, body.error.details.retry_after_ms);
+          return;
+        }
         if (res.status !== 200) {
           screen.textContent = 'Ask a manager to pair this screen';
           const again = document.createElement('button');
@@ -105,6 +115,7 @@ openDeviceDb().then(async (db) => {
               const update = await polled.json();
               if (update.data && update.data.status === 'approved') {
                 await writeKey(db, 'token', update.data.device_token);
+                await writeKey(db, 'device_id', update.data.device_id);
                 await writeKey(db, 'device_type', update.data.device_type);
                 if (update.data.device_type === 'kds') {
                   await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
@@ -157,6 +168,7 @@ openDeviceDb().then(async (db) => {
     if (res.status === 200) {
       const body = await res.json();
       await writeKey(db, 'token', body.data.device_token);
+      await writeKey(db, 'device_id', body.data.device_id);
       await writeKey(db, 'device_type', body.data.device_type);
       await deleteKey(db, 'pair_request_id');
       screen.textContent = 'login';

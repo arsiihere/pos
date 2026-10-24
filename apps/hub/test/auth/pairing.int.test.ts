@@ -182,8 +182,13 @@ describe('device pairing', () => {
     const logoutAt = html.indexOf('/admin/auth/logout');
     expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
     const screenBlock = html.match(/if \(!pairingToken\) \{[\s\S]*?start\(\);\s*return;\s*\}/)?.[0] ?? '';
-    expect(screenBlock.indexOf('if (deviceToken)')).toBeGreaterThan(-1);
-    expect(screenBlock.indexOf('if (deviceToken)')).toBeLessThan(screenBlock.indexOf("fetch('/pair/requests'"));
+    expect(screenBlock.indexOf('await resumePaired(db, deviceToken)')).toBeGreaterThan(-1);
+    expect(screenBlock.indexOf('await resumePaired(db, deviceToken)')).toBeLessThan(screenBlock.indexOf("fetch('/pair/requests'"));
+    expect(screenBlock).toContain('retry_after_ms');
+    const resume = html.match(/async function resumePaired[\s\S]*?\n\}/)?.[0] ?? '';
+    expect(resume).toMatch(/status === 401 \|\| \w+\.status === 403/);
+    for (const key of ['token', 'device_id', 'device_type']) expect(resume).toContain(`deleteKey(db, '${key}')`);
+    expect(html.match(/writeKey\(db, 'device_id'/g)?.length).toBe(2);
     expect(screenBlock).toContain('/auth/station');
     expect(screenBlock).toContain('res.status !== 200');
     const stationAt = html.indexOf('/auth/station');
