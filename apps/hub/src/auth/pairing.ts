@@ -12,7 +12,7 @@ const Body = z.object({
   pairing_token: z.string().min(1),
   pair_request_id: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/),
   device_name: z.string().min(1).max(40),
-  device_type: z.enum(['tablet', 'phone', 'cashier_kiosk', 'kds']),
+  device_type: z.enum(['tablet', 'phone']),
 });
 
 const ROTATE_WITHIN_MS = 600_000;
