@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { encodeCrockford128 } from '../../src/auth/pair-page';
 import { HUB_VERSION } from '../../src/lib/health';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
@@ -174,11 +175,22 @@ describe('device pairing', () => {
     expect(html).toContain('sessionStorage.removeItem');
     expect(html).toContain('crypto.getRandomValues');
     expect(html).toContain('indexedDB');
+    expect(html).toContain('onupgradeneeded');
+    expect(html).toContain('encodeCrockford128');
+    expect(html).toContain("get('pair_request_id')");
+    const logoutAt = html.indexOf('/admin/auth/logout');
+    expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
+    const stationAt = html.indexOf('/auth/station');
+    expect(stationAt).toBeGreaterThan(logoutAt);
+    expect(html.slice(stationAt, stationAt + 400)).toContain('authorization');
+    expect(html).toContain('status === 404');
     expect(html).toContain('Ask a manager');
     expect(html).toContain('pairing.ios_add_to_home');
     expect(html).toContain('pairing.token_expired');
     expect(html).not.toContain('randomUUID');
     expect(html).not.toContain('serviceWorker');
+    expect(encodeCrockford128(new Uint8Array(16))).toBe('0'.repeat(26));
+    expect(encodeCrockford128(Uint8Array.from({ length: 16 }, () => 0xff))).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 
     const session = openSession(hub, { kind: 'admin', staffId: 'S_OWNER' });
     const logout = await hub.app.inject({
