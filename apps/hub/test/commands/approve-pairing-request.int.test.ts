@@ -151,6 +151,27 @@ describe('ApprovePairingRequest', () => {
 
   });
 
+  it('[00 §6.32] retransmit of a display-code-only approval → same body, Idempotent-Replay: true, one DevicePaired (D32)', async () => {
+    const hub = await open();
+    const admin = adminOf(hub);
+    const created = await hub.app.inject({
+      method: 'POST',
+      url: '/pair/requests',
+      remoteAddress: '10.8.0.1',
+      payload: { device_name: 'Till' },
+    });
+    const { display_code } = created.json().data as { display_code: string };
+    const payload = { display_code, device_type: 'cashier_kiosk' };
+    const first = await approve(hub, admin, payload, 'cmd-code-retransmit');
+    expect(first.statusCode).toBe(200);
+    expect(first.headers['idempotent-replay']).toBeUndefined();
+    const again = await approve(hub, admin, payload, 'cmd-code-retransmit');
+    expect(again.statusCode).toBe(200);
+    expect(again.headers['idempotent-replay']).toBe('true');
+    expect(again.json()).toEqual(first.json());
+    expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DevicePaired'`).pluck().get()).toBe(1);
+  });
+
   it('[00 §10 #133] admin pages load with no credentials and embed no token; a guest IP is 403; approval by display code alone takes the single pending match, else 404; the approve page logs in from storage', async () => {
     const hub = await open();
     const admin = adminOf(hub);
