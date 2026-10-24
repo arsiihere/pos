@@ -123,8 +123,8 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
       saveConfig(deps, next);
       Object.assign(deps.config, next);
       const firstAdminUrl = `http://${input.advertised_host}:${deps.config.http_port}/admin/bootstrap#t=${issued.token}`;
-      return reply
-        .send({
+      try {
+        await reply.send({
           data: {
             tenant_id: data.tenant_id,
             branch_id: data.branch_id,
@@ -134,15 +134,11 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
             first_admin_qr_svg: qrSvg(firstAdminUrl),
             first_admin_expires_at: issued.expires_at,
           },
-        })
-        .then(
-          () => {
-            deps.exit(0);
-          },
-          (error: unknown) => {
-            throw error;
-          },
-        );
+        });
+      } catch {
+        // Config is already provisioned; exit even if the flush failed (M13 / §6.4).
+      }
+      deps.exit(0);
     } finally {
       setupInProgress = false;
     }

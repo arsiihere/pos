@@ -201,6 +201,19 @@ describe('POST /setup/provision', () => {
     expect(events(ctx.hub).filter((event) => event.event_type === 'AdminBootstrapTokenIssued')).toHaveLength(2);
   });
 
+  it('[00 §6.4] a flush failure after the provisioned config write still exits 0', async () => {
+    const ctx = await openSetup();
+    cleanups.push(ctx.close);
+    ctx.cloud.registerResult = cloudData(await aDirectory());
+    ctx.hub.app.addHook('onSend', async (request) => {
+      if (request.url === '/setup/provision') throw new Error('flush failed');
+    });
+    const res = await post(ctx.hub);
+    expect(res.statusCode).toBe(500);
+    expect(isProvisioned(loadHubConfig(ctx.configPath))).toBe(true);
+    expect(ctx.exits).toEqual([0]);
+  });
+
   it('[00 §10 #105] empty cidrs, an advertised host that is not ours, and a malformed code are 400', async () => {
     const ctx = await openSetup();
     cleanups.push(ctx.close);
