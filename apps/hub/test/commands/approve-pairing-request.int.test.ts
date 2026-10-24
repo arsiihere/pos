@@ -149,27 +149,66 @@ describe('ApprovePairingRequest', () => {
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('PERMISSION_DENIED');
 
-    const page = await hub.app.inject({
-      method: 'GET',
-      url: '/admin/approve?r=req-1',
-      headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
-    });
+  });
+
+  it('[00 §10 #133] admin pages load with no credentials and embed no token; a guest IP is 403; approval by display code alone takes the single pending match, else 404; the approve page logs in from storage', async () => {
+    const hub = await open();
+    const admin = adminOf(hub);
+
+    const page = await hub.app.inject({ method: 'GET', url: '/admin/approve?r=req-1' });
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain('URLSearchParams');
-    expect(page.body).toContain('display_code');
-    expect(page.body).toContain('station_id');
-    expect(page.body).toContain('approve-pairing-request');
     expect(page.body).toContain('tenant-a');
     expect(page.body).toContain('branch-1');
-    expect(page.body).toContain(admin.device.deviceId);
-    expect(page.body).toContain('S_OWNER');
-    expect(page.body).toContain('command_id');
-    expect(page.body).toContain('actor_id');
-    expect(page.body).toContain('occurred_at');
-    expect(page.body).toContain('authorization');
-    expect(page.body).toContain('x-admin-session');
-    expect(page.body).toContain(admin.device.token);
-    expect(page.body).toContain(admin.session.token);
+    expect(page.body).not.toContain(admin.device.token);
+    expect(page.body).not.toContain(admin.session.token);
+    for (const part of [
+      'indexedDB',
+      'sessionStorage',
+      'admin_session_token',
+      'admin_staff_id',
+      'admin_bootstrap',
+      '/admin/login-roster',
+      '/admin/auth',
+      'pairing.approve_needs_admin_device',
+      'hub-admin',
+      'approve-pairing-request',
+    ]) {
+      expect(page.body).toContain(part);
+    }
+    const bootstrapPage = await hub.app.inject({ method: 'GET', url: '/admin/bootstrap' });
+    expect(bootstrapPage.statusCode).toBe(200);
+    expect(bootstrapPage.body).toContain('admin_staff_id');
+    expect(bootstrapPage.body).toContain('admin_bootstrap');
+    const guest = await hub.app.inject({ method: 'GET', url: '/admin/approve', remoteAddress: '192.168.20.7' });
+    expect(guest.statusCode).toBe(403);
+    expect(guest.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+
+    const created = await hub.app.inject({
+      method: 'POST',
+      url: '/pair/requests',
+      remoteAddress: '10.8.0.1',
+      payload: { device_name: 'Till' },
+    });
+    const request = created.json().data as { request_id: string; display_code: string };
+    const none = await approve(hub, admin, { display_code: 'ZZZZZZ', device_type: 'cashier_kiosk' }, 'cmd-code-none');
+    expect(none.statusCode).toBe(404);
+    expect(none.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
+    const byCode = await approve(hub, admin, { display_code: request.display_code, device_type: 'cashier_kiosk' }, 'cmd-code');
+    expect(byCode.statusCode).toBe(200);
+    const approvedRow = hub.deps.db
+      .prepare('SELECT device_id FROM pair_requests WHERE request_id = ?')
+      .get(request.request_id) as { device_id: string | null };
+    expect(approvedRow.device_id).toBe(byCode.json().data.result.device_id);
+
+    const a = await hub.app.inject({ method: 'POST', url: '/pair/requests', remoteAddress: '10.8.0.2', payload: { device_name: 'A' } });
+    const b = await hub.app.inject({ method: 'POST', url: '/pair/requests', remoteAddress: '10.8.0.3', payload: { device_name: 'B' } });
+    const code = (a.json().data as { display_code: string }).display_code;
+    hub.deps.db
+      .prepare('UPDATE pair_requests SET display_code = ? WHERE request_id = ?')
+      .run(code, (b.json().data as { request_id: string }).request_id);
+    const ambiguous = await approve(hub, admin, { display_code: code, device_type: 'cashier_kiosk' }, 'cmd-code-two');
+    expect(ambiguous.statusCode).toBe(404);
+    expect(ambiguous.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
   });
 });
 

@@ -1,5 +1,6 @@
 import { DomainError } from '@pos/domain';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { encodeCrockford128 } from '../auth/pair-page.js';
 import { stationExists } from '../auth/station-validator.js';
@@ -9,83 +10,149 @@ import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
 
 const Payload = z.object({
-  request_id: z.string().min(1),
+  request_id: z.string().min(1).optional(),
   display_code: z.string().min(1),
   device_type: z.enum(['cashier_kiosk', 'kds']),
   station_id: z.string().min(1).optional(),
 });
 
-function approvePage(ctx: {
-  tenant_id: string;
-  branch_id: string;
-  device_id: string;
-  staff_id: string;
-  device_token: string;
-  admin_session_token: string;
-}): string {
+function approvePage(ctx: { tenant_id: string; branch_id: string }): string {
   const json = JSON.stringify(ctx).replaceAll('<', '\\u003c');
   return `<!doctype html>
 <html><body>
-<form id="approve">
-  <label>Display code <input name="display_code"></label>
-  <label>Type <select name="device_type"><option>cashier_kiosk</option><option>kds</option></select></label>
-  <label>Station <input name="station_id"></label>
-  <button type="submit">Approve</button>
-</form>
+<div id="screen"></div>
 <script>
 ${encodeCrockford128.toString()}
 const ctx = ${json};
 const requestId = new URLSearchParams(location.search).get('r');
-document.getElementById('approve').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const form = new FormData(event.target);
-  const station = form.get('station_id');
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  fetch('/admin/commands/approve-pairing-request', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: 'Bearer ' + ctx.device_token,
-      'x-admin-session': ctx.admin_session_token,
-    },
-    body: JSON.stringify({
-      command_id: encodeCrockford128(bytes),
-      tenant_id: ctx.tenant_id,
-      branch_id: ctx.branch_id,
-      command_type: 'ApprovePairingRequest',
-      payload: {
-        request_id: requestId,
-        display_code: form.get('display_code'),
-        device_type: form.get('device_type'),
-        station_id: station === '' ? undefined : station,
-      },
-      occurred_at: Date.now(),
-      actor_id: ctx.staff_id,
-      device_id: ctx.device_id,
-    }),
+const screen = document.getElementById('screen');
+function openDeviceDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('pos-device', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('device')) request.result.createObjectStore('device');
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
+}
+function readKey(db, key) {
+  return new Promise((resolve) => {
+    const read = db.transaction('device').objectStore('device').get(key);
+    read.onsuccess = () => resolve(read.result);
+    read.onerror = () => resolve(undefined);
+  });
+}
+function field(form, label, name, input) {
+  const wrap = document.createElement('label');
+  wrap.textContent = label + ' ';
+  input.name = name;
+  wrap.appendChild(input);
+  form.appendChild(wrap);
+}
+function login(auth) {
+  return new Promise((resolve) => {
+    fetch('/admin/login-roster', { headers: auth }).then(async (res) => {
+      const body = await res.json();
+      const form = document.createElement('form');
+      const staff = document.createElement('select');
+      for (const member of (body.data && body.data.staff) || []) staff.add(new Option(member.display_name, member.staff_id));
+      field(form, 'Staff', 'staff_id', staff);
+      const pin = document.createElement('input');
+      pin.inputMode = 'numeric';
+      field(form, 'PIN', 'pin', pin);
+      const button = document.createElement('button');
+      button.textContent = 'Sign in';
+      form.appendChild(button);
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        fetch('/admin/auth', {
+          method: 'POST',
+          headers: Object.assign({ 'content-type': 'application/json' }, auth),
+          body: JSON.stringify({ staff_id: staff.value, pin: pin.value }),
+        }).then(async (res) => {
+          const body = await res.json();
+          if (res.status !== 200) {
+            screen.dataset.error = body.error.code;
+            return;
+          }
+          sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
+          sessionStorage.setItem('admin_staff_id', body.data.staff_id);
+          resolve();
+        });
+      });
+      screen.replaceChildren(form);
+    });
+  });
+}
+function approveForm(auth, deviceId) {
+  const form = document.createElement('form');
+  field(form, 'Display code', 'display_code', document.createElement('input'));
+  const type = document.createElement('select');
+  type.add(new Option('cashier_kiosk'));
+  type.add(new Option('kds'));
+  field(form, 'Type', 'device_type', type);
+  field(form, 'Station', 'station_id', document.createElement('input'));
+  const button = document.createElement('button');
+  button.textContent = 'Approve';
+  form.appendChild(button);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const values = new FormData(form);
+    const station = values.get('station_id');
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    fetch('/admin/commands/approve-pairing-request', {
+      method: 'POST',
+      headers: Object.assign(
+        { 'content-type': 'application/json', 'x-admin-session': sessionStorage.getItem('admin_session_token') },
+        auth,
+      ),
+      body: JSON.stringify({
+        command_id: encodeCrockford128(bytes),
+        tenant_id: ctx.tenant_id,
+        branch_id: ctx.branch_id,
+        command_type: 'ApprovePairingRequest',
+        payload: {
+          request_id: requestId || undefined,
+          display_code: values.get('display_code'),
+          device_type: values.get('device_type'),
+          station_id: station === '' ? undefined : station,
+        },
+        occurred_at: Date.now(),
+        actor_id: sessionStorage.getItem('admin_staff_id'),
+        device_id: deviceId,
+      }),
+    }).then(async (res) => {
+      const body = await res.json();
+      screen.textContent = res.status === 200 ? 'pairing.approved' : 'errors.' + body.error.code;
+    });
+  });
+  screen.replaceChildren(form);
+}
+openDeviceDb().then(async (db) => {
+  const deviceToken = await readKey(db, 'token');
+  const deviceId = await readKey(db, 'device_id');
+  const bootstrap = sessionStorage.getItem('admin_bootstrap') === '1';
+  if (!bootstrap && !deviceToken) {
+    screen.textContent = 'pairing.approve_needs_admin_device';
+    return;
+  }
+  const auth = bootstrap ? {} : { authorization: 'Bearer ' + deviceToken };
+  if (!sessionStorage.getItem('admin_session_token')) await login(auth);
+  approveForm(auth, bootstrap ? 'hub-admin' : deviceId);
 });
 </script>
 </body></html>`;
 }
 
 export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDeps): void {
-  app.get('/admin/approve', { config: { group: 'admin' } }, async (request, reply) => {
-    const device = request.device;
-    const staffId = request.session?.staff_id;
+  app.get('/admin/approve', { config: { group: 'admin-bootstrap' } }, async (_request, reply) => {
     const provisioned = deps.config.provisioned;
-    if (device === undefined || staffId == null || provisioned === undefined) throw new DomainError('ADMIN_SESSION_REQUIRED');
-    return reply.type('text/html; charset=utf-8').send(
-      approvePage({
-        tenant_id: provisioned.tenant_id,
-        branch_id: provisioned.branch_id,
-        device_id: device.device_id,
-        staff_id: staffId,
-        device_token: bearer(request),
-        admin_session_token: header(request, 'x-admin-session'),
-      }),
-    );
+    if (provisioned === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
+    return reply
+      .type('text/html; charset=utf-8')
+      .send(approvePage({ tenant_id: provisioned.tenant_id, branch_id: provisioned.branch_id }));
   });
   commandRegistry(app).register(
     defineCommand({
@@ -102,20 +169,10 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
           });
         }
         const now = ctx.clock.branchNow();
-        const row = ctx.tx.db
-          .prepare(
-            `SELECT request_id, display_code, device_name, expires_at, approved_at
-             FROM pair_requests WHERE request_id = ? AND branch_id = ?`,
-          )
-          .get(payload.request_id, ctx.branch.branchId) as
-          | {
-              request_id: string;
-              display_code: string;
-              device_name: string;
-              expires_at: number;
-              approved_at: number | null;
-            }
-          | undefined;
+        const row =
+          payload.request_id === undefined
+            ? pendingByCode(ctx.tx.db, ctx.branch.branchId, payload.display_code, now)
+            : byId(ctx.tx.db, ctx.branch.branchId, payload.request_id);
         if (row === undefined || row.expires_at <= now || row.approved_at !== null || row.display_code !== payload.display_code) {
           throw new DomainError('PAIRING_REQUEST_NOT_FOUND');
         }
@@ -169,13 +226,29 @@ export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDep
   );
 }
 
-function header(request: FastifyRequest, name: string): string {
-  const value = request.headers[name];
-  const first = Array.isArray(value) ? value[0] : value;
-  return first ?? '';
+type RequestRow = {
+  request_id: string;
+  display_code: string;
+  device_name: string;
+  expires_at: number;
+  approved_at: number | null;
+};
+
+const COLUMNS = 'request_id, display_code, device_name, expires_at, approved_at';
+
+function byId(db: Database.Database, branchId: string, requestId: string): RequestRow | undefined {
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM pair_requests WHERE request_id = ? AND branch_id = ?`)
+    .get(requestId, branchId) as RequestRow | undefined;
 }
 
-function bearer(request: FastifyRequest): string {
-  const value = header(request, 'authorization');
-  return value.startsWith('Bearer ') ? value.slice('Bearer '.length) : '';
+// M79: without request_id, exactly one pending request may carry the code.
+function pendingByCode(db: Database.Database, branchId: string, displayCode: string, now: number): RequestRow | undefined {
+  const rows = db
+    .prepare(
+      `SELECT ${COLUMNS} FROM pair_requests
+       WHERE branch_id = ? AND approved_at IS NULL AND expires_at > ? AND display_code = ?`,
+    )
+    .all(branchId, now, displayCode) as RequestRow[];
+  return rows.length === 1 ? rows[0] : undefined;
 }

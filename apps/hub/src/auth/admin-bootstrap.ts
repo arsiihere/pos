@@ -32,7 +32,11 @@ document.getElementById('login').addEventListener('submit', (event) => {
     body: JSON.stringify({ bootstrap_token: token, staff_id: form.get('staff_id'), pin: form.get('pin') }),
   }).then(async (res) => {
     const body = await res.json();
-    if (res.status === 200) sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
+    if (res.status === 200) {
+      sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
+      sessionStorage.setItem('admin_staff_id', body.data.staff_id);
+      sessionStorage.setItem('admin_bootstrap', '1');
+    }
   });
 });
 </script>
