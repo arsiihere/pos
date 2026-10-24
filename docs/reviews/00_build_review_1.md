@@ -1,82 +1,84 @@
-# Build review 1 — module 00 tasks 2–48
+# Build review 1 — module 00 tasks 2–49
 
 | Field | Value |
 |---|---|
-| Range | `f03c730` (plan commit, excluded) .. `66ae9b4` |
+| Range | `f03c730` (plan commit, excluded) .. `863f8ab` |
 | Spec | `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1) |
-| Plan | `docs/plans/00-plan.md` tasks 2–48 |
-| Done per `docs/reviews/build-log.md` | tasks 2–48. Task 1 is commit `4abf807`. Tasks 49–51 are not started. |
+| Plan | `docs/plans/00-plan.md` tasks 2–49 |
+| Done per `docs/reviews/build-log.md` | tasks 2–49. Task 1 is commit `4abf807`. Tasks 50 and 51 are skipped. |
 | Date | 2026-10-24 |
-| Verdict | Fix the list below before task 49. |
+| Verdict | Fix the list below. Tasks 50 and 51 stay with the owner. |
 
-The copy of this file at `47c0b06` listed four items for tasks 2–43. Those landed in `7a15675` .. `ee0714f` and are not reopened. This pass re-read the tree at `66ae9b4`, including tasks 44–48.
+Earlier passes (`47c0b06`, `c82d55a`) and the fix commits through `a563c62` are not reopened. This pass re-read the tree at `863f8ab`.
 
 ## What matches
 
-- Every `[00 §10 #n]` name owned by tasks 2–48 is present once. No number is used twice. Later-task numbers (77, 79, 125) are absent. The spec's §10 table has 131 numbers and no gaps.
-- WebSocket auth matches §6.21: nothing is sent before a valid staff or station auth frame; timeout, a non-auth frame, a bad device, a bad or ended or other-device or admin session close `4401`; a revoked device closes `4403`; query-string tokens do not authenticate; host and guest close `4403` with zero frames. Catch-up reads `lastSeq()`, builds state, registers the socket, and sends, with no `await` between those steps. `hub.clock_alarm` is `{ wall_ms, last_recorded_at } | null` from the latest `ClockAlarm` row.
-- Publish matches §6.21 and §4.2: `event.seq > asOfSeq`, `ClockAlarm` to every socket, `SessionEnded` then close `4401` with the reason, `DeviceRevoked` then close `4403`, shutdown `1012`. Pongs and acks do not touch activity. Ping is 15 s; no pong for 30 s terminates (`1006`, because `terminate()` sends no close frame).
-- CORS matches §7.5: groups `device`, `device-session`, `pair`, and `pair-request` get the origin and `Vary: Origin`; `OPTIONS` is `200 { data: {} }` with the listed headers and `GET, POST`; another origin, `/admin/*`, and `/setup` get none. `@fastify/cors` is not a dependency.
-- Owner login follows §6.22 and M73: the 10th failure is `401 LOGIN_INVALID` and sets `login_locked_until`; a locked account verifies only the dummy hash, leaves the account counter unchanged, and counts the IP failure; 30 recorded IP failures make the next request `429 IP_LOCKED_OUT`. Refresh is `base64url(HMAC-SHA256(REFRESH_TOKEN_SECRET, token))`, the 30 s window writes nothing, a later reuse revokes every live token of that user, and logout revokes only the caller's token.
-- No hub or cloud log line writes a PIN, bootstrap token, registration code, branch API key, pairing token, poll secret, password, or `pin_hash`. Request and response bodies are not logged. The pair URL's `t` query value is still redacted.
+- Every `[00 §10 #n]` for 1–131 is present once, except `#79` (task 50, the hardware smoke test). No number is used twice.
+- WebSocket auth, publish, CORS, owner refresh, logout, confirm, and `/v1/health` match the sections those tasks implemented. `DeviceTokenRotated` closes `4401`. An old socket client closes `4426`. Request URLs redact `t`, `device_token`, and `session_token`. `#73` also rejects the dashed registration code.
+- `#96` stores the plaintext device token in `delivery_token` and checks it hashes to the device row. `#95` checks the poll returns that column. Together they cover the approve-to-poll handoff.
+- No hub or cloud log line writes a PIN, password, bootstrap token, registration code, branch API key, pairing token, poll secret, or `pin_hash`.
 
 ## Declined
 
-- Hand-rolled HS256, `branch_name: ''` as a code change, the approve-page group, and `pairing_source` after retention. Those stay under Needs spec change.
-- `#90`'s hub half lives in `[00 §3.1 M41]`. `#80`'s `owner_staff_id` and `/auth/pin`'s `staff_id` stay non-empty strings because the fixture staff ids are not ULIDs.
-- Files outside a task list that only removed a stub route (`guards.int.test.ts`, `guards-auth.int.test.ts`, `route-inventory.int.test.ts`, `test-hub.ts`, `boot.ts` where the plan already names it) so the real route could be registered. Not reopened.
-- `#42`'s socket close is now the §4.2 case in `ws-publish.int.test.ts`. Not reopened.
-- A device's `active_session` is the staff or station row. An admin session on that tablet stays in `GET /admin/queries/sessions`.
-- §7.2's field list (`branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, `ms`) is not on every line. Task 46's test only requires the secrets to be absent, and tasks 49–51 do not read those fields.
-- An idle session on `/ws` closes `4401` and is not ended there. M46's end-on-use path is the HTTP guard and the sweeper.
-- The cloud request serializer omits headers and bodies, so a login password and a logout JWT are not on the request line. The redact list is there if a later log call passes those field names.
-- Setup mode does not mount `/ws`. An unprovisioned full server still answers the provisioned guard with HTTP `409`.
+- `#42`'s socket close `4403` is locked by `[00 §4.2]` in `ws-publish.int.test.ts`. The named test does not open a socket. Not reopened.
+- `#90`'s hub half stays in `[00 §3.1 M41]`. The cloud half is the named `#90` test.
+- `#98`'s second login is `[00 §3.1 M46]`. The named test locks the command `401`.
+- Files outside a task list that only removed a colliding stub route. Not reopened.
+- `TestFails` throws `STAFF_NOT_FOUND` with no `staff_id`. It is a synthetic handler error for `#11`, not a directory lookup.
 
 ## Needs spec change
 
-- **§10 #53 still says the 10th failure is 429.** `apps/cloud/test/owner-auth/login.int.test.ts` names that sentence, and each of the 10 calls expects `401 LOGIN_INVALID` with `failed_login_count: 10` and `login_locked_until` set. M73 and §6.22 step (5) say login never returns `LOGIN_LOCKED_OUT`. Changing the handler to 429 would tell a guesser the password was wrong in a different way from a locked account. Leave the 401. Do not add a second #53. The spec owner rewrites that sentence; the test title follows after that.
-- **`branch_name` is discarded at setup.** §6.8, §6.31, and M37 require it. §3.10 has no config field, and `HubProvisioned` is `{ tenant_id, branch_id, hub_version }`. The hub returns `''`, including `catch_up.state.hub.branch_name`. Not changed here.
-- **A QR scan cannot open `/admin/approve`.** §8.2 says scanning `approve_url` opens `/admin/approve?r=…`. `GET /admin/approve` is group `admin`, so the navigation has no `Authorization` and no `X-Admin-Session`. M43 keeps the admin token in `sessionStorage`. Not changed here.
-- **`pairing_source` does not survive retention.** §6.17 requires `token` or `request`. The devices query treats a `pairing_tokens` row as `token`. §5.1 deletes pairing tokens whose `expires_at` is older than 7 days, and a pairing token expires 10 minutes after it is issued. A week later every token-paired tablet and phone is reported as `request`. §5.1 has no column for the source. Not changed here.
+- **§10 #53 still says the 10th failure is 429.** The test title repeats that sentence. The body expects ten `401 LOGIN_INVALID` responses, `failed_login_count: 10`, and `login_locked_until` set. M73 and §6.22 step (5) say login never returns `LOGIN_LOCKED_OUT`. Leave the 401. The spec owner rewrites that sentence.
+- **`branch_name` is discarded at setup.** §6.8, §6.31, and M37 require it. §3.10 has no config field, and `HubProvisioned` is `{ tenant_id, branch_id, hub_version }`. The hub returns `''`. Not changed here.
+- **A QR scan cannot open `/admin/approve`.** §8.2 says scanning `approve_url` opens `/admin/approve?r=…`. `GET /admin/approve` is group `admin`, so the navigation has no `Authorization` and no `X-Admin-Session`. Not changed here.
+- **`pairing_source` does not survive retention.** §6.17 requires `token` or `request`. §5.1 deletes pairing tokens whose `expires_at` is older than 7 days, and a token expires 10 minutes after it is issued. A week later every token-paired device is reported as `request`. §5.1 has no column for the source. Not changed here.
 
 ## Fix list
 
-### 1. A WebSocket URL keeps `device_token` and `session_token`
+### 1. One IP can record more than 30 login failures at once
 
-- **Where:** `apps/hub/src/server.ts` `redactQueryToken`. `[00 §10 #50]` connects to `/ws?device_token=…&session_token=…` and never reads `hub.logs()`.
-- **What's wrong:** The request serializer logs `url`. The redactor only rewrites `t=`. §6.21 ignores those query tokens, and §7.2 forbids tokens in the logs. A client that puts them on the upgrade URL writes both into journald. Deleting the redactor's `t=` rule fails #73; deleting nothing about `device_token` leaves #50 green.
-- **Why it matters:** The device token is the device credential. The session token is the staff session. Both would be in the support bundle.
-- **Fix:** Redact `device_token` and `session_token` the same way as `t`. In `[00 §10 #50]`, after the query-string connection, the captured log contains neither token. Do not add a test name.
+- **Where:** `apps/cloud/src/modules/owner-auth/service.ts` `login`. `[00 §10 #109]` records 30 failures one after another, and its 10 parallel failures use a different address each.
+- **What's wrong:** `check` runs, then login awaits the email lookup and argon2, and only then calls `record`. Every request that passes `check` before any of them records is allowed through. A burst from one IP all see the same count and all return `401 LOGIN_INVALID`.
+- **Why it matters:** §6.22 step (1) is the cap on trying many owner emails from one address. The account counter is atomic. The IP cap is not.
+- **Fix:** Count the attempt in `check`, before the first await, and drop that timestamp only when the password matches and the tokens commit. In `#109`, 31 simultaneous failures from one IP yield 30 `401`s and one `429`. A success does not consume a slot. Do not add a test name.
 - **Spec change:** no.
 
-### 2. #73 does not search for the registration code that was sent
+### 2. An idle admin logout is stored as logout
 
-- **Where:** `apps/hub/test/log-redaction.int.test.ts` (`REGISTRATION_CODE` is `ZZ73-SECR-ETKM`; the assertion searches `normalise(...)`, which is `ZZ73SECRETKM`).
-- **What's wrong:** §10 #73 and §7.2 say no secret used by the auth flow appears in the captured logs. The provision body sends the dashed code. That string does not contain the normalised form, so a log of the body would still pass.
-- **Why it matters:** Bodies are not logged today. The test would miss the one secret that only travels in that body.
-- **Fix:** In that same #73 test, also assert the logs do not contain `ZZ73-SECR-ETKM`. Keep the normalised form. Do not add a test name. Change production code only if that assertion fails.
+- **Where:** `apps/hub/src/auth/admin-session.ts` `POST /admin/auth/logout`. The route group is `admin-bootstrap`, so `requireAdmin` does not run.
+- **What's wrong:** An admin session past its idle TTL is ended `'logout'` and the response is 200. `requireAdmin` ends the same session `'idle_timeout'` and returns `401 ADMIN_SESSION_REQUIRED`. `/auth/logout` does that in the session guard before the handler. §3.9 applies the admin session guard, including M46, to `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, and `/admin/login-roster`. Logout is not one of those three. §6.12 still accepts an already-ended session as `already_ended`, which is why the route cannot use `requireAdmin` as written.
+- **Why it matters:** The audit says the manager logged out. The session had already expired. A later report treats it as an intentional logout.
+- **Fix:** After the ended-session check, an idle session is ended `'idle_timeout'` and the response is `401 ADMIN_SESSION_REQUIRED`. An already-ended session stays `200` with `already_ended`. In `#40`, advance past the idle TTL and assert that. Do not add a test name.
 - **Spec change:** no.
 
-### 3. WebSocket tests leave process-global registrations behind
+### 3. A lost provision response leaves the process up
 
-- **Where:** `apps/hub/test/ws/ws-publish.int.test.ts` `[00 §10 #112]` calls `registerEventAudience('HubStarted', () => true)`. `apps/hub/test/ws/ws-auth.int.test.ts` `[00 §10 #51]` calls `registerCatchUp` for part `probe`. Neither removes the registration. `apps/hub/src/ws/audience.ts` and `apps/hub/src/ws/catch-up.ts` only append.
-- **What's wrong:** Audiences and catch-up parts are process-global. After #112, `HubStarted` is delivered to every open socket for the rest of the worker. §4.2 gives `HubStarted` no audience, which is why #51's later frames are `ClockAlarm` only. After #51, any socket whose `staffId` is `S_PROBE` gains a `probe` part. Vitest reuses workers across files.
-- **Why it matters:** A later hub test that opens a socket across a boot will see a `HubStarted` push the spec does not send. Task 49 does not open a socket; the next module's socket test will.
-- **Fix:** `registerEventAudience` and `registerCatchUp` return a function that removes that one registration. #112 and #51 call it when the test ends, including on failure. Built-in audiences stay. Do not add a test name.
+- **Where:** `apps/hub/src/setup/provision.ts`, the `reply.send(...).then` after `saveConfig`.
+- **What's wrong:** `exit(0)` runs only when `send` resolves. The rejection handler rethrows. Config is already provisioned, `setupInProgress` is cleared, and this process was booted as the setup server. Setup routes are now 404. systemd does not restart it.
+- **Why it matters:** M13 exits so there is no "become provisioned while running" path. §6.4 says exit after the response is flushed. Once the config write has succeeded, staying up is that path.
+- **Fix:** Call `exit(0)` after the send attempt whether the flush succeeds or throws. Do not exit when a step before the config write fails. Add `[00 §6.4]` for a flush that throws. Do not add a §10 number.
 - **Spec change:** no.
 
-### 4. Nothing locks the `DeviceTokenRotated` close
+### 4. A paired screen reloads into a new pairing request
 
-- **Where:** `apps/hub/src/ws/server.ts` `closeFor`, and `apps/hub/src/ws/audience.ts`. The §4.2 test in `apps/hub/test/ws/ws-publish.int.test.ts` covers `DeviceRevoked` only.
-- **What's wrong:** §6.21 and §4.2 say the device's sockets receive `DeviceTokenRotated` and then close `4401`. Removing that branch leaves every current test green. #30 checks the HTTP rotation and does not open a socket.
-- **Why it matters:** A tablet that rotated on another screen keeps a live socket on the old token.
-- **Fix:** In the existing `[00 §4.2]` test, append `DeviceTokenRotated` for an authenticated device. That socket receives the event and closes `4401`. Another device's socket stays open. Do not add a test name.
+- **Where:** `apps/hub/src/auth/pair-page.ts`. With no `?t=`, the script always `POST`s `/pair/requests`. The IndexedDB token is read first and then ignored on this path. `device_type` is not stored. A non-200 create reads `body.data` and throws, so a `429` or `503` draws no retry button.
+- **What's wrong:** §8.2 stores `device_token` in IndexedDB and has the KDS call `POST /auth/station` so the screen stays paired. Chrome kiosk mode reopens `/pair`. A second approval creates a second device. `#94` checks that the HTML contains strings, and the `if (deviceToken)` login branch sits after the screen path returns, so the test stays green.
+- **Why it matters:** A kiosk or KDS restart looks unpaired and fills the pairing-request cap.
+- **Fix:** If a device token is already stored, do not create a request. Persist `device_type` with the token. On load, call `/auth/station` for `kds`, otherwise show login. A non-200 create shows "Ask a manager" and a button that starts again. In `#94`, the `if (!pairingToken)` block checks `deviceToken` before `fetch('/pair/requests')`, and that branch contains `/auth/station`. Do not add a test name.
 - **Spec change:** no.
 
-### 5. Nothing locks an old WebSocket client to `4426`
+### 5. §9 `details` are missing on several hub errors
 
-- **Where:** `apps/hub/src/auth/guards.ts` `version`, the `ws` branch that sets `request.wsClose = 4426`. `[00 §3.1 M45]` only connects with a bad Host.
-- **What's wrong:** §6.21 step 1 closes `4426` when `X-Client-Version` is below `min_client_version`, and an absent version passes. Removing the websocket branch leaves the HTTP 426 tests green and the socket tests green.
-- **Why it matters:** An old KDS would stay connected on a protocol the hub no longer speaks.
-- **Fix:** In the existing `[00 §3.1 M45]` test, an upgrade with `X-Client-Version` below the hub minimum closes `4426` with zero frames, and an absent version still reaches auth. Do not add a test name.
+- **Where:** bare `DomainError` throws in `apps/hub/src/auth/pairing.ts`, `staff-session.ts`, `admin-session.ts`, `station-session.ts`, `pin.ts`, `commands/generate-device-pairing-token.ts`, and `commands/approve-pairing-request.ts`.
+- **What's wrong:** §9 defines `DEVICE_TYPE_NOT_ALLOWED { device_type, allowed }`, `DEVICE_NOT_OWNED { device_id }`, `STAFF_NOT_FOUND { staff_id }`, and `STATION_NOT_FOUND { station_id }`. The query route already sends `device_type` and `allowed`. These throws send `{}`. The tests that hit them assert `error.code` only, so deleting a future details object would stay green.
+- **Why it matters:** §8 clients read `allowed`, `staff_id`, and `station_id` from `details`.
+- **Fix:** Pass those objects. Assert them in the existing `#29`, `#36`, `#39`, `#80`, `#81`, `#91`, `#96`, and `#114` tests. Leave `TestFails` alone. Do not add a test name.
+- **Spec change:** no.
+
+### 6. #22 never puts active staff on a second branch
+
+- **Where:** `apps/cloud/test/hub-registration.int.test.ts` `#22`, and `loadDirectory` in `apps/cloud/src/modules/hub-registration/repository.ts`.
+- **What's wrong:** §10 #22 says the directory has this branch's staff only. The fixture's cashier is active and has no `staff_branches` row. Gone is on this branch and inactive. Deleting `AND sb.branch_id = $2` from the staff query and from the roles CTE still returns only the owner. The SQL does filter. The test does not lock it.
+- **Why it matters:** §6.27 puts the owner on every new branch. A later edit can ship another branch's `pin_hash` values in this hub's directory.
+- **Fix:** In `#22`, add a second branch, an active staff member assigned only to it, and a role assigned only to that staff member. Assert that staff id and role name are absent from the first branch's directory. No production change while the SQL stays as written. Do not add a test name.
 - **Spec change:** no.
