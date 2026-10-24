@@ -234,18 +234,6 @@ describe('staff PIN session', () => {
     for (const release of releases) release();
   });
 
-  it('[00 §6.9] STAFF_NOT_FOUND on /auth/pin', async () => {
-    const hub = await open();
-    const tablet = pairDevice(hub, { type: 'tablet' });
-    const before = eventCount(hub);
-    const missing = await pin(hub, tablet.token, 'S_MISSING', PIN.a);
-    expect(missing.statusCode).toBe(404);
-    expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
-    expect(missing.json().error.details).toEqual({ staff_id: 'S_MISSING' });
-    expect(staffFailures(hub, 'S_MISSING')).toBe(0);
-    expect(eventCount(hub)).toBe(before);
-  });
-
   it('[00 §3.1 M46] an idle-expired holder does not cause 409; the new login succeeds', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });

@@ -259,3 +259,6 @@ Ruling: `#45` expected `'request'` for the admin tablet, because it had no `pair
 
 ## Task 57 — #53 test title matches M73 (build review 2 item 6)
 Commit below. Title only: `[00 §10 #53] … the 10th failure sets login_locked_until and still answers 401 LOGIN_INVALID`. The body is unchanged. No new behaviour, so there was no failing test to write first. `owner-auth/login.int.test.ts` 3/3 on Postgres 5433.
+
+## Task 58 — #114 covers /auth/pin (build review 2 item 7)
+Commit below. The `/auth/pin` `STAFF_NOT_FOUND` case, with `details.staff_id`, no `auth_lockouts` row and no new event, moved from `[00 §6.9]` in `staff-session.int.test.ts` into `[00 §10 #114]` in `admin-session.int.test.ts`. The duplicate was deleted. `grep '§10 #114]'` finds 1 test. Moving an assertion adds no behaviour; to check it can fail, I dropped the `pin.ts` details, saw `#114` fail, and restored the file. Hub + packages 214/214 (1 skipped; one fewer test because the duplicate was removed).

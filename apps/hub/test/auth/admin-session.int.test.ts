@@ -176,9 +176,24 @@ describe('admin session', () => {
     adminRelease();
   });
 
-  it('[00 §10 #114] unknown staff is STAFF_NOT_FOUND and a locked staff is PIN_LOCKED_OUT on admin login', async () => {
+  it('[00 §10 #114] unknown staff is STAFF_NOT_FOUND on /auth/pin and /admin/auth, not counted; a locked staff is PIN_LOCKED_OUT on admin login', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });
+    const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
+    const before = events();
+    const staffPin = await hub.app.inject({
+      method: 'POST',
+      url: '/auth/pin',
+      headers: { authorization: `Bearer ${tablet.token}` },
+      payload: { staff_id: 'S_MISSING', pin: PIN.a },
+    });
+    expect(staffPin.statusCode).toBe(404);
+    expect(staffPin.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(staffPin.json().error.details).toEqual({ staff_id: 'S_MISSING' });
+    expect(
+      hub.deps.db.prepare(`SELECT COUNT(*) FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = 'S_MISSING'`).pluck().get(),
+    ).toBe(0);
+    expect(events()).toBe(before);
     const missing = await login(hub, tablet.token, 'S_MISSING', PIN.a);
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('STAFF_NOT_FOUND');
