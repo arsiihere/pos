@@ -10,6 +10,7 @@ import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerJwt } from './plugins/jwt.js';
 import { registerOwnerCredentials } from './plugins/owner-credentials.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
+import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
 
 const SECRET_FIELDS = [
@@ -47,5 +48,6 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerOwnerCredentials(app, deps.pool);
   registerTenantScope(app, { pool: deps.pool });
   registerHubRegistrationRoutes(app, deps);
+  registerOwnerAuthRoutes(app, deps);
   return app;
 }

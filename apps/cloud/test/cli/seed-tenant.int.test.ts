@@ -7,7 +7,7 @@ import { seedTenant } from '../../src/cli/seed-tenant';
 import { createPool, migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
-import { truncateAll } from '../helpers/test-cloud';
+import { createTestCloud, truncateAll } from '../helpers/test-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const databaseUrl = process.env.DATABASE_URL ?? 'postgres://pos:pos@127.0.0.1:5433/pos_test';
@@ -113,6 +113,21 @@ describe('seed-tenant', () => {
     expect(staff.rows[0]!.display_name).toBe('Ada');
     expect(await verify(staff.rows[0]!.pin_hash, '1234')).toBe(true);
     expect(await verify(staff.rows[0]!.pin_hash, '123')).toBe(false);
+
+    const cloud = await createTestCloud();
+    const httpLogin = await cloud.app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'Owner@Example.com', password: 'password-1' },
+    });
+    expect(httpLogin.statusCode).toBe(200);
+    expect(httpLogin.json().data.user).toEqual({
+      user_id: created.user_id,
+      display_name: 'Ada',
+      tenant_id: created.tenant_id,
+      allowed_branch_ids: [],
+    });
+    await cloud.close();
 
     await expect(
       seedTenant(

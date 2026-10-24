@@ -45,7 +45,6 @@ describe('tenant scope', () => {
         });
       }
     });
-    cloud.app.post('/v1/auth/login', { config: { tenantScope: 'none' } }, async () => ({ data: {} }));
     cloud.app.post('/v1/auth/refresh', { config: { tenantScope: 'none' } }, async () => ({ data: {} }));
     cloud.app.get('/v1/health', { config: { tenantScope: 'none' } }, async () => ({ data: {} }));
     cloud.app.get(
@@ -61,19 +60,21 @@ describe('tenant scope', () => {
     expect(declared.map((route) => route.tenantScope)).toEqual([
       'none',
       'none',
-      'none',
       'jwt',
       'branch-key',
       'registration-code',
     ]);
-    expect(declared.filter((route) => route.tenantScope === 'none').map((route) => `${route.method} ${route.url}`)).toEqual(
-      ALLOWLIST,
-    );
+    expect(
+      listTenantScopes(cloud.app)
+        .filter((route) => route.tenantScope === 'none' && route.method !== 'HEAD')
+        .map((route) => `${route.method} ${route.url}`),
+    ).toEqual(ALLOWLIST);
     expect(declared.some((route) => route.tenantLevel === true && route.tenantScope === 'jwt')).toBe(true);
     expect(listTenantScopes(cloud.app)).toEqual(
       expect.arrayContaining([
         { method: 'POST', url: '/v1/hubs/register', tenantScope: 'registration-code' },
         { method: 'POST', url: '/v1/hubs/confirm', tenantScope: 'branch-key' },
+        { method: 'POST', url: '/v1/auth/login', tenantScope: 'none' },
       ]),
     );
     expect(typeof cloud.app.ownerCredentials.byEmail).toBe('function');
