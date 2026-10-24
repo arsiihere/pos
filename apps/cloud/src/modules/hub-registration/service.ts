@@ -1,0 +1,116 @@
+import { DomainError } from '@pos/domain';
+import type { DirectoryInput } from '@pos/events';
+import type pg from 'pg';
+import type { Clock } from '../../lib/clock.js';
+import type { IdGen } from '../../lib/ids.js';
+import type { SecretGen } from '../../lib/secrets.js';
+import {
+  codeHash,
+  codeIsUsable,
+  confirmBranch,
+  consumeCode,
+  insertApiKey,
+  loadDirectory,
+  lockRegistrationCode,
+  revokeLiveKey,
+  sha256,
+  type LockedCode,
+} from './repository.js';
+
+export interface RegisterHubResult {
+  tenant_id: string;
+  branch_id: string;
+  branch_name: string;
+  currency_code: string;
+  kind: LockedCode['kind'];
+  branch_api_key: string;
+  directory: DirectoryInput;
+  rotated: boolean;
+}
+
+export async function registerHub(
+  pool: pg.Pool,
+  input: { registrationCode: string; idempotencyKey: string; acceptedKinds: Array<LockedCode['kind']> },
+  deps: { clock: Clock; ids: IdGen; secrets: SecretGen },
+): Promise<RegisterHubResult> {
+  const now = deps.clock.branchNow();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const hash = codeHash(input.registrationCode);
+    const peeked = await client.query<{ tenant_id: string; branch_id: string }>(
+      `SELECT tenant_id, branch_id FROM registration_codes WHERE code_hash = $1`,
+      [hash],
+    );
+    const peek = peeked.rows[0];
+    if (peek !== undefined) {
+      await client.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [
+        peek.tenant_id,
+        peek.branch_id,
+      ]);
+    }
+    const row = await lockRegistrationCode(client, hash);
+    if (row === null || !codeIsUsable(row, input.idempotencyKey, now)) {
+      throw new DomainError('REGISTRATION_CODE_INVALID');
+    }
+    if (!input.acceptedKinds.includes(row.kind)) {
+      throw new DomainError('REGISTRATION_CODE_KIND_UNSUPPORTED', {
+        kind: row.kind,
+        accepted_kinds: input.acceptedKinds,
+      });
+    }
+    const branchApiKey = deps.secrets.token256();
+    const rotated = await revokeLiveKey(client, row.tenant_id, row.branch_id, now);
+    await insertApiKey(client, row, deps.ids.next(), sha256(branchApiKey), now);
+    if (row.consumed_at === null) await consumeCode(client, row.code_hash, now, input.idempotencyKey);
+    const loaded = await loadDirectory(client, row.tenant_id, row.branch_id);
+    await client.query('COMMIT');
+    return {
+      tenant_id: row.tenant_id,
+      branch_id: row.branch_id,
+      branch_name: loaded.branch_name,
+      currency_code: loaded.currency_code,
+      kind: row.kind,
+      branch_api_key: branchApiKey,
+      directory: loaded.directory,
+      rotated,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function confirmHub(
+  pool: pg.Pool,
+  input: { tenantId: string; branchId: string; keyHash: string },
+  deps: { clock: Clock },
+): Promise<{ branch_id: string; hub_confirmed_at: number }> {
+  const now = deps.clock.branchNow();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query(
+      `SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`,
+      [input.tenantId, input.branchId],
+    );
+    if (locked.rows[0] === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
+    const key = await client.query(
+      `SELECT key_id FROM branch_api_keys
+        WHERE tenant_id = $1 AND branch_id = $2 AND key_hash = $3 AND revoked_at IS NULL`,
+      [input.tenantId, input.branchId, input.keyHash],
+    );
+    if (key.rows[0] === undefined) throw new DomainError('BRANCH_API_KEY_INVALID');
+    const confirmedAt = await confirmBranch(client, input.tenantId, input.branchId, now);
+    if (confirmedAt === null) throw new DomainError('BRANCH_API_KEY_INVALID');
+    await client.query('COMMIT');
+    return { branch_id: input.branchId, hub_confirmed_at: confirmedAt };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}

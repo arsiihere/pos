@@ -1,0 +1,16 @@
+{
+  "name": "@pos/events",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pos/domain": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

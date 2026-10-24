@@ -1336,13 +1336,13 @@ Paginated lists add `"meta": { "next_cursor": "<opaque>" | null }` (§6.3).
 | Status | Meaning | Shared codes defined by the foundation |
 |---|---|---|
 | 400 | Malformed or schema-invalid request | `VALIDATION_FAILED` |
-| 401 | Missing, invalid or expired credentials | `DEVICE_TOKEN_INVALID`, `SESSION_INVALID`, `SESSION_EXPIRED`, `ADMIN_SESSION_REQUIRED`, `PAIRING_TOKEN_INVALID`, `REGISTRATION_CODE_INVALID`, `BRANCH_API_KEY_INVALID`, `JWT_INVALID` |
-| 403 | Authenticated but not allowed | `PERMISSION_DENIED`, `GUEST_NETWORK_FORBIDDEN` (D28), `DEVICE_REVOKED`, `BRANCH_MISMATCH` (hub only, §3.2) |
-| 404 | Not found, **or belongs to another tenant** (cloud never answers 403 across tenants, so foreign IDs are indistinguishable from missing ones) | `<ENTITY>_NOT_FOUND` (e.g. `ORDER_NOT_FOUND`, `TABLE_NOT_FOUND`), `ROUTE_NOT_FOUND` |
-| 409 | Current state forbids the action; it may succeed after the state changes | `TABLE_ALREADY_LOCKED`, `TABLE_LOCK_NOT_HELD` (D61), `ITEM_WRONG_STAGE` (§4.2), `VOID_PENDING` (D11), `SYNC_SEQ_GAP` (D52) |
-| 422 | Well-formed, but breaks a business rule that does not depend on concurrent state | Module-defined (e.g. `SPLIT_TOTAL_MISMATCH`, `REASON_REQUIRED`) |
+| 401 | Missing, invalid or expired credentials | `DEVICE_TOKEN_INVALID`, `SESSION_INVALID`, `SESSION_EXPIRED`, `ADMIN_SESSION_REQUIRED`, `PAIRING_TOKEN_INVALID`, `REGISTRATION_CODE_INVALID`, `BRANCH_API_KEY_INVALID`, `JWT_INVALID`; spec 00 §9: `PIN_INVALID`, `LOGIN_INVALID`, `REFRESH_TOKEN_INVALID` |
+| 403 | Authenticated but not allowed | `PERMISSION_DENIED`, `GUEST_NETWORK_FORBIDDEN` (D28), `DEVICE_REVOKED`, `BRANCH_MISMATCH` (hub only, §3.2); spec 00 §9: `DEVICE_TYPE_NOT_ALLOWED`, `DEVICE_NOT_OWNED`, `HOST_NOT_ALLOWED`, `STATION_LOGOUT_NOT_ALLOWED` |
+| 404 | Not found, **or belongs to another tenant** (cloud never answers 403 across tenants, so foreign IDs are indistinguishable from missing ones) | `<ENTITY>_NOT_FOUND` (e.g. `ORDER_NOT_FOUND`, `TABLE_NOT_FOUND`), `ROUTE_NOT_FOUND`; spec 00 §9: `STAFF_NOT_FOUND`, `STATION_NOT_FOUND`, `DEVICE_NOT_FOUND`, `SESSION_NOT_FOUND`, `PAIRING_REQUEST_NOT_FOUND` |
+| 409 | Current state forbids the action; it may succeed after the state changes | `TABLE_ALREADY_LOCKED`, `TABLE_LOCK_NOT_HELD` (D61), `ITEM_WRONG_STAGE` (§4.2), `VOID_PENDING` (D11), `SYNC_SEQ_GAP` (D52); spec 00 §9: `DEVICE_SESSION_ACTIVE`, `HUB_NOT_PROVISIONED`, `SETUP_IN_PROGRESS` |
+| 422 | Well-formed, but breaks a business rule that does not depend on concurrent state | Module-defined (e.g. `SPLIT_TOTAL_MISMATCH`, `REASON_REQUIRED`); spec 00 §9: `REGISTRATION_CODE_KIND_UNSUPPORTED` |
 | 426 | Client build older than the hub supports | `CLIENT_UPGRADE_REQUIRED` |
-| 429 | Rate limit or lockout; `details.retry_after_ms` + `Retry-After` header | `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT` (§5.7) |
+| 429 | Rate limit or lockout; `details.retry_after_ms` + `Retry-After` header | `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT` (§5.7); spec 00 §9: `IP_LOCKED_OUT`, `LOGIN_LOCKED_OUT` (reserved, not returned since spec 00 M73) |
 | 500 | Bug | `INTERNAL_ERROR` |
 | 503 | Required dependency unavailable (cloud only; the hub has no remote dependency on its request path) | `SERVICE_UNAVAILABLE` |
 

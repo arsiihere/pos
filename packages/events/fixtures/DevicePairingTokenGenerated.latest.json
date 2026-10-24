@@ -1,0 +1,20 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "hub",
+  "stream_id": "01J00000000000000000000008",
+  "event_type": "DevicePairingTokenGenerated",
+  "payload": {
+    "pairing_token_id": "01J00000000000000000000008",
+    "device_type": "tablet",
+    "owner_staff_id": null,
+    "expires_at": 1761000600000
+  }
+}

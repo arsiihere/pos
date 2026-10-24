@@ -1,0 +1,27 @@
+{
+  "name": "@pos/hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "issue-admin-bootstrap": "tsx src/setup/issue-admin-bootstrap.ts",
+    "smoke": "tsx test/smoke/smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/websocket": "11.3.4",
+    "@node-rs/argon2": "2.2.2",
+    "@pos/domain": "workspace:*",
+    "@pos/events": "workspace:*",
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.7",
+    "fastify-type-provider-zod": "7.0.0",
+    "qrcode": "1.5.4",
+    "tsx": "4.23.15",
+    "ulid": "3.0.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.19.1"
+  }
+}

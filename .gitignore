@@ -5,6 +5,7 @@
 # deps / build (common stacks)
 node_modules/
 dist/
+.turbo/
 build/
 .next/
 coverage/
