@@ -126,6 +126,24 @@ describe('hub server', () => {
     expect(logs).toContain('[Redacted]');
   });
 
+  it('[00 §7.2] a pairing token in the pair url is not logged', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const secret = 'pair-token-secret-9f3a';
+    hub.app.get('/echo-query', { config: { group: 'health' } }, (req) => {
+      const query = req.query as { t?: string };
+      return { data: { t: query.t } };
+    });
+    const echoed = await hub.app.inject({ method: 'GET', url: `/echo-query?t=${secret}` });
+    expect(echoed.statusCode).toBe(200);
+    expect(echoed.json().data.t).toBe(secret);
+    const page = await hub.app.inject({ method: 'GET', url: `/pair?t=${secret}` });
+    expect(page.statusCode).toBe(200);
+    const logs = hub.logs();
+    expect(logs).not.toContain(secret);
+    expect(logs).toContain('[Redacted]');
+  });
+
   it('[00 §7.1] a 503 carries Retry-After rounded up from retry_after_ms', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());

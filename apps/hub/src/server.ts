@@ -83,7 +83,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
         req(req: FastifyRequest) {
           return {
             method: req.method,
-            url: req.url,
+            url: redactQueryToken(req.url),
             headers: redactHeaders(req.headers),
           };
         },
@@ -156,6 +156,10 @@ function statusCodeOf(error: unknown): number | undefined {
     return error.statusCode;
   }
   return undefined;
+}
+
+function redactQueryToken(url: string): string {
+  return url.replace(/([?&]t=)[^&]*/g, '$1[Redacted]');
 }
 
 function redactHeaders(headers: FastifyRequest['headers']): Record<string, unknown> {
