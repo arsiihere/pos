@@ -23,6 +23,14 @@ This map replaces the "Suggested module spec order" table in foundation §9 (R2)
 
 **Build-order note:** 02 calls `calculateETA` and needs the hub engine host, both owned by 03a. 03a is built **before or alongside 02**, even though it is numbered after it (R4).
 
+## Milestones
+
+| Milestone | Target | Modules | Owner can |
+|-----------|--------|---------|-----------|
+| A Pilot (1 branch, paper backup alongside) | 2026-12-20 | 00, 01, 03a, 02, 04, 03b, 05, plus 06's nightly USB backup | Take, cook, bill and print orders; see the day's Z report on the hub |
+| B All branches | — | A + 06 in full, 07 | See the day's sales at all 3 branches from anywhere; back up and restore a hub |
+| C Sellable | — | B + new-tenant onboarding, PRA/FBR integration (R13), LAN TLS (R16), remote hub updates (none specified yet) | Run another restaurant on it |
+
 ## Spec size budget
 
 - A module spec covers about **10–25 commands/endpoints**.
@@ -118,6 +126,7 @@ Raised while writing an earlier spec; the receiving module spec must address eac
 | 03a | Size snapshots and replay for **2,000 orders/day/branch (≈ 40k events/day)** with the day-close checkpoint, against the 90 s boot budget (R6). | README R6 |
 | 03b | ESC/POS on 58 mm and 80 mm paper, USB and LAN printers (R8); render the customizable receipt template (R12). | README R8, R12 |
 | 05 | Owner-configurable payment-mode list including an "online" mode (bank transfer, wallets, Raast); card amounts entered manually, no terminal integration (R7). Customizable receipt template with variables (R12). PRA/FBR integration out of P1 (R13). | README R7, R12, R13 |
+| 06 | Pilot (milestone A) requires 06's nightly USB backup; build it before the first live order. | Milestones |
 | Installation | Decide whether the existing PC can be dedicated to the hub on Linux, else buy a mini PC (OQ1, R9). Kiosk shortcut with the insecure-origin flag (R15). Separate phone SSID with client isolation, reaching only the hub port (R16). Hub OS time zone set to the restaurant's local zone (00 M66 maintenance hour). | README R9, R15 |
 
 **Still open:** OQ1 (hub hardware, installation only, R9); OQ2 (tablet model, Android version); OQ4 (tap-rate field test, blocks 03a overrun handling only). OQ3, OQ10, OQ11, OQ14 and OQ15 are answered or made non-blocking by R7, R10, R8 and R13.
