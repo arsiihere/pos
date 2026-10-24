@@ -1,6 +1,7 @@
 import { DomainError } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { provisionedOf } from '../config/schema.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { HUB_VERSION } from '../lib/health.js';
 import { sha256hex } from '../lib/hash.js';
@@ -123,7 +124,7 @@ function pairWithToken(
       device_id: deviceId,
     },
   ]);
-  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, deps.config.provisioned?.branch_name ?? '');
+  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, provisionedOf(deps.config).branch_name);
 }
 
 function rotate(
@@ -166,7 +167,7 @@ function rotate(
       device_id: deviceId,
     },
   ]);
-  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, deps.config.provisioned?.branch_name ?? '');
+  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, provisionedOf(deps.config).branch_name);
 }
 
 function response(

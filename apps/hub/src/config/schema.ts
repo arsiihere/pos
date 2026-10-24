@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { DomainError } from '@pos/domain';
 import { z } from 'zod';
 
 const AuthSchema = z.object({
@@ -59,6 +60,12 @@ export const DEFAULT_CONFIG_PATH = '/etc/pos-hub/config.json';
 
 export function isProvisioned(cfg: HubConfig): boolean {
   return Boolean(cfg.provisioned?.branch_id && cfg.provisioned.branch_api_key);
+}
+
+// Routes behind the provisioned guard (§3.9) read the provisioned block through this.
+export function provisionedOf(cfg: HubConfig): NonNullable<HubConfig['provisioned']> {
+  if (cfg.provisioned === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
+  return cfg.provisioned;
 }
 
 export function isConfirmed(cfg: HubConfig): boolean {

@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { findSessionByToken, isIdleExpired } from '../auth/session-store.js';
+import { provisionedOf } from '../config/schema.js';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
 import { audienceAllows } from './audience.js';
@@ -154,7 +155,7 @@ function accept(
     }
     const asOfSeq = deps.writer.lastSeq();
     const ctx: SocketCtx = { ...auth, asOfSeq };
-    const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, deps.config.provisioned?.branch_name ?? '');
+    const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, provisionedOf(deps.config).branch_name);
     live = { socket, ctx };
     open.push(live);
     stopKeepalive = armKeepalive(socket);
