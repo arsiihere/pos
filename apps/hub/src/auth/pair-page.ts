@@ -11,7 +11,33 @@ if (adminToken) {
 const pairingToken = new URLSearchParams(location.search).get('t');
 const screen = document.getElementById('screen');
 if (!pairingToken) {
-  screen.textContent = 'Ask a manager';
+  screen.textContent = 'Ask a manager to pair this screen';
+  fetch('/pair/requests', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device_name: 'screen' }),
+  }).then(async (res) => {
+    const body = await res.json();
+    screen.innerHTML = body.data.approve_qr_svg + '<p class="display-code">' + body.data.display_code + '</p>';
+    const tick = () => {
+      fetch('/pair/requests/' + body.data.request_id, { headers: { 'X-Poll-Secret': body.data.poll_secret } })
+        .then(async (polled) => {
+          const update = await polled.json();
+          if (update.data && update.data.status === 'approved') {
+            const store = indexedDB.open('pos-device');
+            store.onsuccess = () => {
+              store.result.transaction('device', 'readwrite').objectStore('device').put(update.data.device_token, 'token');
+            };
+            if (update.data.device_type === 'kds') {
+              fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+            }
+            return;
+          }
+          setTimeout(tick, 2000);
+        });
+    };
+    setTimeout(tick, 2000);
+  });
 } else {
   const request = indexedDB.open('pos-device');
   request.onsuccess = () => {

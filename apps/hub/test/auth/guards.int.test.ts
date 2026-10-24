@@ -73,7 +73,6 @@ describe('route guards', () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     hub.app.get('/health', { config: { group: 'health' } }, async () => ({ data: { ok: true } }));
-    hub.app.post('/pair/requests', { config: { group: 'pair-request' } }, async () => ({ data: { ok: true } }));
     const device = pairDevice(hub, { type: 'tablet' });
     for (const target of [
       { method: 'GET' as const, url: '/health' },
@@ -85,7 +84,7 @@ describe('route guards', () => {
       const denied = await hub.app.inject({ ...target, headers: { host: 'evil.example:3000', ...auth } });
       expect(denied.statusCode).toBe(403);
       expect(denied.json().error.code).toBe('HOST_NOT_ALLOWED');
-      const passed = target.url === '/admin/auth' || target.url === '/devices/pair' ? 400 : 200;
+      const passed = target.url === '/admin/auth' || target.url === '/devices/pair' || target.url === '/pair/requests' ? 400 : 200;
       expect((await hub.app.inject({ ...target, headers: { host: 'localhost:3000', ...auth } })).statusCode).toBe(passed);
       expect((await hub.app.inject({ ...target, headers: { host: '192.168.10.2:3000', ...auth } })).statusCode).toBe(passed);
     }
