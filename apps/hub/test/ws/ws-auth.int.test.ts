@@ -91,44 +91,55 @@ describe('websocket auth', () => {
   it('[00 §10 #51] catch-up as_of_seq then events strictly ascending; a boot ClockAlarm sets hub.clock_alarm', async () => {
     const hub = await open(cleanups);
     await seedDirectory(hub);
-    registerCatchUp({
+    const stopProbe = registerCatchUp({
       part: 'probe',
       appliesTo: (ctx) => ctx.staffId === 'S_PROBE',
       build: () => ({ open: true }),
     });
-    const device = pairDevice(hub, { type: 'tablet' });
-    const staff = openSession(hub, { kind: 'staff', staffId: 'S_PROBE', deviceId: device.deviceId });
-    hub.deps.writer.run((tx) => {
-      tx.append([clockAlarm(10, 20)]);
-    });
-    const asOf = hub.deps.writer.lastSeq();
+    try {
+      const device = pairDevice(hub, { type: 'tablet' });
+      const staff = openSession(hub, { kind: 'staff', staffId: 'S_PROBE', deviceId: device.deviceId });
+      hub.deps.writer.run((tx) => {
+        tx.append([clockAlarm(10, 20)]);
+      });
+      const asOf = hub.deps.writer.lastSeq();
 
-    const ws = await connect(hub);
-    ws.send({ type: 'auth', device_token: device.token, session_token: staff.token });
-    await ws.untilCount(1);
-    expect(ws.messages[0]).toMatchObject({
-      type: 'catch_up',
-      as_of_seq: asOf,
-      state: { hub: { clock_alarm: { wall_ms: 10, last_recorded_at: 20 }, branch_name: '' }, probe: { open: true } },
-    });
+      const ws = await connect(hub);
+      ws.send({ type: 'auth', device_token: device.token, session_token: staff.token });
+      await ws.untilCount(1);
+      expect(ws.messages[0]).toMatchObject({
+        type: 'catch_up',
+        as_of_seq: asOf,
+        state: { hub: { clock_alarm: { wall_ms: 10, last_recorded_at: 20 }, branch_name: '' }, probe: { open: true } },
+      });
 
-    hub.deps.writer.run((tx) => {
-      tx.append([clockAlarm(11, 21), clockAlarm(12, 22)]);
-    });
-    await ws.untilCount(3);
-    const events = ws.messages.slice(1);
-    expect(events.map((message) => (message as { type: string }).type)).toEqual(['event', 'event']);
-    const seqs = events.map((message) => (message as { seq: number }).seq);
-    expect(seqs[0]).toBeGreaterThan(asOf);
-    expect(seqs[1]).toBeGreaterThan(seqs[0]!);
+      hub.deps.writer.run((tx) => {
+        tx.append([clockAlarm(11, 21), clockAlarm(12, 22)]);
+      });
+      await ws.untilCount(3);
+      const events = ws.messages.slice(1);
+      expect(events.map((message) => (message as { type: string }).type)).toEqual(['event', 'event']);
+      const seqs = events.map((message) => (message as { seq: number }).seq);
+      expect(seqs[0]).toBeGreaterThan(asOf);
+      expect(seqs[1]).toBeGreaterThan(seqs[0]!);
 
-    const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
-    const station = openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: 'station-1' });
-    const stationWs = await connect(hub);
-    stationWs.send({ type: 'auth', device_token: kds.token, session_token: station.token });
-    await stationWs.untilCount(1);
-    expect(stationWs.messages[0]).toMatchObject({ type: 'catch_up', state: { hub: { clock_alarm: { wall_ms: 12, last_recorded_at: 22 } } } });
-    expect((stationWs.messages[0] as { state: { probe?: unknown } }).state.probe).toBeUndefined();
+      const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+      const station = openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: 'station-1' });
+      const stationWs = await connect(hub);
+      stationWs.send({ type: 'auth', device_token: kds.token, session_token: station.token });
+      await stationWs.untilCount(1);
+      expect(stationWs.messages[0]).toMatchObject({ type: 'catch_up', state: { hub: { clock_alarm: { wall_ms: 12, last_recorded_at: 22 } } } });
+      expect((stationWs.messages[0] as { state: { probe?: unknown } }).state.probe).toBeUndefined();
+    } finally {
+      stopProbe();
+    }
+
+    const later = pairDevice(hub, { type: 'tablet' });
+    const laterStaff = openSession(hub, { kind: 'staff', staffId: 'S_PROBE', deviceId: later.deviceId });
+    const laterWs = await connect(hub);
+    laterWs.send({ type: 'auth', device_token: later.token, session_token: laterStaff.token });
+    await laterWs.untilCount(1);
+    expect((laterWs.messages[0] as { state: { probe?: unknown } }).state.probe).toBeUndefined();
   });
 
   it('[00 §10 #119] guest network is forbidden on admin auth, admin devices, pairing requests, and the socket closes 4403 before auth', async () => {

@@ -20,8 +20,12 @@ export interface CatchUpPart {
 
 const parts: CatchUpPart[] = [];
 
-export function registerCatchUp(part: CatchUpPart): void {
+export function registerCatchUp(part: CatchUpPart): () => void {
   parts.push(part);
+  return () => {
+    const index = parts.lastIndexOf(part);
+    if (index >= 0) parts.splice(index, 1);
+  };
 }
 
 export function buildCatchUpState(

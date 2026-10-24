@@ -3,20 +3,25 @@ import type { SocketCtx } from './catch-up.js';
 
 export type Audience = (event: PosEvent, socket: SocketCtx) => boolean;
 
-const audiences = new Map<string, Audience>();
+const audiences = new Map<string, Audience[]>();
 
-export function registerEventAudience(eventType: string, audience: Audience): void {
-  const prior = audiences.get(eventType);
-  if (prior === undefined) {
-    audiences.set(eventType, audience);
-    return;
-  }
-  audiences.set(eventType, (event, socket) => prior(event, socket) || audience(event, socket));
+export function registerEventAudience(eventType: string, audience: Audience): () => void {
+  const list = audiences.get(eventType) ?? [];
+  list.push(audience);
+  audiences.set(eventType, list);
+  return () => {
+    const current = audiences.get(eventType);
+    if (current === undefined) return;
+    const index = current.lastIndexOf(audience);
+    if (index < 0) return;
+    current.splice(index, 1);
+    if (current.length === 0) audiences.delete(eventType);
+  };
 }
 
 export function audienceAllows(event: PosEvent, socket: SocketCtx): boolean {
-  const audience = audiences.get(event.event_type);
-  return audience !== undefined && audience(event, socket);
+  const list = audiences.get(event.event_type);
+  return list !== undefined && list.some((audience) => audience(event, socket));
 }
 
 registerEventAudience('ClockAlarm', () => true);

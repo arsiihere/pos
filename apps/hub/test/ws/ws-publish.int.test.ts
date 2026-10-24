@@ -85,7 +85,7 @@ describe('websocket publish', () => {
   });
 
   it('[00 §10 #112] a socket registered between COMMIT and publish receives the event once, in catch-up', async () => {
-    registerEventAudience('HubStarted', () => true);
+    const stopAudience = registerEventAudience('HubStarted', () => true);
     let sendAuth: () => void = () => undefined;
     const hub = await createTestHub({
       testHooks: {
@@ -102,13 +102,26 @@ describe('websocket publish', () => {
     sendAuth = () => {
       ws.send({ type: 'auth', device_token: device.token, session_token: staff.token });
     };
-    const { appended } = hub.deps.writer.run((tx) => {
+    let appendedSeq: number | undefined;
+    try {
+      const { appended } = hub.deps.writer.run((tx) => {
+        tx.append([hubStarted()]);
+      });
+      appendedSeq = appended[0]?.seq;
+      await ws.untilCount(1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(ws.messages).toEqual([
+        expect.objectContaining({ type: 'catch_up', as_of_seq: appendedSeq }),
+      ]);
+    } finally {
+      stopAudience();
+    }
+    hub.deps.writer.run((tx) => {
       tx.append([hubStarted()]);
     });
-    await ws.untilCount(1);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(ws.messages).toEqual([
-      expect.objectContaining({ type: 'catch_up', as_of_seq: appended[0]?.seq }),
+      expect.objectContaining({ type: 'catch_up', as_of_seq: appendedSeq }),
     ]);
   });
 
