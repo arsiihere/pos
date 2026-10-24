@@ -40,8 +40,8 @@ export const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=19456,t=2,p=1$FvNB5jNPmwC7Zwiv1aMtkg$9pK3a7lFvEyuog5JuYGR337S7Pr04G8Kmer+9b+3q2g';
 
 export interface IpLimiter {
-  check(ip: string): { limited: boolean; retryAfterMs: number };
-  record(ip: string): void;
+  check(ip: string): { limited: boolean; retryAfterMs: number; at: number };
+  release(ip: string, at: number): void;
 }
 
 export function createIpLimiter(o: { max: number; windowMs: number; clock: Clock }): IpLimiter {
@@ -50,16 +50,20 @@ export function createIpLimiter(o: { max: number; windowMs: number; clock: Clock
     check(ip) {
       const now = o.clock.branchNow();
       const recent = (hits.get(ip) ?? []).filter((at) => now - at < o.windowMs);
-      hits.set(ip, recent);
-      const oldest = recent[0];
-      if (recent.length < o.max || oldest === undefined) return { limited: false, retryAfterMs: 0 };
-      return { limited: true, retryAfterMs: oldest + o.windowMs - now };
-    },
-    record(ip) {
-      const now = o.clock.branchNow();
-      const recent = hits.get(ip) ?? [];
+      if (recent.length >= o.max) {
+        hits.set(ip, recent);
+        const oldest = recent[0] ?? now;
+        return { limited: true, retryAfterMs: oldest + o.windowMs - now, at: now };
+      }
       recent.push(now);
       hits.set(ip, recent);
+      return { limited: false, retryAfterMs: 0, at: now };
+    },
+    release(ip, at) {
+      const recent = hits.get(ip);
+      if (recent === undefined) return;
+      const index = recent.lastIndexOf(at);
+      if (index >= 0) recent.splice(index, 1);
     },
   };
 }
@@ -121,37 +125,41 @@ export async function login(
 ): Promise<IssuedTokens> {
   const gate = limiter.check(ip);
   if (gate.limited) throw new DomainError('IP_LOCKED_OUT', { retry_after_ms: gate.retryAfterMs });
-  const user = await credentials.byEmail(input.email);
-  const now = deps.clock.branchNow();
-  if (user === null || locked(user, now)) {
-    await verify(DUMMY_PASSWORD_HASH, input.password);
-    limiter.record(ip);
-    throw new DomainError('LOGIN_INVALID');
-  }
-  const match = await verify(user.password_hash, input.password);
-  if (!match) {
-    await recordLoginFailure(deps.pool, {
-      tenantId: user.tenant_id,
-      userId: user.user_id,
-      now,
-      windowMs: WINDOW_MS,
-      threshold: FAILURE_LIMIT,
-      lockMs: LOCK_MS,
-    });
-    limiter.record(ip);
-    throw new DomainError('LOGIN_INVALID');
-  }
-  const client = await deps.pool.connect();
+  let succeeded = false;
   try {
-    await client.query('BEGIN');
-    const tokens = await issueTokens(client, user, deps);
-    await client.query('COMMIT');
-    return tokens;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
+    const user = await credentials.byEmail(input.email);
+    const now = deps.clock.branchNow();
+    if (user === null || locked(user, now)) {
+      await verify(DUMMY_PASSWORD_HASH, input.password);
+      throw new DomainError('LOGIN_INVALID');
+    }
+    const match = await verify(user.password_hash, input.password);
+    if (!match) {
+      await recordLoginFailure(deps.pool, {
+        tenantId: user.tenant_id,
+        userId: user.user_id,
+        now,
+        windowMs: WINDOW_MS,
+        threshold: FAILURE_LIMIT,
+        lockMs: LOCK_MS,
+      });
+      throw new DomainError('LOGIN_INVALID');
+    }
+    const client = await deps.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const tokens = await issueTokens(client, user, deps);
+      await client.query('COMMIT');
+      succeeded = true;
+      return tokens;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   } finally {
-    client.release();
+    if (succeeded) limiter.release(ip, gate.at);
   }
 }
 

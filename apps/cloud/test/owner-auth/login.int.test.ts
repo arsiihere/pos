@@ -126,6 +126,20 @@ describe('POST /v1/auth/login', () => {
       [concurrent.user_id],
     );
     expect(count.rows[0]!.failed_login_count).toBe(10);
+
+    const burst = await Promise.all(
+      Array.from({ length: 31 }, () => login(cloud.app, 'missing@example.com', PASSWORD, '203.0.113.50')),
+    );
+    expect(burst.filter((res) => res.statusCode === 401)).toHaveLength(30);
+    expect(burst.filter((res) => res.statusCode === 429 && res.json().error.code === 'IP_LOCKED_OUT')).toHaveLength(1);
+
+    await seedOwner(cloud, 'keeper@example.com', 'Kim');
+    const kept = '203.0.113.60';
+    expect((await login(cloud.app, 'keeper@example.com', PASSWORD, kept)).statusCode).toBe(200);
+    for (let i = 0; i < 30; i += 1) {
+      expect((await login(cloud.app, 'missing@example.com', PASSWORD, kept)).statusCode).toBe(401);
+    }
+    expect((await login(cloud.app, 'missing@example.com', PASSWORD, kept)).statusCode).toBe(429);
   });
 
   it("[00 §10 #126] login deletes that user's refresh tokens expired more than 7 days; other users' rows untouched", async () => {
