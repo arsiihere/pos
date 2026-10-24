@@ -19,6 +19,7 @@ import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { buildHubServer, type HubDeps } from '../../src/server';
+import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
 import { aDirectory } from './fixtures';
 import { createLogCapture } from './log-capture';
@@ -35,7 +36,11 @@ export interface TestHub {
   close(): Promise<void>;
 }
 
-export async function createTestHub(o?: { provisioned?: boolean; config?: Partial<HubConfig> }): Promise<TestHub> {
+export async function createTestHub(o?: {
+  provisioned?: boolean;
+  config?: Partial<HubConfig>;
+  testHooks?: { beforeCommit?: () => void; beforePublish?: () => void };
+}): Promise<TestHub> {
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });
@@ -47,6 +52,7 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];
+  const publishSlot: { current: (events: PosEvent[]) => void } = { current: () => undefined };
   const deps: HubDeps = {
     config,
     db: fx.db,
@@ -65,7 +71,9 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
       authGeneration,
       publish: (events) => {
         published.push(events);
+        publishSlot.current(events);
       },
+      testHooks: o?.testHooks,
     }),
     state,
     projections,
@@ -75,6 +83,8 @@ export async function createTestHub(o?: { provisioned?: boolean; config?: Partia
   const capture = createLogCapture();
   deps.logStream = capture.stream;
   const app = buildHubServer(deps);
+  const publish = publisherFor(app);
+  if (publish !== undefined) publishSlot.current = publish;
   const rawInject = app.inject.bind(app);
   app.inject = ((opts?: InjectOptions | string) => {
     const options: InjectOptions = typeof opts === 'string' ? { url: opts } : { ...opts };

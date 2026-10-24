@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
 import '@pos/events';
-import type { EventDraft } from '@pos/events';
+import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { attachRouteGuards } from '../auth/guards.js';
@@ -21,6 +21,7 @@ import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
+import { publisherFor } from '../ws/server.js';
 import { httpCloudClient } from '../setup/cloud-client.js';
 import { startConfirmTask } from '../setup/confirm-task.js';
 import { registerSetupRoutes } from '../setup/provision.js';
@@ -127,7 +128,8 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       row === undefined
         ? { clock: wallClock(opts.wallNow, opts.monoNow), alarm: null }
         : createBranchClock({ wallNow: opts.wallNow, monoNow: opts.monoNow, lastRecordedAt: row.recorded_at });
-    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream);
+    const publishSlot: { current: (events: PosEvent[]) => void } = { current: () => undefined };
+    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream, publishSlot);
     if (opened.alarm !== null) {
       const alarm = opened.alarm;
       deps.writer.run((tx) => {
@@ -154,6 +156,8 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
     current = '5';
     const app = buildHubServer(deps);
+    const publish = publisherFor(app);
+    if (publish !== undefined) publishSlot.current = publish;
     ctx.app = app;
     registerHealth(app, () =>
       healthRead(phase, current, true, isConfirmed(config), provisioned.branch_id, opened.alarm, db),
@@ -266,6 +270,7 @@ function createDeps(
   clock: Clock,
   ifaces: string[] | undefined,
   logStream: NodeJS.WritableStream | undefined,
+  publishSlot?: { current: (events: PosEvent[]) => void },
 ): HubDeps {
   const provisioned = config.provisioned;
   const state = createStateHolder<unknown>({});
@@ -289,7 +294,9 @@ function createDeps(
       projections,
       state,
       authGeneration,
-      publish: () => undefined,
+      publish: (events) => {
+        publishSlot?.current(events);
+      },
     }),
     state,
     projections,

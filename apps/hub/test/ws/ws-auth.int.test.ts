@@ -97,7 +97,7 @@ describe('websocket auth', () => {
     const device = pairDevice(hub, { type: 'tablet' });
     const staff = openSession(hub, { kind: 'staff', staffId: 'S_PROBE', deviceId: device.deviceId });
     hub.deps.writer.run((tx) => {
-      tx.append([clockAlarm()]);
+      tx.append([clockAlarm(10, 20)]);
     });
     const asOf = hub.deps.writer.lastSeq();
 
@@ -111,7 +111,7 @@ describe('websocket auth', () => {
     });
 
     hub.deps.writer.run((tx) => {
-      tx.append([hubStarted(1), hubStarted(2)]);
+      tx.append([clockAlarm(11, 21), clockAlarm(12, 22)]);
     });
     await ws.untilCount(3);
     const events = ws.messages.slice(1);
@@ -125,7 +125,7 @@ describe('websocket auth', () => {
     const stationWs = await connect(hub);
     stationWs.send({ type: 'auth', device_token: kds.token, session_token: station.token });
     await stationWs.untilCount(1);
-    expect(stationWs.messages[0]).toMatchObject({ type: 'catch_up', state: { hub: { clock_alarm: { wall_ms: 10, last_recorded_at: 20 } } } });
+    expect(stationWs.messages[0]).toMatchObject({ type: 'catch_up', state: { hub: { clock_alarm: { wall_ms: 12, last_recorded_at: 22 } } } });
     expect((stationWs.messages[0] as { state: { probe?: unknown } }).state.probe).toBeUndefined();
   });
 
@@ -166,26 +166,13 @@ async function connect(hub: TestHub, o?: { path?: string; headers?: Record<strin
   return ws;
 }
 
-function clockAlarm(): EventDraft {
+function clockAlarm(wallMs: number, last: number): EventDraft {
   return {
     stream_type: 'hub',
     stream_id: 'branch-1',
     event_type: 'ClockAlarm',
     schema_version: 1,
-    payload: { wall_ms: 10, last_recorded_at: 20, delta_ms: -10, source: 'boot' },
-    occurred_at: 1_761_000_000_000,
-    actor_id: null,
-    device_id: 'hub',
-  };
-}
-
-function hubStarted(bootMs: number): EventDraft {
-  return {
-    stream_type: 'hub',
-    stream_id: 'branch-1',
-    event_type: 'HubStarted',
-    schema_version: 1,
-    payload: { hub_down_at: null, hub_up_at: 1_761_000_000_000, events_replayed: 0, missed_fires: 0, boot_ms: bootMs },
+    payload: { wall_ms: wallMs, last_recorded_at: last, delta_ms: wallMs - last, source: 'boot' },
     occurred_at: 1_761_000_000_000,
     actor_id: null,
     device_id: 'hub',

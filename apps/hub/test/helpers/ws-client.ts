@@ -15,12 +15,16 @@ interface LiveSocket {
   send(data: string): void;
   close(): void;
   terminate(): void;
+  pong(data?: Buffer, mask?: boolean, cb?: () => void): void;
+  _autoPong: boolean;
   on(event: 'message', cb: (data: Buffer | string) => void): void;
   on(event: 'close', cb: (code: number, reason: Buffer) => void): void;
+  on(event: 'ping', cb: () => void): void;
 }
 
 export interface WsClient {
   messages: unknown[];
+  raw: LiveSocket;
   send(body: unknown): void;
   close(): void;
   untilClose(ms?: number): Promise<{ code: number; reason: string }>;
@@ -63,6 +67,7 @@ export async function connectWs(
   );
   return {
     messages,
+    raw: ws,
     send(body) {
       ws.send(JSON.stringify(body));
     },

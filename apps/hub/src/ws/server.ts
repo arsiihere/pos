@@ -7,9 +7,12 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { findSessionByToken, isIdleExpired } from '../auth/session-store.js';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
+import { audienceAllows } from './audience.js';
 import { buildCatchUpState, type SocketCtx } from './catch-up.js';
 
 const AUTH_MS = 5_000;
+const PING_MS = 15_000;
+const PONG_MS = 30_000;
 
 export interface WsHub {
   publish(events: PosEvent[]): void;
@@ -17,14 +20,29 @@ export interface WsHub {
 
 interface HubSocket {
   send(data: string): void;
-  close(code?: number): void;
+  ping(): void;
+  terminate(): void;
+  close(code?: number, reason?: string): void;
   on(event: 'message', listener: (data: { toString(): string } | Array<{ toString(): string }>) => void): void;
   on(event: 'close', listener: () => void): void;
+  on(event: 'pong', listener: () => void): void;
 }
 
 interface OpenSocket {
   socket: HubSocket;
   ctx: SocketCtx;
+  lastAck?: number;
+}
+
+interface SocketClose {
+  code: number;
+  reason?: string;
+}
+
+const publishers = new WeakMap<FastifyInstance, (events: PosEvent[]) => void>();
+
+export function publisherFor(app: FastifyInstance): ((events: PosEvent[]) => void) | undefined {
+  return publishers.get(app);
 }
 
 export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
@@ -32,33 +50,62 @@ export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
   const branchId = deps.config.provisioned?.branch_id ?? '';
   const hub: WsHub = {
     publish(events) {
-      for (const event of events) {
-        const body = JSON.stringify({
-          type: 'event',
-          seq: event.seq,
-          event: {
-            event_id: event.event_id,
-            event_type: event.event_type,
-            schema_version: event.schema_version,
-            payload: event.payload,
-          },
-        });
-        for (const live of open) {
-          if (event.seq > live.ctx.asOfSeq) live.socket.send(body);
-        }
-      }
+      deliver(open, events);
     },
   };
-  deps.writer.addAfterCommit((events) => {
-    if (events.length > 0) hub.publish(events);
+  publishers.set(app, hub.publish);
+  app.register(websocket, {
+    preClose(done) {
+      const server = app.websocketServer;
+      for (const client of server.clients) client.close(WS_CLOSE.RESTARTING);
+      server.close(() => undefined);
+      done();
+    },
   });
-  app.register(websocket);
   app.after(() => {
     app.get('/ws', { websocket: true, config: { group: 'ws' } }, (socket, request) => {
       accept(socket, request, deps, branchId, open);
     });
   });
   return hub;
+}
+
+function deliver(open: OpenSocket[], events: PosEvent[]): void {
+  const closing = new Map<OpenSocket, SocketClose>();
+  for (const event of events) {
+    const body = JSON.stringify({
+      type: 'event',
+      seq: event.seq,
+      event: {
+        event_id: event.event_id,
+        event_type: event.event_type,
+        schema_version: event.schema_version,
+        payload: event.payload,
+      },
+    });
+    for (const live of open) {
+      if (event.seq <= live.ctx.asOfSeq || !audienceAllows(event, live.ctx)) continue;
+      live.socket.send(body);
+      const next = closeFor(event, live.ctx);
+      if (next === undefined) continue;
+      const prev = closing.get(live);
+      if (prev === undefined || next.code === WS_CLOSE.FORBIDDEN) closing.set(live, next);
+    }
+  }
+  for (const [live, action] of closing) live.socket.close(action.code, action.reason);
+}
+
+function closeFor(event: PosEvent, socket: SocketCtx): SocketClose | undefined {
+  if (event.event_type === 'SessionEnded' && event.payload.session_id === socket.sessionId) {
+    return { code: WS_CLOSE.CREDENTIALS, reason: String(event.payload.reason) };
+  }
+  if (event.event_type === 'DeviceTokenRotated' && event.payload.device_id === socket.deviceId) {
+    return { code: WS_CLOSE.CREDENTIALS };
+  }
+  if (event.event_type === 'DeviceRevoked' && event.payload.device_id === socket.deviceId) {
+    return { code: WS_CLOSE.FORBIDDEN };
+  }
+  return undefined;
 }
 
 function accept(
@@ -73,6 +120,8 @@ function accept(
     return;
   }
   let decided = false;
+  let live: OpenSocket | undefined;
+  let stopKeepalive = (): void => undefined;
   const timer = setTimeout(() => {
     if (decided) return;
     decided = true;
@@ -80,12 +129,20 @@ function accept(
   }, AUTH_MS);
   socket.on('close', () => {
     clearTimeout(timer);
+    stopKeepalive();
+    if (live === undefined) return;
+    const index = open.indexOf(live);
+    if (index >= 0) open.splice(index, 1);
   });
   socket.on('message', (data) => {
+    const parsed = WsClientMessage.safeParse(readJson(data));
+    if (live !== undefined) {
+      if (parsed.success && parsed.data.type === 'ack') live.lastAck = parsed.data.last_seq;
+      return;
+    }
     if (decided) return;
     decided = true;
     clearTimeout(timer);
-    const parsed = WsClientMessage.safeParse(readJson(data));
     if (!parsed.success || parsed.data.type !== 'auth') {
       socket.close(WS_CLOSE.CREDENTIALS);
       return;
@@ -98,14 +155,24 @@ function accept(
     const asOfSeq = deps.writer.lastSeq();
     const ctx: SocketCtx = { ...auth, asOfSeq };
     const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId);
-    const live = { socket, ctx };
+    live = { socket, ctx };
     open.push(live);
-    socket.on('close', () => {
-      const index = open.indexOf(live);
-      if (index >= 0) open.splice(index, 1);
-    });
+    stopKeepalive = armKeepalive(socket);
     socket.send(JSON.stringify({ type: 'catch_up', as_of_seq: asOfSeq, state }));
   });
+}
+
+function armKeepalive(socket: HubSocket): () => void {
+  const handle = { kill: setTimeout(() => socket.terminate(), PONG_MS) };
+  const ping = setInterval(() => socket.ping(), PING_MS);
+  socket.on('pong', () => {
+    clearTimeout(handle.kill);
+    handle.kill = setTimeout(() => socket.terminate(), PONG_MS);
+  });
+  return () => {
+    clearTimeout(handle.kill);
+    clearInterval(ping);
+  };
 }
 
 function authenticate(
