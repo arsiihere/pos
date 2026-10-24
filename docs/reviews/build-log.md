@@ -252,3 +252,7 @@ Commit below. Test: `[00 §10 #94]` static check extended: `resumePaired` runs b
 ## Task 55 — branch_name kept in the hub config (build review 2 item 4)
 Commit below. Test: `[00 §10 #132]` setup with the stub cloud's `branch_name: 'Main'` writes `provisioned.branch_name`; a hub booted with that `provisioned` returns it from `POST /devices/pair`, the approved `GET /pair/requests/:id`, and the WS `catch_up.state.hub.branch_name`. It failed first with `undefined` in the saved config. Hub + packages 214/214 (1 skipped); `boot-budget.int.test.ts` run separately (fixture built, passed). Cloud not run: Postgres on 5433 down.
 `provisioned.branch_name` is required in `HubConfigSchema`. `buildCatchUpState` takes `branchName` as a fifth argument (from `ws/server.ts`). Test configs that build `provisioned` gained `branch_name: 'Main'`, and the three tests that expected `''` (`#29`, `#95`, `#51`) now expect `'Main'`. These files are outside the item's list, but the item tells us to update them.
+
+## Task 56 — pairing_source derived from device_type (build review 2 item 5)
+Commit below. Test: `[00 §10 #134]` a tablet whose `pairing_tokens` row is deleted (retention) still lists `pairing_source: 'token'`, and a kds lists `'request'`. It failed first with `'request'`. `#45` keeps one statement. Hub + packages 215/215 (1 skipped). No cloud code touched.
+Ruling: `#45` expected `'request'` for the admin tablet, because it had no `pairing_tokens` row. Under M80 a tablet is always `'token'`, so the expectation changed. The `CASE` no longer reads `pairing_tokens`.

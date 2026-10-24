@@ -21,8 +21,7 @@ export function registerDevicesQuery(app: FastifyInstance): void {
           .prepare(
             `SELECT d.device_id, d.device_name, d.device_type, d.station_id, d.owner_staff_id,
                     d.paired_at, d.paired_by, d.last_seen_at, d.revoked_at,
-                    CASE WHEN EXISTS (SELECT 1 FROM pairing_tokens pt WHERE pt.device_id = d.device_id)
-                         THEN 'token' ELSE 'request' END AS pairing_source,
+                    CASE WHEN d.device_type IN ('tablet', 'phone') THEN 'token' ELSE 'request' END AS pairing_source,
                     s.session_id, s.kind, s.staff_id
              FROM devices d
              LEFT JOIN staff_sessions s

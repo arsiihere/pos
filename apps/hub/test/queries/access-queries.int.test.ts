@@ -15,6 +15,20 @@ describe('access queries', () => {
     activity.drainDevices();
   });
 
+  it('[00 §10 #134] a token-paired tablet still reports pairing_source token after retention deletes its pairing token; an approved kds reports request', async () => {
+    const hub = await open();
+    const adminDevice = pairDevice(hub, { type: 'tablet' });
+    const admin = openSession(hub, { kind: 'admin', staffId: 'S_OWNER', deviceId: adminDevice.deviceId });
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    markTokenPaired(hub, tablet.deviceId);
+    hub.deps.db.prepare('DELETE FROM pairing_tokens WHERE device_id = ?').run(tablet.deviceId);
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'STATION-1' });
+    const res = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices');
+    const listed = res.json().data.devices as Array<{ device_id: string; pairing_source: string }>;
+    expect(listed.find((row) => row.device_id === tablet.deviceId)?.pairing_source).toBe('token');
+    expect(listed.find((row) => row.device_id === kds.deviceId)?.pairing_source).toBe('request');
+  });
+
   it('[00 §10 #45] lists, fixed query count (statement counter = 1) with 1 and 20 devices', async () => {
     const hub = await open();
     const counter = statementCounter(hub.deps.readDb);
@@ -57,7 +71,7 @@ describe('access queries', () => {
       active_session: { session_id: staff.sessionId, kind: 'staff', staff_id: 'S_CASH', display_name: 'Cashier' },
     });
     expect(listedDevices.find((row) => row.device_id === adminDevice.deviceId)).toMatchObject({
-      pairing_source: 'request',
+      pairing_source: 'token',
       last_seen_at: hub.clock.branchNow(),
       active_session: null,
     });
