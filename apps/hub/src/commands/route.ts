@@ -115,10 +115,20 @@ async function runCommand(
       directory,
       config: deps.config,
     };
+    const beforeSeq = (
+      tx.db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE branch_id = ?').get(tx.branchId) as {
+        seq: number;
+      }
+    ).seq;
     const handled = commandDef.handle(ctx, payload.data, command);
-    const appended = tx.append(handled.events);
+    tx.append(handled.events);
+    const eventIds = (
+      tx.db
+        .prepare('SELECT event_id FROM events WHERE branch_id = ? AND seq > ? ORDER BY seq')
+        .all(tx.branchId, beforeSeq) as Array<{ event_id: string }>
+    ).map((row) => row.event_id);
     const response = {
-      data: { command_id: command.command_id, event_ids: appended.map((event) => event.event_id), result: handled.result },
+      data: { command_id: command.command_id, event_ids: eventIds, result: handled.result },
     };
     tx.db
       .prepare(

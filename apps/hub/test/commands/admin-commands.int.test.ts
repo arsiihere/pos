@@ -29,6 +29,8 @@ describe('admin access commands', () => {
     expect(eventsOf(hub, 'DeviceRevoked').map((payload) => payload)).toEqual([
       { device_id: target.deviceId, reason: 'lost', cause: 'manual' },
     ]);
+    const revokedIds = revoked.json().data.event_ids as string[];
+    expect(eventTypes(hub, revokedIds)).toEqual(['SessionEnded', 'SessionEnded', 'DeviceRevoked']);
 
     const replay = await post(hub, admin, 'revoke-device', 'RevokeDevice', { device_id: target.deviceId, reason: 'lost' });
     expect(replay.statusCode).toBe(200);
@@ -74,6 +76,7 @@ describe('admin access commands', () => {
       ended_at: hub.clock.branchNow(),
       already_ended: false,
     });
+    expect(eventTypes(hub, loggedOut.json().data.event_ids as string[])).toEqual(['SessionEnded']);
     expect(sessionEnd(hub, staff.sessionId)).toEqual({ end_reason: 'forced', ended_by: 'S_OWNER' });
     expect(eventsOf(hub, 'SessionEnded').find((payload) => payload.session_id === staff.sessionId)).toMatchObject({
       reason: 'forced',
@@ -222,6 +225,16 @@ function sessionEnd(hub: TestHub, sessionId: string): { end_reason: string | nul
 function eventsOf(hub: TestHub, eventType: string): Array<Record<string, unknown>> {
   const rows = hub.deps.db.prepare('SELECT payload FROM events WHERE event_type = ?').all(eventType) as Array<{ payload: string }>;
   return rows.map((row) => JSON.parse(row.payload) as Record<string, unknown>);
+}
+
+function eventTypes(hub: TestHub, eventIds: string[]): string[] {
+  if (eventIds.length === 0) return [];
+  const rows = hub.deps.db
+    .prepare(
+      `SELECT event_id, event_type FROM events WHERE event_id IN (${eventIds.map(() => '?').join(', ')}) ORDER BY seq`,
+    )
+    .all(...eventIds) as Array<{ event_id: string; event_type: string }>;
+  return rows.map((row) => row.event_type);
 }
 
 function insertLock(hub: TestHub, subjectType: string, subjectId: string, lockedUntil: number | null): void {
