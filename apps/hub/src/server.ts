@@ -14,7 +14,7 @@ import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
 import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { registerStationSessionRoutes } from './auth/station-session.js';
-import { attachRouteGuards } from './auth/guards.js';
+import { attachRouteGuards, type RouteGroup } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
@@ -136,7 +136,58 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   registerStaffSessionRoutes(app, deps, semaphores.pin);
   registerStationSessionRoutes(app, deps);
   registerWs(app, deps);
+  installCors(app, deps.config.cors_origins);
   return app;
+}
+
+const CORS_GROUPS = new Set<RouteGroup>(['device', 'device-session', 'pair', 'pair-request']);
+const CORS_HEADERS = 'Authorization, X-Session-Token, X-Client-Version, X-Poll-Secret, Content-Type';
+const CORS_METHODS = 'GET, POST';
+
+function installCors(app: FastifyInstance, origins: readonly string[]): void {
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.method !== 'OPTIONS' || !isCorsPath(request.url)) return;
+    const origin = allowedOrigin(request, origins);
+    if (origin === undefined) return;
+    void reply.header('Access-Control-Allow-Origin', origin);
+    void reply.header('Vary', 'Origin');
+    void reply.header('Access-Control-Allow-Headers', CORS_HEADERS);
+    void reply.header('Access-Control-Allow-Methods', CORS_METHODS);
+    return reply.status(200).send({ data: {} });
+  });
+
+  app.addHook('onSend', async (request, reply) => {
+    const group = request.routeOptions.config.group;
+    if (group === undefined || !CORS_GROUPS.has(group)) return;
+    const origin = allowedOrigin(request, origins);
+    if (origin === undefined) return;
+    void reply.header('Access-Control-Allow-Origin', origin);
+    void reply.header('Vary', 'Origin');
+  });
+}
+
+function isCorsPath(url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  if (path.startsWith('/admin') || path.startsWith('/setup')) return false;
+  return (
+    path === '/commands' ||
+    path.startsWith('/commands/') ||
+    path === '/queries' ||
+    path.startsWith('/queries/') ||
+    path === '/auth' ||
+    path.startsWith('/auth/') ||
+    path === '/devices/pair' ||
+    path.startsWith('/devices/pair/') ||
+    path === '/pair' ||
+    path.startsWith('/pair/')
+  );
+}
+
+function allowedOrigin(request: FastifyRequest, origins: readonly string[]): string | undefined {
+  const header = request.headers.origin;
+  const origin = Array.isArray(header) ? header[0] : header;
+  if (origin === undefined || !origins.includes(origin)) return undefined;
+  return origin;
 }
 
 export function installHubErrors(app: FastifyInstance, notFound?: (request: FastifyRequest) => void): void {
