@@ -23,3 +23,17 @@ export const LoginResponse = z.object({
 });
 
 export type LoginBodyInput = z.infer<typeof LoginBody>;
+
+export const RefreshBody = z.object({
+  refresh_token: z.string().min(1),
+});
+
+export const LogoutBody = z.object({
+  refresh_token: z.string().min(1),
+});
+
+export const LogoutResponse = z.object({
+  data: z.object({
+    revoked: z.boolean(),
+  }),
+});

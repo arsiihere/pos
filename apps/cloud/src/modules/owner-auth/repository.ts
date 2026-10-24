@@ -61,6 +61,44 @@ export async function deleteStaleRefreshTokens(
   );
 }
 
+export async function markRefreshRotated(
+  client: pg.PoolClient,
+  tenantId: string,
+  tokenId: string,
+  now: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE owner_refresh_tokens SET rotated_at = $3 WHERE tenant_id = $1 AND token_id = $2`,
+    [tenantId, tokenId, now],
+  );
+}
+
+export async function revokeLiveRefreshTokens(
+  client: pg.PoolClient,
+  tenantId: string,
+  userId: string,
+  now: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE owner_refresh_tokens
+        SET revoked_at = $3
+      WHERE tenant_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+    [tenantId, userId, now],
+  );
+}
+
+export async function ownerProfile(
+  client: pg.PoolClient,
+  tenantId: string,
+  userId: string,
+): Promise<{ display_name: string; allowed_branch_ids: string[] } | null> {
+  const result = await client.query<{ display_name: string; allowed_branch_ids: string[] }>(
+    `SELECT display_name, allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+    [tenantId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function insertRefreshToken(
   client: pg.PoolClient,
   row: { tenantId: string; tokenId: string; userId: string; tokenHash: string; now: number; expiresAt: number },
