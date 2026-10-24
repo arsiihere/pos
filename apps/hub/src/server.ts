@@ -80,7 +80,12 @@ export interface HubDeps {
   testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
 }
 
-export function buildHubServer(deps: HubDeps): FastifyInstance {
+export interface BuildHubOptions {
+  // Test harness only: boot() never sets it, so the production entry cannot register TestNoop & co.
+  testCommands?: boolean;
+}
+
+export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: {
       level: 'info',
@@ -114,7 +119,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
     clock: deps.clock,
     authGeneration: deps.authGeneration,
   });
-  registerCommandRoutes(app, deps);
+  registerCommandRoutes(app, deps, options.testCommands === true);
   registerGenerateDevicePairingToken(app);
   registerApprovePairingRequest(app, deps);
   registerRevokeDevice(app);

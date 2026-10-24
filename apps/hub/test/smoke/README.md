@@ -2,6 +2,8 @@
 
 Checks the §7.8 targets on the machine it runs on. Run it on the pilot hub mini PC and record the output, or the gap, in `docs/reviews/` (§12.1).
 
+It never touches the hub's real data dir or config. The request timings run on a throwaway hub in a temp dir (`createTestHub`, which passes `buildHubServer(deps, { testCommands: true })`), and the boot timing runs `boot()` on a temp copy of the fixture. Running it on the mini PC still measures that hardware, and no test event reaches the live log or the cloud. The production entry (`main.ts` → `boot()`) cannot register test commands.
+
 ```sh
 pnpm --filter @pos/hub smoke
 ```

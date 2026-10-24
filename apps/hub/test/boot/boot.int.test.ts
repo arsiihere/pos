@@ -9,6 +9,7 @@ import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { boot, registerBootStep } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
+import { sha256hex } from '../../src/lib/hash';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
@@ -49,6 +50,36 @@ describe('boot', () => {
       wall_ms: WALL,
       last_recorded_at: WALL,
     });
+  });
+
+  it('[00 §3.7] the production boot (main.ts options) registers no test command: TestNoop → 404 ROUTE_NOT_FOUND, nothing written', async () => {
+    const cfg = writeConfig({ provisioned: true });
+    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0 });
+    cleanups.push(() => booted.stop(), cfg.cleanup);
+    booted.deps.db
+      .prepare(
+        `INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, paired_at, paired_by)
+         VALUES ('dev-1', 'branch-1', ?, 'Till', 'tablet', ?, 'S_OWNER')`,
+      )
+      .run(sha256hex('device-token-1'), WALL);
+    const res = await booted.app.inject({
+      method: 'POST',
+      url: '/commands/test-noop',
+      headers: { host: '192.168.10.2:3000', authorization: 'Bearer device-token-1' },
+      payload: {
+        command_id: 'cmd-test-noop',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'TestNoop',
+        payload: {},
+        occurred_at: WALL,
+        actor_id: 'S_OWNER',
+        device_id: 'dev-1',
+      },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('ROUTE_NOT_FOUND');
+    expect(booted.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'TestNooped'`).pluck().get()).toBe(0);
   });
 
   it('[00 §3.8] registered steps run in order', async () => {

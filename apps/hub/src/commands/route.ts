@@ -43,10 +43,10 @@ export function commandRegistry(app: FastifyInstance): ReturnType<typeof createC
   return registry;
 }
 
-export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDeps): void {
+export function registerCommandRoutes(app: FastifyInstance, deps: CommandRouteDeps, testCommands: boolean): void {
   const registry = createCommandRegistry();
   commandRegistries.set(app, registry);
-  registerTestCommands(registry);
+  if (testCommands) registerTestCommands(registry);
   app.post(
     '/commands/:name',
     { config: { group: 'device' } },

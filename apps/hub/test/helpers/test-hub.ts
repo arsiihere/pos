@@ -82,7 +82,7 @@ export async function createTestHub(o?: {
   };
   const capture = createLogCapture();
   deps.logStream = capture.stream;
-  const app = buildHubServer(deps);
+  const app = buildHubServer(deps, { testCommands: true });
   const publish = publisherFor(app);
   if (publish !== undefined) publishSlot.current = publish;
   const rawInject = app.inject.bind(app);
