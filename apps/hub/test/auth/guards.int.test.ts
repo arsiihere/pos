@@ -8,6 +8,7 @@ import { createTestHub, openSession, pairDevice, seedDirectory } from '../helper
 const EXPECTED: Record<RouteGroup, string[]> = {
   health: ['host', 'isGuest'],
   setup: ['host', 'guest'],
+  static: ['host', 'guest'],
   device: ['host', 'provisioned', 'guest', 'version', 'device'],
   'device-session': ['host', 'provisioned', 'guest', 'version', 'device', 'session'],
   admin: ['host', 'provisioned', 'guest', 'device', 'admin'],

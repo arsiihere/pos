@@ -14,6 +14,7 @@ import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRo
 export type RouteGroup =
   | 'health'
   | 'setup'
+  | 'static'
   | 'device'
   | 'device-session'
   | 'admin'
@@ -26,6 +27,7 @@ export type RouteGroup =
 const GROUPS = new Set<RouteGroup>([
   'health',
   'setup',
+  'static',
   'device',
   'device-session',
   'admin',
@@ -64,7 +66,7 @@ declare module 'fastify' {
 
 export function guardsFor(group: RouteGroup): string[] {
   const names = ['host'];
-  if (group !== 'health' && group !== 'setup') names.push('provisioned');
+  if (group !== 'health' && group !== 'setup' && group !== 'static') names.push('provisioned');
   names.push(group === 'health' ? 'isGuest' : 'guest');
   if (VERSION_GROUPS.has(group)) names.push('version');
   if (DEVICE_GROUPS.has(group)) names.push('device');

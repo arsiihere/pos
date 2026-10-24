@@ -24,6 +24,7 @@ import { registerGenerateDevicePairingToken } from './commands/generate-device-p
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
+import { registerUiAssets } from './lib/ui-assets.js';
 import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
@@ -141,6 +142,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStaffSessionRoutes(app, deps, semaphores.pin);
   registerStationSessionRoutes(app, deps);
   registerWs(app, deps);
+  registerUiAssets(app);
   installCors(app, deps.config.cors_origins);
   return app;
 }

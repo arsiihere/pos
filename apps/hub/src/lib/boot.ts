@@ -29,6 +29,7 @@ import { createBranchClock, type Clock } from './clock.js';
 import { createHostMatcher } from './net.js';
 import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
+import { registerUiAssets } from './ui-assets.js';
 import { cryptoSecrets } from './secrets.js';
 
 const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
@@ -104,6 +105,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       phase = 'setup';
       current = '7';
       registerHealth(app, () => healthRead(phase, current, false, false, null, null, db));
+      registerUiAssets(app);
       registerSetupRoutes(app, {
         ...deps,
         cloud: httpCloudClient(config.cloud_base_url),
