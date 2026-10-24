@@ -93,6 +93,7 @@ function hubConfig(dir: string): HubConfig {
     provisioned: {
       tenant_id: 'tenant-a',
       branch_id: 'branch-1',
+      branch_name: 'Main',
       branch_api_key: 'branch-key-plain',
     },
     backup_encryption_key: Buffer.alloc(32, 3).toString('base64'),

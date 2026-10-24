@@ -154,7 +154,7 @@ function accept(
     }
     const asOfSeq = deps.writer.lastSeq();
     const ctx: SocketCtx = { ...auth, asOfSeq };
-    const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId);
+    const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, deps.config.provisioned?.branch_name ?? '');
     live = { socket, ctx };
     open.push(live);
     stopKeepalive = armKeepalive(socket);

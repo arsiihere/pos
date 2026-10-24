@@ -207,6 +207,7 @@ function cloudData(directory: DirectoryInput, branchApiKey: string): unknown {
       branch_name: 'Main',
       currency_code: 'PKR',
       kind: 'new_branch',
+      branch_name: 'Main',
       branch_api_key: branchApiKey,
       directory,
     },

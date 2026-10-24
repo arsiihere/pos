@@ -110,7 +110,7 @@ describe('websocket auth', () => {
       expect(ws.messages[0]).toMatchObject({
         type: 'catch_up',
         as_of_seq: asOf,
-        state: { hub: { clock_alarm: { wall_ms: 10, last_recorded_at: 20 }, branch_name: '' }, probe: { open: true } },
+        state: { hub: { clock_alarm: { wall_ms: 10, last_recorded_at: 20 }, branch_name: 'Main' }, probe: { open: true } },
       });
 
       hub.deps.writer.run((tx) => {

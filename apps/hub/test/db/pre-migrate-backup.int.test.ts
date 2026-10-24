@@ -222,6 +222,7 @@ function config(over: { data_dir: string; backup_dir: string; provisioned?: bool
           provisioned: {
             tenant_id: '01J00000000000000000000000',
             branch_id: '01J00000000000000000000001',
+            branch_name: 'Main',
             branch_api_key: 'branch-key',
           },
         }),

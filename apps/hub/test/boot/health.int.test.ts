@@ -177,7 +177,7 @@ function writeConfig(provisioned: boolean): { path: string; dataDir: string; cle
     guest_network_cidrs: ['192.168.20.0/24'],
   };
   if (provisioned) {
-    body.provisioned = { tenant_id: 'tenant-a', branch_id: 'branch-1', branch_api_key: 'test-branch-api-key' };
+    body.provisioned = { tenant_id: 'tenant-a', branch_id: 'branch-1', branch_name: 'Main', branch_api_key: 'test-branch-api-key' };
   }
   writeFileSync(path, JSON.stringify(body));
   return { path, dataDir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };

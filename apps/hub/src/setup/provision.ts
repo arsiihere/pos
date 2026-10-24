@@ -117,6 +117,7 @@ export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void
         provisioned: {
           tenant_id: data.tenant_id,
           branch_id: data.branch_id,
+          branch_name: data.branch_name,
           branch_api_key: data.branch_api_key,
         },
       };

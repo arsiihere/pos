@@ -9,7 +9,8 @@ import { writeHubConfigAtomic } from '../../src/config/write';
 import { registerSetupRoutes, type SetupDeps } from '../../src/setup/provision';
 import { aDirectory } from '../helpers/fixtures';
 import { CloudError, CloudUnreachableError, stubCloud, type StubCloud } from '../helpers/stub-cloud';
-import { createTestHub, type TestHub } from '../helpers/test-hub';
+import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { connectWs } from '../helpers/ws-client';
 
 const BODY = {
   registration_code: 'abcd-efgh jkmn',
@@ -22,6 +23,51 @@ describe('POST /setup/provision', () => {
   const cleanups: Array<() => Promise<void>> = [];
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  it('[00 §10 #132] setup stores branch_name in the config; /devices/pair, the approved poll and the WS catch-up return it', async () => {
+    const ctx = await openSetup();
+    cleanups.push(ctx.close);
+    ctx.cloud.registerResult = cloudData(await aDirectory());
+    expect((await post(ctx.hub)).statusCode).toBe(200);
+    const saved = loadHubConfig(ctx.configPath);
+    expect(saved.provisioned?.branch_name).toBe('Main');
+
+    const hub = await createTestHub({ config: { provisioned: saved.provisioned } });
+    cleanups.push(() => hub.close());
+    await seedDirectory(hub);
+    const now = hub.clock.branchNow();
+    hub.deps.db
+      .prepare(
+        `INSERT INTO pairing_tokens (pairing_token_id, branch_id, token_hash, device_type, owner_staff_id, created_by, created_at, expires_at)
+         VALUES ('pt-132', 'branch-1', ?, 'tablet', NULL, 'S_OWNER', ?, ?)`,
+      )
+      .run(sha256hex('pairing-132'), now, now + 600_000);
+    const paired = await hub.app.inject({
+      method: 'POST',
+      url: '/devices/pair',
+      payload: { pairing_token: 'pairing-132', pair_request_id: '0'.repeat(26), device_name: 'Till', device_type: 'tablet' },
+    });
+    expect(paired.statusCode).toBe(200);
+    const tablet = paired.json().data as { device_id: string; device_token: string; branch_name: string };
+    expect(tablet.branch_name).toBe('Main');
+
+    const kiosk = pairDevice(hub, { type: 'cashier_kiosk' });
+    hub.deps.db
+      .prepare(
+        `INSERT INTO pair_requests (request_id, branch_id, poll_secret_hash, display_code, device_name, requester_ip,
+           created_at, expires_at, approved_at, approved_by, device_id, delivery_token)
+         VALUES ('req-132', 'branch-1', ?, 'ABCDEF', 'Kiosk', '10.0.0.1', ?, ?, ?, 'S_OWNER', ?, ?)`,
+      )
+      .run(sha256hex('secret-132'), now, now + 600_000, now, kiosk.deviceId, kiosk.token);
+    const poll = await hub.app.inject({ method: 'GET', url: '/pair/requests/req-132', headers: { 'x-poll-secret': 'secret-132' } });
+    expect(poll.json().data).toMatchObject({ status: 'approved', branch_name: 'Main' });
+
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_OWNER', deviceId: tablet.device_id });
+    const ws = await connectWs(hub.app);
+    ws.send({ type: 'auth', device_token: tablet.device_token, session_token: session.token });
+    await ws.untilCount(1);
+    expect(ws.messages[0]).toMatchObject({ type: 'catch_up', state: { hub: { branch_name: 'Main' } } });
   });
 
   it('[00 §10 #15] setup applies the directory, records HubProvisioned and a bootstrap token, and asks to exit', async () => {

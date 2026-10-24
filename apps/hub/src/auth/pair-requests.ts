@@ -67,7 +67,7 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
         device_token: row.delivery_token,
         device_type: row.device_type,
         station_id: row.station_id,
-        branch_name: '',
+        branch_name: deps.config.provisioned?.branch_name ?? '',
       },
     };
   });

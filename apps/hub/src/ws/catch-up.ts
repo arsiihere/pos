@@ -33,8 +33,9 @@ export function buildCatchUpState(
   state: unknown,
   socket: SocketCtx,
   branchId: string,
+  branchName: string,
 ): Record<string, unknown> {
-  const merged: Record<string, unknown> = { hub: hubPart(db, branchId) };
+  const merged: Record<string, unknown> = { hub: hubPart(db, branchId, branchName) };
   for (const part of parts) {
     if (part.appliesTo(socket)) merged[part.part] = part.build(db, state);
   }
@@ -44,16 +45,17 @@ export function buildCatchUpState(
 function hubPart(
   db: Database.Database,
   branchId: string,
+  branchName: string,
 ): { clock_alarm: { wall_ms: number; last_recorded_at: number } | null; branch_name: string } {
   const row = db
     .prepare(
       `SELECT payload FROM events WHERE branch_id = ? AND event_type = 'ClockAlarm' ORDER BY seq DESC LIMIT 1`,
     )
     .get(branchId) as { payload: string } | undefined;
-  if (row === undefined) return { clock_alarm: null, branch_name: '' };
+  if (row === undefined) return { clock_alarm: null, branch_name: branchName };
   const payload = JSON.parse(row.payload) as { wall_ms: number; last_recorded_at: number };
   return {
     clock_alarm: { wall_ms: payload.wall_ms, last_recorded_at: payload.last_recorded_at },
-    branch_name: '',
+    branch_name: branchName,
   };
 }

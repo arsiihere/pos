@@ -56,7 +56,7 @@ describe('pairing requests', () => {
       device_token: 'device-secret',
       device_type: 'cashier_kiosk',
       station_id: null,
-      branch_name: '',
+      branch_name: 'Main',
     });
     expect(again.json().data.device_token).toBe('device-secret');
 
@@ -193,6 +193,7 @@ async function provision(): Promise<{ first_admin_url: string; first_admin_qr_sv
       branch_name: 'Main',
       currency_code: 'PKR',
       kind: 'new_branch',
+      branch_name: 'Main',
       branch_api_key: 'branch-key-plain',
       directory: await aDirectory(),
     },

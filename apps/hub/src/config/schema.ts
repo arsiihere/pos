@@ -33,6 +33,7 @@ export const HubConfigSchema = z.object({
     .object({
       tenant_id: z.string().min(1),
       branch_id: z.string().min(1),
+      branch_name: z.string(),
       branch_api_key: z.string(),
       confirmed_at: z.number().int().nonnegative().optional(),
     })

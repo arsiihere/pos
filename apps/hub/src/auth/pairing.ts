@@ -123,7 +123,7 @@ function pairWithToken(
       device_id: deviceId,
     },
   ]);
-  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId);
+  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, deps.config.provisioned?.branch_name ?? '');
 }
 
 function rotate(
@@ -166,7 +166,7 @@ function rotate(
       device_id: deviceId,
     },
   ]);
-  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId);
+  return response(deviceId, deviceToken, row.device_type, row.owner_staff_id, tx.branchId, deps.config.provisioned?.branch_name ?? '');
 }
 
 function response(
@@ -175,6 +175,7 @@ function response(
   deviceType: string,
   ownerStaffId: string | null,
   branchId: string,
+  branchName: string,
 ): {
   device_id: string;
   device_token: string;
@@ -190,7 +191,7 @@ function response(
     device_type: deviceType,
     owner_staff_id: ownerStaffId,
     branch_id: branchId,
-    branch_name: '',
+    branch_name: branchName,
     hub_version: HUB_VERSION,
   };
 }

@@ -135,6 +135,7 @@ function testConfig(dir: string, o?: { provisioned?: boolean; config?: Partial<H
   config.provisioned ??= {
     tenant_id: 'tenant-a',
     branch_id: 'branch-1',
+    branch_name: 'Main',
     branch_api_key: 'test-branch-api-key',
   };
   return config;

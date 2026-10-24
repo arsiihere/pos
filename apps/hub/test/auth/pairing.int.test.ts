@@ -22,7 +22,7 @@ describe('device pairing', () => {
     expect(data.device_type).toBe('tablet');
     expect(data.owner_staff_id).toBeNull();
     expect(data.branch_id).toBe('branch-1');
-    expect(data.branch_name).toBe('');
+    expect(data.branch_name).toBe('Main');
     expect(data.hub_version).toBe(HUB_VERSION);
     const row = hub.deps.db
       .prepare('SELECT token_hash, device_name, paired_by FROM devices WHERE device_id = ?')

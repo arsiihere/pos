@@ -84,21 +84,21 @@ describe('hub config', () => {
 
     const provisioned = HubConfigSchema.parse({
       ...minimal,
-      provisioned: { tenant_id: 't', branch_id: 'b', branch_api_key: 'k' },
+      provisioned: { tenant_id: 't', branch_id: 'b', branch_name: 'Main', branch_api_key: 'k' },
     });
     expect(isProvisioned(provisioned)).toBe(true);
     expect(isConfirmed(provisioned)).toBe(false);
 
     const confirmed = HubConfigSchema.parse({
       ...minimal,
-      provisioned: { tenant_id: 't', branch_id: 'b', branch_api_key: 'k', confirmed_at: 1_761_000_000_000 },
+      provisioned: { tenant_id: 't', branch_id: 'b', branch_name: 'Main', branch_api_key: 'k', confirmed_at: 1_761_000_000_000 },
     });
     expect(isProvisioned(confirmed)).toBe(true);
     expect(isConfirmed(confirmed)).toBe(true);
 
     const noKey = HubConfigSchema.parse({
       ...minimal,
-      provisioned: { tenant_id: 't', branch_id: 'b', branch_api_key: '' },
+      provisioned: { tenant_id: 't', branch_id: 'b', branch_name: 'Main', branch_api_key: '' },
     });
     expect(isProvisioned(noKey)).toBe(false);
   });

@@ -53,7 +53,7 @@ describe('boot budget', () => {
           min_client_version: '1.0.0',
           backup_encryption_key: Buffer.alloc(32, 7).toString('base64'),
           advertised_host: '192.168.10.2',
-          provisioned: { tenant_id: 'tenant-a', branch_id: BRANCH, branch_api_key: 'test-branch-api-key' },
+          provisioned: { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'test-branch-api-key' },
         }),
       );
       const started = performance.now();
