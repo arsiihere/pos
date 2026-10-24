@@ -10,7 +10,7 @@ You need three terminals:
 | **T2** | hub |
 | **T3** | CLIs, `curl` and checks |
 
-> **What 00 can and cannot show on the phone.** 00 serves only bare pages (`/setup`, `/admin/bootstrap`, `/admin/approve`, `/pair`) with raw i18n keys like `login` or `pairing.hub_unreachable`. There is no login screen yet: after pairing, the phone just shows the word `login`. So the PIN tests (step 5) and the revoke check (step 6) run with `curl` as a second, simulated kiosk on the laptop. Step 6 explains why a revoked phone does **not** visibly get kicked in 00.
+> **What 00 can and cannot show on the phone.** 00 serves four pages (`/setup`, `/admin/bootstrap`, `/admin/approve`, `/pair`), styled with the UI kit from `/ui/*` (spec v1.2, M81 and M82). All their text comes from the English table in `apps/hub/src/lib/strings.ts`; the quotes below are copied from it. There is no login screen yet: after pairing, the screen says **"This screen is paired"** / "You can log in here next." and stops there. So the PIN tests (step 5) and the revoke check (step 6) run with `curl` as a second, simulated kiosk on the laptop. Step 6 explains why a revoked phone does **not** visibly get kicked in 00.
 
 ---
 
@@ -192,17 +192,17 @@ cloud node --import tsx src/cli/issue-registration-code.ts --tenant-id <tenant_i
 
 On the **laptop** browser, open `http://localhost:3000/setup` and fill in:
 
-| Field | Value |
+| Field (label on the page) | Value |
 |---|---|
 | Registration code | the code from 3a (dashes and spaces are OK) |
-| Advertised host | the value of `$LAN_IP` |
-| Guest networks | `10.255.255.0/24`: a dummy subnet. At least one CIDR is required, and it must **not** contain your Wi-Fi subnet, or the phone is treated as a guest and refused |
+| Hub address on this network | the value of `$LAN_IP` |
+| Guest Wi-Fi networks | `10.255.255.0/24`: a dummy subnet. At least one CIDR is required, and it must **not** contain your Wi-Fi subnet, or the phone is treated as a guest and refused |
 
-Press **Provision**.
+Press **Set up hub**.
 
-**You should see:** a link `http://<LAN_IP>:3000/admin/bootstrap#t=…` and a QR code appear under the form, and the hub in T2 **exits by itself**. That's by design: in production systemd restarts it. Don't close the tab: you need the link (valid 30 min).
+**You should see:** the button shows a spinner. If the cloud is slow, a banner says "Still talking to the cloud. This can take up to 10 seconds." after 3 s. Then the form is replaced by a check mark, **"Hub is set up"**, "The hub is restarting. Scan the code to create the first admin.", a QR code, the link `http://<LAN_IP>:3000/admin/bootstrap#t=…` and "This link works for 30 min." The hub in T2 **exits by itself**: that's by design, and in production systemd restarts it. Don't close the tab: you need the link.
 
-The page shows nothing on an error. If nothing appears, open DevTools → Network → `provision` to read the error, or run the same request from T3:
+On an error, a red banner appears above the button and the faulty field turns red. To see the raw error code, run the same request from T3:
 
 ```sh
 curl -s -X POST localhost:3000/setup/provision -H 'content-type: application/json' \
@@ -210,9 +210,9 @@ curl -s -X POST localhost:3000/setup/provision -H 'content-type: application/jso
 ```
 
 **Most likely failures:**
-- `SERVICE_UNAVAILABLE` → the cloud (T1) isn't running.
-- `VALIDATION_FAILED` on `advertised_host` → that IP isn't an address of this laptop (wrong or stale `$LAN_IP`).
-- `REGISTRATION_CODE_INVALID` → typo, expired or already used. Issue a fresh code for the same branch: `cloud node --import tsx src/cli/issue-registration-code.ts --tenant-id <tenant_id> --branch-id <branch_id>`.
+- "The hub is busy or cannot reach the cloud. Try again in a few seconds." (`SERVICE_UNAVAILABLE`) → the cloud (T1) isn't running.
+- "Check the highlighted field." with **Hub address on this network** in red, saying "This is not an address of this hub. Use its IP on this network." (`VALIDATION_FAILED` on `advertised_host`) → wrong or stale `$LAN_IP`.
+- "This code does not work. It may be used or expired. Ask for a new code." (`REGISTRATION_CODE_INVALID`) → typo, expired or already used. Issue a fresh code for the same branch: `cloud node --import tsx src/cli/issue-registration-code.ts --tenant-id <tenant_id> --branch-id <branch_id>`.
 
 ### 3c. Restart the hub as provisioned (T2)
 
@@ -234,14 +234,14 @@ ids; echo "$TENANT $BRANCH"
 
 On the **laptop**, click the `first_admin_url` link from 3b (it uses the `LAN_IP` host; keep using that host, not `localhost`, because the admin session lives in that origin's `sessionStorage`).
 
-**You should see:** a Staff / PIN form and, under it, a JSON roster `[{"staff_id":"…","display_name":"Test Owner","locked_until":null}]`. The `#t=…` disappears from the address bar.
+**You should see:** **"Sign in as the first admin"**, "Tap your name, then enter your PIN.", a name tile **Test Owner** under "Your name", a PIN field and a **Sign in** button. The `#t=…` disappears from the address bar.
 
-Type the `staff_id` and your PIN, then **Sign in**. The page shows nothing on success. Check DevTools → Application → Session storage → `http://<LAN_IP>:3000` → `admin_session_token` exists and `admin_bootstrap = 1`.
+Tap **Test Owner** (the tile gets a saffron underline), type your PIN (it shows as dots), then **Sign in**. Signing in without a tile gives "Tap your name first."; a wrong PIN gives a red banner "Wrong PIN. Try again." and clears the field.
 
-Then, **in the same tab**, go to `http://<LAN_IP>:3000/admin/approve`.
+**You should see:** a check mark, **"Signed in as Test Owner"**, "Approve the screens next. Stay in this tab: your sign-in works here only." and an **Approve a screen** button. Press it: it opens `/admin/approve` in the same tab.
 
-**You should see:** a form with Display code / Type / Station / Approve. Leave this tab open for step 4.
-**Most likely failures:** the roster is empty or the sign-in gets `401 PAIRING_TOKEN_INVALID` → the token expired (30 min), was already used, or was replaced by a newer one; issue a new one with the CLI (3e) and open that URL. The approve page shows `pairing.approve_needs_admin_device` → you opened it in a new tab or on another host, so `sessionStorage` is empty; sign in through a fresh bootstrap URL in this tab.
+**You should see:** **"Approve a screen"**, "Type the code shown on the new screen." and a form with **Code on the screen**, **Screen type** (Cashier screen / Kitchen screen), **Station** and **Approve**. Leave this tab open for step 4.
+**Most likely failures:** the page shows a clock icon and **"This link has expired"** / "Ask the installer for a new sign-in link." → the token expired (30 min), was already used, or was replaced by a newer one; issue a new one with the CLI (3e) and open that URL. The approve page shows a lock icon and **"Use an admin screen"** / "Open this page on a paired admin screen and type the code there." → you opened it in a new tab or on another host, so `sessionStorage` is empty; sign in through a fresh bootstrap URL in this tab.
 
 ### 3e. Admin bootstrap CLI, plus a `curl` admin session (T3)
 
@@ -267,29 +267,49 @@ curl -s $HUB/admin/queries/devices -H "x-admin-session: $ADMIN" | jq
 **You should see:** a 64-character hex token, then `{"data":{"devices":[]}}`.
 **Most likely failures:** `run setup instead` → `POS_HUB_CONFIG` isn't set (re-source `env.sh`) or the hub isn't provisioned. `refusing to run as uid 0` → you used `sudo`; run it as yourself (the data dir is yours). `ADMIN` is `null` → wrong PIN or `STAFF`; print the body without `jq -r` to see the error code.
 
+### 3f. UI kit route, from the phone (M81)
+
+On the **phone**, open `http://<LAN_IP>:3000/ui/tokens.css`.
+
+**You should see:** **200**: plain CSS starting with `/* POS — generated from tokens.json */` and `@font-face { font-family: "Atkinson Hyperlegible"; …`.
+
+Then open `http://<LAN_IP>:3000/ui/../package.json` on the phone.
+
+**You should see:** **404** with `{"error":{"code":"ROUTE_NOT_FOUND",…}}`. A browser collapses `/ui/../` before sending, so what the phone actually requests is `/package.json`. To send the literal traversal path, and to check the cache header, run this from T3:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' --path-as-is "http://$LAN_IP:3000/ui/../package.json"    # 404
+curl -s -o /dev/null -w '%{http_code}\n' "http://$LAN_IP:3000/ui/README.md"                         # 404 (only .css and .woff2 are served)
+curl -sI "http://$LAN_IP:3000/ui/fonts/AtkinsonHyperlegible-400.woff2" | grep -i 'content-type\|cache-control'
+# content-type: font/woff2
+# cache-control: public, max-age=31536000, immutable
+```
+
+**Most likely failure:** `tokens.css` is 404 → the hub runs from a checkout without `packages/ui-kit/` (it was added with spec v1.2); `git pull` and restart the hub. The pages then look unstyled (plain browser forms) for the same reason.
+
 ---
 
 ## 4. Pair the phone by display code
 
 On the **phone**, open `http://<LAN_IP>:3000/pair`.
 
-**You should see:** "Ask a manager to pair this screen" briefly, then a QR code and a **6-character display code**. The page polls the hub every 2 s.
+**You should see:** a dark screen with **"Ask a manager to pair this screen"** and "Getting a code from the hub." briefly, then a QR code on a white tile, the **6-character display code** in large letters with a saffron underline, "The manager types this code, or scans the QR code with their phone." and "This code works for 10 min." The page polls the hub every 2 s.
 
-On the **laptop**, in the `/admin/approve` tab from 3d: type the display code, choose Type **`cashier_kiosk`**, leave Station empty, then **Approve**.
+On the **laptop**, in the `/admin/approve` tab from 3d: type the display code into **Code on the screen**, keep **Screen type** on **Cashier screen**, leave **Station** empty, then **Approve**.
 
-**You should see:** the laptop shows `pairing.approved`. Within about 2 s the phone replaces the code with the word `login` (the device token is now in the phone's IndexedDB). In T3:
+**You should see:** the laptop shows a check mark, **"Screen approved"**, "The screen opens by itself in a few seconds." and an **Approve another screen** button. Within about 2 s the phone shows a check mark and **"This screen is paired"** / "You can log in here next." (the device token is now in the phone's IndexedDB). In T3:
 
 ```sh
 curl -s $HUB/admin/queries/devices -H "x-admin-session: $ADMIN" | jq '.data.devices[] | {device_id, device_name, device_type}'
 export PHONE_ID=<device_id of the "screen" row>
 ```
 
-Don't choose `kds`: KDS needs a station, and stations arrive with module 01, so in 00 it always fails with `STATION_NOT_FOUND`.
+Don't choose **Kitchen screen** (`kds`): it needs a station, and stations arrive with module 01, so in 00 it always fails with `STATION_NOT_FOUND`.
 
 **Most likely failures:**
-- `errors.PAIRING_REQUEST_NOT_FOUND` → code typo, the request expired (10 min), or two pending requests share the code. Reload the phone page for a new code.
-- The phone shows the button again instead of a code → `IP_LOCKED_OUT`: each phone IP may hold only **2 pending** requests, and every reload of `/pair` makes a new one. Approve one, or wait 10 minutes.
-- To approve again, reload `/admin/approve` (the session survives a reload in the same tab).
+- The approve form shows a red banner "No screen is waiting with this code. Check the code on the screen." (`PAIRING_REQUEST_NOT_FOUND`) and stays filled in → code typo, the request expired (10 min), or two pending requests share the code. Fix the code or reload the phone page for a new one.
+- The phone stays on "Getting a code from the hub." (it waits once, silently, until the oldest request expires), then shows "Too many tries from this device. Wait, then try again." and a **Get a new code** button (`IP_LOCKED_OUT`) → each phone IP may hold only **2 pending** requests, and every reload of `/pair` makes a new one. Approve one, or wait 10 minutes. An expired code shows "The code expired. Get a new one." with the same button.
+- To approve again, press **Approve another screen** (the session survives in the same tab).
 
 ---
 
@@ -378,7 +398,7 @@ curl -s "$HUB/admin/queries/devices?include_revoked=true" -H "x-admin-session: $
 
 **You should see:** both devices have a `revoked_at`.
 
-**On the phone: nothing changes, and that's expected in 00.** Spec 00 §8.2 says that on reload a kiosk page with a stored token "goes to login" without calling the hub; only KDS calls `/auth/station`, which wipes the token on `401/403` and starts a new pairing request. The 00 page has no login screen, so a revoked kiosk keeps showing `login` until it makes an authenticated call. The "This device must be paired again" behaviour (§8.4) lives in the login and command UI of the later client modules. KDS can't be paired in 00 (no stations), so the only proof in 00 is the `403 DEVICE_REVOKED` above. To make the phone pair again, clear its site data (Chrome on Android: ⋮ → Settings → Site settings → All sites → `<LAN_IP>` → Delete data) or use an Incognito tab.
+**On the phone: nothing changes, and that's expected in 00.** Spec 00 §8.2 says that on reload a kiosk page with a stored token "goes to login" without calling the hub; only KDS calls `/auth/station`, which wipes the token on `401/403` and starts a new pairing request. The 00 page has no login screen, so a revoked kiosk keeps showing "This screen is paired" until it makes an authenticated call. The "This device must be paired again" behaviour (§8.4) lives in the login and command UI of the later client modules. KDS can't be paired in 00 (no stations), so the only proof in 00 is the `403 DEVICE_REVOKED` above. To make the phone pair again, clear its site data (Chrome on Android: ⋮ → Settings → Site settings → All sites → `<LAN_IP>` → Delete data) or use an Incognito tab.
 
 **Most likely failure:** `DEVICE_NOT_FOUND` → wrong device id; list the devices with `include_revoked=true`.
 
@@ -390,12 +410,12 @@ This is build review 3 item S2: the pair page must retry when the hub is unreach
 
 1. On the phone, open a **new Incognito tab** at `http://<LAN_IP>:3000/pair`. You should see a fresh display code. Don't approve it yet.
 2. In T2, press **Ctrl+C** to stop the hub (no graceful shutdown, like a power cut).
-3. Watch the phone. **You should see:** within about 2 s, the text `pairing.hub_unreachable` appears under the code. The page keeps retrying with backoff (0.5, 1, 2, 4, then every 5 s).
+3. Watch the phone. **You should see:** within about 2 s, a banner appears at the top with a spinning sync icon: **"Cannot reach the hub. Retrying."** / "Keep this screen open. It reconnects by itself." The code stays on screen. The page keeps retrying with backoff (0.5, 1, 2, 4, then every 5 s).
 4. Restart the hub in T2: `node --import tsx src/main.ts`.
-5. **You should see:** within about 5 s the `pairing.hub_unreachable` text disappears and the code stays; the request survived the restart because it lives in SQLite.
-6. Reload the laptop `/admin/approve` tab (the admin session survived the restart too), approve the phone's code as `cashier_kiosk`, and the phone shows `login`.
+5. **You should see:** within about 5 s the banner disappears and the code stays; the request survived the restart because it lives in SQLite.
+6. Reload the laptop `/admin/approve` tab (the admin session survived the restart too), approve the phone's code as **Cashier screen**, and the phone shows **"This screen is paired"**.
 
-**Most likely failures:** the phone shows a browser error page → you reloaded the page while the hub was down; the page itself is served by the hub, so only an **already-open** page can retry. Start again at 1. Approve says `errors.ADMIN_SESSION_REQUIRED` → the admin session idled out; get a new bootstrap URL (3e) and sign in again in that tab.
+**Most likely failures:** the phone shows a browser error page → you reloaded the page while the hub was down; the page itself is served by the hub, so only an **already-open** page can retry. Start again at 1. Approve shows "You were signed out. Sign in again." (`ADMIN_SESSION_REQUIRED`) → the admin session idled out; get a new bootstrap URL (3e) and sign in again in that tab.
 
 ---
 
