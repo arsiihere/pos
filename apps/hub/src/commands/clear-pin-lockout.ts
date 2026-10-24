@@ -38,7 +38,7 @@ export function registerClearPinLockout(app: FastifyInstance): void {
           events: [
             {
               stream_type: payload.subject_type === 'staff' ? 'staff' : 'hub',
-              stream_id: payload.subject_id,
+              stream_id: payload.subject_type === 'ip' ? `ip:${payload.subject_id}` : payload.subject_id,
               event_type: 'PinLockoutCleared',
               schema_version: 1,
               payload: { subject_type: payload.subject_type, subject_id: payload.subject_id },

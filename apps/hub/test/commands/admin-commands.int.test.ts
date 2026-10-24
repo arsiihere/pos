@@ -148,6 +148,11 @@ describe('admin access commands', () => {
     expect(ip.json().data.result.cleared).toBe(true);
     expect(lockout(hub, 'device', 'dev-locked').locked_until).toBeNull();
     expect(lockout(hub, 'ip', '192.168.10.9').locked_until).toBeNull();
+    expect(lockStreams(hub)).toEqual([
+      { stream_type: 'staff', stream_id: 'S_CASH', subject_type: 'staff', subject_id: 'S_CASH' },
+      { stream_type: 'hub', stream_id: 'dev-locked', subject_type: 'device', subject_id: 'dev-locked' },
+      { stream_type: 'hub', stream_id: 'ip:192.168.10.9', subject_type: 'ip', subject_id: '192.168.10.9' },
+    ]);
 
     const before = eventsOf(hub, 'PinLockoutCleared').length;
     const openLock = await post(hub, admin, 'clear-pin-lockout', 'ClearPinLockout', { subject_type: 'staff', subject_id: 'S_WAIT' }, 'cmd-clear-open');
@@ -220,6 +225,16 @@ function sessionEnd(hub: TestHub, sessionId: string): { end_reason: string | nul
     end_reason: string | null;
     ended_by: string | null;
   };
+}
+
+function lockStreams(hub: TestHub): Array<{ stream_type: string; stream_id: string; subject_type: string; subject_id: string }> {
+  const rows = hub.deps.db
+    .prepare('SELECT stream_type, stream_id, payload FROM events WHERE event_type = ? ORDER BY seq')
+    .all('PinLockoutCleared') as Array<{ stream_type: string; stream_id: string; payload: string }>;
+  return rows.map((row) => {
+    const payload = JSON.parse(row.payload) as { subject_type: string; subject_id: string };
+    return { stream_type: row.stream_type, stream_id: row.stream_id, subject_type: payload.subject_type, subject_id: payload.subject_id };
+  });
 }
 
 function eventsOf(hub: TestHub, eventType: string): Array<Record<string, unknown>> {
