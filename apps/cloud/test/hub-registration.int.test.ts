@@ -65,6 +65,32 @@ describe('POST /v1/hubs/register', () => {
 
   it('[00 §10 #22] register consumes the code, leaves the branch pending_hub, and returns only that branch\'s active staff', async () => {
     const { seeded, issued } = await branch('Gulberg', 'ada@example.com');
+    const otherBranch = await issueRegistrationCode(
+      sys(),
+      { tenantId: seeded.tenant_id, branchName: 'Other' },
+      { clock: cloud.clock, ids, secrets },
+    );
+    const otherStaffId = 'other-branch-only';
+    const otherRoleId = 'role-other-only';
+    await cloud.pool.query(
+      `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, is_active, created_at, updated_at)
+       VALUES ($1, $2, 'Other Cashier', 'hash', true, $3, $3)`,
+      [seeded.tenant_id, otherStaffId, T],
+    );
+    await cloud.pool.query(`INSERT INTO staff_branches (tenant_id, branch_id, staff_id) VALUES ($1, $2, $3)`, [
+      seeded.tenant_id,
+      otherBranch.branch_id,
+      otherStaffId,
+    ]);
+    await cloud.pool.query(
+      `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, $2, 'OtherOnly', 900000)`,
+      [seeded.tenant_id, otherRoleId],
+    );
+    await cloud.pool.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id) VALUES ($1, $2, $3)`, [
+      seeded.tenant_id,
+      otherStaffId,
+      otherRoleId,
+    ]);
     const idempotencyKey = ulid(ids);
     const response = await register(issued.code, idempotencyKey);
     expect(response.statusCode).toBe(200);
@@ -76,7 +102,9 @@ describe('POST /v1/hubs/register', () => {
     expect(body.data.kind).toBe('new_branch');
     expect(DirectorySchema.safeParse(body.data.directory).success).toBe(true);
     expect(body.data.directory.staff.map((staff: { staff_id: string }) => staff.staff_id)).toEqual([seeded.staff_id]);
+    expect(body.data.directory.staff.map((staff: { staff_id: string }) => staff.staff_id)).not.toContain(otherStaffId);
     expect(body.data.directory.roles.map((role: { name: string }) => role.name)).toEqual(['Owner']);
+    expect(body.data.directory.roles.map((role: { name: string }) => role.name)).not.toContain('OtherOnly');
     const owner = body.data.directory.roles.find((role: { name: string }) => role.name === 'Owner');
     expect(owner.permissions).toEqual(
       expect.arrayContaining([{ permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null }]),
