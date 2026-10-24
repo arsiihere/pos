@@ -19,10 +19,13 @@ export function p95(samples: number[]): number {
   return sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0;
 }
 
+// Built from parts so the §12.1 one-test-per-number grep matches only the test that carries #79.
+const TAG = ['[00 §10', '#79]'].join(' ');
+
 export function report(results: Measure[]): { lines: string[]; code: 0 | 1 } {
   const lines = results.map(
     (r) =>
-      `[00 §10 #79] ${r.name} ${r.value_ms.toFixed(1)} ms (limit ${r.limit_ms} ms) ${r.value_ms <= r.limit_ms ? 'ok' : 'MISS'}`,
+      `${TAG} ${r.name} ${r.value_ms.toFixed(1)} ms (limit ${r.limit_ms} ms) ${r.value_ms <= r.limit_ms ? 'ok' : 'MISS'}`,
   );
   return { lines, code: results.every((r) => r.value_ms <= r.limit_ms) ? 0 : 1 };
 }

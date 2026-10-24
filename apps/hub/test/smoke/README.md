@@ -14,4 +14,6 @@ pnpm --filter @pos/hub smoke
 | `command_p95` | no-op command pipeline p95 ≤ 5 ms | 200 `TestNoop` commands through `POST /commands/test-noop` |
 | `boot_1m` | 00's boot steps on 1 M events ≤ 5 s | `boot()` on the #100 fixture (built once, cached in the OS temp dir) |
 
+**On the target machine** the run needs the repo checkout with `apps/hub/test/` and the dev dependencies installed (`pnpm install` without `--prod`): the script imports the test helpers (`test/helpers/*`) and runs through `tsx`. A production-only deploy does not have them.
+
 The first 20 requests of each loop are warm-up and are not sampled. Each line ends in `ok` or `MISS`; the exit code is 1 if any line is `MISS`. Requests go through Fastify `inject`, so the request timings leave out the network.
