@@ -8,7 +8,7 @@ import { sha256hex } from '../lib/hash.js';
 import { Semaphore } from '../lib/semaphore.js';
 import { currentDirectory } from './guards.js';
 import { checkPin } from './pin.js';
-import { createSession, endSession, findSessionByToken } from './session-store.js';
+import { createSession, endSession, findSessionByToken, isIdleExpired } from './session-store.js';
 
 const LOGIN_TYPES = new Set<DeviceType>(['tablet', 'cashier_kiosk', 'phone']);
 
@@ -96,15 +96,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
     if (session.ended_at !== null) {
       return { data: { session_id: session.session_id, ended_at: session.ended_at, already_ended: true } };
     }
-    const endedAt = deps.writer.run((tx) => {
+    const outcome = deps.writer.run((tx) => {
       const fresh = findSessionByToken(tx.db, token);
-      if (fresh === undefined || fresh.kind !== 'admin') return null;
-      if (fresh.ended_at !== null) return fresh.ended_at;
+      if (fresh === undefined || fresh.kind !== 'admin') return { kind: 'missing' as const };
+      if (fresh.ended_at !== null) return { kind: 'ended' as const, endedAt: fresh.ended_at };
+      if (isIdleExpired(fresh, tx.clock.branchNow())) {
+        endSession(tx, fresh, 'idle_timeout', null, null, fresh.device_id ?? 'hub-admin');
+        return { kind: 'idle' as const };
+      }
       endSession(tx, fresh, 'logout', fresh.staff_id, fresh.staff_id, fresh.device_id ?? 'hub-admin');
-      return fresh.ended_at;
+      return { kind: 'logout' as const, endedAt: fresh.ended_at };
     }).result;
-    if (endedAt === null) throw new DomainError('ADMIN_SESSION_REQUIRED');
-    return { data: { session_id: session.session_id, ended_at: endedAt, already_ended: false } };
+    if (outcome.kind === 'idle' || outcome.kind === 'missing') throw new DomainError('ADMIN_SESSION_REQUIRED');
+    if (outcome.kind === 'logout' && outcome.endedAt === null) throw new DomainError('ADMIN_SESSION_REQUIRED');
+    const endedAt = outcome.endedAt;
+    return {
+      data: { session_id: session.session_id, ended_at: endedAt, already_ended: outcome.kind === 'ended' },
+    };
   });
 
   app.get('/admin/login-roster', { config: { group: 'admin-bootstrap' } }, async (request) => {

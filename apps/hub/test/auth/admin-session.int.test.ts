@@ -69,6 +69,19 @@ describe('admin session', () => {
     expect(second.json().data.already_ended).toBe(true);
     expect(second.json().data.session_id).toBe(first.json().data.session_id);
     expect(endedEvents(hub)).toBe(1);
+
+    const again = await login(hub, tablet.token, 'S_OWNER', PIN.a);
+    const idleToken = again.json().data.admin_session_token as string;
+    hub.clock.advance(3_600_001);
+    const idle = await logout(hub, tablet.token, idleToken);
+    expect(idle.statusCode).toBe(401);
+    expect(idle.json().error.code).toBe('ADMIN_SESSION_REQUIRED');
+    const reasons = (
+      hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'SessionEnded' ORDER BY seq`).all() as Array<{
+        payload: string;
+      }>
+    ).map((row) => (JSON.parse(row.payload) as { reason: string }).reason);
+    expect(reasons).toEqual(['logout', 'idle_timeout']);
   });
 
   it('[00 §10 #41] the login roster lists admin staff for a tablet or a live bootstrap token', async () => {
