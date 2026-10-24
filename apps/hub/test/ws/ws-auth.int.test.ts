@@ -79,6 +79,8 @@ describe('websocket auth', () => {
     queryOnly.send({ type: 'ack', last_seq: 0 });
     expect((await queryOnly.untilClose()).code).toBe(4401);
     expect(queryOnly.messages).toEqual([]);
+    expect(hub.logs()).not.toContain(device.token);
+    expect(hub.logs()).not.toContain(staff.token);
 
     const framed = await connect(hub, { path: '/ws?device_token=query&session_token=query' });
     framed.send({ type: 'auth', device_token: device.token, session_token: staff.token });

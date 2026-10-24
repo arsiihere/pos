@@ -230,7 +230,7 @@ function statusCodeOf(error: unknown): number | undefined {
 }
 
 function redactQueryToken(url: string): string {
-  return url.replace(/([?&]t=)[^&]*/g, '$1[Redacted]');
+  return url.replace(/([?&](?:t|device_token|session_token)=)[^&]*/g, '$1[Redacted]');
 }
 
 function redactHeaders(headers: FastifyRequest['headers']): Record<string, unknown> {
