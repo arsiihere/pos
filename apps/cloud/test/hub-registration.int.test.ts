@@ -65,13 +65,14 @@ describe('POST /v1/hubs/register', () => {
 
   it('[00 §10 #22] register consumes the code, leaves the branch pending_hub, and returns only that branch\'s active staff', async () => {
     const { seeded, issued } = await branch('Gulberg', 'ada@example.com');
-    const otherBranch = await issueRegistrationCode(
-      sys(),
-      { tenantId: seeded.tenant_id, branchName: 'Other' },
-      { clock: cloud.clock, ids, secrets },
-    );
+    const otherBranchId = ulid(ids);
     const otherStaffId = 'other-branch-only';
     const otherRoleId = 'role-other-only';
+    await cloud.pool.query(
+      `INSERT INTO branches (tenant_id, branch_id, name, status, created_at)
+       VALUES ($1, $2, 'Other', 'pending_hub', $3)`,
+      [seeded.tenant_id, otherBranchId, T],
+    );
     await cloud.pool.query(
       `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, is_active, created_at, updated_at)
        VALUES ($1, $2, 'Other Cashier', 'hash', true, $3, $3)`,
@@ -79,7 +80,7 @@ describe('POST /v1/hubs/register', () => {
     );
     await cloud.pool.query(`INSERT INTO staff_branches (tenant_id, branch_id, staff_id) VALUES ($1, $2, $3)`, [
       seeded.tenant_id,
-      otherBranch.branch_id,
+      otherBranchId,
       otherStaffId,
     ]);
     await cloud.pool.query(
