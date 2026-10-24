@@ -3,6 +3,7 @@ import { encodeCrockford128 } from '../../src/auth/pair-page';
 import { HUB_VERSION } from '../../src/lib/health';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
+import { jsonResponse, runPage } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -166,6 +167,60 @@ describe('device pairing', () => {
     expect(revoked.json().error.code).toBe('PAIRING_TOKEN_INVALID');
   });
 
+  it('[00 §8.4] hub unreachable at page load: the screen says so, retries with backoff capped at 5 s, and recovers once the hub is up', async () => {
+    const hub = await open();
+    const html = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
+    const unreachable = () => Promise.reject(new TypeError('fetch failed'));
+
+    let down = 6;
+    const kds = await runPage(html, {
+      store: { token: 'kds-token', device_id: 'kds-1', device_type: 'kds' },
+      fetch: (url) => {
+        if (url !== '/auth/station') throw new Error(`unexpected ${url}`);
+        if (down > 0) {
+          down -= 1;
+          return unreachable();
+        }
+        return Promise.resolve(jsonResponse(200, { data: { session_token: 's', session_id: 'x', station_id: 'ST' } }));
+      },
+    });
+    expect(kds.body.children.map((child) => child.textContent)).toContain('pairing.hub_unreachable');
+    while (down > 0 || kds.screen.textContent !== 'login') {
+      if (!(await kds.advance())) break;
+    }
+    expect(kds.screen.textContent).toBe('login');
+    expect(kds.store.get('token')).toBe('kds-token');
+    expect(kds.delays.length).toBeGreaterThanOrEqual(6);
+    expect(Math.max(...kds.delays)).toBe(5_000);
+    expect(kds.delays.slice(0, 3)).toEqual([500, 1_000, 2_000]);
+    expect(kds.body.children.map((child) => child.textContent)).not.toContain('pairing.hub_unreachable');
+
+    let pollsDown = 2;
+    const screen = await runPage(html, {
+      fetch: (url) => {
+        if (url === '/pair/requests') {
+          return Promise.resolve(
+            jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>' } }),
+          );
+        }
+        if (url === '/pair/requests/R1') {
+          if (pollsDown > 0) {
+            pollsDown -= 1;
+            return unreachable();
+          }
+          return Promise.resolve(
+            jsonResponse(200, { data: { status: 'approved', device_id: 'K1', device_token: 'tok', device_type: 'cashier_kiosk' } }),
+          );
+        }
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    for (let i = 0; i < 10 && screen.store.get('token') === undefined; i += 1) await screen.advance();
+    expect(screen.store.get('token')).toBe('tok');
+    expect(screen.store.get('device_id')).toBe('K1');
+    expect(screen.screen.textContent).toBe('login');
+  });
+
   it('[00 §10 #94] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {
     const hub = await open();
     const page = await hub.app.inject({ method: 'GET', url: '/pair' });
@@ -183,7 +238,7 @@ describe('device pairing', () => {
     expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
     const screenBlock = html.match(/if \(!pairingToken\) \{[\s\S]*?start\(\);\s*return;\s*\}/)?.[0] ?? '';
     expect(screenBlock.indexOf('await resumePaired(db, deviceToken)')).toBeGreaterThan(-1);
-    expect(screenBlock.indexOf('await resumePaired(db, deviceToken)')).toBeLessThan(screenBlock.indexOf("fetch('/pair/requests'"));
+    expect(screenBlock.indexOf('await resumePaired(db, deviceToken)')).toBeLessThan(screenBlock.indexOf("fetchRetry('/pair/requests'"));
     expect(screenBlock).toContain('retry_after_ms');
     const resume = html.match(/async function resumePaired[\s\S]*?\n\}/)?.[0] ?? '';
     expect(resume).toMatch(/status === 401 \|\| \w+\.status === 403/);

@@ -48,10 +48,25 @@ function deleteKey(db, key) {
     del.onerror = () => resolve();
   });
 }
+// §8.4: a hub that is down (power loss, boot) is retried with backoff capped at 5 s, never silently dropped.
+const status = document.createElement('p');
+document.body.appendChild(status);
+async function fetchRetry(url, init) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const res = await fetch(url, init);
+      status.textContent = '';
+      return res;
+    } catch {
+      status.textContent = 'pairing.hub_unreachable';
+      await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 5000)));
+    }
+  }
+}
 async function resumePaired(db, deviceToken) {
   const deviceType = await readKey(db, 'device_type');
   if (deviceType === 'kds') {
-    const res = await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
+    const res = await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
     if (res.status === 401 || res.status === 403) {
       await deleteKey(db, 'token');
       await deleteKey(db, 'device_id');
@@ -76,7 +91,7 @@ openDeviceDb().then(async (db) => {
     let retried = false;
     const start = () => {
       screen.textContent = 'Ask a manager to pair this screen';
-      fetch('/pair/requests', {
+      fetchRetry('/pair/requests', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ device_name: 'screen' }),
@@ -102,7 +117,7 @@ openDeviceDb().then(async (db) => {
         code.textContent = body.data.display_code;
         screen.replaceChildren(qr, code);
         const tick = () => {
-          fetch('/pair/requests/' + body.data.request_id, { headers: { 'X-Poll-Secret': body.data.poll_secret } })
+          fetchRetry('/pair/requests/' + body.data.request_id, { headers: { 'X-Poll-Secret': body.data.poll_secret } })
             .then(async (polled) => {
               if (polled.status === 404) {
                 screen.textContent = 'Ask a manager to pair this screen';
@@ -118,7 +133,7 @@ openDeviceDb().then(async (db) => {
                 await writeKey(db, 'device_id', update.data.device_id);
                 await writeKey(db, 'device_type', update.data.device_type);
                 if (update.data.device_type === 'kds') {
-                  await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
+                  await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
                 }
                 screen.textContent = 'login';
                 return;
