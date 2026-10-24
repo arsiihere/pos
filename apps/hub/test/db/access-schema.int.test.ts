@@ -109,6 +109,49 @@ describe('access schema', () => {
     ).run(T, T + 1);
   });
 
+  it('[00 §5.1] roles require a positive idle TTL; grant_type and approver_role_id stay paired; phone pairing tokens need an owner', async () => {
+    const { db } = await open();
+    expect(() =>
+      db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r0', 'branch-1', 'Bad', 0)`).run(),
+    ).toThrow(/CHECK constraint failed/);
+    db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r1', 'branch-1', 'Ok', 1000)`).run();
+    db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r2', 'branch-1', 'Approver', 1000)`).run();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
+           VALUES ('r1', 'manage-staff', 'allowed', 'r2')`,
+        )
+        .run(),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
+           VALUES ('r1', 'manage-staff', 'requires_approval', NULL)`,
+        )
+        .run(),
+    ).toThrow(/CHECK constraint failed/);
+    db.prepare(
+      `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
+       VALUES ('r1', 'manage-staff', 'requires_approval', 'r2')`,
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO pairing_tokens (
+            pairing_token_id, branch_id, token_hash, device_type, created_by, created_at, expires_at
+          ) VALUES ('pt-phone', 'branch-1', 'hash-phone', 'phone', 'admin', ?, ?)`,
+        )
+        .run(T, T + 1),
+    ).toThrow(/CHECK constraint failed/);
+    db.prepare(
+      `INSERT INTO pairing_tokens (
+        pairing_token_id, branch_id, token_hash, device_type, owner_staff_id, created_by, created_at, expires_at
+      ) VALUES ('pt-phone-ok', 'branch-1', 'hash-phone-ok', 'phone', 'S1', 'admin', ?, ?)`,
+    ).run(T, T + 1);
+  });
+
   async function open() {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
