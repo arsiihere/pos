@@ -85,6 +85,10 @@ describe('staff PIN session', () => {
     const tablet = pairDevice(hub, { type: 'tablet' });
     const holder = await pin(hub, tablet.token, 'S_CASH', PIN.c);
     const holderId = holder.json().data.session_id as string;
+    const wrong = await pin(hub, tablet.token, 'S_MGR', '0000');
+    expect(wrong.statusCode).toBe(401);
+    expect(staffFailures(hub, 'S_MGR')).toBe(1);
+    expect(deviceFailures(hub, tablet.deviceId)).toBe(1);
     const before = eventCount(hub);
     const conflict = await pin(hub, tablet.token, 'S_MGR', PIN.b);
     expect(conflict.statusCode).toBe(409);
@@ -97,6 +101,8 @@ describe('staff PIN session', () => {
     expect(eventCount(hub)).toBe(before);
     expect(endReason(hub, holderId)).toBeNull();
     expect(activeStaff(hub, tablet.deviceId)).toEqual([holderId]);
+    expect(staffFailures(hub, 'S_MGR')).toBe(0);
+    expect(deviceFailures(hub, tablet.deviceId)).toBe(1);
   });
 
   it('[00 §10 #35] takeover ends the holder taken_over with ended_by the new staff', async () => {
@@ -302,9 +308,17 @@ function activeStaff(hub: TestHub, deviceId: string): string[] {
 }
 
 function staffFailures(hub: TestHub, staffId: string): number {
+  return failures(hub, 'staff', staffId);
+}
+
+function deviceFailures(hub: TestHub, deviceId: string): number {
+  return failures(hub, 'device', deviceId);
+}
+
+function failures(hub: TestHub, subjectType: string, subjectId: string): number {
   const row = hub.deps.db
-    .prepare(`SELECT failed_count FROM auth_lockouts WHERE subject_type = 'staff' AND subject_id = ?`)
-    .get(staffId) as { failed_count: number } | undefined;
+    .prepare(`SELECT failed_count FROM auth_lockouts WHERE subject_type = ? AND subject_id = ?`)
+    .get(subjectType, subjectId) as { failed_count: number } | undefined;
   return row?.failed_count ?? 0;
 }
 
