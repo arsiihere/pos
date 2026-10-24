@@ -144,6 +144,17 @@ describe('ApprovePairingRequest', () => {
     expect(page.body).toContain('display_code');
     expect(page.body).toContain('station_id');
     expect(page.body).toContain('approve-pairing-request');
+    expect(page.body).toContain('tenant-a');
+    expect(page.body).toContain('branch-1');
+    expect(page.body).toContain(admin.device.deviceId);
+    expect(page.body).toContain('S_OWNER');
+    expect(page.body).toContain('command_id');
+    expect(page.body).toContain('actor_id');
+    expect(page.body).toContain('occurred_at');
+    expect(page.body).toContain('authorization');
+    expect(page.body).toContain('x-admin-session');
+    expect(page.body).toContain(admin.device.token);
+    expect(page.body).toContain(admin.session.token);
   });
 });
 

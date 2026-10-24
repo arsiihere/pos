@@ -106,7 +106,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   });
   registerCommandRoutes(app, deps);
   registerGenerateDevicePairingToken(app);
-  registerApprovePairingRequest(app);
+  registerApprovePairingRequest(app, deps);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);

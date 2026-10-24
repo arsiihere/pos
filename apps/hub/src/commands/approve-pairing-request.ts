@@ -1,8 +1,10 @@
 import { DomainError } from '@pos/domain';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { sha256hex } from '../lib/hash.js';
+import { encodeCrockford128 } from '../auth/pair-page.js';
 import { stationExists } from '../auth/station-validator.js';
+import { sha256hex } from '../lib/hash.js';
+import type { HubDeps } from '../server.js';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
 
@@ -13,7 +15,16 @@ const Payload = z.object({
   station_id: z.string().min(1).optional(),
 });
 
-const PAGE = `<!doctype html>
+function approvePage(ctx: {
+  tenant_id: string;
+  branch_id: string;
+  device_id: string;
+  staff_id: string;
+  device_token: string;
+  admin_session_token: string;
+}): string {
+  const json = JSON.stringify(ctx).replaceAll('<', '\\u003c');
+  return `<!doctype html>
 <html><body>
 <form id="approve">
   <label>Display code <input name="display_code"></label>
@@ -22,15 +33,26 @@ const PAGE = `<!doctype html>
   <button type="submit">Approve</button>
 </form>
 <script>
+${encodeCrockford128.toString()}
+const ctx = ${json};
 const requestId = new URLSearchParams(location.search).get('r');
 document.getElementById('approve').addEventListener('submit', (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
   const station = form.get('station_id');
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
   fetch('/admin/commands/approve-pairing-request', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer ' + ctx.device_token,
+      'x-admin-session': ctx.admin_session_token,
+    },
     body: JSON.stringify({
+      command_id: encodeCrockford128(bytes),
+      tenant_id: ctx.tenant_id,
+      branch_id: ctx.branch_id,
       command_type: 'ApprovePairingRequest',
       payload: {
         request_id: requestId,
@@ -38,15 +60,32 @@ document.getElementById('approve').addEventListener('submit', (event) => {
         device_type: form.get('device_type'),
         station_id: station === '' ? undefined : station,
       },
+      occurred_at: Date.now(),
+      actor_id: ctx.staff_id,
+      device_id: ctx.device_id,
     }),
   });
 });
 </script>
 </body></html>`;
+}
 
-export function registerApprovePairingRequest(app: FastifyInstance): void {
-  app.get('/admin/approve', { config: { group: 'admin' } }, async (_request, reply) => {
-    return reply.type('text/html; charset=utf-8').send(PAGE);
+export function registerApprovePairingRequest(app: FastifyInstance, deps: HubDeps): void {
+  app.get('/admin/approve', { config: { group: 'admin' } }, async (request, reply) => {
+    const device = request.device;
+    const staffId = request.session?.staff_id;
+    const provisioned = deps.config.provisioned;
+    if (device === undefined || staffId == null || provisioned === undefined) throw new DomainError('ADMIN_SESSION_REQUIRED');
+    return reply.type('text/html; charset=utf-8').send(
+      approvePage({
+        tenant_id: provisioned.tenant_id,
+        branch_id: provisioned.branch_id,
+        device_id: device.device_id,
+        staff_id: staffId,
+        device_token: bearer(request),
+        admin_session_token: header(request, 'x-admin-session'),
+      }),
+    );
   });
   commandRegistry(app).register(
     defineCommand({
@@ -126,4 +165,15 @@ export function registerApprovePairingRequest(app: FastifyInstance): void {
       },
     }),
   );
+}
+
+function header(request: FastifyRequest, name: string): string {
+  const value = request.headers[name];
+  const first = Array.isArray(value) ? value[0] : value;
+  return first ?? '';
+}
+
+function bearer(request: FastifyRequest): string {
+  const value = header(request, 'authorization');
+  return value.startsWith('Bearer ') ? value.slice('Bearer '.length) : '';
 }
