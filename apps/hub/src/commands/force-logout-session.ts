@@ -32,9 +32,10 @@ export function registerForceLogoutSession(app: FastifyInstance): void {
         }
         const actor = ctx.actor.staffId;
         endSession(ctx.tx, session, 'forced', actor, actor, ctx.actor.deviceId);
+        if (session.ended_at === null) throw new DomainError('SESSION_NOT_FOUND', { session_id: payload.session_id });
         return {
           events: [],
-          result: { session_id: session.session_id, ended_at: ctx.clock.branchNow(), already_ended: false },
+          result: { session_id: session.session_id, ended_at: session.ended_at, already_ended: false },
         };
       },
     }),

@@ -69,11 +69,31 @@ describe('admin access commands', () => {
     const station = openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: 'station-1' });
     const otherAdmin = openSession(hub, { kind: 'admin', staffId: 'S_MGR', deviceId: admin.device.deviceId });
 
-    const loggedOut = await post(hub, admin, 'force-logout-session', 'ForceLogoutSession', { session_id: staff.sessionId });
+    const occurredAt = hub.clock.branchNow();
+    const frozenNow = hub.clock.branchNow;
+    let tick = occurredAt;
+    hub.clock.branchNow = () => {
+      tick += 1;
+      return tick;
+    };
+    const loggedOut = await post(
+      hub,
+      admin,
+      'force-logout-session',
+      'ForceLogoutSession',
+      { session_id: staff.sessionId },
+      undefined,
+      'S_OWNER',
+      occurredAt,
+    );
+    hub.clock.branchNow = frozenNow;
     expect(loggedOut.statusCode).toBe(200);
+    const stored = hub.deps.db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').get(staff.sessionId) as {
+      ended_at: number;
+    };
     expect(loggedOut.json().data.result).toEqual({
       session_id: staff.sessionId,
-      ended_at: hub.clock.branchNow(),
+      ended_at: stored.ended_at,
       already_ended: false,
     });
     expect(eventTypes(hub, loggedOut.json().data.event_ids as string[])).toEqual(['SessionEnded']);
@@ -84,7 +104,16 @@ describe('admin access commands', () => {
       kind: 'staff',
     });
 
-    const replay = await post(hub, admin, 'force-logout-session', 'ForceLogoutSession', { session_id: staff.sessionId });
+    const replay = await post(
+      hub,
+      admin,
+      'force-logout-session',
+      'ForceLogoutSession',
+      { session_id: staff.sessionId },
+      undefined,
+      'S_OWNER',
+      occurredAt,
+    );
     expect(replay.statusCode).toBe(200);
     expect(replay.headers['idempotent-replay']).toBe('true');
     expect(replay.json()).toEqual(loggedOut.json());
@@ -92,7 +121,7 @@ describe('admin access commands', () => {
     const again = await post(hub, admin, 'force-logout-session', 'ForceLogoutSession', { session_id: staff.sessionId }, 'cmd-logout-again');
     expect(again.statusCode).toBe(200);
     expect(again.json().data.result.already_ended).toBe(true);
-    expect(again.json().data.result.ended_at).toBe(hub.clock.branchNow());
+    expect(again.json().data.result.ended_at).toBe(loggedOut.json().data.result.ended_at);
     expect(eventsOf(hub, 'SessionEnded').filter((payload) => payload.session_id === staff.sessionId)).toHaveLength(1);
 
     const stationOut = await post(hub, admin, 'force-logout-session', 'ForceLogoutSession', { session_id: station.sessionId }, 'cmd-logout-station');
@@ -199,6 +228,7 @@ function post(
   payload: Record<string, unknown>,
   commandId = `cmd-${name}`,
   actorId = 'S_OWNER',
+  occurredAt?: number,
 ) {
   return hub.app.inject({
     method: 'POST',
@@ -213,7 +243,7 @@ function post(
       branch_id: 'branch-1',
       command_type: commandType,
       payload,
-      occurred_at: hub.clock.branchNow(),
+      occurred_at: occurredAt ?? hub.clock.branchNow(),
       actor_id: actorId,
       device_id: admin.device.deviceId,
     },
