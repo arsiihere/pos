@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { registerStationValidator } from '../../src/auth/station-validator';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
+import { jsonResponse, runPage } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -170,6 +171,41 @@ describe('ApprovePairingRequest', () => {
     expect(again.headers['idempotent-replay']).toBe('true');
     expect(again.json()).toEqual(first.json());
     expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DevicePaired'`).pluck().get()).toBe(1);
+  });
+
+  it('[00 §8.4] the approve page shows a failed /admin/auth: attempts_remaining when ≤ 2, time left for PIN and device lockouts', async () => {
+    const hub = await open();
+    const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
+    const answers = [
+      jsonResponse(401, { error: { code: 'PIN_INVALID', details: { attempts_remaining: 4 } } }),
+      jsonResponse(401, { error: { code: 'PIN_INVALID', details: { attempts_remaining: 2 } } }),
+      jsonResponse(429, { error: { code: 'PIN_LOCKED_OUT', details: { retry_after_ms: 600_000 } } }),
+      jsonResponse(429, { error: { code: 'DEVICE_LOCKED_OUT', details: { retry_after_ms: 61_000 } } }),
+    ];
+    const page = await runPage(html, {
+      store: { token: 'tablet-token', device_id: 'tablet-1' },
+      fetch: (url) => {
+        if (url === '/admin/login-roster') {
+          return Promise.resolve(jsonResponse(200, { data: { staff: [{ staff_id: 'S_OWNER', display_name: 'Owner' }] } }));
+        }
+        if (url === '/admin/auth') return Promise.resolve(answers.shift());
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    const form = page.screen.children[0];
+    if (form === undefined) throw new Error('login form missing');
+    const pin = page.find('pin');
+    if (pin === undefined) throw new Error('pin input missing');
+    pin.value = '0000';
+    const message = () => page.find('auth_error')?.textContent;
+    await page.submit(form);
+    expect(message()).toBe('errors.PIN_INVALID');
+    await page.submit(form);
+    expect(message()).toBe('errors.PIN_INVALID · attempts_remaining 2');
+    await page.submit(form);
+    expect(message()).toBe('errors.PIN_LOCKED_OUT · 10 min');
+    await page.submit(form);
+    expect(message()).toBe('errors.DEVICE_LOCKED_OUT · 2 min');
   });
 
   it('[00 §10 #133] admin pages load with no credentials and embed no token; a guest IP is 403; approval by display code alone takes the single pending match, else 404; the approve page logs in from storage', async () => {

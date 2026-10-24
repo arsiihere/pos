@@ -9,10 +9,17 @@ interface StubElement {
   textContent: string;
   innerHTML: string;
   className: string;
+  name: string;
+  value: string;
+  inputMode: string;
+  dataset: Record<string, string>;
+  options: Array<{ text: string; value: string }>;
+  listeners: Record<string, (event: unknown) => void>;
   children: StubElement[];
   appendChild(child: StubElement): StubElement;
   replaceChildren(...children: StubElement[]): void;
-  addEventListener(): void;
+  addEventListener(type: string, listener: (event: unknown) => void): void;
+  add(option: { text: string; value: string }): void;
 }
 
 function element(tagName: string): StubElement {
@@ -21,6 +28,12 @@ function element(tagName: string): StubElement {
     textContent: '',
     innerHTML: '',
     className: '',
+    name: '',
+    value: '',
+    inputMode: '',
+    dataset: {},
+    options: [],
+    listeners: {},
     children: [],
     appendChild(child) {
       el.children.push(child);
@@ -30,7 +43,13 @@ function element(tagName: string): StubElement {
       el.children = children;
       el.textContent = '';
     },
-    addEventListener() {},
+    addEventListener(type, listener) {
+      el.listeners[type] = listener;
+    },
+    add(option) {
+      el.options.push(option);
+      if (el.options.length === 1) el.value = option.value;
+    },
   };
   return el;
 }
@@ -49,6 +68,8 @@ export interface PageSandbox {
   body: StubElement;
   store: Map<string, unknown>;
   delays: number[];
+  find(name: string): StubElement | undefined;
+  submit(form: StubElement): Promise<void>;
   advance(): Promise<boolean>;
   settle(): Promise<void>;
 }
@@ -86,6 +107,9 @@ export async function runPage(
     window: { prompt: () => null },
     crypto: webcrypto,
     URLSearchParams,
+    Option: function Option(text: string, value?: string) {
+      return { text, value: value ?? text };
+    },
     JSON,
     Math,
     BigInt,
@@ -104,6 +128,15 @@ export async function runPage(
     store,
     delays,
     settle,
+    find(name) {
+      const walk = (el: StubElement): StubElement | undefined =>
+        el.name === name ? el : el.children.map(walk).find((found) => found !== undefined);
+      return walk(screen);
+    },
+    async submit(form) {
+      form.listeners.submit?.({ preventDefault() {}, target: form });
+      await settle();
+    },
     async advance() {
       const next = timers.shift();
       if (next === undefined) return false;

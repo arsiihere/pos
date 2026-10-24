@@ -50,6 +50,17 @@ function field(form, label, name, input) {
   wrap.appendChild(input);
   form.appendChild(wrap);
 }
+// §8.4: PIN_INVALID shows attempts_remaining when ≤ 2; lockouts show the time left.
+function authError(error) {
+  const details = error.details || {};
+  if (error.code === 'PIN_INVALID' && details.attempts_remaining <= 2) {
+    return 'errors.PIN_INVALID · attempts_remaining ' + details.attempts_remaining;
+  }
+  if ((error.code === 'PIN_LOCKED_OUT' || error.code === 'DEVICE_LOCKED_OUT') && details.retry_after_ms > 0) {
+    return 'errors.' + error.code + ' · ' + Math.ceil(details.retry_after_ms / 60000) + ' min';
+  }
+  return 'errors.' + error.code;
+}
 function login(auth) {
   return new Promise((resolve) => {
     fetch('/admin/login-roster', { headers: auth }).then(async (res) => {
@@ -64,6 +75,9 @@ function login(auth) {
       const button = document.createElement('button');
       button.textContent = 'Sign in';
       form.appendChild(button);
+      const note = document.createElement('p');
+      note.name = 'auth_error';
+      form.appendChild(note);
       form.addEventListener('submit', (event) => {
         event.preventDefault();
         fetch('/admin/auth', {
@@ -73,7 +87,7 @@ function login(auth) {
         }).then(async (res) => {
           const body = await res.json();
           if (res.status !== 200) {
-            screen.dataset.error = body.error.code;
+            note.textContent = authError(body.error);
             return;
           }
           sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
