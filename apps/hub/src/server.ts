@@ -30,6 +30,7 @@ import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
 import type { ProjectionRegistry } from './projections/registry.js';
+import { registerWs } from './ws/server.js';
 
 const SECRET_HEADERS = [
   'authorization',
@@ -134,6 +135,7 @@ export function buildHubServer(deps: HubDeps): FastifyInstance {
   registerAdminBootstrapRoutes(app, deps, semaphores.admin);
   registerStaffSessionRoutes(app, deps, semaphores.pin);
   registerStationSessionRoutes(app, deps);
+  registerWs(app, deps);
   return app;
 }
 

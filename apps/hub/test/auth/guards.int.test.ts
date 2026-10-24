@@ -225,13 +225,13 @@ describe('route guards', () => {
   it('[00 §3.9] a ws route records close 4403 for a bad host or a guest and 4426 for an old client', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
-    hub.app.get('/ws', { config: { group: 'ws' } }, async (request) => ({ data: { close: request.wsClose ?? null } }));
-    const badHost = await hub.app.inject({ method: 'GET', url: '/ws', headers: { host: 'evil.example:3000' } });
+    hub.app.get('/guard/ws', { config: { group: 'ws' } }, async (request) => ({ data: { close: request.wsClose ?? null } }));
+    const badHost = await hub.app.inject({ method: 'GET', url: '/guard/ws', headers: { host: 'evil.example:3000' } });
     expect(badHost.statusCode).toBe(200);
     expect(badHost.json()).toEqual({ data: { close: 4403 } });
     const guest = await hub.app.inject({
       method: 'GET',
-      url: '/ws',
+      url: '/guard/ws',
       headers: { host: '192.168.10.2:3000' },
       remoteAddress: '192.168.20.7',
     });
@@ -239,7 +239,7 @@ describe('route guards', () => {
     expect(guest.json()).toEqual({ data: { close: 4403 } });
     const old = await hub.app.inject({
       method: 'GET',
-      url: '/ws',
+      url: '/guard/ws',
       headers: { host: '192.168.10.2:3000', 'x-client-version': '0.9.0' },
       remoteAddress: '192.168.10.5',
     });
@@ -247,7 +247,7 @@ describe('route guards', () => {
     expect(old.json()).toEqual({ data: { close: 4426 } });
     const ok = await hub.app.inject({
       method: 'GET',
-      url: '/ws',
+      url: '/guard/ws',
       headers: { host: '192.168.10.2:3000' },
       remoteAddress: '192.168.10.5',
     });
@@ -255,7 +255,7 @@ describe('route guards', () => {
     expect(ok.json()).toEqual({ data: { close: null } });
     const hostFirst = await hub.app.inject({
       method: 'GET',
-      url: '/ws',
+      url: '/guard/ws',
       headers: { host: 'evil.example:3000', 'x-client-version': '0.9.0' },
       remoteAddress: '192.168.20.7',
     });
