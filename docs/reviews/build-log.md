@@ -256,3 +256,6 @@ Commit below. Test: `[00 §10 #132]` setup with the stub cloud's `branch_name: '
 ## Task 56 — pairing_source derived from device_type (build review 2 item 5)
 Commit below. Test: `[00 §10 #134]` a tablet whose `pairing_tokens` row is deleted (retention) still lists `pairing_source: 'token'`, and a kds lists `'request'`. It failed first with `'request'`. `#45` keeps one statement. Hub + packages 215/215 (1 skipped). No cloud code touched.
 Ruling: `#45` expected `'request'` for the admin tablet, because it had no `pairing_tokens` row. Under M80 a tablet is always `'token'`, so the expectation changed. The `CASE` no longer reads `pairing_tokens`.
+
+## Task 57 — #53 test title matches M73 (build review 2 item 6)
+Commit below. Title only: `[00 §10 #53] … the 10th failure sets login_locked_until and still answers 401 LOGIN_INVALID`. The body is unchanged. No new behaviour, so there was no failing test to write first. `owner-auth/login.int.test.ts` 3/3 on Postgres 5433.

@@ -31,7 +31,7 @@ describe('POST /v1/auth/login', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[00 §10 #53] login happy path; wrong password and unknown email both 401 with similar timing (within 2×); 10 failures → 429', async () => {
+  it('[00 §10 #53] login happy path; wrong password and unknown email both 401 with similar timing (within 2×); the 10th failure sets login_locked_until and still answers 401 LOGIN_INVALID', async () => {
     const cloud = await open();
     const created = await seedOwner(cloud, 'owner@example.com');
     const ok = await login(cloud.app, 'Owner@Example.com', PASSWORD);
