@@ -224,5 +224,15 @@ Ruling: §10 `#53` still says the 10th failure is `429`. M73 and this task's int
 Commit `7e51fee`. Tests: `[00 §10 #54]` refresh returns `base64url(HMAC-SHA256(REFRESH_TOKEN_SECRET, token))`, a replay within 30 000 ms returns that successor and writes nothing, two concurrent refreshes both return it, and a replay after 30 000 ms is `401 REFRESH_TOKEN_INVALID` and revokes every live token of the user. `[00 §10 #55]` logout revokes the caller's token; another user's token answers `revoked: false` and still refreshes. `[00 §10 #123]` an expired refresh token is `401`, and a successful login resets `failed_login_count`. Full suite 242/242.
 Ruling: `route-inventory.int.test.ts` is outside the file list again. Its stub `POST /v1/auth/refresh` is removed so the real route owns that path. Logout is `tenantScope: 'jwt'` and revokes through `TenantLevelRepository`. A token is expired when `expires_at <= now`.
 
+## Task 49 — cloud health and cross-tenant suite
+Commit `e8993a0`. Tests: `[00 §10 #125]` `/v1/health` is 200 `{ status: 'ok', version: '0.0.0', db: 'ok' }`, and ending the pool makes the next call 503 `SERVICE_UNAVAILABLE`; `[00 §10 #77]` tenant A's JWT and branch key, on every `jwt` and `branch-key` route, return no tenant B id. `#77` passed before the health route existed. Full suite 244/244.
+Ruling: `route-inventory.int.test.ts` is outside the file list. Its stub `GET /v1/health` collided with the real route, so the stub is gone and the sample-scope list is `jwt`, `branch-key`, `registration-code`. `version` is `0.0.0` because the cloud package has no version. A failed `SELECT 1` throws `SERVICE_UNAVAILABLE`.
+
+## Task 50 — systemd unit and hardware smoke test
+skipped – needs owner/Claude. §10 #79 is the smoke test on the target mini PC.
+
+## Task 51 — foundation error table and README
+skipped – needs owner/Claude. Marked NOT for Cursor; it edits the foundation spec and `docs/specs/README.md`.
+
 
 
