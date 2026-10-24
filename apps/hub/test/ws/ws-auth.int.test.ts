@@ -165,6 +165,19 @@ describe('websocket auth', () => {
     const closed = await ws.untilClose();
     expect(closed.code).toBe(4403);
     expect(ws.messages).toEqual([]);
+
+    const old = await connect(hub, { headers: { 'x-client-version': '0.9.0' } });
+    const oldClosed = await old.untilClose();
+    expect(oldClosed.code).toBe(4426);
+    expect(old.messages).toEqual([]);
+
+    await seedDirectory(hub);
+    const device = pairDevice(hub, { type: 'tablet' });
+    const staff = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId });
+    const current = await connect(hub);
+    current.send({ type: 'auth', device_token: device.token, session_token: staff.token });
+    await current.untilCount(1);
+    expect(current.messages[0]).toMatchObject({ type: 'catch_up' });
   });
 });
 
