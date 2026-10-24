@@ -9,6 +9,7 @@ import type { SecretGen } from './lib/secrets.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerJwt } from './plugins/jwt.js';
 import { registerOwnerCredentials } from './plugins/owner-credentials.js';
+import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
@@ -49,5 +50,6 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerTenantScope(app, { pool: deps.pool });
   registerHubRegistrationRoutes(app, deps);
   registerOwnerAuthRoutes(app, deps);
+  registerHealthRoutes(app, deps);
   return app;
 }

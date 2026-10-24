@@ -45,7 +45,6 @@ describe('tenant scope', () => {
         });
       }
     });
-    cloud.app.get('/v1/health', { config: { tenantScope: 'none' } }, async () => ({ data: {} }));
     cloud.app.get(
       '/v1/owner/staff',
       { config: { tenantScope: 'jwt', tenantLevel: true } },
@@ -56,7 +55,7 @@ describe('tenant scope', () => {
     await cloud.app.ready();
 
     const declared = seen.filter((route) => route.method !== 'HEAD');
-    expect(declared.map((route) => route.tenantScope)).toEqual(['none', 'jwt', 'branch-key', 'registration-code']);
+    expect(declared.map((route) => route.tenantScope)).toEqual(['jwt', 'branch-key', 'registration-code']);
     expect(
       listTenantScopes(cloud.app)
         .filter((route) => route.tenantScope === 'none' && route.method !== 'HEAD')
