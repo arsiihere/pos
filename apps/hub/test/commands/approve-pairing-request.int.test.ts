@@ -83,6 +83,20 @@ describe('ApprovePairingRequest', () => {
       .get(second.request_id) as { approved_at: number | null };
     expect(stillPending.approved_at).toBeNull();
 
+    const wrongStation = await approve(
+      hub,
+      admin,
+      {
+        request_id: second.request_id,
+        display_code: 'YYYYYY',
+        device_type: 'kds',
+        station_id: 'missing',
+      },
+      'cmd-wrong-code-station',
+    );
+    expect(wrongStation.statusCode).toBe(404);
+    expect(wrongStation.json().error.code).toBe('PAIRING_REQUEST_NOT_FOUND');
+
     const twice = await approve(hub, admin, {
       request_id: request.request_id,
       display_code: request.display_code,
