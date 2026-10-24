@@ -56,7 +56,15 @@ async function runSetup(): Promise<string[]> {
   const adminSessionToken = boot.json().data.admin_session_token as string;
   const savedKey = loadHubConfig(configPath).backup_encryption_key ?? '';
 
-  const secrets = [normalise(REGISTRATION_CODE), BRANCH_API_KEY, bootstrapToken, PIN.a, adminSessionToken, savedKey];
+  const secrets = [
+    REGISTRATION_CODE,
+    normalise(REGISTRATION_CODE),
+    BRANCH_API_KEY,
+    bootstrapToken,
+    PIN.a,
+    adminSessionToken,
+    savedKey,
+  ];
   assertAbsent(hub, secrets);
   return secrets;
 }
