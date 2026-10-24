@@ -76,6 +76,11 @@ describe('GenerateDevicePairingToken', () => {
     expect(again.headers['idempotent-replay']).toBe('true');
     expect(again.json().data.result.pairing_token).toBe(result.pairing_token);
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM pairing_tokens').pluck().get()).toBe(1);
+
+    const withOwner = await post(hub, admin, { device_type: 'tablet', owner_staff_id: 'S_OWNER' }, 'cmd-tablet-owner');
+    expect(withOwner.statusCode).toBe(400);
+    expect(withOwner.json().error.code).toBe('VALIDATION_FAILED');
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM pairing_tokens').pluck().get()).toBe(1);
   });
 
   it('[00 §10 #80] Phone pairing: GenerateDevicePairingToken for phone without owner_staff_id → 400; unknown owner → 404; pair → device has owner_staff_id', async () => {
@@ -97,6 +102,21 @@ describe('GenerateDevicePairingToken', () => {
       .prepare('SELECT device_type, owner_staff_id FROM pairing_tokens WHERE pairing_token_id = ?')
       .get(result.pairing_token_id);
     expect(row).toEqual({ device_type: 'phone', owner_staff_id: 'S_OWNER' });
+    const token = created.json().data.result as { pairing_token: string };
+    const paired = await hub.app.inject({
+      method: 'POST',
+      url: '/devices/pair',
+      payload: {
+        pairing_token: token.pairing_token,
+        pair_request_id: hub.deps.ids.next(),
+        device_name: 'Phone',
+        device_type: 'phone',
+      },
+    });
+    expect(paired.statusCode).toBe(200);
+    expect(paired.json().data.owner_staff_id).toBe('S_OWNER');
+    const device = hub.deps.db.prepare('SELECT owner_staff_id FROM devices WHERE device_id = ?').get(paired.json().data.device_id);
+    expect(device).toEqual({ owner_staff_id: 'S_OWNER' });
   });
 
   it('[00 §3.1 M31] stationExists is false until a validator is registered', () => {
