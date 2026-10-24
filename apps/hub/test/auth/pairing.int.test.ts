@@ -3,7 +3,8 @@ import { encodeCrockford128 } from '../../src/auth/pair-page';
 import { HUB_VERSION } from '../../src/lib/health';
 import { sha256hex } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
-import { jsonResponse, runPage } from '../helpers/page-sandbox';
+import { EN } from '../../src/lib/strings';
+import { jsonResponse, runPage, textOf } from '../helpers/page-sandbox';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -184,16 +185,18 @@ describe('device pairing', () => {
         return Promise.resolve(jsonResponse(200, { data: { session_token: 's', session_id: 'x', station_id: 'ST' } }));
       },
     });
-    expect(kds.body.children.map((child) => child.textContent)).toContain('pairing.hub_unreachable');
-    while (down > 0 || kds.screen.textContent !== 'login') {
+    expect(textOf(kds.byId('pair_status'))).toContain(EN['pairing.hub_unreachable']);
+    expect(kds.byId('pair_status').hidden).toBe(false);
+    while (down > 0 || !textOf(kds.screen).includes(EN['pairing.paired_title'])) {
       if (!(await kds.advance())) break;
     }
-    expect(kds.screen.textContent).toBe('login');
+    expect(textOf(kds.screen)).toContain(EN['pairing.paired_title']);
     expect(kds.store.get('token')).toBe('kds-token');
     expect(kds.delays.length).toBeGreaterThanOrEqual(6);
     expect(Math.max(...kds.delays)).toBe(5_000);
     expect(kds.delays.slice(0, 3)).toEqual([500, 1_000, 2_000]);
-    expect(kds.body.children.map((child) => child.textContent)).not.toContain('pairing.hub_unreachable');
+    expect(textOf(kds.byId('pair_status'))).not.toContain(EN['pairing.hub_unreachable']);
+    expect(kds.byId('pair_status').hidden).toBe(true);
 
     let pollsDown = 2;
     const screen = await runPage(html, {
@@ -218,7 +221,51 @@ describe('device pairing', () => {
     for (let i = 0; i < 10 && screen.store.get('token') === undefined; i += 1) await screen.advance();
     expect(screen.store.get('token')).toBe('tok');
     expect(screen.store.get('device_id')).toBe('K1');
-    expect(screen.screen.textContent).toBe('login');
+    expect(textOf(screen.screen)).toContain(EN['pairing.paired_title']);
+    expect(textOf(screen.screen)).not.toMatch(/pairing\.|errors\./);
+  });
+
+  it('[00 §10 #139] phone pairing asks for the name in a field, never window.prompt; an empty name sends nothing; a name pairs; 401 shows the expired-QR screen', async () => {
+    const hub = await open();
+    const html = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;
+    const sent: Array<Record<string, unknown>> = [];
+    const answers = [jsonResponse(401, { error: { code: 'PAIRING_TOKEN_INVALID', details: {} } })];
+    const expired = await runPage(html, {
+      search: '?t=tok',
+      fetch: (url, init) => {
+        if (url !== '/devices/pair') throw new Error(`unexpected ${url}`);
+        sent.push(JSON.parse((init as { body: string }).body));
+        return Promise.resolve(answers.shift());
+      },
+    });
+    expect(expired.prompts).toBe(0);
+    const name = expired.find('device_name');
+    if (name === undefined) throw new Error('device name field missing');
+    const form = expired.screen.children.find((child) => child.tagName === 'form');
+    if (form === undefined) throw new Error('name form missing');
+    name.value = '   ';
+    await expired.submit(form);
+    expect(sent).toHaveLength(0);
+    expect(expired.findAll((el) => el.classList.contains('pos-field--error'))).toHaveLength(1);
+    name.value = ' Bilal phone ';
+    await expired.submit(form);
+    expect(sent[0]).toMatchObject({ pairing_token: 'tok', device_name: 'Bilal phone', device_type: 'phone' });
+    expect(sent[0]!.pair_request_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(textOf(expired.screen)).toContain(EN['pairing.token_expired']);
+    expect(expired.store.get('pair_request_id')).toBeUndefined();
+
+    const paired = await runPage(html, {
+      search: '?t=tok',
+      fetch: () =>
+        Promise.resolve(
+          jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_OWNER' } }),
+        ),
+    });
+    paired.find('device_name')!.value = 'Bilal phone';
+    await paired.submit(paired.screen.children.find((child) => child.tagName === 'form')!);
+    expect(paired.store.get('token')).toBe('phone-tok');
+    expect(textOf(paired.screen)).toContain(EN['pairing.paired_title']);
+    expect(paired.prompts).toBe(0);
   });
 
   it('[00 §10 #94] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {

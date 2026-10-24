@@ -1,3 +1,5 @@
+import { clientPrelude, pageHead } from '../lib/page.js';
+
 export function encodeCrockford128(bytes: Uint8Array): string {
   const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
   let bits = 0n;
@@ -11,11 +13,13 @@ export function encodeCrockford128(bytes: Uint8Array): string {
 }
 
 export function pairPage(): string {
-  return `<!doctype html>
-<html><body>
-<div id="screen"></div>
+  return `${pageHead({ title: 'pair.title', theme: 'dark' })}
+<body class="pos-root">
+<div id="pair_status" class="pos-page" aria-live="polite" hidden></div>
+<div id="screen" class="pos-screen"></div>
 <script>
 ${encodeCrockford128.toString()}
+${clientPrelude()}
 function openDeviceDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('pos-device', 1);
@@ -48,17 +52,47 @@ function deleteKey(db, key) {
     del.onerror = () => resolve();
   });
 }
+const screen = document.getElementById('screen');
+// One full-screen state: icon, title, body and any extra nodes (code, button, form).
+function show(kind, iconName, title, body, extra) {
+  screen.className = 'pos-screen' + (kind ? ' pos-screen--' + kind : '');
+  const parts = [];
+  if (iconName) {
+    const mark = node('div', 'pos-screen__icon');
+    mark.appendChild(icon(iconName));
+    parts.push(mark);
+  }
+  parts.push(node('h1', 'pos-screen__title', title));
+  if (body) parts.push(node('p', 'pos-screen__body', body));
+  screen.replaceChildren(...parts, ...(extra || []));
+}
+function showPaired() {
+  show('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body'));
+}
 // §8.4: a hub that is down (power loss, boot) is retried with backoff capped at 5 s, never silently dropped.
-const status = document.createElement('p');
-document.body.appendChild(status);
+const status = document.getElementById('pair_status');
+status.hidden = true;
+let hubDown = false;
+function setHubDown(down) {
+  if (down === hubDown) return;
+  hubDown = down;
+  if (down) {
+    const notice = banner('info', t('pairing.hub_unreachable'), t('pairing.hub_unreachable_body'));
+    notice.classList.add('pos-banner--pulse');
+    status.replaceChildren(notice);
+  } else {
+    status.replaceChildren();
+  }
+  status.hidden = !down;
+}
 async function fetchRetry(url, init) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       const res = await fetch(url, init);
-      status.textContent = '';
+      setHubDown(false);
       return res;
     } catch {
-      status.textContent = 'pairing.hub_unreachable';
+      setHubDown(true);
       await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 5000)));
     }
   }
@@ -74,10 +108,15 @@ async function resumePaired(db, deviceToken) {
       return false;
     }
   }
-  screen.textContent = 'login';
+  showPaired();
   return true;
 }
-const screen = document.getElementById('screen');
+function askAgain(start, body) {
+  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('pairing.new_code'));
+  again.type = 'button';
+  again.addEventListener('click', start);
+  show('', 'screen', t('pairing.ask_manager'), body, [again]);
+}
 openDeviceDb().then(async (db) => {
   const deviceToken = await readKey(db, 'token');
   const adminToken = sessionStorage.getItem('admin_session_token');
@@ -90,7 +129,7 @@ openDeviceDb().then(async (db) => {
     if (deviceToken && (await resumePaired(db, deviceToken))) return;
     let retried = false;
     const start = () => {
-      screen.textContent = 'Ask a manager to pair this screen';
+      show('', 'screen', t('pairing.ask_manager'), t('pairing.asking'));
       fetchRetry('/pair/requests', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -103,28 +142,23 @@ openDeviceDb().then(async (db) => {
           return;
         }
         if (res.status !== 200) {
-          screen.textContent = 'Ask a manager to pair this screen';
-          const again = document.createElement('button');
-          again.textContent = 'Ask a manager to pair this screen';
-          again.addEventListener('click', start);
-          screen.appendChild(again);
+          askAgain(start, errorText(body.error));
           return;
         }
-        const qr = document.createElement('div');
+        const code = node('div', 'pos-code');
+        const qr = node('div', 'pos-code__qr');
         qr.innerHTML = body.data.approve_qr_svg;
-        const code = document.createElement('p');
-        code.className = 'display-code';
-        code.textContent = body.data.display_code;
-        screen.replaceChildren(qr, code);
+        code.appendChild(qr);
+        code.appendChild(node('p', 'pos-code__value display-code', body.data.display_code));
+        code.appendChild(node('p', 'pos-code__meta', t('pairing.code_help')));
+        const minutes = Math.ceil((body.data.expires_at - Date.now()) / 60000);
+        if (minutes > 0) code.appendChild(node('p', 'pos-code__meta', t('pairing.expires', { min: minutes })));
+        show('', '', t('pairing.ask_manager'), '', [code]);
         const tick = () => {
           fetchRetry('/pair/requests/' + body.data.request_id, { headers: { 'X-Poll-Secret': body.data.poll_secret } })
             .then(async (polled) => {
               if (polled.status === 404) {
-                screen.textContent = 'Ask a manager to pair this screen';
-                const again = document.createElement('button');
-                again.textContent = 'Ask a manager to pair this screen';
-                again.addEventListener('click', start);
-                screen.appendChild(again);
+                askAgain(start, t('pairing.code_expired'));
                 return;
               }
               const update = await polled.json();
@@ -135,7 +169,7 @@ openDeviceDb().then(async (db) => {
                 if (update.data.device_type === 'kds') {
                   await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
                 }
-                screen.textContent = 'login';
+                showPaired();
                 return;
               }
               setTimeout(tick, 2000);
@@ -148,12 +182,19 @@ openDeviceDb().then(async (db) => {
     return;
   }
   if (deviceToken) {
-    screen.textContent = 'login';
+    showPaired();
     return;
   }
   const ios = /iPhone|iPad/.test(navigator.userAgent) && navigator.standalone !== true;
   if (ios) {
-    screen.textContent = 'pairing.ios_add_to_home';
+    const steps = node('ol', 'pos-stack');
+    for (const [iconName, key] of [['share', 'pairing.ios_step_share'], ['add-home', 'pairing.ios_step_add'], ['phone', 'pairing.ios_step_open']]) {
+      const step = node('li', 'pos-row body-lg');
+      step.appendChild(icon(iconName));
+      step.appendChild(node('span', '', t(key)));
+      steps.appendChild(step);
+    }
+    show('info', 'add-home', t('pairing.ios_add_to_home'), t('pairing.ios_body'), [steps]);
     return;
   }
   let pairRequestId = await new Promise((resolve) => {
@@ -167,32 +208,78 @@ openDeviceDb().then(async (db) => {
     pairRequestId = encodeCrockford128(bytes);
     await writeKey(db, 'pair_request_id', pairRequestId);
   }
-  const name = window.prompt('device name');
-  if (!name) return;
-  const send = () => fetch('/devices/pair', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: 'phone' }),
+  // M82: the device name is a page field (1–40 characters), not a browser dialog.
+  const form = node('form', 'pos-card pos-stack');
+  const nameField = node('div', 'pos-field');
+  const label = node('label', 'pos-field__label', t('pairing.name_label'));
+  label.setAttribute('for', 'device_name');
+  const nameInput = node('input', 'pos-input');
+  nameInput.name = 'device_name';
+  nameInput.id = 'device_name';
+  nameInput.autocomplete = 'off';
+  nameInput.setAttribute('maxlength', '40');
+  const nameError = node('p', 'pos-field__error');
+  nameError.appendChild(icon('alert'));
+  nameError.appendChild(node('span', '', t('pairing.name_error')));
+  nameField.appendChild(label);
+  nameField.appendChild(nameInput);
+  nameField.appendChild(node('p', 'pos-field__help', t('pairing.name_help')));
+  nameField.appendChild(nameError);
+  form.appendChild(node('h1', 'title', t('pairing.name_title')));
+  form.appendChild(nameField);
+  const formStatus = node('div');
+  form.appendChild(formStatus);
+  const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', t('pairing.name_submit'));
+  submit.type = 'submit';
+  form.appendChild(submit);
+  screen.className = 'pos-screen';
+  screen.replaceChildren(form);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = nameInput.value.trim();
+    nameField.classList.toggle('pos-field--error', name.length === 0 || name.length > 40);
+    formStatus.replaceChildren();
+    if (name.length === 0 || name.length > 40) return;
+    setBusy(submit, true);
+    const send = () => fetch('/devices/pair', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: 'phone' }),
+    });
+    const failed = (error) => {
+      setBusy(submit, false);
+      formStatus.replaceChildren(banner('danger', errorText(error)));
+    };
+    const finish = async (res, retried) => {
+      if (res.status === 401) {
+        await deleteKey(db, 'pair_request_id');
+        show('warn', 'clock', t('pairing.token_expired'), t('pairing.token_expired_body'));
+        return;
+      }
+      if (res.status === 200) {
+        const body = await res.json();
+        await writeKey(db, 'token', body.data.device_token);
+        await writeKey(db, 'device_id', body.data.device_id);
+        await writeKey(db, 'device_type', body.data.device_type);
+        await deleteKey(db, 'pair_request_id');
+        showPaired();
+        return;
+      }
+      if (!retried) {
+        finish(await send(), true);
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      failed(body.error);
+    };
+    // M14: a lost response is retried once with the same pair_request_id.
+    send().then(
+      (res) => finish(res, false),
+      () => send().then((res) => finish(res, true), () => failed({ code: 'SERVICE_UNAVAILABLE' })),
+    );
   });
-  const finish = async (res, retried) => {
-    if (res.status === 401) {
-      await deleteKey(db, 'pair_request_id');
-      screen.textContent = 'pairing.token_expired';
-      return;
-    }
-    if (res.status === 200) {
-      const body = await res.json();
-      await writeKey(db, 'token', body.data.device_token);
-      await writeKey(db, 'device_id', body.data.device_id);
-      await writeKey(db, 'device_type', body.data.device_type);
-      await deleteKey(db, 'pair_request_id');
-      screen.textContent = 'login';
-      return;
-    }
-    if (!retried) finish(await send(), true);
-  };
-  send().then((res) => finish(res, false), () => send().then((res) => finish(res, true)));
 });
 </script>
-</body></html>`;
+</body>
+</html>`;
 }

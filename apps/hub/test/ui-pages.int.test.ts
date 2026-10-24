@@ -25,6 +25,7 @@ const PAGES: PageCase[] = [
   { name: '/setup', html: async () => setupPage(), theme: 'light', ids: ['setup'] },
   { name: '/admin/bootstrap', html: () => served('/admin/bootstrap'), theme: 'light', ids: ['login', 'roster'] },
   { name: '/admin/approve', html: () => served('/admin/approve'), theme: 'light', ids: ['screen'] },
+  { name: '/pair', html: () => served('/pair'), theme: 'dark', ids: ['screen'], classes: ['display-code'] },
 ];
 
 describe('hub pages on the UI kit', () => {

@@ -21,9 +21,11 @@ const ICONS = {
 export type IconName = keyof typeof ICONS;
 
 const PAGE_CSS =
-  'html,body{margin:0;min-height:100%}body{min-height:100vh}' +
+  'html,body{margin:0;min-height:100%}body{min-height:100vh}body>.pos-screen{min-height:100vh}' +
   '.pos-page{box-sizing:border-box;width:100%;max-width:var(--content-max);margin-inline:auto;padding:var(--space-6) var(--space-4)}' +
-  '.pos-page h1,.pos-page p{margin:0}.pos-icon-wrap{display:inline-flex}[hidden]{display:none!important}' +
+  '.pos-root h1,.pos-root h2,.pos-root p{margin:0}.pos-root ol{margin:0;padding:0;list-style:none}' +
+  '.pos-icon-wrap{display:inline-flex}[hidden]{display:none!important}' +
+  '.pos-screen .pos-card{box-sizing:border-box;width:100%;max-width:var(--content-max);text-align:start}' +
   'fieldset{border:0;margin:0;padding:0;min-width:0}.pos-pin>.pos-field{width:100%}';
 
 export function esc(text: string): string {
