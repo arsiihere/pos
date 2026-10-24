@@ -1,16 +1,25 @@
-# 00 — Hub Platform & Access — Module Spec v1.1
+# 00 — Hub Platform & Access — Module Spec v1.2
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | v1.2 — **DRAFT** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
 | Date | 2026-10-24 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.2 (UI kit, `docs/design/ui-brief.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| The pages need the bundled UI kit (CSS + fonts); the hub had no static-file route | M81 | §3.9, §6.33, §6.35, §12.2 | #135 |
+| The 00 pages show raw keys and hardcoded English, swallow errors (setup, bootstrap), take a raw `staff_id`, show PINs in clear and name a phone through `window.prompt` | M82 | §8.2, §8.4 | #136–#139; the two `[00 §8.4]` page tests now expect the English text |
+
+One route is added (`GET /ui/*`, a static route that §6.33 does not count, like the four page routes). No error code, event, payload, config field or migration changes.
 
 ### Changes in v1.1 (build review 1, `docs/reviews/00_build_review_1.md`)
 
@@ -238,6 +247,8 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M78 | **`branch_name` is kept in the hub config.** `/setup/provision` writes the register response's `branch_name` to `provisioned.branch_name` (§3.10); §6.8, §6.31 and the M37 catch-up part read it from there. It is not added to `HubProvisioned` (payload frozen at v1). It shows the name at setup time; a cloud rename reaching the hub is deferred (§12.4). | §6.8, §6.31 and M37 return `branch_name`, but neither the config (§3.10) nor `HubProvisioned` (M71) stores it, so the hub could only send `''`. | — |
 | M79 | **Admin pages load without credentials; approval works without a scan.** `GET /admin/bootstrap` and `GET /admin/approve` are static pages: guards host, provisioned and guest network only; they embed no token (`/admin/approve` embeds `tenant_id` and `branch_id` only). The page script reads the device token from IndexedDB and the admin session from `sessionStorage`, and logs in an admin in the same tab when there is none (§8.2). `ApprovePairingRequest.request_id` is optional: without it the hub approves the one pending request whose `display_code` matches; none or more than one → `404 PAIRING_REQUEST_NOT_FOUND`. | A camera scan opens `approve_url` as a plain navigation in a new tab: no `Authorization`, no `X-Admin-Session`, no `sessionStorage`, so the v1.0 page (group `admin`) always answered `401`. Devices that cannot scan or whose scan opens another browser (kiosk, Capacitor tablet, iOS home-screen app, R15) had no way to approve at all. | §3.9 (route groups for the two pages); M55 (d) list |
 | M80 | **`pairing_source` is derived from `device_type`:** `tablet`, `phone` → `'token'`; `cashier_kiosk`, `kds` → `'request'` (M44 makes the source a function of the type). No column. | The v1.0 derivation from `pairing_tokens` turns every token-paired device into `'request'` once retention deletes its token (7 days after expiry). | — |
+| M81 | **The hub serves the UI kit at `GET /ui/*` (route group `static`: guards host and guest network only, no provisioned check, no credentials).** Source: `packages/ui-kit/`, a new folder with CSS, fonts and their licences only (no `package.json`, not a workspace package; the hub resolves it relative to its own source, which holds in the `/opt/pos-hub` checkout). Only `.css` and `.woff2` files are served; the file list is read once at registration, so a path that is not in it (`..`, `README.md`, `tokens.json`, licence files) is `404 ROUTE_NOT_FOUND`. Headers: `Content-Type` `text/css; charset=utf-8` or `font/woff2`; `Cache-Control: public, max-age=31536000, immutable`. Pages link the two stylesheets with `?v=<first 12 hex of sha256(tokens.css ‖ bundle.css)>` so a hub update reaches cached browsers; the query is ignored by the route. Registered on the setup-mode server too, because `/setup` uses it before provisioning. No new dependency (`node:fs`, no `@fastify/static`). Not counted in §6.33, like the page routes. | The pages run on the LAN with no internet (README R15), so fonts and CSS must come from the hub; kiosks and phones reload often, so long caching keeps the hub idle. A whitelist read at start cannot be walked out of. | §3.9 (new group row), §6.33 note |
+| M82 | **The 00 pages use the UI kit and one English string table.** Each page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `<html lang="en" dir="ltr" data-theme>` (`dark` on `/pair`, `light` elsewhere), puts `class="pos-root"` on `<body>` and keeps one inline `<script>`. Text comes from one object `EN` (`apps/hub/src/lib/strings.ts`, keys as in `docs/design/ui-brief.md`, `errors.<CODE>` for codes); the page shows the text for the key, never a raw key and never the server `message` (F §6.2). Fixes: setup shows a busy button, a slow-call banner after 3 s, a banner per error code and the failing field; the bootstrap page shows the admin roster as name tiles (no raw JSON, no `staff_id` input) and a success screen with the way to `/admin/approve`; every PIN input is `type="password"` with `inputmode="numeric"`; the phone pair page asks for the device name in a field (1–40 characters) instead of `window.prompt`. Element ids `screen`, `setup`, `login`, `roster` and class `display-code` stay; script behaviour (storage keys, requests, retries) is unchanged. Urdu (`UR`) is added later (D12). | D12 requires translation keys; the brief found the pages unusable as shipped (errors invisible, raw IDs, clear-text PINs). | §8.2, §8.4 |
 
 ### 3.2 Provisioning state
 
@@ -393,7 +404,7 @@ Applied by a root `onRoute` hook from each route's `config.group`. A hub route-i
 | Guard | Applies to | Failure |
 |---|---|---|
 | host (M45) | **all routes** | `403 HOST_NOT_ALLOWED` (WS: close `4403`) |
-| provisioned | all except `/health`, `/setup*` | `409 HUB_NOT_PROVISIONED` |
+| provisioned | all except `/health`, `/setup*`, `/ui/*` (M81) | `409 HUB_NOT_PROVISIONED` |
 | guest network (`guest_network_cidrs`) | all except `/health` (reduced body, M63) | `403 GUEST_NETWORK_FORBIDDEN` (WS: close `4403`) |
 | client version (`X-Client-Version` < `min_client_version`; absent passes) | `/commands/*`, `/queries/*`, `/auth/*`, `/devices/pair`, `/pair/*`, `/ws` | `426 CLIENT_UPGRADE_REQUIRED` (WS: `4426`) |
 | device token (`Authorization: Bearer`) | `/commands/*`, `/queries/*`, `/auth/*`, `/admin/*` except `/admin/auth/bootstrap`, the static pages (M79) and requests carrying a bootstrap admin session | `401 DEVICE_TOKEN_INVALID`; revoked → `403 DEVICE_REVOKED` |
@@ -401,6 +412,7 @@ Applied by a root `onRoute` hook from each route's `config.group`. A hub route-i
 | admin session (`X-Admin-Session`, kind admin, same device unless bootstrap, idle check M46, `access-hub-admin` re-resolved M61) | `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, `/admin/login-roster` and the static pages (M79) | `401 ADMIN_SESSION_REQUIRED`; permission lost → `403 PERMISSION_DENIED` |
 | roster access | `/admin/login-roster`: device token (tablet/cashier_kiosk/phone) **or** `X-Admin-Bootstrap` header with a live bootstrap token | `401 DEVICE_TOKEN_INVALID` / `401 PAIRING_TOKEN_INVALID` |
 | static admin pages (M79) | `GET /admin/bootstrap`, `GET /admin/approve`: host, provisioned, guest network only; no device token, no session; the page script sends credentials on its own requests | as the guards above |
+| UI kit (M81) | `GET /ui/*` (group `static`): host and guest network only; works before provisioning | as the guards above |
 | pairing token / poll secret | `POST /devices/pair`, `GET /pair/requests/:id` (in handler) | `401 PAIRING_TOKEN_INVALID` / `404 PAIRING_REQUEST_NOT_FOUND` |
 | WS auth message | `/ws` (§6.21) | close `4401` / `4403` |
 
@@ -1147,7 +1159,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 
 #### 6.33 Endpoint count
 
-Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec.
+Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the four pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`) and the UI kit (`GET /ui/*`, 6.35, M81). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec.
 
 #### 6.34 Hub CLI `pnpm --filter hub issue-admin-bootstrap` (M72)
 
@@ -1161,6 +1173,17 @@ Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6.
 | Effect | every earlier live bootstrap token stops working; the new one is single-use, 30 min |
 | Concurrency with a running hub | SQLite `BEGIN IMMEDIATE` + `busy_timeout` serialises with the hub's writer; `seq` stays gap-free because both read `MAX(seq)` inside their transaction. The hub's in-memory `lastSeq` lags until its next commit, which only lowers a new socket's `as_of_seq` (no event is lost; this event has no audience) |
 
+
+#### 6.35 `GET /ui/*` — UI kit (M81)
+
+| | |
+|---|---|
+| Group | `static` (host, guest network); before and after provisioning |
+| Serves | `packages/ui-kit/**/*.css` and `**/*.woff2`, listed once at registration; anything else `404 ROUTE_NOT_FOUND` |
+| Headers | `Content-Type` `text/css; charset=utf-8` / `font/woff2`; `Cache-Control: public, max-age=31536000, immutable` |
+| Query | ignored (pages add `?v=<hash>`, M81) |
+| Errors | `403 HOST_NOT_ALLOWED`, `403 GUEST_NETWORK_FORBIDDEN`, `404 ROUTE_NOT_FOUND` |
+| Writes | none |
 ---
 
 ## §7. Cross-cutting
@@ -1254,6 +1277,7 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
   3. Device token but no admin session in this tab → admin login in the page (`GET /admin/login-roster`, PIN → `POST /admin/auth`); stores `admin_session_token` and `admin_staff_id` in `sessionStorage`.
   4. Form: display code (with `request_id` = `r` when present), type, station for KDS → `ApprovePairingRequest` with `device_id` from IndexedDB (`'hub-admin'` and no `Authorization` for a bootstrap session).
 - **Bootstrap page (M42, M79):** after a successful `POST /admin/auth/bootstrap` it stores `admin_session_token`, `admin_staff_id` and `admin_bootstrap = '1'` in `sessionStorage`.
+- **Look and text (M82):** every page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `lang`, `dir` and `data-theme` (`dark` on `/pair`, `light` elsewhere) on `<html>` and `class="pos-root"` on `<body>`, and shows text from the `EN` table (`errors.<CODE>` for error codes, never `message`). PIN inputs are `type="password"`, `inputmode="numeric"`. Setup: busy button, slow-call banner after 3 s, error banner per code, failing field marked from `details.issues[].path`, success screen with the first-admin QR and link. Bootstrap: admin roster as name tiles (locked ones disabled with the time left), success screen linking `/admin/approve` in the same tab. Phone pairing: a device-name field (1–40 characters) replaces `window.prompt`.
 - **Admin session hygiene (M43):** before any same-tab navigation to `/pair` or a `pair_url`, the admin UI calls `POST /admin/auth/logout` and clears `sessionStorage`. `admin_session_token` lives in `sessionStorage` only.
 - **First admin (M42):** the setup page shows `first_admin_url` as a link and QR; `/admin/bootstrap` reads the token from `location.hash`, sends it only in the request body / `X-Admin-Bootstrap` header, then removes it from the address bar (`history.replaceState`).
 - **Phones (M38):** the manager generates a `phone` token for the staff member in the admin UI on a paired admin device; the staff member scans the QR with the phone camera, which opens `pair_url` in the phone browser; the hub-served pair page asks for a device name and calls `POST /devices/pair`. The roster shows only the owner, so login is PIN only. The device token is in IndexedDB. Browsers may clear site storage of rarely used origins (Safari: script-written storage after 7 days without use); home-screen web apps are reportedly exempt (MQ10).
@@ -1484,6 +1508,11 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 132 | M78: setup writes the register response's `branch_name` to `provisioned.branch_name`; `POST /devices/pair`, the approved `GET /pair/requests/:id` and the WS `catch_up.state.hub.branch_name` return it |
 | 133 | M79: `GET /admin/approve` and `GET /admin/bootstrap` without `Authorization` or `X-Admin-Session` → `200` HTML with no device or session token in the body; a guest IP → 403; `ApprovePairingRequest` without `request_id` approves the single pending request with that `display_code`; no match, or two pending requests with the same code → `404 PAIRING_REQUEST_NOT_FOUND`; static check: the approve page reads IndexedDB and `sessionStorage`, logs in with `/admin/auth` when no admin session is stored, and sends no request when neither a device token nor a bootstrap session exists |
 | 134 | M80: a token-paired tablet still reports `pairing_source: 'token'` after its `pairing_tokens` row is deleted by retention; an approved kds reports `'request'` |
+| 135 | M81: `GET /ui/tokens.css` and `/ui/components/bundle.css` → `200` `text/css; charset=utf-8`; a font → `200` `font/woff2`; all with `Cache-Control: public, max-age=31536000, immutable`; a `?v=` query is ignored; `/ui/README.md`, `/ui/tokens.json`, `/ui/../package.json`, `/ui/%2e%2e/package.json` and an unknown file → `404 ROUTE_NOT_FOUND`; served by the setup-mode server before provisioning; a guest IP → 403; a bad Host → 403; group `static` has guards host and guest |
+| 136 | M82: `/setup`, `/admin/bootstrap`, `/admin/approve` and `/pair` link both stylesheets with the M81 `?v=` hash, set `lang="en" dir="ltr"`, `data-theme` `dark` on `/pair` and `light` elsewhere, `class="pos-root"`, one inline `<script>`, no `http://` or `https://` asset URL, keep ids `screen` / `setup` / `login` / `roster` and class `display-code`; every key the page scripts look up exists in `EN`; every PIN input is `type="password"` with `inputmode="numeric"` |
+| 137 | M82 setup page: submit → the button is busy and disabled; after 3 s the `setup.slow` banner shows; `400 VALIDATION_FAILED` with an `advertised_host` issue → that field is marked and the banner shows `errors.VALIDATION_FAILED`; `503` → `errors.SERVICE_UNAVAILABLE`; the button is usable again after an error; success → the first-admin link and QR |
+| 138 | M82 bootstrap page: the roster renders one name tile per admin (a locked one is disabled and shows the time left); no `staff_id` text input and no JSON on the page; a tap selects the tile; sign-in sends the selected `staff_id`; `PIN_INVALID` shows the error and the attempts left when ≤ 2; success shows the signed-in screen with a link to `/admin/approve`; a dead link shows the expired screen |
+| 139 | M82 phone pairing (`/pair?t=`): a device-name field is shown and `window.prompt` is never called; an empty name marks the field and sends nothing; a name sends `POST /devices/pair` with it; `401` shows `pairing.token_expired` |
 | 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
 
 
@@ -1532,6 +1561,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 34–46 | PIN + lockouts (M62), admin auth + bootstrap (M42) + recovery CLI (35c, M72), pairing token, pair (M60), pairing requests + approve (M44), staff/station sessions, sweeper + retention (M66), admin commands, queries, WS (publish filter), CORS + redaction | §6.6–§6.21, §6.29–§6.32 |
 | 47–50 | Owner login (M64), refresh (M49), health + cross-tenant, systemd + smoke | §6.22–§6.25, §7.8 |
 | 51 | Foundation §6.2 table and README only (codes already exist from task 2) — not for Cursor | §9, D64 |
+| 67–71 | v1.2: UI kit and `GET /ui/*` (M81); setup, bootstrap, approve and pair pages on the kit with the `EN` table (M82) | §6.35, §8.2, §8.4 |
 
 ---
 
@@ -1546,7 +1576,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 - §9 codes exist in `errors.ts` (plan task 2/5b) and are appended to the foundation §6.2 table (plan task 51).
 - Test #100 passes on the 1 M-event fixture; restore tests #87–88 pass.
 - Review 2's blockers N1 and N2 are fixed (v1.0).
-- README status updated; spec version bumped to v1.0 at approval, v1.1 after build review 1.
+- README status updated; spec version bumped to v1.0 at approval, v1.1 after build review 1, v1.2 for the UI kit (M81, M82).
 
 ### 12.2 Endpoint checklist
 
@@ -1583,6 +1613,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.34 | Hub CLI `issue-admin-bootstrap` | shell, service user | — | expires older tokens | `AdminBootstrapTokenIssued` | 127 |
 | 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95 |
 | 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96, 133 |
+| 6.35 | `GET /ui/*` (static, not counted) | none (host, guest) | — | n/a | — | 135 |
 
 ### 12.3 Open questions
 

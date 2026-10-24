@@ -1,6 +1,6 @@
 # UI design brief
 
-For a designer. It describes every screen that exists today (module 00), names the screens coming next, and lists the hard constraints a design must meet before we can build it. The specs in `docs/specs/` are the source of truth; section numbers like §8.2 refer to `00_Hub_Platform_Access_Spec_v1.1.md` and "F §…" to the foundation spec.
+For a designer. It describes every screen that exists today (module 00), names the screens coming next, and lists the hard constraints a design must meet before we can build it. The specs in `docs/specs/` are the source of truth; section numbers like §8.2 refer to `00_Hub_Platform_Access_Spec_v1.2.md` and "F §…" to the foundation spec.
 
 **What the product is:** a restaurant POS. A small Linux box in the restaurant (the **hub**) runs everything and serves the screens over the restaurant Wi-Fi. Cashier PCs, Android tablets, kitchen screens (KDS) and staff phones all talk only to the hub. The cloud is used for setup and reporting, never at the till.
 

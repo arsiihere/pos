@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, Node.js 22, Fastify 5.12.7, fastify-type-provider-zod 7.0.0, Zod 4.6.7, better-sqlite3 13.0.3, @node-rs/argon2 2.2.2, @fastify/websocket 11.3.4, @fastify/jwt 10.2.5, pg 8.23.1, ulid 3.0.2, Vitest 4.1.12, ESLint 10.13.0 + typescript-eslint 8.72.0, tsx 4.23.15 (dev).
 
-**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.1.md` (v1.1; tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
+**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.2.md` (v1.2: tasks 67–71 for M81, M82; v1.1: tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
 
 **Task status:** task **1** is done (commit `4abf807`). Tasks 2–5 are written for v1.0. **Tasks 5b and 5c** bring already-done tasks to v0.6 and v1.0: do them before task 6 (each only verifies if nothing needs changing). Tasks 6+ implement v1.0.
 
@@ -902,6 +902,20 @@ Defined in `docs/reviews/00_build_review_2.md` (numbered fix list; item *n* is t
 
 ---
 
+### Tasks 67–71: spec v1.2 — UI kit on the 00 pages (M81, M82)
+
+Source of the kit: `packages/ui-kit/` (`tokens.css`, `components/bundle.css`, `fonts/*.woff2` with their OFL licences, `README.md`). Shared page code lives in `apps/hub/src/lib/`: `ui-assets.ts` (route + `?v=` hash), `strings.ts` (`EN`), `page.ts` (`<head>`, in-page `t()` / error text, icons). One commit per task.
+
+- **Task 67 — UI kit and `GET /ui/*`** (§6.35, M81, #135). Files: `packages/ui-kit/**`, `apps/hub/src/lib/ui-assets.ts`, `auth/guards.ts` (group `static`), `server.ts`, `lib/boot.ts` (setup-mode server), `test/ui-assets.int.test.ts`, `test/auth/guards.int.test.ts`. Commit `feat(00): task 67 UI kit static route [spec §6.35, M81]`.
+- **Task 68 — setup page** (§8.2, M82, #136 setup part, #137). Files: `lib/strings.ts`, `lib/page.ts`, `setup/page.ts`, `test/helpers/page-sandbox.ts`, `test/setup/setup-page.int.test.ts`, `test/ui-pages.int.test.ts`. Commit `feat(00): task 68 setup page on the UI kit [spec §8.2, M82]`.
+- **Task 69 — bootstrap page** (#136, #138). Files: `auth/admin-bootstrap.ts`, `test/auth/admin-bootstrap-page.int.test.ts`. Commit `feat(00): task 69 bootstrap page on the UI kit [spec §8.2, M82]`.
+- **Task 70 — approve page** (#136, `[00 §8.4]` approve test). Files: `commands/approve-pairing-request.ts`, `test/commands/approve-pairing-request.int.test.ts`. Commit `feat(00): task 70 approve page on the UI kit [spec §8.2, §8.4, M82]`.
+- **Task 71 — pair page** (#136, #139, `[00 §8.4]` pair test). Files: `auth/pair-page.ts`, `test/auth/pairing.int.test.ts`. Commit `feat(00): task 71 pair page on the UI kit [spec §8.2, §8.4, M82]`.
+
+**Done when:** #135–#139 pass, the existing page tests (#92, #94, #133, the two `[00 §8.4]` tests) pass, and the §12.1 grep finds exactly one test per number.
+
+---
+
 ## Coverage check (spec §10 → task)
 
 | Tests | Task |
@@ -956,3 +970,8 @@ Defined in `docs/reviews/00_build_review_2.md` (numbered fix list; item *n* is t
 | 129 | 19 |
 | 130 | 38 |
 | 131 | 38 (helper test in 33) |
+| 135 | 67 |
+| 136 | 68–71 |
+| 137 | 68 |
+| 138 | 69 |
+| 139 | 71 |
