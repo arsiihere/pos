@@ -27,12 +27,6 @@ const form = document.getElementById('setup');
 const submit = document.getElementById('setup_submit');
 const status = document.getElementById('setup_status');
 const done = document.getElementById('setup_done');
-function busy(on) {
-  submit.disabled = on;
-  submit.classList.toggle('is-busy', on);
-  if (on) submit.setAttribute('aria-busy', 'true');
-  else submit.removeAttribute('aria-busy');
-}
 function showDone(data) {
   done.appendChild(node('h1', 'pos-screen__title', t('setup.done_title')));
   done.appendChild(node('p', 'pos-screen__body', t('setup.done_body')));
@@ -51,7 +45,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   for (const name of FIELDS) document.getElementById('field_' + name).classList.remove('pos-field--error');
   status.replaceChildren();
-  busy(true);
+  setBusy(submit, true);
   // A slow call (the cloud can take up to 10 s) gets a calm banner after 3 s.
   const slow = setTimeout(() => status.replaceChildren(banner('warn', t('setup.slow'))), 3000);
   let response;
@@ -71,7 +65,7 @@ form.addEventListener('submit', async (event) => {
     response = undefined;
   }
   clearTimeout(slow);
-  busy(false);
+  setBusy(submit, false);
   if (response !== undefined && response.ok && json && json.data) {
     status.replaceChildren();
     showDone(json.data);

@@ -23,7 +23,8 @@ export type IconName = keyof typeof ICONS;
 const PAGE_CSS =
   'html,body{margin:0;min-height:100%}body{min-height:100vh}' +
   '.pos-page{box-sizing:border-box;width:100%;max-width:var(--content-max);margin-inline:auto;padding:var(--space-6) var(--space-4)}' +
-  '.pos-page h1,.pos-page p{margin:0}.pos-icon-wrap{display:inline-flex}[hidden]{display:none!important}';
+  '.pos-page h1,.pos-page p{margin:0}.pos-icon-wrap{display:inline-flex}[hidden]{display:none!important}' +
+  'fieldset{border:0;margin:0;padding:0;min-width:0}.pos-pin>.pos-field{width:100%}';
 
 export function esc(text: string): string {
   return text
@@ -114,6 +115,12 @@ function icon(name) {
   const wrap = node('span', 'pos-icon-wrap');
   wrap.innerHTML = '<svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name] + '</svg>';
   return wrap;
+}
+function setBusy(button, on) {
+  button.disabled = on;
+  button.classList.toggle('is-busy', on);
+  if (on) button.setAttribute('aria-busy', 'true');
+  else button.removeAttribute('aria-busy');
 }
 const BANNER_ICONS = { ok: 'check', warn: 'clock', danger: 'alert', info: 'sync' };
 function banner(kind, text, detail) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EN } from '../src/lib/strings';
 import { uiVersion } from '../src/lib/ui-assets';
 import { setupPage } from '../src/setup/page';
+import { createTestHub } from './helpers/test-hub';
 
 interface PageCase {
   name: string;
@@ -11,7 +12,19 @@ interface PageCase {
   classes?: string[];
 }
 
-const PAGES: PageCase[] = [{ name: '/setup', html: async () => setupPage(), theme: 'light', ids: ['setup'] }];
+async function served(url: string): Promise<string> {
+  const hub = await createTestHub();
+  try {
+    return (await hub.app.inject({ method: 'GET', url })).body;
+  } finally {
+    await hub.close();
+  }
+}
+
+const PAGES: PageCase[] = [
+  { name: '/setup', html: async () => setupPage(), theme: 'light', ids: ['setup'] },
+  { name: '/admin/bootstrap', html: () => served('/admin/bootstrap'), theme: 'light', ids: ['login', 'roster'] },
+];
 
 describe('hub pages on the UI kit', () => {
   it('[00 §10 #136] every page links the kit, sets lang/dir/theme and pos-root, has one inline script and no remote asset, keeps its ids, looks up only EN keys and masks PINs', async () => {
