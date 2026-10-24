@@ -20,3 +20,5 @@ target/
 .vscode/
 # Claude personal settings
 .claude/settings.local.json
+# OQ4 tap-test field tool output
+tools/tap-test/data/
