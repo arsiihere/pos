@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, Node.js 22, Fastify 5.12.7, fastify-type-provider-zod 7.0.0, Zod 4.6.7, better-sqlite3 13.0.3, @node-rs/argon2 2.2.2, @fastify/websocket 11.3.4, @fastify/jwt 10.2.5, pg 8.23.1, ulid 3.0.2, Vitest 4.1.12, ESLint 10.13.0 + typescript-eslint 8.72.0, tsx 4.23.15 (dev).
 
-**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md` (v1.0.1, APPROVED) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
+**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.1.md` (v1.1; tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
 
 **Task status:** task **1** is done (commit `4abf807`). Tasks 2–5 are written for v1.0. **Tasks 5b and 5c** bring already-done tasks to v0.6 and v1.0: do them before task 6 (each only verifies if nothing needs changing). Tasks 6+ implement v1.0.
 
@@ -878,7 +878,7 @@ Behaviour (§6.34, M72): unprovisioned → throw "run setup instead"; `uid` ≠ 
 
 **Files:** Create `apps/hub/deploy/hub.service`, `apps/hub/test/smoke/{smoke.ts,README.md}`; Modify `apps/hub/package.json` (script `smoke`).
 
-**Interfaces:** unit: `Type=simple`, `ExecStart=/usr/bin/node /opt/pos-hub/apps/hub/dist/main.js`, `Restart=always`, `RestartSec=1`, `After=time-sync.target network-online.target`, `Wants=time-sync.target network-online.target`, `User=poshub`, `Environment=POS_HUB_CONFIG=/etc/pos-hub/config.json`. `smoke.ts` prints `[00 §10 #79]` lines per §7.8 target and exits 1 on a miss; it also runs the #100 fixture boot.
+**Interfaces:** unit: `Type=simple`, `WorkingDirectory=/opt/pos-hub/apps/hub`, `ExecStart=/usr/bin/node --import tsx src/main.ts` (no build step exists and `@pos/domain` / `@pos/events` export `.ts` source; `tsx@4.23.15` is a hub dependency, build review 2 item 1), `Restart=always`, `RestartSec=1`, `After=time-sync.target network-online.target`, `Wants=time-sync.target network-online.target`, `User=poshub`, `Environment=POS_HUB_CONFIG=/etc/pos-hub/config.json`. `smoke.ts` prints `[00 §10 #79]` lines per §7.8 target and exits 1 on a miss; it also runs the #100 fixture boot.
 
 - [ ] **Step 1: Write** `smoke.ts`. **Step 2: Run** `pnpm --filter @pos/hub smoke` on a dev machine. **Step 3: Commit** `feat(00): task 50 systemd unit and smoke test [spec §7.8, M13, M36]`
 
@@ -893,6 +893,12 @@ Done by the spec owner. The codes already exist in `errors.ts` (task 2 / 5b); th
 - [ ] Append the §9 codes to the foundation §6.2 status table (the one allowed foundation edit, D64).
 - [ ] `docs/specs/README.md`: 00 status → Implemented.
 - [ ] Commit `docs(00): append error codes to foundation, mark 00 implemented [spec §9, D64]`.
+
+---
+
+### Tasks 52–60: spec v1.1 and build review 1 follow-ups
+
+Defined in `docs/reviews/00_build_review_2.md` (numbered fix list; item *n* is task 51+*n*). Each item cites its spec section; v1.1 items (M78–M80, #132–#134) start only after the owner approves spec v1.1.
 
 ---
 

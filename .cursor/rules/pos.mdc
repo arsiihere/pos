@@ -11,7 +11,7 @@ You implement code from an approved plan. You do not design, and you do not chan
 
 - Follow `CLAUDE.md` at the repo root (stack, rigor tier, engineering rules).
 - `docs/specs/` and `docs/plans/` are the source of truth. **Never edit, create, rename or delete any file under `docs/specs/` or `docs/plans/`**, not even to fix a typo or tick a checkbox. If one of them needs a change, stop and say so.
-- The current plan for module 00 is `docs/plans/00-plan.md`; it implements `docs/specs/00_Hub_Platform_Access_Spec_v1.0.md`. Read the plan's "Global Constraints" before every task; they apply to all tasks.
+- The current plan for module 00 is `docs/plans/00-plan.md`; it implements `docs/specs/00_Hub_Platform_Access_Spec_v1.1.md`. Read the plan's "Global Constraints" before every task; they apply to all tasks.
 
 ## One task per request
 

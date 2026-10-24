@@ -1,16 +1,28 @@
-# 00 — Hub Platform & Access — Module Spec v1.0
+# 00 — Hub Platform & Access — Module Spec v1.1
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.0.1 — **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`); v1.0.1 = patch closing MQ12 (M77). File name keeps `v1.0` (README naming uses major.minor) |
-| Date | 2026-10-23 |
+| Version | v1.1 — **DRAFT, owner review** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Date | 2026-10-24 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.1 (build review 1, `docs/reviews/00_build_review_1.md`)
+
+| Build review item | Decision | Where | Test |
+|---|---|---|---|
+| `branch_name` is discarded at setup | M78 | §3.10, §6.4, §6.8, §6.31, M37, §12.4 | #132 |
+| A QR scan cannot open `/admin/approve` (a navigation carries no `Authorization` / `X-Admin-Session`) | M79 | §3.9, §6.32, §8.1, §8.2 | #133 |
+| `pairing_source` does not survive retention | M80 | §6.17 | #134 |
+| §10 #53 still says the 10th failure is `429` (contradicts M73) | editorial | §10 #53 | #53 (title only) |
+| §12.1 cites plan task 50 for the foundation table (it is task 51) | editorial | §12.1 | — |
+
+No error code is added. One payload field becomes optional (`ApprovePairingRequest.request_id`); one config field is added (`provisioned.branch_name`). No endpoint, event or migration changes.
 
 ### Changes in v1.0.1 (patch)
 
@@ -182,7 +194,7 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M34 | **Replay before permission.** The idempotency fast path runs before session and permission checks; a replay returns a response authorised when produced and has no effects. | Required by M19. | — |
 | M35 | **CORS for the Capacitor origin** (`cors_origins`, default `["http://localhost"]`) on device routes only. | The WebView origin is not the hub. | — |
 | M36 | **Deploy folder** `apps/hub/deploy/` for the systemd unit. | §6.9 has no place for OS install files. | §6.9 folder list |
-| M37 | **00 contributes a `hub` catch-up part** `{ hub: { clock_alarm: { wall_ms, last_recorded_at } \| null, branch_name } }`. | A KDS connecting after a `ClockAlarm` would never see the D48 banner. | — |
+| M37 | **00 contributes a `hub` catch-up part** `{ hub: { clock_alarm: { wall_ms, last_recorded_at } \| null, branch_name } }`. `branch_name` comes from the config (M78). | A KDS connecting after a `ClockAlarm` would never see the D48 banner. | — |
 | M38 | **Device type `phone` (README R14).** Hub-served browser client; owned by one staff member (`owner_staff_id`, chosen when the pairing token is generated); only the owner may log in (`403 DEVICE_NOT_OWNED`, checked before any PIN work); takeover never applies; revoked automatically (`cause: 'owner_removed'`) when `applyStaffDirectory` removes the owner. | A personal phone left paired after a staff member quits; colleagues acting as each other from a device that leaves the building. | — |
 | M39 | **Auth is re-checked inside the write transaction.** The hub keeps an in-memory `authGeneration` counter, bumped in the after-commit step of every transaction that writes `DeviceRevoked`, `DeviceTokenRotated`, `SessionEnded` or `StaffDirectoryApplied`. A guard records the generation it saw. Inside `writer.run`, right after the idempotency re-check, if the generation changed, the device row and the session row are re-read (2 PK lookups) and rejected with the guard's codes (`DEVICE_REVOKED`, `SESSION_EXPIRED`, …). The permission (§3.6) is resolved **inside** the transaction against the current directory, always. | A command that passed the guard 1 ms before a revoke, force logout, sweep or directory change would otherwise commit for a dead session, e.g. lock a table whose lock D51 can no longer release. better-sqlite3 runs commit and after-commit in one synchronous step, so no transaction can start between them. | §6.3 order: precondition checks now include the auth re-check |
 | M40 | **Access state is reconciled forward from events.** A forward-only projection `access_reconcile` (no reset) consumes `DevicePaired`, `DeviceTokenRotated`, `DeviceRevoked`, `SessionStarted`, `SessionEnded` and applies idempotent updates: `DevicePaired` → mark its pairing token / pairing request consumed; `DeviceTokenRotated` → **during boot catch-up only, never live (M74)**: set the device's `token_hash` to the unusable value `'rotated:' ‖ event_id` (the device must re-pair); `DeviceRevoked` → set `revoked_at`; `SessionEnded` → set `ended_at`. Live writes go to the tables directly; the projection's live apply is then a no-op. At boot step 4 it replays every event with `seq > checkpoint` (M48). `SessionStarted` events replayed at boot whose session has no row and no `SessionEnded` get `SessionEnded { reason: 'hub_restored' }` after the replay. `last_activity_at` and `last_seen_at` stay working data. | After a restore from a USB backup plus the cloud tail (§5.10 b), a fired employee's revoked phone and every force-logged-out session would be valid again. | §5.10 step 5 (adds access reconciliation to the rebuild) |
@@ -223,6 +235,9 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M75 | **A skipped staff row keeps its previous row.** If a staff row is skipped for a weak or malformed `pin_hash` (M52) and the hub already has a row for that staff member, the previous row (with its old hash, roles and denials as last applied) stays, and the person is **not** treated as removed: no `staff_removed` session end, no `owner_removed` phone revoke. A staff member with no previous row is simply absent. A real PIN reset (valid new hash) still ends sessions (M50). | One bad row from 01 would otherwise force a re-pair of that person's phone and end their sessions. | — |
 | M77 | **QR codes on hub-served pages use `qrcode@1.5.4`** (closes MQ12), the library M72 already pins for the CLI. QR codes are rendered **on the hub** as SVG by one helper, `apps/hub/src/lib/qr.ts` → `qrSvg(text: string): string` (synchronous: `QRCode.create(text, { errorCorrectionLevel: 'M' })`, then an SVG `<path>` built from `modules`, 4-module quiet zone). Responses carry the SVG next to the URL: `first_admin_qr_svg` (§6.4), `pair_qr_svg` (§6.7), `approve_qr_svg` (§6.30); pages insert it as-is. No QR library is served to browsers. Lint: `qrcode` is importable only by `lib/qr.ts` and the CLI entry (`setup/issue-admin-bootstrap.ts`). | Screens cannot be paired by scanning (M44) and the first-admin link cannot be opened from a phone without a QR; rendering on the hub keeps the hub-served pages free of a bundler and of a second QR dependency, and keeps `handle` synchronous (D32 stored responses). | — |
 | M76 | **Pairing-request caps: 2 pending per requester IP, 10 pending in total.** Over the per-IP cap → `429 IP_LOCKED_OUT { retry_after_ms }` (time until that IP's oldest pending request expires); over the global cap → `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }`. `pair_requests` stores `requester_ip`. | One client on the staff WiFi could otherwise keep the 10 slots full and block kiosk/KDS pairing. | — |
+| M78 | **`branch_name` is kept in the hub config.** `/setup/provision` writes the register response's `branch_name` to `provisioned.branch_name` (§3.10); §6.8, §6.31 and the M37 catch-up part read it from there. It is not added to `HubProvisioned` (payload frozen at v1). It shows the name at setup time; a cloud rename reaching the hub is deferred (§12.4). | §6.8, §6.31 and M37 return `branch_name`, but neither the config (§3.10) nor `HubProvisioned` (M71) stores it, so the hub could only send `''`. | — |
+| M79 | **Admin pages load without credentials; approval works without a scan.** `GET /admin/bootstrap` and `GET /admin/approve` are static pages: guards host, provisioned and guest network only; they embed no token (`/admin/approve` embeds `tenant_id` and `branch_id` only). The page script reads the device token from IndexedDB and the admin session from `sessionStorage`, and logs in an admin in the same tab when there is none (§8.2). `ApprovePairingRequest.request_id` is optional: without it the hub approves the one pending request whose `display_code` matches; none or more than one → `404 PAIRING_REQUEST_NOT_FOUND`. | A camera scan opens `approve_url` as a plain navigation in a new tab: no `Authorization`, no `X-Admin-Session`, no `sessionStorage`, so the v1.0 page (group `admin`) always answered `401`. Devices that cannot scan or whose scan opens another browser (kiosk, Capacitor tablet, iOS home-screen app, R15) had no way to approve at all. | §3.9 (route groups for the two pages); M55 (d) list |
+| M80 | **`pairing_source` is derived from `device_type`:** `tablet`, `phone` → `'token'`; `cashier_kiosk`, `kds` → `'request'` (M44 makes the source a function of the type). No column. | The v1.0 derivation from `pairing_tokens` turns every token-paired device into `'request'` once retention deletes its token (7 days after expiry). | — |
 
 ### 3.2 Provisioning state
 
@@ -381,10 +396,11 @@ Applied by a root `onRoute` hook from each route's `config.group`. A hub route-i
 | provisioned | all except `/health`, `/setup*` | `409 HUB_NOT_PROVISIONED` |
 | guest network (`guest_network_cidrs`) | all except `/health` (reduced body, M63) | `403 GUEST_NETWORK_FORBIDDEN` (WS: close `4403`) |
 | client version (`X-Client-Version` < `min_client_version`; absent passes) | `/commands/*`, `/queries/*`, `/auth/*`, `/devices/pair`, `/pair/*`, `/ws` | `426 CLIENT_UPGRADE_REQUIRED` (WS: `4426`) |
-| device token (`Authorization: Bearer`) | `/commands/*`, `/queries/*`, `/auth/*`, `/admin/*` except `/admin/auth/bootstrap` and requests carrying a bootstrap admin session | `401 DEVICE_TOKEN_INVALID`; revoked → `403 DEVICE_REVOKED` |
+| device token (`Authorization: Bearer`) | `/commands/*`, `/queries/*`, `/auth/*`, `/admin/*` except `/admin/auth/bootstrap`, the static pages (M79) and requests carrying a bootstrap admin session | `401 DEVICE_TOKEN_INVALID`; revoked → `403 DEVICE_REVOKED` |
 | device session (`X-Session-Token`, staff/station, same device, idle check M46) | `/commands/*` after the M19 fast path; `/queries/*` with `session: 'required'`; `POST /auth/logout` (accepts ended) | `401 SESSION_INVALID` / `401 SESSION_EXPIRED` |
-| admin session (`X-Admin-Session`, kind admin, same device unless bootstrap, idle check M46, `access-hub-admin` re-resolved M61) | `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, `/admin/login-roster` | `401 ADMIN_SESSION_REQUIRED`; permission lost → `403 PERMISSION_DENIED` |
+| admin session (`X-Admin-Session`, kind admin, same device unless bootstrap, idle check M46, `access-hub-admin` re-resolved M61) | `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, `/admin/login-roster` and the static pages (M79) | `401 ADMIN_SESSION_REQUIRED`; permission lost → `403 PERMISSION_DENIED` |
 | roster access | `/admin/login-roster`: device token (tablet/cashier_kiosk/phone) **or** `X-Admin-Bootstrap` header with a live bootstrap token | `401 DEVICE_TOKEN_INVALID` / `401 PAIRING_TOKEN_INVALID` |
+| static admin pages (M79) | `GET /admin/bootstrap`, `GET /admin/approve`: host, provisioned, guest network only; no device token, no session; the page script sends credentials on its own requests | as the guards above |
 | pairing token / poll secret | `POST /devices/pair`, `GET /pair/requests/:id` (in handler) | `401 PAIRING_TOKEN_INVALID` / `404 PAIRING_REQUEST_NOT_FOUND` |
 | WS auth message | `/ws` (§6.21) | close `4401` / `4403` |
 
@@ -408,7 +424,7 @@ Every accepted guard records `authGeneration` for the M39 re-check.
   "advertised_host": "192.168.10.2",
   "guest_network_cidrs": ["192.168.20.0/24"],
   "setup_attempt_id": "01JBF3Q8ZK4M2N6P7R9S0T1V2W",
-  "provisioned": { "tenant_id": "01JB…", "branch_id": "01JB…", "branch_api_key": "…", "confirmed_at": 1761000000000 },
+  "provisioned": { "tenant_id": "01JB…", "branch_id": "01JB…", "branch_name": "Gulberg", "branch_api_key": "…", "confirmed_at": 1761000000000 },
   "backup_encryption_key": "<base64, 32 bytes>"
 }
 ```
@@ -416,7 +432,7 @@ Every accepted guard records `authGeneration` for the M39 re-check.
 | Fields | Written by |
 |---|---|
 | `cloud_base_url`, `http_port`, `data_dir`, `backup_dir`, `cors_origins`, `min_client_version`, `maintenance_hour`, `auth.*` | installer |
-| `advertised_host`, `guest_network_cidrs` (M58), `setup_attempt_id`, `provisioned.{tenant_id, branch_id, branch_api_key}`, `backup_encryption_key` | `/setup/provision` only |
+| `advertised_host`, `guest_network_cidrs` (M58), `setup_attempt_id`, `provisioned.{tenant_id, branch_id, branch_name, branch_api_key}` (M78), `backup_encryption_key` | `/setup/provision` only |
 | `provisioned.confirmed_at` | the confirm task (M41) only |
 
 The branch API key and backup key never reach SQLite or a backup (D53, M21).
@@ -788,7 +804,7 @@ Processing:
 4. Cloud `POST /hubs/register`, `Idempotency-Key: <setup_attempt_id>`, `{ registration_code, hub_version, accepted_kinds: ['new_branch'] }`, 10 s. Network error → `503 SERVICE_UNAVAILABLE { retry_after_ms: 5000 }`; cloud error → same status and code.
 5. Zod-validate the response shape (malformed → `500 INTERNAL_ERROR`, nothing written). Individual bad rows are skipped by M52, not rejected.
 6. `writer.run`: `applyStaffDirectory`; append `HubProvisioned` unless one exists for this `branch_id`; `issueAdminBootstrap(tx, 'setup')` (M42, M72).
-7. Generate `backup_encryption_key` unless present; write config atomically (`provisioned`, `guest_network_cidrs`, `advertised_host`, key).
+7. Generate `backup_encryption_key` unless present; write config atomically (`provisioned` incl. `branch_name` (M78), `guest_network_cidrs`, `advertised_host`, key).
 8. `200 { data: { tenant_id, branch_id, branch_name, restarting: true, first_admin_url: "http://<advertised_host>:<port>/admin/bootstrap#t=<token>", first_admin_qr_svg, first_admin_expires_at } }`; exit(0) after the response is flushed (M13). The setup page shows `first_admin_url` as a link and `first_admin_qr_svg` as the QR (M77).
 
 | | |
@@ -859,7 +875,7 @@ Processing (`writer.run`):
 
 | | |
 |---|---|
-| Response | `200 { data: { device_id, device_token, device_type, owner_staff_id \| null, branch_id, branch_name, hub_version } }` |
+| Response | `200 { data: { device_id, device_token, device_type, owner_staff_id \| null, branch_id, branch_name, hub_version } }`; `branch_name` from config (M78) |
 | Errors | G-hub; `400 VALIDATION_FAILED`, `401 PAIRING_TOKEN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED`, `426 CLIENT_UPGRADE_REQUIRED` |
 | Events | `DevicePaired` (`pairing_token_id` set), `DeviceTokenRotated` |
 
@@ -969,7 +985,7 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 |---|---|
 | Input | `?include_revoked=false` |
 | Response | `{ devices: [{ device_id, device_name, device_type, station_id, owner_staff_id, pairing_source: 'token' \| 'request', paired_at, paired_by_name, last_seen_at, revoked_at, active_session: { session_id, kind, staff_id, display_name } \| null }] }` |
-| Query count | 1 (devices LEFT JOIN active sessions); names from `StaffDirectory`; last-seen from memory merged over the column. Bounded list (a branch has tens of devices), returned whole |
+| Query count | 1 (devices LEFT JOIN active sessions); names from `StaffDirectory`; last-seen from memory merged over the column; `pairing_source` from `device_type` (M80). Bounded list (a branch has tens of devices), returned whole |
 
 #### 6.18 `GET /admin/queries/sessions`
 
@@ -1116,7 +1132,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 | | |
 |---|---|
 | Auth | header `X-Poll-Secret`; unknown id, wrong secret or expired → `404 PAIRING_REQUEST_NOT_FOUND` (indistinguishable) |
-| Response | `200 { data: { status: 'pending' } }` or `{ status: 'approved', device_id, device_token, device_type, station_id \| null, branch_name }` (repeatable until `expires_at`) |
+| Response | `200 { data: { status: 'pending' } }` or `{ status: 'approved', device_id, device_token, device_type, station_id \| null, branch_name }` (repeatable until `expires_at`; `branch_name` from config, M78) |
 | Query count | 1; no writes |
 
 #### 6.32 `ApprovePairingRequest` (`/admin/commands/approve-pairing-request`)
@@ -1124,8 +1140,8 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 | | |
 |---|---|
 | Permission | `manage-devices` |
-| Payload | `{ request_id, display_code, device_type: 'cashier_kiosk' \| 'kds', station_id? }` (`station_id` required iff `kds`) |
-| Handler | request missing, expired, already approved, or `display_code` mismatch → `404 PAIRING_REQUEST_NOT_FOUND`; kds: station validator false → `404 STATION_NOT_FOUND`; new `device_id` + 256-bit token; INSERT `devices` (name from the request, `paired_by` = actor); set `approved_at`, `approved_by`, `device_id`, `delivery_token`; append `DevicePaired { pairing_request_id }` |
+| Payload | `{ request_id?, display_code, device_type: 'cashier_kiosk' \| 'kds', station_id? }` (`station_id` required iff `kds`; `request_id` optional, M79) |
+| Handler | with `request_id`: request missing, expired, already approved, or `display_code` mismatch → `404 PAIRING_REQUEST_NOT_FOUND`; without it: the pending requests (`approved_at IS NULL AND expires_at > now`, `pair_requests_pending`, ≤ 10 rows) whose `display_code` matches must be exactly one, else `404 PAIRING_REQUEST_NOT_FOUND`; kds: station validator false → `404 STATION_NOT_FOUND`; new `device_id` + 256-bit token; INSERT `devices` (name from the request, `paired_by` = actor); set `approved_at`, `approved_by`, `device_id`, `delivery_token`; append `DevicePaired { pairing_request_id }` |
 | Result | `{ device_id, device_type, station_id }` (never the token) |
 | Errors | §6.1; `404 PAIRING_REQUEST_NOT_FOUND` / `STATION_NOT_FOUND` |
 
@@ -1226,13 +1242,18 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
 - **Pairing:** scan the QR (`pair_url`), extract `t`, send `POST /devices/pair` with a new `pair_request_id` kept until success; on a lost response retry with the same id (M14).
 - **Token storage:** `device_token` in Android Keystore-backed secure storage (plugin chosen in 02); `session_token` in memory only (app restart = log in again).
 - **Headers:** `Authorization`, `X-Session-Token`, `X-Client-Version` on every request.
-- **Admin screens** in the tablet app call `/admin/*` with the tablet's device token plus `X-Admin-Session` (M42).
+- **Admin screens** in the tablet app call `/admin/*` with the tablet's device token plus `X-Admin-Session` (M42). The app approves a screen in its own admin screen (display code typed, or `r` read by an in-app scanner) and posts `ApprovePairingRequest`; it does not open `/admin/approve`, whose browser storage is not the app's (M79).
 
 ### 8.2 Hub-served browsers (cashier kiosk, KDS, staff phones, admin)
 
 - **No service worker, no secure-context-only APIs (README R15).** The hub origin is plain HTTP on the LAN, so service workers do not run (except on the kiosk, which Chrome/Edge launches with `--unsafely-treat-insecure-origin-as-secure=http://<hub-ip>:3000`). The client never depends on a service worker; the command queue is IndexedDB only. IDs use `crypto.getRandomValues` (available without a secure context); `crypto.randomUUID` and `crypto.subtle` are not used.
-- **Kiosk and KDS pairing (M44):** the unpaired screen opens `/pair` (no `t`), calls `POST /pair/requests`, keeps `poll_secret` in memory, shows the QR (`approve_url`) and the display code, and polls `GET /pair/requests/:id` every 2 s until approved or expired (then shows "Ask a manager to pair this screen" and offers a new request). On approval it stores `device_token` in IndexedDB; KDS then calls `POST /auth/station`.
-- **Approving (M44):** on a paired tablet, kiosk or phone with an admin session, the manager scans the QR (opens `/admin/approve?r=…`), checks that the code on the screen matches, picks the type (and station for KDS) and approves.
+- **Kiosk and KDS pairing (M44):** the unpaired screen opens `/pair` (no `t`), calls `POST /pair/requests`, keeps `poll_secret` in memory, shows the QR (`approve_url`) and the display code, and polls `GET /pair/requests/:id` every 2 s until approved or expired (then shows "Ask a manager to pair this screen" and offers a new request). On approval it stores `device_token`, `device_id` and `device_type` in IndexedDB; KDS then calls `POST /auth/station`. On a later load with a stored token the page does not create a request: KDS calls `POST /auth/station`, others go to login; `401 DEVICE_TOKEN_INVALID` / `403 DEVICE_REVOKED` wipe the stored values and start a new request (§8.4).
+- **Approving (M44, M79):** the manager scans the QR (opens `/admin/approve?r=…` in the phone browser) or opens `/admin/approve` on a hub-served admin device and types the display code. The page loads with no credentials. Its script:
+  1. Reads `token` and `device_id` from IndexedDB `pos-device` (written by the pair page on every successful pair or approval poll) and `admin_session_token`, `admin_staff_id`, `admin_bootstrap` from `sessionStorage`.
+  2. No device token and no bootstrap admin session → "Open this on a paired admin device and type the code there" (key `pairing.approve_needs_admin_device`); no request is sent.
+  3. Device token but no admin session in this tab → admin login in the page (`GET /admin/login-roster`, PIN → `POST /admin/auth`); stores `admin_session_token` and `admin_staff_id` in `sessionStorage`.
+  4. Form: display code (with `request_id` = `r` when present), type, station for KDS → `ApprovePairingRequest` with `device_id` from IndexedDB (`'hub-admin'` and no `Authorization` for a bootstrap session).
+- **Bootstrap page (M42, M79):** after a successful `POST /admin/auth/bootstrap` it stores `admin_session_token`, `admin_staff_id` and `admin_bootstrap = '1'` in `sessionStorage`.
 - **Admin session hygiene (M43):** before any same-tab navigation to `/pair` or a `pair_url`, the admin UI calls `POST /admin/auth/logout` and clears `sessionStorage`. `admin_session_token` lives in `sessionStorage` only.
 - **First admin (M42):** the setup page shows `first_admin_url` as a link and QR; `/admin/bootstrap` reads the token from `location.hash`, sends it only in the request body / `X-Admin-Bootstrap` header, then removes it from the address bar (`history.replaceState`).
 - **Phones (M38):** the manager generates a `phone` token for the staff member in the admin UI on a paired admin device; the staff member scans the QR with the phone camera, which opens `pair_url` in the phone browser; the hub-served pair page asks for a device name and calls `POST /devices/pair`. The roster shows only the owner, so login is PIN only. The device token is in IndexedDB. Browsers may clear site storage of rarely used origins (Safari: script-written storage after 7 days without use); home-screen web apps are reportedly exempt (MQ10).
@@ -1314,7 +1335,7 @@ Appended to foundation §6.2 and `errors.ts` when this spec is approved.
 
 ## §10. Tests
 
-Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.int.test.ts` on a temp SQLite file through `inject()`; cloud in `apps/cloud/test/**/*.int.test.ts` on PostgreSQL 16. Test names cite `[00 §10 #n]`. Argon2 in tests uses the M8 minimum params (precomputed hashes keep the suite fast). Tests 1–84 keep their v0.5 numbers: §10.1 lists the unchanged ones, §10.2 the ones changed in v0.6, §10.3 the new ones (85–126 from v0.6, 127–130 from v1.0, 131 from v1.0.1; #109 rewritten in v1.0).
+Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.int.test.ts` on a temp SQLite file through `inject()`; cloud in `apps/cloud/test/**/*.int.test.ts` on PostgreSQL 16. Test names cite `[00 §10 #n]`. Argon2 in tests uses the M8 minimum params (precomputed hashes keep the suite fast). Tests 1–84 keep their v0.5 numbers: §10.1 lists the unchanged ones, §10.2 the ones changed in v0.6, §10.3 the new ones (85–126 from v0.6, 127–130 from v1.0, 131 from v1.0.1, 132–134 from v1.1; #109 rewritten in v1.0; #53 corrected in v1.1).
 
 ### 10.1 Unchanged tests (from v0.5)
 
@@ -1361,7 +1382,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 49 | §6.21 | first frame not `auth`, bad device, bad session, admin session → close `4401` with zero frames; revoked device → `4403` |
 | 50 | §6.21 | tokens in query string ignored (connection still requires the auth frame) |
 | 52 | §6.21 | `SessionEnded` delivered then close `4401`; idle socket without pong terminated at 30 s; an open socket with pongs only does not keep the session past its TTL |
-| 53 | §6.22 | login happy path; wrong password and unknown email both 401 with similar timing (within 2×); 10 failures → 429 |
+| 53 | §6.22 | login happy path; wrong password and unknown email both 401 with similar timing (within 2×); the 10th failure sets `login_locked_until` and still answers `401 LOGIN_INVALID` (M73; v1.1 corrects "→ 429") |
 | 55 | §6.24 | logout revokes own token; another user's token → `revoked: false`, still valid |
 | 56 | §6.26 | seed creates roles per table, owner can log in to cloud and (after setup) to hub admin; duplicate email refused |
 | 58 | — | Two concurrent retransmits of one new command: exactly one set of events; both get the same body (D32 re-check) |
@@ -1460,6 +1481,9 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 128 | M74: a live `/devices/pair` rotation leaves the new `token_hash` in place (the new token works after the commit and after `access_reconcile` ran live); the same event replayed in boot catch-up sets `'rotated:<event_id>'` |
 | 129 | M75: a directory push with a malformed hash for an existing staff member keeps their old row (old PIN still logs in), ends none of their sessions, revokes none of their phones, and lists the skip; for a new staff member the row is absent |
 | 131 | M77: the §6.4, §6.7 and §6.30 responses carry an SVG (`<svg` … `</svg>`, no `<script>`) equal to `qrSvg(url)` for their URL; `qrSvg` is deterministic and builds the matrix with `QRCode.create(url, { errorCorrectionLevel: 'M' })` (same module count and dark modules as the library's own `toString(…, { type: 'svg' })` for that URL); a lint scratch import of `qrcode` outside the two allowed files fails |
+| 132 | M78: setup writes the register response's `branch_name` to `provisioned.branch_name`; `POST /devices/pair`, the approved `GET /pair/requests/:id` and the WS `catch_up.state.hub.branch_name` return it |
+| 133 | M79: `GET /admin/approve` and `GET /admin/bootstrap` without `Authorization` or `X-Admin-Session` → `200` HTML with no device or session token in the body; a guest IP → 403; `ApprovePairingRequest` without `request_id` approves the single pending request with that `display_code`; no match, or two pending requests with the same code → `404 PAIRING_REQUEST_NOT_FOUND`; static check: the approve page reads IndexedDB and `sessionStorage`, logs in with `/admin/auth` when no admin session is stored, and sends no request when neither a device token nor a bootstrap session exists |
+| 134 | M80: a token-paired tablet still reports `pairing_source: 'token'` after its `pairing_tokens` row is deleted by retention; an approved kds reports `'request'` |
 | 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
 
 
@@ -1475,7 +1499,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | E0 PIN AC7 | 15, 19, 70, 101, 103 |
 | E0 PIN edge: shared device | 33, 34, 35, 60, 98 |
 | E0 PIN edge: guest WiFi | 36, 119 |
-| E0 Hardware AC3 | 26, 28, 29, 30, 42, 80, 82, 95, 96 |
+| E0 Hardware AC3 | 26, 28, 29, 30, 42, 80, 82, 95, 96, 133, 134 |
 | E6 roles AC3, AC4 | 9, 47, 78, 86 |
 | E6 roles AC6 | 56 |
 | E5 power loss AC2–4, 9, 10 | 14, 15, 64, 67, 71, 79, 100, 111, 124 |
@@ -1490,6 +1514,7 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | Review 1 security fixes | 85, 86, 91, 92, 93, 94, 97, 99, 106, 108, 109 |
 | Review 2 fixes (N1, N2, A, C, D) | 127, 109, 128, 129, 130 |
 | M77 QR codes | 131 |
+| Build review 1 fixes (v1.1) | 132, 133, 134 |
 
 ---
 
@@ -1518,10 +1543,10 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 - Hub and cloud route-inventory tests and the cross-tenant test pass.
 - §7.8 targets met on the pilot hub hardware (or the gap recorded in `docs/reviews/`).
 - No secret appears in logs (test 73).
-- §9 codes exist in `errors.ts` (plan task 2/5b) and are appended to the foundation §6.2 table (plan task 50).
+- §9 codes exist in `errors.ts` (plan task 2/5b) and are appended to the foundation §6.2 table (plan task 51).
 - Test #100 passes on the 1 M-event fixture; restore tests #87–88 pass.
 - Review 2's blockers N1 and N2 are fixed (v1.0).
-- README status updated; spec version bumped to v1.0 at approval.
+- README status updated; spec version bumped to v1.0 at approval, v1.1 after build review 1.
 
 ### 12.2 Endpoint checklist
 
@@ -1530,7 +1555,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.1 | `POST /commands/:name`, `/admin/commands/:name` | device + session / device + admin | per command (in txn) | D32 + M19 + M47 | per command | 1–12, 58, 85, 86, 99, 110 |
 | 6.2 | `GET /queries/:r`, `/admin/queries/:r` | device (+session) / device + admin | per query; admin re-resolve | n/a | — | 13, 106, 117 |
 | 6.3 | `GET /health` | none (host guard) | — | n/a | — | 14, 97, 108 |
-| 6.4 | `POST /setup/provision` | code | — | M14 | `HubProvisioned`, `StaffDirectoryApplied`, `AdminBootstrapTokenIssued` | 15–21, 105 |
+| 6.4 | `POST /setup/provision` | code | — | M14 | `HubProvisioned`, `StaffDirectoryApplied`, `AdminBootstrapTokenIssued` | 15–21, 105, 132 |
 | 6.5 | `POST /v1/hubs/register` | code (M15) | — | M14 | — | 22–25, 61, 89 |
 | 6.6 | `POST /admin/auth` | device | `access-hub-admin` | none needed | `SessionStarted`, lockouts | 26, 27, 91, 93, 114 |
 | 6.7 | `GenerateDevicePairingToken` | device + admin | `manage-devices` | D32 | `DevicePairingTokenGenerated` | 28, 80 |
@@ -1543,7 +1568,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.14 | `RevokeDevice` | device + admin | `manage-devices` | D32 | `DeviceRevoked`, `SessionEnded` | 42 |
 | 6.15 | `ForceLogoutSession` | device + admin | `manage-staff` | D32 | `SessionEnded` | 43 |
 | 6.16 | `ClearPinLockout` | device + admin | `manage-staff` | D32 | `PinLockoutCleared` | 44 |
-| 6.17–6.18 | admin device / session lists | device + admin | `access-hub-admin` | n/a | — | 45, 115 |
+| 6.17–6.18 | admin device / session lists | device + admin | `access-hub-admin` | n/a | — | 45, 115, 134 |
 | 6.19–6.20 | staff roster, session | device (+session) | — | n/a | — | 46, 47, 82 |
 | 6.21 | `GET /ws` | auth frame | — | n/a | pushes | 48–52, 104, 112, 119 |
 | 6.22 | `POST /v1/auth/login` | none (allowlist) | — | none needed | — | 53, 109, 123, 126 |
@@ -1557,7 +1582,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.30 | `POST /pair/requests` | none (host, guest) | — | none needed | — | 95, 130, 131 |
 | 6.34 | Hub CLI `issue-admin-bootstrap` | shell, service user | — | expires older tokens | `AdminBootstrapTokenIssued` | 127 |
 | 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95 |
-| 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96 |
+| 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96, 133 |
 
 ### 12.3 Open questions
 
@@ -1584,4 +1609,5 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | Security headers / CSP on hub-served pages | LAN-only, same-origin; revisit with customer pages (P2). The Host guard (M45) covers DNS rebinding. |
 | Session takeover permission | M20 / R11; owner setting later. |
 | LAN TLS | M54; revisit at P3. |
+| Branch rename reaching the hub (M78) | The name is display-only; 06's directory push can carry it when 01 adds rename. |
 | Device-token expiry | Tokens are revocable, revoked on owner exit (M38), reconciled on restore (M40); revisit with LAN TLS (P3). |
