@@ -48,6 +48,13 @@ function deleteKey(db, key) {
     del.onerror = () => resolve();
   });
 }
+async function resumePaired(db, deviceToken) {
+  const deviceType = await readKey(db, 'device_type');
+  if (deviceType === 'kds') {
+    await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
+  }
+  screen.textContent = 'login';
+}
 const screen = document.getElementById('screen');
 openDeviceDb().then(async (db) => {
   const deviceToken = await readKey(db, 'token');
@@ -58,6 +65,10 @@ openDeviceDb().then(async (db) => {
   }
   const pairingToken = new URLSearchParams(location.search).get('t');
   if (!pairingToken) {
+    if (deviceToken) {
+      await resumePaired(db, deviceToken);
+      return;
+    }
     const start = () => {
       screen.textContent = 'Ask a manager to pair this screen';
       fetch('/pair/requests', {
@@ -66,6 +77,14 @@ openDeviceDb().then(async (db) => {
         body: JSON.stringify({ device_name: 'screen' }),
       }).then(async (res) => {
         const body = await res.json();
+        if (res.status !== 200) {
+          screen.textContent = 'Ask a manager to pair this screen';
+          const again = document.createElement('button');
+          again.textContent = 'Ask a manager to pair this screen';
+          again.addEventListener('click', start);
+          screen.appendChild(again);
+          return;
+        }
         const qr = document.createElement('div');
         qr.innerHTML = body.data.approve_qr_svg;
         const code = document.createElement('p');
@@ -86,9 +105,11 @@ openDeviceDb().then(async (db) => {
               const update = await polled.json();
               if (update.data && update.data.status === 'approved') {
                 await writeKey(db, 'token', update.data.device_token);
+                await writeKey(db, 'device_type', update.data.device_type);
                 if (update.data.device_type === 'kds') {
                   await fetch('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
                 }
+                screen.textContent = 'login';
                 return;
               }
               setTimeout(tick, 2000);
@@ -136,6 +157,7 @@ openDeviceDb().then(async (db) => {
     if (res.status === 200) {
       const body = await res.json();
       await writeKey(db, 'token', body.data.device_token);
+      await writeKey(db, 'device_type', body.data.device_type);
       await deleteKey(db, 'pair_request_id');
       screen.textContent = 'login';
       return;

@@ -180,8 +180,12 @@ describe('device pairing', () => {
     expect(html).toContain("get('pair_request_id')");
     const logoutAt = html.indexOf('/admin/auth/logout');
     expect(html.slice(logoutAt, logoutAt + 400)).toContain('authorization');
+    const screenBlock = html.match(/if \(!pairingToken\) \{[\s\S]*?start\(\);\s*return;\s*\}/)?.[0] ?? '';
+    expect(screenBlock.indexOf('if (deviceToken)')).toBeGreaterThan(-1);
+    expect(screenBlock.indexOf('if (deviceToken)')).toBeLessThan(screenBlock.indexOf("fetch('/pair/requests'"));
+    expect(screenBlock).toContain('/auth/station');
+    expect(screenBlock).toContain('res.status !== 200');
     const stationAt = html.indexOf('/auth/station');
-    expect(stationAt).toBeGreaterThan(logoutAt);
     expect(html.slice(stationAt, stationAt + 400)).toContain('authorization');
     expect(html).toContain('status === 404');
     expect(html).toContain('Ask a manager');
