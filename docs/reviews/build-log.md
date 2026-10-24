@@ -172,3 +172,8 @@ Commit `e71193a`. Tests: `[00 §10 #127]` an expired setup token, a CLI link tha
 Commit `32d9ccc`. Follow-up `e2101d4` sets `DevicePairingTokenGenerated.stream_id` to the pairing token id. Tests: `[00 §10 #28]` tablet token, `kds` and `cashier_kiosk` are 400, a denied `manage-devices` is 403, retransmit returns the same token; `[00 §10 #80]` phone without an owner is 400, an unknown owner is 404, the token row stores `owner_staff_id`; `[00 §3.1 M31]` `stationExists` is false until `registerStationValidator`. Full suite 189/189 before the stream-id assertion; the pairing-token file passed after `e2101d4`.
 Ruling: `#80`'s device row is written by `POST /devices/pair` (task 37). This test checks the token row that pairing copies. `owner_staff_id` is any non-empty string because the fixture staff ids are not ULIDs. The plaintext token is base64url of 32 bytes.
 
+## Task 37 — device pairing and pair page
+Commit `29af341`. Tests: `[00 §10 #29]` happy path, expired and reused tokens are 401, a type mismatch is 403; `[00 §10 #30]` the same `pair_request_id` rotates the device token; `[00 §10 #84]` a removed phone owner is 401; `[00 §10 #118]` old client 426, guest 403, late or revoked rotation 401; `[00 §10 #94]` the pair page logs out and clears `sessionStorage` before pairing; `[00 §6.8]` a phone device stores `owner_staff_id` (the device half of #80). Full suite 195/195.
+Ruling: `branch_name` is not on the hub config or `HubProvisioned`, so the pair response sends an empty string. `guards.int.test.ts` is outside the file list: the `/devices/pair` stub collided with the real route, and an allowed host with an empty body is now 400. Rotation keeps the original `consumed_at`.
+
+
