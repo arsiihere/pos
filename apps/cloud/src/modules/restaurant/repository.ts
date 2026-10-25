@@ -784,6 +784,51 @@ export async function selectItemRoutes(
   );
 }
 
+export type WindowTarget = { item_id: string } | { category_id: string };
+
+// S47: a target's windows, by start_ms, end_ms, window_id.
+export async function selectWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<WindowRow[]> {
+  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  return repo.query<WindowRow>(
+    `SELECT start_ms, end_ms FROM availability_windows
+      WHERE tenant_id = $1 AND ${column} = $2
+      ORDER BY start_ms, end_ms, window_id`,
+    [id],
+  );
+}
+
+// §6.13–6.15: a PATCH with availability_windows deletes the target's rows ...
+export async function deleteWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<void> {
+  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  await repo.query(`DELETE FROM availability_windows WHERE tenant_id = $1 AND ${column} = $2`, [id]);
+}
+
+// ... and inserts the new set in one multi-row INSERT; returned by start_ms, end_ms, window_id.
+export async function insertWindows(
+  repo: TenantLevelRepository,
+  target: WindowTarget,
+  windows: WindowRow[],
+  ids: IdGen,
+): Promise<WindowRow[]> {
+  const rows = await repo.query<WindowRow & { window_id: string }>(
+    `INSERT INTO availability_windows (tenant_id, window_id, item_id, category_id, start_ms, end_ms)
+     SELECT t.tenant_id, u.window_id, $2, $3, u.start_ms, u.end_ms
+       FROM tenants t, unnest($4::text[], $5::int[], $6::int[]) AS u (window_id, start_ms, end_ms)
+      WHERE t.tenant_id = $1
+     RETURNING window_id, start_ms, end_ms`,
+    [
+      'item_id' in target ? target.item_id : null,
+      'category_id' in target ? target.category_id : null,
+      windows.map(() => ids.next()),
+      windows.map((w) => w.start_ms),
+      windows.map((w) => w.end_ms),
+    ],
+  );
+  return rows
+    .sort((a, b) => a.start_ms - b.start_ms || a.end_ms - b.end_ms || (a.window_id < b.window_id ? -1 : 1))
+    .map(({ start_ms, end_ms }) => ({ start_ms, end_ms }));
+}
+
 function menuItemRow(row: Raw<MenuItemRow> & { price_minor: string }): MenuItemRow {
   // BIGINT arrives as a string
   return { ...row, price_minor: Number(row.price_minor), archived_at: msOrNull(row.archived_at) };

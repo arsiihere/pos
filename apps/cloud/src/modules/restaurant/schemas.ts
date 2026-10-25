@@ -167,6 +167,7 @@ export const CategoryResponse = z.object({
       name: z.string(),
       sort_order: z.number(),
       archived_at: z.number().nullable(),
+      availability_windows: z.array(z.object({ start_ms: z.number(), end_ms: z.number() })),
     }),
   }),
 });
@@ -211,6 +212,7 @@ export const CreateMenuItemBody = z.object({
   stock_per_sale_unit: StockPerSaleUnit.default(1),
   low_stock_threshold: LowStockThreshold.default(null),
   carries_over: z.boolean().default(false),
+  availability_windows: AvailabilityWindows.default([]),
   routes: z
     .array(RouteInput)
     .default([])
@@ -241,6 +243,7 @@ export const PatchMenuItemBody = z
     stock_per_sale_unit: StockPerSaleUnit.optional(),
     low_stock_threshold: LowStockThreshold.optional(),
     carries_over: z.boolean().optional(),
+    availability_windows: AvailabilityWindows.optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
@@ -251,6 +254,8 @@ const Route = z.object({
   program_id: z.string().nullable(),
   stock_program_id: z.string().nullable(),
 });
+
+const Window = z.object({ start_ms: z.number(), end_ms: z.number() });
 
 const MenuItem = z.object({
   item_id: z.string(),
@@ -271,6 +276,7 @@ const MenuItem = z.object({
   stock_per_sale_unit: z.number(),
   low_stock_threshold: z.number().nullable(),
   carries_over: z.boolean(),
+  availability_windows: z.array(Window),
   archived_at: z.number().nullable(),
   routes: z.array(Route),
 });
@@ -285,8 +291,6 @@ export const MenuQuery = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
-
-const Window = z.object({ start_ms: z.number(), end_ms: z.number() });
 
 export const MenuResponse = z.object({
   data: z.object({
@@ -303,7 +307,7 @@ export const MenuResponse = z.object({
         availability_windows: z.array(Window),
       }),
     ),
-    items: z.array(MenuItem.extend({ availability_windows: z.array(Window) })),
+    items: z.array(MenuItem),
     next_cursor: z.string().nullable(),
   }),
 });

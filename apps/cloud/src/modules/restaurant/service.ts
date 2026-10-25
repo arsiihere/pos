@@ -14,6 +14,7 @@ import {
   activeRouteItemIds,
   activeTableIds,
   archiveStationPrograms,
+  deleteWindowsOf,
   insertCategory,
   insertConfigAuditRows,
   insertFloor,
@@ -23,6 +24,7 @@ import {
   insertStation,
   insertTable,
   insertTaxClass,
+  insertWindows,
   lockCategory,
   lockFloor,
   lockMenuItem,
@@ -40,6 +42,7 @@ import {
   selectPrograms,
   selectStations,
   selectTables,
+  selectWindowsOf,
   shareCategory,
   shareFloor,
   shareProgramsById,
@@ -61,6 +64,8 @@ import {
   type StationRow,
   type TableRow,
   type TaxClassRow,
+  type WindowRow,
+  type WindowTarget,
 } from './repository.js';
 import type {
   CreateCategoryInput,
@@ -627,18 +632,20 @@ export async function patchTaxClass(
   });
 }
 
-// §6.13 POST: tenant-level. The body accepts availability_windows; task 31 writes them (S47).
+type CategoryWire = CategoryRow & { availability_windows: WindowRow[] };
+
+// §6.13 POST: tenant-level, with its availability_windows (S47).
 export async function createCategory(
   deps: RestaurantDeps,
   req: OwnerRequest,
   body: CreateCategoryInput,
-): Promise<IdempotentResult<{ category: CategoryRow }>> {
+): Promise<IdempotentResult<{ category: CategoryWire }>> {
   return withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
-      const category = await nameTaken('categories_active_name', 'category', body.name, () =>
+      const row = await nameTaken('categories_active_name', 'category', body.name, () =>
         insertCategory(level, {
           categoryId: deps.ids.next(),
           name: body.name,
@@ -646,6 +653,16 @@ export async function createCategory(
           now: deps.clock.branchNow(),
         }),
       );
+      const category = {
+        ...row,
+        availability_windows: await replaceWindows(
+          level,
+          deps.ids,
+          { category_id: row.category_id },
+          [],
+          body.availability_windows,
+        ),
+      };
       await writeConfigAudit(
         level,
         {
@@ -666,13 +683,14 @@ export async function createCategory(
   );
 }
 
-// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write → audit → bump every branch.
+// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write (windows replaced when sent,
+// S47) → audit → bump every branch.
 export async function patchCategory(
   deps: RestaurantDeps,
   req: OwnerRequest,
   categoryId: string,
   body: PatchCategoryInput,
-): Promise<{ category: CategoryRow }> {
+): Promise<{ category: CategoryWire }> {
   return inTransaction(deps.pool, async (client) => {
     const level = new TenantLevelRepository(req.tenant, client);
     const before = await lockCategory(level, categoryId);
@@ -690,9 +708,15 @@ export async function patchCategory(
         throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'menu_item', ids } });
       }
     }
-    const category = await nameTaken('categories_active_name', 'category', merged.name, () =>
+    const row = await nameTaken('categories_active_name', 'category', merged.name, () =>
       updateCategory(level, merged, now),
     );
+    const target = { category_id: categoryId };
+    const beforeWindows = await selectWindowsOf(level, target);
+    const category = {
+      ...row,
+      availability_windows: await replaceWindows(level, deps.ids, target, beforeWindows, body.availability_windows),
+    };
     await writeConfigAudit(
       level,
       {
@@ -701,7 +725,7 @@ export async function patchCategory(
         entityId: categoryId,
         branchId: null,
         action: auditActionFor(before, category),
-        before,
+        before: { ...before, availability_windows: beforeWindows },
         after: category,
       },
       deps,
@@ -775,7 +799,7 @@ export async function createMenuItem(
   deps: RestaurantDeps,
   req: OwnerRequest,
   body: CreateMenuItemInput,
-): Promise<IdempotentResult<{ item: MenuItemRow & { routes: RouteRow[] } }>> {
+): Promise<IdempotentResult<{ item: MenuItemWire }>> {
   for (const route of body.routes) assertBranchAllowed(req.tenant, route.branch_id);
   assertUnits(body);
   if (body.stock_time_ms !== null && body.stock_time_ms > body.cook_time_ms) {
@@ -791,11 +815,15 @@ export async function createMenuItem(
       if (body.tax_class_id !== null) assertReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
       await assertRoutes(scoped, body.routes);
       const now = deps.clock.branchNow();
-      const { routes: routeInput, ...fields } = body;
-      const item = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
+      const { routes: routeInput, availability_windows: windowInput, ...fields } = body;
+      const row = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
         insertMenuItem(level, { item_id: deps.ids.next(), ...fields }, now),
       );
-      const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, item.item_id, routeInput, now) : [];
+      const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, row.item_id, routeInput, now) : [];
+      const item = {
+        ...row,
+        availability_windows: await replaceWindows(level, deps.ids, { item_id: row.item_id }, [], windowInput),
+      };
       const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
       await insertConfigAuditRows(
         level,
@@ -820,6 +848,8 @@ export async function createMenuItem(
   );
 }
 
+type MenuItemWire = MenuItemRow & { availability_windows: WindowRow[]; routes: RouteRow[] };
+
 // §6.15: lock → rules on the merged row (units, stock ≤ cook, references; a restored item's routes are re-checked
 // against §3.3, so it cannot bring back a route to a station or program archived meanwhile) → write → audit →
 // bump every branch. Archiving needs no in-use check (open orders hold copies, §4.4).
@@ -828,14 +858,14 @@ export async function patchMenuItem(
   req: OwnerRequest,
   itemId: string,
   body: PatchMenuItemInput,
-): Promise<{ item: MenuItemRow & { routes: RouteRow[] } }> {
+): Promise<{ item: MenuItemWire }> {
   return inTransaction(deps.pool, async (client) => {
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
     const before = await lockMenuItem(level, itemId);
     if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
     const now = deps.clock.branchNow();
-    const { archived, ...fields } = body;
+    const { archived, availability_windows: windowInput, ...fields } = body;
     const merged: MenuItemRow = {
       ...before,
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
@@ -854,7 +884,12 @@ export async function patchMenuItem(
     }
     const routes = await selectItemRoutes(scoped, [itemId]);
     if (before.archived_at !== null && active) await assertRoutes(scoped, routes);
-    const item = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () => updateMenuItem(level, merged, now));
+    const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () => updateMenuItem(level, merged, now));
+    const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
+    const item = {
+      ...row,
+      availability_windows: await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput),
+    };
     await writeConfigAudit(
       level,
       {
@@ -863,7 +898,7 @@ export async function patchMenuItem(
         entityId: itemId,
         branchId: null,
         action: auditActionFor(before, item),
-        before,
+        before: { ...before, availability_windows: beforeWindows },
         after: item,
       },
       deps,
@@ -882,6 +917,19 @@ export async function patchMenuItem(
       },
     };
   });
+}
+
+// S47: no field → the stored set; with the field → delete + one multi-row INSERT, in the write's transaction.
+async function replaceWindows(
+  level: TenantLevelRepository,
+  ids: IdGen,
+  target: WindowTarget,
+  current: WindowRow[],
+  next: WindowRow[] | undefined,
+): Promise<WindowRow[]> {
+  if (next === undefined) return current;
+  if (current.length > 0) await deleteWindowsOf(level, target);
+  return next.length > 0 ? insertWindows(level, target, next, ids) : [];
 }
 
 // §3.3, S44: equal units → stock_per_sale_unit 1; different units → sale_unit 'piece'.

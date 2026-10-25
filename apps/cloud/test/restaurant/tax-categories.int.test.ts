@@ -131,7 +131,13 @@ describe('tax classes and categories', () => {
     const category = await post('/v1/admin/categories', { name: 'Breakfast', sort_order: 3, availability_windows: [] });
     expect(category.statusCode).toBe(201);
     const breakfast = category.json().data.category;
-    expect(breakfast).toEqual({ category_id: expect.any(String), name: 'Breakfast', sort_order: 3, archived_at: null });
+    expect(breakfast).toEqual({
+      category_id: expect.any(String),
+      name: 'Breakfast',
+      sort_order: 3,
+      archived_at: null,
+      availability_windows: [],
+    });
     for (const snapshot of await snapshots()) {
       expect(snapshot.categories).toEqual([
         { category_id: breakfast.category_id, name: 'Breakfast', sort_order: 3, availability_windows: [] },

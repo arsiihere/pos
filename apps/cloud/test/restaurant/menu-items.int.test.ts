@@ -104,6 +104,7 @@ describe('menu item create', () => {
       stock_per_sale_unit: 1,
       low_stock_threshold: null,
       carries_over: false,
+      availability_windows: [],
       archived_at: null,
       routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null }],
     });
