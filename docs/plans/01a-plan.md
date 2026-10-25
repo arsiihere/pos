@@ -53,8 +53,9 @@
 | 33 Cloud tenant-wide write guard from the database | `c89db91` |
 | 34 Cloud lock-order races | `f8141fe` |
 | 35 Cloud CLI `set-branch-settings` | `c52a21c` |
+| 36 Cloud CLI `restore-bump` | `dc29dd8` |
 
-**Next task for Cursor: 36.**
+**Next task for Cursor: 37.**
 
 ## Markers
 
