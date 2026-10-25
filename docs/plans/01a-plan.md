@@ -54,8 +54,9 @@
 | 34 Cloud lock-order races | `f8141fe` |
 | 35 Cloud CLI `set-branch-settings` | `c52a21c` |
 | 36 Cloud CLI `restore-bump` | `dc29dd8` |
+| 37 Hub migration 0004 and projections | `cc8290e` |
 
-**Next task for Cursor: 37.**
+**Next task for Cursor: 38.**
 
 ## Markers
 
