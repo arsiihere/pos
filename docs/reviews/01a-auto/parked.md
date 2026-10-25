@@ -8,3 +8,5 @@
 - cloud-admin: concurrent logouts call onLoggedOut several times; call once per failed refresh (review-14 nit 4).
 - Spec §7.8 (b): patch text to match D6.
 - Spec §6.21: add tenant_id, branch_id to the config-status response (D7).
+- [spec gap, §6.19/§8.2] add `category_name` to `items_meta`; the /admin/stock category filter shows raw category_id until then (review-16 S2).
+- [spec gap, §6.19/§6.18b/§8.2] return `day_min_gap_hours` so the `opened_recently` text can name it; the page says "only a short time ago" until then (review-16 S2).
