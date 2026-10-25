@@ -49,9 +49,10 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
           events: [],
           result: {
             // S45: an add is not a count, so its set_at stays the count's time.
+            // An 'added' entry always has a set_at: countIsValid is false when it is null.
             items: payload.entries.map((entry, i) => {
-              const setAt = recordedAs[i] === 'added' ? stockOf(next, entry.item_id).set_at : now;
-              return { ...stockResult(next, items[i]!, setAt ?? now), recorded_as: recordedAs[i]! };
+              const setAt = recordedAs[i] === 'added' ? stockOf(next, entry.item_id).set_at! : now;
+              return { ...stockResult(next, items[i]!, setAt), recorded_as: recordedAs[i]! };
             }),
           },
         };
