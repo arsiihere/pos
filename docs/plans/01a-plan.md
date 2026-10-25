@@ -73,8 +73,9 @@
 | 53 Hub stock query — versions, parts, `day_stale`, `hub_time` | `249b70f` |
 | 54 Hub config status | `2d64fcb` |
 | 55 Hub WS audiences and catch-up parts | `f946fcc` |
+| 56 Hub `GET /queries/branch-config` with `hub_time` | `244558a` |
 
-**Next task for Cursor: 56.**
+**Next task for Cursor: 57.**
 
 ## Markers
 
