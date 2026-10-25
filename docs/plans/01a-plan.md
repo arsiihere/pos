@@ -59,7 +59,7 @@ The plan's earlier "Needs spec change" list (N1–N12) was decided by the user a
 | N8 | `SetPrecookedStock` result `set_at` may differ by ms from the stored `recorded_at`; the stock query is the truth | task 33 |
 | N9 | `QueryCtx.branchConfig` (not `.config`) | task 29 |
 | N10 | §7.5 targets checked by the runbook / hub smoke script, not automated tests | task 54 |
-| N11 | Tests 75, 102, 103, 104: the **Automated** part is the numbered test; the **Runbook step** part is checked in task 54 | tasks 35, 36, 48, 54 |
+| N11 | Tests 75, 102, 103, 104: both parts automated. The numbered test covers the server/render part; a test cited `[01a §10 #n page part]` covers the page part; the page parts are also runbook steps | tasks 35, 36, 40, 48, 50, 54 |
 | N12 | First boot after 0004 replays the full log once (§7.6 risk) | task 24 |
 
 ## Review Focus
@@ -608,7 +608,7 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 
 `businessDayStartedAt`: local midnight of `nowMs` (`new Date(nowMs)`, `setHours(0,0,0,0)`) + `business_day_start_ms`; if > `nowMs`, use the previous day (`setDate(d − 1)`). Tests save `process.env.TZ`, set `'Asia/Karachi'` in `beforeAll`, restore it in `afterAll` (R35). Stock query: resource `stock`, `sessionKind: 'admin'`, `session: 'none'` (as 00's admin queries: the admin guard already requires the session, so this matches §6.19's "session required", R43); handler checks `ctx.directory.resolve(ctx.session!.staff_id, 'manage-stock').grant === 'allowed'` else `403 PERMISSION_DENIED { permission: 'manage-stock' }`. Shape §6.19.
 
-- [ ] **Step 1: Tests:** `[01a §10 #104]` (automated part: the `businessDayStartedAt` cases; the badge is a runbook step in task 54, S40 N11), `[01a §10 #72]` (`statementCounter(deps.readDb)`, R31), `[01a §10 #103]` (automated part: `unavailable_since` values; the badge is task 54); `[01a §6.19] an admin without manage-stock → 403`.
+- [ ] **Step 1: Tests:** `[01a §10 #104]` (the `businessDayStartedAt` cases; the badge is `#104 page part` in task 50, S40 N11), `[01a §10 #72]` (`statementCounter(deps.readDb)`, R31), `[01a §10 #103]` (`unavailable_since` values; the badge is `#103 page part` in task 50); `[01a §6.19] an admin without manage-stock → 403`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 35 business day and stock query [spec §6.19, S30, S33]`
 
 ### Task 36: Hub config status and `pull-now`
@@ -617,7 +617,7 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 
 `POST /admin/config/pull-now` (`group: 'admin'`): `Promise.race([poller.pollOnce(), a 12 000 ms setTimeout])` (a real timer; it records nothing). Mapping per §6.20 / S40 N5: `200 { data: { outcome, config_version, directory_version } }` for `applied`, `epoch_changed`, `unchanged`, `rejected`, `upgrade_required`, `not_ready`; `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }` for `offline`, the 12 s timeout and `unauthorized` (also logged at `error`). Config status: resource `config-status`, shape §6.21.
 
-- [ ] **Step 1: Tests:** `[01a §10 #55]` (the "no admin session" case sends a paired device's token, so the answer is `401 ADMIN_SESSION_REQUIRED`, R44), `#56`, `#102` (automated part; the banners are task 54); `[01a §6.20, S40 N5] rejected and not_ready answer 200 with that outcome; offline answers 503`; `[01a §6.21] config status shows last_poll.outcome not_ready on an unconfirmed hub`.
+- [ ] **Step 1: Tests:** `[01a §10 #55]` (the "no admin session" case sends a paired device's token, so the answer is `401 ADMIN_SESSION_REQUIRED`, R44), `#56`, `#102` (server part; the banners are `#102 page part` in task 50); `[01a §6.20, S40 N5] rejected and not_ready answer 200 with that outcome; offline answers 503`; `[01a §6.21] config status shows last_poll.outcome not_ready on an unconfirmed hub`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 36 config status and pull-now [spec §6.20, §6.21, S24, S29 c]`
 
 ### Task 37: Hub WS audiences and catch-up parts
@@ -660,7 +660,7 @@ Add one block **last** in the config, `files: ['apps/client/src/**/*.{ts,tsx}']`
 - `'no-restricted-syntax': ['error', { selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]', message: 'S35 e' }, { selector: 'JSXAttribute[name.name="style"]', message: 'S35 d: style only from packages/ui-kit' }]` — no `forbiddenCalls` (browser code may read the clock); do **not** add `apps/client/src/**` to the existing `'off'` list.
 - `'no-restricted-imports': ['error', { paths: [{ name: '@pos/domain/hash', message: 'S27' }], patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...credentialLookupImports.patterns, ...systemContextImports.patterns, { group: ['node:*'], message: 'S35 f' }, { group: ['**/apps/hub/**', '**/apps/cloud/**', '**/hub/src/**', '**/cloud/src/**'], message: 'S35 f' }, { regex: '^(?!.*packages/ui-kit/).*\\.css$', message: 'S35 d: CSS only from packages/ui-kit' }] }]` (flat config replaces, not merges, the root options, so the root patterns are repeated).
 
-- [ ] **Step 1: Tests** (`lint.test.ts`, `// @vitest-environment node`, `new ESLint().lintText(code, { filePath: 'apps/client/src/x.tsx' })`): `[01a §10 #79]` exactly as §10 (forbidden imports, a `.css` outside the kit and a `style` prop fail; `../../../../packages/ui-kit/tokens.css` and `@pos/domain` pass); `[F §6.7] Date.now() in apps/client/src passes, in apps/hub/src fails`.
+- [ ] **Step 1: Tests** (`lint.test.ts`, `// @vitest-environment node`, `new ESLint().lintText(code, { filePath: 'apps/client/src/x.tsx' })`): `[01a §10 #79]` exactly as §10 (forbidden imports, a `.css` outside the kit and a `style` prop fail; `../../../../packages/ui-kit/tokens.css` and `@pos/domain` pass); `[01a §10 #75 page part] dangerouslySetInnerHTML in apps/client/src fails lint`; `[F §6.7] Date.now() in apps/client/src passes, in apps/hub/src fails`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS; `pnpm lint` → commit `feat(01a): task 40 client lint rules [spec S35 d, e, f]`
 
 ### Task 41: `client-dist`, `admin-page` group, `/owner/*` allowlist and CSP — needs Docker Postgres
@@ -730,7 +730,7 @@ Routes `#/login`, `#/`, `#/floors`, `#/stations`, `#/menu` (§8.1); no token →
 
 Tax picker: "No tax" first and default; route picker per branch filtered by station type (program select only for batch); minutes ↔ `_ms`; "When pre-cooked stock runs out": Cook fresh (default) / Sold out.
 
-- [ ] **Step 1: Tests:** `[01a §10 #75]` (automated part: render; the lint check is a runbook step in task 54, S40 N11); `[01a S34] a new item defaults to No tax and sends tax_class_id null`; `[01a S11] a batch station shows the program select, a slot station hides it`.
+- [ ] **Step 1: Tests:** `[01a §10 #75]` (render part; the lint check is `#75 page part` in task 40, S40 N11); `[01a S34] a new item defaults to No tax and sends tax_class_id null`; `[01a S11] a batch station shows the program select, a slot station hides it`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 48 owner menu view [spec §8.1, S32, S34]`
 
 ### Task 49: `/admin/stock` — `hub-admin` client and PIN login
@@ -748,7 +748,7 @@ Tax picker: "No tax" first and default; route picker per branch filtered by stat
 
 §8.2: stock + config status on open and every 15 000 ms while `document.visibilityState === 'visible'`; **Save counts** sends changed rows only, `on_hand` as numbers, `command_id` kept for retries; badges from `badges.ts` (Interfaces); "Waiting for hub confirmation" while `last_poll.outcome` is `not_ready`; **Get changes now** shows the returned outcome's text, or "Could not reach the cloud" on `503` (§8.2).
 
-- [ ] **Step 1: Tests:** `[01a §10 #77]`; `[01a §8.2, S40 N5] Get changes now shows the rejected reason from a 200 and the cloud error on 503`; `[01a §8.2] on_hand values are sent as numbers`; Review Focus 4: `[01a §8.2] a refresh does not overwrite the row being edited`.
+- [ ] **Step 1: Tests:** `[01a §10 #77]`; `[01a §10 #102 page part] danger banner for rejected / upgrade_required / unauthorized; warn banner when epoch_changed_at is within 24 h, not after`; `[01a §10 #103 page part] "Off since <day>" when unavailable_since is before business_day_started_at; no badge when after` (also unit-test `offSince`); `[01a §10 #104 page part] "Not counted today": set_at yesterday 23:00 → no badge at now 02:00 (day started yesterday 05:00), badge at now 06:00; set_at null → badge` (also unit-test `notCountedToday`); `[01a §8.2, S40 N5] Get changes now shows the rejected reason from a 200 and the cloud error on 503`; `[01a §8.2] on_hand values are sent as numbers`; Review Focus 4: `[01a §8.2] a refresh does not overwrite the row being edited`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS; `pnpm --filter @pos/client build` → commit `feat(01a): task 50 hub stock and availability page [spec §8.2, S29 c, S30, S33]`
 
 ### Task 51: Spec 00 v1.3 entry for `allowNotNewer` — Claude only, STOP
@@ -781,7 +781,7 @@ Tax picker: "No tax" first and default; route picker per branch filtered by stat
 - [ ] Stop the cloud; set counts and toggle an item off → saved; config status shows offline.
 - [ ] Restore drill: `pg_dump pos_manual`, make two menu edits and remove a staff member, restore the dump, `pnpm --filter @pos/cloud rotate-config-epoch --branch <id>`; the hub applies the older menu and directory and shows the epoch banner.
 - [ ] Timing (§7.5, S40 N10): note the p95 of 20 `curl` calls for the `304` path and for a full snapshot, and the hub apply time from the log.
-- [ ] Runbook parts of tests 75, 102, 103, 104 (S40 N11): a scratch `dangerouslySetInnerHTML` in `apps/client/src/x.tsx` makes `pnpm lint` fail (delete it after); on `/admin/stock/`, force a hash mismatch (edit one snapshot field in the cloud DB without bumping) → danger banner, then `rotate-config-epoch` → warn banner; turn an item off, set the hub clock past the next business-day start → "Off since" badge; a count from before the business-day start → "Not counted today", a count after → no badge.
+- [ ] Page parts of tests 75, 102, 103, 104, also automated in tasks 40 and 50 (S40 N11): a scratch `dangerouslySetInnerHTML` in `apps/client/src/x.tsx` makes `pnpm lint` fail (delete it after); on `/admin/stock/`, force a hash mismatch (edit one snapshot field in the cloud DB without bumping) → danger banner, then `rotate-config-epoch` → warn banner; turn an item off, set the hub clock past the next business-day start → "Off since" badge; a count from before the business-day start → "Not counted today", a count after → no badge.
 - [ ] **needs hardware** — release drill §7.8 steps 1–4 against the pilot mini PC or any `ssh` target with an `/opt/pos-hub` checkout, including one refusal (dirty tree or a different commit); ends with `/admin/stock/` → `200` on the hub. Optional on the mini PC: `SetPrecookedStock` with 200 entries ≤ 50 ms p95.
 - [ ] No commit.
 
@@ -789,5 +789,5 @@ Tax picker: "No tax" first and default; route picker per branch filtered by stat
 
 **Files:** Modify `docs/specs/README.md` (01a status, carried requirements §4.4, 00 drift notes §2), the 01a spec status line; Create `docs/manual-test-01a.md` (from task 54's report, same layout as `docs/manual-test-00.md`).
 
-- [ ] `for n in $(seq 1 113); do c=$(grep -rhoE "\[01a §10 #$n\]" apps packages | wc -l); [ "$c" = 1 ] || echo "#$n: $c"; done` → no output.
+- [ ] `for n in $(seq 1 113); do c=$(grep -rhoE "\[01a §10 #$n\]" apps packages | wc -l); [ "$c" = 1 ] || echo "#$n: $c"; done` → no output. Then `for n in 75 102 103 104; do c=$(grep -rhoE "\[01a §10 #$n page part\]" apps | wc -l); [ "$c" = 1 ] || echo "#$n page: $c"; done` → no output (S40 N11).
 - [ ] Walk §12.1 and §12.2; record gaps. Commit `feat(01a): task 55 module 01a close-out [spec §12.1]`
