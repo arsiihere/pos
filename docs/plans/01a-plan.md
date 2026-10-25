@@ -77,8 +77,9 @@
 | 57 `apps/client` scaffold, build, ULID helper | `10a1619` |
 | 58 `apps/client` lint rules | `10f91f1` |
 | 59 `client-dist`, `admin-page` group, `/owner/*` allowlist, CSP on both | `0168625` |
+| 60 `apps/hub/deploy/ship-client.sh` | `f020a1b` |
 
-**Next task for Cursor: 60.**
+**Next task for Cursor: 61.**
 
 ## Markers
 
