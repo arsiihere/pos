@@ -1,3 +1,4 @@
+import { FloorListResponse, LoginResponse, type AdminFloorList } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCloudAdmin } from './cloud-admin';
 
@@ -145,5 +146,31 @@ describe('cloud-admin client', () => {
     expect(calls[0]?.url).toBe('/v1/admin/menu');
     expect(calls[1]?.url).toBe('/v1/admin/menu?q=karahi+%26+tikka&category_id=C1&status=archived&cursor=abc&limit=20');
     expect(calls[1]?.headers['Idempotency-Key']).toBeUndefined();
+  });
+
+  it('[01a §7.7] a cloud reply parses with the shared @pos/events schema the client types come from', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    // The shape the cloud's floors list sends (apps/cloud/test/restaurant/admin-schemas.int.test.ts parses the real one).
+    const reply = {
+      data: {
+        floors: [
+          {
+            ...FLOOR,
+            tables: [{ table_id: 'T1', name: 'T1', seats: 4, sort_order: 1, archived_at: null }],
+          },
+        ],
+      },
+    };
+    expect(FloorListResponse.parse(reply)).toEqual(reply);
+    expect(LoginResponse.parse({ data: TOKENS })).toEqual({ data: TOKENS });
+    const { fetchFn } = fakeFetch([json(200, reply)]);
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+
+    const listed = await api.listFloors('B1');
+    expect(listed).toEqual({ ok: true, data: reply.data });
+    if (listed.ok) {
+      const typed: AdminFloorList = listed.data;
+      expect(typed.floors[0]?.tables[0]?.seats).toBe(4);
+    }
   });
 });

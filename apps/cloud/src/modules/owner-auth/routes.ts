@@ -5,8 +5,8 @@ import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import { DomainError } from '@pos/domain';
+import { LogoutBody, LogoutResponse, LoginBody, LoginResponse, RefreshBody } from '@pos/events';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
-import { LogoutBody, LogoutResponse, LoginBody, LoginResponse, RefreshBody } from './schemas.js';
 import { sha256 } from './repository.js';
 import { createIpLimiter, IP_LOGIN_LIMIT, login, refreshTokens } from './service.js';
 

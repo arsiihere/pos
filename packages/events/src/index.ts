@@ -25,3 +25,5 @@ export * from './events/stock/StockSet.v1.js';
 export * from './events/stock/StockAdded.v1.js';
 export * from './events/stock/ItemMadeUnavailable.v1.js';
 export * from './events/stock/ItemMadeAvailable.v1.js';
+export * from './admin/restaurant.js';
+export * from './admin/owner-auth.js';

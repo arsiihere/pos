@@ -1,19 +1,43 @@
-import type { Unit } from '@pos/domain';
+import type {
+  AdminCategory,
+  AdminFloor,
+  AdminMenuItem,
+  AdminMenuPage,
+  AdminProgram,
+  AdminRoute,
+  AdminStation,
+  AdminTable,
+  AdminTaxClass,
+  AdminWindow,
+  CreateCategoryRequest,
+  CreateFloorRequest,
+  CreateMenuItemRequest,
+  CreateProgramRequest,
+  CreateStationRequest,
+  CreateTableRequest,
+  CreateTaxClassRequest,
+  OwnerLogin,
+  OwnerUser,
+  PatchCategoryRequest,
+  PatchFloorRequest,
+  PatchMenuItemRequest,
+  PatchProgramRequest,
+  PatchStationRequest,
+  PatchTableRequest,
+  PatchTaxClassRequest,
+  PutItemRouteRequest,
+} from '@pos/events';
 
 // §8.1: the owner app's cloud client for §6.2–§6.16 and the 00 owner login. Tokens live in
 // sessionStorage (cleared when the tab closes). On 401 JWT_INVALID it refreshes once and repeats the
 // request with the same headers (so the same Idempotency-Key); a second refusal logs out.
+// D5, §7.7: the types come from the @pos/events schemas the cloud routes use.
 
 const ACCESS_KEY = 'owner_access_token';
 const REFRESH_KEY = 'owner_refresh_token';
 const USER_KEY = 'owner_user';
 
-export interface OwnerUser {
-  user_id: string;
-  display_name: string;
-  tenant_id: string;
-  allowed_branch_ids: string[];
-}
+export type { OwnerUser };
 
 export type CloudError =
   | { kind: 'network' }
@@ -23,107 +47,22 @@ export type CloudError =
 
 export type CloudResult<T> = { ok: true; data: T } | { ok: false; error: CloudError };
 
-export interface AvailabilityWindow {
-  start_ms: number;
-  end_ms: number;
-}
+export type AvailabilityWindow = AdminWindow;
+export type Table = AdminTable;
+export type Floor = AdminFloor;
+export type Station = AdminStation;
+export type StationType = Station['station_type'];
+export type CompletionMode = Station['completion_mode'];
+export type Program = AdminProgram;
+export type TaxClass = AdminTaxClass;
+export type Category = AdminCategory;
+export type Route = AdminRoute;
+export type MenuItem = AdminMenuItem;
+export type ServeMode = MenuItem['serve_mode'];
+export type OutOfStockBehaviour = MenuItem['out_of_stock_behaviour'];
+export type MenuPage = AdminMenuPage;
 
-export interface Table {
-  table_id: string;
-  name: string;
-  seats: number | null;
-  sort_order: number;
-  archived_at: number | null;
-}
-
-export interface Floor {
-  floor_id: string;
-  name: string;
-  sort_order: number;
-  archived_at: number | null;
-}
-
-export type StationType = 'slot' | 'batch';
-export type CompletionMode = 'two_tap' | 'single_tap' | 'auto_done';
-
-export interface Station {
-  station_id: string;
-  name: string;
-  location_label: string | null;
-  station_type: StationType;
-  capacity: number;
-  freshness_window_ms: number | null;
-  completion_mode: CompletionMode;
-  archived_at: number | null;
-}
-
-export interface Program {
-  program_id: string;
-  name: string;
-  cook_time_ms: number;
-  archived_at: number | null;
-}
-
-export interface TaxClass {
-  tax_class_id: string;
-  name: string;
-  rate_bp: number;
-  archived_at: number | null;
-}
-
-export interface Category {
-  category_id: string;
-  name: string;
-  sort_order: number;
-  archived_at: number | null;
-  availability_windows: AvailabilityWindow[];
-}
-
-export interface Route {
-  branch_id: string;
-  station_id: string;
-  program_id: string | null;
-  stock_program_id: string | null;
-}
-
-export type ServeMode = 'immediate' | 'sync';
-export type OutOfStockBehaviour = 'cook_fresh' | 'sold_out';
-
-export interface MenuItemFields {
-  category_id: string;
-  tax_class_id: string | null;
-  name: string;
-  group_label: string | null;
-  description: string | null;
-  sort_order: number;
-  price_minor: number;
-  serve_mode: ServeMode;
-  prep_buffer_ms: number;
-  cook_time_ms: number;
-  stock_time_ms: number | null;
-  out_of_stock_behaviour: OutOfStockBehaviour;
-  stock_unit: Unit;
-  sale_unit: Unit;
-  stock_per_sale_unit: number;
-  low_stock_threshold: number | null;
-  carries_over: boolean;
-  availability_windows: AvailabilityWindow[];
-}
-
-export interface MenuItem extends MenuItemFields {
-  item_id: string;
-  archived_at: number | null;
-  routes: Route[];
-}
-
-export interface MenuPage {
-  can_edit_tenant: boolean;
-  tax_classes: TaxClass[];
-  categories: Category[];
-  items: MenuItem[];
-  next_cursor: string | null;
-}
-
+// The §6.11 query string (not a body; the cloud's MenuQuery coerces limit from text).
 export interface MenuQuery {
   q?: string;
   category_id?: string;
@@ -132,44 +71,23 @@ export interface MenuQuery {
   limit?: number;
 }
 
-type Archivable = { archived?: boolean };
+export type CreateFloorBody = CreateFloorRequest;
+export type PatchFloorBody = PatchFloorRequest;
+export type CreateTableBody = CreateTableRequest;
+export type PatchTableBody = PatchTableRequest;
+export type CreateStationBody = CreateStationRequest;
+export type PatchStationBody = PatchStationRequest;
+export type CreateProgramBody = CreateProgramRequest;
+export type PatchProgramBody = PatchProgramRequest;
+export type CreateTaxClassBody = CreateTaxClassRequest;
+export type PatchTaxClassBody = PatchTaxClassRequest;
+export type CreateCategoryBody = CreateCategoryRequest;
+export type PatchCategoryBody = PatchCategoryRequest;
+export type CreateMenuItemBody = CreateMenuItemRequest;
+export type PatchMenuItemBody = PatchMenuItemRequest;
+export type PutItemRouteBody = PutItemRouteRequest;
 
-export type CreateFloorBody = { name: string; sort_order?: number };
-export type PatchFloorBody = Partial<CreateFloorBody> & Archivable;
-export type CreateTableBody = { floor_id: string; name: string; seats?: number | null; sort_order?: number };
-export type PatchTableBody = Partial<CreateTableBody> & Archivable;
-export type CreateStationBody = {
-  name: string;
-  location_label?: string | null;
-  station_type: StationType;
-  capacity: number;
-  freshness_window_ms?: number;
-  completion_mode?: CompletionMode;
-};
-export type PatchStationBody = Partial<CreateStationBody> & Archivable;
-export type CreateProgramBody = { name: string; cook_time_ms: number };
-export type PatchProgramBody = Partial<CreateProgramBody> & Archivable;
-export type CreateTaxClassBody = { name: string; rate_bp: number };
-export type PatchTaxClassBody = Partial<CreateTaxClassBody> & Archivable;
-export type CreateCategoryBody = { name: string; sort_order?: number; availability_windows?: AvailabilityWindow[] };
-export type PatchCategoryBody = Partial<CreateCategoryBody> & Archivable;
-export type CreateMenuItemBody = Pick<
-  MenuItemFields,
-  'category_id' | 'tax_class_id' | 'name' | 'price_minor' | 'serve_mode' | 'cook_time_ms'
-> &
-  Partial<MenuItemFields> & {
-    routes?: { branch_id: string; station_id: string; program_id?: string | null; stock_program_id?: string | null }[];
-  };
-export type PatchMenuItemBody = Partial<MenuItemFields> & Archivable;
-export type PutItemRouteBody =
-  | { station_id: string; program_id?: string | null; stock_program_id?: string | null }
-  | { station_id: null };
-
-interface LoginData {
-  access_token: string;
-  refresh_token: string;
-  user: OwnerUser;
-}
+type LoginData = OwnerLogin;
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT';
 

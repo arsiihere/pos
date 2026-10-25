@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// D5, §7.7: the owner login, refresh and logout bodies and responses, shared by the cloud routes and
+// apps/client (browser-safe: zod only).
+
 export const LoginBody = z.object({
   email: z.string().min(1),
   password: z.string().min(8).max(200),
@@ -22,8 +25,6 @@ export const LoginResponse = z.object({
   }),
 });
 
-export type LoginBodyInput = z.infer<typeof LoginBody>;
-
 export const RefreshBody = z.object({
   refresh_token: z.string().min(1),
 });
@@ -37,3 +38,6 @@ export const LogoutResponse = z.object({
     revoked: z.boolean(),
   }),
 });
+
+export type OwnerUser = z.infer<typeof User>;
+export type OwnerLogin = z.infer<typeof LoginResponse>['data'];

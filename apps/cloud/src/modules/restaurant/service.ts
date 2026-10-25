@@ -78,7 +78,6 @@ import type {
   CreateStationInput,
   CreateTableInput,
   CreateTaxClassInput,
-  MenuQueryInput,
   PatchCategoryInput,
   PatchFloorInput,
   PatchMenuItemInput,
@@ -87,7 +86,8 @@ import type {
   PatchTableInput,
   PatchTaxClassInput,
   PutItemRouteInput,
-} from './schemas.js';
+} from '@pos/events';
+import type { MenuQueryInput } from './schemas.js';
 
 export interface RestaurantDeps {
   pool: pg.Pool;
