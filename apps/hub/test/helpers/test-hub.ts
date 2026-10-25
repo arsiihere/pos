@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
 import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
+import { applyEvent, initialEngineState, type EngineState } from '@pos/engine';
 import type { DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -21,6 +22,7 @@ import { registerRestaurantProjections } from '../../src/projections/branch-conf
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import type { ConfigClient } from '../../src/sync/config-client';
+import { noteCommitted, setStockVersion } from '../../src/sync/stock-version';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
@@ -47,13 +49,15 @@ export async function createTestHub(o?: {
   configClient?: ConfigClient;
 }): Promise<TestHub> {
   swapBranchConfig(null);
+  setStockVersion(0);
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });
   const readDb = openReadOnly(fx.path);
   const config = testConfig(fx.dir, o);
-  const state = createStateHolder<unknown>({});
-  state.setReducer((current) => current);
+  // As boot with the step-3 fold over an empty log (S15).
+  const state = createStateHolder<EngineState>(initialEngineState());
+  state.setReducer(applyEvent);
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   const authGeneration = createAuthGeneration();
@@ -77,6 +81,7 @@ export async function createTestHub(o?: {
       state,
       authGeneration,
       publish: (events) => {
+        noteCommitted(events);
         published.push(events);
         publishSlot.current(events);
       },

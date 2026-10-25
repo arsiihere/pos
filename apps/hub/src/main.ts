@@ -1,5 +1,8 @@
 import { DEFAULT_CONFIG_PATH } from './config/schema.js';
 import { boot } from './lib/boot.js';
+import { registerRestaurantBootSteps } from './sync/boot-steps.js';
+
+registerRestaurantBootSteps();
 
 boot({
   configPath: process.env.POS_HUB_CONFIG ?? DEFAULT_CONFIG_PATH,

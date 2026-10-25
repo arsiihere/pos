@@ -1,4 +1,5 @@
 import { DomainError } from '@pos/domain';
+import type { EngineState } from '@pos/engine';
 import { defineEvent, latestVersion, PosCommandSchema, type EventDraft, type PosCommand } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -99,7 +100,8 @@ async function runCommand(
       const permission = authorize(commandDef, session, directory);
     const ctx: CommandCtx = {
       tx,
-      state: tx.state,
+      // R8: the writer's tx.state is the hub's EngineState (HubDeps.state).
+      state: tx.state as Readonly<EngineState>,
       clock: deps.clock,
       ids: deps.ids,
       secrets: deps.secrets,

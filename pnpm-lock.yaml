@@ -236,6 +236,9 @@ importers:
       '@pos/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pos/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@pos/events':
         specifier: workspace:*
         version: link:../../packages/events

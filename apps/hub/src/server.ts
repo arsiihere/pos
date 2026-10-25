@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, LogController } fro
 import { hasZodFastifySchemaValidationErrors, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { HubConfig } from './config/schema.js';
 import type { AuthGeneration } from './engine-host/auth-generation.js';
+import type { EngineState } from '@pos/engine';
 import type { StateHolder } from './engine-host/state-holder.js';
 import type { Writer } from './engine-host/writer.js';
 import type { Clock } from './lib/clock.js';
@@ -75,7 +76,7 @@ export interface HubDeps {
   ids: IdGen;
   secrets: SecretGen;
   writer: Writer;
-  state: StateHolder<unknown>;
+  state: StateHolder<EngineState>;
   projections: ProjectionRegistry;
   authGeneration: AuthGeneration;
   ownIPv4: string[];
