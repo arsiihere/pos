@@ -32,6 +32,7 @@ import { createHostMatcher } from './net.js';
 import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
 import { registerUiAssets } from './ui-assets.js';
+import type { ConfigClient } from '../sync/config-client.js';
 import { noteCommitted } from '../sync/stock-version.js';
 import { cryptoSecrets } from './secrets.js';
 
@@ -65,6 +66,8 @@ export interface BootOptions {
   listen?: boolean;
   ifaces?: string[];
   logStream?: NodeJS.WritableStream;
+  // 01a §3.4: the config poll client; tests pass a stub (default: HTTP to cloud_base_url).
+  configClient?: ConfigClient;
 }
 
 export interface BootHandle {
@@ -137,6 +140,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
         : createBranchClock({ wallNow: opts.wallNow, monoNow: opts.monoNow, lastRecordedAt: row.recorded_at });
     const publishSlot: { current: (events: PosEvent[]) => void } = { current: () => undefined };
     const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream, publishSlot, ctx.initialState);
+    if (opts.configClient !== undefined) deps.configClient = opts.configClient;
     if (opened.alarm !== null) {
       const alarm = opened.alarm;
       deps.writer.run((tx) => {

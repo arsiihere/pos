@@ -39,6 +39,9 @@ export interface ConfigPoller {
   pollOnce(): Promise<PollResult>;
   lastPoll(): { outcome: PollOutcome; at: number } | null;
   lastProblem(): PollProblem | null;
+  // §7.2: boot step 6 starts the 60 s timer; shutdown stops it. A stopped poller never polls again.
+  start(): void;
+  stop(): void;
 }
 
 export interface ConfigPollerDeps {
@@ -52,6 +55,8 @@ export interface ConfigPollerDeps {
   applyDirectory?: typeof applyStaffDirectory;
   log: Pick<FastifyBaseLogger, 'debug' | 'info' | 'warn' | 'error'>;
 }
+
+export const POLL_INTERVAL_MS = 60_000;
 
 // §12.4: above this many items the hash and parse should move off the main thread.
 const LARGE_SNAPSHOT_ITEMS = 1_000;
@@ -79,6 +84,8 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
   let inFlight: Promise<PollResult> | null = null;
   let last: { outcome: PollOutcome; at: number } | null = null;
   let problem: PollProblem | null = null;
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
   const applyDirectory = deps.applyDirectory ?? applyStaffDirectory;
 
   function finish(result: PollResult): PollResult {
@@ -108,6 +115,8 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     const currentConfig = currentConfigVersion(deps.db, branchId);
     const currentDirectory = currentDirectoryVersion(deps.db);
     const fetched = await deps.client.fetchConfig({ config_version: currentConfig, directory_version: currentDirectory });
+    // §7.2: a result that lands after stop() is dropped: nothing written, nothing swapped, nothing recorded.
+    if (stopped) return { outcome: 'offline', at: deps.clock.branchNow() };
     // One reading per poll, so last_problem.at and lastPoll().at agree.
     const now = deps.clock.branchNow();
     if (fetched.kind === 'offline') return finish({ outcome: 'offline', at: now });
@@ -248,17 +257,32 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     });
   }
 
+  function pollOnce(): Promise<PollResult> {
+    if (inFlight !== null) return inFlight;
+    if (stopped) return Promise.resolve(last ?? { outcome: 'not_ready', at: deps.clock.branchNow() });
+    const running = poll().finally(() => {
+      inFlight = null;
+    });
+    inFlight = running;
+    return running;
+  }
+
   return {
-    pollOnce() {
-      if (inFlight !== null) return inFlight;
-      const running = poll().finally(() => {
-        inFlight = null;
-      });
-      inFlight = running;
-      return running;
-    },
+    pollOnce,
     lastPoll: () => last,
     lastProblem: () => problem,
+    start() {
+      if (stopped || timer !== null) return;
+      timer = setInterval(() => {
+        void pollOnce();
+      }, POLL_INTERVAL_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+    },
+    stop() {
+      stopped = true;
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    },
   };
 }
 
