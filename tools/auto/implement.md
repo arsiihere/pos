@@ -1,6 +1,6 @@
 You are the implementer for batch {{BATCH}} of an unattended overnight run. Nobody is watching; never ask questions. No skills, no subagents.
 
-Read .cursor/rules/pos.mdc and docs/plans/01a-plan.md (spec docs/specs/01_Restaurant_Setup_Spec_v1.0.md). Find the first task not marked done in the plan's Progress table and not yet committed (check `git log --oneline -40`).
+Read .cursor/rules/pos.mdc and docs/plans/01a-plan.md (spec docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md). Find the first task not marked done in the plan's Progress table and not yet committed (check `git log --oneline -40`).
 
 Do the next 5 tasks in order (fewer if the plan ends). For each task:
 1. Write the listed tests first; run them and see them fail for the stated reason.
