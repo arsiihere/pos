@@ -44,8 +44,9 @@
 | 24 Cloud stations | `6c6b47e` |
 | 25 Cloud batch programs | `671d559` |
 | 26 Cloud tax classes, categories | `53eb634` |
+| 27 Cloud owner-row read helper | `a457dd0` |
 
-**Next task for Cursor: 27.**
+**Next task for Cursor: 28.**
 
 ## Markers
 
