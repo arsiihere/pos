@@ -96,10 +96,10 @@ describe('floors', () => {
     for (const branchId of [f.branches[1], f.other.branchId]) {
       const list = await cloud.app.inject({ method: 'GET', url: floorsUrl(branchId), ...owner(f, onlyA) });
       expect(list.statusCode).toBe(404);
-      expect(list.json().error.code).toBe('BRANCH_NOT_FOUND');
+      expect(list.json().error).toMatchObject({ code: 'BRANCH_NOT_FOUND', details: { branch_id: branchId } });
       const create = await createFloor(branchId, { name: 'Ground' }, onlyA);
       expect(create.statusCode).toBe(404);
-      expect(create.json().error.code).toBe('BRANCH_NOT_FOUND');
+      expect(create.json().error).toMatchObject({ code: 'BRANCH_NOT_FOUND', details: { branch_id: branchId } });
     }
     const floors = await cloud.pool.query(`SELECT 1 FROM floors`);
     expect(floors.rowCount).toBe(0);
@@ -187,12 +187,12 @@ describe('floors', () => {
   it('[01a §10 #19] unknown floor → 404 FLOOR_NOT_FOUND', async () => {
     const unknown = await patchFloor(f.branches[0], 'NO-SUCH-FLOOR', { name: 'X' });
     expect(unknown.statusCode).toBe(404);
-    expect(unknown.json().error.code).toBe('FLOOR_NOT_FOUND');
+    expect(unknown.json().error).toMatchObject({ code: 'FLOOR_NOT_FOUND', details: { floor_id: 'NO-SUCH-FLOOR' } });
 
     const elsewhere = (await createFloor(f.branches[1], { name: 'Roof' })).json().data.floor.floor_id;
     const wrongBranch = await patchFloor(f.branches[0], elsewhere, { name: 'X' });
     expect(wrongBranch.statusCode).toBe(404);
-    expect(wrongBranch.json().error.code).toBe('FLOOR_NOT_FOUND');
+    expect(wrongBranch.json().error).toMatchObject({ code: 'FLOOR_NOT_FOUND', details: { floor_id: elsewhere } });
   });
 
   it('[01a §10 #83] replayed create keeps one audit row; a 409 writes none; a failure in the bump writes nothing', async () => {

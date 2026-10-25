@@ -79,7 +79,7 @@ export interface OwnerRequest {
 
 // §3.3: the path branch must be one of the JWT's allowed branches.
 export function assertBranchAllowed(tenant: TenantContext, branchId: string): void {
-  if (!tenant.branchIds.includes(branchId)) throw new DomainError('BRANCH_NOT_FOUND');
+  if (!tenant.branchIds.includes(branchId)) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
 }
 
 // §6.2: 2 statements, archived rows included.
@@ -125,7 +125,7 @@ export async function createFloor(
           now: deps.clock.branchNow(),
         }),
       );
-      if (floor === undefined) throw new DomainError('BRANCH_NOT_FOUND');
+      if (floor === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
       await writeConfigAudit(
         level,
         {
@@ -159,7 +159,7 @@ export async function patchFloor(
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
     const before = await lockFloor(scoped, branchId, floorId);
-    if (before === undefined) throw new DomainError('FLOOR_NOT_FOUND');
+    if (before === undefined) throw new DomainError('FLOOR_NOT_FOUND', { floor_id: floorId });
     const now = deps.clock.branchNow();
     const merged: FloorRow = {
       ...before,
@@ -334,7 +334,7 @@ export async function createStation(
           deps.clock.branchNow(),
         ),
       );
-      if (station === undefined) throw new DomainError('BRANCH_NOT_FOUND');
+      if (station === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
       await writeConfigAudit(
         level,
         {
