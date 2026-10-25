@@ -17,3 +17,4 @@ export * from './events/staff/SessionStarted.v1.js';
 export * from './events/staff/SessionEnded.v1.js';
 export * from './events/staff/StaffPinLockedOut.v1.js';
 export * from './events/staff/PinLockoutCleared.v1.js';
+export * from './config.js';
