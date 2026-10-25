@@ -80,8 +80,9 @@
 | 60 `apps/hub/deploy/ship-client.sh` | `f020a1b` |
 | 61 Shared components and quantity input | `4e1c307` |
 | 62 Owner money and `cloud-admin` client | `2ffdc21` |
+| 63 Owner shell — login, branch picker, app | `a6300b2` |
 
-**Next task for Cursor: 63.**
+**Next task for Cursor: 64.**
 
 ## Markers
 
