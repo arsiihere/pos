@@ -43,8 +43,9 @@
 | 23 Cloud tables | `2bccd2a` |
 | 24 Cloud stations | `6c6b47e` |
 | 25 Cloud batch programs | `671d559` |
+| 26 Cloud tax classes, categories | `53eb634` |
 
-**Next task for Cursor: 26.**
+**Next task for Cursor: 27.**
 
 ## Markers
 
