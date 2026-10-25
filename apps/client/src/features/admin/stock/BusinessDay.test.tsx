@@ -301,6 +301,25 @@ describe('/admin/stock business day', () => {
     expect(field('I1', 'add')?.value).toBe('3');
   });
 
+  it('[01a §8.2, S33] the day line turns warn only once the day is older than day_stale_after_hours, as day_stale does', async () => {
+    const dayLine = () =>
+      [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) => b.textContent?.startsWith('Day open'));
+    const atExactly = answer({ hub_time: { now_ms: hubAt(26, 1), utc_offset_ms: OFFSET } });
+    const { api } = fakeHub([atExactly], () => ok({ items: [] }));
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    expect(dayLine()?.textContent).toContain('(16 h)');
+    expect(dayLine()?.classList.contains('pos-banner--ok')).toBe(true);
+    act(() => root.unmount());
+
+    root = createRoot(container);
+    const later = answer({ hub_time: { now_ms: hubAt(26, 1, 1), utc_offset_ms: OFFSET } });
+    const { api: api2 } = fakeHub([later], () => ok({ items: [] }));
+    act(() => root.render(<StockApp api={api2} />));
+    await flush();
+    expect(dayLine()?.classList.contains('pos-banner--warn')).toBe(true);
+  });
+
   it('[01a §8.2] an Add answered 409 BUSINESS_DAY_NOT_OPEN is re-sent with the same command_id after Start day', async () => {
     let refuse = true;
     const { api, sent } = fakeHub([closed(), answer()], (name) => {

@@ -34,7 +34,8 @@ export function BusinessDayBar({
     return <Banner tone="info" text={fill(t('admin_stock.day.closed'), { time: hubTimeText(day.closed_at, offset) })} />;
   }
 
-  const hours = Math.max(0, Math.floor((clock.nowMs() - day.opened_at) / 3_600_000));
+  const ageMs = clock.nowMs() - day.opened_at;
+  const hours = Math.max(0, Math.floor(ageMs / 3_600_000));
   const text = fill(t('admin_stock.day.open'), {
     day: hubDayText(day.opened_at, offset),
     time: hubTimeText(day.opened_at, offset),
@@ -42,7 +43,7 @@ export function BusinessDayBar({
   });
   return (
     <div className="pos-row">
-      <Banner tone={hours >= staleAfterHours ? 'warn' : 'ok'} text={text} />
+      <Banner tone={ageMs > staleAfterHours * 3_600_000 ? 'warn' : 'ok'} text={text} />
       <BusyButton busy={busy} onClick={() => setConfirming(true)}>
         {t('admin_stock.day.close')}
       </BusyButton>
