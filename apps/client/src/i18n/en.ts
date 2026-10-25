@@ -8,6 +8,38 @@ export const en = {
   'admin_stock.login.no_admins': 'No one on the staff list can open this page. Ask the owner.',
   'admin_stock.errors.network': 'The hub cannot be reached. Check the Wi-Fi; what you typed is kept.',
   'admin_stock.errors.PERMISSION_DENIED': 'You do not have permission for this. Ask a manager.',
+  'admin_stock.status.version': 'Menu version {version}',
+  'admin_stock.status.no_menu': 'No menu yet',
+  'admin_stock.status.checked': ' · checked {minutes} min ago',
+  'admin_stock.status.checked_now': ' · checked just now',
+  'admin_stock.status.offline': ' · offline',
+  'admin_stock.status.waiting': 'Waiting for hub confirmation',
+  'admin_stock.problem.rejected': 'Menu update refused ({reason}).',
+  'admin_stock.problem.apply_failed': 'Menu update could not be applied.',
+  'admin_stock.problem.still_using': ' The hub is still using version {version}.',
+  'admin_stock.problem.no_menu': ' The hub has no menu yet.',
+  'admin_stock.problem.unauthorized': "The hub's cloud key was refused. Call support.",
+  'admin_stock.reconnecting': 'Reconnecting to the hub… What you typed is kept.',
+  'admin_stock.alert.low': 'Low: {items}',
+  'admin_stock.alert.out': 'Out: {items}',
+  'admin_stock.search': 'Search items',
+  'admin_stock.category': 'Category',
+  'admin_stock.all_categories': 'All categories',
+  'admin_stock.empty': 'No items in the menu yet.',
+  'admin_stock.on_hand': 'On hand',
+  'admin_stock.confirm': 'Confirm',
+  'admin_stock.reserved': 'Reserved',
+  'admin_stock.available_label': 'Available',
+  'admin_stock.set_at': 'Set at {time}',
+  'admin_stock.sold_out_when_0': 'Sold out when 0',
+  'admin_stock.available': 'Available',
+  'admin_stock.off': 'Off',
+  'admin_stock.badge.not_counted': 'Not counted today',
+  'admin_stock.badge.hours': 'Hours {hours}',
+  'admin_stock.badge.off_since': 'Off since {day}',
+  'admin_stock.save': 'Save counts',
+  'admin_stock.saved': 'Counts saved.',
+  'admin_stock.nothing_to_save': 'Change or confirm a count first.',
   'common.slow': 'Still working. This can take a few seconds.',
   'pin.label': 'PIN',
   'pin.delete': 'Delete',
@@ -156,4 +188,9 @@ export function errorKey(code: string): MessageKey {
 // owner app's tenant-wide one.
 export function adminErrorKey(code: string): MessageKey {
   return code === 'PERMISSION_DENIED' ? 'admin_stock.errors.PERMISSION_DENIED' : errorKey(code);
+}
+
+// Fills `{name}` placeholders in a message.
+export function fill(text: string, values: Record<string, string>): string {
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
 }
