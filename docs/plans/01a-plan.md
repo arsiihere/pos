@@ -33,8 +33,9 @@
 | 13 Lint: browser-safe packages | `4856528` |
 | 14 Cloud migration `0002_restaurant_setup.sql` | `0a633c4` |
 | 15 Cloud `withIdempotency` | `161df82` |
+| 16 Cloud `bumpConfigVersion`, `writeConfigAudit` | `e372f85` |
 
-**Next task for Cursor: 16.**
+**Next task for Cursor: 17.**
 
 ## Markers
 
