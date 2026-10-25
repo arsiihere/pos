@@ -1,4 +1,5 @@
 import { DomainError } from '@pos/domain';
+import { canonicalJson } from '@pos/domain/hash';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
@@ -195,6 +196,7 @@ export async function patchFloor(
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
+    if (unchangedRow(before, merged)) return { floor: before };
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await activeTableIds(scoped, branchId, floorId);
       if (ids.length > 0) {
@@ -293,6 +295,7 @@ export async function patchTable(
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
+    if (unchangedRow(before, merged)) return { table: before };
     if (body.floor_id !== undefined || merged.archived_at === null) {
       await assertFloor(scoped, branchId, merged.floor_id, { requireActive: merged.archived_at === null });
     }
@@ -418,6 +421,7 @@ export async function patchStation(
       freshness_window_ms:
         stationType === 'slot' ? null : (body.freshness_window_ms ?? (typeChanged ? 0 : before.freshness_window_ms)),
     };
+    if (unchangedRow(before, merged)) return { station: before };
     const archiving = before.archived_at === null && merged.archived_at !== null;
     if (typeChanged || archiving) {
       const ids = await activeRouteItemIds(scoped, branchId, stationId);
@@ -525,6 +529,7 @@ export async function patchProgram(
       ...(body.cook_time_ms !== undefined ? { cook_time_ms: body.cook_time_ms } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
+    if (unchangedRow(before, merged)) return { program: before };
     if (merged.archived_at === null) await assertActiveBatchStation(scoped, branchId, stationId);
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await programRouteItemIds(scoped, branchId, programId);
@@ -610,6 +615,7 @@ export async function patchTaxClass(
       ...(body.rate_bp !== undefined ? { rate_bp: body.rate_bp } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
+    if (unchangedRow(before, merged)) return { tax_class: before };
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await activeItemIdsWith(level, 'tax_class_id', taxClassId);
       if (ids.length > 0) {
@@ -708,6 +714,11 @@ export async function patchCategory(
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
+    const target = { category_id: categoryId };
+    const beforeWindows = await selectWindowsOf(level, target);
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, body.availability_windows)) {
+      return { category: { ...before, availability_windows: beforeWindows } };
+    }
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await activeItemIdsWith(level, 'category_id', categoryId);
       if (ids.length > 0) {
@@ -717,8 +728,6 @@ export async function patchCategory(
     const row = await nameTaken('categories_active_name', 'category', merged.name, () =>
       updateCategory(level, merged, now),
     );
-    const target = { category_id: categoryId };
-    const beforeWindows = await selectWindowsOf(level, target);
     const category = {
       ...row,
       availability_windows: await replaceWindows(level, deps.ids, target, beforeWindows, body.availability_windows),
@@ -878,6 +887,11 @@ export async function patchMenuItem(
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
       ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
     };
+    const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput)) {
+      const stored = await selectItemRoutes(scoped, [itemId]);
+      return { item: { ...before, availability_windows: beforeWindows, routes: wireRoutes(stored) } };
+    }
     assertUnits(merged);
     if (merged.stock_time_ms !== null && merged.stock_time_ms > merged.cook_time_ms) {
       throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
@@ -892,7 +906,6 @@ export async function patchMenuItem(
     const routes = await selectItemRoutes(scoped, [itemId]);
     if (before.archived_at !== null && active) await assertRoutes(scoped, routes);
     const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () => updateMenuItem(level, merged, now));
-    const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
     const item = {
       ...row,
       availability_windows: await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput),
@@ -912,17 +925,7 @@ export async function patchMenuItem(
     );
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
-    return {
-      item: {
-        ...item,
-        routes: routes.map(({ branch_id, station_id, program_id, stock_program_id }) => ({
-          branch_id,
-          station_id,
-          program_id,
-          stock_program_id,
-        })),
-      },
-    };
+    return { item: { ...item, routes: wireRoutes(routes) } };
   });
 }
 
@@ -942,14 +945,13 @@ export async function putItemRoute(
     const level = new TenantLevelRepository(req.tenant, client);
     if ((await lockMenuItem(level, itemId)) === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
     const before = (await lockItemRoute(scoped, branchId, itemId)) ?? null;
+    const next =
+      body.station_id === null
+        ? null
+        : { branch_id: branchId, station_id: body.station_id, program_id: body.program_id, stock_program_id: body.stock_program_id };
+    if (unchangedRow(before, next)) return { route: before };
     let route: RouteRow | null = null;
-    if (body.station_id !== null) {
-      const next = {
-        branch_id: branchId,
-        station_id: body.station_id,
-        program_id: body.program_id,
-        stock_program_id: body.stock_program_id,
-      };
+    if (next !== null) {
       await assertRoutes(scoped, [next], () => '');
       await deps.testHooks?.afterReferenceLock?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
       route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
@@ -973,6 +975,26 @@ export async function putItemRoute(
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { route };
   });
+}
+
+// v1.0.2 S26: a write that changes nothing makes no row update, no audit row and no bump.
+function unchangedRow<T>(before: T, merged: T): boolean {
+  return canonicalJson(before) === canonicalJson(merged);
+}
+
+function unchangedWindows(current: readonly WindowRow[], next: readonly WindowRow[] | undefined): boolean {
+  if (next === undefined) return true;
+  const keys = (rows: readonly WindowRow[]) => rows.map((w) => `${w.start_ms}-${w.end_ms}`).sort();
+  return canonicalJson(keys(current)) === canonicalJson(keys(next));
+}
+
+function wireRoutes(routes: readonly RouteRow[]): RouteRow[] {
+  return routes.map(({ branch_id, station_id, program_id, stock_program_id }) => ({
+    branch_id,
+    station_id,
+    program_id,
+    stock_program_id,
+  }));
 }
 
 // S47: no field → the stored set; with the field → delete + one multi-row INSERT, in the write's transaction.

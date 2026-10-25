@@ -2,7 +2,7 @@
 
 I read every `review-01…16.md` and `fix-05, 06, 09, 11, 14, 16.md`. This file lists each finding that was marked not fixed, deferred or rejected, and each Nit in an APPROVE review that no fix file answered. Each one is either **fixed** (with its commit) or **deferred**, with the reason. No finding was rejected as wrong.
 
-The spec is `01_Restaurant_Setup_Spec_v1.0.1.md`.
+The spec was `01_Restaurant_Setup_Spec_v1.0.1.md` at the time. The owner ruled on section C in v1.0.2 (plan tasks 73–76).
 
 ## A. Marked "not fixed" or "deferred" in a fix file
 

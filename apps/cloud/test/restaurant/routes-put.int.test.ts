@@ -64,7 +64,7 @@ describe('item route put', () => {
     return (response.json().data.config.snapshot.items as Array<{ item_id: string }>).map((i) => i.item_id);
   };
 
-  it('[01a §10 #39] PUT route twice → same state, one bump each; { station_id: null } removes it; item absent from that branch snapshot', async () => {
+  it('[01a §10 #39] PUT route twice → same state, the second changes nothing and bumps nothing; { station_id: null } removes it; item absent from that branch snapshot', async () => {
     const [a] = f.branches;
     const itemId = menu.itemIds[0]!;
     const route = { station_id: menu.batchStationId, program_id: menu.programIds[0], stock_program_id: menu.programIds[1] };
@@ -82,7 +82,7 @@ describe('item route put', () => {
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual(first.json());
     expect(await storedRoutes(itemId)).toEqual(state);
-    expect(await versions()).toEqual([v1[0]! + 1, v1[1], v1[2]]);
+    expect(await versions()).toEqual(v1);
     expect(await snapshotItemIds()).toContain(itemId);
 
     const removed = await put(itemId, a, { station_id: null });
@@ -90,7 +90,7 @@ describe('item route put', () => {
     expect(removed.json().data).toEqual({ route: null });
     expect(await storedRoutes(itemId)).toEqual([]);
     expect(await snapshotItemIds()).not.toContain(itemId);
-    expect((await versions())[0]).toBe(v1[0]! + 2);
+    expect((await versions())[0]).toBe(v1[0]! + 1);
 
     // Errors as §6.14, nothing written.
     const before = { routes: await storedRoutes(itemId), versions: await versions() };
@@ -132,17 +132,18 @@ describe('item route put', () => {
     expect((await audit('category', category)).map((row) => row.action)).toEqual(['archive', 'restore']);
 
     const itemId = menu.itemIds[0]!;
-    const set = await put(itemId, a, { station_id: menu.slotStationId });
-    expect(set.statusCode).toBe(200);
+    // v1.0.2 S26: re-setting the seeded slot route would be a no-op, so remove it first, then set it again.
     const removed = await put(itemId, a, { station_id: null });
     expect(removed.statusCode).toBe(200);
+    const set = await put(itemId, a, { station_id: menu.slotStationId });
+    expect(set.statusCode).toBe(200);
     const slotRoute = { branch_id: a, station_id: menu.slotStationId, program_id: null, stock_program_id: null };
     expect(await audit('item_route', itemId)).toEqual([
-      { actor_owner_user_id: f.userId, branch_id: a, action: 'route_set', before: slotRoute, after: slotRoute },
       { actor_owner_user_id: f.userId, branch_id: a, action: 'route_removed', before: slotRoute, after: null },
+      { actor_owner_user_id: f.userId, branch_id: a, action: 'route_set', before: null, after: slotRoute },
     ]);
 
-    // IT-0000 no longer routes anywhere and IT-0001 is not seeded (items: 1), so the batch station is free.
+    // IT-0000 routes only to the slot station and IT-0001 is not seeded (items: 1), so the batch station is free.
     const changed = await cloud.app.inject({
       method: 'PATCH',
       url: `/v1/admin/branches/${a}/stations/${menu.batchStationId}`,
