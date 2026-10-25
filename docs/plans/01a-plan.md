@@ -40,8 +40,9 @@
 | 20 Cloud snapshot builder | `f5bf426` |
 | 21 Cloud `GET /v1/sync/config` | `d5b2dd3` |
 | 22 Cloud sync gzip | `3279dba` |
+| 23 Cloud tables | `2bccd2a` |
 
-**Next task for Cursor: 23.**
+**Next task for Cursor: 24.**
 
 ## Markers
 
