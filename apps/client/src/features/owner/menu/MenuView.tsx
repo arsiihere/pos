@@ -125,6 +125,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
       setError(errorText(result.error));
       return;
     }
+    setError(null);
     const { items: first, ...rest } = result.data;
     setMenu(rest);
     setItems(appendUnique([], first));

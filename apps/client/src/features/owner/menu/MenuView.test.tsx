@@ -108,6 +108,23 @@ function page(items: unknown[], next: string | null, canEdit = true) {
 const itemIds = () => [...container.querySelectorAll('[data-item-id]')].map((el) => el.getAttribute('data-item-id'));
 
 describe('owner menu view', () => {
+  it('[01a §8.1] a load error is cleared by the next successful load', async () => {
+    let fail = true;
+    const { api } = fakeApi(() => {
+      if (fail) throw new TypeError('Failed to fetch');
+      return json(200, page([item('I1', 'Karahi')], null));
+    });
+    act(() => root.render(<MenuView api={api} />));
+    await flush();
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.network'));
+
+    fail = false;
+    typeInto(container.querySelector<HTMLInputElement>('input[name="q"]'), 'kar');
+    await flush(350);
+    expect(itemIds()).toEqual(['I1']);
+    expect(container.querySelector('.pos-banner--danger')).toBeNull();
+  });
+
   it('[01a §10 #75] an item name with markup renders as text, with no img element', async () => {
     const name = '<img src=x onerror=alert(1)>';
     const { api } = fakeApi(() => json(200, page([item('I1', name)], null)));
