@@ -45,8 +45,9 @@
 | 25 Cloud batch programs | `671d559` |
 | 26 Cloud tax classes, categories | `53eb634` |
 | 27 Cloud owner-row read helper | `a457dd0` |
+| 28 Cloud menu-item POST | `9ded9e1` |
 
-**Next task for Cursor: 28.**
+**Next task for Cursor: 29.**
 
 ## Markers
 
