@@ -27,6 +27,15 @@ const SECRET_FIELDS = [
 
 const HEADER_REDACT = new Set<string>(SECRET_HEADERS);
 
+// Test-only seams (R6); production never sets them.
+export interface CloudTestHooks {
+  handlerStart?(route: string): void; // first line of a handler: tests reset pgCounter here (R9)
+  afterTargetLock?(route: string): Promise<void>; // task 34
+  afterReferenceLock?(route: string): Promise<void>; // task 34
+  beforeBump?(): Promise<void>; // task 19
+  beforePrune?(): Promise<void>; // task 15 (#122)
+}
+
 export interface CloudDeps {
   pool: pg.Pool;
   env: CloudEnv;
@@ -34,6 +43,7 @@ export interface CloudDeps {
   ids: IdGen;
   secrets: SecretGen;
   logStream?: NodeJS.WritableStream;
+  testHooks?: CloudTestHooks;
 }
 
 export function buildCloudServer(deps: CloudDeps): FastifyInstance {

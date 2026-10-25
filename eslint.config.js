@@ -160,7 +160,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.test.ts'],
+    files: ['**/*.test.ts', 'apps/cloud/test/helpers/**/*.ts', 'apps/hub/test/helpers/**/*.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] }],
     },

@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { issueRegistrationCode } from '../src/cli/issue-registration-code';
-import { seedTenant } from '../src/cli/seed-tenant';
-import { SystemContext } from '../src/cli/system-context';
-import { testIdGen } from '../src/lib/ids';
-import { testSecrets } from '../src/lib/secrets';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
-import { createTestCloud, truncateAll } from './helpers/test-cloud';
+import { OWNER_PASSWORD, restaurantFixture } from './helpers/restaurant';
+import { createTestCloud } from './helpers/test-cloud';
 
-const PASSWORD = 'password-1';
+// Tenant B's ids that a ROUTE_CASES entry may name in its path or payload.
+interface BIds {
+  tenantId: string;
+  userId: string;
+  branchId: string;
+  auditId: string;
+  refreshToken: string;
+}
+
+// Every jwt / branch-key route, keyed "METHOD /url" (D54, M25). A body that is otherwise valid.
+const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknown }> = {
+  'POST /v1/auth/logout': (ids) => ({ url: '/v1/auth/logout', payload: { refresh_token: ids.refreshToken } }),
+  'POST /v1/hubs/confirm': () => ({ url: '/v1/hubs/confirm', payload: { hub_version: '1.0.0' } }),
+};
 
 describe('cross-tenant', () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -18,83 +27,62 @@ describe('cross-tenant', () => {
   it("[00 §10 #77] every scoped route with tenant A's credentials returns no tenant B id", async () => {
     const cloud = await createTestCloud();
     cleanups.push(() => cloud.close());
-    await truncateAll(cloud.pool);
-    const ids = testIdGen();
-    const secrets = testSecrets();
-    const sys = new SystemContext(cloud.pool);
-    const deps = { clock: cloud.clock, ids, secrets };
+    const f = await restaurantFixture(cloud);
 
-    const seededA = await seedTenant(
-      sys,
-      { name: 'Tenant A', currency: 'PKR', ownerEmail: 'a@example.com', ownerName: 'Ada', password: PASSWORD, pin: '1234' },
-      deps,
-    );
-    const issuedA = await issueRegistrationCode(sys, { tenantId: seededA.tenant_id, branchName: 'Branch A' }, deps);
-    const seededB = await seedTenant(
-      sys,
-      { name: 'Tenant B', currency: 'PKR', ownerEmail: 'b@example.com', ownerName: 'Bea', password: PASSWORD, pin: '1234' },
-      deps,
-    );
-    const issuedB = await issueRegistrationCode(sys, { tenantId: seededB.tenant_id, branchName: 'Branch B' }, deps);
-
-    const roles = await cloud.pool.query<{ role_id: string }>(`SELECT role_id FROM roles WHERE tenant_id = $1`, [
-      seededB.tenant_id,
-    ]);
-    const bIds = [
-      seededB.tenant_id,
-      seededB.user_id,
-      seededB.staff_id,
-      issuedB.branch_id,
-      ...roles.rows.map((row) => row.role_id),
-    ];
-
-    const loginA = await cloud.app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email: 'a@example.com', password: PASSWORD },
-    });
     const loginB = await cloud.app.inject({
       method: 'POST',
       url: '/v1/auth/login',
-      payload: { email: 'b@example.com', password: PASSWORD },
+      payload: { email: 'b@example.com', password: OWNER_PASSWORD },
     });
-    expect(loginA.statusCode).toBe(200);
     expect(loginB.statusCode).toBe(200);
-    const tokenA = loginA.json().data.access_token as string;
-    const refreshB = loginB.json().data.refresh_token as string;
-
-    const registeredA = await cloud.app.inject({
-      method: 'POST',
-      url: '/v1/hubs/register',
-      headers: { 'idempotency-key': ids.next() },
-      payload: { registration_code: issuedA.code, hub_version: '1.0.0', accepted_kinds: ['new_branch'] },
-    });
-    expect(registeredA.statusCode).toBe(200);
-    const keyA = registeredA.json().data.branch_api_key as string;
+    const auditId = 'B-AUDIT-0000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO config_audit (tenant_id, audit_id, actor_kind, actor_owner_user_id, branch_id, entity, entity_id, action, after, at)
+       VALUES ($1, $2, 'owner', $3, $4, 'floor', 'B-FLOOR', 'create', '{"name":"B floor"}', $5)`,
+      [f.other.tenantId, auditId, f.other.userId, f.other.branchId, cloud.clock.branchNow()],
+    );
+    const ids: BIds = {
+      tenantId: f.other.tenantId,
+      userId: f.other.userId,
+      branchId: f.other.branchId,
+      auditId,
+      refreshToken: loginB.json().data.refresh_token as string,
+    };
+    const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
+      ids.tenantId,
+    ]);
+    const roles = await cloud.pool.query<{ role_id: string }>(`SELECT role_id FROM roles WHERE tenant_id = $1`, [
+      ids.tenantId,
+    ]);
+    const bIds = [
+      ids.tenantId,
+      ids.userId,
+      ids.branchId,
+      ids.auditId,
+      ...staff.rows.map((row) => row.staff_id),
+      ...roles.rows.map((row) => row.role_id),
+    ];
 
     const routes = listTenantScopes(cloud.app).filter(
       (route) => (route.tenantScope === 'jwt' || route.tenantScope === 'branch-key') && route.method !== 'HEAD',
     );
-    expect(routes.map((route) => `${route.method} ${route.url}`).sort()).toEqual([
-      'POST /v1/auth/logout',
-      'POST /v1/hubs/confirm',
-    ]);
+    expect(routes.map((route) => `${route.method} ${route.url}`).sort()).toEqual(Object.keys(ROUTE_CASES).sort());
 
     for (const route of routes) {
-      const credential = route.tenantScope === 'jwt' ? tokenA : keyA;
-      const payload = route.url === '/v1/auth/logout' ? { refresh_token: refreshB } : { hub_version: '1.0.0' };
+      const credential = route.tenantScope === 'jwt' ? f.token : f.branchKey;
+      const request = ROUTE_CASES[`${route.method} ${route.url}`]!(ids);
       const response = await cloud.app.inject({
         method: route.method as 'POST',
-        url: route.url,
+        url: request.url,
         headers: { authorization: `Bearer ${credential}` },
-        payload,
+        ...(request.payload !== undefined ? { payload: request.payload as object } : {}),
       });
       expect(response.statusCode).toBeLessThan(500);
       const returned = stringsIn(response.json());
       for (const id of bIds) expect(returned).not.toContain(id);
       if (route.url === '/v1/hubs/confirm') {
         expect(response.statusCode).toBe(200);
-        expect(response.json().data.branch_id).toBe(issuedA.branch_id);
+        expect(response.json().data.branch_id).toBe(f.branches[0]);
       }
     }
   });

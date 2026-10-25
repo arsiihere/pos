@@ -8,7 +8,7 @@ import { fixedClock } from '../../src/lib/clock';
 import { loadCloudEnv, type CloudEnv } from '../../src/lib/env';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
-import { buildCloudServer } from '../../src/server';
+import { buildCloudServer, type CloudTestHooks } from '../../src/server';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 
@@ -21,7 +21,7 @@ export interface TestCloud {
   close(): Promise<void>;
 }
 
-export async function createTestCloud(o?: { captureLogs?: boolean }): Promise<TestCloud> {
+export async function createTestCloud(o?: { captureLogs?: boolean; testHooks?: CloudTestHooks }): Promise<TestCloud> {
   const env = loadCloudEnv({
     DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://pos:pos@127.0.0.1:5433/pos_test',
     JWT_SECRET: 'j'.repeat(32),
@@ -46,6 +46,7 @@ export async function createTestCloud(o?: { captureLogs?: boolean }): Promise<Te
     ids: testIdGen(),
     secrets: testSecrets(),
     logStream,
+    ...(o?.testHooks !== undefined ? { testHooks: o.testHooks } : {}),
   });
   return {
     app,
