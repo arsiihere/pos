@@ -43,7 +43,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(again.json().data.event_ids).toEqual([]);
     expect(eventsOf(hub, 'BusinessDayOpened')).toHaveLength(1);
 
-    // Restart: boot step 3 folds the log into the same business_day.
+    // Boot step 3 fold of the log gives the same business_day (a real boot() restart is #147).
     expect(foldEngineEvents(hub.deps.db, 'branch-1').state.business_day).toEqual(engine(hub).business_day);
 
     const replay = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1');
