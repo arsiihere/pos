@@ -25,8 +25,10 @@ import {
   insertTable,
   insertTaxClass,
   insertWindows,
+  deleteItemRoute,
   lockCategory,
   lockFloor,
+  lockItemRoute,
   lockMenuItem,
   lockProgram,
   lockStation,
@@ -56,6 +58,7 @@ import {
   updateStation,
   updateTable,
   updateTaxClass,
+  upsertItemRoute,
   type CategoryRow,
   type FloorRow,
   type MenuItemRow,
@@ -83,6 +86,7 @@ import type {
   PatchStationInput,
   PatchTableInput,
   PatchTaxClassInput,
+  PutItemRouteInput,
 } from './schemas.js';
 
 export interface RestaurantDeps {
@@ -919,6 +923,54 @@ export async function patchMenuItem(
   });
 }
 
+// §6.16: lock the item (404) and its route at the branch → §3.3 route rules (station, programs FOR SHARE) →
+// upsert or delete → item_route / route_set or route_removed → bump that branch. No Idempotency-Key: a repeat
+// gives the same state, and every PUT is one write, so each bumps once.
+export async function putItemRoute(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  itemId: string,
+  branchId: string,
+  body: PutItemRouteInput,
+): Promise<{ route: RouteRow | null }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    if ((await lockMenuItem(level, itemId)) === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
+    const before = (await lockItemRoute(scoped, branchId, itemId)) ?? null;
+    let route: RouteRow | null = null;
+    if (body.station_id !== null) {
+      const next = {
+        branch_id: branchId,
+        station_id: body.station_id,
+        program_id: body.program_id,
+        stock_program_id: body.stock_program_id,
+      };
+      await assertRoutes(scoped, [next], () => '');
+      route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
+    } else if (before !== null) {
+      await deleteItemRoute(scoped, branchId, itemId);
+    }
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'item_route',
+        entityId: itemId,
+        branchId,
+        action: route === null ? 'route_removed' : 'route_set',
+        before,
+        after: route,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { route };
+  });
+}
+
 // S47: no field → the stored set; with the field → delete + one multi-row INSERT, in the write's transaction.
 async function replaceWindows(
   level: TenantLevelRepository,
@@ -954,9 +1006,11 @@ function assertReference(field: string, row: { archived_at: number | null } | un
 
 // §3.3 route rules: the station is an active station of the route's branch; slot → no programs; batch → program_id
 // required; both programs active and on that station. Stations, then programs, each kind in one statement.
+// Field paths are routes.<i>.<field> (§6.14 body); the §6.16 body passes no prefix.
 async function assertRoutes(
   scoped: TenantScopedRepository,
   routes: Array<{ branch_id: string; station_id: string; program_id: string | null; stock_program_id: string | null }>,
+  prefix: (i: number) => string = (i) => `routes.${i}.`,
 ): Promise<void> {
   if (routes.length === 0) return;
   const stations = await shareStationsById(scoped, [...new Set(routes.map((r) => r.station_id))]);
@@ -964,27 +1018,27 @@ async function assertRoutes(
   const programs = programIds.length > 0 ? await shareProgramsById(scoped, programIds) : [];
   const invalid = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
   routes.forEach((route, i) => {
-    const at = `routes.${i}`;
+    const at = prefix(i);
     const station = stations.find((s) => s.branch_id === route.branch_id && s.station_id === route.station_id);
     if (station === undefined) {
-      throw invalid(`${at}.station_id`, stations.some((s) => s.station_id === route.station_id) ? 'wrong_branch' : 'not_found');
+      throw invalid(`${at}station_id`, stations.some((s) => s.station_id === route.station_id) ? 'wrong_branch' : 'not_found');
     }
-    if (station.archived_at !== null) throw invalid(`${at}.station_id`, 'archived');
+    if (station.archived_at !== null) throw invalid(`${at}station_id`, 'archived');
     if (station.station_type === 'slot') {
-      if (route.program_id !== null) throw invalid(`${at}.program_id`, 'program_not_allowed');
-      if (route.stock_program_id !== null) throw invalid(`${at}.stock_program_id`, 'program_not_allowed');
+      if (route.program_id !== null) throw invalid(`${at}program_id`, 'program_not_allowed');
+      if (route.stock_program_id !== null) throw invalid(`${at}stock_program_id`, 'program_not_allowed');
       return;
     }
-    if (route.program_id === null) throw invalid(`${at}.program_id`, 'program_required');
+    if (route.program_id === null) throw invalid(`${at}program_id`, 'program_required');
     for (const field of ['program_id', 'stock_program_id'] as const) {
       const programId = route[field];
       if (programId === null) continue;
       const program = programs.find((p) => p.branch_id === route.branch_id && p.program_id === programId);
       if (program === undefined) {
-        throw invalid(`${at}.${field}`, programs.some((p) => p.program_id === programId) ? 'program_wrong_station' : 'not_found');
+        throw invalid(`${at}${field}`, programs.some((p) => p.program_id === programId) ? 'program_wrong_station' : 'not_found');
       }
-      if (program.station_id !== route.station_id) throw invalid(`${at}.${field}`, 'program_wrong_station');
-      if (program.archived_at !== null) throw invalid(`${at}.${field}`, 'archived');
+      if (program.station_id !== route.station_id) throw invalid(`${at}${field}`, 'program_wrong_station');
+      if (program.archived_at !== null) throw invalid(`${at}${field}`, 'archived');
     }
   });
 }

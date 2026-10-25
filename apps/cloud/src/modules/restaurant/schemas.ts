@@ -248,6 +248,20 @@ export const PatchMenuItemBody = z
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
+// §6.16: { station_id, program_id?, stock_program_id? } sets the branch's route; { station_id: null } removes it.
+export const ItemRouteParams = MenuItemParams.extend({ branch_id: z.string().min(1) });
+
+export const PutItemRouteBody = z
+  .object({
+    station_id: z.string().min(1).nullable(),
+    program_id: z.string().min(1).nullable().default(null),
+    stock_program_id: z.string().min(1).nullable().default(null),
+  })
+  .refine((body) => body.station_id !== null || (body.program_id === null && body.stock_program_id === null), {
+    message: 'a removed route has no programs',
+    path: ['station_id'],
+  });
+
 const Route = z.object({
   branch_id: z.string(),
   station_id: z.string(),
@@ -282,6 +296,7 @@ const MenuItem = z.object({
 });
 
 export const MenuItemResponse = z.object({ data: z.object({ item: MenuItem }) });
+export const ItemRouteResponse = z.object({ data: z.object({ route: Route.nullable() }) });
 
 // §6.11, S48: search, filters and a keyset cursor (decoded by the service).
 export const MenuQuery = z.object({
@@ -349,3 +364,4 @@ export type PatchCategoryInput = z.infer<typeof PatchCategoryBody>;
 export type CreateMenuItemInput = z.infer<typeof CreateMenuItemBody>;
 export type MenuQueryInput = z.infer<typeof MenuQuery>;
 export type PatchMenuItemInput = z.infer<typeof PatchMenuItemBody>;
+export type PutItemRouteInput = z.infer<typeof PutItemRouteBody>;

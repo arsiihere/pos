@@ -666,6 +666,39 @@ export async function insertItemRoutes(
   return rows.sort((a, b) => (a.branch_id < b.branch_id ? -1 : a.branch_id > b.branch_id ? 1 : 0));
 }
 
+// §6.16: the item's route at one branch, locked (the route is the PUT's target row).
+export async function lockItemRoute(repo: TenantScopedRepository, branchId: string, itemId: string): Promise<RouteRow | undefined> {
+  const rows = await repo.query<RouteRow>(
+    `SELECT branch_id, station_id, program_id, stock_program_id FROM item_routes
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND item_id = $4
+      FOR UPDATE`,
+    [branchId, itemId],
+  );
+  return rows[0];
+}
+
+// §6.16: idempotent replace of the one route, inserted through the branch row.
+export async function upsertItemRoute(repo: TenantScopedRepository, itemId: string, route: RouteRow, now: number): Promise<RouteRow> {
+  const rows = await repo.query<RouteRow>(
+    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8 FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     ON CONFLICT (tenant_id, branch_id, item_id) DO UPDATE
+       SET station_id = EXCLUDED.station_id, program_id = EXCLUDED.program_id,
+           stock_program_id = EXCLUDED.stock_program_id, updated_at = EXCLUDED.updated_at
+     RETURNING branch_id, station_id, program_id, stock_program_id`,
+    [route.branch_id, itemId, route.station_id, route.program_id, route.stock_program_id, now],
+  );
+  return rows[0]!;
+}
+
+export async function deleteItemRoute(repo: TenantScopedRepository, branchId: string, itemId: string): Promise<void> {
+  await repo.query(
+    `DELETE FROM item_routes WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND item_id = $4`,
+    [branchId, itemId],
+  );
+}
+
 // S26 rows of one write in one multi-row INSERT (§6.14: "1 audit insert" for the item and its routes).
 export async function insertConfigAuditRows(
   repo: TenantLevelRepository,

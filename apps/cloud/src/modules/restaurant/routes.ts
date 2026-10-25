@@ -16,6 +16,8 @@ import {
   FloorListResponse,
   FloorParams,
   FloorResponse,
+  ItemRouteParams,
+  ItemRouteResponse,
   MenuItemParams,
   MenuItemResponse,
   MenuQuery,
@@ -29,6 +31,7 @@ import {
   PatchTaxClassBody,
   ProgramParams,
   ProgramResponse,
+  PutItemRouteBody,
   StationListResponse,
   StationParams,
   StationResponse,
@@ -55,6 +58,7 @@ import {
   patchStation,
   patchTable,
   patchTaxClass,
+  putItemRoute,
   type OwnerRequest,
   type RestaurantDeps,
 } from './service.js';
@@ -281,6 +285,20 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/menu-items/:item_id');
       const data = await patchMenuItem(deps, ownerRequest(app, request), request.params.item_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.put(
+    '/v1/admin/menu-items/:item_id/routes/:branch_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: ItemRouteParams, body: PutItemRouteBody, response: { 200: ItemRouteResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
+      const { item_id, branch_id } = request.params;
+      const data = await putItemRoute(deps, ownerRequest(app, request), item_id, branch_id, request.body);
       return reply.send({ data });
     },
   );

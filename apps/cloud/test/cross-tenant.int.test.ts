@@ -85,6 +85,10 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
     url: `/v1/admin/menu-items/${ids.itemId}`,
     payload: { category_id: ids.categoryId, tax_class_id: ids.taxClassId, price_minor: 100 },
   }),
+  'PUT /v1/admin/menu-items/:item_id/routes/:branch_id': (ids) => ({
+    url: `/v1/admin/menu-items/${ids.itemId}/routes/${ids.branchId}`,
+    payload: { station_id: ids.stationId, program_id: ids.programId },
+  }),
 };
 
 describe('cross-tenant', () => {
@@ -245,6 +249,17 @@ describe('cross-tenant', () => {
       details: { field: 'floor_id', reason: 'not_found' },
     });
     expect(stringsIn(foreignFloor.json())).not.toContain(ids.floorId);
+
+    // 01a §6.16: B's item on A's own branch stops at the tenant-level item lock; B's station at the scoped read.
+    const foreignItem = await cloud.app.inject({
+      method: 'PUT',
+      url: `/v1/admin/menu-items/${ids.itemId}/routes/${f.branches[0]}`,
+      ...owner(f),
+      payload: { station_id: ids.stationId, program_id: ids.programId },
+    });
+    expect(foreignItem.statusCode).toBe(404);
+    expect(foreignItem.json().error).toMatchObject({ code: 'MENU_ITEM_NOT_FOUND', details: { item_id: ids.itemId } });
+    expect(stringsIn(foreignItem.json()).filter((s) => bIds.includes(s))).toEqual([ids.itemId]);
 
     // 01a §6.14: B's category or tax class on a tenant-level create stops at the tenant-level read.
     const ownCategory = (
