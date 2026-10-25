@@ -43,6 +43,9 @@ import { httpConfigClient, type ConfigClient } from './sync/config-client.js';
 import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
 // §6.22: registers the station validator at module load, before the server listens.
 import './sync/station-validator.js';
+// §4.5: the restaurant event audiences, registered at module load.
+import './ws/restaurant-audiences.js';
+import { registerRestaurantCatchUp } from './ws/restaurant-catch-up.js';
 import { registerWs } from './ws/server.js';
 
 const SECRET_HEADERS = [
@@ -152,6 +155,9 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStaffRosterQuery(app, deps.clock);
   registerStockQuery(app, deps.clock);
   registerConfigStatusQuery(app, deps.config);
+  // The catch-up parts read this server's clock; a closed server removes them.
+  const stopCatchUp = registerRestaurantCatchUp(deps.clock);
+  app.addHook('onClose', async () => stopCatchUp());
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
