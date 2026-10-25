@@ -2,8 +2,8 @@ import { DomainError } from '@pos/domain';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
-import { BranchParams, CreateFloorBody, FloorListResponse, FloorResponse } from './schemas.js';
-import { createFloor, listFloors, type OwnerRequest, type RestaurantDeps } from './service.js';
+import { BranchParams, CreateFloorBody, FloorListResponse, FloorParams, FloorResponse, PatchFloorBody } from './schemas.js';
+import { createFloor, listFloors, patchFloor, type OwnerRequest, type RestaurantDeps } from './service.js';
 
 export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantDeps): void {
   const routes = app.withTypeProvider<ZodTypeProvider>();
@@ -31,6 +31,20 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('POST /v1/admin/branches/:branch_id/floors');
       const result = await createFloor(deps, ownerRequest(app, request), request.params.branch_id, request.body);
       return sendIdempotent(reply, result);
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/floors/:floor_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: FloorParams, body: PatchFloorBody, response: { 200: FloorResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/floors/:floor_id');
+      const { branch_id, floor_id } = request.params;
+      const data = await patchFloor(deps, ownerRequest(app, request), branch_id, floor_id, request.body);
+      return reply.send({ data });
     },
   );
 }

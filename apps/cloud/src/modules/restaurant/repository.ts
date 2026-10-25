@@ -55,6 +55,45 @@ export async function insertFloor(
   return rows[0] === undefined ? undefined : floorRow(rows[0]);
 }
 
+export async function lockFloor(
+  repo: TenantScopedRepository,
+  branchId: string,
+  floorId: string,
+): Promise<FloorRow | undefined> {
+  const rows = await repo.query<Raw<FloorRow>>(
+    `SELECT ${FLOOR_COLUMNS} FROM floors
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND floor_id = $4
+      FOR UPDATE`,
+    [branchId, floorId],
+  );
+  return rows[0] === undefined ? undefined : floorRow(rows[0]);
+}
+
+export async function activeTableIds(repo: TenantScopedRepository, branchId: string, floorId: string): Promise<string[]> {
+  const rows = await repo.query<{ table_id: string }>(
+    `SELECT table_id FROM dining_tables
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND floor_id = $4 AND archived_at IS NULL
+      ORDER BY table_id`,
+    [branchId, floorId],
+  );
+  return rows.map((row) => row.table_id);
+}
+
+export async function updateFloor(
+  repo: TenantScopedRepository,
+  branchId: string,
+  floor: FloorRow,
+  now: number,
+): Promise<FloorRow> {
+  const rows = await repo.query<Raw<FloorRow>>(
+    `UPDATE floors SET name = $5, sort_order = $6, archived_at = $7, updated_at = $8
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND floor_id = $4
+      RETURNING ${FLOOR_COLUMNS}`,
+    [branchId, floor.floor_id, floor.name, floor.sort_order, floor.archived_at, now],
+  );
+  return floorRow(rows[0]!);
+}
+
 function floorRow(row: Raw<FloorRow>): FloorRow {
   return { ...row, archived_at: msOrNull(row.archived_at) };
 }

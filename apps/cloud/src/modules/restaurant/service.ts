@@ -4,13 +4,21 @@ import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
-import { writeConfigAudit, type AuditEntity } from '../../lib/config-audit.js';
+import { auditActionFor, writeConfigAudit, type AuditEntity } from '../../lib/config-audit.js';
 import { bumpConfigVersion } from '../../lib/config-version.js';
-import { withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
+import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { insertFloor, selectFloors, selectTables, type FloorRow } from './repository.js';
-import type { CreateFloorInput } from './schemas.js';
+import {
+  activeTableIds,
+  insertFloor,
+  lockFloor,
+  selectFloors,
+  selectTables,
+  updateFloor,
+  type FloorRow,
+} from './repository.js';
+import type { CreateFloorInput, PatchFloorInput } from './schemas.js';
 
 export interface RestaurantDeps {
   pool: pg.Pool;
@@ -90,10 +98,60 @@ export async function createFloor(
         },
         deps,
       );
+      await deps.testHooks?.beforeBump?.();
       await bumpConfigVersion(level, { kind: 'branch', branchId });
       return { status: 201, body: { floor } };
     },
   );
+}
+
+// §6.4: lock → rules on the merged row → write → audit → bump.
+export async function patchFloor(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  floorId: string,
+  body: PatchFloorInput,
+): Promise<{ floor: FloorRow }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockFloor(scoped, branchId, floorId);
+    if (before === undefined) throw new DomainError('FLOOR_NOT_FOUND');
+    const now = deps.clock.branchNow();
+    const merged: FloorRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await activeTableIds(scoped, branchId, floorId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'floor', id: floorId, used_by: { entity: 'table', ids } });
+      }
+    }
+    const floor = await nameTaken('floors_active_name', 'floor', merged.name, () =>
+      updateFloor(scoped, branchId, merged, now),
+    );
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'floor',
+        entityId: floorId,
+        branchId,
+        action: auditActionFor(before, floor),
+        before,
+        after: floor,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { floor };
+  });
 }
 
 function hooks(deps: RestaurantDeps): { testHooks?: CloudTestHooks } {
