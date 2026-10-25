@@ -72,8 +72,9 @@
 | 52 Hub `SetItemAvailability`, `itemAvailability` | `77b599b` |
 | 53 Hub stock query — versions, parts, `day_stale`, `hub_time` | `249b70f` |
 | 54 Hub config status | `2d64fcb` |
+| 55 Hub WS audiences and catch-up parts | `f946fcc` |
 
-**Next task for Cursor: 55.**
+**Next task for Cursor: 56.**
 
 ## Markers
 
