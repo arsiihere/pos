@@ -68,8 +68,9 @@
 | 48 Hub `CloseBusinessDay` | `283e8c0` |
 | 49 Hub `SetPrecookedStock` | `a50108d` |
 | 50 Hub `AddPrecookedStock` | `cb12474` |
+| 51 Hub business day across restart; units frozen per day | `8bdcb97` |
 
-**Next task for Cursor: 51.**
+**Next task for Cursor: 52.**
 
 ## Markers
 
