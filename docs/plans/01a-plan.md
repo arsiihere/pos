@@ -65,8 +65,9 @@
 | 45 Hub boot config load after catch-up, `BODY_MISSING`, poll timer | `97ae049` |
 | 46 Hub station validator | `09d6a41` |
 | 47 Hub `OpenBusinessDay` | `3bc952d` |
+| 48 Hub `CloseBusinessDay` | `283e8c0` |
 
-**Next task for Cursor: 48.**
+**Next task for Cursor: 49.**
 
 ## Markers
 
