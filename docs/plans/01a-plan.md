@@ -87,8 +87,9 @@
 | 66 Owner menu list — search, Load more, read-only start | `9a014df` |
 | 67 Owner item and category forms | `939e5d0` |
 | 68 `/admin/stock` — `hub-admin` client and PIN login | `8f34f02` |
+| 69 `/admin/stock` — table, status, banner, alert bar, save, versioned poll, hours | `80294d2` |
 
-**Next task for Cursor: 69.**
+**Next task for Cursor: 70.**
 
 ## Markers
 
