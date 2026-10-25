@@ -46,3 +46,5 @@ Stop and ask the user, without guessing, when:
 - a test fails for a reason the task does not explain;
 - a library behaves differently from what the plan says;
 - the task is marked **Claude only** (skip it and tell the user), or **STOP** (wait for the user's confirmation before the next task).
+
+Exception (overnight loop): the implementer MAY add rows to the plan's Progress table and update its "Next task" line. Nothing else in docs/plans/ changes.
