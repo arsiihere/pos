@@ -1,6 +1,6 @@
 You are an independent reviewer for batch {{BATCH}} of an unattended run. You did not write this code. Nobody is watching; never ask questions. No skills, no subagents. Do not change any code.
 
-Read docs/reviews/01a-auto/batch-{{BATCH}}.md for the tasks and commits in this batch. For each task, read its section in docs/plans/01a-plan.md, the spec sections it cites in docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md (only those), and its diff (`git show <hash>`).
+Read docs/reviews/01a-auto/batch-{{BATCH}}.md for the tasks and commits in this batch. For each task, read its section in docs/plans/01a-plan.md, the spec sections it cites in docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md (only those), and its diff (`git show <hash>`).
 
 Check, with file:line evidence:
 - the code does what the cited spec sections say (decisions, payloads, error codes, events, SQL);

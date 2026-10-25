@@ -1,6 +1,6 @@
 # Module 01a — manual test runbook
 
-Hand test of spec 01a (Restaurant Setup, `docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md`) on the dev box, from plan task 71. It changes no code. It reuses the setup of `docs/manual-test-00.md` §1–§3: database **`pos_manual`** (never `pos_test`), the cloud on **port 4000** through the `cloud` wrapper, the hub on **port 3000**. Part A runs on the dev box; Part B, the on-site release drill (§7.8), is for later, on the pilot mini PC.
+Hand test of spec 01a (Restaurant Setup, `docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md`) on the dev box, from plan task 71. It changes no code. It reuses the setup of `docs/manual-test-00.md` §1–§3: database **`pos_manual`** (never `pos_test`), the cloud on **port 4000** through the `cloud` wrapper, the hub on **port 3000**. Part A runs on the dev box; Part B, the on-site release drill (§7.8), is for later, on the pilot mini PC.
 
 Terminals, as in 00: **T1** cloud, **T2** hub, **T3** CLIs and checks. Run `source ~/pos-manual/env.sh` in each.
 

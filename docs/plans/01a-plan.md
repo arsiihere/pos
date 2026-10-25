@@ -10,7 +10,7 @@
 
 **Tech stack:** existing 00 stack (Fastify 5.12.7, Zod 4.6.7, better-sqlite3 13.0.3, pg 8.23.1, Vitest 4.1.12, ESLint 10.13.0) + `apps/client` only: React 19.3.1, Vite 8.3.5, jsdom 30.1.3.
 
-**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md` (cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md` ("00 Mxx"). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
+**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md` (cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md` ("00 Mxx"). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
 
 **Starting point:** module 00 is built. Reuse, do not recreate: hub `writer.run`, `createStateHolder`, `createProjectionRegistry`, `registerBootStep`, `defineCommand` / `commandRegistry(app)`, `defineQuery` / `queryRegistry(app)`, `registerStationValidator` / `stationExists`, `registerEventAudience`, `registerCatchUp`, `applyStaffDirectory` (signature unchanged), `swapDirectory(app, …)`, `lib/hash.ts`, `lib/ui-assets.ts` (pattern for §7.1), `setup/cloud-client.ts` (pattern for the poll client), test helpers `createTestHub`, `seedDirectory`, `pairDevice`, `openSession`, `statementCounter`, `connectWs`, `aDirectory`, `captureLogs`; cloud `TenantScopedRepository`, `TenantLevelRepository`, `registerTenantScope` (`TENANT_SCOPE_ALLOWLIST`), `registerErrorHandler`, `loadDirectory` (`modules/hub-registration/repository.ts`), `SystemContext`, `seedTenant`, `issueRegistrationCode`, `createTestCloud`, `truncateAll`; the manual setup in `docs/manual-test-00.md`.
 
@@ -1105,3 +1105,35 @@ Props: data and callbacks only (S35 i). `QuantityInput({ unit, value: number | n
 
 - [ ] Coverage in code: for every number N in this plan's coverage table, `grep -rhoE "\[01a §10 #N\]" apps packages | wc -l` = 1; for the page parts listed under the table, `grep -rhoE "\[01a §10 #N page part\]" apps | wc -l` = 1; no test cites a removed number (55, 96–101, 104, 109–112) or a number not in the table.
 - [ ] Walk §12.1 and §12.2; record gaps. Commit `feat(01a): task 72 module 01a close-out [spec §12.1]`
+
+## Addendum: spec v1.0.2 owner rulings (2026-10-26)
+
+Four tasks, TDD, one commit each, after task 72. They implement the v1.0.2 rulings on the open items in `docs/reviews/01a-auto/whole-module-check.md` §C.
+
+### Task 73: No-op PATCH and route PUT write nothing [S26, §6.4–§6.16, tests 39, 155]
+**Files:**
+- `apps/cloud/src/modules/restaurant/service.ts`;
+- the tests in `apps/cloud/test/restaurant/`.
+
+Every PATCH returns the stored entity when its merged row equals the stored one (and, for categories and items, when the windows are unchanged). `putItemRoute` does the same when the route is unchanged, or when it is `{ station_id: null }` with no route. In both cases there is no update, no audit row and no bump. Change #39's second PUT accordingly.
+
+### Task 74: Stock query unit is the day's frozen unit [§6.19, test 158]
+**Files:** `apps/hub/src/queries/stock.ts`, `apps/hub/test/queries/stock.int.test.ts`.
+- `unit` = `dayUnits(state, item).stock_unit`.
+- A count in another unit is reported as `0 / 0 / null`.
+
+### Task 75: Low-stock threshold only in its own unit [S46, test 157]
+**Files:** `packages/engine/src/stock.ts`, `packages/engine/src/stock.test.ts`. In `stockLevel`, there is no `low` while `dayUnits(state, item).stock_unit !== item.stock_unit`.
+
+### Task 76: Category names and day_min_gap_hours on the stock page [§6.19, §8.2, test 156]
+**Files:**
+- `apps/hub/src/queries/stock.ts`;
+- `packages/events/src/admin/hub.ts`;
+- `apps/client/src/features/admin/stock/{StockTable,StockApp}.tsx`;
+- `apps/client/src/i18n/en.ts`;
+- their tests.
+
+The work:
+- add `category_name` to `items_meta` and `day_min_gap_hours` to the answer;
+- the filter shows the names;
+- `opened_recently` reads "This day was started less than {hours} h ago; nothing changed."

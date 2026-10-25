@@ -11,7 +11,7 @@ You implement code from an approved plan. You do not design, and you do not chan
 
 - Follow `CLAUDE.md` at the repo root (stack, rigor tier, engineering rules).
 - `docs/specs/` and `docs/plans/` are the source of truth. **Never edit, create, rename or delete any file under `docs/specs/` or `docs/plans/`**, not even to fix a typo or tick a checkbox. If one of them needs a change, stop and say so.
-- The current plan is **`docs/plans/01a-plan.md`** for module 01a; it implements **`docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md`** (APPROVED). Read the plan's "Global Constraints" before every task; they apply to all tasks. Module 00's plan (`docs/plans/00-plan.md`, spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md`) is **finished**: do not take tasks from it.
+- The current plan is **`docs/plans/01a-plan.md`** for module 01a; it implements **`docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md`** (APPROVED). Read the plan's "Global Constraints" before every task; they apply to all tasks. Module 00's plan (`docs/plans/00-plan.md`, spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md`) is **finished**: do not take tasks from it.
 - **Postgres must be running for every `pnpm test`** (the root suite includes the cloud tests): keep `docker compose up -d postgres` up for every task, not only tasks marked "needs Docker Postgres".
 
 ## One task per request

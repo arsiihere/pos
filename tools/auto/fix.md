@@ -1,6 +1,6 @@
 You are fixing review findings for batch {{BATCH}} of an unattended run. Nobody is watching; never ask questions. No skills, no subagents.
 
-Read docs/reviews/01a-auto/review-{{BATCH}}.md. Fix every Blocker and Should-fix (Nits only if trivial), following .cursor/rules/pos.mdc and the spec docs/specs/01_Restaurant_Setup_Spec_v1.0.1.md:
+Read docs/reviews/01a-auto/review-{{BATCH}}.md. Fix every Blocker and Should-fix (Nits only if trivial), following .cursor/rules/pos.mdc and the spec docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md:
 - TDD: a failing test first where behaviour changes;
 - one commit per finding: "fix(01a): batch {{BATCH}} <finding id> <short> [spec §x]";
 - run `pnpm test` and `pnpm lint` at the end; both must be green.
