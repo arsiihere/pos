@@ -1,6 +1,6 @@
 # 01a Restaurant Setup — Implementation Plan (spec v0.5)
 
-> **For the implementer (Cursor, no plugins):** follow `.cursor/rules/pos.mdc` (task 3 points it at this plan). Do **one task per request**, in order. Each task: write the listed tests first, run them and see them fail for the stated reason, implement, run the task command and then `pnpm test`, check **Done when**, commit. Steps use checkboxes (`- [ ]`); do **not** tick them in this file (it is read-only for you). Tasks marked **Claude only** edit `docs/`, `.cursor/` or the foundation: **skip them and tell the user**. Tasks marked **Gated** wait for the named item in "Needs spec change" to be settled in the spec.
+> **For the implementer (Cursor, no plugins):** follow `.cursor/rules/pos.mdc` (task 3 points it at this plan). Do **one task per request**, in order. Each task: write the listed tests first, run them and see them fail for the stated reason, implement, run the task command and then `pnpm test`, check **Done when**, commit. Steps use checkboxes (`- [ ]`); do **not** tick them in this file (it is read-only for you). Tasks marked **Claude only** edit `docs/`, `.cursor/` or the foundation: **skip them and tell the user**.
 
 **Goal:** Build module 01a: cloud restaurant data (floors, tables, stations, programs, tax classes, categories, items, per-branch routes) with idempotent creates and an audit trail; config delivery to the hub through a conditional poll; the hub's config apply as an event, the stock slice of `@pos/engine`, pre-cooked stock and availability commands; the owner app and the hub `/admin/stock` page as entries of one Vite app, `apps/client`, with its build and hub release script.
 
@@ -10,7 +10,7 @@
 
 **Spec:** `docs/specs/01_Restaurant_Setup_Spec_v0.5.md` (cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.md` ("00 Mxx"). Read the cited spec section before each task; the plan does not repeat the spec's tables. Review applied: `docs/reviews/01a_plan_review.md` (cited "R#n").
 
-**Gate before task 4 (R1):** spec v0.5 is a DRAFT that has not been reviewed and is not yet committed. Start task 4 only after the user has committed the spec, run its hostile review (CLAUDE.md pipeline step 4) and re-baselined this plan on the reviewed version.
+**Gate before task 4 (R1):** spec v0.5 (with the plan-review decisions S40) is committed but is still a DRAFT that has not had its hostile review. Start task 4 only after the user has run that review (CLAUDE.md pipeline step 4) and re-baselined this plan on the reviewed version.
 
 **Starting point:** module 00 is built. Reuse, do not recreate: hub `writer.run`, `createStateHolder`, `createProjectionRegistry`, `registerBootStep`, `defineCommand` / `commandRegistry(app)`, `defineQuery` / `queryRegistry(app)`, `registerStationValidator` / `stationExists`, `registerEventAudience`, `registerCatchUp`, `applyStaffDirectory`, `swapDirectory(app, …)`, `lib/hash.ts`, `lib/ui-assets.ts` (pattern for §7.1), `setup/cloud-client.ts` (pattern for the poll client), test helpers `createTestHub`, `seedDirectory`, `pairDevice`, `openSession`, `statementCounter`, `connectWs`, `aDirectory`; cloud `TenantScopedRepository`, `TenantLevelRepository`, `registerTenantScope` (`TENANT_SCOPE_ALLOWLIST`), `registerErrorHandler`, `loadDirectory` (`modules/hub-registration/repository.ts`), `SystemContext`, `seedTenant`, `issueRegistrationCode`, `createTestCloud`, `truncateAll`; the manual setup in `docs/manual-test-00.md`.
 
@@ -19,7 +19,6 @@
 | Marker | Meaning |
 |---|---|
 | **Claude only** | Edits `docs/`, `.cursor/` or the foundation. Cursor skips it. |
-| **Gated (N#)** | Do not start until "Needs spec change" item N# is settled in the spec. |
 | **needs Docker Postgres** | The task's own command needs Postgres. Note: **every** `pnpm test` runs the cloud suite, so keep `docker compose up -d postgres` running for every task (R19). |
 | **needs hardware** | Needs the pilot mini PC or another `ssh` target. Only task 54 (release drill, §7.5 timing). |
 | **STOP** | Do not start the next task until the user confirms. |
@@ -29,12 +28,12 @@
 Every task implicitly includes these. Values copied from the spec.
 
 - **Node:** 22.22.2 or later on dev machines and CI (S35 g; jsdom 30.1.3 needs it).
-- **Dependencies (§12.1, S35 g):** none new in `apps/hub`, `apps/cloud`, `packages/*` except workspace links (`@pos/engine` in `apps/hub`) and, if N1 is approved, `@types/node@22.19.1` (dev) in `packages/domain`. `apps/client` only, a closed list: `react@19.3.1`, `react-dom@19.3.1` (runtime); `vite@8.3.5`, `jsdom@30.1.3`, `@types/react@19.3.0`, `@types/react-dom@19.3.0` (dev). Exact pins. No router, state, form, CSS or testing library; no React plugin.
+- **Dependencies (§12.1, S35 g):** none new in `apps/hub`, `apps/cloud`, `packages/*` except workspace links (`@pos/engine` in `apps/hub`) and `@types/node@22.19.1` (dev, types only) in `packages/domain` (S40 N1). `apps/client` only, a closed list: `react@19.3.1`, `react-dom@19.3.1` (runtime); `vite@8.3.5`, `jsdom@30.1.3`, `@types/react@19.3.0`, `@types/react-dom@19.3.0` (dev). Exact pins. No router, state, form, CSS or testing library; no React plugin.
 - **Determinism (F §6.7):** no `Date.now()`, `Math.random()`, `ulid()`, `crypto.randomUUID()` in hub/cloud/package `src/` (lint enforces). `apps/client/src/**` is browser code and may use them (task 40 sets the lint block).
 - **Envelope (F §6.1):** `{ data }` or `{ error: { code, message, details, request_id } }`. The only body-less reply is §6.1's `304`. Replays add `Idempotent-Replay: true`. `503` adds `Retry-After` (the 00 error handlers do it from `details.retry_after_ms`).
 - **Errors:** only catalogue codes; `throw new DomainError(code, details)`. New codes exist after task 4.
 - **Naming (F §6.6):** snake_case on the wire and in SQL; camelCase in TS; `*_at` Unix ms; `*_ms` durations; money `*_minor` integer.
-- **Cloud SQL (D54):** owner routes query only through `TenantScopedRepository` (branch-level tables: SQL uses `$1` tenant and `$2` branch-id array, e.g. `WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`) or `TenantLevelRepository` (SQL contains `tenant_id = $1`; tenant-level tables `tax_classes`, `categories`, `menu_items`, `idempotency_keys`, `config_audit`, plus `branches` for `bumpConfigVersion` only, see N3). Both accept a `pg.PoolClient`. Path `branch_id` not in `request.tenant.branchIds` → `404 BRANCH_NOT_FOUND`.
+- **Cloud SQL (D54):** owner routes query only through `TenantScopedRepository` (branch-level tables: SQL uses `$1` tenant and `$2` branch-id array, e.g. `WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`) or `TenantLevelRepository` (SQL contains `tenant_id = $1`; tenant-level tables `tax_classes`, `categories`, `menu_items`, `idempotency_keys`, `config_audit`, plus `branches` for `bumpConfigVersion` only: the D54 exception of S40 N3). Both accept a `pg.PoolClient`. Path `branch_id` not in `request.tenant.branchIds` → `404 BRANCH_NOT_FOUND`.
 - **Cloud write script (§6 intro):** Zod → `BEGIN` → [creating POST: idempotency key insert] → target `FOR UPDATE` (`404` if absent) → reference rows `FOR SHARE` in id order → write → `writeConfigAudit` → `bumpConfigVersion` (branch rows last) → [store response on key] → `COMMIT`. pg `23505` on an `*_active_name` index → `409 CONFIG_NAME_TAKEN { entity, name }`. Route body schemas are validated before the tenant guard runs, so tests that expect `401`/`404` send a valid body (R39).
 - **Hub SQL:** `writer.run` only; no `await` inside it; queries never write; query handlers `prepare` per call (so `statementCounter` on `deps.readDb` sees them, R31).
 - **Fixed values:** poll interval 60 000 ms; poll HTTP timeout 10 000 ms; `pull-now` wait 12 000 ms, `503` with `retry_after_ms: 60000`; names 1–60 chars trimmed, unique case-insensitive among active rows; `price_minor` 0…1 000 000 000; `cook_time_ms` 1…14 400 000; `prep_buffer_ms` 0…3 600 000; `stock_time_ms` null or 0…`cook_time_ms`; `rate_bp` 0…10 000; station `capacity` 1…100; `freshness_window_ms` batch only 0…3 600 000 default 0; `completion_mode` `two_tap` (default) / `single_tap` / `auto_done`; `seats` null or 1…100; `description` ≤ 300; `out_of_stock_behaviour` `cook_fresh` (default) / `sold_out`; `business_day_start_ms` 0…86 340 000, multiple of 60 000, default 18 000 000; idempotency rows pruned after 86 400 000 ms; stock entries 1–200, `on_hand` int 0…9 999; `SNAPSHOT_SCHEMA_MAX = 1`, cloud `SNAPSHOT_SCHEMA_MIN_SERVED = 1`; stock page refresh 15 000 ms; epoch banner window 86 400 000 ms; CSP `default-src 'self'; frame-ancestors 'none'`; `Cache-Control` `no-cache` (index.html) and `public, max-age=31536000, immutable` (`assets/*`).
@@ -44,29 +43,31 @@ Every task implicitly includes these. Values copied from the spec.
 - **Cross-tenant and route inventory (D54, M25):** every task that adds a cloud route adds a case to `ROUTE_CASES` in `apps/cloud/test/cross-tenant.int.test.ts` (task 12 creates it) whose path/payload names tenant B's ids and whose body is otherwise valid; the 00 tests stay green.
 - **Commit:** `feat(01a): task N <title> [spec §x]`, only the task's files: `git add <files> && git commit -m "…"`.
 
-## Needs spec change (for the user; the plan does not edit the spec)
+## Spec decisions applied (S40)
 
-| # | Item | Plan meanwhile | Gates |
-|---|---|---|---|
-| N1 | §12.1 says no new dependency in `packages/*`, but `@pos/domain/hash` (S27) imports `node:crypto` and `packages/domain` cannot typecheck it without `@types/node`. Allow `@types/node@22.19.1` (dev) in `packages/domain`. | Task 5 adds it | task 5 |
-| N2 | §4.2 `onBranchConfigApplied(fn)` gives `fn(prev, next)` but says the hook appends events in the same transaction. Add the transaction: `fn(prev, next, tx: WriterTx)`. | Task 28 builds the 3-argument form | task 28 |
-| N3 | S8 / §5.2: `bumpConfigVersion`'s tenant-wide bump must reach every branch, not only the JWT's `allowed_branch_ids`, so it queries `branches` through `TenantLevelRepository`. Record `branches` as a tenant-level access for this helper only (R2). | Task 11 does this | — |
-| N4 | §3.4 step 1 / §6.20 / §6.21: the result of a skipped poll (hub not provisioned or not confirmed) is not defined (R13). | `pollOnce()` makes no HTTP call, returns `{ outcome: 'offline', … }`, records nothing in `last_poll`; `pull-now` answers `503` | — |
-| N5 | §6.20 lists only `applied` / `unchanged` → `200` (R29). | `epoch_changed` → `200` with `outcome: 'applied'`; `rejected`, `upgrade_required`, `unauthorized`, `offline`, timeout → `503` | — |
-| N6 | S25 says "line 7 (version)"; the 00 spec's Version row is line 8 (R40). | Task 1 edits line 8 | — |
-| N7 | §8.1 money: only `"1,200"` is specified. Decide on surrounding spaces, lakh grouping `"1,20,000"` and odd grouping `"1,2,3"` (R45). | Trim spaces; accept digits with optional standard 3-digit comma groups and ≤ 2 decimals; reject lakh and odd grouping | — |
-| N8 | §6.17 result `set_at` uses the command's clock; the stored `set_at` is the event's `recorded_at`, read again by `appendEvents`, so they can differ by milliseconds (R33). | Result uses `ctx.clock.branchNow()`; the stock query is the authority | — |
-| N9 | §4.2/S16 `QueryCtx.config` (a `BranchConfig`) has the same name as `CommandCtx.config` (`HubConfig`) (R42). | Keeps the spec name | — |
-| N10 | §7.5 performance targets have no automated test (R27). | Task 54 measures them by hand | — |
-| N11 | §10 #75, #102, #104 each have a server part and a page part; "one test per number" (§12.1). | Number on the server/unit part; the other part is an unnumbered test citing the section | — |
-| N12 | First boot after migration 0004 on a hub with history replays the whole log for the two new projections (R4). Acceptable for the pilot (small logs); confirm. | No skip logic | — |
+The plan's earlier "Needs spec change" list (N1–N12) was decided by the user and recorded in spec v0.5 as **S40**. The plan follows it:
+
+| # | Decision | Where in the plan |
+|---|---|---|
+| N1 | `@types/node@22.19.1` dev dependency in `packages/domain` (`hash.ts` only) | task 5 |
+| N2 | `onBranchConfigApplied(prev, next, tx)` | task 28 |
+| N3 | Tenant-wide bump through `TenantLevelRepository` on `branches`: allowed D54 exception | task 11 |
+| N4 | Skipped poll → outcome `not_ready`, no HTTP call; config status / page say "Waiting for hub confirmation" | tasks 26, 36, 50 |
+| N5 | `pull-now`: `200 { outcome }` for `applied`, `epoch_changed`, `unchanged`, `rejected`, `upgrade_required`, `not_ready`; `503` only for offline, timeout, cloud `401` | task 36 |
+| N6 | S25 edits line 8 | task 1 |
+| N7 | Money: trim, drop every comma, ASCII digits with ≤ 2 decimals (`"1,20,000"` ok, `"1,2,3"` = 12300); negatives, letters, other digits rejected | task 44 (#74) |
+| N8 | `SetPrecookedStock` result `set_at` may differ by ms from the stored `recorded_at`; the stock query is the truth | task 33 |
+| N9 | `QueryCtx.branchConfig` (not `.config`) | task 29 |
+| N10 | §7.5 targets checked by the runbook / hub smoke script, not automated tests | task 54 |
+| N11 | Tests 75, 102, 103, 104: the **Automated** part is the numbered test; the **Runbook step** part is checked in task 54 | tasks 35, 36, 48, 54 |
+| N12 | First boot after 0004 replays the full log once (§7.6 risk) | task 24 |
 
 ## Review Focus
 
 Inputs the spec implies but no §10 test covers. Each has a test in the named task.
 
 1. **Names with surrounding spaces or other case** (`" ground "` vs `"Ground"`): stored trimmed; the duplicate is `409 CONFIG_NAME_TAKEN` → task 13.
-2. **Prices typed as `" 1,200 "` or `"1,2,3"`**: the first is `120000`, the second is rejected (N7) → task 44.
+2. **Prices pasted with a currency prefix** (`"Rs 1,200"`, `"₨1200"`): rejected with the field error, never saved as 0 or as a partial number → task 44.
 3. **An owner's access token expiring mid-form**: one refresh, the same request retried with the same `Idempotency-Key`; a second `401` clears storage and goes to `#/login` → task 44.
 4. **The 15 s stock refresh landing while the manager types a count**: that row keeps the typed value → task 50.
 5. **Shutdown during a poll**: after `stop()` no further poll runs, and an in-flight poll that resolves later does not swap the config → task 30.
@@ -159,7 +160,7 @@ export interface ConfigEntry { config: BranchConfig; snapshotHash: string; confi
 export function branchConfig(): BranchConfig | null;
 export function currentConfigEntry(): ConfigEntry | null;
 export function swapBranchConfig(entry: ConfigEntry | null): void;
-// task 28 (Gated N2):
+// task 28 (S40 N2):
 export function onBranchConfigApplied(fn: (prev: BranchConfig | null, next: BranchConfig, tx: WriterTx) => void): () => void;
 export function runBranchConfigHooks(prev: BranchConfig | null, next: BranchConfig, tx: WriterTx): void;
 
@@ -172,7 +173,7 @@ export interface ConfigClient { fetchConfig(q: ConfigQuery): Promise<ConfigFetch
 export function httpConfigClient(baseUrl: string, branchApiKey: string, timeoutMs?: number): ConfigClient; // default 10_000
 
 // apps/hub/src/sync/config-poller.ts (tasks 26–31)
-export type PollOutcome = 'applied'|'epoch_changed'|'unchanged'|'offline'|'rejected'|'upgrade_required'|'unauthorized';
+export type PollOutcome = 'applied'|'epoch_changed'|'unchanged'|'offline'|'rejected'|'upgrade_required'|'unauthorized'|'not_ready';
 export interface PollResult { outcome: PollOutcome; config_version: number | null; directory_version: number; at: number }
 export interface PollProblem { outcome: 'rejected'|'upgrade_required'|'unauthorized'; reason: string; at: number }
 export interface ConfigPoller { pollOnce(): Promise<PollResult>; lastPoll(): { outcome: PollOutcome; at: number } | null; lastProblem(): PollProblem | null; start(intervalMs?: number): void; stop(): void }
@@ -189,7 +190,7 @@ export function configPoller(app: FastifyInstance): ConfigPoller;   // WeakMap, 
 export function foldStockEvents(db: Database.Database, branchId: string): EngineState;  // stream_type = 'stock' AND event_type = 'StockSet', by seq
 export function registerRestaurantBootSteps(): void;  // idempotent; step '3' stock fold, '5' config load, '6' poller start
 // lib/boot.ts (task 29): BootContext gains state: StateHolder<EngineState> (created before step 2, passed to createDeps)
-// HubDeps.state: StateHolder<EngineState>; CommandCtx.state: Readonly<EngineState>; QueryCtx gains state: Readonly<EngineState>, config: BranchConfig | null
+// HubDeps.state: StateHolder<EngineState>; CommandCtx.state: Readonly<EngineState>; QueryCtx gains state: Readonly<EngineState>, branchConfig: BranchConfig | null (S40 N9)
 
 // apps/hub/src/lib/business-day.ts (task 35)
 export function businessDayStartedAt(nowMs: number, config: Pick<BranchConfig, 'business_day_start_ms'> | null): number; // OS time zone; null → 18_000_000
@@ -250,7 +251,7 @@ All 113 numbers, each once. Task 55 re-checks this in the code with `grep`.
 | 2 | Foundation §6.2: append §9 codes | 2 | Claude only |
 | 3 | Point `.cursor/rules/pos.mdc` at this plan | — | Claude only |
 | 4 | Domain: error codes, `manage-stock` | 2 | needs Docker Postgres |
-| 5 | `@pos/domain/hash` | 3 | Gated N1 |
+| 5 | `@pos/domain/hash` | 3 | |
 | 6 | Events: snapshot schema `config.ts` | 4 | |
 | 7 | Events: four events, fixtures, builders | 4 | |
 | 8 | `@pos/engine` stock slice | 5 | |
@@ -273,7 +274,7 @@ All 113 numbers, each once. Task 55 re-checks this in the code with `grep`.
 | 25 | Hub config holder and HTTP client | 16 | |
 | 26 | Hub `pollOnce` core | 16 | |
 | 27 | Hub poller: schema versions, epoch, commit failure | 16 | |
-| 28 | Hub `onBranchConfigApplied` | 16 | Gated N2 |
+| 28 | Hub `onBranchConfigApplied` | 16 | |
 | 29 | Hub engine reducer, boot steps, stock fold, ctx typing | 19 | |
 | 30 | Hub boot config load, `BODY_MISSING`, poll timer | 16, 17 | |
 | 31 | Hub directory through the poll | 16, 17 | |
@@ -306,7 +307,7 @@ All 113 numbers, each once. Task 55 re-checks this in the code with `grep`.
 
 ### Task 1: Spec 00 v1.2.1 editorial patch — Claude only
 
-**Files:** Rename `docs/specs/00_Hub_Platform_Access_Spec_v1.2.md` → `…_v1.2.1.md`; Modify it (line 8 Version row (N6), line 472 `defineQuery` row, line 481 `registerReducer` row, as S25); Modify `docs/specs/README.md`; update links (`grep -rl "Access_Spec_v1.2.md" docs CLAUDE.md .cursor`).
+**Files:** Rename `docs/specs/00_Hub_Platform_Access_Spec_v1.2.md` → `…_v1.2.1.md`; Modify it (line 8 Version row (S40 N6), line 472 `defineQuery` row, line 481 `registerReducer` row, as S25); Modify `docs/specs/README.md`; update links (`grep -rl "Access_Spec_v1.2.md" docs CLAUDE.md .cursor`).
 
 - [ ] Apply the three edits from S25. No behaviour change. `grep -rn "Access_Spec_v1.2.md" docs .cursor CLAUDE.md` → no hits.
 - [ ] Commit `feat(01a): task 1 spec 00 v1.2.1 editorial patch [spec S25, §2]`
@@ -319,7 +320,7 @@ All 113 numbers, each once. Task 55 re-checks this in the code with `grep`.
 
 ### Task 3: Point the implementer rules at this plan — Claude only
 
-**Files:** Modify `.cursor/rules/pos.mdc` (R12): current plan `docs/plans/01a-plan.md` implementing `docs/specs/01_Restaurant_Setup_Spec_v0.5.md` (or its reviewed successor); 00's plan named as finished; the stop marker reads "**Claude only** or **Gated**" instead of "NOT for Cursor"; Postgres must be running for `pnpm test`.
+**Files:** Modify `.cursor/rules/pos.mdc` (R12): current plan `docs/plans/01a-plan.md` implementing `docs/specs/01_Restaurant_Setup_Spec_v0.5.md` (or its reviewed successor); 00's plan named as finished; the stop marker reads "**Claude only**" instead of "NOT for Cursor"; Postgres must be running for `pnpm test`.
 
 - [ ] Commit `feat(01a): task 3 implementer rules for 01a [CLAUDE.md pipeline]`
 
@@ -335,7 +336,7 @@ All 113 numbers, each once. Task 55 re-checks this in the code with `grep`.
 - [ ] **Step 4:** Same → PASS; `pnpm test`. If a hub or cloud test lists the 19 permissions exactly and fails, stop and report its path (it is not in this task's Files).
 - [ ] **Step 5:** Commit `feat(01a): task 4 error codes and manage-stock permission [spec §9, S18]`
 
-### Task 5: `@pos/domain/hash` — Gated N1
+### Task 5: `@pos/domain/hash`
 
 **Files:** Create `packages/domain/src/hash.ts`, `packages/domain/src/hash.test.ts`; Modify `packages/domain/package.json` (`exports["./hash"] = "./src/hash.ts"`; `devDependencies: { "@types/node": "22.19.1" }`), `apps/hub/src/lib/hash.ts`, `pnpm-lock.yaml`.
 
@@ -396,7 +397,7 @@ Behaviour S7. The key is checked **inside** `withIdempotency` by hand (not a Fas
 
 **Files:** Create `apps/cloud/src/lib/config-version.ts`, `apps/cloud/src/lib/config-audit.ts`, `apps/cloud/test/lib/config-version.int.test.ts`.
 
-Both take a `TenantSql` (Interfaces; R2, R3): routes pass `new TenantLevelRepository(request.tenant, client)`; CLIs build one from `SystemContext` (task 23). Neither file imports `SystemContext` or the db client (lint). SQL: branch scope `UPDATE branches SET config_version = config_version + 1 WHERE tenant_id = $1 AND branch_id = $2 RETURNING branch_id, config_version`; tenant scope `SELECT branch_id FROM branches WHERE tenant_id = $1 ORDER BY branch_id FOR UPDATE`, then `UPDATE branches SET config_version = config_version + 1 WHERE tenant_id = $1 RETURNING …` (every branch, N3). `writeConfigAudit` inserts one row (`audit_id = ids.next()`, `at = clock.branchNow()`); `before`/`after` passed as JSON.
+Both take a `TenantSql` (Interfaces; R2, R3): routes pass `new TenantLevelRepository(request.tenant, client)`; CLIs build one from `SystemContext` (task 23). Neither file imports `SystemContext` or the db client (lint). SQL: branch scope `UPDATE branches SET config_version = config_version + 1 WHERE tenant_id = $1 AND branch_id = $2 RETURNING branch_id, config_version`; tenant scope `SELECT branch_id FROM branches WHERE tenant_id = $1 ORDER BY branch_id FOR UPDATE`, then `UPDATE branches SET config_version = config_version + 1 WHERE tenant_id = $1 RETURNING …` (every branch, S40 N3). `writeConfigAudit` inserts one row (`audit_id = ids.next()`, `at = clock.branchNow()`); `before`/`after` passed as JSON.
 
 - [ ] **Step 1: Tests:** `[01a §10 #8]` 10 concurrent `inTransaction(… bumpConfigVersion(branch A))` → +10 exactly; `[01a S8] tenant scope bumps all 3 branches even with a JWT listing one`; `[01a S26] writeConfigAudit stores actor, entity, before/after; cli actor stores null user`; `[01a S26] auditActionFor`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 11 config version bump and audit writer [spec S8, S26]`
@@ -534,9 +535,9 @@ Barrier: request 1's hook awaits a promise the test resolves once request 2 is b
 
 **Files:** Create `apps/hub/src/sync/config-poller.ts`, `apps/hub/test/sync/poller.int.test.ts`; Modify `apps/hub/src/server.ts` (`HubDeps.configClient?`; `buildHubServer` creates the poller with `setDirectory: (d) => swapDirectory(app, d)` and `log: app.log`, stores it for `configPoller(app)`), `apps/hub/test/helpers/test-hub.ts` (option `configClient`, default a stub returning `offline`; `swapBranchConfig(null)` on create).
 
-§3.4 steps 1–6 for one schema version. Step 1 skip (not provisioned or not confirmed): no HTTP call, return `{ outcome: 'offline', … }`, record nothing (N4). Concurrent calls share one in-flight promise. Apply in one `writer.run`: `INSERT OR IGNORE INTO config_snapshots` (`body = canonicalJson(raw)`, `received_at = clock`), append `BranchConfigApplied` (`stream_type 'hub'`, `stream_id` branch id, `actor_id` null, `device_id 'hub'`), `tx.onCommit(() => swapBranchConfig(entry))`; directory part `applyStaffDirectory(tx, directory, setDirectory)` in the same `writer.run`. Log levels §7.3. **Tests create the hub confirmed:** `createTestHub({ config: { provisioned: { tenant_id: 'tenant-a', branch_id: 'branch-1', branch_name: 'Main', branch_api_key: 'test-branch-api-key', confirmed_at: 1 } } })` (R13).
+§3.4 steps 1–6 for one schema version. Step 1 skip (not provisioned or not confirmed): no HTTP call; record and return `{ outcome: 'not_ready', … }` (S40 N4). Concurrent calls share one in-flight promise. Apply in one `writer.run`: `INSERT OR IGNORE INTO config_snapshots` (`body = canonicalJson(raw)`, `received_at = clock`), append `BranchConfigApplied` (`stream_type 'hub'`, `stream_id` branch id, `actor_id` null, `device_id 'hub'`), `tx.onCommit(() => swapBranchConfig(entry))`; directory part `applyStaffDirectory(tx, directory, setDirectory)` in the same `writer.run`. Log levels §7.3. **Tests create the hub confirmed:** `createTestHub({ config: { provisioned: { tenant_id: 'tenant-a', branch_id: 'branch-1', branch_name: 'Main', branch_api_key: 'test-branch-api-key', confirmed_at: 1 } } })` (R13).
 
-- [ ] **Step 1: Tests:** `[01a §10 #42]`, `#43`, `#44`, `#45`, `#53`, `#54`, `#95`; `[01a §3.4] an unconfirmed hub makes no HTTP call`; `[01a §7.3] outcome log levels (unchanged debug, applied info, rejected error) and h.logs() never contains the snapshot body or a pin_hash` (R28).
+- [ ] **Step 1: Tests:** `[01a §10 #42]`, `#43`, `#44`, `#45`, `#53`, `#54`, `#95`; `[01a §3.4, S40 N4] an unconfirmed hub makes no HTTP call and records not_ready`; `[01a §7.3] outcome log levels (unchanged debug, applied info, rejected error) and h.logs() never contains the snapshot body or a pin_hash` (R28).
 - [ ] **Step 2–5:** `pnpm vitest run apps/hub/test/sync` → FAIL → implement → PASS; `pnpm test` → commit `feat(01a): task 26 hub config poll and apply [spec §3.4, S5, S6, S28 d, §7.3]`
 
 ### Task 27: Hub poller — schema versions, epoch, commit failure
@@ -548,7 +549,7 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 - [ ] **Step 1: Tests:** `[01a §10 #46]` (`testHooks.beforeCommit` throws → `branchConfig()` unchanged, no `config_snapshots` row), `#94`, `#97` (hub side with the stub; the cloud side is #96), `#98` (poller `schemas: { max: 2, byVersion: { 1: V1, 2: V1.extend({ promo_banner: z.string() }) } }`), `#100`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 27 snapshot schema and epoch rules [spec S28, S29 b, c]`
 
-### Task 28: Hub `onBranchConfigApplied` — Gated N2
+### Task 28: Hub `onBranchConfigApplied`
 
 **Files:** Modify `apps/hub/src/sync/branch-config-holder.ts` (`onBranchConfigApplied`, `runBranchConfigHooks`), `apps/hub/src/sync/config-poller.ts` (call `runBranchConfigHooks(prev, next, tx)` after the append); Create `apps/hub/test/sync/config-hook.int.test.ts`.
 
@@ -557,7 +558,7 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 
 ### Task 29: Hub engine reducer, boot steps, stock fold, ctx typing
 
-**Files:** Create `apps/hub/src/sync/boot-steps.ts`, `apps/hub/test/boot/stock-fold.int.test.ts`; Modify `apps/hub/package.json` (`"@pos/engine": "workspace:*"`), `pnpm-lock.yaml`, `apps/hub/src/lib/boot.ts`, `apps/hub/src/main.ts` (call `registerRestaurantBootSteps()` before `boot`), `apps/hub/src/setup/issue-admin-bootstrap.ts:44–45`, `apps/hub/test/helpers/test-hub.ts`, `apps/hub/src/server.ts` (`HubDeps.state: StateHolder<EngineState>`), `apps/hub/src/commands/registry.ts` (`CommandCtx.state: Readonly<EngineState>`), `apps/hub/src/commands/route.ts:102` (`state: tx.state as Readonly<EngineState>`, R8), `apps/hub/src/queries/registry.ts` (`QueryCtx.state`, `QueryCtx.config = branchConfig()`; `QueryRouteDeps.state`).
+**Files:** Create `apps/hub/src/sync/boot-steps.ts`, `apps/hub/test/boot/stock-fold.int.test.ts`; Modify `apps/hub/package.json` (`"@pos/engine": "workspace:*"`), `pnpm-lock.yaml`, `apps/hub/src/lib/boot.ts`, `apps/hub/src/main.ts` (call `registerRestaurantBootSteps()` before `boot`), `apps/hub/src/setup/issue-admin-bootstrap.ts:44–45`, `apps/hub/test/helpers/test-hub.ts`, `apps/hub/src/server.ts` (`HubDeps.state: StateHolder<EngineState>`), `apps/hub/src/commands/registry.ts` (`CommandCtx.state: Readonly<EngineState>`), `apps/hub/src/commands/route.ts:102` (`state: tx.state as Readonly<EngineState>`, R8), `apps/hub/src/queries/registry.ts` (`QueryCtx.state`, `QueryCtx.branchConfig = branchConfig()`; `QueryRouteDeps.state`).
 
 `boot.ts`: replace lines 278–279 by a holder created in `boot()` before step 2 — `createStateHolder<EngineState>(initialEngineState())` with `setReducer(applyEvent)` — put on `BootContext.state` and passed to `createDeps` (the setup path gets its own). `registerRestaurantBootSteps()` (idempotent, module flag) registers through 00's `registerBootStep`: step `'3'` → `ctx.state.swap(foldStockEvents(ctx.db, branchId))`. `foldStockEvents` selects `WHERE branch_id = ? AND stream_type = 'stock' AND event_type = 'StockSet' ORDER BY seq` (uses `events_stream`, R34). Using `registerBootStep` keeps S15's "boot step 3" literal; registering from `main.ts`, not at module load, avoids an import cycle with `boot.ts`.
 
@@ -589,7 +590,7 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 
 **Files:** Create `apps/hub/src/commands/set-precooked-stock.ts`, `apps/hub/test/commands/set-precooked-stock.int.test.ts`; Modify `apps/hub/src/server.ts`.
 
-`defineCommand({ commandType: 'SetPrecookedStock', sessionKind: 'admin', permission: 'manage-stock', … })`. Payload: `entries` 1–200, `refine` unique `item_id`. Validate **all** entries before producing any event (§6.17). Result from `stockOf(ctx.state, id)`, `on_hand` replaced, `set_at = ctx.clock.branchNow()` for changed rows (N8).
+`defineCommand({ commandType: 'SetPrecookedStock', sessionKind: 'admin', permission: 'manage-stock', … })`. Payload: `entries` 1–200, `refine` unique `item_id`. Validate **all** entries before producing any event (§6.17). Result from `stockOf(ctx.state, id)`, `on_hand` replaced, `set_at = ctx.clock.branchNow()` for changed rows (may differ by ms from the stored `recorded_at`; the stock query is the truth, S40 N8).
 
 - [ ] **Step 1: Tests:** `[01a §10 #59]`, `#60`, `#61`, `#62`, `#63`, `#64`, `#65`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 33 set pre-cooked stock [spec §6.17, S14, S18]`
@@ -607,16 +608,16 @@ Adds §3.4 step 2's version-0 rule (row `snapshot_schema_version < max`), step 3
 
 `businessDayStartedAt`: local midnight of `nowMs` (`new Date(nowMs)`, `setHours(0,0,0,0)`) + `business_day_start_ms`; if > `nowMs`, use the previous day (`setDate(d − 1)`). Tests save `process.env.TZ`, set `'Asia/Karachi'` in `beforeAll`, restore it in `afterAll` (R35). Stock query: resource `stock`, `sessionKind: 'admin'`, `session: 'none'` (as 00's admin queries: the admin guard already requires the session, so this matches §6.19's "session required", R43); handler checks `ctx.directory.resolve(ctx.session!.staff_id, 'manage-stock').grant === 'allowed'` else `403 PERMISSION_DENIED { permission: 'manage-stock' }`. Shape §6.19.
 
-- [ ] **Step 1: Tests:** `[01a §10 #104]` (unit: the `businessDayStartedAt` cases; the badge part is task 50, N11), `[01a §10 #72]` (`statementCounter(deps.readDb)`, R31), `[01a §10 #103]`; `[01a §6.19] an admin without manage-stock → 403`.
+- [ ] **Step 1: Tests:** `[01a §10 #104]` (automated part: the `businessDayStartedAt` cases; the badge is a runbook step in task 54, S40 N11), `[01a §10 #72]` (`statementCounter(deps.readDb)`, R31), `[01a §10 #103]` (automated part: `unavailable_since` values; the badge is task 54); `[01a §6.19] an admin without manage-stock → 403`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 35 business day and stock query [spec §6.19, S30, S33]`
 
 ### Task 36: Hub config status and `pull-now`
 
 **Files:** Create `apps/hub/src/queries/config-status.ts`, `apps/hub/src/sync/config-routes.ts`, `apps/hub/test/sync/config-routes.int.test.ts`; Modify `apps/hub/src/server.ts`.
 
-`POST /admin/config/pull-now` (`group: 'admin'`): `Promise.race([poller.pollOnce(), a 12 000 ms setTimeout])` (a real timer; it records nothing). Mapping per N5; `unauthorized` is also logged at `error`. Config status: resource `config-status`, shape §6.21.
+`POST /admin/config/pull-now` (`group: 'admin'`): `Promise.race([poller.pollOnce(), a 12 000 ms setTimeout])` (a real timer; it records nothing). Mapping per §6.20 / S40 N5: `200 { data: { outcome, config_version, directory_version } }` for `applied`, `epoch_changed`, `unchanged`, `rejected`, `upgrade_required`, `not_ready`; `503 SERVICE_UNAVAILABLE { retry_after_ms: 60000 }` for `offline`, the 12 s timeout and `unauthorized` (also logged at `error`). Config status: resource `config-status`, shape §6.21.
 
-- [ ] **Step 1: Tests:** `[01a §10 #55]` (the "no admin session" case sends a paired device's token, so the answer is `401 ADMIN_SESSION_REQUIRED`, R44), `#56`, `#102` (server part, N11).
+- [ ] **Step 1: Tests:** `[01a §10 #55]` (the "no admin session" case sends a paired device's token, so the answer is `401 ADMIN_SESSION_REQUIRED`, R44), `#56`, `#102` (automated part; the banners are task 54); `[01a §6.20, S40 N5] rejected and not_ready answer 200 with that outcome; offline answers 503`; `[01a §6.21] config status shows last_poll.outcome not_ready on an unconfirmed hub`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 36 config status and pull-now [spec §6.20, §6.21, S24, S29 c]`
 
 ### Task 37: Hub WS audiences and catch-up parts
@@ -659,7 +660,7 @@ Add one block **last** in the config, `files: ['apps/client/src/**/*.{ts,tsx}']`
 - `'no-restricted-syntax': ['error', { selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]', message: 'S35 e' }, { selector: 'JSXAttribute[name.name="style"]', message: 'S35 d: style only from packages/ui-kit' }]` — no `forbiddenCalls` (browser code may read the clock); do **not** add `apps/client/src/**` to the existing `'off'` list.
 - `'no-restricted-imports': ['error', { paths: [{ name: '@pos/domain/hash', message: 'S27' }], patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns, ...credentialLookupImports.patterns, ...systemContextImports.patterns, { group: ['node:*'], message: 'S35 f' }, { group: ['**/apps/hub/**', '**/apps/cloud/**', '**/hub/src/**', '**/cloud/src/**'], message: 'S35 f' }, { regex: '^(?!.*packages/ui-kit/).*\\.css$', message: 'S35 d: CSS only from packages/ui-kit' }] }]` (flat config replaces, not merges, the root options, so the root patterns are repeated).
 
-- [ ] **Step 1: Tests** (`lint.test.ts`, `// @vitest-environment node`, `new ESLint().lintText(code, { filePath: 'apps/client/src/x.tsx' })`): `[01a §10 #79]` exactly as §10 (forbidden imports, a `.css` outside the kit and a `style` prop fail; `../../../../packages/ui-kit/tokens.css` and `@pos/domain` pass); `[01a S35 e] dangerouslySetInnerHTML fails`; `[F §6.7] Date.now() in apps/client/src passes, in apps/hub/src fails`.
+- [ ] **Step 1: Tests** (`lint.test.ts`, `// @vitest-environment node`, `new ESLint().lintText(code, { filePath: 'apps/client/src/x.tsx' })`): `[01a §10 #79]` exactly as §10 (forbidden imports, a `.css` outside the kit and a `style` prop fail; `../../../../packages/ui-kit/tokens.css` and `@pos/domain` pass); `[F §6.7] Date.now() in apps/client/src passes, in apps/hub/src fails`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS; `pnpm lint` → commit `feat(01a): task 40 client lint rules [spec S35 d, e, f]`
 
 ### Task 41: `client-dist`, `admin-page` group, `/owner/*` allowlist and CSP — needs Docker Postgres
@@ -695,9 +696,9 @@ Props per the Interfaces block; data and callbacks only, no API calls (S35 i). U
 
 **Files:** Create `apps/client/src/features/owner/money.ts`, `money.test.ts`, `apps/client/src/api/cloud-admin.ts`, `apps/client/src/api/cloud-admin.test.ts`.
 
-`money.ts` rules: N7. `cloud-admin.ts`: tokens in `sessionStorage` (`owner_access_token`, `owner_refresh_token`); typed calls for §6.2–§6.16 returning parsed `{ data }` or a typed error; on `401 JWT_INVALID` call `/v1/auth/refresh` once and retry the same request (same headers, same `Idempotency-Key`); a second `401` clears storage and calls `onLoggedOut()`; network failure → a `network` error the views show as a banner.
+`money.ts` rules: §8.1 / S40 N7. `cloud-admin.ts`: tokens in `sessionStorage` (`owner_access_token`, `owner_refresh_token`); typed calls for §6.2–§6.16 returning parsed `{ data }` or a typed error; on `401 JWT_INVALID` call `/v1/auth/refresh` once and retry the same request (same headers, same `Idempotency-Key`); a second `401` clears storage and calls `onLoggedOut()`; network failure → a `network` error the views show as a banner.
 
-- [ ] **Step 1: Tests:** `[01a §10 #74]`; Review Focus 2: `[01a §8.1] " 1,200 " → 120000; "1,2,3" rejected`; Review Focus 3: `[01a §8.1] 401 → one refresh → retried with the same Idempotency-Key; second 401 → onLoggedOut and storage cleared`.
+- [ ] **Step 1: Tests:** `[01a §10 #74]` (all the §10 cases, including `"1,20,000"` and `"1,2,3"`); Review Focus 2: `[01a §8.1] "Rs 1,200" and "₨1200" are rejected`; Review Focus 3: `[01a §8.1] 401 → one refresh → retried with the same Idempotency-Key; second 401 → onLoggedOut and storage cleared`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 44 owner money parsing and cloud client [spec §8.1]`
 
 ### Task 45: Owner shell — login, branch picker, app
@@ -729,7 +730,7 @@ Routes `#/login`, `#/`, `#/floors`, `#/stations`, `#/menu` (§8.1); no token →
 
 Tax picker: "No tax" first and default; route picker per branch filtered by station type (program select only for batch); minutes ↔ `_ms`; "When pre-cooked stock runs out": Cook fresh (default) / Sold out.
 
-- [ ] **Step 1: Tests:** `[01a §10 #75]` (render part; the lint part is task 40, N11); `[01a S34] a new item defaults to No tax and sends tax_class_id null`; `[01a S11] a batch station shows the program select, a slot station hides it`.
+- [ ] **Step 1: Tests:** `[01a §10 #75]` (automated part: render; the lint check is a runbook step in task 54, S40 N11); `[01a S34] a new item defaults to No tax and sends tax_class_id null`; `[01a S11] a batch station shows the program select, a slot station hides it`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS → commit `feat(01a): task 48 owner menu view [spec §8.1, S32, S34]`
 
 ### Task 49: `/admin/stock` — `hub-admin` client and PIN login
@@ -745,9 +746,9 @@ Tax picker: "No tax" first and default; route picker per branch filtered by stat
 
 **Files:** Create `apps/client/src/features/admin/stock/{StockTable,ConfigBanners}.tsx`, `apps/client/src/features/admin/stock/badges.ts`, `StockTable.test.tsx`; Modify `StockApp.tsx`, `apps/client/src/i18n/en.ts`.
 
-§8.2: stock + config status on open and every 15 000 ms while `document.visibilityState === 'visible'`; **Save counts** sends changed rows only, `on_hand` as numbers, `command_id` kept for retries; badges from `badges.ts` (Interfaces).
+§8.2: stock + config status on open and every 15 000 ms while `document.visibilityState === 'visible'`; **Save counts** sends changed rows only, `on_hand` as numbers, `command_id` kept for retries; badges from `badges.ts` (Interfaces); "Waiting for hub confirmation" while `last_poll.outcome` is `not_ready`; **Get changes now** shows the returned outcome's text, or "Could not reach the cloud" on `503` (§8.2).
 
-- [ ] **Step 1: Tests:** `[01a §10 #77]`; `[01a §8.2, S29 c] danger banner for rejected / upgrade_required / unauthorized; warn banner when epoch_changed_at is within 24 h, not after` (page part of #102, N11); `[01a S33] notCountedToday: set_at yesterday 23:00 with day start today 05:00 → true; null → true` (page part of #104); `[01a §8.2] on_hand values are sent as numbers`; Review Focus 4: `[01a §8.2] a refresh does not overwrite the row being edited`.
+- [ ] **Step 1: Tests:** `[01a §10 #77]`; `[01a §8.2, S40 N5] Get changes now shows the rejected reason from a 200 and the cloud error on 503`; `[01a §8.2] on_hand values are sent as numbers`; Review Focus 4: `[01a §8.2] a refresh does not overwrite the row being edited`.
 - [ ] **Step 2–5:** run → FAIL → implement → PASS; `pnpm --filter @pos/client build` → commit `feat(01a): task 50 hub stock and availability page [spec §8.2, S29 c, S30, S33]`
 
 ### Task 51: Spec 00 v1.3 entry for `allowNotNewer` — Claude only, STOP
@@ -779,7 +780,8 @@ Tax picker: "No tax" first and default; route picker per branch filtered by stat
 - [ ] Pair a KDS browser to "Karahi" (00 screen-request flow) → paired.
 - [ ] Stop the cloud; set counts and toggle an item off → saved; config status shows offline.
 - [ ] Restore drill: `pg_dump pos_manual`, make two menu edits and remove a staff member, restore the dump, `pnpm --filter @pos/cloud rotate-config-epoch --branch <id>`; the hub applies the older menu and directory and shows the epoch banner.
-- [ ] Timing (§7.5, N10): note the p95 of 20 `curl` calls for the `304` path and for a full snapshot, and the hub apply time from the log.
+- [ ] Timing (§7.5, S40 N10): note the p95 of 20 `curl` calls for the `304` path and for a full snapshot, and the hub apply time from the log.
+- [ ] Runbook parts of tests 75, 102, 103, 104 (S40 N11): a scratch `dangerouslySetInnerHTML` in `apps/client/src/x.tsx` makes `pnpm lint` fail (delete it after); on `/admin/stock/`, force a hash mismatch (edit one snapshot field in the cloud DB without bumping) → danger banner, then `rotate-config-epoch` → warn banner; turn an item off, set the hub clock past the next business-day start → "Off since" badge; a count from before the business-day start → "Not counted today", a count after → no badge.
 - [ ] **needs hardware** — release drill §7.8 steps 1–4 against the pilot mini PC or any `ssh` target with an `/opt/pos-hub` checkout, including one refusal (dirty tree or a different commit); ends with `/admin/stock/` → `200` on the hub. Optional on the mini PC: `SetPrecookedStock` with 200 entries ≤ 50 ms p95.
 - [ ] No commit.
 
