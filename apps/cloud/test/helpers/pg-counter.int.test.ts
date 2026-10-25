@@ -41,4 +41,15 @@ describe('pgCounter', () => {
     await pool.query('SELECT 4');
     expect(counter.count).toBe(2);
   });
+
+  it('[01a §10 test infra] a second pgCounter on the same pool reuses the first: one listener, one wrap', async () => {
+    const first = pgCounter(pool);
+    const listeners = pool.listenerCount('acquire');
+    const second = pgCounter(pool);
+    expect(second).toBe(first);
+    expect(pool.listenerCount('acquire')).toBe(listeners);
+    first.reset();
+    await pool.query('SELECT 1');
+    expect(second.count).toBe(1);
+  });
 });

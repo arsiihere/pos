@@ -4,7 +4,13 @@ const TRANSACTION_CONTROL = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i;
 
 // Counts statements run on this pool: pool.query and pool.connect() clients both check out a client
 // ('acquire'), so wrapping client.query there sees every statement once. BEGIN / COMMIT / ROLLBACK do not count.
-export function pgCounter(pool: pg.Pool): { readonly count: number; reset(): void } {
+// One counter per pool: a second call returns the first, so listeners and wraps never stack.
+type Counter = { readonly count: number; reset(): void };
+const counters = new WeakMap<pg.Pool, Counter>();
+
+export function pgCounter(pool: pg.Pool): Counter {
+  const existing = counters.get(pool);
+  if (existing !== undefined) return existing;
   let count = 0;
   const wrapped = new WeakSet<pg.PoolClient>();
   pool.on('acquire', (client) => {
@@ -18,7 +24,7 @@ export function pgCounter(pool: pg.Pool): { readonly count: number; reset(): voi
       return original(...args);
     };
   });
-  return {
+  const counter: Counter = {
     get count() {
       return count;
     },
@@ -26,4 +32,6 @@ export function pgCounter(pool: pg.Pool): { readonly count: number; reset(): voi
       count = 0;
     },
   };
+  counters.set(pool, counter);
+  return counter;
 }
