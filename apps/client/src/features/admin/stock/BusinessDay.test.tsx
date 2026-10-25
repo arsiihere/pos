@@ -302,6 +302,8 @@ describe('/admin/stock business day', () => {
   });
 
   it('[01a §8.2, S33] the day line turns warn only once the day is older than day_stale_after_hours, as day_stale does', async () => {
+    // performance is frozen, so the hub clock stays at hub_time.
+    vi.useFakeTimers({ toFake: ['performance'] });
     const dayLine = () =>
       [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) => b.textContent?.startsWith('Day open'));
     const atExactly = answer({ hub_time: { now_ms: hubAt(26, 1), utc_offset_ms: OFFSET } });
