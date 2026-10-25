@@ -50,7 +50,8 @@ export function StockTable({
   }, []);
 
   // S48: search and category filter are client-side, over items_meta.
-  const categories = [...new Set(rows.map((r) => r.meta.category_id))];
+  // v1.0.2: one option per category, labelled with its name.
+  const categories = [...new Map(rows.map((r) => [r.meta.category_id, r.meta.category_name])).entries()];
   const needle = query.trim().toLowerCase();
   const shown = rows.filter(
     (r) => (needle === '' || r.meta.name.toLowerCase().includes(needle)) && (category === '' || r.meta.category_id === category),
@@ -74,9 +75,9 @@ export function StockTable({
           onChange={(e) => setCategory(e.target.value)}
         >
           <option value="">{t('admin_stock.all_categories')}</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
+          {categories.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
             </option>
           ))}
         </select>

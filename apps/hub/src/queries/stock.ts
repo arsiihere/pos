@@ -1,4 +1,4 @@
-import { DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
+import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
 import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
 import { isStockTracked, type BranchConfig } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
@@ -43,6 +43,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             business_day_started_at: start,
             day_stale: start !== null && time.now_ms - start > staleAfterHours * 3_600_000,
             day_stale_after_hours: staleAfterHours,
+            day_min_gap_hours: config?.day_min_gap_hours ?? DEFAULT_DAY_MIN_GAP_HOURS,
             items_meta: metaChanged ? itemsMeta(state, config) : null,
             items: unchanged ? null : stockItems(ctx, start),
           },
@@ -57,11 +58,13 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
   return config.items.map((item) => {
     // S44: the units frozen for the open day, else the item's own.
     const units = dayUnits(state, item);
+    const category = config.categories.find((c) => c.category_id === item.category_id);
     return {
       item_id: item.item_id,
       name: item.name,
       group_label: item.group_label,
       category_id: item.category_id,
+      category_name: category?.name ?? item.category_id,
       is_stock_tracked: isStockTracked(config, item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
       stock_unit: units.stock_unit,
@@ -70,7 +73,7 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
       low_stock_threshold: item.low_stock_threshold,
       carries_over: item.carries_over,
       item_windows: item.availability_windows,
-      category_windows: config.categories.find((c) => c.category_id === item.category_id)?.availability_windows ?? [],
+      category_windows: category?.availability_windows ?? [],
     };
   });
 }

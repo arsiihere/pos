@@ -6,7 +6,7 @@ import { newUlid } from '../../../app/ulid';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { t } from '../../../i18n';
-import { adminErrorKey } from '../../../i18n/en';
+import { adminErrorKey, fill } from '../../../i18n/en';
 import { AdminLogin } from './AdminLogin';
 import type { StockRow } from './badges';
 import { AlertBar } from './AlertBar';
@@ -53,6 +53,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [day, setDay] = useState<BusinessDay | null>(null);
   const [stale, setStale] = useState(false);
   const [staleAfterHours, setStaleAfterHours] = useState(16);
+  const [minGapHours, setMinGapHours] = useState(4);
   // "Keep this day open" hides the stale prompt until the page reloads.
   const [keepOpen, setKeepOpen] = useState(false);
   const [dayBusy, setDayBusy] = useState(false);
@@ -98,6 +99,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     setDay(answer.business_day);
     setStale(answer.day_stale);
     setStaleAfterHours(answer.day_stale_after_hours);
+    setMinGapHours(answer.day_min_gap_hours);
     versions.current = { meta_version: answer.meta_version, stock_version: answer.stock_version };
     // §6.19: an unchanged answer carries no item data; the rows stay.
     if (answer.items_meta !== null) setMeta(answer.items_meta);
@@ -210,7 +212,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       return false;
     }
     if (answer.data.reason === 'opened_recently') {
-      setMessage({ tone: 'info', text: t('admin_stock.day.opened_recently') });
+      setMessage({ tone: 'info', text: fill(t('admin_stock.day.opened_recently'), { hours: String(minGapHours) }) });
       return false;
     }
     await refresh();

@@ -71,6 +71,7 @@ export const StockQueryResponse = z.object({
     business_day_started_at: int.nullable(),
     day_stale: z.boolean(),
     day_stale_after_hours: int,
+    day_min_gap_hours: int,
     items_meta: z
       .array(
         z.object({
@@ -78,6 +79,7 @@ export const StockQueryResponse = z.object({
           name: z.string(),
           group_label: z.string().nullable(),
           category_id: z.string(),
+          category_name: z.string(),
           is_stock_tracked: z.boolean(),
           out_of_stock_behaviour: z.enum(['cook_fresh', 'sold_out']),
           stock_unit: Unit,

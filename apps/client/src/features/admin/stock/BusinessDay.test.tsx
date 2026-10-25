@@ -34,6 +34,7 @@ function meta(itemId: string, o: Partial<HubStockItemMeta> = {}): HubStockItemMe
     name: `Item ${itemId}`,
     group_label: null,
     category_id: 'C1',
+    category_name: 'Mains',
     is_stock_tracked: true,
     out_of_stock_behaviour: 'cook_fresh',
     stock_unit: 'piece',
@@ -76,6 +77,7 @@ function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
     business_day_started_at: hubAt(25, 9),
     day_stale: false,
     day_stale_after_hours: 16,
+    day_min_gap_hours: 4,
     items_meta: [meta('I1'), meta('I2', { stock_unit: 'g' }), meta('I3', { carries_over: true })],
     items: [item('I1'), item('I2', { on_hand: 2000, unit: 'g', available: 2000 }), item('I3')],
     ...o,
@@ -243,6 +245,33 @@ describe('/admin/stock business day', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('[01a §10 #156 page part] the category filter shows names; opened_recently names day_min_gap_hours', async () => {
+    const twoHours = { day_min_gap_hours: 2 };
+    const { api } = fakeHub(
+      [
+        answer({
+          ...twoHours,
+          items_meta: [meta('I1'), meta('I2', { category_id: 'C2', category_name: 'Breads' })],
+          items: [item('I1'), item('I2')],
+        }),
+        answer(twoHours),
+      ],
+      () => ok({ ...CLOSED, closed_at: null, changed: false, reason: 'opened_recently' }),
+    );
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    const options = [...container.querySelectorAll<HTMLOptionElement>(`select[aria-label="${t('admin_stock.category')}"] option`)];
+    expect(options.map((o) => [o.value, o.textContent])).toEqual([
+      ['', t('admin_stock.all_categories')],
+      ['C1', 'Mains'],
+      ['C2', 'Breads'],
+    ]);
+
+    await tap(button(container, t('admin_stock.day.close')));
+    await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
+    expect(container.textContent).toContain('This day was started less than 2 h ago; nothing changed.');
+  });
+
   it('[01a §8.2, S33] one tap on Start day sends OpenBusinessDay {} and keeps the typed counts; opened_recently on close says nothing changed', async () => {
     const { api, sent } = fakeHub([closed(), answer()], (name) => {
       if (name === 'open-business-day') return ok(OPENED);
@@ -257,7 +286,7 @@ describe('/admin/stock business day', () => {
 
     await tap(button(container, t('admin_stock.day.close')));
     await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
-    expect(container.textContent).toContain(t('admin_stock.day.opened_recently'));
+    expect(container.textContent).toContain('This day was started less than 4 h ago; nothing changed.');
   });
 
   it('[01a §10 #146 page part] the stale prompt: Close and start new day sends Close then Open with two command_ids; Keep this day open hides it', async () => {

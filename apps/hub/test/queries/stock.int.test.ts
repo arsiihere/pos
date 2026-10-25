@@ -322,6 +322,21 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(engine(hub).stock['I1']).toMatchObject({ unit: 'piece', on_hand: 6 });
   });
 
+  it('[01a §10 #156] items_meta carries category_name; the answer carries day_min_gap_hours (4 with no config)', async () => {
+    const hub = await open(at(25, 6));
+    const admin = adminOn(hub, 'S_MGR');
+    expect((await query(hub, admin)).json().data.day_min_gap_hours).toBe(4);
+
+    const base = aBranchConfig();
+    withConfig({ ...base, day_min_gap_hours: 2 });
+    const data = (await query(hub, admin)).json().data;
+    expect(data.day_min_gap_hours).toBe(2);
+    for (const meta of data.items_meta as Array<{ category_id: string; category_name: string }>) {
+      expect(meta.category_name).toBe(base.categories.find((c) => c.category_id === meta.category_id)?.name);
+    }
+    expect(StockQueryResponse.parse((await query(hub, admin)).json()).data.day_min_gap_hours).toBe(2);
+  });
+
   it('[01a §6.19] an admin without manage-stock → 403', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfig());
@@ -351,6 +366,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
       name: i2.name,
       group_label: i2.group_label,
       category_id: i2.category_id,
+      category_name: config.categories.find((c) => c.category_id === i2.category_id)?.name,
       is_stock_tracked: false,
       out_of_stock_behaviour: i2.out_of_stock_behaviour,
       stock_unit: i2.stock_unit,

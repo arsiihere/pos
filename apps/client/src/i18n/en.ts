@@ -48,7 +48,7 @@ export const en = {
   'admin_stock.day.close_confirm':
     'Close the business day? Counts of items that do not keep overnight will read 0 until the next day is started',
   'admin_stock.day.cancel': 'Cancel',
-  'admin_stock.day.opened_recently': 'This day was started only a short time ago; nothing changed.',
+  'admin_stock.day.opened_recently': 'This day was started less than {hours} h ago; nothing changed.',
   'admin_stock.day.start': 'Start day',
   'admin_stock.day.none_open': 'No business day is open. Start the day, then enter the counts.',
   'admin_stock.day.retry_needs_day': 'The business day is not open, so this was not saved. Start the day to save it.',
