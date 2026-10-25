@@ -20,3 +20,7 @@ If every task in the plan is done, write "all tasks done" to .auto/DONE.
 
 End by writing docs/reviews/01a-auto/batch-{{BATCH}}.md: tasks done with commit hashes, test count before/after, anything odd. Commit it.
 Never push; the runner pushes. Never run git reset, git rebase or git push --force.
+
+Before starting, read docs/reviews/01a-auto/decisions.md; its decisions override the plan's Files lists and stop rules where they say so.
+If there are untracked or modified files from an earlier stopped session for the next task, check them against the plan and spec; keep them if they are correct, otherwise redo them.
+The batch report must list EVERY task committed since the previous batch report (check git log for "feat(01a): task" commits after the last "auto batch" report), not only the tasks done in this session, so the reviewer covers all of them.
