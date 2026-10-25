@@ -71,9 +71,14 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const pendingSave = useRef<{ commandId: string; key: string } | null>(null);
   const pendingAdds = useRef(new Map<string, { commandId: string; quantity: number }>());
 
+  // Only the latest refresh's answer is shown, so a slow older read never replaces a newer one.
+  const latest = useRef(0);
+
   const refresh = useCallback(async () => {
+    const request = ++latest.current;
     // D7: config-status is read on open, before any command, and gives the envelope's ids.
     const [config, stock] = await Promise.all([api.configStatus(), api.stock(versions.current)]);
+    if (request !== latest.current) return;
     if ((!config.ok && config.error.kind === 'signed_out') || (!stock.ok && stock.error.kind === 'signed_out')) {
       onSignedOut();
       return;

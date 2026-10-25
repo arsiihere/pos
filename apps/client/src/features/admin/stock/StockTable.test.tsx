@@ -352,6 +352,34 @@ describe('/admin/stock table', () => {
     expect(rowOf('I1').querySelector('input')?.value).toBe('5');
   });
 
+  it('[01a §8.2] an older stock answer landing after a newer one is dropped', async () => {
+    fakeTimers();
+    const held: Array<(r: Response) => void> = [];
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.startsWith('/admin/queries/config-status')) return json(200, { data: STATUS });
+      if (url.startsWith('/admin/queries/stock')) return new Promise<Response>((resolve) => held.push(resolve));
+      throw new Error(`no route for ${url}`);
+    });
+    sessionStorage.setItem('admin_session_token', 'AS1');
+    sessionStorage.setItem('admin_staff_id', 'S_MGR');
+    const api = createHubAdmin({ fetch: fetchFn, readDeviceToken: async () => 'DT1', readDeviceId: async () => 'D1', onSignedOut: () => {} });
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    // The first read is still in flight when the 15 s refresh goes out and is answered first.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(held).toHaveLength(2);
+    held[1]!(json(200, { data: answer({ stock_version: 8, items: [item('I1', { on_hand: 9, available: 9 })] }) }));
+    await flush();
+    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 9`);
+
+    held[0]!(json(200, { data: answer() }));
+    await flush();
+    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 9`);
+  });
+
   it('[01a §8.2] a 403 on the stock query shows the permission text', async () => {
     fakeTimers();
     const denied = () =>
