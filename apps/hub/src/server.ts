@@ -26,6 +26,7 @@ import { registerForceLogoutSession } from './commands/force-logout-session.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
 import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
+import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
@@ -140,6 +141,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerCloseBusinessDay(app);
   registerSetPrecookedStock(app);
   registerAddPrecookedStock(app);
+  registerSetItemAvailability(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
