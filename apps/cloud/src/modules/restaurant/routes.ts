@@ -2,8 +2,27 @@ import { DomainError } from '@pos/domain';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
-import { BranchParams, CreateFloorBody, FloorListResponse, FloorParams, FloorResponse, PatchFloorBody } from './schemas.js';
-import { createFloor, listFloors, patchFloor, type OwnerRequest, type RestaurantDeps } from './service.js';
+import {
+  BranchParams,
+  CreateFloorBody,
+  CreateTableBody,
+  FloorListResponse,
+  FloorParams,
+  FloorResponse,
+  PatchFloorBody,
+  PatchTableBody,
+  TableParams,
+  TableResponse,
+} from './schemas.js';
+import {
+  createFloor,
+  createTable,
+  listFloors,
+  patchFloor,
+  patchTable,
+  type OwnerRequest,
+  type RestaurantDeps,
+} from './service.js';
 
 export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantDeps): void {
   const routes = app.withTypeProvider<ZodTypeProvider>();
@@ -44,6 +63,33 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/floors/:floor_id');
       const { branch_id, floor_id } = request.params;
       const data = await patchFloor(deps, ownerRequest(app, request), branch_id, floor_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/branches/:branch_id/tables',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchParams, body: CreateTableBody, response: { 201: TableResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/branches/:branch_id/tables');
+      const result = await createTable(deps, ownerRequest(app, request), request.params.branch_id, request.body);
+      return sendIdempotent(reply, result);
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/tables/:table_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: TableParams, body: PatchTableBody, response: { 200: TableResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/tables/:table_id');
+      const { branch_id, table_id } = request.params;
+      const data = await patchTable(deps, ownerRequest(app, request), branch_id, table_id, request.body);
       return reply.send({ data });
     },
   );

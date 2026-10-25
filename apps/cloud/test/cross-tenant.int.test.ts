@@ -10,6 +10,7 @@ interface BIds {
   branchId: string;
   auditId: string;
   floorId: string;
+  tableId: string;
   refreshToken: string;
 }
 
@@ -26,6 +27,14 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
   'PATCH /v1/admin/branches/:branch_id/floors/:floor_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/floors/${ids.floorId}`,
     payload: { name: 'Ground' },
+  }),
+  'POST /v1/admin/branches/:branch_id/tables': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/tables`,
+    payload: { floor_id: ids.floorId, name: 'T1' },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/tables/:table_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/tables/${ids.tableId}`,
+    payload: { floor_id: ids.floorId, name: 'T1' },
   }),
 };
 
@@ -57,12 +66,19 @@ describe('cross-tenant', () => {
       `INSERT INTO floors (tenant_id, branch_id, floor_id, name, created_at, updated_at) VALUES ($1, $2, $3, 'B floor', 0, 0)`,
       [f.other.tenantId, f.other.branchId, floorId],
     );
+    const tableId = 'B-TABLE-000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO dining_tables (tenant_id, branch_id, table_id, floor_id, name, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'B table', 0, 0)`,
+      [f.other.tenantId, f.other.branchId, tableId, floorId],
+    );
     const ids: BIds = {
       tenantId: f.other.tenantId,
       userId: f.other.userId,
       branchId: f.other.branchId,
       auditId,
       floorId,
+      tableId,
       refreshToken: loginB.json().data.refresh_token as string,
     };
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
@@ -77,6 +93,7 @@ describe('cross-tenant', () => {
       ids.branchId,
       ids.auditId,
       ids.floorId,
+      ids.tableId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
