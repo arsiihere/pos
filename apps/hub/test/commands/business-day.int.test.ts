@@ -24,7 +24,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
     const opened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1');
     expect(opened.statusCode).toBe(200);
-    const date = localDate(now);
+    const date = '2026-10-25';
     expect(opened.json().data.result).toEqual({ business_date: date, opened_at: now, changed: true, reason: 'opened' });
     const units = {
       I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
@@ -105,7 +105,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const closed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-1000');
     expect(closed.statusCode).toBe(200);
     expect(closed.json().data.result).toEqual({
-      business_date: localDate(at(6)),
+      business_date: '2026-10-25',
       opened_at: at(6),
       closed_at: at(10),
       changed: true,
@@ -133,7 +133,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const early = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0959');
     expect(early.statusCode).toBe(200);
     expect(early.json().data.result).toEqual({
-      business_date: localDate(at(6)),
+      business_date: '2026-10-25',
       opened_at: at(6),
       closed_at: null,
       changed: false,
@@ -223,7 +223,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
     const again = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-again');
     expect(again.json().data.result).toEqual({
-      business_date: localDate(at(6)),
+      business_date: '2026-10-25',
       opened_at: at(6),
       closed_at: at(23),
       changed: false,
@@ -233,7 +233,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
     hub.clock.set(at(24 + 6));
     const next = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-day2');
-    expect(next.json().data.result).toEqual({ business_date: localDate(at(30)), opened_at: at(30), changed: true, reason: 'opened' });
+    expect(next.json().data.result).toEqual({ business_date: '2026-10-26', opened_at: at(30), changed: true, reason: 'opened' });
   });
 
   it('[01a §6.18b] CloseBusinessDay before any day was opened → not_open with null fields', async () => {
@@ -338,9 +338,4 @@ function eventsOf(hub: TestHub, eventType: string): Array<{ stream_type: string;
     .prepare('SELECT stream_type, stream_id, payload FROM events WHERE event_type = ? ORDER BY seq')
     .all(eventType) as Array<{ stream_type: string; stream_id: string; payload: string }>;
   return rows.map((row) => ({ stream_type: row.stream_type, stream_id: row.stream_id, payload: JSON.parse(row.payload) }));
-}
-
-function localDate(ms: number): string {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
