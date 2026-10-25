@@ -69,8 +69,9 @@
 | 49 Hub `SetPrecookedStock` | `a50108d` |
 | 50 Hub `AddPrecookedStock` | `cb12474` |
 | 51 Hub business day across restart; units frozen per day | `8bdcb97` |
+| 52 Hub `SetItemAvailability`, `itemAvailability` | `77b599b` |
 
-**Next task for Cursor: 52.**
+**Next task for Cursor: 53.**
 
 ## Markers
 
