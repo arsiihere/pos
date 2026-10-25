@@ -24,6 +24,9 @@ export function StockTable({
   onEdit,
   onConfirm,
   onToggle,
+  adds = new Map(),
+  onAddEdit = () => {},
+  onAdd = () => {},
 }: {
   rows: readonly StockRow[];
   startedAt: number | null;
@@ -32,6 +35,10 @@ export function StockTable({
   onEdit: (itemId: string, value: number | null) => void;
   onConfirm: (itemId: string) => void;
   onToggle: (itemId: string, isAvailable: boolean) => void;
+  // S45: the per-row Add field and its button (AddPrecookedStock for that row).
+  adds?: ReadonlyMap<string, number | null>;
+  onAddEdit?: (itemId: string, value: number | null) => void;
+  onAdd?: (itemId: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -104,7 +111,9 @@ export function StockTable({
               {meta.is_stock_tracked && (
                 <div className="pos-row">
                   <span className="pos-field__label">{t('admin_stock.on_hand')}</span>
-                  <QuantityInput unit={meta.stock_unit} value={value} onChange={(v) => onEdit(id, v)} />
+                  <div data-field="on_hand">
+                    <QuantityInput unit={meta.stock_unit} value={value} onChange={(v) => onEdit(id, v)} />
+                  </div>
                   <button type="button" className="pos-btn" disabled={shownOnHand(row) === null} onClick={() => onConfirm(id)}>
                     {t('admin_stock.confirm')}
                   </button>
@@ -118,6 +127,18 @@ export function StockTable({
                     <span>{fill(t('admin_stock.set_at'), { time: hubTimeText(item.set_at, clock.utcOffsetMs) })}</span>
                   )}
                   {meta.out_of_stock_behaviour === 'sold_out' && <span>{t('admin_stock.sold_out_when_0')}</span>}
+                  <span className="pos-field__label">{t('admin_stock.add_label')}</span>
+                  <div data-field="add">
+                    <QuantityInput unit={meta.stock_unit} value={adds.get(id) ?? null} onChange={(v) => onAddEdit(id, v)} />
+                  </div>
+                  <button
+                    type="button"
+                    className="pos-btn"
+                    disabled={(adds.get(id) ?? null) === null || adds.get(id) === 0}
+                    onClick={() => onAdd(id)}
+                  >
+                    {t('admin_stock.add')}
+                  </button>
                 </div>
               )}
               {rowBadges(row, startedAt, clock).map((b) => (

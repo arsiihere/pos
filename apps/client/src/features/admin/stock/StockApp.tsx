@@ -10,7 +10,10 @@ import { adminErrorKey } from '../../../i18n/en';
 import { AdminLogin } from './AdminLogin';
 import type { StockRow } from './badges';
 import { AlertBar } from './AlertBar';
+import { BusinessDayBar, type BusinessDay } from './BusinessDayBar';
 import { ConfigStatus } from './ConfigStatus';
+import { StalePrompt } from './StalePrompt';
+import { StartDay } from './StartDay';
 import { shownOnHand, StockTable } from './StockTable';
 
 // §8.2: stock query and config status on open and every 15 s while the page is visible.
@@ -26,7 +29,14 @@ export function StockApp({ api }: { api: HubAdmin }) {
   return <StockView api={api} onSignedOut={signedOut} />;
 }
 
-type Message = { tone: 'ok' | 'warn' | 'danger'; text: string };
+type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string };
+
+// A save or Add refused with 409 BUSINESS_DAY_NOT_OPEN, re-sent with the same command_id after Start day.
+type Blocked = { kind: 'save' } | { kind: 'add'; itemId: string };
+
+function dayNotOpen(error: HubError): boolean {
+  return error.kind === 'api' && error.code === 'BUSINESS_DAY_NOT_OPEN';
+}
 
 function errorMessage(error: HubError): Message {
   if (error.kind === 'network') return { tone: 'danger', text: t('admin_stock.errors.network') };
@@ -40,14 +50,24 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [items, setItems] = useState<readonly HubStockItem[]>([]);
   const [clock, setClock] = useState<HubClock | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [day, setDay] = useState<BusinessDay | null>(null);
+  const [stale, setStale] = useState(false);
+  const [staleAfterHours, setStaleAfterHours] = useState(16);
+  // "Keep this day open" hides the stale prompt until the page reloads.
+  const [keepOpen, setKeepOpen] = useState(false);
+  const [dayBusy, setDayBusy] = useState(false);
+  const [blocked, setBlocked] = useState<Blocked | null>(null);
+  // S45: the per-row Add field values, kept across refreshes like the counts.
+  const [adds, setAdds] = useState<ReadonlyMap<string, number | null>>(new Map());
   const [offline, setOffline] = useState(false);
   // Every row whose On hand the user touched (edited, even back to the same number, or confirmed).
   const [drafts, setDrafts] = useState<ReadonlyMap<string, number | null>>(new Map());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const versions = useRef<StockVersions | undefined>(undefined);
-  // D32: the save's command_id, kept for retries of the same entries.
+  // D32: the save's and each Add's command_id, kept for retries of the same entries.
   const pendingSave = useRef<{ commandId: string; key: string } | null>(null);
+  const pendingAdds = useRef(new Map<string, { commandId: string; quantity: number }>());
 
   const refresh = useCallback(async () => {
     // D7: config-status is read on open, before any command, and gives the envelope's ids.
@@ -66,6 +86,9 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     setOffline(false);
     setClock(createHubClock(answer.hub_time));
     setStartedAt(answer.business_day_started_at);
+    setDay(answer.business_day);
+    setStale(answer.day_stale);
+    setStaleAfterHours(answer.day_stale_after_hours);
     versions.current = { meta_version: answer.meta_version, stock_version: answer.stock_version };
     // §6.19: an unchanged answer carries no item data; the rows stay.
     if (answer.items_meta !== null) setMeta(answer.items_meta);
@@ -80,6 +103,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     return () => clearInterval(timer);
   }, [refresh]);
 
+  // S33: no day open (none yet, or the last one closed).
+  const noDay = clock !== null && startedAt === null;
   const byId = new Map(items.map((i) => [i.item_id, i]));
   const rows: StockRow[] = meta.flatMap((m) => {
     const item = byId.get(m.item_id);
@@ -110,6 +135,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     setSaving(false);
     if (!answer.ok) {
       if (answer.error.kind === 'signed_out') onSignedOut();
+      else if (dayNotOpen(answer.error)) setBlocked({ kind: 'save' });
       else setMessage(errorMessage(answer.error));
       return;
     }
@@ -121,6 +147,70 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     });
     setMessage({ tone: 'ok', text: t('admin_stock.saved') });
     await refresh();
+  };
+
+  const add = async (itemId: string) => {
+    const quantity = adds.get(itemId);
+    if (quantity === undefined || quantity === null || quantity === 0) return;
+    const pending = pendingAdds.current.get(itemId);
+    const commandId = pending?.quantity === quantity ? pending.commandId : newUlid();
+    pendingAdds.current.set(itemId, { commandId, quantity });
+    setMessage(null);
+    const answer = await api.addPrecookedStock({ entries: [{ item_id: itemId, quantity }] }, commandId);
+    if (!answer.ok) {
+      if (answer.error.kind === 'signed_out') onSignedOut();
+      else if (dayNotOpen(answer.error)) setBlocked({ kind: 'add', itemId });
+      else setMessage(errorMessage(answer.error));
+      return;
+    }
+    pendingAdds.current.delete(itemId);
+    setAdds((a) => {
+      const next = new Map(a);
+      if (next.get(itemId) === quantity) next.delete(itemId);
+      return next;
+    });
+    await refresh();
+  };
+
+  // One tap, no confirmation; then the refused save or Add, if any, goes again with its command_id.
+  const startDay = async () => {
+    setDayBusy(true);
+    setMessage(null);
+    const answer = await api.openBusinessDay(newUlid());
+    setDayBusy(false);
+    if (!answer.ok) {
+      if (answer.error.kind === 'signed_out') onSignedOut();
+      else setMessage(errorMessage(answer.error));
+      return;
+    }
+    const retry = blocked;
+    setBlocked(null);
+    if (retry?.kind === 'save') await save();
+    else if (retry?.kind === 'add') await add(retry.itemId);
+    else await refresh();
+  };
+
+  const closeDay = async (): Promise<boolean> => {
+    setDayBusy(true);
+    setMessage(null);
+    const answer = await api.closeBusinessDay(newUlid());
+    setDayBusy(false);
+    if (!answer.ok) {
+      if (answer.error.kind === 'signed_out') onSignedOut();
+      else setMessage(errorMessage(answer.error));
+      return false;
+    }
+    if (answer.data.reason === 'opened_recently') {
+      setMessage({ tone: 'info', text: t('admin_stock.day.opened_recently') });
+      return false;
+    }
+    await refresh();
+    return true;
+  };
+
+  // S33: two commands, two command_ids.
+  const closeAndStart = async () => {
+    if (await closeDay()) await startDay();
   };
 
   const toggle = async (itemId: string, isAvailable: boolean) => {
@@ -139,7 +229,26 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       <h1 className="title">{t('admin_stock.title')}</h1>
       {status !== null && <ConfigStatus status={status} clock={clock} />}
       {offline && <Banner tone="info" text={t('admin_stock.reconnecting')} />}
+      {clock !== null && (
+        <BusinessDayBar
+          day={day}
+          clock={clock}
+          staleAfterHours={staleAfterHours}
+          busy={dayBusy}
+          onClose={() => void closeDay()}
+        />
+      )}
       <AlertBar rows={rows} />
+      {clock !== null && stale && !keepOpen && day !== null && (
+        <StalePrompt
+          openedAt={day.opened_at}
+          clock={clock}
+          busy={dayBusy}
+          onCloseAndStart={() => void closeAndStart()}
+          onKeep={() => setKeepOpen(true)}
+        />
+      )}
+      {clock !== null && noDay && <StartDay place="rows" busy={dayBusy} onStart={() => void startDay()} />}
       {clock !== null && (
         <StockTable
           rows={rows}
@@ -149,11 +258,17 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           onEdit={edit}
           onConfirm={confirm}
           onToggle={(id, next) => void toggle(id, next)}
+          adds={adds}
+          onAddEdit={(id, v) => setAdds((a) => new Map(a).set(id, v))}
+          onAdd={(id) => void add(id)}
         />
       )}
-      <BusyButton primary busy={saving} onClick={() => void save()}>
+      <BusyButton primary={!noDay && blocked === null} busy={saving} onClick={() => void save()}>
         {t('admin_stock.save')}
       </BusyButton>
+      {blocked !== null && (
+        <StartDay place="retry" busy={dayBusy} primary={!noDay} onStart={() => void startDay()} />
+      )}
       {message !== null && <Banner tone={message.tone} text={message.text} />}
     </main>
   );
