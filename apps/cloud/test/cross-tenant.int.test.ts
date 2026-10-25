@@ -102,6 +102,10 @@ describe('cross-tenant', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json().data.branch_id).toBe(f.branches[0]);
       }
+      if (route.url.includes(':branch_id')) {
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(response.json().error.code).toBe('BRANCH_NOT_FOUND');
+      }
     }
   });
 });
