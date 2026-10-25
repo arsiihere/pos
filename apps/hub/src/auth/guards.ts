@@ -20,6 +20,7 @@ export type RouteGroup =
   | 'admin'
   | 'admin-device-public'
   | 'admin-bootstrap'
+  | 'admin-page'
   | 'pair'
   | 'pair-request'
   | 'ws';
@@ -33,6 +34,7 @@ const GROUPS = new Set<RouteGroup>([
   'admin',
   'admin-device-public',
   'admin-bootstrap',
+  'admin-page',
   'pair',
   'pair-request',
   'ws',

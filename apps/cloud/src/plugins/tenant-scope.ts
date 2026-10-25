@@ -6,7 +6,13 @@ import type pg from 'pg';
 import { branchByApiKeyHash, registrationCodeByHash } from '../db/credential-lookup.js';
 import type { TenantContext } from '../db/tenant-scoped-repository.js';
 
-export const TENANT_SCOPE_ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health'] as const;
+export const TENANT_SCOPE_ALLOWLIST = [
+  'POST /v1/auth/login',
+  'POST /v1/auth/refresh',
+  'GET /v1/health',
+  'GET /owner/', // S21: static owner pages (§7.1)
+  'GET /owner/*',
+] as const;
 
 export type TenantScope = 'jwt' | 'branch-key' | 'registration-code' | 'none';
 

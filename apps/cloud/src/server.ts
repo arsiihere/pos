@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type pg from 'pg';
+import { CLIENT_DIST_DIR, registerClientDist } from './lib/client-dist.js';
 import type { CloudEnv } from './lib/env.js';
 import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
@@ -80,6 +81,8 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerHealthRoutes(app, deps);
   registerRestaurantRoutes(app, deps);
   registerConfigSyncRoutes(app, deps);
+  // §7.1, S21: the built owner pages, static and without tenant scope.
+  registerClientDist(app, { prefix: '/owner/', dir: CLIENT_DIST_DIR, routeConfig: { tenantScope: 'none' } });
   return app;
 }
 

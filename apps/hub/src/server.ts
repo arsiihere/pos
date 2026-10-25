@@ -29,6 +29,7 @@ import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
+import { CLIENT_DIST_DIR, registerClientDist } from './lib/client-dist.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
 import { registerBranchConfigQuery } from './queries/branch-config.js';
@@ -171,6 +172,8 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStationSessionRoutes(app, deps);
   registerWs(app, deps);
   registerUiAssets(app);
+  // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
+  registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,

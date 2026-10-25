@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
 import { createTestCloud } from './helpers/test-cloud';
 
-const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health'];
+const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health', 'GET /owner/', 'GET /owner/*'];
 
 async function readyMessage(app: { ready(): Promise<unknown> }): Promise<string> {
   try {
