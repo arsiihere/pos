@@ -88,6 +88,25 @@ export default tseslint.config(
     },
   },
   {
+    // S35 k: browser-safe packages. Flat config replaces the rule's options, so the root patterns repeat.
+    files: ['packages/engine/**/*.ts', 'packages/domain/src/**/*.ts'],
+    ignores: ['packages/domain/src/hash.ts', '**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            ...dbClientImports.patterns,
+            ...qrcodeImports.patterns,
+            ...credentialLookupImports.patterns,
+            ...systemContextImports.patterns,
+            { group: ['node:*'], message: 'S35 k: packages/engine and the @pos/domain root must stay browser-safe' },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: [
       'apps/*/src/lib/clock.ts',
       'apps/*/src/lib/ids.ts',
