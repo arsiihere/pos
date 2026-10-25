@@ -76,17 +76,20 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
 }
 
 // S14, S41, S46: numbers and flags only; 1 statement for the availability rows.
+// v1.0.2: unit is the open day's frozen unit (else the config's); a count in another unit reads as no count.
 function stockItems(ctx: QueryCtx, start: number | null) {
   const items = ctx.branchConfig?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
   return items.map((item) => {
-    const entry = stockOf(ctx.state, item.item_id);
+    const unit = dayUnits(ctx.state, item).stock_unit;
+    const stored = stockOf(ctx.state, item.item_id);
+    const entry = stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
     const since = off.get(item.item_id);
     return {
       item_id: item.item_id,
       on_hand: entry.on_hand,
       reserved: entry.reserved,
-      unit: entry.unit,
+      unit,
       available: availableStock(ctx.state, item.item_id, start, item),
       level: stockLevel(ctx.state, item.item_id, start, item),
       set_at: entry.set_at,

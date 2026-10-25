@@ -294,6 +294,34 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(row(data.items, 'I1')).toMatchObject({ unit: 'piece', on_hand: 6, available: 6 });
   });
 
+  it('[01a §10 #158] items[].unit is the open day\'s frozen unit, else the config\'s; a count in another unit reads as no count', async () => {
+    const hub = await open(at(25, 6));
+    withConfig(aBranchConfig());
+    const admin = adminOn(hub, 'S_MGR');
+    await openDay(hub, admin, 'cmd-open-1');
+    hub.clock.set(at(25, 7));
+    await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count');
+    hub.clock.set(at(25, 23));
+    await closeDay(hub, admin, 'cmd-close');
+    const base = aBranchConfig({ config_version: 2 });
+    const grams = { stock_unit: 'g' as const, sale_unit: 'piece' as const, stock_per_sale_unit: 250 };
+    withConfig({ ...base, items: base.items.map((i) => (i.item_id === 'I1' || i.item_id === 'I2' ? { ...i, ...grams } : i)) });
+
+    // No day open: the config's unit.
+    const closed = (await query(hub, admin)).json().data;
+    expect(row(closed.items, 'I2')).toMatchObject({ unit: 'g' });
+    expect(row(closed.items, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null });
+
+    hub.clock.set(at(26, 6));
+    await openDay(hub, admin, 'cmd-open-2');
+    const data = (await query(hub, admin)).json().data;
+    // Never counted: the frozen day unit, not stockOf's 'piece' default.
+    expect(row(data.items, 'I2')).toMatchObject({ unit: 'g', on_hand: 0, set_at: null });
+    // Counted in piece yesterday; the day is in g: no count.
+    expect(row(data.items, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null, available: 0, level: 'not_counted' });
+    expect(engine(hub).stock['I1']).toMatchObject({ unit: 'piece', on_hand: 6 });
+  });
+
   it('[01a §6.19] an admin without manage-stock → 403', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfig());
