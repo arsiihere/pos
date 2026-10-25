@@ -165,4 +165,36 @@ export default tseslint.config(
       'no-restricted-imports': ['error', { patterns: [...dbClientImports.patterns, ...qrcodeImports.patterns] }],
     },
   },
+  {
+    // S35 d, e, f, j, S47: apps/client is browser code. It may read the clock (F §6.7 block above does not apply);
+    // flat config replaces the rules' options, so the root patterns repeat. Kept last (R11).
+    files: ['apps/client/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]', message: 'S35 e' },
+        { selector: 'JSXAttribute[name.name="style"]', message: 'S35 d: style only from packages/ui-kit' },
+        { selector: 'CallExpression[callee.property.name="randomUUID"]', message: 'S35 j: use src/app/ulid.ts' },
+        { selector: 'CallExpression[callee.property.name="getTimezoneOffset"]', message: 'S47: use hub_time.utc_offset_ms' },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: '@pos/domain/hash', message: 'S27' },
+            { name: 'ulid', message: 'S35 j' },
+          ],
+          patterns: [
+            ...dbClientImports.patterns,
+            ...qrcodeImports.patterns,
+            ...credentialLookupImports.patterns,
+            ...systemContextImports.patterns,
+            { group: ['node:*'], message: 'S35 f' },
+            { group: ['**/apps/hub/**', '**/apps/cloud/**', '**/hub/src/**', '**/cloud/src/**'], message: 'S35 f' },
+            { regex: '^(?!.*packages/ui-kit/).*\\.css$', message: 'S35 d' },
+          ],
+        },
+      ],
+    },
+  },
 );
