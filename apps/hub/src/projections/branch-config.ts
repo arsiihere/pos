@@ -65,7 +65,7 @@ export function loadBranchConfig(db: Database.Database, branchId: string): Loade
     state: 'APPLIED',
     row,
     entry: {
-      config: parseStoredSnapshot(stored.body),
+      config: BranchConfigSnapshotSchemaV1.parse(raw),
       snapshotHash: row.snapshot_hash,
       configVersion: row.config_version,
       snapshotSchemaVersion: row.snapshot_schema_version,
