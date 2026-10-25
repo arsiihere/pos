@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import type { CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery } from '../../../api/cloud-admin';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { t } from '../../../i18n';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { formatRupees } from '../money';
+import { CategoryForm } from './CategoryForm';
+import { ItemForm } from './ItemForm';
 
 // §8.1 #/menu: tax classes, categories and items. Items come a page at a time (§6.11, S48): a search
 // box sent 300 ms after typing stops, a category filter, an Active / Archived switch and Load more while
 // next_cursor is set; pages are appended and de-duplicated by item_id (a rename across the cursor can
-// repeat a row, review 2 nit 3). can_edit_tenant false → read-only with one info line (S8).
+// repeat a row, review 2 nit 3). can_edit_tenant false → read-only with one info line (S8). An open item
+// or category form replaces the list (one primary button per screen); closing it reloads the list.
 export const SEARCH_DELAY_MS = 300;
 
 type Status = NonNullable<MenuQuery['status']>;
@@ -96,6 +99,11 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const [status, setStatus] = useState<Status>('active');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<
+    { kind: 'item'; item: MenuItem | null } | { kind: 'category'; category: Category | null } | null
+  >(null);
+  // The route picker's branches: the owner's allowed branches (§6.14 routes only for those).
+  const branchIds = useMemo(() => api.currentUser()?.allowed_branch_ids ?? [], [api]);
   // Only the latest request's answer is shown, so a slow older search never replaces a newer one.
   const latest = useRef(0);
 
@@ -159,6 +167,37 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const canEdit = menu?.can_edit_tenant === true;
   const categoryName = (id: string) => menu?.categories.find((c) => c.category_id === id)?.name ?? '';
 
+  function closeForm(notice?: string | null) {
+    setEditing(null);
+    setError(notice ?? null);
+    void load();
+  }
+
+  if (editing !== null && menu !== null && canEdit) {
+    return (
+      <section className="pos-stack">
+        {editing.kind === 'item' ? (
+          <ItemForm
+            api={api}
+            item={editing.item}
+            taxClasses={menu.tax_classes}
+            categories={menu.categories}
+            branchIds={branchIds}
+            onSaved={closeForm}
+            onCancel={() => setEditing(null)}
+          />
+        ) : (
+          <CategoryForm
+            api={api}
+            category={editing.category}
+            onSaved={closeForm}
+            onCancel={() => setEditing(null)}
+          />
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="pos-stack">
       <h1 className="title">{t('owner.menu.title')}</h1>
@@ -198,6 +237,11 @@ export function MenuView({ api }: { api: CloudAdmin }) {
               <span>{category.name}</span>
               {archived && <span>{t('owner.common.archived')}</span>}
               {canEdit && (
+                <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'category', category })}>
+                  {t('owner.common.edit')}
+                </button>
+              )}
+              {canEdit && (
                 <button
                   type="button"
                   className="pos-btn"
@@ -210,8 +254,18 @@ export function MenuView({ api }: { api: CloudAdmin }) {
           );
         })}
       </ul>
+      {canEdit && (
+        <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'category', category: null })}>
+          {t('owner.menu.new_category')}
+        </button>
+      )}
 
       <h2 className="pos-field__label">{t('owner.menu.items')}</h2>
+      {canEdit && (
+        <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'item', item: null })}>
+          {t('owner.menu.new_item')}
+        </button>
+      )}
       <div className="pos-row">
         <label className="pos-field">
           <span className="pos-field__label">{t('owner.menu.search')}</span>
@@ -262,6 +316,11 @@ export function MenuView({ api }: { api: CloudAdmin }) {
               {row.group_label !== null && <span>{row.group_label}</span>}
               <span>{categoryName(row.category_id)}</span>
               <span className="pos-ltr">{`${t('owner.menu.rupees')} ${formatRupees(row.price_minor)}`}</span>
+              {canEdit && (
+                <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'item', item: row })}>
+                  {t('owner.common.edit')}
+                </button>
+              )}
               {canEdit && (
                 <button
                   type="button"
