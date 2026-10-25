@@ -76,8 +76,9 @@
 | 56 Hub `GET /queries/branch-config` with `hub_time` | `244558a` |
 | 57 `apps/client` scaffold, build, ULID helper | `10a1619` |
 | 58 `apps/client` lint rules | `10f91f1` |
+| 59 `client-dist`, `admin-page` group, `/owner/*` allowlist, CSP on both | `0168625` |
 
-**Next task for Cursor: 59.**
+**Next task for Cursor: 60.**
 
 ## Markers
 
