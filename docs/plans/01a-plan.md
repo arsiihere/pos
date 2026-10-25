@@ -66,8 +66,9 @@
 | 46 Hub station validator | `09d6a41` |
 | 47 Hub `OpenBusinessDay` | `3bc952d` |
 | 48 Hub `CloseBusinessDay` | `283e8c0` |
+| 49 Hub `SetPrecookedStock` | `a50108d` |
 
-**Next task for Cursor: 49.**
+**Next task for Cursor: 50.**
 
 ## Markers
 
