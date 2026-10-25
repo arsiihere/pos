@@ -165,6 +165,6 @@ describe('shared components', () => {
     expect(container.textContent).toContain(t('quantity.pieces'));
     act(() => root.render(<QuantityInput unit="ml" value={250} onChange={onChange} />));
     expect(input.value).toBe('0.25');
-    expect(container.textContent).toContain('L');
+    expect(container.querySelector('.pos-row span')?.textContent).toBe('L');
   });
 });
