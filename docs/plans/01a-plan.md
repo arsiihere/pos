@@ -61,8 +61,9 @@
 | 41 Hub `onBranchConfigApplied` | `8d48b38` |
 | 42 Hub apply failure — visible problem, parts retried alone | `9679045` |
 | 43 Hub directory through the poll | `5402ed9` |
+| 44 Hub engine state through `createDeps`, reducer, boot fold, `stock_version` | `ac6f7f7` |
 
-**Next task for Cursor: 44.**
+**Next task for Cursor: 45.**
 
 ## Markers
 
