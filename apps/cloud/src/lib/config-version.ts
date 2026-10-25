@@ -32,3 +32,16 @@ export async function bumpConfigVersion(
     .map((row) => ({ branch_id: row.branch_id, config_version: Number(row.config_version) }))
     .sort((a, b) => (a.branch_id < b.branch_id ? -1 : a.branch_id > b.branch_id ? 1 : 0));
 }
+
+// S8 (v1.0, review 2 S-6): the owner's allowed branches come from owner_users, never the JWT claim.
+// One statement; no lock (the §6.11 can_edit_tenant read). No owner row or no branch → false.
+export async function coversEveryBranch(db: TenantSql, ownerUserId: string): Promise<boolean> {
+  const rows = await db.query<{ covers: boolean | null }>(
+    `SELECT bool_and(b.branch_id = ANY(o.allowed_branch_ids)) AS covers
+       FROM branches b
+       JOIN owner_users o ON o.tenant_id = b.tenant_id AND o.user_id = $2
+      WHERE b.tenant_id = $1`,
+    [ownerUserId],
+  );
+  return rows[0]?.covers === true;
+}

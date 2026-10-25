@@ -4,10 +4,11 @@ import { seedTenant } from '../../src/cli/seed-tenant';
 import { SystemContext } from '../../src/cli/system-context';
 import { TenantLevelRepository } from '../../src/db/tenant-level-repository';
 import { auditActionFor, writeConfigAudit } from '../../src/lib/config-audit';
-import { bumpConfigVersion } from '../../src/lib/config-version';
+import { bumpConfigVersion, coversEveryBranch } from '../../src/lib/config-version';
 import { inTransaction } from '../../src/lib/idempotency';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { pgCounter } from '../helpers/pg-counter';
 import { createTestCloud, truncateAll, type TestCloud } from '../helpers/test-cloud';
 
 describe('config version and audit', () => {
@@ -76,6 +77,21 @@ describe('config version and audit', () => {
       [...branches].sort().map((branchId) => ({ branch_id: branchId, config_version: before[branchId]! + 1 })),
     );
     expect(after[otherBranch]).toBe(before[otherBranch]);
+  });
+
+  it('[01a S8] coversEveryBranch true for an owner row with A, B, C; false after removing C from the row by SQL; one statement', async () => {
+    const counter = pgCounter(cloud.pool);
+    const db = new TenantLevelRepository(tenant(), cloud.pool);
+    counter.reset();
+    expect(await coversEveryBranch(db, userId)).toBe(true);
+    expect(counter.count).toBe(1);
+    await cloud.pool.query(
+      `UPDATE owner_users SET allowed_branch_ids = array_remove(allowed_branch_ids, $3) WHERE tenant_id = $1 AND user_id = $2`,
+      [tenantId, userId, branches[2]],
+    );
+    counter.reset();
+    expect(await coversEveryBranch(db, userId)).toBe(false);
+    expect(counter.count).toBe(1);
   });
 
   it('[01a S26] writeConfigAudit stores actor, entity, before/after; cli actor stores null user', async () => {
