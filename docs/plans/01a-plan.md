@@ -50,8 +50,9 @@
 | 30 Cloud menu-item PATCH | `c09e828` |
 | 31 Cloud availability windows | `f726a4e` |
 | 32 Cloud route PUT | `65ff15e` |
+| 33 Cloud tenant-wide write guard from the database | `c89db91` |
 
-**Next task for Cursor: 33.**
+**Next task for Cursor: 34.**
 
 ## Markers
 
