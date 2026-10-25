@@ -29,6 +29,14 @@ describe('units', () => {
     expect(parseQuantity(' 0.005 ', 'g')).toEqual({ ok: true, value: 5 });
   });
 
+  it('[01a S44] formatQuantity throws on a negative or non-integer quantity', () => {
+    expect(() => formatQuantity(-1500, 'g')).toThrow('formatQuantity: quantity must be a non-negative integer');
+    expect(() => formatQuantity(1.5, 'ml')).toThrow('formatQuantity: quantity must be a non-negative integer');
+    expect(() => formatQuantity(-1, 'piece')).toThrow('formatQuantity: quantity must be a non-negative integer');
+    expect(() => formatQuantity(Number.NaN, 'piece')).toThrow('formatQuantity: quantity must be a non-negative integer');
+    expect(formatQuantity(0, 'g')).toBe('0 kg');
+  });
+
   it('[01a S44] exported from the @pos/domain root', () => {
     expect(root.parseQuantity).toBe(parseQuantity);
     expect(root.formatQuantity).toBe(formatQuantity);

@@ -22,6 +22,7 @@ export function parseQuantity(text: string, unit: Unit): { ok: true; value: numb
 }
 
 export function formatQuantity(n: number, unit: Unit): string {
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error('formatQuantity: quantity must be a non-negative integer');
   if (unit === 'piece') return String(n);
   const whole = Math.trunc(n / 1000);
   const frac = String(n % 1000).padStart(3, '0').replace(/0+$/, '');
