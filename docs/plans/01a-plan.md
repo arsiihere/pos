@@ -58,8 +58,9 @@
 | 38 Hub config holder and HTTP client | `5f628e6` |
 | 39 Hub `pollOnce` core | `3f49853` |
 | 40 Hub poller — schema version, stored-body format, commit failure | `3387815` |
+| 41 Hub `onBranchConfigApplied` | `8d48b38` |
 
-**Next task for Cursor: 41.**
+**Next task for Cursor: 42.**
 
 ## Markers
 
