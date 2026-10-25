@@ -67,8 +67,9 @@
 | 47 Hub `OpenBusinessDay` | `3bc952d` |
 | 48 Hub `CloseBusinessDay` | `283e8c0` |
 | 49 Hub `SetPrecookedStock` | `a50108d` |
+| 50 Hub `AddPrecookedStock` | `cb12474` |
 
-**Next task for Cursor: 50.**
+**Next task for Cursor: 51.**
 
 ## Markers
 
