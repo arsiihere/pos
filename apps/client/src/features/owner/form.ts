@@ -12,6 +12,12 @@ export function useIdempotencyKey(): { key: string; renew: () => void } {
   return { key, renew };
 }
 
+// S7, §8.1: a retry whose body changed after a lost response is not the same submission; the
+// form takes a new key and the list is reloaded so a create that did commit is shown.
+export function isKeyMismatch(error: CloudError): boolean {
+  return error.kind === 'api' && error.code === 'IDEMPOTENCY_KEY_MISMATCH';
+}
+
 // §8.1: the banner text for a failed call; a logged-out result shows nothing (the app goes to login).
 export function errorText(error: CloudError): string | null {
   switch (error.kind) {

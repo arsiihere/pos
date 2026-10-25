@@ -3,7 +3,7 @@ import type { CloudAdmin, CloudResult, Floor, Table } from '../../../api/cloud-a
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { t } from '../../../i18n';
-import { errorText, useIdempotencyKey } from '../form';
+import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 
 // §8.1 #/floors: floors with their tables; add, rename, reorder (sort number field, no drag),
 // archive / restore. Archived rows are behind a toggle (§6.2 returns them all).
@@ -76,6 +76,10 @@ function AddFloorForm({ api, branchId, onCreated }: { api: CloudAdmin; branchId:
     setBusy(false);
     if (!result.ok) {
       setError(errorText(result.error));
+      if (isKeyMismatch(result.error)) {
+        renew();
+        onCreated();
+      }
       return;
     }
     renew();
@@ -129,6 +133,10 @@ function AddTableForm({
     setBusy(false);
     if (!result.ok) {
       setError(errorText(result.error));
+      if (isKeyMismatch(result.error)) {
+        renew();
+        onCreated();
+      }
       return;
     }
     renew();

@@ -34,6 +34,7 @@ export const en = {
   'errors.PERMISSION_DENIED': 'Only an owner of every branch can change this.',
   'errors.LOGIN_INVALID': 'Email or password is wrong. Check them and try again.',
   'errors.LOGIN_LOCKED_OUT': 'Too many tries. Wait a few minutes, then try again.',
+  'errors.IDEMPOTENCY_KEY_MISMATCH': 'This form was already saved with other values. The list is reloaded; check it before adding again.',
   'errors.VALIDATION_FAILED': 'Check the fields and try again.',
   'errors.network': 'The cloud cannot be reached. Check the internet connection; what you typed is kept.',
   'errors.UNKNOWN': 'Something went wrong. Try again.',

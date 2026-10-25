@@ -137,6 +137,38 @@ describe('owner floors view', () => {
     expect(keys[3]).not.toBe(keys[2]);
   });
 
+  it('[01a §8.1] a changed body after a lost response gets IDEMPOTENCY_KEY_MISMATCH: the list reloads and the next submit has a new key', async () => {
+    const posts: Call[] = [];
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { floors: posts.length === 0 ? [] : [{ ...GROUND, tables: [] }] } });
+      posts.push(call);
+      if (posts.length === 1) return 'network';
+      if (posts.length === 2) {
+        return json(422, {
+          error: { code: 'IDEMPOTENCY_KEY_MISMATCH', message: 'mismatch', details: { idempotency_key: call.key } },
+        });
+      }
+      return json(201, { data: { floor: { ...GROUND, floor_id: 'F2', name: 'Roof' } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+
+    typeInto(addFloorForm().querySelector('input'), 'Ground');
+    await submit(addFloorForm());
+    typeInto(addFloorForm().querySelector('input'), 'Ground floor');
+    await submit(addFloorForm());
+
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.IDEMPOTENCY_KEY_MISMATCH'));
+    expect(t('errors.IDEMPOTENCY_KEY_MISMATCH')).not.toBe(t('errors.UNKNOWN'));
+    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2);
+    expect(container.querySelector('[data-floor-id="F1"]')).not.toBeNull();
+
+    typeInto(addFloorForm().querySelector('input'), 'Roof');
+    await submit(addFloorForm());
+    expect(posts[1]?.key).toBe(posts[0]?.key);
+    expect(posts[2]?.key).not.toBe(posts[0]?.key);
+  });
+
   it('[01a §8.1] floors with tables, archived rows behind a toggle, sort number edit sends PATCH { sort_order }', async () => {
     const floors = [
       {
