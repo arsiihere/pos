@@ -83,8 +83,9 @@
 | 63 Owner shell — login, branch picker, app | `a6300b2` |
 | 64 Owner floors view | `b5c5c3d` |
 | 64b Shared admin schemas in `@pos/events` (D5) | `404a07d` |
+| 65 Owner stations view | `8aeb80d` |
 
-**Next task for Cursor: 65.**
+**Next task for Cursor: 66.**
 
 ## Markers
 
