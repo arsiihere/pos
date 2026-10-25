@@ -32,8 +32,9 @@
 | 12 `@pos/engine`: business day, `dayUnits`, `stockLevel` | `7d3cb9d` |
 | 13 Lint: browser-safe packages | `4856528` |
 | 14 Cloud migration `0002_restaurant_setup.sql` | `0a633c4` |
+| 15 Cloud `withIdempotency` | `161df82` |
 
-**Next task for Cursor: 15.**
+**Next task for Cursor: 16.**
 
 ## Markers
 
