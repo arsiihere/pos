@@ -209,4 +209,36 @@ describe('tables', () => {
     expect(restore.statusCode).toBe(422);
     expect(restore.json().error.details).toEqual({ field: 'floor_id', reason: 'archived' });
   });
+
+  it('[01a §6.6] floor_id on an archived table, or with archived: true, is still checked → 422, never 500', async () => {
+    const ground = await createFloor(f.branches[0], 'Ground');
+    const roof = await createFloor(f.branches[1], 'Roof');
+    const active = (await createTable(f.branches[0], { floor_id: ground, name: 'T1' })).json().data.table;
+    const archived = (await createTable(f.branches[0], { floor_id: ground, name: 'T2' })).json().data.table;
+    expect((await patchTable(f.branches[0], archived.table_id, { archived: true })).statusCode).toBe(200);
+    const auditCount = (await auditRows()).length;
+    const before = await versionOf(f.branches[0]);
+
+    const cases: Array<[string, object, string]> = [
+      [archived.table_id, { floor_id: 'NO-SUCH-FLOOR' }, 'not_found'],
+      [archived.table_id, { floor_id: roof }, 'wrong_branch'],
+      [active.table_id, { archived: true, floor_id: 'NO-SUCH-FLOOR' }, 'not_found'],
+      [active.table_id, { archived: true, floor_id: roof }, 'wrong_branch'],
+    ];
+    for (const [tableId, payload, reason] of cases) {
+      const response = await patchTable(f.branches[0], tableId, payload);
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error).toMatchObject({
+        code: 'CONFIG_REFERENCE_INVALID',
+        details: { field: 'floor_id', reason },
+      });
+    }
+    const stored = await cloud.pool.query(`SELECT floor_id, archived_at FROM dining_tables ORDER BY name`);
+    expect(stored.rows).toEqual([
+      { floor_id: ground, archived_at: null },
+      { floor_id: ground, archived_at: expect.anything() },
+    ]);
+    expect(await auditRows()).toHaveLength(auditCount);
+    expect(await versionOf(f.branches[0])).toBe(before);
+  });
 });

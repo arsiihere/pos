@@ -209,7 +209,7 @@ export async function createTable(
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
-      await assertActiveFloor(scoped, branchId, body.floor_id);
+      await assertFloor(scoped, branchId, body.floor_id, { requireActive: true });
       const table = await nameTaken('dining_tables_active_name', 'table', body.name, () =>
         insertTable(scoped, {
           branchId,
@@ -241,7 +241,8 @@ export async function createTable(
   );
 }
 
-// §6.6: lock → rules on the merged row (an active table needs an active floor of this branch) → write → audit → bump.
+// §6.6: lock → rules on the merged row (a sent floor_id must be a floor of this branch; an active table needs it
+// active) → write → audit → bump.
 export async function patchTable(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -264,7 +265,9 @@ export async function patchTable(
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
-    if (merged.archived_at === null) await assertActiveFloor(scoped, branchId, merged.floor_id);
+    if (body.floor_id !== undefined || merged.archived_at === null) {
+      await assertFloor(scoped, branchId, merged.floor_id, { requireActive: merged.archived_at === null });
+    }
     const table = await nameTaken('dining_tables_active_name', 'table', merged.name, () =>
       updateTable(scoped, branchId, merged, now),
     );
@@ -704,11 +707,22 @@ async function assertActiveBatchStation(scoped: TenantScopedRepository, branchId
   if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'station_id', reason });
 }
 
-// §3.3: a table references an active floor of the same branch.
-async function assertActiveFloor(scoped: TenantScopedRepository, branchId: string, floorId: string): Promise<void> {
+// §3.3: a table references a floor of the same branch; an active table needs that floor active.
+async function assertFloor(
+  scoped: TenantScopedRepository,
+  branchId: string,
+  floorId: string,
+  { requireActive }: { requireActive: boolean },
+): Promise<void> {
   const floor = await shareFloor(scoped, floorId);
   const reason =
-    floor === undefined ? 'not_found' : floor.branch_id !== branchId ? 'wrong_branch' : floor.archived_at !== null ? 'archived' : null;
+    floor === undefined
+      ? 'not_found'
+      : floor.branch_id !== branchId
+        ? 'wrong_branch'
+        : requireActive && floor.archived_at !== null
+          ? 'archived'
+          : null;
   if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'floor_id', reason });
 }
 
