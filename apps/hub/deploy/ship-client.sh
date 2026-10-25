@@ -36,8 +36,9 @@ state="$(ssh "$target" systemctl is-active hub)" || rc=$?
 if [ "$rc" -eq 255 ]; then
   fail "cannot reach $target over ssh"
 fi
-if [ "$state" = "active" ]; then
-  fail "hub service is still active on $target; stop it first (ssh $target sudo systemctl stop hub)"
+# D6: only a stopped service ships; activating, deactivating, reloading and active all refuse.
+if [ "$state" != "inactive" ] && [ "$state" != "failed" ]; then
+  fail "hub service is ${state:-in an unknown state} on $target; stop it first (ssh $target sudo systemctl stop hub)"
 fi
 
 # (c) the hub checkout must be at the commit the page was built from.
