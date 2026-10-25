@@ -11,6 +11,7 @@ interface BIds {
   auditId: string;
   floorId: string;
   tableId: string;
+  stationId: string;
   refreshToken: string;
 }
 
@@ -35,6 +36,15 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
   'PATCH /v1/admin/branches/:branch_id/tables/:table_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/tables/${ids.tableId}`,
     payload: { floor_id: ids.floorId, name: 'T1' },
+  }),
+  'GET /v1/admin/branches/:branch_id/stations': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/stations` }),
+  'POST /v1/admin/branches/:branch_id/stations': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/stations`,
+    payload: { name: 'Fryer', station_type: 'batch', capacity: 2 },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/stations/:station_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}`,
+    payload: { name: 'Fryer' },
   }),
 };
 
@@ -72,6 +82,12 @@ describe('cross-tenant', () => {
        VALUES ($1, $2, $3, $4, 'B table', 0, 0)`,
       [f.other.tenantId, f.other.branchId, tableId, floorId],
     );
+    const stationId = 'B-STATION-0000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, $3, 'B station', 'slot', 1, 0, 0)`,
+      [f.other.tenantId, f.other.branchId, stationId],
+    );
     const ids: BIds = {
       tenantId: f.other.tenantId,
       userId: f.other.userId,
@@ -79,6 +95,7 @@ describe('cross-tenant', () => {
       auditId,
       floorId,
       tableId,
+      stationId,
       refreshToken: loginB.json().data.refresh_token as string,
     };
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
@@ -94,6 +111,7 @@ describe('cross-tenant', () => {
       ids.auditId,
       ids.floorId,
       ids.tableId,
+      ids.stationId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];

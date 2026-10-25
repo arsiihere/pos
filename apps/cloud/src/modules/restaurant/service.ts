@@ -10,20 +10,35 @@ import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import {
+  activeRouteItemIds,
   activeTableIds,
+  archiveStationPrograms,
   insertFloor,
+  insertStation,
   insertTable,
   lockFloor,
+  lockStation,
   lockTable,
   selectFloors,
+  selectPrograms,
+  selectStations,
   selectTables,
   shareFloor,
   updateFloor,
+  updateStation,
   updateTable,
   type FloorRow,
+  type StationRow,
   type TableRow,
 } from './repository.js';
-import type { CreateFloorInput, CreateTableInput, PatchFloorInput, PatchTableInput } from './schemas.js';
+import type {
+  CreateFloorInput,
+  CreateStationInput,
+  CreateTableInput,
+  PatchFloorInput,
+  PatchStationInput,
+  PatchTableInput,
+} from './schemas.js';
 
 export interface RestaurantDeps {
   pool: pg.Pool;
@@ -248,6 +263,144 @@ export async function patchTable(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { table };
+  });
+}
+
+// §6.8: 2 statements, archived rows included.
+export async function listStations(deps: RestaurantDeps, tenant: TenantContext, branchId: string) {
+  assertBranchAllowed(tenant, branchId);
+  const repo = new TenantScopedRepository(tenant, deps.pool);
+  const stations = await selectStations(repo, branchId);
+  const programs = await selectPrograms(repo, branchId);
+  return stations.map((station) => ({
+    ...station,
+    programs: programs
+      .filter((program) => program.station_id === station.station_id)
+      .map(({ program_id, name, cook_time_ms, archived_at }) => ({ program_id, name, cook_time_ms, archived_at })),
+  }));
+}
+
+// §6.9 POST on the common write script.
+export async function createStation(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: CreateStationInput,
+): Promise<IdempotentResult<{ station: StationRow }>> {
+  assertBranchAllowed(req.tenant, branchId);
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      const station = await nameTaken('stations_active_name', 'station', body.name, () =>
+        insertStation(
+          scoped,
+          branchId,
+          {
+            station_id: deps.ids.next(),
+            name: body.name,
+            location_label: body.location_label,
+            station_type: body.station_type,
+            capacity: body.capacity,
+            freshness_window_ms: body.station_type === 'batch' ? (body.freshness_window_ms ?? 0) : null,
+            completion_mode: body.completion_mode,
+          },
+          deps.clock.branchNow(),
+        ),
+      );
+      if (station === undefined) throw new DomainError('BRANCH_NOT_FOUND');
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'station',
+          entityId: station.station_id,
+          branchId,
+          action: 'create',
+          before: null,
+          after: station,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'branch', branchId });
+      return { status: 201, body: { station } };
+    },
+  );
+}
+
+// §6.9 PATCH: lock → rules on the merged row (S22 in-use check on a type change or an archive; freshness only
+// for batch) → write → audit (plus one batch_program / archive row per program a slot change archives) → bump.
+export async function patchStation(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  stationId: string,
+  body: PatchStationInput,
+): Promise<{ station: StationRow }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockStation(scoped, branchId, stationId);
+    if (before === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
+    const now = deps.clock.branchNow();
+    const stationType = body.station_type ?? before.station_type;
+    const typeChanged = stationType !== before.station_type;
+    if (stationType === 'slot' && body.freshness_window_ms !== undefined) {
+      throw new DomainError('VALIDATION_FAILED', {
+        issues: [{ path: 'freshness_window_ms', message: 'only batch stations have a freshness window' }],
+      });
+    }
+    const merged: StationRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.location_label !== undefined ? { location_label: body.location_label } : {}),
+      ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
+      ...(body.completion_mode !== undefined ? { completion_mode: body.completion_mode } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+      station_type: stationType,
+      freshness_window_ms:
+        stationType === 'slot' ? null : (body.freshness_window_ms ?? (typeChanged ? 0 : before.freshness_window_ms)),
+    };
+    const archiving = before.archived_at === null && merged.archived_at !== null;
+    if (typeChanged || archiving) {
+      const ids = await activeRouteItemIds(scoped, branchId, stationId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'menu_item', ids } });
+      }
+    }
+    const station = await nameTaken('stations_active_name', 'station', merged.name, () =>
+      updateStation(scoped, branchId, merged, now),
+    );
+    const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
+    await writeConfigAudit(
+      level,
+      { actor, entity: 'station', entityId: stationId, branchId, action: auditActionFor(before, station), before, after: station },
+      deps,
+    );
+    if (typeChanged && stationType === 'slot') {
+      for (const program of await archiveStationPrograms(scoped, branchId, stationId, now)) {
+        await writeConfigAudit(
+          level,
+          {
+            actor,
+            entity: 'batch_program',
+            entityId: program.program_id,
+            branchId,
+            action: 'archive',
+            before: { ...program, archived_at: null },
+            after: program,
+          },
+          deps,
+        );
+      }
+    }
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { station };
   });
 }
 

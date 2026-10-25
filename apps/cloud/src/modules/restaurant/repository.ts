@@ -16,10 +16,35 @@ export interface TableRow {
   archived_at: number | null;
 }
 
+export type StationType = 'slot' | 'batch';
+export type CompletionMode = 'two_tap' | 'single_tap' | 'auto_done';
+
+export interface StationRow {
+  station_id: string;
+  name: string;
+  location_label: string | null;
+  station_type: StationType;
+  capacity: number;
+  freshness_window_ms: number | null;
+  completion_mode: CompletionMode;
+  archived_at: number | null;
+}
+
+export interface ProgramRow {
+  program_id: string;
+  station_id: string;
+  name: string;
+  cook_time_ms: number;
+  archived_at: number | null;
+}
+
 type Raw<T> = { [K in keyof T]: K extends 'archived_at' ? string | null : T[K] };
 
 const FLOOR_COLUMNS = 'floor_id, name, sort_order, archived_at';
 const TABLE_COLUMNS = 'table_id, floor_id, name, seats, sort_order, archived_at';
+const STATION_COLUMNS =
+  'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at';
+const PROGRAM_COLUMNS = 'program_id, station_id, name, cook_time_ms, archived_at';
 
 export async function selectFloors(repo: TenantScopedRepository, branchId: string): Promise<FloorRow[]> {
   const rows = await repo.query<Raw<FloorRow>>(
@@ -151,6 +176,131 @@ export async function updateTable(
     [branchId, table.table_id, table.floor_id, table.name, table.seats, table.sort_order, table.archived_at, now],
   );
   return tableRow(rows[0]!);
+}
+
+// §6.8: stations and programs, archived included; by name, then id (as in the snapshot).
+export async function selectStations(repo: TenantScopedRepository, branchId: string): Promise<StationRow[]> {
+  const rows = await repo.query<Raw<StationRow>>(
+    `SELECT ${STATION_COLUMNS} FROM stations
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY name, station_id`,
+    [branchId],
+  );
+  return rows.map(withArchivedAt);
+}
+
+export async function selectPrograms(repo: TenantScopedRepository, branchId: string): Promise<ProgramRow[]> {
+  const rows = await repo.query<Raw<ProgramRow>>(
+    `SELECT ${PROGRAM_COLUMNS} FROM batch_programs
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY name, program_id`,
+    [branchId],
+  );
+  return rows.map(withArchivedAt);
+}
+
+export async function insertStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  station: Omit<StationRow, 'archived_at'>,
+  now: number,
+): Promise<StationRow | undefined> {
+  const rows = await repo.query<Raw<StationRow>>(
+    `INSERT INTO stations (tenant_id, branch_id, station_id, name, location_label, station_type, capacity,
+                           freshness_window_ms, completion_mode, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9, $10, $11, $11 FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     RETURNING ${STATION_COLUMNS}`,
+    [
+      branchId,
+      station.station_id,
+      station.name,
+      station.location_label,
+      station.station_type,
+      station.capacity,
+      station.freshness_window_ms,
+      station.completion_mode,
+      now,
+    ],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+}
+
+export async function lockStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<StationRow | undefined> {
+  const rows = await repo.query<Raw<StationRow>>(
+    `SELECT ${STATION_COLUMNS} FROM stations
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4
+      FOR UPDATE`,
+    [branchId, stationId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+}
+
+export async function updateStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  station: StationRow,
+  now: number,
+): Promise<StationRow> {
+  const rows = await repo.query<Raw<StationRow>>(
+    `UPDATE stations SET name = $5, location_label = $6, station_type = $7, capacity = $8, freshness_window_ms = $9,
+                         completion_mode = $10, archived_at = $11, updated_at = $12
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4
+      RETURNING ${STATION_COLUMNS}`,
+    [
+      branchId,
+      station.station_id,
+      station.name,
+      station.location_label,
+      station.station_type,
+      station.capacity,
+      station.freshness_window_ms,
+      station.completion_mode,
+      station.archived_at,
+      now,
+    ],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+// S22: routes of active items that point at the station (index item_routes_station).
+export async function activeRouteItemIds(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ item_id: string }>(
+    `SELECT r.item_id FROM item_routes r
+       JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id AND m.archived_at IS NULL
+      WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND r.station_id = $4
+      ORDER BY r.item_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.item_id);
+}
+
+// §6.9: a station that becomes slot archives its active programs; returns them archived, by id.
+export async function archiveStationPrograms(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+  now: number,
+): Promise<ProgramRow[]> {
+  const rows = await repo.query<Raw<ProgramRow>>(
+    `UPDATE batch_programs SET archived_at = $5, updated_at = $5
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4 AND archived_at IS NULL
+      RETURNING ${PROGRAM_COLUMNS}`,
+    [branchId, stationId, now],
+  );
+  return rows.map(withArchivedAt).sort((a, b) => (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
+}
+
+function withArchivedAt<T extends { archived_at: number | null }>(row: Raw<T>): T {
+  return { ...row, archived_at: msOrNull(row.archived_at) } as T;
 }
 
 function tableRow(row: Raw<TableRow>): TableRow {

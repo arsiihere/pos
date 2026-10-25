@@ -5,20 +5,28 @@ import { sendIdempotent } from '../../lib/idempotency.js';
 import {
   BranchParams,
   CreateFloorBody,
+  CreateStationBody,
   CreateTableBody,
   FloorListResponse,
   FloorParams,
   FloorResponse,
   PatchFloorBody,
+  PatchStationBody,
   PatchTableBody,
+  StationListResponse,
+  StationParams,
+  StationResponse,
   TableParams,
   TableResponse,
 } from './schemas.js';
 import {
   createFloor,
+  createStation,
   createTable,
   listFloors,
+  listStations,
   patchFloor,
+  patchStation,
   patchTable,
   type OwnerRequest,
   type RestaurantDeps,
@@ -90,6 +98,46 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/tables/:table_id');
       const { branch_id, table_id } = request.params;
       const data = await patchTable(deps, ownerRequest(app, request), branch_id, table_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/branches/:branch_id/stations',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchParams, response: { 200: StationListResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/branches/:branch_id/stations');
+      const stations = await listStations(deps, tenantOf(request), request.params.branch_id);
+      return reply.send({ data: { stations } });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/branches/:branch_id/stations',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchParams, body: CreateStationBody, response: { 201: StationResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/branches/:branch_id/stations');
+      const result = await createStation(deps, ownerRequest(app, request), request.params.branch_id, request.body);
+      return sendIdempotent(reply, result);
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/stations/:station_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: StationParams, body: PatchStationBody, response: { 200: StationResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id');
+      const { branch_id, station_id } = request.params;
+      const data = await patchStation(deps, ownerRequest(app, request), branch_id, station_id, request.body);
       return reply.send({ data });
     },
   );
