@@ -112,6 +112,65 @@ export const ProgramResponse = z.object({
   data: z.object({ program: ProgramSummary.extend({ station_id: z.string() }) }),
 });
 
+export const TaxClassParams = z.object({ tax_class_id: z.string().min(1) });
+export const CategoryParams = z.object({ category_id: z.string().min(1) });
+
+// §3.3: rate_bp 0 … 10 000.
+const RateBp = z.number().int().min(0).max(10_000);
+
+export const CreateTaxClassBody = z.object({ name: Name, rate_bp: RateBp });
+
+export const PatchTaxClassBody = z
+  .object({ name: Name.optional(), rate_bp: RateBp.optional(), archived: z.boolean().optional() })
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+
+// §3.3, S47: 0–4 windows; minutes of the day 0 … 86 340 000, multiples of 60 000, start ≠ end.
+const TimeOfDayMs = z.number().int().min(0).max(86_340_000).multipleOf(60_000);
+export const AvailabilityWindows = z
+  .array(
+    z
+      .object({ start_ms: TimeOfDayMs, end_ms: TimeOfDayMs })
+      .refine((w) => w.start_ms !== w.end_ms, { message: 'start_ms and end_ms must differ' }),
+  )
+  .max(4);
+
+export const CreateCategoryBody = z.object({
+  name: Name,
+  sort_order: SortOrder.default(0),
+  availability_windows: AvailabilityWindows.default([]),
+});
+
+export const PatchCategoryBody = z
+  .object({
+    name: Name.optional(),
+    sort_order: SortOrder.optional(),
+    availability_windows: AvailabilityWindows.optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+
+export const TaxClassResponse = z.object({
+  data: z.object({
+    tax_class: z.object({
+      tax_class_id: z.string(),
+      name: z.string(),
+      rate_bp: z.number(),
+      archived_at: z.number().nullable(),
+    }),
+  }),
+});
+
+export const CategoryResponse = z.object({
+  data: z.object({
+    category: z.object({
+      category_id: z.string(),
+      name: z.string(),
+      sort_order: z.number(),
+      archived_at: z.number().nullable(),
+    }),
+  }),
+});
+
 const Floor = z.object({
   floor_id: z.string(),
   name: z.string(),
@@ -142,3 +201,7 @@ export type CreateStationInput = z.infer<typeof CreateStationBody>;
 export type PatchStationInput = z.infer<typeof PatchStationBody>;
 export type CreateProgramInput = z.infer<typeof CreateProgramBody>;
 export type PatchProgramInput = z.infer<typeof PatchProgramBody>;
+export type CreateTaxClassInput = z.infer<typeof CreateTaxClassBody>;
+export type PatchTaxClassInput = z.infer<typeof PatchTaxClassBody>;
+export type CreateCategoryInput = z.infer<typeof CreateCategoryBody>;
+export type PatchCategoryInput = z.infer<typeof PatchCategoryBody>;

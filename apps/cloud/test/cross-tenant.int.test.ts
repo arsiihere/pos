@@ -13,6 +13,8 @@ interface BIds {
   tableId: string;
   stationId: string;
   programId: string;
+  taxClassId: string;
+  categoryId: string;
   refreshToken: string;
 }
 
@@ -54,6 +56,16 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
   'PATCH /v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}/programs/${ids.programId}`,
     payload: { cook_time_ms: 300000 },
+  }),
+  'POST /v1/admin/tax-classes': () => ({ url: '/v1/admin/tax-classes', payload: { name: 'GST', rate_bp: 1600 } }),
+  'PATCH /v1/admin/tax-classes/:tax_class_id': (ids) => ({
+    url: `/v1/admin/tax-classes/${ids.taxClassId}`,
+    payload: { rate_bp: 1600 },
+  }),
+  'POST /v1/admin/categories': () => ({ url: '/v1/admin/categories', payload: { name: 'Mains' } }),
+  'PATCH /v1/admin/categories/:category_id': (ids) => ({
+    url: `/v1/admin/categories/${ids.categoryId}`,
+    payload: { name: 'Mains' },
   }),
 };
 
@@ -103,6 +115,16 @@ describe('cross-tenant', () => {
        VALUES ($1, $2, $3, $4, 'B program', 60000, 0, 0)`,
       [f.other.tenantId, f.other.branchId, stationId, programId],
     );
+    const taxClassId = 'B-TAX-CLASS-00000000000001';
+    await cloud.pool.query(
+      `INSERT INTO tax_classes (tenant_id, tax_class_id, name, rate_bp, created_at, updated_at) VALUES ($1, $2, 'B tax', 1600, 0, 0)`,
+      [f.other.tenantId, taxClassId],
+    );
+    const categoryId = 'B-CATEGORY-000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO categories (tenant_id, category_id, name, created_at, updated_at) VALUES ($1, $2, 'B category', 0, 0)`,
+      [f.other.tenantId, categoryId],
+    );
     const ids: BIds = {
       tenantId: f.other.tenantId,
       userId: f.other.userId,
@@ -112,6 +134,8 @@ describe('cross-tenant', () => {
       tableId,
       stationId,
       programId,
+      taxClassId,
+      categoryId,
       refreshToken: loginB.json().data.refresh_token as string,
     };
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
@@ -129,6 +153,8 @@ describe('cross-tenant', () => {
       ids.tableId,
       ids.stationId,
       ids.programId,
+      ids.taxClassId,
+      ids.categoryId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
@@ -148,8 +174,19 @@ describe('cross-tenant', () => {
         ...(request.payload !== undefined ? { payload: request.payload as object } : {}),
       });
       expect(response.statusCode).toBeLessThan(500);
-      const returned = stringsIn(response.json());
-      for (const id of bIds) expect(returned).not.toContain(id);
+      // 01a §9: a *_NOT_FOUND error's details name the id the caller sent; echoing the caller's own input
+      // is not a leak, so only those strings are exempt, and only inside error.details.
+      const body = response.json() as { error?: { details?: unknown } };
+      const sent = new Set([...request.url.split(/[/?&=]/), ...stringsIn(request.payload)]);
+      const echoed = stringsIn(body.error?.details).filter((s) => sent.has(s));
+      const returned = stringsIn(body);
+      for (const id of bIds) {
+        if (!echoed.includes(id)) expect(returned).not.toContain(id);
+      }
+      if (route.url === '/v1/admin/tax-classes/:tax_class_id' || route.url === '/v1/admin/categories/:category_id') {
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
+      }
       if (route.url === '/v1/hubs/confirm') {
         expect(response.statusCode).toBe(200);
         expect(response.json().data.branch_id).toBe(f.branches[0]);

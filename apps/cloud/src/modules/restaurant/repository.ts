@@ -1,3 +1,4 @@
+import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
 
 export interface FloorRow {
@@ -35,6 +36,20 @@ export interface ProgramRow {
   station_id: string;
   name: string;
   cook_time_ms: number;
+  archived_at: number | null;
+}
+
+export interface TaxClassRow {
+  tax_class_id: string;
+  name: string;
+  rate_bp: number;
+  archived_at: number | null;
+}
+
+export interface CategoryRow {
+  category_id: string;
+  name: string;
+  sort_order: number;
   archived_at: number | null;
 }
 
@@ -374,6 +389,85 @@ export async function programRouteItemIds(
         AND (r.program_id = $4 OR r.stock_program_id = $4)
       ORDER BY r.item_id`,
     [branchId, programId],
+  );
+  return rows.map((row) => row.item_id);
+}
+
+const TAX_CLASS_COLUMNS = 'tax_class_id, name, rate_bp, archived_at';
+const CATEGORY_COLUMNS = 'category_id, name, sort_order, archived_at';
+
+// Tenant-level rows insert through the tenant row (TenantLevelRepository needs tenant_id = $1).
+export async function insertTaxClass(
+  repo: TenantLevelRepository,
+  input: { taxClassId: string; name: string; rateBp: number; now: number },
+): Promise<TaxClassRow> {
+  const rows = await repo.query<Raw<TaxClassRow>>(
+    `INSERT INTO tax_classes (tenant_id, tax_class_id, name, rate_bp, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $5 FROM tenants WHERE tenant_id = $1
+     RETURNING ${TAX_CLASS_COLUMNS}`,
+    [input.taxClassId, input.name, input.rateBp, input.now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+export async function lockTaxClass(repo: TenantLevelRepository, taxClassId: string): Promise<TaxClassRow | undefined> {
+  const rows = await repo.query<Raw<TaxClassRow>>(
+    `SELECT ${TAX_CLASS_COLUMNS} FROM tax_classes WHERE tenant_id = $1 AND tax_class_id = $2 FOR UPDATE`,
+    [taxClassId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+}
+
+export async function updateTaxClass(repo: TenantLevelRepository, row: TaxClassRow, now: number): Promise<TaxClassRow> {
+  const rows = await repo.query<Raw<TaxClassRow>>(
+    `UPDATE tax_classes SET name = $3, rate_bp = $4, archived_at = $5, updated_at = $6
+      WHERE tenant_id = $1 AND tax_class_id = $2
+      RETURNING ${TAX_CLASS_COLUMNS}`,
+    [row.tax_class_id, row.name, row.rate_bp, row.archived_at, now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+export async function insertCategory(
+  repo: TenantLevelRepository,
+  input: { categoryId: string; name: string; sortOrder: number; now: number },
+): Promise<CategoryRow> {
+  const rows = await repo.query<Raw<CategoryRow>>(
+    `INSERT INTO categories (tenant_id, category_id, name, sort_order, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $5 FROM tenants WHERE tenant_id = $1
+     RETURNING ${CATEGORY_COLUMNS}`,
+    [input.categoryId, input.name, input.sortOrder, input.now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+export async function lockCategory(repo: TenantLevelRepository, categoryId: string): Promise<CategoryRow | undefined> {
+  const rows = await repo.query<Raw<CategoryRow>>(
+    `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE tenant_id = $1 AND category_id = $2 FOR UPDATE`,
+    [categoryId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+}
+
+export async function updateCategory(repo: TenantLevelRepository, row: CategoryRow, now: number): Promise<CategoryRow> {
+  const rows = await repo.query<Raw<CategoryRow>>(
+    `UPDATE categories SET name = $3, sort_order = $4, archived_at = $5, updated_at = $6
+      WHERE tenant_id = $1 AND category_id = $2
+      RETURNING ${CATEGORY_COLUMNS}`,
+    [row.category_id, row.name, row.sort_order, row.archived_at, now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+// S22: active items of a tax class or a category (indexes menu_items_tax_class, menu_items_category).
+export async function activeItemIdsWith(
+  repo: TenantLevelRepository,
+  column: 'tax_class_id' | 'category_id',
+  id: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ item_id: string }>(
+    `SELECT item_id FROM menu_items WHERE tenant_id = $1 AND ${column} = $2 AND archived_at IS NULL ORDER BY item_id`,
+    [id],
   );
   return rows.map((row) => row.item_id);
 }

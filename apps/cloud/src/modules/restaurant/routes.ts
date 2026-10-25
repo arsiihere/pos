@@ -4,17 +4,23 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import {
   BranchParams,
+  CategoryParams,
+  CategoryResponse,
+  CreateCategoryBody,
   CreateFloorBody,
   CreateProgramBody,
   CreateStationBody,
   CreateTableBody,
+  CreateTaxClassBody,
   FloorListResponse,
   FloorParams,
   FloorResponse,
+  PatchCategoryBody,
   PatchFloorBody,
   PatchProgramBody,
   PatchStationBody,
   PatchTableBody,
+  PatchTaxClassBody,
   ProgramParams,
   ProgramResponse,
   StationListResponse,
@@ -22,18 +28,24 @@ import {
   StationResponse,
   TableParams,
   TableResponse,
+  TaxClassParams,
+  TaxClassResponse,
 } from './schemas.js';
 import {
+  createCategory,
   createFloor,
   createProgram,
   createStation,
   createTable,
+  createTaxClass,
   listFloors,
   listStations,
+  patchCategory,
   patchFloor,
   patchProgram,
   patchStation,
   patchTable,
+  patchTaxClass,
   type OwnerRequest,
   type RestaurantDeps,
 } from './service.js';
@@ -172,6 +184,56 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id');
       const { branch_id, station_id, program_id } = request.params;
       const data = await patchProgram(deps, ownerRequest(app, request), branch_id, station_id, program_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/tax-classes',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: CreateTaxClassBody, response: { 201: TaxClassResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/tax-classes');
+      return sendIdempotent(reply, await createTaxClass(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/tax-classes/:tax_class_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: TaxClassParams, body: PatchTaxClassBody, response: { 200: TaxClassResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/tax-classes/:tax_class_id');
+      const data = await patchTaxClass(deps, ownerRequest(app, request), request.params.tax_class_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/categories',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: CreateCategoryBody, response: { 201: CategoryResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/categories');
+      return sendIdempotent(reply, await createCategory(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/categories/:category_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: CategoryParams, body: PatchCategoryBody, response: { 200: CategoryResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/categories/:category_id');
+      const data = await patchCategory(deps, ownerRequest(app, request), request.params.category_id, request.body);
       return reply.send({ data });
     },
   );

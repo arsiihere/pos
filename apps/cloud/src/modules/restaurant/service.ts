@@ -10,17 +10,22 @@ import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import {
+  activeItemIdsWith,
   activeRouteItemIds,
   activeTableIds,
   archiveStationPrograms,
+  insertCategory,
   insertFloor,
   insertProgram,
   insertStation,
   insertTable,
+  insertTaxClass,
+  lockCategory,
   lockFloor,
   lockProgram,
   lockStation,
   lockTable,
+  lockTaxClass,
   programRouteItemIds,
   selectFloors,
   selectPrograms,
@@ -28,24 +33,32 @@ import {
   selectTables,
   shareFloor,
   shareStation,
+  updateCategory,
   updateFloor,
   updateProgram,
   updateStation,
   updateTable,
+  updateTaxClass,
+  type CategoryRow,
   type FloorRow,
   type ProgramRow,
   type StationRow,
   type TableRow,
+  type TaxClassRow,
 } from './repository.js';
 import type {
+  CreateCategoryInput,
   CreateFloorInput,
   CreateProgramInput,
   CreateStationInput,
   CreateTableInput,
+  CreateTaxClassInput,
+  PatchCategoryInput,
   PatchFloorInput,
   PatchProgramInput,
   PatchStationInput,
   PatchTableInput,
+  PatchTaxClassInput,
 } from './schemas.js';
 
 export interface RestaurantDeps {
@@ -509,6 +522,171 @@ export async function patchProgram(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { program };
+  });
+}
+
+// §6.12 POST: tenant-level, so the audit row has no branch and every branch is bumped (S8).
+export async function createTaxClass(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  body: CreateTaxClassInput,
+): Promise<IdempotentResult<{ tax_class: TaxClassRow }>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      const taxClass = await nameTaken('tax_classes_active_name', 'tax_class', body.name, () =>
+        insertTaxClass(level, { taxClassId: deps.ids.next(), name: body.name, rateBp: body.rate_bp, now: deps.clock.branchNow() }),
+      );
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'tax_class',
+          entityId: taxClass.tax_class_id,
+          branchId: null,
+          action: 'create',
+          before: null,
+          after: taxClass,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+      return { status: 201, body: { tax_class: taxClass } };
+    },
+  );
+}
+
+// §6.12 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write → audit → bump every branch.
+export async function patchTaxClass(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  taxClassId: string,
+  body: PatchTaxClassInput,
+): Promise<{ tax_class: TaxClassRow }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockTaxClass(level, taxClassId);
+    if (before === undefined) throw new DomainError('TAX_CLASS_NOT_FOUND', { tax_class_id: taxClassId });
+    const now = deps.clock.branchNow();
+    const merged: TaxClassRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.rate_bp !== undefined ? { rate_bp: body.rate_bp } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await activeItemIdsWith(level, 'tax_class_id', taxClassId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'tax_class', id: taxClassId, used_by: { entity: 'menu_item', ids } });
+      }
+    }
+    const taxClass = await nameTaken('tax_classes_active_name', 'tax_class', merged.name, () =>
+      updateTaxClass(level, merged, now),
+    );
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'tax_class',
+        entityId: taxClassId,
+        branchId: null,
+        action: auditActionFor(before, taxClass),
+        before,
+        after: taxClass,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+    return { tax_class: taxClass };
+  });
+}
+
+// §6.13 POST: tenant-level. The body accepts availability_windows; task 31 writes them (S47).
+export async function createCategory(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  body: CreateCategoryInput,
+): Promise<IdempotentResult<{ category: CategoryRow }>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      const category = await nameTaken('categories_active_name', 'category', body.name, () =>
+        insertCategory(level, {
+          categoryId: deps.ids.next(),
+          name: body.name,
+          sortOrder: body.sort_order,
+          now: deps.clock.branchNow(),
+        }),
+      );
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'category',
+          entityId: category.category_id,
+          branchId: null,
+          action: 'create',
+          before: null,
+          after: category,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+      return { status: 201, body: { category } };
+    },
+  );
+}
+
+// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write → audit → bump every branch.
+export async function patchCategory(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  categoryId: string,
+  body: PatchCategoryInput,
+): Promise<{ category: CategoryRow }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockCategory(level, categoryId);
+    if (before === undefined) throw new DomainError('CATEGORY_NOT_FOUND', { category_id: categoryId });
+    const now = deps.clock.branchNow();
+    const merged: CategoryRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await activeItemIdsWith(level, 'category_id', categoryId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'menu_item', ids } });
+      }
+    }
+    const category = await nameTaken('categories_active_name', 'category', merged.name, () =>
+      updateCategory(level, merged, now),
+    );
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'category',
+        entityId: categoryId,
+        branchId: null,
+        action: auditActionFor(before, category),
+        before,
+        after: category,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+    return { category };
   });
 }
 
