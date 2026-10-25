@@ -78,8 +78,9 @@
 | 58 `apps/client` lint rules | `10f91f1` |
 | 59 `client-dist`, `admin-page` group, `/owner/*` allowlist, CSP on both | `0168625` |
 | 60 `apps/hub/deploy/ship-client.sh` | `f020a1b` |
+| 61 Shared components and quantity input | `4e1c307` |
 
-**Next task for Cursor: 61.**
+**Next task for Cursor: 62.**
 
 ## Markers
 
