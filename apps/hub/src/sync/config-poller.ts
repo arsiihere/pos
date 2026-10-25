@@ -48,6 +48,8 @@ export interface ConfigPollerDeps {
   clock: Clock;
   client: ConfigClient;
   setDirectory: (d: StaffDirectory) => void;
+  // 00's applyStaffDirectory unless a test forces the directory part to fail (S43).
+  applyDirectory?: typeof applyStaffDirectory;
   log: Pick<FastifyBaseLogger, 'debug' | 'info' | 'warn' | 'error'>;
 }
 
@@ -77,6 +79,7 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
   let inFlight: Promise<PollResult> | null = null;
   let last: { outcome: PollOutcome; at: number } | null = null;
   let problem: PollProblem | null = null;
+  const applyDirectory = deps.applyDirectory ?? applyStaffDirectory;
 
   function finish(result: PollResult): PollResult {
     last = { outcome: result.outcome, at: result.at };
@@ -163,12 +166,41 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     try {
       deps.writer.run((tx) => {
         if (part !== null) applyConfigPart(tx, part, branchId);
-        if (directoryPart !== null) applyStaffDirectory(tx, directoryPart, deps.setDirectory);
+        if (directoryPart !== null) applyDirectory(tx, directoryPart, deps.setDirectory);
       });
     } catch (error) {
+      // S43: visible problem, then each part alone, the directory first.
       deps.log.error({ err: error }, 'config apply failed');
       reject('apply_failed', now);
-      return finish({ outcome: 'rejected', reason: 'apply_failed', at: now });
+      let directoryVersion = currentDirectory;
+      let configVersion = currentConfig;
+      if (directoryPart !== null) {
+        try {
+          deps.writer.run((tx) => {
+            applyDirectory(tx, directoryPart, deps.setDirectory);
+          });
+          directoryVersion = directoryPart.directory_version;
+        } catch (partError) {
+          deps.log.error({ err: partError, part: 'directory' }, 'config apply failed');
+        }
+      }
+      if (part !== null) {
+        try {
+          deps.writer.run((tx) => {
+            applyConfigPart(tx, part, branchId);
+          });
+          configVersion = part.config.config_version;
+        } catch (partError) {
+          deps.log.error({ err: partError, part: 'config' }, 'config apply failed');
+        }
+      }
+      return finish({
+        outcome: 'rejected',
+        reason: 'apply_failed',
+        at: now,
+        config_version: configVersion,
+        directory_version: directoryVersion,
+      });
     }
     // Step 6.
     if (configRejected === null) problem = null;
