@@ -20,7 +20,7 @@ function TextCommitField({
   name: string;
   label: string;
   value: string;
-  onCommit: (next: string) => void;
+  onCommit: (next: string) => Promise<boolean>;
 }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
@@ -33,14 +33,26 @@ function TextCommitField({
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
         const next = text.trim();
-        if (next !== value && next.length >= 1 && next.length <= 60) onCommit(next);
-        else setText(value);
+        // A refused save reloads the same value, so the effect does not fire; reset here.
+        if (next !== value && next.length >= 1 && next.length <= 60) {
+          void onCommit(next).then((ok) => {
+            if (!ok) setText(value);
+          });
+        } else setText(value);
       }}
     />
   );
 }
 
-function SortField({ label, value, onCommit }: { label: string; value: number; onCommit: (next: number) => void }) {
+function SortField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  onCommit: (next: number) => Promise<boolean>;
+}) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   return (
@@ -54,8 +66,11 @@ function SortField({ label, value, onCommit }: { label: string; value: number; o
       onBlur={() => {
         const trimmed = text.trim();
         const next = Number(trimmed);
-        if (INT_RE.test(trimmed) && Number.isSafeInteger(next) && next !== value) onCommit(next);
-        else setText(String(value));
+        if (INT_RE.test(trimmed) && Number.isSafeInteger(next) && next !== value) {
+          void onCommit(next).then((ok) => {
+            if (!ok) setText(String(value));
+          });
+        } else setText(String(value));
       }}
     />
   );
@@ -183,17 +198,18 @@ export function FloorsView({ api, branchId }: { api: CloudAdmin; branchId: strin
     void load();
   }, [load]);
 
-  async function save(call: Promise<CloudResult<unknown>>) {
+  async function save(call: Promise<CloudResult<unknown>>): Promise<boolean> {
     setError(null);
     const result = await call;
     if (!result.ok) setError(errorText(result.error));
     await load();
+    return result.ok;
   }
 
   const patchFloor = (floorId: string, body: Parameters<CloudAdmin['patchFloor']>[2]) =>
-    void save(api.patchFloor(branchId, floorId, body));
+    save(api.patchFloor(branchId, floorId, body));
   const patchTable = (tableId: string, body: Parameters<CloudAdmin['patchTable']>[2]) =>
-    void save(api.patchTable(branchId, tableId, body));
+    save(api.patchTable(branchId, tableId, body));
 
   const visible = (row: { archived_at: number | null }) => showArchived || row.archived_at === null;
 
@@ -229,7 +245,7 @@ export function FloorsView({ api, branchId }: { api: CloudAdmin; branchId: strin
               <button
                 type="button"
                 className="pos-btn"
-                onClick={() => patchFloor(floor.floor_id, { archived: !archived })}
+                onClick={() => void patchFloor(floor.floor_id, { archived: !archived })}
               >
                 {t(archived ? 'owner.common.restore' : 'owner.common.archive')}
               </button>
@@ -254,7 +270,7 @@ export function FloorsView({ api, branchId }: { api: CloudAdmin; branchId: strin
                     <button
                       type="button"
                       className="pos-btn"
-                      onClick={() => patchTable(table.table_id, { archived: !tableArchived })}
+                      onClick={() => void patchTable(table.table_id, { archived: !tableArchived })}
                     >
                       {t(tableArchived ? 'owner.common.restore' : 'owner.common.archive')}
                     </button>

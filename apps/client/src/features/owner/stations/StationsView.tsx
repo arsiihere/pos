@@ -51,7 +51,8 @@ const COMPLETION_MODES: { value: CompletionMode; label: MessageKey }[] = [
   { value: 'auto_done', label: 'owner.stations.mode_auto_done' },
 ];
 
-// A field that saves on blur when its text parses to a new value; otherwise it shows the saved value again.
+// A field that saves on blur when its text parses to a new value; otherwise, or when the save is refused,
+// it shows the saved value again.
 function CommitField<T>({
   name,
   label,
@@ -64,7 +65,7 @@ function CommitField<T>({
   label: string;
   value: string;
   parse: (text: string) => T | null;
-  onCommit: (next: T) => void;
+  onCommit: (next: T) => Promise<boolean>;
   numeric?: boolean;
 }) {
   const [text, setText] = useState(value);
@@ -80,8 +81,11 @@ function CommitField<T>({
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
           const next = parse(text);
-          if (next !== null && text.trim() !== value) onCommit(next);
-          else setText(value);
+          if (next !== null && text.trim() !== value) {
+            void onCommit(next).then((ok) => {
+              if (!ok) setText(value);
+            });
+          } else setText(value);
         }}
       />
     </label>
@@ -293,17 +297,18 @@ export function StationsView({ api, branchId }: { api: CloudAdmin; branchId: str
     void load();
   }, [load]);
 
-  async function save(call: Promise<CloudResult<unknown>>) {
+  async function save(call: Promise<CloudResult<unknown>>): Promise<boolean> {
     setError(null);
     const result = await call;
     if (!result.ok) setError(errorText(result.error));
     await load();
+    return result.ok;
   }
 
   const patchStation = (stationId: string, body: Parameters<CloudAdmin['patchStation']>[2]) =>
-    void save(api.patchStation(branchId, stationId, body));
+    save(api.patchStation(branchId, stationId, body));
   const patchProgram = (stationId: string, programId: string, body: Parameters<CloudAdmin['patchProgram']>[3]) =>
-    void save(api.patchProgram(branchId, stationId, programId, body));
+    save(api.patchProgram(branchId, stationId, programId, body));
 
   const visible = (row: { archived_at: number | null }) => showArchived || row.archived_at === null;
 
@@ -349,7 +354,7 @@ export function StationsView({ api, branchId }: { api: CloudAdmin; branchId: str
                 label={t('owner.stations.type')}
                 value={station.station_type}
                 options={STATION_TYPES}
-                onChange={(station_type) => patchStation(id, { station_type })}
+                onChange={(station_type) => void patchStation(id, { station_type })}
               />
               <CommitField
                 name="capacity"
@@ -374,9 +379,9 @@ export function StationsView({ api, branchId }: { api: CloudAdmin; branchId: str
                 label={t('owner.stations.completion_mode')}
                 value={station.completion_mode}
                 options={COMPLETION_MODES}
-                onChange={(completion_mode) => patchStation(id, { completion_mode })}
+                onChange={(completion_mode) => void patchStation(id, { completion_mode })}
               />
-              <button type="button" className="pos-btn" onClick={() => patchStation(id, { archived: !archived })}>
+              <button type="button" className="pos-btn" onClick={() => void patchStation(id, { archived: !archived })}>
                 {t(archived ? 'owner.common.restore' : 'owner.common.archive')}
               </button>
             </div>
@@ -406,7 +411,7 @@ export function StationsView({ api, branchId }: { api: CloudAdmin; branchId: str
                         <button
                           type="button"
                           className="pos-btn"
-                          onClick={() => patchProgram(id, program.program_id, { archived: !programArchived })}
+                          onClick={() => void patchProgram(id, program.program_id, { archived: !programArchived })}
                         >
                           {t(programArchived ? 'owner.common.restore' : 'owner.common.archive')}
                         </button>

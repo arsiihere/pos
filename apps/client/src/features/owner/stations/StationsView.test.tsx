@@ -100,6 +100,24 @@ const FRYER = {
 };
 
 describe('owner stations view', () => {
+  it('[01a §8.1] a refused edit shows the saved value again, not the refused text', async () => {
+    const { api } = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI] } });
+      return json(409, { error: { code: 'CONFIG_NAME_TAKEN', message: 'taken', details: { field: 'name' } } });
+    });
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+
+    const name = container.querySelector<HTMLInputElement>('[data-station-id="S1"] input[name="name"]');
+    setValue(name, 'Fryer');
+    act(() => {
+      name?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    });
+    await flush();
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.CONFIG_NAME_TAKEN'));
+    expect(container.querySelector<HTMLInputElement>('[data-station-id="S1"] input[name="name"]')?.value).toBe('Karahi');
+  });
+
   it('[01a §8.1] freshness field only for batch; programs under batch stations; a 409 shows errors.CONFIG_IN_USE text', async () => {
     const { api, calls } = fakeApi((call) => {
       if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER] } });

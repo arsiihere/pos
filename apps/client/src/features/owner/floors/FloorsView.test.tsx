@@ -169,6 +169,28 @@ describe('owner floors view', () => {
     expect(posts[2]?.key).not.toBe(posts[0]?.key);
   });
 
+  it('[01a §8.1] a refused rename or sort change shows the saved value again, not the refused text', async () => {
+    const { api } = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { floors: [{ ...GROUND, tables: [] }] } });
+      return json(409, { error: { code: 'CONFIG_NAME_TAKEN', message: 'taken', details: { field: 'name' } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+
+    const name = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]');
+    typeInto(name, 'Basement');
+    blur(name);
+    await flush();
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.CONFIG_NAME_TAKEN'));
+    expect(container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]')?.value).toBe('Ground');
+
+    const sort = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="sort_order"]');
+    typeInto(sort, '7');
+    blur(sort);
+    await flush();
+    expect(container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="sort_order"]')?.value).toBe('0');
+  });
+
   it('[01a §8.1] floors with tables, archived rows behind a toggle, sort number edit sends PATCH { sort_order }', async () => {
     const floors = [
       {
