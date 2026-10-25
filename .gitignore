@@ -23,3 +23,4 @@ target/
 # OQ4 tap-test field tool output
 tools/tap-test/data/
 .auto/
+.auto/
