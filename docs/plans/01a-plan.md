@@ -28,8 +28,9 @@
 | 8 `@pos/domain/hash` | `d8e2f9e` |
 | 9 Events: snapshot schema `config.ts` | `38f8ce8` |
 | 10 Events: seven events, fixtures, builders | `392b1a4` |
+| 11 `@pos/engine`: stock slice | `d0d8172` |
 
-**Next task for Cursor: 11.**
+**Next task for Cursor: 12.**
 
 ## Markers
 
