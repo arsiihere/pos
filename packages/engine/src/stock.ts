@@ -9,8 +9,16 @@ export function stockOf(state: EngineState, itemId: string): StockEntry {
   return state.stock[itemId] ?? { ...NO_ENTRY };
 }
 
-// 01a S44: the units in force for the item.
-export function dayUnits(_state: EngineState, item: ConfigItem): DayUnits {
+// 01a S33: the open day's start, the businessDayStartMs every caller passes.
+export function openDayStartMs(state: EngineState): number | null {
+  const day = state.business_day;
+  return day !== null && day.closed_at === null ? day.opened_at : null;
+}
+
+// 01a S44: the units frozen for the open day; else the item's own fields.
+export function dayUnits(state: EngineState, item: ConfigItem): DayUnits {
+  const frozen = openDayStartMs(state) !== null ? state.business_day?.units[item.item_id] : undefined;
+  if (frozen !== undefined) return { ...frozen };
   return {
     stock_unit: item.stock_unit,
     sale_unit: item.sale_unit,
@@ -42,6 +50,24 @@ export function availableStock(
     stock_unit: dayUnits(state, item).stock_unit,
   });
   return valid ? Math.max(0, entry.on_hand - entry.reserved) : 0;
+}
+
+// 01a S46: derived, no event.
+export function stockLevel(
+  state: EngineState,
+  itemId: string,
+  businessDayStartMs: number | null,
+  item: ConfigItem,
+): 'not_counted' | 'out' | 'low' | 'ok' {
+  const valid = countIsValid(stockOf(state, itemId), businessDayStartMs, {
+    carries_over: item.carries_over,
+    stock_unit: dayUnits(state, item).stock_unit,
+  });
+  if (!valid) return 'not_counted';
+  const available = availableStock(state, itemId, businessDayStartMs, item);
+  if (available === 0) return 'out';
+  if (item.low_stock_threshold !== null && available <= item.low_stock_threshold) return 'low';
+  return 'ok';
 }
 
 // 01a S44: whole sale units the available stock covers.
