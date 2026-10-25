@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
 | Date | 2026-10-24 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
@@ -469,7 +469,7 @@ The branch API key and backup key never reach SQLite or a backup (D53, M21).
 | Export | Shape | Used by |
 |---|---|---|
 | `defineCommand` | `{ commandType, payloadSchema, sessionKind: 'device' \| 'admin', permission, approvable?, stationScoped?, handle(ctx): { events: EventDraft[], result } }`. `permission` may be `null` only when `stationScoped` and the command is never allowed to staff. Every command counts as session activity (M59) | every module with commands |
-| `defineQuery` | `{ resource, sessionKind: 'device' \| 'admin', session: 'required' \| 'none', allowStation?, deviceTypes?, countsAsActivity?: boolean (default false, M59), querySchema, handle(ctx) }`; `ctx.db` is a read-only connection | every module with queries |
+| `defineQuery` | `{ resource, sessionKind: 'device' \| 'admin', session: 'required' \| 'none', allowStation?, deviceTypes?, countsAsActivity?: boolean (default false, M59), querySchema, handle(ctx) }`; `ctx.db` is a read-only connection; ctx = `{ db, page, directory, device, session }` | every module with queries |
 | `CommandCtx` | `{ tx, state (read-only), clock, ids, secrets, actor: { kind, staffId \| null, stationId \| null, sessionId, deviceId }, permission, branch: { tenantId, branchId }, directory, config }` | handlers |
 
 **Socket context** passed to audiences and catch-up: `{ deviceId, deviceType, sessionId, kind, staffId, stationId, asOfSeq }`.
@@ -478,7 +478,7 @@ The branch API key and backup key never reach SQLite or a backup (D53, M21).
 | `writer.run(fn)` | the only path that writes events (§3.7 inner part); `afterCommit` hooks; `lastSeq()` | registry, 03a tick, sweeper, auth routes |
 | `authGeneration` | `{ current(): number; bump(): void }` — bumped after commit by `DeviceRevoked`, `DeviceTokenRotated`, `SessionEnded`, `StaffDirectoryApplied` | guards, writer |
 | `registerProjection` | `{ name, eventTypes, apply(tx, event), reset?(tx) }` — without `reset` the projection is forward-only (M40) | modules with projection tables |
-| `registerReducer` | `(state, event) => state`, folded by the writer and by replay | 03a |
+| `state.setReducer(reducer)` | reducer `(state, event) => state`; one reducer, a later call replaces it; folded by the writer inside the transaction, and by replay (03a) | 01a, 03a |
 | `registerBootStep` | `{ step: '2' \| '3' \| '5' \| '6', run(bootCtx) }` | 03a, 03b |
 | `registerCatchUp` | `{ part, appliesTo(socketCtx), build(db, state) }`; parts merged into `catch_up.state` | 02, 03b, 04, 05 |
 | `registerEventAudience` | `(eventType, (event, socketCtx) => boolean)`; events with no audience are not pushed | every module with pushed events |
