@@ -70,8 +70,9 @@
 | 50 Hub `AddPrecookedStock` | `cb12474` |
 | 51 Hub business day across restart; units frozen per day | `8bdcb97` |
 | 52 Hub `SetItemAvailability`, `itemAvailability` | `77b599b` |
+| 53 Hub stock query — versions, parts, `day_stale`, `hub_time` | `249b70f` |
 
-**Next task for Cursor: 53.**
+**Next task for Cursor: 54.**
 
 ## Markers
 
