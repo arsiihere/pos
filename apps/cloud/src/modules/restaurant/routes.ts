@@ -8,6 +8,7 @@ import {
   CategoryResponse,
   CreateCategoryBody,
   CreateFloorBody,
+  CreateMenuItemBody,
   CreateProgramBody,
   CreateStationBody,
   CreateTableBody,
@@ -15,6 +16,7 @@ import {
   FloorListResponse,
   FloorParams,
   FloorResponse,
+  MenuItemResponse,
   PatchCategoryBody,
   PatchFloorBody,
   PatchProgramBody,
@@ -34,6 +36,7 @@ import {
 import {
   createCategory,
   createFloor,
+  createMenuItem,
   createProgram,
   createStation,
   createTable,
@@ -235,6 +238,18 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/categories/:category_id');
       const data = await patchCategory(deps, ownerRequest(app, request), request.params.category_id, request.body);
       return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/menu-items',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: CreateMenuItemBody, response: { 201: MenuItemResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/menu-items');
+      return sendIdempotent(reply, await createMenuItem(deps, ownerRequest(app, request), request.body));
     },
   );
 }

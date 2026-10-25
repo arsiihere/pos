@@ -15,7 +15,10 @@ import {
   activeTableIds,
   archiveStationPrograms,
   insertCategory,
+  insertConfigAuditRows,
   insertFloor,
+  insertItemRoutes,
+  insertMenuItem,
   insertProgram,
   insertStation,
   insertTable,
@@ -31,8 +34,12 @@ import {
   selectPrograms,
   selectStations,
   selectTables,
+  shareCategory,
   shareFloor,
+  shareProgramsById,
   shareStation,
+  shareStationsById,
+  shareTaxClass,
   updateCategory,
   updateFloor,
   updateProgram,
@@ -41,7 +48,9 @@ import {
   updateTaxClass,
   type CategoryRow,
   type FloorRow,
+  type MenuItemRow,
   type ProgramRow,
+  type RouteRow,
   type StationRow,
   type TableRow,
   type TaxClassRow,
@@ -49,6 +58,7 @@ import {
 import type {
   CreateCategoryInput,
   CreateFloorInput,
+  CreateMenuItemInput,
   CreateProgramInput,
   CreateStationInput,
   CreateTableInput,
@@ -690,6 +700,114 @@ export async function patchCategory(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
     return { category };
+  });
+}
+
+// §6.14 on the common write script: [route branches allowed] → key → references FOR SHARE (category, tax class,
+// stations, programs; one statement per kind) → item and routes (one INSERT each) → one audit INSERT → bump
+// every branch (S8). The schema has no availability_windows yet (task 31).
+export async function createMenuItem(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  body: CreateMenuItemInput,
+): Promise<IdempotentResult<{ item: MenuItemRow & { routes: RouteRow[] } }>> {
+  for (const route of body.routes) assertBranchAllowed(req.tenant, route.branch_id);
+  assertUnits(body);
+  if (body.stock_time_ms !== null && body.stock_time_ms > body.cook_time_ms) {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
+  }
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      assertActiveReference('category_id', await shareCategory(level, body.category_id));
+      if (body.tax_class_id !== null) assertActiveReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
+      await assertRoutes(scoped, body.routes);
+      const now = deps.clock.branchNow();
+      const { routes: routeInput, ...fields } = body;
+      const item = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
+        insertMenuItem(level, { item_id: deps.ids.next(), ...fields }, now),
+      );
+      const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, item.item_id, routeInput, now) : [];
+      const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
+      await insertConfigAuditRows(
+        level,
+        [
+          { actor, entity: 'menu_item', entityId: item.item_id, branchId: null, action: 'create', before: null, after: item },
+          ...routes.map((route) => ({
+            actor,
+            entity: 'item_route' as const,
+            entityId: item.item_id,
+            branchId: route.branch_id,
+            action: 'route_set' as const,
+            before: null,
+            after: route,
+          })),
+        ],
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+      return { status: 201, body: { item: { ...item, routes } } };
+    },
+  );
+}
+
+// §3.3, S44: equal units → stock_per_sale_unit 1; different units → sale_unit 'piece'.
+function assertUnits(item: { stock_unit: string; sale_unit: string; stock_per_sale_unit: number }): void {
+  const issue =
+    item.stock_unit === item.sale_unit
+      ? item.stock_per_sale_unit !== 1
+        ? { path: 'stock_per_sale_unit', message: 'must be 1 when stock_unit and sale_unit are equal' }
+        : null
+      : item.sale_unit !== 'piece'
+        ? { path: 'sale_unit', message: "must be 'piece' when it differs from stock_unit" }
+        : null;
+  if (issue !== null) throw new DomainError('VALIDATION_FAILED', { issues: [issue] });
+}
+
+// §3.3: an item references an active category and (when not null) an active tax class.
+function assertActiveReference(field: string, row: { archived_at: number | null } | undefined): void {
+  const reason = row === undefined ? 'not_found' : row.archived_at !== null ? 'archived' : null;
+  if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
+}
+
+// §3.3 route rules: the station is an active station of the route's branch; slot → no programs; batch → program_id
+// required; both programs active and on that station. Stations, then programs, each kind in one statement.
+async function assertRoutes(
+  scoped: TenantScopedRepository,
+  routes: Array<{ branch_id: string; station_id: string; program_id: string | null; stock_program_id: string | null }>,
+): Promise<void> {
+  if (routes.length === 0) return;
+  const stations = await shareStationsById(scoped, [...new Set(routes.map((r) => r.station_id))]);
+  const programIds = [...new Set(routes.flatMap((r) => [r.program_id, r.stock_program_id]).filter((id) => id !== null))];
+  const programs = programIds.length > 0 ? await shareProgramsById(scoped, programIds) : [];
+  const invalid = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
+  routes.forEach((route, i) => {
+    const at = `routes.${i}`;
+    const station = stations.find((s) => s.branch_id === route.branch_id && s.station_id === route.station_id);
+    if (station === undefined) {
+      throw invalid(`${at}.station_id`, stations.some((s) => s.station_id === route.station_id) ? 'wrong_branch' : 'not_found');
+    }
+    if (station.archived_at !== null) throw invalid(`${at}.station_id`, 'archived');
+    if (station.station_type === 'slot') {
+      if (route.program_id !== null) throw invalid(`${at}.program_id`, 'program_not_allowed');
+      if (route.stock_program_id !== null) throw invalid(`${at}.stock_program_id`, 'program_not_allowed');
+      return;
+    }
+    if (route.program_id === null) throw invalid(`${at}.program_id`, 'program_required');
+    for (const field of ['program_id', 'stock_program_id'] as const) {
+      const programId = route[field];
+      if (programId === null) continue;
+      const program = programs.find((p) => p.branch_id === route.branch_id && p.program_id === programId);
+      if (program === undefined) {
+        throw invalid(`${at}.${field}`, programs.some((p) => p.program_id === programId) ? 'program_wrong_station' : 'not_found');
+      }
+      if (program.station_id !== route.station_id) throw invalid(`${at}.${field}`, 'program_wrong_station');
+      if (program.archived_at !== null) throw invalid(`${at}.${field}`, 'archived');
+    }
   });
 }
 

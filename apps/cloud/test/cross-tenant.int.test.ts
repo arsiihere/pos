@@ -67,6 +67,18 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
     url: `/v1/admin/categories/${ids.categoryId}`,
     payload: { name: 'Mains' },
   }),
+  'POST /v1/admin/menu-items': (ids) => ({
+    url: '/v1/admin/menu-items',
+    payload: {
+      category_id: ids.categoryId,
+      tax_class_id: ids.taxClassId,
+      name: 'Karahi',
+      price_minor: 100,
+      serve_mode: 'sync',
+      cook_time_ms: 60000,
+      routes: [{ branch_id: ids.branchId, station_id: ids.stationId, program_id: ids.programId }],
+    },
+  }),
 };
 
 describe('cross-tenant', () => {
@@ -210,6 +222,25 @@ describe('cross-tenant', () => {
       details: { field: 'floor_id', reason: 'not_found' },
     });
     expect(stringsIn(foreignFloor.json())).not.toContain(ids.floorId);
+
+    // 01a §6.14: B's category or tax class on a tenant-level create stops at the tenant-level read.
+    const ownCategory = (
+      await cloud.app.inject({ method: 'POST', url: '/v1/admin/categories', ...owner(f), payload: { name: 'Own' } })
+    ).json().data.category.category_id as string;
+    for (const [field, foreignId, refs] of [
+      ['category_id', ids.categoryId, { category_id: ids.categoryId, tax_class_id: null }],
+      ['tax_class_id', ids.taxClassId, { category_id: ownCategory, tax_class_id: ids.taxClassId }],
+    ] as const) {
+      const foreign = await cloud.app.inject({
+        method: 'POST',
+        url: '/v1/admin/menu-items',
+        ...owner(f),
+        payload: { name: 'Karahi', price_minor: 100, serve_mode: 'sync', cook_time_ms: 60000, ...refs },
+      });
+      expect(foreign.statusCode, field).toBe(422);
+      expect(foreign.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field, reason: 'not_found' } });
+      expect(stringsIn(foreign.json())).not.toContain(foreignId);
+    }
   });
 });
 

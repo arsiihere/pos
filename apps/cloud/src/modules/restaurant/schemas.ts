@@ -171,6 +171,88 @@ export const CategoryResponse = z.object({
   }),
 });
 
+// §3.3, S44, S46: the menu item's ranges. The units rule (equal → 1; different → sale_unit 'piece') is the
+// service's, so it can name the field.
+const Unit = z.enum(['piece', 'g', 'ml']);
+const ServeMode = z.enum(['immediate', 'sync']);
+const OutOfStockBehaviour = z.enum(['cook_fresh', 'sold_out']);
+const PriceMinor = z.number().int().min(0).max(1_000_000_000);
+const PrepBuffer = z.number().int().min(0).max(3_600_000);
+const StockTime = z.number().int().min(0).max(14_400_000).nullable();
+const StockPerSaleUnit = z.number().int().min(1).max(1_000_000);
+const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
+// The spec gives the label no length; names' 60 characters keep it a label (S12).
+const GroupLabel = z.string().trim().min(1).max(60).nullable();
+const Description = z.string().max(300).nullable();
+
+const RouteInput = z.object({
+  branch_id: z.string().min(1),
+  station_id: z.string().min(1),
+  program_id: z.string().min(1).nullable().default(null),
+  stock_program_id: z.string().min(1).nullable().default(null),
+});
+
+// §6.14: tax_class_id is a required key (null = never taxed, S34); at most one route per branch.
+export const CreateMenuItemBody = z.object({
+  category_id: z.string().min(1),
+  tax_class_id: z.string().min(1).nullable(),
+  name: Name,
+  group_label: GroupLabel.default(null),
+  description: Description.default(null),
+  sort_order: SortOrder.default(0),
+  price_minor: PriceMinor,
+  serve_mode: ServeMode,
+  prep_buffer_ms: PrepBuffer.default(0),
+  cook_time_ms: CookTime,
+  stock_time_ms: StockTime.default(null),
+  out_of_stock_behaviour: OutOfStockBehaviour.default('cook_fresh'),
+  stock_unit: Unit.default('piece'),
+  sale_unit: Unit.default('piece'),
+  stock_per_sale_unit: StockPerSaleUnit.default(1),
+  low_stock_threshold: LowStockThreshold.default(null),
+  carries_over: z.boolean().default(false),
+  routes: z
+    .array(RouteInput)
+    .default([])
+    .refine((routes) => new Set(routes.map((r) => r.branch_id)).size === routes.length, {
+      message: 'at most one route per branch',
+    }),
+});
+
+const Route = z.object({
+  branch_id: z.string(),
+  station_id: z.string(),
+  program_id: z.string().nullable(),
+  stock_program_id: z.string().nullable(),
+});
+
+export const MenuItemResponse = z.object({
+  data: z.object({
+    item: z.object({
+      item_id: z.string(),
+      category_id: z.string(),
+      tax_class_id: z.string().nullable(),
+      name: z.string(),
+      group_label: z.string().nullable(),
+      description: z.string().nullable(),
+      sort_order: z.number(),
+      price_minor: z.number(),
+      serve_mode: ServeMode,
+      prep_buffer_ms: z.number(),
+      cook_time_ms: z.number(),
+      stock_time_ms: z.number().nullable(),
+      out_of_stock_behaviour: OutOfStockBehaviour,
+      stock_unit: Unit,
+      sale_unit: Unit,
+      stock_per_sale_unit: z.number(),
+      low_stock_threshold: z.number().nullable(),
+      carries_over: z.boolean(),
+      archived_at: z.number().nullable(),
+      routes: z.array(Route),
+    }),
+  }),
+});
+
 const Floor = z.object({
   floor_id: z.string(),
   name: z.string(),
@@ -205,3 +287,4 @@ export type CreateTaxClassInput = z.infer<typeof CreateTaxClassBody>;
 export type PatchTaxClassInput = z.infer<typeof PatchTaxClassBody>;
 export type CreateCategoryInput = z.infer<typeof CreateCategoryBody>;
 export type PatchCategoryInput = z.infer<typeof PatchCategoryBody>;
+export type CreateMenuItemInput = z.infer<typeof CreateMenuItemBody>;

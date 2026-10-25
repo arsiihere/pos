@@ -1,5 +1,8 @@
 import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
+import type { AuditEntry } from '../../lib/config-audit.js';
+import type { Clock } from '../../lib/clock.js';
+import type { IdGen } from '../../lib/ids.js';
 
 export interface FloorRow {
   floor_id: string;
@@ -470,6 +473,190 @@ export async function activeItemIdsWith(
     [id],
   );
   return rows.map((row) => row.item_id);
+}
+
+export type Unit = 'piece' | 'g' | 'ml';
+
+export interface MenuItemRow {
+  item_id: string;
+  category_id: string;
+  tax_class_id: string | null;
+  name: string;
+  group_label: string | null;
+  description: string | null;
+  sort_order: number;
+  price_minor: number;
+  serve_mode: 'immediate' | 'sync';
+  prep_buffer_ms: number;
+  cook_time_ms: number;
+  stock_time_ms: number | null;
+  out_of_stock_behaviour: 'cook_fresh' | 'sold_out';
+  stock_unit: Unit;
+  sale_unit: Unit;
+  stock_per_sale_unit: number;
+  low_stock_threshold: number | null;
+  carries_over: boolean;
+  archived_at: number | null;
+}
+
+export interface RouteRow {
+  branch_id: string;
+  station_id: string;
+  program_id: string | null;
+  stock_program_id: string | null;
+}
+
+const MENU_ITEM_COLUMNS =
+  'item_id, category_id, tax_class_id, name, group_label, description, sort_order, price_minor, serve_mode, ' +
+  'prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, ' +
+  'low_stock_threshold, carries_over, archived_at';
+
+// Reference checks (§6.14): FOR SHARE against a concurrent archive.
+export async function shareCategory(repo: TenantLevelRepository, categoryId: string): Promise<{ archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ archived_at: string | null }>(
+    `SELECT archived_at FROM categories WHERE tenant_id = $1 AND category_id = $2 FOR SHARE`,
+    [categoryId],
+  );
+  return rows[0] === undefined ? undefined : { archived_at: msOrNull(rows[0].archived_at) };
+}
+
+export async function shareTaxClass(repo: TenantLevelRepository, taxClassId: string): Promise<{ archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ archived_at: string | null }>(
+    `SELECT archived_at FROM tax_classes WHERE tenant_id = $1 AND tax_class_id = $2 FOR SHARE`,
+    [taxClassId],
+  );
+  return rows[0] === undefined ? undefined : { archived_at: msOrNull(rows[0].archived_at) };
+}
+
+// The routes' stations in any of the caller's branches (so another branch's station is told apart as
+// wrong_branch), one statement, locked in id order (S8).
+export async function shareStationsById(
+  repo: TenantScopedRepository,
+  stationIds: string[],
+): Promise<Array<{ branch_id: string; station_id: string; station_type: StationType; archived_at: number | null }>> {
+  type Shared = { branch_id: string; station_id: string; station_type: StationType; archived_at: number | null };
+  const rows = await repo.query<Raw<Shared>>(
+    `SELECT branch_id, station_id, station_type, archived_at FROM stations
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND station_id = ANY($3)
+      ORDER BY station_id, branch_id
+      FOR SHARE`,
+    [stationIds],
+  );
+  return rows.map((row) => withArchivedAt<Shared>(row));
+}
+
+export async function shareProgramsById(
+  repo: TenantScopedRepository,
+  programIds: string[],
+): Promise<Array<{ branch_id: string; station_id: string; program_id: string; archived_at: number | null }>> {
+  type Shared = { branch_id: string; station_id: string; program_id: string; archived_at: number | null };
+  const rows = await repo.query<Raw<Shared>>(
+    `SELECT branch_id, station_id, program_id, archived_at FROM batch_programs
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND program_id = ANY($3)
+      ORDER BY program_id, branch_id
+      FOR SHARE`,
+    [programIds],
+  );
+  return rows.map((row) => withArchivedAt<Shared>(row));
+}
+
+export async function insertMenuItem(
+  repo: TenantLevelRepository,
+  item: Omit<MenuItemRow, 'archived_at'>,
+  now: number,
+): Promise<MenuItemRow> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
+    `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, description, sort_order,
+                             price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour,
+                             stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold, carries_over,
+                             created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+       FROM tenants WHERE tenant_id = $1
+     RETURNING ${MENU_ITEM_COLUMNS}`,
+    [
+      item.item_id,
+      item.category_id,
+      item.tax_class_id,
+      item.name,
+      item.group_label,
+      item.description,
+      item.sort_order,
+      item.price_minor,
+      item.serve_mode,
+      item.prep_buffer_ms,
+      item.cook_time_ms,
+      item.stock_time_ms,
+      item.out_of_stock_behaviour,
+      item.stock_unit,
+      item.sale_unit,
+      item.stock_per_sale_unit,
+      item.low_stock_threshold,
+      item.carries_over,
+      now,
+    ],
+  );
+  return menuItemRow(rows[0]!);
+}
+
+// One multi-row INSERT through the caller's branch rows (§6.14 query count); returned by branch_id.
+export async function insertItemRoutes(
+  repo: TenantScopedRepository,
+  itemId: string,
+  routes: RouteRow[],
+  now: number,
+): Promise<RouteRow[]> {
+  const rows = await repo.query<RouteRow>(
+    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id, updated_at)
+     SELECT b.tenant_id, b.branch_id, $3, u.station_id, u.program_id, u.stock_program_id, $4
+       FROM unnest($5::text[], $6::text[], $7::text[], $8::text[]) AS u (branch_id, station_id, program_id, stock_program_id)
+       JOIN branches b ON b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = u.branch_id
+     RETURNING branch_id, station_id, program_id, stock_program_id`,
+    [
+      itemId,
+      now,
+      routes.map((r) => r.branch_id),
+      routes.map((r) => r.station_id),
+      routes.map((r) => r.program_id),
+      routes.map((r) => r.stock_program_id),
+    ],
+  );
+  return rows.sort((a, b) => (a.branch_id < b.branch_id ? -1 : a.branch_id > b.branch_id ? 1 : 0));
+}
+
+// S26 rows of one write in one multi-row INSERT (§6.14: "1 audit insert" for the item and its routes).
+export async function insertConfigAuditRows(
+  repo: TenantLevelRepository,
+  entries: AuditEntry[],
+  deps: { clock: Clock; ids: IdGen },
+): Promise<void> {
+  const at = deps.clock.branchNow();
+  await repo.query(
+    `INSERT INTO config_audit
+       (tenant_id, audit_id, actor_kind, actor_owner_user_id, branch_id, entity, entity_id, action, before, after, at)
+     SELECT t.tenant_id, u.audit_id, u.actor_kind, u.actor_owner_user_id, u.branch_id, u.entity, u.entity_id, u.action,
+            u.before::jsonb, u.after::jsonb, $11
+       FROM tenants t,
+            unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[])
+              AS u (audit_id, actor_kind, actor_owner_user_id, branch_id, entity, entity_id, action, before, after)
+      WHERE t.tenant_id = $1`,
+    [
+      entries.map(() => deps.ids.next()),
+      entries.map((e) => e.actor.kind),
+      entries.map((e) => (e.actor.kind === 'owner' ? e.actor.ownerUserId : null)),
+      entries.map((e) => e.branchId),
+      entries.map((e) => e.entity),
+      entries.map((e) => e.entityId),
+      entries.map((e) => e.action),
+      entries.map((e) => (e.before === null ? null : JSON.stringify(e.before))),
+      entries.map((e) => (e.after === null ? null : JSON.stringify(e.after))),
+      at,
+    ],
+  );
+}
+
+function menuItemRow(row: Raw<MenuItemRow> & { price_minor: string }): MenuItemRow {
+  // BIGINT arrives as a string
+  return { ...row, price_minor: Number(row.price_minor), archived_at: msOrNull(row.archived_at) };
 }
 
 function withArchivedAt<T extends { archived_at: number | null }>(row: Raw<T>): T {
