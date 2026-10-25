@@ -1,9 +1,10 @@
-import type { EngineState } from '@pos/engine';
+import { availableStock, openDayStartMs, stockLevel, type EngineState } from '@pos/engine';
 import type { BranchConfig } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
+import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
@@ -81,12 +82,201 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(opened.statusCode).toBe(200);
     expect(engine(hub).business_day?.units).toEqual({});
   });
+
+  it('[01a §10 #143] close at exactly day_min_gap_hours then open: a new day; a non-carrying count reads not_counted, a carrying one keeps its stock', async () => {
+    const hub = await open();
+    const config = carrying(aBranchConfig(), 'I3');
+    withConfig(config);
+    const admin = adminOn(hub, 'S_MGR');
+    hub.clock.set(at(6));
+    expect((await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-0600')).statusCode).toBe(200);
+    hub.clock.set(at(8));
+    countStock(hub, [
+      { item_id: 'I1', on_hand: 4, unit: 'piece' },
+      { item_id: 'I3', on_hand: 2_000, unit: 'g' },
+    ]);
+    expect(available(hub, config, 'I3')).toBe(2_000);
+
+    hub.clock.set(at(10));
+    const closed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-1000');
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json().data.result).toEqual({
+      business_date: localDate(at(6)),
+      opened_at: at(6),
+      closed_at: at(10),
+      changed: true,
+      reason: 'closed',
+    });
+    expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([{ stream_type: 'hub', stream_id: 'branch-1', payload: {} }]);
+    expect(engine(hub).business_day?.closed_at).toBe(at(10));
+
+    const reopened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1000');
+    expect(reopened.json().data.result).toMatchObject({ opened_at: at(10), changed: true, reason: 'opened' });
+    expect(engine(hub).business_day).toMatchObject({ opened_at: at(10), closed_at: null });
+    expect(available(hub, config, 'I1')).toBe(0);
+    expect(level(hub, config, 'I1')).toBe('not_counted');
+    expect(available(hub, config, 'I3')).toBe(2_000);
+  });
+
+  it('[01a §10 #144] a close inside day_min_gap_hours is a no-op; a smaller gap in the snapshot allows it; a hub clock moved back is recent; retransmit replays', async () => {
+    const hub = await open();
+    withConfig(aBranchConfig());
+    const admin = adminOn(hub, 'S_MGR');
+    hub.clock.set(at(6));
+    await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-0600');
+
+    hub.clock.set(at(9, 59));
+    const early = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0959');
+    expect(early.statusCode).toBe(200);
+    expect(early.json().data.result).toEqual({
+      business_date: localDate(at(6)),
+      opened_at: at(6),
+      closed_at: null,
+      changed: false,
+      reason: 'opened_recently',
+    });
+    expect(early.json().data.event_ids).toEqual([]);
+    expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
+    expect(engine(hub).business_day?.closed_at).toBeNull();
+
+    withConfig(aBranchConfig({ day_min_gap_hours: 2 }));
+    const allowed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0959-gap2');
+    expect(allowed.json().data.result).toMatchObject({ closed_at: at(9, 59), changed: true, reason: 'closed' });
+    expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
+
+    await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-0959');
+    hub.clock.set(at(5));
+    const backwards = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0500');
+    expect(backwards.json().data.result).toMatchObject({ opened_at: at(9, 59), changed: false, reason: 'opened_recently' });
+    expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
+
+    const replay = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0959');
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers['idempotent-replay']).toBe('true');
+    expect(replay.json()).toEqual(early.json());
+  });
+
+  it('[01a §10 #145] CloseBusinessDay ends the open day; counts of non-carrying items read 0; a second close is not_open; open starts a new day; 403, replay and COMMIT failure', async () => {
+    let fail = false;
+    const hub = await open({
+      beforeCommit() {
+        if (fail) throw new Error('forced commit failure');
+      },
+    });
+    const config = carrying(aBranchConfig(), 'I3');
+    withConfig(config);
+    const admin = adminOn(hub, 'S_MGR');
+    hub.clock.set(at(6));
+    await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-0600');
+    hub.clock.set(at(7));
+    countStock(hub, [
+      { item_id: 'I1', on_hand: 4, unit: 'piece' },
+      { item_id: 'I3', on_hand: 1_500, unit: 'g' },
+    ]);
+    expect(available(hub, config, 'I1')).toBe(4);
+
+    hub.clock.set(at(23));
+    const cashier = adminOn(hub, 'S_CASH');
+    const denied = await post(hub, cashier, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-denied', 'S_CASH');
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe('PERMISSION_DENIED');
+
+    fail = true;
+    const before = engine(hub);
+    const failed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-fail');
+    expect(failed.statusCode).toBe(500);
+    expect(engine(hub)).toBe(before);
+    expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
+    fail = false;
+
+    const closed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-2300');
+    expect(closed.json().data.result).toMatchObject({ closed_at: at(23), changed: true, reason: 'closed' });
+    const [event] = closed.json().data.event_ids as string[];
+    const recordedAt = hub.deps.db.prepare('SELECT recorded_at FROM events WHERE event_id = ?').pluck().get(event);
+    expect(engine(hub).business_day?.closed_at).toBe(recordedAt);
+    expect(openDayStartMs(engine(hub))).toBeNull();
+    expect(available(hub, config, 'I1')).toBe(0);
+    expect(available(hub, config, 'I3')).toBe(1_500);
+
+    const replay = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-2300');
+    expect(replay.headers['idempotent-replay']).toBe('true');
+    expect(replay.json()).toEqual(closed.json());
+
+    const again = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-again');
+    expect(again.json().data.result).toEqual({
+      business_date: localDate(at(6)),
+      opened_at: at(6),
+      closed_at: at(23),
+      changed: false,
+      reason: 'not_open',
+    });
+    expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
+
+    hub.clock.set(at(24 + 6));
+    const next = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-day2');
+    expect(next.json().data.result).toEqual({ business_date: localDate(at(30)), opened_at: at(30), changed: true, reason: 'opened' });
+  });
+
+  it('[01a §6.18b] CloseBusinessDay before any day was opened → not_open with null fields', async () => {
+    const hub = await open();
+    const admin = adminOn(hub, 'S_MGR');
+    const closed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-none');
+    expect(closed.statusCode).toBe(200);
+    expect(closed.json().data.result).toEqual({ business_date: null, opened_at: null, closed_at: null, changed: false, reason: 'not_open' });
+    expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
+  });
 });
+
+// Local wall-clock hours on 2026-10-25 (the hub's zone, as business_date).
+function at(hours: number, minutes = 0): number {
+  return new Date(2026, 9, 25, hours, minutes).getTime();
+}
+
+function carrying(config: BranchConfig, itemId: string): BranchConfig {
+  return { ...config, items: config.items.map((item) => (item.item_id === itemId ? { ...item, carries_over: true } : item)) };
+}
+
+function countStock(hub: TestHub, entries: Array<{ item_id: string; on_hand: number; unit: 'piece' | 'g' | 'ml' }>): void {
+  hub.deps.writer.run((tx) =>
+    tx.append(
+      entries.map((payload) => ({
+        stream_type: 'stock' as const,
+        stream_id: payload.item_id,
+        event_type: 'StockSet',
+        schema_version: 1,
+        payload,
+        occurred_at: hub.clock.branchNow(),
+        actor_id: null,
+        device_id: 'hub',
+      })),
+    ),
+  );
+}
+
+function item(config: BranchConfig, itemId: string) {
+  const found = config.items.find((candidate) => candidate.item_id === itemId);
+  if (found === undefined) throw new Error(`no item ${itemId}`);
+  return found;
+}
+
+function available(hub: TestHub, config: BranchConfig, itemId: string): number {
+  const state = engine(hub);
+  return availableStock(state, itemId, openDayStartMs(state), item(config, itemId));
+}
+
+function level(hub: TestHub, config: BranchConfig, itemId: string): string {
+  const state = engine(hub);
+  return stockLevel(state, itemId, openDayStartMs(state), item(config, itemId));
+}
 
 async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub> {
   const hub = await createTestHub(testHooks === undefined ? undefined : { testHooks });
   cleanups.push(() => hub.close());
-  await seedDirectory(hub);
+  hub.clock.set(at(0));
+  // These tests move the clock by hours; long idle TTLs keep the admin sessions alive.
+  const directory = await aDirectory();
+  for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
+  await seedDirectory(hub, directory);
   return hub;
 }
 

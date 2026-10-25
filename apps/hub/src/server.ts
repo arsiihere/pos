@@ -20,6 +20,7 @@ import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
 import { registerClearPinLockout } from './commands/clear-pin-lockout.js';
+import { registerCloseBusinessDay } from './commands/close-business-day.js';
 import { registerForceLogoutSession } from './commands/force-logout-session.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
 import { registerOpenBusinessDay } from './commands/open-business-day.js';
@@ -134,6 +135,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerForceLogoutSession(app);
   registerClearPinLockout(app);
   registerOpenBusinessDay(app);
+  registerCloseBusinessDay(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
