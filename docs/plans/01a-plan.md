@@ -21,8 +21,9 @@
 | 1 Spec 00 v1.2.1 editorial patch | `013afb4` |
 | 2 Foundation §6.2 codes | `ee81c61` |
 | 3 `.cursor/rules/pos.mdc` → this plan and spec v1.0 | `757e1de` |
+| 4 Domain: error codes, `manage-stock` | `87431d3` |
 
-No code task is done yet. **Next task for Cursor: 4.**
+**Next task for Cursor: 5.**
 
 ## Markers
 
