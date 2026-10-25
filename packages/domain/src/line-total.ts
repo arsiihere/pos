@@ -10,6 +10,7 @@ export function lineTotalMinor(priceMinor: number, quantity: number, saleUnit: U
   if (!Number.isSafeInteger(priceMinor) || priceMinor < 0) throw new Error('lineTotalMinor: price_minor must be a non-negative integer');
   if (!Number.isSafeInteger(quantity) || quantity < 0) throw new Error('lineTotalMinor: quantity must be a non-negative integer');
   const product = BigInt(priceMinor) * BigInt(quantity);
-  if (saleUnit === 'piece') return Number(product);
-  return Number((product * 2n + 1000n) / 2000n);
+  const total = Number(saleUnit === 'piece' ? product : (product * 2n + 1000n) / 2000n);
+  if (!Number.isSafeInteger(total)) throw new Error('lineTotalMinor: total is not a safe integer');
+  return total;
 }
