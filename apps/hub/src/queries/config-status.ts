@@ -6,7 +6,8 @@ import { configPoller } from '../sync/config-poller.js';
 import { defineQuery, queryRegistry } from './registry.js';
 
 // §6.21, S29: versions from 2 primary-key reads, the last poll and problem from the poller's memory.
-// The admin guard already requires access-hub-admin; no further permission.
+// The admin guard already requires access-hub-admin; no further permission. D7: also the provisioned
+// tenant_id and branch_id, which the /admin/stock page puts in every command envelope.
 export function registerConfigStatusQuery(app: FastifyInstance, config: HubConfig): void {
   queryRegistry(app).register(
     defineQuery({
@@ -24,6 +25,8 @@ export function registerConfigStatusQuery(app: FastifyInstance, config: HubConfi
         const poller = configPoller(app);
         return {
           data: {
+            tenant_id: config.provisioned?.tenant_id ?? null,
+            branch_id: branchId ?? null,
             config_version: row?.config_version ?? null,
             snapshot_schema_version: row?.snapshot_schema_version ?? null,
             applied_at: row?.applied_at ?? null,

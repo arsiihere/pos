@@ -1,11 +1,22 @@
 import { availableStock, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
-import type { BranchConfig } from '@pos/events';
+import {
+  AddPrecookedStockResult,
+  AdminAuthResponse,
+  AdminRosterResponse,
+  CloseBusinessDayResult,
+  commandResponse,
+  OpenBusinessDayResult,
+  SetItemAvailabilityResult,
+  SetPrecookedStockResult,
+  StockQueryResponse,
+  type BranchConfig,
+} from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
 import { setStockVersion } from '../../src/sync/stock-version';
-import { aDirectory } from '../helpers/fixtures';
+import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
@@ -325,6 +336,36 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(row(data.items_meta, 'I1')).toMatchObject({ is_stock_tracked: true, item_windows: [] });
     expect(data.hub_time).toEqual({ now_ms: at(25, 6), utc_offset_ms: -new Date(at(25, 6)).getTimezoneOffset() * 60_000 });
     expect(data).not.toHaveProperty('in_window');
+  });
+
+  it('[01a §7.7, D5] real stock, command and admin login answers parse with the shared @pos/events schemas', async () => {
+    const hub = await open(at(25, 6));
+    withConfig(aBranchConfig());
+    const admin = adminOn(hub, 'S_MGR');
+    const opened = await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-d5-open');
+    expect(commandResponse(OpenBusinessDayResult).parse(opened.json())).toEqual(opened.json());
+    const counted = await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-d5-set');
+    expect(commandResponse(SetPrecookedStockResult).parse(counted.json())).toEqual(counted.json());
+    const added = await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-d5-add');
+    expect(commandResponse(AddPrecookedStockResult).parse(added.json())).toEqual(added.json());
+    const off = await toggle(hub, admin, 'I2', false, 'cmd-d5-off');
+    expect(commandResponse(SetItemAvailabilityResult).parse(off.json())).toEqual(off.json());
+    hub.clock.set(at(25, 12));
+    const closed = await command(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-d5-close');
+    expect(commandResponse(CloseBusinessDayResult).parse(closed.json())).toEqual(closed.json());
+
+    const answer = (await query(hub, admin)).json();
+    expect(StockQueryResponse.parse(answer)).toEqual(answer);
+    const short = (await query(hub, admin, { meta_version: answer.data.meta_version, stock_version: answer.data.stock_version })).json();
+    expect(short.data.unchanged).toBe(true);
+    expect(StockQueryResponse.parse(short)).toEqual(short);
+
+    const auth = { authorization: `Bearer ${admin.device.token}` };
+    const roster = (await hub.app.inject({ method: 'GET', url: '/admin/login-roster', headers: auth })).json();
+    expect(AdminRosterResponse.parse(roster)).toEqual(roster);
+    const login = await hub.app.inject({ method: 'POST', url: '/admin/auth', headers: auth, payload: { staff_id: 'S_MGR', pin: PIN.b } });
+    expect(login.statusCode).toBe(200);
+    expect(AdminAuthResponse.parse(login.json())).toEqual(login.json());
   });
 });
 

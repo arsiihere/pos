@@ -2,6 +2,12 @@
 export const en = {
   'owner.title': 'Restaurant setup',
   'admin_stock.title': 'Stock',
+  'admin_stock.login.title': 'Sign in to manage stock',
+  'admin_stock.login.pick': 'Tap your name, then type your PIN.',
+  'admin_stock.login.loading': 'Loading the staff list…',
+  'admin_stock.login.no_admins': 'No one on the staff list can open this page. Ask the owner.',
+  'admin_stock.errors.network': 'The hub cannot be reached. Check the Wi-Fi; what you typed is kept.',
+  'admin_stock.errors.PERMISSION_DENIED': 'You do not have permission for this. Ask a manager.',
   'common.slow': 'Still working. This can take a few seconds.',
   'pin.label': 'PIN',
   'pin.delete': 'Delete',
@@ -125,6 +131,15 @@ export const en = {
   'errors.IP_LOCKED_OUT': 'Too many tries. Wait a few minutes, then try again.',
   'errors.IDEMPOTENCY_KEY_MISMATCH': 'This form was already saved with other values. The list is reloaded; check it before adding again.',
   'errors.VALIDATION_FAILED': 'Check the fields and try again.',
+  'errors.PIN_INVALID': 'Wrong PIN. Try again.',
+  'errors.PIN_LOCKED_OUT': 'Too many wrong PINs. Wait, then try again.',
+  'errors.DEVICE_LOCKED_OUT': 'Too many wrong PINs on this screen. Wait, then try again.',
+  'errors.ADMIN_SESSION_REQUIRED': 'You were signed out. Sign in again.',
+  'errors.DEVICE_TOKEN_INVALID': 'This screen must be paired again.',
+  'errors.DEVICE_REVOKED': 'This screen must be paired again.',
+  'errors.DEVICE_TYPE_NOT_ALLOWED': 'This kind of screen cannot do that.',
+  'errors.DEVICE_NOT_OWNED': 'This phone belongs to someone else.',
+  'errors.HUB_NOT_PROVISIONED': 'The hub is being set up.',
   'errors.network': 'The cloud cannot be reached. Check the internet connection; what you typed is kept.',
   'errors.UNKNOWN': 'Something went wrong. Try again.',
 } as const;
@@ -135,4 +150,10 @@ export type MessageKey = keyof typeof en;
 export function errorKey(code: string): MessageKey {
   const key = `errors.${code}`;
   return key in en ? (key as MessageKey) : 'errors.UNKNOWN';
+}
+
+// §8.2: the hub page shares the catalogue texts, except PERMISSION_DENIED, whose errors.* text is the
+// owner app's tenant-wide one.
+export function adminErrorKey(code: string): MessageKey {
+  return code === 'PERMISSION_DENIED' ? 'admin_stock.errors.PERMISSION_DENIED' : errorKey(code);
 }

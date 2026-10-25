@@ -27,3 +27,4 @@ export * from './events/stock/ItemMadeUnavailable.v1.js';
 export * from './events/stock/ItemMadeAvailable.v1.js';
 export * from './admin/restaurant.js';
 export * from './admin/owner-auth.js';
+export * from './admin/hub.js';

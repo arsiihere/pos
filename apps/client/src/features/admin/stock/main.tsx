@@ -1,8 +1,8 @@
+import { createHubAdmin } from '../../../api/hub-admin';
 import { mount } from '../../../app/mount';
-import { t } from '../../../i18n';
+import { StockApp } from './StockApp';
 
-mount(
-  <main className="pos-screen">
-    <h1 className="title">{t('admin_stock.title')}</h1>
-  </main>,
-);
+// §8.2: StockApp shows the roster again on any `signed_out` answer, so nothing more is needed here.
+const api = createHubAdmin({ onSignedOut: () => {} });
+
+mount(<StockApp api={api} />);

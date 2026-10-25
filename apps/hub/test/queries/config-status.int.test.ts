@@ -1,3 +1,4 @@
+import { ConfigStatusResponse } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { onBranchConfigApplied } from '../../src/sync/branch-config-holder';
@@ -60,6 +61,8 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
     expect(counter.count).toBe(2);
     const data = res.json().data;
     expect(data).toEqual({
+      tenant_id: 'tenant-a',
+      branch_id: BRANCH,
       config_version: 3,
       snapshot_schema_version: 1,
       applied_at: appliedAt,
@@ -110,6 +113,8 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
     const { h, cloud, admin } = await hub({ confirmed: false });
     const before = (await status(h, admin)).json().data;
     expect(before).toEqual({
+      tenant_id: 'tenant-a',
+      branch_id: BRANCH,
       config_version: null,
       snapshot_schema_version: null,
       applied_at: null,
@@ -141,5 +146,32 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
     state.fail = false;
     await configPoller(h.app).pollOnce();
     expect((await status(h, admin)).json().data).toMatchObject({ config_version: 3, last_problem: null });
+  });
+
+  it('[01a §6.21, D7] the answer carries the provisioned tenant_id and branch_id; a command built from them is accepted', async () => {
+    const { h, admin } = await hub();
+    const res = await status(h, admin);
+    // D5: the real answer parses with the shared @pos/events schema.
+    const data = ConfigStatusResponse.parse(res.json()).data;
+    expect(data).toMatchObject({ tenant_id: 'tenant-a', branch_id: BRANCH });
+    expect(data.tenant_id).toBe(h.deps.config.provisioned?.tenant_id);
+
+    const command = await h.app.inject({
+      method: 'POST',
+      url: '/admin/commands/open-business-day',
+      headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
+      payload: {
+        command_id: 'cmd-d7-open',
+        tenant_id: data.tenant_id,
+        branch_id: data.branch_id,
+        command_type: 'OpenBusinessDay',
+        payload: {},
+        occurred_at: h.clock.branchNow(),
+        actor_id: 'S_MGR',
+        device_id: admin.device.deviceId,
+      },
+    });
+    expect(command.statusCode).toBe(200);
+    expect(command.json().data.result).toMatchObject({ changed: true, reason: 'opened' });
   });
 });
