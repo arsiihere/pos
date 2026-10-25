@@ -952,7 +952,7 @@ export async function putItemRoute(
       };
       await assertRoutes(scoped, [next], () => '');
       await deps.testHooks?.afterReferenceLock?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
-      route =await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
+      route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
     } else if (before !== null) {
       await deleteItemRoute(scoped, branchId, itemId);
     }
