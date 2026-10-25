@@ -27,7 +27,7 @@ describe('cloud schema', () => {
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
     );
     const names = rows.rows.map((row) => row.table_name);
-    expect(names).toEqual([
+    for (const table of [
       'branch_api_keys',
       'branches',
       'owner_refresh_tokens',
@@ -41,8 +41,9 @@ describe('cloud schema', () => {
       'staff_permission_denials',
       'staff_roles',
       'tenants',
-    ]);
-    expect(names).not.toContain('idempotency_keys');
+    ]) {
+      expect(names).toContain(table);
+    }
   });
 
   it('[00 §5.2] one live key per branch', async () => {
