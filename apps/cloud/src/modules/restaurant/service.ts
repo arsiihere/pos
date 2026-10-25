@@ -398,6 +398,7 @@ export async function patchStation(
     const level = new TenantLevelRepository(req.tenant, client);
     const before = await lockStation(scoped, branchId, stationId);
     if (before === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
+    await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id');
     const now = deps.clock.branchNow();
     const stationType = body.station_type ?? before.station_type;
     const typeChanged = stationType !== before.station_type;
@@ -516,6 +517,7 @@ export async function patchProgram(
     const level = new TenantLevelRepository(req.tenant, client);
     const before = await lockProgram(scoped, branchId, stationId, programId);
     if (before === undefined) throw new DomainError('PROGRAM_NOT_FOUND', { program_id: programId });
+    await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id');
     const now = deps.clock.branchNow();
     const merged: ProgramRow = {
       ...before,
@@ -818,6 +820,7 @@ export async function createMenuItem(
       assertReference('category_id', await shareCategory(level, body.category_id));
       if (body.tax_class_id !== null) assertReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
       await assertRoutes(scoped, body.routes);
+      await deps.testHooks?.afterReferenceLock?.('POST /v1/admin/menu-items');
       const now = deps.clock.branchNow();
       const { routes: routeInput, availability_windows: windowInput, ...fields } = body;
       const row = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
@@ -948,7 +951,8 @@ export async function putItemRoute(
         stock_program_id: body.stock_program_id,
       };
       await assertRoutes(scoped, [next], () => '');
-      route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
+      await deps.testHooks?.afterReferenceLock?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
+      route =await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
     } else if (before !== null) {
       await deleteItemRoute(scoped, branchId, itemId);
     }
