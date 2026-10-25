@@ -94,6 +94,22 @@ describe('config version and audit', () => {
     expect(counter.count).toBe(1);
   });
 
+  it('[01a S8] tenant scope reads the owner row: a row missing C → PERMISSION_DENIED tenant_wide_write, nothing bumped; null (CLI) skips the check', async () => {
+    await cloud.pool.query(
+      `UPDATE owner_users SET allowed_branch_ids = array_remove(allowed_branch_ids, $3) WHERE tenant_id = $1 AND user_id = $2`,
+      [tenantId, userId, branches[2]],
+    );
+    const before = await versions();
+    const bump = (ownerUserId: string | null) =>
+      inTransaction(cloud.pool, (client) =>
+        bumpConfigVersion(new TenantLevelRepository(tenant(), client), { kind: 'tenant', ownerUserId }),
+      );
+    await expect(bump(userId)).rejects.toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
+    await expect(bump('NO-SUCH-OWNER')).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(await versions()).toEqual(before);
+    expect(await bump(null)).toHaveLength(3);
+  });
+
   it('[01a S26] writeConfigAudit stores actor, entity, before/after; cli actor stores null user', async () => {
     const ids = testIdGen();
     await inTransaction(cloud.pool, async (client) => {

@@ -1,3 +1,4 @@
+import { DomainError } from '@pos/domain';
 import type pg from 'pg';
 
 export interface TenantSql {
@@ -7,7 +8,8 @@ export interface TenantSql {
 export type BumpScope = { kind: 'branch'; branchId: string } | { kind: 'tenant'; ownerUserId: string | null /* null = CLI */ };
 
 // S8: the branch rows are locked last, in branch_id order; tenant-wide goes through branches with
-// TenantLevelRepository (the D54 exception of S40 N3). The owner-row check is task 33.
+// TenantLevelRepository (the D54 exception of S40 N3). A tenant-wide write by an owner whose owner_users row
+// (read at write time, never the JWT claim) misses a branch is refused; the CLIs pass null and skip the check.
 export async function bumpConfigVersion(
   db: TenantSql,
   scope: BumpScope,
@@ -21,7 +23,20 @@ export async function bumpConfigVersion(
       [scope.branchId],
     );
   } else {
-    await db.query(`SELECT branch_id FROM branches WHERE tenant_id = $1 ORDER BY branch_id FOR UPDATE`);
+    let allowed: string[] | null = null;
+    if (scope.ownerUserId !== null) {
+      const owners = await db.query<{ allowed_branch_ids: string[] }>(
+        `SELECT allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+        [scope.ownerUserId],
+      );
+      allowed = owners[0]?.allowed_branch_ids ?? [];
+    }
+    const locked = await db.query<{ branch_id: string }>(
+      `SELECT branch_id FROM branches WHERE tenant_id = $1 ORDER BY branch_id FOR UPDATE`,
+    );
+    if (allowed !== null && !locked.every((row) => allowed.includes(row.branch_id))) {
+      throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
+    }
     rows = await db.query(
       `UPDATE branches SET config_version = config_version + 1
         WHERE tenant_id = $1
