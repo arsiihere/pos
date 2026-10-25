@@ -49,8 +49,9 @@
 | 29 Cloud menu read — search, pages, `can_edit_tenant` | `e782f60` |
 | 30 Cloud menu-item PATCH | `c09e828` |
 | 31 Cloud availability windows | `f726a4e` |
+| 32 Cloud route PUT | `65ff15e` |
 
-**Next task for Cursor: 32.**
+**Next task for Cursor: 33.**
 
 ## Markers
 
