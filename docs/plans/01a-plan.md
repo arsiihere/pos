@@ -25,8 +25,9 @@
 | 5 Domain: units | `5a59704` |
 | 6 Domain: availability windows | `4d674db` |
 | 7 Domain: `lineTotalMinor`, day-setting defaults | `426eec5` |
+| 8 `@pos/domain/hash` | `d8e2f9e` |
 
-**Next task for Cursor: 8.**
+**Next task for Cursor: 9.**
 
 ## Markers
 

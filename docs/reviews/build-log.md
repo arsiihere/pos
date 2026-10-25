@@ -327,3 +327,4 @@ Commit below. `/pair` is dark (`data-theme="dark"`) with `#screen` as a `pos-scr
 - Task 5 — `5a59704` — tests added: `[01a §10 #141]`, `[01a S44]` "1.5kg"/"1,5" rejected, `[01a S44]` root export — pass, full suite 269/269.
 - Task 6 — `4d674db` — tests added: `[01a §10 #136]` (under `TZ=UTC`), `[01a §10 #137]`, `[01a S47]` root export — pass, full suite 272/272.
 - Task 7 — `426eec5` — tests added: `[01a §10 #150]`, `[01a S33]` defaults 16 and 4 — pass, full suite 274/274.
+- Task 8 — `d8e2f9e` — tests added: four `[01a S27]` (sorted keys, throws on undefined, sha256 'abc', not in root) — pass, full suite 278/278; no existing caller passed `undefined`.
