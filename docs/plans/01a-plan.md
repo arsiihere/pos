@@ -85,8 +85,9 @@
 | 64b Shared admin schemas in `@pos/events` (D5) | `404a07d` |
 | 65 Owner stations view | `8aeb80d` |
 | 66 Owner menu list — search, Load more, read-only start | `9a014df` |
+| 67 Owner item and category forms | `939e5d0` |
 
-**Next task for Cursor: 67.**
+**Next task for Cursor: 68.**
 
 ## Markers
 
