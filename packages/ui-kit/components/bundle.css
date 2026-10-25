@@ -123,3 +123,189 @@
 .pos-steps { display: flex; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
 .pos-steps li { flex: 1; height: 6px; border-radius: var(--radius-pill); background: var(--line); }
 .pos-steps li.is-done { background: var(--ink); } .pos-steps li.is-current { background: var(--accent); }
+
+/* ---------- Kit additions: 01a redesign (docs/design/ui-brief-01a.md) + module 00 (docs/design/handoff/00/00-design.md §3) ----------
+   Token-only, logical properties only. */
+
+/* ---------- Page and app shell ---------- */
+.pos-page { min-height: 100%; display: flex; flex-direction: column; background: var(--surface); color: var(--ink); font-family: var(--font-sans); box-sizing: border-box; }
+.pos-page *, .pos-page *::before, .pos-page *::after { box-sizing: border-box; }
+.pos-appbar { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-3) var(--space-6); min-height: 72px; background: var(--surface-raised); border-bottom: 1px solid var(--line); }
+.pos-appbar__title { margin: 0; font: 700 24px/30px var(--font-sans); }
+.pos-appbar__end { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pos-content { flex: 1; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); min-height: 0; }
+.pos-content--narrow { max-width: 880px; width: 100%; margin-inline: auto; }
+.pos-shell { flex: 1; display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 0; }
+.pos-split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-6); align-items: start; }
+
+/* ---------- Side navigation ---------- */
+.pos-sidenav { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); background: var(--surface-raised); border-inline-end: 1px solid var(--line); }
+.pos-sidenav__brand { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3) var(--space-4); }
+.pos-sidenav__brand strong { font: 700 20px/26px var(--font-sans); }
+.pos-sidenav__brand span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-sidenav__item { display: flex; align-items: center; gap: var(--space-3); min-height: var(--touch-min); padding: 0 var(--space-3); border-radius: var(--radius-md); color: var(--ink); text-decoration: none; font: 700 17px/22px var(--font-sans); }
+.pos-sidenav__item[aria-current="page"] { background: var(--accent-tint); }
+.pos-sidenav__item small { margin-inline-start: auto; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-sidenav__foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+
+/* ---------- Segmented control (filters, two-to-four way switches) ---------- */
+.pos-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--radius-md); background: var(--surface-sunken); flex-wrap: wrap; }
+.pos-seg__opt { appearance: none; display: inline-flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-4); border: 0; border-radius: 9px; background: transparent; color: var(--ink-muted); font: 700 17px/22px var(--font-sans); cursor: pointer; }
+.pos-seg__opt[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-raise); }
+.pos-seg__count { font: 700 15px/1 var(--font-mono); padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); }
+.pos-seg__opt[aria-pressed="true"] .pos-seg__count { background: var(--accent); color: var(--on-accent); }
+.pos-seg--block { display: flex; } .pos-seg--block .pos-seg__opt { flex: 1; justify-content: center; }
+
+/* ---------- Chips (status labels; tappable when a button) ---------- */
+.pos-chip { appearance: none; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-pill); border: 1.5px solid currentColor; font: 700 15px/20px var(--font-sans); background: var(--surface-raised); color: var(--ink-muted); white-space: nowrap; }
+button.pos-chip { min-height: 44px; cursor: pointer; }
+.pos-chip .pos-icon { width: 18px; height: 18px; }
+.pos-chip--ok { color: var(--ok); background: var(--ok-tint); }
+.pos-chip--warn { color: var(--warn); background: var(--warn-tint); }
+.pos-chip--danger { color: var(--danger); background: var(--danger-tint); }
+.pos-chip--info { color: var(--info); background: var(--info-tint); }
+.pos-chip--accent { color: var(--ink); background: var(--accent-tint); border-color: var(--accent); }
+
+/* ---------- Lists (rows with columns) ---------- */
+.pos-list { list-style: none; margin: 0; padding: 0; background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.pos-list__head, .pos-list__row { display: grid; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); }
+.pos-list__head { background: var(--surface-sunken); color: var(--ink-muted); font: 700 15px/20px var(--font-sans); }
+.pos-list__row + .pos-list__row, .pos-list__head + .pos-list__row { border-top: 1px solid var(--line); }
+.pos-list__row.is-touched { background: var(--accent-tint); }
+.pos-list__row.is-muted { color: var(--ink-muted); }
+.pos-list__name { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pos-list__name strong { font: 700 20px/26px var(--font-sans); }
+.pos-list__name > span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-list__tags { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.pos-list__num { font: 700 22px/28px var(--font-mono); direction: ltr; unicode-bidi: isolate; }
+.pos-list__num small { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); margin-inline-start: 4px; }
+/* Column presets (shared by every list of that kind) */
+.pos-list--stock .pos-list__head, .pos-list--stock .pos-list__row { grid-template-columns: minmax(0, 1.6fr) 230px 150px 120px 168px; }
+.pos-list--menu .pos-list__head, .pos-list--menu .pos-list__row { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 150px minmax(0, 1.4fr) 104px; }
+.pos-list--stack .pos-list__row { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+
+/* ---------- Count field (number + unit + confirm) ---------- */
+.pos-count { display: flex; align-items: stretch; gap: var(--space-2); }
+.pos-count .pos-input { width: 110px; min-height: var(--touch-min); text-align: end; font: 700 22px/28px var(--font-mono); direction: ltr; }
+.pos-count__unit { align-self: center; font: 700 17px/22px var(--font-sans); color: var(--ink-muted); min-width: 28px; }
+.pos-count__same { appearance: none; min-width: var(--touch-min); min-height: var(--touch-min); border-radius: var(--radius-md); border: 2px solid var(--line-strong); background: var(--surface-raised); color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.pos-count__same[aria-pressed="true"] { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
+
+/* ---------- Switch (on/off with a word) ---------- */
+.pos-switch { appearance: none; display: inline-flex; align-items: center; gap: var(--space-3); min-height: var(--touch-min); padding: 0 var(--space-2); border: 0; background: transparent; color: var(--ink); font: 700 17px/22px var(--font-sans); cursor: pointer; }
+.pos-switch__track { width: 56px; height: 32px; border-radius: var(--radius-pill); background: var(--line-strong); position: relative; flex: none; }
+.pos-switch__track::after { content: ""; position: absolute; top: 4px; inset-inline-start: 4px; width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--surface-raised); }
+.pos-switch[aria-checked="true"] .pos-switch__track { background: var(--action); }
+.pos-switch[aria-checked="true"] .pos-switch__track::after { inset-inline-start: 28px; }
+.pos-switch[aria-checked="false"] { color: var(--danger); }
+
+/* ---------- Sticky action bar ---------- */
+.pos-actionbar { position: sticky; bottom: 0; display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-3) var(--space-6); background: var(--surface-raised); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px #1b18140f; }
+.pos-actionbar__info { display: flex; flex-direction: column; gap: 2px; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-actionbar__info strong { font: 700 20px/26px var(--font-sans); color: var(--ink); }
+.pos-actionbar__end { margin-inline-start: auto; display: flex; gap: var(--space-3); }
+.pos-progress { height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
+.pos-progress > i { display: block; height: 100%; background: var(--accent); }
+
+/* ---------- Callout (one big next step) ---------- */
+.pos-callout { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; padding: var(--space-6); border-radius: var(--radius-lg); border: 2px solid var(--line-strong); background: var(--surface-raised); }
+.pos-callout__icon { width: 64px; height: 64px; flex: none; border-radius: var(--radius-pill); display: grid; place-items: center; border: 3px solid currentColor; }
+.pos-callout__icon .pos-icon { width: 32px; height: 32px; }
+.pos-callout__text { flex: 1 1 320px; display: flex; flex-direction: column; gap: var(--space-1); }
+.pos-callout__text h2 { margin: 0; font: 700 26px/32px var(--font-sans); }
+.pos-callout__text p { margin: 0; font: 400 18px/26px var(--font-sans); color: var(--ink-muted); }
+.pos-callout__actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.pos-callout--warn { border-color: var(--warn); background: var(--warn-tint); } .pos-callout--warn .pos-callout__icon { color: var(--warn); }
+.pos-callout--accent { border-color: var(--ink); } .pos-callout--accent .pos-callout__icon { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+
+/* ---------- Form sections ---------- */
+.pos-section { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.pos-section__head { display: flex; flex-direction: column; gap: 2px; }
+.pos-section__head h2 { margin: 0; font: 700 22px/28px var(--font-sans); }
+.pos-section__head p { margin: 0; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.pos-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pos-input-affix { display: flex; align-items: stretch; }
+.pos-input-affix > span { display: grid; place-items: center; padding: 0 var(--space-3); background: var(--surface-sunken); border: 2px solid var(--line-strong); color: var(--ink-muted); font: 700 17px/22px var(--font-sans); white-space: nowrap; }
+.pos-input-affix > span:first-child { border-inline-end: 0; border-start-start-radius: var(--radius-sm); border-end-start-radius: var(--radius-sm); }
+.pos-input-affix > span:last-child { border-inline-start: 0; border-start-end-radius: var(--radius-sm); border-end-end-radius: var(--radius-sm); }
+.pos-input-affix > .pos-input { border-radius: 0; flex: 1; min-width: 0; }
+.pos-explain { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface-sunken); font: 400 17px/24px var(--font-sans); }
+.pos-explain strong { font-family: var(--font-mono); direction: ltr; unicode-bidi: isolate; }
+
+/* ---------- Tiles grid (tables on a floor) ---------- */
+.pos-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: var(--space-3); }
+.pos-tile { appearance: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 72px; padding: var(--space-3); border-radius: var(--radius-md); border: 2px solid var(--line-strong); background: var(--surface-raised); color: var(--ink); text-align: start; font: 700 20px/26px var(--font-sans); cursor: pointer; }
+.pos-tile small { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-tile--add { border-style: dashed; color: var(--ink-muted); align-items: center; justify-content: center; }
+
+/* ---------- Empty and skeleton ---------- */
+.pos-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-12) var(--space-6); text-align: center; color: var(--ink-muted); }
+.pos-empty h3 { margin: 0; font: 700 22px/28px var(--font-sans); color: var(--ink); }
+.pos-sheet { position: absolute; inset-inline: 0; bottom: 0; background: var(--surface-raised); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding: var(--space-6) var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); box-shadow: 0 -8px 24px #1b181429; }
+.pos-sheet__grip { width: 48px; height: 5px; border-radius: var(--radius-pill); background: var(--line-strong); align-self: center; }
+
+@media (prefers-reduced-motion: reduce) { .pos-switch__track::after { transition: none; } }
+
+/* ---------- Added in round 2: picker tiles, plates, swatches, dialog forms ---------- */
+.pos-tile[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--ink); box-shadow: inset 0 -5px 0 var(--accent); }
+.pos-tile .pos-icon--xl { width: 48px; height: 48px; stroke-width: 1.6; }
+.pos-tiles--pick { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.pos-tiles--pick .pos-tile { align-items: center; justify-content: center; text-align: center; min-height: 104px; font-size: 17px; }
+.pos-plate { display: inline-flex; align-items: center; justify-content: center; padding: 6px 14px; border: 3px solid var(--ink); border-radius: var(--radius-sm); background: var(--qr-tile); color: var(--ink); font: 700 26px/1.1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; direction: ltr; unicode-bidi: isolate; }
+.pos-plate--input { width: 100%; min-height: 72px; font-size: 34px; text-align: center; }
+.pos-swatch { width: 18px; height: 18px; border-radius: var(--radius-pill); border: 1.5px solid var(--line-strong); flex: none; }
+.pos-swatch--white { background: var(--qr-tile); } .pos-swatch--black { background: var(--ink); } .pos-swatch--silver { background: var(--line); }
+.pos-swatch--grey { background: var(--line-strong); } .pos-swatch--red { background: var(--danger); } .pos-swatch--blue { background: var(--ok); }
+.pos-chip[aria-pressed="true"] { color: var(--ink); background: var(--accent-tint); border-color: var(--ink); }
+.pos-dialog--form { max-width: 600px; gap: var(--space-4); }
+.pos-dialog__footer { display: flex; gap: var(--space-3); justify-content: flex-end; flex-wrap: wrap; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.pos-dialog__danger { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4); border-radius: var(--radius-md); border: 1.5px solid var(--danger); }
+.pos-hours-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--space-3); align-items: end; }
+.pos-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.pos-checklist__item { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: var(--space-4); align-items: center; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-raised); }
+.pos-checklist__num { width: 40px; height: 40px; border-radius: var(--radius-pill); display: grid; place-items: center; font: 700 18px/1 var(--font-mono); border: 2px solid var(--line-strong); }
+.pos-checklist__item.is-done .pos-checklist__num { background: var(--ok); border-color: var(--ok); color: var(--on-action); }
+
+/* ---------- Added by module 00 (hub access): token-only, logical properties ---------- */
+
+/* Compact app bar for phones (390 wide) */
+.pos-appbar--phone { padding: var(--space-2) var(--space-4); min-height: 64px; gap: var(--space-3); }
+.pos-appbar--phone .pos-appbar__title { font: 700 22px/28px var(--font-sans); }
+
+/* Big code entry (6-char display code, 12-char registration code) */
+.pos-input--code { min-height: var(--touch-kitchen); font: 700 28px/36px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; text-align: center; direction: ltr; }
+[dir="rtl"] .pos-input--code { text-align: center; }
+
+/* Links and addresses that must wrap but never mirror */
+.pos-mono-wrap { font: 500 18px/26px var(--font-mono); direction: ltr; unicode-bidi: isolate; overflow-wrap: anywhere; text-align: start; }
+
+/* Grouped list: a label row between groups ("Kitchen screens · 3") */
+.pos-list__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--surface); border-top: 1px solid var(--line); font: 700 17px/22px var(--font-sans); color: var(--ink-muted); }
+.pos-list__group small { font: 700 15px/1 var(--font-mono); padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface-sunken); color: var(--ink); }
+.pos-list__meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; font: 400 17px/22px var(--font-sans); }
+.pos-list__meta > span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-list__who { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 17px/22px var(--font-sans); }
+/* Column presets for the hub admin lists */
+.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr) 128px; }
+.pos-list--sessions .pos-list__head, .pos-list--sessions .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) 136px; }
+.pos-list--lockouts .pos-list__head, .pos-list--lockouts .pos-list__row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 136px; }
+
+/* Menu tiles (hub admin home): icon + job + one status line */
+.pos-tiles--menu { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.pos-tiles--menu .pos-tile { min-height: 120px; padding: var(--space-4); gap: var(--space-2); justify-content: flex-start; text-decoration: none; }
+.pos-tile__head { display: flex; align-items: center; gap: var(--space-3); }
+.pos-tile__head .pos-icon { width: 32px; height: 32px; }
+
+/* QR tile that no longer holds a code (expired or not yet made) */
+.pos-code__qr--void { display: grid; place-items: center; background: var(--surface-sunken); border: 2px dashed var(--line-strong); color: var(--ink-muted); text-align: center; padding: var(--space-6); font: 700 17px/22px var(--font-sans); }
+
+/* Loading placeholders (no spinner on lists) */
+.pos-skeleton { display: block; height: 20px; border-radius: var(--radius-sm); background: var(--surface-sunken); animation: pos-pulse 1.4s ease-in-out infinite; }
+@keyframes pos-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .pos-skeleton { animation: none; } }
+
+/* Urdu: kit-additions classes that set a Latin font switch to Nastaliq (taller lines, never fixed heights) */
+[lang="ur"] :is(.pos-appbar__title, .pos-sidenav__brand strong, .pos-sidenav__brand span, .pos-sidenav__item, .pos-sidenav__item small, .pos-seg__opt, .pos-chip, .pos-list__head, .pos-list__name strong, .pos-list__name span, .pos-list__group, .pos-list__meta, .pos-list__meta span, .pos-list__who, .pos-switch, .pos-actionbar__info, .pos-actionbar__info strong, .pos-callout__text h2, .pos-callout__text p, .pos-section__head h2, .pos-section__head p, .pos-explain, .pos-tile, .pos-tile small, .pos-empty h3, .pos-count__unit, .pos-input-affix > span, .pos-code__qr--void) { font-family: var(--font-urdu); line-height: 2; }
+[lang="ur"] .pos-input:not(.pos-input--mono):not(.pos-input--code) { font-family: var(--font-urdu); line-height: 2; }
+.pos-list__row > .pos-chip { justify-self: start; }

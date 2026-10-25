@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add a phone for staff</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 1280px; height: 800px; overflow: hidden;">
+<div class="pos-shell"><nav class="pos-sidenav" aria-label="Hub admin"><div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Hub admin</span></div><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Hub admin</a><a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>Screens and phones<small><span class="pos-ltr">10</span></small></a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></svg>Signed in now<small><span class="pos-ltr">7</span></small></a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>Locked out<small><span class="pos-ltr">3</span></small></a><span class="caption" style="color: var(--ink-muted); padding: 16px 12px 4px;">Other jobs</span><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/></svg>Stock</a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/></svg>Kitchen capacity</a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="7.5" rx="2"/><path d="M7 14h10v6.5H7z"/></svg>Printers</a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.6L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.6L20 16"/><path d="M20 20v-4h-4"/></svg>Backup and sync</a>
+<div class="pos-sidenav__foot"><span class="body">Imran · Manager</span><button class="pos-btn"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/></svg>Sign out</button></div></nav>
+<div style="display: flex; flex-direction: column; min-width: 0; min-height: 0;">
+<header class="pos-appbar"><h1 class="pos-appbar__title">Add a phone for staff</h1><div class="pos-appbar__end"><a class="pos-btn" href="#">Screens and phones</a></div></header>
+
+<main class="pos-content" style="overflow: hidden;"><section style="display: flex; flex-direction: column; gap: 16px;">
+<div class="pos-section__head"><h2>Whose phone is it?</h2><p>The QR pairs one phone. Only this person can sign in on it.</p></div>
+<label class="pos-input-affix" style="max-width: 360px;"><span><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></span><input class="pos-input" type="search" placeholder="Find a name" aria-label="Find a name"></label>
+<div class="pos-staff" style="grid-template-columns: repeat(4, minmax(0, 1fr));"><button class="pos-staff__tile">Hamza<small>Waiter · Has 1 phone</small></button><button class="pos-staff__tile">Bilal<small>Waiter · Has 1 phone</small></button><button class="pos-staff__tile" aria-pressed="true">Ali<small>Waiter · No phone yet</small></button><button class="pos-staff__tile">Sana<small>Shift lead · No phone yet</small></button><button class="pos-staff__tile">Usman<small>Head cook · No phone yet</small></button><button class="pos-staff__tile">Zubair<small>Runner · No phone yet</small></button><button class="pos-staff__tile">Imran<small>Manager · Has 1 phone</small></button><button class="pos-staff__tile">Arif<small>Owner · No phone yet</small></button></div></section></main><footer class="pos-actionbar"><div class="pos-actionbar__info"><strong>Ali</strong>Waiter · no phone yet</div><div class="pos-actionbar__end"><button class="pos-btn pos-btn--primary pos-btn--lg"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2z"/><path d="M18 18h2v2h-2z"/><path d="M14 18h2"/><path d="M18 14h2"/></svg>Make QR</button></div></footer></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
