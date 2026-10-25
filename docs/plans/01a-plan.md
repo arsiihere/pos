@@ -42,8 +42,9 @@
 | 22 Cloud sync gzip | `3279dba` |
 | 23 Cloud tables | `2bccd2a` |
 | 24 Cloud stations | `6c6b47e` |
+| 25 Cloud batch programs | `671d559` |
 
-**Next task for Cursor: 25.**
+**Next task for Cursor: 26.**
 
 ## Markers
 
