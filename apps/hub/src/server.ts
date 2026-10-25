@@ -14,7 +14,7 @@ import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
 import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { registerStationSessionRoutes } from './auth/station-session.js';
-import { attachRouteGuards, type RouteGroup } from './auth/guards.js';
+import { attachRouteGuards, swapDirectory, type RouteGroup } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
@@ -31,6 +31,8 @@ import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
 import type { ProjectionRegistry } from './projections/registry.js';
+import { httpConfigClient, type ConfigClient } from './sync/config-client.js';
+import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
 import { registerWs } from './ws/server.js';
 
 const SECRET_HEADERS = [
@@ -78,6 +80,7 @@ export interface HubDeps {
   authGeneration: AuthGeneration;
   ownIPv4: string[];
   logStream?: NodeJS.WritableStream;
+  configClient?: ConfigClient;
   testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
 }
 
@@ -144,6 +147,21 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerWs(app, deps);
   registerUiAssets(app);
   installCors(app, deps.config.cors_origins);
+  bindConfigPoller(
+    app,
+    createConfigPoller({
+      config: deps.config,
+      db: deps.db,
+      writer: deps.writer,
+      clock: deps.clock,
+      client:
+        deps.configClient ?? httpConfigClient(deps.config.cloud_base_url, deps.config.provisioned?.branch_api_key ?? ''),
+      setDirectory: (d) => {
+        swapDirectory(app, d);
+      },
+      log: app.log,
+    }),
+  );
   return app;
 }
 

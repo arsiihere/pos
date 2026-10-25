@@ -19,11 +19,14 @@ import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
 import { registerRestaurantProjections } from '../../src/projections/branch-config';
 import { createProjectionRegistry } from '../../src/projections/registry';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigClient } from '../../src/sync/config-client';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
 import { aDirectory } from './fixtures';
 import { createLogCapture } from './log-capture';
+import { stubConfigCloud } from './stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const DEFAULT_HOST = '192.168.10.2:3000';
@@ -41,7 +44,9 @@ export async function createTestHub(o?: {
   provisioned?: boolean;
   config?: Partial<HubConfig>;
   testHooks?: { beforeCommit?: () => void; beforePublish?: () => void };
+  configClient?: ConfigClient;
 }): Promise<TestHub> {
+  swapBranchConfig(null);
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });
@@ -81,6 +86,7 @@ export async function createTestHub(o?: {
     projections,
     authGeneration,
     ownIPv4: ['192.168.10.2'],
+    configClient: o?.configClient ?? stubConfigCloud(),
   };
   const capture = createLogCapture();
   deps.logStream = capture.stream;
