@@ -56,6 +56,10 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const denied = await post(hub, cashier, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-denied', 'S_CASH');
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('PERMISSION_DENIED');
+    const owner = adminOn(hub, 'S_OWNER');
+    const noStock = await post(hub, owner, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-no-stock', 'S_OWNER');
+    expect(noStock.statusCode).toBe(403);
+    expect(noStock.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stock' } });
 
     let fail = false;
     const failing = await open({
@@ -180,6 +184,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const denied = await post(hub, cashier, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-denied', 'S_CASH');
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('PERMISSION_DENIED');
+    const owner = adminOn(hub, 'S_OWNER');
+    const noStock = await post(hub, owner, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-no-stock', 'S_OWNER');
+    expect(noStock.statusCode).toBe(403);
+    expect(noStock.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stock' } });
+    expect(engine(hub).business_day?.closed_at).toBeNull();
 
     fail = true;
     const before = engine(hub);
@@ -286,6 +295,8 @@ async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub>
   // These tests move the clock by hours; long idle TTLs keep the admin sessions alive.
   const directory = await aDirectory();
   for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 86_400_000;
+  // S_OWNER keeps access-hub-admin but not manage-stock, so the command's own 403 is reached.
+  for (const staff of directory.staff) if (staff.staff_id === 'S_OWNER') staff.denied_permissions = ['manage-stock'];
   await seedDirectory(hub, directory);
   return hub;
 }
