@@ -64,8 +64,9 @@
 | 44 Hub engine state through `createDeps`, reducer, boot fold, `stock_version` | `ac6f7f7` |
 | 45 Hub boot config load after catch-up, `BODY_MISSING`, poll timer | `97ae049` |
 | 46 Hub station validator | `09d6a41` |
+| 47 Hub `OpenBusinessDay` | `3bc952d` |
 
-**Next task for Cursor: 47.**
+**Next task for Cursor: 48.**
 
 ## Markers
 
