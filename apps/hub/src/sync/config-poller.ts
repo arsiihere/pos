@@ -97,27 +97,28 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
   }
 
   async function poll(): Promise<PollResult> {
-    const at = () => deps.clock.branchNow();
     const provisioned = deps.config.provisioned;
     if (provisioned === undefined || !isProvisioned(deps.config) || !isConfirmed(deps.config)) {
-      return finish({ outcome: 'not_ready', at: at() });
+      return finish({ outcome: 'not_ready', at: deps.clock.branchNow() });
     }
     const branchId = provisioned.branch_id;
     const currentConfig = currentConfigVersion(deps.db, branchId);
     const currentDirectory = currentDirectoryVersion(deps.db);
     const fetched = await deps.client.fetchConfig({ config_version: currentConfig, directory_version: currentDirectory });
-    if (fetched.kind === 'offline') return finish({ outcome: 'offline', at: at() });
+    // One reading per poll, so last_problem.at and lastPoll().at agree.
+    const now = deps.clock.branchNow();
+    if (fetched.kind === 'offline') return finish({ outcome: 'offline', at: now });
     if (fetched.kind === 'not_modified') {
       problem = null;
-      return finish({ outcome: 'unchanged', at: at() });
+      return finish({ outcome: 'unchanged', at: now });
     }
     if (fetched.kind === 'error') {
       if (fetched.status === 401) {
-        problem = { outcome: 'unauthorized', reason: null, at: at() };
-        return finish({ outcome: 'unauthorized', at: at() });
+        problem = { outcome: 'unauthorized', reason: null, at: now };
+        return finish({ outcome: 'unauthorized', at: now });
       }
       deps.log.error({ status: fetched.status, code: fetched.code }, 'config poll refused by the cloud');
-      return finish({ outcome: 'offline', at: at() });
+      return finish({ outcome: 'offline', at: now });
     }
 
     // Step 4: envelope, then (i) raw hash, (ii) schema version, (iii) Zod, (iv) forward only (S28 d).
@@ -126,15 +127,15 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
       json = JSON.parse(fetched.text);
     } catch {
       deps.log.error({ issues: [{ path: '', code: 'invalid_json' }] }, 'config poll envelope malformed');
-      reject('malformed', at());
-      return finish({ outcome: 'rejected', reason: 'malformed', at: at() });
+      reject('malformed', now);
+      return finish({ outcome: 'rejected', reason: 'malformed', at: now });
     }
     const envelope = SyncConfigEnvelopeSchema.safeParse(json);
     if (!envelope.success) {
       const issues = envelope.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code }));
       deps.log.error({ issues }, 'config poll envelope malformed');
-      reject('malformed', at());
-      return finish({ outcome: 'rejected', reason: 'malformed', at: at() });
+      reject('malformed', now);
+      return finish({ outcome: 'rejected', reason: 'malformed', at: now });
     }
     const { config: wire, directory } = envelope.data.data;
     let configRejected: RejectReason | null = null;
@@ -146,11 +147,11 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
     }
     const directoryPart: DirectoryInput | null =
       directory !== null && directory.directory_version > currentDirectory ? directory : null;
-    if (configRejected !== null) reject(configRejected, at());
+    if (configRejected !== null) reject(configRejected, now);
     if (part === null && directoryPart === null) {
-      if (configRejected !== null) return finish({ outcome: 'rejected', reason: configRejected, at: at() });
+      if (configRejected !== null) return finish({ outcome: 'rejected', reason: configRejected, at: now });
       problem = null;
-      return finish({ outcome: 'unchanged', at: at() });
+      return finish({ outcome: 'unchanged', at: now });
     }
     // §7.3: the rejected config part is logged at error even though the directory part goes on to apply.
     if (configRejected !== null) deps.log.error({ outcome: 'rejected', reason: configRejected }, MSG);
@@ -166,14 +167,14 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
       });
     } catch (error) {
       deps.log.error({ err: error }, 'config apply failed');
-      reject('apply_failed', at());
-      return finish({ outcome: 'rejected', reason: 'apply_failed', at: at() });
+      reject('apply_failed', now);
+      return finish({ outcome: 'rejected', reason: 'apply_failed', at: now });
     }
     // Step 6.
     if (configRejected === null) problem = null;
     return finish({
       outcome: 'applied',
-      at: at(),
+      at: now,
       config_version: part?.config.config_version ?? currentConfig,
       directory_version: directoryPart?.directory_version ?? currentDirectory,
     });
