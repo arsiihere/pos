@@ -97,6 +97,21 @@ export const StationListResponse = z.object({
 });
 export const StationResponse = z.object({ data: z.object({ station: Station }) });
 
+export const ProgramParams = StationParams.extend({ program_id: z.string().min(1) });
+
+// §3.3: cook_time_ms 1 … 14 400 000.
+const CookTime = z.number().int().min(1).max(14_400_000);
+
+export const CreateProgramBody = z.object({ name: Name, cook_time_ms: CookTime });
+
+export const PatchProgramBody = z
+  .object({ name: Name.optional(), cook_time_ms: CookTime.optional(), archived: z.boolean().optional() })
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+
+export const ProgramResponse = z.object({
+  data: z.object({ program: ProgramSummary.extend({ station_id: z.string() }) }),
+});
+
 const Floor = z.object({
   floor_id: z.string(),
   name: z.string(),
@@ -125,3 +140,5 @@ export type CreateTableInput = z.infer<typeof CreateTableBody>;
 export type PatchTableInput = z.infer<typeof PatchTableBody>;
 export type CreateStationInput = z.infer<typeof CreateStationBody>;
 export type PatchStationInput = z.infer<typeof PatchStationBody>;
+export type CreateProgramInput = z.infer<typeof CreateProgramBody>;
+export type PatchProgramInput = z.infer<typeof PatchProgramBody>;

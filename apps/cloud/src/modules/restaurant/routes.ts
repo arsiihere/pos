@@ -5,14 +5,18 @@ import { sendIdempotent } from '../../lib/idempotency.js';
 import {
   BranchParams,
   CreateFloorBody,
+  CreateProgramBody,
   CreateStationBody,
   CreateTableBody,
   FloorListResponse,
   FloorParams,
   FloorResponse,
   PatchFloorBody,
+  PatchProgramBody,
   PatchStationBody,
   PatchTableBody,
+  ProgramParams,
+  ProgramResponse,
   StationListResponse,
   StationParams,
   StationResponse,
@@ -21,11 +25,13 @@ import {
 } from './schemas.js';
 import {
   createFloor,
+  createProgram,
   createStation,
   createTable,
   listFloors,
   listStations,
   patchFloor,
+  patchProgram,
   patchStation,
   patchTable,
   type OwnerRequest,
@@ -138,6 +144,34 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id');
       const { branch_id, station_id } = request.params;
       const data = await patchStation(deps, ownerRequest(app, request), branch_id, station_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/branches/:branch_id/stations/:station_id/programs',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: StationParams, body: CreateProgramBody, response: { 201: ProgramResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/branches/:branch_id/stations/:station_id/programs');
+      const { branch_id, station_id } = request.params;
+      const result = await createProgram(deps, ownerRequest(app, request), branch_id, station_id, request.body);
+      return sendIdempotent(reply, result);
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: ProgramParams, body: PatchProgramBody, response: { 200: ProgramResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id');
+      const { branch_id, station_id, program_id } = request.params;
+      const data = await patchProgram(deps, ownerRequest(app, request), branch_id, station_id, program_id, request.body);
       return reply.send({ data });
     },
   );

@@ -12,6 +12,7 @@ interface BIds {
   floorId: string;
   tableId: string;
   stationId: string;
+  programId: string;
   refreshToken: string;
 }
 
@@ -45,6 +46,14 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
   'PATCH /v1/admin/branches/:branch_id/stations/:station_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}`,
     payload: { name: 'Fryer' },
+  }),
+  'POST /v1/admin/branches/:branch_id/stations/:station_id/programs': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}/programs`,
+    payload: { name: 'Fries', cook_time_ms: 300000 },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/stations/:station_id/programs/:program_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}/programs/${ids.programId}`,
+    payload: { cook_time_ms: 300000 },
   }),
 };
 
@@ -84,9 +93,15 @@ describe('cross-tenant', () => {
     );
     const stationId = 'B-STATION-0000000000000001';
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, $3, 'B station', 'slot', 1, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
+       VALUES ($1, $2, $3, 'B station', 'batch', 1, 0, 0, 0)`,
       [f.other.tenantId, f.other.branchId, stationId],
+    );
+    const programId = 'B-PROGRAM-0000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO batch_programs (tenant_id, branch_id, station_id, program_id, name, cook_time_ms, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'B program', 60000, 0, 0)`,
+      [f.other.tenantId, f.other.branchId, stationId, programId],
     );
     const ids: BIds = {
       tenantId: f.other.tenantId,
@@ -96,6 +111,7 @@ describe('cross-tenant', () => {
       floorId,
       tableId,
       stationId,
+      programId,
       refreshToken: loginB.json().data.refresh_token as string,
     };
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
@@ -112,6 +128,7 @@ describe('cross-tenant', () => {
       ids.floorId,
       ids.tableId,
       ids.stationId,
+      ids.programId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];

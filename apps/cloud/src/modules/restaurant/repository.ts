@@ -299,6 +299,85 @@ export async function archiveStationPrograms(
   return rows.map(withArchivedAt).sort((a, b) => (a.program_id < b.program_id ? -1 : a.program_id > b.program_id ? 1 : 0));
 }
 
+// A reference check: the path station of this branch, FOR SHARE against a concurrent archive or type change.
+export async function shareStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<{ station_type: StationType; archived_at: number | null } | undefined> {
+  type Shared = { station_type: StationType; archived_at: number | null };
+  const rows = await repo.query<Raw<Shared>>(
+    `SELECT station_type, archived_at FROM stations
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4
+      FOR SHARE`,
+    [branchId, stationId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<Shared>(rows[0]);
+}
+
+export async function insertProgram(
+  repo: TenantScopedRepository,
+  branchId: string,
+  program: Omit<ProgramRow, 'archived_at'>,
+  now: number,
+): Promise<ProgramRow> {
+  const rows = await repo.query<Raw<ProgramRow>>(
+    `INSERT INTO batch_programs (tenant_id, branch_id, station_id, program_id, name, cook_time_ms, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $8 FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     RETURNING ${PROGRAM_COLUMNS}`,
+    [branchId, program.station_id, program.program_id, program.name, program.cook_time_ms, now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+export async function lockProgram(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+  programId: string,
+): Promise<ProgramRow | undefined> {
+  const rows = await repo.query<Raw<ProgramRow>>(
+    `SELECT ${PROGRAM_COLUMNS} FROM batch_programs
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4 AND program_id = $5
+      FOR UPDATE`,
+    [branchId, stationId, programId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+}
+
+export async function updateProgram(
+  repo: TenantScopedRepository,
+  branchId: string,
+  program: ProgramRow,
+  now: number,
+): Promise<ProgramRow> {
+  const rows = await repo.query<Raw<ProgramRow>>(
+    `UPDATE batch_programs SET name = $5, cook_time_ms = $6, archived_at = $7, updated_at = $8
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND program_id = $4
+      RETURNING ${PROGRAM_COLUMNS}`,
+    [branchId, program.program_id, program.name, program.cook_time_ms, program.archived_at, now],
+  );
+  return withArchivedAt(rows[0]!);
+}
+
+// S22: active items whose route uses the program as program_id or stock_program_id.
+export async function programRouteItemIds(
+  repo: TenantScopedRepository,
+  branchId: string,
+  programId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ item_id: string }>(
+    `SELECT r.item_id FROM item_routes r
+       JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id AND m.archived_at IS NULL
+      WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3
+        AND (r.program_id = $4 OR r.stock_program_id = $4)
+      ORDER BY r.item_id`,
+    [branchId, programId],
+  );
+  return rows.map((row) => row.item_id);
+}
+
 function withArchivedAt<T extends { archived_at: number | null }>(row: Raw<T>): T {
   return { ...row, archived_at: msOrNull(row.archived_at) } as T;
 }

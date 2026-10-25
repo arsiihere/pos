@@ -14,28 +14,36 @@ import {
   activeTableIds,
   archiveStationPrograms,
   insertFloor,
+  insertProgram,
   insertStation,
   insertTable,
   lockFloor,
+  lockProgram,
   lockStation,
   lockTable,
+  programRouteItemIds,
   selectFloors,
   selectPrograms,
   selectStations,
   selectTables,
   shareFloor,
+  shareStation,
   updateFloor,
+  updateProgram,
   updateStation,
   updateTable,
   type FloorRow,
+  type ProgramRow,
   type StationRow,
   type TableRow,
 } from './repository.js';
 import type {
   CreateFloorInput,
+  CreateProgramInput,
   CreateStationInput,
   CreateTableInput,
   PatchFloorInput,
+  PatchProgramInput,
   PatchStationInput,
   PatchTableInput,
 } from './schemas.js';
@@ -402,6 +410,120 @@ export async function patchStation(
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { station };
   });
+}
+
+// §6.10 POST on the common write script: key → station FOR SHARE (an active batch station) → write → audit → bump.
+export async function createProgram(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  stationId: string,
+  body: CreateProgramInput,
+): Promise<IdempotentResult<{ program: ProgramRow }>> {
+  assertBranchAllowed(req.tenant, branchId);
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertActiveBatchStation(scoped, branchId, stationId);
+      const program = await nameTaken('batch_programs_active_name', 'batch_program', body.name, () =>
+        insertProgram(
+          scoped,
+          branchId,
+          { program_id: deps.ids.next(), station_id: stationId, name: body.name, cook_time_ms: body.cook_time_ms },
+          deps.clock.branchNow(),
+        ),
+      );
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'batch_program',
+          entityId: program.program_id,
+          branchId,
+          action: 'create',
+          before: null,
+          after: program,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'branch', branchId });
+      return { status: 201, body: { program } };
+    },
+  );
+}
+
+// §6.10 PATCH: lock the program → rules on the merged row (an active program sits on an active batch station;
+// S22 in-use check on archive) → write → audit → bump.
+export async function patchProgram(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  stationId: string,
+  programId: string,
+  body: PatchProgramInput,
+): Promise<{ program: ProgramRow }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockProgram(scoped, branchId, stationId, programId);
+    if (before === undefined) throw new DomainError('PROGRAM_NOT_FOUND', { program_id: programId });
+    const now = deps.clock.branchNow();
+    const merged: ProgramRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.cook_time_ms !== undefined ? { cook_time_ms: body.cook_time_ms } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (merged.archived_at === null) await assertActiveBatchStation(scoped, branchId, stationId);
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await programRouteItemIds(scoped, branchId, programId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', {
+          entity: 'batch_program',
+          id: programId,
+          used_by: { entity: 'menu_item', ids },
+        });
+      }
+    }
+    const program = await nameTaken('batch_programs_active_name', 'batch_program', merged.name, () =>
+      updateProgram(scoped, branchId, merged, now),
+    );
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'batch_program',
+        entityId: programId,
+        branchId,
+        action: auditActionFor(before, program),
+        before,
+        after: program,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { program };
+  });
+}
+
+// §6.10: programs live only on an active batch station of this branch.
+async function assertActiveBatchStation(scoped: TenantScopedRepository, branchId: string, stationId: string): Promise<void> {
+  const station = await shareStation(scoped, branchId, stationId);
+  const reason =
+    station === undefined
+      ? 'not_found'
+      : station.archived_at !== null
+        ? 'archived'
+        : station.station_type !== 'batch'
+          ? 'program_not_allowed'
+          : null;
+  if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'station_id', reason });
 }
 
 // §3.3: a table references an active floor of the same branch.
