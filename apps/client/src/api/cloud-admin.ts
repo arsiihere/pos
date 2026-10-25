@@ -163,9 +163,13 @@ export function createCloudAdmin(options: CloudAdminOptions) {
     return true;
   }
 
-  function loggedOut<T>(): CloudResult<T> {
+  function logOut(): void {
     clearLogin();
     options.onLoggedOut();
+  }
+
+  function loggedOut<T>(): CloudResult<T> {
+    logOut();
     return { ok: false, error: { kind: 'logged_out' } };
   }
 
@@ -173,11 +177,16 @@ export function createCloudAdmin(options: CloudAdminOptions) {
     const headers: Record<string, string> = idempotencyKey === undefined ? {} : { 'Idempotency-Key': idempotencyKey };
     let reply = await send(method, path, body, headers);
     if (isJwtInvalid(reply)) {
-      // Concurrent calls share one refresh.
-      refreshing ??= refreshOnce().finally(() => {
-        refreshing = null;
-      });
-      if (!(await refreshing)) return loggedOut();
+      // Concurrent calls share one refresh; a refused refresh logs out once, not once per waiting call.
+      refreshing ??= refreshOnce()
+        .then((ok) => {
+          if (!ok) logOut();
+          return ok;
+        })
+        .finally(() => {
+          refreshing = null;
+        });
+      if (!(await refreshing)) return { ok: false, error: { kind: 'logged_out' } };
       reply = await send(method, path, body, headers);
       if (isJwtInvalid(reply)) return loggedOut();
     }

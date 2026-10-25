@@ -113,6 +113,37 @@ describe('cloud-admin client', () => {
     expect(onLoggedOut).toHaveBeenCalledTimes(1);
   });
 
+  it('[01a §8.1] concurrent calls behind one refused refresh call onLoggedOut once', async () => {
+    sessionStorage.setItem('owner_access_token', 'OLD');
+    sessionStorage.setItem('owner_refresh_token', 'R0');
+    const onLoggedOut = vi.fn();
+    let releaseRefresh: () => void = () => {};
+    const refreshHeld = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const urls: string[] = [];
+    const fetchFn = vi.fn(async (input: string) => {
+      urls.push(input);
+      if (input === '/v1/auth/refresh') {
+        await refreshHeld;
+        return apiError(401, 'REFRESH_TOKEN_INVALID');
+      }
+      return apiError(401, 'JWT_INVALID');
+    });
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut });
+
+    const pending = [api.listFloors('B1'), api.listStations('B1'), api.listFloors('B2')];
+    await vi.waitFor(() => expect(urls.filter((u) => u === '/v1/auth/refresh')).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseRefresh();
+    const results = await Promise.all(pending);
+
+    expect(results).toEqual([0, 1, 2].map(() => ({ ok: false, error: { kind: 'logged_out' } })));
+    expect(urls.filter((u) => u === '/v1/auth/refresh')).toHaveLength(1);
+    expect(onLoggedOut).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem('owner_access_token')).toBeNull();
+  });
+
   it('[01a §8.1] a network failure is a network error; 403 PERMISSION_DENIED keeps its reason', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     const onLoggedOut = vi.fn();
