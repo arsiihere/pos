@@ -38,8 +38,9 @@
 | 18 Cloud floors GET/POST | `2e15f6e` |
 | 19 Cloud floor PATCH | `35c9760` |
 | 20 Cloud snapshot builder | `f5bf426` |
+| 21 Cloud `GET /v1/sync/config` | `d5b2dd3` |
 
-**Next task for Cursor: 21.**
+**Next task for Cursor: 22.**
 
 ## Markers
 
