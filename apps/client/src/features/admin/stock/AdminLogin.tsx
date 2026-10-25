@@ -29,12 +29,12 @@ export function AdminLogin({ api, onLoggedIn }: { api: HubAdmin; onLoggedIn: () 
         setStaff([]);
         return;
       }
-      const now = Date.now();
+      // The hub sends null for an expired lock; the device clock is not compared with hub time.
       setStaff(
         answer.data.staff.map((s) => ({
           staff_id: s.staff_id,
           display_name: s.display_name,
-          locked: s.locked_until !== null && s.locked_until > now,
+          locked: s.locked_until !== null,
         })),
       );
     });

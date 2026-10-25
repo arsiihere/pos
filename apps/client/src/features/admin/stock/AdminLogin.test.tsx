@@ -135,4 +135,26 @@ describe('/admin/stock login', () => {
     expect(container.querySelector('.pos-staff')).not.toBeNull();
     expect(sessionStorage.getItem('admin_session_token')).toBeNull();
   });
+
+  it('[01a §8.2] a staff member the hub reports locked stays locked with the device clock 3 h fast', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000 + 3 * 3_600_000);
+    const { fetchFn } = routed({
+      'GET /admin/login-roster': () =>
+        json(200, { data: { staff: [{ staff_id: 'S_MGR', display_name: 'Manager', locked_until: 1_000 + 60_000 }] } }),
+    });
+    const api = createHubAdmin({
+      fetch: fetchFn,
+      readDeviceToken: async () => 'DT1',
+      readDeviceId: async () => 'D1',
+      onSignedOut: () => {},
+    });
+
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    vi.useRealTimers();
+    const tile = container.querySelector<HTMLButtonElement>('.pos-staff__tile');
+    expect(tile?.disabled).toBe(true);
+    expect(tile?.classList.contains('is-locked')).toBe(true);
+  });
 });
