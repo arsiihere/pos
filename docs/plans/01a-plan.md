@@ -57,8 +57,9 @@
 | 37 Hub migration 0004 and projections | `cc8290e` |
 | 38 Hub config holder and HTTP client | `5f628e6` |
 | 39 Hub `pollOnce` core | `3f49853` |
+| 40 Hub poller — schema version, stored-body format, commit failure | `3387815` |
 
-**Next task for Cursor: 40.**
+**Next task for Cursor: 41.**
 
 ## Markers
 
