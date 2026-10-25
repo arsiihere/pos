@@ -95,4 +95,16 @@ describe('owner app shell', () => {
     expect(container.querySelector<HTMLInputElement>('input[type="email"]')?.value).toBe('o@example.com');
     expect(sessionStorage.getItem('owner_access_token')).toBeNull();
   });
+
+  it('[01a §8.1] a locked-out login shows the lockout text, not the generic one', async () => {
+    const fetchFn = vi.fn(async () =>
+      json(429, { error: { code: 'IP_LOCKED_OUT', message: 'x', details: {}, request_id: 'R1' } }),
+    );
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+    act(() => root.render(<App api={api} />));
+
+    await submitLogin('o@example.com', 'wrong-password');
+
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.LOGIN_LOCKED_OUT'));
+  });
 });
