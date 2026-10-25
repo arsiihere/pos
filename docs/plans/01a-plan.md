@@ -37,8 +37,9 @@
 | 17 Cloud test infrastructure | `803a621` |
 | 18 Cloud floors GET/POST | `2e15f6e` |
 | 19 Cloud floor PATCH | `35c9760` |
+| 20 Cloud snapshot builder | `f5bf426` |
 
-**Next task for Cursor: 20.**
+**Next task for Cursor: 21.**
 
 ## Markers
 
