@@ -1,16 +1,31 @@
-# 00 — Hub Platform & Access — Module Spec v1.2
+# 00 — Hub Platform & Access — Module Spec v1.3
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
-| Date | 2026-10-24 |
+| Version | v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Date | 2026-10-26 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.3 (design hand-off `docs/design/handoff/00/`, open questions `docs/design/open-questions/00-hub-platform.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| Pages show Urdu, right to left, when the device language is Urdu; one `UR` table next to `EN` | M83 (amends M82) | §8.2 | #136 changed, #140 |
+| `GET /setup` after provisioning: still `404`, now with the kit's "This hub is already set up" page (Q2) | M84 | §3.9, §6.33 | #141 |
+| `/setup` offers this machine's own IPv4 addresses as a pick-list, plus a typed "Other address" (Q7) | M85 | §8.2 | #137 changed |
+| Hub admin home and shell: new static page `GET /admin` (Q1) | M86 | §3.9, §6.33, §8.2 | #142 |
+| `GET /admin/queries/devices` adds `revoked_reason`, `revoked_by_name`, `owner_name` (Q9) | M87 | §6.17 | #143 |
+| New admin queries `lockouts` (Q3), `stations` (approve page station tiles), `staff` (Add a phone) | M88 | §6.18a–c | #144–#146 |
+| `POST /admin/auth` and `/admin/auth/bootstrap` return the admin's `permissions` so pages hide what the admin can't do | M89 | §6.6, §6.29 | #147 |
+| Query resources on the generic route (§6.2) don't count against the endpoint budget | M90 | §6.33 | — |
+
+No error code, event, payload, config field or migration changes. No command changes. Q5 (waiter tablets) is blocked and not in this version; Q4, Q10 stay with 06 and 03b.
 
 ### Changes in v1.2 (UI kit, `docs/design/ui-brief.md`)
 
@@ -18,6 +33,14 @@
 |---|---|---|---|
 | The pages need the bundled UI kit (CSS + fonts); the hub had no static-file route | M81 | §3.9, §6.33, §6.35, §12.2 | #135 |
 | The 00 pages show raw keys and hardcoded English, swallow errors (setup, bootstrap), take a raw `staff_id`, show PINs in clear and name a phone through `window.prompt` | M82 | §8.2, §8.4 | #136–#139; the two `[00 §8.4]` page tests now expect the English text |
+| M83 | **Urdu on the 00 pages (amends M82).** `strings.ts` holds `EN` and `UR` with the same keys; a key missing from `UR` falls back to `EN` (list kept in `docs/design/handoff/00/urdu-todo.md`). The server still sends `<html lang="en" dir="ltr">`; the page script picks the language once on load: `?lang=en\|ur` if present (kept in `localStorage` key `pos-lang`), else the stored value, else `ur` when `navigator.language` starts with `ur`, else `en`; it then sets `lang`, `dir` (`rtl` for Urdu) and renders every text through `t()`. Codes, PINs, addresses, links, times and counts stay LTR (`.pos-ltr`, mono classes); digits stay Latin. | D12 asks for translation keys and the design system requires Urdu RTL; the hub has no stored device language, and server-side negotiation would need per-request rendering of static pages. | — |
+| M84 | **`GET /setup` after provisioning answers `404` with the kit page "This hub is already set up"** (`setup.already_*`), no form and no hub data. | Foundation §5.6 requires `/setup` to return 404 permanently; a bare 404 sends installers to support. The status stays 404, so nothing reachable changes. | — |
+| M85 | **The setup page lists this machine's IPv4 addresses** (from `os.networkInterfaces()`: IPv4, not internal, not `169.254.0.0/16`; label = interface name, "Ethernet" first when the name starts with `en`/`eth`) as pick tiles, preselecting the first Ethernet one, plus "Other address" with the typed field. The list is rendered into the page by `GET /setup`; `POST /setup/provision` is unchanged (M58 still validates). | The two-network mistake (cable and Wi-Fi addresses differ) is the most likely setup error and is only caught by M58 after typing. | — |
+| M86 | **Hub admin home `GET /admin`** (00-S20 and S16–S19, D01–D03): a static page like M79 (guards host, provisioned, guest network; no credentials in the page). The script reuses the `/admin/approve` sign-in (device token from IndexedDB `pos-device`, admin session in `sessionStorage`; bootstrap sessions allowed). Views by hash: home, `#devices`, `#add-phone`, `#sessions`, `#lockouts`. It calls only §6.7, §6.14–§6.18c. Lists refresh on open and after each action (no WebSocket). The side menu also links other modules' admin pages that exist (today `/admin/stock`). | Foundation §5.6 sends "all later admin access" through `/admin`, but no page exists: devices, sessions and lockouts have endpoints and no screen. | — |
+| M87 | **The devices list shows why a device was removed:** §6.17 adds `revoked_reason` (from the device's latest `DeviceRevoked` payload `reason`), `revoked_by_name` (`revoked_by` through `StaffDirectory`) and `owner_name` (`owner_staff_id` through `StaffDirectory`). | A removed row without a reason or actor sends the manager to the audit log; the reason is already stored in the event. No migration: one extra read of `events` (index `events_stream`) only when `include_revoked=true`. | — |
+| M88 | **Three admin list queries:** `lockouts` (§6.18a: staff, device and IP lockouts in force), `stations` (§6.18b: active stations with what they cook, for the approve page's station tiles and station names on lists), `staff` (§6.18c: active staff with role names and phone count, for "Add a phone"). All `sessionKind: 'admin'`, so bootstrap admin sessions work. | Clearing a lockout you can't see is useless (`ClearPinLockout` takes `device` and `ip`); the approve page loads without a device session, so `GET /queries/branch-config` is unavailable there; `GET /admin/login-roster` lists admins only, not the waiter whose phone is being added. | — |
+| M89 | **Admin sign-in returns the admin's permissions:** §6.6 and §6.29 responses add `permissions: { 'manage-devices': boolean, 'manage-staff': boolean }` (effective, D19). Pages hide actions the admin lacks and keep `403 PERMISSION_DENIED` as the authority (permissions may change mid-session; the page then shows its read-only state). | `GET /queries/session` needs a device session, which a bootstrap admin and the admin page don't have; without this every button is shown and fails. | — |
+| M90 | **Query resources served by the generic route (§6.2) are listed in §6.33 but not counted against the endpoint budget.** They add no route, guard or pipeline; each still declares its query count. | M88 adds three resources; counting them would force the cloud-access split promised in §6.33 for no structural reason. | — |
 
 One route is added (`GET /ui/*`, a static route that §6.33 does not count, like the four page routes). No error code, event, payload, config field or migration changes.
 
@@ -411,7 +434,7 @@ Applied by a root `onRoute` hook from each route's `config.group`. A hub route-i
 | device session (`X-Session-Token`, staff/station, same device, idle check M46) | `/commands/*` after the M19 fast path; `/queries/*` with `session: 'required'`; `POST /auth/logout` (accepts ended) | `401 SESSION_INVALID` / `401 SESSION_EXPIRED` |
 | admin session (`X-Admin-Session`, kind admin, same device unless bootstrap, idle check M46, `access-hub-admin` re-resolved M61) | `/admin/*` except `/admin/auth`, `/admin/auth/bootstrap`, `/admin/login-roster` and the static pages (M79) | `401 ADMIN_SESSION_REQUIRED`; permission lost → `403 PERMISSION_DENIED` |
 | roster access | `/admin/login-roster`: device token (tablet/cashier_kiosk/phone) **or** `X-Admin-Bootstrap` header with a live bootstrap token | `401 DEVICE_TOKEN_INVALID` / `401 PAIRING_TOKEN_INVALID` |
-| static admin pages (M79) | `GET /admin/bootstrap`, `GET /admin/approve`: host, provisioned, guest network only; no device token, no session; the page script sends credentials on its own requests | as the guards above |
+| static admin pages (M79, M86) | `GET /admin/bootstrap`, `GET /admin/approve`, `GET /admin`: host, provisioned, guest network only; no device token, no session; the page script sends credentials on its own requests | as the guards above |
 | UI kit (M81) | `GET /ui/*` (group `static`): host and guest network only; works before provisioning | as the guards above |
 | pairing token / poll secret | `POST /devices/pair`, `GET /pair/requests/:id` (in handler) | `401 PAIRING_TOKEN_INVALID` / `404 PAIRING_REQUEST_NOT_FOUND` |
 | WS auth message | `/ws` (§6.21) | close `4401` / `4403` |
@@ -857,7 +880,7 @@ Processing (one transaction):
 | Auth | device token, `device_type ∈ { tablet, cashier_kiosk, phone }` (kds → `403 DEVICE_TYPE_NOT_ALLOWED`); phone: `staff_id` must be the owner (`403 DEVICE_NOT_OWNED`) |
 | Input | `{ staff_id, pin: /^\d{4,6}$/ }` |
 | Processing | §3.5 with rate subject `device` and the admin semaphore; on match, in the same transaction: `access-hub-admin` must be `allowed` (else `403 PERMISSION_DENIED`, counters stay reset); INSERT session `kind 'admin'`, `device_id` = caller, `idle_ttl_ms = ttlFor`; append `SessionStarted` |
-| Response | `200 { data: { admin_session_token, session_id, staff_id, display_name, idle_ttl_ms } }` |
+| Response | `200 { data: { admin_session_token, session_id, staff_id, display_name, idle_ttl_ms, permissions: { 'manage-devices': boolean, 'manage-staff': boolean } } }` (`permissions`: M89, effective in the same transaction) |
 | Errors | G-dev; `400`, `401 PIN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED` / `DEVICE_NOT_OWNED` / `PERMISSION_DENIED`, `404 STAFF_NOT_FOUND`, `429 PIN_LOCKED_OUT` / `DEVICE_LOCKED_OUT`, `503 SERVICE_UNAVAILABLE` |
 | Events | `SessionStarted`; lockout events |
 
@@ -996,8 +1019,8 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 | | |
 |---|---|
 | Input | `?include_revoked=false` |
-| Response | `{ devices: [{ device_id, device_name, device_type, station_id, owner_staff_id, pairing_source: 'token' \| 'request', paired_at, paired_by_name, last_seen_at, revoked_at, active_session: { session_id, kind, staff_id, display_name } \| null }] }` |
-| Query count | 1 (devices LEFT JOIN active sessions); names from `StaffDirectory`; last-seen from memory merged over the column; `pairing_source` from `device_type` (M80). Bounded list (a branch has tens of devices), returned whole |
+| Response | `{ devices: [{ device_id, device_name, device_type, station_id, owner_staff_id, owner_name, pairing_source: 'token' \| 'request', paired_at, paired_by_name, last_seen_at, revoked_at, revoked_by_name, revoked_reason, active_session: { session_id, kind, staff_id, display_name } \| null }] }` (`owner_name`, `revoked_by_name`, `revoked_reason`: M87; null when not applicable) |
+| Query count | 1 (devices LEFT JOIN active sessions), plus 1 when `include_revoked=true` (`SELECT stream_id, payload FROM events WHERE stream_type = 'hub' AND stream_id IN (<revoked ids>) AND event_type = 'DeviceRevoked'`, latest per device; `events_stream`); names from `StaffDirectory`; last-seen from memory merged over the column; `pairing_source` from `device_type` (M80). Bounded list (a branch has tens of devices), returned whole |
 
 #### 6.18 `GET /admin/queries/sessions`
 
@@ -1005,6 +1028,36 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 |---|---|
 | Response | `{ sessions: [{ session_id, kind, staff_id, display_name, station_id, device_id, device_name, started_at, last_activity_at, idle_ttl_ms }] }` — active only |
 | Query count | 1 (active sessions LEFT JOIN devices, served by `staff_sessions_active`); activity from memory. Bounded by devices + admins |
+
+#### 6.18a `GET /admin/queries/lockouts` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ staff: [{ staff_id, display_name, locked_until }], devices: [{ device_id, device_name, locked_until }], ips: [{ ip, locked_until }] }`, each sorted by `locked_until` descending; only rows with `locked_until > branchNow`. IP lockouts come from bootstrap sign-in only (§3.5) |
+| Query count | 1 (`auth_lockouts` LEFT JOIN `devices` for device names, served by `auth_lockouts_locked`); staff names from `StaffDirectory` (a staff row no longer in the directory is skipped) |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
+
+#### 6.18b `GET /admin/queries/stations` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ stations: [{ station_id, name, location_label, category_names }] }` — non-archived stations in config order (01a §4.3); `category_names` = up to 3 names of categories that have a non-archived item on the station, by category `sort_order`. Empty list when no branch config is loaded yet |
+| Query count | 0 (in-memory branch config, 01a S40) |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
+
+#### 6.18c `GET /admin/queries/staff` (M88)
+
+| | |
+|---|---|
+| Auth | §6.2 admin (`access-hub-admin`) |
+| Response | `{ staff: [{ staff_id, display_name, role_names, phone_count }] }` sorted by `display_name`; `phone_count` = non-revoked `phone` devices owned by the staff member |
+| Query count | 1 (`SELECT owner_staff_id, COUNT(*) FROM devices WHERE device_type = 'phone' AND revoked_at IS NULL GROUP BY owner_staff_id`); staff and role names from `StaffDirectory` |
+| Activity | `countsAsActivity: false` |
+| Errors | G-admin |
 
 #### 6.19 `GET /queries/staff-roster`
 
@@ -1125,7 +1178,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 | Input | `{ bootstrap_token, staff_id, pin }` (the page reads the token from the URL fragment, never sends it in a URL) |
 | Processing | token by hash: missing, expired or consumed → `401 PAIRING_TOKEN_INVALID`; then §3.5 with rate subject `ip` and the admin semaphore; on match in the same transaction: `access-hub-admin` allowed; consume the token; INSERT admin session with `device_id NULL`; append `SessionStarted` (`device_id 'hub-admin'`) |
 | Tokens | issued by `/setup/provision` (`issued_by 'setup'`), the hub CLI (§6.34, `'cli'`) or 06's restore flow (`'restore'`); issuing one expires any live one (M72) |
-| Response | as §6.6 |
+| Response | as §6.6, including `permissions` (M89) |
 | Errors | G-hub; `400`, `401 PAIRING_TOKEN_INVALID` / `PIN_INVALID`, `403 PERMISSION_DENIED`, `404 STAFF_NOT_FOUND`, `429 PIN_LOCKED_OUT` / `IP_LOCKED_OUT`, `503 SERVICE_UNAVAILABLE` |
 
 #### 6.30 `POST /pair/requests` — screen asks to be paired (M44)
@@ -1159,7 +1212,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 
 #### 6.33 Endpoint count
 
-Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the four pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`) and the UI kit (`GET /ui/*`, 6.35, M81). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec.
+Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the five pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`, `/admin` (M86)) and the UI kit (`GET /ui/*`, 6.35, M81). Query resources on the §6.2 route are listed but not counted (M90): `devices`, `sessions`, `staff-roster`, `session` (counted before v1.3 as 6.17–6.20 and kept in the 30) and the M88 additions `lockouts`, `stations`, `staff`. `GET /setup` after provisioning is the same static route answering `404` with a page (M84). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec.
 
 #### 6.34 Hub CLI `pnpm --filter hub issue-admin-bootstrap` (M72)
 
@@ -1277,6 +1330,10 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
   3. Device token but no admin session in this tab → admin login in the page (`GET /admin/login-roster`, PIN → `POST /admin/auth`); stores `admin_session_token` and `admin_staff_id` in `sessionStorage`.
   4. Form: display code (with `request_id` = `r` when present), type, station for KDS → `ApprovePairingRequest` with `device_id` from IndexedDB (`'hub-admin'` and no `Authorization` for a bootstrap session).
 - **Bootstrap page (M42, M79):** after a successful `POST /admin/auth/bootstrap` it stores `admin_session_token`, `admin_staff_id` and `admin_bootstrap = '1'` in `sessionStorage`.
+- **Language (M83):** the page script chooses `en` or `ur` on load (`?lang=`, then `localStorage` `pos-lang`, then `navigator.language`), sets `lang` and `dir` on `<html>`, and takes every text from `EN` or `UR` through `t()`. Codes, PINs, addresses, links, times and counts stay LTR.
+- **Setup addresses (M85):** `GET /setup` renders this machine's IPv4 addresses as pick tiles (Ethernet first and preselected) plus "Other address" with the typed field; the chosen value is sent as `advertised_host`.
+- **Hub admin home (M86):** `GET /admin` loads without credentials; its script signs in like `/admin/approve` step 3, keeps `permissions` (M89) with the admin session in `sessionStorage`, hides actions the admin lacks, and treats `403 PERMISSION_DENIED` as the read-only state. Kitchen screens with `last_seen_at` older than 2 minutes show a warning (Q8).
+- **Global states (00-F01…F08):** every page maps §8.4 codes through one helper (`apps/hub/src/lib/global-state.ts`).
 - **Look and text (M82):** every page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `lang`, `dir` and `data-theme` (`dark` on `/pair`, `light` elsewhere) on `<html>` and `class="pos-root"` on `<body>`, and shows text from the `EN` table (`errors.<CODE>` for error codes, never `message`). PIN inputs are `type="password"`, `inputmode="numeric"`. Setup: busy button, slow-call banner after 3 s, error banner per code, failing field marked from `details.issues[].path`, success screen with the first-admin QR and link. Bootstrap: admin roster as name tiles (locked ones disabled with the time left), success screen linking `/admin/approve` in the same tab. Phone pairing: a device-name field (1–40 characters) replaces `window.prompt`.
 - **Admin session hygiene (M43):** before any same-tab navigation to `/pair` or a `pair_url`, the admin UI calls `POST /admin/auth/logout` and clears `sessionStorage`. `admin_session_token` lives in `sessionStorage` only.
 - **First admin (M42):** the setup page shows `first_admin_url` as a link and QR; `/admin/bootstrap` reads the token from `location.hash`, sends it only in the request body / `X-Admin-Bootstrap` header, then removes it from the address bar (`history.replaceState`).
@@ -1509,10 +1566,18 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 133 | M79: `GET /admin/approve` and `GET /admin/bootstrap` without `Authorization` or `X-Admin-Session` → `200` HTML with no device or session token in the body; a guest IP → 403; `ApprovePairingRequest` without `request_id` approves the single pending request with that `display_code`; no match, or two pending requests with the same code → `404 PAIRING_REQUEST_NOT_FOUND`; static check: the approve page reads IndexedDB and `sessionStorage`, logs in with `/admin/auth` when no admin session is stored, and sends no request when neither a device token nor a bootstrap session exists |
 | 134 | M80: a token-paired tablet still reports `pairing_source: 'token'` after its `pairing_tokens` row is deleted by retention; an approved kds reports `'request'` |
 | 135 | M81: `GET /ui/tokens.css` and `/ui/components/bundle.css` → `200` `text/css; charset=utf-8`; a font → `200` `font/woff2`; all with `Cache-Control: public, max-age=31536000, immutable`; a `?v=` query is ignored; `/ui/README.md`, `/ui/tokens.json`, `/ui/../package.json`, `/ui/%2e%2e/package.json` and an unknown file → `404 ROUTE_NOT_FOUND`; served by the setup-mode server before provisioning; a guest IP → 403; a bad Host → 403; group `static` has guards host and guest |
-| 136 | M82: `/setup`, `/admin/bootstrap`, `/admin/approve` and `/pair` link both stylesheets with the M81 `?v=` hash, set `lang="en" dir="ltr"`, `data-theme` `dark` on `/pair` and `light` elsewhere, `class="pos-root"`, one inline `<script>`, no `http://` or `https://` asset URL, keep ids `screen` / `setup` / `login` / `roster` and class `display-code`; every key the page scripts look up exists in `EN`; every PIN input is `type="password"` with `inputmode="numeric"` |
-| 137 | M82 setup page: submit → the button is busy and disabled; after 3 s the `setup.slow` banner shows; `400 VALIDATION_FAILED` with an `advertised_host` issue → that field is marked and the banner shows `errors.VALIDATION_FAILED`; `503` → `errors.SERVICE_UNAVAILABLE`; the button is usable again after an error; success → the first-admin link and QR |
+| 136 | M82, M83: `/setup`, `/admin/bootstrap`, `/admin/approve`, `/pair` and `/admin` (M86) link both stylesheets with the M81 `?v=` hash, are served with `lang="en" dir="ltr"`, `data-theme` `dark` on `/pair` and `light` elsewhere, `class="pos-root"`, one inline `<script>`, no `http://` or `https://` asset URL, keep ids `screen` / `setup` / `login` / `roster` and class `display-code`; every key the page scripts look up exists in `EN`, and every `UR` key exists in `EN`; every PIN input is `type="password"` with `inputmode="numeric"` |
+| 137 | M82, M85 setup page: the address tiles list the given interfaces' IPv4 addresses (internal and `169.254.*` removed, Ethernet first and selected) and "Other address" reveals the typed field; submit → the button is busy and disabled; after 3 s the `setup.slow` banner shows; `400 VALIDATION_FAILED` with an `advertised_host` issue → that field is marked and the banner shows `errors.VALIDATION_FAILED`; `503` → `errors.SERVICE_UNAVAILABLE`; the button is usable again after an error; success → the first-admin link and QR |
 | 138 | M82 bootstrap page: the roster renders one name tile per admin (a locked one is disabled and shows the time left); no `staff_id` text input and no JSON on the page; a tap selects the tile; sign-in sends the selected `staff_id`; `PIN_INVALID` shows the error and the attempts left when ≤ 2; success shows the signed-in screen with a link to `/admin/approve`; a dead link shows the expired screen |
 | 139 | M82 phone pairing (`/pair?t=`): a device-name field is shown and `window.prompt` is never called; an empty name marks the field and sends nothing; a name sends `POST /devices/pair` with it; `401` shows `pairing.token_expired` |
+| 140 | M83: language choice: `?lang=ur` → `lang="ur" dir="rtl"` and Urdu text, remembered on the next load without the parameter; `navigator.language` `ur-PK` → Urdu; `en-US` → English; a key missing from `UR` shows the `EN` text |
+| 141 | M84: after provisioning `GET /setup` → `404` HTML with `setup.already_title` and no form, no `tenant_id` / `branch_id`; before provisioning → `200` form |
+| 142 | M86: `GET /admin` without credentials → `200` HTML with no token; a guest IP → 403; group guards as `/admin/approve`; static check: the script signs in through `/admin/auth` when no admin session is stored and calls only §6.7, §6.14–§6.18c |
+| 143 | M87: devices query with `include_revoked=true` returns `revoked_reason` (from the latest `DeviceRevoked`), `revoked_by_name`, and `owner_name` for phones; without it the query runs once; a revoke with no reason → `revoked_reason: null` |
+| 144 | M88 lockouts: a locked staff, device and IP are listed with names; an expired lock and an unlocked row are not; no `access-hub-admin` → 403 |
+| 145 | M88 stations: archived stations left out; `category_names` holds at most 3, in category order, only categories with an item on the station; no config → empty list |
+| 146 | M88 staff: every directory staff member with role names; `phone_count` counts only non-revoked phones; one query |
+| 147 | M89: `/admin/auth` and `/admin/auth/bootstrap` return `permissions` matching the effective permissions (a Manager has both, an admin without `manage-staff` gets `false`) |
 | 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
 
 
@@ -1562,6 +1627,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 47–50 | Owner login (M64), refresh (M49), health + cross-tenant, systemd + smoke | §6.22–§6.25, §7.8 |
 | 51 | Foundation §6.2 table and README only (codes already exist from task 2) — not for Cursor | §9, D64 |
 | 67–71 | v1.2: UI kit and `GET /ui/*` (M81); setup, bootstrap, approve and pair pages on the kit with the `EN` table (M82) | §6.35, §8.2, §8.4 |
+| 77+ | v1.3: design hand-off phases 3–6 (`docs/design/handoff/00/PLAN.md`): pages restyled with `UR` (M83–M85), §6.17 fields and §6.18a–c queries, sign-in `permissions` (M87–M89), `/admin` (M86) | §6.17–§6.18c, §6.6, §6.29, §8.2 |
 
 ---
 
@@ -1587,7 +1653,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.3 | `GET /health` | none (host guard) | — | n/a | — | 14, 97, 108 |
 | 6.4 | `POST /setup/provision` | code | — | M14 | `HubProvisioned`, `StaffDirectoryApplied`, `AdminBootstrapTokenIssued` | 15–21, 105, 132 |
 | 6.5 | `POST /v1/hubs/register` | code (M15) | — | M14 | — | 22–25, 61, 89 |
-| 6.6 | `POST /admin/auth` | device | `access-hub-admin` | none needed | `SessionStarted`, lockouts | 26, 27, 91, 93, 114 |
+| 6.6 | `POST /admin/auth` | device | `access-hub-admin` | none needed | `SessionStarted`, lockouts | 26, 27, 91, 93, 114, 147 |
 | 6.7 | `GenerateDevicePairingToken` | device + admin | `manage-devices` | D32 | `DevicePairingTokenGenerated` | 28, 80 |
 | 6.8 | `POST /devices/pair` | pairing token | — | M14 | `DevicePaired`, `DeviceTokenRotated` | 29, 30, 84, 118 |
 | 6.9 | `POST /auth/pin` | device | — | M6 replace | `SessionStarted`, `SessionEnded`, lockouts | 31–37, 59, 60, 81, 98 |
@@ -1598,7 +1664,8 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.14 | `RevokeDevice` | device + admin | `manage-devices` | D32 | `DeviceRevoked`, `SessionEnded` | 42 |
 | 6.15 | `ForceLogoutSession` | device + admin | `manage-staff` | D32 | `SessionEnded` | 43 |
 | 6.16 | `ClearPinLockout` | device + admin | `manage-staff` | D32 | `PinLockoutCleared` | 44 |
-| 6.17–6.18 | admin device / session lists | device + admin | `access-hub-admin` | n/a | — | 45, 115, 134 |
+| 6.17–6.18 | admin device / session lists | device + admin | `access-hub-admin` | n/a | — | 45, 115, 134, 143 |
+| 6.18a–c | admin lockouts / stations / staff (M88, not counted M90) | device + admin | `access-hub-admin` | n/a | — | 144–146 |
 | 6.19–6.20 | staff roster, session | device (+session) | — | n/a | — | 46, 47, 82 |
 | 6.21 | `GET /ws` | auth frame | — | n/a | pushes | 48–52, 104, 112, 119 |
 | 6.22 | `POST /v1/auth/login` | none (allowlist) | — | none needed | — | 53, 109, 123, 126 |
@@ -1614,6 +1681,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95 |
 | 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96, 133 |
 | 6.35 | `GET /ui/*` (static, not counted) | none (host, guest) | — | n/a | — | 135 |
+| — | static pages `GET /setup` (M84), `/admin` (M86) | none (host, guest; `/admin` also provisioned) | — | n/a | — | 136, 141, 142 |
 
 ### 12.3 Open questions
 
