@@ -39,8 +39,9 @@
 | 19 Cloud floor PATCH | `35c9760` |
 | 20 Cloud snapshot builder | `f5bf426` |
 | 21 Cloud `GET /v1/sync/config` | `d5b2dd3` |
+| 22 Cloud sync gzip | `3279dba` |
 
-**Next task for Cursor: 22.**
+**Next task for Cursor: 23.**
 
 ## Markers
 
