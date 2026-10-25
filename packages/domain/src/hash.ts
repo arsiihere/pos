@@ -8,6 +8,7 @@ export function sha256hex(s: string | Buffer): string {
 
 export function canonicalJson(v: unknown): string {
   if (v === undefined) throw new Error('canonicalJson: undefined');
+  if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') throw new Error(`canonicalJson: ${typeof v}`);
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
   if (Array.isArray(v)) return `[${v.map((item) => canonicalJson(item)).join(',')}]`;
   const keys = Object.keys(v).sort();

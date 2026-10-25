@@ -16,6 +16,13 @@ describe('hash', () => {
     expect(() => canonicalJson(undefined)).toThrow('canonicalJson: undefined');
   });
 
+  it('[01a S27] canonicalJson throws on a function, symbol or bigint at any depth', () => {
+    expect(() => canonicalJson({ a: () => 1 })).toThrow('canonicalJson: function');
+    expect(() => canonicalJson([Symbol('s')])).toThrow('canonicalJson: symbol');
+    expect(() => canonicalJson({ a: { b: 1n } })).toThrow('canonicalJson: bigint');
+    expect(() => canonicalJson(() => 1)).toThrow('canonicalJson: function');
+  });
+
   it("[01a S27] sha256hex('abc')", () => {
     expect(sha256hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
