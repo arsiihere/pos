@@ -27,8 +27,9 @@
 | 7 Domain: `lineTotalMinor`, day-setting defaults | `426eec5` |
 | 8 `@pos/domain/hash` | `d8e2f9e` |
 | 9 Events: snapshot schema `config.ts` | `38f8ce8` |
+| 10 Events: seven events, fixtures, builders | `392b1a4` |
 
-**Next task for Cursor: 10.**
+**Next task for Cursor: 11.**
 
 ## Markers
 
