@@ -31,6 +31,7 @@ import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
+import { registerConfigStatusQuery } from './queries/config-status.js';
 import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
@@ -150,6 +151,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerSessionsQuery(app);
   registerStaffRosterQuery(app, deps.clock);
   registerStockQuery(app, deps.clock);
+  registerConfigStatusQuery(app, deps.config);
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
