@@ -301,6 +301,36 @@ describe('/admin/stock business day', () => {
     expect(field('I1', 'add')?.value).toBe('3');
   });
 
+  it('[01a §8.2] an Add answered 409 BUSINESS_DAY_NOT_OPEN is re-sent with the same command_id after Start day', async () => {
+    let refuse = true;
+    const { api, sent } = fakeHub([closed(), answer()], (name) => {
+      if (name === 'add-precooked-stock' && refuse) {
+        refuse = false;
+        return DAY_NOT_OPEN();
+      }
+      if (name === 'open-business-day') return ok(OPENED);
+      return ok({ items: [] });
+    });
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+
+    typeInto(field('I2', 'add'), '1.5');
+    await tap(button(rowOf('I2'), t('admin_stock.add')));
+    expect(container.querySelector('[data-start-day="retry"]')).not.toBeNull();
+    expect(field('I2', 'add')?.value).toBe('1.5');
+    await tap(button(container.querySelector('[data-start-day="retry"]')!, t('admin_stock.day.start')));
+
+    const sentCommands = commands(sent);
+    expect(sentCommands.map((c) => c.url)).toEqual([
+      '/admin/commands/add-precooked-stock',
+      '/admin/commands/open-business-day',
+      '/admin/commands/add-precooked-stock',
+    ]);
+    expect(sentCommands[2]?.body?.['command_id']).toBe(sentCommands[0]?.body?.['command_id']);
+    expect(sentCommands[2]?.body?.['payload']).toEqual({ entries: [{ item_id: 'I2', quantity: 1500 }] });
+    expect(field('I2', 'add')?.value).toBe('');
+  });
+
   it('[01a S33] after another device closes the day, the next refresh shows Start day and Available 0 for non-carrying rows, typed counts kept', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
     const { api } = fakeHub([answer(), closed()], () => ok({ items: [] }));
