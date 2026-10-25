@@ -326,3 +326,4 @@ Commit below. `/pair` is dark (`data-theme="dark"`) with `#screen` as a `pos-scr
 - Task 4 — `87431d3` — tests added: `[01a §9]` 13 codes, `[01a S18]` default roles (20-permission test renamed) — pass, full suite 266/266 (the changes were left uncommitted by an earlier try; red checked by removing two entries, then green).
 - Task 5 — `5a59704` — tests added: `[01a §10 #141]`, `[01a S44]` "1.5kg"/"1,5" rejected, `[01a S44]` root export — pass, full suite 269/269.
 - Task 6 — `4d674db` — tests added: `[01a §10 #136]` (under `TZ=UTC`), `[01a §10 #137]`, `[01a S47]` root export — pass, full suite 272/272.
+- Task 7 — `426eec5` — tests added: `[01a §10 #150]`, `[01a S33]` defaults 16 and 4 — pass, full suite 274/274.

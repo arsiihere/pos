@@ -24,8 +24,9 @@
 | 4 Domain: error codes, `manage-stock` | `87431d3` |
 | 5 Domain: units | `5a59704` |
 | 6 Domain: availability windows | `4d674db` |
+| 7 Domain: `lineTotalMinor`, day-setting defaults | `426eec5` |
 
-**Next task for Cursor: 7.**
+**Next task for Cursor: 8.**
 
 ## Markers
 
