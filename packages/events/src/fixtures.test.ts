@@ -12,7 +12,7 @@ describe('fixtures', () => {
     const v1Files = readdirSync(dir)
       .filter((name) => name.endsWith('.v1.json'))
       .sort();
-    expect(v1Files).toHaveLength(14);
+    expect(v1Files).toHaveLength(21);
     for (const name of v1Files) {
       const v1 = JSON.parse(readFileSync(join(dir, name), 'utf8')) as unknown;
       const latest = JSON.parse(readFileSync(join(dir, name.replace('.v1.json', '.latest.json')), 'utf8')) as unknown;
@@ -43,5 +43,52 @@ describe('fixtures', () => {
     expect(schema.safeParse({ ...base, issued_by: 'cli' }).success).toBe(true);
     expect(schema.safeParse({ ...base, issued_by: 'restore' }).success).toBe(true);
     expect(schema.safeParse({ ...base, issued_by: 'owner' }).success).toBe(false);
+  });
+
+  it('[01a §4.2] StockSet rejects on_hand 1000001 and -1; StockAdded rejects quantity 0', () => {
+    const set = payloadSchema('StockSet', 1);
+    expect(set.safeParse({ item_id: 'i', on_hand: 1_000_000, unit: 'piece' }).success).toBe(true);
+    expect(set.safeParse({ item_id: 'i', on_hand: 0, unit: 'piece' }).success).toBe(true);
+    expect(set.safeParse({ item_id: 'i', on_hand: 1_000_001, unit: 'piece' }).success).toBe(false);
+    expect(set.safeParse({ item_id: 'i', on_hand: -1, unit: 'piece' }).success).toBe(false);
+    const added = payloadSchema('StockAdded', 1);
+    expect(added.safeParse({ item_id: 'i', quantity: 1, unit: 'g' }).success).toBe(true);
+    expect(added.safeParse({ item_id: 'i', quantity: 1_000_000, unit: 'g' }).success).toBe(true);
+    expect(added.safeParse({ item_id: 'i', quantity: 0, unit: 'g' }).success).toBe(false);
+    expect(added.safeParse({ item_id: 'i', quantity: 1_000_001, unit: 'g' }).success).toBe(false);
+  });
+
+  it('[01a §4.2] StockSet and StockAdded require unit', () => {
+    expect(payloadSchema('StockSet', 1).safeParse({ item_id: 'i', on_hand: 1 }).success).toBe(false);
+    expect(payloadSchema('StockAdded', 1).safeParse({ item_id: 'i', quantity: 1 }).success).toBe(false);
+    expect(payloadSchema('StockSet', 1).safeParse({ item_id: 'i', on_hand: 1, unit: 'kg' }).success).toBe(false);
+  });
+
+  it('[01a §4.2] BusinessDayOpened rejects "25-10-2026"', () => {
+    const schema = payloadSchema('BusinessDayOpened', 1);
+    const units = { i: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 } };
+    expect(schema.safeParse({ business_date: '2026-10-25', units }).success).toBe(true);
+    expect(schema.safeParse({ business_date: '25-10-2026', units }).success).toBe(false);
+    expect(schema.safeParse({ business_date: '2026-10-25' }).success).toBe(false);
+  });
+
+  it('[01a §4.2] BranchConfigApplied has no epoch fields', () => {
+    const schema = payloadSchema('BranchConfigApplied', 1);
+    const payload = {
+      config_version: 43,
+      snapshot_schema_version: 1,
+      snapshot_hash: 'a'.repeat(64),
+      previous_config_version: 42,
+    };
+    const parsed = schema.parse({ ...payload, config_epoch: 7, previous_config_epoch: 6 });
+    expect(parsed).toEqual(payload);
+    expect(schema.safeParse({ ...payload, previous_config_version: null }).success).toBe(true);
+    expect(schema.safeParse({ ...payload, snapshot_hash: 'xyz' }).success).toBe(false);
+  });
+
+  it('[01a §4.2] BusinessDayClosed, ItemMadeUnavailable and ItemMadeAvailable payloads', () => {
+    expect(payloadSchema('BusinessDayClosed', 1).safeParse({}).success).toBe(true);
+    expect(payloadSchema('ItemMadeUnavailable', 1).safeParse({ item_id: 'i' }).success).toBe(true);
+    expect(payloadSchema('ItemMadeAvailable', 1).safeParse({}).success).toBe(false);
   });
 });

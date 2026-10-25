@@ -1,0 +1,17 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": "01J00000000000000000000004",
+  "device_id": "01J00000000000000000000005",
+  "seq": 1,
+  "stream_type": "stock",
+  "stream_id": "01J00000000000000000000010",
+  "event_type": "ItemMadeUnavailable",
+  "payload": {
+    "item_id": "01J00000000000000000000010"
+  }
+}
