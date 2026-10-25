@@ -5,7 +5,7 @@ import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit, type AuditEntity } from '../../lib/config-audit.js';
-import { bumpConfigVersion } from '../../lib/config-version.js';
+import { bumpConfigVersion, coversEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
@@ -30,7 +30,12 @@ import {
   lockTable,
   lockTaxClass,
   programRouteItemIds,
+  selectAllCategories,
+  selectAllTaxClasses,
   selectFloors,
+  selectItemRoutes,
+  selectItemWindows,
+  selectMenuPage,
   selectPrograms,
   selectStations,
   selectTables,
@@ -63,6 +68,7 @@ import type {
   CreateStationInput,
   CreateTableInput,
   CreateTaxClassInput,
+  MenuQueryInput,
   PatchCategoryInput,
   PatchFloorInput,
   PatchProgramInput,
@@ -701,6 +707,62 @@ export async function patchCategory(
     await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
     return { category };
   });
+}
+
+// §6.11: 6 fixed statements (coversEveryBranch, tax classes, categories with windows, the item page, its windows,
+// its routes). The cursor is base64url JSON { n: lower(name), id } of the page's last row (S48 keyset).
+export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, ownerUserId: string, query: MenuQueryInput) {
+  const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
+  const level = new TenantLevelRepository(tenant, deps.pool);
+  const scoped = new TenantScopedRepository(tenant, deps.pool);
+  const canEditTenant = await coversEveryBranch(level, ownerUserId);
+  const taxClasses = await selectAllTaxClasses(level);
+  const categories = await selectAllCategories(level);
+  const rows = await selectMenuPage(level, {
+    archived: query.status === 'archived',
+    categoryId: query.category_id ?? null,
+    pattern: query.q === undefined ? null : `%${query.q.replace(/[\\%_]/g, '\\$&')}%`,
+    after,
+    limit: query.limit,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const ids = pageRows.map((row) => row.item.item_id);
+  const windows = await selectItemWindows(level, ids);
+  const routes = await selectItemRoutes(scoped, ids);
+  const last = pageRows.at(-1);
+  const items = pageRows.map(({ item: { archived_at, ...item } }) => ({
+    ...item,
+    availability_windows: windows
+      .filter((w) => w.item_id === item.item_id)
+      .map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
+    archived_at,
+    routes: routes
+      .filter((r) => r.item_id === item.item_id)
+      .map(({ branch_id, station_id, program_id, stock_program_id }) => ({ branch_id, station_id, program_id, stock_program_id })),
+  }));
+  return {
+    can_edit_tenant: canEditTenant,
+    tax_classes: taxClasses,
+    categories,
+    items,
+    next_cursor:
+      rows.length > query.limit && last !== undefined
+        ? Buffer.from(JSON.stringify({ n: last.sortName, id: last.item.item_id })).toString('base64url')
+        : null,
+  };
+}
+
+function decodeCursor(cursor: string): { n: string; id: string } {
+  try {
+    const value: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (typeof value === 'object' && value !== null) {
+      const { n, id } = value as { n?: unknown; id?: unknown };
+      if (typeof n === 'string' && typeof id === 'string') return { n, id };
+    }
+  } catch {
+    // falls through to the 400 below
+  }
+  throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'cursor', message: 'cursor does not decode' }] });
 }
 
 // §6.14 on the common write script: [route branches allowed] → key → references FOR SHARE (category, tax class,

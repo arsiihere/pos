@@ -226,30 +226,59 @@ const Route = z.object({
   stock_program_id: z.string().nullable(),
 });
 
-export const MenuItemResponse = z.object({
+const MenuItem = z.object({
+  item_id: z.string(),
+  category_id: z.string(),
+  tax_class_id: z.string().nullable(),
+  name: z.string(),
+  group_label: z.string().nullable(),
+  description: z.string().nullable(),
+  sort_order: z.number(),
+  price_minor: z.number(),
+  serve_mode: ServeMode,
+  prep_buffer_ms: z.number(),
+  cook_time_ms: z.number(),
+  stock_time_ms: z.number().nullable(),
+  out_of_stock_behaviour: OutOfStockBehaviour,
+  stock_unit: Unit,
+  sale_unit: Unit,
+  stock_per_sale_unit: z.number(),
+  low_stock_threshold: z.number().nullable(),
+  carries_over: z.boolean(),
+  archived_at: z.number().nullable(),
+  routes: z.array(Route),
+});
+
+export const MenuItemResponse = z.object({ data: z.object({ item: MenuItem }) });
+
+// §6.11, S48: search, filters and a keyset cursor (decoded by the service).
+export const MenuQuery = z.object({
+  q: z.string().min(1).max(60).optional(),
+  category_id: z.string().min(1).optional(),
+  status: z.enum(['active', 'archived']).default('active'),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+const Window = z.object({ start_ms: z.number(), end_ms: z.number() });
+
+export const MenuResponse = z.object({
   data: z.object({
-    item: z.object({
-      item_id: z.string(),
-      category_id: z.string(),
-      tax_class_id: z.string().nullable(),
-      name: z.string(),
-      group_label: z.string().nullable(),
-      description: z.string().nullable(),
-      sort_order: z.number(),
-      price_minor: z.number(),
-      serve_mode: ServeMode,
-      prep_buffer_ms: z.number(),
-      cook_time_ms: z.number(),
-      stock_time_ms: z.number().nullable(),
-      out_of_stock_behaviour: OutOfStockBehaviour,
-      stock_unit: Unit,
-      sale_unit: Unit,
-      stock_per_sale_unit: z.number(),
-      low_stock_threshold: z.number().nullable(),
-      carries_over: z.boolean(),
-      archived_at: z.number().nullable(),
-      routes: z.array(Route),
-    }),
+    can_edit_tenant: z.boolean(),
+    tax_classes: z.array(
+      z.object({ tax_class_id: z.string(), name: z.string(), rate_bp: z.number(), archived_at: z.number().nullable() }),
+    ),
+    categories: z.array(
+      z.object({
+        category_id: z.string(),
+        name: z.string(),
+        sort_order: z.number(),
+        archived_at: z.number().nullable(),
+        availability_windows: z.array(Window),
+      }),
+    ),
+    items: z.array(MenuItem.extend({ availability_windows: z.array(Window) })),
+    next_cursor: z.string().nullable(),
   }),
 });
 
@@ -288,3 +317,4 @@ export type PatchTaxClassInput = z.infer<typeof PatchTaxClassBody>;
 export type CreateCategoryInput = z.infer<typeof CreateCategoryBody>;
 export type PatchCategoryInput = z.infer<typeof PatchCategoryBody>;
 export type CreateMenuItemInput = z.infer<typeof CreateMenuItemBody>;
+export type MenuQueryInput = z.infer<typeof MenuQuery>;

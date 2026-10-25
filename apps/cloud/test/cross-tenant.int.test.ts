@@ -67,6 +67,7 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
     url: `/v1/admin/categories/${ids.categoryId}`,
     payload: { name: 'Mains' },
   }),
+  'GET /v1/admin/menu': (ids) => ({ url: `/v1/admin/menu?category_id=${ids.categoryId}` }),
   'POST /v1/admin/menu-items': (ids) => ({
     url: '/v1/admin/menu-items',
     payload: {

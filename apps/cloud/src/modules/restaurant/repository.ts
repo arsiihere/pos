@@ -654,6 +654,93 @@ export async function insertConfigAuditRows(
   );
 }
 
+export interface WindowRow {
+  start_ms: number;
+  end_ms: number;
+}
+
+// §6.11 statement 2: every tax class, archived included, by name, then id.
+export async function selectAllTaxClasses(repo: TenantLevelRepository): Promise<TaxClassRow[]> {
+  const rows = await repo.query<Raw<TaxClassRow>>(
+    `SELECT ${TAX_CLASS_COLUMNS} FROM tax_classes WHERE tenant_id = $1 ORDER BY name, tax_class_id`,
+  );
+  return rows.map(withArchivedAt);
+}
+
+// §6.11 statement 3: every category with its windows in one statement (S47 window order).
+export async function selectAllCategories(
+  repo: TenantLevelRepository,
+): Promise<Array<CategoryRow & { availability_windows: WindowRow[] }>> {
+  const rows = await repo.query<Raw<CategoryRow> & { start_ms: number | null; end_ms: number | null }>(
+    `SELECT c.category_id, c.name, c.sort_order, c.archived_at, w.start_ms, w.end_ms
+       FROM categories c
+       LEFT JOIN availability_windows w ON w.tenant_id = c.tenant_id AND w.category_id = c.category_id
+      WHERE c.tenant_id = $1
+      ORDER BY c.sort_order, c.category_id, w.start_ms, w.end_ms, w.window_id`,
+  );
+  const out: Array<CategoryRow & { availability_windows: WindowRow[] }> = [];
+  for (const row of rows) {
+    let category = out.at(-1);
+    if (category === undefined || category.category_id !== row.category_id) {
+      category = {
+        category_id: row.category_id,
+        name: row.name,
+        sort_order: row.sort_order,
+        archived_at: msOrNull(row.archived_at),
+        availability_windows: [],
+      };
+      out.push(category);
+    }
+    if (row.start_ms !== null && row.end_ms !== null) category.availability_windows.push({ start_ms: row.start_ms, end_ms: row.end_ms });
+  }
+  return out;
+}
+
+// §6.11 statement 4: one keyset page by (lower(name), item_id) (index menu_items_name_order), limit + 1 rows.
+export async function selectMenuPage(
+  repo: TenantLevelRepository,
+  o: { archived: boolean; categoryId: string | null; pattern: string | null; after: { n: string; id: string } | null; limit: number },
+): Promise<Array<{ item: MenuItemRow; sortName: string }>> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string; sort_name: string }>(
+    `SELECT ${MENU_ITEM_COLUMNS}, lower(name) AS sort_name FROM menu_items
+      WHERE tenant_id = $1
+        AND (archived_at IS NOT NULL) = $2
+        AND ($3::text IS NULL OR category_id = $3)
+        AND ($4::text IS NULL OR name ILIKE $4 ESCAPE '\\' OR group_label ILIKE $4 ESCAPE '\\')
+        AND ($5::text IS NULL OR (lower(name), item_id) > ($5, $6::text))
+      ORDER BY lower(name), item_id
+      LIMIT $7`,
+    [o.archived, o.categoryId, o.pattern, o.after?.n ?? null, o.after?.id ?? null, o.limit + 1],
+  );
+  return rows.map(({ sort_name, ...row }) => ({ item: menuItemRow(row), sortName: sort_name }));
+}
+
+// §6.11 statement 5: the page items' windows, = ANY($ids).
+export async function selectItemWindows(
+  repo: TenantLevelRepository,
+  itemIds: string[],
+): Promise<Array<WindowRow & { item_id: string }>> {
+  return repo.query<WindowRow & { item_id: string }>(
+    `SELECT item_id, start_ms, end_ms FROM availability_windows
+      WHERE tenant_id = $1 AND item_id = ANY($2)
+      ORDER BY start_ms, end_ms, window_id`,
+    [itemIds],
+  );
+}
+
+// §6.11 statement 6: the page items' routes in the caller's branches only, = ANY($ids).
+export async function selectItemRoutes(
+  repo: TenantScopedRepository,
+  itemIds: string[],
+): Promise<Array<RouteRow & { item_id: string }>> {
+  return repo.query<RouteRow & { item_id: string }>(
+    `SELECT item_id, branch_id, station_id, program_id, stock_program_id FROM item_routes
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND item_id = ANY($3)
+      ORDER BY item_id, branch_id`,
+    [itemIds],
+  );
+}
+
 function menuItemRow(row: Raw<MenuItemRow> & { price_minor: string }): MenuItemRow {
   // BIGINT arrives as a string
   return { ...row, price_minor: Number(row.price_minor), archived_at: msOrNull(row.archived_at) };
