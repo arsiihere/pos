@@ -56,8 +56,9 @@
 | 36 Cloud CLI `restore-bump` | `dc29dd8` |
 | 37 Hub migration 0004 and projections | `cc8290e` |
 | 38 Hub config holder and HTTP client | `5f628e6` |
+| 39 Hub `pollOnce` core | `3f49853` |
 
-**Next task for Cursor: 39.**
+**Next task for Cursor: 40.**
 
 ## Markers
 
