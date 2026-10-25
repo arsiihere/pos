@@ -46,8 +46,9 @@
 | 26 Cloud tax classes, categories | `53eb634` |
 | 27 Cloud owner-row read helper | `a457dd0` |
 | 28 Cloud menu-item POST | `9ded9e1` |
+| 29 Cloud menu read — search, pages, `can_edit_tenant` | `e782f60` |
 
-**Next task for Cursor: 29.**
+**Next task for Cursor: 30.**
 
 ## Markers
 
