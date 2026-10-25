@@ -17,6 +17,7 @@ import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { registerRestaurantProjections } from '../../src/projections/branch-config';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { publisherFor } from '../../src/ws/server';
@@ -49,6 +50,7 @@ export async function createTestHub(o?: {
   const state = createStateHolder<unknown>({});
   state.setReducer((current) => current);
   const projections = createProjectionRegistry();
+  registerRestaurantProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];

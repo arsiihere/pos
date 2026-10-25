@@ -19,6 +19,7 @@ import { createAuthGeneration } from '../engine-host/auth-generation.js';
 import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
+import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { publisherFor } from '../ws/server.js';
@@ -278,6 +279,7 @@ function createDeps(
   const state = createStateHolder<unknown>({});
   state.setReducer((current) => current);
   const projections = createProjectionRegistry();
+  registerRestaurantProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {
