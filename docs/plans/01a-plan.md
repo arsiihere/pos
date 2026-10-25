@@ -26,8 +26,9 @@
 | 6 Domain: availability windows | `4d674db` |
 | 7 Domain: `lineTotalMinor`, day-setting defaults | `426eec5` |
 | 8 `@pos/domain/hash` | `d8e2f9e` |
+| 9 Events: snapshot schema `config.ts` | `38f8ce8` |
 
-**Next task for Cursor: 9.**
+**Next task for Cursor: 10.**
 
 ## Markers
 
