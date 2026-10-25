@@ -65,4 +65,18 @@ describe('GET /v1/sync/config gzip (S48)', () => {
     expect(notModified.headers['content-encoding']).toBeUndefined();
     expect(notModified.body).toBe('');
   });
+
+  it('[01a S48] gzip;q=0 is a refusal → plain body; both 200 paths carry vary: accept-encoding', async () => {
+    const v = await versions();
+    for (const acceptEncoding of ['gzip;q=0', 'GZIP ; q=0.0, deflate']) {
+      const refused = await poll(0, v.directory, { 'accept-encoding': acceptEncoding });
+      expect(refused.statusCode).toBe(200);
+      expect(refused.headers['content-encoding']).toBeUndefined();
+      expect(refused.headers.vary).toBe('accept-encoding');
+      expect(refused.json().data.config.snapshot.config_version).toBe(v.config);
+    }
+    const zipped = await poll(0, v.directory, { 'accept-encoding': 'deflate, gzip;q=0.5' });
+    expect(zipped.headers['content-encoding']).toBe('gzip');
+    expect(zipped.headers.vary).toBe('accept-encoding');
+  });
 });

@@ -23,11 +23,21 @@ export function registerConfigSyncRoutes(app: FastifyInstance, deps: { pool: pg.
       if (result.kind === 'not_modified') return raw.code(304).send();
       // S48 b, nit 2: both paths send the bytes of one JSON.stringify; a string or Buffer skips the serializer
       const body = JSON.stringify({ data: result.data });
-      raw.header('content-type', 'application/json; charset=utf-8');
-      if (/\bgzip\b/i.test(request.headers['accept-encoding'] ?? '')) {
+      raw.header('content-type', 'application/json; charset=utf-8').header('vary', 'accept-encoding');
+      if (acceptsGzip(request.headers['accept-encoding'] ?? '')) {
         return raw.header('content-encoding', 'gzip').send(gzipSync(body));
       }
       return raw.send(body);
     },
   );
+}
+
+// a gzip token whose q is 0 is an explicit refusal (RFC 9110 §12.5.3)
+function acceptsGzip(header: string): boolean {
+  return header.split(',').some((token) => {
+    const [coding, ...params] = token.split(';').map((part) => part.trim().toLowerCase());
+    if (coding !== 'gzip') return false;
+    const q = params.find((param) => param.startsWith('q='));
+    return q === undefined || Number(q.slice(2)) > 0;
+  });
 }
