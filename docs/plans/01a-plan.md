@@ -55,8 +55,9 @@
 | 35 Cloud CLI `set-branch-settings` | `c52a21c` |
 | 36 Cloud CLI `restore-bump` | `dc29dd8` |
 | 37 Hub migration 0004 and projections | `cc8290e` |
+| 38 Hub config holder and HTTP client | `5f628e6` |
 
-**Next task for Cursor: 38.**
+**Next task for Cursor: 39.**
 
 ## Markers
 
