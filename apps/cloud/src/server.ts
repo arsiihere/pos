@@ -9,6 +9,7 @@ import type { SecretGen } from './lib/secrets.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerJwt } from './plugins/jwt.js';
 import { registerOwnerCredentials } from './plugins/owner-credentials.js';
+import { registerConfigSyncRoutes } from './modules/config-sync/routes.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
@@ -78,6 +79,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerOwnerAuthRoutes(app, deps);
   registerHealthRoutes(app, deps);
   registerRestaurantRoutes(app, deps);
+  registerConfigSyncRoutes(app, deps);
   return app;
 }
 

@@ -17,6 +17,7 @@ interface BIds {
 const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknown }> = {
   'POST /v1/auth/logout': (ids) => ({ url: '/v1/auth/logout', payload: { refresh_token: ids.refreshToken } }),
   'POST /v1/hubs/confirm': () => ({ url: '/v1/hubs/confirm', payload: { hub_version: '1.0.0' } }),
+  'GET /v1/sync/config': () => ({ url: '/v1/sync/config?config_version=0&directory_version=0' }),
   'GET /v1/admin/branches/:branch_id/floors': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/floors` }),
   'POST /v1/admin/branches/:branch_id/floors': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/floors`,
