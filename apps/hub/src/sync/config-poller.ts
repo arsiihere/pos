@@ -15,7 +15,7 @@ import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 import { canonicalJson, sha256hex } from '../lib/hash.js';
 import { readBranchConfigRow } from '../projections/branch-config.js';
-import { swapBranchConfig, type ConfigEntry } from './branch-config-holder.js';
+import { branchConfig, runBranchConfigHooks, swapBranchConfig, type ConfigEntry } from './branch-config-holder.js';
 import type { ConfigClient } from './config-client.js';
 
 export type PollOutcome = 'applied' | 'unchanged' | 'offline' | 'rejected' | 'unauthorized' | 'not_ready';
@@ -200,6 +200,7 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
       device_id: 'hub',
     };
     const [event] = tx.append([draft]);
+    runBranchConfigHooks(branchConfig(), part.config, tx);
     const entry: ConfigEntry = {
       config: part.config,
       snapshotHash: part.hash,
