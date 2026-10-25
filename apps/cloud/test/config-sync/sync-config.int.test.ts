@@ -113,11 +113,10 @@ describe('GET /v1/sync/config', () => {
     const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV1.parse(received.data.config.snapshot)));
     expect(hubHash).toBe(received.data.config.snapshot_hash);
 
-    // an optional field undefined on one row and set on another: the wire drops the key, and the hash is over the wire
+    // an optional field undefined on one row: canonicalJson throws, so the hash can only be taken over the wire.
+    // The "hub applies it" clause lands with tasks 39–40 as [01a §10 #114 hub part].
     const parsed = { items: [{ item_id: 'a', note: undefined }, { item_id: 'b', note: 'x' }] };
     expect(() => canonicalJson(parsed)).toThrow();
-    const wire = JSON.parse(JSON.stringify(parsed)) as unknown;
-    expect(sha256hex(canonicalJson(JSON.parse(JSON.stringify(wire))))).toBe(sha256hex(canonicalJson(wire)));
     expect(() => canonicalJson({ a: undefined })).toThrow();
     expect(() => canonicalJson([undefined])).toThrow();
   });
