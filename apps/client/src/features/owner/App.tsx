@@ -5,6 +5,7 @@ import { t } from '../../i18n';
 import { BranchPicker } from './BranchPicker';
 import { FloorsView } from './floors/FloorsView';
 import { LoginView } from './login/LoginView';
+import { MenuView } from './menu/MenuView';
 import { StationsView } from './stations/StationsView';
 
 // §8.1: the owner app. No token (or #/login) → login; otherwise the branch picker. The cloud client
@@ -47,6 +48,15 @@ export function App({ api }: { api: CloudAdmin }) {
     );
   }
 
+  if (branchId !== null && route === '/menu') {
+    return (
+      <main className="pos-screen">
+        <Nav />
+        <MenuView api={api} />
+      </main>
+    );
+  }
+
   return (
     <main className="pos-screen">
       <BranchPicker branchIds={user.allowed_branch_ids} selectedId={branchId} onPick={setBranchId} />
@@ -66,6 +76,9 @@ function Nav() {
       </a>
       <a className="pos-btn" href="#/stations">
         {t('owner.nav.stations')}
+      </a>
+      <a className="pos-btn" href="#/menu">
+        {t('owner.nav.menu')}
       </a>
     </nav>
   );
