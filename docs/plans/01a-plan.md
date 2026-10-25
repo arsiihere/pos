@@ -23,8 +23,9 @@
 | 3 `.cursor/rules/pos.mdc` → this plan and spec v1.0 | `757e1de` |
 | 4 Domain: error codes, `manage-stock` | `87431d3` |
 | 5 Domain: units | `5a59704` |
+| 6 Domain: availability windows | `4d674db` |
 
-**Next task for Cursor: 6.**
+**Next task for Cursor: 7.**
 
 ## Markers
 
