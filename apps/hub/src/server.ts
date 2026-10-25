@@ -31,6 +31,7 @@ import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
+import { registerBranchConfigQuery } from './queries/branch-config.js';
 import { registerConfigStatusQuery } from './queries/config-status.js';
 import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
@@ -155,6 +156,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStaffRosterQuery(app, deps.clock);
   registerStockQuery(app, deps.clock);
   registerConfigStatusQuery(app, deps.config);
+  registerBranchConfigQuery(app, deps.clock);
   // The catch-up parts read this server's clock; a closed server removes them.
   const stopCatchUp = registerRestaurantCatchUp(deps.clock);
   app.addHook('onClose', async () => stopCatchUp());
