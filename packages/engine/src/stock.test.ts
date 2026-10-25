@@ -7,6 +7,7 @@ import {
   countIsValid,
   initialEngineState,
   saleUnitsAvailable,
+  stockLevel,
   stockOf,
   applyEvent,
   type EngineState,
@@ -96,6 +97,31 @@ describe('@pos/engine stock slice', () => {
     const never = withEntry('I1', { on_hand: 7, reserved: 0, set_at: null, unit: 'piece' });
     expect(availableStock(never, 'I1', T0, i1)).toBe(0);
     expect(availableStock(never, 'I1', T0, kept)).toBe(0);
+  });
+
+  it('[01a §10 #157] the threshold applies only in its own unit: no low while the open day froze another unit', () => {
+    const day = (unit: 'piece' | 'g', at: number) => ({
+      business_date: '2026-10-25',
+      opened_at: at,
+      closed_at: null,
+      units: { I1: { stock_unit: unit, sale_unit: 'piece' as const, stock_per_sale_unit: unit === 'g' ? 250 : 1 } },
+    });
+    // The config now says g with a 1 000 g threshold; the open day froze piece.
+    const grams = item('I1', { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250, low_stock_threshold: 1000 });
+    const pieceDay = (onHand: number): EngineState => ({
+      stock: { I1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'piece' } },
+      business_day: day('piece', T0),
+    });
+    expect(stockLevel(pieceDay(5), 'I1', T0, grams)).toBe('ok');
+    expect(stockLevel(pieceDay(0), 'I1', T0, grams)).toBe('out');
+
+    // The next open froze g: the threshold applies again.
+    const gramDay = (onHand: number): EngineState => ({
+      stock: { I1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'g' } },
+      business_day: day('g', T0),
+    });
+    expect(stockLevel(gramDay(500), 'I1', T0, grams)).toBe('low');
+    expect(stockLevel(gramDay(1500), 'I1', T0, grams)).toBe('ok');
   });
 
   it("[01a S14] stockOf on a missing item → { 0, 0, null, 'piece' }", () => {

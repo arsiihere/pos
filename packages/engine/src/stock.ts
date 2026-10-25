@@ -52,21 +52,24 @@ export function availableStock(
   return valid ? Math.max(0, entry.on_hand - entry.reserved) : 0;
 }
 
-// 01a S46: derived, no event.
+// 01a S46: derived, no event. v1.0.2: the threshold is in the item's own stock_unit, so it applies only
+// while the open day's frozen unit is that unit; otherwise no low until the next day open.
 export function stockLevel(
   state: EngineState,
   itemId: string,
   businessDayStartMs: number | null,
   item: ConfigItem,
 ): 'not_counted' | 'out' | 'low' | 'ok' {
+  const dayUnit = dayUnits(state, item).stock_unit;
   const valid = countIsValid(stockOf(state, itemId), businessDayStartMs, {
     carries_over: item.carries_over,
-    stock_unit: dayUnits(state, item).stock_unit,
+    stock_unit: dayUnit,
   });
   if (!valid) return 'not_counted';
   const available = availableStock(state, itemId, businessDayStartMs, item);
   if (available === 0) return 'out';
-  if (item.low_stock_threshold !== null && available <= item.low_stock_threshold) return 'low';
+  const threshold = dayUnit === item.stock_unit ? item.low_stock_threshold : null;
+  if (threshold !== null && available <= threshold) return 'low';
   return 'ok';
 }
 
