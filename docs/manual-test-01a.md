@@ -104,7 +104,7 @@ hubsql "select branch_id, config_version, applied_at from branch_config"
 - the status line **"Menu version N · checked just now"**, where N matches `pg -c "select config_version from branches"`;
 - all five items as rows; Seekh kebab, Biryani, Gulab jamun and Fries have an On hand field with Reserved and Available, while **Halwa puri has only the Available / Off switch** (it is not stock-tracked);
 - `hubsql` shows the same `config_version`;
-- the Category filter lists category **ids**, not names (known spec gap, see `docs/reviews/01a-auto/whole-module-check.md`).
+- the Category filter lists the category **names** (Mains, Breakfast; spec v1.0.2).
 
 **Most likely failures:** "No menu yet" after 2 minutes → T2 shows `config poll refused by the cloud` (key problem) or `offline` (cloud down). "No one on the staff list can open this page." → the owner's role lacks `access-hub-admin` / `manage-stock`; check A0's query.
 
@@ -152,7 +152,7 @@ events 12
 
 ## A5. Business day open → close (§6.18a, §6.18b, S33, S41)
 
-1. **Close day** too early: tap Close day → the confirmation "Close the business day? Counts of items that do not keep overnight will read 0 until the next day is started" → confirm. Within 4 h of the open you get **"This day was started only a short time ago; nothing changed."** For the drill, lower the guard:
+1. **Close day** too early: tap Close day → the confirmation "Close the business day? Counts of items that do not keep overnight will read 0 until the next day is started" → confirm. Within 4 h of the open you get **"This day was started less than 4 h ago; nothing changed."** For the drill, lower the guard:
 
 ```sh
 cloud node --import tsx src/cli/set-branch-settings.ts --branch $BRANCH --day-min-gap-hours 0 --day-stale-after-hours 1

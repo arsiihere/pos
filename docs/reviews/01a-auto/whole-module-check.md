@@ -32,7 +32,16 @@ Every item is closed except the two spec gaps in C:
 - `6d0ca38` single logout;
 - spec v1.0.1: §4.3 station order, §7.8 (b), §6.21.
 
-## C. Open: need an owner decision (behaviour change, spec-first)
+## C. Owner decisions (ruled 2026-10-26, spec v1.0.2)
+
+All four rulings are implemented:
+- category names and `day_min_gap_hours`: task 76, `4b08a6a`;
+- threshold only in its own unit: task 75, `5a9f18f`;
+- stock query `unit` is the frozen day unit: task 74, `83b4684`;
+- no-op PATCH or route PUT writes nothing: task 73, `e8f3d9e`. This also covers review-08 N2.
+
+Still open: review-07 N5 (limits into §3.3) and the D3 wording. The table below is the list as it stood before the rulings.
+
 
 | Source | Finding | Why deferred |
 |---|---|---|
