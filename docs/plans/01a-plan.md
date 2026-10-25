@@ -35,8 +35,9 @@
 | 15 Cloud `withIdempotency` | `161df82` |
 | 16 Cloud `bumpConfigVersion`, `writeConfigAudit` | `e372f85` |
 | 17 Cloud test infrastructure | `803a621` |
+| 18 Cloud floors GET/POST | `2e15f6e` |
 
-**Next task for Cursor: 18.**
+**Next task for Cursor: 19.**
 
 ## Markers
 
