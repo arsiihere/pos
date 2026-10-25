@@ -83,11 +83,11 @@ export async function buildSnapshot(
       ORDER BY m.sort_order, m.item_id`,
     [branchId],
   );
-  const windows = await level.query<WindowRow>(
+  const windows = await scoped.query<WindowRow>(
     `SELECT w.item_id, w.category_id, w.start_ms, w.end_ms FROM availability_windows w
       WHERE w.tenant_id = $1
         AND (w.category_id IS NOT NULL
-             OR w.item_id IN (SELECT item_id FROM item_routes WHERE tenant_id = $1 AND branch_id = $2))
+             OR w.item_id IN (SELECT item_id FROM item_routes WHERE ${branch}))
       ORDER BY w.start_ms, w.end_ms, w.window_id`,
     [branchId],
   );

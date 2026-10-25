@@ -226,6 +226,28 @@ describe('buildSnapshot', () => {
     ]);
   });
 
+  it('[01a D54] the window statement returns no item windows for a branch outside the caller’s branches', async () => {
+    await seedMenu(cloud.pool, f);
+    const client = await cloud.pool.connect();
+    const windowRows: Array<{ item_id: string | null }> = [];
+    const original = client.query.bind(client) as (...args: unknown[]) => Promise<{ rows: unknown[] }>;
+    (client as { query: unknown }).query = async (...args: unknown[]) => {
+      const result = await original(...args);
+      if (typeof args[0] === 'string' && args[0].includes('FROM availability_windows')) {
+        windowRows.push(...(result.rows as Array<{ item_id: string | null }>));
+      }
+      return result;
+    };
+    try {
+      const otherOnly = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([f.branches[1]]) });
+      await buildSnapshot(client, otherOnly, f.branches[0], HEADER);
+    } finally {
+      (client as { query: unknown }).query = original;
+      client.release();
+    }
+    expect(windowRows.filter((row) => row.item_id !== null)).toEqual([]);
+  });
+
   it("[01a S33] the header's day settings are in the snapshot", async () => {
     await seedMenu(cloud.pool, f);
     const snapshot = await build(f.branches[0], {
