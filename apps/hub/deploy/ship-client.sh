@@ -2,7 +2,7 @@
 # Ship the built /admin/stock page to a stopped hub (01a S39 d, e; §7.8 hub release step 5).
 # Run on the developer machine, on the restaurant LAN, after `pnpm test` built apps/client/dist/ at the
 # release commit and the hub was stopped and checked out at the same commit. Refuses while
-# `systemctl is-active hub` reports active on the target. Uses only bash, git, tar, ssh.
+# `systemctl is-active hub` reports anything but inactive or failed on the target (D6). Uses only bash, git, tar, ssh.
 set -euo pipefail
 
 REMOTE_DIST=/opt/pos-hub/apps/client/dist
