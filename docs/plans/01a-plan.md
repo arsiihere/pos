@@ -29,8 +29,9 @@
 | 9 Events: snapshot schema `config.ts` | `38f8ce8` |
 | 10 Events: seven events, fixtures, builders | `392b1a4` |
 | 11 `@pos/engine`: stock slice | `d0d8172` |
+| 12 `@pos/engine`: business day, `dayUnits`, `stockLevel` | `7d3cb9d` |
 
-**Next task for Cursor: 12.**
+**Next task for Cursor: 13.**
 
 ## Markers
 
