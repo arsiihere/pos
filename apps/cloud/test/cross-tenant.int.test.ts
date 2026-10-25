@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
-import { OWNER_PASSWORD, restaurantFixture } from './helpers/restaurant';
+import { OWNER_PASSWORD, owner, restaurantFixture } from './helpers/restaurant';
 import { createTestCloud } from './helpers/test-cloud';
 
 // Tenant B's ids that a ROUTE_CASES entry may name in its path or payload.
@@ -196,6 +196,20 @@ describe('cross-tenant', () => {
         expect(response.json().error.code).toBe('BRANCH_NOT_FOUND');
       }
     }
+
+    // 01a §6.5: tenant A's own branch with B's floor id stops at the tenant-scoped floor read, not the branch guard.
+    const foreignFloor = await cloud.app.inject({
+      method: 'POST',
+      url: `/v1/admin/branches/${f.branches[0]}/tables`,
+      ...owner(f),
+      payload: { floor_id: ids.floorId, name: 'T1' },
+    });
+    expect(foreignFloor.statusCode).toBe(422);
+    expect(foreignFloor.json().error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'floor_id', reason: 'not_found' },
+    });
+    expect(stringsIn(foreignFloor.json())).not.toContain(ids.floorId);
   });
 });
 
