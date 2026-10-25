@@ -22,6 +22,7 @@ import { registerApprovePairingRequest } from './commands/approve-pairing-reques
 import { registerClearPinLockout } from './commands/clear-pin-lockout.js';
 import { registerForceLogoutSession } from './commands/force-logout-session.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
+import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { Semaphore } from './lib/semaphore.js';
@@ -132,6 +133,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerRevokeDevice(app);
   registerForceLogoutSession(app);
   registerClearPinLockout(app);
+  registerOpenBusinessDay(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
