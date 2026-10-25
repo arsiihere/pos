@@ -6,6 +6,7 @@ import type { EngineState } from '@pos/engine';
 import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type EventDraft } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stationExists } from '../../src/auth/station-validator';
 import { openDb } from '../../src/db/connection';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
@@ -182,7 +183,9 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     await configPoller(first.app).pollOnce();
     const v3Seq = first.deps.writer.lastSeq();
     const v3Row = first.deps.db.prepare('SELECT * FROM branch_config').get() as Record<string, unknown>;
-    cloud.respondWithSnapshot(snapshot(4));
+    // v4 adds a station, so the validator shows which config it reads
+    const v4 = aBranchConfig({ branch_id: BRANCH, config_version: 4 });
+    cloud.respondWithSnapshot({ ...v4, stations: [...v4.stations, { ...v4.stations[0]!, station_id: 'S4', name: 'Tandoor' }] });
     await configPoller(first.app).pollOnce();
     expect(branchConfig()?.config_version).toBe(4);
     await first.stop();
@@ -202,6 +205,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     expect((second.deps.state.get() as EngineState).stock.I1).toMatchObject({ on_hand: 6, unit: 'piece' });
     expect(branchConfig()?.config_version).toBe(4);
     expect(second.deps.db.prepare('SELECT config_version FROM branch_config').pluck().get()).toBe(4);
+    expect(second.deps.writer.run((tx) => stationExists(tx, 'S4')).result).toBe(true);
   });
 
   it('[01a §7.2] after stop() no poll runs and a late in-flight result does not swap', async () => {

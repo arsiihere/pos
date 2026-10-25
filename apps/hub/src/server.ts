@@ -34,6 +34,8 @@ import { registerStaffRosterQuery } from './queries/staff-roster.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 import { httpConfigClient, type ConfigClient } from './sync/config-client.js';
 import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
+// §6.22: registers the station validator at module load, before the server listens.
+import './sync/station-validator.js';
 import { registerWs } from './ws/server.js';
 
 const SECRET_HEADERS = [
