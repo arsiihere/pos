@@ -190,6 +190,8 @@ export function ItemForm({
     (perPieceValue !== null && perPieceValue !== startUnits.per);
 
   function changeStockUnit(next: Unit) {
+    // The threshold is in the stock unit (S46): 1 500 g must not become 1 500 pieces.
+    if (next !== stockUnit) setThreshold(null);
     setStockUnit(next);
     if (saleUnit !== 'piece' && saleUnit !== next) setSaleUnit('piece');
   }
@@ -218,9 +220,20 @@ export function ItemForm({
     e.preventDefault();
     if (busy) return;
     const priceValue = parseRupees(price);
-    const cookMs = parseMinutes(cook);
-    const prepMs = prep.trim() === '' ? 0 : parseMinutes(prep);
-    const stockTimeMs = stockTime.trim() === '' ? null : parseMinutes(stockTime);
+    // A time whose text was not touched keeps its stored _ms, which minutes with 2 decimals may not round-trip.
+    const untouched = (text: string, ms: number | null | undefined) =>
+      item !== null && ms != null && text === formatMinutes(ms);
+    const cookMs = untouched(cook, item?.cook_time_ms) ? item!.cook_time_ms : parseMinutes(cook);
+    const prepMs = untouched(prep, item?.prep_buffer_ms)
+      ? item!.prep_buffer_ms
+      : prep.trim() === ''
+        ? 0
+        : parseMinutes(prep);
+    const stockTimeMs = untouched(stockTime, item?.stock_time_ms)
+      ? item!.stock_time_ms
+      : stockTime.trim() === ''
+        ? null
+        : parseMinutes(stockTime);
     if (
       !priceValue.ok ||
       cookMs === null ||

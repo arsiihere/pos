@@ -285,6 +285,55 @@ describe('owner item and category forms', () => {
     expect(patch?.body).toEqual({ stock_unit: 'ml', stock_per_sale_unit: 330 });
   });
 
+  it('[01a §8.1, S46] editing the price leaves untouched odd times alone; a stock unit change clears the threshold', async () => {
+    const item = {
+      item_id: 'I2',
+      category_id: 'C1',
+      tax_class_id: null,
+      name: 'Nihari',
+      group_label: null,
+      description: null,
+      sort_order: 0,
+      price_minor: 90_000,
+      serve_mode: 'immediate',
+      prep_buffer_ms: 30_001,
+      cook_time_ms: 100_001,
+      stock_time_ms: 50_001,
+      out_of_stock_behaviour: 'cook_fresh',
+      stock_unit: 'g',
+      sale_unit: 'g',
+      stock_per_sale_unit: 1,
+      low_stock_threshold: 1500,
+      carries_over: false,
+      availability_windows: [],
+      archived_at: null,
+      routes: [],
+    } satisfies MenuItem;
+    const edit = fakeApi();
+    act(() =>
+      root.render(
+        <ItemForm
+          api={edit.api}
+          item={item}
+          taxClasses={TAXES}
+          categories={CATEGORIES}
+          branchIds={['B1']}
+          onSaved={() => {}}
+          onCancel={() => {}}
+        />,
+      ),
+    );
+    await flush();
+    setValue(field('price'), '950');
+    await submitForm();
+    expect(edit.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ price_minor: 95_000 });
+
+    const threshold = () => container.querySelector<HTMLInputElement>('[data-field="low_stock_threshold"] input');
+    expect(threshold()?.value).toBe('1.5');
+    setValue(field('stock_unit'), 'piece');
+    expect(threshold()?.value).toBe('');
+  });
+
   it('[01a S46, S41] threshold 1.5 kg sends 1500; Keeps overnight sends carries_over true', async () => {
     const { api, calls } = fakeApi();
     await renderNewItem(api);
