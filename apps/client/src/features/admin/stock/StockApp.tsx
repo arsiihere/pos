@@ -64,6 +64,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [drafts, setDrafts] = useState<ReadonlyMap<string, number | null>>(new Map());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
+  // The stock query refused (403, 409, 500): shown until the next good answer.
+  const [queryError, setQueryError] = useState<Message | null>(null);
   const versions = useRef<StockVersions | undefined>(undefined);
   // D32: the save's and each Add's command_id, kept for retries of the same entries.
   const pendingSave = useRef<{ commandId: string; key: string } | null>(null);
@@ -80,10 +82,12 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     if (!stock.ok) {
       // The hub is unreachable: keep the rows and what was typed.
       if (stock.error.kind === 'network') setOffline(true);
+      else setQueryError(errorMessage(stock.error));
       return;
     }
     const answer = stock.data;
     setOffline(false);
+    setQueryError(null);
     setClock(createHubClock(answer.hub_time));
     setStartedAt(answer.business_day_started_at);
     setDay(answer.business_day);
@@ -229,6 +233,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       <h1 className="title">{t('admin_stock.title')}</h1>
       {status !== null && <ConfigStatus status={status} clock={clock} />}
       {offline && <Banner tone="info" text={t('admin_stock.reconnecting')} />}
+      {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
       {clock !== null && (
         <BusinessDayBar
           day={day}

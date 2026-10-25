@@ -106,8 +106,8 @@ interface Sent {
 }
 
 // A hub over a fake fetch: stock answers are served in order (the last one repeats; 'offline' throws); commands are
-// recorded and answered by `command`.
-function fakeHub(stock: Array<HubStockAnswer | 'offline'>, command: (sent: Sent, n: number) => Response = () => json(200, {})) {
+// recorded and answered by `command`. A function stands for a non-200 answer.
+function fakeHub(stock: Array<HubStockAnswer | 'offline' | (() => Response)>, command: (sent: Sent, n: number) => Response = () => json(200, {})) {
   const sent: Sent[] = [];
   let commands = 0;
   const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
@@ -117,6 +117,7 @@ function fakeHub(stock: Array<HubStockAnswer | 'offline'>, command: (sent: Sent,
     if (url.startsWith('/admin/queries/stock')) {
       const next = stock.length > 1 ? stock.shift() : stock[0];
       if (next === 'offline') throw new TypeError('network');
+      if (typeof next === 'function') return next();
       return json(200, { data: next });
     }
     if (url.startsWith('/admin/commands/')) return command({ url, body }, commands++);
@@ -349,6 +350,24 @@ describe('/admin/stock table', () => {
     expect(reads).toEqual(['/admin/queries/stock', '/admin/queries/stock?meta_version=42.1&stock_version=7']);
     expect(rowOf('I1').textContent).toContain('Item I1');
     expect(rowOf('I1').querySelector('input')?.value).toBe('5');
+  });
+
+  it('[01a §8.2] a 403 on the stock query shows the permission text', async () => {
+    fakeTimers();
+    const denied = () =>
+      json(403, { error: { code: 'PERMISSION_DENIED', message: 'x', details: {}, request_id: 'R' } });
+    const { api } = fakeHub([denied, answer()]);
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    expect(container.textContent).toContain(t('admin_stock.errors.PERMISSION_DENIED'));
+
+    // The next good answer clears it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    await flush();
+    expect(container.textContent).not.toContain(t('admin_stock.errors.PERMISSION_DENIED'));
+    expect(rowOf('I1').textContent).toContain('Item I1');
   });
 });
 
