@@ -81,8 +81,9 @@
 | 61 Shared components and quantity input | `4e1c307` |
 | 62 Owner money and `cloud-admin` client | `2ffdc21` |
 | 63 Owner shell — login, branch picker, app | `a6300b2` |
+| 64 Owner floors view | `b5c5c3d` |
 
-**Next task for Cursor: 64.**
+**Next task for Cursor: 65.**
 
 ## Markers
 
