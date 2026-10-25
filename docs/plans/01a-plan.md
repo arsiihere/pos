@@ -22,8 +22,9 @@
 | 2 Foundation §6.2 codes | `ee81c61` |
 | 3 `.cursor/rules/pos.mdc` → this plan and spec v1.0 | `757e1de` |
 | 4 Domain: error codes, `manage-stock` | `87431d3` |
+| 5 Domain: units | `5a59704` |
 
-**Next task for Cursor: 5.**
+**Next task for Cursor: 6.**
 
 ## Markers
 

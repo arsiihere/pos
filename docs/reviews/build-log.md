@@ -324,3 +324,4 @@ Commit below. `/pair` is dark (`data-theme="dark"`) with `#screen` as a `pos-scr
 # Build log — module 01a (overnight auto run)
 
 - Task 4 — `87431d3` — tests added: `[01a §9]` 13 codes, `[01a S18]` default roles (20-permission test renamed) — pass, full suite 266/266 (the changes were left uncommitted by an earlier try; red checked by removing two entries, then green).
+- Task 5 — `5a59704` — tests added: `[01a §10 #141]`, `[01a S44]` "1.5kg"/"1,5" rejected, `[01a S44]` root export — pass, full suite 269/269.
