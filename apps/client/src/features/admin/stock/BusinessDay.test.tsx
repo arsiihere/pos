@@ -243,7 +243,7 @@ describe('/admin/stock business day', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('[01a §10 #133 page part] one tap on Start day sends OpenBusinessDay {} and keeps the typed counts; opened_recently on close says nothing changed', async () => {
+  it('[01a §8.2, S33] one tap on Start day sends OpenBusinessDay {} and keeps the typed counts; opened_recently on close says nothing changed', async () => {
     const { api, sent } = fakeHub([closed(), answer()], (name) => {
       if (name === 'open-business-day') return ok(OPENED);
       return ok({ ...CLOSED, closed_at: null, changed: false, reason: 'opened_recently' });
