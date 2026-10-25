@@ -268,7 +268,11 @@ importers:
         specifier: 22.19.1
         version: 22.19.1
 
-  packages/domain: {}
+  packages/domain:
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.1
+        version: 22.19.1
 
   packages/events:
     dependencies:
