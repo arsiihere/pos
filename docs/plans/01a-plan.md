@@ -88,8 +88,9 @@
 | 67 Owner item and category forms | `939e5d0` |
 | 68 `/admin/stock` — `hub-admin` client and PIN login | `8f34f02` |
 | 69 `/admin/stock` — table, status, banner, alert bar, save, versioned poll, hours | `80294d2` |
+| 70 `/admin/stock` — business day and Add | `aa1a90c` |
 
-**Next task for Cursor: 70.**
+**Next task for Cursor: 71.**
 
 ## Markers
 
