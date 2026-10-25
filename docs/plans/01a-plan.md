@@ -36,8 +36,9 @@
 | 16 Cloud `bumpConfigVersion`, `writeConfigAudit` | `e372f85` |
 | 17 Cloud test infrastructure | `803a621` |
 | 18 Cloud floors GET/POST | `2e15f6e` |
+| 19 Cloud floor PATCH | `35c9760` |
 
-**Next task for Cursor: 19.**
+**Next task for Cursor: 20.**
 
 ## Markers
 
