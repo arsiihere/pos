@@ -152,6 +152,8 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
       problem = null;
       return finish({ outcome: 'unchanged', at: at() });
     }
+    // §7.3: the rejected config part is logged at error even though the directory part goes on to apply.
+    if (configRejected !== null) deps.log.error({ outcome: 'rejected', reason: configRejected }, MSG);
     if (part !== null && part.config.items.length > LARGE_SNAPSHOT_ITEMS) {
       deps.log.warn({ items: part.config.items.length }, 'config snapshot above the off-thread trigger (§12.4)');
     }

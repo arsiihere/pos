@@ -241,7 +241,7 @@ describe('config poller', () => {
         .logs()
         .split('\n')
         .filter((line) => line.includes('config poll'))
-        .map((line) => JSON.parse(line) as { level: number; outcome: string });
+        .map((line) => JSON.parse(line) as { level: number; outcome: string; reason?: string });
     cloud.respondWithSnapshot(snapshot(3), { directory: await aDirectory({ directory_version: 2 }) });
     await configPoller(h.app).pollOnce();
     cloud.next = { kind: 'not_modified' };
@@ -257,6 +257,14 @@ describe('config poller', () => {
       ['offline', 30],
       ['rejected', 50],
       ['unauthorized', 50],
+    ]);
+    // a rejected config part beside a newer directory part is still logged at error
+    const seen = lines().length;
+    cloud.respondWithSnapshot(snapshot(5), { snapshotHash: 'f'.repeat(64), directory: await aDirectory({ directory_version: 3 }) });
+    expect((await configPoller(h.app).pollOnce()).outcome).toBe('applied');
+    expect(lines().slice(seen).map((line) => [line.outcome, line.level, line.reason])).toEqual([
+      ['rejected', 50, 'hash_mismatch'],
+      ['applied', 30, undefined],
     ]);
     const logs = h.logs();
     expect(logs).not.toContain('Chicken Karahi');
