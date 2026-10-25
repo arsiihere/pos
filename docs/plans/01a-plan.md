@@ -34,8 +34,9 @@
 | 14 Cloud migration `0002_restaurant_setup.sql` | `0a633c4` |
 | 15 Cloud `withIdempotency` | `161df82` |
 | 16 Cloud `bumpConfigVersion`, `writeConfigAudit` | `e372f85` |
+| 17 Cloud test infrastructure | `803a621` |
 
-**Next task for Cursor: 17.**
+**Next task for Cursor: 18.**
 
 ## Markers
 
