@@ -16,11 +16,13 @@ import {
   FloorListResponse,
   FloorParams,
   FloorResponse,
+  MenuItemParams,
   MenuItemResponse,
   MenuQuery,
   MenuResponse,
   PatchCategoryBody,
   PatchFloorBody,
+  PatchMenuItemBody,
   PatchProgramBody,
   PatchStationBody,
   PatchTableBody,
@@ -48,6 +50,7 @@ import {
   listStations,
   patchCategory,
   patchFloor,
+  patchMenuItem,
   patchProgram,
   patchStation,
   patchTable,
@@ -266,6 +269,19 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('POST /v1/admin/menu-items');
       return sendIdempotent(reply, await createMenuItem(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/menu-items/:item_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: MenuItemParams, body: PatchMenuItemBody, response: { 200: MenuItemResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/menu-items/:item_id');
+      const data = await patchMenuItem(deps, ownerRequest(app, request), request.params.item_id, request.body);
+      return reply.send({ data });
     },
   );
 }

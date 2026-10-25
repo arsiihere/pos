@@ -219,6 +219,32 @@ export const CreateMenuItemBody = z.object({
     }),
 });
 
+export const MenuItemParams = z.object({ item_id: z.string().min(1) });
+
+// §6.15: any item field plus archived; routes use §6.16. The rules run on the merged row (service).
+export const PatchMenuItemBody = z
+  .object({
+    category_id: z.string().min(1).optional(),
+    tax_class_id: z.string().min(1).nullable().optional(),
+    name: Name.optional(),
+    group_label: GroupLabel.optional(),
+    description: Description.optional(),
+    sort_order: SortOrder.optional(),
+    price_minor: PriceMinor.optional(),
+    serve_mode: ServeMode.optional(),
+    prep_buffer_ms: PrepBuffer.optional(),
+    cook_time_ms: CookTime.optional(),
+    stock_time_ms: StockTime.optional(),
+    out_of_stock_behaviour: OutOfStockBehaviour.optional(),
+    stock_unit: Unit.optional(),
+    sale_unit: Unit.optional(),
+    stock_per_sale_unit: StockPerSaleUnit.optional(),
+    low_stock_threshold: LowStockThreshold.optional(),
+    carries_over: z.boolean().optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+
 const Route = z.object({
   branch_id: z.string(),
   station_id: z.string(),
@@ -318,3 +344,4 @@ export type CreateCategoryInput = z.infer<typeof CreateCategoryBody>;
 export type PatchCategoryInput = z.infer<typeof PatchCategoryBody>;
 export type CreateMenuItemInput = z.infer<typeof CreateMenuItemBody>;
 export type MenuQueryInput = z.infer<typeof MenuQuery>;
+export type PatchMenuItemInput = z.infer<typeof PatchMenuItemBody>;

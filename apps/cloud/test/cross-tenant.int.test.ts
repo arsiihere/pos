@@ -15,6 +15,7 @@ interface BIds {
   programId: string;
   taxClassId: string;
   categoryId: string;
+  itemId: string;
   refreshToken: string;
 }
 
@@ -80,6 +81,10 @@ const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknow
       routes: [{ branch_id: ids.branchId, station_id: ids.stationId, program_id: ids.programId }],
     },
   }),
+  'PATCH /v1/admin/menu-items/:item_id': (ids) => ({
+    url: `/v1/admin/menu-items/${ids.itemId}`,
+    payload: { category_id: ids.categoryId, tax_class_id: ids.taxClassId, price_minor: 100 },
+  }),
 };
 
 describe('cross-tenant', () => {
@@ -138,6 +143,17 @@ describe('cross-tenant', () => {
       `INSERT INTO categories (tenant_id, category_id, name, created_at, updated_at) VALUES ($1, $2, 'B category', 0, 0)`,
       [f.other.tenantId, categoryId],
     );
+    const itemId = 'B-ITEM-00000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, price_minor, serve_mode, cook_time_ms,
+                               created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'B item', 100, 'immediate', 60000, 0, 0)`,
+      [f.other.tenantId, itemId, categoryId, taxClassId],
+    );
+    await cloud.pool.query(
+      `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, updated_at) VALUES ($1, $2, $3, $4, $5, 0)`,
+      [f.other.tenantId, f.other.branchId, itemId, stationId, programId],
+    );
     const ids: BIds = {
       tenantId: f.other.tenantId,
       userId: f.other.userId,
@@ -149,6 +165,7 @@ describe('cross-tenant', () => {
       programId,
       taxClassId,
       categoryId,
+      itemId,
       refreshToken: loginB.json().data.refresh_token as string,
     };
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
@@ -168,6 +185,7 @@ describe('cross-tenant', () => {
       ids.programId,
       ids.taxClassId,
       ids.categoryId,
+      ids.itemId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
@@ -196,7 +214,11 @@ describe('cross-tenant', () => {
       for (const id of bIds) {
         if (!echoed.includes(id)) expect(returned).not.toContain(id);
       }
-      if (route.url === '/v1/admin/tax-classes/:tax_class_id' || route.url === '/v1/admin/categories/:category_id') {
+      if (
+        route.url === '/v1/admin/tax-classes/:tax_class_id' ||
+        route.url === '/v1/admin/categories/:category_id' ||
+        route.url === '/v1/admin/menu-items/:item_id'
+      ) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
       }

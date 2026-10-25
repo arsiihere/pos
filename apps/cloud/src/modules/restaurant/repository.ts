@@ -598,6 +598,49 @@ export async function insertMenuItem(
   return menuItemRow(rows[0]!);
 }
 
+export async function lockMenuItem(repo: TenantLevelRepository, itemId: string): Promise<MenuItemRow | undefined> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
+    `SELECT ${MENU_ITEM_COLUMNS} FROM menu_items WHERE tenant_id = $1 AND item_id = $2 FOR UPDATE`,
+    [itemId],
+  );
+  return rows[0] === undefined ? undefined : menuItemRow(rows[0]);
+}
+
+export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItemRow, now: number): Promise<MenuItemRow> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
+    `UPDATE menu_items SET category_id = $3, tax_class_id = $4, name = $5, group_label = $6, description = $7,
+                           sort_order = $8, price_minor = $9, serve_mode = $10, prep_buffer_ms = $11, cook_time_ms = $12,
+                           stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
+                           stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
+                           updated_at = $21
+      WHERE tenant_id = $1 AND item_id = $2
+      RETURNING ${MENU_ITEM_COLUMNS}`,
+    [
+      item.item_id,
+      item.category_id,
+      item.tax_class_id,
+      item.name,
+      item.group_label,
+      item.description,
+      item.sort_order,
+      item.price_minor,
+      item.serve_mode,
+      item.prep_buffer_ms,
+      item.cook_time_ms,
+      item.stock_time_ms,
+      item.out_of_stock_behaviour,
+      item.stock_unit,
+      item.sale_unit,
+      item.stock_per_sale_unit,
+      item.low_stock_threshold,
+      item.carries_over,
+      item.archived_at,
+      now,
+    ],
+  );
+  return menuItemRow(rows[0]!);
+}
+
 // One multi-row INSERT through the caller's branch rows (§6.14 query count); returned by branch_id.
 export async function insertItemRoutes(
   repo: TenantScopedRepository,

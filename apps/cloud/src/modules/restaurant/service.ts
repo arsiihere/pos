@@ -25,6 +25,7 @@ import {
   insertTaxClass,
   lockCategory,
   lockFloor,
+  lockMenuItem,
   lockProgram,
   lockStation,
   lockTable,
@@ -47,6 +48,7 @@ import {
   shareTaxClass,
   updateCategory,
   updateFloor,
+  updateMenuItem,
   updateProgram,
   updateStation,
   updateTable,
@@ -71,6 +73,7 @@ import type {
   MenuQueryInput,
   PatchCategoryInput,
   PatchFloorInput,
+  PatchMenuItemInput,
   PatchProgramInput,
   PatchStationInput,
   PatchTableInput,
@@ -784,8 +787,8 @@ export async function createMenuItem(
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
-      assertActiveReference('category_id', await shareCategory(level, body.category_id));
-      if (body.tax_class_id !== null) assertActiveReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
+      assertReference('category_id', await shareCategory(level, body.category_id));
+      if (body.tax_class_id !== null) assertReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
       await assertRoutes(scoped, body.routes);
       const now = deps.clock.branchNow();
       const { routes: routeInput, ...fields } = body;
@@ -817,6 +820,70 @@ export async function createMenuItem(
   );
 }
 
+// §6.15: lock → rules on the merged row (units, stock ≤ cook, references; a restored item's routes are re-checked
+// against §3.3, so it cannot bring back a route to a station or program archived meanwhile) → write → audit →
+// bump every branch. Archiving needs no in-use check (open orders hold copies, §4.4).
+export async function patchMenuItem(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  itemId: string,
+  body: PatchMenuItemInput,
+): Promise<{ item: MenuItemRow & { routes: RouteRow[] } }> {
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockMenuItem(level, itemId);
+    if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
+    const now = deps.clock.branchNow();
+    const { archived, ...fields } = body;
+    const merged: MenuItemRow = {
+      ...before,
+      ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
+      ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    assertUnits(merged);
+    if (merged.stock_time_ms !== null && merged.stock_time_ms > merged.cook_time_ms) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
+    }
+    const active = merged.archived_at === null;
+    if (body.category_id !== undefined || active) {
+      assertReference('category_id', await shareCategory(level, merged.category_id), active);
+    }
+    if (merged.tax_class_id !== null && (body.tax_class_id !== undefined || active)) {
+      assertReference('tax_class_id', await shareTaxClass(level, merged.tax_class_id), active);
+    }
+    const routes = await selectItemRoutes(scoped, [itemId]);
+    if (before.archived_at !== null && active) await assertRoutes(scoped, routes);
+    const item = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () => updateMenuItem(level, merged, now));
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'menu_item',
+        entityId: itemId,
+        branchId: null,
+        action: auditActionFor(before, item),
+        before,
+        after: item,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+    return {
+      item: {
+        ...item,
+        routes: routes.map(({ branch_id, station_id, program_id, stock_program_id }) => ({
+          branch_id,
+          station_id,
+          program_id,
+          stock_program_id,
+        })),
+      },
+    };
+  });
+}
+
 // §3.3, S44: equal units → stock_per_sale_unit 1; different units → sale_unit 'piece'.
 function assertUnits(item: { stock_unit: string; sale_unit: string; stock_per_sale_unit: number }): void {
   const issue =
@@ -830,9 +897,10 @@ function assertUnits(item: { stock_unit: string; sale_unit: string; stock_per_sa
   if (issue !== null) throw new DomainError('VALIDATION_FAILED', { issues: [issue] });
 }
 
-// §3.3: an item references an active category and (when not null) an active tax class.
-function assertActiveReference(field: string, row: { archived_at: number | null } | undefined): void {
-  const reason = row === undefined ? 'not_found' : row.archived_at !== null ? 'archived' : null;
+// §3.3: an item references an active category and (when not null) an active tax class; an archived item may keep
+// an archived one, but never an unknown one.
+function assertReference(field: string, row: { archived_at: number | null } | undefined, requireActive = true): void {
+  const reason = row === undefined ? 'not_found' : requireActive && row.archived_at !== null ? 'archived' : null;
   if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
 }
 
