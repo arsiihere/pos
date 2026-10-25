@@ -60,8 +60,9 @@
 | 40 Hub poller — schema version, stored-body format, commit failure | `3387815` |
 | 41 Hub `onBranchConfigApplied` | `8d48b38` |
 | 42 Hub apply failure — visible problem, parts retried alone | `9679045` |
+| 43 Hub directory through the poll | `5402ed9` |
 
-**Next task for Cursor: 43.**
+**Next task for Cursor: 44.**
 
 ## Markers
 
