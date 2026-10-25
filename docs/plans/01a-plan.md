@@ -62,8 +62,9 @@
 | 42 Hub apply failure — visible problem, parts retried alone | `9679045` |
 | 43 Hub directory through the poll | `5402ed9` |
 | 44 Hub engine state through `createDeps`, reducer, boot fold, `stock_version` | `ac6f7f7` |
+| 45 Hub boot config load after catch-up, `BODY_MISSING`, poll timer | `97ae049` |
 
-**Next task for Cursor: 45.**
+**Next task for Cursor: 46.**
 
 ## Markers
 
