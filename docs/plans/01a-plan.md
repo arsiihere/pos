@@ -51,8 +51,9 @@
 | 31 Cloud availability windows | `f726a4e` |
 | 32 Cloud route PUT | `65ff15e` |
 | 33 Cloud tenant-wide write guard from the database | `c89db91` |
+| 34 Cloud lock-order races | `f8141fe` |
 
-**Next task for Cursor: 34.**
+**Next task for Cursor: 35.**
 
 ## Markers
 
