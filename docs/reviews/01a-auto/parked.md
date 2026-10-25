@@ -7,3 +7,4 @@
 - FloorsView: a rejected rename keeps the refused text; reset on failure (review-14 nit 3).
 - cloud-admin: concurrent logouts call onLoggedOut several times; call once per failed refresh (review-14 nit 4).
 - Spec §7.8 (b): patch text to match D6.
+- Spec §6.21: add tenant_id, branch_id to the config-status response (D7).

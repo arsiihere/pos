@@ -14,3 +14,5 @@ D5 (review-14 Should-fix 2, before task 65): option (b). Do it now as task "64b"
 - This overrides the Files lists of the affected tasks. Record it in the build log. The spec §7.7 text already says "@pos/events schemas", so no spec change is needed.
 
 D6 (review-14 Nit 2): ship-client.sh ships only when `systemctl is-active hub` prints inactive or failed; any other state (active, activating, deactivating, reloading) → refuse. Note "§7.8 (b) tightened by D6" in the commit message; the spec text is patched by Claude later.
+
+D7 (task 68, spec gap): option (a). GET /admin/queries/config-status (§6.21) also returns tenant_id and branch_id (the hub's provisioned values), in its @pos/events hub admin response schema (D5). The /admin/stock page reads them on open (before any command) and puts them in every command envelope. Add a test that the response carries both and that a command built from them is accepted (no BRANCH_MISMATCH). This overrides task 68's Files list as needed (config-status query + its schema + its test). Note "§6.21 extended by D7" in the commit message; the spec text is patched by Claude later. No 00 behaviour change.
