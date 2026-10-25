@@ -18,6 +18,7 @@ import { registerStationSessionRoutes } from './auth/station-session.js';
 import { attachRouteGuards, swapDirectory, type RouteGroup } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
+import { registerAddPrecookedStock } from './commands/add-precooked-stock.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
 import { registerClearPinLockout } from './commands/clear-pin-lockout.js';
 import { registerCloseBusinessDay } from './commands/close-business-day.js';
@@ -138,6 +139,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerOpenBusinessDay(app);
   registerCloseBusinessDay(app);
   registerSetPrecookedStock(app);
+  registerAddPrecookedStock(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);

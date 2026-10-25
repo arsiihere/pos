@@ -197,6 +197,16 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(openDayStartMs(engine(hub))).toBeNull();
     expect(available(hub, config, 'I1')).toBe(0);
     expect(available(hub, config, 'I3')).toBe(1_500);
+    const stockEvents = () => hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'stock'").pluck().get();
+    const stockBefore = stockEvents();
+    const setAfterClose = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 2 }] }, 'cmd-set-closed');
+    expect(setAfterClose.statusCode).toBe(409);
+    expect(setAfterClose.json().error.code).toBe('BUSINESS_DAY_NOT_OPEN');
+    const addAfterClose = await post(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I3', quantity: 100 }] }, 'cmd-add-closed');
+    expect(addAfterClose.statusCode).toBe(409);
+    expect(addAfterClose.json().error.code).toBe('BUSINESS_DAY_NOT_OPEN');
+    expect(stockEvents()).toBe(stockBefore);
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM processed_commands WHERE command_id IN ('cmd-set-closed', 'cmd-add-closed')").pluck().get()).toBe(0);
 
     const replay = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-2300');
     expect(replay.headers['idempotent-replay']).toBe('true');

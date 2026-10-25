@@ -138,6 +138,11 @@ describe('SetPrecookedStock (§6.17)', () => {
     expect(blocked.json().error.code).toBe('BUSINESS_DAY_NOT_OPEN');
     expect(stockSets(hub)).toEqual([]);
     expect(processed(hub, 'cmd-early')).toBe(0);
+    const addBlocked = await post(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-add-early');
+    expect(addBlocked.statusCode).toBe(409);
+    expect(addBlocked.json().error.code).toBe('BUSINESS_DAY_NOT_OPEN');
+    expect(processed(hub, 'cmd-add-early')).toBe(0);
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'stock'").pluck().get()).toBe(0);
     const opened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
     expect(opened.statusCode).toBe(200);
     const allowed = await setStock(hub, admin, [{ item_id: 'I1', on_hand: 3 }], 'cmd-after');
