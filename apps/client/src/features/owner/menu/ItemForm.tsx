@@ -20,7 +20,7 @@ import { QuantityInput } from '../../../components/QuantityInput';
 import { t, type MessageKey } from '../../../i18n';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { parseRupees, formatRupees } from '../money';
-import { formatMinutes, parseMinutes } from '../stations/StationsView';
+import { formatMinutes, parseMinutes } from '../minutes';
 import { WindowsField } from './WindowsField';
 
 // §8.1, §6.14–§6.16: the item form. Tax picker with "No tax" first and selected by default (S34);

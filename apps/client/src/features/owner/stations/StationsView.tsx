@@ -11,24 +11,13 @@ import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { t, type MessageKey } from '../../../i18n';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { formatMinutes, parseMinutes } from '../minutes';
 
 // §8.1 #/stations: stations and their programs; slot / batch, capacity, freshness window (batch only,
 // D17), completion mode; add, edit, archive / restore. Archived rows are behind a toggle (§6.8 returns all).
 type StationRow = Station & { programs: Program[] };
 
-const MINUTE_MS = 60_000;
-const MINUTES_RE = /^[0-9]+(\.[0-9]{1,2})?$/;
 const WHOLE_RE = /^[0-9]+$/;
-
-// §8.1: times are typed in minutes and stored as _ms; the cloud checks the ranges (§3.3).
-export function parseMinutes(text: string): number | null {
-  const trimmed = text.trim();
-  return MINUTES_RE.test(trimmed) ? Math.round(Number(trimmed) * MINUTE_MS) : null;
-}
-
-export function formatMinutes(ms: number): string {
-  return String(Math.round((ms / MINUTE_MS) * 100) / 100);
-}
 
 function parseWhole(text: string): number | null {
   const trimmed = text.trim();
