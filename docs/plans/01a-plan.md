@@ -31,8 +31,9 @@
 | 11 `@pos/engine`: stock slice | `d0d8172` |
 | 12 `@pos/engine`: business day, `dayUnits`, `stockLevel` | `7d3cb9d` |
 | 13 Lint: browser-safe packages | `4856528` |
+| 14 Cloud migration `0002_restaurant_setup.sql` | `0a633c4` |
 
-**Next task for Cursor: 14.**
+**Next task for Cursor: 15.**
 
 ## Markers
 
