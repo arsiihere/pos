@@ -12,6 +12,7 @@ import { registerOwnerCredentials } from './plugins/owner-credentials.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
+import { registerRestaurantRoutes } from './modules/restaurant/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
 
 const SECRET_HEADERS = ['authorization'] as const;
@@ -76,6 +77,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerHubRegistrationRoutes(app, deps);
   registerOwnerAuthRoutes(app, deps);
   registerHealthRoutes(app, deps);
+  registerRestaurantRoutes(app, deps);
   return app;
 }
 
