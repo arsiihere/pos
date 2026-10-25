@@ -48,6 +48,22 @@ describe('errors', () => {
     expect(statusOf('LOGIN_LOCKED_OUT')).toBe(429);
   });
 
+  it('[01a §9] 01a codes have their statuses', () => {
+    expect(statusOf('BRANCH_NOT_FOUND')).toBe(404);
+    expect(statusOf('FLOOR_NOT_FOUND')).toBe(404);
+    expect(statusOf('TABLE_NOT_FOUND')).toBe(404);
+    expect(statusOf('PROGRAM_NOT_FOUND')).toBe(404);
+    expect(statusOf('TAX_CLASS_NOT_FOUND')).toBe(404);
+    expect(statusOf('CATEGORY_NOT_FOUND')).toBe(404);
+    expect(statusOf('MENU_ITEM_NOT_FOUND')).toBe(404);
+    expect(statusOf('CONFIG_NAME_TAKEN')).toBe(409);
+    expect(statusOf('CONFIG_IN_USE')).toBe(409);
+    expect(statusOf('BUSINESS_DAY_NOT_OPEN')).toBe(409);
+    expect(statusOf('CONFIG_REFERENCE_INVALID')).toBe(422);
+    expect(statusOf('IDEMPOTENCY_KEY_MISMATCH')).toBe(422);
+    expect(statusOf('STOCK_NOT_TRACKED')).toBe(422);
+  });
+
   it('[F §6.2] DomainError carries code and details', () => {
     const e = new DomainError('STAFF_NOT_FOUND', { staff_id: 'x' });
     expect(e.code).toBe('STAFF_NOT_FOUND');

@@ -18,6 +18,7 @@ export const PERMISSIONS = [
   'manage-staff',
   'manage-devices',
   'access-hub-admin',
+  'manage-stock',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

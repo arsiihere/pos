@@ -9,7 +9,7 @@ describe('permissions', () => {
     expect(() => assertKnownPermissions(['manage-devices', 'access-hub-admin'])).not.toThrow();
   });
 
-  it('[00 §3.6] catalogue has 19 unique entries', () => {
+  it('[00 §3.6, 01a S18] catalogue has 20 unique entries', () => {
     expect([...PERMISSIONS]).toEqual([
       'void-item',
       'move-item-to-stock',
@@ -30,6 +30,8 @@ describe('permissions', () => {
       'manage-staff',
       'manage-devices',
       'access-hub-admin',
+      'manage-stock',
     ]);
+    expect(new Set(PERMISSIONS).size).toBe(20);
   });
 });
