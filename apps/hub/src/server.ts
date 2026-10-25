@@ -36,6 +36,7 @@ import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
+import { registerStockQuery } from './queries/stock.js';
 import type { ProjectionRegistry } from './projections/registry.js';
 import { httpConfigClient, type ConfigClient } from './sync/config-client.js';
 import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
@@ -148,6 +149,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerDevicesQuery(app);
   registerSessionsQuery(app);
   registerStaffRosterQuery(app, deps.clock);
+  registerStockQuery(app, deps.clock);
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
