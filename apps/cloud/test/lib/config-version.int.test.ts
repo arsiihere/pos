@@ -110,6 +110,29 @@ describe('config version and audit', () => {
     expect(await bump(null)).toHaveLength(3);
   });
 
+  it('[01a S8] a branch-scope bump that matches no row throws BRANCH_NOT_FOUND instead of committing without a bump', async () => {
+    const before = await versions();
+    await expect(
+      inTransaction(cloud.pool, (client) =>
+        bumpConfigVersion(new TenantLevelRepository(tenant(), client), { kind: 'branch', branchId: otherBranch }),
+      ),
+    ).rejects.toMatchObject({ code: 'BRANCH_NOT_FOUND', details: { branch_id: otherBranch } });
+    expect(await versions()).toEqual(before);
+  });
+
+  it('[01a S26] writeConfigAudit throws when no row is written (tenant row missing)', async () => {
+    const ghost = Object.freeze({ tenantId: 'NO-SUCH-TENANT', branchIds: Object.freeze([] as string[]) });
+    await expect(
+      inTransaction(cloud.pool, (client) =>
+        writeConfigAudit(
+          new TenantLevelRepository(ghost, client),
+          { actor: { kind: 'cli' }, entity: 'floor', entityId: 'F1', branchId: null, action: 'update', before: null, after: null },
+          { clock: cloud.clock, ids: testIdGen() },
+        ),
+      ),
+    ).rejects.toThrow('config audit row not written');
+  });
+
   it('[01a S26] writeConfigAudit stores actor, entity, before/after; cli actor stores null user', async () => {
     const ids = testIdGen();
     await inTransaction(cloud.pool, async (client) => {

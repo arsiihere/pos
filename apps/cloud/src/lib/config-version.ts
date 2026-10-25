@@ -22,6 +22,8 @@ export async function bumpConfigVersion(
         RETURNING branch_id, config_version`,
       [scope.branchId],
     );
+    // A write must never commit without its bump (the hub would never download it).
+    if (rows.length === 0) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: scope.branchId });
   } else {
     let allowed: string[] | null = null;
     if (scope.ownerUserId !== null) {

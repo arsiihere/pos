@@ -26,10 +26,11 @@ export interface AuditEntry {
 
 // S26: one insert-only row per config write, in the write's transaction, before bumpConfigVersion.
 export async function writeConfigAudit(db: TenantSql, entry: AuditEntry, deps: { clock: Clock; ids: IdGen }): Promise<void> {
-  await db.query(
+  const written = await db.query(
     `INSERT INTO config_audit
        (tenant_id, audit_id, actor_kind, actor_owner_user_id, branch_id, entity, entity_id, action, before, after, at)
-     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11 FROM tenants WHERE tenant_id = $1`,
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11 FROM tenants WHERE tenant_id = $1
+     RETURNING audit_id`,
     [
       deps.ids.next(),
       entry.actor.kind,
@@ -43,6 +44,7 @@ export async function writeConfigAudit(db: TenantSql, entry: AuditEntry, deps: {
       deps.clock.branchNow(),
     ],
   );
+  if (written.length !== 1) throw new Error('config audit row not written');
 }
 
 export function auditActionFor(
