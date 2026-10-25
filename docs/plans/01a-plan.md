@@ -71,8 +71,9 @@
 | 51 Hub business day across restart; units frozen per day | `8bdcb97` |
 | 52 Hub `SetItemAvailability`, `itemAvailability` | `77b599b` |
 | 53 Hub stock query — versions, parts, `day_stale`, `hub_time` | `249b70f` |
+| 54 Hub config status | `2d64fcb` |
 
-**Next task for Cursor: 54.**
+**Next task for Cursor: 55.**
 
 ## Markers
 
