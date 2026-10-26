@@ -34,7 +34,7 @@ export function AdminLogin({ api, onLoggedIn }: { api: HubAdmin; onLoggedIn: () 
         answer.data.staff.map((s) => ({
           staff_id: s.staff_id,
           display_name: s.display_name,
-          locked: s.locked_until !== null,
+          locked_until: s.locked_until,
         })),
       );
     });

@@ -204,6 +204,9 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 .pos-actionbar__info { display: flex; flex-direction: column; gap: 2px; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
 .pos-actionbar__info strong { font: 700 20px/26px var(--font-sans); color: var(--ink); }
 .pos-actionbar__end { margin-inline-start: auto; display: flex; gap: var(--space-3); }
+/* 01a hand-off phase 1: the phone tab bar (frames OwnerMenuPhone, OwnerItemPhone), token-only. */
+.pos-actionbar--tabs { padding: var(--space-2); justify-content: space-around; gap: var(--space-2); }
+.pos-actionbar--tabs .pos-sidenav__item { flex: 1; flex-direction: column; justify-content: center; gap: 2px; font: 700 15px/20px var(--font-sans); }
 .pos-progress { height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
 .pos-progress > i { display: block; height: 100%; background: var(--accent); }
 
