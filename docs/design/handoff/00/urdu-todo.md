@@ -2,7 +2,7 @@
 
 These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show the English text in Urdu mode until `UR` has them (M83). Urdu so far comes from the *Urdu frames; a native reviewer should check all of it before release.
 
-240 keys, generated 2026-10-26.
+242 keys, generated 2026-10-26.
 
 ## setup
 
@@ -88,6 +88,7 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `pairing.hub_unreachable` — Can't reach the hub — retrying…
 - `pairing.hub_unreachable_body` — The code still works. Nothing to do.
 - `pairing.approved_title` — Paired
+- `pairing.approved_body` — Opening the {station} kitchen screen…
 - `pairing.approved_body_cashier` — Opening the cashier screen…
 - `pairing.approved_body_kds` — Opening the kitchen screen…
 - `pairing.code_expired` — This code has expired. Get a new one, then ask again.
@@ -102,6 +103,7 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `pairing.token_expired_body` — This QR works once, for 10 minutes.
 - `pairing.token_expired_ios` — Then add the new link to your Home Screen; you can delete the old icon.
 - `pairing.paired_title` — This phone is paired
+- `pairing.paired_body` — Opening sign-in… Only {owner}'s name will be on it.
 - `pairing.paired_body_any` — Opening sign-in…
 
 ## global

@@ -123,6 +123,13 @@ describe('device pairing', () => {
     expect(hub.deps.db.prepare('SELECT COUNT(*) FROM devices').pluck().get()).toBe(1);
   });
 
+  it('[00 §10 #150] M92: POST /devices/pair for a phone returns owner_name', async () => {
+    const hub = await open();
+    const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone-name');
+    const paired = await pair(hub, { pairing_token: token.pairing_token, pair_request_id: hub.deps.ids.next(), device_name: 'Phone', device_type: 'phone' });
+    expect(paired.json().data).toMatchObject({ owner_staff_id: 'S_OWNER', owner_name: 'Owner' });
+  });
+
   it('[00 §6.8] a phone pair stores owner_staff_id', async () => {
     const hub = await open();
     const token = await pairingToken(hub, { device_type: 'phone', owner_staff_id: 'S_OWNER' }, 'cmd-phone');
@@ -272,6 +279,31 @@ describe('device pairing', () => {
     expect(paired.store.get('token')).toBe('phone-tok');
     expect(textOf(paired.screen)).toContain(EN['pairing.paired_title']);
     expect(paired.prompts).toBe(0);
+  });
+
+  it('[00 §10 #151] M91/M92: /pair?t= turns light, /pair stays dark; the paired phone names its owner; an approved kds names its station', async () => {
+    const hub = await open();
+    const screenHtml = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
+    const phoneHtml = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;
+    const phone = await runPage(phoneHtml, {
+      search: '?t=tok',
+      fetch: () => Promise.resolve(jsonResponse(200, { data: { device_id: 'P1', device_token: 'phone-tok', device_type: 'phone', owner_staff_id: 'S_WAIT', owner_name: 'Bilal' } })),
+    });
+    expect(phone.documentElement.theme).toBe('light');
+    phone.find('device_name')!.value = 'Bilal phone';
+    await phone.submit(phone.findAll((child) => child.tagName === 'form')[0]!);
+    expect(textOf(phone.screen)).toContain(EN['pairing.paired_body'].replace('{owner}', 'Bilal'));
+
+    const kds = await runPage(screenHtml, {
+      fetch: (url) => {
+        if (url === '/pair/requests') return Promise.resolve(jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 600_000 } }));
+        if (url === '/pair/requests/R1') return Promise.resolve(jsonResponse(200, { data: { status: 'approved', device_id: 'K1', device_token: 'tok', device_type: 'kds', station_id: 'T', station_name: 'Tandoor' } }));
+        return Promise.resolve(jsonResponse(200, { data: {} }));
+      },
+    });
+    expect(kds.documentElement.theme).toBe('');
+    for (let i = 0; i < 40 && kds.store.get('token') === undefined; i += 1) await kds.advance();
+    expect(textOf(kds.screen)).toContain(EN['pairing.approved_body'].replace('{station}', 'Tandoor'));
   });
 
   it('[00 §10 #94] the served page logs out an admin session and clears sessionStorage before pairing, and uses neither randomUUID nor serviceWorker; after the logout call the admin token → 401', async () => {

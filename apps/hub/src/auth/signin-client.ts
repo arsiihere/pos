@@ -68,6 +68,8 @@ function adminSignIn(o) {
       const tile = node('button', 'pos-staff__tile', member.display_name);
       tile.type = 'button';
       tile.staffName = member.display_name;
+      // M92: the role under the name (Owner, Manager).
+      if (member.role_names && member.role_names.length > 0) tile.appendChild(node('small', '', member.role_names[0]));
       tile.member = member;
       tile.setAttribute('aria-pressed', 'false');
       if (member.locked_until !== null && member.locked_until > now) lockTile(tile, member.locked_until, now);

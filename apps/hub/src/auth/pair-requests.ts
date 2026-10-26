@@ -2,6 +2,7 @@ import { DomainError } from '@pos/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { provisionedOf } from '../config/schema.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { sha256hex } from '../lib/hash.js';
 import { qrSvg } from '../lib/qr.js';
@@ -68,6 +69,8 @@ export function registerPairRequestRoutes(app: FastifyInstance, deps: HubDeps): 
         device_token: row.delivery_token,
         device_type: row.device_type,
         station_id: row.station_id,
+        // M92: the screen names its station while it opens.
+        station_name: row.station_id === null ? null : (branchConfig()?.stations.find((station) => station.station_id === row.station_id)?.name ?? null),
         branch_name: provisionedOf(deps.config).branch_name,
       },
     };

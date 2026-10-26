@@ -128,7 +128,7 @@ function idbRequest<T>(result: () => T): { result?: T; onsuccess?: () => void; o
 
 export interface PageSandbox {
   screen: StubElement;
-  documentElement: { lang: string; dir: string };
+  documentElement: { lang: string; dir: string; theme: string };
   local: Map<string, string>;
   body: StubElement;
   store: Map<string, unknown>;
@@ -162,7 +162,14 @@ export async function runPage(
   const session = new Map<string, string>(Object.entries(o.session ?? {}));
   const ids = new Map<string, StubElement>();
   const local = new Map<string, string>(Object.entries(o.local ?? {}));
-  const documentElement = { lang: 'en', dir: 'ltr' };
+  const documentElement = {
+    lang: 'en',
+    dir: 'ltr',
+    theme: '',
+    setAttribute(name: string, value: string) {
+      if (name === 'data-theme') documentElement.theme = value;
+    },
+  };
   const byId = (id: string): StubElement => {
     let found = ids.get(id);
     if (found === undefined) {

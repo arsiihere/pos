@@ -100,8 +100,10 @@ function global(error, device) {
   return globalScreen(error, { device, loaded: false, authed: false }, { pairAgain: () => location.reload() });
 }
 // 00-S10 approved / resumed.
-function showPaired(deviceType) {
-  const body = deviceType === 'kds' ? t('pairing.approved_body_kds') : t('pairing.approved_body_cashier');
+function showPaired(deviceType, stationName) {
+  // M92: the approved poll names the station; a resumed screen does not know it.
+  const kds = stationName ? t('pairing.approved_body', { station: stationName }) : t('pairing.approved_body_kds');
+  const body = deviceType === 'kds' ? kds : t('pairing.approved_body_cashier');
   show(stateScreen('ok', 'check', t('pairing.approved_title'), body));
 }
 async function wipe(db) {
@@ -208,7 +210,7 @@ function pairScreen(db) {
             if (update.data.device_type === 'kds') {
               await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
             }
-            showPaired(update.data.device_type);
+            showPaired(update.data.device_type, update.data.station_name);
             return;
           }
           if (polled.status !== 200 && global(update.error, 'screen')) return;
@@ -309,7 +311,8 @@ async function pairPhone(db, pairingToken) {
         await writeKey(db, 'device_id', body.data.device_id);
         await writeKey(db, 'device_type', body.data.device_type);
         await deleteKey(db, 'pair_request_id');
-        return show(stateScreen('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body_any')));
+        const who = body.data.owner_name ? t('pairing.paired_body', { owner: body.data.owner_name }) : t('pairing.paired_body_any');
+        return show(stateScreen('ok', 'check', t('pairing.paired_title'), who));
       }
       // M14: a 503 is retried once with the same pair_request_id.
       if (res.status === 503 && !retried) return finish(await send(), true);

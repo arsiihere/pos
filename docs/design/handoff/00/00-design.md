@@ -10,7 +10,7 @@ Conventions used in every frame
 - One primary (`.pos-btn--primary`) per screen. Danger actions use `.pos-btn--danger` (outlined), never filled.
 - Sample data: hub `192.168.0.107:3000`, guest range `192.168.50.0/24`, staff Wi-Fi `AC-Staff` (sample, see Q6), time now 13:18 (lunch rush).
 
-## 0. As built (2026-10-26, spec 00 v1.3)
+## 0. As built (2026-10-26, spec 00 v1.4)
 
 Where the implementation differs from the sections below, this list wins. Build plan and notes: `PLAN.md`.
 
@@ -22,9 +22,9 @@ Where the implementation differs from the sections below, this list wins. Build 
 | Language | `?lang=en\|ur` → `localStorage pos-lang` → `navigator.language`. The server sends `lang="en" dir="ltr"`; the script sets `lang`/`dir` on `<html>` and `<body>` and swaps type classes to the kit's `ur-*` classes, like the *Urdu frames. |
 | API added (spec v1.3) | `GET /admin` (M86); admin queries `stations`, `lockouts`, `staff` (M88); devices `owner_name`, `revoked_by_name`, `revoked_reason` (M87); sign-in `permissions` (M89). Commands already existed at the §1 paths. |
 | 00-S01 | Host field is pick tiles of this machine's IPv4 (M85) + "Other address". `/setup` after provisioning: 404 with the SetupAlready page (M84). |
-| 00-S03/S07 | One shared sign-in. Roster tiles show no role line (the roster has no role). |
+| 00-S03/S07 | One shared sign-in. Roster tiles show the first role name (`role_names`, spec v1.4 M92). |
 | 00-S08 | Station tiles from the `stations` query; small line = location label or first 3 category names. Kind has no default; missing kind/station are field errors (`approve.err_kind`, `approve.err_station`). |
-| 00-S10/S15 | "Paired" bodies are generic (`pairing.approved_body_kds`, `pairing.paired_body_any`): the pair responses carry no station or owner name. `/pair?t=` (phones) switches to the light theme in the script. |
+| 00-S10/S15 | "Paired" bodies name the station (`station_name`) and the owner (`owner_name`), spec v1.4 M92; generic text only when a screen resumes without a fresh approval. `/pair?t=` (phones) switches to the light theme in the script (M91). |
 | 00-F07 | Address line only when the error carries `advertised_host` (it doesn't today). |
 | 00-S16 | `pairing_source` shows "Screen code" / "QR link" ("First admin" is not derivable). "Show removed" uses the kit switch (red when off). |
 | 00-S20 | Phone layout chosen with `matchMedia('(max-width: 760px)')`. Other jobs: Stock only when the built `/admin/stock` exists. |

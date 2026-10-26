@@ -49,8 +49,8 @@ describe('bootstrap page', () => {
             jsonResponse(200, {
               data: {
                 staff: [
-                  { staff_id: 'S1', display_name: 'Ayesha', locked_until: null },
-                  { staff_id: 'S2', display_name: 'Bilal', locked_until: lockedUntil },
+                  { staff_id: 'S1', display_name: 'Ayesha', role_names: ['Owner'], locked_until: null },
+                  { staff_id: 'S2', display_name: 'Bilal', role_names: ['Manager'], locked_until: lockedUntil },
                 ],
               },
             }),
@@ -66,6 +66,7 @@ describe('bootstrap page', () => {
     const roster = page.byId('roster');
     const tiles = page.findAll(isTile, roster);
     expect(tiles.map((tile) => tile.staffName)).toEqual(['Ayesha', 'Bilal']);
+    expect(textOf(tiles[0])).toBe('Ayesha Owner');
     expect(tiles[1]!.classList.contains('is-locked')).toBe(true);
     expect(textOf(tiles[1])).toContain(EN['staff.locked_min'].replace('{min}', '10'));
     expect(textOf(roster)).not.toContain('S1');

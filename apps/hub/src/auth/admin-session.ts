@@ -138,6 +138,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
       .map((member) => ({
         staff_id: member.staff_id,
         display_name: member.display_name,
+        role_names: directory.roleNames(member.staff_id),
         locked_until: locks.get(member.staff_id) ?? null,
       }));
     return { data: { staff } };

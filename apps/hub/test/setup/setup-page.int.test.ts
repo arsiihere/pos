@@ -146,7 +146,7 @@ describe('setup page', () => {
   it('[00 §10 #140] M83: ?lang=ur → lang ur, dir rtl, Urdu text, remembered; navigator ur-PK → Urdu; en-US → English; a key missing from UR shows English', async () => {
     const fetch = () => new Promise<never>(() => undefined);
     const ur = await runPage(setupPage(CHOICES), { fetch, search: '?lang=ur' });
-    expect(ur.documentElement).toEqual({ lang: 'ur', dir: 'rtl' });
+    expect(ur.documentElement).toMatchObject({ lang: 'ur', dir: 'rtl' });
     expect(ur.local.get('pos-lang')).toBe('ur');
     expect(textOf(ur.byId('host_tiles'))).toContain(EN['setup.host_other']);
     const remembered = await runPage(setupPage(CHOICES), { fetch, local: { 'pos-lang': 'ur' } });
@@ -154,7 +154,7 @@ describe('setup page', () => {
     const fromBrowser = await runPage(setupPage(CHOICES), { fetch, language: 'ur-PK' });
     expect(fromBrowser.documentElement.lang).toBe('ur');
     const english = await runPage(setupPage(CHOICES), { fetch, language: 'en-US' });
-    expect(english.documentElement).toEqual({ lang: 'en', dir: 'ltr' });
+    expect(english.documentElement).toMatchObject({ lang: 'en', dir: 'ltr' });
     const override = await runPage(setupPage(CHOICES), { fetch, search: '?lang=en', language: 'ur-PK', local: { 'pos-lang': 'ur' } });
     expect(override.documentElement.lang).toBe('en');
   });

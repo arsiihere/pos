@@ -118,6 +118,7 @@ export const EN = {
   'pairing.hub_unreachable': "Can't reach the hub — retrying…",
   'pairing.hub_unreachable_body': 'The code still works. Nothing to do.',
   'pairing.approved_title': 'Paired',
+  'pairing.approved_body': 'Opening the {station} kitchen screen…',
   'pairing.approved_body_cashier': 'Opening the cashier screen…',
   'pairing.approved_body_kds': 'Opening the kitchen screen…',
   'pairing.code_expired': 'This code has expired. Get a new one, then ask again.',
@@ -144,6 +145,7 @@ export const EN = {
   'pairing.token_expired_body': 'This QR works once, for 10 minutes.',
   'pairing.token_expired_ios': 'Then add the new link to your Home Screen; you can delete the old icon.',
   'pairing.paired_title': 'This phone is paired',
+  'pairing.paired_body': "Opening sign-in… Only {owner}'s name will be on it.",
   'pairing.paired_body_any': 'Opening sign-in…',
 
   // 00-F01…F08 (docs/design/handoff/00/00-design.md §2), shown by lib/global-state.ts.

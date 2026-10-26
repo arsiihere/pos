@@ -11,7 +11,8 @@ const Window = z.object({ start_ms: int, end_ms: int });
 // 00 §8.2: the admin roster and PIN login.
 export const AdminRosterResponse = z.object({
   data: z.object({
-    staff: z.array(z.object({ staff_id: z.string(), display_name: z.string(), locked_until: int.nullable() })),
+    // role_names: 00 v1.4 M92
+    staff: z.array(z.object({ staff_id: z.string(), display_name: z.string(), role_names: z.array(z.string()).optional(), locked_until: int.nullable() })),
   }),
 });
 

@@ -35,6 +35,16 @@ describe('admin session', () => {
     expect(staffFailures(hub, 'S_CASH')).toBe(0);
   });
 
+  it('[00 §10 #148] M92: login-roster rows carry the staff role names', async () => {
+    const hub = await open();
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const res = await hub.app.inject({ method: 'GET', url: '/admin/login-roster', headers: { authorization: `Bearer ${tablet.token}` } });
+    expect(res.statusCode).toBe(200);
+    const rows = res.json().data.staff as Array<{ staff_id: string; role_names: string[] }>;
+    expect(rows.find((row) => row.staff_id === 'S_OWNER')!.role_names).toEqual(['Owner']);
+    expect(rows.find((row) => row.staff_id === 'S_MGR')!.role_names).toEqual(['Manager']);
+  });
+
   it('[00 §10 #27] ten failures from one device across staff lock the device', async () => {
     const hub = await open();
     const tablet = pairDevice(hub, { type: 'tablet' });
@@ -97,8 +107,8 @@ describe('admin session', () => {
     const withDevice = await roster(hub, { authorization: `Bearer ${tablet.token}` });
     expect(withDevice.statusCode).toBe(200);
     expect(withDevice.json().data.staff).toEqual([
-      { staff_id: 'S_MGR', display_name: 'Manager', locked_until: null },
-      { staff_id: 'S_OWNER', display_name: 'Owner', locked_until: until },
+      { staff_id: 'S_MGR', display_name: 'Manager', role_names: ['Manager'], locked_until: null },
+      { staff_id: 'S_OWNER', display_name: 'Owner', role_names: ['Owner'], locked_until: until },
     ]);
     const issued = hub.deps.writer.run((tx) =>
       issueAdminBootstrap(tx, 'setup', { clock: hub.deps.clock, ids: hub.deps.ids, secrets: hub.deps.secrets }),
@@ -111,7 +121,7 @@ describe('admin session', () => {
     const ownerPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
     const ownerRoster = await roster(hub, { authorization: `Bearer ${ownerPhone.token}` });
     expect(ownerRoster.statusCode).toBe(200);
-    expect(ownerRoster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', locked_until: until }]);
+    expect(ownerRoster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', role_names: ['Owner'], locked_until: until }]);
     const waiterPhone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_WAIT' });
     const waiterRoster = await roster(hub, { authorization: `Bearer ${waiterPhone.token}` });
     expect(waiterRoster.statusCode).toBe(200);
