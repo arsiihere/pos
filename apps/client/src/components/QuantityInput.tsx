@@ -20,10 +20,15 @@ export function QuantityInput({
   unit,
   value,
   onChange,
+  compact = false,
+  label,
 }: {
   unit: Unit;
   value: number | null;
   onChange: (value: number | null) => void;
+  // Inside the kit's .pos-count cell (the stock row): the input and its unit, no field wrapper.
+  compact?: boolean;
+  label?: string;
 }) {
   const [text, setText] = useState(() => shown(value, unit));
 
@@ -33,24 +38,38 @@ export function QuantityInput({
   }, [value, unit]);
 
   const invalid = parsedValue(text, unit) === undefined;
+  const input = (
+    <input
+      className="pos-input pos-input--mono"
+      type="text"
+      inputMode={unit === 'piece' ? 'numeric' : 'decimal'}
+      autoComplete="off"
+      aria-label={label}
+      aria-invalid={invalid}
+      value={text}
+      onChange={(e) => {
+        const next = e.target.value;
+        setText(next);
+        const v = parsedValue(next, unit);
+        if (v !== undefined) onChange(v);
+      }}
+    />
+  );
+
+  if (compact) {
+    return (
+      <>
+        {input}
+        <span className="pos-count__unit">{t(UNIT_LABEL[unit])}</span>
+        {invalid && <span className="pos-field__error">{t('quantity.invalid')}</span>}
+      </>
+    );
+  }
 
   return (
     <div className={`pos-field${invalid ? ' pos-field--error' : ''}`}>
       <div className="pos-row pos-ltr">
-        <input
-          className="pos-input pos-input--mono"
-          type="text"
-          inputMode={unit === 'piece' ? 'numeric' : 'decimal'}
-          autoComplete="off"
-          aria-invalid={invalid}
-          value={text}
-          onChange={(e) => {
-            const next = e.target.value;
-            setText(next);
-            const v = parsedValue(next, unit);
-            if (v !== undefined) onChange(v);
-          }}
-        />
+        {input}
         <span>{t(UNIT_LABEL[unit])}</span>
       </div>
       {invalid && <p className="pos-field__error">{t('quantity.invalid')}</p>}

@@ -276,7 +276,7 @@ describe('cloud-admin client', () => {
     expect(sessionStorage.getItem('owner_refresh_token')).toBeNull();
   });
 
-  it('[01a §10 #169 client part] a failed logout call still clears storage', async () => {
+  it('[01a S50 a] a failed logout call still clears storage', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     sessionStorage.setItem('owner_refresh_token', 'R1');
     sessionStorage.setItem('owner_user', JSON.stringify(TOKENS.user));

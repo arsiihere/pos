@@ -10,6 +10,8 @@ let root: Root;
 
 beforeEach(() => {
   sessionStorage.clear();
+  // S55: kept counts live in localStorage; each test starts without any.
+  localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);

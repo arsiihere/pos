@@ -7,7 +7,7 @@ import { t, typeClass } from '../../i18n';
 import { idTail } from './branch';
 import { CloudDownBanner } from './cloud';
 import { useLeave } from './guard';
-import { usePhone } from './phone';
+import { usePhone } from '../../app/phone';
 
 // S50 a: the owner shell. Side menu on a laptop or tablet; on a phone the same items as a bottom tab
 // bar. Every menu item goes through the discard guard (S50 c).

@@ -11,6 +11,8 @@ let root: Root;
 
 beforeEach(() => {
   sessionStorage.clear();
+  // S55: kept counts live in localStorage; each test starts without any.
+  localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -174,6 +176,13 @@ function buttons(scope: ParentNode, text: string): HTMLButtonElement[] {
   return [...scope.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent === text);
 }
 
+function saveButton(): HTMLButtonElement {
+  // v1.1 (S54): the label carries the count ("Save 2 counts"); the button is found by its hook.
+  const found = container.querySelector<HTMLButtonElement>('[data-save] button');
+  if (found === null) throw new Error('save button missing');
+  return found;
+}
+
 function button(scope: ParentNode, text: string): HTMLButtonElement {
   const found = buttons(scope, text)[0];
   if (found === undefined) throw new Error(`button ${text} missing`);
@@ -218,10 +227,10 @@ describe('/admin/stock business day', () => {
     // A save while no day is open → 409 → the action next to the save; the tap opens the day and
     // re-sends the save with the same command_id; the typed count is kept until it is saved.
     typeInto(field('I1', 'on_hand'), '7');
-    await tap(button(container, t('admin_stock.save')));
+    await tap(saveButton());
     expect(container.querySelector('[data-start-day="retry"]')).not.toBeNull();
     expect(field('I1', 'on_hand')?.value).toBe('7');
-    await tap(button(container.querySelector('[data-start-day="retry"]')!, t('admin_stock.day.start')));
+    await tap(button(container.querySelector('[data-start-day="retry"]')!, t('admin_stock.day.start_and_save')));
 
     const sentCommands = commands(sent);
     expect(sentCommands.map((c) => c.url)).toEqual([
@@ -334,13 +343,14 @@ describe('/admin/stock business day', () => {
     // performance is frozen, so the hub clock stays at hub_time.
     vi.useFakeTimers({ toFake: ['performance'] });
     const dayLine = () =>
-      [...container.querySelectorAll<HTMLElement>('.pos-banner')].find((b) => b.textContent?.startsWith('Day open'));
+      // v1.1 (B11): the day line is the app bar's chip.
+      [...container.querySelectorAll<HTMLElement>('.pos-chip')].find((b) => b.textContent?.startsWith('Day open'));
     const atExactly = answer({ hub_time: { now_ms: hubAt(26, 1), utc_offset_ms: OFFSET } });
     const { api } = fakeHub([atExactly], () => ok({ items: [] }));
     act(() => root.render(<StockApp api={api} />));
     await flush();
     expect(dayLine()?.textContent).toContain('(16 h)');
-    expect(dayLine()?.classList.contains('pos-banner--ok')).toBe(true);
+    expect(dayLine()?.classList.contains('pos-chip--ok')).toBe(true);
     act(() => root.unmount());
 
     root = createRoot(container);
@@ -348,7 +358,7 @@ describe('/admin/stock business day', () => {
     const { api: api2 } = fakeHub([later], () => ok({ items: [] }));
     act(() => root.render(<StockApp api={api2} />));
     await flush();
-    expect(dayLine()?.classList.contains('pos-banner--warn')).toBe(true);
+    expect(dayLine()?.classList.contains('pos-chip--warn')).toBe(true);
   });
 
   it('[01a §8.2] an Add answered 409 BUSINESS_DAY_NOT_OPEN is re-sent with the same command_id after Start day', async () => {
@@ -368,7 +378,7 @@ describe('/admin/stock business day', () => {
     await tap(button(rowOf('I2'), t('admin_stock.add')));
     expect(container.querySelector('[data-start-day="retry"]')).not.toBeNull();
     expect(field('I2', 'add')?.value).toBe('1.5');
-    await tap(button(container.querySelector('[data-start-day="retry"]')!, t('admin_stock.day.start')));
+    await tap(button(container.querySelector('[data-start-day="retry"]')!, t('admin_stock.day.start_and_save')));
 
     const sentCommands = commands(sent);
     expect(sentCommands.map((c) => c.url)).toEqual([

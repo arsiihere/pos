@@ -4,9 +4,12 @@ export function Switch({
   label,
   onChange,
   disabled = false,
+  name,
 }: {
   checked: boolean;
   label: string;
+  // The thing it switches when the visible word is only its state ("Selling" for "On").
+  name?: string;
   onChange: (next: boolean) => void;
   disabled?: boolean;
 }) {
@@ -16,6 +19,7 @@ export function Switch({
       className="pos-switch"
       role="switch"
       aria-checked={checked}
+      aria-label={name}
       disabled={disabled}
       onClick={() => onChange(!checked)}
     >

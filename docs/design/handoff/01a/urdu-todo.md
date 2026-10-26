@@ -1,16 +1,14 @@
 # 01a — Urdu still to translate
 
-Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show in English on an Urdu page until translated. Generated after hand-off phase 2; phase 3 adds the stock page keys.
+Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show in English on an Urdu page until translated. The translated keys came from the frames `OwnerMenuUrdu` and `StockUrdu`.
 
-376 keys.
+442 of 471 keys.
 
 | Key | English |
 |---|---|
-| `admin_stock.title` | Stock |
 | `admin_stock.login.title` | Sign in to manage stock |
-| `admin_stock.login.pick` | Tap your name, then type your PIN. |
-| `admin_stock.login.loading` | Loading the staff list… |
-| `admin_stock.login.no_admins` | No one on the staff list can open this page. Ask the owner. |
+| `admin_stock.login.pick` | Tap your name. |
+| `admin_stock.login.no_admins` | No one here can count stock |
 | `admin_stock.errors.network` | The hub cannot be reached. Check the Wi-Fi; what you typed is kept. |
 | `admin_stock.errors.PERMISSION_DENIED` | You do not have permission for this. Ask a manager. |
 | `admin_stock.status.version` | Menu version {version} |
@@ -24,29 +22,24 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `admin_stock.problem.still_using` |  The hub is still using version {version}. |
 | `admin_stock.problem.no_menu` |  The hub has no menu yet. |
 | `admin_stock.problem.unauthorized` | The hub's cloud key was refused. Call support. |
-| `admin_stock.reconnecting` | Reconnecting to the hub… What you typed is kept. |
+| `admin_stock.reconnecting` | Reconnecting to the hub… |
 | `admin_stock.alert.low` | Low: {items} |
 | `admin_stock.alert.out` | Out: {items} |
 | `admin_stock.search` | Search items |
 | `admin_stock.category` | Category |
 | `admin_stock.all_categories` | All categories |
 | `admin_stock.empty` | No items in the menu yet. |
-| `admin_stock.on_hand` | On hand |
-| `admin_stock.confirm` | Confirm |
-| `admin_stock.reserved` | Reserved |
-| `admin_stock.available_label` | Available |
-| `admin_stock.set_at` | Set at {time} |
+| `admin_stock.on_hand` | Count now |
+| `admin_stock.confirm` | Still right |
+| `admin_stock.available_label` | Left to sell |
+| `admin_stock.set_at` | Counted {time} |
 | `admin_stock.sold_out_when_0` | Sold out when 0 |
-| `admin_stock.available` | Available |
+| `admin_stock.available` | On |
 | `admin_stock.off` | Off |
-| `admin_stock.badge.not_counted` | Not counted today |
 | `admin_stock.badge.hours` | Hours {hours} |
 | `admin_stock.badge.off_since` | Off since {day} |
-| `admin_stock.save` | Save counts |
-| `admin_stock.saved` | Counts saved. |
 | `admin_stock.nothing_to_save` | Change or confirm a count first. |
 | `admin_stock.add_label` | Add |
-| `admin_stock.add` | Add |
 | `admin_stock.day.open` | Day open: {day} since {time} ({hours} h) |
 | `admin_stock.day.closed` | Day closed at {time} |
 | `admin_stock.day.close` | Close day |
@@ -54,11 +47,86 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `admin_stock.day.cancel` | Cancel |
 | `admin_stock.day.opened_recently` | This day was started less than {hours} h ago; nothing changed. |
 | `admin_stock.day.start` | Start day |
-| `admin_stock.day.none_open` | No business day is open. Start the day, then enter the counts. |
+| `admin_stock.day.none_open` | Counts belong to a day. Start it, then count what's ready. |
 | `admin_stock.day.retry_needs_day` | The business day is not open, so this was not saved. Start the day to save it. |
 | `admin_stock.stale.text` | Yesterday's day is still open since {time}. Close it and start a new day? |
-| `admin_stock.stale.close_and_start` | Close and start new day |
-| `admin_stock.stale.keep` | Keep this day open |
+| `admin_stock.stale.close_and_start` | Close it and start today |
+| `admin_stock.stale.keep` | Keep it open |
+| `admin_stock.counted_last_night` | Counted last night {time} |
+| `admin_stock.on_orders` | {n} on orders |
+| `admin_stock.stale.body` | Nobody closed it last night. Close it and start today, so this morning's counts belong to today. |
+| `admin_stock.reconnecting_body` | Usually a Wi-Fi drop or the hub restarting. Keep counting; nothing you typed is lost. |
+| `admin_stock.save_one` | Save 1 count |
+| `admin_stock.save_n` | Save {n} counts |
+| `admin_stock.saved_at` | {n} counts saved at {time} |
+| `admin_stock.all_counted` | Every item is counted for today. |
+| `admin_stock.save_help` | Counts are saved together. Fresh batches save at once. |
+| `admin_stock.waiting` | {n} counts waiting |
+| `admin_stock.waiting_body` | Tap Save once the hub is back. |
+| `admin_stock.kept.title` | Your {n} unsaved counts from {time} are back. |
+| `admin_stock.kept.body` | You were signed out for being idle. Check them, then save. |
+| `admin_stock.kept.changed` | Changed since, not brought back: {items}. |
+| `admin_stock.kept.discard` | Discard |
+| `admin_stock.kept.not_saved` | {n} counts not saved |
+| `admin_stock.kept.on_device` | Kept on this tablet |
+| `admin_stock.kept.not_saved_yet` | Not saved yet |
+| `admin_stock.carry.title` | {n} counts from last night |
+| `admin_stock.carry.body` | If the pots still hold the same, confirm them all at once. Change any that are different first. |
+| `admin_stock.carry.all` | All {n} are still right |
+| `admin_stock.signed_in_as` | Signed in as {name} |
+| `admin_stock.sign_out` | Sign out |
+| `admin_stock.sign_out_ask` | Sign out with {n} unsaved counts? |
+| `admin_stock.sign_out_body` | Save them now, keep them on this tablet for when you are back, or discard them. |
+| `admin_stock.sign_out_keep` | Keep on this tablet |
+| `admin_stock.adding` | Adding… |
+| `admin_stock.added` | Added {n} |
+| `admin_stock.switch_off_failed` | Couldn't switch off. Try again. |
+| `admin_stock.switch_on_failed` | Couldn't switch on. Try again. |
+| `admin_stock.not_counted_now` | {name} is no longer counted. The list is refreshed. |
+| `admin_stock.shell.title` | Hub admin |
+| `admin_stock.shell.home` | Hub admin |
+| `admin_stock.shell.devices` | Screens and phones |
+| `admin_stock.shell.sessions` | Signed in now |
+| `admin_stock.shell.lockouts` | Locked out |
+| `admin_stock.day.close_title` | Close today's business day? |
+| `admin_stock.day.started` | Day started |
+| `admin_stock.day.keeps_overnight` | Keep overnight |
+| `admin_stock.day.switched_off` | Switched off |
+| `admin_stock.day.start_title` | Start today's business day |
+| `admin_stock.day.not_saved_title` | These counts were not saved |
+| `admin_stock.day.counts_kept` | Your {n} counts are kept. |
+| `admin_stock.day.start_and_save` | Start day and save |
+| `admin_stock.day.opened_recently_small` | Someone started it at {time}. Keep counting. |
+| `admin_stock.problem.body` | Selling goes on with the current version. The owner can fix it in Restaurant setup. |
+| `admin_stock.filter` | Show |
+| `admin_stock.filter.low_out` | Low or out |
+| `admin_stock.filter.off` | Off |
+| `admin_stock.none_here` | Nothing here |
+| `admin_stock.no_match` | No item matches “{q}” |
+| `admin_stock.no_match_body` | Only items counted each morning and items you can switch off are here. |
+| `admin_stock.clear_search` | Clear search |
+| `admin_stock.col.item` | Item |
+| `admin_stock.col.add` | Fresh batch |
+| `admin_stock.col.selling` | Selling |
+| `admin_stock.unit.piece` | pieces |
+| `admin_stock.unit.g` | counted in kg |
+| `admin_stock.unit.ml` | counted in L |
+| `admin_stock.keeps_overnight` | keeps overnight |
+| `admin_stock.badge.out` | Out |
+| `admin_stock.sheet.title` | Add a fresh batch |
+| `admin_stock.sheet.now` | {name} · {left} left now |
+| `admin_stock.sheet.how_many` | How many are ready? |
+| `admin_stock.sheet.after` | After adding: {left} left to sell |
+| `admin_stock.sheet.add_n` | Add {n} |
+| `admin_stock.login.offline` | Can't reach the hub — retrying… |
+| `admin_stock.login.offline_body` | The names appear when the hub answers. |
+| `admin_stock.login.retry_now` | Retry now |
+| `admin_stock.login.no_admins_body` | The owner gives the stock job to a person in Staff and roles. Then their name shows here. |
+| `admin_stock.login.who` | Who's signing in? |
+| `admin_stock.login.forgot` | Forgot your PIN? The owner can reset it in Restaurant setup. |
+| `admin_stock.login.pin_for` | PIN for {name} |
+| `admin_stock.login.tries_left` | {n} tries left, then the PIN is locked for a while. |
+| `admin_stock.login.locked_for` | Locked for {n} min. |
 | `common.loading` | Loading… |
 | `common.saved` | Saved |
 | `common.undo` | Undo |
@@ -70,8 +138,6 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `pin.label` | PIN |
 | `pin.delete` | Delete |
 | `pin.submit` | Enter |
-| `quantity.pieces` | pieces |
-| `quantity.kg` | kg |
 | `quantity.l` | L |
 | `quantity.invalid` | Check the number: whole pieces, or kg and L with up to 3 decimals. |
 | `owner.nav.floors_short` | Floors |

@@ -68,7 +68,7 @@ describe('[01a §10 #159] language (S49)', () => {
   it('fill() fills placeholders in both languages', () => {
     expect(fill(t('menu.branches_of'), { n: '1', m: '2' })).toBe('1 of 2 branches');
     setLanguage('ur');
-    expect(fill(t('menu.branches_of'), { n: '1', m: '2' })).toBe('1 میں سے 2 برانچ');
+    expect(fill(t('menu.branches_of'), { n: '1', m: '2' })).toBe('2 میں سے 1 برانچ');
   });
 
   it('in Urdu, Latin type classes map to the kit ur-* classes', () => {

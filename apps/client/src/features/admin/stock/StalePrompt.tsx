@@ -3,8 +3,8 @@ import { BusyButton } from '../../../components/BusyButton';
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 
-// §8.2, S33: shown above the rows while the query says day_stale. "Close and start new day" sends
-// CloseBusinessDay then OpenBusinessDay; "Keep this day open" hides it until the page reloads.
+// §8.2, S33 (01a-B12): shown above the rows while the query says day_stale. Close it and start today
+// sends CloseBusinessDay then OpenBusinessDay; Keep it open hides it until the page reloads.
 export function StalePrompt({
   openedAt,
   clock,
@@ -19,15 +19,18 @@ export function StalePrompt({
   onKeep: () => void;
 }) {
   return (
-    <section className="pos-card pos-stack" data-stale-prompt="">
-      <p>{fill(t('admin_stock.stale.text'), { time: hubTimeText(openedAt, clock.utcOffsetMs) })}</p>
+    <section className="pos-callout pos-callout--warn" data-stale-prompt="">
+      <div className="pos-callout__text">
+        <h2>{fill(t('admin_stock.stale.text'), { time: hubTimeText(openedAt, clock.utcOffsetMs) })}</h2>
+        <p>{t('admin_stock.stale.body')}</p>
+      </div>
       <div className="pos-row">
-        <BusyButton busy={busy} onClick={onCloseAndStart}>
-          {t('admin_stock.stale.close_and_start')}
-        </BusyButton>
         <button type="button" className="pos-btn" disabled={busy} onClick={onKeep}>
           {t('admin_stock.stale.keep')}
         </button>
+        <BusyButton busy={busy} primary onClick={onCloseAndStart}>
+          {t('admin_stock.stale.close_and_start')}
+        </BusyButton>
       </div>
     </section>
   );

@@ -31,7 +31,7 @@ import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { formatRupees, parseRupees } from '../money';
-import { usePhone } from '../phone';
+import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { windowText, WindowsField } from './WindowsField';
 

@@ -15,6 +15,8 @@ let root: Root;
 
 beforeEach(() => {
   sessionStorage.clear();
+  // S55: kept counts live in localStorage; each test starts without any.
+  localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -152,6 +154,13 @@ function typeInto(input: HTMLInputElement | null, text: string): void {
   });
 }
 
+function saveButton(): HTMLButtonElement {
+  // v1.1 (S54): the label carries the count ("Save 2 counts"); the button is found by its hook.
+  const found = container.querySelector<HTMLButtonElement>('[data-save] button');
+  if (found === null) throw new Error('save button missing');
+  return found;
+}
+
 function button(scope: ParentNode, text: string): HTMLButtonElement {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text);
   if (found === undefined) throw new Error(`button ${text} missing`);
@@ -164,6 +173,9 @@ function commandsTo(sent: Sent[], name: string): Sent[] {
 
 const fakeTimers = () =>
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
+
+// The danger banner's own line, without its detail (v1.1 adds one under the B10 text).
+const dangerText = () => container.querySelector('.pos-banner--danger p')?.firstChild?.textContent;
 
 describe('/admin/stock table', () => {
   it('[01a §10 #77] Save counts sends every touched row and no untouched row, reuses command_id on retry, shows Not counted today', async () => {
@@ -193,11 +205,11 @@ describe('/admin/stock table', () => {
     typeInto(rowOf('I1').querySelector('input'), '');
     typeInto(rowOf('I1').querySelector('input'), '5');
     act(() => button(rowOf('I3'), t('admin_stock.confirm')).click());
-    await act(async () => button(container, t('admin_stock.save')).click());
+    await act(async () => saveButton().click());
     await flush();
     expect(container.textContent).toContain(t('admin_stock.errors.network'));
 
-    await act(async () => button(container, t('admin_stock.save')).click());
+    await act(async () => saveButton().click());
     await flush();
     const saves = commandsTo(sent, 'set-precooked-stock');
     expect(saves).toHaveLength(2);
@@ -213,7 +225,7 @@ describe('/admin/stock table', () => {
     // After a save the page refreshes; a later save is a new command.
     expect(sent.filter((s) => s.url.startsWith('/admin/queries/stock')).length).toBeGreaterThanOrEqual(2);
     typeInto(rowOf('I2').querySelector('input'), '2');
-    await act(async () => button(container, t('admin_stock.save')).click());
+    await act(async () => saveButton().click());
     await flush();
     const third = commandsTo(sent, 'set-precooked-stock')[2];
     expect(third?.body?.['payload']).toEqual({ entries: [{ item_id: 'I2', on_hand: 2000 }] });
@@ -232,17 +244,17 @@ describe('/admin/stock table', () => {
     expect(container.querySelector('[data-status-line]')?.textContent).toBe('Menu version 42 · checked 2 min ago · offline');
 
     render({ ...STATUS, last_poll: { outcome: 'rejected', at: hubAt(11) }, last_problem: { outcome: 'rejected', reason: 'hash_mismatch', at: hubAt(11) } });
-    expect(container.querySelector('.pos-banner--danger')?.textContent).toBe(
+    expect(dangerText()).toBe(
       'Menu update refused (hash_mismatch). The hub is still using version 42.',
     );
 
     render({ ...STATUS, last_problem: { outcome: 'rejected', reason: 'apply_failed', at: hubAt(11) } });
-    expect(container.querySelector('.pos-banner--danger')?.textContent).toBe(
+    expect(dangerText()).toBe(
       'Menu update could not be applied. The hub is still using version 42.',
     );
 
     render({ ...STATUS, last_problem: { outcome: 'unauthorized', reason: null, at: hubAt(11) } });
-    expect(container.querySelector('.pos-banner--danger')?.textContent).toBe("The hub's cloud key was refused. Call support.");
+    expect(dangerText()).toBe("The hub's cloud key was refused. Call support.");
 
     render({ ...STATUS, config_version: null, last_poll: { outcome: 'not_ready', at: hubAt(11) } });
     expect(container.querySelector('[data-status-line]')?.textContent).toBe('Waiting for hub confirmation');
@@ -262,8 +274,9 @@ describe('/admin/stock table', () => {
     expect(rowOf('I1').textContent).toContain('Off since Sat 24 Oct');
     expect(rowOf('I2').textContent).not.toContain('Off since');
     expect(rowOf('I3').textContent).not.toContain('Off since');
-    expect(button(rowOf('I2'), t('admin_stock.off')).getAttribute('aria-pressed')).toBe('true');
-    expect(button(rowOf('I3'), t('admin_stock.available')).getAttribute('aria-pressed')).toBe('true');
+    // v1.1 (S54 a): the Selling switch.
+    expect(rowOf('I2').querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+    expect(rowOf('I3').querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
   });
 
   it('[01a §10 #132 page part] alert bar lists low then out; hidden when none', () => {
@@ -272,10 +285,14 @@ describe('/admin/stock table', () => {
       { meta: meta('I2', { name: 'Chicken Karahi', stock_unit: 'g' }), item: item('I2', { level: 'low', unit: 'g', available: 900 }) },
       { meta: meta('I3', { name: 'Naan' }), item: item('I3', { level: 'ok' }) },
     ];
-    act(() => root.render(<AlertBar rows={rows} />));
-    expect(container.querySelector('[data-alert-bar]')?.textContent).toBe('Low: Chicken Karahi 0.9 kg · Out: Paye');
+    act(() => root.render(<AlertBar rows={rows} onPick={() => {}} />));
+    // v1.1 (B14): one chip per item, low first.
+    expect([...container.querySelectorAll('[data-alert-bar] .pos-chip')].map((c) => c.textContent)).toEqual([
+      'Low: Chicken Karahi 0.9 kg',
+      'Out: Paye',
+    ]);
 
-    act(() => root.render(<AlertBar rows={[rows[2]!]} />));
+    act(() => root.render(<AlertBar rows={[rows[2]!]} onPick={() => {}} />));
     expect(container.querySelector('[data-alert-bar]')).toBeNull();
   });
 
@@ -297,7 +314,7 @@ describe('/admin/stock table', () => {
     expect(rowOf('I2').textContent).not.toContain('Hours');
     // Off inside its window: Off wins, no hours badge.
     expect(rowOf('I3').textContent).not.toContain('Hours');
-    expect(button(rowOf('I3'), t('admin_stock.off')).getAttribute('aria-pressed')).toBe('true');
+    expect(rowOf('I3').querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
   });
 
   it('[01a §8.2] a refresh does not overwrite the row being edited', async () => {

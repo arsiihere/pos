@@ -172,4 +172,43 @@ describe('hub-admin client', () => {
     });
     expect(api.hasSession()).toBe(false);
   });
+
+  it('[01a §10 #172 client part] sign-in writes 00\'s admin keys; logout and a signed-out answer clear all five', async () => {
+    const { api, calls } = client([
+      json(200, { data: { ...LOGIN, display_name: 'Imran', permissions: { 'manage-devices': true, 'manage-staff': false } } }),
+      json(200, { data: { session_id: 'SES1', ended_at: 5, already_ended: false } }),
+    ]);
+    expect((await api.login('S_MGR', '1234')).ok).toBe(true);
+    expect(sessionStorage.getItem('admin_name')).toBe('Imran');
+    expect(JSON.parse(sessionStorage.getItem('admin_permissions') ?? '{}')).toEqual({ 'manage-devices': true, 'manage-staff': false });
+    expect(api.adminName()).toBe('Imran');
+    sessionStorage.setItem('admin_bootstrap', '1');
+
+    await api.logout();
+    expect(calls.at(-1)?.url).toBe('/admin/auth/logout');
+    for (const key of ['admin_session_token', 'admin_staff_id', 'admin_name', 'admin_permissions', 'admin_bootstrap']) {
+      expect(sessionStorage.getItem(key), key).toBeNull();
+    }
+
+    for (const key of ['admin_session_token', 'admin_staff_id', 'admin_name', 'admin_permissions', 'admin_bootstrap']) {
+      sessionStorage.setItem(key, 'x');
+    }
+    const signedOut = client([apiError(401, 'ADMIN_SESSION_REQUIRED')]);
+    await signedOut.api.configStatus();
+    for (const key of ['admin_session_token', 'admin_staff_id', 'admin_name', 'admin_permissions', 'admin_bootstrap']) {
+      expect(sessionStorage.getItem(key), key).toBeNull();
+    }
+  });
+
+  it('[01a S54 g] a failed logout call still clears the keys', async () => {
+    sessionStorage.setItem('admin_session_token', 'AS1');
+    sessionStorage.setItem('admin_name', 'Imran');
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError('network');
+    });
+    const api = createHubAdmin({ fetch: fetchFn, readDeviceToken: async () => 'DT1', readDeviceId: async () => 'D1', onSignedOut: () => {} });
+    await api.logout();
+    expect(sessionStorage.getItem('admin_session_token')).toBeNull();
+    expect(sessionStorage.getItem('admin_name')).toBeNull();
+  });
 });

@@ -21,6 +21,11 @@ import type {
 
 const SESSION_KEY = 'admin_session_token';
 const STAFF_KEY = 'admin_staff_id';
+// S54 g: the admin session is shared with 00's /admin page on this origin, so the stock page writes and
+// clears the same keys it does (00 M89).
+const NAME_KEY = 'admin_name';
+const PERMISSIONS_KEY = 'admin_permissions';
+const SESSION_KEYS = [SESSION_KEY, STAFF_KEY, NAME_KEY, PERMISSIONS_KEY, 'admin_bootstrap'];
 
 export type HubError =
   | { kind: 'network' }
@@ -99,8 +104,7 @@ export function createHubAdmin(options: HubAdminOptions) {
   let ids: { tenant_id: string; branch_id: string } | null = null;
 
   function clearSession(): void {
-    storage.removeItem(SESSION_KEY);
-    storage.removeItem(STAFF_KEY);
+    for (const key of SESSION_KEYS) storage.removeItem(key);
   }
 
   async function send(method: 'GET' | 'POST', path: string, body: unknown, withSession: boolean): Promise<Reply> {
@@ -188,8 +192,19 @@ export function createHubAdmin(options: HubAdminOptions) {
       if (answer.ok) {
         storage.setItem(SESSION_KEY, answer.data.admin_session_token);
         storage.setItem(STAFF_KEY, answer.data.staff_id);
+        storage.setItem(NAME_KEY, answer.data.display_name);
+        if (answer.data.permissions !== undefined) storage.setItem(PERMISSIONS_KEY, JSON.stringify(answer.data.permissions));
       }
       return answer;
+    },
+
+    adminName: (): string | null => storage.getItem(NAME_KEY),
+    staffId: (): string | null => storage.getItem(STAFF_KEY),
+
+    // Q3, S54 e: best effort; the keys go either way.
+    async logout(): Promise<void> {
+      if (storage.getItem(SESSION_KEY) !== null) await send('POST', '/admin/auth/logout', {}, true);
+      clearSession();
     },
 
     // §6.21 (D7: with the ids) and §6.19 (with the last versions, so an unchanged poll is short).

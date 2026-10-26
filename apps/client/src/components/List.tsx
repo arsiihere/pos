@@ -32,15 +32,18 @@ export function ListRow({
   touched = false,
   muted = false,
   id,
+  attrs,
   children,
 }: {
   touched?: boolean;
   muted?: boolean;
   id?: string;
+  // data-* hooks and tabIndex for a row a chip can focus (B14).
+  attrs?: Record<`data-${string}`, string> & { tabIndex?: number };
   children: ReactNode;
 }) {
   return (
-    <li id={id} className={`pos-list__row${touched ? ' is-touched' : ''}${muted ? ' is-muted' : ''}`}>
+    <li id={id} {...attrs} className={`pos-list__row${touched ? ' is-touched' : ''}${muted ? ' is-muted' : ''}`}>
       {children}
     </li>
   );

@@ -17,7 +17,7 @@ import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatRupees } from '../money';
-import { usePhone } from '../phone';
+import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { CategoryForm } from './CategoryForm';
 import { ItemForm } from './ItemForm';
