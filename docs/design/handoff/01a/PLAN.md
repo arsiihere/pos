@@ -109,6 +109,12 @@ Check: local hub, walk flows 2 (morning count with the stale prompt), 3 (lunch t
 - `docs/design/open-questions/01a-setup.md` exists (copied 2026-10-26); new questions appended (A3, A9, A10, A13, A15 if you leave them to me).
 - Report: per phase, tests, blocked Q6.5 / 6.10 / 6.13, where each recommended answer lives, what's not done.
 
-## D. Blocked / out of scope
+## D. As built (hand-off phases 1–3, 2026-10-26)
+- Phase 1 `02af479`: shared components, language plumbing. Phase 2 `196960b`: owner app. Phase 3 `295d5b4`: stock page.
+- Where each recommended answer lives: Q1 `features/owner/floors/bulk-add.ts`, `BulkTables.tsx`; Q2 `components/Dialog.tsx`, `components/FlashChip.tsx`, `features/owner/guard.tsx`, `BlockedDialog.tsx`; Q3 `api/hub-admin.ts` `logout()`, `features/admin/stock/StockApp.tsx`; Q4 `features/admin/stock/draft.ts`; Q5 `StockApp.tsx` (`confirmAll`); Q6.3 the item form's When it runs out; Q6.12 the stock row's hours badge (`badges.ts`); Q7 `features/owner/App.tsx`; Q8 `features/owner/branch.ts`.
+- Differences from `01a-design.md`: its §0 "As built".
+- Not done: screenshots (open question Q13).
+
+## E. Blocked / out of scope
 - Blocked: Q6.5 (same prices everywhere; nothing in 01a changes either way), Q6.10 (owner data), Q6.13 (kg rounding; 02/05).
 - Out of scope: image upload, 2-D floor plan, days of the week, branch names and settings (01b), variants/modifiers/deals (01c), Parking* frames (02).

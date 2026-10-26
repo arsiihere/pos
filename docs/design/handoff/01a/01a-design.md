@@ -2,7 +2,7 @@
 
 Canvas: **Module 01a Screens** (54 frames). The 28 original frames are kept and retitled with screen IDs. 26 frames were added in three new rows at the bottom ("01a additions · …").
 
-Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.0.2.md` §8.
+Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.1.md` §8 (was v1.0.2 when this was drawn).
 
 Kit: `kit-additions.css` is the same file as module 00. It is 01a + 00 blocks with the `.pos-list__name > span` fix, so chips in rows keep their colour. Design system: POS.
 
@@ -18,6 +18,32 @@ Kit: `kit-additions.css` is the same file as module 00. It is 01a + 00 blocks wi
   - sticky `.pos-actionbar` with **Save N counts**. It moves under the 00-S20 hub admin shell when that ships.
 
 Sample data: Gulberg `…P0AB`, Johar Town `…M6PQ` (IDs until 01b names branches); Chicken Karahi Rs 2,200/kg; Paye Rs 450 (sold out when gone, keeps overnight, 07:00–13:00); Naan Rs 30; Lassi Rs 250 a glass (300 ml, counted in L); Seekh Kebab pieces.
+
+---
+
+## 0. As built (2026-10-26, spec 01a v1.1)
+
+Where the implementation differs from the sections below, this list wins. Build plan and notes: `PLAN.md`. Spec decisions: `01_Restaurant_Setup_Spec_v1.1.md` S49–S56.
+
+| Topic | As built |
+|---|---|
+| Kit | The shared `kit-additions.css` was already in `packages/ui-kit/components/bundle.css` (00 phase 1). Extra token-only rules: `.pos-actionbar--tabs` (phone tab bar), `.pos-section--sunken` (archived floor), `.pos-tile.is-muted` (archived table), `.pos-hero` (owner sign-in). The frames' inline styles are not used (lint bans `style`). |
+| Files | Shared components `apps/client/src/components/` (AppBar, SideNav + TabBar, List, Switch, Segmented, Chip, ActionBar, EmptyState, Skeleton, FlashChip, Dialog, Icon); owner app `features/owner/` (Shell, guard, cloud, branch, BlockedDialog, floors/, stations/, menu/); stock page `features/admin/stock/` (draft.ts for Q4, AddSheet); `app/phone.ts` (≤ 760 px). |
+| Strings | `apps/client/src/i18n/en.ts` and `ur.ts`; keys follow §2 with additions (`floors.*`, `item.*`, `tax.*`, `admin_stock.*`). Keys without Urdu: `urdu-todo.md`. |
+| Language | As 00 M83 (S49): `?lang=` → `localStorage pos-lang` → `navigator.language`; `lang`/`dir` on `<html>`; Latin type classes become `ur-*` in Urdu. |
+| Spec-quoted labels | §8.1 and §8.2 quote some texts word for word, and v1.1 did not change them, so they keep the spec's words: Stock unit, Sold by options, Grams per piece, Low stock alert at, Keeps overnight, When pre-cooked stock runs out / Cook fresh, Available hours, the unit-change warning, the Close day question, the stale-day sentence, the Day open line. Open question Q9. |
+| S01 | Empty fields are marked before sending. Network failure: warn banner, Sign in stays enabled (S53). |
+| S02 | No floor/station counts on the tiles (S50 f). One branch → the picker is skipped and `#/menu` opens. Side menu foot shows `display_name` (login returns no email); the brand has no restaurant name. |
+| S03 | Rename opens name + position inline (saved on blur, Saved chip). Add floor is a dialog; the first floor's form is on the page. Bulk add: names are checked against the branch before sending; keys = form key + i (S51). D01 floor blocked dialog has "Archive all N tables, then the floor". |
+| S04 | One station open at a time with **Save station** (one PATCH). A refused type change shows the blocked dialog and then locks the type field. "Open these items" opens the menu unfiltered (§6.11 has no station filter). Recipe archive: at once + Undo. |
+| S05 | No item counts per category or tax rate. The Items tab count shows only once every page is loaded (S50 f). The first-run checklist has no done marks for stations and floors (they are per branch). Tax tab: inline add opens from the app bar's New tax rate. |
+| S06 | Category dialog; a category with active items cannot be archived (§6.13): the blocked dialog lists them. `OwnerArchiveCategory`'s text is not built. |
+| S07 | Kept ready switch = stock time or a pre-cooked recipe (§4.3); turning it off clears both. Sold by and Stock unit are segmented controls; sold by kg or L forces counting in that unit. The phone page shows "On sale at n of m branches" as text, no switch (S50 g). B03: **Save {branch} again** re-sends only the failed route PUTs. |
+| B04 | After a failed save the client probes with the view's own read (0.5 → 5 s); nothing is re-sent by itself (S53). |
+| S10 | The roster is shown as `/admin/login-roster` returns it (no `manage-stock` filter). Locked minutes use the device clock (display only). Tries left only when `attempts_remaining` ≤ 2. |
+| S11 | Level filter + search + category filter (all three). Default filter: All. Menu chip keeps §6.21's line ("Menu version 42 · checked 1 min ago"). The stock page uses 00's five admin session keys (S54 g). Side menu from tablet width (S54 f). Saves over 200 rows go in parts of 200 (S56). |
+| Q4 | Key `stock-draft:<branch_id>:<opened_at>:<staff_id>` (no device id on the page; `opened_at`, not `business_date`, S33). A row saved or added since is not brought back (listed as changed). Sign out with unsaved counts asks Save / Keep on this tablet / Discard. |
+| Not built | Screenshots of the built pages (Playwright is not installed here). |
 
 ---
 

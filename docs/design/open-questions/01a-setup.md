@@ -66,3 +66,35 @@ These are business decisions for Arif. Each has my suggestion.
 ## Q8 (new) Where does the branch picker remember its choice?
 - **Recommended:** Keep it in `sessionStorage`, so it survives a reload in the same tab. If the owner has one branch, skip the picker.
 - **Status:** recommended
+
+---
+
+## Q9 (new, from the build) Design wording for labels the spec quotes?
+- **Context:** spec §8.1/§8.2 quote some labels word for word (Stock unit, Low stock alert at, Keeps overnight, Cook fresh, Available hours, Grams per piece, the unit-change warning, the Close day question, the stale-day sentence). The build keeps the spec's words; the design has friendlier ones (Counted in, Warn when below, Leftovers can be sold the next day, Cook more, Hours, One plate takes, "Counting changes from tomorrow", "Close today's business day?").
+- **Recommended:** use the design's words. It needs an editorial spec line (01a v1.1.1) and a string-table change only.
+- **Decision:**
+- **Status:** open
+
+## Q10 (new) Item counts the menu cannot show today?
+- **Context:** the API has no item counts per category or tax rate, no menu total before the last page, no floor/station counts per branch, and no station filter for "Open these items" (S50 f).
+- **Recommended:** leave them out for the pilot; add a small summary to §6.11 (counts per category and tax class) only if the owner misses them.
+- **Decision:**
+- **Status:** open
+
+## Q11 (new) Show only people with the stock job on the stock sign-in?
+- **Context:** `/admin/login-roster` lists every hub admin; the stock page cannot filter by `manage-stock`. Someone without it signs in and then sees the permission text.
+- **Recommended:** keep as built until 01b assigns responsibilities; then add the permission to the roster answer.
+- **Decision:**
+- **Status:** open
+
+## Q12 (new) Urdu translation and review
+- **Context:** 29 of 471 owner and stock keys have Urdu (from `OwnerMenuUrdu` and `StockUrdu`); the rest are in `docs/design/handoff/01a/urdu-todo.md` and show in English on an Urdu page.
+- **Recommended:** a translator fills `urdu-todo.md`, then someone reads every screen in Urdu once.
+- **Decision:**
+- **Status:** open
+
+## Q13 (new) Screenshots of the built pages
+- **Context:** the hand-off asked for Playwright screenshots in English and Urdu at the frame sizes; Playwright is not installed in this repo, so none were taken.
+- **Recommended:** install Playwright outside the repo and capture them against canned API answers, as module 00 did.
+- **Decision:**
+- **Status:** open
