@@ -15,7 +15,7 @@
 body{margin:0}
 </style>
 </helmet>
-<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; height: 1640px; overflow: hidden;">
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 2048px; ">
   <div class="pos-shell">
     <nav class="pos-sidenav" aria-label="Restaurant setup">
       <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
@@ -57,10 +57,10 @@ body{margin:0}
             </section>
 
             <section class="pos-section">
-              <div class="pos-section__head"><h2>Kitchen</h2><p>Which station cooks it at each branch, and how long it takes.</p></div>
+              <div class="pos-section__head"><h2>Branches and kitchen</h2><p>Where it is sold, its price there, and which station cooks it. Leave the price empty to use the main price (Rs 650).</p></div><div class="pos-list__head" style="grid-template-columns: 180px 200px minmax(0, 1fr) minmax(0, 1fr); border-radius: var(--radius-md);"><span>Branch</span><span>Price here</span><span>Cooked at</span><span>Recipe</span></div>
               <ul class="pos-list">
-                <li class="pos-list__row" style="grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Gulberg</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…P0AB</span></div><select class="pos-select" aria-label="Cooked at, Gulberg"><option>Degh (batch)</option></select><select class="pos-select" aria-label="Batch recipe, Gulberg"><option>Biryani degh · 90 min</option></select></li>
-                <li class="pos-list__row" style="grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Johar Town</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…M6PQ</span></div><select class="pos-select" aria-label="Cooked at, Johar Town"><option>Not sold here</option></select><span></span></li>
+                <li class="pos-list__row" style="grid-template-columns: 180px 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Gulberg</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…P0AB</span></div><span class="pos-input-affix"><span>Rs</span><input class="pos-input pos-input--mono" value="" placeholder="Same: 650" inputmode="decimal" aria-label="Price at Gulberg"></span><select class="pos-select" aria-label="Cooked at, Gulberg"><option>Degh (batch)</option></select><select class="pos-select" aria-label="Batch recipe, Gulberg"><option>Biryani degh · 90 min</option></select></li>
+                <li class="pos-list__row" style="grid-template-columns: 180px 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Johar Town</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…M6PQ</span></div><span class="pos-input-affix"><span>Rs</span><input class="pos-input pos-input--mono" value="" placeholder="Not sold here" inputmode="decimal" aria-label="Price at Johar Town" disabled></span><select class="pos-select" aria-label="Cooked at, Johar Town"><option>Not sold here</option></select><span></span></li>
               </ul>
               <div class="pos-grid pos-grid--3">
                 <label class="pos-field"><span class="pos-field__label">Cooking time</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="20"><span>min</span></span></label>
@@ -113,7 +113,7 @@ body{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2048}}'>
 class Component extends DCLogic {
 renderVals() { return {}; }
 }

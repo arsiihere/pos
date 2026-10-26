@@ -1,0 +1,516 @@
+{
+ "v": 3,
+ "attachments": {},
+ "boards": {
+  "Main.dc.html": {
+   "h": 960,
+   "title": "01a-S11 · Stock page — morning count (tablet)",
+   "w": 1280,
+   "x": 0,
+   "y": 0
+  },
+  "StockNoDay.dc.html": {
+   "h": 800,
+   "title": "01a-B13 · Stock — no day open, start day (tablet)",
+   "w": 1280,
+   "x": 1360,
+   "y": 0
+  },
+  "StockStale.dc.html": {
+   "h": 800,
+   "title": "01a-B12 · Stock — yesterday still open (tablet)",
+   "w": 1280,
+   "x": 2720,
+   "y": 0
+  },
+  "StockPin.dc.html": {
+   "h": 800,
+   "title": "01a-S10 · Stock — PIN sign-in (tablet)",
+   "w": 1280,
+   "x": 4080,
+   "y": 0
+  },
+  "StockCloseDay.dc.html": {
+   "h": 800,
+   "title": "01a-D10 · Close day confirm (tablet)",
+   "w": 1280,
+   "x": 5440,
+   "y": 0
+  },
+  "StockPhone.dc.html": {
+   "h": 844,
+   "title": "01a-S11 · Stock page (phone)",
+   "w": 390,
+   "x": 0,
+   "y": 1380
+  },
+  "StockAddSheet.dc.html": {
+   "h": 844,
+   "title": "01a-S11 · Add a fresh batch sheet (phone)",
+   "w": 390,
+   "x": 470,
+   "y": 1380
+  },
+  "StockUrdu.dc.html": {
+   "h": 844,
+   "title": "01a-S11 · Stock page — Urdu RTL (phone)",
+   "w": 390,
+   "x": 940,
+   "y": 1380
+  },
+  "StockPinError.dc.html": {
+   "h": 800,
+   "title": "01a-S10 · Stock sign-in — wrong PIN and locked (tablet)",
+   "w": 1280,
+   "x": 1410,
+   "y": 1380
+  },
+  "StockOffline.dc.html": {
+   "h": 800,
+   "title": "01a-B16 · Stock — reconnecting, counts kept (tablet)",
+   "w": 1280,
+   "x": 2770,
+   "y": 1380
+  },
+  "StockFeedback.dc.html": {
+   "h": 800,
+   "title": "01a-B17 · Stock — saved, batch added, switch failed (tablet)",
+   "w": 1280,
+   "x": 4130,
+   "y": 1380
+  },
+  "OwnerLogin.dc.html": {
+   "h": 900,
+   "title": "01a-S01 · Owner sign in — wrong email or password (laptop)",
+   "w": 1440,
+   "x": 0,
+   "y": 2760
+  },
+  "OwnerMenu.dc.html": {
+   "h": 900,
+   "title": "01a-S05 · Menu — items (laptop)",
+   "w": 1440,
+   "x": 1520,
+   "y": 2760
+  },
+  "OwnerItem.dc.html": {
+   "h": 2048,
+   "title": "01a-S07 · Item form — edit, unit change warning B02 (laptop)",
+   "w": 1440,
+   "x": 3040,
+   "y": 2760
+  },
+  "OwnerFloors.dc.html": {
+   "h": 900,
+   "title": "01a-S03 · Floors and tables — bulk add tables (laptop)",
+   "w": 1440,
+   "x": 4560,
+   "y": 2760
+  },
+  "OwnerStations.dc.html": {
+   "h": 1068,
+   "title": "01a-S04 · Stations and batch recipes (laptop)",
+   "w": 1440,
+   "x": 6080,
+   "y": 2760
+  },
+  "OwnerMenuPhone.dc.html": {
+   "h": 844,
+   "title": "01a-S05 · Menu search (owner phone)",
+   "w": 390,
+   "x": 1520,
+   "y": 5228
+  },
+  "OwnerMenuFirstRun.dc.html": {
+   "h": 900,
+   "title": "01a-S05 · First run checklist, empty menu (laptop)",
+   "w": 1440,
+   "x": 4560,
+   "y": 5228
+  },
+  "OwnerItemErrors.dc.html": {
+   "h": 1016,
+   "title": "01a-S07 · Item form — errors and hours C01 (laptop)",
+   "w": 1440,
+   "x": 6080,
+   "y": 5228
+  },
+  "OwnerTableDialog.dc.html": {
+   "h": 780,
+   "title": "01a-S03 · Edit table (popup)",
+   "w": 720,
+   "x": 0,
+   "y": 6664
+  },
+  "OwnerArchiveFloor.dc.html": {
+   "h": 560,
+   "title": "01a-D01 · Archive floor — blocked by tables (popup)",
+   "w": 720,
+   "x": 800,
+   "y": 6664
+  },
+  "OwnerAddStation.dc.html": {
+   "h": 960,
+   "title": "01a-S04 · Add station (popup)",
+   "w": 720,
+   "x": 1600,
+   "y": 6664
+  },
+  "OwnerAddRecipe.dc.html": {
+   "h": 560,
+   "title": "01a-S04 · Add batch recipe (popup)",
+   "w": 720,
+   "x": 2400,
+   "y": 6664
+  },
+  "OwnerCategoryDialog.dc.html": {
+   "h": 960,
+   "title": "01a-S06 · Category with hours, C01 (popup)",
+   "w": 720,
+   "x": 3200,
+   "y": 6664
+  },
+  "OwnerTaxDialog.dc.html": {
+   "h": 640,
+   "title": "01a-S05 · Edit tax rate (popup)",
+   "w": 720,
+   "x": 4000,
+   "y": 6664
+  },
+  "ParkingNewOrder.dc.html": {
+   "h": 800,
+   "title": "02 preview · new parking order (tablet)",
+   "w": 1280,
+   "x": 0,
+   "y": 8064
+  },
+  "ParkingBoard.dc.html": {
+   "h": 800,
+   "title": "02 preview · parking board",
+   "w": 1280,
+   "x": 1360,
+   "y": 8064
+  },
+  "ParkingPhone.dc.html": {
+   "h": 844,
+   "title": "02 preview · parking order at the car (phone)",
+   "w": 390,
+   "x": 2720,
+   "y": 8064
+  },
+  "OwnerBranchPicker.dc.html": {
+   "x": 0,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S02 · Branch picker (laptop)"
+  },
+  "OwnerLoginCloudDown.dc.html": {
+   "x": 1520,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S01 · Sign in — cloud can't be reached, B04 (laptop)"
+  },
+  "OwnerFloorsEmpty.dc.html": {
+   "x": 3040,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S03 · Floors and tables — first floor, bulk add (laptop)"
+  },
+  "OwnerFloorsArchived.dc.html": {
+   "x": 4560,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S03 · Floors — show archived, name taken, saved (laptop)"
+  },
+  "OwnerMenuCategories.dc.html": {
+   "x": 6080,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — categories (laptop)"
+  },
+  "OwnerMenuTax.dc.html": {
+   "x": 7600,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — tax rates, add a rate (laptop)"
+  },
+  "OwnerMenuReadOnly.dc.html": {
+   "x": 9120,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — read-only, B01 (laptop)"
+  },
+  "OwnerMenuNoMatch.dc.html": {
+   "x": 10640,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — no search match (laptop)"
+  },
+  "OwnerMenuLoading.dc.html": {
+   "x": 12160,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — loading (laptop)"
+  },
+  "OwnerItemNew.dc.html": {
+   "x": 13680,
+   "y": 9328,
+   "w": 1440,
+   "h": 1812,
+   "title": "01a-S07 · New item — Chicken Karahi by kg (laptop)"
+  },
+  "OwnerItemPartial.dc.html": {
+   "x": 15200,
+   "y": 9328,
+   "w": 1440,
+   "h": 2068,
+   "title": "01a-S07 · Item form — partial save, B03 (laptop)"
+  },
+  "OwnerItemCloudDown.dc.html": {
+   "x": 16720,
+   "y": 9328,
+   "w": 1440,
+   "h": 2060,
+   "title": "01a-S07 · Item form — cloud can't be reached, B04 (laptop)"
+  },
+  "OwnerItemPhone.dc.html": {
+   "x": 18240,
+   "y": 9328,
+   "w": 390,
+   "h": 844,
+   "title": "01a-S07 · Quick price change mid-service (owner phone)"
+  },
+  "OwnerMenuUrdu.dc.html": {
+   "x": 18710,
+   "y": 9328,
+   "w": 1440,
+   "h": 900,
+   "title": "01a-S05 · Menu — Urdu RTL (laptop)"
+  },
+  "OwnerArchiveItem.dc.html": {
+   "x": 0,
+   "y": 11816,
+   "w": 720,
+   "h": 400,
+   "title": "01a-D01 · Archive confirm — item (popup)"
+  },
+  "OwnerArchiveCategory.dc.html": {
+   "x": 800,
+   "y": 11816,
+   "w": 720,
+   "h": 460,
+   "title": "01a-D01 · Archive confirm — category with items (popup)"
+  },
+  "OwnerArchiveStation.dc.html": {
+   "x": 1600,
+   "y": 11816,
+   "w": 720,
+   "h": 460,
+   "title": "01a-D01 · Archive — station in use, CONFIG_IN_USE (popup)"
+  },
+  "OwnerDiscard.dc.html": {
+   "x": 2400,
+   "y": 11816,
+   "w": 720,
+   "h": 400,
+   "title": "01a-D02 · Discard changes? (popup)"
+  },
+  "StockMenuProblem.dc.html": {
+   "x": 0,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-B10 · Stock — menu update refused, still on version 42 (tablet)"
+  },
+  "StockNotSaved.dc.html": {
+   "x": 1360,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-B13 · Stock — not saved, day not open (retry) (tablet)"
+  },
+  "StockOpenedRecently.dc.html": {
+   "x": 2720,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-B18 · Stock — day started less than 4 h ago (tablet)"
+  },
+  "StockNoMatch.dc.html": {
+   "x": 4080,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-S11 · Stock — no match, item no longer counted (tablet)"
+  },
+  "StockConfirmAll.dc.html": {
+   "x": 5440,
+   "y": 12696,
+   "w": 1280,
+   "h": 848,
+   "title": "01a-S11 · Stock — confirm all carried-over counts, Q5 proposal (tablet)"
+  },
+  "StockCountsKept.dc.html": {
+   "x": 6800,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-S11 · Stock — typed counts kept after idle sign-out, Q4 proposal (tablet)"
+  },
+  "StockPinNobody.dc.html": {
+   "x": 8160,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-S10 · Stock sign-in — nobody can count stock (tablet)"
+  },
+  "StockPinOffline.dc.html": {
+   "x": 9520,
+   "y": 12696,
+   "w": 1280,
+   "h": 800,
+   "title": "01a-S10 · Stock sign-in — can't reach the hub, Retry (tablet)"
+  }
+ },
+ "createdOnFiles": {
+  "at": "2026-10-26T03:30:00Z",
+  "v": 1
+ },
+ "designSystems": [
+  {
+   "artifact": "https://claude.ai/artifact/4zWPRkf81NrNcV9ruyza88",
+   "copiedAt": "2026-10-26T03:30:00Z",
+   "namespace": "pos",
+   "title": "POS",
+   "version": "1792846723-4f48"
+  }
+ ],
+ "launch": {
+  "view": "canvas"
+ },
+ "notes": {
+  "t1": {
+   "kind": "title1",
+   "maxW": 6720,
+   "text": "Hub stock page · used daily by managers, standing, in a hurry",
+   "w": 240,
+   "x": 0,
+   "y": -300
+  },
+  "t2": {
+   "kind": "title1",
+   "maxW": 7520,
+   "text": "Owner app · restaurant setup, laptop first",
+   "w": 240,
+   "x": 0,
+   "y": 2460
+  },
+  "t3": {
+   "kind": "title1",
+   "maxW": 4720,
+   "text": "Owner app · popups and forms",
+   "w": 240,
+   "x": 0,
+   "y": 6364
+  },
+  "t4": {
+   "kind": "title1",
+   "maxW": 3110,
+   "text": "Module 02 preview · parking orders",
+   "w": 240,
+   "x": 0,
+   "y": 7764
+  },
+  "n01aO": {
+   "kind": "title1",
+   "x": 0,
+   "y": 9028,
+   "text": "01a additions · owner app states (laptop and phone)",
+   "maxW": 7600,
+   "w": 240
+  },
+  "n01aQ": {
+   "kind": "title1",
+   "x": 0,
+   "y": 11516,
+   "text": "01a additions · confirm and discard popups",
+   "maxW": 3120,
+   "w": 240
+  },
+  "n01aS": {
+   "kind": "title1",
+   "x": 0,
+   "y": 12396,
+   "text": "01a additions · stock page states (tablet)",
+   "maxW": 7600,
+   "w": 240
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "StockNoDay.dc.html",
+  "StockStale.dc.html",
+  "StockPin.dc.html",
+  "StockCloseDay.dc.html",
+  "StockPhone.dc.html",
+  "StockAddSheet.dc.html",
+  "StockUrdu.dc.html",
+  "StockPinError.dc.html",
+  "StockOffline.dc.html",
+  "StockFeedback.dc.html",
+  "OwnerLogin.dc.html",
+  "OwnerMenu.dc.html",
+  "OwnerItem.dc.html",
+  "OwnerFloors.dc.html",
+  "OwnerStations.dc.html",
+  "OwnerMenuPhone.dc.html",
+  "OwnerMenuFirstRun.dc.html",
+  "OwnerItemErrors.dc.html",
+  "OwnerTableDialog.dc.html",
+  "OwnerArchiveFloor.dc.html",
+  "OwnerAddStation.dc.html",
+  "OwnerAddRecipe.dc.html",
+  "OwnerCategoryDialog.dc.html",
+  "OwnerTaxDialog.dc.html",
+  "ParkingNewOrder.dc.html",
+  "ParkingBoard.dc.html",
+  "ParkingPhone.dc.html",
+  "OwnerBranchPicker.dc.html",
+  "OwnerLoginCloudDown.dc.html",
+  "OwnerFloorsEmpty.dc.html",
+  "OwnerFloorsArchived.dc.html",
+  "OwnerMenuCategories.dc.html",
+  "OwnerMenuTax.dc.html",
+  "OwnerMenuReadOnly.dc.html",
+  "OwnerMenuNoMatch.dc.html",
+  "OwnerMenuLoading.dc.html",
+  "OwnerItemNew.dc.html",
+  "OwnerItemPartial.dc.html",
+  "OwnerItemCloudDown.dc.html",
+  "OwnerItemPhone.dc.html",
+  "OwnerMenuUrdu.dc.html",
+  "OwnerArchiveItem.dc.html",
+  "OwnerArchiveCategory.dc.html",
+  "OwnerArchiveStation.dc.html",
+  "OwnerDiscard.dc.html",
+  "StockMenuProblem.dc.html",
+  "StockNotSaved.dc.html",
+  "StockOpenedRecently.dc.html",
+  "StockNoMatch.dc.html",
+  "StockConfirmAll.dc.html",
+  "StockCountsKept.dc.html",
+  "StockPinNobody.dc.html",
+  "StockPinOffline.dc.html"
+ ],
+ "pages": [],
+ "title": "Module 01a Screens"
+}

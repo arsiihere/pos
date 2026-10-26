@@ -15,7 +15,7 @@
 body{margin:0}
 </style>
 </helmet>
-<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; height: 900px; overflow: hidden;">
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 1068px; ">
   <div class="pos-shell">
     <nav class="pos-sidenav" aria-label="Restaurant setup">
       <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
@@ -27,7 +27,7 @@ body{margin:0}
     <div style="display: flex; flex-direction: column; min-width: 0;">
       <header class="pos-appbar">
         <h1 class="pos-appbar__title">Kitchen stations</h1>
-        <label class="pos-row" style="gap: 8px;"><span style="font: 700 17px/22px var(--font-sans); color: var(--ink-muted);">Branch</span><select class="pos-select" style="width: 240px;"><option>Gulberg · …P0AB</option></select></label>
+        <label class="pos-row" style="gap: 8px;"><span style="font: 700 17px/22px var(--font-sans); color: var(--ink-muted);">Branch</span><select class="pos-select" style="width: 240px;"><option>Gulberg</option><option>Johar Town</option></select></label>
         <div class="pos-appbar__end"><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add station</button></div>
       </header>
 
@@ -73,7 +73,7 @@ body{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1068}}'>
 class Component extends DCLogic {
 renderVals() { return {}; }
 }

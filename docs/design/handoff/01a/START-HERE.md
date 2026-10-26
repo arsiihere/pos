@@ -30,7 +30,4 @@ Do not change API contracts or touch other modules beyond what the task file all
 2. Edit the **Decision** line and set **Status** to `answered`.
 3. Tell Claude Code: `Apply the answered decisions in docs/design/open-questions/01a-setup.md`.
 
-Blocked until you answer:
-- Q6.5: same prices at every branch?
-- Q6.10: which items cook in batches? (owner data)
-- Q6.13: kg rounding on the bill.
+All owner questions are answered now (Q6.5 per-branch price, Q6.10 per item, Q6.13 rounding). Q6.5 needs one small spec addendum; Claude Code writes it in Phase 2b and waits for your "go".

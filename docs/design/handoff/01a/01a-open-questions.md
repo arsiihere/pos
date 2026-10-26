@@ -53,10 +53,10 @@ Copy this file to `docs/design/open-questions/01a-setup.md`. It works like the 0
 ## Q6 Spec owner questions still open (01a §12.6)
 These are business decisions for Arif. Each has my suggestion.
 - **6.3 Sold out vs cook more, per item?** Yes, per item; it is already the field "When it runs out". Paye and Chanay are Sold out; Karahi and BBQ are Cook more. **Status:** recommended
-- **6.5 Same menu and prices at every branch?** Same menu and same prices for the pilot. A branch can only mark an item "Not sold here". Per-branch prices come later as price lists (P2). **Status:** blocked. Confirm with Arif.
-- **6.10 Which items cook in loads (batch)?** This is data, not design. Expect Degh: Paye, Chanay, Biryani, Haleem; Fryer: fries, pakora. The owner enters it in Stations. **Status:** blocked. Owner data.
+- **6.5 Same menu and prices at every branch?** **Answered (owner):** the menu is shared, but the price can differ per branch. The item has a main price, and each branch row in the item form has an optional "Price here" (empty = main price). Frames: `OwnerItem`, `OwnerItemNew`, `OwnerMenu` (chip "Johar Town Rs 2,300"). Needs a spec addendum and an API field (see CLAUDE-TASK Phase 2b). **Status:** answered
+- **6.10 Which items cook in loads (batch)?** **Answered (owner):** this is decided per item in the item form, by picking a batch station and its recipe for each branch. That is already in the design; there is no separate setting. **Status:** answered
 - **6.12 Manual On outside hours?** Hours win, as decided in S47. The stock row shows a "Hours 07:00–13:00" badge, so nobody is surprised. **Status:** recommended
-- **6.13 Rounding of kg lines on the bill?** Weigh to 0.05 kg (50 g), price the line to the nearest Rs 1, and show the weight on the bill ("Chicken Karahi 1.25 kg × Rs 2,200 = Rs 2,750"). **Status:** blocked. Confirm with Arif; billing (05) uses it.
+- **6.13 Rounding of kg lines on the bill?** **Answered (owner):** yes. Weigh to 0.05 kg (50 g), price the line to the nearest Rs 1, and show the weight on the bill ("Chicken Karahi 1.25 kg × Rs 2,200 = Rs 2,750"). Billing (05) applies it; 02 uses the same rule for the order line. **Status:** answered
 
 ## Q7 Menu without picking a branch?
 - **Recommended:** Yes. The Menu tab needs no branch (frame `OwnerBranchPicker` links straight to it). Inside the item form, the Kitchen section lists every branch, one row each.

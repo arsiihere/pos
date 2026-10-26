@@ -305,7 +305,7 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-list__meta > span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
 .pos-list__who { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 17px/22px var(--font-sans); }
 /* Column presets for the hub admin lists */
-.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr) 128px; }
+.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) 200px minmax(0, 0.9fr) 128px; }
 .pos-list--sessions .pos-list__head, .pos-list--sessions .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) 136px; }
 .pos-list--lockouts .pos-list__head, .pos-list--lockouts .pos-list__row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 136px; }
 
@@ -331,3 +331,13 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 /* Added by module 00 phase 3: link buttons look like buttons; two-column splits stack on phones (designs go down to 360 wide) */
 a.pos-btn { text-decoration: none; }
 @media (max-width: 760px) { .pos-split { grid-template-columns: minmax(0, 1fr); } .pos-content { padding: var(--space-4); } }
+
+/* Added by 01a quality pass (design 26 Oct 2026): rows that read as name + one meta line, then actions on the end (no column math, wraps on narrow screens) */
+.pos-list--rows .pos-list__row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.pos-list--rows .pos-list__row > .pos-list__name { flex: 1 1 260px; }
+.pos-list__side { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); flex: 0 1 auto; flex-wrap: wrap; }
+.pos-list__price { font: 700 20px/26px var(--font-mono); direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+.pos-list__price small { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); margin-inline-start: 4px; }
+.pos-count__unit { flex: none; }
+/* buttons never wrap ("Log out" never splits over two lines), link-buttons never underline */
+.pos-btn { white-space: nowrap; text-decoration: none; }

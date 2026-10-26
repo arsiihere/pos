@@ -162,7 +162,7 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 .pos-list__meta > span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
 .pos-list__who { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 17px/22px var(--font-sans); }
 /* Column presets for the hub admin lists */
-.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr) 128px; }
+.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.2fr) 200px minmax(0, 0.9fr) 128px; }
 .pos-list--sessions .pos-list__head, .pos-list--sessions .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) 136px; }
 .pos-list--lockouts .pos-list__head, .pos-list--lockouts .pos-list__row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 136px; }
 
@@ -184,3 +184,14 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 [lang="ur"] :is(.pos-appbar__title, .pos-sidenav__brand strong, .pos-sidenav__brand span, .pos-sidenav__item, .pos-sidenav__item small, .pos-seg__opt, .pos-chip, .pos-list__head, .pos-list__name strong, .pos-list__name span, .pos-list__group, .pos-list__meta, .pos-list__meta span, .pos-list__who, .pos-switch, .pos-actionbar__info, .pos-actionbar__info strong, .pos-callout__text h2, .pos-callout__text p, .pos-section__head h2, .pos-section__head p, .pos-explain, .pos-tile, .pos-tile small, .pos-empty h3, .pos-count__unit, .pos-input-affix > span, .pos-code__qr--void) { font-family: var(--font-urdu); line-height: 2; }
 [lang="ur"] .pos-input:not(.pos-input--mono):not(.pos-input--code) { font-family: var(--font-urdu); line-height: 2; }
 .pos-list__row > .pos-chip { justify-self: start; }
+
+/* Rows that read as: name + one meta line, then actions on the end (no column math, wraps on narrow screens) */
+.pos-list--rows .pos-list__row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.pos-list--rows .pos-list__row > .pos-list__name { flex: 1 1 260px; }
+.pos-list__side { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); flex: 0 1 auto; flex-wrap: wrap; }
+.pos-list__price { font: 700 20px/26px var(--font-mono); direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+.pos-list__price small { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); margin-inline-start: 4px; }
+.pos-count__unit { flex: none; }
+/* quality pass: buttons never wrap, link-buttons never underline */
+.pos-btn { white-space: nowrap; }
+a.pos-btn, .pos-btn { text-decoration: none; }

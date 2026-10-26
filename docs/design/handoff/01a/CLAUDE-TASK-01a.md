@@ -37,7 +37,7 @@ Work phase by phase. After each phase: run its checks, commit `feat(01a): <phase
    - prices, quantities, times, IDs and table names are LTR;
    - no fixed heights on text;
    - respect `prefers-reduced-motion`.
-5. **Do not change API contracts.** No new endpoints are needed for 01a. Bulk add and confirm-all are client-side loops or batches over the existing commands.
+5. **Do not change API contracts**, except the one field in Phase 2b (per-branch price), which goes through a spec addendum and my "go" first. Bulk add and confirm-all are client-side loops or batches over the existing commands.
 6. Open questions: build with the **recommended** answers. Skip anything marked `blocked` and list it in your report. Note behaviour changes at the top of PLAN.md.
 7. Keep existing tests green. Add tests for:
    - the error code → UI text mapping;
@@ -101,6 +101,28 @@ Match the `Owner*` frames.
 
 **Check:** run the owner app locally and walk flows 1 (first-time setup) and 6 (price change on a phone, ≤ 5 taps). If Playwright is available, screenshot each screen at 1440×900 and 390×844, in English and in Urdu, into `docs/design/handoff/01a/screens/`, and compare them by eye with the frames.
 
+### Phase 2b: Per-branch price (owner decision Q6.5)
+The owner decided that the menu is shared, but **a branch may have its own price**. This needs a small contract change, so:
+1. Write `docs/specs/01_Restaurant_Setup_Spec_v1.1-addendum-branch-price.md` (short):
+   - Route gets an optional `price_minor_override` (null = use the item's `price_minor`; same validation).
+   - The branch config snapshot carries the effective price.
+   - Ordering (02) and billing (05) use the effective price; open orders keep the price they were made with (D25).
+   - Audit the change like a price edit.
+2. **Stop and show me the addendum. Wait for "go".**
+3. Then:
+   - cloud API: the `PUT …/routes/:branch_id` body and the menu query;
+   - hub config apply;
+   - item form "Price here" per branch row (frames `OwnerItem`, `OwnerItemNew`);
+   - menu list chip "{branch} Rs {price}" (`OwnerMenu`).
+4. Tests:
+   - override null vs set;
+   - the snapshot uses the effective price;
+   - a validation error marks that branch row.
+
+Also record these owner answers:
+- **Q6.10:** batch is chosen per item (station + recipe in the item form). Nothing to build.
+- **Q6.13:** kg lines are weighed to 0.05 kg and priced to the nearest Rs 1. Add this rule to the spec addendum for 02/05. Nothing to build in 01a.
+
 ### Phase 3: Hub stock page (01a-S10, S11, B10–B18, D10)
 Match the `Main` and `Stock*` frames.
 - PIN sign-in states:
@@ -129,7 +151,7 @@ Match the `Main` and `Stock*` frames.
 - Report:
   - what was built, per phase;
   - tests;
-  - blocked questions (Q6.5, Q6.10, Q6.13);
+  - the per-branch price addendum and its status;
   - the recommended answers used and where each lives in the code;
   - anything not done.
 

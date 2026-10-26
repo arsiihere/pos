@@ -43,6 +43,7 @@ Where the implementation differs from the sections below, this list wins. Build 
 | S10 | The roster is shown as `/admin/login-roster` returns it (no `manage-stock` filter). Locked minutes use the device clock (display only). Tries left only when `attempts_remaining` ≤ 2. |
 | S11 | Level filter + search + category filter (all three). Default filter: All. Menu chip keeps §6.21's line ("Menu version 42 · checked 1 min ago"). The stock page uses 00's five admin session keys (S54 g). Side menu from tablet width (S54 f). Saves over 200 rows go in parts of 200 (S56). |
 | Q4 | Key `stock-draft:<branch_id>:<opened_at>:<staff_id>` (no device id on the page; `opened_at`, not `business_date`, S33). A row saved or added since is not brought back (listed as changed). Sign out with unsaved counts asks Save / Keep on this tablet / Discard. |
+| Quality pass (26 Oct) | The new kit rules are in `bundle.css` (`.pos-list--rows`, `.pos-list__side`, `.pos-list__price`, `.pos-count__unit` no shrink, `.pos-btn` no wrap or underline, new devices columns); `.pos-list__name > span` was already narrowed. The built screens already grow with their content. The frames show branch names ("Gulberg"), but the branch select and picker keep the ID tail until 01b names branches (S52, S37). "Price here" and the branch price chip (Q6.5) are **not built**: they wait for the per-branch price addendum (CLAUDE-TASK Phase 2b). |
 | Screens | `screens/`: 50 screenshots of the built pages (en + ur, 1440 / 1280 / 390 px) against canned API answers. Not a live walk of flows 1, 2, 3, 5, 6. Lists show prices grouped ("Rs 2,200"); the menu rows have no unit · station sub-line (the menu answer has no station names); the stock row's "Left to sell" label is in the column head on a tablet and in the row on a phone. |
 
 ---
@@ -190,7 +191,7 @@ The three API regions (tax classes, categories, items) become three tabs of one 
 
 | Column | Source |
 |---|---|
-| Price | `price_minor` / 100, "Rs 2,200 / kg" (unit from `sale_unit`/`stock_unit`) |
+| Price | `price_minor` / 100, "Rs 2,200 / kg" (unit from `sale_unit`/`stock_unit`); a branch with its own price adds an info chip "Johar Town Rs 2,300" |
 | Branches | count of routes with a station ("2 of 2 branches"; warn when partial) |
 | Hours | `availability_windows` (+ category windows) |
 | Sold out when gone | `out_of_stock_behaviour = sold_out` |
@@ -236,7 +237,7 @@ appbar: back "Menu" · title New item | Edit item · Cancel · primary Add item 
   stack of .pos-section:
     What customers see — name, category select, group label, description
     Price — Sold by .pos-seg (Piece or plate | Weight (kg) | Volume (L)) · price .pos-input-affix (Rs | per {unit}) · Tax select (No tax default)
-    Kitchen — .pos-list rows per branch: branch name + ID tail | station select ("Not sold here" first) | recipe select (batch only) or "Cooks each order · no recipe needed"
+    Branches and kitchen — head row + .pos-list rows per branch: branch name + ID tail | Price here (.pos-input-affix Rs, placeholder "Same: 2,200"; disabled when Not sold here) | station select ("Not sold here" first) | recipe select (batch only) or "Cooks each order · no recipe needed"
               grid: cooking time · extra time to plate · Serve .pos-seg (When ready | With the table)
     Ready-made stock — .pos-switch "Kept ready" · Counted in .pos-seg (Plates | kg from the pot | Litres)
               · .pos-explain conversion ("One plate takes 400 g … 10 kg counted = 25 plates"; hidden when units match)
@@ -269,6 +270,7 @@ appbar: back "Menu" · title New item | Edit item · Cancel · primary Add item 
 | Leftovers can be sold the next day | `carries_over` | — |
 | Hours | `availability_windows` | C01 |
 | Station / recipe per branch | routes | `station_id`, `program_id` (batch required), stock program optional |
+| Price here (per branch) | route `price_minor_override` **(new, Q6.5)** | empty = null = main price; same rules as price |
 
 **Actions**
 - New: `POST /v1/admin/menu-items` (Idempotency-Key, routes included).
@@ -458,6 +460,8 @@ Existing 01a keys keep their names. Only new or changed ones are listed.
 | item.partial / partial_body / save_branch_again | Item saved. One branch was not. / {branch}: {reason}. Pick another station or Not sold here, then save again. / Save {branch} again |
 | item.price_was | Was Rs {old}. Open orders keep the old price. |
 | item.save_price / on_sale_both | Save price / On sale at both branches |
+| item.branches_title / branches_body / price_here / price_same | Branches and kitchen / Where it is sold, its price there, and which station cooks it. Leave the price empty to use the main price (Rs {price}). / Price here / Same: {price} |
+| menu.branch_price_chip | {branch} Rs {price} |
 | item.reach_branches | Each branch gets the new price within a minute. |
 | archive.item_title / item_body | Archive {name}? / It disappears from ordering at both branches within a minute. Past orders and reports keep it. You can restore it from Archived. |
 | archive.category_title / category_body | Archive {name}? / Its {n} items stop showing on the order screen too. Their stock counts and history stay. |
@@ -479,6 +483,17 @@ Urdu: `OwnerMenuUrdu` (owner app) and `StockUrdu` (stock page). The other keys n
 ---
 
 ## 3. Kit
+
+> **Quality pass (26 Oct 2026).** Frames no longer have a fixed height: each root is `width + min-height` and grows with its content (sizes in `frames/INDEX.md` are the real rendered heights). Build screens the same way: never fix a text container's height. New/changed kit classes, all token-only and logical-property:
+>
+> | Class | What it does |
+> |---|---|
+> | `.pos-list--rows` | List where each row is a flex line: name + one meta line on the start side, actions on the end side, wraps instead of overlapping. Use this instead of 4–6 column grids on tablet. |
+> | `.pos-list__side` | End-side group in a row (price, chip, buttons); right-aligned, wraps. |
+> | `.pos-list__price` | Mono price, LTR, no wrap; `<small>` holds the unit ("per plate"). |
+> | `.pos-count__unit` | Unit next to a count input, never shrinks. |
+> | `.pos-btn` | Now `white-space: nowrap` and no underline (also on `a.pos-btn`), so "Log out" never splits over two lines. |
+> | `.pos-list__name > span` | Selector narrowed from `span` to `> span` so chips inside names keep their colour. |
 No new classes for 01a beyond the shared `kit-additions.css` (01a block + 00 block). Change: `.pos-list__name span` → `.pos-list__name > span`.
 
 ## 4. Changes to shared components

@@ -15,7 +15,7 @@
 body{margin:0}
 </style>
 </helmet>
-<div class="pos-root" data-theme="light" dir="ltr" style="width: 720px; height: 900px; display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+<div class="pos-root" data-theme="light" dir="ltr" style="width: 720px; min-height: 960px;  display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
   <div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="c-title">
     <h2 class="pos-dialog__title" id="c-title">Edit category</h2>
     <div class="pos-grid">
@@ -53,7 +53,7 @@ body{margin:0}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":960}}'>
 class Component extends DCLogic {
 renderVals() { return {}; }
 }
