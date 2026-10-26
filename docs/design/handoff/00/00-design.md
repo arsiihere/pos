@@ -1,6 +1,6 @@
 # 00 — Hub Platform & Access: design for integration
 
-Canvas: **00 Screens** (102 frames, 10 rows). Inventory: `docs/design/inventory/00-hub-platform.md`. Design system: POS (tokens.json v1, installed on the canvas as `ds/pos`). Kit: `kit-additions.css` = 01a additions + the module-00 block below.
+Canvas: **00 Screens** (102 frames, 10 rows). Inventory: `docs/design/inventory/00-hub-access.md`. Design system: POS (tokens.json v1, installed on the canvas as `ds/pos`). Kit: `kit-additions.css` = 01a additions + the module-00 block below.
 
 Conventions used in every frame
 - Root: `.pos-root` + `lang` + `dir` + `data-theme` (dark only on `/pair` screens and KDS).
@@ -9,6 +9,27 @@ Conventions used in every frame
 - Codes, PINs, IPs, links, times, counts: `.pos-ltr`, `.pos-input--mono`, `.pos-input--code`, `.pos-mono-wrap`, `.pos-code__value`.
 - One primary (`.pos-btn--primary`) per screen. Danger actions use `.pos-btn--danger` (outlined), never filled.
 - Sample data: hub `192.168.0.107:3000`, guest range `192.168.50.0/24`, staff Wi-Fi `AC-Staff` (sample, see Q6), time now 13:18 (lunch rush).
+
+## 0. As built (2026-10-26, spec 00 v1.3)
+
+Where the implementation differs from the sections below, this list wins. Build plan and notes: `PLAN.md`.
+
+| Topic | As built |
+|---|---|
+| Kit | All of `kit/kit-additions.css` (01a + 00) was appended to `packages/ui-kit/components/bundle.css`; the repo had no 01a additions yet. Extra token-only rules: `a.pos-btn { text-decoration: none }`; `.pos-split` stacks and `.pos-content` narrows under 760 px. Icons added to `apps/hub/src/lib/page.ts` and the kit README (no `camera`: unused, and in-page cameras are out). |
+| Files | Setup `apps/hub/src/setup/page.ts`; bootstrap `auth/admin-bootstrap.ts`; approve page stays in `commands/approve-pairing-request.ts`; pair `auth/pair-page.ts`; shared sign-in (tiles + PIN pad) `auth/signin-client.ts`; global states `lib/global-state.ts`; hub admin `admin/page.ts` + `admin/routes.ts`. |
+| Strings | `apps/hub/src/lib/strings.ts`: `EN` and `UR`. Keys follow §2 with additions (`*_body` second lines, `pin.*`, `admin.*`, …). Keys without Urdu: `urdu-todo.md`. |
+| Language | `?lang=en\|ur` → `localStorage pos-lang` → `navigator.language`. The server sends `lang="en" dir="ltr"`; the script sets `lang`/`dir` on `<html>` and `<body>` and swaps type classes to the kit's `ur-*` classes, like the *Urdu frames. |
+| API added (spec v1.3) | `GET /admin` (M86); admin queries `stations`, `lockouts`, `staff` (M88); devices `owner_name`, `revoked_by_name`, `revoked_reason` (M87); sign-in `permissions` (M89). Commands already existed at the §1 paths. |
+| 00-S01 | Host field is pick tiles of this machine's IPv4 (M85) + "Other address". `/setup` after provisioning: 404 with the SetupAlready page (M84). |
+| 00-S03/S07 | One shared sign-in. Roster tiles show no role line (the roster has no role). |
+| 00-S08 | Station tiles from the `stations` query; small line = location label or first 3 category names. Kind has no default; missing kind/station are field errors (`approve.err_kind`, `approve.err_station`). |
+| 00-S10/S15 | "Paired" bodies are generic (`pairing.approved_body_kds`, `pairing.paired_body_any`): the pair responses carry no station or owner name. `/pair?t=` (phones) switches to the light theme in the script. |
+| 00-F07 | Address line only when the error carries `advertised_host` (it doesn't today). |
+| 00-S16 | `pairing_source` shows "Screen code" / "QR link" ("First admin" is not derivable). "Show removed" uses the kit switch (red when off). |
+| 00-S20 | Phone layout chosen with `matchMedia('(max-width: 760px)')`. Other jobs: Stock only when the built `/admin/stock` exists. |
+| Q8 | A WebSocket pong marks the device seen (every 15 s); the 2 min warning is client-side. |
+| Q5 | Blocked: Approve keeps two types. |
 
 ---
 

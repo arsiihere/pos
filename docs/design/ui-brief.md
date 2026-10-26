@@ -1,14 +1,16 @@
 # UI design brief
 
-For a designer. It describes every screen that exists today (module 00), names the screens coming next, and lists the hard constraints a design must meet before we can build it. The specs in `docs/specs/` are the source of truth; section numbers like §8.2 refer to `00_Hub_Platform_Access_Spec_v1.2.1.md` and "F §…" to the foundation spec.
+For a designer. It describes every screen that exists today (module 00), names the screens coming next, and lists the hard constraints a design must meet before we can build it. The specs in `docs/specs/` are the source of truth; section numbers like §8.2 refer to `00_Hub_Platform_Access_Spec_v1.3.md` and "F §…" to the foundation spec.
 
 **What the product is:** a restaurant POS. A small Linux box in the restaurant (the **hub**) runs everything and serves the screens over the restaurant Wi-Fi. Cashier PCs, Android tablets, kitchen screens (KDS) and staff phones all talk only to the hub. The cloud is used for setup and reporting, never at the till.
 
-**State of the screens today:** the module 00 pages are working skeletons with **no styling at all**: no CSS, plain browser form controls, raw translation keys shown as text. Everything below describes what they *do*. How they *look* is entirely yours.
+**State of the screens today:** module 00 is designed and built (2026-10-26). For how its screens look and behave, use **`docs/design/handoff/00/00-design.md`** (per-screen trees, states, string keys) with the frames in `docs/design/handoff/00/frames/` and screenshots of the built pages in `docs/design/handoff/00/screens/`. §1 below is the original brief for the unstyled skeletons, kept for the history of what each page *does*; where it disagrees with `00-design.md`, `00-design.md` wins.
 
 ---
 
 ## 1. Screens in module 00
+
+> **Superseded for design:** see `docs/design/handoff/00/00-design.md`. New since this brief: the hub admin home `/admin` (00-S20, S16–S19, D01–D03), Urdu right to left on every page, and the global states 00-F01…F08 (`apps/hub/src/lib/global-state.ts`).
 
 Five pages, all served by the hub. There is no app shell and no navigation between them: each is opened by URL, usually by scanning a QR code.
 

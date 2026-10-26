@@ -89,6 +89,30 @@ Status values: `recommended` (default in use, owner has not confirmed) · `answe
 - **Decision:** stopped state with Start button, owned by 03b (recommended)
 - **Status:** recommended. Design it with module 03b.
 
+## Q11 Should phone pages be light while `/pair` is served dark?
+- **Context:** Spec M82 serves `/pair` with `data-theme="dark"` (screens). The phone frames (Phone*) are light. The build keeps the served attribute and switches to light in the page script when `?t=` is present.
+- **Recommended:** Keep it, and add one line to spec §8.2: "phones (`/pair?t=`) use the light theme".
+- **Decision:** light for phones (recommended)
+- **Status:** recommended
+
+## Q12 Should the API return names the designs show?
+- **Context:** Three designed texts have no data: the role under each roster tile ("Owner", "Manager"), the station on a screen's "Paired" ("Opening the Tandoor kitchen screen…"), and the owner on "This phone is paired" ("Only Bilal's name will be on it"). Today they are left out or generic.
+- **Recommended:** Add `role_names` to `GET /admin/login-roster`, `station_name` to the approved `GET /pair/requests/:id`, and `owner_name` to `POST /devices/pair`. Spec change (additive fields), small.
+- **Decision:** add the three fields (recommended)
+- **Status:** recommended. Not built: it changes three response contracts.
+
+## Q13 Should `HOST_NOT_ALLOWED` say which address to use?
+- **Context:** 00-F07 shows the hub's address when the error carries it. The hub sends no details today, so the installer only reads "Type the number address in the browser".
+- **Recommended:** Add `details.advertised_host` to `HOST_NOT_ALLOWED` once the hub is provisioned (it is not secret on the LAN). Spec change.
+- **Decision:** add the address (recommended)
+- **Status:** recommended. Not built.
+
+## Q14 Who translates and reviews the Urdu?
+- **Context:** `docs/design/handoff/00/urdu-todo.md` lists 240 keys with English only; the Urdu that exists comes from the frames and has not been reviewed. Untranslated English inside an Urdu page can show digits out of order (right-to-left ordering).
+- **Recommended:** A native speaker translates the list and reviews the existing Urdu before the pilot; the designer adds Urdu frames for the hub admin pages.
+- **Decision:** translate + review before the pilot (recommended)
+- **Status:** recommended
+
 ---
 
 ## Smaller items found while designing (no decision needed, FYI)
