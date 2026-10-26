@@ -2,13 +2,18 @@ import { useState, type FormEvent } from 'react';
 import type { AvailabilityWindow, CloudAdmin, Category, PatchCategoryBody } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
+import { Dialog } from '../../../components/Dialog';
+import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
+import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { useDirtyForm, useLeave } from '../guard';
 import { WindowsField } from './WindowsField';
 
-// §6.13, §8.1: a category's name, sort number and Available hours (S47). A new category POSTs with the
-// form's Idempotency-Key; an edit PATCHes only the changed fields. onSaved closes the form; its notice is
-// shown by the list (a key mismatch, whose text says the list is reloaded).
+// §6.13, §8.1 (01a-S06): a category's name, position and Available hours (S47), as a dialog over the
+// Categories tab. A new category POSTs with the form's Idempotency-Key; an edit PATCHes only the changed
+// fields. onSaved closes the form; its notice is shown by the list (a key mismatch, whose text says the
+// list is reloaded). Cancel on a changed form asks first (S50 c).
 const INT_RE = /^-?[0-9]+$/;
 
 export function CategoryForm({
@@ -28,6 +33,17 @@ export function CategoryForm({
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(category?.availability_windows ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const down = useCloudDown(api);
+  const leave = useLeave();
+
+  const changed = [
+    ...(name.trim() !== (category?.name ?? '') ? [t('owner.category.name').toLowerCase()] : []),
+    ...(sort.trim() !== String(category?.sort_order ?? 0) ? [t('owner.category.position').toLowerCase()] : []),
+    ...(JSON.stringify(windows) !== JSON.stringify(category?.availability_windows ?? [])
+      ? [t('owner.hours.label').toLowerCase()]
+      : []),
+  ];
+  useDirtyForm(changed.length === 0 ? null : { name: category?.name ?? t('owner.category.new'), fields: changed });
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -71,32 +87,35 @@ export function CategoryForm({
   }
 
   return (
-    <form className="pos-stack pos-card" data-form="category" noValidate onSubmit={(e) => void submit(e)}>
-      <h2 className="title">{t(category === null ? 'owner.category.new' : 'owner.category.edit')}</h2>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.category.name')}</span>
-        <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.common.sort_order')}</span>
-        <input
-          className="pos-input pos-input--mono"
-          name="sort_order"
-          inputMode="numeric"
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-        />
-      </label>
-      <WindowsField value={category?.availability_windows ?? []} onChange={setWindows} />
-      {error !== null && <Banner tone="danger" text={error} />}
-      <div className="pos-row">
-        <BusyButton busy={busy} primary type="submit">
-          {t('owner.common.save')}
-        </BusyButton>
-        <button type="button" className="pos-btn" onClick={onCancel}>
-          {t('owner.common.cancel')}
-        </button>
-      </div>
-    </form>
+    <Dialog title={t(category === null ? 'owner.category.new' : 'owner.category.edit')} onClose={() => leave(onCancel)}>
+      <form className="pos-stack" data-form="category" noValidate onSubmit={(e) => void submit(e)}>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('owner.category.name')}</span>
+          <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('owner.category.position')}</span>
+          <input
+            className="pos-input pos-input--mono"
+            name="sort_order"
+            inputMode="numeric"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+          />
+          <span className="pos-field__help">{t('owner.category.position_help')}</span>
+        </label>
+        <WindowsField value={category?.availability_windows ?? []} onChange={setWindows} />
+        <p className="pos-explain">{fill(t('owner.category.hours_note'), { name: name.trim() === '' ? t('owner.category.this') : name.trim() })}</p>
+        {error !== null && <Banner tone="danger" text={error} />}
+        <div className="pos-dialog__footer">
+          <button type="button" className="pos-btn" onClick={() => leave(onCancel)}>
+            {t('owner.common.cancel')}
+          </button>
+          <BusyButton busy={busy} primary disabled={down} type="submit">
+            {t('owner.category.save')}
+          </BusyButton>
+        </div>
+      </form>
+    </Dialog>
   );
 }

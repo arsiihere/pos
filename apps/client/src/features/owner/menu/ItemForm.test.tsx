@@ -113,6 +113,28 @@ function buttonWith(text: string, scope: ParentNode = container): HTMLButtonElem
   return [...scope.querySelectorAll('button')].find((b) => b.textContent === text);
 }
 
+// v1.1 (01a-S07): Sold by and Stock unit are segmented controls; the stock fields sit under Kept ready;
+// Available hours start from All day / Only at set hours.
+function pick(group: string, option: string): void {
+  const box = container.querySelector(`.pos-seg[aria-label="${group}"]`);
+  click(buttonWith(option, box ?? container));
+}
+
+function options(group: string): (string | null)[] {
+  return [...(container.querySelector(`.pos-seg[aria-label="${group}"]`)?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
+}
+
+function toggle(label: string): void {
+  click([...container.querySelectorAll('button[role="switch"]')].find((b) => b.textContent === label));
+}
+
+function addHours(scope: ParentNode): HTMLButtonElement | undefined {
+  return [...scope.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Add hours'));
+}
+
+const STOCK = t('owner.item.stock_unit');
+const SALE = t('owner.item.sale_unit');
+
 async function submitForm(): Promise<void> {
   const form = container.querySelector('form');
   if (!form) throw new Error('form missing');
@@ -219,10 +241,10 @@ describe('owner item and category forms', () => {
     await renderNewItem(api);
     expect(field('stock_per_sale_unit')).toBeNull();
     expect(container.textContent).not.toContain(t('owner.item.unit_change_warning'));
-    expect([...(field('sale_unit') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['piece']);
+    toggle(t('item.kept_ready'));
+    expect(options(STOCK)).toEqual([t('owner.item.unit_piece'), t('owner.item.unit_g'), t('owner.item.unit_ml')]);
 
-    setValue(field('stock_unit'), 'g');
-    expect([...(field('sale_unit') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['piece', 'g']);
+    pick(STOCK, t('owner.item.unit_g'));
     expect(field('stock_per_sale_unit')).not.toBeNull();
     expect(container.textContent).toContain(t('owner.item.per_piece_g'));
     expect(container.textContent).toContain(t('owner.item.unit_change_warning'));
@@ -230,9 +252,10 @@ describe('owner item and category forms', () => {
     await submitForm();
     expect(posted(calls)).toMatchObject({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
 
-    // Sold by the kg: equal units hide the field and send 1.
-    setValue(field('sale_unit'), 'g');
+    // Sold by the kg: equal units hide the field and send 1; it can only be counted in kg then.
+    pick(SALE, t('owner.item.unit_g'));
     expect(field('stock_per_sale_unit')).toBeNull();
+    expect(options(STOCK)).toEqual([t('owner.item.unit_g')]);
 
     // An existing item shows the warning only once a unit changes.
     act(() => root.unmount());
@@ -276,7 +299,8 @@ describe('owner item and category forms', () => {
     );
     await flush();
     expect(container.textContent).not.toContain(t('owner.item.unit_change_warning'));
-    setValue(field('stock_unit'), 'ml');
+    toggle(t('item.kept_ready'));
+    pick(STOCK, t('owner.item.unit_ml'));
     expect(container.textContent).toContain(t('owner.item.unit_change_warning'));
     setValue(field('stock_per_sale_unit'), '330');
     await submitForm();
@@ -330,21 +354,23 @@ describe('owner item and category forms', () => {
 
     const threshold = () => container.querySelector<HTMLInputElement>('[data-field="low_stock_threshold"] input');
     expect(threshold()?.value).toBe('1.5');
-    setValue(field('stock_unit'), 'piece');
+    pick(SALE, t('owner.item.unit_piece'));
+    expect(threshold()?.value).toBe('1.5');
+    pick(STOCK, t('owner.item.unit_piece'));
     expect(threshold()?.value).toBe('');
   });
 
   it('[01a S46, S41] threshold 1.5 kg sends 1500; Keeps overnight sends carries_over true', async () => {
     const { api, calls } = fakeApi();
     await renderNewItem(api);
-    setValue(field('stock_unit'), 'g');
-    setValue(field('sale_unit'), 'g');
+    toggle(t('item.kept_ready'));
+    pick(SALE, t('owner.item.unit_g'));
     const threshold = container.querySelector('[data-field="low_stock_threshold"]');
     expect(threshold?.textContent).toContain(t('quantity.kg'));
     setValue(threshold?.querySelector('input'), '1.5');
-    const keeps = field('carries_over') as HTMLInputElement;
-    expect(keeps.checked).toBe(false);
-    act(() => keeps.click());
+    const keeps = [...container.querySelectorAll('button[role="switch"]')].find((b) => b.textContent === t('owner.item.carries_over'));
+    expect(keeps?.getAttribute('aria-checked')).toBe('false');
+    click(keeps);
     await submitForm();
     expect(posted(calls)).toMatchObject({
       stock_unit: 'g',
@@ -363,12 +389,13 @@ describe('owner item and category forms', () => {
     expect(rows()).toHaveLength(0);
     expect(hours()?.textContent).toContain(t('owner.hours.always'));
 
-    click(buttonWith(t('owner.hours.add'), hours() ?? container));
+    click(buttonWith(t('owner.hours.set_hours'), hours() ?? container));
+    expect(rows()).toHaveLength(1);
     setValue(rows()[0]?.querySelector('input[name="start"]'), '07:00');
     setValue(rows()[0]?.querySelector('input[name="end"]'), '13:00');
-    for (let i = 1; i < 4; i += 1) click(buttonWith(t('owner.hours.add'), hours() ?? container));
+    for (let i = 1; i < 4; i += 1) click(addHours(hours() ?? container));
     expect(rows()).toHaveLength(4);
-    expect(buttonWith(t('owner.hours.add'), hours() ?? container)).toBeUndefined();
+    expect(addHours(hours() ?? container)).toBeUndefined();
 
     // Equal times: a field error on that row, and nothing is sent.
     setValue(rows()[1]?.querySelector('input[name="start"]'), '10:00');
@@ -388,7 +415,7 @@ describe('owner item and category forms', () => {
     const cat = fakeApi();
     act(() => root.render(<CategoryForm api={cat.api} category={null} onSaved={() => {}} onCancel={() => {}} />));
     setValue(field('name'), 'Breakfast');
-    click(buttonWith(t('owner.hours.add'), hours() ?? container));
+    click(buttonWith(t('owner.hours.set_hours'), hours() ?? container));
     setValue(rows()[0]?.querySelector('input[name="start"]'), '22:00');
     setValue(rows()[0]?.querySelector('input[name="end"]'), '02:00');
     await submitForm();

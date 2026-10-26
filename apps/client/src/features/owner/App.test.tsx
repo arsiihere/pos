@@ -70,10 +70,11 @@ describe('owner app shell', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0]?.[0]).toBe('/v1/auth/login');
     expect(container.querySelector('input[type="password"]')).toBeNull();
-    expect(container.textContent).toContain(t('owner.branches.title'));
+    expect(container.textContent).toContain(t('owner.branch_title'));
     const branches = [...container.querySelectorAll<HTMLButtonElement>('[data-branch-id]')];
     expect(branches.map((b) => b.dataset['branchId'])).toEqual(['B1', 'B2']);
-    expect(branches.map((b) => b.textContent)).toEqual(['B1', 'B2']);
+    // S52: branches show as their ID tail until 01b names them.
+    expect(branches.map((b) => b.querySelector('strong')?.textContent)).toEqual(['…B1', '…B2']);
     expect(window.location.hash).toBe('#/');
 
     act(() => branches[1]?.click());
@@ -106,5 +107,111 @@ describe('owner app shell', () => {
     await submitLogin('o@example.com', 'wrong-password');
 
     expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.LOGIN_LOCKED_OUT'));
+  });
+
+  function signedIn(branches: string[]): void {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    sessionStorage.setItem('owner_refresh_token', 'R1');
+    sessionStorage.setItem(
+      'owner_user',
+      JSON.stringify({ user_id: 'U1', display_name: 'Arif', tenant_id: 'T1', allowed_branch_ids: branches }),
+    );
+  }
+
+  // Answers by path: floors, stations and menu are empty; logout answers revoked.
+  function routedFetch(fail: string[] = []) {
+    return vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
+      if (fail.some((f) => url.startsWith(f))) throw new TypeError('network');
+      if (url.includes('/floors')) return json(200, { data: { floors: [] } });
+      if (url.includes('/stations')) return json(200, { data: { stations: [] } });
+      if (url.startsWith('/v1/admin/menu'))
+        return json(200, { data: { can_edit_tenant: true, tax_classes: [], categories: [], items: [], next_cursor: null } });
+      if (url === '/v1/auth/logout') return json(200, { data: { revoked: true } });
+      return json(404, { error: { code: 'ROUTE_NOT_FOUND', message: 'x', details: {}, request_id: 'R' } });
+    });
+  }
+
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it('[01a §10 #164 app part] branch choice: one branch skips the picker; a pick survives a remount; a stale id is ignored; menu needs no branch; the app bar select switches', async () => {
+    signedIn(['01JBRANCHONE0000000000P0AB']);
+    let fetchFn = routedFetch();
+    act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
+    await settle();
+    expect(container.querySelector('[data-branch-id]')).toBeNull();
+    expect(window.location.hash).toBe('#/menu');
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    sessionStorage.clear();
+    window.location.hash = '';
+    const two = ['01JBRANCHONE0000000000P0AB', '01JBRANCHTWO0000000000M6PQ'];
+    signedIn(two);
+    sessionStorage.setItem('owner_branch_id', 'NOT_ALLOWED');
+    fetchFn = routedFetch();
+    act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
+    await settle();
+    const tiles = [...container.querySelectorAll<HTMLButtonElement>('[data-branch-id]')];
+    expect(tiles.map((b) => b.querySelector('strong')?.textContent)).toEqual(['…P0AB', '…M6PQ']);
+    expect(tiles.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
+
+    act(() => tiles[1]?.click());
+    const go = container.querySelector<HTMLButtonElement>('button.pos-btn--primary');
+    expect(go?.textContent).toBe('Continue with …M6PQ');
+    await act(async () => go?.click());
+    await settle();
+    expect(window.location.hash).toBe('#/floors');
+    expect(fetchFn.mock.calls.some(([u]) => u === `/v1/admin/branches/${two[1]}/floors`)).toBe(true);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
+    await settle();
+    const select = container.querySelector<HTMLSelectElement>('select[name="branch"]');
+    expect(select?.value).toBe(two[1]);
+    expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual(['…P0AB', '…M6PQ']);
+    await act(async () => {
+      if (!select) return;
+      select.value = two[0] ?? '';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await settle();
+    expect(fetchFn.mock.calls.at(-1)?.[0]).toBe(`/v1/admin/branches/${two[0]}/floors`);
+    expect(sessionStorage.getItem('owner_branch_id')).toBe(two[0]);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    sessionStorage.removeItem('owner_branch_id');
+    window.location.hash = '#/menu';
+    act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
+    await settle();
+    expect(container.querySelector('h1.pos-appbar__title')?.textContent).toBe(t('owner.menu.title'));
+    expect(container.querySelector('[data-branch-id]')).toBeNull();
+  });
+
+  it('[01a §10 #169 page part] Sign out sends the logout, clears storage and shows login, also when the call fails', async () => {
+    for (const fail of [[], ['/v1/auth/logout']]) {
+      act(() => root.unmount());
+      root = createRoot(container);
+      sessionStorage.clear();
+      window.location.hash = '#/menu';
+      signedIn(['01JBRANCHONE0000000000P0AB']);
+      const fetchFn = routedFetch(fail);
+      act(() => root.render(<App api={createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} })} />));
+      await settle();
+      const signOut = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+        (b) => b.textContent === t('owner.sign_out'),
+      );
+      await act(async () => signOut?.click());
+      await settle();
+      expect(fetchFn.mock.calls.some(([u]) => u === '/v1/auth/logout')).toBe(true);
+      expect(sessionStorage.getItem('owner_access_token')).toBeNull();
+      expect(sessionStorage.getItem('owner_branch_id')).toBeNull();
+      expect(container.querySelector('input[type="email"]')).not.toBeNull();
+    }
   });
 });

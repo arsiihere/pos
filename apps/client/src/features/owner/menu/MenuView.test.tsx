@@ -147,6 +147,9 @@ describe('owner menu view', () => {
     expect(labels).not.toContain(t('owner.common.archive'));
     expect(labels).not.toContain(t('owner.menu.add_tax_class'));
     expect(container.querySelector('[data-item-id="I1"]')?.textContent).toContain('Chicken Karahi');
+    expect(container.querySelector('.pos-appbar .pos-btn--primary')).toBeNull();
+    expect(labels).toContain(t('menu.view'));
+    expect(labels).not.toContain(t('owner.common.edit'));
 
     // With can_edit_tenant true the same menu has its save controls.
     act(() => root.unmount());
@@ -155,7 +158,8 @@ describe('owner menu view', () => {
     act(() => root.render(<MenuView api={editable.api} />));
     await flush();
     expect(container.textContent).not.toContain(t('owner.menu.read_only'));
-    expect(container.querySelectorAll('form').length).toBeGreaterThan(0);
+    // v1.1: the editable menu's save controls start from the app bar's New item (B01 hides it).
+    expect(container.querySelector('.pos-appbar .pos-btn--primary')?.textContent).toBe(t('owner.menu.new_item'));
   });
 
   it('[01a §8.1, S48] typing sends one request after 300 ms; Load more appends the next page; a repeated item_id is shown once', async () => {

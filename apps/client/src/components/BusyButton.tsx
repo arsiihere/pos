@@ -10,13 +10,19 @@ export function BusyButton({
   onClick,
   children,
   primary = false,
+  disabled = false,
   type = 'button',
+  form,
 }: {
   busy: boolean;
   onClick?: () => void;
   children: ReactNode;
   primary?: boolean;
+  // S53: also disabled while the cloud is unreachable.
+  disabled?: boolean;
   type?: 'button' | 'submit';
+  // A submit button outside its form (the item form's app bar).
+  form?: string;
 }) {
   const [slow, setSlow] = useState(false);
 
@@ -33,8 +39,9 @@ export function BusyButton({
     <>
       <button
         type={type}
+        form={form}
         className={`pos-btn${primary ? ' pos-btn--primary' : ''}${busy ? ' is-busy' : ''}`}
-        disabled={busy}
+        disabled={busy || disabled}
         aria-busy={busy ? true : undefined}
         onClick={onClick}
       >

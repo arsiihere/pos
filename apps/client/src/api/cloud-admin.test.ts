@@ -204,4 +204,90 @@ describe('cloud-admin client', () => {
       expect(typed.floors[0]?.tables[0]?.seats).toBe(4);
     }
   });
+
+  it('[01a S53] a network failure marks the cloud down; a probe read on the backoff clears it, the save is not re-sent', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionStorage.setItem('owner_access_token', 'A1');
+      sessionStorage.setItem('owner_refresh_token', 'R1');
+      sessionStorage.setItem('owner_user', JSON.stringify(TOKENS.user));
+      const calls: Call[] = [];
+      const replies: (Response | 'fail')[] = [json(200, { data: { floors: [] } }), 'fail', 'fail', json(200, { data: { floors: [] } })];
+      const fetchFn = vi.fn(async (input: string, init?: RequestInit) => {
+        calls.push({ url: input, method: init?.method ?? 'GET', headers: {}, body: undefined });
+        const next = replies.shift();
+        if (next === undefined || next === 'fail') throw new TypeError('network');
+        return next;
+      });
+      const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+      const seen: boolean[] = [];
+      api.onCloudDown((down) => seen.push(down));
+
+      await api.listFloors('B1');
+      expect(api.cloudDown()).toBe(false);
+      const result = await api.patchFloor('B1', 'F1', { name: 'Hall' });
+      expect(result).toEqual({ ok: false, error: { kind: 'network' } });
+      expect(api.cloudDown()).toBe(true);
+      expect(seen).toEqual([true]);
+
+      await vi.advanceTimersByTimeAsync(499);
+      expect(calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+        'GET /v1/admin/branches/B1/floors',
+        'PATCH /v1/admin/branches/B1/floors/F1',
+        'GET /v1/admin/branches/B1/floors',
+      ]);
+      expect(api.cloudDown()).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(calls).toHaveLength(4);
+      expect(calls[3]?.method).toBe('GET');
+      expect(api.cloudDown()).toBe(false);
+      expect(seen).toEqual([true, false]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(calls).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('[01a S53] probe delays grow 0.5, 1, 2, 4, 5, 5 s', async () => {
+    const { probeDelayMs } = await import('./cloud-admin');
+    expect([0, 1, 2, 3, 4, 5].map(probeDelayMs)).toEqual([500, 1_000, 2_000, 4_000, 5_000, 5_000]);
+  });
+
+  it('[01a §10 #169 client part] logout sends the refresh token current after a refresh, then clears storage', async () => {
+    sessionStorage.setItem('owner_access_token', 'A-old');
+    sessionStorage.setItem('owner_refresh_token', 'R-old');
+    sessionStorage.setItem('owner_user', JSON.stringify(TOKENS.user));
+    const { calls, fetchFn } = fakeFetch([
+      apiError(401, 'JWT_INVALID'),
+      json(200, { data: { ...TOKENS, access_token: 'A-new', refresh_token: 'R-new' } }),
+      json(200, { data: { revoked: true } }),
+    ]);
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+
+    await api.logout();
+    expect(calls.map((c) => c.url)).toEqual(['/v1/auth/logout', '/v1/auth/refresh', '/v1/auth/logout']);
+    expect(calls[0]?.body).toEqual({ refresh_token: 'R-old' });
+    expect(calls[2]?.body).toEqual({ refresh_token: 'R-new' });
+    expect(calls[2]?.headers['Authorization']).toBe('Bearer A-new');
+    expect(api.currentUser()).toBeNull();
+    expect(sessionStorage.getItem('owner_refresh_token')).toBeNull();
+  });
+
+  it('[01a §10 #169 client part] a failed logout call still clears storage', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    sessionStorage.setItem('owner_refresh_token', 'R1');
+    sessionStorage.setItem('owner_user', JSON.stringify(TOKENS.user));
+    const fetchFn = vi.fn(async () => {
+      throw new TypeError('network');
+    });
+    const onLoggedOut = vi.fn();
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut });
+    await api.logout();
+    expect(api.currentUser()).toBeNull();
+    expect(onLoggedOut).not.toHaveBeenCalled();
+    expect(api.cloudDown()).toBe(false);
+  });
 });

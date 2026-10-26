@@ -113,6 +113,11 @@ function errorOf(reply: { status: number; body: unknown }): CloudError {
   return { kind: 'api', status: reply.status, code, details };
 }
 
+// S53: after a network failure the client probes with a read on this backoff until the cloud answers.
+export function probeDelayMs(attempt: number): number {
+  return Math.min(500 * 2 ** attempt, 5_000);
+}
+
 function isJwtInvalid(reply: Reply): boolean {
   if (reply === null || reply.status !== 401) return false;
   const error = errorOf(reply);
@@ -124,6 +129,34 @@ export function createCloudAdmin(options: CloudAdminOptions) {
   const base = options.baseUrl ?? '';
   const storage = options.storage ?? sessionStorage;
   let refreshing: Promise<boolean> | null = null;
+  // S53: the cloud is down after a network failure until any call (a probe or the user's) gets an answer.
+  // The probe re-reads the last GET path; its answer is thrown away, so it never replaces an open form.
+  let down = false;
+  let lastRead: string | null = null;
+  let probeTimer: ReturnType<typeof setTimeout> | null = null;
+  const listeners = new Set<(down: boolean) => void>();
+
+  function setDown(next: boolean): void {
+    if (next === down) return;
+    down = next;
+    if (!next && probeTimer !== null) {
+      clearTimeout(probeTimer);
+      probeTimer = null;
+    }
+    for (const listener of listeners) listener(next);
+  }
+
+  function scheduleProbe(attempt: number): void {
+    if (probeTimer !== null || lastRead === null) return;
+    const path = lastRead;
+    probeTimer = setTimeout(() => {
+      probeTimer = null;
+      void send('GET', path, undefined, {}).then((reply) => {
+        if (reply !== null) setDown(false);
+        else if (down) scheduleProbe(attempt + 1);
+      });
+    }, probeDelayMs(attempt));
+  }
 
   function storeLogin(data: LoginData): void {
     storage.setItem(ACCESS_KEY, data.access_token);
@@ -148,7 +181,9 @@ export function createCloudAdmin(options: CloudAdminOptions) {
         headers: all,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      return { status: response.status, body: await response.json() };
+      const reply = { status: response.status, body: await response.json() };
+      setDown(false);
+      return reply;
     } catch {
       return null;
     }
@@ -174,6 +209,7 @@ export function createCloudAdmin(options: CloudAdminOptions) {
   }
 
   async function call<T>(method: Method, path: string, body?: unknown, idempotencyKey?: string): Promise<CloudResult<T>> {
+    if (method === 'GET') lastRead = path;
     const headers: Record<string, string> = idempotencyKey === undefined ? {} : { 'Idempotency-Key': idempotencyKey };
     let reply = await send(method, path, body, headers);
     if (isJwtInvalid(reply)) {
@@ -190,7 +226,11 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       reply = await send(method, path, body, headers);
       if (isJwtInvalid(reply)) return loggedOut();
     }
-    if (reply === null) return { ok: false, error: { kind: 'network' } };
+    if (reply === null) {
+      setDown(true);
+      scheduleProbe(0);
+      return { ok: false, error: { kind: 'network' } };
+    }
     if (reply.status >= 200 && reply.status < 300) return { ok: true, data: (reply.body as { data: T }).data };
     return { ok: false, error: errorOf(reply) };
   }
@@ -213,8 +253,23 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       return { ok: true, data: data.user };
     },
 
-    logout(): void {
+    cloudDown: (): boolean => down,
+    onCloudDown(listener: (down: boolean) => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+
+    // S50 a: best effort. The body is read when each request is sent, so after a refresh (which rotates
+    // the refresh token, 00 M49) the repeated logout carries the new one. Storage is cleared either way.
+    async logout(): Promise<void> {
+      const body = () => ({ refresh_token: storage.getItem(REFRESH_KEY) ?? '' });
+      if (storage.getItem(REFRESH_KEY) !== null) {
+        const reply = await send('POST', '/v1/auth/logout', body(), {});
+        if (isJwtInvalid(reply) && (await refreshOnce())) await send('POST', '/v1/auth/logout', body(), {});
+      }
       clearLogin();
+      lastRead = null;
+      setDown(false);
     },
 
     // §6.2–§6.6 floors and tables

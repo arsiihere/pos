@@ -2,7 +2,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCloudAdmin } from '../../../api/cloud-admin';
+import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
+import { keyAt } from './bulk-add';
 import { FloorsView } from './FloorsView';
 
 let container: HTMLDivElement;
@@ -78,7 +80,17 @@ function blur(input: HTMLInputElement | null | undefined): void {
   });
 }
 
+function button(label: string, within: ParentNode = container): HTMLButtonElement {
+  const found = [...within.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label);
+  if (!found) throw new Error(`button ${label} missing`);
+  return found;
+}
+
+// v1.1: the first floor's form is on the page; later floors are added from the app bar's dialog.
 function addFloorForm(): HTMLFormElement {
+  if (container.querySelector('form[data-form="add-floor"]') === null) {
+    act(() => container.querySelector<HTMLButtonElement>('.pos-appbar .pos-btn--primary')?.click());
+  }
   const form = container.querySelector<HTMLFormElement>('form[data-form="add-floor"]');
   if (!form) throw new Error('add floor form missing');
   return form;
@@ -177,6 +189,7 @@ describe('owner floors view', () => {
     act(() => root.render(<FloorsView api={api} branchId="B1" />));
     await flush();
 
+    act(() => button(t('floors.rename'), container.querySelector('[data-floor-id="F1"]') ?? container).click());
     const name = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]');
     typeInto(name, 'Basement');
     blur(name);
@@ -214,15 +227,21 @@ describe('owner floors view', () => {
     const shownTables = () => [...container.querySelectorAll<HTMLElement>('[data-table-id]')].map((r) => r.dataset['tableId']);
     expect(shownFloors()).toEqual(['F1']);
     expect(shownTables()).toEqual(['T1']);
-    expect(container.querySelector<HTMLInputElement>('[data-table-id="T1"] input[name="name"]')?.value).toBe('Table 1');
-    expect(container.querySelector('[data-table-id="T1"]')?.textContent).toContain(`4 ${t('owner.floors.seats')}`);
+    // v1.1: a table opens its dialog (01a-S03 OwnerTableDialog).
+    expect(container.querySelector('[data-table-id="T1"]')?.textContent).toContain(fill(t('owner.floors.seats_n'), { n: '4' }));
+    act(() => container.querySelector<HTMLButtonElement>('[data-table-id="T1"]')?.click());
+    expect(container.querySelector<HTMLInputElement>('[role="dialog"] input[name="name"]')?.value).toBe('Table 1');
+    act(() => button(t('common.cancel'), container.querySelector('[role="dialog"]') ?? container).click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
 
-    const toggle = container.querySelector<HTMLInputElement>('input[name="show_archived"]');
+    const toggle = container.querySelector<HTMLButtonElement>('button[role="switch"]');
+    expect(toggle?.textContent).toBe(t('owner.common.show_archived'));
     act(() => toggle?.click());
     expect(shownFloors()).toEqual(['F1', 'F2']);
     expect(shownTables()).toEqual(['T1', 'T2']);
     expect(container.querySelector('[data-floor-id="F2"]')?.textContent).toContain(t('owner.common.restore'));
 
+    act(() => button(t('floors.rename'), container.querySelector('[data-floor-id="F1"]') ?? container).click());
     const sort = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="sort_order"]');
     expect(sort?.value).toBe('0');
     typeInto(sort, '3');
@@ -231,5 +250,96 @@ describe('owner floors view', () => {
     const patch = calls.find((c) => c.method === 'PATCH');
     expect(patch).toMatchObject({ url: '/v1/admin/branches/B1/floors/F1', body: { sort_order: 3 }, key: undefined });
     expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2);
+  });
+
+  it('[01a §10 #163] bulk add: keys form key + i, progress, taken names refused, stop and resume, new key on a new floor, 101 refused, branch locked', async () => {
+    let tables = [{ table_id: 'X5', name: 'T5', seats: 2, sort_order: 0, archived_at: null }];
+    const floors = () => [
+      { ...GROUND, tables },
+      { floor_id: 'F2', name: 'Hall', sort_order: 1, archived_at: null, tables: [] },
+    ];
+    let failAt: string | null = null;
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { floors: floors() } });
+      const name = (call.body as { name: string }).name;
+      if (name === failAt) {
+        failAt = null;
+        return 'network';
+      }
+      tables = [...tables, { table_id: `X${name}`, name, seats: 4, sort_order: 0, archived_at: null }];
+      return json(201, { data: { table: { table_id: `X${name}`, name, seats: 4, sort_order: 0, archived_at: null, floor_id: 'F1' } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" branchIds={['B1', 'B2']} />));
+    await flush();
+
+    const f1 = () => container.querySelector('[data-floor-id="F1"]') ?? container;
+    act(() => button(t('floors.add_tables'), f1()).click());
+    const row = () => container.querySelector('[data-form="bulk-tables"]') ?? container;
+    const field = (name: string) => row().querySelector<HTMLInputElement>(`input[name="${name}"]`);
+    typeInto(field('first'), 'T1');
+    typeInto(field('last'), 'T12');
+    typeInto(field('seats'), '4');
+    expect(row().textContent).toContain(fill(t('floors.adds_n'), { n: '12', list: 'T1, T2 … T12', seats: '4' }));
+
+    // T5 is already a table at this branch: nothing is sent.
+    await act(async () => button(fill(t('floors.add_n_tables'), { n: '12' }), row()).click());
+    await flush();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    expect(row().querySelector('.pos-banner--danger')?.textContent).toContain('T5');
+
+    // A range of 101 is refused before anything else.
+    typeInto(field('last'), 'T101');
+    expect(row().textContent).toContain(t('floors.range_invalid'));
+    expect(button(fill(t('floors.add_n_tables'), { n: '0' }), row()).disabled).toBe(true);
+
+    // T6 … T12 with a lost answer on T8 (the 3rd): stop, then resume with the same keys.
+    typeInto(field('first'), 'T6');
+    typeInto(field('last'), 'T12');
+    failAt = 'T8';
+    await act(async () => button(fill(t('floors.add_n_tables'), { n: '7' }), row()).click());
+    await flush();
+    const posts = () => calls.filter((c) => c.method === 'POST');
+    expect(posts().map((c) => (c.body as { name: string }).name)).toEqual(['T6', 'T7', 'T8']);
+    const formKey = posts()[0]?.key ?? '';
+    expect(posts().map((c) => c.key)).toEqual([0, 1, 2].map((i) => keyAt(formKey, i)));
+    expect(row().querySelector('.pos-banner--danger')?.textContent).toContain('T8');
+
+    // While the loop runs, the branch select is locked and the button counts.
+    const select = container.querySelector<HTMLSelectElement>('select[name="branch"]');
+    await act(async () => button(fill(t('floors.add_n_tables'), { n: '7' }), row()).click());
+    await flush();
+    expect(posts().slice(3).map((c) => [(c.body as { name: string }).name, c.key])).toEqual(
+      ['T8', 'T9', 'T10', 'T11', 'T12'].map((name, j) => [name, keyAt(formKey, j + 2)]),
+    );
+    expect(container.querySelector('[data-form="bulk-tables"]')).toBeNull();
+    expect(select?.disabled).toBe(false);
+
+    // A new floor is a new form: its keys differ.
+    const f2 = () => container.querySelector('[data-floor-id="F2"]') ?? container;
+    act(() => button(t('floors.add_tables'), f2()).click());
+    typeInto(field('first'), 'H1');
+    typeInto(field('last'), 'H1');
+    let release: () => void = () => {};
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = api.createTable;
+    api.createTable = async (...args) => {
+      await slow;
+      return original(...args);
+    };
+    let clicked: Promise<void> = Promise.resolve();
+    act(() => {
+      clicked = Promise.resolve(button(fill(t('floors.add_n_tables'), { n: '1' }), row()).click());
+    });
+    await flush();
+    expect(row().textContent).toContain(fill(t('floors.adding_progress'), { i: '1', n: '1' }));
+    expect(select?.disabled).toBe(true);
+    release();
+    await act(async () => clicked);
+    await flush();
+    expect(posts().at(-1)?.key).not.toBe(formKey);
+    expect([0, 1, 2, 3, 4, 5, 6].map((i) => keyAt(formKey, i))).not.toContain(posts().at(-1)?.key);
+    expect(select?.disabled).toBe(false);
   });
 });

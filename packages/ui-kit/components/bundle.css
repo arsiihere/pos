@@ -207,6 +207,15 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 /* 01a hand-off phase 1: the phone tab bar (frames OwnerMenuPhone, OwnerItemPhone), token-only. */
 .pos-actionbar--tabs { padding: var(--space-2); justify-content: space-around; gap: var(--space-2); }
 .pos-actionbar--tabs .pos-sidenav__item { flex: 1; flex-direction: column; justify-content: center; gap: 2px; font: 700 15px/20px var(--font-sans); }
+/* 01a hand-off phase 2: an archived floor section and an archived table tile (frame OwnerFloorsArchived), token-only. */
+.pos-section--sunken { background: var(--surface-sunken); }
+.pos-tile.is-muted { color: var(--ink-muted); border-style: dashed; }
+/* 01a hand-off phase 2: owner sign-in, a coloured side and the form (frames OwnerLogin, OwnerLoginCloudDown), token-only. */
+.pos-hero { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.pos-hero__aside { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-6); padding: var(--space-12); background: var(--action); color: var(--on-action); }
+.pos-hero__main { display: grid; place-items: center; padding: var(--space-12) var(--space-6); }
+.pos-hero__main > * { width: 100%; max-width: 420px; }
+@media (max-width: 760px) { .pos-hero { grid-template-columns: minmax(0, 1fr); } .pos-hero__aside { padding: var(--space-6); } }
 .pos-progress { height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
 .pos-progress > i { display: block; height: 100%; background: var(--accent); }
 
