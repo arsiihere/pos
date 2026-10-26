@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add batch recipe</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root" data-theme="light" dir="ltr" style="width: 720px; height: 560px; display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+  <div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="r-title">
+    <h2 class="pos-dialog__title" id="r-title">New batch recipe for Degh</h2>
+    <p class="pos-dialog__body">One fixed cook for a whole pot. Items pick a recipe when they are cooked here.</p>
+    <div class="pos-grid">
+      <label class="pos-field"><span class="pos-field__label">Recipe name</span><input class="pos-input" value="Chanay degh"></label>
+      <label class="pos-field"><span class="pos-field__label">Cooking time</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="120" inputmode="decimal"><span>min</span></span><span class="pos-field__help">Up to 4 hours.</span></label>
+    </div>
+    <div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary">Add recipe</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":560}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Item form errors</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; height: 900px; overflow: hidden;">
+  <header class="pos-appbar">
+    <a class="pos-btn" href="#" aria-label="Back to menu"><svg class="pos-icon pos-icon--flip" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Menu</a>
+    <h1 class="pos-appbar__title">New item</h1>
+    <div class="pos-appbar__end"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary">Save item</button></div>
+  </header>
+  <main class="pos-content pos-content--narrow" style="max-width: 960px;">
+    <div class="pos-banner pos-banner--danger" role="alert"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><p>2 things to fix before saving<small><a href="#k" style="color: inherit;">Kitchen: choose a batch recipe</a> · <a href="#s" style="color: inherit;">Ready-made stock: serving time</a></small></p></div>
+
+    <section class="pos-section" id="k">
+      <div class="pos-section__head"><h2>Kitchen</h2></div>
+      <ul class="pos-list">
+        <li class="pos-list__row" style="grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Gulberg</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…P0AB</span></div><select class="pos-select" aria-label="Cooked at"><option>Degh (batch)</option></select>
+          <label class="pos-field pos-field--error"><select class="pos-select" aria-label="Batch recipe" aria-invalid="true"><option>Choose a recipe</option></select><span class="pos-field__error"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg>Choose a batch recipe.</span></label></li>
+      </ul>
+    </section>
+
+    <section class="pos-section" id="s">
+      <div class="pos-section__head"><h2>Ready-made stock</h2></div>
+      <div class="pos-grid pos-grid--3">
+        <label class="pos-field"><span class="pos-field__label">Cooking time</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="20"><span>min</span></span></label>
+        <label class="pos-field pos-field--error"><span class="pos-field__label">Serve from stock in</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="25" aria-invalid="true"><span>min</span></span><span class="pos-field__error"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg>Must be shorter than the cooking time (20 min).</span></label>
+        <label class="pos-field"><span class="pos-field__label">Warn when below</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="10"><span>plates</span></span></label>
+      </div>
+    </section>
+
+    <section class="pos-section">
+      <div class="pos-section__head"><h2>Hours</h2><p>The category's hours also apply. Breakfast: 07:00–13:00.</p></div>
+      <div class="pos-seg" role="group" aria-label="Hours"><button class="pos-seg__opt" aria-pressed="false">All day</button><button class="pos-seg__opt" aria-pressed="true">Only at set hours</button></div>
+      <div class="pos-hours-row" style="max-width: 560px;">
+        <label class="pos-field"><span class="pos-field__label">From</span><input class="pos-input pos-input--mono" type="time" value="07:00"></label>
+        <label class="pos-field"><span class="pos-field__label">To</span><input class="pos-input pos-input--mono" type="time" value="11:00"></label>
+        <button class="pos-btn">Remove</button>
+      </div>
+      <span class="pos-chip pos-chip--info" style="align-self: flex-start;">Can be ordered 07:00–11:00 (item and category overlap)</span>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

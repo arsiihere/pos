@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stock, add fresh batch</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 390px; height: 844px; overflow: hidden; position: relative;">
+  <header class="pos-appbar" style="padding: 12px 16px; min-height: 64px;">
+    <h1 class="pos-appbar__title">Stock</h1>
+  </header>
+  <main class="pos-content" style="padding: 12px 16px;">
+    <ul class="pos-list pos-list--stack">
+      <li class="pos-list__row"><div class="pos-list__name"><strong>Seekh Kebab</strong><span>4 pcs left</span></div></li>
+      <li class="pos-list__row"><div class="pos-list__name"><strong>Chicken Tikka</strong><span>11 pcs left</span></div></li>
+    </ul>
+  </main>
+
+  <div class="pos-scrim" style="position: absolute; place-items: end stretch; padding: 0;"></div>
+  <section class="pos-sheet" role="dialog" aria-modal="true" aria-labelledby="add-title">
+    <div class="pos-sheet__grip" aria-hidden="true"></div>
+    <div class="pos-section__head">
+      <h2 id="add-title" style="margin: 0; font: 700 24px/30px var(--font-sans);">Add a fresh batch</h2>
+      <p style="margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Seekh Kebab · <span class="pos-ltr">4</span> pcs left now</p>
+    </div>
+    <label class="pos-field">
+      <span class="pos-field__label">How many are ready?</span>
+      <span class="pos-input-affix"><input class="pos-input pos-input--mono" value="10" inputmode="numeric" style="font-size: 28px; min-height: 64px; text-align: end;"><span>pcs</span></span>
+    </label>
+    <div class="pos-row" role="group" aria-label="Quick amounts">
+      <button class="pos-chip">+5</button><button class="pos-chip pos-chip--accent">+10</button><button class="pos-chip">+20</button><button class="pos-chip">+50</button>
+    </div>
+    <div class="pos-explain"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>After adding: <strong>14 pcs</strong> left to sell</span></div>
+    <button class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block">Add 10 pieces</button>
+    <button class="pos-btn pos-btn--block">Cancel</button>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

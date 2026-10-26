@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New parking order</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1280px; height: 800px; overflow: hidden;">
+  <header class="pos-appbar">
+    <a class="pos-btn" href="#" aria-label="Back"><svg class="pos-icon pos-icon--flip" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Orders</a>
+    <h1 class="pos-appbar__title">New order</h1>
+    <div class="pos-seg" role="group" aria-label="Order type">
+      <button class="pos-seg__opt" aria-pressed="false">Dine-in</button>
+      <button class="pos-seg__opt" aria-pressed="false">Takeaway</button>
+      <button class="pos-seg__opt" aria-pressed="true">Parking</button>
+      <button class="pos-seg__opt" aria-pressed="false">Delivery</button>
+    </div>
+    <div class="pos-appbar__end"><span style="font: 400 17px/22px var(--font-sans); color: var(--ink-muted);">Bilal</span></div>
+  </header>
+
+  <main class="pos-content" style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start;">
+    <section class="pos-section" style="gap: 20px;">
+      <div class="pos-section__head"><h2>Which car?</h2><p>The car number is how the kitchen and the runner find this order.</p></div>
+
+      <div class="pos-grid" style="grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);">
+        <label class="pos-field"><span class="pos-field__label">Car number</span>
+          <input class="pos-input pos-plate pos-plate--input" value="LEB 1234" autocomplete="off" aria-describedby="plate-help">
+          <span class="pos-field__help" id="plate-help">Letters and digits as on the plate. Last digits are enough if you can't see it all.</span>
+        </label>
+        <div class="pos-stack" style="gap: 16px;">
+          <label class="pos-field"><span class="pos-field__label">Phone (optional)</span><span class="pos-input-affix"><span>+92</span><input class="pos-input pos-input--mono" value="300 1234567" inputmode="tel"></span><span class="pos-field__help">To call when the order is ready.</span></label>
+          <label class="pos-field"><span class="pos-field__label">Where it's parked (optional)</span><input class="pos-input" value="Near the gate"></label>
+        </div>
+      </div>
+
+      <div class="pos-field"><span class="pos-field__label">Car type</span>
+        <div class="pos-tiles pos-tiles--pick" role="group" aria-label="Car type">
+          <button class="pos-tile" aria-pressed="true"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 15.5v-2.5l2.5-4h9l4 4h3v2.5"/><path d="M2.5 15.5h2.5M9.5 15.5h5M19 15.5h2.5"/><circle cx="7" cy="15.5" r="2"/><circle cx="17" cy="15.5" r="2"/></svg>Car</button>
+          <button class="pos-tile" aria-pressed="false"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15.5V12l3-4h7l3 4h4.5v3.5"/><path d="M3 15.5h2M9.5 15.5h5M19 15.5h1.5"/><circle cx="7" cy="15.5" r="2"/><circle cx="17" cy="15.5" r="2"/></svg>Small car</button>
+          <button class="pos-tile" aria-pressed="false"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 15.5V8h12l4 4.5h3v3"/><path d="M2.5 15.5h2.5M9.5 15.5h5M19 15.5h2.5"/><circle cx="7" cy="15.5" r="2"/><circle cx="17" cy="15.5" r="2"/></svg>SUV / Jeep</button>
+          <button class="pos-tile" aria-pressed="false"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6.5" width="19" height="9" rx="2"/><path d="M15 6.5v4.5h6.5"/><circle cx="7" cy="15.5" r="2"/><circle cx="17" cy="15.5" r="2"/></svg>Van / Hiace</button>
+          <button class="pos-tile" aria-pressed="false"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 15.5v-3.5h7V8h5l2.5 4h4v3.5"/><circle cx="7" cy="15.5" r="2"/><circle cx="17" cy="15.5" r="2"/></svg>Pickup</button>
+          <button class="pos-tile" aria-pressed="false"><svg class="pos-icon pos-icon--xl" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="15.5" r="3"/><circle cx="18.5" cy="15.5" r="3"/><path d="M5.5 15.5l4-6h4l5 6"/><path d="M13 9.5l1.5-2.5h2.5"/></svg>Bike</button>
+        </div>
+      </div>
+
+      <div class="pos-field"><span class="pos-field__label">Colour</span>
+        <div class="pos-row" role="group" aria-label="Colour">
+          <button class="pos-chip" aria-pressed="true"><span class="pos-swatch pos-swatch--white"></span>White</button>
+          <button class="pos-chip"><span class="pos-swatch pos-swatch--black"></span>Black</button>
+          <button class="pos-chip"><span class="pos-swatch pos-swatch--silver"></span>Silver</button>
+          <button class="pos-chip"><span class="pos-swatch pos-swatch--grey"></span>Grey</button>
+          <button class="pos-chip"><span class="pos-swatch pos-swatch--red"></span>Red</button>
+          <button class="pos-chip"><span class="pos-swatch pos-swatch--blue"></span>Blue</button>
+          <button class="pos-chip">Other</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="pos-card" style="display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0;">
+      <span style="font: 700 15px/20px var(--font-sans); color: var(--ink-muted);">The kitchen and runner will see</span>
+      <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border-radius: var(--radius-md); background: var(--surface-sunken);">
+        <span class="pos-plate">LEB 1234</span>
+        <span style="font: 700 20px/26px var(--font-sans);">White car · near the gate</span>
+        <span class="pos-row" style="gap: 6px; color: var(--ink-muted); font: 400 17px/22px var(--font-sans);"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/></svg><span class="pos-ltr">0300 1234567</span></span>
+      </div>
+      <p style="margin: 0; font: 400 15px/20px var(--font-sans); color: var(--ink-muted);">Only the car number is required.</p>
+      <button class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block">Next: add items</button>
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

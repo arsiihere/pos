@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Owner first run</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; height: 900px; overflow: hidden;">
+  <div class="pos-shell">
+    <nav class="pos-sidenav" aria-label="Restaurant setup">
+      <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
+      <a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors and tables</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Kitchen stations</a>
+    </nav>
+    <div style="display: flex; flex-direction: column; min-width: 0;">
+      <header class="pos-appbar"><h1 class="pos-appbar__title">Welcome, let's set up your restaurant</h1></header>
+      <main class="pos-content pos-content--narrow" style="padding-top: 40px;">
+        <p style="margin: 0; font: 400 20px/28px var(--font-sans); color: var(--ink-muted);">Five steps. You can come back to any of them later. Each branch gets the changes within a minute.</p>
+        <ol class="pos-checklist">
+          <li class="pos-checklist__item is-done"><span class="pos-checklist__num"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="pos-section__head"><strong style="font: 700 20px/26px var(--font-sans);">Kitchen stations</strong><span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">3 at Gulberg: Tandoor, Karahi counter, Degh</span></div><button class="pos-btn">Edit</button></li>
+          <li class="pos-checklist__item is-done"><span class="pos-checklist__num"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="pos-section__head"><strong style="font: 700 20px/26px var(--font-sans);">Floors and tables</strong><span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">2 floors, 20 tables</span></div><button class="pos-btn">Edit</button></li>
+          <li class="pos-checklist__item"><span class="pos-checklist__num">3</span><div class="pos-section__head"><strong style="font: 700 20px/26px var(--font-sans);">Categories</strong><span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Groups on the order screen, like Breakfast, Karahi, Breads, Drinks.</span></div><button class="pos-btn pos-btn--primary">Add categories</button></li>
+          <li class="pos-checklist__item"><span class="pos-checklist__num">4</span><div class="pos-section__head"><strong style="font: 700 20px/26px var(--font-sans);">Tax rates (optional)</strong><span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Skip if you don't charge tax. "No tax" is the default.</span></div><button class="pos-btn">Add</button></li>
+          <li class="pos-checklist__item"><span class="pos-checklist__num">5</span><div class="pos-section__head"><strong style="font: 700 20px/26px var(--font-sans);">Menu items</strong><span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Needs at least one category.</span></div><button class="pos-btn" disabled>Add items</button></li>
+        </ol>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

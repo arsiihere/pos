@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Branch picker</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 1440px; height: 900px; overflow: hidden;">
+<header class="pos-appbar"><div class="pos-sidenav__brand" style="padding: 0;"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div><div class="pos-appbar__end"><span class="caption" style="color: var(--ink-muted);"><span class="pos-ltr">arif@arifchatkhara.pk</span></span><button class="pos-btn">Sign out</button></div></header>
+<main class="pos-content pos-content--narrow" style="padding-top: 56px; gap: 24px;">
+<h1 class="title" style="margin: 0;">Which branch are you setting up?</h1>
+<p class="body-lg" style="margin: 0; color: var(--ink-muted);">Floors, tables and kitchen stations belong to one branch. You can switch any time from the top of the page.</p>
+<div class="pos-tiles pos-tiles--pick" role="group" aria-label="Branch" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+<button class="pos-tile" aria-pressed="true" style="min-height: 120px;">Gulberg<small><span class="pos-ltr" style="font-family: var(--font-mono);">…P0AB</span> · 2 floors · 3 stations</small></button>
+<button class="pos-tile" aria-pressed="false" style="min-height: 120px;">Johar Town<small><span class="pos-ltr" style="font-family: var(--font-mono);">…M6PQ</span> · 1 floor · 3 stations</small></button></div>
+<div class="pos-explain"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><span>Branch names show once they are set in Branch settings. Until then the end of each branch's ID shows.</span></div>
+<div class="pos-callout"><div class="pos-callout__icon"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg></div><div class="pos-callout__text"><h2>Menu is the same for every branch</h2><p>Items, categories, prices and tax need no branch.</p></div><div class="pos-callout__actions"><a class="pos-btn" href="#">Open the menu</a></div></div>
+<div class="pos-row" style="justify-content: flex-end;"><button class="pos-btn pos-btn--primary pos-btn--lg">Continue with Gulberg</button></div></main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

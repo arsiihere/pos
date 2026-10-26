@@ -10,7 +10,7 @@
 
 **Tech stack:** existing 00 stack (Fastify 5.12.7, Zod 4.6.7, better-sqlite3 13.0.3, pg 8.23.1, Vitest 4.1.12, ESLint 10.13.0) + `apps/client` only: React 19.3.1, Vite 8.3.5, jsdom 30.1.3.
 
-**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md` (cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md` ("00 Mxx"). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
+**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.1.md` (v1.1: tasks 77–80 for S49–S56; cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` ("00 Mxx"; v1.1 tasks rely on M83, M86, M89). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
 
 **Starting point:** module 00 is built. Reuse, do not recreate: hub `writer.run`, `createStateHolder`, `createProjectionRegistry`, `registerBootStep`, `defineCommand` / `commandRegistry(app)`, `defineQuery` / `queryRegistry(app)`, `registerStationValidator` / `stationExists`, `registerEventAudience`, `registerCatchUp`, `applyStaffDirectory` (signature unchanged), `swapDirectory(app, …)`, `lib/hash.ts`, `lib/ui-assets.ts` (pattern for §7.1), `setup/cloud-client.ts` (pattern for the poll client), test helpers `createTestHub`, `seedDirectory`, `pairDevice`, `openSession`, `statementCounter`, `connectWs`, `aDirectory`, `captureLogs`; cloud `TenantScopedRepository`, `TenantLevelRepository`, `registerTenantScope` (`TENANT_SCOPE_ALLOWLIST`), `registerErrorHandler`, `loadDirectory` (`modules/hub-registration/repository.ts`), `SystemContext`, `seedTenant`, `issueRegistrationCode`, `createTestCloud`, `truncateAll`; the manual setup in `docs/manual-test-00.md`.
 
@@ -345,6 +345,9 @@ Every active §10 number of spec v1.0 (1–154 except the removed 55, 96–101, 
 
 | Task | Tests |
 |---|---|
+| 77 | 159, 161 (component part) |
+| 78 | 160, 161 (page part), 162, 163, 164, 165, 169, 170 |
+| 79 | 166, 167, 168, 171, 172 |
 | 5 | 141 |
 | 6 | 136, 137 |
 | 7 | 150 |
@@ -1137,3 +1140,14 @@ The work:
 - add `category_name` to `items_meta` and `day_min_gap_hours` to the answer;
 - the filter shows the names;
 - `opened_recently` reads "This day was started less than {hours} h ago; nothing changed."
+
+### Tasks 77–80: spec v1.1 — module 01a design hand-off (S49–S56)
+
+Source: `docs/design/handoff/01a/` (`01a-design.md`, frames, `PLAN.md`). Client only (`apps/client`); no hub or cloud change. The owner asked for **one commit per hand-off phase**, so these tasks are phase commits `feat(01a): <phase> [spec …]`.
+
+- **Task 77 — hand-off phase 1: shared components** (S49 language plumbing and `ur-*` type classes, S50 b/c/d components; #159, #161 component part). Files: `src/components/{AppBar,SideNav,List,Switch,Segmented,Chip,ActionBar,EmptyState,Skeleton,FlashChip,Dialog,Icon}.tsx`, `StaffTiles.tsx` (locked note), `src/i18n/{index,lang,ur}.ts`, tests.
+- **Task 78 — hand-off phase 2: owner app** (S50–S53, §8.1; #160, #161 page part, #162–#165, #169, #170). Files: `src/features/owner/**`, `src/api/cloud-admin.ts` (`logout()` sends the existing call), `src/i18n/{en,ur}.ts`, `docs/design/handoff/01a/urdu-todo.md`, tests.
+- **Task 79 — hand-off phase 3: stock page** (S54–S56, §8.2; #166–#168, #171, #172, #77 reworded). Files: `src/features/admin/stock/**`, `src/api/hub-admin.ts` (logout), `src/i18n/{en,ur}.ts`, tests.
+- **Task 80 — hand-off phase 4: docs** (`docs/design/ui-brief-01a.md`, `01a-design.md` as built, open questions, report).
+
+**Done when:** #159–#172 pass, every earlier test passes, and the §12.1 grep finds exactly one test per number.

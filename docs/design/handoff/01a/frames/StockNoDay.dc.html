@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stock, no day open</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1280px; height: 800px; overflow: hidden;">
+  <header class="pos-appbar">
+    <h1 class="pos-appbar__title">Stock</h1>
+    <span class="pos-chip"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>No day open · last closed <span class="pos-ltr">Sun 25 Oct, 01:10</span></span>
+    <div class="pos-appbar__end">
+      <span style="font: 400 17px/22px var(--font-sans); color: var(--ink-muted);">Imran</span>
+      <button class="pos-btn">Sign out</button>
+    </div>
+  </header>
+
+  <main class="pos-content" style="overflow: hidden;">
+    <section class="pos-callout pos-callout--accent">
+      <div class="pos-callout__icon"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5"/><path d="M12 19v2.5"/><path d="M2.5 12H5"/><path d="M19 12h2.5"/><path d="M5.3 5.3l1.8 1.8"/><path d="M16.9 16.9l1.8 1.8"/><path d="M5.3 18.7l1.8-1.8"/><path d="M16.9 7.1l1.8-1.8"/></svg></div>
+      <div class="pos-callout__text">
+        <h2>Start today's business day</h2>
+        <p>Counts belong to a day. Start it, then count what's ready.</p>
+      </div>
+      <div class="pos-callout__actions"><button class="pos-btn pos-btn--primary pos-btn--lg">Start day</button></div>
+    </section>
+
+    <p style="margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Yesterday's last counts. You can switch items on or off now; counting opens after the day starts.</p>
+
+    <ul class="pos-list pos-list--stock">
+      <li class="pos-list__head"><span>Item</span><span>Count now</span><span>Left to sell</span><span>Fresh batch</span><span>Selling</span></li>
+      <li class="pos-list__row is-muted">
+        <div class="pos-list__name"><strong>Chicken Karahi</strong><span>Karahi · counted in kg</span></div>
+        <div class="pos-count"><input class="pos-input pos-input--mono" value="" placeholder="–" disabled aria-label="Chicken Karahi count in kg"><span class="pos-count__unit">kg</span></div>
+        <div class="pos-list__num">0<small>kg</small></div>
+        <button class="pos-btn" disabled>Add</button>
+        <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>On</button>
+      </li>
+      <li class="pos-list__row is-muted">
+        <div class="pos-list__name"><strong>Paye</strong><span>Breakfast · plates · keeps overnight</span></div>
+        <div class="pos-count"><input class="pos-input pos-input--mono" value="8" disabled aria-label="Paye count in plates"><span class="pos-count__unit">plates</span></div>
+        <div class="pos-list__num">8<small>plates</small></div>
+        <button class="pos-btn" disabled>Add</button>
+        <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>On</button>
+      </li>
+      <li class="pos-list__row is-muted">
+        <div class="pos-list__name"><strong>Seekh Kebab</strong><span>BBQ · pieces</span></div>
+        <div class="pos-count"><input class="pos-input pos-input--mono" value="" placeholder="–" disabled aria-label="Seekh Kebab count in pieces"><span class="pos-count__unit">pcs</span></div>
+        <div class="pos-list__num">0<small>pcs</small></div>
+        <button class="pos-btn" disabled>Add</button>
+        <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>On</button>
+      </li>
+    </ul>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parking board</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1280px; height: 800px; overflow: hidden;">
+  <header class="pos-appbar">
+    <h1 class="pos-appbar__title">Parking</h1>
+    <div class="pos-seg" role="group" aria-label="Show">
+      <button class="pos-seg__opt" aria-pressed="true">All <span class="pos-seg__count">7</span></button>
+      <button class="pos-seg__opt" aria-pressed="false">Cooking <span class="pos-seg__count">3</span></button>
+      <button class="pos-seg__opt" aria-pressed="false">Ready <span class="pos-seg__count">2</span></button>
+      <button class="pos-seg__opt" aria-pressed="false">Unpaid <span class="pos-seg__count">2</span></button>
+    </div>
+    <div class="pos-appbar__end">
+      <label class="pos-input-affix" style="width: 230px;"><span><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></span><input class="pos-input pos-input--mono" placeholder="Last digits" inputmode="numeric" aria-label="Find by car number"></label>
+      <button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>New parking order</button>
+    </div>
+  </header>
+
+  <main class="pos-content">
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+      <article class="pos-card" style="display: flex; flex-direction: column; gap: 12px; border: 2px solid var(--ok);">
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-plate">LEB 1234</span><span class="pos-chip pos-chip--ok"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Ready · take out</span></div>
+        <span class="pos-row" style="gap: 8px; font: 700 18px/24px var(--font-sans);"><span class="pos-swatch pos-swatch--white"></span>White car · near the gate</span>
+        <span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">2 Chicken Karahi (1 kg), 6 Naan, 2 Lassi</span>
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-list__num" style="font-size: 20px;">Rs 3,280</span><span class="pos-chip pos-chip--warn">Unpaid</span></div>
+      </article>
+
+      <article class="pos-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-plate">LEA 21 4567</span><span class="pos-chip pos-chip--info"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>Cooking · 6 min</span></div>
+        <span class="pos-row" style="gap: 8px; font: 700 18px/24px var(--font-sans);"><span class="pos-swatch pos-swatch--black"></span>Black SUV / Jeep</span>
+        <span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">4 Paye, 8 Naan</span>
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-list__num" style="font-size: 20px;">Rs 2,040</span><span class="pos-chip pos-chip--ok">Paid</span></div>
+      </article>
+
+      <article class="pos-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-plate">…789</span><span class="pos-chip pos-chip--info">Cooking · 12 min</span></div>
+        <span class="pos-row" style="gap: 8px; font: 700 18px/24px var(--font-sans);"><span class="pos-swatch pos-swatch--silver"></span>Silver small car · P3</span>
+        <span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">1 Chicken Biryani · Full, 2 Raita</span>
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-list__num" style="font-size: 20px;">Rs 810</span><span class="pos-chip pos-chip--warn">Unpaid</span></div>
+      </article>
+
+      <article class="pos-card" style="display: flex; flex-direction: column; gap: 12px;">
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-plate">ICT 5521</span><span class="pos-chip">Taking order</span></div>
+        <span class="pos-row" style="gap: 8px; font: 700 18px/24px var(--font-sans);"><span class="pos-swatch pos-swatch--red"></span>Red bike</span>
+        <span style="font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">No items yet</span>
+        <div class="pos-row" style="justify-content: space-between;"><span class="pos-list__num" style="font-size: 20px;">–</span><button class="pos-btn">Add items</button></div>
+      </article>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floors — show archived, name taken, saved</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 1440px; height: 900px; overflow: hidden;">
+<div class="pos-shell"><nav class="pos-sidenav" aria-label="Restaurant setup"><div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
+<a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu<small><span class="pos-ltr">42</span></small></a><a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors and tables</a><a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Kitchen stations</a>
+<div class="pos-sidenav__foot"><span class="caption" style="color: var(--ink-muted);"><span class="pos-ltr">arif@arifchatkhara.pk</span></span><button class="pos-btn pos-btn--block">Sign out</button></div></nav>
+<div style="display: flex; flex-direction: column; min-width: 0;">
+<header class="pos-appbar"><h1 class="pos-appbar__title">Floors and tables</h1><label class="pos-row" style="gap: 8px;"><span class="label" style="color: var(--ink-muted);">Branch</span><select class="pos-select" style="width: 240px;"><option>Gulberg · …P0AB</option></select></label><div class="pos-appbar__end"><button class="pos-switch" role="switch" aria-checked="true" style="color: var(--ink);"><span class="pos-switch__track"></span>Show archived</button><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add floor</button></div></header>
+<main class="pos-content" style="overflow: hidden;"><section class="pos-section"><div class="pos-row" style="justify-content: space-between;"><div class="pos-section__head"><h2>Ground floor</h2><p>12 tables · 48 seats</p></div><div class="pos-row"><button class="pos-btn">Rename</button><button class="pos-btn">Archive</button></div></div>
+<div class="pos-tiles"><button class="pos-tile">T1<small>4 seats</small></button><button class="pos-tile">T2<small>4 seats</small></button><button class="pos-tile">T3<small>4 seats</small></button><button class="pos-tile">T4<small>4 seats</small></button><button class="pos-tile">T5<small>2 seats</small></button><button class="pos-tile">T6<small>2 seats</small></button></div>
+<div class="pos-explain" style="flex-wrap: wrap; align-items: flex-start; background: var(--surface-raised); border: 1px solid var(--line);">
+<label class="pos-field pos-field--error" style="width: 260px;"><span class="pos-field__label">Table name</span><input class="pos-input pos-input--mono" value="T7"><span class="pos-field__error"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg>T7 is already used at Gulberg. Pick another name.</span></label>
+<label class="pos-field" style="width: 140px;"><span class="pos-field__label">Seats</span><input class="pos-input pos-input--mono" value="6"></label>
+<label class="pos-field" style="width: 220px;"><span class="pos-field__label">Floor</span><select class="pos-select"><option>Ground floor</option></select></label>
+<div class="pos-row" style="align-self: flex-end; margin-inline-start: auto;"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary">Save table</button></div></div></section>
+<section class="pos-section"><div class="pos-row" style="justify-content: space-between;"><div class="pos-section__head"><h2>Family hall</h2><p>8 tables · 48 seats</p></div><div class="pos-row"><span class="pos-chip pos-chip--ok"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Saved</span><button class="pos-btn">Rename</button><button class="pos-btn">Archive</button></div></div></section>
+<section class="pos-section" style="background: var(--surface-sunken);"><div class="pos-row" style="justify-content: space-between;"><div class="pos-section__head"><h2 style="color: var(--ink-muted);">Rooftop</h2><p>Archived 3 Oct · 6 tables · waiters can't pick it</p></div><div class="pos-row"><span class="pos-chip pos-chip--info"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>Archived</span><button class="pos-btn">Restore</button></div></div></section></main></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
