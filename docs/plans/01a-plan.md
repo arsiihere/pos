@@ -10,7 +10,7 @@
 
 **Tech stack:** existing 00 stack (Fastify 5.12.7, Zod 4.6.7, better-sqlite3 13.0.3, pg 8.23.1, Vitest 4.1.12, ESLint 10.13.0) + `apps/client` only: React 19.3.1, Vite 8.3.5, jsdom 30.1.3.
 
-**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.1.md` (v1.1: tasks 77–80 for S49–S56; cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` ("00 Mxx"; v1.1 tasks rely on M83, M86, M89). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
+**Spec:** `docs/specs/01_Restaurant_Setup_Spec_v1.2.md` (v1.1: tasks 77–80 for S49–S56; v1.2: tasks 81–84 for S57–S59; cited "§x" or "S12"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"); 00 spec `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` ("00 Mxx"; v1.1 tasks rely on M83, M86, M89). Read the cited spec section before each task; the plan does not repeat the spec's tables. Reviews applied: `docs/reviews/01a_plan_review.md` ("Rn"), `docs/reviews/01a_spec_review_1.md` and `docs/reviews/01a_spec_review_2.md` (through spec v1.0, cited by the spec decision each produced).
 
 **Starting point:** module 00 is built. Reuse, do not recreate: hub `writer.run`, `createStateHolder`, `createProjectionRegistry`, `registerBootStep`, `defineCommand` / `commandRegistry(app)`, `defineQuery` / `queryRegistry(app)`, `registerStationValidator` / `stationExists`, `registerEventAudience`, `registerCatchUp`, `applyStaffDirectory` (signature unchanged), `swapDirectory(app, …)`, `lib/hash.ts`, `lib/ui-assets.ts` (pattern for §7.1), `setup/cloud-client.ts` (pattern for the poll client), test helpers `createTestHub`, `seedDirectory`, `pairDevice`, `openSession`, `statementCounter`, `connectWs`, `aDirectory`, `captureLogs`; cloud `TenantScopedRepository`, `TenantLevelRepository`, `registerTenantScope` (`TENANT_SCOPE_ALLOWLIST`), `registerErrorHandler`, `loadDirectory` (`modules/hub-registration/repository.ts`), `SystemContext`, `seedTenant`, `issueRegistrationCode`, `createTestCloud`, `truncateAll`; the manual setup in `docs/manual-test-00.md`.
 
@@ -1151,3 +1151,32 @@ Source: `docs/design/handoff/01a/` (`01a-design.md`, frames, `PLAN.md`). Client 
 - **Task 80 — hand-off phase 4: docs** (`docs/design/ui-brief-01a.md`, `01a-design.md` as built, open questions, report).
 
 **Done when:** #159–#172 pass, every earlier test passes, and the §12.1 grep finds exactly one test per number.
+
+## Addendum: spec v1.2 — per-branch price, branch names, kg/L rounding (2026-10-26)
+
+Source: `docs/design/handoff/01a/CLAUDE-TASK-01a.md` Phase 2b (owner "go"), plus the owner's request to show branch names. Four tasks, TDD, one commit each.
+
+### Task 81: Cloud per-branch price [S57, §3.3, §4.3, §5.2, §6.11, §6.14, §6.16; tests 173–175]
+**Files:**
+- `apps/cloud/src/db/migrations/0004_branch_price.sql` (new);
+- `packages/events/src/admin/restaurant.ts` (`RouteInput`, `PutItemRouteBody`, `Route`);
+- `apps/cloud/src/modules/restaurant/{repository,service}.ts` (route rows carry `price_minor_override`);
+- `apps/cloud/src/modules/config-sync/builder.ts` (`COALESCE(r.price_minor_override, m.price_minor)`);
+- tests in `apps/cloud/test/restaurant/` and `apps/cloud/test/config-sync/`.
+
+### Task 82: `GET /v1/admin/branches` [S58, §6.7b; tests 176, 177]
+**Files:** `apps/cloud/src/modules/restaurant/{routes,service,repository}.ts`, `packages/events/src/admin/restaurant.ts` (`BranchListResponse`), `apps/cloud/test/restaurant/branches.int.test.ts`.
+
+### Task 83: `lineTotalMinor` to the nearest whole rupee [S59, §4.2; test 150 reworded]
+**Files:** `packages/domain/src/line-total.ts`, `packages/domain/src/line-total.test.ts`.
+
+### Task 84: Owner app — branch names, Price here, branch price chip [S57 e, S58, §8.1; tests 178, 179]
+**Files:**
+- `apps/client/src/api/cloud-admin.ts` (`listBranches`);
+- `apps/client/src/features/owner/{branch.ts,App.tsx,BranchPicker.tsx,Shell.tsx}` (names through one context, ID tail fallback);
+- every owner view that names a branch;
+- `menu/ItemForm.tsx` (Price here), `menu/MenuView.tsx` (chip);
+- `src/i18n/en.ts`, `docs/design/handoff/01a/urdu-todo.md`;
+- tests.
+
+**Done when:** #150 and #173–#179 pass, every earlier test passes, and the §12.1 grep finds exactly one test per number.

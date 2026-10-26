@@ -53,10 +53,10 @@ Copy this file to `docs/design/open-questions/01a-setup.md`. It works like the 0
 ## Q6 Spec owner questions still open (01a §12.6)
 These are business decisions for Arif. Each has my suggestion.
 - **6.3 Sold out vs cook more, per item?** Yes, per item; it is already the field "When it runs out". Paye and Chanay are Sold out; Karahi and BBQ are Cook more. **Status:** recommended
-- **6.5 Same menu and prices at every branch?** Same menu and same prices for the pilot. A branch can only mark an item "Not sold here". Per-branch prices come later as price lists (P2). **Status:** blocked. Confirm with Arif.
-- **6.10 Which items cook in loads (batch)?** This is data, not design. Expect Degh: Paye, Chanay, Biryani, Haleem; Fryer: fries, pakora. The owner enters it in Stations. **Status:** blocked. Owner data.
+- **6.5 Same menu and prices at every branch?** **Answered (owner):** the menu is shared, but the price can differ per branch: each branch row in the item form has an optional "Price here" (empty = main price). Built in spec 01a v1.2 (S57). **Status:** answered
+- **6.10 Which items cook in loads (batch)?** **Answered (owner):** decided per item in the item form, by picking a batch station and its recipe for each branch. Nothing to build. **Status:** answered
 - **6.12 Manual On outside hours?** Hours win, as decided in S47. The stock row shows a "Hours 07:00–13:00" badge, so nobody is surprised. **Status:** recommended
-- **6.13 Rounding of kg lines on the bill?** Weigh to 0.05 kg (50 g), price the line to the nearest Rs 1, and show the weight on the bill ("Chicken Karahi 1.25 kg × Rs 2,200 = Rs 2,750"). **Status:** blocked. Confirm with Arif; billing (05) uses it.
+- **6.13 Rounding of kg lines on the bill?** Weigh to 0.05 kg (50 g), price the line to the nearest Rs 1, and show the weight on the bill ("Chicken Karahi 1.25 kg × Rs 2,200 = Rs 2,750"). **Answered (owner):** yes. `lineTotalMinor` rounds g / ml lines to the whole rupee (spec 01a v1.2, S59); billing (05) shows the weight. **Status:** answered
 
 ## Q7 Menu without picking a branch?
 - **Recommended:** Yes. The Menu tab needs no branch (frame `OwnerBranchPicker` links straight to it). Inside the item form, the Kitchen section lists every branch, one row each.
