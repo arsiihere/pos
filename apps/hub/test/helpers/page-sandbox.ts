@@ -29,6 +29,7 @@ export interface StubElement {
   children: StubElement[];
   classList: { add(name: string): void; remove(name: string): void; contains(name: string): boolean; toggle(name: string, on?: boolean): void };
   appendChild(child: StubElement): StubElement;
+  removeChild(child: StubElement): StubElement;
   replaceChildren(...children: StubElement[]): void;
   addEventListener(type: string, listener: (event: unknown) => void): void;
   setAttribute(name: string, value: string): void;
@@ -79,6 +80,10 @@ export function element(tagName: string): StubElement {
     },
     appendChild(child) {
       el.children.push(child);
+      return child;
+    },
+    removeChild(child) {
+      el.children = el.children.filter((item) => item !== child);
       return child;
     },
     replaceChildren(...children) {

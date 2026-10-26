@@ -2,7 +2,7 @@
 
 These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show the English text in Urdu mode until `UR` has them (M83). Urdu so far comes from the *Urdu frames; a native reviewer should check all of it before release.
 
-138 keys, generated 2026-10-26.
+240 keys, generated 2026-10-26.
 
 ## setup
 
@@ -127,8 +127,62 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `global.rotated_title` — Pair this device again
 - `global.rotated_body` — This device's pairing was renewed on another copy of the app. Pair it again here.
 
+## common
+
+- `common.cancel` — Cancel
+
+## admin
+
+- `admin.back` — Back
+- `admin.branch_line` — Branch hub · {host}
+- `admin.tile_devices` — {n} paired
+- `admin.tile_add_phone_title` — Add a phone for staff
+- `admin.tile_add_phone` — Make a QR one person scans
+- `admin.tile_sessions` — {n} people and kitchen screens
+- `admin.tile_lockouts` — After 5 wrong PINs
+- `admin.tile_stock` — Morning count, fresh batches
+- `admin.not_seen_chip` — {name} not seen for {n} min
+- `admin.locked_chip` — {name} locked · {min} min
+- `admin.locked_many` — {n} locked out
+- `admin.refreshed` — Refreshed {time}
+- `admin.refresh` — Refresh
+- `admin.offline` — Can't reach the hub — retrying…
+- `admin.offline_body` — Showing the list from {time}. Buttons work again when the hub answers.
+
+## devices
+
+- `devices.add_phone` — Add a phone
+- `devices.approve_short` — Approve
+- `devices.group_cashier` — Cashier screens
+- `devices.group_tablet` — Tablets
+- `devices.group_removed` — Removed
+- `devices.type_cashier` — Cashier screen
+- `devices.type_tablet` — Tablet
+- `devices.source_request` — Screen code
+- `devices.source_token` — QR link
+- `devices.seen_sec` — {n} s ago
+- `devices.seen_min` — {n} min ago
+- `devices.seen_never` — Not yet
+- `devices.this_screen` — This screen
+- `devices.nobody` — —
+- `devices.removed_on` — Removed {date}
+- `devices.read_only` — You can see screens and phones but can't remove them.
+- `devices.read_only_body` — Ask a manager.
+- `devices.first_run_title` — Add the other screens
+- `devices.first_run_body` — Open Pair on each new screen, then approve its code here. Make a QR for each waiter's phone.
+- `devices.removed` — {name} removed.
+- `devices.removed_body` — It stopped working and anyone on it was logged out.
+- `devices.already_removed` — {name} was already removed.
+- `devices.remove_title` — Remove {name}?
+- `devices.remove_body` — It will stop working at once and anyone logged in on it is logged out.
+- `devices.remove_reason` — Reason (optional)
+- `devices.remove_help` — Shown in the device list and the audit log
+- `devices.remove_self` — This is the screen you are using. You will be signed out here, and it must be paired again before anyone can use it.
+
 ## errors
 
+- `errors.DEVICE_NOT_FOUND` — This screen or phone is no longer on the list.
+- `errors.SESSION_NOT_FOUND` — Already logged out.
 - `errors.VALIDATION_FAILED` — Check the highlighted field.
 - `errors.REGISTRATION_CODE_INVALID` — This code is wrong, used or older than 24 hours.
 - `errors.REGISTRATION_CODE_INVALID_body` — Ask for a new one.
@@ -162,3 +216,69 @@ These keys in `apps/hub/src/lib/strings.ts` have English only; the pages show th
 - `errors.CLIENT_UPGRADE_REQUIRED` — Update the app.
 - `errors.INTERNAL_ERROR` — Something went wrong on the hub. Try again.
 - `errors.unknown` — Something went wrong. Try again.
+
+## addphone
+
+- `addphone.who` — Whose phone is it?
+- `addphone.who_sub` — The QR pairs one phone. Only this person can sign in on it.
+- `addphone.find` — Find a name
+- `addphone.has_phones` — Has {n} phone
+- `addphone.has_phones_many` — Has {n} phones
+- `addphone.no_phone` — No phone yet
+- `addphone.make_qr` — Make QR
+- `addphone.pick` — Tap a name.
+- `addphone.scan_title` — {name} scans this with their phone camera
+- `addphone.scan_body` — Not the POS app: the normal camera. The link opens the POS on their phone.
+- `addphone.valid` — Works once, for 10 minutes · {time}
+- `addphone.expired_qr` — This QR has expired
+- `addphone.expired` — Expired
+- `addphone.new_qr` — Make a new QR
+- `addphone.done` — Done
+
+## sessions
+
+- `sessions.title` — Signed in now
+- `sessions.col_who` — Who
+- `sessions.col_on` — On
+- `sessions.col_activity` — Last activity
+- `sessions.kind_staff` — Staff
+- `sessions.kind_admin` — Hub admin
+- `sessions.kind_station` — Kitchen screen
+- `sessions.since` — {kind} · since {time}
+- `sessions.idle_rule` — Signs out after {n} min idle
+- `sessions.idle_rule_h` — Signs out after {n} h idle
+- `sessions.stays_on` — Stays on until a manager ends it
+- `sessions.idle_soon` — Signs out in {n} min
+- `sessions.you` — You
+- `sessions.hub_admin_device` — Hub admin link
+- `sessions.log_out` — Log out
+- `sessions.none` — No one is signed in.
+- `sessions.read_only` — You can see who is signed in but can't log anyone out.
+- `sessions.logout_title` — Log {name} out of {device}?
+- `sessions.logout_body` — Anything they haven't sent stays on the {device}. They can sign in again with their PIN.
+- `sessions.end_kds_title` — End the {station} kitchen screen session?
+- `sessions.end_kds_body` — The {station} screen goes back to its start screen. Its tickets stay on the hub and print if no kitchen screen shows them.
+- `sessions.end_kds` — End session
+- `sessions.logged_out` — {name} logged out of {device}.
+- `sessions.already_ended` — Already logged out.
+
+## lockouts
+
+- `lockouts.people` — People
+- `lockouts.screens` — Screens
+- `lockouts.addresses` — Addresses
+- `lockouts.col_what` — Who or what
+- `lockouts.col_locked` — Locked
+- `lockouts.why_person` — 5 wrong PINs · until {time}
+- `lockouts.why_screen` — 5 wrong PINs on this screen · until {time}
+- `lockouts.why_ip` — First-admin sign-in · until {time}
+- `lockouts.none_people` — No one is locked out.
+- `lockouts.none_screens` — No screen is locked.
+- `lockouts.none_ip` — No address is locked.
+- `lockouts.read_only` — You can see lockouts but can't clear them.
+- `lockouts.confirm_title` — Unlock {name} now?
+- `lockouts.confirm_body` — They can try their PIN again. This is recorded with your name.
+- `lockouts.confirm_ip_body` — The phone or laptop at this address can try a first-admin PIN again.
+- `lockouts.unlocked` — {name} unlocked.
+- `lockouts.unlocked_body` — They can try their PIN again now.
+- `lockouts.already_unlocked` — Already unlocked.

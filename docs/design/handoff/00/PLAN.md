@@ -94,3 +94,11 @@ The hand-off assumes some things the repo doesn't have yet. Each one needs a dec
 - `/pair?t=` (phones) switches to the light theme in the page script; `/pair` is still served `data-theme="dark"` (M82) for screens.
 - Not in the API, so not shown: staff role under roster tiles ("Owner", "Manager"), station name on "Paired" (screen), owner name on "This phone is paired".
 - Screenshots: `screens/` (20 states, en + ur, frame sizes) from a canned-API page harness. Not a live-hub walk of F1/F3.
+
+## F. Phase 5 notes (built 2026-10-26)
+- `apps/hub/src/admin/page.ts` (one page, hash views `#devices`, `#add-phone`, `#sessions`, `#lockouts`) and `admin/routes.ts` (`GET /admin`, group `admin-bootstrap`).
+- Phone layout (≤ 760 px, `matchMedia`): no side menu; home is the tile list; inner pages use `.pos-appbar--phone` with a back link; lists use `.pos-list--stack`; Locked out shows the newest person in a danger banner with a block "Unlock {name}".
+- "Other jobs" shows Stock only when the built `/admin/stock` page exists; Kitchen capacity, Printers and Backup are hidden (no routes yet).
+- Shown, not in the API: none. Not shown: the admin's role under their name in the side menu (sign-in returns no role).
+- Untranslated English inside Urdu pages can reorder digits (bidi); it goes away when `urdu-todo.md` is translated.
+- The "Show removed" switch uses the kit `.pos-switch`, whose off state is red (designed for availability toggles).

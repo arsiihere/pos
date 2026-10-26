@@ -30,6 +30,7 @@ import { registerSetItemAvailability } from './commands/set-item-availability.js
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { CLIENT_DIST_DIR, registerClientDist } from './lib/client-dist.js';
+import { registerAdminPage } from './admin/routes.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
 import { registerBranchConfigQuery } from './queries/branch-config.js';
@@ -144,6 +145,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerCommandRoutes(app, deps, options.testCommands === true);
   registerGenerateDevicePairingToken(app);
   registerApprovePairingRequest(app, deps);
+  registerAdminPage(app, deps);
   registerRevokeDevice(app);
   registerForceLogoutSession(app);
   registerClearPinLockout(app);
