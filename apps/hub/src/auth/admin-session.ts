@@ -72,6 +72,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
           staff_id: body.staff_id,
           display_name: staff.display_name,
           idle_ttl_ms: idleTtlMs,
+          permissions: directory.adminPermissions(body.staff_id),
         };
       },
     );
@@ -83,6 +84,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: HubDeps, semapho
         staff_id: outcome.staff_id,
         display_name: outcome.display_name,
         idle_ttl_ms: outcome.idle_ttl_ms,
+        permissions: outcome.permissions,
       },
     };
   });

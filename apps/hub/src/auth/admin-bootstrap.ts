@@ -4,143 +4,88 @@ import { verify } from '@node-rs/argon2';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
-import { clientPrelude, esc, fieldHtml, iconSvg, pageHead } from '../lib/page.js';
-import { EN } from '../lib/strings.js';
+import { globalStateClient } from '../lib/global-state.js';
+import { clientPrelude, iconSvg, pageHead, tag } from '../lib/page.js';
 import type { Semaphore } from '../lib/semaphore.js';
 import { currentDirectory } from './guards.js';
 import { checkPin } from './pin.js';
 import { createSession } from './session-store.js';
+import { signInClient } from './signin-client.js';
 
+// 00-S03 … 00-S05 (docs/design/handoff/00/00-design.md §1): first-admin sign-in from the setup link.
 function bootstrapPage(): string {
   return `${pageHead({ title: 'bootstrap.title', theme: 'light' })}
 <body class="pos-root">
-<main class="pos-page pos-stack">
-<form id="login" class="pos-stack" novalidate>
-  <header class="pos-stack">
-    <h1 class="title">${esc(EN['bootstrap.title'])}</h1>
-    <p class="body-lg">${esc(EN['bootstrap.intro'])}</p>
-  </header>
-  <fieldset class="pos-field">
-    <legend class="pos-field__label">${esc(EN['bootstrap.staff'])}</legend>
-    <div id="roster" class="pos-staff" aria-busy="true"></div>
-  </fieldset>
-  <div id="pin_box" class="pos-pin">
-${fieldHtml({ id: 'pin', label: 'bootstrap.pin', mono: true, attrs: 'type="password" inputmode="numeric" autocomplete="off" maxlength="6"' })}
-  </div>
-  <div id="login_status" aria-live="polite"></div>
-  <button id="login_submit" class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block" type="submit">${esc(EN['bootstrap.submit'])}</button>
-</form>
-<section id="bootstrap_done" class="pos-screen pos-screen--ok" hidden>
-  <div class="pos-screen__icon">${iconSvg('check')}</div>
-</section>
-<section id="bootstrap_expired" class="pos-screen pos-screen--warn" hidden>
-  <div class="pos-screen__icon">${iconSvg('clock')}</div>
-  <h1 class="pos-screen__title">${esc(EN['bootstrap.expired_title'])}</h1>
-  <p class="pos-screen__body">${esc(EN['bootstrap.expired_body'])}</p>
-</section>
+<div class="pos-page" id="bootstrap_main">
+<main class="pos-content pos-content--narrow">
+<div class="pos-split">
+  <section class="pos-stack">
+    ${tag('p', 'caption', 'app.brand_admin')}
+    ${tag('h1', 'title', 'bootstrap.title')}
+    ${tag('p', 'body-lg', 'bootstrap.sub')}
+    <div id="roster" class="pos-staff"></div>
+  </section>
+  <form id="login" class="pos-card pos-stack" novalidate></form>
+</div>
 </main>
+</div>
+<section id="bootstrap_done" hidden></section>
+<section id="bootstrap_expired" hidden>
+  <main class="pos-screen pos-screen--danger">
+    <div class="pos-screen__icon">${iconSvg('clock')}</div>
+    ${tag('h1', 'pos-screen__title', 'bootstrap.expired_title')}
+    ${tag('p', 'pos-screen__body', 'bootstrap.expired_body')}
+  </main>
+</section>
 <script>
 ${clientPrelude()}
+${globalStateClient()}
+${signInClient()}
+// M42: the token is read once from the fragment and removed from the address bar.
 const token = new URLSearchParams(location.hash.replace(/^#/, '')).get('t');
 history.replaceState(null, '', location.pathname);
+const main = document.getElementById('bootstrap_main');
 const form = document.getElementById('login');
-const roster = document.getElementById('roster');
-const status = document.getElementById('login_status');
-const submit = document.getElementById('login_submit');
-const pin = document.getElementById('pin');
-const pinBox = document.getElementById('pin_box');
-const tiles = [];
-let selected = null;
+form.addEventListener('submit', (event) => event.preventDefault());
 function showExpired() {
-  form.hidden = true;
+  main.hidden = true;
   document.getElementById('bootstrap_expired').hidden = false;
 }
-function showDone(name) {
-  const done = document.getElementById('bootstrap_done');
-  done.appendChild(node('h1', 'pos-screen__title', t('bootstrap.signed_in', { name: name })));
-  done.appendChild(node('p', 'pos-screen__body', t('bootstrap.next_body')));
-  // Same tab on purpose: the admin session lives in this tab's sessionStorage (M79).
-  const next = node('a', 'pos-btn pos-btn--primary pos-btn--lg', t('bootstrap.approve'));
+// 00-S05: same tab on purpose, the admin session lives in this tab's sessionStorage (M79).
+function showDone(data) {
+  const next = node('a', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', t('bootstrap.approve'));
   next.href = '/admin/approve';
-  done.appendChild(next);
-  form.hidden = true;
+  const note = node('p', 'caption', t('bootstrap.idle_note') + ' ' + t('bootstrap.idle_note_2'));
+  const done = document.getElementById('bootstrap_done');
+  done.replaceChildren(stateScreen('ok', 'check', t('bootstrap.signed_in', { name: data.display_name }), '', [next, note]));
+  main.hidden = true;
   done.hidden = false;
-}
-function select(member, tile) {
-  selected = member;
-  for (const other of tiles) other.setAttribute('aria-pressed', other === tile ? 'true' : 'false');
-  status.replaceChildren();
-  pin.focus();
-}
-function addTile(member, now) {
-  const tile = node('button', 'pos-staff__tile', member.display_name);
-  tile.type = 'button';
-  tile.setAttribute('aria-pressed', 'false');
-  if (member.locked_until !== null && member.locked_until > now) {
-    tile.disabled = true;
-    tile.classList.add('is-locked');
-    const note = node('small');
-    note.appendChild(icon('lock'));
-    note.appendChild(node('span', '', t('auth.locked_for', { min: Math.ceil((member.locked_until - now) / 60000) })));
-    tile.appendChild(note);
-  }
-  tile.addEventListener('click', () => select(member, tile));
-  tiles.push(tile);
-  roster.appendChild(tile);
 }
 if (!token) {
   showExpired();
 } else {
-  fetch('/admin/login-roster', { headers: { 'X-Admin-Bootstrap': token } }).then(
-    async (res) => {
-      const body = await res.json();
-      roster.removeAttribute('aria-busy');
-      if (res.status !== 200) {
-        if (body.error && body.error.code === 'PAIRING_TOKEN_INVALID') return showExpired();
-        status.replaceChildren(banner('danger', errorText(body.error)));
-        return;
-      }
-      const now = Date.now();
-      for (const member of body.data.staff) addTile(member, now);
-      if (tiles.length === 0) status.replaceChildren(banner('info', t('bootstrap.no_admins')));
+  adminSignIn({
+    roster: document.getElementById('roster'),
+    card: form,
+    load: () => call('/admin/login-roster', { headers: { 'X-Admin-Bootstrap': token } }),
+    login: (staffId, pin) =>
+      call('/admin/auth/bootstrap', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ bootstrap_token: token, staff_id: staffId, pin }),
+      }),
+    onDone: (data) => {
+      sessionStorage.setItem('admin_session_token', data.admin_session_token);
+      sessionStorage.setItem('admin_staff_id', data.staff_id);
+      sessionStorage.setItem('admin_bootstrap', '1');
+      sessionStorage.setItem('admin_name', data.display_name);
+      sessionStorage.setItem('admin_permissions', JSON.stringify(data.permissions || {}));
+      showDone(data);
     },
-    () => status.replaceChildren(banner('danger', errorText({ code: 'SERVICE_UNAVAILABLE' }))),
-  );
+    onExpired: showExpired,
+    global: (error) => globalScreen(error),
+  });
 }
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  pinBox.classList.remove('is-error');
-  if (selected === null) {
-    status.replaceChildren(banner('danger', t('bootstrap.pick_first')));
-    return;
-  }
-  setBusy(submit, true);
-  let res;
-  let body;
-  try {
-    res = await fetch('/admin/auth/bootstrap', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bootstrap_token: token, staff_id: selected.staff_id, pin: pin.value }),
-    });
-    body = await res.json();
-  } catch {
-    res = undefined;
-  }
-  setBusy(submit, false);
-  if (res !== undefined && res.status === 200) {
-    sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
-    sessionStorage.setItem('admin_staff_id', body.data.staff_id);
-    sessionStorage.setItem('admin_bootstrap', '1');
-    showDone(body.data.display_name);
-    return;
-  }
-  const error = (body && body.error) || { code: 'SERVICE_UNAVAILABLE', details: {} };
-  if (error.code === 'PAIRING_TOKEN_INVALID') return showExpired();
-  pin.value = '';
-  if (error.code === 'PIN_INVALID') pinBox.classList.add('is-error');
-  status.replaceChildren(banner('danger', errorText(error), authDetail(error)));
-});
 </script>
 </body>
 </html>`;
@@ -198,6 +143,7 @@ export function registerAdminBootstrapRoutes(app: FastifyInstance, deps: HubDeps
           staff_id: body.staff_id,
           display_name: staff.display_name,
           idle_ttl_ms: idleTtlMs,
+          permissions: directory.adminPermissions(body.staff_id),
         };
       },
     );
@@ -209,6 +155,7 @@ export function registerAdminBootstrapRoutes(app: FastifyInstance, deps: HubDeps
         staff_id: outcome.staff_id,
         display_name: outcome.display_name,
         idle_ttl_ms: outcome.idle_ttl_ms,
+        permissions: outcome.permissions,
       },
     };
   });

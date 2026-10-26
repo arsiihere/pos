@@ -188,6 +188,14 @@ export class StaffDirectory {
     return max;
   }
 
+  // M89: what the admin pages may show; the command pipeline stays the authority.
+  adminPermissions(staffId: string): { 'manage-devices': boolean; 'manage-staff': boolean } {
+    return {
+      'manage-devices': this.resolve(staffId, 'manage-devices').grant === 'allowed',
+      'manage-staff': this.resolve(staffId, 'manage-staff').grant === 'allowed',
+    };
+  }
+
   hasAdmin(staffId: string): boolean {
     return this.resolve(staffId, 'access-hub-admin').grant === 'allowed';
   }

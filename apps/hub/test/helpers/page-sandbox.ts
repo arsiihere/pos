@@ -19,6 +19,9 @@ export interface StubElement {
   inputMode: string;
   hidden: boolean;
   disabled: boolean;
+  isConnected: boolean;
+  style: Record<string, string>;
+  [extra: string]: unknown;
   dataset: Record<string, string>;
   attributes: Record<string, string>;
   options: Array<{ text: string; value: string }>;
@@ -50,6 +53,8 @@ export function element(tagName: string): StubElement {
     inputMode: '',
     hidden: false,
     disabled: false,
+    isConnected: true,
+    style: {},
     dataset: {},
     attributes: {},
     options: [],
@@ -118,6 +123,8 @@ function idbRequest<T>(result: () => T): { result?: T; onsuccess?: () => void; o
 
 export interface PageSandbox {
   screen: StubElement;
+  documentElement: { lang: string; dir: string };
+  local: Map<string, string>;
   body: StubElement;
   store: Map<string, unknown>;
   session: Map<string, string>;
@@ -141,12 +148,16 @@ export async function runPage(
     search?: string;
     hash?: string;
     userAgent?: string;
+    language?: string;
+    local?: Record<string, string>;
   },
 ): Promise<PageSandbox> {
   const script = html.slice(html.indexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'));
   const store = new Map<string, unknown>(Object.entries(o.store ?? {}));
   const session = new Map<string, string>(Object.entries(o.session ?? {}));
   const ids = new Map<string, StubElement>();
+  const local = new Map<string, string>(Object.entries(o.local ?? {}));
+  const documentElement = { lang: 'en', dir: 'ltr' };
   const byId = (id: string): StubElement => {
     let found = ids.get(id);
     if (found === undefined) {
@@ -175,8 +186,15 @@ export async function runPage(
     document: {
       getElementById: byId,
       createElement: element,
+      createTextNode: (text: string) => Object.assign(element('#text'), { textContent: text }),
       body,
+      documentElement,
     },
+    localStorage: {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => void local.set(key, String(value)),
+    },
+    URL,
     indexedDB: { open: () => idbRequest(() => db) },
     sessionStorage: {
       getItem: (key: string) => session.get(key) ?? null,
@@ -185,7 +203,7 @@ export async function runPage(
     },
     location: { search: o.search ?? '', hash: o.hash ?? '', pathname: '/pair' },
     history: { replaceState() {} },
-    navigator: { userAgent: o.userAgent ?? 'test' },
+    navigator: { userAgent: o.userAgent ?? 'test', language: o.language ?? 'en-US' },
     window: {
       prompt: () => {
         counters.prompts += 1;
@@ -227,6 +245,8 @@ export async function runPage(
   };
   return {
     screen,
+    documentElement,
+    local,
     body,
     store,
     session,

@@ -86,3 +86,11 @@ The hand-off assumes some things the repo doesn't have yet. Each one needs a dec
 ## D. Blocked / out of scope
 - Q5 waiter tablets: blocked, two types only.
 - Q4 (06), Q10 (03b): not built.
+
+## E. Phase 3 notes (built 2026-10-26)
+- Shared page code: `lib/page.ts` (language M83, `tag()` for static text, `call()`, `stateScreen()`, `chip()`, PIN pad), `auth/signin-client.ts` (tiles + PIN card for bootstrap, approve and later `/admin`), `lib/global-state.ts` (`globalScreen()`).
+- Urdu: body gets `lang` too and Latin type classes swap to the kit's `ur-*` classes (as the *Urdu frames do). 138 keys still English-only: `urdu-todo.md`.
+- Kit additions (token-only): `a.pos-btn { text-decoration: none }`; `.pos-split` and `.pos-content` stack/narrow under 760 px.
+- `/pair?t=` (phones) switches to the light theme in the page script; `/pair` is still served `data-theme="dark"` (M82) for screens.
+- Not in the API, so not shown: staff role under roster tiles ("Owner", "Manager"), station name on "Paired" (screen), owner name on "This phone is paired".
+- Screenshots: `screens/` (20 states, en + ur, frame sizes) from a canned-API page harness. Not a live-hub walk of F1/F3.

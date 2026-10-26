@@ -1044,7 +1044,7 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 | | |
 |---|---|
 | Auth | §6.2 admin (`access-hub-admin`) |
-| Response | `{ stations: [{ station_id, name, location_label, category_names }] }` — non-archived stations in config order (01a §4.3); `category_names` = up to 3 names of categories that have a non-archived item on the station, by category `sort_order`. Empty list when no branch config is loaded yet |
+| Response | `{ stations: [{ station_id, name, location_label, category_names }] }` — non-archived stations in config order (01a §4.3); `category_names` = up to 3 names of categories that have an item on the station, by category `sort_order`. Empty list when no branch config is loaded yet |
 | Query count | 0 (in-memory branch config, 01a S40) |
 | Activity | `countsAsActivity: false` |
 | Errors | G-admin |

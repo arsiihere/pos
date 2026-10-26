@@ -309,3 +309,7 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 [lang="ur"] :is(.pos-appbar__title, .pos-sidenav__brand strong, .pos-sidenav__brand span, .pos-sidenav__item, .pos-sidenav__item small, .pos-seg__opt, .pos-chip, .pos-list__head, .pos-list__name strong, .pos-list__name span, .pos-list__group, .pos-list__meta, .pos-list__meta span, .pos-list__who, .pos-switch, .pos-actionbar__info, .pos-actionbar__info strong, .pos-callout__text h2, .pos-callout__text p, .pos-section__head h2, .pos-section__head p, .pos-explain, .pos-tile, .pos-tile small, .pos-empty h3, .pos-count__unit, .pos-input-affix > span, .pos-code__qr--void) { font-family: var(--font-urdu); line-height: 2; }
 [lang="ur"] .pos-input:not(.pos-input--mono):not(.pos-input--code) { font-family: var(--font-urdu); line-height: 2; }
 .pos-list__row > .pos-chip { justify-self: start; }
+
+/* Added by module 00 phase 3: link buttons look like buttons; two-column splits stack on phones (designs go down to 360 wide) */
+a.pos-btn { text-decoration: none; }
+@media (max-width: 760px) { .pos-split { grid-template-columns: minmax(0, 1fr); } .pos-content { padding: var(--space-4); } }

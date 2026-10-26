@@ -27,6 +27,8 @@ export const AdminAuthResponse = z.object({
     staff_id: z.string(),
     display_name: z.string(),
     idle_ttl_ms: int,
+    // 00 v1.3 M89
+    permissions: z.object({ 'manage-devices': z.boolean(), 'manage-staff': z.boolean() }),
   }),
 });
 

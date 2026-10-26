@@ -132,9 +132,12 @@ function globalWifiBody(ssid) {
 function renderGlobalState(state, actions) {
   const act = actions || {};
   if (state.id === 'F01' && state.mode === 'banner') {
-    const box = banner('warn', t('global.hub_down_title'), t('global.hub_down_small'));
-    box.classList.add('pos-banner--pulse');
-    box.querySelector('.pos-icon-wrap').replaceWith(icon('sync'));
+    const box = node('div', 'pos-banner pos-banner--warn pos-banner--pulse');
+    box.setAttribute('role', 'status');
+    box.appendChild(icon('sync'));
+    const words = node('p', '', t('global.hub_down_title'));
+    words.appendChild(node('small', '', t('global.hub_down_small')));
+    box.appendChild(words);
     return box;
   }
   if (state.id === 'F05') {
@@ -186,6 +189,14 @@ function renderGlobalState(state, actions) {
     screen.appendChild(globalAction('reload', t('global.reload'), act.reload || (() => location.reload())));
   }
   return screen;
+}
+// A full-screen global state for an error replaces the page; returns true when it did.
+function globalScreen(error, ctx, actions) {
+  const base = { loaded: true, device: 'screen', app: false, authed: true, tokenRotated: false, busyRetried: true };
+  const state = globalStateFor({ kind: 'error', code: error && error.code, details: (error && error.details) || {} }, Object.assign(base, ctx || {}));
+  if (!state || state.mode !== 'screen') return false;
+  document.body.replaceChildren(renderGlobalState(state, actions || {}));
+  return true;
 }
 // 00-F01: probe the hub with backoff until it answers, then call onUp once. Returns stop().
 function startReconnect(probe, onUp) {

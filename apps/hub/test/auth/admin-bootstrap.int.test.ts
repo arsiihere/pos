@@ -1,7 +1,7 @@
 import { issueAdminBootstrap } from '../../src/auth/bootstrap-tokens';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PIN } from '../helpers/fixtures';
-import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { aDirectory, PIN } from '../helpers/fixtures';
+import { createTestHub, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -55,9 +55,29 @@ describe('first-admin bootstrap', () => {
     expect(page.body).toContain('history.replaceState');
     expect(page.body).toContain('X-Admin-Bootstrap');
     expect(page.body).toContain("sessionStorage.setItem('admin_session_token'");
-    expect(page.body).not.toContain('localStorage');
+    // M83: localStorage holds only the language and location.search is read only for ?lang=.
+    expect(page.body.match(/localStorage\.setItem\('[^']*'/g)).toEqual(["localStorage.setItem('pos-lang'"]);
     expect(page.body).not.toContain('?t=');
-    expect(page.body).not.toContain('location.search');
+    expect(page.body).not.toMatch(/location\.search\)\.get\('t'\)/);
+  });
+
+  it('[00 §10 #147] M89: /admin/auth and /admin/auth/bootstrap return the effective admin permissions', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const directory = await aDirectory();
+    for (const staff of directory.staff) if (staff.staff_id === 'S_MGR') staff.denied_permissions = ['manage-staff'];
+    await seedDirectory(hub, directory);
+    const owner = await bootstrap(hub, issue(hub).token, 'S_OWNER', PIN.a);
+    expect(owner.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': true });
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const manager = await hub.app.inject({
+      method: 'POST',
+      url: '/admin/auth',
+      headers: { authorization: `Bearer ${tablet.token}` },
+      payload: { staff_id: 'S_MGR', pin: PIN.b },
+    });
+    expect(manager.statusCode).toBe(200);
+    expect(manager.json().data.permissions).toEqual({ 'manage-devices': true, 'manage-staff': false });
   });
 });
 

@@ -1,3 +1,4 @@
+import { EN } from '../../src/lib/strings';
 import { request as httpRequest } from 'node:http';
 import type { DirectoryInput } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -140,7 +141,23 @@ describe('POST /setup/provision', () => {
     expect(again.json().error.code).toBe('ROUTE_NOT_FOUND');
     const page = await ctx.hub.app.inject({ method: 'GET', url: '/setup' });
     expect(page.statusCode).toBe(404);
-    expect(page.json().error.code).toBe('ROUTE_NOT_FOUND');
+  });
+
+  it('[00 §10 #141] M84: GET /setup before provisioning → 200 form; after → 404 page "already set up" with no form and no hub data', async () => {
+    const ctx = await openSetup();
+    cleanups.push(ctx.close);
+    const before = await ctx.hub.app.inject({ method: 'GET', url: '/setup' });
+    expect(before.statusCode).toBe(200);
+    expect(before.body).toContain('id="setup"');
+    ctx.cloud.registerResult = cloudData(await aDirectory());
+    const provisioned = (await post(ctx.hub)).json().data;
+    const after = await ctx.hub.app.inject({ method: 'GET', url: '/setup' });
+    expect(after.statusCode).toBe(404);
+    expect(after.headers['content-type']).toContain('text/html');
+    expect(after.body).toContain(EN['setup.already_title']);
+    expect(after.body).not.toContain('id="setup"');
+    expect(after.body).not.toContain(provisioned.tenant_id);
+    expect(after.body).not.toContain(provisioned.branch_id);
   });
 
   it('[00 §10 #17] a concurrent second provision is 409 SETUP_IN_PROGRESS', async () => {

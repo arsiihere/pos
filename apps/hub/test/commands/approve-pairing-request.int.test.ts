@@ -174,7 +174,7 @@ describe('ApprovePairingRequest', () => {
     expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'DevicePaired'`).pluck().get()).toBe(1);
   });
 
-  it('[00 §8.4] the approve page shows a failed /admin/auth: attempts_remaining when ≤ 2, time left for PIN and device lockouts', async () => {
+  it('[00 §8.4] the approve page signs in on the PIN pad: wrong PIN, tries left when ≤ 2, person lockout locks the tile, screen lockout with the minutes; success stores the session and permissions', async () => {
     const hub = await open();
     const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
     const answers = [
@@ -182,67 +182,79 @@ describe('ApprovePairingRequest', () => {
       jsonResponse(401, { error: { code: 'PIN_INVALID', details: { attempts_remaining: 2 } } }),
       jsonResponse(429, { error: { code: 'PIN_LOCKED_OUT', details: { retry_after_ms: 600_000 } } }),
       jsonResponse(429, { error: { code: 'DEVICE_LOCKED_OUT', details: { retry_after_ms: 61_000 } } }),
+      jsonResponse(200, { data: { admin_session_token: 'adm', session_id: 's', staff_id: 'S_MGR', display_name: 'Imran', idle_ttl_ms: 1, permissions: { 'manage-devices': true, 'manage-staff': true } } }),
     ];
     const page = await runPage(html, {
       store: { token: 'tablet-token', device_id: 'tablet-1' },
       fetch: (url) => {
         if (url === '/admin/login-roster') {
-          return Promise.resolve(jsonResponse(200, { data: { staff: [{ staff_id: 'S_OWNER', display_name: 'Owner' }] } }));
+          return Promise.resolve(jsonResponse(200, { data: { staff: [{ staff_id: 'S_OWNER', display_name: 'Owner', locked_until: null }, { staff_id: 'S_MGR', display_name: 'Imran', locked_until: null }] } }));
         }
         if (url === '/admin/auth') return Promise.resolve(answers.shift());
+        if (url === '/admin/queries/stations') return Promise.resolve(jsonResponse(200, { data: { stations: [] } }));
         throw new Error(`unexpected ${url}`);
       },
     });
-    const form = page.screen.children[0];
-    if (form === undefined) throw new Error('login form missing');
-    const pin = page.find('pin');
-    if (pin === undefined) throw new Error('pin input missing');
+    expect(textOf(page.byId('approve_end'))).toContain(EN['approve.signin_chip']);
+    const tiles = page.findAll((el) => el.className === 'pos-staff__tile' || el.className.startsWith('pos-staff__tile '));
+    const key = (label: string) => page.findAll((el) => el.className.includes('pos-pin__key') && el.textContent === label)[0]!;
+    const signIn = async () => {
+      for (const digit of '0000') await page.click(key(digit));
+      await page.click(key(EN['pin.submit']));
+    };
+    const message = () => textOf(page.find('auth_error'));
+    const pin = page.find('pin')!;
     expect(pin.type).toBe('password');
     expect(pin.inputMode).toBe('numeric');
-    const message = () => textOf(page.find('auth_error'));
-    pin.value = '0000';
-    await page.submit(form);
-    expect(message()).toBe(EN['errors.PIN_INVALID']);
-    pin.value = '0000';
-    await page.submit(form);
-    expect(message()).toBe(`${EN['errors.PIN_INVALID']} ${EN['auth.attempts_left'].replace('{n}', '2')}`);
-    pin.value = '0000';
-    await page.submit(form);
-    expect(message()).toBe(`${EN['errors.PIN_LOCKED_OUT']} ${EN['auth.locked_for'].replace('{min}', '10')}`);
-    pin.value = '0000';
-    await page.submit(form);
-    expect(message()).toBe(`${EN['errors.DEVICE_LOCKED_OUT']} ${EN['auth.locked_for'].replace('{min}', '2')}`);
-    expect(textOf(page.screen)).not.toMatch(/errors\.|attempts_remaining/);
+    await page.click(tiles[0]!);
+    await signIn();
+    expect(message()).toBe(EN['pin.wrong']);
+    await signIn();
+    expect(message()).toBe(EN['pin.tries_left'].replace('{n}', '2'));
+    await signIn();
+    expect(message()).toBe(`${EN['pin.locked_title']} ${EN['pin.locked_person'].replace('{name}', 'Owner').replace('{min}', '10')}`);
+    expect(tiles[0]!.classList.contains('is-locked')).toBe(true);
+    await page.click(tiles[1]!);
+    await signIn();
+    expect(message()).toBe(`${EN['pin.locked_device'].replace('{min}', '2')} ${EN['pin.locked_device_body']}`);
+    await page.advance();
+    await signIn();
+    expect(page.session.get('admin_session_token')).toBe('adm');
+    expect(JSON.parse(page.session.get('admin_permissions')!)).toEqual({ 'manage-devices': true, 'manage-staff': true });
+    expect(textOf(page.byId('approve_end'))).toBe('Imran');
+    expect(textOf(page.screen)).not.toMatch(/errors\.|pin\.|attempts_remaining/);
   });
 
-  it('[00 §8.2] approve page on the kit: a bootstrap session goes straight to the form; Approve sends ApprovePairingRequest; an error keeps the form with a banner; success offers Approve another', async () => {
+  it('[00 §8.2] approve form: code, type and station tiles with the preview; client checks; PAIRING_REQUEST_NOT_FOUND marks the code; success says which screen opens; Approve another clears; read-only without manage-devices', async () => {
     const hub = await open();
     const html = (await hub.app.inject({ method: 'GET', url: '/admin/approve' })).body;
     const sent: Array<Record<string, unknown>> = [];
     const answers = [
       jsonResponse(404, { error: { code: 'PAIRING_REQUEST_NOT_FOUND', details: {} } }),
-      jsonResponse(200, { data: { command_id: 'c', event_ids: ['e'], result: { device_id: 'K1', device_type: 'cashier_kiosk', station_id: null } } }),
+      jsonResponse(200, { data: { command_id: 'c', event_ids: ['e'], result: { device_id: 'K1', device_type: 'kds', station_id: 'T' } } }),
     ];
-    const page = await runPage(html, {
-      session: { admin_session_token: 'admin-tok', admin_staff_id: 'S_OWNER', admin_bootstrap: '1' },
-      fetch: (url, init) => {
-        if (url !== '/admin/commands/approve-pairing-request') throw new Error(`unexpected ${url}`);
-        const request = init as { headers: Record<string, string>; body: string };
-        expect(request.headers['x-admin-session']).toBe('admin-tok');
-        expect(request.headers.authorization).toBeUndefined();
-        sent.push(JSON.parse(request.body));
-        return Promise.resolve(answers.shift());
-      },
-    });
-    const form = page.screen.children[0];
-    if (form === undefined) throw new Error('approve form missing');
-    const type = page.find('device_type');
-    expect(type?.options).toEqual([
-      { text: EN['approve.type_cashier_kiosk'], value: 'cashier_kiosk' },
-      { text: EN['approve.type_kds'], value: 'kds' },
-    ]);
+    const stations = { data: { stations: [{ station_id: 'T', name: 'Tandoor', location_label: null, category_names: ['Naan', 'Roti'] }] } };
+    const fetch = (url: string, init?: unknown) => {
+      const request = init as { headers: Record<string, string>; body: string };
+      expect(request.headers['x-admin-session']).toBe('admin-tok');
+      expect(request.headers.authorization).toBeUndefined();
+      if (url === '/admin/queries/stations') return Promise.resolve(jsonResponse(200, stations));
+      if (url !== '/admin/commands/approve-pairing-request') throw new Error(`unexpected ${url}`);
+      sent.push(JSON.parse(request.body));
+      return Promise.resolve(answers.shift());
+    };
+    const session = { admin_session_token: 'admin-tok', admin_staff_id: 'S_OWNER', admin_bootstrap: '1', admin_name: 'Owner' };
+    const page = await runPage(html, { session, fetch });
+    const form = () => page.findAll((el) => el.tagName === 'form')[0]!;
+    const opts = () => page.find('device_type')!.children;
+    expect(textOf(page.byId('approve_end'))).toBe('Owner');
     page.find('display_code')!.value = 'ab s-12 3';
-    await page.submit(form);
+    await page.submit(form());
+    expect(sent).toHaveLength(0);
+    expect(textOf(form())).toContain(EN['approve.err_kind']);
+    await page.click(opts()[0]!);
+    expect(textOf(page.screen)).toContain(EN['approve.preview_cashier']);
+    await page.submit(form());
     expect(sent[0]).toMatchObject({
       command_type: 'ApprovePairingRequest',
       tenant_id: 'tenant-a',
@@ -251,16 +263,33 @@ describe('ApprovePairingRequest', () => {
       device_id: 'hub-admin',
       payload: { display_code: 'ABS123', device_type: 'cashier_kiosk' },
     });
-    expect(page.screen.children[0]).toBe(form);
-    expect(textOf(form)).toContain(EN['errors.PAIRING_REQUEST_NOT_FOUND']);
+    expect((sent[0]!.payload as Record<string, unknown>).station_id).toBeUndefined();
+    expect(textOf(form())).toContain(EN['errors.PAIRING_REQUEST_NOT_FOUND']);
 
+    page.find('display_code')!.value = 'ABCI24';
+    await page.submit(form());
+    expect(textOf(form())).toContain(EN['approve.err_code_format']);
+    expect(sent).toHaveLength(1);
     page.find('display_code')!.value = 'ABC124';
-    await page.submit(form);
-    expect(textOf(page.screen)).toContain(EN['pairing.approved']);
+    await page.click(opts()[1]!);
+    await page.submit(form());
+    expect(textOf(form())).toContain(EN['approve.err_station']);
+    const tandoor = page.find('station_id')!.children[0]!;
+    expect(textOf(tandoor)).toBe('Tandoor Naan, Roti');
+    await page.click(tandoor);
+    expect(textOf(page.screen)).toContain(EN['approve.preview_kds_name'].replace('{station}', 'Tandoor'));
+    await page.submit(form());
+    expect(sent[1]).toMatchObject({ payload: { display_code: 'ABC124', device_type: 'kds', station_id: 'T' } });
+    expect(textOf(page.screen)).toContain(EN['approve.done_title']);
+    expect(textOf(page.screen)).toContain(EN['approve.done_body_kds'].replace('{station}', 'Tandoor'));
     const again = page.findAll((el) => el.textContent === EN['approve.another']);
     expect(again).toHaveLength(1);
     await page.click(again[0]!);
     expect(page.find('display_code')?.value).toBe('');
+
+    const readOnly = await runPage(html, { session: { ...session, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch });
+    expect(textOf(readOnly.screen)).toContain(EN['errors.PERMISSION_DENIED_devices']);
+    expect(readOnly.findAll((el) => el.className.includes('pos-btn--primary'))[0]!.disabled).toBe(true);
   });
 
   it('[00 §10 #133] admin pages load with no credentials and embed no token; a guest IP is 403; approval by display code alone takes the single pending match, else 404; the approve page logs in from storage', async () => {

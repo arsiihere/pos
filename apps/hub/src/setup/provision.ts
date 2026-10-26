@@ -15,8 +15,9 @@ import { HUB_VERSION } from '../lib/health.js';
 import type { HubDeps } from '../server.js';
 import type { CloudClient } from './cloud-client.js';
 import { CloudError, CloudUnreachableError } from './cloud-client.js';
-import { setupPage } from './page.js';
+import { setupAlreadyPage, setupPage } from './page.js';
 import { qrSvg } from '../lib/qr.js';
+import { hostChoices } from '../lib/net.js';
 
 const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{12}$/;
 
@@ -49,8 +50,9 @@ let setupInProgress = false;
 
 export function registerSetupRoutes(app: FastifyInstance, deps: SetupDeps): void {
   app.get('/setup', { config: { group: 'setup' } }, async (_request, reply) => {
-    if (isProvisioned(deps.config)) throw new DomainError('ROUTE_NOT_FOUND');
-    return reply.type('text/html; charset=utf-8').send(setupPage());
+    // M84: still 404 once provisioned (F §5.6), with a page instead of the bare error.
+    if (isProvisioned(deps.config)) return reply.code(404).type('text/html; charset=utf-8').send(setupAlreadyPage());
+    return reply.type('text/html; charset=utf-8').send(setupPage(hostChoices()));
   });
 
   app.post('/setup/provision', { config: { group: 'setup' } }, async (request, reply) => {
