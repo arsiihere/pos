@@ -1,5 +1,5 @@
 // §4.2 (v1.0): one line's total in minor units. price_minor is per piece, per kg (1 000 g) or per L (1 000 ml) (S44).
-// g / ml round half-up to the minor unit per line [ASSUMPTION, owner question 13]. Integer arithmetic only. Browser-safe.
+// g / ml round half-up to the whole rupee (100 minor units) per line (v1.2, S59). Integer arithmetic only. Browser-safe.
 import type { Unit } from './units.js';
 
 // S33: branch settings used before the first config arrives.
@@ -10,7 +10,8 @@ export function lineTotalMinor(priceMinor: number, quantity: number, saleUnit: U
   if (!Number.isSafeInteger(priceMinor) || priceMinor < 0) throw new Error('lineTotalMinor: price_minor must be a non-negative integer');
   if (!Number.isSafeInteger(quantity) || quantity < 0) throw new Error('lineTotalMinor: quantity must be a non-negative integer');
   const product = BigInt(priceMinor) * BigInt(quantity);
-  const total = Number(saleUnit === 'piece' ? product : (product * 2n + 1000n) / 2000n);
+  // product / 1000 is the exact total in minor units; half-up to a multiple of 100 is (product * 2 + 100 000) / 200 000 × 100.
+  const total = Number(saleUnit === 'piece' ? product : ((product * 2n + 100_000n) / 200_000n) * 100n);
   if (!Number.isSafeInteger(total)) throw new Error('lineTotalMinor: total is not a safe integer');
   return total;
 }
