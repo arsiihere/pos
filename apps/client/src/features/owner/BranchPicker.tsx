@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { AppBar } from '../../components/AppBar';
 import { fill } from '../../i18n/en';
 import { t, typeClass } from '../../i18n';
-import { idTail } from './branch';
+import { useBranchName } from './branch';
 
-// §8.1 #/ (01a-S02): pick the branch to set up; branches show as ID tails until 01b names them (S37,
-// S52). The menu needs no branch (S52, Q7), so the callout links straight to it.
+// §8.1 #/ (01a-S02): pick the branch to set up; branches show by name (S58; the ID tail until the names
+// arrive), choice kept per tab (S52). The menu needs no branch (S52, Q7), so the callout links straight to it.
 export function BranchPicker({
   branchIds,
   selectedId,
@@ -19,6 +19,7 @@ export function BranchPicker({
   onContinue: (branchId: string) => void;
   onSignOut: () => void;
 }) {
+  const branchName = useBranchName();
   const [picked, setPicked] = useState(selectedId);
   return (
     <div className="pos-page">
@@ -43,11 +44,12 @@ export function BranchPicker({
               aria-pressed={id === picked}
               onClick={() => setPicked(id)}
             >
-              <strong className="pos-ltr">{idTail(id)}</strong>
+              <strong>
+                <bdi>{branchName(id)}</bdi>
+              </strong>
             </button>
           ))}
         </div>
-        <p className="pos-explain">{t('owner.branch_ids_note')}</p>
         <div className="pos-callout">
           <div className="pos-callout__text">
             <h2>{t('owner.menu_shared_title')}</h2>
@@ -59,7 +61,7 @@ export function BranchPicker({
         </div>
         {picked !== null && (
           <button type="button" className="pos-btn pos-btn--primary pos-btn--lg" onClick={() => onContinue(picked)}>
-            {fill(t('owner.continue_with'), { branch: idTail(picked) })}
+            {fill(t('owner.continue_with'), { branch: branchName(picked) })}
           </button>
         )}
       </main>

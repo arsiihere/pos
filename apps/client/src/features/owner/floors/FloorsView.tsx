@@ -10,7 +10,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { language, t } from '../../../i18n';
-import { idTail } from '../branch';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { BranchSelect, Page } from '../Shell';
@@ -264,6 +264,7 @@ export function FloorsView({
   branchIds?: readonly string[];
   onBranch?: (branchId: string) => void;
 }) {
+  const branchName = useBranchName();
   const [floors, setFloors] = useState<FloorRow[] | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -354,7 +355,7 @@ export function FloorsView({
     setUndo(null);
     const failed = await save(floorId, api.patchTable(branchId, table.table_id, { archived: false }));
     if (failed?.kind === 'api' && failed.code === 'CONFIG_NAME_TAKEN') {
-      setError(fill(t('errors.CONFIG_NAME_TAKEN_table'), { name: table.name, branch: idTail(branchId) }));
+      setError(fill(t('errors.CONFIG_NAME_TAKEN_table'), { name: table.name, branch: branchName(branchId) }));
     }
   }
 

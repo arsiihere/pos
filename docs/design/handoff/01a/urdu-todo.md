@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show in English on an Urdu page until translated. The translated keys came from the frames `OwnerMenuUrdu` and `StockUrdu`.
 
-442 of 471 keys.
+447 of 476 keys.
 
 | Key | English |
 |---|---|
@@ -146,7 +146,6 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `owner.branch` | Branch |
 | `owner.branch_title` | Which branch are you setting up? |
 | `owner.branch_body` | Floors, tables and kitchen stations belong to one branch. You can switch any time from the top of the page. |
-| `owner.branch_ids_note` | Branch names show once they are set in Branch settings. Until then the end of each branch's ID shows. |
 | `owner.menu_shared_title` | Menu is the same for every branch |
 | `owner.menu_shared_body` | Items, categories, prices and tax need no branch. |
 | `owner.open_menu` | Open the menu |
@@ -409,7 +408,11 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `item.reach_branches` | Each branch gets the new price within a minute. |
 | `item.save_price` | Save price |
 | `item.group_help` | Half and Full show side by side when ordering. |
-| `item.kitchen_body` | Which station cooks it at each branch, and how long it takes. |
+| `item.branches_title` | Branches and kitchen |
+| `item.branches_body` | Where it is sold, its price there, and which station cooks it. Leave the price empty to use the main price (Rs {price}). |
+| `item.price_here` | Price here |
+| `item.price_same` | Same: {price} |
+| `item.price_at` | Price at {branch} |
 | `item.no_recipe_needed` | Cooks each order · no recipe needed |
 | `item.stock_body` | For food cooked in advance and counted each morning. |
 | `item.kept_ready` | Kept ready |
@@ -448,3 +451,5 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `errors.NOT_FOUND_stale` | Someone removed this. The page is refreshed. |
 | `errors.network` | The cloud cannot be reached. Check the internet connection; what you typed is kept. |
 | `errors.UNKNOWN` | Something went wrong. Try again. |
+| `admin_stock.carry.title_one` | 1 count from last night |
+| `quantity.pcs` | pcs |

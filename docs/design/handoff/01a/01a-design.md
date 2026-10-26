@@ -2,7 +2,7 @@
 
 Canvas: **Module 01a Screens** (54 frames). The 28 original frames are kept and retitled with screen IDs. 26 frames were added in three new rows at the bottom ("01a additions · …").
 
-Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.1.md` §8 (was v1.0.2 when this was drawn).
+Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.2.md` §8 (was v1.0.2 when this was drawn; v1.2 adds S57, S58).
 
 Kit: `kit-additions.css` is the same file as module 00. It is 01a + 00 blocks with the `.pos-list__name > span` fix, so chips in rows keep their colour. Design system: POS.
 
@@ -21,7 +21,7 @@ Sample data: Gulberg `…P0AB`, Johar Town `…M6PQ` (IDs until 01b names branch
 
 ---
 
-## 0. As built (2026-10-26, spec 01a v1.1)
+## 0. As built (2026-10-26, spec 01a v1.1 and v1.2)
 
 Where the implementation differs from the sections below, this list wins. Build plan and notes: `PLAN.md`. Spec decisions: `01_Restaurant_Setup_Spec_v1.1.md` S49–S56.
 
@@ -43,7 +43,8 @@ Where the implementation differs from the sections below, this list wins. Build 
 | S10 | The roster is shown as `/admin/login-roster` returns it (no `manage-stock` filter). Locked minutes use the device clock (display only). Tries left only when `attempts_remaining` ≤ 2. |
 | S11 | Level filter + search + category filter (all three). Default filter: All. Menu chip keeps §6.21's line ("Menu version 42 · checked 1 min ago"). The stock page uses 00's five admin session keys (S54 g). Side menu from tablet width (S54 f). Saves over 200 rows go in parts of 200 (S56). |
 | Q4 | Key `stock-draft:<branch_id>:<opened_at>:<staff_id>` (no device id on the page; `opened_at`, not `business_date`, S33). A row saved or added since is not brought back (listed as changed). Sign out with unsaved counts asks Save / Keep on this tablet / Discard. |
-| Quality pass (26 Oct) | The new kit rules are in `bundle.css` (`.pos-list--rows`, `.pos-list__side`, `.pos-list__price`, `.pos-count__unit` no shrink, `.pos-btn` no wrap or underline, new devices columns); `.pos-list__name > span` was already narrowed. The built screens already grow with their content. The frames show branch names ("Gulberg"), but the branch select and picker keep the ID tail until 01b names branches (S52, S37). "Price here" and the branch price chip (Q6.5) are **not built**: they wait for the per-branch price addendum (CLAUDE-TASK Phase 2b). |
+| Quality pass (26 Oct) | The new kit rules are in `bundle.css` (`.pos-list--rows`, `.pos-list__side`, `.pos-list__price`, `.pos-count__unit` no shrink, `.pos-btn` no wrap or underline, new devices columns); `.pos-list__name > span` was already narrowed. The built screens already grow with their content. |
+| Branch names, per-branch price (spec v1.2) | S58: the picker, the branch selects and every text naming a branch show the name from `GET /v1/admin/branches`; the ID tail shows until it answers or when it fails; the picker's "names show once set" note is gone. S57: the item form's section is **Branches and kitchen**; each branch row has **Price here** as a labelled field (`Rs` affix, placeholder "Same: {price}", disabled with "Not sold here") next to the station and recipe selects, not the frame's grid head row (lint bans `style`, so no per-row grid columns). The menu row's branch price chip is a **neutral** chip, not `pos-chip--info`: the kit's info tone always shows the sync icon, which reads as a status. Names are wrapped in `<bdi>` so an Urdu name never mirrors the line. |
 | Screens | `screens/`: 50 screenshots of the built pages (en + ur, 1440 / 1280 / 390 px) against canned API answers. Not a live walk of flows 1, 2, 3, 5, 6. Lists show prices grouped ("Rs 2,200"); the menu rows have no unit · station sub-line (the menu answer has no station names); the stock row's "Left to sell" label is in the column head on a tablet and in the row on a phone. |
 
 ---

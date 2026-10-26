@@ -5,11 +5,13 @@ import { createCloudAdmin, type MenuItem } from '../../api/cloud-admin';
 import { fill } from '../../i18n/en';
 import { t } from '../../i18n';
 import { BranchPicker } from './BranchPicker';
+import { BranchNames } from './branch';
 import { FloorsView } from './floors/FloorsView';
 import { GuardProvider } from './guard';
 import { LoginView } from './login/LoginView';
 import { ItemForm } from './menu/ItemForm';
 import { MenuView } from './menu/MenuView';
+import { shownRupees } from './money';
 import { BranchSelect, Shell } from './Shell';
 import { StationsView } from './stations/StationsView';
 
@@ -94,8 +96,8 @@ const PAYE: MenuItem = {
   availability_windows: [],
   archived_at: null,
   routes: [
-    { branch_id: B1, station_id: 'S1', program_id: null, stock_program_id: null },
-    { branch_id: B2, station_id: 'S1', program_id: null, stock_program_id: null },
+    { branch_id: B1, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null },
+    { branch_id: B2, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null },
   ],
 };
 const CATEGORY = { category_id: 'C1', name: 'Breakfast', sort_order: 1, archived_at: null, availability_windows: [] };
@@ -497,5 +499,111 @@ describe('owner pages (v1.1 design hand-off)', () => {
     await click(button(fill(t('item.save_branch_again'), { branch: '…M6PQ' })));
     expect(writes().slice(3)).toEqual([`PUT /v1/admin/menu-items/I1/routes/${B2}`]);
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+  it('[01a §10 #179] Price here per branch: placeholder, PUT override and null, Not sold here disables it, a bad price and a refused PUT mark that row; a new item POSTs it; the menu chip names the branch', async () => {
+    const names = new Map([
+      [B1, 'Gulberg'],
+      [B2, 'Johar Town'],
+    ]);
+    let refuse = false;
+    const { api, calls } = fakeApi((call) => (refuse && call.method === 'PUT' ? apiError(400, 'VALIDATION_FAILED') : undefined));
+    render(<BranchNames.Provider value={names}>{itemForm(api)}</BranchNames.Provider>);
+    await flush();
+    const row = (b: string) => container.querySelector<HTMLElement>(`[data-route-branch="${b}"]`);
+    const priceAt = (b: string) => row(b)?.querySelector<HTMLInputElement>('input[name="price_minor_override"]') ?? null;
+    const stationAt = (b: string) => row(b)?.querySelector<HTMLSelectElement>('select[name="station_id"]') ?? null;
+    const puts = () => calls.filter((c) => c.method === 'PUT');
+    const choose = async (select: HTMLSelectElement | null, value: string) =>
+      act(async () => {
+        if (!select) return;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+    expect(row(B1)?.querySelector('strong')?.textContent).toBe('Gulberg');
+    expect(priceAt(B1)?.placeholder).toBe(fill(t('item.price_same'), { price: shownRupees(PAYE.price_minor) }));
+    typeInto(priceAt(B1), '700');
+    await click(button(t('item.save')));
+    expect(puts()).toEqual([
+      {
+        method: 'PUT',
+        url: `/v1/admin/menu-items/${PAYE.item_id}/routes/${B1}`,
+        body: { station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: 70_000 },
+      },
+    ]);
+
+    typeInto(priceAt(B1), '');
+    await click(button(t('item.save')));
+    expect(puts()).toHaveLength(2);
+    expect(puts()[1]?.body).toMatchObject({ price_minor_override: null });
+
+    await choose(stationAt(B2), '');
+    expect(priceAt(B2)?.disabled).toBe(true);
+    expect(priceAt(B2)?.placeholder).toBe(t('owner.item.not_sold_here'));
+    await choose(stationAt(B2), 'S1');
+    expect(priceAt(B2)?.disabled).toBe(false);
+
+    typeInto(priceAt(B1), '7x');
+    await click(button(t('item.save')));
+    expect(puts()).toHaveLength(2);
+    expect(row(B1)?.classList.contains('pos-field--error')).toBe(true);
+    expect(row(B1)?.textContent).toContain(t('item.need_price'));
+
+    typeInto(priceAt(B1), '800');
+    refuse = true;
+    await click(button(t('item.save')));
+    expect(puts()).toHaveLength(3);
+    expect(row(B1)?.classList.contains('pos-field--error')).toBe(true);
+    expect(row(B2)?.classList.contains('pos-field--error')).toBe(false);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    const fresh = fakeApi(() => undefined);
+    render(
+      <BranchNames.Provider value={names}>
+        <ItemForm
+          api={fresh.api}
+          item={null}
+          taxClasses={[TAX]}
+          categories={[CATEGORY]}
+          branchIds={USER.allowed_branch_ids}
+          onSaved={() => {}}
+          onCancel={() => {}}
+        />
+      </BranchNames.Provider>,
+    );
+    await flush();
+    typeInto(container.querySelector<HTMLInputElement>('input[name="name"]'), 'Halwa Puri');
+    typeInto(container.querySelector<HTMLInputElement>('input[name="price"]'), '300');
+    typeInto(container.querySelector<HTMLInputElement>('input[name="cook_minutes"]'), '5');
+    await choose(stationAt(B1), 'S1');
+    typeInto(priceAt(B1), '350');
+    await click(button(t('item.add')));
+    const post = fresh.calls.find((c) => c.method === 'POST');
+    expect((post?.body as { routes: unknown[] }).routes).toEqual([
+      { branch_id: B1, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: 35_000 },
+    ]);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    const withOverride: MenuItem = {
+      ...PAYE,
+      routes: [
+        { branch_id: B1, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null },
+        { branch_id: B2, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: 230_000 },
+      ],
+    };
+    const menu = fakeApi((call) => (call.method === 'GET' && call.url.startsWith('/v1/admin/menu') ? menuPage([withOverride]) : undefined));
+    render(
+      <BranchNames.Provider value={names}>
+        <MenuView api={menu.api} />
+      </BranchNames.Provider>,
+    );
+    await flush();
+    const chips = [...container.querySelectorAll(`[data-item-id="${PAYE.item_id}"]`)]
+      .map((name) => name.closest('.pos-list__row'))
+      .flatMap((r) => [...(r?.querySelectorAll('.pos-chip') ?? [])].map((c) => c.textContent));
+    expect(chips).toContain('Johar Town Rs 2,300');
+    expect(chips.some((c) => c?.startsWith('Gulberg'))).toBe(false);
   });
 });

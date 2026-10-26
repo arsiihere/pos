@@ -12,7 +12,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
-import { idTail } from '../branch';
+import { useBranchName } from '../branch';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
@@ -229,6 +229,7 @@ export function StationsView({
   branchIds?: readonly string[];
   onBranch?: (branchId: string) => void;
 }) {
+  const branchName = useBranchName();
   const [stations, setStations] = useState<StationRow[] | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -431,7 +432,7 @@ export function StationsView({
       {ask?.kind === 'blocked' && (
         <BlockedDialog
           title={fill(t(ask.type ? 'archive.station_type_blocked' : 'archive.blocked_title'), { name: ask.station.name })}
-          body={fill(t('archive.station_blocked_body'), { n: String(ask.inUse.ids.length), branch: idTail(branchId) })}
+          body={fill(t('archive.station_blocked_body'), { n: String(ask.inUse.ids.length), branch: branchName(branchId) })}
           inUse={ask.inUse}
           onClose={() => setAsk(null)}
           action={

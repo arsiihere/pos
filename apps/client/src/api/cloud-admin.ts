@@ -1,4 +1,5 @@
 import type {
+  AdminBranch,
   AdminCategory,
   AdminFloor,
   AdminMenuItem,
@@ -47,6 +48,7 @@ export type CloudError =
 
 export type CloudResult<T> = { ok: true; data: T } | { ok: false; error: CloudError };
 
+export type Branch = AdminBranch;
 export type AvailabilityWindow = AdminWindow;
 export type Table = AdminTable;
 export type Floor = AdminFloor;
@@ -271,6 +273,9 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       lastRead = null;
       setDown(false);
     },
+
+    // §6.7b (S58) the owner's branches, for their names
+    listBranches: () => call<{ branches: Branch[] }>('GET', '/v1/admin/branches'),
 
     // §6.2–§6.6 floors and tables
     listFloors: (branchId: string) =>

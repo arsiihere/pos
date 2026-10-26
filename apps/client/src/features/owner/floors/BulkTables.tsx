@@ -4,7 +4,7 @@ import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
-import { idTail } from '../branch';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, useIdempotencyKey } from '../form';
 import { addTables, keyAt, parseRange, takenNames } from './bulk-add';
@@ -37,6 +37,7 @@ export function previewText(names: readonly string[], seats: number | null): str
 
 // The loop itself, shared by the Add tables row and the first-floor form.
 export function useBulkAdd(api: CloudAdmin, branchId: string, existing: readonly string[], onBusy: (busy: boolean) => void) {
+  const branchName = useBranchName();
   const { key, renew } = useIdempotencyKey();
   const [next, setNext] = useState(0);
   const [progress, setProgress] = useState<{ i: number; n: number } | null>(null);
@@ -56,7 +57,7 @@ export function useBulkAdd(api: CloudAdmin, branchId: string, existing: readonly
       if (next === 0) {
         const taken = takenNames(names, existing);
         if (taken.length > 0) {
-          setError(fill(t('floors.names_taken'), { names: taken.join(', '), branch: idTail(branchId) }));
+          setError(fill(t('floors.names_taken'), { names: taken.join(', '), branch: branchName(branchId) }));
           return false;
         }
       }

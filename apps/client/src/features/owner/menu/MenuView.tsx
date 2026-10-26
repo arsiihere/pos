@@ -13,6 +13,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -226,6 +227,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const [savedId, setSavedId] = useState<string | null>(null);
   const saved = useFlash();
   const phone = usePhone();
+  const branchName = useBranchName();
   const down = useCloudDown(api);
   const [editing, setEditing] = useState<
     { kind: 'item'; item: MenuItem | null } | { kind: 'category'; category: Category | null } | null
@@ -487,6 +489,15 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                           <Chip tone={sold < branchIds.length ? 'warn' : undefined}>
                             {fill(t('menu.branches_of'), { n: String(sold), m: String(branchIds.length) })}
                           </Chip>
+                          {row.routes
+                            .filter((r) => r.price_minor_override !== null && branchIds.includes(r.branch_id))
+                            .map((r) => (
+                              // S57 e: "{branch} Rs {price}" for a branch with its own price.
+                              <Chip key={r.branch_id}>
+                                <bdi>{branchName(r.branch_id)}</bdi>{' '}
+                                <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(r.price_minor_override ?? 0)}`}</span>
+                              </Chip>
+                            ))}
                           {row.availability_windows.length > 0 && (
                             <Chip>
                               <span className="pos-ltr">{row.availability_windows.map(windowText).join(', ')}</span>

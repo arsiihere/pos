@@ -232,7 +232,7 @@ describe('owner item and category forms', () => {
     setValue(station, 'S2');
     await submitForm();
     expect(posted(calls)['routes']).toEqual([
-      { branch_id: 'B1', station_id: 'S2', program_id: 'P1', stock_program_id: null },
+      { branch_id: 'B1', station_id: 'S2', program_id: 'P1', stock_program_id: null, price_minor_override: null },
     ]);
   });
 

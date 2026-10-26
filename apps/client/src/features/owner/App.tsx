@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { CloudAdmin } from '../../api/cloud-admin';
+import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
 import { navigate, useHashRoute } from '../../app/router';
 import { BranchPicker } from './BranchPicker';
-import { storeBranch, storedBranch } from './branch';
+import { BranchNames, storeBranch, storedBranch } from './branch';
 import { FloorsView } from './floors/FloorsView';
 import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
@@ -17,15 +17,46 @@ import { StationsView } from './stations/StationsView';
 export function App({ api }: { api: CloudAdmin }) {
   return (
     <GuardProvider>
-      <Routes api={api} />
+      <WithBranchNames api={api} />
     </GuardProvider>
   );
 }
 
-function Routes({ api }: { api: CloudAdmin }) {
+// S58: the branch names are read once per sign-in; until they arrive, or when the read fails, the ID tail shows.
+function WithBranchNames({ api }: { api: CloudAdmin }) {
+  const [user, setUser] = useState(() => api.currentUser());
+  const [names, setNames] = useState<ReadonlyMap<string, string>>(new Map());
+  const userId = user?.user_id ?? null;
+
+  useEffect(() => {
+    if (userId === null) return;
+    let live = true;
+    void api.listBranches().then((result) => {
+      if (live && result.ok) setNames(new Map(result.data.branches.map((b) => [b.branch_id, b.name])));
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, userId]);
+
+  return (
+    <BranchNames.Provider value={names}>
+      <Routes api={api} user={user} setUser={setUser} />
+    </BranchNames.Provider>
+  );
+}
+
+function Routes({
+  api,
+  user,
+  setUser,
+}: {
+  api: CloudAdmin;
+  user: OwnerUser | null;
+  setUser: (next: OwnerUser | null) => void;
+}) {
   const route = useHashRoute();
   const leave = useLeave();
-  const [user, setUser] = useState(() => api.currentUser());
   const allowed = user?.allowed_branch_ids ?? [];
   const [branchId, setBranchId] = useState<string | null>(() => storedBranch(allowed));
 

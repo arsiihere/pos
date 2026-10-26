@@ -25,7 +25,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey, typeClass } from '../../../i18n';
-import { idTail } from '../branch';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -37,7 +37,7 @@ import { windowText, WindowsField } from './WindowsField';
 
 // §8.1, §6.14–§6.16 (01a-S07): the item form. Sections: what customers see, price (Sold by, price, tax
 // with "No tax" first and selected, S34), kitchen (a station per branch, programs only for a batch station,
-// S11), ready-made stock (units S44, threshold S46, overnight S41, when it runs out S32), hours (S47);
+// S11) with a price per branch (S57), ready-made stock (units S44, threshold S46, overnight S41, when it runs out S32), hours (S47);
 // an aside shows how staff will see it, with the next-day warning on a unit change (B02). A client check
 // lists what to fix before anything is sent. A new item POSTs with its routes and the form's key; an edit
 // PATCHes the changed fields, then PUTs each changed route (§6.16); a PUT that fails after the PATCH saved
@@ -49,9 +49,11 @@ interface RouteChoice {
   station_id: string;
   program_id: string;
   stock_program_id: string;
+  // S57: "Price here" as typed; '' = the main price.
+  price: string;
 }
 
-const NO_ROUTE: RouteChoice = { station_id: '', program_id: '', stock_program_id: '' };
+const NO_ROUTE: RouteChoice = { station_id: '', program_id: '', stock_program_id: '', price: '' };
 const WHOLE_RE = /^[0-9]+$/;
 const MAX_COOK_MS = 4 * 3_600_000;
 
@@ -70,11 +72,29 @@ function routeOf(item: MenuItem | null, branchId: string): RouteChoice {
   const route = item?.routes.find((r) => r.branch_id === branchId);
   return route === undefined
     ? NO_ROUTE
-    : { station_id: route.station_id, program_id: route.program_id ?? '', stock_program_id: route.stock_program_id ?? '' };
+    : {
+        station_id: route.station_id,
+        program_id: route.program_id ?? '',
+        stock_program_id: route.stock_program_id ?? '',
+        price: route.price_minor_override === null ? '' : formatRupees(route.price_minor_override),
+      };
+}
+
+// S57: '' = the main price (null); undefined = not a price, which check() marks on the branch row.
+function overrideOf(text: string): number | null | undefined {
+  if (text.trim() === '') return null;
+  const parsed = parseRupees(text);
+  return parsed.ok ? parsed.value : undefined;
 }
 
 function sameRoute(a: RouteChoice, b: RouteChoice): boolean {
-  return a.station_id === b.station_id && a.program_id === b.program_id && a.stock_program_id === b.stock_program_id;
+  const price = (choice: RouteChoice) => overrideOf(choice.price) ?? choice.price;
+  return (
+    a.station_id === b.station_id &&
+    a.program_id === b.program_id &&
+    a.stock_program_id === b.stock_program_id &&
+    price(a) === price(b)
+  );
 }
 
 interface Problem {
@@ -178,6 +198,7 @@ export function ItemForm({
   onCancel: () => void;
   readOnly?: boolean;
 }) {
+  const branchName = useBranchName();
   const { key } = useIdempotencyKey();
   const phone = usePhone();
   const down = useCloudDown(api);
@@ -280,7 +301,8 @@ export function ItemForm({
   function chooseStation(branchId: string, stationId: string) {
     const station = stationOf(branchId, stationId);
     const firstProgram = station?.station_type === 'batch' ? (station.programs.find(active)?.program_id ?? '') : '';
-    setRoutes({ ...routes, [branchId]: { station_id: stationId, program_id: firstProgram, stock_program_id: '' } });
+    const price = stationId === '' ? '' : (routes[branchId] ?? NO_ROUTE).price;
+    setRoutes({ ...routes, [branchId]: { station_id: stationId, program_id: firstProgram, stock_program_id: '', price } });
   }
 
   function routeBody(branchId: string) {
@@ -290,6 +312,7 @@ export function ItemForm({
       station_id: choice.station_id,
       program_id: batch && choice.program_id !== '' ? choice.program_id : null,
       stock_program_id: batch && choice.stock_program_id !== '' ? choice.stock_program_id : null,
+      price_minor_override: overrideOf(choice.price) ?? null,
     };
   }
 
@@ -329,6 +352,9 @@ export function ItemForm({
       const choice = routes[b] ?? NO_ROUTE;
       if (stationOf(b, choice.station_id)?.station_type === 'batch' && choice.program_id === '') {
         found.push({ id: `route-${b}`, section: 'item.section.kitchen', text: t('errors.reference.program_required') });
+      }
+      if (choice.station_id !== '' && overrideOf(choice.price) === undefined) {
+        found.push({ id: `route-${b}`, section: 'item.branches_title', text: t('item.need_price') });
       }
     }
     if (windows === null) found.push({ id: 'item-hours', section: 'item.section.hours', text: t('owner.hours.invalid') });
@@ -527,11 +553,11 @@ export function ItemForm({
             tone="warn"
             text={t('item.partial')}
             detail={failedBranches
-              .map((b) => fill(t('item.partial_body'), { branch: idTail(b), reason: failed[b] ?? '' }))
+              .map((b) => fill(t('item.partial_body'), { branch: branchName(b), reason: failed[b] ?? '' }))
               .join(' ')}
           />
           <BusyButton busy={busy} disabled={down} onClick={() => void submit()}>
-            {fill(t('item.save_branch_again'), { branch: failedBranches.map(idTail).join(', ') })}
+            {fill(t('item.save_branch_again'), { branch: failedBranches.map(branchName).join(', ') })}
           </BusyButton>
         </div>
       )}
@@ -641,8 +667,8 @@ export function ItemForm({
 
           <section className="pos-section">
             <div className="pos-section__head">
-              <h2>{t('item.section.kitchen')}</h2>
-              <p>{t('item.kitchen_body')}</p>
+              <h2>{t('item.branches_title')}</h2>
+              <p>{fill(t('item.branches_body'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })}</p>
             </div>
             {stations === null ? (
               <Skeleton lines={2} />
@@ -664,9 +690,32 @@ export function ItemForm({
                       data-route-branch={b}
                     >
                       <span className="pos-list__name">
-                        <strong className="pos-ltr">{idTail(b)}</strong>
+                        <strong>
+                          <bdi>{branchName(b)}</bdi>
+                        </strong>
                       </span>
                       <div className="pos-row">
+                        <label className="pos-field">
+                          <span className="pos-field__label">{t('item.price_here')}</span>
+                          <span className="pos-input-affix pos-ltr">
+                            <span>{t('owner.menu.rupees')}</span>
+                            <input
+                              className="pos-input pos-input--mono"
+                              name="price_minor_override"
+                              inputMode="decimal"
+                              aria-label={fill(t('item.price_at'), { branch: branchName(b) })}
+                              aria-invalid={problem !== undefined ? true : undefined}
+                              disabled={choice.station_id === ''}
+                              placeholder={
+                                choice.station_id === ''
+                                  ? t('owner.item.not_sold_here')
+                                  : fill(t('item.price_same'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })
+                              }
+                              value={choice.price}
+                              onChange={(e) => set({ price: e.target.value })}
+                            />
+                          </span>
+                        </label>
                         <Select
                           name="station_id"
                           label={t('owner.item.station')}

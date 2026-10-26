@@ -4,7 +4,7 @@ import { AppBar } from '../../components/AppBar';
 import { SideNav, TabBar, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
 import { t, typeClass } from '../../i18n';
-import { idTail } from './branch';
+import { useBranchName } from './branch';
 import { CloudDownBanner } from './cloud';
 import { useLeave } from './guard';
 import { usePhone } from '../../app/phone';
@@ -83,12 +83,13 @@ export function BranchSelect({
   disabled?: boolean;
 }) {
   const leave = useLeave();
+  const branchName = useBranchName();
   if (branchIds.length < 2) return null;
   return (
     <label className="pos-row">
       <span className="pos-field__label">{t('owner.branch')}</span>
       <select
-        className="pos-select pos-ltr"
+        className="pos-select"
         name="branch"
         value={value}
         disabled={disabled}
@@ -99,7 +100,7 @@ export function BranchSelect({
       >
         {branchIds.map((id) => (
           <option key={id} value={id}>
-            {idTail(id)}
+            {branchName(id)}
           </option>
         ))}
       </select>

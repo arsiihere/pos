@@ -5,7 +5,7 @@ import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
-import { idTail } from '../branch';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -36,6 +36,7 @@ export function TableDialog({
   onRestore: () => void;
   onClose: () => void;
 }) {
+  const branchName = useBranchName();
   const [name, setName] = useState(table.name);
   const [seats, setSeats] = useState(table.seats === null ? '' : String(table.seats));
   const [floor, setFloor] = useState(floorId);
@@ -62,7 +63,7 @@ export function TableDialog({
 
   function shown(err: CloudError) {
     if (err.kind === 'api' && err.code === 'CONFIG_NAME_TAKEN') {
-      setNameError(fill(t('errors.CONFIG_NAME_TAKEN_table'), { name: name.trim(), branch: idTail(branchId) }));
+      setNameError(fill(t('errors.CONFIG_NAME_TAKEN_table'), { name: name.trim(), branch: branchName(branchId) }));
     } else setError(errorText(err));
   }
 
