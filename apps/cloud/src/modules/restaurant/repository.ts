@@ -64,6 +64,21 @@ const STATION_COLUMNS =
   'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at';
 const PROGRAM_COLUMNS = 'program_id, station_id, name, cook_time_ms, archived_at';
 
+export interface BranchRow {
+  branch_id: string;
+  name: string;
+  status: 'pending_hub' | 'active';
+}
+
+// §6.7b (S58): the caller's branches, by name.
+export async function selectBranches(repo: TenantScopedRepository): Promise<BranchRow[]> {
+  return repo.query<BranchRow>(
+    `SELECT branch_id, name, status FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2)
+      ORDER BY name, branch_id`,
+  );
+}
+
 export async function selectFloors(repo: TenantScopedRepository, branchId: string): Promise<FloorRow[]> {
   const rows = await repo.query<Raw<FloorRow>>(
     `SELECT ${FLOOR_COLUMNS} FROM floors

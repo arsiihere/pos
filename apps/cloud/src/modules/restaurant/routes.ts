@@ -1,5 +1,6 @@
 import { DomainError } from '@pos/domain';
 import {
+  BranchListResponse,
   CategoryResponse,
   CreateCategoryBody,
   CreateFloorBody,
@@ -50,6 +51,7 @@ import {
   createStation,
   createTable,
   createTaxClass,
+  listBranches,
   listFloors,
   listMenu,
   listStations,
@@ -67,6 +69,19 @@ import {
 
 export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantDeps): void {
   const routes = app.withTypeProvider<ZodTypeProvider>();
+
+  routes.get(
+    '/v1/admin/branches',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { response: { 200: BranchListResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/branches');
+      const branches = await listBranches(deps, tenantOf(request));
+      return reply.send({ data: { branches } });
+    },
+  );
 
   routes.get(
     '/v1/admin/branches/:branch_id/floors',

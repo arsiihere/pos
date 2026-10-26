@@ -39,6 +39,7 @@ import {
   selectAllCategories,
   selectAllTaxClasses,
   selectFloors,
+  selectBranches,
   selectItemRoutes,
   selectItemWindows,
   selectMenuPage,
@@ -112,6 +113,11 @@ export function assertBranchAllowed(tenant: TenantContext, branchId: string): vo
 }
 
 // §6.2: 2 statements, archived rows included.
+// §6.7b (v1.2, S58): one statement, no audit.
+export async function listBranches(deps: RestaurantDeps, tenant: TenantContext) {
+  return selectBranches(new TenantScopedRepository(tenant, deps.pool));
+}
+
 export async function listFloors(deps: RestaurantDeps, tenant: TenantContext, branchId: string) {
   assertBranchAllowed(tenant, branchId);
   const repo = new TenantScopedRepository(tenant, deps.pool);

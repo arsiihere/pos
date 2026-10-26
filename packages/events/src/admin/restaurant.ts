@@ -313,6 +313,13 @@ export const MenuResponse = z.object({
   }),
 });
 
+// §6.7b (v1.2, S58): the owner's branches, for their names.
+export const BranchListResponse = z.object({
+  data: z.object({
+    branches: z.array(z.object({ branch_id: z.string(), name: z.string(), status: z.enum(['pending_hub', 'active']) })),
+  }),
+});
+
 const Floor = z.object({
   floor_id: z.string(),
   name: z.string(),
@@ -370,6 +377,7 @@ export type PatchMenuItemRequest = z.input<typeof PatchMenuItemBody>;
 export type PutItemRouteRequest = z.input<typeof PutItemRouteBody>;
 
 // Response data types, for apps/client.
+export type AdminBranch = z.infer<typeof BranchListResponse>['data']['branches'][number];
 export type AdminFloorList = z.infer<typeof FloorListResponse>['data'];
 export type AdminFloor = z.infer<typeof Floor>;
 export type AdminTable = z.infer<typeof Table>;
