@@ -28,3 +28,12 @@ describe('owner money', () => {
     }
   });
 });
+
+describe('[01a S05] shown prices', () => {
+  it('group thousands for display; decimals kept', async () => {
+    const { shownRupees } = await import('./money');
+    expect(shownRupees(220_000)).toBe('2,200');
+    expect(shownRupees(3_000)).toBe('30');
+    expect(shownRupees(12_000_050)).toBe('120,000.50');
+  });
+});

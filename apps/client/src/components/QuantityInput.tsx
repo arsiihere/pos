@@ -21,6 +21,7 @@ export function QuantityInput({
   value,
   onChange,
   compact = false,
+  showUnit = true,
   label,
 }: {
   unit: Unit;
@@ -28,6 +29,8 @@ export function QuantityInput({
   onChange: (value: number | null) => void;
   // Inside the kit's .pos-count cell (the stock row): the input and its unit, no field wrapper.
   compact?: boolean;
+  // A compact input next to another one in the same unit can leave the unit out.
+  showUnit?: boolean;
   label?: string;
 }) {
   const [text, setText] = useState(() => shown(value, unit));
@@ -60,7 +63,7 @@ export function QuantityInput({
     return (
       <>
         {input}
-        <span className="pos-count__unit">{t(UNIT_LABEL[unit])}</span>
+        {showUnit && <span className="pos-count__unit">{t(unit === 'piece' ? 'quantity.pcs' : UNIT_LABEL[unit])}</span>}
         {invalid && <span className="pos-field__error">{t('quantity.invalid')}</span>}
       </>
     );

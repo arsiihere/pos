@@ -30,7 +30,7 @@ import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
-import { formatRupees, parseRupees } from '../money';
+import { formatRupees, parseRupees, shownRupees } from '../money';
 import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { windowText, WindowsField } from './WindowsField';
@@ -554,7 +554,7 @@ export function ItemForm({
               onChange={setPrice}
               numeric
               unit={t(PER_UNIT[saleUnit])}
-              help={fill(t('item.price_was'), { old: formatRupees(item.price_minor) })}
+              help={fill(t('item.price_was'), { old: shownRupees(item.price_minor) })}
               error={problemFor('item-price')}
             />
             <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
@@ -666,44 +666,46 @@ export function ItemForm({
                       <span className="pos-list__name">
                         <strong className="pos-ltr">{idTail(b)}</strong>
                       </span>
-                      <Select
-                        name="station_id"
-                        label={t('owner.item.station')}
-                        value={choice.station_id}
-                        options={[
-                          { value: '', label: t('owner.item.not_sold_here') },
-                          ...(stations[b] ?? [])
-                            .filter((s) => active(s) || s.station_id === choice.station_id)
-                            .map((s) => ({ value: s.station_id, label: s.name })),
-                        ]}
-                        onChange={(next) => chooseStation(b, next)}
-                      />
-                      {station?.station_type === 'batch' ? (
-                        <>
-                          <Select
-                            name="program_id"
-                            label={t('owner.item.program')}
-                            value={choice.program_id}
-                            options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
-                            onChange={(next) => set({ program_id: next })}
-                          />
-                          <Select
-                            name="stock_program_id"
-                            label={t('owner.item.stock_program')}
-                            value={choice.stock_program_id}
-                            options={[
-                              { value: '', label: t('owner.item.no_stock_program') },
-                              ...programs.map((p) => ({ value: p.program_id, label: p.name })),
-                            ]}
-                            onChange={(next) => {
-                              set({ stock_program_id: next });
-                              if (next !== '') setKeptReady(true);
-                            }}
-                          />
-                        </>
-                      ) : (
-                        station !== undefined && <span className="pos-field__help">{t('item.no_recipe_needed')}</span>
-                      )}
+                      <div className="pos-row">
+                        <Select
+                          name="station_id"
+                          label={t('owner.item.station')}
+                          value={choice.station_id}
+                          options={[
+                            { value: '', label: t('owner.item.not_sold_here') },
+                            ...(stations[b] ?? [])
+                              .filter((s) => active(s) || s.station_id === choice.station_id)
+                              .map((s) => ({ value: s.station_id, label: s.name })),
+                          ]}
+                          onChange={(next) => chooseStation(b, next)}
+                        />
+                        {station?.station_type === 'batch' ? (
+                          <>
+                            <Select
+                              name="program_id"
+                              label={t('owner.item.program')}
+                              value={choice.program_id}
+                              options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
+                              onChange={(next) => set({ program_id: next })}
+                            />
+                            <Select
+                              name="stock_program_id"
+                              label={t('owner.item.stock_program')}
+                              value={choice.stock_program_id}
+                              options={[
+                                { value: '', label: t('owner.item.no_stock_program') },
+                                ...programs.map((p) => ({ value: p.program_id, label: p.name })),
+                              ]}
+                              onChange={(next) => {
+                                set({ stock_program_id: next });
+                                if (next !== '') setKeptReady(true);
+                              }}
+                            />
+                          </>
+                        ) : (
+                          station !== undefined && <span className="pos-field__help">{t('item.no_recipe_needed')}</span>
+                        )}
+                      </div>
                       {problem !== undefined && <span className="pos-field__error">{problem}</span>}
                       {routeFailed !== undefined && <span className="pos-field__error">{routeFailed}</span>}
                     </li>
@@ -839,7 +841,7 @@ export function ItemForm({
           <p className="pos-list__name">
             <strong>{name.trim() === '' ? t('owner.item.new') : name.trim()}</strong>
             {priceValue.ok && (
-              <span className="pos-ltr">{`${t('owner.menu.rupees')} ${formatRupees(priceValue.value)} ${t(PER_UNIT[saleUnit])}`}</span>
+              <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(priceValue.value)} ${t(PER_UNIT[saleUnit])}`}</span>
             )}
           </p>
           <ul className="pos-stack">

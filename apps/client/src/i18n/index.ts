@@ -48,6 +48,8 @@ export function initLanguage(o: { search: string; storage: Storage | null; navig
   setLanguage(lang);
   document.documentElement.setAttribute('lang', lang);
   document.documentElement.setAttribute('dir', lang === 'ur' ? 'rtl' : 'ltr');
+  // The kit's Urdu body text keys on .pos-root[lang] (as 00's pages set it on <body>).
+  document.body?.setAttribute('lang', lang);
   return lang;
 }
 

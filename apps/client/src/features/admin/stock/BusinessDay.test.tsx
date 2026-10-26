@@ -404,9 +404,9 @@ describe('/admin/stock business day', () => {
     });
     await flush();
     expect(container.querySelector('[data-start-day]')).not.toBeNull();
-    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 0`);
-    expect(rowOf('I2').textContent).toContain(`${t('admin_stock.available_label')} 0 kg`);
-    expect(rowOf('I3').textContent).toContain(`${t('admin_stock.available_label')} 5`);
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('0');
+    expect(rowOf('I2').querySelector('.pos-list__num')?.textContent).toBe('0 kg');
+    expect(rowOf('I3').querySelector('.pos-list__num')?.textContent).toBe('5');
     expect(field('I1', 'on_hand')?.value).toBe('7');
   });
 });

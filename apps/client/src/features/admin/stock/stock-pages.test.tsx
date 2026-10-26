@@ -353,7 +353,7 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     const { api } = fakeHub(() => answer({ items_meta, items, day_stale: true }));
     await mount(api);
 
-    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 2`);
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('2');
     expect(rowOf('I1').textContent).toContain(fill(t('admin_stock.on_orders'), { n: '1' }));
     expect(button(t('admin_stock.confirm'), rowOf('I1'))).toBeTruthy();
     expect(container.textContent).not.toContain('Available');

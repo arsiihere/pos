@@ -16,7 +16,7 @@ import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog'
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
-import { formatRupees } from '../money';
+import { shownRupees } from '../money';
 import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { CategoryForm } from './CategoryForm';
@@ -480,7 +480,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                         </span>
                         {!phone && <span>{categoryName(row.category_id)}</span>}
                         <span className="pos-list__num pos-ltr">
-                          {`${t('owner.menu.rupees')} ${formatRupees(row.price_minor)}`}
+                          {`${t('owner.menu.rupees')} ${shownRupees(row.price_minor)}`}
                           <small>{` ${t(PER_UNIT[row.sale_unit])}`}</small>
                         </span>
                         <span className="pos-list__tags">

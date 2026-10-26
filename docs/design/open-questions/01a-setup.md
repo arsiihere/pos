@@ -96,5 +96,5 @@ These are business decisions for Arif. Each has my suggestion.
 ## Q13 (new) Screenshots of the built pages
 - **Context:** the hand-off asked for Playwright screenshots in English and Urdu at the frame sizes; Playwright is not installed in this repo, so none were taken.
 - **Recommended:** install Playwright outside the repo and capture them against canned API answers, as module 00 did.
-- **Decision:**
-- **Status:** open
+- **Decision:** done 2026-10-26: 50 screenshots in `docs/design/handoff/01a/screens/` (canned API answers, not a live walk).
+- **Status:** answered

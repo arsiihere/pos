@@ -113,7 +113,7 @@ Check: local hub, walk flows 2 (morning count with the stale prompt), 3 (lunch t
 - Phase 1 `02af479`: shared components, language plumbing. Phase 2 `196960b`: owner app. Phase 3 `295d5b4`: stock page.
 - Where each recommended answer lives: Q1 `features/owner/floors/bulk-add.ts`, `BulkTables.tsx`; Q2 `components/Dialog.tsx`, `components/FlashChip.tsx`, `features/owner/guard.tsx`, `BlockedDialog.tsx`; Q3 `api/hub-admin.ts` `logout()`, `features/admin/stock/StockApp.tsx`; Q4 `features/admin/stock/draft.ts`; Q5 `StockApp.tsx` (`confirmAll`); Q6.3 the item form's When it runs out; Q6.12 the stock row's hours badge (`badges.ts`); Q7 `features/owner/App.tsx`; Q8 `features/owner/branch.ts`.
 - Differences from `01a-design.md`: its §0 "As built".
-- Not done: screenshots (open question Q13).
+- Screenshots: `screens/` (50, en + ur, frame sizes, canned API answers via Playwright outside the repo). The check found and fixed: dialogs under the sticky action bar, the page background not filling the window, fieldset borders, ungrouped prices, a cramped stock row on a tablet with the side menu, and Urdu digits reordered by an LTR wrapper.
 
 ## E. Blocked / out of scope
 - Blocked: Q6.5 (same prices everywhere; nothing in 01a changes either way), Q6.10 (owner data), Q6.13 (kg rounding; 02/05).

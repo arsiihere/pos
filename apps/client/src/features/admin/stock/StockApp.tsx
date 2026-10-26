@@ -444,12 +444,12 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     </>
   ) : savedLine !== null ? (
     <>
-      <strong className="pos-ltr">{savedLine}</strong>
+      <strong>{savedLine}</strong>
       {countedToday === tracked.length && tracked.length > 0 && <span>{t('admin_stock.all_counted')}</span>}
     </>
   ) : (
     <>
-      <strong className="pos-ltr">{fill(t('admin_stock.counted_n'), { n: String(countedToday), m: String(tracked.length) })}</strong>
+      <strong>{fill(t('admin_stock.counted_n'), { n: String(countedToday), m: String(tracked.length) })}</strong>
       <span>{t('admin_stock.save_help')}</span>
     </>
   );
@@ -515,7 +515,11 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
         {!noDay && carriedOpen.length > 0 && (
           <section className="pos-callout pos-callout--accent" data-carry="">
             <div className="pos-callout__text">
-              <h2>{fill(t('admin_stock.carry.title'), { n: String(carriedOpen.length) })}</h2>
+              <h2>
+                {carriedOpen.length === 1
+                  ? t('admin_stock.carry.title_one')
+                  : fill(t('admin_stock.carry.title'), { n: String(carriedOpen.length) })}
+              </h2>
               <p>{t('admin_stock.carry.body')}</p>
             </div>
             <BusyButton busy={saving} onClick={() => void confirmAll()}>

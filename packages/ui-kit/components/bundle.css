@@ -216,6 +216,12 @@ button.pos-chip { min-height: 44px; cursor: pointer; }
 .pos-hero__main { display: grid; place-items: center; padding: var(--space-12) var(--space-6); }
 .pos-hero__main > * { width: 100%; max-width: 420px; }
 @media (max-width: 760px) { .pos-hero { grid-template-columns: minmax(0, 1fr); } .pos-hero__aside { padding: var(--space-6); } }
+/* 01a hand-off check: a dialog or sheet sits above the sticky action bar that follows it in the page. */
+.pos-scrim { z-index: 1; }
+/* 01a hand-off check: the client entries fill the window like the 00 pages (00 resets these in its page CSS). */
+body.pos-root { margin: 0; min-height: 100vh; }
+body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
+.pos-root fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .pos-progress { height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
 .pos-progress > i { display: block; height: 100%; background: var(--accent); }
 

@@ -229,9 +229,9 @@ export function StockTable({
                       </button>
                     </div>
                     <span className="pos-stack">
-                      <span className="pos-list__num pos-ltr">
-                        <small>{t('admin_stock.available_label')}</small> {formatQuantity(item.available, meta.stock_unit)}
-                      </span>
+                      {/* The column head says Left to sell; a phone row has no head, so it says it itself. */}
+                      {phone && <small>{t('admin_stock.available_label')}</small>}
+                      <span className="pos-list__num pos-ltr">{formatQuantity(item.available, meta.stock_unit)}</span>
                       <small className="pos-ltr">
                         {fill(t('admin_stock.on_orders'), { n: formatQuantity(item.reserved, meta.stock_unit) })}
                       </small>
@@ -243,7 +243,14 @@ export function StockTable({
                     ) : (
                       <span className="pos-row">
                         <span className="pos-count pos-ltr" data-field="add">
-                          <QuantityInput compact unit={meta.stock_unit} value={adds.get(id) ?? null} onChange={(v) => onAddEdit(id, v)} label={t('admin_stock.add_label')} />
+                          <QuantityInput
+                            compact
+                            showUnit={false}
+                            unit={meta.stock_unit}
+                            value={adds.get(id) ?? null}
+                            onChange={(v) => onAddEdit(id, v)}
+                            label={t('admin_stock.add_label')}
+                          />
                         </span>
                         <button
                           type="button"

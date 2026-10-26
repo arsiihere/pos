@@ -16,3 +16,10 @@ export function formatRupees(minor: number): string {
   const paisa = minor % 100;
   return paisa === 0 ? String(whole) : `${whole}.${String(paisa).padStart(2, '0')}`;
 }
+
+// Prices shown in lists and the staff preview: thousands grouped ("2,200").
+export function shownRupees(minor: number): string {
+  const [whole = '', paisa] = formatRupees(minor).split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return paisa === undefined ? grouped : `${grouped}.${paisa}`;
+}

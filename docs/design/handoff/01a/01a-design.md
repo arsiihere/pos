@@ -27,7 +27,7 @@ Where the implementation differs from the sections below, this list wins. Build 
 
 | Topic | As built |
 |---|---|
-| Kit | The shared `kit-additions.css` was already in `packages/ui-kit/components/bundle.css` (00 phase 1). Extra token-only rules: `.pos-actionbar--tabs` (phone tab bar), `.pos-section--sunken` (archived floor), `.pos-tile.is-muted` (archived table), `.pos-hero` (owner sign-in). The frames' inline styles are not used (lint bans `style`). |
+| Kit | The shared `kit-additions.css` was already in `packages/ui-kit/components/bundle.css` (00 phase 1). Extra rules: `.pos-actionbar--tabs` (phone tab bar), `.pos-section--sunken` (archived floor), `.pos-tile.is-muted` (archived table), `.pos-hero` (owner sign-in); from the screenshot check: `.pos-scrim { z-index: 1 }` (dialogs and the add sheet sit above the sticky action bar), `body.pos-root` fills the window, `.pos-root fieldset` has no browser border. The entry pages' `<body>` carries `pos-root` and the page's `lang`. The frames' inline styles are not used (lint bans `style`). |
 | Files | Shared components `apps/client/src/components/` (AppBar, SideNav + TabBar, List, Switch, Segmented, Chip, ActionBar, EmptyState, Skeleton, FlashChip, Dialog, Icon); owner app `features/owner/` (Shell, guard, cloud, branch, BlockedDialog, floors/, stations/, menu/); stock page `features/admin/stock/` (draft.ts for Q4, AddSheet); `app/phone.ts` (≤ 760 px). |
 | Strings | `apps/client/src/i18n/en.ts` and `ur.ts`; keys follow §2 with additions (`floors.*`, `item.*`, `tax.*`, `admin_stock.*`). Keys without Urdu: `urdu-todo.md`. |
 | Language | As 00 M83 (S49): `?lang=` → `localStorage pos-lang` → `navigator.language`; `lang`/`dir` on `<html>`; Latin type classes become `ur-*` in Urdu. |
@@ -43,7 +43,7 @@ Where the implementation differs from the sections below, this list wins. Build 
 | S10 | The roster is shown as `/admin/login-roster` returns it (no `manage-stock` filter). Locked minutes use the device clock (display only). Tries left only when `attempts_remaining` ≤ 2. |
 | S11 | Level filter + search + category filter (all three). Default filter: All. Menu chip keeps §6.21's line ("Menu version 42 · checked 1 min ago"). The stock page uses 00's five admin session keys (S54 g). Side menu from tablet width (S54 f). Saves over 200 rows go in parts of 200 (S56). |
 | Q4 | Key `stock-draft:<branch_id>:<opened_at>:<staff_id>` (no device id on the page; `opened_at`, not `business_date`, S33). A row saved or added since is not brought back (listed as changed). Sign out with unsaved counts asks Save / Keep on this tablet / Discard. |
-| Not built | Screenshots of the built pages (Playwright is not installed here). |
+| Screens | `screens/`: 50 screenshots of the built pages (en + ur, 1440 / 1280 / 390 px) against canned API answers. Not a live walk of flows 1, 2, 3, 5, 6. Lists show prices grouped ("Rs 2,200"); the menu rows have no unit · station sub-line (the menu answer has no station names); the stock row's "Left to sell" label is in the column head on a tablet and in the row on a phone. |
 
 ---
 

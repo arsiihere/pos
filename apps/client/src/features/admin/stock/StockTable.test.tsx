@@ -330,7 +330,7 @@ describe('/admin/stock table', () => {
     });
     await flush();
     expect(rowOf('I1').querySelector('input')?.value).toBe('7');
-    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 9`);
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('9');
   });
 
   it('[01a S47] the badge changes within 60 s after a window end with no server answer', async () => {
@@ -392,11 +392,11 @@ describe('/admin/stock table', () => {
     expect(held).toHaveLength(2);
     held[1]!(json(200, { data: answer({ stock_version: 8, items: [item('I1', { on_hand: 9, available: 9 })] }) }));
     await flush();
-    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 9`);
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('9');
 
     held[0]!(json(200, { data: answer() }));
     await flush();
-    expect(rowOf('I1').textContent).toContain(`${t('admin_stock.available_label')} 9`);
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('9');
   });
 
   it('[01a §8.2] a 403 on the stock query shows the permission text', async () => {
