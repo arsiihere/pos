@@ -1,6 +1,6 @@
 # Module 00 design hand-off: build plan
 
-Source of truth for the look: `00-design.md` + `frames/`. Source of truth for behaviour: `docs/specs/00_Hub_Platform_Access_Spec_v1.3.md` (CLAUDE.md: the spec wins; behaviour changes go spec-first).
+Source of truth for the look: `00-design.md` + `frames/`. Source of truth for behaviour: `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` (CLAUDE.md: the spec wins; behaviour changes go spec-first).
 
 ## A. Read this first: where the hand-off and the repo disagree
 
@@ -20,7 +20,7 @@ The hand-off assumes some things the repo doesn't have yet. Each one needs a dec
 | A10 | Inventory path `docs/design/inventory/00-hub-platform.md` | The file is `docs/design/inventory/00-hub-access.md`. | Use the real file. Fix the path in `00-design.md` during Phase 6. | — |
 | A11 | Spec M82: "element ids `screen`, `setup`, `login`, `roster` and class `display-code` stay" | The frames don't use them. | Keep those ids/classes on the restyled markup (test #136). | Phase 3 |
 
-**Phase 0 status (2026-10-26):** draft spec `00_Hub_Platform_Access_Spec_v1.3.md` written. A3 → M83, A7 → M84, Q7 → M85, A6 → M86, A5 → M87, A4 + A8 → M88 (`stations` query, option a), plus two found while drafting: M89 (`/admin` needs the admin's permissions; `GET /queries/session` needs a device session) and a `staff` query in M88 (Add a phone needs every staff member; `login-roster` lists admins only). M90 keeps the endpoint budget. The approve page code stays in `commands/approve-pairing-request.ts` (no folder change). **Approved by the owner 2026-10-26.** Plan tasks 77–81 in `docs/plans/00-plan.md`. The `stations` query and sign-in `permissions` move into phase 3 (the approve page needs them).
+**Phase 0 status (2026-10-26):** draft spec `00_Hub_Platform_Access_Spec_v1.4.md` written. A3 → M83, A7 → M84, Q7 → M85, A6 → M86, A5 → M87, A4 + A8 → M88 (`stations` query, option a), plus two found while drafting: M89 (`/admin` needs the admin's permissions; `GET /queries/session` needs a device session) and a `staff` query in M88 (Add a phone needs every staff member; `login-roster` lists admins only). M90 keeps the endpoint budget. The approve page code stays in `commands/approve-pairing-request.ts` (no folder change). **Approved by the owner 2026-10-26.** Plan tasks 77–81 in `docs/plans/00-plan.md`. The `stations` query and sign-in `permissions` move into phase 3 (the approve page needs them).
 
 **Proposal (original):** add a **Phase 0: spec 00 v1.2.1 → v1.3** (A3–A8 as decisions M83–M88, test changes #136 + new tests, §6.2/§6.17/§8.2 edits). Show it to you for approval, then build. Per CLAUDE.md the hostile review (pipeline step 4) would apply to a minor version too. Tell me if you want that, or if an approval by you is enough for a UI-driven bump. Phase 1 (kit only, no behaviour) and Phase 2 (client helper for codes the spec already defines) can go ahead before v1.3 is approved.
 

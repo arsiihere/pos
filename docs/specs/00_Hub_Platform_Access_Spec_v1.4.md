@@ -1,16 +1,26 @@
-# 00 — Hub Platform & Access — Module Spec v1.3
+# 00 — Hub Platform & Access — Module Spec v1.4
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
 | Date | 2026-10-26 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.4 (open questions Q11, Q12 in `docs/design/open-questions/00-hub-platform.md`)
+
+| Change | Decision | Where | Test |
+|---|---|---|---|
+| `/pair?t=` (phones) switches to the light theme in the page script; `/pair` is still served dark for screens | M91 | §8.2 | #151 |
+| `GET /admin/login-roster` adds `role_names`; the approved `GET /pair/requests/:id` adds `station_name`; `POST /devices/pair` adds `owner_name` | M92 | §6.8, §6.13, §6.31 | #148–#150 |
+| §6.17: last-seen is refreshed by every device-authenticated request and by each WebSocket pong (Q8, written during the v1.3 build) | — (clarification) | §6.17 | keepalive unit test |
+
+Additive response fields only. No error code, event, payload, config field, migration or route changes. Q13 (address on `HOST_NOT_ALLOWED`, a foundation code) and Q14 (Urdu review) are not in this version.
 
 ### Changes in v1.3 (design hand-off `docs/design/handoff/00/`, open questions `docs/design/open-questions/00-hub-platform.md`)
 
@@ -24,6 +34,8 @@
 | New admin queries `lockouts` (Q3), `stations` (approve page station tiles), `staff` (Add a phone) | M88 | §6.18a–c | #144–#146 |
 | `POST /admin/auth` and `/admin/auth/bootstrap` return the admin's `permissions` so pages hide what the admin can't do | M89 | §6.6, §6.29 | #147 |
 | Query resources on the generic route (§6.2) don't count against the endpoint budget | M90 | §6.33 | — |
+| M91 | **Phones use the light theme.** `/pair` is served with `data-theme="dark"` (M82, for kiosk and kitchen screens); with `?t=` the page script sets `data-theme="light"` before it renders, as the phone frames do. | Phones are read in daylight on the floor; the dark theme is for glare and distance on fixed screens. | — |
+| M92 | **Responses carry the names the screens show.** `GET /admin/login-roster` staff rows add `role_names` (directory role names, for the line under each name tile); the approved `GET /pair/requests/:id` adds `station_name` (from the in-memory branch config, `null` for a cashier screen or an unknown station) so the screen can say "Opening the Tandoor kitchen screen…"; `POST /devices/pair` adds `owner_name` (`StaffDirectory`, `null` for tablets) so the phone can say "Only Bilal's name will be on it". | Without them the screens fall back to generic text and the tiles to bare names. No extra query: names come from memory. | — |
 
 No error code, event, payload, config field or migration changes. No command changes. Q5 (waiter tablets) is blocked and not in this version; Q4, Q10 stay with 06 and 03b.
 
@@ -910,7 +922,7 @@ Processing (`writer.run`):
 
 | | |
 |---|---|
-| Response | `200 { data: { device_id, device_token, device_type, owner_staff_id \| null, branch_id, branch_name, hub_version } }`; `branch_name` from config (M78) |
+| Response | `200 { data: { device_id, device_token, device_type, owner_staff_id \| null, owner_name \| null, branch_id, branch_name, hub_version } }` (`owner_name`: M92); `branch_name` from config (M78) |
 | Errors | G-hub; `400 VALIDATION_FAILED`, `401 PAIRING_TOKEN_INVALID`, `403 DEVICE_TYPE_NOT_ALLOWED`, `426 CLIENT_UPGRADE_REQUIRED` |
 | Events | `DevicePaired` (`pairing_token_id` set), `DeviceTokenRotated` |
 
@@ -976,7 +988,7 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 | | |
 |---|---|
 | Auth | device token of type tablet / cashier_kiosk / phone, **or** header `X-Admin-Bootstrap: <live bootstrap token>` |
-| Response | `{ staff: [{ staff_id, display_name, locked_until \| null }] }` — staff with `access-hub-admin` allowed; on a phone only the owner (if allowed) |
+| Response | `{ staff: [{ staff_id, display_name, role_names, locked_until \| null }] }` (`role_names`: M92) — staff with `access-hub-admin` allowed; on a phone only the owner (if allowed) |
 | Query count | 1 |
 | Errors | G-hub; `401 DEVICE_TOKEN_INVALID` / `PAIRING_TOKEN_INVALID` (bootstrap token not live); `403 DEVICE_REVOKED` / `DEVICE_TYPE_NOT_ALLOWED` |
 
@@ -1197,7 +1209,7 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 | | |
 |---|---|
 | Auth | header `X-Poll-Secret`; unknown id, wrong secret or expired → `404 PAIRING_REQUEST_NOT_FOUND` (indistinguishable) |
-| Response | `200 { data: { status: 'pending' } }` or `{ status: 'approved', device_id, device_token, device_type, station_id \| null, branch_name }` (repeatable until `expires_at`; `branch_name` from config, M78) |
+| Response | `200 { data: { status: 'pending' } }` or `{ status: 'approved', device_id, device_token, device_type, station_id \| null, station_name \| null, branch_name }` (`station_name`: M92) (repeatable until `expires_at`; `branch_name` from config, M78) |
 | Query count | 1; no writes |
 
 #### 6.32 `ApprovePairingRequest` (`/admin/commands/approve-pairing-request`)
@@ -1330,6 +1342,7 @@ Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,proje
   3. Device token but no admin session in this tab → admin login in the page (`GET /admin/login-roster`, PIN → `POST /admin/auth`); stores `admin_session_token` and `admin_staff_id` in `sessionStorage`.
   4. Form: display code (with `request_id` = `r` when present), type, station for KDS → `ApprovePairingRequest` with `device_id` from IndexedDB (`'hub-admin'` and no `Authorization` for a bootstrap session).
 - **Bootstrap page (M42, M79):** after a successful `POST /admin/auth/bootstrap` it stores `admin_session_token`, `admin_staff_id` and `admin_bootstrap = '1'` in `sessionStorage`.
+- **Phone theme (M91):** with `?t=` the pair page sets `data-theme="light"` before rendering; screens keep the served dark theme.
 - **Language (M83):** the page script chooses `en` or `ur` on load (`?lang=`, then `localStorage` `pos-lang`, then `navigator.language`), sets `lang` and `dir` on `<html>`, and takes every text from `EN` or `UR` through `t()`. Codes, PINs, addresses, links, times and counts stay LTR.
 - **Setup addresses (M85):** `GET /setup` renders this machine's IPv4 addresses as pick tiles (Ethernet first and preselected) plus "Other address" with the typed field; the chosen value is sent as `advertised_host`.
 - **Hub admin home (M86):** `GET /admin` loads without credentials; its script signs in like `/admin/approve` step 3, keeps `permissions` (M89) with the admin session in `sessionStorage`, hides actions the admin lacks, and treats `403 PERMISSION_DENIED` as the read-only state. Kitchen screens with `last_seen_at` older than 2 minutes show a warning (Q8).
@@ -1578,6 +1591,10 @@ Conventions per foundation §6.7: hub integration tests in `apps/hub/test/**/*.i
 | 145 | M88 stations: archived stations left out; `category_names` holds at most 3, in category order, only categories with an item on the station; no config → empty list |
 | 146 | M88 staff: every directory staff member with role names; `phone_count` counts only non-revoked phones; one query |
 | 147 | M89: `/admin/auth` and `/admin/auth/bootstrap` return `permissions` matching the effective permissions (a Manager has both, an admin without `manage-staff` gets `false`) |
+| 148 | M92: `GET /admin/login-roster` rows carry `role_names` from the directory (Owner → `['Owner']`) |
+| 149 | M92: the approved `GET /pair/requests/:id` for a kds carries `station_name` from the branch config; a cashier screen gets `null` |
+| 150 | M92: `POST /devices/pair` for a phone returns `owner_name` of the owner |
+| 151 | M91: `/pair?t=` sets `data-theme="light"` in the page script; `/pair` without `t` keeps the served dark theme; the paired phone shows the owner's name and a kds shows its station name |
 | 130 | M76: a third pending request from one IP → `429 IP_LOCKED_OUT` with `retry_after_ms` until its oldest expires; requests from other IPs still succeed; the 11th pending overall → 503 |
 
 
@@ -1627,6 +1644,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 47–50 | Owner login (M64), refresh (M49), health + cross-tenant, systemd + smoke | §6.22–§6.25, §7.8 |
 | 51 | Foundation §6.2 table and README only (codes already exist from task 2) — not for Cursor | §9, D64 |
 | 67–71 | v1.2: UI kit and `GET /ui/*` (M81); setup, bootstrap, approve and pair pages on the kit with the `EN` table (M82) | §6.35, §8.2, §8.4 |
+| 82 | v1.4: M91 phone theme, M92 names in three responses | §6.8, §6.13, §6.31, §8.2 |
 | 77+ | v1.3: design hand-off phases 3–6 (`docs/design/handoff/00/PLAN.md`): pages restyled with `UR` (M83–M85), §6.17 fields and §6.18a–c queries, sign-in `permissions` (M87–M89), `/admin` (M86) | §6.17–§6.18c, §6.6, §6.29, §8.2 |
 
 ---
@@ -1655,12 +1673,12 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.5 | `POST /v1/hubs/register` | code (M15) | — | M14 | — | 22–25, 61, 89 |
 | 6.6 | `POST /admin/auth` | device | `access-hub-admin` | none needed | `SessionStarted`, lockouts | 26, 27, 91, 93, 114, 147 |
 | 6.7 | `GenerateDevicePairingToken` | device + admin | `manage-devices` | D32 | `DevicePairingTokenGenerated` | 28, 80 |
-| 6.8 | `POST /devices/pair` | pairing token | — | M14 | `DevicePaired`, `DeviceTokenRotated` | 29, 30, 84, 118 |
+| 6.8 | `POST /devices/pair` | pairing token | — | M14 | `DevicePaired`, `DeviceTokenRotated` | 29, 30, 84, 118, 150 |
 | 6.9 | `POST /auth/pin` | device | — | M6 replace | `SessionStarted`, `SessionEnded`, lockouts | 31–37, 59, 60, 81, 98 |
 | 6.10 | `POST /auth/logout` | device + session | — | natural | `SessionEnded` | 38, 117 |
 | 6.11 | `POST /auth/station` | device (kds) | — | replace | `SessionStarted`, `SessionEnded` | 39, 104 |
 | 6.12 | `POST /admin/auth/logout` | admin (+device) | — | natural | `SessionEnded` | 40, 94 |
-| 6.13 | `GET /admin/login-roster` | device or bootstrap | — | n/a | — | 41 |
+| 6.13 | `GET /admin/login-roster` | device or bootstrap | — | n/a | — | 41, 148 |
 | 6.14 | `RevokeDevice` | device + admin | `manage-devices` | D32 | `DeviceRevoked`, `SessionEnded` | 42 |
 | 6.15 | `ForceLogoutSession` | device + admin | `manage-staff` | D32 | `SessionEnded` | 43 |
 | 6.16 | `ClearPinLockout` | device + admin | `manage-staff` | D32 | `PinLockoutCleared` | 44 |
@@ -1678,7 +1696,7 @@ The executable task list is `docs/plans/00-plan.md` (regenerated for v1.0). Buil
 | 6.29 | `POST /admin/auth/bootstrap` | bootstrap token | `access-hub-admin` | single use | `SessionStarted`, lockouts | 92 |
 | 6.30 | `POST /pair/requests` | none (host, guest) | — | none needed | — | 95, 130, 131 |
 | 6.34 | Hub CLI `issue-admin-bootstrap` | shell, service user | — | expires older tokens | `AdminBootstrapTokenIssued` | 127 |
-| 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95 |
+| 6.31 | `GET /pair/requests/:id` | poll secret | — | read-only | — | 95, 149 |
 | 6.32 | `ApprovePairingRequest` | device + admin | `manage-devices` | D32 | `DevicePaired` | 96, 133 |
 | 6.35 | `GET /ui/*` (static, not counted) | none (host, guest) | — | n/a | — | 135 |
 | — | static pages `GET /setup` (M84), `/admin` (M86) | none (host, guest; `/admin` also provisioned) | — | n/a | — | 136, 141, 142 |

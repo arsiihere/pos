@@ -92,26 +92,26 @@ Status values: `recommended` (default in use, owner has not confirmed) · `answe
 ## Q11 Should phone pages be light while `/pair` is served dark?
 - **Context:** Spec M82 serves `/pair` with `data-theme="dark"` (screens). The phone frames (Phone*) are light. The build keeps the served attribute and switches to light in the page script when `?t=` is present.
 - **Recommended:** Keep it, and add one line to spec §8.2: "phones (`/pair?t=`) use the light theme".
-- **Decision:** light for phones (recommended)
-- **Status:** recommended
+- **Decision:** light for phones. Spec 00 v1.4 M91.
+- **Status:** answered (owner, 2026-10-26: "apply what is good")
 
 ## Q12 Should the API return names the designs show?
 - **Context:** Three designed texts have no data: the role under each roster tile ("Owner", "Manager"), the station on a screen's "Paired" ("Opening the Tandoor kitchen screen…"), and the owner on "This phone is paired" ("Only Bilal's name will be on it"). Today they are left out or generic.
 - **Recommended:** Add `role_names` to `GET /admin/login-roster`, `station_name` to the approved `GET /pair/requests/:id`, and `owner_name` to `POST /devices/pair`. Spec change (additive fields), small.
-- **Decision:** add the three fields (recommended)
-- **Status:** recommended. Not built: it changes three response contracts.
+- **Decision:** add the three fields. Spec 00 v1.4 M92; built in plan task 82.
+- **Status:** answered (owner, 2026-10-26: "apply what is good")
 
 ## Q13 Should `HOST_NOT_ALLOWED` say which address to use?
 - **Context:** 00-F07 shows the hub's address when the error carries it. The hub sends no details today, so the installer only reads "Type the number address in the browser".
 - **Recommended:** Add `details.advertised_host` to `HOST_NOT_ALLOWED` once the hub is provisioned (it is not secret on the LAN). Spec change.
 - **Decision:** add the address (recommended)
-- **Status:** recommended. Not built.
+- **Status:** recommended. Not built: `HOST_NOT_ALLOWED` is a foundation code (frozen, D64), and it answers requests that arrived under a wrong host name, so echoing the hub's address back is not clearly safe. Needs a security look first.
 
 ## Q14 Who translates and reviews the Urdu?
 - **Context:** `docs/design/handoff/00/urdu-todo.md` lists 240 keys with English only; the Urdu that exists comes from the frames and has not been reviewed. Untranslated English inside an Urdu page can show digits out of order (right-to-left ordering).
 - **Recommended:** A native speaker translates the list and reviews the existing Urdu before the pilot; the designer adds Urdu frames for the hub admin pages.
 - **Decision:** translate + review before the pilot (recommended)
-- **Status:** recommended
+- **Status:** recommended. Needs a native speaker; Claude Code did not machine-translate it.
 
 ---
 

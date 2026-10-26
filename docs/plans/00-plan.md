@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, Node.js 22, Fastify 5.12.7, fastify-type-provider-zod 7.0.0, Zod 4.6.7, better-sqlite3 13.0.3, @node-rs/argon2 2.2.2, @fastify/websocket 11.3.4, @fastify/jwt 10.2.5, pg 8.23.1, ulid 3.0.2, Vitest 4.1.12, ESLint 10.13.0 + typescript-eslint 8.72.0, tsx 4.23.15 (dev).
 
-**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.3.md` (v1.3: tasks 77–81 for M83–M90; v1.2: tasks 67–71 for M81, M82; v1.1: tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
+**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` (v1.4: task 82 for M91, M92; v1.3: tasks 77–81 for M83–M90; v1.2: tasks 67–71 for M81, M82; v1.1: tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
 
 **Task status:** task **1** is done (commit `4abf807`). Tasks 2–5 are written for v1.0. **Tasks 5b and 5c** bring already-done tasks to v0.6 and v1.0: do them before task 6 (each only verifies if nothing needs changing). Tasks 6+ implement v1.0.
 
@@ -922,6 +922,7 @@ Source: `docs/design/handoff/00/` (`00-design.md`, frames, `PLAN.md`). Already d
 - **Task 78 — hand-off phase 4: admin queries** (§6.17, §6.18a, §6.18c, M87, M88; #143, #144, #146; Q8 `last_seen_at` check; missing tests for the four admin commands). Files: `queries/devices.ts`, `queries/lockouts.ts`, `queries/staff.ts`, `queries/registry.ts`, tests.
 - **Task 79 — hand-off phase 5: `/admin` page** (M86; #142). Files: `admin/page.ts`, `admin/routes.ts`, `server.ts`, `auth/guards.ts` (route group), tests.
 - **Task 80 — hand-off phase 6: docs** (`docs/design/ui-brief.md` §1, `00-design.md`, open questions).
+- **Task 82 — spec v1.4** (M91, M92; #148–#151). Files: `auth/admin-session.ts` (roster `role_names`), `auth/pair-requests.ts` (`station_name`), `auth/pairing.ts` (`owner_name`), `auth/signin-client.ts` (role line on tiles), `auth/pair-page.ts` (names, light theme), `@pos/events` roster schema, tests. Commit `feat(00): task 82 names in responses, phone theme [spec M91, M92]`.
 - **Task 81 — Q5 waiter tablets**: blocked until the owner approves the `device_type` enum change; not in v1.3.
 
 **Done when:** #136, #137 and #140–#147 pass, every earlier test passes, and the §12.1 grep finds exactly one test per number.
@@ -935,6 +936,7 @@ Source: `docs/design/handoff/00/` (`00-design.md`, frames, `PLAN.md`). Already d
 | 136, 137, 140, 141, 145, 147 | 77 |
 | 143, 144, 146 | 78 |
 | 142 | 79 |
+| 148–151 | 82 |
 | 1, 6–12, 110 | 22 |
 | 2–5, 58, 85, 86, 99 | 23 |
 | 13 | 24 |
