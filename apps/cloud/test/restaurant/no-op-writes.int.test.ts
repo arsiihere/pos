@@ -75,7 +75,7 @@ describe('no-op config writes (v1.0.2)', () => {
 
     const routeNoop = await send('PUT', `/v1/admin/menu-items/${itemId}/routes/${a}`, route);
     expect(routeNoop.statusCode, routeNoop.body).toBe(200);
-    expect(routeNoop.json().data).toEqual({ route: { branch_id: a, ...route } });
+    expect(routeNoop.json().data).toEqual({ route: { branch_id: a, price_minor_override: null, ...route } });
 
     const removeNothing = await send('PUT', `/v1/admin/menu-items/${itemId}/routes/${b}`, { station_id: null });
     expect(removeNothing.statusCode, removeNothing.body).toBe(200);

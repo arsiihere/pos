@@ -183,6 +183,8 @@ const RouteInput = z.object({
   station_id: z.string().min(1),
   program_id: z.string().min(1).nullable().default(null),
   stock_program_id: z.string().min(1).nullable().default(null),
+  // S57: this branch's own price; null = the item's price_minor.
+  price_minor_override: PriceMinor.nullable().default(null),
 });
 
 // §6.14: tax_class_id is a required key (null = never taxed, S34); at most one route per branch.
@@ -238,23 +240,28 @@ export const PatchMenuItemBody = z
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
-// §6.16: { station_id, program_id?, stock_program_id? } sets the branch's route; { station_id: null } removes it.
+// §6.16: { station_id, program_id?, stock_program_id?, price_minor_override? } sets the branch's route;
+// { station_id: null } removes it.
 export const PutItemRouteBody = z
   .object({
     station_id: z.string().min(1).nullable(),
     program_id: z.string().min(1).nullable().default(null),
     stock_program_id: z.string().min(1).nullable().default(null),
+    price_minor_override: PriceMinor.nullable().default(null),
   })
-  .refine((body) => body.station_id !== null || (body.program_id === null && body.stock_program_id === null), {
-    message: 'a removed route has no programs',
-    path: ['station_id'],
-  });
+  .refine(
+    (body) =>
+      body.station_id !== null ||
+      (body.program_id === null && body.stock_program_id === null && body.price_minor_override === null),
+    { message: 'a removed route has no programs and no price', path: ['station_id'] },
+  );
 
 const Route = z.object({
   branch_id: z.string(),
   station_id: z.string(),
   program_id: z.string().nullable(),
   stock_program_id: z.string().nullable(),
+  price_minor_override: z.number().nullable(),
 });
 
 const Window = z.object({ start_ms: z.number(), end_ms: z.number() });

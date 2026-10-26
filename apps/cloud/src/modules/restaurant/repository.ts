@@ -504,7 +504,10 @@ export interface RouteRow {
   station_id: string;
   program_id: string | null;
   stock_program_id: string | null;
+  price_minor_override: number | null;
 }
+
+const ROUTE_COLUMNS = 'branch_id, station_id, program_id, stock_program_id, price_minor_override';
 
 const MENU_ITEM_COLUMNS =
   'item_id, category_id, tax_class_id, name, group_label, description, sort_order, price_minor, serve_mode, ' +
@@ -648,12 +651,14 @@ export async function insertItemRoutes(
   routes: RouteRow[],
   now: number,
 ): Promise<RouteRow[]> {
-  const rows = await repo.query<RouteRow>(
-    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id, updated_at)
-     SELECT b.tenant_id, b.branch_id, $3, u.station_id, u.program_id, u.stock_program_id, $4
-       FROM unnest($5::text[], $6::text[], $7::text[], $8::text[]) AS u (branch_id, station_id, program_id, stock_program_id)
+  const raw = await repo.query<RawRoute>(
+    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id,
+       price_minor_override, updated_at)
+     SELECT b.tenant_id, b.branch_id, $3, u.station_id, u.program_id, u.stock_program_id, u.price_minor_override, $4
+       FROM unnest($5::text[], $6::text[], $7::text[], $8::text[], $9::bigint[])
+              AS u (branch_id, station_id, program_id, stock_program_id, price_minor_override)
        JOIN branches b ON b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = u.branch_id
-     RETURNING branch_id, station_id, program_id, stock_program_id`,
+     RETURNING ${ROUTE_COLUMNS}`,
     [
       itemId,
       now,
@@ -661,35 +666,39 @@ export async function insertItemRoutes(
       routes.map((r) => r.station_id),
       routes.map((r) => r.program_id),
       routes.map((r) => r.stock_program_id),
+      routes.map((r) => r.price_minor_override),
     ],
   );
+  const rows = raw.map(routeRow);
   return rows.sort((a, b) => (a.branch_id < b.branch_id ? -1 : a.branch_id > b.branch_id ? 1 : 0));
 }
 
 // §6.16: the item's route at one branch, locked (the route is the PUT's target row).
 export async function lockItemRoute(repo: TenantScopedRepository, branchId: string, itemId: string): Promise<RouteRow | undefined> {
-  const rows = await repo.query<RouteRow>(
-    `SELECT branch_id, station_id, program_id, stock_program_id FROM item_routes
+  const rows = await repo.query<RawRoute>(
+    `SELECT ${ROUTE_COLUMNS} FROM item_routes
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND item_id = $4
       FOR UPDATE`,
     [branchId, itemId],
   );
-  return rows[0];
+  return rows[0] === undefined ? undefined : routeRow(rows[0]);
 }
 
 // §6.16: idempotent replace of the one route, inserted through the branch row.
 export async function upsertItemRoute(repo: TenantScopedRepository, itemId: string, route: RouteRow, now: number): Promise<RouteRow> {
-  const rows = await repo.query<RouteRow>(
-    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id, updated_at)
-     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8 FROM branches
+  const rows = await repo.query<RawRoute>(
+    `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, stock_program_id,
+       price_minor_override, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9 FROM branches
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
      ON CONFLICT (tenant_id, branch_id, item_id) DO UPDATE
        SET station_id = EXCLUDED.station_id, program_id = EXCLUDED.program_id,
-           stock_program_id = EXCLUDED.stock_program_id, updated_at = EXCLUDED.updated_at
-     RETURNING branch_id, station_id, program_id, stock_program_id`,
-    [route.branch_id, itemId, route.station_id, route.program_id, route.stock_program_id, now],
+           stock_program_id = EXCLUDED.stock_program_id, price_minor_override = EXCLUDED.price_minor_override,
+           updated_at = EXCLUDED.updated_at
+     RETURNING ${ROUTE_COLUMNS}`,
+    [route.branch_id, itemId, route.station_id, route.program_id, route.stock_program_id, route.price_minor_override, now],
   );
-  return rows[0]!;
+  return routeRow(rows[0]!);
 }
 
 export async function deleteItemRoute(repo: TenantScopedRepository, branchId: string, itemId: string): Promise<void> {
@@ -809,12 +818,13 @@ export async function selectItemRoutes(
   repo: TenantScopedRepository,
   itemIds: string[],
 ): Promise<Array<RouteRow & { item_id: string }>> {
-  return repo.query<RouteRow & { item_id: string }>(
-    `SELECT item_id, branch_id, station_id, program_id, stock_program_id FROM item_routes
+  const rows = await repo.query<RawRoute & { item_id: string }>(
+    `SELECT item_id, ${ROUTE_COLUMNS} FROM item_routes
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND item_id = ANY($3)
       ORDER BY item_id, branch_id`,
     [itemIds],
   );
+  return rows.map((row) => ({ ...routeRow(row), item_id: row.item_id }));
 }
 
 export type WindowTarget = { item_id: string } | { category_id: string };
@@ -860,6 +870,19 @@ export async function insertWindows(
   return rows
     .sort((a, b) => a.start_ms - b.start_ms || a.end_ms - b.end_ms || (a.window_id < b.window_id ? -1 : 1))
     .map(({ start_ms, end_ms }) => ({ start_ms, end_ms }));
+}
+
+type RawRoute = Omit<RouteRow, 'price_minor_override'> & { price_minor_override: string | null };
+
+// BIGINT arrives as a string (S57)
+function routeRow(row: RawRoute): RouteRow {
+  return {
+    branch_id: row.branch_id,
+    station_id: row.station_id,
+    program_id: row.program_id,
+    stock_program_id: row.stock_program_id,
+    price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override),
+  };
 }
 
 function menuItemRow(row: Raw<MenuItemRow> & { price_minor: string }): MenuItemRow {

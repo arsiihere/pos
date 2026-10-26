@@ -73,7 +73,8 @@ export async function buildSnapshot(
       WHERE tenant_id = $1 AND archived_at IS NULL ORDER BY sort_order, category_id`,
   );
   const items = await scoped.query<Record<string, unknown> & { item_id: string; price_minor: string }>(
-    `SELECT m.item_id, m.category_id, m.name, m.group_label, m.description, m.sort_order, m.price_minor,
+    `SELECT m.item_id, m.category_id, m.name, m.group_label, m.description, m.sort_order,
+            COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
             m.stock_unit, m.sale_unit, m.stock_per_sale_unit, m.low_stock_threshold, m.carries_over,
             r.station_id, r.program_id, r.stock_program_id

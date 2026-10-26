@@ -106,7 +106,7 @@ describe('menu item create', () => {
       carries_over: false,
       availability_windows: [],
       archived_at: null,
-      routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null }],
+      routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null, price_minor_override: null }],
     });
     const stored = await cloud.pool.query(
       `SELECT price_minor::text AS text, pg_typeof(price_minor)::text AS type FROM menu_items WHERE item_id = $1`,
@@ -170,8 +170,8 @@ describe('menu item create', () => {
     );
     expect(batch.statusCode).toBe(201);
     expect(batch.json().data.item.routes).toEqual([
-      { branch_id: a, station_id: menu.batchStationId, program_id: menu.programIds[0], stock_program_id: menu.programIds[1] },
-      { branch_id: f.branches[1], station_id: 'ST-B', program_id: null, stock_program_id: null },
+      { branch_id: a, station_id: menu.batchStationId, program_id: menu.programIds[0], stock_program_id: menu.programIds[1], price_minor_override: null },
+      { branch_id: f.branches[1], station_id: 'ST-B', program_id: null, stock_program_id: null, price_minor_override: null },
     ]);
   });
 

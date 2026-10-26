@@ -73,7 +73,7 @@ describe('item route put', () => {
     const first = await put(itemId, a, route);
     expect(first.statusCode, first.body).toBe(200);
     expect(first.headers['idempotent-replay']).toBeUndefined();
-    expect(first.json().data).toEqual({ route: { branch_id: a, ...route } });
+    expect(first.json().data).toEqual({ route: { branch_id: a, price_minor_override: null, ...route } });
     const v1 = await versions();
     expect(v1).toEqual([v0[0]! + 1, v0[1], v0[2]]);
     const state = await storedRoutes(itemId);
@@ -137,7 +137,7 @@ describe('item route put', () => {
     expect(removed.statusCode).toBe(200);
     const set = await put(itemId, a, { station_id: menu.slotStationId });
     expect(set.statusCode).toBe(200);
-    const slotRoute = { branch_id: a, station_id: menu.slotStationId, program_id: null, stock_program_id: null };
+    const slotRoute = { branch_id: a, station_id: menu.slotStationId, program_id: null, stock_program_id: null, price_minor_override: null };
     expect(await audit('item_route', itemId)).toEqual([
       { actor_owner_user_id: f.userId, branch_id: a, action: 'route_removed', before: slotRoute, after: null },
       { actor_owner_user_id: f.userId, branch_id: a, action: 'route_set', before: null, after: slotRoute },

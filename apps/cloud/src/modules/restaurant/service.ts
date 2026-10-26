@@ -778,9 +778,7 @@ export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, owne
       .filter((w) => w.item_id === item.item_id)
       .map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
     archived_at,
-    routes: routes
-      .filter((r) => r.item_id === item.item_id)
-      .map(({ branch_id, station_id, program_id, stock_program_id }) => ({ branch_id, station_id, program_id, stock_program_id })),
+    routes: wireRoutes(routes.filter((r) => r.item_id === item.item_id)),
   }));
   return {
     can_edit_tenant: canEditTenant,
@@ -948,7 +946,13 @@ export async function putItemRoute(
     const next =
       body.station_id === null
         ? null
-        : { branch_id: branchId, station_id: body.station_id, program_id: body.program_id, stock_program_id: body.stock_program_id };
+        : {
+            branch_id: branchId,
+            station_id: body.station_id,
+            program_id: body.program_id,
+            stock_program_id: body.stock_program_id,
+            price_minor_override: body.price_minor_override,
+          };
     if (unchangedRow(before, next)) return { route: before };
     let route: RouteRow | null = null;
     if (next !== null) {
@@ -989,11 +993,12 @@ function unchangedWindows(current: readonly WindowRow[], next: readonly WindowRo
 }
 
 function wireRoutes(routes: readonly RouteRow[]): RouteRow[] {
-  return routes.map(({ branch_id, station_id, program_id, stock_program_id }) => ({
+  return routes.map(({ branch_id, station_id, program_id, stock_program_id, price_minor_override }) => ({
     branch_id,
     station_id,
     program_id,
     stock_program_id,
+    price_minor_override,
   }));
 }
 

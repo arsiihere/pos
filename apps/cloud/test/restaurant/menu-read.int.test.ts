@@ -100,12 +100,12 @@ describe('owner menu read', () => {
 
     const all = await page('?limit=200');
     expect(all.items.find((i) => i.item_id === 'MI-000')!.routes).toEqual([
-      { branch_id: a, station_id: 'ST-A', program_id: null, stock_program_id: null },
-      { branch_id: b, station_id: 'ST-B', program_id: null, stock_program_id: null },
+      { branch_id: a, station_id: 'ST-A', program_id: null, stock_program_id: null, price_minor_override: null },
+      { branch_id: b, station_id: 'ST-B', program_id: null, stock_program_id: null, price_minor_override: null },
     ].sort((x, y) => (x.branch_id < y.branch_id ? -1 : 1)));
     const onlyA = await page('?limit=200', f.tokenFor([a]));
     expect(onlyA.items.find((i) => i.item_id === 'MI-000')!.routes).toEqual([
-      { branch_id: a, station_id: 'ST-A', program_id: null, stock_program_id: null },
+      { branch_id: a, station_id: 'ST-A', program_id: null, stock_program_id: null, price_minor_override: null },
     ]);
     expect(onlyA.items).toHaveLength(60);
 
