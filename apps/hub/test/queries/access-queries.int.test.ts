@@ -63,11 +63,14 @@ describe('access queries', () => {
       device_type: 'phone',
       station_id: null,
       owner_staff_id: 'S_OWNER',
+      owner_name: 'Owner',
       pairing_source: 'token',
       paired_at: hub.clock.branchNow(),
       paired_by_name: 'Manager',
       last_seen_at: hub.clock.branchNow() - 50,
       revoked_at: null,
+      revoked_by_name: null,
+      revoked_reason: null,
       active_session: { session_id: staff.sessionId, kind: 'staff', staff_id: 'S_CASH', display_name: 'Cashier' },
     });
     expect(listedDevices.find((row) => row.device_id === adminDevice.deviceId)).toMatchObject({
@@ -122,6 +125,8 @@ describe('access queries', () => {
     const ids = (many.json().data.devices as Array<{ device_id: string }>).map((row) => row.device_id);
     expect(ids).toHaveLength(19);
     expect(ids).not.toContain(revoked);
+    counter.reset();
+    // M87: one more statement for the removal reasons of revoked rows.
     const withRevoked = await adminGet(hub, adminDevice.token, admin.token, '/admin/queries/devices?include_revoked=true');
     expect(counter.count).toBe(2);
     expect(withRevoked.json().data.devices).toHaveLength(20);

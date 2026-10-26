@@ -39,6 +39,8 @@ import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStationsQuery } from './queries/stations.js';
+import { registerLockoutsQuery } from './queries/lockouts.js';
+import { registerStaffQuery } from './queries/staff.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
 import { registerStockQuery } from './queries/stock.js';
 import type { ProjectionRegistry } from './projections/registry.js';
@@ -156,6 +158,8 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerDevicesQuery(app);
   registerSessionsQuery(app);
   registerStationsQuery(app);
+  registerLockoutsQuery(app);
+  registerStaffQuery(app);
   registerStaffRosterQuery(app, deps.clock);
   registerStockQuery(app, deps.clock);
   registerConfigStatusQuery(app, deps.config);

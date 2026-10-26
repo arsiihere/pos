@@ -22,6 +22,8 @@ export interface QueryCtx {
   // 01a S16: read-only engine state and the in-memory branch config (S40 N9).
   state: Readonly<EngineState>;
   branchConfig: BranchConfig | null;
+  // Branch time for queries that compare against it (§6.18a lockouts).
+  now: number;
 }
 
 export interface QueryDef<Q extends z.ZodType = z.ZodType> {
@@ -119,6 +121,7 @@ function runQuery(
       session: request.session,
       state: deps.state.get(),
       branchConfig: branchConfig(),
+      now: deps.clock.branchNow(),
     },
     parsed.data,
   );

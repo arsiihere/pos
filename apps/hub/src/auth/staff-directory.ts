@@ -17,6 +17,7 @@ export interface StaffView {
 }
 
 interface RoleRecord {
+  name: string;
   session_idle_ttl_ms: number;
   permissions: Map<string, { grant_type: 'allowed' | 'requires_approval'; approver_role_id: string | null }>;
 }
@@ -46,7 +47,7 @@ export class StaffDirectory {
           approver_role_id: permission.approver_role_id,
         });
       }
-      roles.set(role.role_id, { session_idle_ttl_ms: role.session_idle_ttl_ms, permissions });
+      roles.set(role.role_id, { name: role.name, session_idle_ttl_ms: role.session_idle_ttl_ms, permissions });
     }
     const staffById = new Map<string, StaffRecord>();
     for (const staff of d.staff) {
@@ -186,6 +187,14 @@ export class StaffDirectory {
       if (ttl > max) max = ttl;
     }
     return max;
+  }
+
+  // §6.18c: role names for the admin staff list.
+  roleNames(staffId: string): string[] {
+    return (this.staffById.get(staffId)?.role_ids ?? []).flatMap((roleId) => {
+      const role = this.roles.get(roleId);
+      return role === undefined ? [] : [role.name];
+    });
   }
 
   // M89: what the admin pages may show; the command pipeline stays the authority.

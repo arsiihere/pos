@@ -4,7 +4,7 @@ import { WS_CLOSE, WsClientMessage, type PosEvent } from '@pos/events';
 import websocket from '@fastify/websocket';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { findSessionByToken, isIdleExpired } from '../auth/session-store.js';
+import { activity, findSessionByToken, isIdleExpired } from '../auth/session-store.js';
 import { provisionedOf } from '../config/schema.js';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
@@ -158,15 +158,17 @@ function accept(
     const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, provisionedOf(deps.config).branch_name);
     live = { socket, ctx };
     open.push(live);
-    stopKeepalive = armKeepalive(socket);
+    // Q8 (§6.17): a pong is a sign of life, so a kitchen screen that only holds its socket stays "seen" (15 s).
+    stopKeepalive = armKeepalive(socket, () => activity.deviceSeen(auth.deviceId, deps.clock.branchNow()));
     socket.send(JSON.stringify({ type: 'catch_up', as_of_seq: asOfSeq, state }));
   });
 }
 
-function armKeepalive(socket: HubSocket): () => void {
+export function armKeepalive(socket: Pick<HubSocket, 'ping' | 'terminate' | 'on'>, onPong: () => void): () => void {
   const handle = { kill: setTimeout(() => socket.terminate(), PONG_MS) };
   const ping = setInterval(() => socket.ping(), PING_MS);
   socket.on('pong', () => {
+    onPong();
     clearTimeout(handle.kill);
     handle.kill = setTimeout(() => socket.terminate(), PONG_MS);
   });

@@ -165,7 +165,7 @@ export async function seedDirectory(h: TestHub, d?: DirectoryInput): Promise<voi
 
 export function pairDevice(
   h: TestHub,
-  o: { type: DeviceType; stationId?: string; ownerStaffId?: string },
+  o: { type: DeviceType; stationId?: string; ownerStaffId?: string; name?: string },
 ): { deviceId: string; token: string } {
   const branchId = h.deps.config.provisioned?.branch_id;
   if (branchId === undefined) throw new Error('pairDevice requires a provisioned hub');
@@ -182,7 +182,7 @@ export function pairDevice(
       deviceId,
       branchId,
       sha256hex(token),
-      o.type,
+      o.name ?? o.type,
       o.type,
       o.type === 'kds' ? (o.stationId ?? null) : null,
       o.type === 'phone' ? (o.ownerStaffId ?? null) : null,

@@ -1020,7 +1020,7 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 |---|---|
 | Input | `?include_revoked=false` |
 | Response | `{ devices: [{ device_id, device_name, device_type, station_id, owner_staff_id, owner_name, pairing_source: 'token' \| 'request', paired_at, paired_by_name, last_seen_at, revoked_at, revoked_by_name, revoked_reason, active_session: { session_id, kind, staff_id, display_name } \| null }] }` (`owner_name`, `revoked_by_name`, `revoked_reason`: M87; null when not applicable) |
-| Query count | 1 (devices LEFT JOIN active sessions), plus 1 when `include_revoked=true` (`SELECT stream_id, payload FROM events WHERE stream_type = 'hub' AND stream_id IN (<revoked ids>) AND event_type = 'DeviceRevoked'`, latest per device; `events_stream`); names from `StaffDirectory`; last-seen from memory merged over the column; `pairing_source` from `device_type` (M80). Bounded list (a branch has tens of devices), returned whole |
+| Query count | 1 (devices LEFT JOIN active sessions), plus 1 when `include_revoked=true` (`SELECT stream_id, payload FROM events WHERE stream_type = 'hub' AND stream_id IN (<revoked ids>) AND event_type = 'DeviceRevoked'`, latest per device; `events_stream`); names from `StaffDirectory`; last-seen from memory merged over the column (refreshed by every device-authenticated request and by each WebSocket pong, so a kitchen screen holding only its socket is seen every 15 s; Q8); `pairing_source` from `device_type` (M80). Bounded list (a branch has tens of devices), returned whole |
 
 #### 6.18 `GET /admin/queries/sessions`
 
