@@ -1,6 +1,6 @@
-import { PERMISSIONS } from '@pos/domain';
-import { z } from 'zod';
-import { ScopeSchema } from '../directory.js';
+import { PERMISSIONS } from "@pos/domain";
+import { z } from "zod";
+import { ScopeSchema } from "../directory.js";
 
 // 01b §5.3, §6 (01a D5): the owner staff, roles, responsibilities and branch shapes, shared by the cloud
 // routes and apps/client (browser-safe: zod and @pos/domain only).
@@ -13,7 +13,7 @@ const BranchName = z.string().trim().min(1).max(60);
 const Id = z.string().min(1);
 // B23: a version is sha256 hex; the client sends back the one it read.
 const Version = z.string().min(1);
-const GrantType = z.enum(['allowed', 'requires_approval']);
+const GrantType = z.enum(["allowed", "requires_approval"]);
 const ReportsTo = z.array(z.object({ branch_id: Id, lead_staff_id: Id }));
 const Floors = z.array(z.object({ branch_id: Id, floor_ids: z.array(Id) }));
 
@@ -27,8 +27,12 @@ export const StaffWire = z.object({
   pin_set_at: z.number().nullable(),
   is_active: z.boolean(),
   left_at: z.number().nullable(),
-  reports_to: z.array(z.object({ branch_id: z.string(), lead_staff_id: z.string() })),
-  floors: z.array(z.object({ branch_id: z.string(), floor_ids: z.array(z.string()) })),
+  reports_to: z.array(
+    z.object({ branch_id: z.string(), lead_staff_id: z.string() }),
+  ),
+  floors: z.array(
+    z.object({ branch_id: z.string(), floor_ids: z.array(z.string()) }),
+  ),
   version: z.string(),
 });
 export type StaffWire = z.infer<typeof StaffWire>;
@@ -54,7 +58,7 @@ export const RoleWire = z.object({
 export type RoleWire = z.infer<typeof RoleWire>;
 
 export const ResponsibilityWire = z.object({
-  responsibility: z.literal('count_stock'),
+  responsibility: z.literal("count_stock"),
   station_id: z.string(),
   staff_ids: z.array(z.string()),
   role_ids: z.array(z.string()),
@@ -71,7 +75,7 @@ export type ResponsibilitySetWire = z.infer<typeof ResponsibilitySetWire>;
 export const BranchWire = z.object({
   branch_id: z.string(),
   name: z.string(),
-  status: z.enum(['pending_hub', 'active']),
+  status: z.enum(["pending_hub", "active"]),
   hub_last_seen_at: z.number().nullable(),
   hub_synced_at: z.number().nullable(),
   tax_enabled: z.boolean(),
@@ -101,7 +105,9 @@ export const TeamNode: z.ZodType<TeamNode> = z.lazy(() =>
 export const ChangedVersions = z.object({
   staff: z.array(z.object({ staff_id: z.string(), version: z.string() })),
   roles: z.array(z.object({ role_id: z.string(), version: z.string() })),
-  responsibilities: z.array(z.object({ branch_id: z.string(), version: z.string() })),
+  responsibilities: z.array(
+    z.object({ branch_id: z.string(), version: z.string() }),
+  ),
 });
 export type ChangedVersions = z.infer<typeof ChangedVersions>;
 
@@ -115,19 +121,17 @@ export const StaffCreateBody = z.object({
   floors: Floors.optional(),
 });
 
-// §6.4: expected_version is required; each list is sent whole.
-export const StaffPatchBody = z
-  .object({
-    expected_version: Version,
-    display_name: StaffName.optional(),
-    role_ids: z.array(Id).min(1).optional(),
-    branch_ids: z.array(Id).min(1).optional(),
-    denied_permissions: z.array(PermissionSchema).optional(),
-    reports_to: ReportsTo.optional(),
-    floors: Floors.optional(),
-    is_active: z.boolean().optional(),
-  })
-  .refine((body) => Object.keys(body).length > 1, { message: 'at least one field is required' });
+// §6.4: expected_version is required; each list is sent whole. A version-only body is a no-op (200, or 409 when stale).
+export const StaffPatchBody = z.object({
+  expected_version: Version,
+  display_name: StaffName.optional(),
+  role_ids: z.array(Id).min(1).optional(),
+  branch_ids: z.array(Id).min(1).optional(),
+  denied_permissions: z.array(PermissionSchema).optional(),
+  reports_to: ReportsTo.optional(),
+  floors: Floors.optional(),
+  is_active: z.boolean().optional(),
+});
 
 // §6.3, 00 M27: ASCII digits only (an Urdu keyboard's digits are refused), duplicates allowed.
 export const PinBody = z.object({ pin: z.string().regex(/^[0-9]{4,6}$/) });
@@ -137,7 +141,7 @@ const GrantBody = z.object({
   permission: PermissionSchema,
   grant_type: GrantType,
   approver_role_ids: z.array(Id),
-  scope: ScopeSchema.default('branch'),
+  scope: ScopeSchema.default("branch"),
 });
 const IdleMinutes = z.number().int().min(1).max(240);
 
@@ -147,16 +151,14 @@ export const RoleCreateBody = z.object({
   grants: z.array(GrantBody),
 });
 
-// §6.7: grants replace the whole list.
-export const RolePatchBody = z
-  .object({
-    expected_version: Version,
-    name: RoleName.optional(),
-    idle_minutes: IdleMinutes.optional(),
-    grants: z.array(GrantBody).optional(),
-    archived: z.boolean().optional(),
-  })
-  .refine((body) => Object.keys(body).length > 1, { message: 'at least one field is required' });
+// §6.7: grants replace the whole list. A version-only body is a no-op (200, or 409 when stale).
+export const RolePatchBody = z.object({
+  expected_version: Version,
+  name: RoleName.optional(),
+  idle_minutes: IdleMinutes.optional(),
+  grants: z.array(GrantBody).optional(),
+  archived: z.boolean().optional(),
+});
 
 // §6.8: the whole set of the branch.
 export const ResponsibilitiesPutBody = z.object({
@@ -174,7 +176,9 @@ export const BranchSettingsPatchBody = z
     day_stale_after_hours: z.number().int().min(1).max(48).optional(),
     day_min_gap_hours: z.number().int().min(0).max(12).optional(),
   })
-  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+  .refine((body) => Object.keys(body).length > 0, {
+    message: "at least one field is required",
+  });
 
 // §6.11
 export const ChangePasswordBody = z.object({
