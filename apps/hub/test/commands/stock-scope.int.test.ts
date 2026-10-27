@@ -72,6 +72,51 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     expect(refused.statusCode).toBe(403);
     expect(refused.json().error.details).toMatchObject({ reason: 'outside_scope', item_ids: ['I1'] });
   });
+
+  it('[01b B20] R-2: a scope change mid-session reaches the next poll with the old versions (new stations, then scope branch)', async () => {
+    const hub = await open();
+    const counter = adminOn(hub, 'S_CNT');
+    const first = (await query(hub, counter)).json().data;
+    expect(first.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+
+    // The owner also gives the counter S2; the directory syncs.
+    const directory = await aDirectory();
+    const counterStaff = { ...directory.staff.find((staff) => staff.staff_id === 'S_CASH')!, staff_id: 'S_CNT', display_name: 'Counter', role_ids: ['R_CNT'] };
+    const counterRole = {
+      role_id: 'R_CNT',
+      name: 'Stock counter',
+      session_idle_ttl_ms: 3_600_000,
+      permissions: [
+        { permission: 'access-hub-admin' as const, grant_type: 'allowed' as const, approver_role_id: null, approver_role_ids: [], scope: 'branch' as const },
+        { permission: 'manage-stock' as const, grant_type: 'allowed' as const, approver_role_id: null, approver_role_ids: [], scope: 'my_stations' as const },
+      ],
+    };
+    directory.roles.push(counterRole);
+    directory.staff.push(counterStaff);
+    directory.responsibilities = [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }, { responsibility: 'count_stock', station_id: 'S2', staff_ids: ['S_CNT'], role_ids: [] }];
+    let version = directory.directory_version + 1;
+    const resync = () => seedDirectory(hub, { ...directory, directory_version: (version += 1) });
+    await resync();
+    const second = (await query(hub, counter, first)).json().data;
+    expect(second.unchanged).toBe(false);
+    expect(second.meta_version).not.toBe(first.meta_version);
+    expect(second.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
+    expect(second.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
+
+    // Back to S1 only, then the role's scope becomes branch.
+    directory.responsibilities = [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }];
+    await resync();
+    const third = (await query(hub, counter, second)).json().data;
+    expect(third.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    counterRole.permissions[1]!.scope = 'branch' as never;
+    await resync();
+    const fourth = (await query(hub, counter, third)).json().data;
+    expect(fourth.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
+    expect(fourth.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
+
+    // Nothing moved: unchanged again.
+    expect((await query(hub, counter, fourth)).json().data.unchanged).toBe(true);
+  });
 });
 
 // S1 (I1, I2) and S2 (I3); every item stock-tracked.
@@ -114,10 +159,11 @@ function adminOn(hub: TestHub, staffId: string): Admin {
   return { staffId, device, session };
 }
 
-function query(hub: TestHub, admin: Admin) {
+function query(hub: TestHub, admin: Admin, versions?: { meta_version: string; stock_version: number }) {
   return hub.app.inject({
     method: 'GET',
     url: '/admin/queries/stock',
+    query: versions === undefined ? {} : { meta_version: versions.meta_version, stock_version: String(versions.stock_version) },
     headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
   });
 }

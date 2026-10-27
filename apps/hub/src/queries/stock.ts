@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
 import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
 import { isStockTracked, type BranchConfig } from '@pos/events';
@@ -28,7 +29,8 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
         const config = scopedConfig(ctx.branchConfig, inScope);
         const state = ctx.state;
         const start = openDayStartMs(state);
-        const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}`;
+        // R-2: a scoped item list also keys the meta part, so a directory change (stations, scope) reaches the page.
+        const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}${config === ctx.branchConfig ? '' : `.${scopeKey(config)}`}`;
         const currentStockVersion = stockVersion();
         const time = hubTime(clock);
         const day = state.business_day;
@@ -117,6 +119,11 @@ function scopedConfig(config: BranchConfig | null, inScope: (item: BranchConfig[
   if (config === null) return null;
   const items = config.items.filter(inScope);
   return items.length === config.items.length ? config : { ...config, items };
+}
+
+function scopeKey(config: BranchConfig | null): string {
+  const ids = (config?.items ?? []).map((item) => item.item_id).join(',');
+  return createHash('sha256').update(ids).digest('hex').slice(0, 12);
 }
 
 // S30: changed_at of the items that are off; 1 statement, none with no items.
