@@ -10,10 +10,10 @@
 | T6 | DONE | 1 | T5 | 7385fce; AD-3 (interim v1-valued v2 keys in cloud loadDirectory, hub DirectoryCore) |
 | T7 | DONE | 1 | T1,T6 | 76f631f; AD-3 interim keys replaced; 01a poll budget tests → ≤ 17 (01a v1.3 §6.1); #83 split: cloud half here, hub half in apply-directory (R-2) |
 | T8 | DONE | 1 | T6 | 365d868; AD-3 DirectoryCore now the stored v2 shape; AD-9 (skip ids) |
-| T9 | TODO | 0 | T5,T8 | |
+| T9 | DONE | 1 | T5,T8 | 5ee236f; #18 hub half passes at once (00 ttlFor) |
 | T10 | TODO | 0 | T9 | |
 | T11 | DONE | 1 | T6 | 7ccb562; AD-7 (row types in versions.ts) |
-| T12 | TODO | 0 | T1,T5,T6,T11 | extend #93 (issue-code test) with GET /v1/admin/staff?branch_id=C; extend #73 (guard test) with GET /v1/admin/staff; ROUTE_CASES now in test/helpers/route-cases.ts (AD-8) |
+| T12 | DONE | 1 | T1,T5,T6,T11 | 156fe20; AD-10, AD-11; #93 and #73 extended; create already checks §3.2 rules 5–6 (loop walk in T15) |
 | T13 | TODO | 0 | T8,T12 | |
 | T14 | TODO | 0 | T12 | extend #73 (guard test) with PATCH /v1/admin/staff/:id |
 | T15 | TODO | 0 | T14 | |
@@ -35,11 +35,11 @@
 | T31 | TODO | 0 | T12 | |
 | T32 | TODO | 0 | T2,T12 | |
 | T33 | TODO | 0 | T6,T31 | |
-| T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part waits for T12 |
-| T35 | DONE | 1 | T1 | 2c26807; AD-8; #65 change-password part waits for T38, #73 staff routes for T12/T14 |
-| T36 | TODO | 0 | T35 | |
-| T37 | TODO | 0 | T35 | |
-| T38 | TODO | 0 | T35 | extend #65 (guard test): change-password answers normally while must_change_password is set |
+| T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part done in T12 |
+| T35 | DONE | 1 | T1 | 2c26807; AD-8; #65 change-password part done in T38; #73 GET staff done in T12, PATCH waits for T14 |
+| T36 | DONE | 1 | T35 | ba6e263; refresh notice interim null until T37 |
+| T37 | DONE | 1 | T35 | 5af3f2b; #42 passed at once (T35/T36 code) |
+| T38 | DONE | 1 | T35 | 434dd4f; AD-12; #65 extended; steps (3) lock and account counter left to T39 |
 | T39 | TODO | 0 | T38 | |
 | T40 | TODO | 0 | T38 | may pass at once; watch fail per plan |
 | T41 | TODO | 0 | T35 | |
