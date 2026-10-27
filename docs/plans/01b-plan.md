@@ -217,6 +217,7 @@ Every number 1–107 appears exactly once; #74 appears as its lettered cases a�
 | 48 | Cloud `seed-tenant` defaults with `default_key` | 11 | Docker |
 | 49 | Cloud team tree | 12 | Docker |
 | 50 | Client API, i18n strings, owner nav | 13 |  |
+| 50b | Align the owner shell, kit and Urdu strings with the design handoff | 13 | Claude only |
 | 51 | Client staff views and PIN dialog | 13 |  |
 | 52 | Client roles views | 13 |  |
 | 53 | Client teams and stock-counting views | 13 |  |
@@ -874,7 +875,7 @@ Every directory write response returns `changed_versions` (§6 script, J-5); cas
 - [ ] **Step 2:** Make the task-50 side nav match README §9 (order, groups, counts, foot).
 - [ ] **Step 3:** Fill the Urdu catalogue from the `*Urdu.html` screens; update `urdu-todo.md` to list only the keys the designs don't cover.
 - **Done when:** the shell renders like `screens/Main.html` at 1440 and `screens/StaffPhoneList.html` at 390, in English and Urdu (RTL); `pnpm test` green.
-- [ ] **Commit:** `feat(01b): task 50b shell and kit aligned with design handoff`
+- [ ] **Commit:** `feat(01b): task 50b shell and kit aligned with design handoff [spec §8]`
 
 ### Task 51: Client staff views and PIN dialog
 
