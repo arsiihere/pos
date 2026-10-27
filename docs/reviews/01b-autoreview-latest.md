@@ -1,28 +1,33 @@
-VERDICT: PASS
+VERDICT: BLOCKERS
 
-# 01b batch review: tasks 15, 16, 19, 23, 24 (2026-10-28)
+# 01b batch review: tasks 17, 18, 20, 25, 27 (202dd11..cfaf4cf)
 
-**Scope:** the commits after `30bca55 review(01b): batch review`: `08ef777` (T15), `93c27a0` (T16), `1df74d0` (T19), `ee8c4cd` (T23), `aa2f6dd` (T24), `2c117c7` (docs).
+Checked against: foundation §6, 01b spec §3.4, §3.6, §6 (directory write script), §6.4, §6.7, §6.8, B14, tests #1, #5, #9, #11, #16, #32, #35, #101, #103; the plan tasks' "Done when"; AD-18 and AD-19.
 
-**Checked against:** foundation §6 (envelope, `DomainError` codes), 01b B7, B8, B11, B12, B13, B15, B21, B22, B23, §3.2 rules 1/5, §3.4, §3.5, §3.6, §6 directory write script, §6.4, §6.7; tests #10, #17, #18, #26–#30, #57, #69, #79; plan tasks 15, 16, 19, 23, 24 "Done when"; the Interfaces "Cloud guards" block; AD-15, AD-16, AD-17.
+## R-1 Blocker (T25, AD-18 (2) is not a valid Class B decision; test #5 contradicts the spec)
 
-**Run:** `guards`, `leaving`, `reports-to`, `role-patch`, `roles`, `cross-tenant` int tests: 6 files, 26 tests, all pass.
+- `apps/cloud/src/modules/staff-roles/service.ts:390-411` and `apps/cloud/test/staff-roles/role-archive.int.test.ts:242,282`.
+- The spec does not leave this open. The §6 directory write script says `writeConfigAudit (one row per changed entity …)`. The same paragraph names "a role archive removing the role from its holders" as a cascade that changes those staff records' versions. Test #5 says "role assignment writes exactly one `config_audit` row per changed entity". §6.4 follows the same rule for cascades: every B15 move writes its own `staff` row. AD-18 calls this a spec gap and chooses to write only the `role` / `archive` row. That changes the behaviour of the immutable audit log, which is a story requirement (E6 AC5). It should have been followed as written or parked; it was not a Class B decision.
+- Failure scenario: Bilal holds Waiter and Shift lead. The owner archives Shift lead. Bilal's `role_ids` changes from `[waiter, shift]` to `[waiter]` and his version changes, but no `staff` audit row records it. An auditor reading Bilal's history cannot see when or why he lost the role. The #5 test asserts exactly one row for this archive, while its holder `p` loses the role in that same write, so the test protects the behaviour the spec rules out.
+- Required fix: on archive, write one `staff` / `update` row per former holder, with `before` / `after` in wire shape (role_ids before and after). Change #5 to expect 1 + holders rows, and assert that the holder's row exists. Change AD-18 (2) to record the decision as spec-mandated. If the implementer still reads this as ambiguous, park it as P-n (audit behaviour) instead of deciding it. (AD-15's leaver → `responsibility` cascade has the same gap; it was accepted in an earlier batch, but it should be looked at again together with this one.)
 
-**Previous nits closed:** last review's N-1 (`is_active` now applied, #10), N-2 (a lead losing a branch moves their reports first, then the branch row goes, #30) and N-3 (a self-lead and A→B→A give `422 loop`, #27). N-4 (staff guards) is done by T19.
+## R-2 Should-fix (T25): restore does not check the stored grants against §6.6
 
-## What holds up
-- **Guards (§3.4, B7):** `qualifyingAdmins` is one statement (`pgCounter` = 1), evaluated after the tenant lock both before the rules and after the write. Own-admin runs first, then the fail-safe `owner_not_linked` (anyone who stops qualifying at a branch), then last-admin over `A_before \ A_after` only, so branches with no admin before are not blocked. The signature matches the Interfaces block. A stock counter (`access-hub-admin` only) is shown not to qualify.
-- **B15 / §3.5:** reports are re-parented to the leaver's own lead (or have their row deleted) before `removeBranches`. This is needed because the `lead_staff_id` FK has no cascade. Each move writes one `staff` / `reports_to_reassigned` audit row with `{ branch_id, lead_staff_id }` and its branch, and appears in `moved_reports` and `changed_versions.staff`. The leaver's own lead rows are deleted. Staff responsibilities are deleted at every branch (leaving) or at the removed branch, and those branches go into `changed_versions.responsibilities`, built by the one builder (B23).
-- **Loop walk:** one recursive statement per `reports_to` entry, capped by the branch's active staff count, and it stops when it reaches the person. Leads from other branches are not counted (checked in #27).
-- **Role PATCH (§6.7 without archive):** target is locked `FOR UPDATE` after the tenant lock; a missing or foreign role gives `404 ROLE_NOT_FOUND`. The version is compared before the no-op check, so a stale no-op still answers `409`. §6.6 grant rules run on the sent grants, and the name is checked only when it changes. `default_key` is never written. `replaceGrants` cascades to the approver rows and dual-writes `approver_role_id`, checked by #79 against the v1.4 SQL fixture. Exactly one `role` / `update` audit row, with grants and without `version` / `staff_count`.
-- **Class B review:** AD-15 (a leaver's sent `reports_to` is ignored; one person audit row `left`/`returned`/`update`; extra responsibility branches may be listed), AD-16 (shared person predicate; CLI behaviour unchanged from AD-6) and AD-17 (`archived` accepted, not yet applied) leave event schemas, the sync contract, request/response shapes, error codes, money/stock and auth unchanged. They are correctly Class B.
-
-## Findings
-No Blockers and no Should-fix.
+- `apps/cloud/src/modules/staff-roles/service.ts:363`: `checkGrants` runs only when `body.grants` is sent. A restore (`archived: false`) re-checks only the name.
+- Failure scenario: role X has `apply-discount` `requires_approval` with approver Y. Archive X. Y can now be archived, because B14 only blocks an approver of an **active** role. Restore X. X is active again with a grant whose only approver is an archived role. §6.6 ("approvers active roles of the tenant") fails on the merged row, which §6.7 ("rules as §6.6") requires. On the hub, B18 then drops or skips the approver, so cashiers holding X can never get a discount approved, and nothing warns the owner.
+- Required fix: on restore, run the approver check on the merged grants (stored grants when `grants` is not sent). Answer `422 CONFIG_REFERENCE_INVALID { field: 'grants.N.approver_role_ids.M', reason: 'role_archived' }`, an existing code and reason, with nothing written. Add a test.
 
 ## Nits (non-blocking)
-- N-1 (T24) `apps/cloud/src/modules/staff-roles/service.ts:325-373`: role PATCH runs no admin guards yet (§3.4 lists role PATCH grants). Right now a grant edit can remove `manage-devices` from the Owner role and leave every branch without a qualifying admin. The plan assigns this to task 26 (#63, #76), but the T24 status note records only the `archived` interim. Add "no guards until T26" to that note, and do not release before T26.
-- N-2 (T23/T24) #18 cloud half: `idle_minutes` 0 / 241 → `400` is tested only on `POST /roles`. `RolePatchBody` uses the same `IdleMinutes`, but no PATCH case would catch a later schema split. Add the PATCH case when task 30 touches the file.
-- N-3 (T15) `repository.ts` `leadLineReaches`: the hop cap ("≤ active staff", plan Done when) is never exercised. No test builds an existing cycle that does not include the person (hand-written SQL) to show the walk ends and answers "no loop" instead of hanging.
-- N-4 (T16) #10 "no `credentials_changed`" is shown only indirectly, by the same `pin_hash` in the cloud `loadDirectory`. The hub apply is not run. That is acceptable as 00 code (P-3 pattern), but T17's hub test (`poller-leaver.int.test.ts`) could also assert a returner raises no `credentials_changed`.
-- N-5 (T19) #69 "after `seed-tenant` the link is set" is simulated by an SQL `UPDATE owner_users SET staff_id`. `seed-tenant` setting the link is covered elsewhere (T48), so this is wording only.
+
+- N-1 (T27) `service.ts` `putResponsibilities`: the no-op comparison runs before `checkResponsibilities`. A body that repeats a station, or that has an empty entry naming a foreign or archived station, gets `200` when it collapses to the stored set and `422` otherwise. AD-19's "repeated station → 422" therefore depends on state. Consider running the per-entry station checks before the no-op comparison.
+- N-2 (T25) `roleUsedBy` / `setRoleArchived` filter `staff_roles` by `role_id`, but the only index is the PK `(tenant_id, staff_id, role_id)`, so each query scans the tenant's rows. That is fine at pilot scale, and merged migrations are frozen. Note it for a later migration.
+- N-3 (T20) `guards-race.int.test.ts`: between runs, the test deletes every `staff_branches` row at branch C. That leaves active staff with no branch, which §3.2 rule 1 forbids. The test does not depend on this, but it leaves invalid fixture state behind. Deactivating the two admins, or giving each run its own fixture, would be cleaner.
+- N-4 (T17) `poller-leaver.int.test.ts` builds the "after" directory by hand from `aDirectory` instead of from the cloud's `loadDirectory` output. P-3 allows this, but the cloud and hub halves of #9 are linked only by a comment.
+- N-5 (T27): plan task 27 lists `apps/cloud/test/cross-tenant.int.test.ts`, but the change was made in `test/helpers/route-cases.ts`. That is correct if cross-tenant iterates `ROUTE_CASES`. The build log should say so.
+
+## Checked and fine
+
+- T17: `STAFF_LINKED_TO_OWNER` is checked after the version and no-op checks and before `qualifyingAdmins`, so the answer is the same with or without a second admin. #101 covers the hand-linked row that is not an admin.
+- T18 / T20: the tenant lock serialises the writes. Both race tests are 20 runs, and both were watched failing with the lock removed. #11 asserts the 409 code and branch.
+- T27: GET is 1 statement (`pgCounter`). The PUT compares and replaces active-station rows only, and #103 shows the archived station's rows survive. The PUT bumps `directory_version` and writes one audit row with branch_id. The DB CHECK already allows the `responsibility` entity.
+- AD-18 (1) (run the role-PATCH guards from T25) and AD-19 are valid Class B decisions: they use existing codes and reasons and change no wire shape.
