@@ -87,82 +87,70 @@ function truthTable(): DirectoryInput {
         role_id: 'R_A',
         name: 'A',
         session_idle_ttl_ms: 1_000,
-        permissions: [
-          { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
-          { permission: 'manage-devices', grant_type: 'allowed', approver_role_id: null },
-        ],
+        permissions: [allowed('reprint-ticket'), allowed('manage-devices')],
       },
       {
         role_id: 'R_B',
         name: 'B',
         session_idle_ttl_ms: 5_000,
-        permissions: [
-          { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MGR' },
-          { permission: 'void-item', grant_type: 'requires_approval', approver_role_id: 'R_OWNER' },
-          { permission: 'manage-devices', grant_type: 'requires_approval', approver_role_id: 'R_CASH' },
-        ],
+        permissions: [approval('apply-discount', 'R_MGR'), approval('void-item', 'R_OWNER'), approval('manage-devices', 'R_CASH')],
       },
       {
         role_id: 'R_C',
         name: 'C',
         session_idle_ttl_ms: 9_000,
-        permissions: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_CASH' }],
+        permissions: [approval('apply-discount', 'R_CASH')],
       },
     ],
     staff: [
-      {
-        staff_id: 'S_DENY',
-        display_name: 'Denied',
-        pin_hash: 'hash-deny',
-        role_ids: ['R_A'],
-        denied_permissions: ['reprint-ticket'],
-      },
-      {
-        staff_id: 'S_MULTI',
-        display_name: 'Multi',
-        pin_hash: 'hash-multi',
-        role_ids: ['R_B', 'R_C'],
-        denied_permissions: [],
-      },
-      {
-        staff_id: 'S_WIN',
-        display_name: 'Win',
-        pin_hash: 'hash-win',
-        role_ids: ['R_A', 'R_B'],
-        denied_permissions: [],
-      },
-      {
-        staff_id: 'S_NONE',
-        display_name: 'None',
-        pin_hash: 'hash-none',
-        role_ids: [],
-        denied_permissions: [],
-      },
-      {
-        staff_id: 'S_DENY_APPROVAL',
-        display_name: 'Deny approval',
-        pin_hash: 'hash-deny-approval',
-        role_ids: ['R_B'],
-        denied_permissions: ['apply-discount'],
-      },
+      staff('S_DENY', 'Denied', 'hash-deny', ['R_A'], ['reprint-ticket']),
+      staff('S_MULTI', 'Multi', 'hash-multi', ['R_B', 'R_C']),
+      staff('S_WIN', 'Win', 'hash-win', ['R_A', 'R_B']),
+      staff('S_NONE', 'None', 'hash-none', []),
+      staff('S_DENY_APPROVAL', 'Deny approval', 'hash-deny-approval', ['R_B'], ['apply-discount']),
     ],
+    responsibilities: [],
   };
+}
+
+type Grant = DirectoryInput['roles'][number]['permissions'][number];
+
+function allowed(permission: string): Grant {
+  return { permission, grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' };
+}
+
+function approval(permission: string, approver: string): Grant {
+  return { permission, grant_type: 'requires_approval', approver_role_id: approver, approver_role_ids: [approver], scope: 'branch' };
+}
+
+function staff(
+  staff_id: string,
+  display_name: string,
+  pin_hash: string,
+  role_ids: string[],
+  denied_permissions: string[] = [],
+): DirectoryInput['staff'][number] {
+  return { staff_id, display_name, pin_hash, role_ids, denied_permissions, lead_staff_id: null, floor_ids: [] };
 }
 
 function writeDirectory(db: Database.Database, input: DirectoryInput): void {
   const insertRole = db.prepare(
     'INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES (?, ?, ?, ?)',
   );
-  const insertPerm = db.prepare(
-    'INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id) VALUES (?, ?, ?, ?)',
+  const insertPerm = db.prepare('INSERT INTO role_permissions (role_id, permission, grant_type, scope) VALUES (?, ?, ?, ?)');
+  const insertApprover = db.prepare(
+    'INSERT INTO role_permission_approvers (role_id, permission, approver_role_id) VALUES (?, ?, ?)',
   );
   const insertStaff = db.prepare('INSERT INTO staff (staff_id, branch_id, display_name, pin_hash) VALUES (?, ?, ?, ?)');
   const insertAssignment = db.prepare('INSERT INTO staff_roles (staff_id, role_id) VALUES (?, ?)');
   const insertDenial = db.prepare('INSERT INTO staff_permission_denials (staff_id, permission) VALUES (?, ?)');
   for (const role of input.roles) {
     insertRole.run(role.role_id, 'branch-1', role.name, role.session_idle_ttl_ms);
+  }
+  for (const role of input.roles) {
     for (const permission of role.permissions) {
-      insertPerm.run(role.role_id, permission.permission, permission.grant_type, permission.approver_role_id);
+      insertPerm.run(role.role_id, permission.permission, permission.grant_type, permission.scope);
+      for (const approver of permission.approver_role_ids) insertApprover.run(role.role_id, permission.permission, approver);
     }
   }
   for (const staff of input.staff) {
