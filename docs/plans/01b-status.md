@@ -30,19 +30,19 @@
 | T26 | DONE | 1 | T19,T25 | bf9c888; AD-20 (#63 leaving case → STAFF_LINKED_TO_OWNER per J-6/#101; client string in T52); passed at once, watched fail with role-PATCH guards and return check removed |
 | T27 | DONE | 1 | T12 | 481d7db; AD-19 |
 | T28 | DONE | 1 | T9 | 71157dc; AD-21 (scope check after the 01a checks) |
-| T29 | TODO | 0 | T28 | |
+| T29 | DONE | 1 | T28 | bd4c79f; AD-23 (manage_stock_scope on every answer) |
 | T30 | DONE | 1 | T14,T24,T27 | 5e34122; #104 failed first (hook); #80/#102 passed at once, watched fail with holder marks and staff version check removed |
 | T31 | DONE | 1 | T12 | 64ad887; AD-22 (audit `{ name }`, `branch` audit entity) |
 | T32 | DONE | 1 | T2,T12 | cf6a798; lint fix 6232378 |
-| T33 | TODO | 0 | T6,T31 | |
+| T33 | DONE | 1 | T6,T31 | b770b0a; 01a #1 (304 → 2 statements), #176, #177 (new list fields) updated per 01a v1.3 |
 | T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part done in T12 |
 | T35 | DONE | 1 | T1 | 2c26807; AD-8; #65 change-password part done in T38; #73 GET staff done in T12, PATCH waits for T14 |
 | T36 | DONE | 1 | T35 | ba6e263; refresh notice interim null until T37 |
 | T37 | DONE | 1 | T35 | 5af3f2b; #42 passed at once (T35/T36 code) |
 | T38 | DONE | 1 | T35 | 434dd4f; AD-12; #65 extended; steps (3) lock and account counter left to T39 |
-| T39 | TODO | 0 | T38 | |
-| T40 | TODO | 0 | T38 | may pass at once; watch fail per plan |
-| T41 | TODO | 0 | T35 | |
+| T39 | DONE | 1 | T38 | 0a6ade9 |
+| T40 | DONE | 1 | T38 | 85f367b; passed at once, watched fail with each hash compare-and-set removed; ran after T41 (#90 uses the reset CLI) |
+| T41 | DONE | 1 | T35 | 964c42a; AD-24 (CLI output, hook) |
 | T42 | TODO | 0 | T37,T38 | |
 | T43 | TODO | 0 | T41,T42 | |
 | T44 | TODO | 0 | T42,T43 | |
