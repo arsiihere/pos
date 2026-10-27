@@ -651,6 +651,28 @@ describe('applyStaffDirectory', () => {
     expect(event?.payload.skipped).toEqual([]);
   });
 
+  it('[01b #20 hub half] one staff holding Order taker and Waiter resolves the union of both roles (no mode)', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_OT', name: 'Order taker', session_idle_ttl_ms: 900_000, permissions: [allowedGrant('take-order-anywhere')] },
+        { role_id: 'R_WAIT', name: 'Waiter', session_idle_ttl_ms: 300_000, permissions: [allowedGrant('reprint-ticket')] },
+      ],
+      staff: [staffRow('S_BOTH', hash, ['R_OT', 'R_WAIT'])],
+      responsibilities: [],
+    };
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    for (const directory of [applied!, Directory.load(db)]) {
+      expect(directory.resolve('S_BOTH', 'take-order-anywhere')).toEqual({ grant: 'allowed' });
+      expect(directory.resolve('S_BOTH', 'reprint-ticket')).toEqual({ grant: 'allowed' });
+      expect(directory.resolve('S_BOTH', 'void-item')).toEqual({ grant: 'not_granted' });
+    }
+    expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_BOTH']);
+  });
+
   async function open(hooks?: { beforeCommit?: () => void }): Promise<{ db: Database.Database; writer: Writer }> {
     const fx = freshDb();
     cleanups.push(fx.cleanup);

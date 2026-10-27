@@ -243,6 +243,24 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     expect(scoped).toEqual({ permission: 'take-order-anywhere', grant_type: 'allowed', approver_role_id: null });
   });
 
+  it('[01b #20 cloud half] one staff holding Order taker and Waiter is one directory row with both roles and both grants', async () => {
+    const branchA = f.branches[0];
+    const orderTaker = await seededRole('Order taker');
+    const waiter = await seededRole('Waiter');
+    await grant(orderTaker, 'take-order-anywhere');
+    await grant(waiter, 'reprint-ticket');
+    await addStaff('s-both', branchA, [orderTaker, waiter]);
+
+    const { directory } = await load(branchA);
+    const rows = directory.staff.filter((member) => member.staff_id === 's-both');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.role_ids).toEqual([orderTaker, waiter].sort());
+    const permissionsOf = (roleId: string) =>
+      directory.roles.find((role) => role.role_id === roleId)!.permissions.map((g) => g.permission);
+    expect(permissionsOf(orderTaker)).toEqual(['take-order-anywhere']);
+    expect(permissionsOf(waiter)).toEqual(['reprint-ticket']);
+  });
+
   it('[01b #83] a branch with cashiers and no manager still sends the Manager role named as approver', async () => {
     const branchB = f.branches[1];
     const cashier = await seededRole('Cashier');

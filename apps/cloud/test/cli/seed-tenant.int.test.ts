@@ -152,7 +152,7 @@ describe('seed-tenant', () => {
     ).rejects.toThrow(/email/);
   });
 
-  it('[01b #20] six default roles by default_key; distinct Order taker and Waiter; both roles sign in once with the union; owner staff linked; a rename keeps the key', async () => {
+  it('[01b #20] six default roles by default_key; distinct Order taker and Waiter; one staff row can hold both;owner staff linked; a rename keeps the key', async () => {
     await truncateAll(pool);
     const created = await seedTenant(
       new SystemContext(pool),
@@ -218,8 +218,8 @@ describe('seed-tenant', () => {
     ]);
     expect(ownerRoles.rows).toEqual([{ role_id: roleId('owner') }]);
 
-    // one person holding Order taker and Waiter is one staff row (one sign-in) carrying both roles; the hub's
-    // resolve takes the union of their grants (00 M10, no mode)
+    // the seeded Order taker and Waiter roles can both be held by one staff row; the union itself is proved by
+    // [01b #20 cloud half] (load-directory) and [01b #20 hub half] (apply-directory)
     await pool.query(
       `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, pin_set_at, created_at, updated_at)
        VALUES ($1, 'S_BOTH', 'Usman', 'h', $2, $2, $2)`,
