@@ -7,7 +7,8 @@
     "seed-tenant": "tsx src/cli/seed-tenant.ts",
     "issue-registration-code": "tsx src/cli/issue-registration-code.ts",
     "set-branch-settings": "tsx src/cli/set-branch-settings.ts",
-    "restore-bump": "tsx src/cli/restore-bump.ts"
+    "restore-bump": "tsx src/cli/restore-bump.ts",
+    "reset-owner-password": "tsx src/cli/reset-owner-password.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.2",

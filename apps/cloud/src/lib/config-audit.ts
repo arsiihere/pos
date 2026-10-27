@@ -28,7 +28,8 @@ export type AuditAction =
   | 'left' // 01b B21
   | 'returned' // 01b B21
   | 'reports_to_reassigned' // 01b B15
-  | 'password_change'; // 01b B21
+  | 'password_change' // 01b B21
+  | 'password_reset'; // 01b B21, §6.14
 
 export interface AuditEntry {
   actor: { kind: 'owner'; ownerUserId: string } | { kind: 'cli' };
