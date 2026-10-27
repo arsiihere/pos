@@ -24,7 +24,6 @@ FINAL="docs/reviews/${MOD}-final-review.md"
 BRANCH="module-${MOD}"
 TAG="ab-green-${MOD}"
 
-log "autobuild start MOD=$MOD plan=$PLAN"
 [ -f "$PLAN" ] || { echo "Missing $PLAN — run the plan gate first."; exit 1; }
 
 log()    { echo "[$(date '+%F %T')] $*" | tee -a "$LOGS/run.log"; }
