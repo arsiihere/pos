@@ -24,6 +24,7 @@ FINAL="docs/reviews/${MOD}-final-review.md"
 BRANCH="module-${MOD}"
 TAG="ab-green-${MOD}"
 
+log "autobuild start MOD=$MOD plan=$PLAN"
 [ -f "$PLAN" ] || { echo "Missing $PLAN — run the plan gate first."; exit 1; }
 
 log()    { echo "[$(date '+%F %T')] $*" | tee -a "$LOGS/run.log"; }
@@ -39,7 +40,7 @@ claude_run() {   # $1 = step name; each call is a FRESH session (fresh context)
   if [ "$BYPASS" = 1 ]; then perm=(--dangerously-skip-permissions); else perm=(--permission-mode acceptEdits); fi
   while true; do
     out="$LOGS/$(date +%m%d-%H%M%S)-$name.log"
-    claude -p "$(render "$name")" --model "$MODEL" --max-turns "$MAX_TURNS" "${perm[@]}" --output-format text >"$out" 2>&1
+    claude -p "$(render "$name")" --model "$MODEL" --max-turns "$MAX_TURNS" "${perm[@]}" --verbose --output-format stream-json >"$out" 2>&1
     rc=$?
     # Max plan usage window hit: wait and retry the same step instead of dying
     if [ $rc -ne 0 ] && grep -qiE "usage limit|limit reached|resets at|try again later" "$out"; then
