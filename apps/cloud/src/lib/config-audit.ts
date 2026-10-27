@@ -23,6 +23,9 @@ export type AuditAction =
   | 'route_set'
   | 'route_removed'
   | 'pin_set' // 01b B21
+  | 'left' // 01b B21
+  | 'returned' // 01b B21
+  | 'reports_to_reassigned' // 01b B15
   | 'password_change'; // 01b B21
 
 export interface AuditEntry {

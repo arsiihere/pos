@@ -1,7 +1,7 @@
 import type { Permission } from '@pos/domain';
 import type { TenantSql } from '../../lib/config-version.js';
 import type { GrantWire } from '@pos/events';
-import type { RoleRow, StaffRow } from './versions.js';
+import type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
@@ -323,13 +323,67 @@ export async function insertStaff(db: TenantSql, s: NewStaff): Promise<void> {
   await insertFloors(db, s.staffId, s.floors);
 }
 
-// §6.4: the person's own row (name, updated_at); is_active / left_at join with leaving (task 16).
-export async function updateStaffRow(db: TenantSql, staffId: string, displayName: string, now: number): Promise<void> {
-  await db.query(`UPDATE staff SET display_name = $3, updated_at = $4 WHERE tenant_id = $1 AND staff_id = $2`, [
-    staffId,
-    displayName,
-    now,
-  ]);
+// §6.4: the person's own row (name, active state, left_at).
+export async function updateStaffRow(
+  db: TenantSql,
+  staffId: string,
+  r: { displayName: string; isActive: boolean; leftAt: number | null; now: number },
+): Promise<void> {
+  await db.query(
+    `UPDATE staff SET display_name = $3, is_active = $4, left_at = $5, updated_at = $6 WHERE tenant_id = $1 AND staff_id = $2`,
+    [staffId, r.displayName, r.isActive, r.leftAt, r.now],
+  );
+}
+
+// B15: the direct reports of `leadStaffId` at the given branches, ordered by branch, then person.
+export async function selectReports(
+  db: TenantSql,
+  leadStaffId: string,
+  branchIds: string[],
+): Promise<{ branch_id: string; staff_id: string }[]> {
+  if (branchIds.length === 0) return [];
+  return db.query<{ branch_id: string; staff_id: string }>(
+    `SELECT branch_id, staff_id FROM staff_leads WHERE tenant_id = $1 AND lead_staff_id = $2 AND branch_id = ANY($3)
+      ORDER BY branch_id, staff_id`,
+    [leadStaffId, branchIds],
+  );
+}
+
+// B15: a moved report gets the leaver's own lead at that branch, or no lead.
+export async function setLead(db: TenantSql, branchId: string, staffId: string, leadStaffId: string | null): Promise<void> {
+  if (leadStaffId === null) {
+    await db.query(`DELETE FROM staff_leads WHERE tenant_id = $1 AND branch_id = $2 AND staff_id = $3`, [branchId, staffId]);
+  } else {
+    await db.query(`UPDATE staff_leads SET lead_staff_id = $4 WHERE tenant_id = $1 AND branch_id = $2 AND staff_id = $3`, [
+      branchId,
+      staffId,
+      leadStaffId,
+    ]);
+  }
+}
+
+// §3.6: a leaver's (all branches) or a removed branch's staff responsibilities; returns the branches whose set changed.
+export async function deleteStaffResponsibilities(db: TenantSql, staffId: string, branchIds: string[] | null): Promise<string[]> {
+  if (branchIds !== null && branchIds.length === 0) return [];
+  const rows = await db.query<{ branch_id: string }>(
+    `DELETE FROM responsibilities
+      WHERE tenant_id = $1 AND subject_kind = 'staff' AND subject_id = $2 AND ($3::text[] IS NULL OR branch_id = ANY($3))
+      RETURNING branch_id`,
+    [staffId, branchIds],
+  );
+  return [...new Set(rows.map((row) => row.branch_id))];
+}
+
+// §5.3: the responsibility rows of the given branches, with their station's archived state (B23 set input).
+export async function selectResponsibilityRows(db: TenantSql, branchIds: string[]): Promise<(ResponsibilityRow & { branch_id: string })[]> {
+  const rows = await db.query<ResponsibilityRow & { branch_id: string; station_archived_at: string | null }>(
+    `SELECT r.branch_id, r.responsibility, r.station_id, r.subject_kind, r.subject_id, st.archived_at AS station_archived_at
+       FROM responsibilities r
+       LEFT JOIN stations st ON st.tenant_id = r.tenant_id AND st.station_id = r.station_id
+      WHERE r.tenant_id = $1 AND r.branch_id = ANY($2)`,
+    [branchIds],
+  );
+  return rows.map((row) => ({ ...row, station_archived_at: row.station_archived_at === null ? null : Number(row.station_archived_at) }));
 }
 
 // §5.1 notes (m7): a branch change is a diff, never delete-and-reinsert (leads and floors cascade from the row).

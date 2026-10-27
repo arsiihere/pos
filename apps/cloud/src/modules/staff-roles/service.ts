@@ -9,6 +9,7 @@ import type { IdempotentResult } from '../../lib/idempotency.js';
 import {
   addBranches,
   addRoles,
+  deleteStaffResponsibilities,
   firstNameClash,
   insertGrants,
   insertRole,
@@ -27,7 +28,9 @@ import {
   selectFloorStates,
   selectRoleStates,
   selectRoles,
+  selectReports,
   selectStaff,
+  setLead,
   updatePin,
   updateStaffRow,
   type RoleFilter,
@@ -146,7 +149,8 @@ export async function setPin(
 }
 
 // §6.4: directory write script with expected_version (B23); rules on the merged row (§3.2 rule 1); branch_ids
-// as a diff (§5.1 notes). Leaving, returning, B15 moves and the admin guards join with tasks 16–19.
+// as a diff (§5.1 notes); leaving and a removed branch move the person's reports up (B15) and drop their
+// responsibilities there (§3.6); returning re-checks B12. The admin guards join with task 19.
 export async function updateStaff(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -160,9 +164,15 @@ export async function updateStaff(
     const storedVersion = staffVersion(before);
     if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'staff', id: staffId });
 
+    const now = ctx.deps.clock.branchNow();
+    const isActive = body.is_active ?? before.is_active;
+    const leaving = before.is_active && !isActive;
+    const returning = !before.is_active && isActive;
     const branchIds = body.branch_ids === undefined ? before.branch_ids : unique(body.branch_ids);
+    const removed = before.branch_ids.filter((id) => !branchIds.includes(id));
     const kept = (entry: { branch_id: string }) => branchIds.includes(entry.branch_id);
-    const reportsTo = body.reports_to ?? before.reports_to.filter(kept);
+    // §3.5: a leaver's own lead rows are deleted.
+    const reportsTo = leaving ? [] : (body.reports_to ?? before.reports_to.filter(kept));
     const floorPairs =
       body.floors === undefined
         ? before.floors.filter(kept).flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))
@@ -175,6 +185,8 @@ export async function updateStaff(
       denied_permissions: body.denied_permissions === undefined ? before.denied_permissions : unique(body.denied_permissions),
       reports_to: reportsTo,
       floors: groupFloors(floorPairs),
+      is_active: isActive,
+      left_at: leaving ? now : returning ? null : stored!.left_at,
     });
     const noop = { staff: withVersion(before, storedVersion), moved_reports: [], changed_versions: emptyChanged() };
     if (staffVersion(merged) === storedVersion) return { body: noop, bump: false };
@@ -195,22 +207,34 @@ export async function updateStaff(
     } else if (merged.is_active && !merged.role_ids.some((roleId) => roles.get(roleId)?.archived === false)) {
       throw referenceInvalid('role_ids', 'role_archived');
     }
-    if (body.reports_to !== undefined) await checkReportsTo(ctx.repo, branchIds, body.reports_to, staffId);
+    if (body.reports_to !== undefined && !leaving) await checkReportsTo(ctx.repo, branchIds, body.reports_to, staffId);
     if (body.floors !== undefined) await checkFloors(ctx.repo, branchIds, body.floors);
     const added = branchIds.filter((id) => !before.branch_ids.includes(id));
-    if (merged.is_active && (merged.display_name !== before.display_name || added.length > 0)) {
+    if (merged.is_active && (returning || merged.display_name !== before.display_name || added.length > 0)) {
       const clash = await firstNameClash(ctx.repo, merged.display_name, merged.branch_ids, staffId);
       if (clash !== undefined) throw new DomainError('STAFF_NAME_TAKEN', { display_name: merged.display_name, branch_id: clash });
     }
 
     // Write.
-    await updateStaffRow(ctx.repo, staffId, merged.display_name, ctx.deps.clock.branchNow());
-    await removeBranches(ctx.repo, staffId, before.branch_ids.filter((id) => !branchIds.includes(id)));
+    await updateStaffRow(ctx.repo, staffId, { displayName: merged.display_name, isActive, leftAt: merged.left_at, now });
+    // B15 before the branch rows go (a report's lead row references the person's staff_branches row).
+    const movedAt = leaving ? before.branch_ids : removed;
+    const moved: MovedReport[] = (await selectReports(ctx.repo, staffId, movedAt)).map((report) => ({
+      staff_id: report.staff_id,
+      branch_id: report.branch_id,
+      lead_staff_id: before.reports_to.find((entry) => entry.branch_id === report.branch_id)?.lead_staff_id ?? null,
+    }));
+    for (const move of moved) await setLead(ctx.repo, move.branch_id, move.staff_id, move.lead_staff_id);
+    if (leaving || removed.length > 0) {
+      const sets = await deleteStaffResponsibilities(ctx.repo, staffId, leaving ? null : removed);
+      sets.forEach((branchId) => ctx.changed.responsibilities(branchId));
+    }
+    await removeBranches(ctx.repo, staffId, removed);
     await addBranches(ctx.repo, staffId, added);
     await removeRoles(ctx.repo, staffId, before.role_ids.filter((id) => !merged.role_ids.includes(id)));
     await addRoles(ctx.repo, staffId, merged.role_ids.filter((id) => !before.role_ids.includes(id)));
     if (body.denied_permissions !== undefined) await replaceDenials(ctx.repo, staffId, merged.denied_permissions);
-    if (body.reports_to !== undefined) await replaceLeads(ctx.repo, staffId, merged.reports_to);
+    if (body.reports_to !== undefined || leaving) await replaceLeads(ctx.repo, staffId, merged.reports_to);
     if (body.floors !== undefined) await replaceFloors(ctx.repo, staffId, floorPairs);
 
     const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
@@ -222,14 +246,30 @@ export async function updateStaff(
         entity: 'staff',
         entityId: staffId,
         branchId: null,
-        action: 'update',
+        action: leaving ? 'left' : returning ? 'returned' : 'update',
         before,
         after,
       },
       ctx.deps,
     );
+    for (const move of moved) {
+      await writeConfigAudit(
+        ctx.repo,
+        {
+          actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+          entity: 'staff',
+          entityId: move.staff_id,
+          branchId: move.branch_id,
+          action: 'reports_to_reassigned',
+          before: { branch_id: move.branch_id, lead_staff_id: staffId },
+          after: { branch_id: move.branch_id, lead_staff_id: move.lead_staff_id },
+        },
+        ctx.deps,
+      );
+      ctx.changed.staff(move.staff_id);
+    }
     const changed_versions = await ctx.changed.resolve(ctx, { staffId });
-    return { body: { staff: withVersion(after, staffVersion(after)), moved_reports: [], changed_versions }, bump: true };
+    return { body: { staff: withVersion(after, staffVersion(after)), moved_reports: moved, changed_versions }, bump: true };
   });
   return out.body;
 }
