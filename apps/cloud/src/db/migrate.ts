@@ -15,6 +15,16 @@ export class MigrationChecksumError extends Error {
   }
 }
 
+// 00 §5.2 roll-forward only (01b B22, §4.3 row 20): a database row with no file means this build is older.
+export class MigrationUnknownVersionError extends Error {
+  constructor(version: number, name: string) {
+    super(
+      `database has migration ${String(version).padStart(4, '0')} (${name}) that this build does not have: this build is older than the database; deploy the current build`,
+    );
+    this.name = 'MigrationUnknownVersionError';
+  }
+}
+
 interface MigrationFile {
   version: number;
   name: string;
@@ -39,6 +49,10 @@ export async function migrate(
         `SELECT version, name, checksum FROM schema_migrations ORDER BY version`,
       );
       for (const row of existing.rows) stored.set(row.version, row);
+    }
+    const known = new Set(files.map((file) => file.version));
+    for (const row of stored.values()) {
+      if (!known.has(row.version)) throw new MigrationUnknownVersionError(row.version, row.name);
     }
     for (const file of files) {
       const row = stored.get(file.version);
