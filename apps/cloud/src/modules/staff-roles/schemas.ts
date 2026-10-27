@@ -1,4 +1,4 @@
-import { BranchWire, ChangedVersions, ResponsibilitySetWire, RoleWire, StaffWire } from '@pos/events';
+import { BranchWire, ChangedVersions, ResponsibilitySetWire, RoleWire, StaffWire, TeamNode } from '@pos/events';
 import { z } from 'zod';
 
 // D5: request bodies and wire shapes live in @pos/events (admin/staff.ts); the query and responses stay here.
@@ -34,3 +34,6 @@ export const ResponsibilitiesPutResponse = z.object({ data: ResponsibilitySetWir
 
 // §6.9, §6.10
 export const BranchResponse = z.object({ data: z.object({ branch: BranchWire }) });
+
+// §6.12
+export const TeamTreeResponse = z.object({ data: z.object({ branch_id: z.string(), roots: z.array(TeamNode) }) });

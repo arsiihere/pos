@@ -1,6 +1,6 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
-import type { BranchRenameBody, BranchSettingsPatchBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import type { BranchRenameBody, BranchSettingsPatchBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire, TeamNode } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -51,6 +51,7 @@ import {
   updatePin,
   updateRoleRow,
   updateStaffRow,
+  selectTeamTreeRows,
   type ResponsibilityRow,
   type RoleFilter,
   type StaffFilter,
@@ -504,6 +505,30 @@ export async function getBranchSettings(deps: StaffRolesDeps, tenant: TenantCont
   const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId, { lock: false });
   if (branch === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
   return { branch };
+}
+
+// §6.12: read-only, 3 statements; roots are the active staff at the branch with no lead there (or whose lead is
+// not an active member of it), members are direct reports, both ordered by lower(display_name). Loops are
+// refused on write (§3.5), so the depth is bounded.
+export async function getTeamTree(
+  deps: StaffRolesDeps,
+  tenant: TenantContext,
+  branchId: string,
+): Promise<{ branch_id: string; roots: TeamNode[] }> {
+  assertBranchAllowed(tenant, branchId);
+  const rows = await selectTeamTreeRows(new TenantLevelRepository(tenant, deps.pool), branchId);
+  const nodes = new Map<string, TeamNode>(
+    rows.people.map((row) => [row.staff_id, { staff_id: row.staff_id, display_name: row.display_name, has_pin: row.has_pin, role_ids: [], members: [] }]),
+  );
+  for (const row of rows.roles) nodes.get(row.staff_id)?.role_ids.push(row.role_id);
+  for (const node of nodes.values()) node.role_ids.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  const leadOf = new Map(rows.leads.map((row) => [row.staff_id, row.lead_staff_id]));
+  const roots: TeamNode[] = [];
+  for (const node of nodes.values()) {
+    const lead = nodes.get(leadOf.get(node.staff_id) ?? '');
+    (lead === undefined ? roots : lead.members).push(node);
+  }
+  return { branch_id: branchId, roots };
 }
 
 // §6.10 PATCH: 01a's common write script plus B8: lock the branch row → merge → stale > gap (B16, 01a S33) →

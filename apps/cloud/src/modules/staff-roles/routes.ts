@@ -17,12 +17,14 @@ import {
   StaffPatchResponse,
   StaffQuery,
   StaffResponse,
+  TeamTreeResponse,
 } from './schemas.js';
 import {
   createRole,
   createStaff,
   getBranchSettings,
   getResponsibilities,
+  getTeamTree,
   listRoles,
   listStaff,
   patchBranchSettings,
@@ -145,6 +147,18 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PUT /v1/admin/branches/:branch_id/responsibilities');
       return reply.send({ data: await putResponsibilities(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/branches/:branch_id/team-tree',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, response: { 200: TeamTreeResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/branches/:branch_id/team-tree');
+      return reply.send({ data: await getTeamTree(deps, tenantOf(request), request.params.branch_id) });
     },
   );
 

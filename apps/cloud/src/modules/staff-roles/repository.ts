@@ -664,3 +664,32 @@ export async function updateBranchSettings(
     [branchId, s.tax_enabled, s.day_stale_after_hours, s.day_min_gap_hours],
   );
 }
+
+// §6.12: the team tree's 3 statements: active staff at the branch with has_pin, the branch's leads, and
+// those staff's roles. Ordered by lower(display_name) so the tree built in memory keeps that order.
+export async function selectTeamTreeRows(
+  db: TenantSql,
+  branchId: string,
+): Promise<{
+  people: { staff_id: string; display_name: string; has_pin: boolean }[];
+  leads: { staff_id: string; lead_staff_id: string }[];
+  roles: { staff_id: string; role_id: string }[];
+}> {
+  const people = await db.query<{ staff_id: string; display_name: string; has_pin: boolean }>(
+    `SELECT s.staff_id, s.display_name, s.pin_hash IS NOT NULL AS has_pin
+       FROM staff s
+       JOIN staff_branches sb ON sb.tenant_id = s.tenant_id AND sb.staff_id = s.staff_id AND sb.branch_id = $2
+      WHERE s.tenant_id = $1 AND s.is_active
+      ORDER BY lower(s.display_name), s.staff_id`,
+    [branchId],
+  );
+  const leads = await db.query<{ staff_id: string; lead_staff_id: string }>(
+    `SELECT staff_id, lead_staff_id FROM staff_leads WHERE tenant_id = $1 AND branch_id = $2`,
+    [branchId],
+  );
+  const roles = await db.query<{ staff_id: string; role_id: string }>(
+    `SELECT staff_id, role_id FROM staff_roles WHERE tenant_id = $1 AND staff_id = ANY($2)`,
+    [people.map((row) => row.staff_id)],
+  );
+  return { people, leads, roles };
+}
