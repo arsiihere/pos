@@ -248,6 +248,13 @@ describe('leaving, returning and team moves (01b §6.4, B15, §3.5)', () => {
     expect(await leadOf(leaver.staff_id)).toEqual([]);
     expect(await responsibilitiesOf(leaver.staff_id)).toEqual([]);
     expect(data.changed_versions.responsibilities.map((row: { branch_id: string }) => row.branch_id)).toEqual([b]);
+    // R-1 (§6 "one row per changed entity"): the branch's responsibility set gets its own row.
+    expect(await audits(b, 'update')).toEqual([
+      {
+        before: [{ responsibility: 'count_stock', station_id: 'ST_1', staff_ids: [leaver.staff_id], role_ids: [] }],
+        after: [],
+      },
+    ]);
   });
 
   it('[01b #29] a leaver with no lead: their reports end with no lead', async () => {

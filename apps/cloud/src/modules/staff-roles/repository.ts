@@ -462,6 +462,26 @@ export async function selectResponsibilityRows(db: TenantSql, branchIds: string[
   return rows.map((row) => ({ ...row, station_archived_at: row.station_archived_at === null ? null : Number(row.station_archived_at) }));
 }
 
+// §6 (R-1): every responsibility row of the branches where the subject has one (optionally only `branchIds`),
+// read before a cascade deletes its rows so each changed set gets its audit row.
+export async function selectSubjectBranchRows(
+  db: TenantSql,
+  kind: 'staff' | 'role',
+  subjectId: string,
+  branchIds: string[] | null,
+): Promise<(ResponsibilityRow & { branch_id: string })[]> {
+  const rows = await db.query<ResponsibilityRow & { branch_id: string; station_archived_at: string | null }>(
+    `SELECT r.branch_id, r.responsibility, r.station_id, r.subject_kind, r.subject_id, st.archived_at AS station_archived_at
+       FROM responsibilities r
+       LEFT JOIN stations st ON st.tenant_id = r.tenant_id AND st.station_id = r.station_id
+      WHERE r.tenant_id = $1 AND r.branch_id IN (
+        SELECT branch_id FROM responsibilities
+         WHERE tenant_id = $1 AND subject_kind = $2 AND subject_id = $3 AND ($4::text[] IS NULL OR branch_id = ANY($4)))`,
+    [kind, subjectId, branchIds],
+  );
+  return rows.map((row) => ({ ...row, station_archived_at: row.station_archived_at === null ? null : Number(row.station_archived_at) }));
+}
+
 // §6.8: one statement, the branch's rows at its active stations (archived stations' rows left out); also the
 // stored set the PUT compares with (B23).
 export async function selectActiveResponsibilities(db: TenantSql, branchId: string): Promise<ResponsibilityRow[]> {

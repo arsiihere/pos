@@ -39,7 +39,9 @@ import {
   selectRoleStates,
   selectRoles,
   selectReports,
+  selectResponsibilityRows,
   selectStaff,
+  selectSubjectBranchRows,
   selectStationStates,
   setLead,
   selectRoleHolders,
@@ -49,6 +51,7 @@ import {
   updatePin,
   updateRoleRow,
   updateStaffRow,
+  type ResponsibilityRow,
   type RoleFilter,
   type StaffFilter,
 } from './repository.js';
@@ -64,7 +67,7 @@ import {
   type StaffRow,
 } from './versions.js';
 import { qualifyingAdmins, runAdminGuards } from './guards.js';
-import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
+import { directoryWrite, type DirectoryWriteCtx, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
 type StaffPatchInput = z.infer<typeof StaffPatchBody>;
@@ -257,6 +260,8 @@ export async function updateStaff(
       lead_staff_id: before.reports_to.find((entry) => entry.branch_id === report.branch_id)?.lead_staff_id ?? null,
     }));
     for (const move of moved) await setLead(ctx.repo, move.branch_id, move.staff_id, move.lead_staff_id);
+    const setsBefore =
+      leaving || removed.length > 0 ? await cascadedSets(ctx, 'staff', staffId, leaving ? null : removed) : new Map<string, ResponsibilityWire[]>();
     if (leaving || removed.length > 0) {
       const sets = await deleteStaffResponsibilities(ctx.repo, staffId, leaving ? null : removed);
       sets.forEach((branchId) => ctx.changed.responsibilities(branchId));
@@ -302,6 +307,7 @@ export async function updateStaff(
       );
       ctx.changed.staff(move.staff_id);
     }
+    await auditCascadedSets(ctx, setsBefore);
     const changed_versions = await ctx.changed.resolve(ctx, { staffId });
     return { body: { staff: withVersion(after, staffVersion(after)), moved_reports: moved, changed_versions }, bump: true };
   });
@@ -404,6 +410,7 @@ export async function updateRole(
     // §6 "one row per changed entity": each holder the archive takes the role off gets its own `staff` row.
     const holderIds = archiving ? await selectRoleHolders(ctx.repo, roleId) : [];
     const holdersBefore = holderIds.length === 0 ? [] : (await selectStaff(ctx.repo, { ids: holderIds })).map(toStaffWire);
+    const setsBefore = archiving ? await cascadedSets(ctx, 'role', roleId, null) : new Map<string, ResponsibilityWire[]>();
     if (archiving || restoring) {
       const removed = await setRoleArchived(ctx.repo, roleId, merged.archived_at);
       removed.holders.forEach((staffId) => ctx.changed.staff(staffId));
@@ -443,6 +450,7 @@ export async function updateRole(
         ctx.deps,
       );
     }
+    await auditCascadedSets(ctx, setsBefore);
     const changed_versions = await ctx.changed.resolve(ctx);
     return { body: { role: withVersion(after, roleVersion(after)), changed_versions }, bump: true };
   });
@@ -610,6 +618,48 @@ export async function putResponsibilities(
     return { body: { responsibilities: after, version: responsibilitySetVersion(branchId, after), changed_versions }, bump: true };
   });
   return out.body;
+}
+
+// §6 (R-1): the active sets (B23 builder) of the branches where a cascade is about to delete the subject's rows.
+async function cascadedSets(
+  ctx: DirectoryWriteCtx,
+  kind: 'staff' | 'role',
+  subjectId: string,
+  branchIds: string[] | null,
+): Promise<Map<string, ResponsibilityWire[]>> {
+  return setsByBranch(await selectSubjectBranchRows(ctx.repo, kind, subjectId, branchIds));
+}
+
+// §6 "one row per changed entity" (R-1): a `responsibility` / `update` row per branch whose active set the cascade
+// changed; a branch that only lost rows at archived stations keeps its active set and gets none.
+async function auditCascadedSets(ctx: DirectoryWriteCtx, before: Map<string, ResponsibilityWire[]>): Promise<void> {
+  if (before.size === 0) return;
+  const branchIds = [...before.keys()].sort();
+  const after = setsByBranch(await selectResponsibilityRows(ctx.repo, branchIds));
+  for (const branchId of branchIds) {
+    const was = before.get(branchId)!;
+    const now = after.get(branchId) ?? [];
+    if (responsibilitySetVersion(branchId, was) === responsibilitySetVersion(branchId, now)) continue;
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'responsibility',
+        entityId: branchId,
+        branchId,
+        action: 'update',
+        before: was,
+        after: now,
+      },
+      ctx.deps,
+    );
+  }
+}
+
+function setsByBranch(rows: (ResponsibilityRow & { branch_id: string })[]): Map<string, ResponsibilityWire[]> {
+  const byBranch = new Map<string, ResponsibilityRow[]>();
+  for (const r of rows) byBranch.set(r.branch_id, [...(byBranch.get(r.branch_id) ?? []), r]);
+  return new Map([...byBranch].map(([branchId, branchRows]) => [branchId, toResponsibilitySet(branchId, branchRows)]));
 }
 
 function row(stationId: string, kind: 'staff' | 'role', id: string) {

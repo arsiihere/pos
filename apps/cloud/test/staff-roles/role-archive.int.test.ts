@@ -328,6 +328,27 @@ describe('role archive and restore (01b B14, §6.7)', () => {
 
     const restored = await audited(() => patchRole(id, { expected_version: version, archived: false }));
     expect(restored).toMatchObject({ action: 'restore', after: { archived_at: null } });
+    version = (await roleOf(id))!.version;
+
+    // R-1 (§6 "one row per changed entity"): a responsibility set the archive changes gets its own row; a branch
+    // where only rows at an archived station go keeps its active set, so it gets none.
+    const b2 = f.branches[1];
+    await addStation('ST_G', b);
+    await addStation('ST_F', b);
+    await addStation('ST_X', b2);
+    await addRoleCounter(b, 'ST_G', id);
+    await addRoleCounter(b, 'ST_F', waiterId);
+    await addRoleCounter(b2, 'ST_X', id);
+    await cloud.pool.query(`UPDATE stations SET archived_at = $3 WHERE tenant_id = $1 AND station_id = $2`, [f.tenantId, 'ST_X', T]);
+    const [, set] = await auditedAll(2, () => patchRole(id, { expected_version: version, archived: true }));
+    expect(set).toMatchObject({ entity: 'responsibility', entity_id: b, action: 'update' });
+    expect(set!.before).toEqual([
+      { responsibility: 'count_stock', station_id: 'ST_F', staff_ids: [], role_ids: [waiterId] },
+      { responsibility: 'count_stock', station_id: 'ST_G', staff_ids: [], role_ids: [id] },
+    ]);
+    expect(set!.after).toEqual([{ responsibility: 'count_stock', station_id: 'ST_F', staff_ids: [], role_ids: [waiterId] }]);
+    const branchOf = await cloud.pool.query(`SELECT branch_id FROM config_audit WHERE tenant_id = $1 AND entity = 'responsibility'`, [f.tenantId]);
+    expect(branchOf.rows).toEqual([{ branch_id: b }]);
 
     // Rolled back: the last-admin guard refuses after the write; no audit row survives.
     await ownerOffBranchC();
