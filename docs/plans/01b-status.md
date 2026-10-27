@@ -8,14 +8,14 @@
 | T4 | DONE | 1 | T1 | ca61be9 |
 | T5 | DONE | 1 | - | 736506c; AD-2 (catalogue groups) |
 | T6 | DONE | 1 | T5 | 7385fce; AD-3 (interim v1-valued v2 keys in cloud loadDirectory, hub DirectoryCore) |
-| T7 | TODO | 0 | T1,T6 | replace AD-3 interim v2 keys in hub-registration/repository.ts |
-| T8 | TODO | 0 | T6 | replace AD-3 hub DirectoryCore with the v2 apply |
+| T7 | DONE | 1 | T1,T6 | 76f631f; AD-3 interim keys replaced; 01a poll budget tests → ≤ 17 (01a v1.3 §6.1) |
+| T8 | DONE | 1 | T6 | 365d868; AD-3 DirectoryCore now the stored v2 shape; AD-9 (skip ids) |
 | T9 | TODO | 0 | T5,T8 | |
 | T10 | TODO | 0 | T9 | |
-| T11 | TODO | 0 | T6 | |
-| T12 | TODO | 0 | T1,T5,T6,T11 | extend #93 (issue-code test) with GET /v1/admin/staff?branch_id=C |
+| T11 | DONE | 1 | T6 | 7ccb562; AD-7 (row types in versions.ts) |
+| T12 | TODO | 0 | T1,T5,T6,T11 | extend #93 (issue-code test) with GET /v1/admin/staff?branch_id=C; extend #73 (guard test) with GET /v1/admin/staff; ROUTE_CASES now in test/helpers/route-cases.ts (AD-8) |
 | T13 | TODO | 0 | T8,T12 | |
-| T14 | TODO | 0 | T12 | |
+| T14 | TODO | 0 | T12 | extend #73 (guard test) with PATCH /v1/admin/staff/:id |
 | T15 | TODO | 0 | T14 | |
 | T16 | TODO | 0 | T14 | |
 | T17 | TODO | 0 | T8,T16 | |
@@ -36,10 +36,10 @@
 | T32 | TODO | 0 | T2,T12 | |
 | T33 | TODO | 0 | T6,T31 | |
 | T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part waits for T12 |
-| T35 | TODO | 0 | T1 | |
+| T35 | DONE | 1 | T1 | 2c26807; AD-8; #65 change-password part waits for T38, #73 staff routes for T12/T14 |
 | T36 | TODO | 0 | T35 | |
 | T37 | TODO | 0 | T35 | |
-| T38 | TODO | 0 | T35 | |
+| T38 | TODO | 0 | T35 | extend #65 (guard test): change-password answers normally while must_change_password is set |
 | T39 | TODO | 0 | T38 | |
 | T40 | TODO | 0 | T38 | may pass at once; watch fail per plan |
 | T41 | TODO | 0 | T35 | |
@@ -49,7 +49,7 @@
 | T45 | TODO | 0 | T1,T12 | |
 | T46 | TODO | 0 | T45 | |
 | T47 | TODO | 0 | T41,T45 | Claude only (docs/runbooks) — autobuild can do it |
-| T48 | TODO | 0 | T1,T5 | |
+| T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human |
 | T49 | TODO | 0 | T8,T16 | |
 | T50 | TODO | 0 | T6 | |
 | T51 | TODO | 0 | T50 | |
