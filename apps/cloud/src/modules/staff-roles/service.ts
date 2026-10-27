@@ -37,6 +37,7 @@ import {
   type StaffFilter,
 } from './repository.js';
 import { roleVersion, staffVersion, toRoleWire, toStaffWire, withVersion, type RoleRow, type StaffRow } from './versions.js';
+import { qualifyingAdmins, runAdminGuards } from './guards.js';
 import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
@@ -150,7 +151,7 @@ export async function setPin(
 
 // §6.4: directory write script with expected_version (B23); rules on the merged row (§3.2 rule 1); branch_ids
 // as a diff (§5.1 notes); leaving and a removed branch move the person's reports up (B15) and drop their
-// responsibilities there (§3.6); returning re-checks B12. The admin guards join with task 19.
+// responsibilities there (§3.6); returning re-checks B12; the admin guards (§3.4) compare before and after.
 export async function updateStaff(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -190,6 +191,7 @@ export async function updateStaff(
     });
     const noop = { staff: withVersion(before, storedVersion), moved_reports: [], changed_versions: emptyChanged() };
     if (staffVersion(merged) === storedVersion) return { body: noop, bump: false };
+    const adminsBefore = await qualifyingAdmins(ctx.repo);
 
     // Rules on the merged row (§6.2 rules 1–4, §3.2).
     if (body.branch_ids !== undefined) {
@@ -236,6 +238,8 @@ export async function updateStaff(
     if (body.denied_permissions !== undefined) await replaceDenials(ctx.repo, staffId, merged.denied_permissions);
     if (body.reports_to !== undefined || leaving) await replaceLeads(ctx.repo, staffId, merged.reports_to);
     if (body.floors !== undefined) await replaceFloors(ctx.repo, staffId, floorPairs);
+
+    runAdminGuards(adminsBefore, await qualifyingAdmins(ctx.repo), ctx.ownerStaffId);
 
     const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
     const after = toStaffWire(row!);

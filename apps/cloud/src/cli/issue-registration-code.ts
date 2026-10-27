@@ -4,6 +4,7 @@ import { createPool } from '../db/migrate.js';
 import { systemClock, type Clock } from '../lib/clock.js';
 import { loadCloudEnv } from '../lib/env.js';
 import { ulidGen, type IdGen } from '../lib/ids.js';
+import { QUALIFIES_AS_ADMIN_SQL } from '../modules/staff-roles/guards.js';
 import { cryptoSecrets, type SecretGen } from '../lib/secrets.js';
 import { codeHash, generateCode } from './codes.js';
 import { SystemContext } from './system-context.js';
@@ -53,20 +54,11 @@ async function createBranch(
   now: number,
   ids: IdGen,
 ): Promise<string> {
-  // 01b §4.3 row 19 (D-14a, §3.4): qualifying admins of the tenant: active, with a PIN, effective
-  // access-hub-admin and manage-devices both allowed (no denial of either, a role granting each).
+  // 01b §4.3 row 19 (D-14a, §3.4): qualifying admins of the tenant, wherever they work (none yet for the first branch).
   const admins = await ctx.query<{ staff_id: string; display_name: string; name_key: string }>(
     `SELECT s.staff_id, s.display_name, lower(trim(s.display_name)) AS name_key
        FROM staff s
-      WHERE s.tenant_id = $1 AND s.is_active AND s.pin_hash IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM staff_permission_denials d
-                         WHERE d.tenant_id = s.tenant_id AND d.staff_id = s.staff_id
-                           AND d.permission IN ('access-hub-admin', 'manage-devices'))
-        AND (SELECT count(DISTINCT rp.permission)
-               FROM staff_roles sr
-               JOIN role_permissions rp ON rp.tenant_id = sr.tenant_id AND rp.role_id = sr.role_id
-              WHERE sr.tenant_id = s.tenant_id AND sr.staff_id = s.staff_id AND rp.grant_type = 'allowed'
-                AND rp.permission IN ('access-hub-admin', 'manage-devices')) = 2
+      WHERE ${QUALIFIES_AS_ADMIN_SQL}
       ORDER BY s.staff_id`,
     [tenantId],
   );
