@@ -185,3 +185,13 @@ export const ChangePasswordBody = z.object({
   current_password: z.string().min(1).max(200),
   new_password: z.string().min(10).max(200),
 });
+
+// D5: request types for the owner app (01b §8).
+export type StaffCreateRequest = z.input<typeof StaffCreateBody>;
+export type StaffPatchRequest = z.input<typeof StaffPatchBody>;
+export type RoleCreateRequest = z.input<typeof RoleCreateBody>;
+export type RolePatchRequest = z.input<typeof RolePatchBody>;
+export type ResponsibilitiesPutRequest = z.input<typeof ResponsibilitiesPutBody>;
+export type BranchRenameRequest = z.input<typeof BranchRenameBody>;
+export type BranchSettingsPatchRequest = z.input<typeof BranchSettingsPatchBody>;
+export type ChangePasswordRequest = z.input<typeof ChangePasswordBody>;

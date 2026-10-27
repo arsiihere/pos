@@ -1,7 +1,10 @@
+import { PERMISSIONS } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { en, fill } from './en';
 import { initLanguage, language, pickLanguage, setLanguage, t, typeClass } from './index';
 import { ur } from './ur';
+import todo from '../../../../docs/design/handoff/01b/urdu-todo.md?raw';
+import todo01a from '../../../../docs/design/handoff/01a/urdu-todo.md?raw';
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial));
@@ -81,3 +84,55 @@ describe('[01a §10 #159] language (S49)', () => {
     expect(typeClass('caption')).toBe('ur-body');
   });
 });
+
+// 01b §8: the keys the 01b views rely on (tasks 50–55 add their view texts under the same prefixes).
+const CODES_01B = [
+  'ROLE_NOT_FOUND',
+  'STAFF_NAME_TAKEN',
+  'LAST_ADMIN_REQUIRED',
+  'OWN_ADMIN_ACCESS',
+  'STAFF_LINKED_TO_OWNER',
+  'CONFIG_STALE',
+  'PASSWORD_INVALID',
+  'PASSWORD_UNCHANGED',
+  'PASSWORD_CHANGE_REQUIRED',
+];
+const REASONS_01B = ['role_archived', 'not_at_branch', 'loop', 'one_lead_per_branch', 'scope_not_allowed'];
+
+describe('[01b §8] 01b strings', () => {
+  it('en defines every staff.*, roles.*, teams.* view key, perm.<key>, errors.<01b code> and reason; each is in ur or in the 01b Urdu to-do list', () => {
+    const required = [
+      'owner.nav.staff',
+      'owner.nav.roles',
+      'owner.nav.teams',
+      'owner.nav.stock_counting',
+      'owner.nav.branches',
+      'staff.title',
+      'roles.title',
+      'teams.title',
+      'teams.no_pin',
+      'roles.approval_help',
+      ...PERMISSIONS.map((key) => `perm.${key}`),
+      ...CODES_01B.map((code) => `errors.${code}`),
+      'errors.OWN_ADMIN_ACCESS_owner_not_linked',
+      ...REASONS_01B.map((reason) => `errors.reference.${reason}`),
+    ];
+    for (const key of required) expect(key in en, key).toBe(true);
+    const ours = Object.keys(en).filter((key) => /^(staff|roles|teams|perm)\./.test(key) || required.includes(key));
+    // staff.locked and staff.locked_for predate 01b and sit in the 01a list.
+    const listed = (key: string) => todo.includes(`\`${key}\``) || todo01a.includes(`\`${key}\``);
+    for (const key of ours) expect(key in ur || listed(key), key).toBe(true);
+  });
+
+  it('the support texts of §8 are the spec copy', () => {
+    expect(en['errors.STAFF_LINKED_TO_OWNER']).toBe("This profile is linked to the owner login and can't be marked as left.");
+    expect(en['errors.CONFIG_STALE']).toBe('Someone changed this since you opened it');
+    expect(en['errors.OWN_ADMIN_ACCESS_owner_not_linked']).toBe(
+      "Your owner login isn't linked to your staff profile yet, so admin access can't be removed. Call support to link it.",
+    );
+    expect(en['roles.approval_help']).toBe(
+      'The request goes to people with these roles. They approve on their own device with their PIN.',
+    );
+  });
+});
+

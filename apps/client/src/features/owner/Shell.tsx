@@ -33,6 +33,12 @@ export function Shell({
       label: t(phone ? 'owner.nav.stations_short' : 'owner.nav.stations'),
       current: route === '/stations',
     },
+    // 01b §8
+    { href: '#/staff', icon: 'user', label: t('owner.nav.staff'), current: route.startsWith('/staff') },
+    { href: '#/roles', icon: 'lock', label: t('owner.nav.roles'), current: route.startsWith('/roles') },
+    { href: '#/teams', icon: 'user', label: t('owner.nav.teams'), current: route === '/teams' },
+    { href: '#/stock-counting', icon: 'box', label: t('owner.nav.stock_counting'), current: route === '/stock-counting' },
+    { href: '#/branches', icon: 'screen', label: t('owner.nav.branches'), current: route.startsWith('/branches') },
   ];
   const onNavigate = (href: string) => {
     leave(() => navigate(href.replace(/^#/, '')));

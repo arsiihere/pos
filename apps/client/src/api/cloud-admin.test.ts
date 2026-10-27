@@ -291,4 +291,77 @@ describe('cloud-admin client', () => {
     expect(onLoggedOut).not.toHaveBeenCalled();
     expect(api.cloudDown()).toBe(false);
   });
+
+  it('[01b §8] each 01b call sends the §6 method, path and body, and returns data', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    sessionStorage.setItem('owner_refresh_token', 'R1');
+    const staffBody = { display_name: 'Ali', role_ids: ['RL1'], branch_ids: ['B1'] };
+    const roleBody = { name: 'Runner', idle_minutes: 5, grants: [] };
+    const cases: Array<{
+      run: (api: ReturnType<typeof createCloudAdmin>) => Promise<unknown>;
+      method: string;
+      url: string;
+      body?: unknown;
+      key?: string;
+    }> = [
+      { run: (api) => api.listStaff({}), method: 'GET', url: '/v1/admin/staff' },
+      { run: (api) => api.listStaff({ status: 'left', branch_id: 'B1' }), method: 'GET', url: '/v1/admin/staff?status=left&branch_id=B1' },
+      { run: (api) => api.createStaff(staffBody, 'K1'), method: 'POST', url: '/v1/admin/staff', body: staffBody, key: 'K1' },
+      {
+        run: (api) => api.patchStaff('S1', { expected_version: 'v1', is_active: false }),
+        method: 'PATCH',
+        url: '/v1/admin/staff/S1',
+        body: { expected_version: 'v1', is_active: false },
+      },
+      { run: (api) => api.setPin('S1', '0123'), method: 'PUT', url: '/v1/admin/staff/S1/pin', body: { pin: '0123' } },
+      { run: (api) => api.listRoles(), method: 'GET', url: '/v1/admin/roles' },
+      { run: (api) => api.listRoles({ archived: true }), method: 'GET', url: '/v1/admin/roles?archived=true' },
+      { run: (api) => api.createRole(roleBody, 'K2'), method: 'POST', url: '/v1/admin/roles', body: roleBody, key: 'K2' },
+      {
+        run: (api) => api.patchRole('RL1', { expected_version: 'v2', name: 'Runner 2' }),
+        method: 'PATCH',
+        url: '/v1/admin/roles/RL1',
+        body: { expected_version: 'v2', name: 'Runner 2' },
+      },
+      { run: (api) => api.getResponsibilities('B1'), method: 'GET', url: '/v1/admin/branches/B1/responsibilities' },
+      {
+        run: (api) => api.putResponsibilities('B1', { expected_version: 'v3', responsibilities: [] }),
+        method: 'PUT',
+        url: '/v1/admin/branches/B1/responsibilities',
+        body: { expected_version: 'v3', responsibilities: [] },
+      },
+      { run: (api) => api.renameBranch('B1', { name: 'Gulberg' }), method: 'PATCH', url: '/v1/admin/branches/B1', body: { name: 'Gulberg' } },
+      { run: (api) => api.getBranchSettings('B1'), method: 'GET', url: '/v1/admin/branches/B1/settings' },
+      {
+        run: (api) => api.patchBranchSettings('B1', { tax_enabled: true }),
+        method: 'PATCH',
+        url: '/v1/admin/branches/B1/settings',
+        body: { tax_enabled: true },
+      },
+      { run: (api) => api.getTeamTree('B1'), method: 'GET', url: '/v1/admin/branches/B1/team-tree' },
+    ];
+    for (const c of cases) {
+      const data = { marker: c.url };
+      const { calls, fetchFn } = fakeFetch([json(200, { data })]);
+      const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+      expect(await c.run(api), c.url).toEqual({ ok: true, data });
+      expect(calls[0], c.url).toMatchObject({ method: c.method, url: c.url, body: c.body });
+      expect(calls[0]?.headers['Idempotency-Key'], c.url).toBe(c.key);
+    }
+  });
+
+  it('[01b §8] changePassword sends both passwords and keeps the new token pair; the user no longer must change', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    sessionStorage.setItem('owner_refresh_token', 'R1');
+    sessionStorage.setItem('owner_user', JSON.stringify({ ...TOKENS.user, must_change_password: true }));
+    const pair = { access_token: 'A2', access_expires_at: 3, refresh_token: 'R2', refresh_expires_at: 4 };
+    const { calls, fetchFn } = fakeFetch([json(200, { data: pair })]);
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+    const body = { current_password: 'old-password', new_password: 'a-new-password-1' };
+    expect(await api.changePassword(body)).toEqual({ ok: true, data: pair });
+    expect(calls[0]).toMatchObject({ method: 'POST', url: '/v1/auth/change-password', body });
+    expect(sessionStorage.getItem('owner_access_token')).toBe('A2');
+    expect(sessionStorage.getItem('owner_refresh_token')).toBe('R2');
+    expect(api.currentUser()?.must_change_password).toBe(false);
+  });
 });

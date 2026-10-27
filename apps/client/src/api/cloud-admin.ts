@@ -10,6 +10,12 @@ import type {
   AdminTable,
   AdminTaxClass,
   AdminWindow,
+  BranchRenameRequest,
+  BranchSettingsPatchRequest,
+  BranchWire,
+  ChangedPassword,
+  ChangedVersions,
+  ChangePasswordRequest,
   CreateCategoryRequest,
   CreateFloorRequest,
   CreateMenuItemRequest,
@@ -27,6 +33,15 @@ import type {
   PatchTableRequest,
   PatchTaxClassRequest,
   PutItemRouteRequest,
+  ResponsibilitiesPutRequest,
+  ResponsibilitySetWire,
+  RoleCreateRequest,
+  RolePatchRequest,
+  RoleWire,
+  StaffCreateRequest,
+  StaffPatchRequest,
+  StaffWire,
+  TeamNode,
 } from '@pos/events';
 
 // §8.1: the owner app's cloud client for §6.2–§6.16 and the 00 owner login. Tokens live in
@@ -88,6 +103,14 @@ export type PatchCategoryBody = PatchCategoryRequest;
 export type CreateMenuItemBody = CreateMenuItemRequest;
 export type PatchMenuItemBody = PatchMenuItemRequest;
 export type PutItemRouteBody = PutItemRouteRequest;
+
+// 01b §5.3, §6
+export type { ChangedVersions, TeamNode };
+export type Staff = StaffWire;
+export type Role = RoleWire;
+export type ResponsibilitySet = ResponsibilitySetWire;
+export type BranchDetail = BranchWire;
+export type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
 
 type LoginData = OwnerLogin;
 
@@ -335,6 +358,58 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       call<{ item: MenuItem }>('PATCH', `/v1/admin/menu-items/${id(itemId)}`, body),
     putItemRoute: (itemId: string, branchId: string, body: PutItemRouteBody) =>
       call<{ route: Route | null }>('PUT', `/v1/admin/menu-items/${id(itemId)}/routes/${id(branchId)}`, body),
+
+    // 01b §6.1–§6.4 staff and PINs
+    listStaff: (query: { status?: 'active' | 'left'; branch_id?: string }) => {
+      const params = new URLSearchParams();
+      if (query.status !== undefined) params.set('status', query.status);
+      if (query.branch_id !== undefined) params.set('branch_id', query.branch_id);
+      const search = params.toString();
+      return call<{ staff: Staff[] }>('GET', `/v1/admin/staff${search === '' ? '' : `?${search}`}`);
+    },
+    createStaff: (body: StaffCreateRequest, key: string) =>
+      call<{ staff: Staff; changed_versions: ChangedVersions }>('POST', '/v1/admin/staff', body, key),
+    patchStaff: (staffId: string, body: StaffPatchRequest) =>
+      call<{ staff: Staff; moved_reports: MovedReport[]; changed_versions: ChangedVersions }>(
+        'PATCH',
+        `/v1/admin/staff/${id(staffId)}`,
+        body,
+      ),
+    // The PIN is only passed through; the caller clears it from its state after the request (§8).
+    setPin: (staffId: string, pin: string) =>
+      call<{ staff: Staff; changed_versions: ChangedVersions }>('PUT', `/v1/admin/staff/${id(staffId)}/pin`, { pin }),
+
+    // 01b §6.5–§6.7 roles
+    listRoles: (query: { archived?: boolean } = {}) =>
+      call<{ roles: Role[] }>('GET', `/v1/admin/roles${query.archived === true ? '?archived=true' : ''}`),
+    createRole: (body: RoleCreateRequest, key: string) =>
+      call<{ role: Role; changed_versions: ChangedVersions }>('POST', '/v1/admin/roles', body, key),
+    patchRole: (roleId: string, body: RolePatchRequest) =>
+      call<{ role: Role; changed_versions: ChangedVersions }>('PATCH', `/v1/admin/roles/${id(roleId)}`, body),
+
+    // 01b §6.8–§6.10, §6.12 branches, responsibilities and teams
+    getResponsibilities: (branchId: string) => call<ResponsibilitySet>('GET', `${branch(branchId)}/responsibilities`),
+    putResponsibilities: (branchId: string, body: ResponsibilitiesPutRequest) =>
+      call<ResponsibilitySet & { changed_versions: ChangedVersions }>('PUT', `${branch(branchId)}/responsibilities`, body),
+    renameBranch: (branchId: string, body: BranchRenameRequest) =>
+      call<{ branch: BranchDetail }>('PATCH', branch(branchId), body),
+    getBranchSettings: (branchId: string) => call<{ branch: BranchDetail }>('GET', `${branch(branchId)}/settings`),
+    patchBranchSettings: (branchId: string, body: BranchSettingsPatchRequest) =>
+      call<{ branch: BranchDetail }>('PATCH', `${branch(branchId)}/settings`, body),
+    getTeamTree: (branchId: string) => call<{ branch_id: string; roots: TeamNode[] }>('GET', `${branch(branchId)}/team-tree`),
+
+    // 01b §6.11: the new pair replaces the stored one (every older token stops working); the user no
+    // longer has to change the password.
+    async changePassword(body: ChangePasswordRequest): Promise<CloudResult<ChangedPassword>> {
+      const result = await call<ChangedPassword>('POST', '/v1/auth/change-password', body);
+      if (result.ok) {
+        storage.setItem(ACCESS_KEY, result.data.access_token);
+        storage.setItem(REFRESH_KEY, result.data.refresh_token);
+        const raw = storage.getItem(USER_KEY);
+        if (raw !== null) storage.setItem(USER_KEY, JSON.stringify({ ...(JSON.parse(raw) as OwnerUser), must_change_password: false }));
+      }
+      return result;
+    },
   };
 }
 

@@ -56,3 +56,4 @@ export const LogoutResponse = z.object({
 
 export type OwnerUser = z.infer<typeof User>;
 export type OwnerLogin = z.infer<typeof LoginResponse>['data'];
+export type ChangedPassword = z.infer<typeof ChangePasswordResponse>['data'];
