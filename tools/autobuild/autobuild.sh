@@ -63,6 +63,7 @@ clean_tree() { if [ -n "$(git status --porcelain)" ]; then git stash push -u -m 
 board()      { echo "TODO=$(count TODO) DONE=$(count DONE) WAITING=$(count WAITING) PARKED=$(count PARKED) BLOCKED=$(count BLOCKED)"; }
 
 # ---------- start ----------
+log "autobuild start MOD=$MOD plan=$PLAN"
 git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH"
 clean_tree
 preflight
