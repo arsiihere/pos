@@ -3,17 +3,17 @@
 |---|---|---|---|---|
 | T0 | DONE | 1 | - | done by human (P-1 answer A) |
 | T1 | DONE | 1 | - | c8fe165; AD-1 (#77 duplicate-Manager case via rolled-back partial run) |
-| T2 | TODO | 0 | T1 | |
-| T3 | TODO | 0 | T1 | may pass at once; watch fail per plan |
-| T4 | TODO | 0 | T1 | uses scratchDatabaseAt(4) |
+| T2 | DONE | 1 | T1 | d21d8d1 |
+| T3 | DONE | 1 | T1 | 8eb9cd4; passed at once, watched fail with valid setup |
+| T4 | DONE | 1 | T1 | ca61be9 |
 | T5 | DONE | 1 | - | 736506c; AD-2 (catalogue groups) |
-| T6 | TODO | 0 | T5 | copy v1 schemas to fixture before editing |
-| T7 | TODO | 0 | T1,T6 | |
-| T8 | TODO | 0 | T6 | |
+| T6 | DONE | 1 | T5 | 7385fce; AD-3 (interim v1-valued v2 keys in cloud loadDirectory, hub DirectoryCore) |
+| T7 | TODO | 0 | T1,T6 | replace AD-3 interim v2 keys in hub-registration/repository.ts |
+| T8 | TODO | 0 | T6 | replace AD-3 hub DirectoryCore with the v2 apply |
 | T9 | TODO | 0 | T5,T8 | |
 | T10 | TODO | 0 | T9 | |
 | T11 | TODO | 0 | T6 | |
-| T12 | TODO | 0 | T1,T5,T6,T11 | |
+| T12 | TODO | 0 | T1,T5,T6,T11 | extend #93 (issue-code test) with GET /v1/admin/staff?branch_id=C |
 | T13 | TODO | 0 | T8,T12 | |
 | T14 | TODO | 0 | T12 | |
 | T15 | TODO | 0 | T14 | |
@@ -35,7 +35,7 @@
 | T31 | TODO | 0 | T12 | |
 | T32 | TODO | 0 | T2,T12 | |
 | T33 | TODO | 0 | T6,T31 | |
-| T34 | TODO | 0 | T1 | |
+| T34 | DONE | 1 | T1 | e0ec2b8; AD-4 (reissue locks tenant, no bump); #93 GET part waits for T12 |
 | T35 | TODO | 0 | T1 | |
 | T36 | TODO | 0 | T35 | |
 | T37 | TODO | 0 | T35 | |

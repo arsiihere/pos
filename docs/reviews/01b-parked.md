@@ -12,7 +12,7 @@ Questions only the human can answer. Fill in `ANSWER:` and set the task back to 
 **Recommendation:** A or B. No code task depends on it: Task 5 adds the codes to `packages/domain/src/errors.ts` from 01b §9.
 ANSWER: A — done by human
 
-## P-2 (task T61) Release drill needs the hub hardware
+## P-2 (task T61) Release drill needs the hub hardware (ANSWERED — T61 stays PARKED until the human logs the drill)
 **Problem:** Task 61 is the §7.4 release drill on the pilot mini PC / three branch hubs.
 **Why it can't be auto-decided:** physical hardware; cannot run unattended.
 **Options:**
