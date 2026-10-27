@@ -5,10 +5,12 @@ import { itemAvailability } from '../projections/item-availability.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
+import { requireItemsInScope } from './set-precooked-stock.js';
 
 const Payload = z.object({ item_id: z.string().min(1), is_available: z.boolean() });
 
 // §6.18, S17: one ItemMadeUnavailable / ItemMadeAvailable, or nothing when the item is already in that state.
+// 01b B20: under `my_stations` the item must be routed to one of the person's stations.
 export function registerSetItemAvailability(app: FastifyInstance): void {
   commandRegistry(app).register(
     defineCommand({
@@ -17,10 +19,9 @@ export function registerSetItemAvailability(app: FastifyInstance): void {
       sessionKind: 'admin',
       permission: 'manage-stock',
       handle(ctx, payload) {
-        const config = branchConfig();
-        if (config === null || !config.items.some((item) => item.item_id === payload.item_id)) {
-          throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: payload.item_id });
-        }
+        const item = branchConfig()?.items.find((candidate) => candidate.item_id === payload.item_id);
+        if (item === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: payload.item_id });
+        requireItemsInScope(ctx, [item]);
         const current = itemAvailability(ctx.tx.db, [payload.item_id]).get(payload.item_id);
         const changed = current !== payload.is_available;
         if (changed) {

@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
-import { stockItems, stockResult, uniqueItemIds } from './set-precooked-stock.js';
+import { requireItemsInScope, stockItems, stockResult, uniqueItemIds } from './set-precooked-stock.js';
 
 const Payload = z.object({
   entries: z
@@ -23,6 +23,7 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
       permission: 'manage-stock',
       handle(ctx, payload) {
         const items = stockItems(ctx.state, payload.entries);
+        requireItemsInScope(ctx, items);
         const start = openDayStartMs(ctx.state);
         const now = ctx.clock.branchNow();
         const recordedAs: Array<'added' | 'set'> = [];

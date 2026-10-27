@@ -3,8 +3,10 @@ import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type Eng
 import { isStockTracked, type BranchConfig } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { Resolution } from '../auth/staff-directory.js';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
+import { stockScopeFilter } from '../commands/set-precooked-stock.js';
 import { stockVersion } from '../sync/stock-version.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 
@@ -20,8 +22,10 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
       countsAsActivity: false,
       querySchema: Query,
       handle(ctx, q) {
-        requireManageStock(ctx);
-        const config = ctx.branchConfig;
+        const resolution = requireManageStock(ctx);
+        // 01b B20, §4.4 row 10: under `my_stations` only the items routed to the person's stations; no extra statement.
+        const inScope = stockScopeFilter(ctx.directory, ctx.session?.staff_id ?? null, resolution);
+        const config = scopedConfig(ctx.branchConfig, inScope);
         const state = ctx.state;
         const start = openDayStartMs(state);
         const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}`;
@@ -45,7 +49,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             day_stale_after_hours: staleAfterHours,
             day_min_gap_hours: config?.day_min_gap_hours ?? DEFAULT_DAY_MIN_GAP_HOURS,
             items_meta: metaChanged ? itemsMeta(state, config) : null,
-            items: unchanged ? null : stockItems(ctx, start),
+            items: unchanged ? null : stockItems(ctx, config, start),
           },
         };
       },
@@ -80,8 +84,8 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
 
 // S14, S41, S46: numbers and flags only; 1 statement for the availability rows.
 // v1.0.2: unit is the open day's frozen unit (else the config's); a count in another unit reads as no count.
-function stockItems(ctx: QueryCtx, start: number | null) {
-  const items = ctx.branchConfig?.items ?? [];
+function stockItems(ctx: QueryCtx, config: BranchConfig | null, start: number | null) {
+  const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
   return items.map((item) => {
     const unit = dayUnits(ctx.state, item).stock_unit;
@@ -102,10 +106,17 @@ function stockItems(ctx: QueryCtx, start: number | null) {
   });
 }
 
-function requireManageStock(ctx: QueryCtx): void {
+function requireManageStock(ctx: QueryCtx): Resolution {
   const staffId = ctx.session?.staff_id ?? null;
-  const grant = staffId === null ? 'not_granted' : ctx.directory.resolve(staffId, 'manage-stock').grant;
-  if (grant !== 'allowed') throw new DomainError('PERMISSION_DENIED', { permission: 'manage-stock', grant });
+  const resolution: Resolution = staffId === null ? { grant: 'not_granted' } : ctx.directory.resolve(staffId, 'manage-stock');
+  if (resolution.grant !== 'allowed') throw new DomainError('PERMISSION_DENIED', { permission: 'manage-stock', grant: resolution.grant });
+  return resolution;
+}
+
+function scopedConfig(config: BranchConfig | null, inScope: (item: BranchConfig['items'][number]) => boolean): BranchConfig | null {
+  if (config === null) return null;
+  const items = config.items.filter(inScope);
+  return items.length === config.items.length ? config : { ...config, items };
 }
 
 // S30: changed_at of the items that are off; 1 statement, none with no items.
