@@ -232,8 +232,8 @@ export async function changePassword(
       throw new DomainError('PASSWORD_UNCHANGED');
     }
     // (2)
-    const users = await new TenantLevelRepository(who.tenant, deps.pool).query<{ password_hash: string }>(
-      `SELECT password_hash FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+    const users = await new TenantLevelRepository(who.tenant, deps.pool).query<{ password_hash: string; login_locked_until: string | null }>(
+      `SELECT password_hash, login_locked_until FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
       [who.userId],
     );
     const user = users[0];
@@ -241,8 +241,23 @@ export async function changePassword(
       uncounted = true;
       throw new DomainError('JWT_INVALID');
     }
-    // (4)
-    if (!(await verify(user.password_hash, input.current_password))) throw new DomainError('PASSWORD_INVALID');
+    // (3) locked (M73): dummy verify, the IP failure counted, the account counter unchanged
+    if (user.login_locked_until !== null && Number(user.login_locked_until) > deps.clock.branchNow()) {
+      await verify(DUMMY_PASSWORD_HASH, input.current_password);
+      throw new DomainError('PASSWORD_INVALID');
+    }
+    // (4) mismatch: login's counter UPDATE (sets lock_notice_at with the lock) and the IP failure
+    if (!(await verify(user.password_hash, input.current_password))) {
+      await recordLoginFailure(deps.pool, {
+        tenantId: who.tenant.tenantId,
+        userId: who.userId,
+        now: deps.clock.branchNow(),
+        windowMs: WINDOW_MS,
+        threshold: FAILURE_LIMIT,
+        lockMs: LOCK_MS,
+      });
+      throw new DomainError('PASSWORD_INVALID');
+    }
     const newHash = await hash(input.new_password, ARGON);
     // (5)
     const client = await deps.pool.connect();

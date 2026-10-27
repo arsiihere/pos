@@ -141,6 +141,71 @@ describe('POST /v1/auth/change-password (01b §6.11)', () => {
     expect(await ownerRow()).toMatchObject({ credential_version: 0 });
   });
 
+  const counters = async () =>
+    (
+      await cloud.pool.query<{ failed_login_count: number; login_locked_until: string | null; lock_notice_at: string | null }>(
+        `SELECT failed_login_count, login_locked_until, lock_notice_at FROM owner_users WHERE user_id = $1`,
+        [owner.user_id],
+      )
+    ).rows[0]!;
+  const changeFrom = (from: string, token: string, payload: object) =>
+    cloud.app.inject({
+      method: 'POST',
+      url: '/v1/auth/change-password',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+      remoteAddress: from,
+    });
+  const loginFrom = (from: string, password: string) =>
+    cloud.app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: 'owner@example.com', password }, remoteAddress: from });
+
+  it('[01b #38] wrong current → 401 PASSWORD_INVALID, account counter +1 and per-IP failure counted; the 10th sets the lock and lock_notice_at', async () => {
+    const a = (await login()).json().data;
+    const from = '10.9.0.1';
+    for (let i = 1; i <= 9; i += 1) {
+      cloud.clock.set(T + i);
+      const wrong = await changeFrom(from, a.access_token, { current_password: `wrong-${i}`, new_password: NEW_PASSWORD });
+      expect(wrong.statusCode).toBe(401);
+      expect(wrong.json().error.code).toBe('PASSWORD_INVALID');
+      expect(await counters()).toMatchObject({ failed_login_count: i, login_locked_until: null, lock_notice_at: null });
+    }
+    cloud.clock.set(T + 10);
+    const tenth = await changeFrom(from, a.access_token, { current_password: 'wrong-10', new_password: NEW_PASSWORD });
+    expect(tenth.json().error.code).toBe('PASSWORD_INVALID');
+    expect(await counters()).toMatchObject({ failed_login_count: 10, login_locked_until: String(T + 10 + 900_000), lock_notice_at: String(T + 10) });
+    expect(await ownerRow()).toMatchObject({ credential_version: 0 });
+
+    // The per-IP limiter is login's: 10 change failures + 20 login failures from one IP → the 31st request is 429.
+    for (let i = 0; i < 20; i += 1) expect((await loginFrom(from, 'wrong-login')).statusCode).toBe(401);
+    const limited = await loginFrom(from, PASSWORD);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe('IP_LOCKED_OUT');
+    const limitedChange = await changeFrom(from, a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD });
+    expect(limitedChange.statusCode).toBe(429);
+  });
+
+  it('[01b #39] locked account → 401 PASSWORD_INVALID even with the right password, account counter unchanged, per-IP failure counted', async () => {
+    const a = (await login()).json().data;
+    const lockedUntil = T + 900_000;
+    await cloud.pool.query(`UPDATE owner_users SET failed_login_count = 10, login_locked_until = $2 WHERE user_id = $1`, [owner.user_id, lockedUntil]);
+    const from = '10.9.0.2';
+    for (let i = 0; i < 30; i += 1) {
+      const refused = await changeFrom(from, a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD });
+      expect(refused.statusCode).toBe(401);
+      expect(refused.json().error.code).toBe('PASSWORD_INVALID');
+    }
+    expect(await counters()).toMatchObject({ failed_login_count: 10, login_locked_until: String(lockedUntil), lock_notice_at: null });
+    expect(await ownerRow()).toMatchObject({ credential_version: 0 });
+    // Each of the 30 counted for the IP.
+    expect((await changeFrom(from, a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD })).statusCode).toBe(429);
+
+    // Once the lock has passed, the right password changes it.
+    cloud.clock.set(lockedUntil);
+    const changed = await changeFrom('10.9.0.3', a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(await counters()).toMatchObject({ failed_login_count: 0, login_locked_until: null });
+  });
+
   it('[01b #44] body.current_password and body.new_password are redacted in logs', async () => {
     const a = (await login()).json().data;
     expect((await change(a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD })).statusCode).toBe(200);
