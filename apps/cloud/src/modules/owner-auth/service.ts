@@ -10,6 +10,7 @@ import { writeConfigAudit } from '../../lib/config-audit.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import type { AccessClaims } from '../../plugins/jwt.js';
+import type { CloudTestHooks } from '../../server.js';
 import {
   clearLockNotice,
   deleteStaleRefreshTokens,
@@ -81,6 +82,7 @@ export interface LoginDeps {
   ids: IdGen;
   secrets: SecretGen;
   jwt: { sign(claims: AccessClaims): string };
+  testHooks?: CloudTestHooks;
 }
 
 export interface IssuedTokens {
@@ -176,6 +178,7 @@ export async function login(
     try {
       await client.query('BEGIN');
       const owner = await lockOwnerRow(client, user.tenant_id, user.user_id, { passwordHash: user.password_hash });
+      await deps.testHooks?.afterOwnerRowLock?.('login');
       if (owner === null) outcome = 'changed';
       else if (owner.must_change_password && owner.temp_password_expires_at !== null && owner.temp_password_expires_at <= now) {
         outcome = 'expired';
@@ -264,6 +267,7 @@ export async function changePassword(
     try {
       await client.query('BEGIN');
       const owner = await lockOwnerRow(client, who.tenant.tenantId, who.userId, { passwordHash: user.password_hash });
+      await deps.testHooks?.afterOwnerRowLock?.('change');
       if (owner === null) {
         // (a) a concurrent change or reset committed after (2): not a guess
         await client.query('ROLLBACK');
@@ -358,6 +362,7 @@ export async function refreshTokens(
     const found = await credentials.refreshByHash(client, hash, false);
     if (found === null) throw new DomainError('REFRESH_TOKEN_INVALID');
     const owner = await lockOwnerRow(client, found.tenant_id, found.user_id);
+    await deps.testHooks?.afterOwnerRowLock?.('refresh');
     if (owner === null) throw new Error('owner missing');
     const row = await credentials.refreshByHash(client, hash, true);
     const now = deps.clock.branchNow();

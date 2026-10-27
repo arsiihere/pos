@@ -4,6 +4,7 @@ import type pg from 'pg';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
+import type { CloudTestHooks } from '../../server.js';
 import { DomainError } from '@pos/domain';
 import {
   ChangePasswordBody,
@@ -20,8 +21,16 @@ import { changePassword, createIpLimiter, IP_LOGIN_LIMIT, login, refreshTokens }
 
 export function registerOwnerAuthRoutes(
   app: FastifyInstance,
-  deps: { pool: pg.Pool; clock: Clock; ids: IdGen; secrets: SecretGen; env: { REFRESH_TOKEN_SECRET: string } },
+  deps: {
+    pool: pg.Pool;
+    clock: Clock;
+    ids: IdGen;
+    secrets: SecretGen;
+    env: { REFRESH_TOKEN_SECRET: string };
+    testHooks?: CloudTestHooks;
+  },
 ): void {
+  const hooks = deps.testHooks !== undefined ? { testHooks: deps.testHooks } : {};
   const limiter = createIpLimiter({ max: IP_LOGIN_LIMIT.max, windowMs: IP_LOGIN_LIMIT.windowMs, clock: deps.clock });
   app.withTypeProvider<ZodTypeProvider>().post(
     '/v1/auth/login',
@@ -33,7 +42,7 @@ export function registerOwnerAuthRoutes(
       const tokens = await login(
         app.ownerCredentials,
         request.body,
-        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt },
+        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt, ...hooks },
         request.ip,
         limiter,
       );
@@ -55,6 +64,7 @@ export function registerOwnerAuthRoutes(
         secrets: deps.secrets,
         jwt: app.jwt,
         refreshSecret: deps.env.REFRESH_TOKEN_SECRET,
+        ...hooks,
       });
       return reply.send({ data: tokens });
     },
@@ -100,7 +110,7 @@ export function registerOwnerAuthRoutes(
       const tokens = await changePassword(
         request.body,
         { tenant: request.tenant, userId: app.jwt.verify(access).sub },
-        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt },
+        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt, ...hooks },
         request.ip,
         limiter,
       );
