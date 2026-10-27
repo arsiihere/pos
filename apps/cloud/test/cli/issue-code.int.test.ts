@@ -194,4 +194,156 @@ describe('issue-registration-code', () => {
     );
     expect(afterRefuse.rows[0]?.n).toBe('2');
   });
+
+  // 01b §4.3 row 19, D-14: a tenant from the current seed, plus staff rows written directly.
+  async function tenantWithStaff() {
+    await truncateAll(pool);
+    const sys = new SystemContext(pool);
+    const deps = { clock: fixedClock(T), ids: testIdGen(), secrets: testSecrets() };
+    const seeded = await seedTenant(
+      sys,
+      { name: 'Pilot', currency: 'PKR', ownerEmail: 'owner@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+      deps,
+    );
+    const tenant = seeded.tenant_id;
+    // By name: seed-tenant sets default_key only from task 48.
+    const named = await pool.query<{ role_id: string; name: string }>(`SELECT role_id, name FROM roles WHERE tenant_id = $1`, [
+      tenant,
+    ]);
+    const role = (name: string) => named.rows.find((row) => row.name === name)!.role_id;
+    const staff = async (
+      staffId: string,
+      name: string,
+      roleId: string,
+      o: { pin?: boolean; left?: boolean; denied?: string[] } = {},
+    ) => {
+      await pool.query(
+        `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, is_active, left_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
+        [tenant, staffId, name, o.pin === false ? null : 'hash', o.left !== true, o.left === true ? T : null, T],
+      );
+      await pool.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id) VALUES ($1, $2, $3)`, [tenant, staffId, roleId]);
+      for (const permission of o.denied ?? []) {
+        await pool.query(`INSERT INTO staff_permission_denials (tenant_id, staff_id, permission) VALUES ($1, $2, $3)`, [
+          tenant,
+          staffId,
+          permission,
+        ]);
+      }
+    };
+    const issue = (branchName: string) => issueRegistrationCode(sys, { tenantId: tenant, branchName }, deps);
+    const directoryVersion = async () =>
+      Number((await pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [tenant])).rows[0].directory_version);
+    const assigned = async (branchId: string) =>
+      (
+        await pool.query<{ staff_id: string }>(
+          `SELECT staff_id FROM staff_branches WHERE tenant_id = $1 AND branch_id = $2 ORDER BY staff_id`,
+          [tenant, branchId],
+        )
+      ).rows.map((row) => row.staff_id);
+    const counts = async () =>
+      (
+        await pool.query(
+          `SELECT (SELECT count(*)::int FROM branches WHERE tenant_id = $1) AS branches,
+                  (SELECT count(*)::int FROM registration_codes WHERE tenant_id = $1) AS codes,
+                  (SELECT count(*)::int FROM staff_branches WHERE tenant_id = $1) AS links,
+                  (SELECT directory_version FROM tenants WHERE tenant_id = $1) AS directory_version,
+                  (SELECT array_agg(display_name ORDER BY staff_id) FROM staff WHERE tenant_id = $1) AS names`,
+          [tenant],
+        )
+      ).rows[0];
+    return { tenant, owner: seeded.staff_id, role, staff, issue, directoryVersion, assigned, counts };
+  }
+
+  it('[01b #86] a new branch gets an active manager, not a leaver or one denied access-hub-admin or manage-devices; directory_version +1; waits on the tenant lock; a taken branch name (other case) → refused, nothing written', async () => {
+    const t = await tenantWithStaff();
+    await t.staff('m-active', 'Mo', t.role('Manager'));
+    await t.staff('m-left', 'Lee', t.role('Manager'), { left: true });
+    await t.staff('m-no-admin', 'Nadia', t.role('Manager'), { denied: ['access-hub-admin'] });
+    await t.staff('m-no-devices', 'Dan', t.role('Manager'), { denied: ['manage-devices'] });
+    const v0 = await t.directoryVersion();
+
+    // A directory write holding the tenant lock makes the CLI wait (B11).
+    const hold = await pool.connect();
+    let issued: Awaited<ReturnType<typeof t.issue>>;
+    try {
+      await hold.query('BEGIN');
+      await hold.query(`SELECT 1 FROM tenants WHERE tenant_id = $1 FOR NO KEY UPDATE`, [t.tenant]);
+      let settled = false;
+      const pending = t.issue('Gulberg').finally(() => {
+        settled = true;
+      });
+      let waiting = false;
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline && !settled) {
+        const locks = await pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()`,
+        );
+        if (locks.rows[0]?.n !== '0') {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+      expect(settled).toBe(false);
+      await hold.query('COMMIT');
+      issued = await pending;
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+
+    expect(await t.assigned(issued.branch_id)).toEqual(['m-active', t.owner].sort());
+    expect(await t.directoryVersion()).toBe(v0 + 1);
+
+    const before = await t.counts();
+    await expect(t.issue('gulberg')).rejects.toThrow(/branch name/);
+    expect(await t.counts()).toEqual(before);
+  });
+
+  it('[01b #93] a new branch gets qualifying admins only: the owner and the first manager, not a stock counter, a manager denied manage-devices, one with no PIN or one who has left', async () => {
+    const t = await tenantWithStaff();
+    const counter = 'r-stock-counter';
+    await pool.query(
+      `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, $2, 'Stock counter', 300000)`,
+      [t.tenant, counter],
+    );
+    await pool.query(
+      `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id)
+       VALUES ($1, $2, 'access-hub-admin', 'allowed', NULL), ($1, $2, 'manage-stock', 'allowed', NULL)`,
+      [t.tenant, counter],
+    );
+    await t.staff('a-manager', 'Mo', t.role('Manager'));
+    await t.staff('b-counter', 'Sana', counter);
+    await t.staff('c-no-devices', 'Dan', t.role('Manager'), { denied: ['manage-devices'] });
+    await t.staff('d-no-pin', 'Pervez', t.role('Manager'), { pin: false });
+    await t.staff('e-left', 'Lee', t.role('Manager'), { left: true });
+
+    const issued = await t.issue('C');
+    // GET /v1/admin/staff?branch_id=C (task 12) lists the people in staff_branches for C.
+    expect(await t.assigned(issued.branch_id)).toEqual(['a-manager', t.owner].sort());
+  });
+
+  it('[01b #94] two qualifying admins named "Ali" and "ali " → refused, listing the name with both staff ids, nothing written; after a rename both are assigned; every duplicated name is listed', async () => {
+    const t = await tenantWithStaff();
+    await t.staff('ali-1', 'Ali', t.role('Manager'));
+    await t.staff('ali-2', 'ali ', t.role('Manager'));
+    const before = await t.counts();
+    const refused = t.issue('C');
+    await expect(refused).rejects.toThrow(/Ali/);
+    await expect(refused).rejects.toThrow(/ali-1, ali-2/);
+    expect(await t.counts()).toEqual(before);
+
+    await pool.query(`UPDATE staff SET display_name = 'Ali R.' WHERE tenant_id = $1 AND staff_id = 'ali-2'`, [t.tenant]);
+    const issued = await t.issue('C');
+    expect(await t.assigned(issued.branch_id)).toEqual(['ali-1', 'ali-2', t.owner].sort());
+
+    await t.staff('ali-3', 'ALI', t.role('Manager'));
+    await t.staff('sara-1', 'Sara', t.role('Manager'));
+    await t.staff('sara-2', ' sara', t.role('Manager'));
+    const many = t.issue('D');
+    await expect(many).rejects.toThrow(/Ali \(ali-1, ali-3\)/);
+    await expect(many).rejects.toThrow(/sara \(sara-1, sara-2\)/i);
+  });
 });
