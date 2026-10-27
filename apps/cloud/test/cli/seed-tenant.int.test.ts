@@ -133,6 +133,7 @@ describe('seed-tenant', () => {
       display_name: 'Ada',
       tenant_id: created.tenant_id,
       allowed_branch_ids: [],
+      must_change_password: false, // 01b §6.13
     });
     await cloud.close();
 

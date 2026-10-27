@@ -22,7 +22,8 @@ const TOKENS = {
   access_expires_at: 1,
   refresh_token: 'R1',
   refresh_expires_at: 2,
-  user: { user_id: 'U1', display_name: 'Owner', tenant_id: 'T1', allowed_branch_ids: ['B1', 'B2'] },
+  user: { user_id: 'U1', display_name: 'Owner', tenant_id: 'T1', allowed_branch_ids: ['B1', 'B2'], must_change_password: false },
+  lockout_notice: null,
 };
 
 function fakeFetch(replies: Response[]) {

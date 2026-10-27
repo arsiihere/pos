@@ -8,7 +8,9 @@ import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import type { AccessClaims } from '../../plugins/jwt.js';
 import {
+  clearLockNotice,
   deleteStaleRefreshTokens,
+  lockOwnerRow,
   insertRefreshToken,
   markRefreshRotated,
   ownerProfile,
@@ -16,6 +18,7 @@ import {
   resetLoginFailures,
   revokeLiveRefreshTokens,
   sha256,
+  type OwnerAuthRow,
 } from './repository.js';
 
 const WINDOW_MS = 900_000;
@@ -82,12 +85,25 @@ export interface IssuedTokens {
   access_expires_at: number;
   refresh_token: string;
   refresh_expires_at: number;
-  user: { user_id: string; display_name: string; tenant_id: string; allowed_branch_ids: string[] };
+  user: { user_id: string; display_name: string; tenant_id: string; allowed_branch_ids: string[]; must_change_password: boolean };
+  lockout_notice: { locked_at: number; failed_count: number } | null;
 }
 
-export async function issueTokens(client: pg.PoolClient, user: OwnerLoginUser, deps: LoginDeps): Promise<IssuedTokens> {
+// 01b §3.7, M73: what the notice reports; the count is the lock threshold.
+function lockoutNotice(lockNoticeAt: number | null): IssuedTokens['lockout_notice'] {
+  return lockNoticeAt === null ? null : { locked_at: lockNoticeAt, failed_count: FAILURE_LIMIT };
+}
+
+// 01b §6.13 (c): runs under the owner-row lock; `owner` is the locked row.
+export async function issueTokens(
+  client: pg.PoolClient,
+  user: OwnerLoginUser,
+  owner: OwnerAuthRow,
+  deps: LoginDeps,
+): Promise<IssuedTokens> {
   const now = deps.clock.branchNow();
   await resetLoginFailures(client, user.tenant_id, user.user_id);
+  if (owner.lock_notice_at !== null) await clearLockNotice(client, user.tenant_id, user.user_id);
   await deleteStaleRefreshTokens(client, user.tenant_id, user.user_id, now - STALE_REFRESH_MS);
   const refreshToken = deps.secrets.token256();
   const refreshExpiresAt = now + REFRESH_TTL_MS;
@@ -98,24 +114,26 @@ export async function issueTokens(client: pg.PoolClient, user: OwnerLoginUser, d
     tokenHash: sha256(refreshToken),
     now,
     expiresAt: refreshExpiresAt,
-    credentialVersion: user.credential_version,
+    credentialVersion: owner.credential_version,
   });
   return {
     access_token: deps.jwt.sign({
       sub: user.user_id,
       tenant_id: user.tenant_id,
-      allowed_branch_ids: user.allowed_branch_ids,
-      cv: user.credential_version,
+      allowed_branch_ids: owner.allowed_branch_ids,
+      cv: owner.credential_version,
     }),
     access_expires_at: now + ACCESS_TTL_MS,
     refresh_token: refreshToken,
     refresh_expires_at: refreshExpiresAt,
     user: {
       user_id: user.user_id,
-      display_name: user.display_name,
+      display_name: owner.display_name,
       tenant_id: user.tenant_id,
-      allowed_branch_ids: user.allowed_branch_ids,
+      allowed_branch_ids: owner.allowed_branch_ids,
+      must_change_password: owner.must_change_password,
     },
+    lockout_notice: lockoutNotice(owner.lock_notice_at),
   };
 }
 
@@ -128,7 +146,7 @@ export async function login(
 ): Promise<IssuedTokens> {
   const gate = limiter.check(ip);
   if (gate.limited) throw new DomainError('IP_LOCKED_OUT', { retry_after_ms: gate.retryAfterMs });
-  let succeeded = false;
+  let succeeded = false; // also true for a refusal that is not a guess (the IP is not counted)
   try {
     const user = await credentials.byEmail(input.email);
     const now = deps.clock.branchNow();
@@ -137,7 +155,7 @@ export async function login(
       throw new DomainError('LOGIN_INVALID');
     }
     const match = await verify(user.password_hash, input.password);
-    if (!match) {
+    const failure = async () => {
       await recordLoginFailure(deps.pool, {
         tenantId: user.tenant_id,
         userId: user.user_id,
@@ -146,21 +164,35 @@ export async function login(
         threshold: FAILURE_LIMIT,
         lockMs: LOCK_MS,
       });
-      throw new DomainError('LOGIN_INVALID');
-    }
+      return new DomainError('LOGIN_INVALID');
+    };
+    if (!match) throw await failure();
+    // 01b §6.13: the success transaction, under the owner row taken FOR NO KEY UPDATE first.
     const client = await deps.pool.connect();
+    let outcome: IssuedTokens | 'changed' | 'expired';
     try {
       await client.query('BEGIN');
-      const tokens = await issueTokens(client, user, deps);
-      await client.query('COMMIT');
-      succeeded = true;
-      return tokens;
+      const owner = await lockOwnerRow(client, user.tenant_id, user.user_id, { passwordHash: user.password_hash });
+      if (owner === null) outcome = 'changed';
+      else if (owner.must_change_password && owner.temp_password_expires_at !== null && owner.temp_password_expires_at <= now) {
+        outcome = 'expired';
+      } else outcome = await issueTokens(client, user, owner, deps);
+      await client.query(typeof outcome === 'string' ? 'ROLLBACK' : 'COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally {
       client.release();
     }
+    // (a) a change or reset committed after the verify: refused, nothing counted
+    if (outcome === 'changed') {
+      succeeded = true;
+      throw new DomainError('LOGIN_INVALID');
+    }
+    // (b) expired temporary password (M3): the failure path
+    if (outcome === 'expired') throw await failure();
+    succeeded = true;
+    return outcome;
   } finally {
     if (succeeded) limiter.release(ip, gate.at);
   }
@@ -247,7 +279,7 @@ export async function refreshTokens(
 
 function issueAccess(
   row: StoredRefresh,
-  profile: { display_name: string; allowed_branch_ids: string[]; credential_version: number },
+  profile: { display_name: string; allowed_branch_ids: string[]; credential_version: number; must_change_password: boolean },
   refreshToken: string,
   refreshExpiresAt: number,
   deps: RefreshDeps,
@@ -268,6 +300,8 @@ function issueAccess(
       display_name: profile.display_name,
       tenant_id: row.tenant_id,
       allowed_branch_ids: profile.allowed_branch_ids,
+      must_change_password: profile.must_change_password,
     },
+    lockout_notice: null, // the rotating refresh's notice: task 37
   };
 }

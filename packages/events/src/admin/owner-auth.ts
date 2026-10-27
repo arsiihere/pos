@@ -13,7 +13,11 @@ const User = z.object({
   display_name: z.string(),
   tenant_id: z.string(),
   allowed_branch_ids: z.array(z.string()),
+  must_change_password: z.boolean(), // 01b §6.13: read from the owner row
 });
+
+// 01b §3.7, M73: shown once after a lock, then cleared.
+const LockoutNotice = z.object({ locked_at: z.number(), failed_count: z.number().int() });
 
 export const LoginResponse = z.object({
   data: z.object({
@@ -22,6 +26,7 @@ export const LoginResponse = z.object({
     refresh_token: z.string(),
     refresh_expires_at: z.number(),
     user: User,
+    lockout_notice: LockoutNotice.nullable(),
   }),
 });
 
