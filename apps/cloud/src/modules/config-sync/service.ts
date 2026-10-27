@@ -2,6 +2,7 @@ import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { DirectoryInput } from '@pos/events';
 import type pg from 'pg';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
+import type { Clock } from '../../lib/clock.js';
 import { inTransaction } from '../../lib/idempotency.js';
 import { loadDirectory } from '../hub-registration/repository.js';
 import { buildSnapshot } from './builder.js';
@@ -17,12 +18,29 @@ export type SyncConfigResult =
       };
     };
 
-// §6.1: one read-only REPEATABLE READ transaction, statement (1) included, so the label matches the content.
+// §6.1: one read-only REPEATABLE READ transaction, statement (1) included, so the label matches the content;
+// then step (6) records the hub's times (01b B19).
 export async function syncConfig(
   pool: pg.Pool,
+  clock: Clock,
   tenant: TenantContext,
   query: SyncConfigQueryInput,
 ): Promise<SyncConfigResult> {
+  const result = await readConfig(pool, tenant, query);
+  await recordHubTimes(pool, clock, tenant, result.kind === 'not_modified');
+  return result;
+}
+
+// 01a §6.1 step (6), 01b B19: after the read, no lock held by it; 304 → both times, 200 → hub_last_seen_at only.
+async function recordHubTimes(pool: pg.Pool, clock: Clock, tenant: TenantContext, upToDate: boolean): Promise<void> {
+  await new TenantScopedRepository(tenant, pool).query(
+    `UPDATE branches SET hub_last_seen_at = $4${upToDate ? ', hub_synced_at = $4' : ''}
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
+    [tenant.branchIds[0]!, clock.branchNow()],
+  );
+}
+
+async function readConfig(pool: pg.Pool, tenant: TenantContext, query: SyncConfigQueryInput): Promise<SyncConfigResult> {
   const branchId = tenant.branchIds[0]!;
   return inTransaction(
     pool,

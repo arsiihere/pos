@@ -1,5 +1,6 @@
 import {
   BranchConfigSnapshotSchemaV1,
+  CONFIG_POLL_INTERVAL_MS,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
   type BranchConfig,
@@ -55,8 +56,6 @@ export interface ConfigPollerDeps {
   applyDirectory?: typeof applyStaffDirectory;
   log: Pick<FastifyBaseLogger, 'debug' | 'info' | 'warn' | 'error'>;
 }
-
-export const POLL_INTERVAL_MS = 60_000;
 
 // §12.4: above this many items the hash and parse should move off the main thread.
 const LARGE_SNAPSHOT_ITEMS = 1_000;
@@ -275,7 +274,7 @@ export function createConfigPoller(deps: ConfigPollerDeps): ConfigPoller {
       if (stopped || timer !== null) return;
       timer = setInterval(() => {
         void pollOnce();
-      }, POLL_INTERVAL_MS);
+      }, CONFIG_POLL_INTERVAL_MS);
       if (typeof timer.unref === 'function') timer.unref();
     },
     stop() {

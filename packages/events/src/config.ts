@@ -5,6 +5,9 @@ import { DirectorySchema } from './directory.js';
 // cloud may add optional fields, which an older hub drops (S28 c).
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
+// 01a §3.4 (01b B19, D-11): the hub's config poll interval; the cloud derives hub_stale_after_ms from it.
+export const CONFIG_POLL_INTERVAL_MS = 60_000;
+
 const int = z.number().int();
 const unit = z.enum(['piece', 'g', 'ml']);
 

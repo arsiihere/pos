@@ -1,5 +1,6 @@
 import { DomainError } from '@pos/domain';
 import { canonicalJson } from '@pos/domain/hash';
+import { CONFIG_POLL_INTERVAL_MS } from '@pos/events';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
@@ -113,9 +114,10 @@ export function assertBranchAllowed(tenant: TenantContext, branchId: string): vo
 }
 
 // §6.2: 2 statements, archived rows included.
-// §6.7b (v1.2, S58): one statement, no audit.
+// §6.7b (v1.2, S58): one statement, no audit. v1.3 (01b D-11): the warning threshold, computed, not stored.
 export async function listBranches(deps: RestaurantDeps, tenant: TenantContext) {
-  return selectBranches(new TenantScopedRepository(tenant, deps.pool));
+  const branches = await selectBranches(new TenantScopedRepository(tenant, deps.pool));
+  return { branches, hub_stale_after_ms: 3 * CONFIG_POLL_INTERVAL_MS };
 }
 
 export async function listFloors(deps: RestaurantDeps, tenant: TenantContext, branchId: string) {

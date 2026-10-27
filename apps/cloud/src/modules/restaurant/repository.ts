@@ -68,15 +68,22 @@ export interface BranchRow {
   branch_id: string;
   name: string;
   status: 'pending_hub' | 'active';
+  hub_last_seen_at: number | null;
+  hub_synced_at: number | null;
 }
 
-// §6.7b (S58): the caller's branches, by name.
+// §6.7b (S58): the caller's branches, by name; v1.3 (01b B19) with the hub's two times.
 export async function selectBranches(repo: TenantScopedRepository): Promise<BranchRow[]> {
-  return repo.query<BranchRow>(
-    `SELECT branch_id, name, status FROM branches
+  const rows = await repo.query<Omit<BranchRow, 'hub_last_seen_at' | 'hub_synced_at'> & { hub_last_seen_at: string | null; hub_synced_at: string | null }>(
+    `SELECT branch_id, name, status, hub_last_seen_at, hub_synced_at FROM branches
       WHERE tenant_id = $1 AND branch_id = ANY($2)
       ORDER BY name, branch_id`,
   );
+  return rows.map((row) => ({
+    ...row,
+    hub_last_seen_at: row.hub_last_seen_at === null ? null : Number(row.hub_last_seen_at),
+    hub_synced_at: row.hub_synced_at === null ? null : Number(row.hub_synced_at),
+  }));
 }
 
 export async function selectFloors(repo: TenantScopedRepository, branchId: string): Promise<FloorRow[]> {

@@ -78,8 +78,7 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
     },
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('GET /v1/admin/branches');
-      const branches = await listBranches(deps, tenantOf(request));
-      return reply.send({ data: { branches } });
+      return reply.send({ data: await listBranches(deps, tenantOf(request)) });
     },
   );
 

@@ -46,7 +46,8 @@ describe('GET /v1/sync/config', () => {
     const response = await poll(v.config, v.directory);
     expect(response.statusCode).toBe(304);
     expect(response.body).toBe('');
-    expect(counter.count).toBe(1);
+    // v1.3 (01b B19): plus step (6), the hub-times UPDATE → 2.
+    expect(counter.count).toBe(2);
   });
 
   it('[01a §10 #2] config_version behind → 200, the snapshot parses, snapshot_hash is its canonical sha256, directory null', async () => {

@@ -313,10 +313,19 @@ export const MenuResponse = z.object({
   }),
 });
 
-// §6.7b (v1.2, S58): the owner's branches, for their names.
+// §6.7b (v1.2, S58): the owner's branches, for their names; v1.3 (01b B19, D-11) with the hub's times.
 export const BranchListResponse = z.object({
   data: z.object({
-    branches: z.array(z.object({ branch_id: z.string(), name: z.string(), status: z.enum(['pending_hub', 'active']) })),
+    branches: z.array(
+      z.object({
+        branch_id: z.string(),
+        name: z.string(),
+        status: z.enum(['pending_hub', 'active']),
+        hub_last_seen_at: z.number().int().nullable(),
+        hub_synced_at: z.number().int().nullable(),
+      }),
+    ),
+    hub_stale_after_ms: z.number().int(),
   }),
 });
 

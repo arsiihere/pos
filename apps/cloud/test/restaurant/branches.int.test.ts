@@ -41,10 +41,12 @@ describe('branch list (§6.7b, S58)', () => {
     expect(response.statusCode, response.body).toBe(200);
     expect(response.json()).toEqual({
       data: {
+        // v1.3 (01b B19, D-11): the hub's times and the warning threshold.
         branches: [
-          { branch_id: c, name: 'Alpha Johar Town', status: 'pending_hub' },
-          { branch_id: a, name: 'Zeta Gulberg', status: 'active' },
+          { branch_id: c, name: 'Alpha Johar Town', status: 'pending_hub', hub_last_seen_at: null, hub_synced_at: null },
+          { branch_id: a, name: 'Zeta Gulberg', status: 'active', hub_last_seen_at: null, hub_synced_at: null },
         ],
+        hub_stale_after_ms: 180_000,
       },
     });
     expect(counter.count).toBe(1);
@@ -58,6 +60,6 @@ describe('branch list (§6.7b, S58)', () => {
     }
     const empty = await list(f.tokenFor(['NO-SUCH-BRANCH']));
     expect(empty.statusCode, empty.body).toBe(200);
-    expect(empty.json()).toEqual({ data: { branches: [] } });
+    expect(empty.json()).toEqual({ data: { branches: [], hub_stale_after_ms: 180_000 } });
   });
 });
