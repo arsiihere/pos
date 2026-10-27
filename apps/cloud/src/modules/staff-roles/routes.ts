@@ -1,10 +1,19 @@
 import { DomainError } from '@pos/domain';
-import { PinBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
+import { PinBody, RoleCreateBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
-import { StaffIdParams, StaffListResponse, StaffPatchResponse, StaffQuery, StaffResponse } from './schemas.js';
-import { createStaff, listStaff, setPin, updateStaff } from './service.js';
+import {
+  RoleListResponse,
+  RoleQuery,
+  RoleResponse,
+  StaffIdParams,
+  StaffListResponse,
+  StaffPatchResponse,
+  StaffQuery,
+  StaffResponse,
+} from './schemas.js';
+import { createRole, createStaff, listRoles, listStaff, setPin, updateStaff } from './service.js';
 import type { OwnerRequest, StaffRolesDeps } from './write.js';
 
 export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesDeps): void {
@@ -57,6 +66,31 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PUT /v1/admin/staff/:staff_id/pin');
       return reply.send({ data: await setPin(deps, ownerRequest(app, request), request.params.staff_id, request.body) });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/roles',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { querystring: RoleQuery, response: { 200: RoleListResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/roles');
+      const roles = await listRoles(deps, tenantOf(request), { archived: request.query.archived === 'true' });
+      return reply.send({ data: { roles } });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/roles',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: RoleCreateBody, response: { 200: RoleResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/roles');
+      return sendIdempotent(reply, await createRole(deps, ownerRequest(app, request), request.body));
     },
   );
 }

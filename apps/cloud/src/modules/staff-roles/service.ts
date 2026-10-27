@@ -1,6 +1,6 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
-import { DomainError } from '@pos/domain';
-import type { ChangedVersions, PinBody, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
+import type { ChangedVersions, GrantWire, PinBody, RoleCreateBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -10,6 +10,8 @@ import {
   addBranches,
   addRoles,
   firstNameClash,
+  insertGrants,
+  insertRole,
   insertStaff,
   lockStaff,
   pairKey,
@@ -18,20 +20,24 @@ import {
   replaceDenials,
   replaceFloors,
   replaceLeads,
+  roleNameTaken,
   selectActiveAtBranch,
   selectBranchIds,
   selectFloorStates,
   selectRoleStates,
+  selectRoles,
   selectStaff,
   updatePin,
   updateStaffRow,
+  type RoleFilter,
   type StaffFilter,
 } from './repository.js';
-import { staffVersion, toStaffWire, withVersion, type StaffRow } from './versions.js';
+import { roleVersion, staffVersion, toRoleWire, toStaffWire, withVersion, type RoleRow, type StaffRow } from './versions.js';
 import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
 type StaffPatchInput = z.infer<typeof StaffPatchBody>;
+type RoleCreateInput = z.infer<typeof RoleCreateBody>;
 type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
 
 // 00 M8: argon2id m=19456, t=2, p=1.
@@ -227,6 +233,68 @@ export async function updateStaff(
   return out.body;
 }
 
+// §6.5: 4 statements; each version built in memory (B23).
+export async function listRoles(deps: StaffRolesDeps, tenant: TenantContext, filter: RoleFilter): Promise<RoleWire[]> {
+  const rows = await selectRoles(new TenantLevelRepository(tenant, deps.pool), filter);
+  return rows.map(versionedRole);
+}
+
+// §6.6: directory write script, creating POST (Idempotency-Key); the B8 check is in the script.
+export async function createRole(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  body: RoleCreateInput,
+): Promise<IdempotentResult<{ role: RoleWire; changed_versions: ChangedVersions }>> {
+  return directoryWrite(deps, req, { idempotent: true, body }, async (ctx) => {
+    const grants = await checkGrants(ctx.repo, body.grants);
+    if (await roleNameTaken(ctx.repo, body.name, null)) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'role', name: body.name });
+    const roleId = ctx.deps.ids.next();
+    await insertRole(ctx.repo, { roleId, name: body.name, idleMs: body.idle_minutes * 60_000 });
+    await insertGrants(ctx.repo, roleId, grants);
+    const [row] = await selectRoles(ctx.repo, { ids: [roleId] });
+    const wire = toRoleWire(row!);
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'role',
+        entityId: roleId,
+        branchId: null,
+        action: 'create',
+        before: null,
+        after: auditedRole(wire),
+      },
+      ctx.deps,
+    );
+    const changed_versions = await ctx.changed.resolve(ctx);
+    return { body: { role: withVersion(wire, roleVersion(wire)), changed_versions }, bump: true };
+  });
+}
+
+// §6.6 rules: one grant per permission; approvers non-empty iff requires_approval (AD-13: `field` only, as
+// 01a's reason-less references); approvers active roles of the tenant; scope in the permission's row (§3.3).
+async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput['grants']): Promise<GrantWire[]> {
+  const seen = new Set<string>();
+  grants.forEach((grant, i) => {
+    if (seen.has(grant.permission)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.permission` });
+    seen.add(grant.permission);
+    if ((grant.grant_type === 'requires_approval') !== (grant.approver_role_ids.length > 0)) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.approver_role_ids` });
+    }
+    if (!PERMISSION_SCOPES[grant.permission].includes(grant.scope)) throw referenceInvalid(`grants.${i}.scope`, 'scope_not_allowed');
+  });
+  const approverIds = unique(grants.flatMap((grant) => grant.approver_role_ids));
+  const states = approverIds.length === 0 ? new Map<string, { archived: boolean }>() : await selectRoleStates(repo, approverIds);
+  grants.forEach((grant, i) => {
+    grant.approver_role_ids.forEach((approver, j) => {
+      const state = states.get(approver);
+      if (state === undefined) throw referenceInvalid(`grants.${i}.approver_role_ids.${j}`, 'not_found');
+      if (state.archived) throw referenceInvalid(`grants.${i}.approver_role_ids.${j}`, 'role_archived');
+    });
+  });
+  return grants.map((grant) => ({ ...grant, approver_role_ids: unique(grant.approver_role_ids) }));
+}
+
 // §3.2 rule 5, §3.5: one lead per branch, at one of the person's branches, active and working there.
 // The loop walk joins with PATCH (task 15): a new person has no reports.
 async function checkReportsTo(
@@ -276,6 +344,18 @@ async function checkFloors(
 function versioned(row: StaffRow): StaffWire {
   const wire = toStaffWire(row);
   return withVersion(wire, staffVersion(wire));
+}
+
+// §6 script: audit rows carry the wire without version and staff_count.
+function auditedRole(wire: Omit<RoleWire, 'version'>): Omit<RoleWire, 'version' | 'staff_count'> {
+  const { staff_count, ...rest } = wire;
+  void staff_count;
+  return rest;
+}
+
+function versionedRole(row: RoleRow): RoleWire {
+  const wire = toRoleWire(row);
+  return withVersion(wire, roleVersion(wire));
 }
 
 function groupFloors(pairs: { branch_id: string; floor_id: string }[]): { branch_id: string; floor_ids: string[] }[] {

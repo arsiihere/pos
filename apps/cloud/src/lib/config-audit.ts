@@ -13,6 +13,7 @@ export type AuditEntity =
   | 'item_route'
   | 'branch_settings'
   | 'staff' // 01b B21
+  | 'role' // 01b B21
   | 'owner_user';
 export type AuditAction =
   | 'create'

@@ -101,5 +101,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/staff/${ids.staffId}`,
     payload: { expected_version: 'stale', display_name: 'Bilal' },
   }),
+  'GET /v1/admin/roles': () => ({ url: '/v1/admin/roles' }),
+  'POST /v1/admin/roles': (ids) => ({
+    url: '/v1/admin/roles',
+    payload: {
+      name: 'Shift lead',
+      idle_minutes: 30,
+      grants: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_ids: [ids.roleId] }],
+    },
+  }),
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
 };

@@ -1,6 +1,7 @@
 import type { Permission } from '@pos/domain';
 import type { TenantSql } from '../../lib/config-version.js';
-import type { StaffRow } from './versions.js';
+import type { GrantWire } from '@pos/events';
+import type { RoleRow, StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
@@ -86,6 +87,111 @@ interface PersonRow {
 const PERSON_SQL = `SELECT s.staff_id, s.display_name, s.pin_hash IS NOT NULL AS has_pin, s.pin_set_at, s.is_active, s.left_at
   FROM staff s`;
 const PERSON_ORDER = 'ORDER BY lower(s.display_name), s.staff_id';
+
+// 01b §6.5: roles by archived state, or by id; 4 statements whatever the role count (staff_count over active staff).
+export type RoleFilter = { archived: boolean } | { ids: string[] };
+
+export async function selectRoles(db: TenantSql, filter: RoleFilter): Promise<RoleRow[]> {
+  const roles =
+    'ids' in filter
+      ? await db.query<RoleHead>(`${ROLE_SQL} AND role_id = ANY($2) ${ROLE_ORDER}`, [filter.ids])
+      : await db.query<RoleHead>(`${ROLE_SQL} AND (archived_at IS NOT NULL) = $2 ${ROLE_ORDER}`, [filter.archived]);
+  const ids = roles.map((row) => row.role_id);
+  const grants = await db.query<{ role_id: string; permission: GrantWire['permission']; grant_type: GrantWire['grant_type']; scope: GrantWire['scope'] }>(
+    `SELECT role_id, permission, grant_type, scope FROM role_permissions WHERE tenant_id = $1 AND role_id = ANY($2)`,
+    [ids],
+  );
+  const approvers = await db.query<{ role_id: string; permission: string; approver_role_id: string }>(
+    `SELECT role_id, permission, approver_role_id FROM role_permission_approvers WHERE tenant_id = $1 AND role_id = ANY($2)`,
+    [ids],
+  );
+  const counts = await db.query<{ role_id: string; n: string }>(
+    `SELECT sr.role_id, count(*) AS n
+       FROM staff_roles sr JOIN staff s ON s.tenant_id = sr.tenant_id AND s.staff_id = sr.staff_id
+      WHERE sr.tenant_id = $1 AND sr.role_id = ANY($2) AND s.is_active
+      GROUP BY sr.role_id`,
+    [ids],
+  );
+  const approversOf = new Map<string, string[]>();
+  for (const row of approvers) {
+    const key = pairKey(row.role_id, row.permission);
+    approversOf.set(key, [...(approversOf.get(key) ?? []), row.approver_role_id]);
+  }
+  const grantsOf = new Map<string, GrantWire[]>();
+  for (const row of grants) {
+    const grant = {
+      permission: row.permission,
+      grant_type: row.grant_type,
+      approver_role_ids: approversOf.get(pairKey(row.role_id, row.permission)) ?? [],
+      scope: row.scope,
+    };
+    grantsOf.set(row.role_id, [...(grantsOf.get(row.role_id) ?? []), grant]);
+  }
+  const countOf = new Map(counts.map((row) => [row.role_id, Number(row.n)]));
+  return roles.map((row) => ({
+    role_id: row.role_id,
+    name: row.name,
+    default_key: row.default_key,
+    archived_at: row.archived_at === null ? null : Number(row.archived_at),
+    session_idle_ttl_ms: Number(row.session_idle_ttl_ms),
+    staff_count: countOf.get(row.role_id) ?? 0,
+    grants: grantsOf.get(row.role_id) ?? [],
+  }));
+}
+
+interface RoleHead {
+  role_id: string;
+  name: string;
+  default_key: string | null;
+  archived_at: string | null;
+  session_idle_ttl_ms: number;
+}
+
+const ROLE_SQL = `SELECT role_id, name, default_key, archived_at, session_idle_ttl_ms FROM roles WHERE tenant_id = $1`;
+const ROLE_ORDER = 'ORDER BY lower(name), role_id';
+
+// §6.6, B12-like: an active role with this name (case-insensitive), other than `exceptRoleId`.
+export async function roleNameTaken(db: TenantSql, name: string, exceptRoleId: string | null): Promise<boolean> {
+  const rows = await db.query(
+    `SELECT 1 FROM roles WHERE tenant_id = $1 AND archived_at IS NULL AND lower(name) = lower($2)
+        AND ($3::text IS NULL OR role_id <> $3) LIMIT 1`,
+    [name, exceptRoleId],
+  );
+  return rows.length > 0;
+}
+
+// §6.6: default_key null (owner-made role).
+export async function insertRole(db: TenantSql, r: { roleId: string; name: string; idleMs: number }): Promise<void> {
+  await db.query(
+    `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms, default_key)
+     SELECT tenant_id, $2, $3, $4, NULL FROM tenants WHERE tenant_id = $1`,
+    [r.roleId, r.name, r.idleMs],
+  );
+}
+
+// §5.1, B10 (M7): approver_role_id is dual-written with the first sorted approver; the list goes to its own table.
+export async function insertGrants(db: TenantSql, roleId: string, grants: GrantWire[]): Promise<void> {
+  if (grants.length === 0) return;
+  await db.query(
+    `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id, scope)
+     SELECT t.tenant_id, $2, x.p, x.g, x.a, x.s FROM tenants t, unnest($3::text[], $4::text[], $5::text[], $6::text[]) AS x(p, g, a, s)
+      WHERE t.tenant_id = $1`,
+    [
+      roleId,
+      grants.map((g) => g.permission),
+      grants.map((g) => g.grant_type),
+      grants.map((g) => [...g.approver_role_ids].sort()[0] ?? null),
+      grants.map((g) => g.scope),
+    ],
+  );
+  const pairs = grants.flatMap((g) => g.approver_role_ids.map((approver) => ({ permission: g.permission, approver })));
+  if (pairs.length === 0) return;
+  await db.query(
+    `INSERT INTO role_permission_approvers (tenant_id, role_id, permission, approver_role_id)
+     SELECT t.tenant_id, $2, x.p, x.a FROM tenants t, unnest($3::text[], $4::text[]) AS x(p, a) WHERE t.tenant_id = $1`,
+    [roleId, pairs.map((row) => row.permission), pairs.map((row) => row.approver)],
+  );
+}
 
 // B11: the first lock of every directory write.
 export async function lockTenant(db: TenantSql): Promise<void> {

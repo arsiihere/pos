@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { issueRegistrationCode } from '../../src/cli/issue-registration-code';
 import { seedTenant } from '../../src/cli/seed-tenant';
 import { SystemContext } from '../../src/cli/system-context';
-import { testIdGen } from '../../src/lib/ids';
+import { testIdGen, type IdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
 import { truncateAll, type TestCloud } from './test-cloud';
 
@@ -20,11 +20,18 @@ export interface RestaurantFixture {
 
 const idempotencyKeys = testIdGen();
 
+// Seeded rows get their own id space ('Z…'), so ids the app under test draws from its own testIdGen
+// (which also starts at 1) never collide with them (a created role would reuse a seeded role_id).
+function seedIds(): IdGen {
+  const base = testIdGen();
+  return { next: () => `Z${base.next().slice(1)}` };
+}
+
 // Tenant A: one owner, branches A, B, C, branch A registered (branchKey). Tenant B: one owner, one branch.
 export async function restaurantFixture(cloud: TestCloud): Promise<RestaurantFixture> {
   await truncateAll(cloud.pool);
   const sys = new SystemContext(cloud.pool);
-  const deps = { clock: cloud.clock, ids: testIdGen(), secrets: testSecrets() };
+  const deps = { clock: cloud.clock, ids: seedIds(), secrets: testSecrets() };
   const a = await seedTenant(
     sys,
     { name: 'Tenant A', currency: 'PKR', ownerEmail: 'a@example.com', ownerName: 'Ada', password: OWNER_PASSWORD, pin: '1234' },

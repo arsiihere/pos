@@ -1,4 +1,4 @@
-import { ChangedVersions, StaffWire } from '@pos/events';
+import { ChangedVersions, RoleWire, StaffWire } from '@pos/events';
 import { z } from 'zod';
 
 // D5: request bodies and wire shapes live in @pos/events (admin/staff.ts); the query and responses stay here.
@@ -20,3 +20,8 @@ export const StaffPatchResponse = z.object({
     changed_versions: ChangedVersions,
   }),
 });
+
+// §6.5
+export const RoleQuery = z.object({ archived: z.enum(['false', 'true']).default('false') });
+export const RoleListResponse = z.object({ data: z.object({ roles: z.array(RoleWire) }) });
+export const RoleResponse = z.object({ data: z.object({ role: RoleWire, changed_versions: ChangedVersions }) });
