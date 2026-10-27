@@ -14,7 +14,7 @@ If none are eligible but TODO tasks exist, they must depend on PARKED/BLOCKED wo
 1. Read the task in the plan + the cited spec sections + the files it lists.
 2. Write the failing test(s) using the spec test numbers. Run only that test file — confirm it fails for the right reason.
 3. Implement. Run that test file until green.
-4. Run `{{TEST_CMD}}`. If something else broke, fix it (Class A) before moving on.
+4. Run only the tests of the package(s) you touched (e.g. `pnpm --filter <pkg> test`). Do NOT run the full suite per task; the full suite runs once at the end of the batch (step 3). If something broke, fix it (Class A) before moving on.
 5. Commit (one commit per task). Update the status board row → DONE. Append build-log entry.
 If you hit a problem, classify it (A/B/C) per the rules and act. A task you cannot finish this step:
 increment attempts, write what you tried in its note, leave it TODO (or BLOCKED at 3, PARKED if Class C), and continue with the next eligible task.
