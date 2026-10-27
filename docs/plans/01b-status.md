@@ -18,17 +18,17 @@
 | T14 | DONE | 1 | T12 | 7d6700a; AD-14; #73 extended with PATCH; interim: is_active not applied yet (merged row keeps stored value) |
 | T15 | DONE | 1 | T14 | 08ef777; #26 and #57 passed at once (T12 create checks); loop walk is one recursive statement per entry |
 | T16 | DONE | 1 | T14 | 93c27a0; AD-15; is_active applied (T14 interim removed) |
-| T17 | TODO | 0 | T8,T16 | |
-| T18 | TODO | 0 | T16 | may pass at once; watch fail per plan |
+| T17 | DONE | 1 | T8,T16 | 202dd11; #9 cloud and hub halves passed at once (T16 / 00 code); #101 failed first; T19 guard test now expects STAFF_LINKED_TO_OWNER for leaving the linked row |
+| T18 | DONE | 1 | T16 | 3bfd918; passed at once, watched fail with the tenant lock removed; stale report retries with changed_versions (B23) |
 | T19 | DONE | 1 | T14 | 1df74d0; AD-16 (CLI shares the person predicate, not the per-branch map); #93 green |
-| T20 | TODO | 0 | T19 | may pass at once; watch fail per plan |
+| T20 | DONE | 1 | T19 | 87aa1f7; passed at once, watched fail with the tenant lock removed; no src change |
 | T21 | DONE | 1 | T12 | b2ff8a3; FOR UPDATE mutation checked (fails), restored |
 | T22 | DONE | 1 | T12 | 1e6331f; AD-13; Class A: seeded ids get their own id space in the restaurant fixture |
 | T23 | DONE | 1 | T9,T22 | ee8c4cd; passed at once, watched fail with B8 check and idle range removed; #17 PATCH part added in T24 |
 | T24 | DONE | 1 | T22 | aa2f6dd; AD-17 (interim: `archived` not applied until T25); #17 extended with PATCH |
-| T25 | TODO | 0 | T24 | |
+| T25 | DONE | 1 | T24 | b80df4a; AD-18 (role PATCH guards from T25; one audit row per archive); T26 #63/#76 may pass at once |
 | T26 | TODO | 0 | T19,T25 | |
-| T27 | TODO | 0 | T12 | |
+| T27 | DONE | 1 | T12 | 481d7db; AD-19 |
 | T28 | TODO | 0 | T9 | |
 | T29 | TODO | 0 | T28 | |
 | T30 | TODO | 0 | T14,T24,T27 | |
