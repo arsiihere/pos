@@ -146,7 +146,7 @@ describe('access queries', () => {
     expect(oneRoster.statusCode).toBe(200);
     expect(oneCounter.count).toBe(2);
     expect(oneRoster.json().data).toEqual({
-      staff: [{ staff_id: 'S_ONLY', display_name: 'Only', locked_until: null }],
+      staff: [{ staff_id: 'S_ONLY', display_name: 'Only', locked_until: null, responsibilities: [] }],
       active_session: null,
     });
 
@@ -204,12 +204,56 @@ describe('access queries', () => {
     expect(stationResponse.json().data.idle_ttl_ms).toBeNull();
   });
 
+  it('[01b #19] session returns scope and approver_role_ids per permission; no scope on denied / not_granted', async () => {
+    const directory = await aDirectory();
+    const cashierRole = directory.roles.find((role) => role.role_id === 'R_CASH');
+    const cashier = directory.staff.find((staff) => staff.staff_id === 'S_CASH');
+    if (cashierRole === undefined || cashier === undefined) throw new Error('cashier missing');
+    cashierRole.permissions.push(
+      { permission: 'manage-stock', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'my_stations' },
+      { permission: 'apply-refund', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+    );
+    cashier.denied_permissions = ['apply-refund'];
+    const hub = await open(directory);
+    const counter = statementCounter(hub.deps.readDb);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const staff = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    counter.reset();
+    const response = await deviceGet(hub, tablet.token, '/queries/session', staff.token);
+    expect(response.statusCode).toBe(200);
+    expect(counter.count).toBe(0);
+    const permissions = response.json().data.permissions as Record<string, Record<string, unknown>>;
+    expect(permissions['apply-discount']).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(permissions['reprint-ticket']).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(permissions['manage-stock']).toEqual({ grant: 'allowed', scope: 'my_stations' });
+    expect(permissions['apply-refund']).toEqual({ grant: 'denied' });
+    expect(permissions['void-item']).toEqual({ grant: 'not_granted' });
+  });
+
+  it('[01b #36] roster lists responsibilities count_stock for a counter; 2 statements unchanged', async () => {
+    const directory = await aDirectory();
+    directory.responsibilities = [{ responsibility: 'count_stock', station_id: 'station-1', staff_ids: ['S_CASH'], role_ids: ['R_WAIT'] }];
+    const hub = await open(directory);
+    const counter = statementCounter(hub.deps.readDb);
+    const device = pairDevice(hub, { type: 'tablet' });
+    counter.reset();
+    const roster = await deviceGet(hub, device.token, '/queries/staff-roster');
+    expect(roster.statusCode).toBe(200);
+    expect(counter.count).toBe(2);
+    const staff = roster.json().data.staff as Array<{ staff_id: string; responsibilities: string[] }>;
+    const byId = new Map(staff.map((row) => [row.staff_id, row.responsibilities]));
+    expect(byId.get('S_CASH')).toEqual(['count_stock']);
+    expect(byId.get('S_WAIT')).toEqual(['count_stock']);
+    expect(byId.get('S_MGR')).toEqual([]);
+    expect(byId.get('S_OWNER')).toEqual([]);
+  });
+
   it('[00 §10 #82] phone roster lists only the owner', async () => {
     const hub = await open();
     const phone = pairDevice(hub, { type: 'phone', ownerStaffId: 'S_OWNER' });
     const roster = await deviceGet(hub, phone.token, '/queries/staff-roster');
     expect(roster.statusCode).toBe(200);
-    expect(roster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', locked_until: null }]);
+    expect(roster.json().data.staff).toEqual([{ staff_id: 'S_OWNER', display_name: 'Owner', locked_until: null, responsibilities: [] }]);
     expect(roster.json().data.active_session).toBeNull();
   });
 });
