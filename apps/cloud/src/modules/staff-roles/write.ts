@@ -70,6 +70,7 @@ export async function directoryWrite<T>(
   const run = async (client: pg.PoolClient) => {
     const repo = new TenantLevelRepository(req.tenant, client);
     await lockTenant(repo);
+    await deps.testHooks?.afterTenantLock?.();
     const owner = await selectOwner(repo, req.ownerUserId);
     if (owner === undefined || !owner.covers_every_branch) {
       throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
