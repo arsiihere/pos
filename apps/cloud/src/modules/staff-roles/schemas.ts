@@ -9,5 +9,7 @@ export const StaffQuery = z.object({
   branch_id: z.string().min(1).optional(),
 });
 
+export const StaffIdParams = z.object({ staff_id: z.string().min(1) });
+
 export const StaffListResponse = z.object({ data: z.object({ staff: z.array(StaffWire) }) });
 export const StaffResponse = z.object({ data: z.object({ staff: StaffWire, changed_versions: ChangedVersions }) });

@@ -220,6 +220,24 @@ export async function insertStaff(db: TenantSql, s: NewStaff): Promise<void> {
   }
 }
 
+// §6 script: target rows locked FOR UPDATE in id order, after the tenant row (B11).
+export async function lockStaff(db: TenantSql, staffIds: string[]): Promise<Map<string, { is_active: boolean }>> {
+  const rows = await db.query<{ staff_id: string; is_active: boolean }>(
+    `SELECT staff_id, is_active FROM staff WHERE tenant_id = $1 AND staff_id = ANY($2) ORDER BY staff_id FOR UPDATE`,
+    [staffIds],
+  );
+  return new Map(rows.map((row) => [row.staff_id, { is_active: row.is_active }]));
+}
+
+// §6.3: pin_hash and pin_set_at only; the version input does not change (B23).
+export async function updatePin(db: TenantSql, staffId: string, pinHash: string, now: number): Promise<void> {
+  await db.query(`UPDATE staff SET pin_hash = $3, pin_set_at = $4, updated_at = $4 WHERE tenant_id = $1 AND staff_id = $2`, [
+    staffId,
+    pinHash,
+    now,
+  ]);
+}
+
 export function pairKey(a: string, b: string): string {
   return JSON.stringify([a, b]);
 }

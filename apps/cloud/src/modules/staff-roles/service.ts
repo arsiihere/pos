@@ -1,5 +1,6 @@
+import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError } from '@pos/domain';
-import type { ChangedVersions, StaffCreateBody, StaffWire } from '@pos/events';
+import type { ChangedVersions, PinBody, StaffCreateBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -8,18 +9,23 @@ import type { IdempotentResult } from '../../lib/idempotency.js';
 import {
   firstNameClash,
   insertStaff,
+  lockStaff,
   pairKey,
   selectActiveAtBranch,
   selectBranchIds,
   selectFloorStates,
   selectRoleStates,
   selectStaff,
+  updatePin,
   type StaffFilter,
 } from './repository.js';
 import { staffVersion, toStaffWire, withVersion, type StaffRow } from './versions.js';
 import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
+
+// 00 M8: argon2id m=19456, t=2, p=1.
+const ARGON = { memoryCost: 19_456, timeCost: 2, parallelism: 1, algorithm: Algorithm.Argon2id, version: Version.V0x13 };
 
 // §6.1: 6 statements; each version built in memory (B23).
 export async function listStaff(deps: StaffRolesDeps, tenant: TenantContext, filter: StaffFilter): Promise<StaffWire[]> {
@@ -85,6 +91,41 @@ export async function createStaff(
     const changed_versions = await ctx.changed.resolve(ctx, { staffId });
     return { body: { staff: withVersion(wire, staffVersion(wire)), changed_versions }, bump: true };
   });
+}
+
+// §6.3: hash first, outside the transaction; then the directory write script. Never a no-op (a new salt
+// ends the person's hub sessions, M50); the version is unchanged (the PIN is not in its input, B23).
+export async function setPin(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  staffId: string,
+  body: z.infer<typeof PinBody>,
+): Promise<{ staff: StaffWire; changed_versions: ChangedVersions }> {
+  const pinHash = await hash(body.pin, ARGON);
+  const out = await directoryWrite(deps, req, { idempotent: false }, async (ctx) => {
+    const target = (await lockStaff(ctx.repo, [staffId])).get(staffId);
+    if (target === undefined || !target.is_active) throw new DomainError('STAFF_NOT_FOUND', { staff_id: staffId });
+    const [before] = await selectStaff(ctx.repo, { ids: [staffId] });
+    const now = ctx.deps.clock.branchNow();
+    await updatePin(ctx.repo, staffId, pinHash, now);
+    const wire = toStaffWire({ ...before!, has_pin: true, pin_set_at: now });
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'staff',
+        entityId: staffId,
+        branchId: null,
+        action: 'pin_set',
+        before: { has_pin: before!.has_pin, pin_set_at: before!.pin_set_at },
+        after: { has_pin: true, pin_set_at: now },
+      },
+      ctx.deps,
+    );
+    const changed_versions = await ctx.changed.resolve(ctx, { staffId });
+    return { body: { staff: withVersion(wire, staffVersion(wire)), changed_versions }, bump: true };
+  });
+  return out.body;
 }
 
 // §3.2 rule 5, §3.5: one lead per branch, at one of the person's branches, active and working there.
