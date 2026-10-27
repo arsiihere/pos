@@ -361,7 +361,13 @@ export async function updateRole(
     const wasArchived = stored!.archived_at !== null;
     const archiving = body.archived === true && !wasArchived;
     const restoring = body.archived === false && wasArchived;
-    const grants = body.grants === undefined ? before.grants : await checkGrants(ctx.repo, body.grants);
+    // R-2: a restore re-checks the stored grants as §6.6 (an approver may have been archived meanwhile).
+    const grants =
+      body.grants !== undefined
+        ? await checkGrants(ctx.repo, body.grants, roleId)
+        : restoring
+          ? await checkGrants(ctx.repo, before.grants, roleId)
+          : before.grants;
     const merged = toRoleWire({
       ...stored!,
       name: body.name ?? before.name,
@@ -531,7 +537,8 @@ async function checkResponsibilities(repo: TenantLevelRepository, branchId: stri
 
 // §6.6 rules: one grant per permission; approvers non-empty iff requires_approval (AD-13: `field` only, as
 // 01a's reason-less references); approvers active roles of the tenant; scope in the permission's row (§3.3).
-async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput['grants']): Promise<GrantWire[]> {
+// `selfId`: the role being written; it may approve its own grant (§3.3) and counts as active here.
+async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput['grants'], selfId?: string): Promise<GrantWire[]> {
   const seen = new Set<string>();
   grants.forEach((grant, i) => {
     if (seen.has(grant.permission)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `grants.${i}.permission` });
@@ -545,7 +552,7 @@ async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput[
   const states = approverIds.length === 0 ? new Map<string, { archived: boolean }>() : await selectRoleStates(repo, approverIds);
   grants.forEach((grant, i) => {
     grant.approver_role_ids.forEach((approver, j) => {
-      const state = states.get(approver);
+      const state = approver === selfId ? { archived: false } : states.get(approver);
       if (state === undefined) throw referenceInvalid(`grants.${i}.approver_role_ids.${j}`, 'not_found');
       if (state.archived) throw referenceInvalid(`grants.${i}.approver_role_ids.${j}`, 'role_archived');
     });

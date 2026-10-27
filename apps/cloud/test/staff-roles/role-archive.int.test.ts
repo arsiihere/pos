@@ -208,6 +208,36 @@ describe('role archive and restore (01b B14, §6.7)', () => {
     expect(selfArchived.statusCode, selfArchived.body).toBe(200);
   });
 
+  it('[01b §6.7] restore re-checks the stored grants as §6.6: an approver archived meanwhile → 422 CONFIG_REFERENCE_INVALID role_archived, nothing written', async () => {
+    const approver = await createRole('Supervisor');
+    const role = await createRole('Trainee', [
+      { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_ids: [approver.role_id] },
+    ]);
+    const archived = await patchRole(role.role_id, { expected_version: role.version, archived: true });
+    expect(archived.statusCode, archived.body).toBe(200);
+    const approverGone = await patchRole(approver.role_id, { expected_version: approver.version, archived: true });
+    expect(approverGone.statusCode, approverGone.body).toBe(200);
+    await expectNothingWritten(async () => {
+      const response = await patchRole(role.role_id, { expected_version: archived.json().data.role.version, archived: false });
+      expect(response.statusCode, response.body).toBe(422);
+      expect(response.json().error).toMatchObject({
+        code: 'CONFIG_REFERENCE_INVALID',
+        details: { field: 'grants.0.approver_role_ids.0', reason: 'role_archived' },
+      });
+    });
+
+    // A role that approves its own grant restores with itself as approver.
+    const self = await createRole('Self approver');
+    const selfGrant = await patchRole(self.role_id, {
+      expected_version: self.version,
+      grants: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_ids: [self.role_id] }],
+    });
+    const selfArchived = await patchRole(self.role_id, { expected_version: selfGrant.json().data.role.version, archived: true });
+    expect(selfArchived.statusCode, selfArchived.body).toBe(200);
+    const selfRestored = await patchRole(self.role_id, { expected_version: selfArchived.json().data.role.version, archived: false });
+    expect(selfRestored.statusCode, selfRestored.body).toBe(200);
+  });
+
   it('[01b §6.7] a person who left may be left with no role; restore clears archived_at and re-checks the name', async () => {
     const b = f.branches[0];
     const role = await createRole('Shift lead');
