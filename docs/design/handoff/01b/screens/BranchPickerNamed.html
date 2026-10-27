@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Branch picker with branch names</title>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 1440px; min-height: 900px;  position: relative;">
+<header class="pos-appbar"><div class="pos-sidenav__brand" style="padding: 0;"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div><div class="pos-appbar__end"><button class="pos-btn"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/></svg>Sign out</button></div></header>
+<main class="pos-content pos-content--narrow" style="padding-top: 56px; gap: 24px;"><h1 class="title" style="margin: 0;">Which branch are you setting up?</h1>
+<div class="pos-tiles pos-tiles--pick" role="group" aria-label="Branch" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+<button class="pos-tile" aria-pressed="true" style="min-height: 120px;">Gulberg<small>3 floors · 5 stations</small></button>
+<button class="pos-tile" aria-pressed="false" style="min-height: 120px;">Johar Town<small>2 floors · 3 stations</small></button>
+<button class="pos-tile" aria-pressed="false" style="min-height: 120px;">DHA<small>Not open yet</small></button></div>
+<div class="pos-row" style="justify-content: flex-end;"><button class="pos-btn pos-btn--primary pos-btn--lg">Continue with Gulberg</button></div></main>
+</div>
+</x-dc>
+</body>
+</html>

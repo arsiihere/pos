@@ -866,70 +866,80 @@ Every directory write response returns `changed_versions` (§6 script, J-5); cas
 - **Done when:** all listed tests pass; `pnpm test` green; missing Urdu strings are listed in the task report (Claude writes `docs/design/handoff/01b/urdu-todo.md`).
 - [ ] **Commit:** `feat(01b): task 50 owner client API and strings [spec §8]`
 
+### Task 50b: Align the owner shell, kit and Urdu strings with the design handoff — Claude only
+
+**Files:** Modify `packages/ui-kit` (tokens, bundle classes and the `kit-additions.css` classes the 01b screens use; fonts bundled), the owner shell / side nav in `apps/client` from task 50, the i18n catalogue `apps/client/src/i18n/{en,ur}.ts`, `docs/design/handoff/01b/urdu-todo.md`; Read `docs/design/handoff/01b/README.md` and `docs/design/handoff/01b/screens/` (read-only).
+
+- [ ] **Step 1:** Compare `docs/design/handoff/01b/screens/ds/pos/*` (tokens, `components/bundle.css`, fonts) and the `screens/kit-additions.css` classes the 01b screens use with `packages/ui-kit`; port what is missing into `packages/ui-kit`, keeping the same class names; bundle the fonts.
+- [ ] **Step 2:** Make the task-50 side nav match README §9 (order, groups, counts, foot).
+- [ ] **Step 3:** Fill the Urdu catalogue from the `*Urdu.html` screens; update `urdu-todo.md` to list only the keys the designs don't cover.
+- **Done when:** the shell renders like `screens/Main.html` at 1440 and `screens/StaffPhoneList.html` at 390, in English and Urdu (RTL); `pnpm test` green.
+- [ ] **Commit:** `feat(01b): task 50b shell and kit aligned with design handoff`
+
 ### Task 51: Client staff views and PIN dialog
 
-**Files:** Create `apps/client/src/features/owner/staff/{StaffList,StaffForm,PinDialog}.tsx` and their `.test.tsx`.
+**Files:** Create `apps/client/src/features/owner/staff/{StaffList,StaffForm,PinDialog}.tsx` and their `.test.tsx`. Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b §8]` staff form sends `expected_version` and shows the reload message on `CONFIG_STALE`; `[01b §8]` PIN dialog clears the PIN after the request; `[01b §8]` floors field hidden without a `my_floors` grant; `[01b §8]` `STAFF_LINKED_TO_OWNER` shows its message on the Left switch.
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/owner/staff` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/owner/staff` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green; no `style` prop, CSS only through `app/ui-kit.ts` (lint).
+- **Done when:** all listed tests pass; `pnpm test` green; no `style` prop, CSS only through `app/ui-kit.ts` (lint); every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 51 staff views [spec §8]`
 
 ### Task 52: Client roles views
 
-**Files:** Create `apps/client/src/features/owner/roles/{RoleList,RoleEditor}.tsx` and their `.test.tsx`.
+**Files:** Create `apps/client/src/features/owner/roles/{RoleList,RoleEditor}.tsx` and their `.test.tsx`. Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b §8]` "Approved by" is a multi-select of role chips; "Where" offers only `PERMISSION_SCOPES[permission]`; `[01b §8]` inline idle edit sends `{ expected_version, idle_minutes }`; `[01b §8]` `OWN_ADMIN_ACCESS` shows "You can't remove your own admin access. Call support.".
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/owner/roles` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/owner/roles` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green.
+- **Done when:** all listed tests pass; `pnpm test` green; every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 52 roles views [spec §8]`
 
 ### Task 53: Client teams and stock-counting views
 
-**Files:** Create `apps/client/src/features/owner/teams/TeamsView.tsx`, `apps/client/src/features/owner/stock-counting/StockCountingView.tsx` and their `.test.tsx`.
+**Files:** Create `apps/client/src/features/owner/teams/TeamsView.tsx`, `apps/client/src/features/owner/stock-counting/StockCountingView.tsx` and their `.test.tsx`. Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b §8]` team tree indents members and shows "No PIN" when `has_pin` is false; `[01b §8]` stock-counting PUT sends the whole active set with `expected_version`.
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/owner/teams apps/client/src/features/owner/stock-counting` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/owner/teams apps/client/src/features/owner/stock-counting` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green.
+- **Done when:** all listed tests pass; `pnpm test` green; every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 53 teams and stock-counting views [spec §8, §6.8, §6.12]`
 
 ### Task 54: Client branches and settings views
 
-**Files:** Create `apps/client/src/features/owner/branches/{BranchesView,BranchSettings}.tsx` and their `.test.tsx`.
+**Files:** Create `apps/client/src/features/owner/branches/{BranchesView,BranchSettings}.tsx` and their `.test.tsx`. Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b #78]` (page test, English and Urdu; threshold from the response's `hub_stale_after_ms`); `[01b §8]` settings form keeps stale > gap before sending.
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/owner/branches` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/owner/branches` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green; no threshold constant in the client (`grep -r 180000 apps/client/src` finds nothing).
+- **Done when:** all listed tests pass; `pnpm test` green; no threshold constant in the client (`grep -r 180000 apps/client/src` finds nothing); every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 54 branches and settings views [spec §8, B19; test #78]`
 
 ### Task 55: Client change password, lockout banner, support number
 
-**Files:** Create `apps/client/src/features/owner/account/{ChangePassword,LockoutBanner}.tsx` and their `.test.tsx`, `apps/client/src/app/support.ts` (`supportPhone(): string | null` from `import.meta.env.VITE_SUPPORT_PHONE`); Modify `apps/client/src/app/router.ts` (forced `#/account/password` while `must_change_password`).
+**Files:** Create `apps/client/src/features/owner/account/{ChangePassword,LockoutBanner}.tsx` and their `.test.tsx`, `apps/client/src/app/support.ts` (`supportPhone(): string | null` from `import.meta.env.VITE_SUPPORT_PHONE`); Modify `apps/client/src/app/router.ts` (forced `#/account/password` while `must_change_password`). Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b §8, Q3]` caption "Forgot your password? Call support." with no number when `VITE_SUPPORT_PHONE` is unset; "… Call support on {phone}." when set; `[01b §8]` every view redirects to `#/account/password` while `must_change_password`; `[01b §8]` lockout banner shows `{n}` = `failed_count`; `[01b §8]` `SERVICE_UNAVAILABLE` shows the cloud-unreachable state, not sign-in; Review Focus 4 (client) `[01b §8]` `401 JWT_INVALID` then `401 REFRESH_TOKEN_INVALID` lands on sign-in once.
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/owner/account apps/client/src/app` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/owner/account apps/client/src/app` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green; `pnpm --filter @pos/client build` succeeds with and without `VITE_SUPPORT_PHONE`.
+- **Done when:** all listed tests pass; `pnpm test` green; `pnpm --filter @pos/client build` succeeds with and without `VITE_SUPPORT_PHONE`; every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 55 change password view and support number [spec §8, Q3, J-13]`
 
 ### Task 56: Client stock page under `my_stations`
 
-**Files:** Modify `apps/client/src/features/admin/stock/*` (the files that render Start day, Close day and the stale-day prompt) and their tests.
+**Files:** Modify `apps/client/src/features/admin/stock/*` (the files that render Start day, Close day and the stale-day prompt) and their tests. Read `docs/design/handoff/01b/README.md` + the screens listed for this task in its Screen → task map (read-only).
 
 - [ ] **Step 1: Tests (write first):** `[01b #71]` (server part through the stub from task 29's `manage_stock_scope`; page part: with `my_stations` the page hides **Start day**, **Close day** and the stale-day prompt, and `409 BUSINESS_DAY_NOT_OPEN` shows "The day hasn't been started. Ask someone who can start the day.").
 - [ ] **Step 2:** `pnpm vitest run apps/client/src/features/admin/stock` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `pnpm vitest run apps/client/src/features/admin/stock` → PASS; then `pnpm test`.
-- **Done when:** all listed tests pass; `pnpm test` green; with `branch` scope the page renders exactly as before (existing tests unchanged).
+- **Done when:** all listed tests pass; `pnpm test` green; with `branch` scope the page renders exactly as before (existing tests unchanged); every screen listed for this task in the handoff map is reachable as a view state, with the same structure, classes and English copy; Urdu from the `*Urdu` screens; differences from the spec on behaviour recorded under "Design vs spec" in the build log.
 - [ ] **Commit:** `feat(01b): task 56 stock page day actions under my_stations [spec §4.4 rows 11, 13; test #71]`
 
 ### Task 57: Repository-wide checks
@@ -959,7 +969,7 @@ Every directory write response returns `changed_versions` (§6 script, J-5); cas
 - [ ] **Step 2:** `webapp-testing plugin, 1440×900 and 390×844, English and Urdu` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `webapp-testing plugin, 1440×900 and 390×844, English and Urdu` → PASS; then `pnpm test`.
-- **Done when:** the three flows pass at both sizes in both languages; screenshots referenced in `docs/reviews/01b-e2e.md`.
+- **Done when:** the three flows pass at both sizes in both languages; screenshots referenced in `docs/reviews/01b-e2e.md`; screenshots compared side by side with the matching `docs/design/handoff/01b/screens/*.html` at the same size; visible differences listed in `docs/reviews/01b-e2e.md`.
 - [ ] **Commit:** `docs(01b): task 59 page flows 1–3 [spec §10.9; tests #49, #50, #51]`
 
 ### Task 60: Page flows 4–6 (Playwright) — Claude only, needs Docker Postgres
@@ -970,7 +980,7 @@ Every directory write response returns `changed_versions` (§6 script, J-5); cas
 - [ ] **Step 2:** `webapp-testing plugin, 1440×900 and 390×844, English and Urdu` → FAIL for the stated reason (missing behaviour, not a typo).
 - [ ] **Step 3:** Implement the minimum to pass.
 - [ ] **Step 4:** `webapp-testing plugin, 1440×900 and 390×844, English and Urdu` → PASS; then `pnpm test`.
-- **Done when:** the three flows pass at both sizes in both languages; results recorded.
+- **Done when:** the three flows pass at both sizes in both languages; results recorded; screenshots compared side by side with the matching `docs/design/handoff/01b/screens/*.html` at the same size; visible differences listed in `docs/reviews/01b-e2e.md`.
 - [ ] **Commit:** `docs(01b): task 60 page flows 4–6 [spec §10.9; tests #52, #53, #54]`
 
 ### Task 61: Release drill on the hubs — needs hardware

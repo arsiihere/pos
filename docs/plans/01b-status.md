@@ -52,12 +52,13 @@
 | T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human; #20 split: cloud half in load-directory, hub half in apply-directory (R-1) |
 | T49 | DONE | 1 | T8,T16 | c16e802; AD-28; #62 hub half passes at once (00 code, P-3) |
 | T50 | DONE | 1 | T6 | 133722a; AD-27 (interim: nav items before their views, T51-T55); Urdu: 45 keys in docs/design/handoff/01b/urdu-todo.md |
-| T51 | TODO | 0 | T50 | |
-| T52 | TODO | 0 | T50 | |
-| T53 | TODO | 0 | T50 | |
-| T54 | TODO | 0 | T50 | |
-| T55 | TODO | 0 | T50 | |
-| T56 | TODO | 0 | T29,T50 | |
+| T50b | TODO | 0 | T50 | design handoff alignment |
+| T51 | TODO | 0 | T50,T50b | |
+| T52 | TODO | 0 | T50,T50b | |
+| T53 | TODO | 0 | T50,T50b | |
+| T54 | TODO | 0 | T50,T50b | |
+| T55 | TODO | 0 | T50,T50b | |
+| T56 | TODO | 0 | T29,T50,T50b | |
 | T57 | TODO | 0 | T12,T22,T24,T27,T31,T32,T38,T48,T49 | |
 | T58 | TODO | 0 | T57 | plan marks STOP after this task; T59+ wait for human |
 | T59 | TODO | 0 | T58 | Playwright via webapp-testing |
