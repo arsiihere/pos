@@ -258,6 +258,26 @@ export async function selectActiveAtBranch(db: TenantSql, staffIds: string[]): P
   return new Set(rows.map((row) => pairKey(row.branch_id, row.staff_id)));
 }
 
+// §3.5 loop check: walk from `leadStaffId` upward at the branch, at most as many hops as the branch has active
+// staff (one statement); true when the walk reaches `staffId`.
+export async function leadLineReaches(db: TenantSql, branchId: string, leadStaffId: string, staffId: string): Promise<boolean> {
+  const rows = await db.query<{ reaches: boolean }>(
+    `WITH RECURSIVE line (staff_id, hops) AS (
+       SELECT $3::text, 1
+       UNION ALL
+       SELECT l.lead_staff_id, line.hops + 1
+         FROM line JOIN staff_leads l ON l.tenant_id = $1 AND l.branch_id = $2 AND l.staff_id = line.staff_id
+        WHERE line.staff_id <> $4
+          AND line.hops < (SELECT count(*) FROM staff_branches sb
+                             JOIN staff s ON s.tenant_id = sb.tenant_id AND s.staff_id = sb.staff_id
+                            WHERE sb.tenant_id = $1 AND sb.branch_id = $2 AND s.is_active)
+     )
+     SELECT EXISTS (SELECT 1 FROM line WHERE staff_id = $4) AS reaches`,
+    [branchId, leadStaffId, staffId],
+  );
+  return rows[0]?.reaches === true;
+}
+
 // B12: the first branch (by id) among `branchIds` where an active person other than `exceptStaffId` has the name.
 export async function firstNameClash(
   db: TenantSql,

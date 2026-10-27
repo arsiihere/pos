@@ -13,6 +13,7 @@ import {
   insertGrants,
   insertRole,
   insertStaff,
+  leadLineReaches,
   lockStaff,
   pairKey,
   removeBranches,
@@ -72,7 +73,7 @@ export async function createStaff(
       if (role.archived) throw referenceInvalid(`role_ids.${i}`, 'role_archived');
     });
     // (3) reports_to and floors, §3.2 rules 5–6
-    await checkReportsTo(ctx.repo, branchIds, reportsTo);
+    await checkReportsTo(ctx.repo, branchIds, reportsTo, null);
     await checkFloors(ctx.repo, branchIds, floors);
     // (4) B12
     const clash = await firstNameClash(ctx.repo, body.display_name, branchIds, null);
@@ -194,7 +195,7 @@ export async function updateStaff(
     } else if (merged.is_active && !merged.role_ids.some((roleId) => roles.get(roleId)?.archived === false)) {
       throw referenceInvalid('role_ids', 'role_archived');
     }
-    if (body.reports_to !== undefined) await checkReportsTo(ctx.repo, branchIds, body.reports_to);
+    if (body.reports_to !== undefined) await checkReportsTo(ctx.repo, branchIds, body.reports_to, staffId);
     if (body.floors !== undefined) await checkFloors(ctx.repo, branchIds, body.floors);
     const added = branchIds.filter((id) => !before.branch_ids.includes(id));
     if (merged.is_active && (merged.display_name !== before.display_name || added.length > 0)) {
@@ -295,12 +296,13 @@ async function checkGrants(repo: TenantLevelRepository, grants: RoleCreateInput[
   return grants.map((grant) => ({ ...grant, approver_role_ids: unique(grant.approver_role_ids) }));
 }
 
-// §3.2 rule 5, §3.5: one lead per branch, at one of the person's branches, active and working there.
-// The loop walk joins with PATCH (task 15): a new person has no reports.
+// §3.2 rule 5, §3.5: one lead per branch, at one of the person's branches, active and working there, and
+// no loop. A new person (`staffId` null) has no reports, so their line cannot loop.
 async function checkReportsTo(
   repo: TenantLevelRepository,
   branchIds: string[],
   reportsTo: { branch_id: string; lead_staff_id: string }[],
+  staffId: string | null,
 ): Promise<void> {
   const seen = new Set<string>();
   for (const entry of reportsTo) {
@@ -317,6 +319,12 @@ async function checkReportsTo(
       throw referenceInvalid(`reports_to.${i}.lead_staff_id`, 'not_at_branch');
     }
   });
+  if (staffId === null) return;
+  for (const [i, entry] of reportsTo.entries()) {
+    if (await leadLineReaches(repo, entry.branch_id, entry.lead_staff_id, staffId)) {
+      throw referenceInvalid(`reports_to.${i}.lead_staff_id`, 'loop');
+    }
+  }
 }
 
 // §3.2 rule 6: floors of that branch, not archived at write time.
