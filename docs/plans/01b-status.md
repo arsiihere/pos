@@ -27,13 +27,13 @@
 | T23 | DONE | 1 | T9,T22 | ee8c4cd; passed at once, watched fail with B8 check and idle range removed; #17 PATCH part added in T24 |
 | T24 | DONE | 1 | T22 | aa2f6dd; AD-17 (interim: `archived` not applied until T25); #17 extended with PATCH |
 | T25 | DONE | 1 | T24 | b80df4a; AD-18 (role PATCH guards from T25; one audit row per archive); T26 #63/#76 may pass at once |
-| T26 | TODO | 0 | T19,T25 | |
+| T26 | DONE | 1 | T19,T25 | bf9c888; AD-20 (#63 leaving case → STAFF_LINKED_TO_OWNER per J-6/#101; client string in T52); passed at once, watched fail with role-PATCH guards and return check removed |
 | T27 | DONE | 1 | T12 | 481d7db; AD-19 |
-| T28 | TODO | 0 | T9 | |
+| T28 | DONE | 1 | T9 | 71157dc; AD-21 (scope check after the 01a checks) |
 | T29 | TODO | 0 | T28 | |
-| T30 | TODO | 0 | T14,T24,T27 | |
-| T31 | TODO | 0 | T12 | |
-| T32 | TODO | 0 | T2,T12 | |
+| T30 | DONE | 1 | T14,T24,T27 | 5e34122; #104 failed first (hook); #80/#102 passed at once, watched fail with holder marks and staff version check removed |
+| T31 | DONE | 1 | T12 | 64ad887; AD-22 (audit `{ name }`, `branch` audit entity) |
+| T32 | DONE | 1 | T2,T12 | cf6a798; lint fix 6232378 |
 | T33 | TODO | 0 | T6,T31 | |
 | T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part done in T12 |
 | T35 | DONE | 1 | T1 | 2c26807; AD-8; #65 change-password part done in T38; #73 GET staff done in T12, PATCH waits for T14 |
