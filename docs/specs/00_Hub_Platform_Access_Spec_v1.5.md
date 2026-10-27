@@ -1,20 +1,20 @@
 # 00 — Hub Platform & Access — Module Spec v1.5
 
-**v1.5 (2026-10-27).** Changes driven by 01b Staff & Roles v0.5 (v0.3, then hostile review 1, `docs/reviews/01b_spec_review_1.md`): §3.1 (M10, M29, M52, M57, M73, new M93), §3.6, §4.2, §5.1, §5.2, §6.5, §6.19, §6.20, §6.22, §6.23, §6.24a (new: JWT guard), §6.26, §6.27, §6.33 (note), §7.2, §7.10; §5.2 cloud migrations runner (01b review 2 N5). See 01b §4.3.
+**v1.5 (2026-10-27).** Changes driven by 01b Staff & Roles v1.0 (v0.3, then hostile review 1, `docs/reviews/01b_spec_review_1.md`): §3.1 (M10, M29, M52, M57, M73, new M93), §3.6, §4.2, §5.1, §5.2, §6.5, §6.19, §6.20, §6.22, §6.23, §6.24a (new: JWT guard), §6.26, §6.27, §6.33 (note), §7.2, §7.10; §5.2 cloud migrations runner (01b review 2 N5). See 01b §4.3.
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | **v1.5 — APPROVED** by the owner (2026-10-27), together with 01b v0.5 and 01a v1.3: changes driven by 01b Staff & Roles v0.5 (M93, 01b §4.3; hostile reviews 1 and 2 of the 01b package applied). **Supersedes v1.4**, which stays the implemented baseline until 01b's build lands. v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Version | **v1.5 — APPROVED** by the owner (2026-10-27), together with 01b v1.0 and 01a v1.3: changes driven by 01b Staff & Roles v1.0 (M93, 01b §4.3; hostile reviews 1 and 2 of the 01b package applied). **Supersedes v1.4**, which stays the implemented baseline until 01b's build lands. v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
 | Date | 2026-10-27 (v1.5); 2026-10-26 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
 
-### Changes in v1.5 (01b Staff & Roles v0.5, `docs/specs/01b_Staff_Roles_Spec_v0.5.md` §4.3)
+### Changes in v1.5 (01b Staff & Roles v1.0, `docs/specs/01b_Staff_Roles_Spec_v1.0.md` §4.3)
 
 | Change | Decision | Where | Test (01b) |
 |---|---|---|---|
@@ -30,7 +30,7 @@
 | `issue-registration-code`: only qualifying admins (`access-hub-admin` and `manage-devices`); duplicate names refused; tenant lock and directory bump; branch names unique | M57, M93 (01b B7, B11, B12, D-14) | §6.27 | 01b #86, #93, #94 |
 | Default roles Owner, Manager, Cashier 15, Order taker 15 (owner, 01b Q12), Waiter, Cook, each with a `default_key`; owner staff row linked | M29, M93 (01b B6, B7, B17) | §6.26 | 01b #20, #77 |
 | `POST /v1/auth/change-password` is 01b's route (not counted here); redaction and folder notes | M93 (01b B5) | §6.33, §7.2, §7.10 | 01b #44 |
-| M93 | **01b Staff & Roles v0.5 changes this spec as listed in 01b §4.3** (rows 1–20). Each changed section carries a "Changed by 01b" marker. 01b owns the cloud migration `0005_staff_roles.sql` and the hub migration `0005_directory_v2.sql`; this spec's merged migrations are not edited. M30 (station sessions), M11, M50, M51 and M75 are unchanged; M57 is refined (§6.27). | One package for the owner to approve; later modules read 00 and find the current contract. | — |
+| M93 | **01b Staff & Roles v1.0 changes this spec as listed in 01b §4.3** (rows 1–20). Each changed section carries a "Changed by 01b" marker. 01b owns the cloud migration `0005_staff_roles.sql` and the hub migration `0005_directory_v2.sql`; this spec's merged migrations are not edited. M30 (station sessions), M11, M50, M51 and M75 are unchanged; M57 is refined (§6.27). | One package for the owner to approve; later modules read 00 and find the current contract. | — |
 
 No new route in this spec (00 stays at 30 endpoints, §6.33). New event schema version: `StaffDirectoryApplied` v2 (identity upcaster). Error codes added by 01b are 01b's (01b §9).
 
