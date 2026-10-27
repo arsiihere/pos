@@ -16,16 +16,16 @@
 | T12 | DONE | 1 | T1,T5,T6,T11 | 156fe20; AD-10, AD-11; #93 and #73 extended; create already checks §3.2 rules 5–6 (loop walk in T15) |
 | T13 | DONE | 1 | T8,T12 | 0a4785c; #3 hub half passes at once (00 apply code, P-3) |
 | T14 | DONE | 1 | T12 | 7d6700a; AD-14; #73 extended with PATCH; interim: is_active not applied yet (merged row keeps stored value) |
-| T15 | TODO | 0 | T14 | |
-| T16 | TODO | 0 | T14 | apply is_active in PATCH (T14 interim keeps stored value); B15 + responsibility cleanup on removed branches |
+| T15 | DONE | 1 | T14 | 08ef777; #26 and #57 passed at once (T12 create checks); loop walk is one recursive statement per entry |
+| T16 | DONE | 1 | T14 | 93c27a0; AD-15; is_active applied (T14 interim removed) |
 | T17 | TODO | 0 | T8,T16 | |
 | T18 | TODO | 0 | T16 | may pass at once; watch fail per plan |
-| T19 | TODO | 0 | T14 | AD-6: switch `issue-registration-code` to `qualifyingAdmins` (no branch filter) and keep #93 green |
+| T19 | DONE | 1 | T14 | 1df74d0; AD-16 (CLI shares the person predicate, not the per-branch map); #93 green |
 | T20 | TODO | 0 | T19 | may pass at once; watch fail per plan |
 | T21 | DONE | 1 | T12 | b2ff8a3; FOR UPDATE mutation checked (fails), restored |
 | T22 | DONE | 1 | T12 | 1e6331f; AD-13; Class A: seeded ids get their own id space in the restaurant fixture |
-| T23 | TODO | 0 | T9,T22 | |
-| T24 | TODO | 0 | T22 | |
+| T23 | DONE | 1 | T9,T22 | ee8c4cd; passed at once, watched fail with B8 check and idle range removed; #17 PATCH part added in T24 |
+| T24 | DONE | 1 | T22 | aa2f6dd; AD-17 (interim: `archived` not applied until T25); #17 extended with PATCH |
 | T25 | TODO | 0 | T24 | |
 | T26 | TODO | 0 | T19,T25 | |
 | T27 | TODO | 0 | T12 | |
