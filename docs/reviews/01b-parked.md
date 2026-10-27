@@ -19,4 +19,4 @@ ANSWER: A — done by human
 - A: Human runs the drill after T58–T60 and records the result in `docs/reviews/build-log.md`.
 - B: Defer the drill to the next release window; module stays "pending release drill" in docs/specs/README.md.
 **Recommendation:** A.
-ANSWER:
+ANSWER: A — I will run the drill on hardware after T58–T60. Keep T61 PARKED until I log the result.
