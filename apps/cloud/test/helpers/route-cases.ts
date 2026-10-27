@@ -115,4 +115,12 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     payload: { expected_version: 'stale', name: 'Shift lead' },
   }),
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
+  'GET /v1/admin/branches/:branch_id/responsibilities': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/responsibilities` }),
+  'PUT /v1/admin/branches/:branch_id/responsibilities': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/responsibilities`,
+    payload: {
+      expected_version: 'stale',
+      responsibilities: [{ responsibility: 'count_stock', station_id: ids.stationId, staff_ids: [ids.staffId], role_ids: [ids.roleId] }],
+    },
+  }),
 };

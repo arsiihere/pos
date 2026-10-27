@@ -1,10 +1,11 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
-import type { ChangedVersions, GrantWire, PinBody, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import type { ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import { writeConfigAudit } from '../../lib/config-audit.js';
+import { assertBranchAllowed } from '../restaurant/service.js';
 import type { IdempotentResult } from '../../lib/idempotency.js';
 import {
   addBranches,
@@ -25,15 +26,18 @@ import {
   replaceFloors,
   replaceGrants,
   replaceLeads,
+  replaceResponsibilities,
   roleNameTaken,
   roleUsedBy,
   selectActiveAtBranch,
+  selectActiveResponsibilities,
   selectBranchIds,
   selectFloorStates,
   selectRoleStates,
   selectRoles,
   selectReports,
   selectStaff,
+  selectStationStates,
   setLead,
   setRoleArchived,
   updatePin,
@@ -42,7 +46,17 @@ import {
   type RoleFilter,
   type StaffFilter,
 } from './repository.js';
-import { roleVersion, staffVersion, toRoleWire, toStaffWire, withVersion, type RoleRow, type StaffRow } from './versions.js';
+import {
+  responsibilitySetVersion,
+  roleVersion,
+  staffVersion,
+  toResponsibilitySet,
+  toRoleWire,
+  toStaffWire,
+  withVersion,
+  type RoleRow,
+  type StaffRow,
+} from './versions.js';
 import { qualifyingAdmins, runAdminGuards } from './guards.js';
 import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
@@ -400,6 +414,99 @@ export async function updateRole(
     return { body: { role: withVersion(after, roleVersion(after)), changed_versions }, bump: true };
   });
   return out.body;
+}
+
+type ResponsibilitySet = { responsibilities: ResponsibilityWire[]; version: string };
+
+// §6.8 GET: 1 statement; active stations only, built by the one builder (B23). The path branch is checked
+// against the tenant's branches without a statement, as 01a's branch GETs do.
+export async function getResponsibilities(deps: StaffRolesDeps, tenant: TenantContext, branchId: string): Promise<ResponsibilitySet> {
+  assertBranchAllowed(tenant, branchId);
+  const set = toResponsibilitySet(branchId, await selectActiveResponsibilities(new TenantLevelRepository(tenant, deps.pool), branchId));
+  return { responsibilities: set, version: responsibilitySetVersion(branchId, set) };
+}
+
+// §6.8 PUT: directory write script; after the tenant lock the stored set is read with the GET's statement and
+// compared (B23); rules §3.6; only the active stations' rows are replaced; one audit row; no-op rule.
+export async function putResponsibilities(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: z.infer<typeof ResponsibilitiesPutBody>,
+): Promise<ResponsibilitySet & { changed_versions: ChangedVersions }> {
+  const out = await directoryWrite(deps, req, { idempotent: false }, async (ctx) => {
+    if (!(await selectBranchIds(ctx.repo, [branchId])).has(branchId)) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    const before = toResponsibilitySet(branchId, await selectActiveResponsibilities(ctx.repo, branchId));
+    const storedVersion = responsibilitySetVersion(branchId, before);
+    if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'responsibility', id: branchId });
+
+    // AD-11: lists are sets. Stations with nobody are absent from the stored set (§6.8).
+    const merged = toResponsibilitySet(
+      branchId,
+      body.responsibilities.flatMap((entry) => [
+        ...unique(entry.staff_ids).map((id) => row(entry.station_id, 'staff', id)),
+        ...unique(entry.role_ids).map((id) => row(entry.station_id, 'role', id)),
+      ]),
+    );
+    const noop = { responsibilities: before, version: storedVersion, changed_versions: emptyChanged() };
+    if (responsibilitySetVersion(branchId, merged) === storedVersion) return { body: noop, bump: false };
+    await checkResponsibilities(ctx.repo, branchId, body.responsibilities);
+
+    await replaceResponsibilities(ctx.repo, branchId, merged);
+    const after = toResponsibilitySet(branchId, await selectActiveResponsibilities(ctx.repo, branchId));
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'responsibility',
+        entityId: branchId,
+        branchId,
+        action: 'update',
+        before,
+        after,
+      },
+      ctx.deps,
+    );
+    const changed_versions = await ctx.changed.resolve(ctx);
+    return { body: { responsibilities: after, version: responsibilitySetVersion(branchId, after), changed_versions }, bump: true };
+  });
+  return out.body;
+}
+
+function row(stationId: string, kind: 'staff' | 'role', id: string) {
+  return { responsibility: 'count_stock' as const, station_id: stationId, subject_kind: kind, subject_id: id, station_archived_at: null };
+}
+
+// §3.6: one entry per station (AD-19), stations of the branch and active, staff working there, roles active.
+async function checkResponsibilities(repo: TenantLevelRepository, branchId: string, entries: ResponsibilityWire[]): Promise<void> {
+  const seen = new Set<string>();
+  entries.forEach((entry, i) => {
+    if (seen.has(entry.station_id)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `responsibilities.${i}.station_id` });
+    seen.add(entry.station_id);
+  });
+  const stations = await selectStationStates(repo, entries.map((entry) => entry.station_id));
+  entries.forEach((entry, i) => {
+    const station = stations.get(entry.station_id);
+    if (station === undefined) throw referenceInvalid(`responsibilities.${i}.station_id`, 'not_found');
+    if (station.branch_id !== branchId) throw referenceInvalid(`responsibilities.${i}.station_id`, 'wrong_branch');
+    if (station.archived) throw referenceInvalid(`responsibilities.${i}.station_id`, 'archived');
+  });
+  const staffIds = unique(entries.flatMap((entry) => entry.staff_ids));
+  const working = staffIds.length === 0 ? new Set<string>() : await selectActiveAtBranch(repo, staffIds);
+  entries.forEach((entry, i) => {
+    entry.staff_ids.forEach((staffId, j) => {
+      if (!working.has(pairKey(branchId, staffId))) throw referenceInvalid(`responsibilities.${i}.staff_ids.${j}`, 'not_at_branch');
+    });
+  });
+  const roleIds = unique(entries.flatMap((entry) => entry.role_ids));
+  const roles = roleIds.length === 0 ? new Map<string, { archived: boolean }>() : await selectRoleStates(repo, roleIds);
+  entries.forEach((entry, i) => {
+    entry.role_ids.forEach((roleId, j) => {
+      const role = roles.get(roleId);
+      if (role === undefined) throw referenceInvalid(`responsibilities.${i}.role_ids.${j}`, 'not_found');
+      if (role.archived) throw referenceInvalid(`responsibilities.${i}.role_ids.${j}`, 'role_archived');
+    });
+  });
 }
 
 // §6.6 rules: one grant per permission; approvers non-empty iff requires_approval (AD-13: `field` only, as

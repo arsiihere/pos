@@ -1,6 +1,6 @@
 import type { Permission } from '@pos/domain';
 import type { TenantSql } from '../../lib/config-version.js';
-import type { GrantWire } from '@pos/events';
+import type { GrantWire, ResponsibilityWire } from '@pos/events';
 import type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
@@ -451,6 +451,51 @@ export async function selectResponsibilityRows(db: TenantSql, branchIds: string[
     [branchIds],
   );
   return rows.map((row) => ({ ...row, station_archived_at: row.station_archived_at === null ? null : Number(row.station_archived_at) }));
+}
+
+// §6.8: one statement, the branch's rows at its active stations (archived stations' rows left out); also the
+// stored set the PUT compares with (B23).
+export async function selectActiveResponsibilities(db: TenantSql, branchId: string): Promise<ResponsibilityRow[]> {
+  return db.query<ResponsibilityRow>(
+    `SELECT r.responsibility, r.station_id, r.subject_kind, r.subject_id, NULL::bigint AS station_archived_at
+       FROM responsibilities r
+       JOIN stations st ON st.tenant_id = r.tenant_id AND st.station_id = r.station_id AND st.archived_at IS NULL
+      WHERE r.tenant_id = $1 AND r.branch_id = $2`,
+    [branchId],
+  );
+}
+
+// §6.8: stations named by a PUT, with their branch and archived state (read without a lock, B11).
+export async function selectStationStates(
+  db: TenantSql,
+  stationIds: string[],
+): Promise<Map<string, { branch_id: string; archived: boolean }>> {
+  const rows = await db.query<{ station_id: string; branch_id: string; archived: boolean }>(
+    `SELECT station_id, branch_id, archived_at IS NOT NULL AS archived FROM stations WHERE tenant_id = $1 AND station_id = ANY($2)`,
+    [stationIds],
+  );
+  return new Map(rows.map((row) => [row.station_id, { branch_id: row.branch_id, archived: row.archived }]));
+}
+
+// §6.8: replace only the rows of the branch's active stations; archived stations' rows are never deleted.
+export async function replaceResponsibilities(db: TenantSql, branchId: string, set: ResponsibilityWire[]): Promise<void> {
+  await db.query(
+    `DELETE FROM responsibilities
+      WHERE tenant_id = $1 AND branch_id = $2
+        AND station_id IN (SELECT station_id FROM stations WHERE tenant_id = $1 AND branch_id = $2 AND archived_at IS NULL)`,
+    [branchId],
+  );
+  const rows = set.flatMap((entry) => [
+    ...entry.staff_ids.map((id) => ({ station: entry.station_id, kind: 'staff', id })),
+    ...entry.role_ids.map((id) => ({ station: entry.station_id, kind: 'role', id })),
+  ]);
+  if (rows.length === 0) return;
+  await db.query(
+    `INSERT INTO responsibilities (tenant_id, branch_id, responsibility, station_id, subject_kind, subject_id)
+     SELECT t.tenant_id, $2, 'count_stock', x.st, x.k, x.id FROM tenants t, unnest($3::text[], $4::text[], $5::text[]) AS x(st, k, id)
+      WHERE t.tenant_id = $1`,
+    [branchId, rows.map((row) => row.station), rows.map((row) => row.kind), rows.map((row) => row.id)],
+  );
 }
 
 // §5.1 notes (m7): a branch change is a diff, never delete-and-reinsert (leads and floors cascade from the row).

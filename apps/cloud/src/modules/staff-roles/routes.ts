@@ -1,9 +1,12 @@
 import { DomainError } from '@pos/domain';
-import { PinBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
+import { PinBody, ResponsibilitiesPutBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import {
+  BranchIdParams,
+  ResponsibilitiesPutResponse,
+  ResponsibilitiesResponse,
   RoleIdParams,
   RoleListResponse,
   RoleQuery,
@@ -14,7 +17,17 @@ import {
   StaffQuery,
   StaffResponse,
 } from './schemas.js';
-import { createRole, createStaff, listRoles, listStaff, setPin, updateRole, updateStaff } from './service.js';
+import {
+  createRole,
+  createStaff,
+  getResponsibilities,
+  listRoles,
+  listStaff,
+  putResponsibilities,
+  setPin,
+  updateRole,
+  updateStaff,
+} from './service.js';
 import type { OwnerRequest, StaffRolesDeps } from './write.js';
 
 export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesDeps): void {
@@ -104,6 +117,30 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/roles/:role_id');
       return reply.send({ data: await updateRole(deps, ownerRequest(app, request), request.params.role_id, request.body) });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/branches/:branch_id/responsibilities',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, response: { 200: ResponsibilitiesResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/branches/:branch_id/responsibilities');
+      return reply.send({ data: await getResponsibilities(deps, tenantOf(request), request.params.branch_id) });
+    },
+  );
+
+  routes.put(
+    '/v1/admin/branches/:branch_id/responsibilities',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, body: ResponsibilitiesPutBody, response: { 200: ResponsibilitiesPutResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PUT /v1/admin/branches/:branch_id/responsibilities');
+      return reply.send({ data: await putResponsibilities(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
     },
   );
 }
