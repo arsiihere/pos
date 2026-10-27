@@ -1,6 +1,6 @@
 import type { Permission } from '@pos/domain';
 import type { TenantSql } from '../../lib/config-version.js';
-import type { GrantWire, ResponsibilityWire } from '@pos/events';
+import type { BranchWire, GrantWire, ResponsibilityWire } from '@pos/events';
 import type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
@@ -609,4 +609,27 @@ function group<R extends { staff_id: string }, V>(rows: R[], value: (row: R) => 
     else list.push(value(row));
   }
   return out;
+}
+
+// 01b §5.3 BranchWire; one statement. `lock` takes the row FOR UPDATE (§6.9, §6.10). BIGINTs through Number().
+const BRANCH_WIRE_COLUMNS = `branch_id, name, status, hub_last_seen_at, hub_synced_at, tax_enabled, day_stale_after_hours, day_min_gap_hours`;
+
+export async function selectBranchWire(db: TenantSql, branchId: string, o: { lock: boolean }): Promise<BranchWire | undefined> {
+  const rows = await db.query<BranchWire>(
+    `SELECT ${BRANCH_WIRE_COLUMNS} FROM branches WHERE tenant_id = $1 AND branch_id = $2${o.lock ? ' FOR UPDATE' : ''}`,
+    [branchId],
+  );
+  const row = rows[0];
+  if (row === undefined) return undefined;
+  return {
+    ...row,
+    hub_last_seen_at: row.hub_last_seen_at === null ? null : Number(row.hub_last_seen_at),
+    hub_synced_at: row.hub_synced_at === null ? null : Number(row.hub_synced_at),
+    day_stale_after_hours: Number(row.day_stale_after_hours),
+    day_min_gap_hours: Number(row.day_min_gap_hours),
+  };
+}
+
+export async function updateBranchName(db: TenantSql, branchId: string, name: string): Promise<void> {
+  await db.query(`UPDATE branches SET name = $3 WHERE tenant_id = $1 AND branch_id = $2`, [branchId, name]);
 }

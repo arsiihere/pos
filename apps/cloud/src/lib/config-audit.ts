@@ -15,6 +15,7 @@ export type AuditEntity =
   | 'staff' // 01b B21
   | 'role' // 01b B21
   | 'responsibility' // 01b B21
+  | 'branch' // 01b §6.9
   | 'owner_user';
 export type AuditAction =
   | 'create'

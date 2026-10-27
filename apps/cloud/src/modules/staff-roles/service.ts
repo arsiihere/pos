@@ -1,12 +1,12 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
-import type { ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import type { BranchRenameBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import { writeConfigAudit } from '../../lib/config-audit.js';
 import { assertBranchAllowed } from '../restaurant/service.js';
-import type { IdempotentResult } from '../../lib/idempotency.js';
+import { inTransaction, type IdempotentResult } from '../../lib/idempotency.js';
 import {
   addBranches,
   addRoles,
@@ -32,6 +32,8 @@ import {
   selectActiveAtBranch,
   selectActiveResponsibilities,
   selectBranchIds,
+  selectBranchWire,
+  selectOwner,
   selectFloorStates,
   selectRoleStates,
   selectRoles,
@@ -41,6 +43,7 @@ import {
   setLead,
   selectRoleHolders,
   setRoleArchived,
+  updateBranchName,
   updatePin,
   updateRoleRow,
   updateStaffRow,
@@ -442,6 +445,47 @@ export async function updateRole(
     return { body: { role: withVersion(after, roleVersion(after)), changed_versions }, bump: true };
   });
   return out.body;
+}
+
+// §6.9: its own script, no version bump (the hub shows its provisioned name): BEGIN → B8 → branch row FOR UPDATE
+// (404) → no-op → UPDATE → 23505 on branches_name → 409 CONFIG_NAME_TAKEN → audit branch / update → COMMIT.
+export async function renameBranch(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: z.infer<typeof BranchRenameBody>,
+): Promise<{ branch: BranchWire }> {
+  return inTransaction(deps.pool, async (client) => {
+    const repo = new TenantLevelRepository(req.tenant, client);
+    const owner = await selectOwner(repo, req.ownerUserId);
+    if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
+    const before = await selectBranchWire(repo, branchId, { lock: true });
+    if (before === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    if (before.name === body.name) return { branch: before };
+    try {
+      await updateBranchName(repo, branchId, body.name);
+    } catch (error) {
+      const pgError = error as { code?: string; constraint?: string };
+      if (pgError.code === '23505' && pgError.constraint === 'branches_name') {
+        throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'branch', name: body.name });
+      }
+      throw error;
+    }
+    await writeConfigAudit(
+      repo,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'branch',
+        entityId: branchId,
+        branchId,
+        action: 'update',
+        before: { name: before.name },
+        after: { name: body.name },
+      },
+      deps,
+    );
+    return { branch: { ...before, name: body.name } };
+  });
 }
 
 type ResponsibilitySet = { responsibilities: ResponsibilityWire[]; version: string };

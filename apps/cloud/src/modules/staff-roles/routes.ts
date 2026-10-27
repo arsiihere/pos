@@ -1,10 +1,11 @@
 import { DomainError } from '@pos/domain';
-import { PinBody, ResponsibilitiesPutBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
+import { BranchRenameBody, PinBody, ResponsibilitiesPutBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import {
   BranchIdParams,
+  BranchResponse,
   ResponsibilitiesPutResponse,
   ResponsibilitiesResponse,
   RoleIdParams,
@@ -24,6 +25,7 @@ import {
   listRoles,
   listStaff,
   putResponsibilities,
+  renameBranch,
   setPin,
   updateRole,
   updateStaff,
@@ -141,6 +143,18 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PUT /v1/admin/branches/:branch_id/responsibilities');
       return reply.send({ data: await putResponsibilities(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, body: BranchRenameBody, response: { 200: BranchResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id');
+      return reply.send({ data: await renameBranch(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
     },
   );
 }
