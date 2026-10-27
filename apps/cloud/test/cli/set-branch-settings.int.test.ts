@@ -140,6 +140,11 @@ describe('set-branch-settings', () => {
     }
   });
 
+  it('[01b B16] the usage text shows the day ranges 1…48 and 0…12', async () => {
+    expect(await run('--branch')).toBe(1);
+    expect(errors.join('\n')).toContain('[--day-stale-after-hours <1…48>] [--day-min-gap-hours <0…12>]');
+  });
+
   it('[01a §6.7] setBranchSettings returns the merged settings', async () => {
     const result = await setBranchSettings(
       new SystemContext(cloud.pool),

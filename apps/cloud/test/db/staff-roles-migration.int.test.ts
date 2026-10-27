@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
 import { afterAll, describe, expect, it } from 'vitest';
 import { seedTenant } from '../../src/cli/seed-tenant';
+import { runSetBranchSettings } from '../../src/cli/set-branch-settings';
 import { SystemContext } from '../../src/cli/system-context';
 import { migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
@@ -168,5 +169,60 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
         [tenant],
       ),
     ).rejects.toMatchObject({ code: '23505', constraint: 'roles_default_key' });
+  });
+
+  it('[01b #66] clamps day settings to 48 / 12, the new CHECKs refuse 49 / 13, and set-branch-settings takes the same ranges', async () => {
+    const { pool } = await scratchDatabaseAt(4);
+    const tenant = await seedV14(pool, 'a@example.com');
+    await addBranch(pool, tenant, 'b-wide', 'Wide');
+    await addBranch(pool, tenant, 'b-mid', 'Mid');
+    await pool.query(`UPDATE branches SET day_stale_after_hours = 72, day_min_gap_hours = 24 WHERE branch_id = 'b-wide'`);
+    await pool.query(`UPDATE branches SET day_stale_after_hours = 30, day_min_gap_hours = 20 WHERE branch_id = 'b-mid'`);
+
+    await migrate(pool, migrationsDir, clock);
+
+    const day = async () =>
+      (
+        await pool.query<{ branch_id: string; day_stale_after_hours: number; day_min_gap_hours: number }>(
+          `SELECT branch_id, day_stale_after_hours, day_min_gap_hours FROM branches WHERE branch_id IN ('b-wide', 'b-mid') ORDER BY branch_id`,
+        )
+      ).rows;
+    expect(await day()).toEqual([
+      { branch_id: 'b-mid', day_stale_after_hours: 30, day_min_gap_hours: 12 },
+      { branch_id: 'b-wide', day_stale_after_hours: 48, day_min_gap_hours: 12 },
+    ]);
+    await expect(
+      pool.query(`UPDATE branches SET day_stale_after_hours = 49 WHERE branch_id = 'b-wide'`),
+    ).rejects.toMatchObject({ code: '23514', constraint: 'branches_day_stale' });
+    await expect(
+      pool.query(`UPDATE branches SET day_min_gap_hours = 13 WHERE branch_id = 'b-mid'`),
+    ).rejects.toMatchObject({ code: '23514', constraint: 'branches_day_gap' });
+
+    const errors: string[] = [];
+    const ids = testIdGen();
+    const run = (...argv: string[]) =>
+      runSetBranchSettings(argv, {
+        sys: new SystemContext(pool),
+        clock,
+        ids,
+        out: () => {},
+        err: (line) => errors.push(line),
+      });
+    const audits = async () => (await pool.query(`SELECT count(*)::int AS n FROM config_audit`)).rows[0];
+    const auditsBefore = await audits();
+    const before = await day();
+    expect(await run('--branch', 'b-mid', '--day-stale-after-hours', '49')).toBe(1);
+    expect(await run('--branch', 'b-mid', '--day-min-gap-hours', '13')).toBe(1);
+    expect(errors.join('\n')).toContain('1…48');
+    expect(errors.join('\n')).toContain('0…12');
+    expect(await day()).toEqual(before);
+    expect(await audits()).toEqual(auditsBefore);
+
+    expect(await run('--branch', 'b-mid', '--day-stale-after-hours', '48')).toBe(0);
+    expect(await run('--branch', 'b-wide', '--day-min-gap-hours', '12', '--day-stale-after-hours', '13')).toBe(0);
+    expect(await day()).toEqual([
+      { branch_id: 'b-mid', day_stale_after_hours: 48, day_min_gap_hours: 12 },
+      { branch_id: 'b-wide', day_stale_after_hours: 13, day_min_gap_hours: 12 },
+    ]);
   });
 });

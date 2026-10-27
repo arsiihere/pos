@@ -14,7 +14,7 @@ export interface BranchSettings {
   day_min_gap_hours: number;
 }
 
-// §6.7, S33, S34: lock the branch row → merge → ranges and stale > gap on the merged values → update →
+// §6.7, S33, S34 (ranges 1…48 and 0…12, 01b B16): lock the branch row → merge → ranges and stale > gap on the merged values → update →
 // branch_settings / update audit row (actor 'cli') → bump this branch. Any failure writes nothing.
 export async function setBranchSettings(
   sys: SystemContext,
@@ -34,8 +34,8 @@ export async function setBranchSettings(
       day_stale_after_hours: input.dayStaleAfterHours ?? before.day_stale_after_hours,
       day_min_gap_hours: input.dayMinGapHours ?? before.day_min_gap_hours,
     };
-    if (!inRange(after.day_stale_after_hours, 1, 72)) throw new Error('--day-stale-after-hours must be 1…72');
-    if (!inRange(after.day_min_gap_hours, 0, 24)) throw new Error('--day-min-gap-hours must be 0…24');
+    if (!inRange(after.day_stale_after_hours, 1, 48)) throw new Error('--day-stale-after-hours must be 1…48');
+    if (!inRange(after.day_min_gap_hours, 0, 12)) throw new Error('--day-min-gap-hours must be 0…12');
     if (after.day_stale_after_hours <= after.day_min_gap_hours) {
       throw new Error('day_stale_after_hours must be greater than day_min_gap_hours');
     }
@@ -59,7 +59,7 @@ function inRange(n: number, min: number, max: number): boolean {
 }
 
 const USAGE =
-  'usage: set-branch-settings --branch <branch_id> [--tax-enabled true|false] [--day-stale-after-hours <1…72>] [--day-min-gap-hours <0…24>]';
+  'usage: set-branch-settings --branch <branch_id> [--tax-enabled true|false] [--day-stale-after-hours <1…48>] [--day-min-gap-hours <0…12>]';
 
 // Options come in pairs; an unknown option (e.g. --business-day-start, removed by S33) is a usage error.
 function parseArgs(argv: readonly string[]): Parameters<typeof setBranchSettings>[1] {
