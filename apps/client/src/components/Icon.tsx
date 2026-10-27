@@ -68,6 +68,50 @@ const PATHS = {
       <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
     </>
   ),
+  // 01b side nav and phone menu button (docs/design/handoff/01b/screens/Main.html, StaffPhoneList.html)
+  menu: (
+    <>
+      <path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h16" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  team: (
+    <>
+      <circle cx="12" cy="5.5" r="2.5" />
+      <circle cx="6" cy="18.5" r="2.5" />
+      <circle cx="18" cy="18.5" r="2.5" />
+      <path d="M12 8v4" />
+      <path d="M6 16v-2h12v2" />
+    </>
+  ),
+  clipboard: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4V3h6v1" />
+      <path d="M9 11h6" />
+      <path d="M9 15h4" />
+    </>
+  ),
+  home: (
+    <>
+      <path d="M4 20V9l8-5 8 5v11" />
+      <path d="M9 20v-6h6v6" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M11 12l9-9" />
+      <path d="M17 6l3 3" />
+    </>
+  ),
   back: <path d="M15 5l-7 7 7 7" />,
   x: (
     <>

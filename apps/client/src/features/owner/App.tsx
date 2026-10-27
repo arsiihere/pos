@@ -97,7 +97,7 @@ function Routes({
   const needsBranch = route === '/floors' || route === '/stations';
   if (route === '/menu' || (needsBranch && branchId !== null)) {
     return (
-      <Shell route={route} userName={user.display_name} onSignOut={signOut}>
+      <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
         {route === '/menu' && <MenuView api={api} />}
         {route === '/floors' && branchId !== null && (
           <FloorsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
