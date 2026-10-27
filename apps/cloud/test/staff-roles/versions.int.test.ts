@@ -106,7 +106,7 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     );
   const auditCount = async () =>
     Number((await cloud.pool.query(`SELECT count(*) AS n FROM config_audit WHERE tenant_id = $1`, [f.tenantId])).rows[0].n);
-  const expectStale = async (send: () => Promise<{ statusCode: number; body: string; json(): any }>, error: object) => {
+  const expectStale = async (send: () => ReturnType<typeof patchStaff>, error: object) => {
     const n = await auditCount();
     const response = await send();
     expect(response.statusCode, response.body).toBe(409);

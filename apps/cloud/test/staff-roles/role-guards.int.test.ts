@@ -101,7 +101,7 @@ describe('admin guards on role writes; returning with no role (01b B7, §3.2, B1
     Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
   const auditCount = async () =>
     Number((await cloud.pool.query(`SELECT count(*) AS n FROM config_audit WHERE tenant_id = $1`, [f.tenantId])).rows[0].n);
-  const expectRefused = async (send: () => Promise<{ statusCode: number; body: string; json(): any }>, status: number, error: object) => {
+  const expectRefused = async (send: () => ReturnType<typeof patchStaff>, status: number, error: object) => {
     const [v, n] = [await directoryVersion(), await auditCount()];
     const response = await send();
     expect(response.statusCode, response.body).toBe(status);
