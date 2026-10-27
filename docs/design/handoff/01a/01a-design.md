@@ -2,7 +2,7 @@
 
 Canvas: **Module 01a Screens** (54 frames). The 28 original frames are kept and retitled with screen IDs. 26 frames were added in three new rows at the bottom ("01a additions · …").
 
-Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.2.md` §8 (was v1.0.2 when this was drawn; v1.2 adds S57, S58).
+Inventory: `docs/design/inventory/01a-setup.md`. Current-state brief: `docs/design/ui-brief-01a.md`. Spec: `01_Restaurant_Setup_Spec_v1.3.md` §8 (was v1.0.2 when this was drawn; v1.2 adds S57, S58; v1.3 Draft adds 01b's stock-scope changes to §8.2).
 
 Kit: `kit-additions.css` is the same file as module 00. It is 01a + 00 blocks with the `.pos-list__name > span` fix, so chips in rows keep their colour. Design system: POS.
 

@@ -1,16 +1,38 @@
-# 00 — Hub Platform & Access — Module Spec v1.4
+# 00 — Hub Platform & Access — Module Spec v1.5
+
+**v1.5 (2026-10-27).** Changes driven by 01b Staff & Roles v0.5 (v0.3, then hostile review 1, `docs/reviews/01b_spec_review_1.md`): §3.1 (M10, M29, M52, M57, M73, new M93), §3.6, §4.2, §5.1, §5.2, §6.5, §6.19, §6.20, §6.22, §6.23, §6.24a (new: JWT guard), §6.26, §6.27, §6.33 (note), §7.2, §7.10; §5.2 cloud migrations runner (01b review 2 N5). See 01b §4.3.
 
 ## §1. Header
 
 | Field | Value |
 |-------|-------|
 | Module | 00 Hub Platform & Access |
-| Version | v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
-| Date | 2026-10-26 |
+| Version | **v1.5 — APPROVED** by the owner (2026-10-27), together with 01b v0.5 and 01a v1.3: changes driven by 01b Staff & Roles v0.5 (M93, 01b §4.3; hostile reviews 1 and 2 of the 01b package applied). **Supersedes v1.4**, which stays the implemented baseline until 01b's build lands. v1.4 — **APPROVED** by the owner (2026-10-26, "apply what is good" on open questions Q11, Q12): phones use the light theme (M91); names in three responses (M92); §6.17 states what refreshes last-seen. v1.3 — **APPROVED** by the owner (2026-10-26, no hostile review requested): module 00 design hand-off (`docs/design/handoff/00/`): Urdu pages, hub admin home `/admin`, styled `/setup` after provisioning, setup address pick-list, three admin list queries, removal reason on the devices list, admin permissions in the sign-in response (M83–M90). v1.2.1 — editorial (2026-10-25): §4.2 names match the code (01a S25); no behaviour change. v1.2 — **APPROVED** (2026-10-24): UI kit on the 00 pages (M81, M82) over v1.1, implemented in plan tasks 67–71. v1.1 — **APPROVED** (2026-10-24): fixes from build review 1 (`docs/reviews/00_build_review_1.md`) over v1.0.1, which was **APPROVED** (2026-10-23) after Review 1 (`docs/reviews/00_review_1.md`) and Review 2 (`docs/reviews/00_review_2.md`) |
+| Date | 2026-10-27 (v1.5); 2026-10-26 |
 | Depends on | Foundation Spec v1.7 (APPROVED — FINAL) |
 | Inherits | **Shared Standards from Foundation v1.7 §6**, unchanged except where a decision in §3.1 names the section it overrides (D64 freeze rule) |
 | Tier | T2 Production (foundation §1) |
 | Already implemented | Plan task 1 (monorepo skeleton). Plan tasks 5b and 5c list what v0.6 and v1.0 change in tasks 1–5 |
+
+### Changes in v1.5 (01b Staff & Roles v0.5, `docs/specs/01b_Staff_Roles_Spec_v0.5.md` §4.3)
+
+| Change | Decision | Where | Test (01b) |
+|---|---|---|---|
+| Cloud `staff.pin_hash` nullable (roll forward only); `pin_set_at`, `left_at`; `owner_users` password state (incl. `temp_password_expires_at`) and `staff_id` link; `roles` `default_key`, `archived_at`; `role_permissions.scope`; approver list table, `approver_role_id` dual-written (cloud `0005_staff_roles.sql`, owned by 01b) | M93 (01b B3, B5, B7, B10, B2, B17, B22) | §5.2 | 01b #6, #20, #62, #63, #75, #77, #79 |
+| Hub `0005_directory_v2.sql`; directory read in 9 statements | M93 (01b B1, B2, B4, B10) | §5.1 | 01b #22 |
+| Directory shape v2, additive (`approver_role_id` kept; `approver_role_ids`, `scope`, `lead_staff_id`, `floor_ids`, `responsibilities`; approver roles always sent; staff with no PIN not sent) | M93 (01b B3, B4, B10, B18) | §6.5, §4.2 | 01b #6, #21, #22, #24, #83 |
+| `resolve` returns `scope`; new `StaffDirectory` lookups | M10, M93 (01b B1, B2, B4) | §3.6, §4.2 | 01b #12, #19, #31, #33 |
+| `StaffDirectoryApplied` v2: `skipped.kind` adds `lead`, `responsibility`; unknown approver ids dropped, a grant left with none skipped | M52, M93 (01b B18) | §4.2 | 01b #23, #64, #84 |
+| Roster adds `responsibilities`; session adds `scope` | M93 (01b B2, B4) | §6.19, §6.20 | 01b #19, #36 |
+| Login: `must_change_password`, `lockout_notice`, expired temporary password refused, hash re-checked in the success transaction; refresh: owner row `FOR NO KEY UPDATE` first, a refresh token whose `credential_version` differs from the owner's refused, `lockout_notice`; JWT claim `cv` (the owner's `credential_version`); no `pwc` claim (01b review 2 N1, N2) | M73, M93 (01b B5) | §6.22, §6.23 | 01b #4, #41, #42, #74, #75, #81, #91, #98 |
+| JWT guard reads the owner row: claim `cv` ≠ `credential_version` → `JWT_INVALID`; a failed read → `503 SERVICE_UNAVAILABLE`, never `401`; `PASSWORD_CHANGE_REQUIRED` on `/v1/admin/*` | M93 (01b B5) | §6.24a (new) | 01b #65, #73, #91, #107 |
+| Cloud migrations runner refuses to start when the database holds a migration version this build has no file for | M93 (01b B22) | §5.2 | 01b #105 |
+| `issue-registration-code`: only qualifying admins (`access-hub-admin` and `manage-devices`); duplicate names refused; tenant lock and directory bump; branch names unique | M57, M93 (01b B7, B11, B12, D-14) | §6.27 | 01b #86, #93, #94 |
+| Default roles Owner, Manager, Cashier 15, Order taker 15 (owner, 01b Q12), Waiter, Cook, each with a `default_key`; owner staff row linked | M29, M93 (01b B6, B7, B17) | §6.26 | 01b #20, #77 |
+| `POST /v1/auth/change-password` is 01b's route (not counted here); redaction and folder notes | M93 (01b B5) | §6.33, §7.2, §7.10 | 01b #44 |
+| M93 | **01b Staff & Roles v0.5 changes this spec as listed in 01b §4.3** (rows 1–20). Each changed section carries a "Changed by 01b" marker. 01b owns the cloud migration `0005_staff_roles.sql` and the hub migration `0005_directory_v2.sql`; this spec's merged migrations are not edited. M30 (station sessions), M11, M50, M51 and M75 are unchanged; M57 is refined (§6.27). | One package for the owner to approve; later modules read 00 and find the current contract. | — |
+
+No new route in this spec (00 stays at 30 endpoints, §6.33). New event schema version: `StaffDirectoryApplied` v2 (identity upcaster). Error codes added by 01b are 01b's (01b §9).
 
 ### Changes in v1.4 (open questions Q11, Q12 in `docs/design/open-questions/00-hub-platform.md`)
 
@@ -211,7 +233,7 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M7 | **Admin session = session with `kind = 'admin'`**, requires `access-hub-admin`. *Changed by M42:* it is opened on a paired device and bound to it; only the one-time bootstrap session has no device and uses `device_id = 'hub-admin'` in events. System events use `device_id = 'hub'`. | Roles are custom (E6), so "manager" (D38) must be a permission. | — |
 | M8 | **PIN hash format is argon2id in PHC form only**, minimum `m=19456, t=2, p=1`; bcrypt not accepted. *How a weaker hash is handled: M52.* Argon2 slows online guessing only; it does not protect a copied database (M21). | We control every setting device (D40). | §5.7 "argon2id (preferred) or bcrypt" → argon2id only |
 | M9 | **Session tokens are stored as SHA-256 hashes.** | A copied database would otherwise contain live session tokens. | §5.7 (made specific) |
-| M10 | **Effective permission (D19)**: `denied` if the owner set a denial; else the most permissive grant across roles, `allowed` > `requires_approval` > `not_granted`; approver roles = union. Commands accept `requires_approval` only when they declare `approvable: true` (04). | Implements E6 AC3–4 once. | — |
+| M10 | **Effective permission (D19)**: `denied` if the owner set a denial; else the most permissive grant across roles, `allowed` > `requires_approval` > `not_granted`; approver roles = union. Commands accept `requires_approval` only when they declare `approvable: true` (04). *v1.5 (01b B2, B10):* the result also carries the winning `scope`, and approvers are read from the approver list (§3.6). | Implements E6 AC3–4 once. | — |
 | M11 | **Idle TTL for a multi-role staff member** = max `session_idle_ttl_ms` across roles. | D19 "most permissive" applied to TTL. | — |
 | M12 | **WS authenticates with the first client message** `{ type: 'auth', device_token, session_token }` within 5 s, else close `4401`. Never headers, never the query string. | Browsers and the Capacitor WebView cannot set WebSocket headers; query-string tokens land in logs. | §5.4 and §6.3 `/ws` row (header and query credentials) |
 | M13 | **Provisioning finishes with a process restart** (exit 0; systemd `Restart=always`). | Avoids a second "become provisioned while running" start path. | — |
@@ -230,7 +252,7 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M26 | **Library versions pinned** (§7.11), checked against the npm registry on 2026-10-23. Vitest stays on 4.1.12 (foundation §6.7). | Unpinned majors drift between dev, CI and the hub. | — |
 | M27 | **01 owns cloud staff/role admin**, PIN set/reset, staff-to-branch assignment. Duplicate PINs are allowed (login is staff + PIN). | Salted hashes make duplicate detection impossible on the cloud. | E0 PIN AC1 (story) |
 | M28 | **03a owns the engine host** (§5.8 steps 2, 3, 6); 00 provides the hooks. 03a is built before or alongside 02. | — | — |
-| M29 | **`seed-tenant` seeds Owner, Manager, Cashier, Order taker** (§6.26). TTLs to confirm with the owner. No Kitchen staff role (M30). | — | — |
+| M29 | **`seed-tenant` seeds Owner, Manager, Cashier, Order taker** (§6.26). TTLs to confirm with the owner. No Kitchen staff role (M30). *Overridden in v1.5 by 01b B17:* the defaults are Owner, Manager, Cashier, Order taker, Waiter and Cook; Order taker and Waiter are different jobs (01b D-12; a person doing both holds both roles); Waiter and Cook are team-membership roles with no permissions, and cooks keep working through station sessions (M30 unchanged). | — | — |
 | M30 | **Station sessions** (`kind 'station'`, `device_type 'kds'` only): device bound to one `station_id`; no PIN, no idle timeout; events carry `actor_id = null`; only `stationScoped` commands; WS accepts them. | Cooks will not log in with a PIN; a shared kitchen identity would fake attribution. | §4.2 "actor_id null when source = 'inferred'" (also null for station taps); §5.7 "session identifies the staff actor" |
 | M31 | **The station binding is chosen by the approving manager.** *Changed by M44:* KDS screens pair through a pairing request; the manager picks the station when approving. Station existence is checked through `registerStationValidator` (01). Rebinding = revoke + re-pair. | The unpaired screen has no credentials to list stations. | — |
 | M32 | **Admin login roster** lists only staff whose `access-hub-admin` resolves `allowed`. *Changed by M42:* it requires a paired device token or the bootstrap token. | Admins pick a name, not a ULID. | — |
@@ -253,12 +275,12 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M49 | **Refresh reuse grace.** The successor of a refresh token is `HMAC-SHA256(REFRESH_TOKEN_SECRET, old_token)`; presenting the same rotated token within 30 s of its rotation returns that same successor (and a new access JWT) without revoking anything; later reuse revokes all the user's refresh tokens. | Two tabs or a lost refresh response on mobile data would log the owner out everywhere. | — |
 | M50 | **A changed `pin_hash` ends that staff member's sessions** (`SessionEnded { reason: 'credentials_changed' }`), staff and admin. | A leaked PIN, reset in the cloud, would keep the thief's session for up to 60 minutes. | — |
 | M51 | **Directory versions only move forward.** `applyStaffDirectory` applies only when `directory_version > current`; equal or older → no-op, no event, logged. | A late or replayed push would bring back fired staff with their old PINs. | — |
-| M52 | **Bad directory rows are skipped, never blocking.** A staff row with a weak or malformed `pin_hash` is skipped; *what happens to that person's existing row: M75*; a role assignment or approver naming an absent role, or a permission not in this hub's catalogue, skips only that reference. Every skip is logged and listed in `StaffDirectoryApplied.skipped`. The rest applies. Supersedes the "reject" wording of M8 and v0.5 Review Focus 4. | One bad row from 01 would otherwise block every later update, including the removal of a fired employee. | — |
+| M52 | **Bad directory rows are skipped, never blocking.** A staff row with a weak or malformed `pin_hash` is skipped; *what happens to that person's existing row: M75*; a role assignment or approver naming an absent role, or a permission not in this hub's catalogue, skips only that reference. Every skip is logged and listed in `StaffDirectoryApplied.skipped`. The rest applies. *v1.5 (01b B18):* a lead or a responsibility naming a staff member absent from the directory is also skipped (kinds `lead`, `responsibility`); an approver id naming an absent role is dropped from that grant's list, and a `requires_approval` grant left with no approver is skipped (kind `approver`). Supersedes the "reject" wording of M8 and v0.5 Review Focus 4. | One bad row from 01 would otherwise block every later update, including the removal of a fired employee. | — |
 | M53 | **Station replaced = stop.** When a station session is replaced, its socket receives `SessionEnded { reason: 'replaced' }` and closes `4401` with close reason text `replaced`; the client stops and shows "Open in another window" instead of calling `/auth/station` again. | Two tabs on one KDS would kick each other off forever. | — |
 | M54 | **LAN plaintext risk accepted for P1** with owner sign-off (README R16). Installation checklist: personal phones join a **separate SSID with client isolation** that can reach only the hub port; restaurant devices stay on the staff SSID. LAN TLS revisited at P3. | R14 put personal phones on the network that carries PINs and bearer tokens in plaintext (D28); isolation removes phone-to-phone sniffing on the same AP. | — |
 | M55 | **Overrides recorded from Review 1 #16:** (a) the global credential indexes (`owner_users_email`, `owner_refresh_tokens_hash`, `branch_api_keys_hash`, `branches_branch_id`, primary key `registration_codes.code_hash`) do not lead with `tenant_id`, because they serve lookups before a tenant is known; (b) `db/credential-lookup.ts` is a bounded query path outside the repository layer, importable only by `plugins/tenant-scope.ts` and `plugins/owner-credentials.ts` (lint + test) — the RLS revisit trigger in foundation §8 does not fire for these read-by-secret lookups, and any other importer would; (c) `GET /ws` auth (§6.3) per M12; (d) route groups added: `POST /auth/station`, `POST /admin/auth`, `POST /admin/auth/logout`, `POST /admin/auth/bootstrap`, `GET /admin/login-roster`, `POST /pair/requests`, `GET /pair/requests/:id`; (e) new codes `IP_LOCKED_OUT` and `STATION_LOGOUT_NOT_ALLOWED` replace the reuse of `DEVICE_LOCKED_OUT` and `DEVICE_TYPE_NOT_ALLOWED`; (f) **query guard write (Review 2 note B):** on `GET /queries/*` and `GET /admin/queries/*`, the session guard may end an idle-expired session (`SessionEnded 'idle_timeout'`) in its own `writer.run` before answering `401` (M46). The query itself still never writes. | D64 requires every override to be named. | §6.8 index rule; §8 RLS row (scope); §6.3 route groups, `/ws` row and "queries: no writes" (guard only, f); §5.6 (via M44) |
 | M56 | **CLIs live in `apps/cloud/src/cli/`** and reach the database through `SystemContext`, a class constructible only there (lint allowlist + a test that fails if any other folder imports it). | `seed-tenant` must create a tenant before any `TenantContext` can exist; the alternative is weakening the D54 lint rule. | §6.9 folder list (adds `apps/cloud/src/cli/`) |
-| M57 | **No `is_admin_role`.** A new branch gets every staff member whose roles grant `access-hub-admin`; `issue-registration-code` adds the branch to every tenant owner's `allowed_branch_ids` in the same transaction. The "at least one admin role" guard (E6 AC7) is 01's, on the permission. | A flag would contradict M7; managers with `access-hub-admin` could not pair a new branch; the owner's JWT could not see it. | — |
+| M57 | **No `is_admin_role`.** A new branch gets every staff member whose roles grant `access-hub-admin`; `issue-registration-code` adds the branch to every tenant owner's `allowed_branch_ids` in the same transaction. The "at least one admin role" guard (E6 AC7) is 01's, on the permission. *v1.5 (01b §4.3 row 19, D-14):* a new branch gets only **qualifying admins** (01b B7): active staff with a PIN whose effective `access-hub-admin` **and** `manage-devices` are both `allowed` (stock counters with `access-hub-admin` alone are not assigned); if two of them share a display name (case-insensitive, trimmed, 01b B12) the CLI refuses and lists the names; it takes the tenant row lock first and bumps `directory_version` (01b B11). | A flag would contradict M7; managers with `access-hub-admin` could not pair a new branch; the owner's JWT could not see it. | — |
 | M58 | **`/setup` owns `guest_network_cidrs` and `advertised_host`.** At least one CIDR is required; `advertised_host` must be one of the host's own IPv4 addresses. The installer does not edit them in the config file. | Two writers would let a blank setup form silently disable the guest guard. | — |
 | M59 | **What counts as activity:** every command, `/auth/*` login, and queries that declare `counts_as_activity: true` (default `false`). WS pongs and acks never count. **Note for 02:** a polled query must not opt in. | A 10-second table-map poll would keep order-taker sessions alive forever. | — |
 | M60 | **`DeviceTokenRotated { device_id, pair_request_id }`** is appended when `/devices/pair` rotates a token. | A device credential change with no event breaks §4.1 and the E0 pairing audit; M40 needs it. | — |
@@ -274,7 +296,7 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M70 | **Command `tenant_id` is checked** like `branch_id` (`403 BRANCH_MISMATCH`). | The contract would otherwise accept any tenant silently. | — |
 | M71 | **`setup_attempt_id` is not in the `HubProvisioned` payload.** | The id plus a paper code would allow a re-exchange that revokes the live key. | — |
 | M72 | **Admin recovery by hub CLI.** `pnpm --filter hub issue-admin-bootstrap`, run as the hub service user on the hub machine (shell or physical access is the authority), opens the hub database and, in one `writer.run`: sets `expires_at = now` on every live bootstrap token, creates a new single-use token (30 min TTL), appends `AdminBootstrapTokenIssued { issued_by: 'cli' }` (`actor_id` null, `device_id 'hub'`). It prints `first_admin_url` and a terminal QR code (`qrcode@1.5.4`, CLI only). It works whether or not the hub process is running (SQLite serialises the writers; the event has no engine or WS effect). `/setup/provision` uses the same function with `issued_by: 'setup'`. **Requirement on 06:** the replace-hub restore flow issues one automatically after restore. | Without it the one-time bootstrap token is the only device-less admin entry: a late installer, a lost bootstrap response, losing every admin device, or a cloud-only restore would lock the hub out permanently, and the only recovery (re-register as a new branch) loses unsynced events. | — |
-| M73 | **A locked owner account never verifies the password** (replaces M64's locked-account rule; Review 2 N2). While `login_locked_until > now`: run the dummy hash (equal timing), answer `401 LOGIN_INVALID` whatever the password, and do not change the account counter. The per-IP limiter still counts the attempt as a failure. The owner is told about the lock out of band (requirement on 01/07). `429 LOGIN_LOCKED_OUT` is no longer returned by login. | Under M64 a locked account still answered differently for the right password, so distributed guessing could continue through the lock. | — |
+| M73 | **A locked owner account never verifies the password** (replaces M64's locked-account rule; Review 2 N2). While `login_locked_until > now`: run the dummy hash (equal timing), answer `401 LOGIN_INVALID` whatever the password, and do not change the account counter. The per-IP limiter still counts the attempt as a failure. The owner is told about the lock out of band (requirement on 01/07; *v1.5: met by 01b's `lockout_notice` on the next successful login or rotating refresh, §6.22, §6.23*). `429 LOGIN_LOCKED_OUT` is no longer returned by login. | Under M64 a locked account still answered differently for the right password, so distributed guessing could continue through the lock. | — |
 | M74 | **`DeviceTokenRotated` is applied by `access_reconcile` only during boot catch-up** (mode `'catchup'`), never on the live path, where the new hash is written directly by `/devices/pair`. | A live apply would overwrite the fresh hash and lock out the device that just re-paired. | — |
 | M75 | **A skipped staff row keeps its previous row.** If a staff row is skipped for a weak or malformed `pin_hash` (M52) and the hub already has a row for that staff member, the previous row (with its old hash, roles and denials as last applied) stays, and the person is **not** treated as removed: no `staff_removed` session end, no `owner_removed` phone revoke. A staff member with no previous row is simply absent. A real PIN reset (valid new hash) still ends sessions (M50). | One bad row from 01 would otherwise force a re-pair of that person's phone and end their sessions. | — |
 | M77 | **QR codes on hub-served pages use `qrcode@1.5.4`** (closes MQ12), the library M72 already pins for the CLI. QR codes are rendered **on the hub** as SVG by one helper, `apps/hub/src/lib/qr.ts` → `qrSvg(text: string): string` (synchronous: `QRCode.create(text, { errorCorrectionLevel: 'M' })`, then an SVG `<path>` built from `modules`, 4-module quiet zone). Responses carry the SVG next to the URL: `first_admin_qr_svg` (§6.4), `pair_qr_svg` (§6.7), `approve_qr_svg` (§6.30); pages insert it as-is. No QR library is served to browsers. Lint: `qrcode` is importable only by `lib/qr.ts` and the CLI entry (`setup/issue-admin-bootstrap.ts`). | Screens cannot be paired by scanning (M44) and the first-admin link cannot be opened from a phone without a QR; rendering on the hub keeps the hub-served pages free of a bundler and of a second QR dependency, and keeps `handle` synchronous (D32 stored responses). | — |
@@ -284,6 +306,12 @@ Each decision states the failure it prevents (YAGNI test) and any foundation sec
 | M80 | **`pairing_source` is derived from `device_type`:** `tablet`, `phone` → `'token'`; `cashier_kiosk`, `kds` → `'request'` (M44 makes the source a function of the type). No column. | The v1.0 derivation from `pairing_tokens` turns every token-paired device into `'request'` once retention deletes its token (7 days after expiry). | — |
 | M81 | **The hub serves the UI kit at `GET /ui/*` (route group `static`: guards host and guest network only, no provisioned check, no credentials).** Source: `packages/ui-kit/`, a new folder with CSS, fonts and their licences only (no `package.json`, not a workspace package; the hub resolves it relative to its own source, which holds in the `/opt/pos-hub` checkout). Only `.css` and `.woff2` files are served; the file list is read once at registration, so a path that is not in it (`..`, `README.md`, `tokens.json`, licence files) is `404 ROUTE_NOT_FOUND`. Headers: `Content-Type` `text/css; charset=utf-8` or `font/woff2`; `Cache-Control: public, max-age=31536000, immutable`. Pages link the two stylesheets with `?v=<first 12 hex of sha256(tokens.css ‖ bundle.css)>` so a hub update reaches cached browsers; the query is ignored by the route. Registered on the setup-mode server too, because `/setup` uses it before provisioning. No new dependency (`node:fs`, no `@fastify/static`). Not counted in §6.33, like the page routes. | The pages run on the LAN with no internet (README R15), so fonts and CSS must come from the hub; kiosks and phones reload often, so long caching keeps the hub idle. A whitelist read at start cannot be walked out of. | §3.9 (new group row), §6.33 note |
 | M82 | **The 00 pages use the UI kit and one English string table.** Each page links `/ui/tokens.css` and `/ui/components/bundle.css`, sets `<html lang="en" dir="ltr" data-theme>` (`dark` on `/pair`, `light` elsewhere), puts `class="pos-root"` on `<body>` and keeps one inline `<script>`. Text comes from one object `EN` (`apps/hub/src/lib/strings.ts`, keys as in `docs/design/ui-brief.md`, `errors.<CODE>` for codes); the page shows the text for the key, never a raw key and never the server `message` (F §6.2). Fixes: setup shows a busy button, a slow-call banner after 3 s, a banner per error code and the failing field; the bootstrap page shows the admin roster as name tiles (no raw JSON, no `staff_id` input) and a success screen with the way to `/admin/approve`; every PIN input is `type="password"` with `inputmode="numeric"`; the phone pair page asks for the device name in a field (1–40 characters) instead of `window.prompt`. Element ids `screen`, `setup`, `login`, `roster` and class `display-code` stay; script behaviour (storage keys, requests, retries) is unchanged. Urdu (`UR`) is added later (D12). | D12 requires translation keys; the brief found the pages unusable as shipped (errors invisible, raw IDs, clear-text PINs). | §8.2, §8.4 |
+
+> ⚠️ Changed by 01b (B2, B10): M10 returns the winning scope and reads approvers from a list. See 01b §4.3.
+> ⚠️ Changed by 01b (B17, D-12): M29's role list is overridden (Order taker kept, Waiter and Cook added, each with a `default_key`); M30 unchanged. See 01b §4.3.
+> ⚠️ Changed by 01b (B18): M52 also skips a lead or responsibility naming an absent person, drops an unknown approver id and skips a grant left with no approver. See 01b §4.3.
+> ⚠️ Changed by 01b (B5): M73's out-of-band notice is the `lockout_notice` on login or rotating refresh. See 01b §4.3.
+> ⚠️ Changed by 01b (B7, B11, B12, review 1 m6, D-14): M57's new-branch assignment takes only qualifying admins (`access-hub-admin` and `manage-devices`), refuses duplicate names, and runs under the tenant lock. See 01b §4.3 row 19.
 
 ### 3.2 Provisioning state
 
@@ -373,6 +401,11 @@ resolve(staff_id, permission):
                                        approver_role_ids: sorted union of approver_role_id }
   → { grant: 'not_granted' }
 ```
+
+**v1.5 (01b §3.3):** `approver_role_ids` is the sorted union of every approver in `role_permission_approvers` for the roles granting `requires_approval`; both `allowed` and `requires_approval` results add `scope`, the widest scope among the roles granting the winning type (`branch` > `my_floors` = `my_team` = `my_stations` > `own_tables`). The precedence above is unchanged.
+
+> ⚠️ Changed by 01b (B2, B10): `resolve` returns `scope`; approvers come from the approver list. See 01b §4.3.
+
 
 **Command rule** (resolved inside the transaction, M39): staff/admin session: `allowed` → continue; `requires_approval` with `approvable: true` → continue with `ctx.permission`; otherwise `403 PERMISSION_DENIED { permission, grant }`. Station session: command must be `stationScoped`, else `403 PERMISSION_DENIED { permission, session_kind: 'station' }`.
 
@@ -518,21 +551,23 @@ The branch API key and backup key never reach SQLite or a backup (D53, M21).
 | `registerCatchUp` | `{ part, appliesTo(socketCtx), build(db, state) }`; parts merged into `catch_up.state` | 02, 03b, 04, 05 |
 | `registerEventAudience` | `(eventType, (event, socketCtx) => boolean)`; events with no audience are not pushed | every module with pushed events |
 | `registerStationValidator` | `(tx, stationId) => boolean`; until registered, every `station_id` is rejected | 01 |
-| `StaffDirectory` | `resolve`, `get`, `ttlFor`, `version`, `permissionsOf` | registry, 04 |
-| `applyStaffDirectory(tx, directory)` | M51 version rule, M52 skip rule; replaces the cache; ends sessions of removed staff and of staff whose `pin_hash` changed (M50); revokes phones of removed owners (M38); appends `StaffDirectoryApplied`; swaps after commit | 06 |
+| `StaffDirectory` | `resolve`, `get`, `ttlFor`, `version`, `permissionsOf`; v1.5 (01b): `floorsOf`, `leadOf`, `teamOf`, `stationsOf`, `responsibilityHolders` | registry, 04 |
+| `applyStaffDirectory(tx, directory)` | v1.5: directory shape v2 (01b §4.3.1). M51 version rule, M52 skip rule; replaces the cache; ends sessions of removed staff and of staff whose `pin_hash` changed (M50); revokes phones of removed owners (M38); appends `StaffDirectoryApplied`; swaps after commit | 06 |
 | `setMaintenanceHour(h)` | 0–23, local hub time (M66) | 06 |
 | `issueAdminBootstrap(tx, issuedBy: 'setup' \| 'cli' \| 'restore')` | expires live bootstrap tokens, creates one (30 min), appends `AdminBootstrapTokenIssued`; returns `{ token, expires_at }` (M72) | 06 (replace-hub restore) |
 | `encryptFile(src, dst, key, iv)` / `decryptFile(src, dst, key)` | AES-256-GCM file format (§7.9) | 06 |
 | `clock.branchNow()`, `ids.next()`, `secrets` | §6.7 determinism | everyone |
 
-**Events introduced (all `schema_version: 1`):**
+> ⚠️ Changed by 01b (B1, B2, B4, B10): `StaffDirectory` gains floor, lead, team and responsibility lookups; `applyStaffDirectory` takes directory v2. See 01b §4.3.
+
+**Events introduced (all `schema_version: 1`; v1.5: `StaffDirectoryApplied` is `schema_version: 2`):**
 
 | Event | `stream_type` / `stream_id` | Payload | Pushed to |
 |---|---|---|---|
 | `HubProvisioned` | `hub` / branch_id | `{ tenant_id, branch_id, hub_version }` (M71) | — |
 | `HubStarted` | `hub` / branch_id | `{ hub_down_at \| null, hub_up_at, events_replayed, missed_fires, boot_ms }` | — |
 | `ClockAlarm` | `hub` / branch_id | `{ wall_ms, last_recorded_at, delta_ms, source: 'boot' \| 'cloud_offset' }` | all sockets |
-| `StaffDirectoryApplied` | `hub` / branch_id | `{ directory_version, staff_count, role_count, removed_staff_ids, credentials_changed_staff_ids, skipped: Array<{ kind: 'staff' \| 'role_assignment' \| 'permission' \| 'approver', id, reason }> }` | — |
+| `StaffDirectoryApplied` | `hub` / branch_id | `{ directory_version, staff_count, role_count, removed_staff_ids, credentials_changed_staff_ids, skipped: Array<{ kind: 'staff' \| 'role_assignment' \| 'permission' \| 'approver' \| 'lead' \| 'responsibility', id, reason }> }` (v2, 01b B18: `lead`, `responsibility` added; v1 → v2 upcaster is the identity) | — |
 | `AdminBootstrapTokenIssued` | `hub` / branch_id | `{ bootstrap_token_id, expires_at, issued_by: 'setup' \| 'cli' \| 'restore' }` (M72) | — |
 | `DevicePairingTokenGenerated` | `hub` / pairing_token_id | `{ pairing_token_id, device_type: 'tablet' \| 'phone', owner_staff_id \| null, expires_at }` | — |
 | `DevicePaired` | `hub` / device_id | `{ device_id, device_name, device_type, station_id \| null, owner_staff_id \| null, pairing_token_id \| null, pairing_request_id \| null }` (exactly one source id) | — |
@@ -545,6 +580,9 @@ The branch API key and backup key never reach SQLite or a backup (D53, M21).
 | `PinLockoutCleared` | `staff` / staff_id, or `hub` / subject | `{ subject_type, subject_id }` | — |
 
 `SessionEnded` is the only signal that a session ended (D51, for kinds `staff` and `admin`).
+
+> ⚠️ Changed by 01b (B18): `StaffDirectoryApplied` moves to schema version 2 with two new skip kinds. See 01b §4.3.
+
 
 **Cloud (`apps/cloud/src`):** `TenantScopedRepository`, `TenantLevelRepository` (M16), `tenant-scope` plugin (JWT, branch API key, registration code), `owner-credentials` plugin (M55), `jwt` plugin, error handler, migrations runner, `SystemContext` (CLI only, M56), tables in §5.2, `default-roles.ts`.
 
@@ -701,10 +739,21 @@ CREATE TABLE staff_directory_meta (branch_id TEXT PRIMARY KEY,
 
 `not_granted` is the absence of a row. The directory is read whole at boot and after apply (6 fixed SELECTs), so no secondary indexes.
 
+**v1.5:** 01b's hub migration `0005_directory_v2.sql` (01b §5.2) rebuilds `role_permissions` with `scope` and without `approver_role_id` (the hub reads `approver_role_ids`; the cloud keeps sending `approver_role_id` for hubs not yet upgraded, 01b B18 a), adds `role_permission_approvers`, `staff.lead_staff_id`, `staff_floors` and `responsibilities`. The directory is then read in 9 fixed SELECTs.
+
+> ⚠️ Changed by 01b (B1, B2, B4, B10): hub migration `0005_directory_v2.sql`; 9 SELECTs instead of 6. See 01b §4.3.
+
+
 
 **Retention (M66; batches of 500, one `writer.run` per batch, in the maintenance hour):** `staff_sessions` ended > 7 d; `pairing_tokens` expired > 7 d; `pair_requests` expired > 7 d, and `delivery_token = NULL` on every expired request at each sweep; `admin_bootstrap_tokens` expired > 7 d; `processed_commands` > 7 d (D32); `auth_lockouts` unlocked with window older than 1 d.
 
 ### 5.2 Cloud (PostgreSQL 16)
+
+**v1.5:** 01b's cloud migration `0005_staff_roles.sql` (01b §5.1) changes these tables: `staff.pin_hash` becomes nullable and `staff` adds `pin_set_at`, `left_at` (B3); `owner_users` adds `must_change_password`, `lock_notice_at`, `password_changed_at`, `temp_password_expires_at`, `credential_version` (B5, review 2 N1) and `staff_id`, the owner's own staff row (B7); `owner_refresh_tokens` adds `credential_version` (review 2 N1); `roles` adds `default_key` (backfilled for existing default roles, B17), `archived_at` and idle (whole minutes) and name CHECKs; `role_permissions` adds `scope`, the approver list moves to `role_permission_approvers`, and `approver_role_id` stays, dual-written with the first approver, with its CHECK kept (B2, B10, B22). **The cloud rolls forward only once `0005` is applied** (01b B22, §7.4: v1.4 cannot read a NULL `pin_hash`). `0001` itself is merged and unchanged.
+
+**Cloud migrations runner (v1.5, 01b B22, review 2 N5):** `apps/cloud/src/db/migrate.ts`, before applying anything, compares the `schema_migrations` rows with the build's files; a stored `version` with no file in this build → throw `MigrationUnknownVersionError` ("database has migration NNNN (<name>) that this build does not have: this build is older than the database; deploy the current build"), apply nothing, and the process exits non-zero before it listens. The existing checksum check is unchanged. (The hub runner already refuses a `user_version` above its files.) Test: 01b #105.
+
+> ⚠️ Changed by 01b (B2, B3, B5, B7, B10, B17, B22, review 2 N1, N5): cloud `staff`, `owner_users`, `owner_refresh_tokens`, `roles`, `role_permissions` change in 01b's `0005_staff_roles.sql`; the cloud runner refuses a database ahead of the build; roll forward only. See 01b §4.3 rows 2, 3, 20.
 
 **`0001_platform.sql`.** Times are `BIGINT` Unix ms (§6.8). Tenant-level tables per M16.
 
@@ -879,11 +928,14 @@ Processing (one transaction):
 
 | | |
 |---|---|
-| Response | `200 { data: { tenant_id, branch_id, branch_name, currency_code, kind, branch_api_key, directory: { directory_version, staff: [{ staff_id, display_name, pin_hash, role_ids, denied_permissions }], roles: [{ role_id, name, session_idle_ttl_ms, permissions: [{ permission, grant_type, approver_role_id }] }] } } }` |
+| Response | `200 { data: { tenant_id, branch_id, branch_name, currency_code, kind, branch_api_key, directory: { directory_version, staff: [{ staff_id, display_name, pin_hash, role_ids, denied_permissions }], roles: [{ role_id, name, session_idle_ttl_ms, permissions: [{ permission, grant_type, approver_role_id }] }] } } }`. **v1.5:** `directory` is shape v2 (01b §4.3.1), **additive over v1**: staff add `lead_staff_id`, `floor_ids`; grants keep `approver_role_id` (the first approver) and add `approver_role_ids[]` and `scope`; the role list includes every approver role; a top-level `responsibilities` list; staff with no PIN are not sent. A v1.4 hub parses it and applies it with v1 semantics (01b B18 a, §7.4) |
 | Idempotency | M14 rotation |
 | Concurrency | `FOR UPDATE` serialises two exchanges of one code; `branch_api_keys_one_active` guarantees one live key |
 | Errors | `400 VALIDATION_FAILED`, `401 REGISTRATION_CODE_INVALID`, `422 REGISTRATION_CODE_KIND_UNSUPPORTED`, `500 INTERNAL_ERROR` |
 | Audit | the hub's `HubProvisioned` event (reaches the cloud through 06); log line `hub_registered { tenant_id, branch_id, kind, rotated }` |
+
+
+> ⚠️ Changed by 01b (B3, B4, B10, B18): the provisioning response carries the additive directory shape v2. See 01b §4.3.
 
 #### 6.6 `POST /admin/auth` — admin session (M42)
 
@@ -1076,20 +1128,26 @@ Processing: §3.5 with rate subject `device` and the PIN semaphore; on match, in
 | | |
 |---|---|
 | Auth | device token, `session: 'none'`; device type `tablet` / `cashier_kiosk` / `phone` |
-| Response | `{ staff: [{ staff_id, display_name, locked_until \| null }], active_session: { staff_id, display_name } \| null }` sorted by `display_name`; on a `phone` the list holds only the owner (M38) |
+| Response | `{ staff: [{ staff_id, display_name, locked_until \| null, responsibilities: string[] (v1.5, 01b B4) }], active_session: { staff_id, display_name } \| null }` sorted by `display_name`; on a `phone` the list holds only the owner (M38) |
 | Query count | 2 (lockouts; this device's active session) |
 | Activity | `countsAsActivity: false` (M59) |
 | Errors | G-dev; `403 DEVICE_TYPE_NOT_ALLOWED` |
+
+
+> ⚠️ Changed by 01b (B4): roster rows add `responsibilities` (e.g. `['count_stock']`), from memory; query count unchanged. See 01b §4.3.
 
 #### 6.20 `GET /queries/session`
 
 | | |
 |---|---|
 | Auth | device token + device session; `allowStation: true` |
-| Response | `{ session_id, kind, staff: { staff_id, display_name, role_ids } \| null, station_id \| null, idle_ttl_ms \| null, permissions: { [permission]: { grant, approver_role_ids? } } }`; station sessions get `permissions: {}` |
+| Response | `{ session_id, kind, staff: { staff_id, display_name, role_ids } \| null, station_id \| null, idle_ttl_ms \| null, permissions: { [permission]: { grant, approver_role_ids?, scope? } } }` (v1.5, 01b B2: `scope` present for `allowed` and `requires_approval`); station sessions get `permissions: {}` |
 | Query count | 0 beyond the session guard (directory in memory) |
 | Activity | `countsAsActivity: false` (M59) |
 | Errors | G-dev; `401 SESSION_*` |
+
+
+> ⚠️ Changed by 01b (B2): `permissions[p]` adds `scope`. See 01b §4.3.
 
 ### Batch 3 — WebSocket and cloud access
 
@@ -1118,20 +1176,26 @@ After auth:
 | | |
 |---|---|
 | Input | `{ email, password: string(8–200) }` |
-| Processing | (1) Per-IP limit (M64): ≥ 30 failures from this IP in the last 900 000 ms (in memory; the cloud is one instance, D57) → `429 IP_LOCKED_OUT { retry_after_ms }`. (2) `owner-credentials` lookup by `lower(email)`; unknown email → verify against a fixed dummy hash (equal timing), count the IP failure, `401 LOGIN_INVALID`. (3) A lock that has expired resets the counter (M62). (4) **Locked** (`login_locked_until > now`): verify against the dummy hash (equal timing), **do not** verify the real hash, do not change the account counter, count the IP failure, `401 LOGIN_INVALID` (M73). (5) Not locked: verify argon2id. Mismatch → atomic `UPDATE owner_users SET failed_login_count = failed_login_count + 1 … RETURNING failed_login_count` (window 900 000 ms, threshold 10 → `login_locked_until = now + 900 000`), count the IP failure, `401 LOGIN_INVALID`. Match → reset counter; delete this user's refresh tokens expired more than 7 days (M69); issue JWT (HS256, 1 h; claims `sub, tenant_id, allowed_branch_ids`) and refresh token (256-bit, 30 d, hash stored) |
-| Response | `200 { data: { access_token, access_expires_at, refresh_token, refresh_expires_at, user: { user_id, display_name, tenant_id, allowed_branch_ids } } }` |
+| Processing | (1) Per-IP limit (M64): ≥ 30 failures from this IP in the last 900 000 ms (in memory; the cloud is one instance, D57) → `429 IP_LOCKED_OUT { retry_after_ms }`. (2) `owner-credentials` lookup by `lower(email)`; unknown email → verify against a fixed dummy hash (equal timing), count the IP failure, `401 LOGIN_INVALID`. (3) A lock that has expired resets the counter (M62). (4) **Locked** (`login_locked_until > now`): verify against the dummy hash (equal timing), **do not** verify the real hash, do not change the account counter, count the IP failure, `401 LOGIN_INVALID` (M73). (5) Not locked: verify argon2id. Mismatch → atomic `UPDATE owner_users SET failed_login_count = failed_login_count + 1 … RETURNING failed_login_count` (window 900 000 ms, threshold 10 → `login_locked_until = now + 900 000`), count the IP failure, `401 LOGIN_INVALID`. Match → reset counter; delete this user's refresh tokens expired more than 7 days (M69); issue JWT (HS256, 1 h; claims `sub, tenant_id, allowed_branch_ids`) and refresh token (256-bit, 30 d, hash stored). **v1.5 (01b §3.7, §6.13):** the step (5) `UPDATE` that sets `login_locked_until` also sets `lock_notice_at = now`; a match with `must_change_password` set and `temp_password_expires_at <= now` (an expired temporary password) takes the mismatch path (counted, `401 LOGIN_INVALID`); on a match, the success transaction first takes the owner row `WHERE password_hash = <the verified hash> FOR NO KEY UPDATE` (01b review 2 N2; none: a reset or change committed meanwhile → `ROLLBACK`, `401 LOGIN_INVALID`, nothing counted) and reads `credential_version`, then resets the counter, reads and clears `lock_notice_at`, stores `credential_version` on the new refresh-token row and signs the JWT with **claim `cv`** = that `credential_version` (01b review 2 N1; `sub, tenant_id, allowed_branch_ids, iat, exp` unchanged; no `pwc`, the JWT guard reads the row, §6.24a). Refresh (§6.23) issues its JWT with the same claims |
+| Response | `200 { data: { access_token, access_expires_at, refresh_token, refresh_expires_at, user: { user_id, display_name, tenant_id, allowed_branch_ids, must_change_password }, lockout_notice: { locked_at, failed_count } \| null } }` (v1.5: `must_change_password`, `lockout_notice`, 01b B5) |
 | Idempotency | none needed: a retry issues another refresh token; unused ones expire |
 | Errors | `400 VALIDATION_FAILED`, `401 LOGIN_INVALID`, `429 IP_LOCKED_OUT` |
 | Never logged | password, tokens |
+
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N2): login returns `must_change_password` and the one-time `lockout_notice`, refuses an expired temporary password, takes the owner row `FOR NO KEY UPDATE` and re-checks the hash before issuing tokens, and adds the `cv` claim. See 01b §4.3.
 
 #### 6.23 `POST /v1/auth/refresh` (cloud, allowlisted)
 
 | | |
 |---|---|
 | Input | `{ refresh_token }` |
-| Processing | one transaction, `FOR UPDATE` on the token row. Missing, expired or revoked → `401 REFRESH_TOKEN_INVALID`. Not rotated → set `rotated_at`; successor = `HMAC-SHA256(REFRESH_TOKEN_SECRET, refresh_token)` (base64url); insert its hash (30 d); issue a JWT. Rotated within 30 000 ms → return the same successor (recomputed) and a new JWT, write nothing (M49). Rotated longer ago → revoke every live token of the user; `401 REFRESH_TOKEN_INVALID` |
+| Processing | one transaction. *v1.5 (01b §6.13, M2):* look the token up by hash without a lock (missing → `401 REFRESH_TOKEN_INVALID`), then `SELECT … FROM owner_users … FOR NO KEY UPDATE` for its user (01b review 2 N2), then `FOR UPDATE` on the token row; the token row's `credential_version` ≠ `owner_users.credential_version` → `401 REFRESH_TOKEN_INVALID`, nothing revoked (01b review 2 N1). The successor row and the new JWT (claim `cv`) carry the owner's current `credential_version`. Missing, expired or revoked → `401 REFRESH_TOKEN_INVALID`. Not rotated → set `rotated_at`; successor = `HMAC-SHA256(REFRESH_TOKEN_SECRET, refresh_token)` (base64url); insert its hash (30 d); issue a JWT. Rotated within 30 000 ms → return the same successor (recomputed) and a new JWT, write nothing (M49). Rotated longer ago → revoke every live token of the user; `401 REFRESH_TOKEN_INVALID`. v1.5 (01b B5): the owner-row read returns `must_change_password` (response `user.must_change_password`); the rotating path also returns and clears `lockout_notice` (as §6.22), the grace path returns `lockout_notice: null` and writes nothing |
 | Response | as §6.22 |
 | Concurrency | two refreshes of one token: both get the same successor |
+
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N2): refresh locks the owner row `FOR NO KEY UPDATE` first, refuses a token whose `credential_version` differs from the owner's, and returns the lockout notice. See 01b §4.3.
 
 #### 6.24 `POST /v1/auth/logout` (cloud, JWT)
 
@@ -1142,6 +1206,12 @@ After auth:
 | Response | `200 { data: { revoked: boolean } }` |
 | Errors | `400 VALIDATION_FAILED`, `401 JWT_INVALID` |
 
+#### 6.24a JWT guard (cloud, `tenantScope: 'jwt'`; v1.5, 01b B5) — a guard, not an endpoint
+
+After the signature, `alg` and `exp` checks in `plugins/tenant-scope.ts`, one statement by primary key through `db/credential-lookup.ts` (M55 b): `SELECT must_change_password, credential_version FROM owner_users WHERE tenant_id = $1 AND user_id = $2` (JWT `tenant_id`, `sub`). No row → `401 JWT_INVALID`. Claim `cv` ≠ `credential_version` → `401 JWT_INVALID` (a token issued before the last password change or support reset; a missing claim counts as 0, the column default, so tokens issued before the 01b release work until the first change; 01b review 2 N1). **The read fails** (connection, timeout, any database error) → `503 SERVICE_UNAVAILABLE`, never `401` (01b review 2 N9). The read runs outside the route's transaction; a request that passed it just before a change commits completes. `must_change_password` and the route is under `/v1/admin/*` → `403 PASSWORD_CHANGE_REQUIRED` (01b §9). Every JWT route goes through it (01a's owner routes, 01b's routes, change-password, logout). The statement belongs to the guard and is not counted in any route's statement count. Tests: 01b #65, #73, #91, #107.
+
+> ⚠️ Changed by 01b (B5, review 2 N1, N9): new JWT guard read, compared by the `cv` claim against `credential_version`; a failed read is `503`, never `401`; the forced change is read from the row. See 01b §4.3 row 18.
+
 #### 6.25 `GET /v1/health` (cloud, allowlisted)
 
 `200 { data: { status: 'ok', version, db: 'ok' } }` after `SELECT 1`; DB failure → `503 SERVICE_UNAVAILABLE`.
@@ -1151,25 +1221,33 @@ After auth:
 | | |
 |---|---|
 | Args | `--name <tenant> --currency PKR --owner-email <email> --owner-name <name>`; prompts (no echo) for owner password and owner PIN, twice each |
-| Processing | through `SystemContext` (M56), one transaction: refuse if the email exists; create tenant, default roles (below), `owner_users` (argon2id password), owner `staff` (argon2id PIN, M8 params) with the Owner role. Prints `tenant_id`, `user_id`, `staff_id` |
+| Processing | through `SystemContext` (M56), one transaction: refuse if the email exists; create tenant, default roles (below), `owner_users` (argon2id password), owner `staff` (argon2id PIN, M8 params) with the Owner role; v1.5 (01b B7): `owner_users.staff_id` is set to that staff row. Prints `tenant_id`, `user_id`, `staff_id` |
 | Use | dev, tests, and pilot setup until 01's staff admin exists (M27) |
 
-**Default roles (M29; TTLs to confirm with owner):**
+**Default roles (M29 as overridden by 01b B17; v1.5 values from 01b §6.15, owner answer Q13):**
 
 | Role | Idle TTL | Grants |
 |---|---|---|
-| Owner | 60 min | every catalogue permission `allowed` (includes `access-hub-admin`, `manage-devices`) |
-| Manager | 60 min | every permission except `manage-roles`, `allowed` |
-| Cashier | 30 min | `apply-discount` requires approval (Manager), `reprint-ticket` allowed; 05 appends billing permissions |
-| Order taker | 5 min | none from the 00 catalogue; 02 appends ordering permissions |
+| Owner (`owner`) | 60 min | every catalogue permission `allowed` (includes `access-hub-admin`, `manage-devices`) |
+| Manager (`manager`) | 60 min | every permission except `manage-roles`, `allowed` |
+| Cashier (`cashier`) | 15 min | `apply-discount` requires approval (Manager), `reprint-ticket` allowed; 05 appends billing permissions |
+| Order taker (`order_taker`) | 15 min (owner, 01b Q12) | none; 02 appends ordering permissions, decided separately from Waiter (01b D-12); a counter role like Cashier |
+| Waiter (`waiter`) | 5 min | none; 02 appends ordering permissions. Team-membership role (01b B17) |
+| Cook (`cook`) | 5 min | none; 03b appends kitchen permissions. Team-membership role: no PIN expected, cooks use station sessions (M30) |
+
+Each default role is inserted with its `default_key` (in brackets; v1.5, 01b B17), and `seed-tenant` finds roles by `default_key`, not by name. A module that appends a default grant to running tenants selects the role `WHERE default_key = '<key>'`. Order taker and Waiter are different jobs and separate roles; a person doing both holds both (01b B17, D-12).
 
 No role flag marks "admin" roles (M57); admin access is the `access-hub-admin` permission.
 
 Each module that adds a permission appends its default grants to `apps/cloud/src/modules/staff-roles/default-roles.ts` in its own task.
 
+> ⚠️ Changed by 01b (B6, B7, B17, D-12): default roles are Owner, Manager, Cashier (15 min), Order taker (15 min, owner Q12), Waiter, Cook, each with a `default_key`; the owner's staff row is linked in `owner_users.staff_id`. See 01b §4.3.
+
 #### 6.27 CLI `issue-registration-code`
 
-In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New branch: create `pending_hub`; assign every staff member whose roles grant `access-hub-admin` (`allowed`) to it; append the branch id to every tenant owner's `allowed_branch_ids` (M57). Reissue (`--branch-id`): branch must have `hub_confirmed_at IS NULL` (M41, M22), else exit 1; expire its unconsumed codes. Code: 12 Crockford chars, `sha256` stored, 24 h.
+In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New branch: create `pending_hub`; assign every staff member whose roles grant `access-hub-admin` (`allowed`) to it; append the branch id to every tenant owner's `allowed_branch_ids` (M57). Reissue (`--branch-id`): branch must have `hub_confirmed_at IS NULL` (M41, M22), else exit 1; expire its unconsumed codes. Code: 12 Crockford chars, `sha256` stored, 24 h. **v1.5 (01b §4.3 row 19):** the new-branch transaction first takes `SELECT … FROM tenants WHERE tenant_id = $1 FOR NO KEY UPDATE` (01b B11); it assigns only **qualifying admins** (01b B7, D-14a): staff with `is_active` and `pin_hash IS NOT NULL` whose effective `access-hub-admin` and effective `manage-devices` are both `allowed` (01b §3.3: no denial of either, and at least one role granting each as `allowed`), one statement with the same SQL as 01b §3.4's guard; **if two or more of them share a display name** (`lower(trim(display_name))`, 01b B12) → exit 1 "duplicate names at the new branch: <name> (<staff_id>, <staff_id>); rename one in the owner app and run again", listing every duplicated name, nothing written (no branch, no code; D-14b; the CLI never renames anyone); it bumps `tenants.directory_version` by 1; a `--branch-name` equal to an existing branch name of the tenant (case-insensitive, index `branches_name`, 01b §5.1) → exit 1, nothing written. Tests: 01b #86, #93, #94.
+
+> ⚠️ Changed by 01b (B7, B11, B12, review 1 m6, m9, D-14): qualifying admins only; duplicate names refused; tenant lock and directory bump; unique branch names. See 01b §4.3 row 19.
 
 #### 6.28 `POST /v1/hubs/confirm` (cloud, branch API key) — M41
 
@@ -1224,7 +1302,9 @@ In `apps/cloud/src/cli/issue-registration-code.ts` using `SystemContext`. New br
 
 #### 6.33 Endpoint count
 
-Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the five pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`, `/admin` (M86)) and the UI kit (`GET /ui/*`, 6.35, M81). Query resources on the §6.2 route are listed but not counted (M90): `devices`, `sessions`, `staff-roster`, `session` (counted before v1.3 as 6.17–6.20 and kept in the 30) and the M88 additions `lockouts`, `stations`, `staff`. `GET /setup` after provisioning is the same static route answering `404` with a page (M84). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec.
+Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6. **30 endpoints**, at the README budget (~30); plus 3 CLIs (6.26, 6.27, 6.34), which are not endpoints. Static routes are not counted: the five pages (`GET /setup`, `/pair`, `/admin/bootstrap`, `/admin/approve`, `/admin` (M86)) and the UI kit (`GET /ui/*`, 6.35, M81). Query resources on the §6.2 route are listed but not counted (M90): `devices`, `sessions`, `staff-roster`, `session` (counted before v1.3 as 6.17–6.20 and kept in the 30) and the M88 additions `lockouts`, `stations`, `staff`. `GET /setup` after provisioning is the same static route answering `404` with a page (M84). Any further endpoint splits the cloud access part (6.5, 6.22–6.28, cloud CLIs) into its own spec. **v1.5:** still 30. `POST /v1/auth/change-password` is specified and counted in 01b (01b §6.11, §6.16); its code lives in `modules/owner-auth/` by folder placement only (§7.10), so it is not an endpoint of this spec.
+
+> ⚠️ Changed by 01b (B5): change-password is 01b's route; 00 stays at 30 endpoints. See 01b §4.3.
 
 #### 6.34 Hub CLI `pnpm --filter hub issue-admin-bootstrap` (M72)
 
@@ -1259,7 +1339,9 @@ Hub: 6.1–6.4, 6.6–6.21, 6.29–6.32 = 24. Cloud: 6.5, 6.22–6.25, 6.28 = 6.
 
 ### 7.2 Logging and redaction
 
-Fastify's pino logger, JSON to journald. Fields on every line: `request_id`, `branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, `ms`. Redacted paths: `req.headers.authorization`, `req.headers["x-session-token"]`, `req.headers["x-admin-session"]`, and any body field named `pin`, `password`, `pairing_token`, `registration_code`, `refresh_token`, `device_token`, `session_token`, `admin_session_token`, `branch_api_key`, `access_token`, `bootstrap_token`, `poll_secret`, `delivery_token`, `backup_encryption_key`, and headers `x-admin-bootstrap`, `x-poll-secret`. Request and response bodies are never logged. A test greps captured log output of the whole auth test suite for every secret it used. Prevents: PINs and tokens in journald or support bundles.
+Fastify's pino logger, JSON to journald. Fields on every line: `request_id`, `branch_id`, `device_id`, `session_id`, `staff_id`, `route`, `status`, `ms`. Redacted paths: `req.headers.authorization`, `req.headers["x-session-token"]`, `req.headers["x-admin-session"]`, and any body field named `pin`, `password`, `pairing_token`, `registration_code`, `refresh_token`, `device_token`, `session_token`, `admin_session_token`, `branch_api_key`, `access_token`, `bootstrap_token`, `poll_secret`, `delivery_token`, `backup_encryption_key`, v1.5 (01b B5) `current_password`, `new_password`, and headers `x-admin-bootstrap`, `x-poll-secret`. Request and response bodies are never logged. A test greps captured log output of the whole auth test suite for every secret it used. Prevents: PINs and tokens in journald or support bundles.
+
+> ⚠️ Changed by 01b (B5): cloud redaction adds `current_password` and `new_password`. See 01b §4.3.
 
 ### 7.3 Timers
 
@@ -1300,7 +1382,9 @@ Hub: config file only (§3.10), `POS_HUB_CONFIG` for tests. Cloud: `DATABASE_URL
 
 ### 7.10 Folder placement (§6.9)
 
-Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,projections,engine-host,ws,auth,setup,lib}`, `apps/hub/deploy/` (M36), `apps/cloud/src/{plugins,modules/{hub-registration,owner-auth,staff-roles,health},db,lib}` and `apps/cloud/src/cli/` (M56; the only new folder). `engine-host/` holds only the generic state holder and writer in 00; 03a adds tick and snapshots there.
+Files land in the §6.9 folders: `apps/hub/src/{config,db,commands,queries,projections,engine-host,ws,auth,setup,lib}`, `apps/hub/deploy/` (M36), `apps/cloud/src/{plugins,modules/{hub-registration,owner-auth,staff-roles,health},db,lib}` and `apps/cloud/src/cli/` (M56; the only new folder). `engine-host/` holds only the generic state holder and writer in 00; 03a adds tick and snapshots there. v1.5: `modules/owner-auth/` also holds 01b's change-password route, and `cli/` holds 01b's `reset-owner-password.ts` and `link-owner-staff.ts`.
+
+> ⚠️ Changed by 01b (B5, B7): `owner-auth/` hosts 01b's change-password; `cli/reset-owner-password.ts`, `cli/link-owner-staff.ts`. See 01b §4.3.
 
 ### 7.11 Library versions (M26, M68; npm registry 2026-10-23)
 

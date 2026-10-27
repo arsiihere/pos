@@ -1,0 +1,64 @@
+# Open questions — everything still left (2026-10-26)
+
+One list of every question that is not closed yet, gathered from:
+- `docs/design/open-questions/00-hub-platform.md` (00 Q…)
+- `docs/design/open-questions/01a-setup.md` (01a Q…)
+- `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` §12.3 (MQ…)
+- `docs/specs/01_Restaurant_Setup_Spec_v1.2.md` §12.6 (owner questions; v1.2 answered q5, q10, q13)
+
+The source files stay the place to answer: edit the question's **Decision** line there and set **Status** to `answered`. This page is only the overview.
+
+---
+
+## 1. Needs your answer before it is built
+
+| # | Question | Suggested answer | Waits on | Blocks |
+|---|---|---|---|---|
+| 01a Q9 | Use the design's wording for labels the spec quotes (e.g. "Counted in" instead of "Stock unit", "Cook more" instead of "Cook fresh")? | Yes. Needs a one-line editorial spec bump (01a v1.1.1), then string changes only. | You | Nothing; labels stay as the spec's words until then |
+| 01a Q10 | Item counts the API cannot give (per category, per tax rate, menu total, floor/station counts per branch, station filter)? | Leave them out for the pilot; add a small summary to §6.11 only if the owner misses them. | You | Nothing |
+| 01a Q11 | Show only people with the stock job on the stock sign-in? | Keep as built (everyone listed) until 01b assigns jobs; then add the permission to the roster answer. | You | 01b |
+| 01a Q12 / 00 Q14 | Who translates and checks the Urdu? | A native speaker fills `docs/design/handoff/01a/urdu-todo.md` (447 keys) and `docs/design/handoff/00/urdu-todo.md`, then reads every screen in Urdu once. | A translator | Pilot in Urdu |
+| 00 Q5 | Pair waiter tablets as a third shared screen type, `waiter_tablet`? | Yes. Needs a spec enum change first; until then the approve page has two types. | Spec approval | Waiter tablets (02) |
+| 00 Q13 | Should `HOST_NOT_ALLOWED` tell the installer which address to use? | Add `details.advertised_host`, but only after a security look, since it is a frozen foundation code. | Security review | Nothing; the page shows a general message |
+
+## 2. Open developer questions in spec 00 (§12.3)
+
+| # | Question | Blocks |
+|---|---|---|
+| MQ5 | Default role session lengths: confirm with the owner. | Pilot comfort |
+| MQ6 | What happens to a device's unsent commands after its session ends (M19)? | 02 spec |
+| MQ7 | Capacitor LAN transport: check `androidScheme: 'http'` plus cleartext to private addresses against current docs. | 02 client build |
+| MQ8 | Is the backup key available for a USB restore on a replacement hub (M21)? | 06 spec |
+| MQ9 | Vitest 5: stay on 4.x or record an upgrade. | Nothing now |
+| MQ10 | iPhone checks on a real phone (saved URL keeps `?t=`, standalone flag, storage past 7 days, flow inside 10 min). | Phone client work |
+| MQ11 | Owner sign-off on the LAN plaintext risk and the phone Wi-Fi requirement (M54, README R16). | Installation |
+
+## 3. Built with the suggested answer; owner has not confirmed
+
+These work today. Change one only if the owner disagrees.
+
+| # | What was built |
+|---|---|
+| 01a Q1 | Bulk add tables ("T1 to T12, 4 seats") in the page, one request per table, no API change. |
+| 01a Q2 | Confirm before archiving items, categories, stations, tax rates, floors; tables and batch recipes archive at once with an 8 s Undo; "Discard your changes?" on leaving a changed form. |
+| 01a Q3 | "Signed in as … · Sign out" on the stock page. |
+| 01a Q4 | Typed stock counts survive an idle sign-out on the same tablet, for the same person and the same open day. |
+| 01a Q5 | "All N are still right" confirms last night's carried counts in one tap. |
+| 01a Q6.3 (spec q3) | Sold out vs cook more is chosen per item ("When it runs out"). Owner still to say which items are which. |
+| 01a Q6.12 (spec q12) | An item switched On by hand outside its hours stays off: hours win (S47). |
+| 01a Q7 | The Menu tab needs no branch picked. |
+| 01a Q8 | The branch picker remembers its choice; with one branch it is skipped. |
+| 00 Q1 | Module 00 owns the hub admin home `/admin` and its side menu. |
+| 00 Q2 | `/setup` after set-up shows a styled "already set up" page with status 404. |
+| 00 Q3 | Lockouts list query `GET /admin/queries/lockouts`. |
+| 00 Q6 | The guest Wi-Fi message works without a network name; the optional `staff_wifi_name` field comes with 01b branch settings. |
+| 00 Q7 | Setup page offers the hub's addresses as a pick-list, with a typed fallback. |
+| 00 Q8 | Kitchen screen shows "Not seen" after 2 minutes. |
+| 00 Q9 | Devices list shows why and by whom a device was removed. |
+
+## 4. Decided, but built in a later module
+
+| # | Where |
+|---|---|
+| 00 Q4 | "Add a hub / Replace a hub" in the owner app: module 06. |
+| 00 Q10 | Kitchen screen "stopped" state with a Start button: module 03b. |

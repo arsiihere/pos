@@ -8,7 +8,7 @@
 
 **Tech stack:** TypeScript, Node.js 22, Fastify 5.12.7, fastify-type-provider-zod 7.0.0, Zod 4.6.7, better-sqlite3 13.0.3, @node-rs/argon2 2.2.2, @fastify/websocket 11.3.4, @fastify/jwt 10.2.5, pg 8.23.1, ulid 3.0.2, Vitest 4.1.12, ESLint 10.13.0 + typescript-eslint 8.72.0, tsx 4.23.15 (dev).
 
-**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` (v1.4: task 82 for M91, M92; v1.3: tasks 77–81 for M83–M90; v1.2: tasks 67–71 for M81, M82; v1.1: tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
+**Spec:** `docs/specs/00_Hub_Platform_Access_Spec_v1.5.md` (v1.5 approved 2026-10-27: 01b-driven changes (M93), built by the 01b plan, no task here; v1.4: task 82 for M91, M92; v1.3: tasks 77–81 for M83–M90; v1.2: tasks 67–71 for M81, M82; v1.1: tasks 1–51 built against v1.0.1, tasks 52+ in `docs/reviews/00_build_review_2.md`) (with `docs/specs/00_Foundation_Spec_v1.7.md` §4.1, §5.6–§5.8, §6). "§3.5" means spec 00; "F §6.3" means the foundation; "M39" is a spec 00 decision in §3.1.
 
 **Task status:** task **1** is done (commit `4abf807`). Tasks 2–5 are written for v1.0. **Tasks 5b and 5c** bring already-done tasks to v0.6 and v1.0: do them before task 6 (each only verifies if nothing needs changing). Tasks 6+ implement v1.0.
 

@@ -1,6 +1,6 @@
 # Module 00 design hand-off: build plan
 
-Source of truth for the look: `00-design.md` + `frames/`. Source of truth for behaviour: `docs/specs/00_Hub_Platform_Access_Spec_v1.4.md` (CLAUDE.md: the spec wins; behaviour changes go spec-first).
+Source of truth for the look: `00-design.md` + `frames/`. Source of truth for behaviour: `docs/specs/00_Hub_Platform_Access_Spec_v1.5.md` (CLAUDE.md: the spec wins; behaviour changes go spec-first).
 
 ## A. Read this first: where the hand-off and the repo disagree
 
