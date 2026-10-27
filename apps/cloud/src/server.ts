@@ -37,6 +37,7 @@ export interface CloudTestHooks {
   afterReferenceLock?(route: string): Promise<void>; // task 34
   beforeBump?(): Promise<void>; // task 19
   beforePrune?(): Promise<void>; // task 15 (#122)
+  guardRead?(): Promise<void>; // 01b task 35: a rejection makes the JWT guard's owner-row read fail (#107)
 }
 
 export interface CloudDeps {
@@ -75,7 +76,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerErrorHandler(app);
   registerJwt(app, deps.env.JWT_SECRET, deps.clock);
   registerOwnerCredentials(app, deps.pool);
-  registerTenantScope(app, { pool: deps.pool });
+  registerTenantScope(app, { pool: deps.pool, ...(deps.testHooks !== undefined ? { testHooks: deps.testHooks } : {}) });
   registerHubRegistrationRoutes(app, deps);
   registerOwnerAuthRoutes(app, deps);
   registerHealthRoutes(app, deps);

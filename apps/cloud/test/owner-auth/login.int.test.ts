@@ -50,6 +50,7 @@ describe('POST /v1/auth/login', () => {
       sub: created.user_id,
       tenant_id: created.tenant_id,
       allowed_branch_ids: [],
+      cv: 0, // 01b §6.13: credential_version claim
     });
     const stored = await cloud.pool.query<{ token_hash: string }>(
       `SELECT token_hash FROM owner_refresh_tokens WHERE user_id = $1`,

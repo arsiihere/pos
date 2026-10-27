@@ -1,7 +1,14 @@
 import { DomainError } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
-import { createTestCloud } from './helpers/test-cloud';
+import { restaurantFixture } from './helpers/restaurant';
+import { createTestCloud, type TestCloud } from './helpers/test-cloud';
+
+// 01b §6.13: the JWT guard reads the owner row, so a valid token names a real owner.
+async function ownerToken(cloud: TestCloud): Promise<{ token: string; tenantId: string }> {
+  const f = await restaurantFixture(cloud);
+  return { token: f.token, tenantId: f.tenantId };
+}
 
 const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health', 'GET /owner/', 'GET /owner/*'];
 
@@ -95,18 +102,14 @@ describe('tenant scope', () => {
     expect(garbage.statusCode).toBe(401);
     expect(garbage.json().error.code).toBe('JWT_INVALID');
 
-    const token = cloud.app.jwt.sign({
-      sub: 'u1',
-      tenant_id: 't1',
-      allowed_branch_ids: ['b1'],
-    });
+    const { token, tenantId } = await ownerToken(cloud);
     const ok = await cloud.app.inject({
       method: 'GET',
       url: '/v1/owner/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toEqual({ data: { tenant_id: 't1' } });
+    expect(ok.json()).toEqual({ data: { tenant_id: tenantId } });
   });
 
   it('[00 §7.1] a 429 carries Retry-After rounded up from retry_after_ms', async () => {
@@ -119,7 +122,7 @@ describe('tenant scope', () => {
       throw new DomainError('VALIDATION_FAILED', { retry_after_ms: 1000 });
     });
     await cloud.app.ready();
-    const token = cloud.app.jwt.sign({ sub: 'u1', tenant_id: 't1', allowed_branch_ids: ['b1'] });
+    const { token } = await ownerToken(cloud);
     const limited = await cloud.app.inject({
       method: 'GET',
       url: '/v1/limited',

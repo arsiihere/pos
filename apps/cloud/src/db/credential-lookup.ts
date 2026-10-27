@@ -13,6 +13,7 @@ export interface OwnerUser {
   login_window_started_at: string | null;
   login_locked_until: string | null;
   created_at: string;
+  credential_version: number;
 }
 
 export interface RefreshToken {
@@ -24,6 +25,7 @@ export interface RefreshToken {
   expires_at: string;
   rotated_at: string | null;
   revoked_at: string | null;
+  credential_version: number;
 }
 
 export interface BranchApiKey {
@@ -49,10 +51,23 @@ export interface RegistrationCode {
 export async function ownerByEmail(db: Queryable, email: string): Promise<OwnerUser | null> {
   const result = await db.query<OwnerUser>(
     `SELECT tenant_id, user_id, email, display_name, password_hash, allowed_branch_ids,
-            failed_login_count, login_window_started_at, login_locked_until, created_at
+            failed_login_count, login_window_started_at, login_locked_until, created_at, credential_version
        FROM owner_users
       WHERE lower(email) = lower($1)`,
     [email],
+  );
+  return result.rows[0] ?? null;
+}
+
+// 01b §6.13, 00 §6.24a: the JWT guard's one statement per owner request.
+export async function ownerGuardRow(
+  pool: pg.Pool,
+  tenantId: string,
+  userId: string,
+): Promise<{ must_change_password: boolean; credential_version: number } | null> {
+  const result = await pool.query<{ must_change_password: boolean; credential_version: number }>(
+    `SELECT must_change_password, credential_version FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+    [tenantId, userId],
   );
   return result.rows[0] ?? null;
 }
@@ -63,7 +78,7 @@ export async function refreshTokenByHash(
   forUpdate: boolean,
 ): Promise<RefreshToken | null> {
   const result = await client.query<RefreshToken>(
-    `SELECT tenant_id, token_id, user_id, token_hash, created_at, expires_at, rotated_at, revoked_at
+    `SELECT tenant_id, token_id, user_id, token_hash, created_at, expires_at, rotated_at, revoked_at, credential_version
        FROM owner_refresh_tokens
       WHERE token_hash = $1${forUpdate ? ' FOR UPDATE' : ''}`,
     [hash],

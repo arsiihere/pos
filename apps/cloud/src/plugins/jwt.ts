@@ -10,6 +10,7 @@ export interface AccessClaims {
   sub: string;
   tenant_id: string;
   allowed_branch_ids: string[];
+  cv: number; // 01b B5: owner_users.credential_version when issued; a token without the claim reads as 0
 }
 
 declare module 'fastify' {
@@ -36,6 +37,7 @@ function signJwt(secret: string, claims: AccessClaims, nowMs: number): string {
       sub: claims.sub,
       tenant_id: claims.tenant_id,
       allowed_branch_ids: claims.allowed_branch_ids,
+      cv: claims.cv,
       iat: nowS,
       exp: nowS + TOKEN_TTL_S,
     }),
@@ -58,14 +60,15 @@ function verifyJwt(secret: string, token: string, nowMs: number): AccessClaims {
   const payload = parseJson(payloadPart);
   if (!isRecord(header) || header.alg !== 'HS256') throw new DomainError('JWT_INVALID');
   if (!isRecord(payload)) throw new DomainError('JWT_INVALID');
-  const { sub, tenant_id, allowed_branch_ids, exp } = payload;
+  const { sub, tenant_id, allowed_branch_ids, exp, cv } = payload;
   if (typeof sub !== 'string' || sub.length === 0) throw new DomainError('JWT_INVALID');
   if (typeof tenant_id !== 'string' || tenant_id.length === 0) throw new DomainError('JWT_INVALID');
   if (!Array.isArray(allowed_branch_ids) || allowed_branch_ids.some((id) => typeof id !== 'string')) {
     throw new DomainError('JWT_INVALID');
   }
   if (typeof exp !== 'number' || nowMs >= exp * 1000) throw new DomainError('JWT_INVALID');
-  return { sub, tenant_id, allowed_branch_ids };
+  if (cv !== undefined && (typeof cv !== 'number' || !Number.isInteger(cv))) throw new DomainError('JWT_INVALID');
+  return { sub, tenant_id, allowed_branch_ids, cv: cv ?? 0 };
 }
 
 function parseJson(part: string): unknown {

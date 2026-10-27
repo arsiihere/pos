@@ -91,9 +91,9 @@ export async function ownerProfile(
   client: pg.PoolClient,
   tenantId: string,
   userId: string,
-): Promise<{ display_name: string; allowed_branch_ids: string[] } | null> {
-  const result = await client.query<{ display_name: string; allowed_branch_ids: string[] }>(
-    `SELECT display_name, allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+): Promise<{ display_name: string; allowed_branch_ids: string[]; credential_version: number } | null> {
+  const result = await client.query<{ display_name: string; allowed_branch_ids: string[]; credential_version: number }>(
+    `SELECT display_name, allowed_branch_ids, credential_version FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
     [tenantId, userId],
   );
   return result.rows[0] ?? null;
@@ -101,12 +101,20 @@ export async function ownerProfile(
 
 export async function insertRefreshToken(
   client: pg.PoolClient,
-  row: { tenantId: string; tokenId: string; userId: string; tokenHash: string; now: number; expiresAt: number },
+  row: {
+    tenantId: string;
+    tokenId: string;
+    userId: string;
+    tokenHash: string;
+    now: number;
+    expiresAt: number;
+    credentialVersion: number;
+  },
 ): Promise<void> {
   await client.query(
     `INSERT INTO owner_refresh_tokens
-       (tenant_id, token_id, user_id, token_hash, created_at, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [row.tenantId, row.tokenId, row.userId, row.tokenHash, row.now, row.expiresAt],
+       (tenant_id, token_id, user_id, token_hash, created_at, expires_at, credential_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [row.tenantId, row.tokenId, row.userId, row.tokenHash, row.now, row.expiresAt, row.credentialVersion],
   );
 }

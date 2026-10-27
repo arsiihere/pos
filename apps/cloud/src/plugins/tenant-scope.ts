@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { DomainError } from '@pos/domain';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import type pg from 'pg';
-import { branchByApiKeyHash, registrationCodeByHash } from '../db/credential-lookup.js';
+import { branchByApiKeyHash, ownerGuardRow, registrationCodeByHash } from '../db/credential-lookup.js';
 import type { TenantContext } from '../db/tenant-scoped-repository.js';
 
 export const TENANT_SCOPE_ALLOWLIST = [
@@ -40,15 +40,31 @@ export function listTenantScopes(app: FastifyInstance): ListedTenantScope[] {
   return listed.get(app) ?? [];
 }
 
-export function registerTenantScope(app: FastifyInstance, deps: { pool: pg.Pool }): void {
+export function registerTenantScope(
+  app: FastifyInstance,
+  deps: { pool: pg.Pool; testHooks?: { guardRead?(): Promise<void> } },
+): void {
   const problems: string[] = [];
   const routes: ListedTenantScope[] = [];
   listed.set(app, routes);
   const handlers: Record<Exclude<TenantScope, 'none'>, preHandlerHookHandler> = {
+    // 01b §6.13, 00 §6.24a: after the signature, one read of the owner row. A failed read is 503, never 401,
+    // so an unreachable database never signs the owner out (N9).
     jwt: async (request) => {
       const token = bearer(request.headers.authorization);
       if (token === undefined) throw new DomainError('JWT_INVALID');
       const claims = app.jwt.verify(token);
+      let owner: Awaited<ReturnType<typeof ownerGuardRow>>;
+      try {
+        await deps.testHooks?.guardRead?.();
+        owner = await ownerGuardRow(deps.pool, claims.tenant_id, claims.sub);
+      } catch {
+        throw new DomainError('SERVICE_UNAVAILABLE');
+      }
+      if (owner === null || owner.credential_version !== claims.cv) throw new DomainError('JWT_INVALID');
+      if (owner.must_change_password && (request.routeOptions.url ?? '').startsWith('/v1/admin/')) {
+        throw new DomainError('PASSWORD_CHANGE_REQUIRED');
+      }
       setTenant(request, claims.tenant_id, claims.allowed_branch_ids);
     },
     'branch-key': async (request) => {

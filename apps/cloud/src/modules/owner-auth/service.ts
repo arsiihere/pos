@@ -34,6 +34,7 @@ export interface OwnerLoginUser {
   password_hash: string;
   allowed_branch_ids: string[];
   login_locked_until: string | null;
+  credential_version: number;
 }
 
 export const DUMMY_PASSWORD_HASH =
@@ -97,12 +98,14 @@ export async function issueTokens(client: pg.PoolClient, user: OwnerLoginUser, d
     tokenHash: sha256(refreshToken),
     now,
     expiresAt: refreshExpiresAt,
+    credentialVersion: user.credential_version,
   });
   return {
     access_token: deps.jwt.sign({
       sub: user.user_id,
       tenant_id: user.tenant_id,
       allowed_branch_ids: user.allowed_branch_ids,
+      cv: user.credential_version,
     }),
     access_expires_at: now + ACCESS_TTL_MS,
     refresh_token: refreshToken,
@@ -177,6 +180,7 @@ interface StoredRefresh {
   expires_at: string;
   rotated_at: string | null;
   revoked_at: string | null;
+  credential_version: number;
 }
 
 export interface RefreshDeps extends LoginDeps {
@@ -199,6 +203,12 @@ export async function refreshTokens(
     if (row === null || Number(row.expires_at) <= now || row.revoked_at !== null) {
       throw new DomainError('REFRESH_TOKEN_INVALID');
     }
+    // 01b §6.13 (N1): a token issued before the owner's last change or reset is refused; nothing revoked.
+    const profile = await ownerProfile(client, row.tenant_id, row.user_id);
+    if (profile === null) throw new Error('owner missing');
+    if (Number(row.credential_version) !== Number(profile.credential_version)) {
+      throw new DomainError('REFRESH_TOKEN_INVALID');
+    }
     const successor = createHmac('sha256', deps.refreshSecret).update(token).digest('base64url');
     if (row.rotated_at !== null && now - Number(row.rotated_at) > REFRESH_GRACE_MS) {
       await revokeLiveRefreshTokens(client, row.tenant_id, row.user_id, now);
@@ -208,7 +218,7 @@ export async function refreshTokens(
     } else if (row.rotated_at !== null) {
       const stored = await credentials.refreshByHash(client, sha256(successor), false);
       if (stored === null) throw new Error('successor missing');
-      const issued = await issueAccess(client, row, successor, Number(stored.expires_at), deps, now);
+      const issued = issueAccess(row, profile, successor, Number(stored.expires_at), deps, now);
       await client.query('COMMIT');
       return issued;
     } else {
@@ -221,8 +231,9 @@ export async function refreshTokens(
         tokenHash: sha256(successor),
         now,
         expiresAt: refreshExpiresAt,
+        credentialVersion: Number(profile.credential_version),
       });
-      const issued = await issueAccess(client, row, successor, refreshExpiresAt, deps, now);
+      const issued = issueAccess(row, profile, successor, refreshExpiresAt, deps, now);
       await client.query('COMMIT');
       return issued;
     }
@@ -234,21 +245,20 @@ export async function refreshTokens(
   }
 }
 
-async function issueAccess(
-  client: pg.PoolClient,
+function issueAccess(
   row: StoredRefresh,
+  profile: { display_name: string; allowed_branch_ids: string[]; credential_version: number },
   refreshToken: string,
   refreshExpiresAt: number,
   deps: RefreshDeps,
   now: number,
-): Promise<IssuedTokens> {
-  const profile = await ownerProfile(client, row.tenant_id, row.user_id);
-  if (profile === null) throw new Error('owner missing');
+): IssuedTokens {
   return {
     access_token: deps.jwt.sign({
       sub: row.user_id,
       tenant_id: row.tenant_id,
       allowed_branch_ids: profile.allowed_branch_ids,
+      cv: Number(profile.credential_version),
     }),
     access_expires_at: now + ACCESS_TTL_MS,
     refresh_token: refreshToken,
