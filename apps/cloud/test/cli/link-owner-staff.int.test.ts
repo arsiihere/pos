@@ -1,6 +1,6 @@
 import type { DefaultKey } from '@pos/domain';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runLinkOwnerStaff } from '../../src/cli/link-owner-staff';
+import { runLinkOwnerStaff, type LinkHooks } from '../../src/cli/link-owner-staff';
 import { seedTenant } from '../../src/cli/seed-tenant';
 import { SystemContext } from '../../src/cli/system-context';
 import { ulidGen } from '../../src/lib/ids';
@@ -22,15 +22,18 @@ describe('link-owner-staff CLI (01b §6.15a, B7, review 2 N3)', () => {
   let seededStaffId: string;
   let out: string[];
   let errors: string[];
+  // Set by a test to pause the next directory write right after its tenant lock (#99 a).
+  let barrier: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
-    cloud = await createTestCloud();
+    cloud = await createTestCloud({ testHooks: { afterTenantLock: async () => barrier?.() } });
     await cloud.app.ready();
   });
   afterAll(async () => {
     await cloud.close();
   });
   beforeEach(async () => {
+    barrier = undefined;
     cloud.clock.set(T);
     f = await restaurantFixture(cloud);
     seededStaffId = (await linkedStaff())!;
@@ -79,7 +82,7 @@ describe('link-owner-staff CLI (01b §6.15a, B7, review 2 N3)', () => {
     ).rows;
   const directoryVersion = async () =>
     Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
-  const link = (staffId: string, confirmName?: string, ownerUserId = f.userId) =>
+  const link = (staffId: string, confirmName?: string, ownerUserId = f.userId, hooks?: LinkHooks) =>
     runLinkOwnerStaff(
       ['--owner', ownerUserId, '--staff', staffId, ...(confirmName === undefined ? [] : ['--confirm-name', confirmName])],
       {
@@ -89,6 +92,7 @@ describe('link-owner-staff CLI (01b §6.15a, B7, review 2 N3)', () => {
         out: (line) => out.push(line),
         err: (line) => errors.push(line),
       },
+      hooks,
     );
   // Every exit 1 path: link unchanged, no audit row, no directory bump.
   const expectRefused = async (staffId: string, confirmName: string | undefined, message: RegExp, ownerUserId = f.userId) => {
@@ -211,6 +215,122 @@ describe('link-owner-staff CLI (01b §6.15a, B7, review 2 N3)', () => {
     }
     expect(await link(y.staff_id, 'Ali Raza'), errors.join('\n')).toBe(0);
     expect(await linkedStaff()).toBe(y.staff_id);
+  });
+
+  const patchStaff = (staffId: string, payload: Record<string, unknown>) =>
+    cloud.app.inject({ method: 'PATCH', url: `/v1/admin/staff/${staffId}`, headers: auth(), payload });
+  const deny = async (staff: Staff, permission: string) => {
+    const denied = await patchStaff(staff.staff_id, { expected_version: staff.version, denied_permissions: [permission] });
+    expect(denied.statusCode, denied.body).toBe(200);
+  };
+  // Pauses at `hook`; `held` resolves once it is reached, `release()` lets it go on.
+  const gate = () => {
+    let reached!: () => void;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const hook = async () => {
+      reached();
+      await released;
+    };
+    return { held, release, hook };
+  };
+  // True once some backend waits on a lock.
+  const lockWaiter = async (timeoutMs = 5_000) => {
+    for (let waited = 0; waited < timeoutMs; waited += 25) {
+      const rows = await cloud.pool.query<{ n: string }>(
+        `SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      if (Number(rows.rows[0]!.n) > 0) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  };
+
+  it('[01b #95] corrective re-link from X to Y, both qualifying admins at every branch', async () => {
+    const y = await person('Yusuf', 'owner', [...f.branches]);
+    expect(await link(y.staff_id, 'Yusuf'), errors.join('\n')).toBe(0);
+    expect(await linkedStaff()).toBe(y.staff_id);
+    expect(await audits()).toEqual([
+      {
+        entity: 'owner_user',
+        entity_id: f.userId,
+        action: 'update',
+        actor_kind: 'cli',
+        actor_owner_user_id: null,
+        before: { staff_id: seededStaffId },
+        after: { staff_id: y.staff_id },
+      },
+    ]);
+    expect(out.join('\n')).toContain(`link: ${seededStaffId} → ${y.staff_id}`);
+
+    const stripped = await patchStaff(y.staff_id, { expected_version: y.version, role_ids: [await roleId('cashier')] });
+    expect(stripped.statusCode, stripped.body).toBe(409);
+    expect(stripped.json().error.code).toBe('OWN_ADMIN_ACCESS');
+  });
+
+  it('[01b #95] re-link from a row that qualifies nowhere to a non-admin → exit 1 (no vacuous pass)', async () => {
+    // X loses its admin access by hand-edited data
+    await cloud.pool.query(`DELETE FROM staff_roles WHERE tenant_id = $1 AND staff_id = $2`, [f.tenantId, seededStaffId]);
+    const cook = await person('Cook One', 'cook', [...f.branches], { pin: false });
+    await expectRefused(cook.staff_id, 'Cook One', /Cook One is not a qualifying admin at Branch A/);
+    expect(await linkedStaff()).toBe(seededStaffId);
+  });
+
+  it('[01b #95] re-link to a row with no PIN, without manage-devices, with a denial of access-hub-admin, or that has left → exit 1', async () => {
+    const noPin = await person('Nadia', 'owner', [...f.branches], { pin: false });
+    await expectRefused(noPin.staff_id, 'Nadia', /Nadia is not a qualifying admin at/);
+
+    const noDevices = await person('Danish', 'owner', [...f.branches]);
+    await deny(noDevices, 'manage-devices');
+    await expectRefused(noDevices.staff_id, 'Danish', /Danish is not a qualifying admin at/);
+
+    const noHubAdmin = await person('Hina', 'owner', [...f.branches]);
+    await deny(noHubAdmin, 'access-hub-admin');
+    await expectRefused(noHubAdmin.staff_id, 'Hina', /Hina is not a qualifying admin at/);
+
+    const leaver = await person('Lena', 'owner', [...f.branches]);
+    const left = await patchStaff(leaver.staff_id, { expected_version: leaver.version, is_active: false });
+    expect(left.statusCode, left.body).toBe(200);
+    await expectRefused(leaver.staff_id, 'Lena', /staff has left/);
+    expect(await linkedStaff()).toBe(seededStaffId);
+  });
+
+  it('[01b #99 a] a staff PATCH removing Y\'s manage-devices holds the tenant lock: the CLI waits, then exits 1 listing the branches', async () => {
+    const y = await person('Yusuf', 'owner', [...f.branches]);
+    const pause = gate();
+    barrier = () => {
+      barrier = undefined;
+      return pause.hook();
+    };
+    const patching = patchStaff(y.staff_id, { expected_version: y.version, denied_permissions: ['manage-devices'] });
+    await pause.held;
+    const linking = link(y.staff_id, 'Yusuf');
+    expect(await lockWaiter(), 'the CLI waits on the tenant row').toBe(true);
+    pause.release();
+
+    const patched = await patching;
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(await linking).toBe(1);
+    expect(errors.join('\n')).toMatch(/Yusuf is not a qualifying admin at Branch A \(.+\), Branch B \(.+\), Branch C \(.+\)$/);
+    expect(await linkedStaff()).toBe(seededStaffId);
+    expect(await audits()).toHaveLength(0);
+  });
+
+  it('[01b #99 b] the CLI holds the tenant lock: the same PATCH waits, then → 409 OWN_ADMIN_ACCESS', async () => {
+    const y = await person('Yusuf', 'owner', [...f.branches]);
+    const pause = gate();
+    const linking = link(y.staff_id, 'Yusuf', f.userId, { afterTenantLock: pause.hook });
+    await pause.held;
+    const patching = patchStaff(y.staff_id, { expected_version: y.version, denied_permissions: ['manage-devices'] });
+    expect(await lockWaiter(), 'the PATCH waits on the tenant row').toBe(true);
+    pause.release();
+
+    expect(await linking, errors.join('\n')).toBe(0);
+    expect(await linkedStaff()).toBe(y.staff_id);
+    const patched = await patching;
+    expect(patched.statusCode, patched.body).toBe(409);
+    expect(patched.json().error.code).toBe('OWN_ADMIN_ACCESS');
   });
 
   it('[01b §6.15a] usage: --owner and --staff are required', async () => {
