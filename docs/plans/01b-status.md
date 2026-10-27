@@ -8,7 +8,7 @@
 | T4 | DONE | 1 | T1 | ca61be9 |
 | T5 | DONE | 1 | - | 736506c; AD-2 (catalogue groups) |
 | T6 | DONE | 1 | T5 | 7385fce; AD-3 (interim v1-valued v2 keys in cloud loadDirectory, hub DirectoryCore) |
-| T7 | DONE | 1 | T1,T6 | 76f631f; AD-3 interim keys replaced; 01a poll budget tests → ≤ 17 (01a v1.3 §6.1) |
+| T7 | DONE | 1 | T1,T6 | 76f631f; AD-3 interim keys replaced; 01a poll budget tests → ≤ 17 (01a v1.3 §6.1); #83 split: cloud half here, hub half in apply-directory (R-2) |
 | T8 | DONE | 1 | T6 | 365d868; AD-3 DirectoryCore now the stored v2 shape; AD-9 (skip ids) |
 | T9 | TODO | 0 | T5,T8 | |
 | T10 | TODO | 0 | T9 | |
@@ -49,7 +49,7 @@
 | T45 | TODO | 0 | T1,T12 | |
 | T46 | TODO | 0 | T45 | |
 | T47 | TODO | 0 | T41,T45 | Claude only (docs/runbooks) — autobuild can do it |
-| T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human |
+| T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human; #20 split: cloud half in load-directory, hub half in apply-directory (R-1) |
 | T49 | TODO | 0 | T8,T16 | |
 | T50 | TODO | 0 | T6 | |
 | T51 | TODO | 0 | T50 | |
