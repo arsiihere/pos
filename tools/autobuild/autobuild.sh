@@ -109,6 +109,7 @@ for ((i=1; i<=MAX_ITER; i++)); do
 done
 
 # ---------- final gate ----------
+if [ "$(count TODO)" -gt 0 ]; then notify "$MOD paused: $(board). Rerun to continue."; exit 0; fi
 preflight
 claude_run final; clean_tree
 
