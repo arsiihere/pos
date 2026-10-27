@@ -190,6 +190,9 @@ export async function loadDirectory(
         pin_hash: member.pin_hash,
         role_ids: (rolesByStaff.get(member.staff_id) ?? []).slice().sort(),
         denied_permissions: (denialsByStaff.get(member.staff_id) ?? []).slice().sort(),
+        // 01b §4.3.1 v2 keys with their v1 meaning until loadDirectory v2 (plan task 7) reads them.
+        lead_staff_id: null,
+        floor_ids: [],
       })),
       roles: roles.rows.map((role) => ({
         role_id: role.role_id,
@@ -201,8 +204,11 @@ export async function loadDirectory(
             permission: grant.permission,
             grant_type: grant.grant_type,
             approver_role_id: grant.approver_role_id,
+            approver_role_ids: grant.approver_role_id === null ? [] : [grant.approver_role_id],
+            scope: 'branch' as const,
           })),
       })),
+      responsibilities: [],
     },
   };
 }

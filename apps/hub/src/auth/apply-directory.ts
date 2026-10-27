@@ -3,7 +3,7 @@ import type { DirectoryInput } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { WriterTx } from '../engine-host/writer.js';
 import { activeSessionsOf, endSession, revokeDevice } from './session-store.js';
-import { StaffDirectory } from './staff-directory.js';
+import { StaffDirectory, type DirectoryCore } from './staff-directory.js';
 
 const PIN_HASH_RE = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$/;
 
@@ -21,7 +21,7 @@ interface StoredStaff {
   denied_permissions: string[];
 }
 
-type StoredRole = DirectoryInput['roles'][number];
+type StoredRole = DirectoryCore['roles'][number];
 
 export function applyStaffDirectory(
   tx: WriterTx,
@@ -165,7 +165,7 @@ function warnSkip(skipped: Skip[], skip: Skip): void {
 
 function keepGrant(
   roleId: string,
-  permission: DirectoryInput['roles'][number]['permissions'][number],
+  permission: DirectoryCore['roles'][number]['permissions'][number],
   roleIds: Set<string>,
   skipped: Skip[],
 ): boolean {

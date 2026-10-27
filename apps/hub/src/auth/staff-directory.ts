@@ -1,6 +1,18 @@
 import { PERMISSIONS, type Permission } from '@pos/domain';
-import type { DirectoryInput } from '@pos/events';
 import type Database from 'better-sqlite3';
+
+// The v1 keys of the directory, which the hub still applies with v1 semantics until its v2 apply
+// (01b plan tasks 8–9). A v2 DirectoryInput (01b §4.3.1, additive) is assignable to it.
+export interface DirectoryCore {
+  directory_version: number;
+  staff: { staff_id: string; display_name: string; pin_hash: string; role_ids: string[]; denied_permissions: string[] }[];
+  roles: {
+    role_id: string;
+    name: string;
+    session_idle_ttl_ms: number;
+    permissions: { permission: string; grant_type: 'allowed' | 'requires_approval'; approver_role_id: string | null }[];
+  }[];
+}
 
 export type Resolution =
   | { grant: 'allowed' }
@@ -37,7 +49,7 @@ export class StaffDirectory {
     private readonly roles: Map<string, RoleRecord>,
   ) {}
 
-  static fromInput(d: DirectoryInput): StaffDirectory {
+  static fromInput(d: DirectoryCore): StaffDirectory {
     const roles = new Map<string, RoleRecord>();
     for (const role of d.roles) {
       const permissions: RoleRecord['permissions'] = new Map();
@@ -92,7 +104,7 @@ export class StaffDirectory {
     const meta = db.prepare('SELECT directory_version FROM staff_directory_meta').get() as
       | { directory_version: number }
       | undefined;
-    const permissionsByRole = new Map<string, DirectoryInput['roles'][number]['permissions']>();
+    const permissionsByRole = new Map<string, DirectoryCore['roles'][number]['permissions']>();
     for (const row of permissions) {
       const list = permissionsByRole.get(row.role_id) ?? [];
       list.push({

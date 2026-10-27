@@ -20,6 +20,29 @@ describe('fixtures', () => {
     }
   });
 
+  it('[01b #64] a stored v1 StaffDirectoryApplied payload upcasts to an equal v2 payload; v2 adds the lead and responsibility skip kinds', () => {
+    const dir = fileURLToPath(new URL('../fixtures/', import.meta.url));
+    const v1 = JSON.parse(readFileSync(join(dir, 'StaffDirectoryApplied.v1.json'), 'utf8')) as {
+      schema_version: number;
+      payload: Record<string, unknown>;
+    };
+    const stored = {
+      ...v1,
+      payload: { ...v1.payload, skipped: [{ kind: 'approver', id: 'R1', reason: 'unknown_role' }] },
+    };
+    const upcast = parseEvent(stored);
+    expect(upcast.schema_version).toBe(2);
+    expect(upcast.payload).toEqual(stored.payload);
+
+    const v2 = payloadSchema('StaffDirectoryApplied', 2);
+    const v1Schema = payloadSchema('StaffDirectoryApplied', 1);
+    for (const kind of ['lead', 'responsibility']) {
+      const payload = { ...v1.payload, skipped: [{ kind, id: 'S1', reason: 'staff_not_sent' }] };
+      expect(v2.safeParse(payload).success, kind).toBe(true);
+      expect(v1Schema.safeParse(payload).success, kind).toBe(false);
+    }
+  });
+
   it('[00 §4.2] DevicePaired requires exactly one pairing source id', () => {
     const schema = payloadSchema('DevicePaired', 1);
     const base = {

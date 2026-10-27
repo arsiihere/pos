@@ -108,7 +108,9 @@ describe('POST /v1/hubs/register', () => {
     expect(body.data.directory.roles.map((role: { name: string }) => role.name)).not.toContain('OtherOnly');
     const owner = body.data.directory.roles.find((role: { name: string }) => role.name === 'Owner');
     expect(owner.permissions).toEqual(
-      expect.arrayContaining([{ permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null }]),
+      expect.arrayContaining([
+        { permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+      ]),
     );
 
     const row = await cloud.pool.query<{
