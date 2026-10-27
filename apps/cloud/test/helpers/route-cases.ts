@@ -97,5 +97,9 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: '/v1/admin/staff',
     payload: { display_name: 'Bilal', role_ids: [ids.roleId], branch_ids: [ids.branchId] },
   }),
+  'PATCH /v1/admin/staff/:staff_id': (ids) => ({
+    url: `/v1/admin/staff/${ids.staffId}`,
+    payload: { expected_version: 'stale', display_name: 'Bilal' },
+  }),
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
 };

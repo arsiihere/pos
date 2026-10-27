@@ -145,6 +145,12 @@ describe('JWT guard: credential version and forced change', () => {
     for (const response of [
       await get(old.access_token),
       await get(old.access_token, '/v1/admin/staff'),
+      await cloud.app.inject({
+        method: 'PATCH',
+        url: '/v1/admin/staff/any-staff-id',
+        headers: { authorization: `Bearer ${old.access_token}` },
+        payload: { expected_version: 'a'.repeat(64) },
+      }),
       await logout(old.access_token, old.refresh_token),
     ]) {
       expect(response.statusCode).toBe(401);

@@ -1,28 +1,38 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError } from '@pos/domain';
-import type { ChangedVersions, PinBody, StaffCreateBody, StaffWire } from '@pos/events';
+import type { ChangedVersions, PinBody, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import { writeConfigAudit } from '../../lib/config-audit.js';
 import type { IdempotentResult } from '../../lib/idempotency.js';
 import {
+  addBranches,
+  addRoles,
   firstNameClash,
   insertStaff,
   lockStaff,
   pairKey,
+  removeBranches,
+  removeRoles,
+  replaceDenials,
+  replaceFloors,
+  replaceLeads,
   selectActiveAtBranch,
   selectBranchIds,
   selectFloorStates,
   selectRoleStates,
   selectStaff,
   updatePin,
+  updateStaffRow,
   type StaffFilter,
 } from './repository.js';
 import { staffVersion, toStaffWire, withVersion, type StaffRow } from './versions.js';
 import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.js';
 
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
+type StaffPatchInput = z.infer<typeof StaffPatchBody>;
+type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
 
 // 00 M8: argon2id m=19456, t=2, p=1.
 const ARGON = { memoryCost: 19_456, timeCost: 2, parallelism: 1, algorithm: Algorithm.Argon2id, version: Version.V0x13 };
@@ -128,6 +138,95 @@ export async function setPin(
   return out.body;
 }
 
+// §6.4: directory write script with expected_version (B23); rules on the merged row (§3.2 rule 1); branch_ids
+// as a diff (§5.1 notes). Leaving, returning, B15 moves and the admin guards join with tasks 16–19.
+export async function updateStaff(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  staffId: string,
+  body: StaffPatchInput,
+): Promise<{ staff: StaffWire; moved_reports: MovedReport[]; changed_versions: ChangedVersions }> {
+  const out = await directoryWrite(deps, req, { idempotent: false }, async (ctx) => {
+    if (!(await lockStaff(ctx.repo, [staffId])).has(staffId)) throw new DomainError('STAFF_NOT_FOUND', { staff_id: staffId });
+    const [stored] = await selectStaff(ctx.repo, { ids: [staffId] });
+    const before = toStaffWire(stored!);
+    const storedVersion = staffVersion(before);
+    if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'staff', id: staffId });
+
+    const branchIds = body.branch_ids === undefined ? before.branch_ids : unique(body.branch_ids);
+    const kept = (entry: { branch_id: string }) => branchIds.includes(entry.branch_id);
+    const reportsTo = body.reports_to ?? before.reports_to.filter(kept);
+    const floorPairs =
+      body.floors === undefined
+        ? before.floors.filter(kept).flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))
+        : uniquePairs(body.floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id }))));
+    const merged = toStaffWire({
+      ...stored!,
+      display_name: body.display_name ?? before.display_name,
+      role_ids: body.role_ids === undefined ? before.role_ids : unique(body.role_ids),
+      branch_ids: branchIds,
+      denied_permissions: body.denied_permissions === undefined ? before.denied_permissions : unique(body.denied_permissions),
+      reports_to: reportsTo,
+      floors: groupFloors(floorPairs),
+    });
+    const noop = { staff: withVersion(before, storedVersion), moved_reports: [], changed_versions: emptyChanged() };
+    if (staffVersion(merged) === storedVersion) return { body: noop, bump: false };
+
+    // Rules on the merged row (§6.2 rules 1–4, §3.2).
+    if (body.branch_ids !== undefined) {
+      const known = await selectBranchIds(ctx.repo, branchIds);
+      const foreign = body.branch_ids.find((id) => !known.has(id));
+      if (foreign !== undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: foreign });
+    }
+    const roles = await selectRoleStates(ctx.repo, merged.role_ids);
+    if (body.role_ids !== undefined) {
+      body.role_ids.forEach((roleId, i) => {
+        const role = roles.get(roleId);
+        if (role === undefined) throw referenceInvalid(`role_ids.${i}`, 'not_found');
+        if (role.archived) throw referenceInvalid(`role_ids.${i}`, 'role_archived');
+      });
+    } else if (merged.is_active && !merged.role_ids.some((roleId) => roles.get(roleId)?.archived === false)) {
+      throw referenceInvalid('role_ids', 'role_archived');
+    }
+    if (body.reports_to !== undefined) await checkReportsTo(ctx.repo, branchIds, body.reports_to);
+    if (body.floors !== undefined) await checkFloors(ctx.repo, branchIds, body.floors);
+    const added = branchIds.filter((id) => !before.branch_ids.includes(id));
+    if (merged.is_active && (merged.display_name !== before.display_name || added.length > 0)) {
+      const clash = await firstNameClash(ctx.repo, merged.display_name, merged.branch_ids, staffId);
+      if (clash !== undefined) throw new DomainError('STAFF_NAME_TAKEN', { display_name: merged.display_name, branch_id: clash });
+    }
+
+    // Write.
+    await updateStaffRow(ctx.repo, staffId, merged.display_name, ctx.deps.clock.branchNow());
+    await removeBranches(ctx.repo, staffId, before.branch_ids.filter((id) => !branchIds.includes(id)));
+    await addBranches(ctx.repo, staffId, added);
+    await removeRoles(ctx.repo, staffId, before.role_ids.filter((id) => !merged.role_ids.includes(id)));
+    await addRoles(ctx.repo, staffId, merged.role_ids.filter((id) => !before.role_ids.includes(id)));
+    if (body.denied_permissions !== undefined) await replaceDenials(ctx.repo, staffId, merged.denied_permissions);
+    if (body.reports_to !== undefined) await replaceLeads(ctx.repo, staffId, merged.reports_to);
+    if (body.floors !== undefined) await replaceFloors(ctx.repo, staffId, floorPairs);
+
+    const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
+    const after = toStaffWire(row!);
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'staff',
+        entityId: staffId,
+        branchId: null,
+        action: 'update',
+        before,
+        after,
+      },
+      ctx.deps,
+    );
+    const changed_versions = await ctx.changed.resolve(ctx, { staffId });
+    return { body: { staff: withVersion(after, staffVersion(after)), moved_reports: [], changed_versions }, bump: true };
+  });
+  return out.body;
+}
+
 // §3.2 rule 5, §3.5: one lead per branch, at one of the person's branches, active and working there.
 // The loop walk joins with PATCH (task 15): a new person has no reports.
 async function checkReportsTo(
@@ -177,6 +276,16 @@ async function checkFloors(
 function versioned(row: StaffRow): StaffWire {
   const wire = toStaffWire(row);
   return withVersion(wire, staffVersion(wire));
+}
+
+function groupFloors(pairs: { branch_id: string; floor_id: string }[]): { branch_id: string; floor_ids: string[] }[] {
+  const byBranch = new Map<string, string[]>();
+  for (const pair of pairs) byBranch.set(pair.branch_id, [...(byBranch.get(pair.branch_id) ?? []), pair.floor_id]);
+  return [...byBranch.entries()].map(([branch_id, floor_ids]) => ({ branch_id, floor_ids }));
+}
+
+function emptyChanged(): ChangedVersions {
+  return { staff: [], roles: [], responsibilities: [] };
 }
 
 function referenceInvalid(field: string, reason: string): DomainError {

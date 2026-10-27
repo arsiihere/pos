@@ -13,3 +13,10 @@ export const StaffIdParams = z.object({ staff_id: z.string().min(1) });
 
 export const StaffListResponse = z.object({ data: z.object({ staff: z.array(StaffWire) }) });
 export const StaffResponse = z.object({ data: z.object({ staff: StaffWire, changed_versions: ChangedVersions }) });
+export const StaffPatchResponse = z.object({
+  data: z.object({
+    staff: StaffWire,
+    moved_reports: z.array(z.object({ staff_id: z.string(), branch_id: z.string(), lead_staff_id: z.string().nullable() })),
+    changed_versions: ChangedVersions,
+  }),
+});

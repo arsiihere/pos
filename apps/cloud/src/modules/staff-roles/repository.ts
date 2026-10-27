@@ -190,34 +190,92 @@ export async function insertStaff(db: TenantSql, s: NewStaff): Promise<void> {
      SELECT tenant_id, $2, $3, NULL, true, $4, $4 FROM tenants WHERE tenant_id = $1`,
     [s.staffId, s.displayName, s.now],
   );
+  await addBranches(db, s.staffId, s.branchIds);
+  await addRoles(db, s.staffId, s.roleIds);
+  await insertDenials(db, s.staffId, s.deniedPermissions);
+  await insertLeads(db, s.staffId, s.reportsTo);
+  await insertFloors(db, s.staffId, s.floors);
+}
+
+// §6.4: the person's own row (name, updated_at); is_active / left_at join with leaving (task 16).
+export async function updateStaffRow(db: TenantSql, staffId: string, displayName: string, now: number): Promise<void> {
+  await db.query(`UPDATE staff SET display_name = $3, updated_at = $4 WHERE tenant_id = $1 AND staff_id = $2`, [
+    staffId,
+    displayName,
+    now,
+  ]);
+}
+
+// §5.1 notes (m7): a branch change is a diff, never delete-and-reinsert (leads and floors cascade from the row).
+export async function removeBranches(db: TenantSql, staffId: string, branchIds: string[]): Promise<void> {
+  if (branchIds.length === 0) return;
+  await db.query(`DELETE FROM staff_branches WHERE tenant_id = $1 AND staff_id = $2 AND branch_id = ANY($3)`, [staffId, branchIds]);
+}
+
+export async function addBranches(db: TenantSql, staffId: string, branchIds: string[]): Promise<void> {
+  if (branchIds.length === 0) return;
   await db.query(
     `INSERT INTO staff_branches (tenant_id, branch_id, staff_id)
      SELECT t.tenant_id, x.b, $3 FROM tenants t, unnest($2::text[]) AS x(b) WHERE t.tenant_id = $1`,
-    [s.branchIds, s.staffId],
+    [branchIds, staffId],
   );
-  await db.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id)
-     SELECT t.tenant_id, $2, x.r FROM tenants t, unnest($3::text[]) AS x(r) WHERE t.tenant_id = $1`, [s.staffId, s.roleIds]);
-  if (s.deniedPermissions.length > 0) {
-    await db.query(
-      `INSERT INTO staff_permission_denials (tenant_id, staff_id, permission)
-       SELECT t.tenant_id, $2, x.p FROM tenants t, unnest($3::text[]) AS x(p) WHERE t.tenant_id = $1`,
-      [s.staffId, s.deniedPermissions],
-    );
-  }
-  if (s.reportsTo.length > 0) {
-    await db.query(
-      `INSERT INTO staff_leads (tenant_id, branch_id, staff_id, lead_staff_id)
-       SELECT t.tenant_id, x.b, $2, x.l FROM tenants t, unnest($3::text[], $4::text[]) AS x(b, l) WHERE t.tenant_id = $1`,
-      [s.staffId, s.reportsTo.map((row) => row.branch_id), s.reportsTo.map((row) => row.lead_staff_id)],
-    );
-  }
-  if (s.floors.length > 0) {
-    await db.query(
-      `INSERT INTO staff_floors (tenant_id, branch_id, staff_id, floor_id)
-       SELECT t.tenant_id, x.b, $2, x.fl FROM tenants t, unnest($3::text[], $4::text[]) AS x(b, fl) WHERE t.tenant_id = $1`,
-      [s.staffId, s.floors.map((row) => row.branch_id), s.floors.map((row) => row.floor_id)],
-    );
-  }
+}
+
+export async function removeRoles(db: TenantSql, staffId: string, roleIds: string[]): Promise<void> {
+  if (roleIds.length === 0) return;
+  await db.query(`DELETE FROM staff_roles WHERE tenant_id = $1 AND staff_id = $2 AND role_id = ANY($3)`, [staffId, roleIds]);
+}
+
+export async function addRoles(db: TenantSql, staffId: string, roleIds: string[]): Promise<void> {
+  if (roleIds.length === 0) return;
+  await db.query(
+    `INSERT INTO staff_roles (tenant_id, staff_id, role_id)
+     SELECT t.tenant_id, $2, x.r FROM tenants t, unnest($3::text[]) AS x(r) WHERE t.tenant_id = $1`,
+    [staffId, roleIds],
+  );
+}
+
+// §6.4: denials, leads and floors are sent whole and replace the stored list.
+export async function replaceDenials(db: TenantSql, staffId: string, permissions: string[]): Promise<void> {
+  await db.query(`DELETE FROM staff_permission_denials WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
+  await insertDenials(db, staffId, permissions);
+}
+
+export async function replaceLeads(db: TenantSql, staffId: string, reportsTo: NewStaff['reportsTo']): Promise<void> {
+  await db.query(`DELETE FROM staff_leads WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
+  await insertLeads(db, staffId, reportsTo);
+}
+
+export async function replaceFloors(db: TenantSql, staffId: string, floors: NewStaff['floors']): Promise<void> {
+  await db.query(`DELETE FROM staff_floors WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
+  await insertFloors(db, staffId, floors);
+}
+
+async function insertDenials(db: TenantSql, staffId: string, permissions: string[]): Promise<void> {
+  if (permissions.length === 0) return;
+  await db.query(
+    `INSERT INTO staff_permission_denials (tenant_id, staff_id, permission)
+     SELECT t.tenant_id, $2, x.p FROM tenants t, unnest($3::text[]) AS x(p) WHERE t.tenant_id = $1`,
+    [staffId, permissions],
+  );
+}
+
+async function insertLeads(db: TenantSql, staffId: string, reportsTo: NewStaff['reportsTo']): Promise<void> {
+  if (reportsTo.length === 0) return;
+  await db.query(
+    `INSERT INTO staff_leads (tenant_id, branch_id, staff_id, lead_staff_id)
+     SELECT t.tenant_id, x.b, $2, x.l FROM tenants t, unnest($3::text[], $4::text[]) AS x(b, l) WHERE t.tenant_id = $1`,
+    [staffId, reportsTo.map((row) => row.branch_id), reportsTo.map((row) => row.lead_staff_id)],
+  );
+}
+
+async function insertFloors(db: TenantSql, staffId: string, floors: NewStaff['floors']): Promise<void> {
+  if (floors.length === 0) return;
+  await db.query(
+    `INSERT INTO staff_floors (tenant_id, branch_id, staff_id, floor_id)
+     SELECT t.tenant_id, x.b, $2, x.fl FROM tenants t, unnest($3::text[], $4::text[]) AS x(b, fl) WHERE t.tenant_id = $1`,
+    [staffId, floors.map((row) => row.branch_id), floors.map((row) => row.floor_id)],
+  );
 }
 
 // §6 script: target rows locked FOR UPDATE in id order, after the tenant row (B11).
