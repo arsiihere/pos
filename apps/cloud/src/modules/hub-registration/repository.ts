@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { createHash } from 'node:crypto';
+import type { Scope } from '@pos/domain';
 import type { DirectoryInput } from '@pos/events';
 import type pg from 'pg';
 
@@ -97,6 +98,9 @@ export async function consumeCode(
   );
 }
 
+// 01b §4.3.1, §7.3: 8 fixed statements whatever the staff count. Staff with no PIN are not sent (B3); the
+// role set adds every approver role named by those roles' grants (m3); floors and responsibilities skip
+// archived floors and stations; approver_role_id is the dual-written first approver (B18 a).
 export async function loadDirectory(
   client: pg.PoolClient,
   tenantId: string,
@@ -115,17 +119,14 @@ export async function loadDirectory(
     `SELECT s.staff_id, s.display_name, s.pin_hash
        FROM staff s
        JOIN staff_branches sb ON sb.tenant_id = s.tenant_id AND sb.staff_id = s.staff_id
-      WHERE s.tenant_id = $1 AND sb.branch_id = $2 AND s.is_active
+      WHERE s.tenant_id = $1 AND sb.branch_id = $2 AND s.is_active AND s.pin_hash IS NOT NULL
       ORDER BY s.staff_id`,
     [tenantId, branchId],
   );
+  const staffIds = staff.rows.map((member) => member.staff_id);
   const roles = await client.query<{ role_id: string; name: string; session_idle_ttl_ms: number }>(
     `WITH branch_roles AS (
-       SELECT DISTINCT sr.role_id
-         FROM staff_roles sr
-         JOIN staff s ON s.tenant_id = sr.tenant_id AND s.staff_id = sr.staff_id
-         JOIN staff_branches sb ON sb.tenant_id = sr.tenant_id AND sb.staff_id = sr.staff_id
-        WHERE sr.tenant_id = $1 AND sb.branch_id = $2 AND s.is_active
+       SELECT DISTINCT role_id FROM staff_roles WHERE tenant_id = $1 AND staff_id = ANY($2::text[])
      )
      SELECT r.role_id, r.name, r.session_idle_ttl_ms
        FROM roles r
@@ -133,26 +134,30 @@ export async function loadDirectory(
         AND (
           r.role_id IN (SELECT role_id FROM branch_roles)
           OR r.role_id IN (
-            SELECT rp.approver_role_id FROM role_permissions rp
-             WHERE rp.tenant_id = $1 AND rp.approver_role_id IS NOT NULL
-               AND rp.role_id IN (SELECT role_id FROM branch_roles)
+            SELECT rpa.approver_role_id FROM role_permission_approvers rpa
+             WHERE rpa.tenant_id = $1 AND rpa.role_id IN (SELECT role_id FROM branch_roles)
           )
         )
       ORDER BY r.name`,
-    [tenantId, branchId],
+    [tenantId, staffIds],
   );
   const roleIds = roles.rows.map((role) => role.role_id);
-  const staffIds = staff.rows.map((member) => member.staff_id);
   const permissions = await client.query<{
     role_id: string;
     permission: string;
     grant_type: 'allowed' | 'requires_approval';
     approver_role_id: string | null;
+    approver_role_ids: string[];
+    scope: Scope;
   }>(
-    `SELECT role_id, permission, grant_type, approver_role_id
-       FROM role_permissions
-      WHERE tenant_id = $1 AND role_id = ANY($2::text[])
-      ORDER BY role_id, permission`,
+    `SELECT rp.role_id, rp.permission, rp.grant_type, rp.approver_role_id, rp.scope,
+            COALESCE(array_agg(rpa.approver_role_id) FILTER (WHERE rpa.approver_role_id IS NOT NULL), '{}') AS approver_role_ids
+       FROM role_permissions rp
+       LEFT JOIN role_permission_approvers rpa
+         ON rpa.tenant_id = rp.tenant_id AND rpa.role_id = rp.role_id AND rpa.permission = rp.permission
+      WHERE rp.tenant_id = $1 AND rp.role_id = ANY($2::text[])
+      GROUP BY rp.role_id, rp.permission, rp.grant_type, rp.approver_role_id, rp.scope
+      ORDER BY rp.role_id, rp.permission`,
     [tenantId, roleIds],
   );
   const links = await client.query<{ staff_id: string; role_id: string | null; denied: string | null }>(
@@ -165,19 +170,48 @@ export async function loadDirectory(
       WHERE tenant_id = $1 AND staff_id = ANY($2::text[])`,
     [tenantId, staffIds],
   );
+  const leads = await client.query<{ staff_id: string; lead_staff_id: string }>(
+    `SELECT staff_id, lead_staff_id FROM staff_leads
+      WHERE tenant_id = $1 AND branch_id = $2 AND staff_id = ANY($3::text[])`,
+    [tenantId, branchId, staffIds],
+  );
+  const floors = await client.query<{ staff_id: string; floor_id: string }>(
+    `SELECT sf.staff_id, sf.floor_id
+       FROM staff_floors sf
+       JOIN floors fl ON fl.tenant_id = sf.tenant_id AND fl.branch_id = sf.branch_id AND fl.floor_id = sf.floor_id
+      WHERE sf.tenant_id = $1 AND sf.branch_id = $2 AND sf.staff_id = ANY($3::text[]) AND fl.archived_at IS NULL`,
+    [tenantId, branchId, staffIds],
+  );
+  const responsibilities = await client.query<{
+    responsibility: 'count_stock';
+    station_id: string;
+    subject_kind: 'staff' | 'role';
+    subject_id: string;
+  }>(
+    `SELECT r.responsibility, r.station_id, r.subject_kind, r.subject_id
+       FROM responsibilities r
+       JOIN stations st ON st.tenant_id = r.tenant_id AND st.branch_id = r.branch_id AND st.station_id = r.station_id
+      WHERE r.tenant_id = $1 AND r.branch_id = $2 AND st.archived_at IS NULL`,
+    [tenantId, branchId],
+  );
   const rolesByStaff = new Map<string, string[]>();
   const denialsByStaff = new Map<string, string[]>();
   for (const link of links.rows) {
-    if (link.role_id !== null) {
-      const list = rolesByStaff.get(link.staff_id) ?? [];
-      list.push(link.role_id);
-      rolesByStaff.set(link.staff_id, list);
+    if (link.role_id !== null) push(rolesByStaff, link.staff_id, link.role_id);
+    if (link.denied !== null) push(denialsByStaff, link.staff_id, link.denied);
+  }
+  const leadByStaff = new Map(leads.rows.map((row) => [row.staff_id, row.lead_staff_id]));
+  const floorsByStaff = new Map<string, string[]>();
+  for (const row of floors.rows) push(floorsByStaff, row.staff_id, row.floor_id);
+  const sets = new Map<string, DirectoryInput['responsibilities'][number]>();
+  for (const row of responsibilities.rows) {
+    const key = JSON.stringify([row.station_id, row.responsibility]);
+    let set = sets.get(key);
+    if (set === undefined) {
+      set = { responsibility: row.responsibility, station_id: row.station_id, staff_ids: [], role_ids: [] };
+      sets.set(key, set);
     }
-    if (link.denied !== null) {
-      const list = denialsByStaff.get(link.staff_id) ?? [];
-      list.push(link.denied);
-      denialsByStaff.set(link.staff_id, list);
-    }
+    (row.subject_kind === 'staff' ? set.staff_ids : set.role_ids).push(row.subject_id);
   }
   return {
     branch_name: header.branch_name,
@@ -188,11 +222,10 @@ export async function loadDirectory(
         staff_id: member.staff_id,
         display_name: member.display_name,
         pin_hash: member.pin_hash,
-        role_ids: (rolesByStaff.get(member.staff_id) ?? []).slice().sort(),
-        denied_permissions: (denialsByStaff.get(member.staff_id) ?? []).slice().sort(),
-        // 01b §4.3.1 v2 keys with their v1 meaning until loadDirectory v2 (plan task 7) reads them.
-        lead_staff_id: null,
-        floor_ids: [],
+        role_ids: sorted(rolesByStaff.get(member.staff_id) ?? []),
+        denied_permissions: sorted(denialsByStaff.get(member.staff_id) ?? []),
+        lead_staff_id: leadByStaff.get(member.staff_id) ?? null,
+        floor_ids: sorted(floorsByStaff.get(member.staff_id) ?? []),
       })),
       roles: roles.rows.map((role) => ({
         role_id: role.role_id,
@@ -204,13 +237,29 @@ export async function loadDirectory(
             permission: grant.permission,
             grant_type: grant.grant_type,
             approver_role_id: grant.approver_role_id,
-            approver_role_ids: grant.approver_role_id === null ? [] : [grant.approver_role_id],
-            scope: 'branch' as const,
+            approver_role_ids: sorted(grant.approver_role_ids),
+            scope: grant.scope,
           })),
       })),
-      responsibilities: [],
+      responsibilities: [...sets.values()]
+        .map((set) => ({ ...set, staff_ids: sorted(set.staff_ids), role_ids: sorted(set.role_ids) }))
+        .sort((a, b) => compare(a.station_id, b.station_id) || compare(a.responsibility, b.responsibility)),
     },
   };
+}
+
+function push(map: Map<string, string[]>, key: string, value: string): void {
+  const list = map.get(key);
+  if (list === undefined) map.set(key, [value]);
+  else list.push(value);
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function sorted(values: readonly string[]): string[] {
+  return values.slice().sort(compare);
 }
 
 export async function confirmBranch(

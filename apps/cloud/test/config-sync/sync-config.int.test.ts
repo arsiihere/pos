@@ -70,6 +70,8 @@ describe('GET /v1/sync/config', () => {
     const v = await versions();
     const response = await poll(v.config, v.directory - 1);
     expect(response.statusCode).toBe(200);
+    // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3)
+    expect(counter.count).toBeLessThanOrEqual(17);
     const data = response.json().data;
     expect(data.config).toBeNull();
     const client = await cloud.pool.connect();
@@ -79,7 +81,6 @@ describe('GET /v1/sync/config', () => {
     } finally {
       client.release();
     }
-    expect(counter.count).toBeLessThanOrEqual(13);
   });
 
   it('[01a §10 #6] unknown or revoked branch key → 401 BRANCH_API_KEY_INVALID', async () => {
