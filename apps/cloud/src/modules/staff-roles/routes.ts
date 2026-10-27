@@ -1,5 +1,5 @@
 import { DomainError } from '@pos/domain';
-import { BranchRenameBody, PinBody, ResponsibilitiesPutBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
+import { BranchRenameBody, BranchSettingsPatchBody, PinBody, ResponsibilitiesPutBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
@@ -21,9 +21,11 @@ import {
 import {
   createRole,
   createStaff,
+  getBranchSettings,
   getResponsibilities,
   listRoles,
   listStaff,
+  patchBranchSettings,
   putResponsibilities,
   renameBranch,
   setPin,
@@ -155,6 +157,30 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id');
       return reply.send({ data: await renameBranch(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/branches/:branch_id/settings',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, response: { 200: BranchResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/branches/:branch_id/settings');
+      return reply.send({ data: await getBranchSettings(deps, tenantOf(request), request.params.branch_id) });
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/settings',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchIdParams, body: BranchSettingsPatchBody, response: { 200: BranchResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/settings');
+      return reply.send({ data: await patchBranchSettings(deps, ownerRequest(app, request), request.params.branch_id, request.body) });
     },
   );
 }

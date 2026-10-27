@@ -1,10 +1,11 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
-import type { BranchRenameBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import type { BranchRenameBody, BranchSettingsPatchBody, BranchWire, ChangedVersions, GrantWire, PinBody, ResponsibilitiesPutBody, ResponsibilityWire, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import { writeConfigAudit } from '../../lib/config-audit.js';
+import { bumpConfigVersion } from '../../lib/config-version.js';
 import { assertBranchAllowed } from '../restaurant/service.js';
 import { inTransaction, type IdempotentResult } from '../../lib/idempotency.js';
 import {
@@ -44,6 +45,7 @@ import {
   selectRoleHolders,
   setRoleArchived,
   updateBranchName,
+  updateBranchSettings,
   updatePin,
   updateRoleRow,
   updateStaffRow,
@@ -486,6 +488,70 @@ export async function renameBranch(
     );
     return { branch: { ...before, name: body.name } };
   });
+}
+
+// §6.10 GET: the path branch among the owner's (no statement), then 1 statement.
+export async function getBranchSettings(deps: StaffRolesDeps, tenant: TenantContext, branchId: string): Promise<{ branch: BranchWire }> {
+  assertBranchAllowed(tenant, branchId);
+  const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId, { lock: false });
+  if (branch === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+  return { branch };
+}
+
+// §6.10 PATCH: 01a's common write script plus B8: lock the branch row → merge → stale > gap (B16, 01a S33) →
+// no-op → update → audit branch_settings / update → bumpConfigVersion for this branch only.
+export async function patchBranchSettings(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: z.infer<typeof BranchSettingsPatchBody>,
+): Promise<{ branch: BranchWire }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const repo = new TenantLevelRepository(req.tenant, client);
+    const owner = await selectOwner(repo, req.ownerUserId);
+    if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
+    const stored = await selectBranchWire(repo, branchId, { lock: true });
+    if (stored === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    const before = settingsOf(stored);
+    const after = {
+      tax_enabled: body.tax_enabled ?? before.tax_enabled,
+      day_stale_after_hours: body.day_stale_after_hours ?? before.day_stale_after_hours,
+      day_min_gap_hours: body.day_min_gap_hours ?? before.day_min_gap_hours,
+    };
+    if (after.day_stale_after_hours <= after.day_min_gap_hours) {
+      throw new DomainError('VALIDATION_FAILED', {
+        issues: [{ path: 'day_min_gap_hours', message: 'day_min_gap_hours must be less than day_stale_after_hours' }],
+      });
+    }
+    if (
+      after.tax_enabled === before.tax_enabled &&
+      after.day_stale_after_hours === before.day_stale_after_hours &&
+      after.day_min_gap_hours === before.day_min_gap_hours
+    ) {
+      return { branch: stored };
+    }
+    await updateBranchSettings(repo, branchId, after);
+    await writeConfigAudit(
+      repo,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'branch_settings',
+        entityId: branchId,
+        branchId,
+        action: 'update',
+        before,
+        after,
+      },
+      deps,
+    );
+    await bumpConfigVersion(repo, { kind: 'branch', branchId });
+    return { branch: { ...stored, ...after } };
+  });
+}
+
+function settingsOf(branch: BranchWire) {
+  return { tax_enabled: branch.tax_enabled, day_stale_after_hours: branch.day_stale_after_hours, day_min_gap_hours: branch.day_min_gap_hours };
 }
 
 type ResponsibilitySet = { responsibilities: ResponsibilityWire[]; version: string };

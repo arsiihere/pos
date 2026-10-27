@@ -633,3 +633,14 @@ export async function selectBranchWire(db: TenantSql, branchId: string, o: { loc
 export async function updateBranchName(db: TenantSql, branchId: string, name: string): Promise<void> {
   await db.query(`UPDATE branches SET name = $3 WHERE tenant_id = $1 AND branch_id = $2`, [branchId, name]);
 }
+
+export async function updateBranchSettings(
+  db: TenantSql,
+  branchId: string,
+  s: { tax_enabled: boolean; day_stale_after_hours: number; day_min_gap_hours: number },
+): Promise<void> {
+  await db.query(
+    `UPDATE branches SET tax_enabled = $3, day_stale_after_hours = $4, day_min_gap_hours = $5 WHERE tenant_id = $1 AND branch_id = $2`,
+    [branchId, s.tax_enabled, s.day_stale_after_hours, s.day_min_gap_hours],
+  );
+}

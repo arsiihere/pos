@@ -116,6 +116,8 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   }),
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
   'PATCH /v1/admin/branches/:branch_id': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}`, payload: { name: 'Gulberg' } }),
+  'GET /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings` }),
+  'PATCH /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings`, payload: { tax_enabled: true } }),
   'GET /v1/admin/branches/:branch_id/responsibilities': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/responsibilities` }),
   'PUT /v1/admin/branches/:branch_id/responsibilities': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/responsibilities`,
