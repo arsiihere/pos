@@ -2,3 +2,7 @@
 
 Decisions made without a human. Format: `AD-n | task | problem | options considered | choice | why | files touched`
 
+
+# Module 01b
+
+AD-1 | T1 | Test #77 requires "a tenant with two roles named Manager keys the smaller role_id only", but the same migration 0005 creates `roles_active_name` (unique `lower(name)` among active roles), so such a tenant makes 0005 abort (by design, §5.1: name constraints are not clamped). The duplicate case cannot pass through a full migration. | (a) patch spec #77 to drop the duplicate case; (b) archive the duplicate first (impossible: `archived_at` is added by 0005); (c) run 0005 only up to and including the backfill and its DO check (cut before `ALTER TABLE roles ADD COLUMN archived_at`) inside a transaction that is rolled back, assert the keys there, then run the full migration on the seeded data for the rest of #77 | (c) | Tests the spec's backfill rule exactly as written, with no spec or schema change (smallest change); the abort on duplicate active names is #89's case (task 3) | apps/cloud/test/db/staff-roles-migration.int.test.ts
