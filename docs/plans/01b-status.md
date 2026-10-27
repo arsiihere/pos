@@ -2,11 +2,11 @@
 | Task | Status | Attempts | Depends on | Note |
 |---|---|---|---|---|
 | T0 | PARKED | 0 | - | foundation edit forbidden in autobuild; see P-1. No code task depends on it (T5 adds the codes to errors.ts) |
-| T1 | TODO | 0 | - | fresh test DB first (P-5); WIP stash 01b-step1-wip may be read |
+| T1 | DONE | 1 | - | c8fe165; AD-1 (#77 duplicate-Manager case via rolled-back partial run) |
 | T2 | TODO | 0 | T1 | |
 | T3 | TODO | 0 | T1 | may pass at once; watch fail per plan |
 | T4 | TODO | 0 | T1 | uses scratchDatabaseAt(4) |
-| T5 | TODO | 0 | - | |
+| T5 | DONE | 1 | - | 736506c; AD-2 (catalogue groups) |
 | T6 | TODO | 0 | T5 | copy v1 schemas to fixture before editing |
 | T7 | TODO | 0 | T1,T6 | |
 | T8 | TODO | 0 | T6 | |
