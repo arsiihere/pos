@@ -1,79 +1,29 @@
-VERDICT: BLOCKERS
+VERDICT: PASS
 
-# 01b batch review: tasks 9, 12, 36, 37, 38 (2026-10-27)
+# 01b batch review: tasks 10, 13, 14, 21, 22 (2026-10-28)
 
-**Scope:** the commits after `4e9e5df review(01b): batch review`:
-- `d08e093`, `2213337`: fixes for R-2 and R-1 from the previous review
-- `cf2b61a` docs
-- `5ee236f` task 9
-- `156fe20` task 12
-- `ba6e263` task 36
-- `5af3f2b` task 37
-- `434dd4f` task 38
-- `a680d6a` docs
+**Scope:** the commits after `06a116b review(01b): batch review`: `13889a0` (R-1 fix), `700ce3f` (autobuild prompt), `ecd44f3` (T10), `0a4785c` (T13), `7d6700a` (T14), `b2ff8a3` (T21), `1e6331f` (T22), `80fd0c1` (docs).
 
-**Checked against:**
-- foundation §6
-- 01b spec v1.0: §3.2 rules 1–6, §3.3, §3.5, §3.6, §3.7, §6 (directory write script), §6.1, §6.2, §6.11, §6.13, §7.2, B8, B11, B12, B23
-- tests #4, #6, #7, #12, #13, #18, #20, #31, #33, #37, #40, #42, #44, #56, #81, #83
-- plan tasks 9, 12, 36, 37 and 38 ("Done when"), and the Interfaces block
-- AD-10, AD-11, AD-12
+**Checked against:** foundation §6, 01b spec v1.0 §3.1 (B3, B8, B9, B10, B11, B12, B21, B23), §3.2, §3.3, §3.4, §4.3 rows 9–10, §5.1, §5.3, §6 directory write script, §6.3–§6.6, §9, tests #2, #3, #8, #13–#15, #19, #25, #36, #58, #60, #85, #87; plan tasks 10, 13, 14, 21, 22 ("Done when"); AD-13, AD-14.
 
-**Test run:** `pnpm vitest run` on the batch's 26 test files passes (133 tests). `tsc --noEmit` for cloud is clean.
-
-**Previous review fixes:**
-- R-1 is done. `[01b #20 cloud half]` now gives each role a distinct grant and asserts one directory row with both roles and both grants. `[01b #20 hub half]` asserts that `resolve` returns the union, both on the applied directory and after `load`.
-- R-2 is done. The `[01b #83 hub half]` test is present, and the split is recorded on the status board.
-
-**Class B audit:**
-- **AD-10** (`directoryWrite` returns `IdempotentResult`, and `fn` returns `{ body, bump }`) is an internal signature. Correctly Class B.
-- **AD-11** sets `field` paths and a reason taken from the catalogue. Its "foreign `?branch_id` gives an empty list" rule changes no shared contract and no error code. Correctly Class B. However, the code does not keep AD-11's own "repeats are de-duplicated" promise for floors (R-1).
-- **AD-12** moves where the spec-fixed response schema lives and adds a column to an internal row type. Correctly Class B. The route case's wrong password counts one per-IP failure per sweep, which is harmless.
-
-**Code checks with no findings:**
-- **Task 9 `resolve`:** takes the widest scope among the roles that grant the winning type. An allowed grant is never widened by a requires-approval grant (#12). The approver union is sorted. `floorsOf`, `leadOf`, `teamOf`, `stationsOf` and `responsibilityHolders` match §3.5–§3.6 and §4.3 row 7.
-- **Task 12, directory write script:**
-  - order: idempotency key → tenant `FOR NO KEY UPDATE` → owner row → B8 coverage → rules → write → audit (wire without `version`) → `directory_version + 1`
-  - rule order matches §6.2 (1)–(5)
-  - B12 is case-insensitive and ignores leavers
-  - `GET` runs 6 statements
-  - both routes are in `ROUTE_CASES`, and #93 and #73 are extended
-- **Task 36 login success transaction:** takes `lockOwnerRow` with the verified hash.
-  - A changed hash gives `401` and counts nothing.
-  - An expired temporary password rolls back, then takes the failure path.
-  - The notice is read and cleared under the same lock.
-  - The lock `UPDATE` sets `lock_notice_at` in the same statement.
-- **Task 37 refresh:** lock order is token without a lock → owner `FOR NO KEY UPDATE` → token `FOR UPDATE` → `credential_version` equality, and nothing is revoked on a mismatch. A test proves the lock order. The rotating path clears the notice. The grace path returns `null` and writes nothing (#81).
-- **Task 38 change-password:**
-  - (0) uses the shared limiter; (1) runs before any hash work.
-  - The new hash is computed outside the transaction.
-  - (5a) takes the lock with the verified hash, and no row gives `401` with nothing counted.
-  - (5b) is one `UPDATE` that sets `credential_version + 1` and resets the counter.
-  - (5c) revokes, issues a new pair with the new `cv`, and writes the audit with no password fields.
-  - Logger redaction covers both password fields (#44).
-  - Steps (3) and (4) (the account lock and counter) are left to task 39, as the plan splits them. Until then, a wrong current password counts only for the per-IP limit. That is recorded on the status board and is not a finding.
-- **Deadlocks:** every path takes the owner row in one mode before any token row. The `UPDATE`s on non-key columns of the owner row take the same `NO KEY UPDATE` mode, so nothing is upgraded.
+**What holds:**
+- Directory write script order is right: idempotency key first (role POST) → tenants `FOR NO KEY UPDATE` → owner row and B8 → target `FOR UPDATE` in id order → version compare → rules → write → audit → `directory_version + 1` → commit. A no-op skips the bump and the audit (tested in #2), and the version compare runs before the no-op check, so a stale no-op is `409` (B23 test).
+- PIN (§6.3, B9): argon2id with M8 parameters, hashed outside the transaction; 404 for a leaver, unknown id or another tenant's person; the audit row holds only `{ has_pin, pin_set_at }`; `pin` is redacted in the logger; never a no-op; version unchanged; bumps the directory, so the hub gets the new hash (#3 hub half ends sessions `credentials_changed`).
+- Staff PATCH (§6.4): the `branch_ids` diff leaves the kept `staff_branches` row untouched (#87 checks the ctid); the person's own leads and floors at a removed branch go by FK cascade; whole-list replace for denials, leads and floors; B12 re-runs on a rename or an added branch.
+- Roles (§6.5, §6.6, B10): 4 statements; `approver_role_id` is dual-written as the first approver in UTF-16 sort order, with one `role_permission_approvers` row per approver; approvers are checked as active roles of the tenant; the name check is case-insensitive among active roles (backed by the `roles_active_name` index); `staff_count` counts only active staff; the audit `after` leaves out `version` and `staff_count`; replay and mismatch are covered by #60.
+- T21: the tenant lock is `FOR NO KEY UPDATE`. #85 proves a menu-item create does not wait on it, and the build log records that the test fails when the lock is switched to `FOR UPDATE`.
+- T10: roster responsibilities come from memory, the statement count stays at 2, and the 00 #46 / #82 expectations were widened, not weakened.
+- AD-13 is correctly Class B: it adds no code or reason value, the status is the one test #13 asks for, and no other module consumes these new routes. AD-14 is correctly Class B: it only decides which rule checks re-run, with no schema, contract or security effect.
+- No skipped or weakened tests. The fixture's `Z…` seed-id space is test infrastructure only.
 
 ## Findings
 
-### R-1 — Should-fix — T12 — `apps/cloud/src/modules/staff-roles/service.ts:63` (with `repository.ts` `insertStaff`, `staff_floors` PK)
-
-**Problem:** AD-11 says "repeats are de-duplicated (lists are sets)". `createStaff` removes repeats only *inside* one `floors` entry (`unique(entry.floor_ids)`). The `Floors` Zod schema allows two entries for the same `branch_id`.
-
-**Failure scenario:** `POST /v1/admin/staff` sends `floors: [{ branch_id: A, floor_ids: [F1] }, { branch_id: A, floor_ids: [F1] }]`.
-1. `checkFloors` passes both entries.
-2. `insertStaff` inserts `(A, S, F1)` twice.
-3. The `staff_floors` primary key `(tenant_id, branch_id, staff_id, floor_id)` raises pg `23505`. Nothing maps that error, so the owner gets `500 INTERNAL` instead of a defined answer, and an idempotency key that was used may be left in an error state. Task 14's PATCH will reuse the same path.
-
-No test covers repeated ids, although AD-11 claims they are handled.
-
-**Required fix:**
-- De-duplicate `(branch_id, floor_id)` pairs across entries before the insert, for example `unique` on `pairKey` over the flattened list. Keeping AD-11's "lists are sets" rule is the smallest change.
-- Add a test: repeated `role_ids`, `branch_ids` and `denied_permissions`, and a `floors` list with the same branch twice, all give `200`, with each id stored once.
+None at Blocker or Should-fix.
 
 ## Nits (non-blocking)
 
-1. `listStaff` runs its 6 reads on the pool with no shared transaction or snapshot. A write that lands between the reads can produce a `StaffWire` and `version` for a state that never existed. This fails safe: the next PATCH gets `409 CONFIG_STALE`. A `REPEATABLE READ` read-only transaction would make the reads consistent.
-2. `changePassword` (and the existing `login`) count a server error, such as a DB failure, as a per-IP failure, because the limiter is released only on the paths that are marked "not a guess".
-3. `routes.ts` change-password verifies the JWT a second time (`app.jwt.verify(access).sub`) after the tenant guard has already verified it. This is the same pattern as `staff-roles/routes.ts`. It is harmless but redundant.
-4. AD-12's `ROUTE_CASES` body for change-password sends a wrong current password. After task 39 that also counts toward tenant A's account counter, once per sweep. Watch for tests that run the sweep more than 9 times against one owner in a 15-minute window.
+- N-1 (T14) `apps/cloud/src/modules/staff-roles/service.ts:178-179`: while task 16 is pending, a body `{ expected_version, is_active: false }` is taken as a no-op and answers `200`, so the person stays active and in the directory. This is tracked on the T16 status row. Task 16 must make this path change state and add a test that fails if `is_active` is ignored.
+- N-2 (T14) `apps/cloud/src/modules/staff-roles/repository.ts:316-319` and `0005_staff_roles.sql:86`: removing a branch from a person who leads someone there hits the `staff_leads.lead_staff_id` FK (no cascade), so the call fails with a `500` (pg 23503) instead of the B15 move. Staff responsibilities at the removed branch are also left behind. Both belong to task 16 (status note). Its tests must cover a lead losing a branch, not only a lead leaving.
+- N-3 (T14) `service.ts:197` (`checkReportsTo`): with no loop walk yet, `reports_to` naming the person themself reaches the `staff_leads` CHECK and returns a `500`, and a two-person loop A→B→A is stored. Task 15 (loop walk, #27) must include the self-lead case and expect `422 loop`.
+- N-4 (T14) staff PATCH runs no admin guards (§3.4) until task 19. This follows the plan's order, but until then a PATCH can remove the last qualifying admin or the owner's own admin access. Do not release before task 19.
+- N-5 (T22) `repository.ts:108-113`: the `staff_count` query filters `staff_roles` by `role_id = ANY($2)`. If `staff_roles` has no index leading with `(tenant_id, role_id)`, this scans the whole tenant. That is fine at pilot size; note it for task 25 (archive cleanup uses the same access path).
