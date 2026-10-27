@@ -234,15 +234,16 @@ describe('role archive and restore (01b B14, §6.7)', () => {
 
   it('[01b #5] role create, edit, grant change, archive, restore and role assignment each write exactly one audit row with actor, before and after; a rolled-back write writes none', async () => {
     const b = f.branches[0];
-    const audited = async (run: () => Promise<{ statusCode: number; body: string }>) => {
+    const auditedAll = async (count: number, run: () => Promise<{ statusCode: number; body: string }>) => {
       const before = (await auditRows()).length;
       const response = await run();
       expect(response.statusCode, response.body).toBe(200);
       const rows = (await auditRows()).slice(before);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ actor_kind: 'owner', actor_owner_user_id: f.userId });
-      return rows[0]!;
+      expect(rows).toHaveLength(count);
+      rows.forEach((row) => expect(row).toMatchObject({ actor_kind: 'owner', actor_owner_user_id: f.userId }));
+      return rows;
     };
+    const audited = async (run: () => Promise<{ statusCode: number; body: string }>) => (await auditedAll(1, run))[0]!;
 
     let version = '';
     let id = '';
@@ -279,15 +280,21 @@ describe('role archive and restore (01b B14, §6.7)', () => {
     expect(assigned).toMatchObject({ entity: 'staff', entity_id: p.staff_id, action: 'update' });
     expect((assigned.after as Staff).role_ids).toContain(id);
 
-    const archived = await audited(async () => {
+    // §6 "one row per changed entity": the archive takes the role off its holder p, so p gets its own row.
+    const [archived, holder] = await auditedAll(2, async () => {
       const response = await patchRole(id, { expected_version: version, archived: true });
       version = response.json().data.role.version;
       return response;
     });
+    expect(holder).toMatchObject({ entity: 'staff', entity_id: p.staff_id, action: 'update' });
+    expect((holder!.before as Staff).role_ids).toEqual(expect.arrayContaining([waiterId, id]));
+    expect((holder!.after as Staff).role_ids).toEqual([waiterId]);
+    expect(holder!.after).not.toHaveProperty('pin_hash');
+    expect(holder!.after).not.toHaveProperty('version');
     expect(archived).toMatchObject({ entity: 'role', entity_id: id, action: 'archive', before: { archived_at: null }, after: { grants: [grant] } });
-    expect((archived.after as Role).archived_at).not.toBeNull();
-    expect(archived.after).not.toHaveProperty('staff_count');
-    expect(archived.after).not.toHaveProperty('version');
+    expect((archived!.after as Role).archived_at).not.toBeNull();
+    expect(archived!.after).not.toHaveProperty('staff_count');
+    expect(archived!.after).not.toHaveProperty('version');
 
     const restored = await audited(() => patchRole(id, { expected_version: version, archived: false }));
     expect(restored).toMatchObject({ action: 'restore', after: { archived_at: null } });

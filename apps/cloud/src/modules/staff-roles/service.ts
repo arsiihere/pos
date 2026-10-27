@@ -39,6 +39,7 @@ import {
   selectStaff,
   selectStationStates,
   setLead,
+  selectRoleHolders,
   setRoleArchived,
   updatePin,
   updateRoleRow,
@@ -387,6 +388,9 @@ export async function updateRole(
 
     await updateRoleRow(ctx.repo, roleId, { name: merged.name, idleMs: merged.idle_minutes * 60_000 });
     if (body.grants !== undefined) await replaceGrants(ctx.repo, roleId, grants);
+    // §6 "one row per changed entity": each holder the archive takes the role off gets its own `staff` row.
+    const holderIds = archiving ? await selectRoleHolders(ctx.repo, roleId) : [];
+    const holdersBefore = holderIds.length === 0 ? [] : (await selectStaff(ctx.repo, { ids: holderIds })).map(toStaffWire);
     if (archiving || restoring) {
       const removed = await setRoleArchived(ctx.repo, roleId, merged.archived_at);
       removed.holders.forEach((staffId) => ctx.changed.staff(staffId));
@@ -410,6 +414,22 @@ export async function updateRole(
       },
       ctx.deps,
     );
+    const holdersAfter = holderIds.length === 0 ? [] : (await selectStaff(ctx.repo, { ids: holderIds })).map(toStaffWire);
+    for (const holder of holdersAfter) {
+      await writeConfigAudit(
+        ctx.repo,
+        {
+          actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+          entity: 'staff',
+          entityId: holder.staff_id,
+          branchId: null,
+          action: 'update',
+          before: holdersBefore.find((wire) => wire.staff_id === holder.staff_id)!,
+          after: holder,
+        },
+        ctx.deps,
+      );
+    }
     const changed_versions = await ctx.changed.resolve(ctx);
     return { body: { role: withVersion(after, roleVersion(after)), changed_versions }, bump: true };
   });

@@ -171,6 +171,15 @@ export async function roleUsedBy(db: TenantSql, roleId: string): Promise<{ staff
   };
 }
 
+// §6 audit of a B14 archive: every holder of the role (active or not), read before the cascade deletes them.
+export async function selectRoleHolders(db: TenantSql, roleId: string): Promise<string[]> {
+  const rows = await db.query<{ staff_id: string }>(
+    `SELECT staff_id FROM staff_roles WHERE tenant_id = $1 AND role_id = $2 ORDER BY staff_id`,
+    [roleId],
+  );
+  return rows.map((row) => row.staff_id);
+}
+
 // B14: archive takes the role off every holder and drops its responsibilities; returns the former holders and
 // the branches whose responsibility set lost it. Restore (`archivedAt` null) only clears the stamp.
 export async function setRoleArchived(
