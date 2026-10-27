@@ -155,7 +155,7 @@ describe('command route', () => {
     const allowed = await post(hub, { name: 'test-approvable', commandType: 'TestApprovable', ...cashier, actorId: 'S_CASH' });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json().data.result).toEqual({
-      permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'] },
+      permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' },
     });
   });
 

@@ -23,11 +23,19 @@ export interface DirectoryCore {
   responsibilities: { responsibility: 'count_stock'; station_id: string; staff_ids: string[]; role_ids: string[] }[];
 }
 
+// 01b §3.3: `scope` only on a granting result.
 export type Resolution =
-  | { grant: 'allowed' }
-  | { grant: 'requires_approval'; approver_role_ids: string[] }
+  | { grant: 'allowed'; scope: Scope }
+  | { grant: 'requires_approval'; approver_role_ids: string[]; scope: Scope }
   | { grant: 'not_granted' }
   | { grant: 'denied' };
+
+// 01b §3.3: branch > my_floors = my_team = my_stations > own_tables.
+const SCOPE_RANK: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, own_tables: 0 };
+
+function wider(a: Scope | undefined, b: Scope): Scope {
+  return a === undefined || SCOPE_RANK[b] > SCOPE_RANK[a] ? b : a;
+}
 
 export interface StaffView {
   staff_id: string;
@@ -213,17 +221,67 @@ export class StaffDirectory {
     const staff = this.staffById.get(staffId);
     if (staff === undefined) return { grant: 'not_granted' };
     if (staff.denied.has(permission)) return { grant: 'denied' };
-    let allowed = false;
+    let allowedScope: Scope | undefined;
+    let approvalScope: Scope | undefined;
     const approvers = new Set<string>();
     for (const roleId of staff.role_ids) {
       const grant = this.roles.get(roleId)?.permissions.get(permission);
       if (grant === undefined) continue;
-      if (grant.grant_type === 'allowed') allowed = true;
-      else for (const approver of grant.approver_role_ids) approvers.add(approver);
+      if (grant.grant_type === 'allowed') allowedScope = wider(allowedScope, grant.scope);
+      else {
+        approvalScope = wider(approvalScope, grant.scope);
+        for (const approver of grant.approver_role_ids) approvers.add(approver);
+      }
     }
-    if (allowed) return { grant: 'allowed' };
-    if (approvers.size > 0) return { grant: 'requires_approval', approver_role_ids: [...approvers].sort() };
+    if (allowedScope !== undefined) return { grant: 'allowed', scope: allowedScope };
+    if (approvalScope !== undefined && approvers.size > 0) {
+      return { grant: 'requires_approval', approver_role_ids: sorted([...approvers]), scope: approvalScope };
+    }
     return { grant: 'not_granted' };
+  }
+
+  // 01b §3.2 rule 6: the person's floors at this branch (scope `my_floors`).
+  floorsOf(staffId: string): string[] {
+    return this.staffById.get(staffId)?.floor_ids.slice() ?? [];
+  }
+
+  // 01b §3.5: the person's lead at this branch, or null.
+  leadOf(staffId: string): string | null {
+    return this.staffById.get(staffId)?.lead_staff_id ?? null;
+  }
+
+  // 01b §3.5: direct reports at this branch only (people with a PIN, B3).
+  teamOf(staffId: string): string[] {
+    const team: string[] = [];
+    for (const staff of this.staffById.values()) if (staff.lead_staff_id === staffId) team.push(staff.staff_id);
+    return sorted(team);
+  }
+
+  // 01b §3.6: stations where the person is listed, or one of their roles is.
+  stationsOf(staffId: string, responsibility: 'count_stock'): string[] {
+    const staff = this.staffById.get(staffId);
+    if (staff === undefined) return [];
+    return this.responsibilities
+      .filter((entry) => entry.responsibility === responsibility && holds(entry, staff))
+      .map((entry) => entry.station_id);
+  }
+
+  // 01b §3.6: everyone in the directory who holds the responsibility at the station.
+  responsibilityHolders(stationId: string, responsibility: 'count_stock'): string[] {
+    const entry = this.responsibilities.find((e) => e.station_id === stationId && e.responsibility === responsibility);
+    if (entry === undefined) return [];
+    const holders: string[] = [];
+    for (const staff of this.staffById.values()) if (holds(entry, staff)) holders.push(staff.staff_id);
+    return sorted(holders);
+  }
+
+  // 01b §4.3 row 9: the roster's `responsibilities` for a person.
+  responsibilitiesOf(staffId: string): string[] {
+    const staff = this.staffById.get(staffId);
+    if (staff === undefined) return [];
+    const kinds = new Set<string>();
+    for (const entry of this.responsibilities) if (holds(entry, staff)) kinds.add(entry.responsibility);
+    return sorted([...kinds]);
   }
 
   permissionsOf(staffId: string): Record<Permission, Resolution> {
@@ -262,6 +320,10 @@ export class StaffDirectory {
   hasAdmin(staffId: string): boolean {
     return this.resolve(staffId, 'access-hub-admin').grant === 'allowed';
   }
+}
+
+function holds(entry: ResponsibilityRecord, staff: StaffRecord): boolean {
+  return entry.staff_ids.includes(staff.staff_id) || staff.role_ids.some((roleId) => entry.role_ids.includes(roleId));
 }
 
 function push(map: Map<string, string[]>, key: string, value: string): void {

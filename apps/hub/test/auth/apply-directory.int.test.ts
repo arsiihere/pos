@@ -541,7 +541,7 @@ describe('applyStaffDirectory', () => {
     const loaded = Directory.load(db);
     expect(counter.count).toBe(9);
     expect(loaded).toEqual(applied);
-    expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'] });
+    expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'], scope: 'branch' });
   });
 
   it('[01b #22] a hub database at 0004 with a grant migrates through 0005 and keeps it', async () => {
@@ -573,8 +573,8 @@ describe('applyStaffDirectory', () => {
     ]);
     const directory = Directory.load(fx.db);
     expect(directory.version).toBe(3);
-    expect(directory.resolve('S_CASH', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
-    expect(directory.resolve('S_CASH', 'reprint-ticket')).toEqual({ grant: 'allowed' });
+    expect(directory.resolve('S_CASH', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(directory.resolve('S_CASH', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
   });
 
   it('[01b #23] a lead or responsibility naming someone absent is skipped and listed; the rest applies', async () => {
@@ -620,7 +620,7 @@ describe('applyStaffDirectory', () => {
       'reprint-ticket',
     ]);
     expect(db.prepare('SELECT approver_role_id FROM role_permission_approvers').pluck().all()).toEqual(['R_MGR']);
-    expect(applied?.resolve('S_A', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
+    expect(applied?.resolve('S_A', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
     expect(applied?.resolve('S_A', 'void-item')).toEqual({ grant: 'not_granted' });
     const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
     expect(event?.payload.skipped).toEqual([
@@ -645,8 +645,8 @@ describe('applyStaffDirectory', () => {
     };
     let applied: StaffDirectory | undefined;
     writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
-    expect(applied?.resolve('S_CASH_1', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
-    expect(Directory.load(db).resolve('S_CASH_2', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
+    expect(applied?.resolve('S_CASH_1', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(Directory.load(db).resolve('S_CASH_2', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
     const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
     expect(event?.payload.skipped).toEqual([]);
   });
@@ -666,8 +666,8 @@ describe('applyStaffDirectory', () => {
     let applied: StaffDirectory | undefined;
     writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
     for (const directory of [applied!, Directory.load(db)]) {
-      expect(directory.resolve('S_BOTH', 'take-order-anywhere')).toEqual({ grant: 'allowed' });
-      expect(directory.resolve('S_BOTH', 'reprint-ticket')).toEqual({ grant: 'allowed' });
+      expect(directory.resolve('S_BOTH', 'take-order-anywhere')).toEqual({ grant: 'allowed', scope: 'branch' });
+      expect(directory.resolve('S_BOTH', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
       expect(directory.resolve('S_BOTH', 'void-item')).toEqual({ grant: 'not_granted' });
     }
     expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_BOTH']);

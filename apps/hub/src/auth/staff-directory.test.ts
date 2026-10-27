@@ -20,18 +20,20 @@ describe('StaffDirectory', () => {
   it('[00 §10 #78] resolve truth table', () => {
     const directory = StaffDirectory.fromInput(truthTable());
     expect(directory.resolve('S_DENY', 'reprint-ticket')).toEqual({ grant: 'denied' });
-    expect(directory.resolve('S_DENY', 'manage-devices')).toEqual({ grant: 'allowed' });
+    expect(directory.resolve('S_DENY', 'manage-devices')).toEqual({ grant: 'allowed', scope: 'branch' });
     expect(directory.resolve('S_DENY', 'apply-discount')).toEqual({ grant: 'not_granted' });
     expect(directory.resolve('S_MULTI', 'apply-discount')).toEqual({
       grant: 'requires_approval',
       approver_role_ids: ['R_CASH', 'R_MGR'],
+      scope: 'branch',
     });
     expect(directory.resolve('S_MULTI', 'void-item')).toEqual({
       grant: 'requires_approval',
       approver_role_ids: ['R_OWNER'],
+      scope: 'branch',
     });
     expect(directory.resolve('S_MULTI', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
-    expect(directory.resolve('S_WIN', 'manage-devices')).toEqual({ grant: 'allowed' });
+    expect(directory.resolve('S_WIN', 'manage-devices')).toEqual({ grant: 'allowed', scope: 'branch' });
     expect(directory.resolve('S_NONE', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
     expect(directory.resolve('S_DENY_APPROVAL', 'apply-discount')).toEqual({ grant: 'denied' });
     expect(directory.hasAdmin('S_WIN')).toBe(false);
@@ -52,13 +54,44 @@ describe('StaffDirectory', () => {
     expect(fixture.resolve('S_CASH', 'apply-discount')).toEqual({
       grant: 'requires_approval',
       approver_role_ids: ['R_MGR'],
+      scope: 'branch',
     });
-    expect(fixture.resolve('S_CASH', 'reprint-ticket')).toEqual({ grant: 'allowed' });
+    expect(fixture.resolve('S_CASH', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
     expect(fixture.resolve('S_MGR', 'manage-roles')).toEqual({ grant: 'not_granted' });
-    expect(fixture.resolve('S_MGR', 'manage-devices')).toEqual({ grant: 'allowed' });
+    expect(fixture.resolve('S_MGR', 'manage-devices')).toEqual({ grant: 'allowed', scope: 'branch' });
     expect(fixture.hasAdmin('S_OWNER')).toBe(true);
     expect(fixture.hasAdmin('S_WAIT')).toBe(false);
     expect(fixture.version).toBe(1);
+  });
+
+  it('[01b #12] resolve: allowed beats a wider requires_approval; widest scope among allowing roles; denial wins', () => {
+    const directory = StaffDirectory.fromInput(scopeTable());
+    expect(directory.resolve('S_AB', 'take-order-anywhere')).toEqual({ grant: 'allowed', scope: 'my_floors' });
+    expect(directory.resolve('S_AC', 'take-order-anywhere')).toEqual({ grant: 'allowed', scope: 'branch' });
+    expect(directory.resolve('S_AC_DENIED', 'take-order-anywhere')).toEqual({ grant: 'denied' });
+    expect(directory.resolve('S_B', 'take-order-anywhere')).toEqual({
+      grant: 'requires_approval',
+      approver_role_ids: ['R_MGR'],
+      scope: 'branch',
+    });
+    expect(directory.resolve('S_AB', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
+  });
+
+  it('[01b #13] approver union across roles is sorted and de-duplicated', () => {
+    const directory = StaffDirectory.fromInput({
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_X', name: 'X', session_idle_ttl_ms: 1_000, permissions: [approvals('void-item', ['R_Z', 'R_MGR'], 'my_team')] },
+        { role_id: 'R_Y', name: 'Y', session_idle_ttl_ms: 1_000, permissions: [approvals('void-item', ['R_MGR', 'R_A'], 'branch')] },
+      ],
+      staff: [staff('S_XY', 'XY', 'hash-xy', ['R_Y', 'R_X'])],
+      responsibilities: [],
+    });
+    expect(directory.resolve('S_XY', 'void-item')).toEqual({
+      grant: 'requires_approval',
+      approver_role_ids: ['R_A', 'R_MGR', 'R_Z'],
+      scope: 'branch',
+    });
   });
 
   it('[00 §5.1] load() round trip through the cache tables', async () => {
@@ -113,14 +146,43 @@ function truthTable(): DirectoryInput {
   };
 }
 
+// 01b #12: A allows with my_floors, B requires approval with branch, C allows with branch.
+function scopeTable(): DirectoryInput {
+  return {
+    directory_version: 1,
+    roles: [
+      { role_id: 'R_A', name: 'A', session_idle_ttl_ms: 1_000, permissions: [allowed('take-order-anywhere', 'my_floors')] },
+      { role_id: 'R_B', name: 'B', session_idle_ttl_ms: 1_000, permissions: [approval('take-order-anywhere', 'R_MGR')] },
+      { role_id: 'R_C', name: 'C', session_idle_ttl_ms: 1_000, permissions: [allowed('take-order-anywhere', 'branch')] },
+    ],
+    staff: [
+      staff('S_AB', 'AB', 'hash-ab', ['R_A', 'R_B']),
+      staff('S_AC', 'AC', 'hash-ac', ['R_A', 'R_C']),
+      staff('S_AC_DENIED', 'AC denied', 'hash-acd', ['R_A', 'R_C'], ['take-order-anywhere']),
+      staff('S_B', 'B', 'hash-b', ['R_B']),
+    ],
+    responsibilities: [],
+  };
+}
+
 type Grant = DirectoryInput['roles'][number]['permissions'][number];
 
-function allowed(permission: string): Grant {
-  return { permission, grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' };
+function allowed(permission: string, scope: Grant['scope'] = 'branch'): Grant {
+  return { permission, grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope };
 }
 
 function approval(permission: string, approver: string): Grant {
-  return { permission, grant_type: 'requires_approval', approver_role_id: approver, approver_role_ids: [approver], scope: 'branch' };
+  return approvals(permission, [approver], 'branch');
+}
+
+function approvals(permission: string, approvers: string[], scope: Grant['scope']): Grant {
+  return {
+    permission,
+    grant_type: 'requires_approval',
+    approver_role_id: approvers.slice().sort()[0] ?? null,
+    approver_role_ids: approvers,
+    scope,
+  };
 }
 
 function staff(
