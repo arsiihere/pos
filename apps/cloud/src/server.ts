@@ -27,6 +27,8 @@ const SECRET_FIELDS = [
   'refresh_token',
   'access_token',
   'branch_api_key',
+  'current_password', // 01b §7.2
+  'new_password',
 ] as const;
 
 const HEADER_REDACT = new Set<string>(SECRET_HEADERS);

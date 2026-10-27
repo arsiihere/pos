@@ -1,9 +1,12 @@
 /// <reference types="node" />
 import { createHmac } from 'node:crypto';
-import { verify } from '@node-rs/argon2';
+import { Algorithm, hash, verify, Version } from '@node-rs/argon2';
 import { DomainError } from '@pos/domain';
 import type pg from 'pg';
+import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
+import type { TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
+import { writeConfigAudit } from '../../lib/config-audit.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import type { AccessClaims } from '../../plugins/jwt.js';
@@ -17,6 +20,7 @@ import {
   resetLoginFailures,
   revokeLiveRefreshTokens,
   sha256,
+  writeChangedPassword,
   type OwnerAuthRow,
 } from './repository.js';
 
@@ -203,6 +207,110 @@ function locked(user: OwnerLoginUser, now: number): boolean {
 }
 
 export const IP_LOGIN_LIMIT = { max: IP_LIMIT, windowMs: WINDOW_MS };
+
+// 00 M8
+const ARGON = { memoryCost: 19_456, timeCost: 2, parallelism: 1, algorithm: Algorithm.Argon2id, version: Version.V0x13 };
+
+export type ChangedPassword = Omit<IssuedTokens, 'user' | 'lockout_notice'>;
+
+// 01b §6.11. Shares login's per-IP limiter (M64): a refusal that is a guess counts for the IP.
+export async function changePassword(
+  input: { current_password: string; new_password: string },
+  who: { tenant: TenantContext; userId: string },
+  deps: LoginDeps,
+  ip: string,
+  limiter: IpLimiter,
+): Promise<ChangedPassword> {
+  // (0)
+  const gate = limiter.check(ip);
+  if (gate.limited) throw new DomainError('IP_LOCKED_OUT', { retry_after_ms: gate.retryAfterMs });
+  let uncounted = false;
+  try {
+    // (1) before any hash work
+    if (input.new_password === input.current_password) {
+      uncounted = true;
+      throw new DomainError('PASSWORD_UNCHANGED');
+    }
+    // (2)
+    const users = await new TenantLevelRepository(who.tenant, deps.pool).query<{ password_hash: string }>(
+      `SELECT password_hash FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
+      [who.userId],
+    );
+    const user = users[0];
+    if (user === undefined) {
+      uncounted = true;
+      throw new DomainError('JWT_INVALID');
+    }
+    // (4)
+    if (!(await verify(user.password_hash, input.current_password))) throw new DomainError('PASSWORD_INVALID');
+    const newHash = await hash(input.new_password, ARGON);
+    // (5)
+    const client = await deps.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const owner = await lockOwnerRow(client, who.tenant.tenantId, who.userId, { passwordHash: user.password_hash });
+      if (owner === null) {
+        // (a) a concurrent change or reset committed after (2): not a guess
+        await client.query('ROLLBACK');
+        uncounted = true;
+        throw new DomainError('PASSWORD_INVALID');
+      }
+      const now = deps.clock.branchNow();
+      const version = await writeChangedPassword(client, {
+        tenantId: who.tenant.tenantId,
+        userId: who.userId,
+        passwordHash: newHash,
+        now,
+      });
+      // (c)
+      await revokeLiveRefreshTokens(client, who.tenant.tenantId, who.userId, now);
+      const refreshToken = deps.secrets.token256();
+      const refreshExpiresAt = now + REFRESH_TTL_MS;
+      await insertRefreshToken(client, {
+        tenantId: who.tenant.tenantId,
+        tokenId: deps.ids.next(),
+        userId: who.userId,
+        tokenHash: sha256(refreshToken),
+        now,
+        expiresAt: refreshExpiresAt,
+        credentialVersion: version,
+      });
+      await writeConfigAudit(
+        new TenantLevelRepository(who.tenant, client),
+        {
+          actor: { kind: 'owner', ownerUserId: who.userId },
+          entity: 'owner_user',
+          entityId: who.userId,
+          branchId: null,
+          action: 'password_change',
+          before: { credential_version: owner.credential_version, password_changed_at: owner.password_changed_at },
+          after: { credential_version: version, password_changed_at: now },
+        },
+        deps,
+      );
+      await client.query('COMMIT');
+      uncounted = true;
+      return {
+        access_token: deps.jwt.sign({
+          sub: who.userId,
+          tenant_id: who.tenant.tenantId,
+          allowed_branch_ids: owner.allowed_branch_ids,
+          cv: version,
+        }),
+        access_expires_at: now + ACCESS_TTL_MS,
+        refresh_token: refreshToken,
+        refresh_expires_at: refreshExpiresAt,
+      };
+    } catch (error) {
+      if (!uncounted) await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } finally {
+    if (uncounted) limiter.release(ip, gate.at);
+  }
+}
 
 interface StoredRefresh {
   tenant_id: string;

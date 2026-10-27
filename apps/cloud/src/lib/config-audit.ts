@@ -12,8 +12,16 @@ export type AuditEntity =
   | 'menu_item'
   | 'item_route'
   | 'branch_settings'
-  | 'staff'; // 01b B21
-export type AuditAction = 'create' | 'update' | 'archive' | 'restore' | 'route_set' | 'route_removed';
+  | 'staff' // 01b B21
+  | 'owner_user';
+export type AuditAction =
+  | 'create'
+  | 'update'
+  | 'archive'
+  | 'restore'
+  | 'route_set'
+  | 'route_removed'
+  | 'password_change'; // 01b B21
 
 export interface AuditEntry {
   actor: { kind: 'owner'; ownerUserId: string } | { kind: 'cli' };

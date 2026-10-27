@@ -76,6 +76,7 @@ describe('tenant scope', () => {
         { method: 'POST', url: '/v1/auth/login', tenantScope: 'none' },
         { method: 'POST', url: '/v1/auth/refresh', tenantScope: 'none' },
         { method: 'POST', url: '/v1/auth/logout', tenantScope: 'jwt' },
+        { method: 'POST', url: '/v1/auth/change-password', tenantScope: 'jwt' }, // 01b §6.11
       ]),
     );
     expect(typeof cloud.app.ownerCredentials.byEmail).toBe('function');

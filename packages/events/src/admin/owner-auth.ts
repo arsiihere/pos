@@ -30,6 +30,16 @@ export const LoginResponse = z.object({
   }),
 });
 
+// 01b §6.11: a fresh pair carrying the new credential version.
+export const ChangePasswordResponse = z.object({
+  data: z.object({
+    access_token: z.string(),
+    access_expires_at: z.number(),
+    refresh_token: z.string(),
+    refresh_expires_at: z.number(),
+  }),
+});
+
 export const RefreshBody = z.object({
   refresh_token: z.string().min(1),
 });

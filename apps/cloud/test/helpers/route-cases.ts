@@ -19,6 +19,11 @@ export interface BIds {
 // Every jwt / branch-key route, keyed "METHOD /url" (D54, M25). A body that is otherwise valid.
 export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?: unknown }> = {
   'POST /v1/auth/logout': (ids) => ({ url: '/v1/auth/logout', payload: { refresh_token: ids.refreshToken } }),
+  // a wrong current password: answered 401 without changing tenant A's credentials mid-sweep
+  'POST /v1/auth/change-password': () => ({
+    url: '/v1/auth/change-password',
+    payload: { current_password: 'not-the-password', new_password: 'a-new-password-1' },
+  }),
   'POST /v1/hubs/confirm': () => ({ url: '/v1/hubs/confirm', payload: { hub_version: '1.0.0' } }),
   'GET /v1/sync/config': () => ({ url: '/v1/sync/config?config_version=0&directory_version=0' }),
   'GET /v1/admin/branches': () => ({ url: '/v1/admin/branches' }),

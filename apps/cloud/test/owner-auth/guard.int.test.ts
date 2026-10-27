@@ -127,6 +127,16 @@ describe('JWT guard: credential version and forced change', () => {
     const out = await logout(after.access_token, refreshed.json().data.refresh_token as string);
     expect(out.statusCode).toBe(200);
     expect(out.json().data.revoked).toBe(true);
+    // change-password stays open while the flag is set, and clears it (§3.7)
+    const forced = await login();
+    const changed = await cloud.app.inject({
+      method: 'POST',
+      url: '/v1/auth/change-password',
+      headers: { authorization: `Bearer ${forced.access_token}` },
+      payload: { current_password: OWNER_PASSWORD, new_password: 'a-new-password-1' },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect((await get(changed.json().data.access_token as string)).statusCode).toBe(200);
   });
 
   it('[01b #73] a token from before a credential change is 401 JWT_INVALID; the new one works; the guard adds one statement', async () => {

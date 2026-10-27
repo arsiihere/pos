@@ -104,6 +104,7 @@ export interface OwnerAuthRow {
   lock_notice_at: number | null;
   allowed_branch_ids: string[];
   display_name: string;
+  password_changed_at: number | null;
 }
 
 // 01b B5, §6.13 (N2): the one lock mode on the owner row, taken before any token row by login, refresh,
@@ -122,9 +123,10 @@ export async function lockOwnerRow(
     lock_notice_at: string | null;
     allowed_branch_ids: string[];
     display_name: string;
+    password_changed_at: string | null;
   }>(
     `SELECT password_hash, must_change_password, temp_password_expires_at, credential_version, lock_notice_at,
-            allowed_branch_ids, display_name
+            allowed_branch_ids, display_name, password_changed_at
        FROM owner_users
       WHERE tenant_id = $1 AND user_id = $2 AND ($3::text IS NULL OR password_hash = $3)
         FOR NO KEY UPDATE`,
@@ -137,7 +139,27 @@ export async function lockOwnerRow(
     temp_password_expires_at: row.temp_password_expires_at === null ? null : Number(row.temp_password_expires_at),
     credential_version: Number(row.credential_version),
     lock_notice_at: row.lock_notice_at === null ? null : Number(row.lock_notice_at),
+    password_changed_at: row.password_changed_at === null ? null : Number(row.password_changed_at),
   };
+}
+
+// 01b §6.11 (5b), N1: the new hash and credential_version + 1 in one UPDATE, under the owner row lock.
+export async function writeChangedPassword(
+  client: pg.PoolClient,
+  o: { tenantId: string; userId: string; passwordHash: string; now: number },
+): Promise<number> {
+  const result = await client.query<{ credential_version: number }>(
+    `UPDATE owner_users
+        SET password_hash = $3, credential_version = credential_version + 1, must_change_password = false,
+            temp_password_expires_at = NULL, password_changed_at = $4,
+            failed_login_count = 0, login_window_started_at = NULL, login_locked_until = NULL
+      WHERE tenant_id = $1 AND user_id = $2
+      RETURNING credential_version`,
+    [o.tenantId, o.userId, o.passwordHash, o.now],
+  );
+  const version = result.rows[0]?.credential_version;
+  if (version === undefined) throw new Error('owner user missing');
+  return Number(version);
 }
 
 // §3.7: the notice is shown once.
