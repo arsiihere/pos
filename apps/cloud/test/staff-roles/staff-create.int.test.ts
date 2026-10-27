@@ -251,6 +251,29 @@ describe('staff list and create (01b §6.1, §6.2)', () => {
     });
   });
 
+  it('[01b §6.2, AD-11] repeated role_ids, branch_ids, denied_permissions and a branch twice in floors → 200, each stored once', async () => {
+    await addFloor('F_A', f.branches[0]);
+    await addFloor('F_A2', f.branches[0]);
+    const waiterRole = await roleId('waiter');
+    const response = await create({
+      display_name: 'Bilal',
+      role_ids: [waiterRole, waiterRole],
+      branch_ids: [f.branches[0], f.branches[0]],
+      denied_permissions: ['void-item', 'void-item'],
+      floors: [
+        { branch_id: f.branches[0], floor_ids: ['F_A', 'F_A'] },
+        { branch_id: f.branches[0], floor_ids: ['F_A', 'F_A2'] },
+      ],
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data.staff).toMatchObject({
+      role_ids: [waiterRole],
+      branch_ids: [f.branches[0]],
+      denied_permissions: ['void-item'],
+      floors: [{ branch_id: f.branches[0], floor_ids: ['F_A', 'F_A2'] }],
+    });
+  });
+
   it('[01b B8] an owner_users row missing a branch → create 403 tenant_wide_write, nothing written; GET still 200', async () => {
     await cloud.pool.query(`UPDATE owner_users SET allowed_branch_ids = $3 WHERE tenant_id = $1 AND user_id = $2`, [
       f.tenantId,

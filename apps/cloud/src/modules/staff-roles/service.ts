@@ -64,7 +64,7 @@ export async function createStaff(
       branchIds,
       deniedPermissions: unique(body.denied_permissions ?? []),
       reportsTo,
-      floors: floors.flatMap((entry) => unique(entry.floor_ids).map((floor_id) => ({ branch_id: entry.branch_id, floor_id }))),
+      floors: uniquePairs(floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))),
       now: ctx.deps.clock.branchNow(),
     });
     const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
@@ -144,4 +144,9 @@ function referenceInvalid(field: string, reason: string): DomainError {
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
+}
+
+// AD-11: lists are sets, so one (branch, floor) pair even when a branch repeats across `floors` entries.
+function uniquePairs(rows: { branch_id: string; floor_id: string }[]): { branch_id: string; floor_id: string }[] {
+  return [...new Map(rows.map((row) => [pairKey(row.branch_id, row.floor_id), row])).values()];
 }
