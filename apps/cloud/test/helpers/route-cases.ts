@@ -11,6 +11,8 @@ export interface BIds {
   taxClassId: string;
   categoryId: string;
   itemId: string;
+  roleId: string;
+  staffId: string;
   refreshToken: string;
 }
 
@@ -84,5 +86,10 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PUT /v1/admin/menu-items/:item_id/routes/:branch_id': (ids) => ({
     url: `/v1/admin/menu-items/${ids.itemId}/routes/${ids.branchId}`,
     payload: { station_id: ids.stationId, program_id: ids.programId },
+  }),
+  'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
+  'POST /v1/admin/staff': (ids) => ({
+    url: '/v1/admin/staff',
+    payload: { display_name: 'Bilal', role_ids: [ids.roleId], branch_ids: [ids.branchId] },
   }),
 };

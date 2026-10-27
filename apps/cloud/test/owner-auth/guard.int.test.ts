@@ -101,6 +101,8 @@ describe('JWT guard: credential version and forced change', () => {
       taxClassId: 'X',
       categoryId: 'X',
       itemId: 'X',
+      roleId: 'X',
+      staffId: 'X',
       refreshToken: 'X',
     };
     const admin = listTenantScopes(cloud.app).filter(
@@ -130,12 +132,17 @@ describe('JWT guard: credential version and forced change', () => {
   it('[01b #73] a token from before a credential change is 401 JWT_INVALID; the new one works; the guard adds one statement', async () => {
     const old = await login();
     await bump(); // "change-password on another device" / reset
-    for (const response of [await get(old.access_token), await logout(old.access_token, old.refresh_token)]) {
+    for (const response of [
+      await get(old.access_token),
+      await get(old.access_token, '/v1/admin/staff'),
+      await logout(old.access_token, old.refresh_token),
+    ]) {
       expect(response.statusCode).toBe(401);
       expect(response.json().error.code).toBe('JWT_INVALID');
     }
     const fresh = await login();
     expect((await get(fresh.access_token)).statusCode).toBe(200);
+    expect((await get(fresh.access_token, '/v1/admin/staff')).statusCode).toBe(200);
 
     const ghost = cloud.app.jwt.sign({ sub: 'no-such-owner', tenant_id: f.tenantId, allowed_branch_ids: [...f.branches], cv: 0 });
     const missing = await get(ghost);

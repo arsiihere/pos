@@ -10,7 +10,7 @@ import { createPool, migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
-import { truncateAll } from '../helpers/test-cloud';
+import { createTestCloud, truncateAll } from '../helpers/test-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const databaseUrl = process.env.DATABASE_URL ?? 'postgres://pos:pos@127.0.0.1:5433/pos_test';
@@ -252,7 +252,7 @@ describe('issue-registration-code', () => {
           [tenant],
         )
       ).rows[0];
-    return { tenant, owner: seeded.staff_id, role, staff, issue, directoryVersion, assigned, counts };
+    return { tenant, ownerUserId: seeded.user_id, owner: seeded.staff_id, role, staff, issue, directoryVersion, assigned, counts };
   }
 
   it('[01b #86] a new branch gets an active manager, not a leaver or one denied access-hub-admin or manage-devices; directory_version +1; waits on the tenant lock; a taken branch name (other case) → refused, nothing written', async () => {
@@ -321,8 +321,24 @@ describe('issue-registration-code', () => {
     await t.staff('e-left', 'Lee', t.role('Manager'), { left: true });
 
     const issued = await t.issue('C');
-    // GET /v1/admin/staff?branch_id=C (task 12) lists the people in staff_branches for C.
     expect(await t.assigned(issued.branch_id)).toEqual(['a-manager', t.owner].sort());
+    // The owner's view: GET /v1/admin/staff?branch_id=C lists the same people.
+    const cloud = await createTestCloud();
+    try {
+      const allowed = (
+        await pool.query<{ allowed_branch_ids: string[] }>(`SELECT allowed_branch_ids FROM owner_users WHERE tenant_id = $1`, [t.tenant])
+      ).rows[0]!.allowed_branch_ids;
+      const token = cloud.app.jwt.sign({ sub: t.ownerUserId, tenant_id: t.tenant, allowed_branch_ids: allowed });
+      const listed = await cloud.app.inject({
+        method: 'GET',
+        url: `/v1/admin/staff?branch_id=${issued.branch_id}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json().data.staff.map((row: { staff_id: string }) => row.staff_id).sort()).toEqual(['a-manager', t.owner].sort());
+    } finally {
+      await cloud.close();
+    }
   });
 
   it('[01b #94] two qualifying admins named "Ali" and "ali " → refused, listing the name with both staff ids, nothing written; after a rename both are assigned; every duplicated name is listed', async () => {

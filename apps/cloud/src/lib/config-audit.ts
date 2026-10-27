@@ -11,7 +11,8 @@ export type AuditEntity =
   | 'category'
   | 'menu_item'
   | 'item_route'
-  | 'branch_settings';
+  | 'branch_settings'
+  | 'staff'; // 01b B21
 export type AuditAction = 'create' | 'update' | 'archive' | 'restore' | 'route_set' | 'route_removed';
 
 export interface AuditEntry {

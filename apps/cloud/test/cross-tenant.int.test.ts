@@ -71,6 +71,12 @@ describe('cross-tenant', () => {
       `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, updated_at) VALUES ($1, $2, $3, $4, $5, 0)`,
       [f.other.tenantId, f.other.branchId, itemId, stationId, programId],
     );
+    const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1 ORDER BY staff_id`, [
+      f.other.tenantId,
+    ]);
+    const roles = await cloud.pool.query<{ role_id: string }>(`SELECT role_id FROM roles WHERE tenant_id = $1 ORDER BY role_id`, [
+      f.other.tenantId,
+    ]);
     const ids: BIds = {
       tenantId: f.other.tenantId,
       userId: f.other.userId,
@@ -83,14 +89,10 @@ describe('cross-tenant', () => {
       taxClassId,
       categoryId,
       itemId,
+      roleId: roles.rows[0]!.role_id,
+      staffId: staff.rows[0]!.staff_id,
       refreshToken: loginB.json().data.refresh_token as string,
     };
-    const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1`, [
-      ids.tenantId,
-    ]);
-    const roles = await cloud.pool.query<{ role_id: string }>(`SELECT role_id FROM roles WHERE tenant_id = $1`, [
-      ids.tenantId,
-    ]);
     const bIds = [
       ids.tenantId,
       ids.userId,

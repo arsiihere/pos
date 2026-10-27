@@ -15,6 +15,7 @@ import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerRestaurantRoutes } from './modules/restaurant/routes.js';
+import { registerStaffRolesRoutes } from './modules/staff-roles/routes.js';
 import { registerTenantScope } from './plugins/tenant-scope.js';
 
 const SECRET_HEADERS = ['authorization'] as const;
@@ -82,6 +83,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerHealthRoutes(app, deps);
   registerRestaurantRoutes(app, deps);
   registerConfigSyncRoutes(app, deps);
+  registerStaffRolesRoutes(app, deps);
   // §7.1, S21: the built owner pages, static and without tenant scope.
   registerClientDist(app, { prefix: '/owner/', dir: CLIENT_DIST_DIR, routeConfig: { tenantScope: 'none' } });
   return app;
