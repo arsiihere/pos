@@ -20,7 +20,7 @@
 | T16 | TODO | 0 | T14 | |
 | T17 | TODO | 0 | T8,T16 | |
 | T18 | TODO | 0 | T16 | may pass at once; watch fail per plan |
-| T19 | TODO | 0 | T14 | |
+| T19 | TODO | 0 | T14 | AD-6: switch `issue-registration-code` to `qualifyingAdmins` (no branch filter) and keep #93 green |
 | T20 | TODO | 0 | T19 | may pass at once; watch fail per plan |
 | T21 | TODO | 0 | T12 | |
 | T22 | TODO | 0 | T12 | |
@@ -35,7 +35,7 @@
 | T31 | TODO | 0 | T12 | |
 | T32 | TODO | 0 | T2,T12 | |
 | T33 | TODO | 0 | T6,T31 | |
-| T34 | DONE | 1 | T1 | e0ec2b8; AD-4 (reissue locks tenant, no bump); #93 GET part waits for T12 |
+| T34 | DONE | 1 | T1,T19 | e0ec2b8; AD-6 (interim inline admin SQL until T19); AD-4 (reissue locks tenant, no bump); #93 GET part waits for T12 |
 | T35 | TODO | 0 | T1 | |
 | T36 | TODO | 0 | T35 | |
 | T37 | TODO | 0 | T35 | |
