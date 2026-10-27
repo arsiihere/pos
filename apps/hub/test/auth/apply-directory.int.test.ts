@@ -631,6 +631,26 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_A']);
   });
 
+  it('[01b #83 hub half] an approver role nobody at the branch holds keeps the cashier grant; nothing skipped', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_CASH', name: 'Cashier', session_idle_ttl_ms: 900_000, permissions: [approvalGrant('apply-discount', ['R_MGR'])] },
+        { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 3_600_000, permissions: [] },
+      ],
+      staff: [staffRow('S_CASH_1', hash, ['R_CASH']), staffRow('S_CASH_2', hash, ['R_CASH'])],
+      responsibilities: [],
+    };
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    expect(applied?.resolve('S_CASH_1', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
+    expect(Directory.load(db).resolve('S_CASH_2', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'] });
+    const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(event?.payload.skipped).toEqual([]);
+  });
+
   async function open(hooks?: { beforeCommit?: () => void }): Promise<{ db: Database.Database; writer: Writer }> {
     const fx = freshDb();
     cleanups.push(fx.cleanup);
