@@ -11,19 +11,19 @@
 | T7 | DONE | 1 | T1,T6 | 76f631f; AD-3 interim keys replaced; 01a poll budget tests → ≤ 17 (01a v1.3 §6.1); #83 split: cloud half here, hub half in apply-directory (R-2) |
 | T8 | DONE | 1 | T6 | 365d868; AD-3 DirectoryCore now the stored v2 shape; AD-9 (skip ids) |
 | T9 | DONE | 1 | T5,T8 | 5ee236f; #18 hub half passes at once (00 ttlFor) |
-| T10 | TODO | 0 | T9 | |
+| T10 | DONE | 1 | T9 | ecd44f3; #19 passed at once (T9 permissionsOf); 00 #46/#82 roster rows gain responsibilities [] |
 | T11 | DONE | 1 | T6 | 7ccb562; AD-7 (row types in versions.ts) |
 | T12 | DONE | 1 | T1,T5,T6,T11 | 156fe20; AD-10, AD-11; #93 and #73 extended; create already checks §3.2 rules 5–6 (loop walk in T15) |
-| T13 | TODO | 0 | T8,T12 | |
-| T14 | TODO | 0 | T12 | extend #73 (guard test) with PATCH /v1/admin/staff/:id |
+| T13 | DONE | 1 | T8,T12 | 0a4785c; #3 hub half passes at once (00 apply code, P-3) |
+| T14 | DONE | 1 | T12 | 7d6700a; AD-14; #73 extended with PATCH; interim: is_active not applied yet (merged row keeps stored value) |
 | T15 | TODO | 0 | T14 | |
-| T16 | TODO | 0 | T14 | |
+| T16 | TODO | 0 | T14 | apply is_active in PATCH (T14 interim keeps stored value); B15 + responsibility cleanup on removed branches |
 | T17 | TODO | 0 | T8,T16 | |
 | T18 | TODO | 0 | T16 | may pass at once; watch fail per plan |
 | T19 | TODO | 0 | T14 | AD-6: switch `issue-registration-code` to `qualifyingAdmins` (no branch filter) and keep #93 green |
 | T20 | TODO | 0 | T19 | may pass at once; watch fail per plan |
-| T21 | TODO | 0 | T12 | |
-| T22 | TODO | 0 | T12 | |
+| T21 | DONE | 1 | T12 | b2ff8a3; FOR UPDATE mutation checked (fails), restored |
+| T22 | DONE | 1 | T12 | 1e6331f; AD-13; Class A: seeded ids get their own id space in the restaurant fixture |
 | T23 | TODO | 0 | T9,T22 | |
 | T24 | TODO | 0 | T22 | |
 | T25 | TODO | 0 | T24 | |
