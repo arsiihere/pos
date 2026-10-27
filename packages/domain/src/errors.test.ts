@@ -64,6 +64,18 @@ describe('errors', () => {
     expect(statusOf('STOCK_NOT_TRACKED')).toBe(422);
   });
 
+  it('[01b §9] 01b codes have their statuses', () => {
+    expect(statusOf('ROLE_NOT_FOUND')).toBe(404);
+    expect(statusOf('STAFF_NAME_TAKEN')).toBe(409);
+    expect(statusOf('LAST_ADMIN_REQUIRED')).toBe(409);
+    expect(statusOf('OWN_ADMIN_ACCESS')).toBe(409);
+    expect(statusOf('STAFF_LINKED_TO_OWNER')).toBe(409);
+    expect(statusOf('CONFIG_STALE')).toBe(409);
+    expect(statusOf('PASSWORD_INVALID')).toBe(401);
+    expect(statusOf('PASSWORD_UNCHANGED')).toBe(422);
+    expect(statusOf('PASSWORD_CHANGE_REQUIRED')).toBe(403);
+  });
+
   it('[F §6.2] DomainError carries code and details', () => {
     const e = new DomainError('STAFF_NOT_FOUND', { staff_id: 'x' });
     expect(e.code).toBe('STAFF_NOT_FOUND');
