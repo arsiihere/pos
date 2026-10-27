@@ -13,7 +13,6 @@ import {
   lockOwnerRow,
   insertRefreshToken,
   markRefreshRotated,
-  ownerProfile,
   recordLoginFailure,
   resetLoginFailures,
   revokeLiveRefreshTokens,
@@ -219,6 +218,8 @@ export interface RefreshDeps extends LoginDeps {
   refreshSecret: string;
 }
 
+// 01b §6.13 lock order (N1, N2): (1) the token unlocked, to learn its user; (2) the owner row FOR NO KEY UPDATE;
+// (3) the token row FOR UPDATE and 00's checks; (4) its credential_version must equal the owner's.
 export async function refreshTokens(
   credentials: {
     refreshByHash(client: pg.PoolClient, hash: string, forUpdate: boolean): Promise<StoredRefresh | null>;
@@ -230,17 +231,18 @@ export async function refreshTokens(
   let committed = false;
   try {
     await client.query('BEGIN');
-    const row = await credentials.refreshByHash(client, sha256(token), true);
+    const hash = sha256(token);
+    const found = await credentials.refreshByHash(client, hash, false);
+    if (found === null) throw new DomainError('REFRESH_TOKEN_INVALID');
+    const owner = await lockOwnerRow(client, found.tenant_id, found.user_id);
+    if (owner === null) throw new Error('owner missing');
+    const row = await credentials.refreshByHash(client, hash, true);
     const now = deps.clock.branchNow();
     if (row === null || Number(row.expires_at) <= now || row.revoked_at !== null) {
       throw new DomainError('REFRESH_TOKEN_INVALID');
     }
-    // 01b §6.13 (N1): a token issued before the owner's last change or reset is refused; nothing revoked.
-    const profile = await ownerProfile(client, row.tenant_id, row.user_id);
-    if (profile === null) throw new Error('owner missing');
-    if (Number(row.credential_version) !== Number(profile.credential_version)) {
-      throw new DomainError('REFRESH_TOKEN_INVALID');
-    }
+    // N1: a token issued before the owner's last change or reset is refused; nothing revoked.
+    if (Number(row.credential_version) !== owner.credential_version) throw new DomainError('REFRESH_TOKEN_INVALID');
     const successor = createHmac('sha256', deps.refreshSecret).update(token).digest('base64url');
     if (row.rotated_at !== null && now - Number(row.rotated_at) > REFRESH_GRACE_MS) {
       await revokeLiveRefreshTokens(client, row.tenant_id, row.user_id, now);
@@ -248,13 +250,15 @@ export async function refreshTokens(
       committed = true;
       throw new DomainError('REFRESH_TOKEN_INVALID');
     } else if (row.rotated_at !== null) {
+      // M49 grace: writes nothing, so the notice stays for the next rotating refresh or login (m1)
       const stored = await credentials.refreshByHash(client, sha256(successor), false);
       if (stored === null) throw new Error('successor missing');
-      const issued = issueAccess(row, profile, successor, Number(stored.expires_at), deps, now);
+      const issued = issueAccess(row, owner, successor, Number(stored.expires_at), null, deps, now);
       await client.query('COMMIT');
       return issued;
     } else {
       await markRefreshRotated(client, row.tenant_id, row.token_id, now);
+      if (owner.lock_notice_at !== null) await clearLockNotice(client, row.tenant_id, row.user_id);
       const refreshExpiresAt = now + REFRESH_TTL_MS;
       await insertRefreshToken(client, {
         tenantId: row.tenant_id,
@@ -263,9 +267,9 @@ export async function refreshTokens(
         tokenHash: sha256(successor),
         now,
         expiresAt: refreshExpiresAt,
-        credentialVersion: Number(profile.credential_version),
+        credentialVersion: owner.credential_version,
       });
-      const issued = issueAccess(row, profile, successor, refreshExpiresAt, deps, now);
+      const issued = issueAccess(row, owner, successor, refreshExpiresAt, lockoutNotice(owner.lock_notice_at), deps, now);
       await client.query('COMMIT');
       return issued;
     }
@@ -279,9 +283,10 @@ export async function refreshTokens(
 
 function issueAccess(
   row: StoredRefresh,
-  profile: { display_name: string; allowed_branch_ids: string[]; credential_version: number; must_change_password: boolean },
+  profile: OwnerAuthRow,
   refreshToken: string,
   refreshExpiresAt: number,
+  notice: IssuedTokens['lockout_notice'],
   deps: RefreshDeps,
   now: number,
 ): IssuedTokens {
@@ -290,7 +295,7 @@ function issueAccess(
       sub: row.user_id,
       tenant_id: row.tenant_id,
       allowed_branch_ids: profile.allowed_branch_ids,
-      cv: Number(profile.credential_version),
+      cv: profile.credential_version,
     }),
     access_expires_at: now + ACCESS_TTL_MS,
     refresh_token: refreshToken,
@@ -302,6 +307,6 @@ function issueAccess(
       allowed_branch_ids: profile.allowed_branch_ids,
       must_change_password: profile.must_change_password,
     },
-    lockout_notice: null, // the rotating refresh's notice: task 37
+    lockout_notice: notice,
   };
 }

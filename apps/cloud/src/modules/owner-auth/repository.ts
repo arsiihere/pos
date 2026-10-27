@@ -145,24 +145,6 @@ export async function clearLockNotice(client: pg.PoolClient, tenantId: string, u
   await client.query(`UPDATE owner_users SET lock_notice_at = NULL WHERE tenant_id = $1 AND user_id = $2`, [tenantId, userId]);
 }
 
-export async function ownerProfile(
-  client: pg.PoolClient,
-  tenantId: string,
-  userId: string,
-): Promise<{ display_name: string; allowed_branch_ids: string[]; credential_version: number; must_change_password: boolean } | null> {
-  const result = await client.query<{
-    display_name: string;
-    allowed_branch_ids: string[];
-    credential_version: number;
-    must_change_password: boolean;
-  }>(
-    `SELECT display_name, allowed_branch_ids, credential_version, must_change_password
-       FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
-    [tenantId, userId],
-  );
-  return result.rows[0] ?? null;
-}
-
 export async function insertRefreshToken(
   client: pg.PoolClient,
   row: {
