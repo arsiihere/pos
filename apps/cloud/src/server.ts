@@ -42,6 +42,7 @@ export interface CloudTestHooks {
   beforePrune?(): Promise<void>; // task 15 (#122)
   afterTenantLock?(): Promise<void>; // 01b task 21: directoryWrite, right after tenants … FOR NO KEY UPDATE (#85)
   guardRead?(): Promise<void>; // 01b task 35: a rejection makes the JWT guard's owner-row read fail (#107)
+  onVersionCompare?(entity: 'staff' | 'role' | 'responsibility', id: string, version: string): void; // 01b task 30 (#104)
 }
 
 export interface CloudDeps {

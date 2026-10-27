@@ -185,6 +185,7 @@ export async function updateStaff(
     const [stored] = await selectStaff(ctx.repo, { ids: [staffId] });
     const before = toStaffWire(stored!);
     const storedVersion = staffVersion(before);
+    ctx.deps.testHooks?.onVersionCompare?.('staff', staffId, storedVersion);
     if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'staff', id: staffId });
 
     const now = ctx.deps.clock.branchNow();
@@ -355,6 +356,7 @@ export async function updateRole(
     const [stored] = await selectRoles(ctx.repo, { ids: [roleId] });
     const before = toRoleWire(stored!);
     const storedVersion = roleVersion(before);
+    ctx.deps.testHooks?.onVersionCompare?.('role', roleId, storedVersion);
     if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'role', id: roleId });
 
     const now = ctx.deps.clock.branchNow();
@@ -464,6 +466,7 @@ export async function putResponsibilities(
     if (!(await selectBranchIds(ctx.repo, [branchId])).has(branchId)) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
     const before = toResponsibilitySet(branchId, await selectActiveResponsibilities(ctx.repo, branchId));
     const storedVersion = responsibilitySetVersion(branchId, before);
+    ctx.deps.testHooks?.onVersionCompare?.('responsibility', branchId, storedVersion);
     if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'responsibility', id: branchId });
 
     // AD-11: lists are sets. Stations with nobody are absent from the stored set (§6.8).
