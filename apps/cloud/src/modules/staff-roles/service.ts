@@ -26,6 +26,7 @@ import {
   replaceGrants,
   replaceLeads,
   roleNameTaken,
+  roleUsedBy,
   selectActiveAtBranch,
   selectBranchIds,
   selectFloorStates,
@@ -34,6 +35,7 @@ import {
   selectReports,
   selectStaff,
   setLead,
+  setRoleArchived,
   updatePin,
   updateRoleRow,
   updateStaffRow,
@@ -323,8 +325,10 @@ export async function createRole(
   });
 }
 
-// §6.7 without archive (task 25): directory write script with expected_version (B23); rules as §6.6 on the
-// sent fields; grants replace the stored list with the dual-written approver (B22); default_key is kept.
+// §6.7: directory write script with expected_version (B23); rules as §6.6 on the sent fields; grants replace
+// the stored list with the dual-written approver (B22); default_key is kept. `archived` per B14: refused while
+// an active person holds only this role or another active role lists it as approver; else it comes off every
+// holder with its responsibilities. Restore re-checks the name. The admin guards (§3.4) compare before and after.
 export async function updateRole(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -338,22 +342,45 @@ export async function updateRole(
     const storedVersion = roleVersion(before);
     if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'role', id: roleId });
 
+    const now = ctx.deps.clock.branchNow();
+    const wasArchived = stored!.archived_at !== null;
+    const archiving = body.archived === true && !wasArchived;
+    const restoring = body.archived === false && wasArchived;
     const grants = body.grants === undefined ? before.grants : await checkGrants(ctx.repo, body.grants);
     const merged = toRoleWire({
       ...stored!,
       name: body.name ?? before.name,
       session_idle_ttl_ms: body.idle_minutes === undefined ? stored!.session_idle_ttl_ms : body.idle_minutes * 60_000,
+      archived_at: archiving ? now : restoring ? null : stored!.archived_at,
       grants,
     });
     if (roleVersion(merged) === storedVersion) {
       return { body: { role: withVersion(before, storedVersion), changed_versions: emptyChanged() }, bump: false };
     }
-    if (merged.archived_at === null && merged.name !== before.name && (await roleNameTaken(ctx.repo, merged.name, roleId))) {
+    const adminsBefore = await qualifyingAdmins(ctx.repo);
+    if (merged.archived_at === null && (merged.name !== before.name || restoring) && (await roleNameTaken(ctx.repo, merged.name, roleId))) {
       throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'role', name: merged.name });
+    }
+    if (archiving) {
+      const usedBy = await roleUsedBy(ctx.repo, roleId);
+      if (usedBy.staff.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'role', id: roleId, used_by: { entity: 'staff', ids: usedBy.staff } });
+      }
+      if (usedBy.roles.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'role', id: roleId, used_by: { entity: 'role', ids: usedBy.roles } });
+      }
     }
 
     await updateRoleRow(ctx.repo, roleId, { name: merged.name, idleMs: merged.idle_minutes * 60_000 });
     if (body.grants !== undefined) await replaceGrants(ctx.repo, roleId, grants);
+    if (archiving || restoring) {
+      const removed = await setRoleArchived(ctx.repo, roleId, merged.archived_at);
+      removed.holders.forEach((staffId) => ctx.changed.staff(staffId));
+      removed.branches.forEach((branchId) => ctx.changed.responsibilities(branchId));
+    }
+
+    runAdminGuards(adminsBefore, await qualifyingAdmins(ctx.repo), ctx.ownerStaffId);
+
     const [row] = await selectRoles(ctx.repo, { ids: [roleId] });
     const after = toRoleWire(row!);
     await writeConfigAudit(
@@ -363,7 +390,7 @@ export async function updateRole(
         entity: 'role',
         entityId: roleId,
         branchId: null,
-        action: 'update',
+        action: archiving ? 'archive' : restoring ? 'restore' : 'update',
         before: auditedRole(before),
         after: auditedRole(after),
       },

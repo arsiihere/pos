@@ -150,6 +150,47 @@ interface RoleHead {
 const ROLE_SQL = `SELECT role_id, name, default_key, archived_at, session_idle_ttl_ms FROM roles WHERE tenant_id = $1`;
 const ROLE_ORDER = 'ORDER BY lower(name), role_id';
 
+// B14: what stops an archive. Active people whose only role this is (archived roles hold no staff_roles rows),
+// and other active roles that list it as an approver (a role may approve its own grant).
+export async function roleUsedBy(db: TenantSql, roleId: string): Promise<{ staff: string[]; roles: string[] }> {
+  const rows = await db.query<{ kind: 'staff' | 'role'; id: string }>(
+    `SELECT 'staff' AS kind, sr.staff_id AS id
+       FROM staff_roles sr JOIN staff s ON s.tenant_id = sr.tenant_id AND s.staff_id = sr.staff_id
+      WHERE sr.tenant_id = $1 AND sr.role_id = $2 AND s.is_active
+        AND NOT EXISTS (SELECT 1 FROM staff_roles o WHERE o.tenant_id = sr.tenant_id AND o.staff_id = sr.staff_id AND o.role_id <> $2)
+     UNION
+     SELECT 'role', a.role_id
+       FROM role_permission_approvers a JOIN roles r ON r.tenant_id = a.tenant_id AND r.role_id = a.role_id
+      WHERE a.tenant_id = $1 AND a.approver_role_id = $2 AND a.role_id <> $2 AND r.archived_at IS NULL
+     ORDER BY 1, 2`,
+    [roleId],
+  );
+  return {
+    staff: rows.filter((row) => row.kind === 'staff').map((row) => row.id),
+    roles: rows.filter((row) => row.kind === 'role').map((row) => row.id),
+  };
+}
+
+// B14: archive takes the role off every holder and drops its responsibilities; returns the former holders and
+// the branches whose responsibility set lost it. Restore (`archivedAt` null) only clears the stamp.
+export async function setRoleArchived(
+  db: TenantSql,
+  roleId: string,
+  archivedAt: number | null,
+): Promise<{ holders: string[]; branches: string[] }> {
+  await db.query(`UPDATE roles SET archived_at = $3 WHERE tenant_id = $1 AND role_id = $2`, [roleId, archivedAt]);
+  if (archivedAt === null) return { holders: [], branches: [] };
+  const holders = await db.query<{ staff_id: string }>(
+    `DELETE FROM staff_roles WHERE tenant_id = $1 AND role_id = $2 RETURNING staff_id`,
+    [roleId],
+  );
+  const branches = await db.query<{ branch_id: string }>(
+    `DELETE FROM responsibilities WHERE tenant_id = $1 AND subject_kind = 'role' AND subject_id = $2 RETURNING branch_id`,
+    [roleId],
+  );
+  return { holders: holders.map((row) => row.staff_id), branches: [...new Set(branches.map((row) => row.branch_id))] };
+}
+
 // §6.6, B12-like: an active role with this name (case-insensitive), other than `exceptRoleId`.
 export async function roleNameTaken(db: TenantSql, name: string, exceptRoleId: string | null): Promise<boolean> {
   const rows = await db.query(
