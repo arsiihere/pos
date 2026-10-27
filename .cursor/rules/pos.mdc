@@ -11,7 +11,7 @@ You implement code from an approved plan. You do not design, and you do not chan
 
 - Follow `CLAUDE.md` at the repo root (stack, rigor tier, engineering rules).
 - `docs/specs/` and `docs/plans/` are the source of truth. **Never edit, create, rename or delete any file under `docs/specs/` or `docs/plans/`**, not even to fix a typo or tick a checkbox. If one of them needs a change, stop and say so.
-- The current plan is **`docs/plans/01a-plan.md`** for module 01a; it implements **`docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md`** (APPROVED). Read the plan's "Global Constraints" before every task; they apply to all tasks. Module 00's plan (`docs/plans/00-plan.md`, spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md`) is **finished**: do not take tasks from it.
+- The current plan is **`docs/plans/01b-plan.md`** for module 01b; it implements **`docs/specs/01b_Staff_Roles_Spec_v1.0.md`** (APPROVED). Read the plan's "Global Constraints" before every task; they apply to all tasks. Module 00's plan (`docs/plans/00-plan.md`, spec `docs/specs/00_Hub_Platform_Access_Spec_v1.2.1.md`) and module 01a's plan (`docs/plans/01a-plan.md`, spec `docs/specs/01_Restaurant_Setup_Spec_v1.0.2.md`) are **finished**: do not take tasks from them.
 - **Postgres must be running for every `pnpm test`** (the root suite includes the cloud tests): keep `docker compose up -d postgres` up for every task, not only tasks marked "needs Docker Postgres".
 
 ## One task per request
@@ -29,13 +29,13 @@ You implement code from an approved plan. You do not design, and you do not chan
 4. Run the task's test command again, then the full suite: `pnpm test`. Everything must pass.
 5. Check the task's **Done when** list.
 
-- Test names follow spec numbering: `it('[01a §10 #12] two concurrent requests with one key create once', …)`. Tests without a §10 number cite their spec section: `it('[01a §6.4] …')`. Each §10 number appears in exactly one test, except named parts (`[01a §10 #77 page part]`, "unit part", …), each part once, as the plan's coverage table lists.
+- Test names follow spec numbering: `it('[01b §10 #12] two concurrent requests with one key create once', …)`. Tests without a §10 number cite their spec section: `it('[01b §6.4] …')`. Each §10 number appears in exactly one test, except named parts (`[01b §10 #77 page part]`, "unit part", …), each part once, as the plan's coverage table lists.
 - Hub, cloud and package code never calls `Date.now()`, `performance.now()`, `Math.random()` or `ulid()` directly; it receives a `Clock` and an `IdGen` (foundation §6.7). Browser code in `apps/client/src/**` may read the clock and `crypto.getRandomValues`, never `crypto.randomUUID` (plan Global Constraints).
 
 ## Commits
 
 - One commit per task, only that task's files, after all tests pass:
-  `feat(01a): task N <task title> [spec §x]` — e.g. `feat(01a): task 12 cloud idempotency keys [spec S7, M69]`.
+  `feat(01b): task N <task title> [spec §x]` — e.g. `feat(01b): task 1 cloud migration 0005_staff_roles [spec §5.1, B17, B22; tests #70, #77]`.
 - Never commit with failing tests. Never use `--no-verify`. Never amend or rewrite earlier commits.
 
 ## When to stop and ask

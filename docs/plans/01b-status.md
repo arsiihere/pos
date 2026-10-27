@@ -1,7 +1,7 @@
 # 01b status board (autobuild)
 | Task | Status | Attempts | Depends on | Note |
 |---|---|---|---|---|
-| T0 | PARKED | 0 | - | foundation edit forbidden in autobuild; see P-1. No code task depends on it (T5 adds the codes to errors.ts) |
+| T0 | DONE | 1 | - | done by human (P-1 answer A) |
 | T1 | DONE | 1 | - | c8fe165; AD-1 (#77 duplicate-Manager case via rolled-back partial run) |
 | T2 | TODO | 0 | T1 | |
 | T3 | TODO | 0 | T1 | may pass at once; watch fail per plan |
