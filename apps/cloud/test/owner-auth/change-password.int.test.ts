@@ -1,12 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { resetOwnerPassword } from '../../src/cli/reset-owner-password';
 import { SystemContext } from '../../src/cli/system-context';
 import { seedTenant } from '../../src/cli/seed-tenant';
-import { testIdGen } from '../../src/lib/ids';
+import { testIdGen, ulidGen } from '../../src/lib/ids';
+import { cryptoSecrets } from '../../src/lib/secrets';
 import { createTestCloud, truncateAll, type TestCloud } from '../helpers/test-cloud';
 
 const T = 1_761_000_000_000;
 const PASSWORD = 'password-1';
 const NEW_PASSWORD = 'a-much-better-passphrase';
+// §6.11 step 5, m11: each race test runs this many times (task 40: 20 runs without a failure).
+const RUNS = 20;
 
 describe('POST /v1/auth/change-password (01b §6.11)', () => {
   let cloud: TestCloud;
@@ -21,7 +25,7 @@ describe('POST /v1/auth/change-password (01b §6.11)', () => {
     await truncateAll(cloud.pool);
     await cloud.close();
   });
-  beforeEach(async () => {
+  const fresh = async () => {
     cloud.clock.set(T);
     await truncateAll(cloud.pool);
     owner = await seedTenant(
@@ -29,7 +33,8 @@ describe('POST /v1/auth/change-password (01b §6.11)', () => {
       { name: 'Pilot', currency: 'PKR', ownerEmail: 'owner@example.com', ownerName: 'Ada', password: PASSWORD, pin: '1234' },
       { clock: cloud.clock, ids: testIdGen() },
     );
-  });
+  };
+  beforeEach(fresh);
 
   const login = async (password = PASSWORD) => {
     const response = await cloud.app.inject({
@@ -205,6 +210,116 @@ describe('POST /v1/auth/change-password (01b §6.11)', () => {
     expect(changed.statusCode, changed.body).toBe(200);
     expect(await counters()).toMatchObject({ failed_login_count: 0, login_locked_until: null });
   });
+
+  // Holds the owner row FOR NO KEY UPDATE on its own connection, so requests queue behind it in a known order.
+  const holdOwnerRow = async () => {
+    const client = await cloud.pool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT 1 FROM owner_users WHERE user_id = $1 FOR NO KEY UPDATE`, [owner.user_id]);
+    return {
+      release: async () => {
+        await client.query('COMMIT');
+        client.release();
+      },
+    };
+  };
+  const lockWaiters = async (n: number) => {
+    for (let i = 0; i < 500; i += 1) {
+      const waiting = await cloud.pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      if (waiting.rows[0]!.n >= n) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`expected ${n} lock waiters`);
+  };
+  const auditRows = async () =>
+    (await cloud.pool.query<{ action: string }>(`SELECT action FROM config_audit WHERE entity = 'owner_user' ORDER BY at, audit_id`)).rows.map(
+      (row) => row.action,
+    );
+
+  it('[01b #43] change-password and a login with the old password: a login that verified before the change committed and locks after it → 401 LOGIN_INVALID, nothing counted', async () => {
+    for (let run = 0; run < RUNS; run += 1) {
+      if (run > 0) await fresh();
+      const a = (await login()).json().data;
+      const held = await holdOwnerRow();
+      const changing = changeFrom('10.8.0.1', a.access_token, { current_password: PASSWORD, new_password: NEW_PASSWORD });
+      await lockWaiters(1);
+      // The login reads the old hash and verifies it while the change waits; it then queues behind the change.
+      const signingIn = loginFrom('10.8.0.2', PASSWORD);
+      await lockWaiters(2);
+      await held.release();
+      const [changed, signedIn] = await Promise.all([changing, signingIn]);
+      expect(changed.statusCode, changed.body).toBe(200);
+      expect(signedIn.statusCode).toBe(401);
+      expect(signedIn.json().error.code).toBe('LOGIN_INVALID');
+      expect(await counters()).toMatchObject({ failed_login_count: 0, login_locked_until: null });
+      const live = await cloud.pool.query(`SELECT COUNT(*)::int AS n FROM owner_refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL`, [owner.user_id]);
+      expect(live.rows[0].n).toBe(1);
+      // A login after the commit with the old password fails too; the new one works.
+      expect((await loginFrom('10.8.0.3', PASSWORD)).statusCode).toBe(401);
+      expect((await loginFrom('10.8.0.4', NEW_PASSWORD)).statusCode).toBe(200);
+    }
+  }, 120_000);
+
+  it('[01b #90] two identical change-password requests released together: one 200, one 401 PASSWORD_INVALID, one audit row; a change that verified before a reset committed → 401, the temporary password still works', async () => {
+    for (let run = 0; run < RUNS; run += 1) {
+      if (run > 0) await fresh();
+      const a = (await login()).json().data;
+      const held = await holdOwnerRow();
+      const body = { current_password: PASSWORD, new_password: NEW_PASSWORD };
+      const first = changeFrom('10.8.1.1', a.access_token, body);
+      const second = changeFrom('10.8.1.2', a.access_token, body);
+      await lockWaiters(2);
+      await held.release();
+      const answers = await Promise.all([first, second]);
+      expect(answers.map((response) => response.statusCode).sort()).toEqual([200, 401]);
+      const won = answers.find((response) => response.statusCode === 200)!;
+      const lost = answers.find((response) => response.statusCode === 401)!;
+      expect(lost.json().error.code).toBe('PASSWORD_INVALID');
+      // Not a guess: the loser is not counted.
+      expect(await counters()).toMatchObject({ failed_login_count: 0 });
+      const tokens = won.json().data;
+      expect((await cloud.app.inject({ method: 'GET', url: '/v1/admin/branches', headers: { authorization: `Bearer ${tokens.access_token}` } })).statusCode).toBe(200);
+      expect((await cloud.app.inject({ method: 'POST', url: '/v1/auth/refresh', payload: { refresh_token: tokens.refresh_token } })).statusCode).toBe(200);
+      expect((await loginFrom('10.8.1.3', NEW_PASSWORD)).statusCode).toBe(200);
+      expect(await auditRows()).toEqual(['password_change']);
+
+      // A change that verified the current password while a reset held the row: the reset commits first.
+      const b = (await loginFrom('10.8.1.4', NEW_PASSWORD)).json().data;
+      let releaseReset: () => void = () => undefined;
+      let resetLocked: () => void = () => undefined;
+      const locked = new Promise<void>((resolve) => {
+        resetLocked = resolve;
+      });
+      const resetting = resetOwnerPassword(
+        new SystemContext(cloud.pool),
+        { email: 'owner@example.com' },
+        { clock: cloud.clock, ids: ulidGen(cloud.clock), secrets: cryptoSecrets },
+        {
+          afterOwnerRowLock: () => {
+            resetLocked();
+            return new Promise<void>((resolve) => {
+              releaseReset = resolve;
+            });
+          },
+        },
+      );
+      await locked;
+      const late = changeFrom('10.8.1.5', b.access_token, { current_password: NEW_PASSWORD, new_password: 'yet-another-passphrase' });
+      await lockWaiters(1);
+      releaseReset();
+      const { temporaryPassword } = await resetting;
+      const refused = await late;
+      expect(refused.statusCode).toBe(401);
+      expect(refused.json().error.code).toBe('PASSWORD_INVALID');
+      expect(await ownerRow()).toMatchObject({ must_change_password: true, credential_version: 2 });
+      const temp = await loginFrom('10.8.1.6', temporaryPassword);
+      expect(temp.statusCode, temp.body).toBe(200);
+      expect(temp.json().data.user.must_change_password).toBe(true);
+      expect(await auditRows()).toEqual(['password_change', 'password_reset']);
+    }
+  }, 120_000);
 
   it('[01b #44] body.current_password and body.new_password are redacted in logs', async () => {
     const a = (await login()).json().data;
