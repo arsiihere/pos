@@ -110,5 +110,9 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
       grants: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_ids: [ids.roleId] }],
     },
   }),
+  'PATCH /v1/admin/roles/:role_id': (ids) => ({
+    url: `/v1/admin/roles/${ids.roleId}`,
+    payload: { expected_version: 'stale', name: 'Shift lead' },
+  }),
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
 };

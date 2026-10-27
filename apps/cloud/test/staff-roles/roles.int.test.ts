@@ -243,17 +243,28 @@ describe('roles list and create (01b §6.5, §6.6)', () => {
     expect((archived.json().data.roles as Role[]).map((row) => row.role_id)).toEqual([await roleId('cook')]);
   });
 
-  // PATCH /roles/:id joins this test with task 24 (the route arrives there).
-  it('[01b #17] an owner row missing one branch: POST /roles → 403 tenant_wide_write, nothing written; GET /roles → 200 with no can_edit_roles', async () => {
+  it('[01b #17] an owner row missing one branch: POST /roles and PATCH /roles/:id → 403 tenant_wide_write, nothing written; GET /roles → 200 with no can_edit_roles', async () => {
+    const waiterId = await roleId('waiter');
+    const waiter = ((await list()).json().data.roles as Role[]).find((row) => row.role_id === waiterId)!;
     await cloud.pool.query(`UPDATE owner_users SET allowed_branch_ids = $3 WHERE tenant_id = $1 AND user_id = $2`, [
       f.tenantId,
       f.userId,
       [f.branches[0], f.branches[1]],
     ]);
     const [roles, v] = [await roleCount(), await directoryVersion()];
-    const refused = await create({ name: 'Shift lead', idle_minutes: 30, grants: [] });
-    expect(refused.statusCode, refused.body).toBe(403);
-    expect(refused.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
+    const refused = [
+      await create({ name: 'Shift lead', idle_minutes: 30, grants: [] }),
+      await cloud.app.inject({
+        method: 'PATCH',
+        url: `/v1/admin/roles/${waiterId}`,
+        headers: { authorization: `Bearer ${f.token}` },
+        payload: { expected_version: waiter.version, name: 'Bera', idle_minutes: 10 },
+      }),
+    ];
+    for (const response of refused) {
+      expect(response.statusCode, response.body).toBe(403);
+      expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
+    }
     expect(await roleCount()).toBe(roles);
     expect(await directoryVersion()).toBe(v);
     const audits = await cloud.pool.query(`SELECT 1 FROM config_audit WHERE tenant_id = $1 AND entity = 'role'`, [f.tenantId]);
@@ -263,6 +274,7 @@ describe('roles list and create (01b §6.5, §6.6)', () => {
     expect(listed.statusCode).toBe(200);
     expect(listed.json().data).not.toHaveProperty('can_edit_roles');
     expect((listed.json().data.roles as Role[]).length).toBe(roles);
+    expect((listed.json().data.roles as Role[]).find((row) => row.role_id === waiterId)).toEqual(waiter);
   });
 
   it('[01b #18] idle_minutes 0 or 241 → 400 VALIDATION_FAILED; 1 and 240 are saved', async () => {

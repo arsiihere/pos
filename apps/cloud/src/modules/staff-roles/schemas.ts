@@ -22,6 +22,7 @@ export const StaffPatchResponse = z.object({
 });
 
 // §6.5
+export const RoleIdParams = z.object({ role_id: z.string().min(1) });
 export const RoleQuery = z.object({ archived: z.enum(['false', 'true']).default('false') });
 export const RoleListResponse = z.object({ data: z.object({ roles: z.array(RoleWire) }) });
 export const RoleResponse = z.object({ data: z.object({ role: RoleWire, changed_versions: ChangedVersions }) });

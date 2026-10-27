@@ -1,6 +1,6 @@
 import { Algorithm, hash, Version } from '@node-rs/argon2';
 import { DomainError, PERMISSION_SCOPES } from '@pos/domain';
-import type { ChangedVersions, GrantWire, PinBody, RoleCreateBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
+import type { ChangedVersions, GrantWire, PinBody, RoleCreateBody, RolePatchBody, RoleWire, StaffCreateBody, StaffPatchBody, StaffWire } from '@pos/events';
 import type { z } from 'zod';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -15,12 +15,14 @@ import {
   insertRole,
   insertStaff,
   leadLineReaches,
+  lockRoles,
   lockStaff,
   pairKey,
   removeBranches,
   removeRoles,
   replaceDenials,
   replaceFloors,
+  replaceGrants,
   replaceLeads,
   roleNameTaken,
   selectActiveAtBranch,
@@ -32,6 +34,7 @@ import {
   selectStaff,
   setLead,
   updatePin,
+  updateRoleRow,
   updateStaffRow,
   type RoleFilter,
   type StaffFilter,
@@ -43,6 +46,7 @@ import { directoryWrite, type OwnerRequest, type StaffRolesDeps } from './write.
 type StaffCreateInput = z.infer<typeof StaffCreateBody>;
 type StaffPatchInput = z.infer<typeof StaffPatchBody>;
 type RoleCreateInput = z.infer<typeof RoleCreateBody>;
+type RolePatchInput = z.infer<typeof RolePatchBody>;
 type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
 
 // 00 M8: argon2id m=19456, t=2, p=1.
@@ -314,6 +318,58 @@ export async function createRole(
     const changed_versions = await ctx.changed.resolve(ctx);
     return { body: { role: withVersion(wire, roleVersion(wire)), changed_versions }, bump: true };
   });
+}
+
+// §6.7 without archive (task 25): directory write script with expected_version (B23); rules as §6.6 on the
+// sent fields; grants replace the stored list with the dual-written approver (B22); default_key is kept.
+export async function updateRole(
+  deps: StaffRolesDeps,
+  req: OwnerRequest,
+  roleId: string,
+  body: RolePatchInput,
+): Promise<{ role: RoleWire; changed_versions: ChangedVersions }> {
+  const out = await directoryWrite(deps, req, { idempotent: false }, async (ctx) => {
+    if (!(await lockRoles(ctx.repo, [roleId])).has(roleId)) throw new DomainError('ROLE_NOT_FOUND', { role_id: roleId });
+    const [stored] = await selectRoles(ctx.repo, { ids: [roleId] });
+    const before = toRoleWire(stored!);
+    const storedVersion = roleVersion(before);
+    if (body.expected_version !== storedVersion) throw new DomainError('CONFIG_STALE', { entity: 'role', id: roleId });
+
+    const grants = body.grants === undefined ? before.grants : await checkGrants(ctx.repo, body.grants);
+    const merged = toRoleWire({
+      ...stored!,
+      name: body.name ?? before.name,
+      session_idle_ttl_ms: body.idle_minutes === undefined ? stored!.session_idle_ttl_ms : body.idle_minutes * 60_000,
+      grants,
+    });
+    if (roleVersion(merged) === storedVersion) {
+      return { body: { role: withVersion(before, storedVersion), changed_versions: emptyChanged() }, bump: false };
+    }
+    if (merged.archived_at === null && merged.name !== before.name && (await roleNameTaken(ctx.repo, merged.name, roleId))) {
+      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'role', name: merged.name });
+    }
+
+    await updateRoleRow(ctx.repo, roleId, { name: merged.name, idleMs: merged.idle_minutes * 60_000 });
+    if (body.grants !== undefined) await replaceGrants(ctx.repo, roleId, grants);
+    const [row] = await selectRoles(ctx.repo, { ids: [roleId] });
+    const after = toRoleWire(row!);
+    await writeConfigAudit(
+      ctx.repo,
+      {
+        actor: { kind: 'owner', ownerUserId: ctx.ownerUserId },
+        entity: 'role',
+        entityId: roleId,
+        branchId: null,
+        action: 'update',
+        before: auditedRole(before),
+        after: auditedRole(after),
+      },
+      ctx.deps,
+    );
+    const changed_versions = await ctx.changed.resolve(ctx);
+    return { body: { role: withVersion(after, roleVersion(after)), changed_versions }, bump: true };
+  });
+  return out.body;
 }
 
 // §6.6 rules: one grant per permission; approvers non-empty iff requires_approval (AD-13: `field` only, as

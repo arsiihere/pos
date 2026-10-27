@@ -193,6 +193,26 @@ export async function insertGrants(db: TenantSql, roleId: string, grants: GrantW
   );
 }
 
+// §6.7: name and idle limit; default_key is never changed here (B17).
+export async function updateRoleRow(db: TenantSql, roleId: string, r: { name: string; idleMs: number }): Promise<void> {
+  await db.query(`UPDATE roles SET name = $3, session_idle_ttl_ms = $4 WHERE tenant_id = $1 AND role_id = $2`, [roleId, r.name, r.idleMs]);
+}
+
+// §6.7: grants are sent whole and replace the stored list (approver rows cascade from their grant).
+export async function replaceGrants(db: TenantSql, roleId: string, grants: GrantWire[]): Promise<void> {
+  await db.query(`DELETE FROM role_permissions WHERE tenant_id = $1 AND role_id = $2`, [roleId]);
+  await insertGrants(db, roleId, grants);
+}
+
+// §6 script: target rows locked FOR UPDATE in id order, after the tenant row (B11).
+export async function lockRoles(db: TenantSql, roleIds: string[]): Promise<Set<string>> {
+  const rows = await db.query<{ role_id: string }>(
+    `SELECT role_id FROM roles WHERE tenant_id = $1 AND role_id = ANY($2) ORDER BY role_id FOR UPDATE`,
+    [roleIds],
+  );
+  return new Set(rows.map((row) => row.role_id));
+}
+
 // B11: the first lock of every directory write.
 export async function lockTenant(db: TenantSql): Promise<void> {
   const rows = await db.query(`SELECT tenant_id FROM tenants WHERE tenant_id = $1 FOR NO KEY UPDATE`);

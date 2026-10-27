@@ -1,9 +1,10 @@
 import { DomainError } from '@pos/domain';
-import { PinBody, RoleCreateBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
+import { PinBody, RoleCreateBody, RolePatchBody, StaffCreateBody, StaffPatchBody } from '@pos/events';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import {
+  RoleIdParams,
   RoleListResponse,
   RoleQuery,
   RoleResponse,
@@ -13,7 +14,7 @@ import {
   StaffQuery,
   StaffResponse,
 } from './schemas.js';
-import { createRole, createStaff, listRoles, listStaff, setPin, updateStaff } from './service.js';
+import { createRole, createStaff, listRoles, listStaff, setPin, updateRole, updateStaff } from './service.js';
 import type { OwnerRequest, StaffRolesDeps } from './write.js';
 
 export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesDeps): void {
@@ -91,6 +92,18 @@ export function registerStaffRolesRoutes(app: FastifyInstance, deps: StaffRolesD
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('POST /v1/admin/roles');
       return sendIdempotent(reply, await createRole(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/roles/:role_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: RoleIdParams, body: RolePatchBody, response: { 200: RoleResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/roles/:role_id');
+      return reply.send({ data: await updateRole(deps, ownerRequest(app, request), request.params.role_id, request.body) });
     },
   );
 }
