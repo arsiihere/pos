@@ -117,7 +117,50 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     // Nothing moved: unchanged again.
     expect((await query(hub, counter, fourth)).json().data.unchanged).toBe(true);
   });
+
+  it('[01b #68] my_stations: OpenBusinessDay and CloseBusinessDay → 403 outside_scope with required_scope branch, no event; scope branch opens and closes as in 01a', async () => {
+    const hub = await open();
+    const manager = adminOn(hub, 'S_MGR');
+    const counter = adminOn(hub, 'S_CNT');
+    const before = hubEvents(hub);
+    for (const [name, type, id] of [['open-business-day', 'OpenBusinessDay', 'cmd-open-cnt'], ['close-business-day', 'CloseBusinessDay', 'cmd-close-cnt-1']] as const) {
+      const refused = await command(hub, counter, name, type, {}, id);
+      expect(refused.statusCode, refused.body).toBe(403);
+      expect(refused.json().error).toMatchObject({
+        code: 'PERMISSION_DENIED',
+        details: { permission: 'manage-stock', reason: 'outside_scope', required_scope: 'branch' },
+      });
+    }
+    expect(hubEvents(hub)).toBe(before);
+
+    // Scope branch: opens; the counter still cannot close the open day.
+    const opened = await command(hub, manager, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-mgr');
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect(opened.json().data.result).toMatchObject({ changed: true, reason: 'opened' });
+    const afterOpen = hubEvents(hub);
+    const refusedClose = await command(hub, counter, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-cnt-2');
+    expect(refusedClose.statusCode).toBe(403);
+    expect(refusedClose.json().error.details).toMatchObject({ reason: 'outside_scope', required_scope: 'branch' });
+    expect(hubEvents(hub)).toBe(afterOpen);
+    expect(processed(hub, ['cmd-open-cnt', 'cmd-close-cnt-1', 'cmd-close-cnt-2'])).toBe(0);
+  });
+
+  it('[01b §4.4 row 13] the stock query returns manage_stock_scope for the session: my_stations for the counter, branch for the manager', async () => {
+    const hub = await open();
+    const counter = (await query(hub, adminOn(hub, 'S_CNT'))).json().data;
+    expect(counter.manage_stock_scope).toBe('my_stations');
+    const manager = (await query(hub, adminOn(hub, 'S_MGR'))).json().data;
+    expect(manager.manage_stock_scope).toBe('branch');
+    // On an unchanged poll too.
+    const again = (await query(hub, adminOn(hub, 'S_CNT'), counter)).json().data;
+    expect(again.unchanged).toBe(true);
+    expect(again.manage_stock_scope).toBe('my_stations');
+  });
 });
+
+function hubEvents(hub: TestHub): number {
+  return hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'hub'").pluck().get() as number;
+}
 
 // S1 (I1, I2) and S2 (I3); every item stock-tracked.
 function twoStations(): BranchConfig {

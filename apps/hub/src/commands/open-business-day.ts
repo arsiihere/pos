@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { defineCommand } from './registry.js';
+import { requireBranchScope } from './set-precooked-stock.js';
 import { commandRegistry } from './route.js';
 
 const Payload = z.object({}).strict();
@@ -17,6 +18,7 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
       sessionKind: 'admin',
       permission: 'manage-stock',
       handle(ctx) {
+        requireBranchScope(ctx);
         const day = ctx.state.business_day;
         if (day !== null && day.closed_at === null) {
           return {

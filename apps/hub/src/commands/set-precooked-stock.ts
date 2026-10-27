@@ -77,13 +77,24 @@ export function requireItemsInScope(ctx: CommandCtx, items: ReadonlyArray<Pick<C
   }
 }
 
+// 01b D-6, §4.4 row 12: day open and close act on the whole branch; checked right after the manage-stock step.
+export function requireBranchScope(ctx: CommandCtx): void {
+  if (manageStockScope(ctx.permission) === 'branch') return;
+  throw new DomainError('PERMISSION_DENIED', { permission: 'manage-stock', reason: 'outside_scope', required_scope: 'branch' });
+}
+
+// 01b §4.4 row 13: the session's manage-stock scope; anything but `my_stations` behaves as `branch`.
+export function manageStockScope(resolution: Resolution | null): 'branch' | 'my_stations' {
+  return resolution !== null && 'scope' in resolution && resolution.scope === 'my_stations' ? 'my_stations' : 'branch';
+}
+
 // 01b B20: scope `branch` keeps every item; `my_stations` keeps the items routed to the person's stations.
 export function stockScopeFilter(
   directory: StaffDirectory,
   staffId: string | null,
   resolution: Resolution | null,
 ): (item: Pick<ConfigItem, 'station_id'>) => boolean {
-  if (resolution === null || !('scope' in resolution) || resolution.scope !== 'my_stations') return () => true;
+  if (manageStockScope(resolution) === 'branch') return () => true;
   const stations = new Set(staffId === null ? [] : directory.stationsOf(staffId, 'count_stock'));
   return (item) => stations.has(item.station_id);
 }

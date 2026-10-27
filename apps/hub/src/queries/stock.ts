@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
-import { stockScopeFilter } from '../commands/set-precooked-stock.js';
+import { manageStockScope, stockScopeFilter } from '../commands/set-precooked-stock.js';
 import { stockVersion } from '../sync/stock-version.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 
@@ -40,6 +40,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
         return {
           data: {
             unchanged,
+            manage_stock_scope: manageStockScope(resolution),
             config_version: config?.config_version ?? null,
             meta_version: metaVersion,
             stock_version: currentStockVersion,

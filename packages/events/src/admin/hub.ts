@@ -65,6 +65,8 @@ const BusinessDay = z.object({ business_date: z.string(), opened_at: int, closed
 export const StockQueryResponse = z.object({
   data: z.object({
     unchanged: z.boolean(),
+    // 01b §4.4 row 13 (D-6): the session's manage-stock scope; `my_stations` hides the day actions.
+    manage_stock_scope: z.enum(['branch', 'my_stations']),
     config_version: int.nullable(),
     meta_version: z.string(),
     stock_version: int,
