@@ -44,15 +44,15 @@
 | T40 | DONE | 1 | T38 | 85f367b; passed at once, watched fail with each hash compare-and-set removed; ran after T41 (#90 uses the reset CLI) |
 | T41 | DONE | 1 | T35 | 964c42a; AD-24 (CLI output, hook) |
 | T42 | DONE | 1 | T37,T38 | 0f9ad19; both cases fail with the refresh's owner-row lock made a plain read; restored |
-| T43 | TODO | 0 | T41,T42 | |
-| T44 | TODO | 0 | T42,T43 | |
+| T43 | DONE | 1 | T41,T42 | 5a2a5db; passed at once (T41 hook, T42 locks), watched fail with the reset's credential_version bump removed; Class A: test secrets repeat every 8 tokens, #74 e clears token rows per run |
+| T44 | DONE | 1 | T42,T43 | dd795e2; no src change; watched fail (40P01) with the owner-row lock made FOR SHARE, restored |
 | T45 | DONE | 1 | T1,T12 | 2cc3421; AD-25 (#97 B case by non-assignment), AD-26 (CLI output) |
-| T46 | TODO | 0 | T45 | |
-| T47 | TODO | 0 | T41,T45 | Claude only (docs/runbooks) — autobuild can do it |
+| T46 | DONE | 1 | T45 | 6e74b14; passed at once (T45 code); #99 a and b fail with the CLI tenant lock removed, restored |
+| T47 | DONE | 1 | T41,T45 | bd48dd2; AD-29 (identity-check questions) |
 | T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human; #20 split: cloud half in load-directory, hub half in apply-directory (R-1) |
 | T49 | DONE | 1 | T8,T16 | c16e802; AD-28; #62 hub half passes at once (00 code, P-3) |
 | T50 | DONE | 1 | T6 | 133722a; AD-27 (interim: nav items before their views, T51-T55); Urdu: 45 keys in docs/design/handoff/01b/urdu-todo.md |
-| T50b | TODO | 0 | T50 | design handoff alignment |
+| T50b | DONE | 1 | T50 | c5894db; AD-30 (design copy for nav and perm labels), AD-31 (phone nav, counts); 16 Urdu keys left (errors, approval help) |
 | T51 | TODO | 0 | T50,T50b | |
 | T52 | TODO | 0 | T50,T50b | |
 | T53 | TODO | 0 | T50,T50b | |
