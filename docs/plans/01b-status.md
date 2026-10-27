@@ -43,15 +43,15 @@
 | T39 | DONE | 1 | T38 | 0a6ade9 |
 | T40 | DONE | 1 | T38 | 85f367b; passed at once, watched fail with each hash compare-and-set removed; ran after T41 (#90 uses the reset CLI) |
 | T41 | DONE | 1 | T35 | 964c42a; AD-24 (CLI output, hook) |
-| T42 | TODO | 0 | T37,T38 | |
+| T42 | DONE | 1 | T37,T38 | 0f9ad19; both cases fail with the refresh's owner-row lock made a plain read; restored |
 | T43 | TODO | 0 | T41,T42 | |
 | T44 | TODO | 0 | T42,T43 | |
-| T45 | TODO | 0 | T1,T12 | |
+| T45 | DONE | 1 | T1,T12 | 2cc3421; AD-25 (#97 B case by non-assignment), AD-26 (CLI output) |
 | T46 | TODO | 0 | T45 | |
 | T47 | TODO | 0 | T41,T45 | Claude only (docs/runbooks) — autobuild can do it |
 | T48 | DONE | 1 | T1,T5 | 60caf88; dev re-seed (manual-test-00) left for the human; #20 split: cloud half in load-directory, hub half in apply-directory (R-1) |
-| T49 | TODO | 0 | T8,T16 | |
-| T50 | TODO | 0 | T6 | |
+| T49 | DONE | 1 | T8,T16 | c16e802; AD-28; #62 hub half passes at once (00 code, P-3) |
+| T50 | DONE | 1 | T6 | 133722a; AD-27 (interim: nav items before their views, T51-T55); Urdu: 45 keys in docs/design/handoff/01b/urdu-todo.md |
 | T51 | TODO | 0 | T50 | |
 | T52 | TODO | 0 | T50 | |
 | T53 | TODO | 0 | T50 | |
