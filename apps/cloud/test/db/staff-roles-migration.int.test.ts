@@ -171,6 +171,82 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
     ).rejects.toMatchObject({ code: '23505', constraint: 'roles_default_key' });
   });
 
+  async function hasLeftAt(pool: pg.Pool): Promise<boolean> {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = 'staff' AND column_name = 'left_at'`,
+    );
+    return rows.length > 0;
+  }
+
+  it('[01b #89] aborts on a row the new constraints refuse, naming the constraint; nothing of 0005 is applied', async () => {
+    const cases: { constraint: string; setup: (pool: pg.Pool, tenant: string) => Promise<void> }[] = [
+      {
+        constraint: 'staff_name_len',
+        setup: async (pool, tenant) => {
+          await pool.query(`UPDATE staff SET display_name = $1 WHERE tenant_id = $2`, ['S'.repeat(41), tenant]);
+        },
+      },
+      {
+        constraint: 'roles_name_len',
+        setup: async (pool, tenant) => {
+          await pool.query(
+            `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, 'r-long', $2, 3600000)`,
+            [tenant, 'R'.repeat(41)],
+          );
+        },
+      },
+      {
+        constraint: 'branches_name_len',
+        setup: async (pool, tenant) => {
+          await addBranch(pool, tenant, 'b-long', 'B'.repeat(61));
+        },
+      },
+      {
+        constraint: 'branches_name',
+        setup: async (pool, tenant) => {
+          await addBranch(pool, tenant, 'b-upper', 'A');
+          await addBranch(pool, tenant, 'b-lower', 'a');
+        },
+      },
+      {
+        constraint: 'roles_idle',
+        setup: async (pool, tenant) => {
+          await pool.query(
+            `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, 'r-idle', 'Odd idle', 90000)`,
+            [tenant],
+          );
+        },
+      },
+    ];
+    for (const c of cases) {
+      const { pool } = await scratchDatabaseAt(4);
+      const tenant = await seedV14(pool, 'a@example.com');
+      await c.setup(pool, tenant);
+      await expect(migrate(pool, migrationsDir, clock), c.constraint).rejects.toThrow(c.constraint);
+      expect(await applied(pool), c.constraint).toEqual([1, 2, 3, 4]);
+      expect(await hasLeftAt(pool), c.constraint).toBe(false);
+    }
+  });
+
+  it('[01b #106] aborts when a tenant lacks a default key after the backfill; a database with no tenant commits', async () => {
+    const { pool } = await scratchDatabaseAt(4);
+    const tenant = await seedV14(pool, 'a@example.com');
+    await pool.query(`UPDATE roles SET name = 'Incharge' WHERE tenant_id = $1 AND name = 'Manager'`, [tenant]);
+    await expect(migrate(pool, migrationsDir, clock)).rejects.toThrow(
+      `default_key backfill incomplete (tenant: missing key): ${tenant}: manager`,
+    );
+    expect(await applied(pool)).toEqual([1, 2, 3, 4]);
+    expect(await hasLeftAt(pool)).toBe(false);
+    const { rows } = await pool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = 'roles' AND column_name = 'default_key'`,
+    );
+    expect(rows).toEqual([]);
+
+    const empty = await scratchDatabaseAt(4);
+    await migrate(empty.pool, migrationsDir, clock);
+    expect(await applied(empty.pool)).toEqual([1, 2, 3, 4, 5]);
+  });
+
   it('[01b #66] clamps day settings to 48 / 12, the new CHECKs refuse 49 / 13, and set-branch-settings takes the same ranges', async () => {
     const { pool } = await scratchDatabaseAt(4);
     const tenant = await seedV14(pool, 'a@example.com');
