@@ -80,3 +80,7 @@ Record the `PinBody` `[0-9]` ruling in the same AD. It is equivalent to the spec
 - **N-3 (T2)** `[01b #66]` does not assert that the stale > gap CHECK still holds after the clamp, which the spec names as `branches_day_settings`. Add `UPDATE … day_stale_after_hours = 12, day_min_gap_hours = 12` and expect that constraint.
 - **N-4 (T4)** `[01b #105]` checks "boot succeeds" with `migrate()` only, not with the spawned process. The spawned process uses a fixed `PORT 3001`, which can collide on a developer machine.
 - **N-5 (T34)** No test asserts that `directory_version` is unchanged on the `--branch-id` reissue path, which is AD-4's choice.
+
+## Fix step notes (autobuild)
+
+- R-3 step 1 partly not followed: the v2 fixture has an empty `skipped`, not a `'lead'` skip. Foundation §6.7 compares **every** fixture with the single `<EventType>.latest.json`, and the merged v1 fixture (never edited) has an empty `skipped`, so a `'lead'` skip in v2 could not equal `latest.json`. The `'lead'`/`'responsibility'` kinds stay covered by test #64. The fixtures test now also fails when a type lacks a sample for any version from 1 to its latest.
