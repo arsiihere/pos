@@ -1,5 +1,6 @@
 import { verify } from '@node-rs/argon2';
 import { PERMISSIONS } from '@pos/domain';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SystemContext } from '../../src/cli/system-context';
@@ -7,6 +8,7 @@ import { seedTenant } from '../../src/cli/seed-tenant';
 import { createPool, migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
+import { toRoleWire } from '../../src/modules/staff-roles/versions';
 import { createTestCloud, truncateAll } from '../helpers/test-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -49,11 +51,14 @@ describe('seed-tenant', () => {
       `SELECT name, session_idle_ttl_ms FROM roles WHERE tenant_id = $1 ORDER BY name`,
       [created.tenant_id],
     );
+    // 01b §6.15 (00 v1.5 M29): six default roles
     expect(roles.rows).toEqual([
-      { name: 'Cashier', session_idle_ttl_ms: 1_800_000 },
+      { name: 'Cashier', session_idle_ttl_ms: 900_000 },
+      { name: 'Cook', session_idle_ttl_ms: 300_000 },
       { name: 'Manager', session_idle_ttl_ms: 3_600_000 },
-      { name: 'Order taker', session_idle_ttl_ms: 300_000 },
+      { name: 'Order taker', session_idle_ttl_ms: 900_000 },
       { name: 'Owner', session_idle_ttl_ms: 3_600_000 },
+      { name: 'Waiter', session_idle_ttl_ms: 300_000 },
     ]);
 
     const grants = await pool.query<{
@@ -92,6 +97,8 @@ describe('seed-tenant', () => {
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
     ]);
     expect(byRole.get('Order taker')).toEqual([]);
+    expect(byRole.get('Waiter')).toEqual([]);
+    expect(byRole.get('Cook')).toEqual([]);
 
     const owner = await pool.query<{ password_hash: string; allowed_branch_ids: string[] }>(
       `SELECT password_hash, allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
@@ -143,5 +150,104 @@ describe('seed-tenant', () => {
         { clock: fixedClock(T), ids: testIdGen() },
       ),
     ).rejects.toThrow(/email/);
+  });
+
+  it('[01b #20] six default roles by default_key; distinct Order taker and Waiter; both roles sign in once with the union; owner staff linked; a rename keeps the key', async () => {
+    await truncateAll(pool);
+    const created = await seedTenant(
+      new SystemContext(pool),
+      { name: 'Pilot', currency: 'PKR', ownerEmail: 'ada@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+      { clock: fixedClock(T), ids: testIdGen() },
+    );
+    const roles = await pool.query<{
+      role_id: string;
+      default_key: string;
+      session_idle_ttl_ms: number;
+      archived_at: string | null;
+      name: string;
+    }>(`SELECT role_id, default_key, session_idle_ttl_ms, archived_at, name FROM roles WHERE tenant_id = $1`, [created.tenant_id]);
+    const byKey = new Map(roles.rows.map((row) => [row.default_key, row]));
+    expect([...byKey.keys()].sort()).toEqual(['cashier', 'cook', 'manager', 'order_taker', 'owner', 'waiter']);
+    expect(Object.fromEntries([...byKey].map(([key, row]) => [key, row.session_idle_ttl_ms / 60_000]))).toEqual({
+      owner: 60,
+      manager: 60,
+      cashier: 15,
+      order_taker: 15,
+      waiter: 5,
+      cook: 5,
+    });
+    const roleId = (key: string) => byKey.get(key)!.role_id;
+    expect(roleId('order_taker')).not.toBe(roleId('waiter'));
+    // all is_default on the wire
+    for (const row of roles.rows) {
+      expect(
+        toRoleWire({ ...row, archived_at: null, staff_count: 0, grants: [] }).is_default,
+        row.default_key,
+      ).toBe(true);
+    }
+
+    const grants = await pool.query<{ role_id: string; permission: string; grant_type: string; scope: string; approver_role_id: string | null }>(
+      `SELECT role_id, permission, grant_type, scope, approver_role_id FROM role_permissions WHERE tenant_id = $1`,
+      [created.tenant_id],
+    );
+    const of = (key: string) => grants.rows.filter((row) => row.role_id === roleId(key));
+    expect(of('owner').map((row) => row.permission).sort()).toEqual([...PERMISSIONS].sort());
+    expect(of('owner').every((row) => row.grant_type === 'allowed' && row.scope === 'branch')).toBe(true);
+    expect(of('manager').map((row) => row.permission).sort()).toEqual(PERMISSIONS.filter((p) => p !== 'manage-roles').sort());
+    expect(of('cashier').map(({ permission, grant_type, approver_role_id }) => ({ permission, grant_type, approver_role_id })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
+      { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+    ]);
+    expect([...of('order_taker'), ...of('waiter'), ...of('cook')]).toEqual([]);
+    const approvers = await pool.query(
+      `SELECT role_id, permission, approver_role_id FROM role_permission_approvers WHERE tenant_id = $1`,
+      [created.tenant_id],
+    );
+    expect(approvers.rows).toEqual([
+      { role_id: roleId('cashier'), permission: 'apply-discount', approver_role_id: roleId('manager') },
+    ]);
+
+    const owner = await pool.query<{ staff_id: string }>(`SELECT staff_id FROM owner_users WHERE tenant_id = $1 AND user_id = $2`, [
+      created.tenant_id,
+      created.user_id,
+    ]);
+    expect(owner.rows[0]!.staff_id).toBe(created.staff_id);
+    const ownerRoles = await pool.query(`SELECT role_id FROM staff_roles WHERE tenant_id = $1 AND staff_id = $2`, [
+      created.tenant_id,
+      created.staff_id,
+    ]);
+    expect(ownerRoles.rows).toEqual([{ role_id: roleId('owner') }]);
+
+    // one person holding Order taker and Waiter is one staff row (one sign-in) carrying both roles; the hub's
+    // resolve takes the union of their grants (00 M10, no mode)
+    await pool.query(
+      `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, pin_set_at, created_at, updated_at)
+       VALUES ($1, 'S_BOTH', 'Usman', 'h', $2, $2, $2)`,
+      [created.tenant_id, T],
+    );
+    await pool.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id) VALUES ($1, 'S_BOTH', $2), ($1, 'S_BOTH', $3)`, [
+      created.tenant_id,
+      roleId('order_taker'),
+      roleId('waiter'),
+    ]);
+    const both = await pool.query(`SELECT role_id FROM staff_roles WHERE tenant_id = $1 AND staff_id = 'S_BOTH' ORDER BY role_id`, [
+      created.tenant_id,
+    ]);
+    expect(both.rows.map((row) => row.role_id)).toEqual([roleId('order_taker'), roleId('waiter')].sort());
+
+    await pool.query(`UPDATE roles SET name = 'Bera' WHERE tenant_id = $1 AND role_id = $2`, [created.tenant_id, roleId('waiter')]);
+    const renamed = await pool.query(`SELECT default_key FROM roles WHERE tenant_id = $1 AND role_id = $2`, [
+      created.tenant_id,
+      roleId('waiter'),
+    ]);
+    expect(renamed.rows[0]).toEqual({ default_key: 'waiter' });
+  });
+
+  it('[01b §6.15] seed-tenant.ts contains no default role name; it looks roles up by default_key', () => {
+    const source = readFileSync(fileURLToPath(new URL('../../src/cli/seed-tenant.ts', import.meta.url)), 'utf8');
+    for (const name of ['Owner', 'Manager', 'Cashier', 'Order taker', 'Waiter', 'Cook']) {
+      expect(source, name).not.toMatch(new RegExp(`['"]${name}['"]`));
+    }
+    expect(source).toMatch(/default_key/);
   });
 });

@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
+import { PERMISSIONS } from '@pos/domain';
 import { afterAll, describe, expect, it } from 'vitest';
-import { seedTenant } from '../../src/cli/seed-tenant';
 import { runSetBranchSettings } from '../../src/cli/set-branch-settings';
 import { SystemContext } from '../../src/cli/system-context';
 import { migrate } from '../../src/db/migrate';
@@ -22,13 +22,64 @@ afterAll(async () => {
   await dropScratchDatabases();
 });
 
+// What the v1.4 seed-tenant wrote (frozen here: the live seed-tenant writes 0005 columns since 01b task 48):
+// four roles by name with the v1.4 idles, approver_role_id only, an owner staff row with the Owner role.
+const V14_ROLES = [
+  { name: 'Owner', idle: 3_600_000, grants: PERMISSIONS.map((p) => [p, 'allowed', null] as const) },
+  {
+    name: 'Manager',
+    idle: 3_600_000,
+    grants: PERMISSIONS.filter((p) => p !== 'manage-roles').map((p) => [p, 'allowed', null] as const),
+  },
+  {
+    name: 'Cashier',
+    idle: 1_800_000,
+    grants: [
+      ['apply-discount', 'requires_approval', 'Manager'],
+      ['reprint-ticket', 'allowed', null],
+    ] as const,
+  },
+  { name: 'Order taker', idle: 300_000, grants: [] },
+];
+
 async function seedV14(pool: pg.Pool, email: string): Promise<string> {
-  const { tenant_id } = await seedTenant(
-    new SystemContext(pool),
-    { name: 'Pilot', currency: 'PKR', ownerEmail: email, ownerName: 'Ada', password: 'password-1', pin: '1234' },
-    { clock, ids: testIdGen() },
+  const ids = testIdGen();
+  const tenantId = ids.next();
+  const userId = ids.next();
+  const staffId = ids.next();
+  await pool.query(`INSERT INTO tenants (tenant_id, name, currency_code, created_at) VALUES ($1, 'Pilot', 'PKR', $2)`, [tenantId, T]);
+  const roleIds = new Map(V14_ROLES.map((role) => [role.name, ids.next()]));
+  for (const role of V14_ROLES) {
+    await pool.query(`INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, $2, $3, $4)`, [
+      tenantId,
+      roleIds.get(role.name),
+      role.name,
+      role.idle,
+    ]);
+  }
+  for (const role of V14_ROLES) {
+    for (const [permission, grantType, approver] of role.grants) {
+      await pool.query(
+        `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id) VALUES ($1, $2, $3, $4, $5)`,
+        [tenantId, roleIds.get(role.name), permission, grantType, approver === null ? null : roleIds.get(approver)],
+      );
+    }
+  }
+  await pool.query(
+    `INSERT INTO owner_users (tenant_id, user_id, email, display_name, password_hash, allowed_branch_ids, created_at)
+     VALUES ($1, $2, $3, 'Ada', 'hash', '{}', $4)`,
+    [tenantId, userId, email, T],
   );
-  return tenant_id;
+  await pool.query(
+    `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, created_at, updated_at) VALUES ($1, $2, 'Ada', 'hash', $3, $3)`,
+    [tenantId, staffId, T],
+  );
+  await pool.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id) VALUES ($1, $2, $3)`, [
+    tenantId,
+    staffId,
+    roleIds.get('Owner'),
+  ]);
+  return tenantId;
 }
 
 async function addBranch(pool: pg.Pool, tenantId: string, branchId: string, name: string): Promise<void> {
