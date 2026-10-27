@@ -14,6 +14,7 @@ import {
   insertGrants,
   insertRole,
   insertStaff,
+  isLinkedToOwner,
   leadLineReaches,
   lockRoles,
   lockStaff,
@@ -195,6 +196,8 @@ export async function updateStaff(
     });
     const noop = { staff: withVersion(before, storedVersion), moved_reports: [], changed_versions: emptyChanged() };
     if (staffVersion(merged) === storedVersion) return { body: noop, bump: false };
+    // Review 2 N3: before the guards, so the answer is the same with or without a second admin.
+    if (leaving && (await isLinkedToOwner(ctx.repo, staffId))) throw new DomainError('STAFF_LINKED_TO_OWNER', { staff_id: staffId });
     const adminsBefore = await qualifyingAdmins(ctx.repo);
 
     // Rules on the merged row (§6.2 rules 1–4, §3.2).

@@ -235,6 +235,12 @@ export async function selectOwner(
   return row === undefined ? undefined : { staff_id: row.staff_id, covers_every_branch: row.covers === true };
 }
 
+// 01b §6.4, review 2 N3: whether any owner login is linked to this staff row (it can never be marked as left).
+export async function isLinkedToOwner(db: TenantSql, staffId: string): Promise<boolean> {
+  const rows = await db.query(`SELECT 1 FROM owner_users WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
+  return rows.length > 0;
+}
+
 export async function bumpDirectoryVersion(db: TenantSql): Promise<void> {
   await db.query(`UPDATE tenants SET directory_version = directory_version + 1 WHERE tenant_id = $1`);
 }

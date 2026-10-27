@@ -134,7 +134,8 @@ describe('admin guards on staff writes (01b B7, §3.4)', () => {
       code: 'OWN_ADMIN_ACCESS',
       details: { branch_ids: [...f.branches].sort() },
     });
-    await expectRefused(ownerStaffId, { is_active: false }, { code: 'OWN_ADMIN_ACCESS' });
+    // Leaving the linked row is refused before either guard (§6.4, review 2 N3; task 17).
+    await expectRefused(ownerStaffId, { is_active: false }, { code: 'STAFF_LINKED_TO_OWNER' });
   });
 
   it('[01b §3.4] a stock counter with access-hub-admin only is not a qualifying admin', async () => {

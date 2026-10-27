@@ -118,6 +118,69 @@ describe('leaving, returning and team moves (01b §6.4, B15, §3.5)', () => {
       ])
     ).rows;
 
+  const ownerStaffId = async () =>
+    (
+      await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM owner_users WHERE tenant_id = $1 AND user_id = $2`, [
+        f.tenantId,
+        f.userId,
+      ])
+    ).rows[0]!.staff_id;
+  const directoryVersion = async () =>
+    Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+  const auditCount = async () =>
+    Number((await cloud.pool.query(`SELECT count(*) AS n FROM config_audit WHERE tenant_id = $1`, [f.tenantId])).rows[0].n);
+
+  it('[01b #9] mark as left: left_at set, out of the directory of each branch, one audit row `left`', async () => {
+    const person = await setPin((await waiter('Bilal', [f.branches[0], f.branches[1]])).staff_id);
+    for (const b of [f.branches[0], f.branches[1]]) {
+      expect((await directoryOf(b)).staff.map((row) => row.staff_id)).toContain(person.staff_id);
+    }
+    const versionBefore = await directoryVersion();
+
+    cloud.clock.set(T + 5_000);
+    const response = await patch(person.staff_id, { expected_version: person.version, is_active: false });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data.staff).toMatchObject({ is_active: false, left_at: T + 5_000 });
+    const stored = await cloud.pool.query(`SELECT is_active, left_at FROM staff WHERE tenant_id = $1 AND staff_id = $2`, [
+      f.tenantId,
+      person.staff_id,
+    ]);
+    expect(stored.rows[0]).toEqual({ is_active: false, left_at: String(T + 5_000) });
+    for (const b of [f.branches[0], f.branches[1]]) {
+      const directory = await directoryOf(b);
+      expect(directory.staff.map((row) => row.staff_id)).not.toContain(person.staff_id);
+      expect(directory.directory_version).toBe(versionBefore + 1);
+    }
+    const rows = await audits(person.staff_id, 'left');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].before).toMatchObject({ is_active: true, left_at: null });
+    expect(rows[0].after).toMatchObject({ is_active: false, left_at: T + 5_000 });
+  });
+
+  it('[01b #101] the owner\'s linked row cannot be marked as left → 409 STAFF_LINKED_TO_OWNER, nothing written; any other person → 200', async () => {
+    const linked = await ownerStaffId();
+    const linkedRow = await listed(linked, 'active');
+    const [versionBefore, auditsBefore] = [await directoryVersion(), await auditCount()];
+
+    const refused = await patch(linked, { expected_version: linkedRow!.version, is_active: false });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error).toMatchObject({ code: 'STAFF_LINKED_TO_OWNER', details: { staff_id: linked } });
+    expect(await listed(linked, 'active')).toMatchObject({ version: linkedRow!.version });
+    expect([await directoryVersion(), await auditCount()]).toEqual([versionBefore, auditsBefore]);
+
+    // Linked by hand to a row that is not a qualifying admin (no PIN): still refused, before the guards.
+    const plain = await waiter('Bilal', [f.branches[0]]);
+    await cloud.pool.query(`UPDATE owner_users SET staff_id = $3 WHERE tenant_id = $1 AND user_id = $2`, [f.tenantId, f.userId, plain.staff_id]);
+    const refusedPlain = await patch(plain.staff_id, { expected_version: plain.version, is_active: false });
+    expect(refusedPlain.statusCode, refusedPlain.body).toBe(409);
+    expect(refusedPlain.json().error).toMatchObject({ code: 'STAFF_LINKED_TO_OWNER', details: { staff_id: plain.staff_id } });
+    expect(await audits(plain.staff_id, 'left')).toEqual([]);
+
+    const other = await waiter('Usman', [f.branches[0]]);
+    const allowed = await patch(other.staff_id, { expected_version: other.version, is_active: false });
+    expect(allowed.statusCode, allowed.body).toBe(200);
+  });
+
   it('[01b #10] bring back: left_at cleared, PIN kept, back in the directory with the same hash', async () => {
     const person = await setPin((await waiter('Bilal', [f.branches[0]])).staff_id);
     const hashBefore = (await directoryOf(f.branches[0])).staff.find((row) => row.staff_id === person.staff_id)!.pin_hash;
