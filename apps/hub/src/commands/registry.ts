@@ -1,4 +1,5 @@
 import type { Permission, SessionKind } from '@pos/domain';
+import type { EngineState } from '@pos/engine';
 import type { EventDraft, PosCommand } from '@pos/events';
 import type { z } from 'zod';
 import type { HubConfig } from '../config/schema.js';
@@ -10,7 +11,7 @@ import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
 
 export interface CommandCtx {
   tx: WriterTx;
-  state: Readonly<unknown>;
+  state: Readonly<EngineState>;
   clock: Clock;
   ids: IdGen;
   secrets: SecretGen;

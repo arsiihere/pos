@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Item cloud down · Owner item form</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 2060px; ">
+  <div class="pos-shell">
+    <nav class="pos-sidenav" aria-label="Restaurant setup">
+      <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
+      <a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors and tables</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Kitchen stations</a>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; min-width: 0;">
+      <header class="pos-appbar">
+        <a class="pos-btn" href="#" aria-label="Back to menu"><svg class="pos-icon pos-icon--flip" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Menu</a>
+        <h1 class="pos-appbar__title">Edit item</h1>
+        <div class="pos-appbar__end"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary" disabled>Save item</button></div>
+      </header>
+
+      <main class="pos-content"><div class="pos-banner pos-banner--warn pos-banner--pulse" role="status"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.6L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.6L20 16"/><path d="M20 20v-4h-4"/></svg><p>Can't reach the restaurant cloud — retrying…<small>Your changes stay on this page. Save works again when the internet is back.</small></p></div>
+        <div class="pos-split">
+          <div class="pos-stack" style="gap: 20px;">
+
+            <section class="pos-section">
+              <div class="pos-section__head"><h2>What customers see</h2></div>
+              <div class="pos-grid">
+                <label class="pos-field"><span class="pos-field__label">Item name</span><input class="pos-input" value="Chicken Biryani · Full"></label>
+                <label class="pos-field"><span class="pos-field__label">Category</span><select class="pos-select"><option>Rice</option></select></label>
+                <label class="pos-field"><span class="pos-field__label">Group with other sizes (optional)</span><input class="pos-input" value="Chicken Biryani"><span class="pos-field__help">Half and Full show side by side when ordering.</span></label>
+                <label class="pos-field"><span class="pos-field__label">Short description (optional)</span><input class="pos-input" value=""></label>
+              </div>
+            </section>
+
+            <section class="pos-section">
+              <div class="pos-section__head"><h2>Price</h2></div>
+              <div class="pos-field"><span class="pos-field__label">Sold by</span>
+                <div class="pos-seg" role="group" aria-label="Sold by"><button class="pos-seg__opt" aria-pressed="true">Piece or plate</button><button class="pos-seg__opt" aria-pressed="false">Weight (kg)</button><button class="pos-seg__opt" aria-pressed="false">Volume (L)</button></div>
+              </div>
+              <div class="pos-grid">
+                <label class="pos-field"><span class="pos-field__label">Price</span><span class="pos-input-affix"><span>Rs</span><input class="pos-input pos-input--mono" value="650"><span>per plate</span></span></label>
+                <label class="pos-field"><span class="pos-field__label">Tax</span><select class="pos-select"><option>No tax</option></select></label>
+              </div>
+            </section>
+
+            <section class="pos-section">
+              <div class="pos-section__head"><h2>Kitchen</h2><p>Which station cooks it at each branch, and how long it takes.</p></div>
+              <ul class="pos-list">
+                <li class="pos-list__row" style="grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Gulberg</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…P0AB</span></div><select class="pos-select" aria-label="Cooked at, Gulberg"><option>Degh (batch)</option></select><select class="pos-select" aria-label="Batch recipe, Gulberg"><option>Biryani degh · 90 min</option></select></li>
+                <li class="pos-list__row" style="grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr);"><div class="pos-list__name"><strong>Johar Town</strong><span class="pos-ltr" style="font-family: var(--font-mono);">…M6PQ</span></div><select class="pos-select" aria-label="Cooked at, Johar Town"><option>Not sold here</option></select><span></span></li>
+              </ul>
+              <div class="pos-grid pos-grid--3">
+                <label class="pos-field"><span class="pos-field__label">Cooking time</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="20"><span>min</span></span></label>
+                <label class="pos-field"><span class="pos-field__label">Extra time to plate</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="2"><span>min</span></span></label>
+                <div class="pos-field"><span class="pos-field__label">Serve</span><div class="pos-seg pos-seg--block" role="group" aria-label="Serve"><button class="pos-seg__opt" aria-pressed="true">When ready</button><button class="pos-seg__opt" aria-pressed="false">With the table</button></div></div>
+              </div>
+            </section>
+
+            <section class="pos-section">
+              <div class="pos-row" style="justify-content: space-between;">
+                <div class="pos-section__head"><h2>Ready-made stock</h2><p>For food cooked in advance and counted each morning.</p></div>
+                <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>Kept ready</button>
+              </div>
+              <div class="pos-field"><span class="pos-field__label">Counted in</span>
+                <div class="pos-seg" role="group" aria-label="Counted in"><button class="pos-seg__opt" aria-pressed="false">Plates</button><button class="pos-seg__opt" aria-pressed="true">kg from the pot</button><button class="pos-seg__opt" aria-pressed="false">Litres</button></div>
+              </div>
+              <div class="pos-explain"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8v.01"/></svg><span>One plate takes</span><span class="pos-input-affix" style="width: 160px;"><input class="pos-input pos-input--mono" value="400"><span>g</span></span><span>from the pot. 10 kg counted = <strong>25 plates</strong>.</span></div>
+              <div class="pos-grid pos-grid--3">
+                <label class="pos-field"><span class="pos-field__label">Serve from stock in</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="3"><span>min</span></span></label>
+                <label class="pos-field"><span class="pos-field__label">Warn when below</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="3"><span>kg</span></span></label>
+                <div class="pos-field"><span class="pos-field__label">When it runs out</span><div class="pos-seg pos-seg--block" role="group" aria-label="When it runs out"><button class="pos-seg__opt" aria-pressed="true">Cook more</button><button class="pos-seg__opt" aria-pressed="false">Sold out</button></div></div>
+              </div>
+              <button class="pos-switch" role="switch" aria-checked="false" style="color: var(--ink);"><span class="pos-switch__track"></span>Leftovers can be sold the next day</button>
+            </section>
+
+            <section class="pos-section">
+              <div class="pos-section__head"><h2>Hours</h2><p>The category's hours also apply. Rice has none.</p></div>
+              <div class="pos-seg" role="group" aria-label="Hours"><button class="pos-seg__opt" aria-pressed="true">All day</button><button class="pos-seg__opt" aria-pressed="false">Only at set hours</button></div>
+            </section>
+
+            <section class="pos-section" style="border-color: var(--danger);">
+              <div class="pos-row" style="justify-content: space-between;"><div class="pos-section__head"><h2>Archive this item</h2><p>It disappears from ordering. Past orders keep it.</p></div><button class="pos-btn pos-btn--danger">Archive item</button></div>
+            </section>
+          </div>
+
+          <aside class="pos-card" style="position: sticky; top: 24px; display: flex; flex-direction: column; gap: 16px;">
+            <span style="font: 700 15px/20px var(--font-sans); color: var(--ink-muted);">How staff will see it</span>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px;"><strong style="font: 700 22px/28px var(--font-sans);">Chicken Biryani · Full</strong><span class="pos-list__num" style="font-size: 20px;">Rs 650</span></div>
+            <ul class="pos-stack" style="list-style: none; margin: 0; padding: 0; gap: 10px; font: 400 17px/24px var(--font-sans);">
+              <li class="pos-row" style="flex-wrap: nowrap;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ok);"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Sold at Gulberg only</li>
+              <li class="pos-row" style="flex-wrap: nowrap;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ok);"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Counted in kg, 400 g a plate</li>
+              <li class="pos-row" style="flex-wrap: nowrap;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ok);"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Warns below 3 kg</li>
+              <li class="pos-row" style="flex-wrap: nowrap;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true" style="color: var(--ok);"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Available all day</li>
+            </ul>
+            <div class="pos-banner pos-banner--warn"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><p>Counting changes from tomorrow<small>Each branch counts this item again when its next day starts.</small></p></div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2060}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

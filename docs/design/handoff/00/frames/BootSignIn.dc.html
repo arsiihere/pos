@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in as the first admin</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 390px; height: 844px; overflow: hidden;">
+<main class="pos-content" style="padding: 16px; gap: 16px;">
+
+<div style="display: flex; flex-direction: column; gap: 4px;"><p class="caption" style="margin: 0; color: var(--ink-muted);">Restaurant POS · Hub admin</p><h1 class="title" style="margin: 0;">Sign in as the first admin</h1><p class="body" style="margin: 0; color: var(--ink-muted);">Tap your name, then type your PIN.</p></div>
+<div class="pos-staff" style="grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;"><button class="pos-staff__tile">Arif<small>Owner</small></button><button class="pos-staff__tile" aria-pressed="true">Imran<small>Manager</small></button><button class="pos-staff__tile is-locked" aria-disabled="true">Bilal<small><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px;"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>Locked · <span class="pos-ltr">14</span> min</small></button></div>
+<section class="pos-card" style="display: flex; flex-direction: column; gap: 12px; align-items: center; padding: 16px;">
+<p class="body" style="margin: 0;">PIN for <strong>Imran</strong></p><div class="pos-pin" aria-label="PIN"><div class="pos-pin__dots" aria-label="2 digits typed"><span class="pos-pin__dot is-filled"></span><span class="pos-pin__dot is-filled"></span><span class="pos-pin__dot"></span><span class="pos-pin__dot"></span></div><div class="pos-pin__keys"><button class="pos-pin__key">1</button><button class="pos-pin__key">2</button><button class="pos-pin__key">3</button><button class="pos-pin__key">4</button><button class="pos-pin__key">5</button><button class="pos-pin__key">6</button><button class="pos-pin__key">7</button><button class="pos-pin__key">8</button><button class="pos-pin__key">9</button><button class="pos-pin__key pos-pin__key--fn">Delete</button><button class="pos-pin__key">0</button><button class="pos-pin__key pos-pin__key--fn">Sign in</button></div></div></section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

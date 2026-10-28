@@ -4,10 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@12.15.0",
   "engines": {
-    "node": ">=22 <23"
+    "node": ">=22.22.2 <23"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "pnpm --filter @pos/client build && vitest run",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck"
   },

@@ -1,0 +1,15 @@
+{
+  "stock": {
+    "I1": { "on_hand": 8, "reserved": 0, "set_at": 1761000003000, "unit": "piece" },
+    "I3": { "on_hand": 2000, "reserved": 0, "set_at": 1761000004000, "unit": "g" }
+  },
+  "business_day": {
+    "business_date": "2025-10-20",
+    "opened_at": 1761000000000,
+    "closed_at": 1761000007000,
+    "units": {
+      "I1": { "stock_unit": "piece", "sale_unit": "piece", "stock_per_sale_unit": 1 },
+      "I3": { "stock_unit": "g", "sale_unit": "piece", "stock_per_sale_unit": 250 }
+    }
+  }
+}

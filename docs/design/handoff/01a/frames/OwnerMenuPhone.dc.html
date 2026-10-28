@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Owner menu, phone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 390px; min-height: 844px; ">
+  <header class="pos-appbar" style="padding: 12px 16px; min-height: 64px;">
+    <h1 class="pos-appbar__title">Menu</h1>
+    <div class="pos-appbar__end"><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>New</button></div>
+  </header>
+  <main class="pos-content" style="padding: 12px 16px; gap: 12px; overflow: hidden;">
+    <label class="pos-input-affix"><span><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></span><input class="pos-input" type="search" value="naan" aria-label="Find an item"></label>
+    <ul class="pos-list pos-list--stack">
+      <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;">
+        <div class="pos-list__name"><strong>Naan</strong><span>Breads · 2 branches</span></div>
+        <span class="pos-list__num" style="font-size: 18px;">Rs 30</span>
+        <button class="pos-btn">Edit</button>
+      </li>
+      <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;">
+        <div class="pos-list__name"><strong>Garlic Naan</strong><span>Breads · 2 branches</span></div>
+        <span class="pos-list__num" style="font-size: 18px;">Rs 60</span>
+        <button class="pos-btn">Edit</button>
+      </li>
+      <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;">
+        <div class="pos-list__name"><strong>Roghni Naan</strong><span>Breads · Gulberg only</span></div>
+        <span class="pos-list__num" style="font-size: 18px;">Rs 70</span>
+        <button class="pos-btn">Edit</button>
+      </li>
+    </ul>
+  </main>
+  <nav class="pos-actionbar" aria-label="Sections" style="padding: 8px; justify-content: space-around;">
+    <a class="pos-sidenav__item" href="#" aria-current="page" style="flex-direction: column; gap: 2px; font-size: 15px;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu</a>
+    <a class="pos-sidenav__item" href="#" style="flex-direction: column; gap: 2px; font-size: 15px;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors</a>
+    <a class="pos-sidenav__item" href="#" style="flex-direction: column; gap: 2px; font-size: 15px;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Stations</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

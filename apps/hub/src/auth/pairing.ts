@@ -42,7 +42,9 @@ export function registerPairRoutes(app: FastifyInstance, deps: HubDeps): void {
       });
     }
     const paired = deps.writer.run((tx) => pairWithToken(app, deps, tx, parsed.data)).result;
-    return { data: paired };
+    // M92: the phone says whose it is.
+    const owner = paired.owner_staff_id === null ? undefined : currentDirectory(app).get(paired.owner_staff_id);
+    return { data: { ...paired, owner_name: owner?.display_name ?? null } };
   });
 }
 

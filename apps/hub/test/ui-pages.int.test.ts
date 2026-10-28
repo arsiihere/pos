@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EN } from '../src/lib/strings';
+import { EN, UR } from '../src/lib/strings';
 import { uiVersion } from '../src/lib/ui-assets';
 import { setupPage } from '../src/setup/page';
 import { createTestHub } from './helpers/test-hub';
@@ -26,10 +26,11 @@ const PAGES: PageCase[] = [
   { name: '/admin/bootstrap', html: () => served('/admin/bootstrap'), theme: 'light', ids: ['login', 'roster'] },
   { name: '/admin/approve', html: () => served('/admin/approve'), theme: 'light', ids: ['screen'] },
   { name: '/pair', html: () => served('/pair'), theme: 'dark', ids: ['screen'], classes: ['display-code'] },
+  { name: '/admin', html: () => served('/admin'), theme: 'light', ids: ['screen'] },
 ];
 
 describe('hub pages on the UI kit', () => {
-  it('[00 §10 #136] every page links the kit, sets lang/dir/theme and pos-root, has one inline script and no remote asset, keeps its ids, looks up only EN keys and masks PINs', async () => {
+  it('[00 §10 #136] every page links the kit, is served with lang/dir/theme and pos-root, has one inline script and no remote asset, keeps its ids, looks up only EN keys and masks PINs', async () => {
     const v = uiVersion();
     for (const page of PAGES) {
       const html = await page.html();
@@ -50,5 +51,7 @@ describe('hub pages on the UI kit', () => {
       }
       expect(html, page.name).not.toContain('window.prompt');
     }
+    // M83: Urdu is a subset of the English keys, so a missing Urdu text falls back to English.
+    for (const key of Object.keys(UR)) expect(EN, `UR ${key}`).toHaveProperty([key]);
   });
 });

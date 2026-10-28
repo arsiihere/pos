@@ -33,6 +33,8 @@ export function registerStaffRosterQuery(app: FastifyInstance, clock: Clock): vo
             staff_id: row.staff_id,
             display_name: row.display_name,
             locked_until: lockedUntil.get(row.staff_id) ?? null,
+            // 01b §4.3 row 9: from memory, no extra statement.
+            responsibilities: ctx.directory.responsibilitiesOf(row.staff_id),
           }))
           .sort((a, b) => a.display_name.localeCompare(b.display_name) || a.staff_id.localeCompare(b.staff_id));
         const activeStaff = active === undefined ? undefined : ctx.directory.get(active.staff_id);

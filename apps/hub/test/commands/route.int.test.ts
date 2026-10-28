@@ -113,20 +113,30 @@ describe('command route', () => {
         role_id: 'R_DENY',
         name: 'Deny',
         session_idle_ttl_ms: 60_000,
-        permissions: [{ permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null }],
+        permissions: [{ permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' }],
       },
       {
         role_id: 'R_APPROVAL',
         name: 'Approval',
         session_idle_ttl_ms: 60_000,
-        permissions: [{ permission: 'reprint-ticket', grant_type: 'requires_approval', approver_role_id: 'R_MGR' }],
+        permissions: [
+          { permission: 'reprint-ticket', grant_type: 'requires_approval', approver_role_id: 'R_MGR', approver_role_ids: ['R_MGR'], scope: 'branch' },
+        ],
       },
     );
     const pin = directory.staff[0]?.pin_hash;
     if (pin === undefined) throw new Error('fixture has no pin hash');
     directory.staff.push(
-      { staff_id: 'S_DENY', display_name: 'Deny', pin_hash: pin, role_ids: ['R_DENY'], denied_permissions: ['reprint-ticket'] },
-      { staff_id: 'S_NEED', display_name: 'Need', pin_hash: pin, role_ids: ['R_APPROVAL'], denied_permissions: [] },
+      {
+        staff_id: 'S_DENY',
+        display_name: 'Deny',
+        pin_hash: pin,
+        role_ids: ['R_DENY'],
+        denied_permissions: ['reprint-ticket'],
+        lead_staff_id: null,
+        floor_ids: [],
+      },
+      { staff_id: 'S_NEED', display_name: 'Need', pin_hash: pin, role_ids: ['R_APPROVAL'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
     );
     await seedDirectory(hub, directory);
     const waiter = await staff(hub, 'S_WAIT', directory);
@@ -145,7 +155,7 @@ describe('command route', () => {
     const allowed = await post(hub, { name: 'test-approvable', commandType: 'TestApprovable', ...cashier, actorId: 'S_CASH' });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json().data.result).toEqual({
-      permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'] },
+      permission: { grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' },
     });
   });
 

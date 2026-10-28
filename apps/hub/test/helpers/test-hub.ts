@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
 import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
+import { applyEvent, initialEngineState, type EngineState } from '@pos/engine';
 import type { DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -17,12 +18,17 @@ import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { registerRestaurantProjections } from '../../src/projections/branch-config';
 import { createProjectionRegistry } from '../../src/projections/registry';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigClient } from '../../src/sync/config-client';
+import { noteCommitted, setStockVersion } from '../../src/sync/stock-version';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
 import { aDirectory } from './fixtures';
 import { createLogCapture } from './log-capture';
+import { stubConfigCloud } from './stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const DEFAULT_HOST = '192.168.10.2:3000';
@@ -40,15 +46,20 @@ export async function createTestHub(o?: {
   provisioned?: boolean;
   config?: Partial<HubConfig>;
   testHooks?: { beforeCommit?: () => void; beforePublish?: () => void };
+  configClient?: ConfigClient;
 }): Promise<TestHub> {
+  swapBranchConfig(null);
+  setStockVersion(0);
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });
   const readDb = openReadOnly(fx.path);
   const config = testConfig(fx.dir, o);
-  const state = createStateHolder<unknown>({});
-  state.setReducer((current) => current);
+  // As boot with the step-3 fold over an empty log (S15).
+  const state = createStateHolder<EngineState>(initialEngineState());
+  state.setReducer(applyEvent);
   const projections = createProjectionRegistry();
+  registerRestaurantProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];
@@ -70,6 +81,7 @@ export async function createTestHub(o?: {
       state,
       authGeneration,
       publish: (events) => {
+        noteCommitted(events);
         published.push(events);
         publishSlot.current(events);
       },
@@ -79,6 +91,7 @@ export async function createTestHub(o?: {
     projections,
     authGeneration,
     ownIPv4: ['192.168.10.2'],
+    configClient: o?.configClient ?? stubConfigCloud(),
   };
   const capture = createLogCapture();
   deps.logStream = capture.stream;
@@ -152,7 +165,7 @@ export async function seedDirectory(h: TestHub, d?: DirectoryInput): Promise<voi
 
 export function pairDevice(
   h: TestHub,
-  o: { type: DeviceType; stationId?: string; ownerStaffId?: string },
+  o: { type: DeviceType; stationId?: string; ownerStaffId?: string; name?: string },
 ): { deviceId: string; token: string } {
   const branchId = h.deps.config.provisioned?.branch_id;
   if (branchId === undefined) throw new Error('pairDevice requires a provisioned hub');
@@ -169,7 +182,7 @@ export function pairDevice(
       deviceId,
       branchId,
       sha256hex(token),
-      o.type,
+      o.name ?? o.type,
       o.type,
       o.type === 'kds' ? (o.stationId ?? null) : null,
       o.type === 'phone' ? (o.ownerStaffId ?? null) : null,

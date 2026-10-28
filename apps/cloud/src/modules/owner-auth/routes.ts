@@ -4,16 +4,33 @@ import type pg from 'pg';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
+import type { CloudTestHooks } from '../../server.js';
 import { DomainError } from '@pos/domain';
+import {
+  ChangePasswordBody,
+  ChangePasswordResponse,
+  LogoutBody,
+  LogoutResponse,
+  LoginBody,
+  LoginResponse,
+  RefreshBody,
+} from '@pos/events';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
-import { LogoutBody, LogoutResponse, LoginBody, LoginResponse, RefreshBody } from './schemas.js';
 import { sha256 } from './repository.js';
-import { createIpLimiter, IP_LOGIN_LIMIT, login, refreshTokens } from './service.js';
+import { changePassword, createIpLimiter, IP_LOGIN_LIMIT, login, refreshTokens } from './service.js';
 
 export function registerOwnerAuthRoutes(
   app: FastifyInstance,
-  deps: { pool: pg.Pool; clock: Clock; ids: IdGen; secrets: SecretGen; env: { REFRESH_TOKEN_SECRET: string } },
+  deps: {
+    pool: pg.Pool;
+    clock: Clock;
+    ids: IdGen;
+    secrets: SecretGen;
+    env: { REFRESH_TOKEN_SECRET: string };
+    testHooks?: CloudTestHooks;
+  },
 ): void {
+  const hooks = deps.testHooks !== undefined ? { testHooks: deps.testHooks } : {};
   const limiter = createIpLimiter({ max: IP_LOGIN_LIMIT.max, windowMs: IP_LOGIN_LIMIT.windowMs, clock: deps.clock });
   app.withTypeProvider<ZodTypeProvider>().post(
     '/v1/auth/login',
@@ -25,7 +42,7 @@ export function registerOwnerAuthRoutes(
       const tokens = await login(
         app.ownerCredentials,
         request.body,
-        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt },
+        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt, ...hooks },
         request.ip,
         limiter,
       );
@@ -47,6 +64,7 @@ export function registerOwnerAuthRoutes(
         secrets: deps.secrets,
         jwt: app.jwt,
         refreshSecret: deps.env.REFRESH_TOKEN_SECRET,
+        ...hooks,
       });
       return reply.send({ data: tokens });
     },
@@ -76,6 +94,27 @@ export function registerOwnerAuthRoutes(
       } finally {
         client.release();
       }
+    },
+  );
+
+  // 01b §6.11: JWT, open while must_change_password is set (§3.7); same limiter instance as login.
+  app.withTypeProvider<ZodTypeProvider>().post(
+    '/v1/auth/change-password',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: ChangePasswordBody, response: { 200: ChangePasswordResponse } },
+    },
+    async (request, reply) => {
+      const access = bearer(request.headers.authorization);
+      if (access === undefined || request.tenant === undefined) throw new DomainError('JWT_INVALID');
+      const tokens = await changePassword(
+        request.body,
+        { tenant: request.tenant, userId: app.jwt.verify(access).sub },
+        { pool: deps.pool, clock: deps.clock, ids: deps.ids, secrets: deps.secrets, jwt: app.jwt, ...hooks },
+        request.ip,
+        limiter,
+      );
+      return reply.send({ data: tokens });
     },
   );
 }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>End kitchen screen session</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root " lang="en" data-theme="light" dir="ltr" style="width: 720px; height: 440px; overflow: hidden; display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+<div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="dlg-t" style="max-width: 560px;"><h2 class="pos-dialog__title" id="dlg-t">End the Degh kitchen screen session?</h2>
+<p class="pos-dialog__body">The Degh screen goes back to its start screen. Its tickets stay on the hub and print if no kitchen screen shows them.</p>
+<div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/></svg>End session</button></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":440}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

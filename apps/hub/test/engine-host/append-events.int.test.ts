@@ -35,7 +35,8 @@ describe('appendEvents', () => {
     const seqs = db.prepare('SELECT seq FROM events ORDER BY seq').pluck().all();
     expect(committed).toBe(666);
     expect(seqs).toEqual(Array.from({ length: committed }, (_, n) => n + 1));
-  });
+    // 1 000 appends pass the 5 s default under full-suite load (01a reviews 10 and 16).
+  }, 30_000);
 
   it('[F §4.1] outside a transaction throws', async () => {
     const { db } = await migrated();

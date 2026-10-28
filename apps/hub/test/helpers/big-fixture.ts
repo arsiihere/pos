@@ -12,6 +12,9 @@ const BRANCH = 'branch-1';
 const TENANT = 'tenant-a';
 const BASE = 1_700_000_000_000;
 const CHUNK = 50_000;
+// R4: every projection boot registers, checkpointed at n so the budget boot replays nothing.
+export const PROJECTIONS = ['access_reconcile', 'branch_config', 'item_availability'] as const;
+const PROJECTIONS_SQL = PROJECTIONS.map((name) => `'${name}'`).join(', ');
 
 export function buildBigFixture(path: string, n = 1_000_000): void {
   if (!complete(CACHE, n)) {
@@ -31,13 +34,16 @@ function complete(path: string, n: number): boolean {
       const seq = db.prepare('SELECT MAX(seq) AS seq FROM events WHERE branch_id = ?').get(BRANCH) as {
         seq: number | null;
       };
-      const checkpoint = db
-        .prepare(
-          `SELECT last_seq FROM projection_checkpoints WHERE branch_id = ? AND projection = 'access_reconcile'`,
-        )
-        .get(BRANCH) as { last_seq: number } | undefined;
+      const checkpoints = db
+        .prepare(`SELECT last_seq FROM projection_checkpoints WHERE branch_id = ? AND projection IN (${PROJECTIONS_SQL})`)
+        .all(BRANCH) as Array<{ last_seq: number }>;
       const live = db.prepare('SELECT COUNT(*) AS n FROM staff_sessions').get() as { n: number };
-      return seq.seq === n && checkpoint?.last_seq === n && live.n > 0;
+      return (
+        seq.seq === n &&
+        checkpoints.length === PROJECTIONS.length &&
+        checkpoints.every((row) => row.last_seq === n) &&
+        live.n > 0
+      );
     } finally {
       db.close();
     }
@@ -64,9 +70,8 @@ function fill(path: string, n: number): void {
       }
     });
     for (let start = 1; start <= n; start += CHUNK) writeChunk.immediate(start, Math.min(n, start + CHUNK - 1));
-    db.prepare(
-      `INSERT INTO projection_checkpoints (branch_id, projection, last_seq) VALUES (?, 'access_reconcile', ?)`,
-    ).run(BRANCH, n);
+    const checkpoint = db.prepare(`INSERT INTO projection_checkpoints (branch_id, projection, last_seq) VALUES (?, ?, ?)`);
+    for (const projection of PROJECTIONS) checkpoint.run(BRANCH, projection, n);
     db.prepare(
       `INSERT INTO staff_sessions (
         session_id, branch_id, token_hash, kind, staff_id, station_id, device_id,

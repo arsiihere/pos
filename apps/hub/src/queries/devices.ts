@@ -20,7 +20,7 @@ export function registerDevicesQuery(app: FastifyInstance): void {
         const rows = ctx.db
           .prepare(
             `SELECT d.device_id, d.device_name, d.device_type, d.station_id, d.owner_staff_id,
-                    d.paired_at, d.paired_by, d.last_seen_at, d.revoked_at,
+                    d.paired_at, d.paired_by, d.last_seen_at, d.revoked_at, d.revoked_by,
                     CASE WHEN d.device_type IN ('tablet', 'phone') THEN 'token' ELSE 'request' END AS pairing_source,
                     s.session_id, s.kind, s.staff_id
              FROM devices d
@@ -39,11 +39,27 @@ export function registerDevicesQuery(app: FastifyInstance): void {
           paired_by: string;
           last_seen_at: number | null;
           revoked_at: number | null;
+          revoked_by: string | null;
           pairing_source: 'token' | 'request';
           session_id: string | null;
           kind: string | null;
           staff_id: string | null;
         }>;
+        // M87: the removal reason lives in the DeviceRevoked payload; one more read, only for revoked rows.
+        const revokedIds = rows.filter((row) => row.revoked_at !== null).map((row) => row.device_id);
+        const reasons = new Map<string, string | null>();
+        if (revokedIds.length > 0) {
+          const events = ctx.db
+            .prepare(
+              `SELECT stream_id, payload FROM events
+               WHERE stream_type = 'hub' AND event_type = 'DeviceRevoked'
+                 AND stream_id IN (${revokedIds.map(() => '?').join(', ')})
+               ORDER BY seq`,
+            )
+            .all(...revokedIds) as Array<{ stream_id: string; payload: string }>;
+          for (const event of events) reasons.set(event.stream_id, (JSON.parse(event.payload) as { reason: string | null }).reason);
+        }
+        const nameOf = (staffId: string | null) => (staffId === null ? null : (ctx.directory.get(staffId)?.display_name ?? null));
         return {
           data: {
             devices: rows.map((row) => ({
@@ -52,11 +68,14 @@ export function registerDevicesQuery(app: FastifyInstance): void {
               device_type: row.device_type,
               station_id: row.station_id,
               owner_staff_id: row.owner_staff_id,
+              owner_name: nameOf(row.owner_staff_id),
               pairing_source: row.pairing_source,
               paired_at: row.paired_at,
               paired_by_name: ctx.directory.get(row.paired_by)?.display_name ?? null,
               last_seen_at: activity.deviceSeenAt(row.device_id) ?? row.last_seen_at,
               revoked_at: row.revoked_at,
+              revoked_by_name: nameOf(row.revoked_by),
+              revoked_reason: reasons.get(row.device_id) ?? null,
               active_session:
                 row.session_id === null
                   ? null

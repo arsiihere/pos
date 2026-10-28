@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Unlock address</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root " lang="en" data-theme="light" dir="ltr" style="width: 720px; height: 400px; overflow: hidden; display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+<div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="dlg-t" style="max-width: 560px;"><h2 class="pos-dialog__title" id="dlg-t">Unlock <span class="pos-ltr">192.168.0.143</span>?</h2>
+<p class="pos-dialog__body">The phone or laptop at this address can try a first-admin PIN again.</p>
+<div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 7.6-1.7"/></svg>Unlock</button></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":400}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

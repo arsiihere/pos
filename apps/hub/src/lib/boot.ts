@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
+import { applyEvent, type EngineState } from '@pos/engine';
 import '@pos/events';
 import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
@@ -19,6 +20,7 @@ import { createAuthGeneration } from '../engine-host/auth-generation.js';
 import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
+import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { publisherFor } from '../ws/server.js';
@@ -30,6 +32,8 @@ import { createHostMatcher } from './net.js';
 import { readHeartbeat, registerHealth, startHeartbeat } from './health.js';
 import { ulidGen } from './ids.js';
 import { registerUiAssets } from './ui-assets.js';
+import type { ConfigClient } from '../sync/config-client.js';
+import { noteCommitted } from '../sync/stock-version.js';
 import { cryptoSecrets } from './secrets.js';
 
 const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
@@ -38,6 +42,8 @@ export interface BootContext {
   config: HubConfig;
   db: Database.Database;
   app?: FastifyInstance;
+  // 01a §2: set by a step-3 fold; createDeps builds the state holder from it.
+  initialState?: unknown;
 }
 
 type BootStep = '2' | '3' | '5' | '6';
@@ -60,6 +66,8 @@ export interface BootOptions {
   listen?: boolean;
   ifaces?: string[];
   logStream?: NodeJS.WritableStream;
+  // 01a §3.4: the config poll client; tests pass a stub (default: HTTP to cloud_base_url).
+  configClient?: ConfigClient;
 }
 
 export interface BootHandle {
@@ -131,7 +139,8 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
         ? { clock: wallClock(opts.wallNow, opts.monoNow), alarm: null }
         : createBranchClock({ wallNow: opts.wallNow, monoNow: opts.monoNow, lastRecordedAt: row.recorded_at });
     const publishSlot: { current: (events: PosEvent[]) => void } = { current: () => undefined };
-    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream, publishSlot);
+    const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream, publishSlot, ctx.initialState);
+    if (opts.configClient !== undefined) deps.configClient = opts.configClient;
     if (opened.alarm !== null) {
       const alarm = opened.alarm;
       deps.writer.run((tx) => {
@@ -273,11 +282,14 @@ function createDeps(
   ifaces: string[] | undefined,
   logStream: NodeJS.WritableStream | undefined,
   publishSlot?: { current: (events: PosEvent[]) => void },
+  initialState?: unknown,
 ): HubDeps {
   const provisioned = config.provisioned;
-  const state = createStateHolder<unknown>({});
-  state.setReducer((current) => current);
+  // 01a §2, S15: with no step-3 handler the state is {} as before.
+  const state = createStateHolder<EngineState>((initialState ?? {}) as EngineState);
+  state.setReducer(applyEvent);
   const projections = createProjectionRegistry();
+  registerRestaurantProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {
@@ -297,6 +309,7 @@ function createDeps(
       state,
       authGeneration,
       publish: (events) => {
+        noteCommitted(events);
         publishSlot?.current(events);
       },
     }),

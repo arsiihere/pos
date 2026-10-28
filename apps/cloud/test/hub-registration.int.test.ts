@@ -42,9 +42,9 @@ describe('POST /v1/hubs/register', () => {
     );
     const issued = await issueRegistrationCode(sys(), { tenantId: seeded.tenant_id, branchName: name }, { clock: cloud.clock, ids, secrets });
     await cloud.pool.query(
-      `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, is_active, created_at, updated_at)
-       VALUES ($1, $2, 'Cashier', 'hash', true, $4, $4),
-              ($1, $3, 'Gone', 'hash', false, $4, $4)`,
+      `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, is_active, left_at, created_at, updated_at)
+       VALUES ($1, $2, 'Cashier', 'hash', true, NULL, $4, $4),
+              ($1, $3, 'Gone', 'hash', false, $4, $4, $4)`,
       [seeded.tenant_id, `cash-${email}`, `gone-${email}`, T],
     );
     await cloud.pool.query(
@@ -108,7 +108,9 @@ describe('POST /v1/hubs/register', () => {
     expect(body.data.directory.roles.map((role: { name: string }) => role.name)).not.toContain('OtherOnly');
     const owner = body.data.directory.roles.find((role: { name: string }) => role.name === 'Owner');
     expect(owner.permissions).toEqual(
-      expect.arrayContaining([{ permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null }]),
+      expect.arrayContaining([
+        { permission: 'access-hub-admin', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+      ]),
     );
 
     const row = await cloud.pool.query<{

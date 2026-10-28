@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Owner floors and tables</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 900px; ">
+  <div class="pos-shell">
+    <nav class="pos-sidenav" aria-label="Restaurant setup">
+      <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu</a>
+      <a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors and tables</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Kitchen stations</a>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; min-width: 0;">
+      <header class="pos-appbar">
+        <h1 class="pos-appbar__title">Floors and tables</h1>
+        <label class="pos-row" style="gap: 8px;"><span style="font: 700 17px/22px var(--font-sans); color: var(--ink-muted);">Branch</span><select class="pos-select" style="width: 240px;"><option>Gulberg</option><option>Johar Town</option></select></label>
+        <div class="pos-appbar__end"><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add floor</button></div>
+      </header>
+
+      <main class="pos-content" style="overflow: hidden;">
+        <section class="pos-section">
+          <div class="pos-row" style="justify-content: space-between;">
+            <div class="pos-section__head"><h2>Ground floor</h2><p>12 tables · 48 seats</p></div>
+            <div class="pos-row"><button class="pos-btn">Rename</button><button class="pos-btn">Archive</button></div>
+          </div>
+          <div class="pos-tiles">
+            <button class="pos-tile">T1<small>4 seats</small></button><button class="pos-tile">T2<small>4 seats</small></button><button class="pos-tile">T3<small>4 seats</small></button><button class="pos-tile">T4<small>4 seats</small></button><button class="pos-tile">T5<small>2 seats</small></button><button class="pos-tile">T6<small>2 seats</small></button><button class="pos-tile">T7<small>6 seats</small></button><button class="pos-tile">T8<small>6 seats</small></button><button class="pos-tile">T9<small>4 seats</small></button><button class="pos-tile">T10<small>4 seats</small></button><button class="pos-tile">T11<small>4 seats</small></button><button class="pos-tile">T12<small>4 seats</small></button>
+            <button class="pos-tile pos-tile--add"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add tables</button>
+          </div>
+        </section>
+
+        <section class="pos-section">
+          <div class="pos-row" style="justify-content: space-between;">
+            <div class="pos-section__head"><h2>Family hall</h2><p>8 tables · 48 seats</p></div>
+            <div class="pos-row"><button class="pos-btn">Rename</button><button class="pos-btn">Archive</button></div>
+          </div>
+          <div class="pos-tiles">
+            <button class="pos-tile">F1<small>6 seats</small></button><button class="pos-tile">F2<small>6 seats</small></button><button class="pos-tile">F3<small>6 seats</small></button><button class="pos-tile">F4<small>6 seats</small></button><button class="pos-tile">F5<small>6 seats</small></button><button class="pos-tile">F6<small>6 seats</small></button><button class="pos-tile">F7<small>6 seats</small></button><button class="pos-tile">F8<small>6 seats</small></button>
+          </div>
+          <div class="pos-explain" style="flex-wrap: wrap; align-items: flex-end;">
+            <label class="pos-field" style="width: 140px;"><span class="pos-field__label">From</span><input class="pos-input pos-input--mono" value="F9"></label>
+            <label class="pos-field" style="width: 140px;"><span class="pos-field__label">To</span><input class="pos-input pos-input--mono" value="F12"></label>
+            <label class="pos-field" style="width: 160px;"><span class="pos-field__label">Seats each</span><input class="pos-input pos-input--mono" value="6"></label>
+            <span style="flex: 1; min-width: 200px; padding-bottom: 14px;">Adds <strong>4 tables</strong>: F9, F10, F11, F12</span>
+            <button class="pos-btn">Cancel</button>
+            <button class="pos-btn" style="border-color: var(--ink);">Add 4 tables</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

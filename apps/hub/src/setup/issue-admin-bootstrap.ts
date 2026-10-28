@@ -2,6 +2,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { applyEvent, initialEngineState, type EngineState } from '@pos/engine';
 // @ts-expect-error qrcode@1.5.4 ships JavaScript only.
 import QRCode from 'qrcode';
 import { issueAdminBootstrap } from '../auth/bootstrap-tokens.js';
@@ -41,8 +42,8 @@ export async function runIssueAdminBootstrap(o: {
     });
     const ids = ulidGen(clock);
     const projections = createProjectionRegistry();
-    const state = createStateHolder<unknown>({});
-    state.setReducer((current) => current);
+    const state = createStateHolder<EngineState>(initialEngineState());
+    state.setReducer(applyEvent);
     const writer = createWriter({
       db,
       clock,

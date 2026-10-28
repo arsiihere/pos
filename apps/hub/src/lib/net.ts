@@ -18,6 +18,26 @@ export function createNetMatcher(cidrs: string[]): (ip: string) => boolean {
   };
 }
 
+export interface HostChoice {
+  address: string;
+  kind: 'cable' | 'wifi' | 'other';
+  name: string;
+}
+
+// M85: the setup page's address tiles: non-internal IPv4 without link-local, cable (en*/eth*) first, then Wi-Fi (wl*).
+export function hostChoices(ifaces: ReturnType<typeof os.networkInterfaces> = os.networkInterfaces()): HostChoice[] {
+  const choices: HostChoice[] = [];
+  for (const [name, entries] of Object.entries(ifaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || entry.family !== 'IPv4' || entry.address.startsWith('169.254.')) continue;
+      const kind = /^(en|eth)/.test(name) ? 'cable' : /^wl/.test(name) ? 'wifi' : 'other';
+      choices.push({ address: entry.address, kind, name });
+    }
+  }
+  const rank = { cable: 0, wifi: 1, other: 2 };
+  return choices.sort((a, b) => rank[a.kind] - rank[b.kind]);
+}
+
 export function listOwnIPv4(ifaces: ReturnType<typeof os.networkInterfaces> = os.networkInterfaces()): string[] {
   const addresses: string[] = [];
   for (const entries of Object.values(ifaces)) {

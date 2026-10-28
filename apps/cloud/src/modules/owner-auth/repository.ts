@@ -29,6 +29,15 @@ export async function recordLoginFailure(
                       ELSE failed_login_count + 1
                     END) >= $5 THEN $3::bigint + $6::bigint
               ELSE NULL
+            END,
+            -- 01b §3.7: the UPDATE that sets the lock also sets the notice shown at the next sign-in
+            lock_notice_at = CASE
+              WHEN (CASE
+                      WHEN login_locked_until IS NOT NULL AND login_locked_until <= $3 THEN 1
+                      WHEN login_window_started_at IS NULL OR $3 - login_window_started_at >= $4 THEN 1
+                      ELSE failed_login_count + 1
+                    END) >= $5 THEN $3::bigint
+              ELSE lock_notice_at
             END
       WHERE tenant_id = $1 AND user_id = $2
       RETURNING failed_login_count`,
@@ -87,26 +96,93 @@ export async function revokeLiveRefreshTokens(
   );
 }
 
-export async function ownerProfile(
+export interface OwnerAuthRow {
+  password_hash: string;
+  must_change_password: boolean;
+  temp_password_expires_at: number | null;
+  credential_version: number;
+  lock_notice_at: number | null;
+  allowed_branch_ids: string[];
+  display_name: string;
+  password_changed_at: number | null;
+}
+
+// 01b B5, §6.13 (N2): the one lock mode on the owner row, taken before any token row by login, refresh,
+// change-password and reset. With `passwordHash`, no row means the hash changed after the caller's verify.
+export async function lockOwnerRow(
   client: pg.PoolClient,
   tenantId: string,
   userId: string,
-): Promise<{ display_name: string; allowed_branch_ids: string[] } | null> {
-  const result = await client.query<{ display_name: string; allowed_branch_ids: string[] }>(
-    `SELECT display_name, allowed_branch_ids FROM owner_users WHERE tenant_id = $1 AND user_id = $2`,
-    [tenantId, userId],
+  o?: { passwordHash?: string },
+): Promise<OwnerAuthRow | null> {
+  const result = await client.query<{
+    password_hash: string;
+    must_change_password: boolean;
+    temp_password_expires_at: string | null;
+    credential_version: number;
+    lock_notice_at: string | null;
+    allowed_branch_ids: string[];
+    display_name: string;
+    password_changed_at: string | null;
+  }>(
+    `SELECT password_hash, must_change_password, temp_password_expires_at, credential_version, lock_notice_at,
+            allowed_branch_ids, display_name, password_changed_at
+       FROM owner_users
+      WHERE tenant_id = $1 AND user_id = $2 AND ($3::text IS NULL OR password_hash = $3)
+        FOR NO KEY UPDATE`,
+    [tenantId, userId, o?.passwordHash ?? null],
   );
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  if (row === undefined) return null;
+  return {
+    ...row,
+    temp_password_expires_at: row.temp_password_expires_at === null ? null : Number(row.temp_password_expires_at),
+    credential_version: Number(row.credential_version),
+    lock_notice_at: row.lock_notice_at === null ? null : Number(row.lock_notice_at),
+    password_changed_at: row.password_changed_at === null ? null : Number(row.password_changed_at),
+  };
+}
+
+// 01b §6.11 (5b), N1: the new hash and credential_version + 1 in one UPDATE, under the owner row lock.
+export async function writeChangedPassword(
+  client: pg.PoolClient,
+  o: { tenantId: string; userId: string; passwordHash: string; now: number },
+): Promise<number> {
+  const result = await client.query<{ credential_version: number }>(
+    `UPDATE owner_users
+        SET password_hash = $3, credential_version = credential_version + 1, must_change_password = false,
+            temp_password_expires_at = NULL, password_changed_at = $4,
+            failed_login_count = 0, login_window_started_at = NULL, login_locked_until = NULL
+      WHERE tenant_id = $1 AND user_id = $2
+      RETURNING credential_version`,
+    [o.tenantId, o.userId, o.passwordHash, o.now],
+  );
+  const version = result.rows[0]?.credential_version;
+  if (version === undefined) throw new Error('owner user missing');
+  return Number(version);
+}
+
+// §3.7: the notice is shown once.
+export async function clearLockNotice(client: pg.PoolClient, tenantId: string, userId: string): Promise<void> {
+  await client.query(`UPDATE owner_users SET lock_notice_at = NULL WHERE tenant_id = $1 AND user_id = $2`, [tenantId, userId]);
 }
 
 export async function insertRefreshToken(
   client: pg.PoolClient,
-  row: { tenantId: string; tokenId: string; userId: string; tokenHash: string; now: number; expiresAt: number },
+  row: {
+    tenantId: string;
+    tokenId: string;
+    userId: string;
+    tokenHash: string;
+    now: number;
+    expiresAt: number;
+    credentialVersion: number;
+  },
 ): Promise<void> {
   await client.query(
     `INSERT INTO owner_refresh_tokens
-       (tenant_id, token_id, user_id, token_hash, created_at, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [row.tenantId, row.tokenId, row.userId, row.tokenHash, row.now, row.expiresAt],
+       (tenant_id, token_id, user_id, token_hash, created_at, expires_at, credential_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [row.tenantId, row.tokenId, row.userId, row.tokenHash, row.now, row.expiresAt, row.credentialVersion],
   );
 }

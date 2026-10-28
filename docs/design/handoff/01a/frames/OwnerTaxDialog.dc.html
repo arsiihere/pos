@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edit tax rate</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root" data-theme="light" dir="ltr" style="width: 720px; min-height: 640px;  display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+  <div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="x-title">
+    <h2 class="pos-dialog__title" id="x-title">Edit tax rate</h2>
+    <div class="pos-grid">
+      <label class="pos-field"><span class="pos-field__label">Name</span><input class="pos-input" value="PRA card"><span class="pos-field__help">Staff see this on the bill.</span></label>
+      <label class="pos-field"><span class="pos-field__label">Rate</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="5" inputmode="decimal"><span>%</span></span><span class="pos-field__help">Up to 2 decimals, e.g. 16 or 7.5.</span></label>
+    </div>
+    <div class="pos-banner pos-banner--warn"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><p>Used by 31 items<small>The new rate applies to every bill closed after you save, including tables that are open now.</small></p></div>
+    <div class="pos-dialog__danger">
+      <div class="pos-section__head"><strong style="font: 700 17px/22px var(--font-sans);">Archive this tax rate</strong><span style="font: 400 15px/20px var(--font-sans); color: var(--ink-muted);">Move its 31 items to another rate first.</span></div>
+      <button class="pos-btn pos-btn--danger" disabled>Archive</button>
+    </div>
+    <div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary">Save tax rate</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":640}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

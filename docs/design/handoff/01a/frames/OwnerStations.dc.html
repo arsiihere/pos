@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Owner kitchen stations</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 1068px; ">
+  <div class="pos-shell">
+    <nav class="pos-sidenav" aria-label="Restaurant setup">
+      <div class="pos-sidenav__brand"><strong>Arif Chatkhara</strong><span>Restaurant setup</span></div>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h9"/></svg>Menu</a>
+      <a class="pos-sidenav__item" href="#"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Floors and tables</a>
+      <a class="pos-sidenav__item" href="#" aria-current="page"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4 0-6.5-2.6-6.5-6.2 0-3.6 2.8-5.6 4-8.8 2.2 1.4 2.8 3.6 2.6 5.4 1.2-.4 2-1.6 2.2-3 2 1.8 2.2 4.2 2.2 6.4C16.5 18.4 15 21 12 21z"/></svg>Kitchen stations</a>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; min-width: 0;">
+      <header class="pos-appbar">
+        <h1 class="pos-appbar__title">Kitchen stations</h1>
+        <label class="pos-row" style="gap: 8px;"><span style="font: 700 17px/22px var(--font-sans); color: var(--ink-muted);">Branch</span><select class="pos-select" style="width: 240px;"><option>Gulberg</option><option>Johar Town</option></select></label>
+        <div class="pos-appbar__end"><button class="pos-btn pos-btn--primary"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add station</button></div>
+      </header>
+
+      <main class="pos-content" style="overflow: hidden;">
+        <ul class="pos-list">
+          <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) auto;">
+            <div class="pos-list__name"><strong>Tandoor</strong><span>Back left · cooks each order · 12 at a time · cook taps Start and Done</span></div>
+            <button class="pos-btn">Edit</button>
+          </li>
+          <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) auto;">
+            <div class="pos-list__name"><strong>Karahi counter</strong><span>Front · cooks each order · 4 at a time · one Done tap</span></div>
+            <button class="pos-btn">Edit</button>
+          </li>
+        </ul>
+
+        <section class="pos-section" style="border-color: var(--ink);">
+          <div class="pos-row" style="justify-content: space-between;">
+            <div class="pos-section__head"><h2>Degh</h2><p>Used by 3 items: Paye, Chicken Biryani · Half, Chicken Biryani · Full</p></div>
+            <div class="pos-row"><button class="pos-btn">Close</button><button class="pos-btn" style="border-color: var(--ink);">Save station</button></div>
+          </div>
+          <div class="pos-grid">
+            <label class="pos-field"><span class="pos-field__label">Name</span><input class="pos-input" value="Degh"></label>
+            <label class="pos-field"><span class="pos-field__label">Where it is (optional)</span><input class="pos-input" value="Back yard"></label>
+          </div>
+          <div class="pos-field"><span class="pos-field__label">How it cooks</span>
+            <div class="pos-seg" role="group" aria-label="How it cooks"><button class="pos-seg__opt" aria-pressed="false" disabled>One order at a time</button><button class="pos-seg__opt" aria-pressed="true">In batches (a whole pot)</button></div>
+            <span class="pos-field__help">Can't change while items use this station.</span>
+          </div>
+          <div class="pos-grid pos-grid--3">
+            <label class="pos-field"><span class="pos-field__label">Pots at the same time</span><input class="pos-input pos-input--mono" value="2"></label>
+            <label class="pos-field"><span class="pos-field__label">A cooked pot stays fresh for</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="30"><span>min</span></span></label>
+            <label class="pos-field"><span class="pos-field__label">Cook marks it done by</span><select class="pos-select"><option>Start + Done taps</option><option>One Done tap</option><option>Itself, when time is up</option></select></label>
+          </div>
+          <div class="pos-section__head"><h2 style="font-size: 18px;">Batch recipes</h2><p>A fixed cook for a whole pot.</p></div>
+          <ul class="pos-list">
+            <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) 200px auto;"><strong>Paye degh</strong><span class="pos-list__num" style="font-size: 18px;">240<small>min</small></span><button class="pos-btn">Edit</button></li>
+            <li class="pos-list__row" style="grid-template-columns: minmax(0, 1fr) 200px auto;"><strong>Biryani degh</strong><span class="pos-list__num" style="font-size: 18px;">90<small>min</small></span><button class="pos-btn">Edit</button></li>
+          </ul>
+          <button class="pos-btn" style="align-self: flex-start;"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add recipe</button>
+        </section>
+      </main>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1068}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

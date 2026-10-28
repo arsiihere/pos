@@ -1,3 +1,4 @@
+import type { BranchConfig, ConfigItem } from '../src/config.js';
 import type { PosEvent } from '../src/envelope.js';
 
 const T = 1_761_000_000_000;
@@ -227,4 +228,122 @@ export function aPinLockoutCleared(overrides?: Overrides): PosEvent {
     },
     overrides,
   );
+}
+
+function stock(eventType: string, itemId: string, payload: Record<string, unknown>): PosEvent {
+  return { ...envelope, stream_type: 'stock', stream_id: itemId, event_type: eventType, payload };
+}
+
+export function aBranchConfigApplied(overrides?: Overrides): PosEvent {
+  return build(
+    hub('BranchConfigApplied', envelope.branch_id, {
+      config_version: 1,
+      snapshot_schema_version: 1,
+      snapshot_hash: 'a'.repeat(64),
+      previous_config_version: null,
+    }),
+    overrides,
+  );
+}
+
+export function aStockSet(overrides?: Overrides): PosEvent {
+  return build(stock('StockSet', 'I1', { item_id: 'I1', on_hand: 10, unit: 'piece' }), overrides);
+}
+
+export function aStockAdded(overrides?: Overrides): PosEvent {
+  return build(stock('StockAdded', 'I1', { item_id: 'I1', quantity: 5, unit: 'piece' }), overrides);
+}
+
+export function aBusinessDayOpened(overrides?: Overrides): PosEvent {
+  return build(
+    hub('BusinessDayOpened', envelope.branch_id, {
+      business_date: '2025-10-20',
+      units: {
+        I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
+        I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
+      },
+    }),
+    overrides,
+  );
+}
+
+export function aBusinessDayClosed(overrides?: Overrides): PosEvent {
+  return build(hub('BusinessDayClosed', envelope.branch_id, {}), overrides);
+}
+
+export function anItemMadeUnavailable(overrides?: Overrides): PosEvent {
+  return build(stock('ItemMadeUnavailable', 'I1', { item_id: 'I1' }), overrides);
+}
+
+export function anItemMadeAvailable(overrides?: Overrides): PosEvent {
+  return build(stock('ItemMadeAvailable', 'I1', { item_id: 'I1' }), overrides);
+}
+
+function configItem(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItem>): ConfigItem {
+  return {
+    item_id: itemId,
+    category_id: 'C1',
+    name,
+    group_label: null,
+    description: null,
+    sort_order: sortOrder,
+    price_minor: 120_000,
+    tax_class_id: null,
+    serve_mode: 'sync',
+    prep_buffer_ms: 0,
+    cook_time_ms: 1_200_000,
+    stock_time_ms: null,
+    out_of_stock_behaviour: 'cook_fresh',
+    stock_unit: 'piece',
+    sale_unit: 'piece',
+    stock_per_sale_unit: 1,
+    low_stock_threshold: null,
+    carries_over: false,
+    availability_windows: [],
+    station_id: 'S1',
+    program_id: null,
+    stock_program_id: null,
+    ...o,
+  };
+}
+
+// 01a §4.3: slot station "Karahi"; I1 (pieces) and I3 (g, sold per 250 g piece)
+// are stock-tracked; I2 is not.
+export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
+  return {
+    snapshot_schema_version: 1,
+    config_version: 1,
+    branch_id: envelope.branch_id,
+    currency_code: 'PKR',
+    tax_enabled: false,
+    day_stale_after_hours: 16,
+    day_min_gap_hours: 4,
+    floors: [],
+    stations: [
+      {
+        station_id: 'S1',
+        name: 'Karahi',
+        location_label: null,
+        station_type: 'slot',
+        capacity: 4,
+        freshness_window_ms: null,
+        completion_mode: 'two_tap',
+        is_archived: false,
+        programs: [],
+      },
+    ],
+    tax_classes: [],
+    categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 1, availability_windows: [] }],
+    items: [
+      configItem('I1', 'Chicken Karahi', 1, { stock_time_ms: 300_000 }),
+      configItem('I2', 'Mutton Karahi', 2, {}),
+      configItem('I3', 'Chicken Karahi — Half', 3, {
+        stock_time_ms: 300_000,
+        stock_unit: 'g',
+        sale_unit: 'piece',
+        stock_per_sale_unit: 250,
+      }),
+    ],
+    ...overrides,
+  };
 }

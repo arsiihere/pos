@@ -3,9 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "seed-demo": "tsx src/cli/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "seed-tenant": "tsx src/cli/seed-tenant.ts",
-    "issue-registration-code": "tsx src/cli/issue-registration-code.ts"
+    "issue-registration-code": "tsx src/cli/issue-registration-code.ts",
+    "set-branch-settings": "tsx src/cli/set-branch-settings.ts",
+    "restore-bump": "tsx src/cli/restore-bump.ts",
+    "reset-owner-password": "tsx src/cli/reset-owner-password.ts",
+    "link-owner-staff": "tsx src/cli/link-owner-staff.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.2",

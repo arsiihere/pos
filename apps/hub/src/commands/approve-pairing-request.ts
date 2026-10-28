@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { encodeCrockford128 } from '../auth/pair-page.js';
 import { stationExists } from '../auth/station-validator.js';
 import { sha256hex } from '../lib/hash.js';
-import { clientPrelude, esc, pageHead, scriptJson } from '../lib/page.js';
-import { EN } from '../lib/strings.js';
+import { signInClient } from '../auth/signin-client.js';
+import { globalStateClient } from '../lib/global-state.js';
+import { clientPrelude, iconSvg, pageHead, scriptJson, tag } from '../lib/page.js';
 import type { HubDeps } from '../server.js';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
@@ -18,22 +19,33 @@ const Payload = z.object({
   station_id: z.string().min(1).optional(),
 });
 
+// 00-S06 … 00-S09 (docs/design/handoff/00/00-design.md §1). Loads without credentials (M79); the script signs in an
+// admin in this tab, then approves by QR (?r=) or by the code on the screen.
 function approvePage(ctx: { tenant_id: string; branch_id: string }): string {
   return `${pageHead({ title: 'approve.title', theme: 'light' })}
 <body class="pos-root">
-<main class="pos-page pos-stack">
-<header class="pos-stack">
-  <h1 class="title">${esc(EN['approve.title'])}</h1>
-  <p class="body-lg">${esc(EN['approve.intro'])}</p>
+<div class="pos-page">
+<header class="pos-appbar">
+  <a class="pos-btn" href="/admin" id="approve_back">${iconSvg('back', 'pos-icon--flip')}${tag('span', '', 'admin.title')}</a>
+  ${tag('h1', 'pos-appbar__title', 'approve.title')}
+  <div class="pos-appbar__end" id="approve_end"></div>
 </header>
-<div id="screen" class="pos-stack"></div>
-</main>
+<div id="approve_banner"></div>
+<main class="pos-content pos-content--narrow"><div id="screen"></div></main>
+</div>
 <script>
 ${encodeCrockford128.toString()}
 ${clientPrelude()}
+${globalStateClient()}
+${signInClient()}
 const ctx = ${scriptJson(ctx)};
-let requestId = new URLSearchParams(location.search).get('r');
+const fromQr = new URLSearchParams(location.search).get('r');
+let requestId = fromQr;
 const screen = document.getElementById('screen');
+const end = document.getElementById('approve_end');
+const topBanner = document.getElementById('approve_banner');
+// Crockford base32 without I L O U (M44 display codes).
+const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
 function openDeviceDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('pos-device', 1);
@@ -51,169 +63,289 @@ function readKey(db, key) {
     read.onerror = () => resolve(undefined);
   });
 }
-function control(tag, name, className) {
-  const el = node(tag, className);
-  el.name = name;
-  el.id = 'f_' + name;
-  return el;
+function deleteKey(db, key) {
+  return new Promise((resolve) => {
+    const del = db.transaction('device', 'readwrite').objectStore('device').delete(key);
+    del.onsuccess = () => resolve();
+    del.onerror = () => resolve();
+  });
 }
-function field(label, input, help) {
+// 00-F02: wipe the device token, then pair again (§8.4).
+async function pairAgain() {
+  const db = await openDeviceDb();
+  for (const key of ['token', 'device_id', 'device_type']) await deleteKey(db, key);
+  location.href = '/pair';
+}
+function permissions() {
+  try { return JSON.parse(sessionStorage.getItem('admin_permissions') || '{}'); } catch { return {}; }
+}
+function field(labelKey, control, helpKey) {
   const wrap = node('div', 'pos-field');
-  const caption = node('label', 'pos-field__label', label);
-  caption.setAttribute('for', input.id);
-  wrap.appendChild(caption);
-  wrap.appendChild(input);
-  if (help) wrap.appendChild(node('p', 'pos-field__help', help));
+  wrap.appendChild(node('span', 'pos-field__label', t(labelKey)));
+  wrap.appendChild(control);
+  if (helpKey) wrap.appendChild(node('p', 'pos-field__help', t(helpKey)));
+  const error = node('p', 'pos-field__error');
+  error.appendChild(icon('alert'));
+  const words = node('span', '', '');
+  error.appendChild(words);
+  wrap.appendChild(error);
+  wrap.fail = (text) => {
+    words.textContent = text;
+    wrap.classList.toggle('pos-field--error', Boolean(text));
+  };
   return wrap;
 }
-function stateScreen(kind, iconName, title, body) {
-  const box = node('section', 'pos-screen pos-screen--' + kind);
-  const mark = node('div', 'pos-screen__icon');
-  mark.appendChild(icon(iconName));
-  box.appendChild(mark);
-  box.appendChild(node('h2', 'pos-screen__title', title));
-  if (body) box.appendChild(node('p', 'pos-screen__body', body));
+function row(parts) {
+  const box = node('div', 'pos-row');
+  box.style.justifyContent = 'center';
+  for (const part of parts) box.appendChild(part);
   return box;
 }
-function submitButton(label) {
-  const button = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', label);
-  button.type = 'submit';
-  return button;
+// 00-S06: no device token and no bootstrap session.
+function notHere() {
+  const hint = node('p', 'caption', t('approve.first_admin_hint'));
+  document.body.replaceChildren(stateScreen('info', 'screen', t('approve.needs_admin_title'), t('pairing.approve_needs_admin_device'), [hint]));
 }
-// §8.4: PIN_INVALID shows attempts_remaining when ≤ 2; lockouts show the time left (authDetail).
-function login(auth) {
+// 00-S07: admin sign-in in this tab.
+function signIn(auth) {
   return new Promise((resolve) => {
-    fetch('/admin/login-roster', { headers: auth }).then(async (res) => {
-      const body = await res.json();
-      const form = node('form', 'pos-card pos-stack');
-      form.appendChild(node('h2', 'heading', t('approve.signin_title')));
-      const staff = control('select', 'staff_id', 'pos-select');
-      for (const member of (body.data && body.data.staff) || []) staff.add(new Option(member.display_name, member.staff_id));
-      form.appendChild(field(t('approve.staff'), staff));
-      const pin = control('input', 'pin', 'pos-input pos-input--mono');
-      pin.type = 'password';
-      pin.inputMode = 'numeric';
-      pin.autocomplete = 'off';
-      const pinBox = node('div', 'pos-pin');
-      pinBox.appendChild(field(t('approve.pin'), pin));
-      form.appendChild(pinBox);
-      const errorSlot = node('div');
-      form.appendChild(errorSlot);
-      const button = submitButton(t('approve.signin'));
-      form.appendChild(button);
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        pinBox.classList.remove('is-error');
-        setBusy(button, true);
-        fetch('/admin/auth', {
+    end.replaceChildren(chip('', 'lock', t('approve.signin_chip')));
+    const left = node('section', 'pos-stack');
+    left.appendChild(node('h2', 'heading', t('approve.who')));
+    left.appendChild(node('p', 'body', t('approve.who_sub')));
+    const roster = node('div', 'pos-staff');
+    left.appendChild(roster);
+    const card = node('form', 'pos-card pos-stack');
+    card.addEventListener('submit', (event) => event.preventDefault());
+    const split = node('div', 'pos-split');
+    split.appendChild(left);
+    split.appendChild(card);
+    screen.replaceChildren(split);
+    adminSignIn({
+      roster,
+      card,
+      load: () => call('/admin/login-roster', { headers: auth }),
+      login: (staffId, pin) =>
+        call('/admin/auth', {
           method: 'POST',
           headers: Object.assign({ 'content-type': 'application/json' }, auth),
-          body: JSON.stringify({ staff_id: staff.value, pin: pin.value }),
-        }).then(
-          async (res) => {
-            setBusy(button, false);
-            const body = await res.json();
-            if (res.status !== 200) {
-              if (body.error && body.error.code === 'PIN_INVALID') pinBox.classList.add('is-error');
-              pin.value = '';
-              errorSlot.replaceChildren(banner('danger', errorText(body.error), authDetail(body.error), 'auth_error'));
-              return;
-            }
-            sessionStorage.setItem('admin_session_token', body.data.admin_session_token);
-            sessionStorage.setItem('admin_staff_id', body.data.staff_id);
-            resolve();
-          },
-          () => {
-            setBusy(button, false);
-            errorSlot.replaceChildren(banner('danger', errorText({ code: 'SERVICE_UNAVAILABLE' }), '', 'auth_error'));
-          },
-        );
-      });
-      screen.replaceChildren(form);
+          body: JSON.stringify({ staff_id: staffId, pin }),
+        }),
+      onDone: (data) => {
+        sessionStorage.setItem('admin_session_token', data.admin_session_token);
+        sessionStorage.setItem('admin_staff_id', data.staff_id);
+        sessionStorage.setItem('admin_name', data.display_name);
+        sessionStorage.setItem('admin_permissions', JSON.stringify(data.permissions || {}));
+        resolve();
+      },
+      onExpired: notHere,
+      global: (error) => globalScreen(error, {}, { pairAgain }),
     });
   });
 }
-function approveForm(auth, deviceId) {
+function adminHeaders(auth) {
+  return Object.assign({ 'content-type': 'application/json', 'x-admin-session': sessionStorage.getItem('admin_session_token') }, auth);
+}
+// 00-S08: the form. "values" refills it after Try again.
+async function approveForm(auth, deviceId, values) {
+  const kept = values || {};
+  end.replaceChildren(node('span', 'body', sessionStorage.getItem('admin_name') || ''));
+  topBanner.replaceChildren();
+  let stations = [];
+  try {
+    const res = await call('/admin/queries/stations', { headers: adminHeaders(auth) });
+    if (res.status === 200) stations = res.body.data.stations;
+    else if (res.body.error && res.body.error.code === 'ADMIN_SESSION_REQUIRED') return restart(auth, deviceId);
+  } catch {
+    topBanner.replaceChildren(renderGlobalState({ id: 'F01', mode: 'banner' }));
+  }
+  let kind = kept.kind || null;
+  let stationId = kept.stationId || null;
   const form = node('form', 'pos-card pos-stack');
-  const code = control('input', 'display_code', 'pos-input pos-input--mono');
+  if (requestId) form.appendChild(row([chip('ok', 'check', t('approve.from_qr'))]));
+  const code = node('input', 'pos-input pos-input--code');
+  code.name = 'display_code';
   code.autocomplete = 'off';
   code.setAttribute('autocapitalize', 'characters');
-  code.setAttribute('maxlength', '7');
-  form.appendChild(field(t('approve.code'), code, t('approve.code_help')));
-  const type = control('select', 'device_type', 'pos-select');
-  type.add(new Option(t('approve.type_cashier_kiosk'), 'cashier_kiosk'));
-  type.add(new Option(t('approve.type_kds'), 'kds'));
-  form.appendChild(field(t('approve.type'), type));
-  const station = control('input', 'station_id', 'pos-input');
-  form.appendChild(field(t('approve.station'), station, t('approve.station_help')));
+  code.setAttribute('maxlength', '6');
+  code.value = kept.code || '';
+  const codeField = field('approve.code_label', code, 'approve.code_help');
+  form.appendChild(codeField);
+  const seg = node('div', 'pos-seg pos-seg--block');
+  seg.setAttribute('role', 'group');
+  seg.name = 'device_type';
+  const kindField = field('approve.kind_label', seg);
+  form.appendChild(kindField);
+  const tiles = node('div', 'pos-tiles');
+  tiles.setAttribute('role', 'group');
+  tiles.name = 'station_id';
+  const stationField = field('approve.station_label', tiles);
+  form.appendChild(stationField);
   const status = node('div');
+  status.name = 'approve_status';
   form.appendChild(status);
-  const button = submitButton(t('approve.submit'));
+  const button = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
+  button.type = 'submit';
+  button.appendChild(icon('check'));
+  const buttonText = node('span', '', t('approve.submit'));
+  button.appendChild(buttonText);
   form.appendChild(button);
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
+  const aside = node('aside', 'pos-card pos-stack');
+  const split = node('div', 'pos-split');
+  split.appendChild(form);
+  split.appendChild(aside);
+  screen.replaceChildren(split);
+  const station = () => stations.find((item) => item.station_id === stationId);
+  const preview = () => {
+    aside.hidden = kind === null;
+    if (kind === null) return aside.replaceChildren();
+    const explain = node('div', 'pos-explain');
+    explain.appendChild(icon(kind === 'kds' ? 'flame' : 'screen'));
+    explain.appendChild(node('span', 'heading', kind === 'kds' ? t('approve.preview_kds_name', { station: station() ? station().name : '…' }) : t('approve.kind_cashier')));
+    aside.replaceChildren(
+      node('p', 'label', t('approve.preview_title')),
+      explain,
+      node('p', 'body', t(kind === 'kds' ? 'approve.preview_kds' : 'approve.preview_cashier')),
+      node('p', 'caption', t('approve.audit_note')),
+    );
+  };
+  const opts = [];
+  for (const [value, iconName, key] of [['cashier_kiosk', 'screen', 'approve.kind_cashier'], ['kds', 'flame', 'approve.kind_kitchen']]) {
+    const opt = node('button', 'pos-seg__opt');
+    opt.type = 'button';
+    opt.value = value;
+    opt.appendChild(icon(iconName));
+    opt.appendChild(document.createTextNode(t(key)));
+    opt.setAttribute('aria-pressed', String(kind === value));
+    opt.addEventListener('click', () => {
+      kind = value;
+      for (const other of opts) other.setAttribute('aria-pressed', String(other === opt));
+      kindField.fail('');
+      stationField.hidden = kind !== 'kds';
+      preview();
+    });
+    opts.push(opt);
+    seg.appendChild(opt);
+  }
+  const stationTiles = [];
+  for (const item of stations) {
+    const tile = node('button', 'pos-tile', item.name);
+    tile.type = 'button';
+    tile.value = item.station_id;
+    const sub = item.location_label || item.category_names.join(', ');
+    if (sub) tile.appendChild(node('small', '', sub));
+    tile.setAttribute('aria-pressed', String(stationId === item.station_id));
+    tile.addEventListener('click', () => {
+      stationId = item.station_id;
+      for (const other of stationTiles) other.setAttribute('aria-pressed', String(other === tile));
+      stationField.fail('');
+      preview();
+    });
+    stationTiles.push(tile);
+    tiles.appendChild(tile);
+  }
+  if (stations.length === 0) tiles.appendChild(node('p', 'body', t('approve.no_stations')));
+  stationField.hidden = kind !== 'kds';
+  preview();
+  const readOnly = () => {
+    for (const el of [code, button, ...opts, ...stationTiles]) el.disabled = true;
+    status.replaceChildren(banner('info', t('errors.PERMISSION_DENIED_devices'), t('errors.PERMISSION_DENIED_devices_body')));
+  };
+  if (permissions()['manage-devices'] === false) readOnly();
+  let busyRetried = false;
+  const send = async () => {
+    const value = code.value.replace(/[\\s-]/g, '').toUpperCase();
+    codeField.fail(CODE_RE.test(value) ? '' : t('approve.err_code_format'));
+    kindField.fail(kind === null ? t('approve.err_kind') : '');
+    stationField.fail(kind === 'kds' && stationId === null ? t('approve.err_station') : '');
+    if (!CODE_RE.test(value) || kind === null || (kind === 'kds' && stationId === null)) return;
     status.replaceChildren();
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     setBusy(button, true);
-    fetch('/admin/commands/approve-pairing-request', {
-      method: 'POST',
-      headers: Object.assign(
-        { 'content-type': 'application/json', 'x-admin-session': sessionStorage.getItem('admin_session_token') },
-        auth,
-      ),
-      body: JSON.stringify({
-        command_id: encodeCrockford128(bytes),
-        tenant_id: ctx.tenant_id,
-        branch_id: ctx.branch_id,
-        command_type: 'ApprovePairingRequest',
-        payload: {
-          request_id: requestId || undefined,
-          display_code: code.value.replace(/[\\s-]/g, '').toUpperCase(),
-          device_type: type.value,
-          station_id: station.value === '' ? undefined : station.value,
-        },
-        occurred_at: Date.now(),
-        actor_id: sessionStorage.getItem('admin_staff_id'),
-        device_id: deviceId,
-      }),
-    }).then(
-      async (res) => {
-        setBusy(button, false);
-        const body = await res.json();
-        if (res.status !== 200) {
-          status.replaceChildren(banner('danger', errorText(body.error)));
-          return;
-        }
-        const done = stateScreen('ok', 'check', t('pairing.approved'), t('approve.approved_body'));
-        const again = node('button', 'pos-btn pos-btn--lg', t('approve.another'));
-        again.type = 'button';
-        again.addEventListener('click', () => {
-          // A scanned ?r= names one screen; the next approval goes by code only.
-          requestId = null;
-          approveForm(auth, deviceId);
-        });
-        done.appendChild(again);
-        screen.replaceChildren(done);
-      },
-      () => {
-        setBusy(button, false);
-        status.replaceChildren(banner('danger', errorText({ code: 'SERVICE_UNAVAILABLE' })));
-      },
-    );
+    buttonText.textContent = t('approve.busy');
+    let res;
+    try {
+      res = await call('/admin/commands/approve-pairing-request', {
+        method: 'POST',
+        headers: adminHeaders(auth),
+        body: JSON.stringify({
+          command_id: encodeCrockford128(bytes),
+          tenant_id: ctx.tenant_id,
+          branch_id: ctx.branch_id,
+          command_type: 'ApprovePairingRequest',
+          payload: {
+            request_id: requestId || undefined,
+            display_code: value,
+            device_type: kind,
+            station_id: kind === 'kds' ? stationId : undefined,
+          },
+          occurred_at: Date.now(),
+          actor_id: sessionStorage.getItem('admin_staff_id'),
+          device_id: deviceId,
+        }),
+      });
+    } catch {
+      res = undefined;
+    }
+    setBusy(button, false);
+    buttonText.textContent = t('approve.submit');
+    if (res === undefined) return topBanner.replaceChildren(renderGlobalState({ id: 'F01', mode: 'banner' }));
+    topBanner.replaceChildren();
+    if (res.status === 200) return done(auth, deviceId, kind === 'kds' ? station() : null);
+    const error = res.body.error || { code: 'INTERNAL_ERROR' };
+    if (error.code === 'SERVICE_UNAVAILABLE' && !busyRetried) {
+      busyRetried = true;
+      setTimeout(send, 1000);
+      return;
+    }
+    busyRetried = false;
+    if (error.code === 'SERVICE_UNAVAILABLE') return status.replaceChildren(renderGlobalState({ id: 'F05', mode: 'banner' }, { retry: send }));
+    if (error.code === 'PAIRING_REQUEST_NOT_FOUND') return codeField.fail(errorText(error));
+    if (error.code === 'VALIDATION_FAILED') return codeField.fail(t('approve.err_code_format'));
+    if (error.code === 'STATION_NOT_FOUND') return status.replaceChildren(banner('danger', errorText(error), errorBody(error)));
+    if (error.code === 'PERMISSION_DENIED') return readOnly();
+    if (error.code === 'ADMIN_SESSION_REQUIRED') return restart(auth, deviceId);
+    if (globalScreen(error, {}, { pairAgain })) return;
+    failed(auth, deviceId, error, { code: code.value, kind, stationId });
+  };
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    send();
   });
-  screen.replaceChildren(form);
+}
+// 00-S09
+function done(auth, deviceId, approved) {
+  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('approve.another'));
+  again.type = 'button';
+  again.addEventListener('click', () => {
+    // A scanned ?r= names one screen; the next approval goes by code only.
+    requestId = null;
+    approveForm(auth, deviceId);
+  });
+  const home = node('a', 'pos-btn pos-btn--lg', t('admin.title'));
+  home.href = '/admin';
+  const body = approved ? t('approve.done_body_kds', { station: approved.name }) : t('approve.done_body_cashier');
+  screen.replaceChildren(stateScreen('ok', 'check', t('approve.done_title'), body, [row([again, home])]));
+}
+function failed(auth, deviceId, error, values) {
+  const retry = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('approve.retry'));
+  retry.type = 'button';
+  retry.addEventListener('click', () => approveForm(auth, deviceId, values));
+  screen.replaceChildren(stateScreen('danger', 'alert', t('approve.failed'), errorText(error), [row([retry])]));
+}
+async function restart(auth, deviceId) {
+  sessionStorage.removeItem('admin_session_token');
+  await signIn(auth);
+  approveForm(auth, deviceId);
 }
 openDeviceDb().then(async (db) => {
   const deviceToken = await readKey(db, 'token');
   const deviceId = await readKey(db, 'device_id');
   const bootstrap = sessionStorage.getItem('admin_bootstrap') === '1';
-  if (!bootstrap && !deviceToken) {
-    screen.replaceChildren(stateScreen('info', 'lock', t('approve.needs_admin_title'), t('pairing.approve_needs_admin_device')));
-    return;
-  }
+  if (!bootstrap && !deviceToken) return notHere();
   const auth = bootstrap ? {} : { authorization: 'Bearer ' + deviceToken };
-  if (!sessionStorage.getItem('admin_session_token')) await login(auth);
+  if (!sessionStorage.getItem('admin_session_token')) await signIn(auth);
   approveForm(auth, bootstrap ? 'hub-admin' : deviceId);
 });
 </script>

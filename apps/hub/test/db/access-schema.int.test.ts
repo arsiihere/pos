@@ -109,32 +109,38 @@ describe('access schema', () => {
     ).run(T, T + 1);
   });
 
-  it('[00 §5.1] roles require a positive idle TTL; grant_type and approver_role_id stay paired; phone pairing tokens need an owner', async () => {
+  it('[00 §5.1, 01b §5.2] roles require a positive idle TTL; grants check scope and approvers name a role; phone pairing tokens need an owner', async () => {
     const { db } = await open();
     expect(() =>
       db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r0', 'branch-1', 'Bad', 0)`).run(),
     ).toThrow(/CHECK constraint failed/);
     db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r1', 'branch-1', 'Ok', 1000)`).run();
     db.prepare(`INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('r2', 'branch-1', 'Approver', 1000)`).run();
+    // 01b §5.2: approvers moved to role_permission_approvers; the grant carries a checked scope.
     expect(() =>
       db
         .prepare(
-          `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
-           VALUES ('r1', 'manage-staff', 'allowed', 'r2')`,
-        )
-        .run(),
-    ).toThrow(/CHECK constraint failed/);
-    expect(() =>
-      db
-        .prepare(
-          `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
-           VALUES ('r1', 'manage-staff', 'requires_approval', NULL)`,
+          `INSERT INTO role_permissions (role_id, permission, grant_type, scope)
+           VALUES ('r1', 'manage-staff', 'allowed', 'everywhere')`,
         )
         .run(),
     ).toThrow(/CHECK constraint failed/);
     db.prepare(
-      `INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
-       VALUES ('r1', 'manage-staff', 'requires_approval', 'r2')`,
+      `INSERT INTO role_permissions (role_id, permission, grant_type)
+       VALUES ('r1', 'manage-staff', 'requires_approval')`,
+    ).run();
+    expect(db.prepare(`SELECT scope FROM role_permissions WHERE role_id = 'r1'`).pluck().get()).toBe('branch');
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO role_permission_approvers (role_id, permission, approver_role_id)
+           VALUES ('r1', 'manage-staff', 'r-missing')`,
+        )
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/);
+    db.prepare(
+      `INSERT INTO role_permission_approvers (role_id, permission, approver_role_id)
+       VALUES ('r1', 'manage-staff', 'r2')`,
     ).run();
     expect(() =>
       db

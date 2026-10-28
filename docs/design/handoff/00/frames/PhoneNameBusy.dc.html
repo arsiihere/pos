@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pair this phone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="en" data-theme="light" dir="ltr" style="width: 390px; height: 844px; overflow: hidden;">
+<main class="pos-content" style="padding: 24px 16px; gap: 24px;">
+
+<div style="display: flex; flex-direction: column; gap: 8px;"><p class="caption" style="margin: 0; color: var(--ink-muted);">Restaurant POS</p><h1 class="title" style="margin: 0;">Pair this phone</h1><p class="body" style="margin: 0; color: var(--ink-muted);">Your manager made this link for you. Give the phone a name your manager will recognise.</p></div>
+<section class="pos-card" style="display: flex; flex-direction: column; gap: 20px; padding: 16px;">
+<label class="pos-field"><span class="pos-field__label">Phone name</span><input class="pos-input" value="Bilal's phone" maxlength="40" autocomplete="off" enterkeyhint="done"><span class="pos-field__help">e.g. Bilal's phone · up to 40 letters</span></label>
+<button class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block is-busy" aria-busy="true">Pairing…</button></section>
+<p class="caption" style="margin: 0; color: var(--ink-muted);">Only you can sign in on this phone.</p>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

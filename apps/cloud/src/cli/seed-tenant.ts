@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { hash, Algorithm, Version } from '@node-rs/argon2';
+import type { DefaultKey } from '@pos/domain';
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
@@ -52,48 +53,56 @@ export async function seedTenant(
         `INSERT INTO tenants (tenant_id, name, currency_code, created_at) VALUES ($1, $2, $3, $4)`,
         [tenantId, input.name, input.currency, now],
       );
-      const roleIds = new Map<string, string>();
+      // 01b §6.15, B17: roles keyed by default_key; approvers found by key, never by name (§3.8).
+      const roleIds = new Map<DefaultKey, string>();
       for (const role of DEFAULT_ROLES) {
         const roleId = deps.ids.next();
-        roleIds.set(role.name, roleId);
+        roleIds.set(role.default_key, roleId);
         await ctx.query(
-          `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms) VALUES ($1, $2, $3, $4)`,
-          [tenantId, roleId, role.name, role.session_idle_ttl_ms],
+          `INSERT INTO roles (tenant_id, role_id, name, session_idle_ttl_ms, default_key) VALUES ($1, $2, $3, $4, $5)`,
+          [tenantId, roleId, role.name, role.session_idle_ttl_ms, role.default_key],
         );
       }
+      const keyed = (key: DefaultKey): string => {
+        const roleId = roleIds.get(key);
+        if (roleId === undefined) throw new Error(`missing default role ${key}`);
+        return roleId;
+      };
       for (const role of DEFAULT_ROLES) {
-        const roleId = roleIds.get(role.name);
-        if (roleId === undefined) throw new Error(`missing role ${role.name}`);
+        const roleId = keyed(role.default_key);
         for (const grant of role.grants) {
-          const approver = grant.approver_role === undefined ? null : (roleIds.get(grant.approver_role) ?? null);
-          if (grant.approver_role !== undefined && approver === null) {
-            throw new Error(`missing approver role ${grant.approver_role}`);
-          }
+          // approver_role_id is dual-written with the first (only) approver (§5.1, B22)
+          const approver = grant.approver_key === undefined ? null : keyed(grant.approver_key);
           await ctx.query(
             `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id)
              VALUES ($1, $2, $3, $4, $5)`,
             [tenantId, roleId, grant.permission, grant.grant_type, approver],
           );
+          if (approver !== null) {
+            await ctx.query(
+              `INSERT INTO role_permission_approvers (tenant_id, role_id, permission, approver_role_id) VALUES ($1, $2, $3, $4)`,
+              [tenantId, roleId, grant.permission, approver],
+            );
+          }
         }
       }
       await ctx.query(
-        `INSERT INTO owner_users
-           (tenant_id, user_id, email, display_name, password_hash, allowed_branch_ids, created_at)
+        `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, pin_set_at, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [tenantId, userId, input.ownerEmail, input.ownerName, passwordHash, [], now],
-      );
-      const ownerRoleId = roleIds.get('Owner');
-      if (ownerRoleId === undefined) throw new Error('missing role Owner');
-      await ctx.query(
-        `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [tenantId, staffId, input.ownerName, pinHash, now, now],
+        [tenantId, staffId, input.ownerName, pinHash, now, now, now],
       );
       await ctx.query(`INSERT INTO staff_roles (tenant_id, staff_id, role_id) VALUES ($1, $2, $3)`, [
         tenantId,
         staffId,
-        ownerRoleId,
+        keyed('owner'),
       ]);
+      // B7: the owner login is linked to its staff row (own-admin guard)
+      await ctx.query(
+        `INSERT INTO owner_users
+           (tenant_id, user_id, email, display_name, password_hash, allowed_branch_ids, created_at, staff_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [tenantId, userId, input.ownerEmail, input.ownerName, passwordHash, [], now, staffId],
+      );
       return { tenant_id: tenantId, user_id: userId, staff_id: staffId };
     });
   } catch (error) {

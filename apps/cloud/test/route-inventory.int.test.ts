@@ -1,9 +1,17 @@
 import { DomainError } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
-import { createTestCloud } from './helpers/test-cloud';
+import { restaurantFixture } from './helpers/restaurant';
+import { ROUTE_CASES } from './helpers/route-cases';
+import { createTestCloud, type TestCloud } from './helpers/test-cloud';
 
-const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health'];
+// 01b §6.13: the JWT guard reads the owner row, so a valid token names a real owner.
+async function ownerToken(cloud: TestCloud): Promise<{ token: string; tenantId: string }> {
+  const f = await restaurantFixture(cloud);
+  return { token: f.token, tenantId: f.tenantId };
+}
+
+const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health', 'GET /owner/', 'GET /owner/*'];
 
 async function readyMessage(app: { ready(): Promise<unknown> }): Promise<string> {
   try {
@@ -69,10 +77,37 @@ describe('tenant scope', () => {
         { method: 'POST', url: '/v1/auth/login', tenantScope: 'none' },
         { method: 'POST', url: '/v1/auth/refresh', tenantScope: 'none' },
         { method: 'POST', url: '/v1/auth/logout', tenantScope: 'jwt' },
+        { method: 'POST', url: '/v1/auth/change-password', tenantScope: 'jwt' }, // 01b §6.11
       ]),
     );
     expect(typeof cloud.app.ownerCredentials.byEmail).toBe('function');
     expect(await cloud.app.ownerCredentials.byEmail('missing@example.com')).toBeNull();
+  });
+
+  it('[01b §12.2, D54] the 14 new 01b routes are registered behind the JWT guard (cross-tenant cases in route-cases.ts)', async () => {
+    const cloud = await createTestCloud();
+    cleanups.push(() => cloud.close());
+    await cloud.app.ready();
+    const routes = [
+      'GET /v1/admin/staff',
+      'POST /v1/admin/staff',
+      'PUT /v1/admin/staff/:staff_id/pin',
+      'PATCH /v1/admin/staff/:staff_id',
+      'GET /v1/admin/roles',
+      'POST /v1/admin/roles',
+      'PATCH /v1/admin/roles/:role_id',
+      'GET /v1/admin/branches/:branch_id/responsibilities',
+      'PUT /v1/admin/branches/:branch_id/responsibilities',
+      'PATCH /v1/admin/branches/:branch_id',
+      'GET /v1/admin/branches/:branch_id/settings',
+      'PATCH /v1/admin/branches/:branch_id/settings',
+      'POST /v1/auth/change-password',
+      'GET /v1/admin/branches/:branch_id/team-tree',
+    ];
+    const scopes = new Map(listTenantScopes(cloud.app).map((route) => [`${route.method} ${route.url}`, route.tenantScope]));
+    expect(routes).toHaveLength(14);
+    expect(routes.map((route) => [route, scopes.get(route)])).toEqual(routes.map((route) => [route, 'jwt']));
+    expect(Object.keys(ROUTE_CASES)).toEqual(expect.arrayContaining(routes));
   });
 
   it('[F §3.4] bad JWT → 401 JWT_INVALID', async () => {
@@ -95,18 +130,14 @@ describe('tenant scope', () => {
     expect(garbage.statusCode).toBe(401);
     expect(garbage.json().error.code).toBe('JWT_INVALID');
 
-    const token = cloud.app.jwt.sign({
-      sub: 'u1',
-      tenant_id: 't1',
-      allowed_branch_ids: ['b1'],
-    });
+    const { token, tenantId } = await ownerToken(cloud);
     const ok = await cloud.app.inject({
       method: 'GET',
       url: '/v1/owner/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toEqual({ data: { tenant_id: 't1' } });
+    expect(ok.json()).toEqual({ data: { tenant_id: tenantId } });
   });
 
   it('[00 §7.1] a 429 carries Retry-After rounded up from retry_after_ms', async () => {
@@ -119,7 +150,7 @@ describe('tenant scope', () => {
       throw new DomainError('VALIDATION_FAILED', { retry_after_ms: 1000 });
     });
     await cloud.app.ready();
-    const token = cloud.app.jwt.sign({ sub: 'u1', tenant_id: 't1', allowed_branch_ids: ['b1'] });
+    const { token } = await ownerToken(cloud);
     const limited = await cloud.app.inject({
       method: 'GET',
       url: '/v1/limited',

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stock, yesterday still open</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1280px; min-height: 800px; ">
+  <header class="pos-appbar">
+    <h1 class="pos-appbar__title">Stock</h1>
+    <span class="pos-chip pos-chip--warn"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>Day open for <span class="pos-ltr">26 h</span></span>
+    <span class="pos-chip"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.6L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.6L20 16"/><path d="M20 20v-4h-4"/></svg>Menu up to date</span>
+    <div class="pos-appbar__end">
+      <span style="font: 400 17px/22px var(--font-sans); color: var(--ink-muted);">Imran</span>
+      <button class="pos-btn">Sign out</button>
+    </div>
+  </header>
+
+  <main class="pos-content" style="overflow: hidden;">
+    <section class="pos-callout pos-callout--warn">
+      <div class="pos-callout__icon"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></div>
+      <div class="pos-callout__text">
+        <h2>The day from <span class="pos-ltr">Sat 24 Oct, 09:12</span> is still open</h2>
+        <p>Nobody closed it last night. Close it and start today, so this morning's counts belong to today.</p>
+      </div>
+      <div class="pos-callout__actions">
+        <button class="pos-btn">Keep it open</button>
+        <button class="pos-btn pos-btn--primary pos-btn--lg">Close it and start today</button>
+      </div>
+    </section>
+
+    <ul class="pos-list pos-list--stock">
+      <li class="pos-list__head"><span>Item</span><span>Count now</span><span>Left to sell</span><span>Fresh batch</span><span>Selling</span></li>
+      <li class="pos-list__row is-muted">
+        <div class="pos-list__name"><strong>Chicken Karahi</strong><span>Karahi · counted in kg</span><div class="pos-list__tags"><span class="pos-chip pos-chip--warn">Counted yesterday</span></div></div>
+        <div class="pos-count"><input class="pos-input pos-input--mono" value="1.2" inputmode="decimal" aria-label="Chicken Karahi count in kg"><span class="pos-count__unit">kg</span></div>
+        <div class="pos-list__num">1.2<small>kg</small></div>
+        <button class="pos-btn">Add</button>
+        <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>On</button>
+      </li>
+      <li class="pos-list__row is-muted">
+        <div class="pos-list__name"><strong>Paye</strong><span>Breakfast · plates</span><div class="pos-list__tags"><span class="pos-chip pos-chip--warn">Counted yesterday</span></div></div>
+        <div class="pos-count"><input class="pos-input pos-input--mono" value="3" inputmode="numeric" aria-label="Paye count in plates"><span class="pos-count__unit">plates</span></div>
+        <div class="pos-list__num">3<small>plates</small></div>
+        <button class="pos-btn">Add</button>
+        <button class="pos-switch" role="switch" aria-checked="true"><span class="pos-switch__track"></span>On</button>
+      </li>
+    </ul>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ const EXPECTED: Record<RouteGroup, string[]> = {
   admin: ['host', 'provisioned', 'guest', 'device', 'admin'],
   'admin-device-public': ['host', 'provisioned', 'guest', 'device'],
   'admin-bootstrap': ['host', 'provisioned', 'guest'],
+  'admin-page': ['host', 'provisioned', 'guest'],
   pair: ['host', 'provisioned', 'guest', 'version'],
   'pair-request': ['host', 'provisioned', 'guest', 'version'],
   ws: ['host', 'provisioned', 'guest', 'version'],

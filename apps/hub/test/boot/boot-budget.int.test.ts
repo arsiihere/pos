@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../src/db/connection';
 import { boot } from '../../src/lib/boot';
-import { buildBigFixture } from '../helpers/big-fixture';
+import { buildBigFixture, PROJECTIONS } from '../helpers/big-fixture';
 
 const N = 1_000_000;
 const BRANCH = 'branch-1';
@@ -36,10 +36,8 @@ describe('boot budget', () => {
           schema_version, payload, occurred_at, recorded_at, actor_id, device_id, seq
         ) VALUES ('evt-decoy', 'tenant-a', ?, 'hub', ?, 'TestNooped', 1, '{"command_id":"decoy"}', ?, ?, NULL, 'hub', ?)`,
       ).run(BRANCH, BRANCH, DECOY_AT, DECOY_AT, N + 1);
-      db.prepare(`UPDATE projection_checkpoints SET last_seq = ? WHERE branch_id = ? AND projection = 'access_reconcile'`).run(
-        N + 1,
-        BRANCH,
-      );
+      const advance = db.prepare(`UPDATE projection_checkpoints SET last_seq = ? WHERE branch_id = ? AND projection = ?`);
+      for (const projection of PROJECTIONS) expect(advance.run(N + 1, BRANCH, projection).changes).toBe(1);
       db.pragma('wal_checkpoint(TRUNCATE)');
       db.close();
       const configPath = join(dir, 'config.json');

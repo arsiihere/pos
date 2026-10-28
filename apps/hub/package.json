@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch src/main.ts",
     "issue-admin-bootstrap": "tsx src/setup/issue-admin-bootstrap.ts",
     "smoke": "tsx test/smoke/smoke.ts",
     "typecheck": "tsc --noEmit"
@@ -11,6 +12,7 @@
     "@fastify/websocket": "11.3.4",
     "@node-rs/argon2": "2.2.2",
     "@pos/domain": "workspace:*",
+    "@pos/engine": "workspace:*",
     "@pos/events": "workspace:*",
     "better-sqlite3": "13.0.3",
     "fastify": "5.12.7",

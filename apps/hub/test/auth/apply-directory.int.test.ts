@@ -1,3 +1,6 @@
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DirectoryInput } from '@pos/events';
 import type Database from 'better-sqlite3';
@@ -14,6 +17,7 @@ import { fixedClock, T } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
 import { pinHash } from '../helpers/fixtures';
 import { freshDb } from '../helpers/db';
+import { statementCounter } from '../helpers/statement-counter';
 import { createProjectionRegistry } from '../../src/projections/registry';
 
 const migrations = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -277,16 +281,14 @@ describe('applyStaffDirectory', () => {
           name: 'R1',
           session_idle_ttl_ms: 1_000,
           permissions: [
-            { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
-            { permission: 'not-a-permission', grant_type: 'allowed', approver_role_id: null },
-            { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MISSING' },
+            allowedGrant('reprint-ticket'),
+            allowedGrant('not-a-permission'),
+            approvalGrant('apply-discount', ['R_MISSING']),
           ],
         },
       ],
-      staff: [
-        { staff_id: 'S_KEEP', display_name: 'S_KEEP', pin_hash: hash, role_ids: ['R1', 'R_UNKNOWN'], denied_permissions: [] },
-        { staff_id: 'S_WEAK', display_name: 'S_WEAK', pin_hash: weak, role_ids: ['R1'], denied_permissions: [] },
-      ],
+      staff: [staffRow('S_KEEP', hash, ['R1', 'R_UNKNOWN']), staffRow('S_WEAK', weak, ['R1'])],
+      responsibilities: [],
     };
     writer.run((tx) => applyStaffDirectory(tx, next, () => undefined));
     const applied = events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1);
@@ -327,43 +329,35 @@ describe('applyStaffDirectory', () => {
           name: 'R1',
           session_idle_ttl_ms: 1_000,
           permissions: [
-            { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: 'R1' },
-            { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
-            { permission: 'manage-devices', grant_type: 'allowed', approver_role_id: null },
-            { permission: 'manage-devices', grant_type: 'requires_approval', approver_role_id: 'R1' },
+            allowedGrant('reprint-ticket', ['R1']),
+            allowedGrant('reprint-ticket'),
+            allowedGrant('manage-devices'),
+            approvalGrant('manage-devices', ['R1']),
           ],
         },
         {
           role_id: 'R1',
           name: 'R1-again',
           session_idle_ttl_ms: 2_000,
-          permissions: [{ permission: 'void-item', grant_type: 'allowed', approver_role_id: null }],
+          permissions: [allowedGrant('void-item')],
         },
       ],
       staff: [
-        {
-          staff_id: 'S_KEEP',
-          display_name: 'S_KEEP',
-          pin_hash: hash,
-          role_ids: ['R1', 'R1', 'R_UNKNOWN'],
+        staffRow('S_KEEP', hash, ['R1', 'R1', 'R_UNKNOWN'], {
           denied_permissions: ['not-a-permission', 'apply-discount', 'apply-discount'],
-        },
-        {
-          staff_id: 'S_KEEP',
-          display_name: 'Other',
-          pin_hash: hash,
-          role_ids: ['R1'],
-          denied_permissions: [],
-        },
+        }),
+        staffRow('S_KEEP', hash, ['R1'], { display_name: 'Other' }),
       ],
+      responsibilities: [],
     };
     writer.run((tx) => applyStaffDirectory(tx, next, () => undefined));
     expect(db.prepare('SELECT staff_id, display_name FROM staff').all()).toEqual([{ staff_id: 'S_KEEP', display_name: 'S_KEEP' }]);
     expect(db.prepare('SELECT name, session_idle_ttl_ms FROM roles').all()).toEqual([{ name: 'R1', session_idle_ttl_ms: 1_000 }]);
-    expect(db.prepare('SELECT permission, grant_type, approver_role_id FROM role_permissions ORDER BY permission').all()).toEqual([
-      { permission: 'manage-devices', grant_type: 'allowed', approver_role_id: null },
-      { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+    expect(db.prepare('SELECT permission, grant_type FROM role_permissions ORDER BY permission').all()).toEqual([
+      { permission: 'manage-devices', grant_type: 'allowed' },
+      { permission: 'reprint-ticket', grant_type: 'allowed' },
     ]);
+    expect(db.prepare('SELECT COUNT(*) FROM role_permission_approvers').pluck().get()).toBe(0);
     expect(db.prepare('SELECT role_id FROM staff_roles').all()).toEqual([{ role_id: 'R1' }]);
     expect(db.prepare('SELECT permission FROM staff_permission_denials').pluck().all()).toEqual(['apply-discount']);
     expect(db.prepare("SELECT end_reason FROM staff_sessions WHERE staff_id = 'S_GONE'").pluck().get()).toBe('staff_removed');
@@ -408,9 +402,10 @@ describe('applyStaffDirectory', () => {
           directory_version: 2,
           roles: [{ role_id: 'R2', name: 'R2', session_idle_ttl_ms: 1_000, permissions: [] }],
           staff: [
-            { staff_id: 'S_OLD', display_name: 'Renamed', pin_hash: malformed, role_ids: ['R2'], denied_permissions: [] },
-            { staff_id: 'S_NEW', display_name: 'S_NEW', pin_hash: malformed, role_ids: ['R2'], denied_permissions: [] },
+            staffRow('S_OLD', malformed, ['R2'], { display_name: 'Renamed' }),
+            staffRow('S_NEW', malformed, ['R2']),
           ],
+          responsibilities: [],
         },
         () => undefined,
       ),
@@ -447,20 +442,15 @@ describe('applyStaffDirectory', () => {
           role_id: 'R_CASH',
           name: 'Cashier',
           session_idle_ttl_ms: 1_000,
-          permissions: [{ permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MGR' }],
+          permissions: [approvalGrant('apply-discount', ['R_MGR'])],
         },
         { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 1_000, permissions: [] },
       ],
       staff: [
-        {
-          staff_id: 'S_OLD',
-          display_name: 'Old',
-          pin_hash: hash,
-          role_ids: ['R_CASH'],
-          denied_permissions: ['reprint-ticket'],
-        },
-        { staff_id: 'S_GONE', display_name: 'Gone', pin_hash: hash, role_ids: ['R_MGR'], denied_permissions: [] },
+        staffRow('S_OLD', hash, ['R_CASH'], { display_name: 'Old', denied_permissions: ['reprint-ticket'] }),
+        staffRow('S_GONE', hash, ['R_MGR'], { display_name: 'Gone' }),
       ],
+      responsibilities: [],
     };
     writer.run((tx) => applyStaffDirectory(tx, first, () => undefined));
     writer.run((tx) =>
@@ -469,9 +459,8 @@ describe('applyStaffDirectory', () => {
         {
           directory_version: 2,
           roles: [{ role_id: 'R_NEW', name: 'New', session_idle_ttl_ms: 1_000, permissions: [] }],
-          staff: [
-            { staff_id: 'S_OLD', display_name: 'Changed', pin_hash: 'not-a-hash', role_ids: ['R_NEW'], denied_permissions: [] },
-          ],
+          staff: [staffRow('S_OLD', 'not-a-hash', ['R_NEW'], { display_name: 'Changed' })],
+          responsibilities: [],
         },
         () => undefined,
       ),
@@ -487,6 +476,201 @@ describe('applyStaffDirectory', () => {
     ]);
     expect(db.prepare('SELECT role_id FROM roles ORDER BY role_id').pluck().all()).toEqual(['R_CASH', 'R_MGR', 'R_NEW']);
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
+  });
+
+  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 9 statements', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        {
+          role_id: 'R_WAIT',
+          name: 'Waiter',
+          session_idle_ttl_ms: 300_000,
+          permissions: [
+            { permission: 'take-order-anywhere', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'my_floors' },
+            {
+              permission: 'apply-discount',
+              grant_type: 'requires_approval',
+              approver_role_id: 'R_MGR',
+              approver_role_ids: ['R_MGR', 'R_OWNER'],
+              scope: 'branch',
+            },
+          ],
+        },
+        { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 3_600_000, permissions: [] },
+        { role_id: 'R_OWNER', name: 'Owner', session_idle_ttl_ms: 3_600_000, permissions: [] },
+      ],
+      staff: [
+        { staff_id: 'S_HAMZA', display_name: 'Hamza', pin_hash: hash, role_ids: ['R_MGR'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
+        {
+          staff_id: 'S_BILAL',
+          display_name: 'Bilal',
+          pin_hash: hash,
+          role_ids: ['R_WAIT'],
+          denied_permissions: ['void-item'],
+          lead_staff_id: 'S_HAMZA',
+          floor_ids: ['F_ROOF', 'F_GROUND'],
+        },
+      ],
+      responsibilities: [{ responsibility: 'count_stock', station_id: 'ST_GRILL', staff_ids: ['S_BILAL'], role_ids: ['R_MGR'] }],
+    };
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    expect(db.prepare('SELECT permission, scope FROM role_permissions WHERE role_id = ? ORDER BY permission').all('R_WAIT')).toEqual([
+      { permission: 'apply-discount', scope: 'branch' },
+      { permission: 'take-order-anywhere', scope: 'my_floors' },
+    ]);
+    expect(db.prepare('SELECT approver_role_id FROM role_permission_approvers ORDER BY approver_role_id').pluck().all()).toEqual([
+      'R_MGR',
+      'R_OWNER',
+    ]);
+    expect(db.prepare('SELECT lead_staff_id FROM staff WHERE staff_id = ?').pluck().get('S_BILAL')).toBe('S_HAMZA');
+    expect(db.prepare('SELECT floor_id FROM staff_floors ORDER BY floor_id').pluck().all()).toEqual(['F_GROUND', 'F_ROOF']);
+    expect(db.prepare('SELECT subject_kind, subject_id FROM responsibilities ORDER BY subject_kind').all()).toEqual([
+      { subject_kind: 'role', subject_id: 'R_MGR' },
+      { subject_kind: 'staff', subject_id: 'S_BILAL' },
+    ]);
+    const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(event?.payload.skipped).toEqual([]);
+    expect(db.prepare("SELECT schema_version FROM events WHERE event_type = 'StaffDirectoryApplied'").pluck().get()).toBe(2);
+
+    // restart: the cache read back equals what the apply handed over
+    const counter = statementCounter(db);
+    const loaded = Directory.load(db);
+    expect(counter.count).toBe(9);
+    expect(loaded).toEqual(applied);
+    expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'], scope: 'branch' });
+  });
+
+  it('[01b #22] a hub database at 0004 with a grant migrates through 0005 and keeps it', async () => {
+    const fx = freshDb();
+    cleanups.push(fx.cleanup);
+    const clock = fixedClock(T);
+    const upTo4 = mkdtempSync(join(tmpdir(), 'pos-hub-mig-'));
+    cleanups.push(() => rmSync(upTo4, { recursive: true, force: true }));
+    for (const name of readdirSync(migrations).filter((file) => /^000[1-4]_.+\.sql$/.test(file))) {
+      copyFileSync(join(migrations, name), join(upTo4, name));
+    }
+    await runMigrations(fx.db, { dir: upTo4, clock });
+    fx.db.exec(`
+      INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES ('R_CASH', 'b', 'Cashier', 1000), ('R_MGR', 'b', 'Manager', 1000);
+      INSERT INTO role_permissions (role_id, permission, grant_type, approver_role_id)
+        VALUES ('R_CASH', 'apply-discount', 'requires_approval', 'R_MGR'), ('R_CASH', 'reprint-ticket', 'allowed', NULL);
+      INSERT INTO staff (staff_id, branch_id, display_name, pin_hash) VALUES ('S_CASH', 'b', 'Cashier', 'h');
+      INSERT INTO staff_roles (staff_id, role_id) VALUES ('S_CASH', 'R_CASH');
+      INSERT INTO staff_directory_meta (branch_id, directory_version, applied_at) VALUES ('b', 3, 1);
+    `);
+    const result = await runMigrations(fx.db, { dir: migrations, clock });
+    expect(result.applied).toContain('0005_directory_v2.sql');
+    expect(fx.db.prepare('SELECT role_id, permission, grant_type, scope FROM role_permissions ORDER BY permission').all()).toEqual([
+      { role_id: 'R_CASH', permission: 'apply-discount', grant_type: 'requires_approval', scope: 'branch' },
+      { role_id: 'R_CASH', permission: 'reprint-ticket', grant_type: 'allowed', scope: 'branch' },
+    ]);
+    expect(fx.db.prepare('SELECT role_id, permission, approver_role_id FROM role_permission_approvers').all()).toEqual([
+      { role_id: 'R_CASH', permission: 'apply-discount', approver_role_id: 'R_MGR' },
+    ]);
+    const directory = Directory.load(fx.db);
+    expect(directory.version).toBe(3);
+    expect(directory.resolve('S_CASH', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(directory.resolve('S_CASH', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
+  });
+
+  it('[01b #23] a lead or responsibility naming someone absent is skipped and listed; the rest applies', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input = dir(1, hash, ['reprint-ticket'], ['S_A', 'S_B']);
+    input.staff[0]!.lead_staff_id = 'S_B';
+    input.staff[1]!.lead_staff_id = 'S_NO_PIN';
+    input.responsibilities = [
+      { responsibility: 'count_stock', station_id: 'ST_GRILL', staff_ids: ['S_A', 'S_NO_PIN'], role_ids: ['R1'] },
+    ];
+    writer.run((tx) => applyStaffDirectory(tx, input, () => undefined));
+    expect(db.prepare('SELECT staff_id, lead_staff_id FROM staff ORDER BY staff_id').all()).toEqual([
+      { staff_id: 'S_A', lead_staff_id: 'S_B' },
+      { staff_id: 'S_B', lead_staff_id: null },
+    ]);
+    expect(db.prepare('SELECT subject_kind, subject_id FROM responsibilities ORDER BY subject_kind').all()).toEqual([
+      { subject_kind: 'role', subject_id: 'R1' },
+      { subject_kind: 'staff', subject_id: 'S_A' },
+    ]);
+    const applied = events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(applied?.payload.skipped).toEqual([
+      { kind: 'lead', id: 'S_B:S_NO_PIN', reason: 'unknown staff' },
+      { kind: 'responsibility', id: 'count_stock:ST_GRILL:S_NO_PIN', reason: 'unknown staff' },
+    ]);
+    expect(db.prepare('SELECT permission FROM role_permissions').pluck().all()).toEqual(['reprint-ticket']);
+  });
+
+  it('[01b #84] unknown approvers are dropped; a grant left with none is skipped; the rest applies', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input = dir(1, hash, ['reprint-ticket'], ['S_A']);
+    input.roles.push({ role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 1_000, permissions: [] });
+    input.roles[0]!.permissions.push(
+      { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_GONE', approver_role_ids: ['R_GONE', 'R_MGR'], scope: 'branch' },
+      { permission: 'void-item', grant_type: 'requires_approval', approver_role_id: 'R_GONE', approver_role_ids: ['R_GONE'], scope: 'branch' },
+      { permission: 'apply-refund', grant_type: 'requires_approval', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
+    );
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    expect(db.prepare('SELECT permission FROM role_permissions ORDER BY permission').pluck().all()).toEqual([
+      'apply-discount',
+      'reprint-ticket',
+    ]);
+    expect(db.prepare('SELECT approver_role_id FROM role_permission_approvers').pluck().all()).toEqual(['R_MGR']);
+    expect(applied?.resolve('S_A', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(applied?.resolve('S_A', 'void-item')).toEqual({ grant: 'not_granted' });
+    const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(event?.payload.skipped).toEqual([
+      { kind: 'approver', id: 'R1:apply-discount:R_GONE', reason: 'unknown approver' },
+      { kind: 'approver', id: 'R1:void-item', reason: 'unknown approver' },
+      { kind: 'approver', id: 'R1:apply-refund', reason: 'no approver' },
+    ]);
+    expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_A']);
+  });
+
+  it('[01b #83 hub half] an approver role nobody at the branch holds keeps the cashier grant; nothing skipped', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_CASH', name: 'Cashier', session_idle_ttl_ms: 900_000, permissions: [approvalGrant('apply-discount', ['R_MGR'])] },
+        { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 3_600_000, permissions: [] },
+      ],
+      staff: [staffRow('S_CASH_1', hash, ['R_CASH']), staffRow('S_CASH_2', hash, ['R_CASH'])],
+      responsibilities: [],
+    };
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    expect(applied?.resolve('S_CASH_1', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    expect(Directory.load(db).resolve('S_CASH_2', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR'], scope: 'branch' });
+    const event = events(db).filter((row) => row.event_type === 'StaffDirectoryApplied').at(-1);
+    expect(event?.payload.skipped).toEqual([]);
+  });
+
+  it('[01b #20 hub half] one staff holding Order taker and Waiter resolves the union of both roles (no mode)', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input: DirectoryInput = {
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_OT', name: 'Order taker', session_idle_ttl_ms: 900_000, permissions: [allowedGrant('take-order-anywhere')] },
+        { role_id: 'R_WAIT', name: 'Waiter', session_idle_ttl_ms: 300_000, permissions: [allowedGrant('reprint-ticket')] },
+      ],
+      staff: [staffRow('S_BOTH', hash, ['R_OT', 'R_WAIT'])],
+      responsibilities: [],
+    };
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    for (const directory of [applied!, Directory.load(db)]) {
+      expect(directory.resolve('S_BOTH', 'take-order-anywhere')).toEqual({ grant: 'allowed', scope: 'branch' });
+      expect(directory.resolve('S_BOTH', 'reprint-ticket')).toEqual({ grant: 'allowed', scope: 'branch' });
+      expect(directory.resolve('S_BOTH', 'void-item')).toEqual({ grant: 'not_granted' });
+    }
+    expect(db.prepare('SELECT staff_id FROM staff').pluck().all()).toEqual(['S_BOTH']);
   });
 
   async function open(hooks?: { beforeCommit?: () => void }): Promise<{ db: Database.Database; writer: Writer }> {
@@ -520,16 +704,42 @@ function dir(version: number, hash: string, permissions: string[], staffIds: str
         role_id: 'R1',
         name: 'R1',
         session_idle_ttl_ms: 1_000,
-        permissions: permissions.map((permission) => ({ permission, grant_type: 'allowed' as const, approver_role_id: null })),
+        permissions: permissions.map((permission) => allowedGrant(permission)),
       },
     ],
-    staff: staffIds.map((staff_id) => ({
-      staff_id,
-      display_name: staff_id,
-      pin_hash: hash,
-      role_ids: ['R1'],
-      denied_permissions: [],
-    })),
+    staff: staffIds.map((staff_id) => staffRow(staff_id, hash, ['R1'])),
+    responsibilities: [],
+  };
+}
+
+function allowedGrant(permission: string, approverRoleIds: string[] = []): DirectoryInput['roles'][number]['permissions'][number] {
+  return { permission, grant_type: 'allowed', approver_role_id: approverRoleIds[0] ?? null, approver_role_ids: approverRoleIds, scope: 'branch' };
+}
+
+function approvalGrant(permission: string, approverRoleIds: string[]): DirectoryInput['roles'][number]['permissions'][number] {
+  return {
+    permission,
+    grant_type: 'requires_approval',
+    approver_role_id: approverRoleIds[0] ?? null,
+    approver_role_ids: approverRoleIds,
+    scope: 'branch',
+  };
+}
+
+function staffRow(
+  staff_id: string,
+  pin_hash: string,
+  role_ids: string[],
+  o: { display_name?: string; denied_permissions?: string[] } = {},
+): DirectoryInput['staff'][number] {
+  return {
+    staff_id,
+    display_name: o.display_name ?? staff_id,
+    pin_hash,
+    role_ids,
+    denied_permissions: o.denied_permissions ?? [],
+    lead_staff_id: null,
+    floor_ids: [],
   };
 }
 

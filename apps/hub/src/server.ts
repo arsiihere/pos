@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, LogController } fro
 import { hasZodFastifySchemaValidationErrors, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { HubConfig } from './config/schema.js';
 import type { AuthGeneration } from './engine-host/auth-generation.js';
+import type { EngineState } from '@pos/engine';
 import type { StateHolder } from './engine-host/state-holder.js';
 import type { Writer } from './engine-host/writer.js';
 import type { Clock } from './lib/clock.js';
@@ -14,23 +15,43 @@ import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
 import { registerStaffSessionRoutes } from './auth/staff-session.js';
 import { registerStationSessionRoutes } from './auth/station-session.js';
-import { attachRouteGuards, type RouteGroup } from './auth/guards.js';
+import { attachRouteGuards, swapDirectory, type RouteGroup } from './auth/guards.js';
 import { registerPairRoutes } from './auth/pairing.js';
 import { registerPairRequestRoutes } from './auth/pair-requests.js';
+import { registerAddPrecookedStock } from './commands/add-precooked-stock.js';
 import { registerApprovePairingRequest } from './commands/approve-pairing-request.js';
 import { registerClearPinLockout } from './commands/clear-pin-lockout.js';
+import { registerCloseBusinessDay } from './commands/close-business-day.js';
 import { registerForceLogoutSession } from './commands/force-logout-session.js';
 import { registerGenerateDevicePairingToken } from './commands/generate-device-pairing-token.js';
+import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
+import { registerSetItemAvailability } from './commands/set-item-availability.js';
+import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
+import { CLIENT_DIST_DIR, registerClientDist } from './lib/client-dist.js';
+import { registerAdminPage } from './admin/routes.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
+import { registerBranchConfigQuery } from './queries/branch-config.js';
+import { registerConfigStatusQuery } from './queries/config-status.js';
 import { registerDevicesQuery } from './queries/devices.js';
 import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
+import { registerStationsQuery } from './queries/stations.js';
+import { registerLockoutsQuery } from './queries/lockouts.js';
+import { registerStaffQuery } from './queries/staff.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
+import { registerStockQuery } from './queries/stock.js';
 import type { ProjectionRegistry } from './projections/registry.js';
+import { httpConfigClient, type ConfigClient } from './sync/config-client.js';
+import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
+// §6.22: registers the station validator at module load, before the server listens.
+import './sync/station-validator.js';
+// §4.5: the restaurant event audiences, registered at module load.
+import './ws/restaurant-audiences.js';
+import { registerRestaurantCatchUp } from './ws/restaurant-catch-up.js';
 import { registerWs } from './ws/server.js';
 
 const SECRET_HEADERS = [
@@ -73,11 +94,12 @@ export interface HubDeps {
   ids: IdGen;
   secrets: SecretGen;
   writer: Writer;
-  state: StateHolder<unknown>;
+  state: StateHolder<EngineState>;
   projections: ProjectionRegistry;
   authGeneration: AuthGeneration;
   ownIPv4: string[];
   logStream?: NodeJS.WritableStream;
+  configClient?: ConfigClient;
   testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
 }
 
@@ -123,15 +145,30 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerCommandRoutes(app, deps, options.testCommands === true);
   registerGenerateDevicePairingToken(app);
   registerApprovePairingRequest(app, deps);
+  registerAdminPage(app, deps);
   registerRevokeDevice(app);
   registerForceLogoutSession(app);
   registerClearPinLockout(app);
+  registerOpenBusinessDay(app);
+  registerCloseBusinessDay(app);
+  registerSetPrecookedStock(app);
+  registerAddPrecookedStock(app);
+  registerSetItemAvailability(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
   registerDevicesQuery(app);
   registerSessionsQuery(app);
+  registerStationsQuery(app);
+  registerLockoutsQuery(app);
+  registerStaffQuery(app);
   registerStaffRosterQuery(app, deps.clock);
+  registerStockQuery(app, deps.clock);
+  registerConfigStatusQuery(app, deps.config);
+  registerBranchConfigQuery(app, deps.clock);
+  // The catch-up parts read this server's clock; a closed server removes them.
+  const stopCatchUp = registerRestaurantCatchUp(deps.clock);
+  app.addHook('onClose', async () => stopCatchUp());
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
@@ -143,7 +180,24 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStationSessionRoutes(app, deps);
   registerWs(app, deps);
   registerUiAssets(app);
+  // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
+  registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
   installCors(app, deps.config.cors_origins);
+  bindConfigPoller(
+    app,
+    createConfigPoller({
+      config: deps.config,
+      db: deps.db,
+      writer: deps.writer,
+      clock: deps.clock,
+      client:
+        deps.configClient ?? httpConfigClient(deps.config.cloud_base_url, deps.config.provisioned?.branch_api_key ?? ''),
+      setDirectory: (d) => {
+        swapDirectory(app, d);
+      },
+      log: app.log,
+    }),
+  );
   return app;
 }
 

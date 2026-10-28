@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>01a-D02 · Discard changes? (popup)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root " lang="en" data-theme="light" dir="ltr" style="width: 720px; min-height: 400px;  display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+<div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="dlg-t"><h2 class="pos-dialog__title" id="dlg-t">Discard your changes to Chicken Karahi?</h2>
+<p class="pos-dialog__body">You changed the price and the cooking time. They are not saved yet.</p>
+<div class="pos-dialog__footer"><button class="pos-btn pos-btn--danger">Discard changes</button><button class="pos-btn pos-btn--primary">Keep editing</button></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":400}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

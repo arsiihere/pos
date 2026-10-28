@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Owner sign in</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" data-theme="light" dir="ltr" style="width: 1440px; min-height: 900px;  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);">
+  <aside style="background: var(--action); color: var(--on-action); padding: 64px; display: flex; flex-direction: column; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="width: 44px; height: 44px; border-radius: var(--radius-md); background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font: 700 20px/1 var(--font-mono);">P</span>
+      <strong style="font: 700 22px/28px var(--font-sans);">POS</strong>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 16px; max-width: 460px;">
+      <h1 style="margin: 0; font: 700 48px/54px var(--font-sans);">Set up your restaurant once. Every branch follows.</h1>
+      <p style="margin: 0; font: 400 20px/28px var(--font-sans); opacity: 0.8;">Menu, prices, kitchen stations and tables. Changes reach each branch within a minute.</p>
+    </div>
+    <span style="font: 400 15px/20px var(--font-sans); opacity: 0.7;">Restaurant setup · owners only</span>
+  </aside>
+
+  <main style="display: grid; place-items: center; padding: 48px;">
+    <form class="pos-stack" style="width: 100%; max-width: 420px; gap: 24px;">
+      <div class="pos-section__head"><h2 style="margin: 0; font: 700 32px/38px var(--font-sans);">Sign in</h2><p style="margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted);">Use the owner email you registered with.</p></div>
+      <label class="pos-field"><span class="pos-field__label">Email</span><input class="pos-input" type="email" value="arif@arifchatkhara.pk" autocomplete="username"></label>
+      <label class="pos-field"><span class="pos-field__label">Password</span>
+        <span class="pos-input-affix"><input class="pos-input" type="password" value="••••••••••" autocomplete="current-password"><span><button class="pos-btn" type="button" style="min-height: 40px; border: 0; background: transparent;">Show</button></span></span>
+      </label>
+      <button class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block" type="submit">Sign in</button>
+      <div class="pos-banner pos-banner--danger" role="alert"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><p>Email or password is wrong<small>Check both and try again.</small></p></div>
+    </form>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

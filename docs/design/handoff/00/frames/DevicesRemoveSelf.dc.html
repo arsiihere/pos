@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remove Counter 1</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root " lang="en" data-theme="light" dir="ltr" style="width: 720px; height: 560px; overflow: hidden; display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+<div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="dlg-t" style="max-width: 560px;"><h2 class="pos-dialog__title" id="dlg-t">Remove Counter 1?</h2>
+<p class="pos-dialog__body">It will stop working at once and anyone logged in on it is logged out.</p><div class="pos-banner pos-banner--warn" role="status"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.5v.01"/></svg><p>This is the screen you are using.<small>You will be signed out here, and it must be paired again before anyone can use it.</small></p></div>
+<label class="pos-field"><span class="pos-field__label">Reason (optional)</span><input class="pos-input" value="" maxlength="200"><span class="pos-field__help">Shown in the device list and the audit log · <span class="pos-ltr">0 / 200</span></span></label>
+<div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--danger"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>Remove</button></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":560}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

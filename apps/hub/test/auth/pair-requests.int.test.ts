@@ -6,6 +6,8 @@ import { registerSetupRoutes } from '../../src/setup/provision';
 import { writeHubConfigAtomic } from '../../src/config/write';
 import { aDirectory } from '../helpers/fixtures';
 import { stubCloud } from '../helpers/stub-cloud';
+import { aBranchConfig } from '@pos/events/testing';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -13,6 +15,23 @@ const cleanups: Array<() => Promise<void>> = [];
 describe('pairing requests', () => {
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  it('[00 §10 #149] M92: the approved poll carries station_name from the branch config for a kds and null for a cashier screen', async () => {
+    const hub = await open();
+    const config = aBranchConfig();
+    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+    const approve = async (type: string, stationId: string | null) => {
+      const data = (await create(hub, 'Screen', '10.1.0.9')).json().data;
+      const deviceId = hub.deps.ids.next();
+      hub.deps.db
+        .prepare(`INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by) VALUES (?, 'branch-1', ?, 'Screen', ?, ?, NULL, ?, 'S_OWNER')`)
+        .run(deviceId, sha256hex(`secret-${deviceId}`), type, stationId, hub.clock.branchNow());
+      hub.deps.db.prepare('UPDATE pair_requests SET approved_at = ?, approved_by = ?, device_id = ?, delivery_token = ? WHERE request_id = ?').run(hub.clock.branchNow(), 'S_OWNER', deviceId, `secret-${deviceId}`, data.request_id);
+      return (await poll(hub, data.request_id, data.poll_secret)).json().data;
+    };
+    expect(await approve('kds', 'S1')).toMatchObject({ status: 'approved', station_id: 'S1', station_name: 'Karahi' });
+    expect(await approve('cashier_kiosk', null)).toMatchObject({ status: 'approved', station_id: null, station_name: null });
   });
 
   it('[00 §10 #95] create → pending → approved (insert the approval rows directly) → token twice → after expires_at 404 and delivery_token cleared by clearExpiredDeliveryTokens; wrong secret 404; 11th pending → 503', async () => {

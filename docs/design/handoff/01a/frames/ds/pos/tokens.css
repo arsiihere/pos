@@ -1,0 +1,23 @@
+/* POS — generated from tokens.json */
+@font-face { font-family: "Atkinson Hyperlegible"; src: url("fonts/AtkinsonHyperlegible-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Atkinson Hyperlegible"; src: url("fonts/AtkinsonHyperlegible-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; src: url("fonts/AtkinsonHyperlegibleMono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; src: url("fonts/AtkinsonHyperlegibleMono-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Nastaliq Urdu"; src: url("fonts/NotoNastaliqUrdu-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Noto Nastaliq Urdu"; src: url("fonts/NotoNastaliqUrdu-700.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+:root, [data-theme="light"] { --surface: #f6f3ec; --surface-raised: #ffffff; --surface-sunken: #ebe6dc; --ink: #1b1814; --ink-muted: #574f45; --ink-faint: #7a7166; --line: #d9d2c5; --line-strong: #8c8377; --action: #1b1814; --action-pressed: #3a342c; --on-action: #fffaf0; --accent: #f2a516; --on-accent: #1b1814; --accent-tint: #fdf0d2; --ok: #0b6a94; --ok-tint: #e3f1f8; --warn: #7f4c00; --warn-tint: #fbecc8; --danger: #b3300c; --danger-tint: #fbe5dc; --info: #46505c; --info-tint: #e8ebee; --focus: #1b1814; --qr-tile: #ffffff; --scrim: #1b181499; --shadow-raise: 0 1px 2px #1b181414, 0 4px 12px #1b181414; }
+[data-theme="dark"] { --surface: #12110e; --surface-raised: #1d1b17; --surface-sunken: #0a0908; --ink: #f3eee4; --ink-muted: #b9b0a3; --ink-faint: #8a8276; --line: #34302a; --line-strong: #7d7569; --action: #f3eee4; --action-pressed: #d6cfc2; --on-action: #12110e; --accent: #f5b02e; --on-accent: #12110e; --accent-tint: #3a2c0e; --ok: #6cc3ec; --ok-tint: #0f2a38; --warn: #f5c55a; --warn-tint: #33270b; --danger: #ff8a63; --danger-tint: #3a1a10; --info: #b7c0ca; --info-tint: #23272c; --focus: #f5b02e; --qr-tile: #ffffff; --scrim: #000000b3; --shadow-raise: 0 0 0 1px #34302a; }
+:root { --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-12: 48px; --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px; --radius-pill: 999px; --touch-min: 56px; --touch-kitchen: 72px; --content-max: 560px; --qr-size: 240px; --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif; --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace; --font-urdu: "Noto Nastaliq Urdu", "Atkinson Hyperlegible", serif; }
+.code-display { font-family: var(--font-mono); font-size: 72px; line-height: 1; font-weight: 700; letter-spacing: 0.08em; }
+.code-inline { font-family: var(--font-mono); font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: 0.06em; }
+.value-mono { font-family: var(--font-mono); font-size: 18px; line-height: 26px; font-weight: 500; }
+.display { font-family: var(--font-sans); font-size: 40px; line-height: 46px; font-weight: 700; }
+.title { font-family: var(--font-sans); font-size: 28px; line-height: 34px; font-weight: 700; }
+.heading { font-family: var(--font-sans); font-size: 22px; line-height: 28px; font-weight: 700; }
+.body-lg { font-family: var(--font-sans); font-size: 20px; line-height: 28px; font-weight: 400; }
+.body { font-family: var(--font-sans); font-size: 17px; line-height: 24px; font-weight: 400; }
+.label { font-family: var(--font-sans); font-size: 17px; line-height: 22px; font-weight: 700; }
+.caption { font-family: var(--font-sans); font-size: 15px; line-height: 20px; font-weight: 400; }
+.ur-display { font-family: var(--font-urdu); font-size: 36px; line-height: 1.9; font-weight: 700; }
+.ur-title { font-family: var(--font-urdu); font-size: 26px; line-height: 2; font-weight: 700; }
+.ur-body { font-family: var(--font-urdu); font-size: 20px; line-height: 2.1; font-weight: 400; }

@@ -26,6 +26,8 @@ export async function aDirectory(o?: { directory_version?: number }): Promise<Di
     permission,
     grant_type: 'allowed' as const,
     approver_role_id: null,
+    approver_role_ids: [],
+    scope: 'branch' as const,
   }));
   return {
     directory_version: o?.directory_version ?? 1,
@@ -42,17 +44,18 @@ export async function aDirectory(o?: { directory_version?: number }): Promise<Di
         name: 'Cashier',
         session_idle_ttl_ms: 1_800_000,
         permissions: [
-          { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MGR' },
-          { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+          { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: 'R_MGR', approver_role_ids: ['R_MGR'], scope: 'branch' },
+          { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' },
         ],
       },
       { role_id: 'R_WAIT', name: 'Order taker', session_idle_ttl_ms: 300_000, permissions: [] },
     ],
     staff: [
-      { staff_id: 'S_OWNER', display_name: 'Owner', pin_hash: owner, role_ids: ['R_OWNER'], denied_permissions: [] },
-      { staff_id: 'S_MGR', display_name: 'Manager', pin_hash: manager, role_ids: ['R_MGR'], denied_permissions: [] },
-      { staff_id: 'S_CASH', display_name: 'Cashier', pin_hash: cashier, role_ids: ['R_CASH'], denied_permissions: [] },
-      { staff_id: 'S_WAIT', display_name: 'Order taker', pin_hash: owner, role_ids: ['R_WAIT'], denied_permissions: [] },
+      { staff_id: 'S_OWNER', display_name: 'Owner', pin_hash: owner, role_ids: ['R_OWNER'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
+      { staff_id: 'S_MGR', display_name: 'Manager', pin_hash: manager, role_ids: ['R_MGR'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
+      { staff_id: 'S_CASH', display_name: 'Cashier', pin_hash: cashier, role_ids: ['R_CASH'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
+      { staff_id: 'S_WAIT', display_name: 'Order taker', pin_hash: owner, role_ids: ['R_WAIT'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },
     ],
+    responsibilities: [],
   };
 }

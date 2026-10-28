@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ur">
+<head>
+<meta charset="utf-8">
+<title>اس ہب کو سیٹ اپ کریں</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root pos-page" lang="ur" data-theme="light" dir="rtl" style="width: 1440px; height: 900px; overflow: hidden;">
+<header class="pos-appbar"><div class="pos-sidenav__brand" style="padding: 0;"><strong>ریسٹورنٹ POS</strong><span>ہب سیٹ اپ</span></div><div class="pos-appbar__end"><span class="pos-chip"><svg class="pos-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg><span class="pos-ltr">192.168.0.107:3000</span></span></div></header>
+
+<main class="pos-content" style="display: grid; grid-template-columns: 560px 400px; gap: 48px; justify-content: center; align-content: start; padding-top: 40px;">
+<section class="pos-card" style="display: flex; flex-direction: column; gap: 24px;">
+<div style="display: flex; flex-direction: column; gap: 8px;"><h1 class="ur-title" style="margin: 0;">اس ہب کو سیٹ اپ کریں</h1><p class="ur-body" style="margin: 0; color: var(--ink-muted);">آپ کو مالک یا سپورٹ سے رجسٹریشن کوڈ چاہیے۔ اس میں <span class="pos-ltr">12</span> حروف اور ہندسے ہوتے ہیں اور یہ ایک بار، <span class="pos-ltr">24</span> گھنٹے کے لیے چلتا ہے۔</p></div>
+<div style="display: flex; flex-direction: column; gap: 20px;"><label class="pos-field"><span class="pos-field__label">رجسٹریشن کوڈ</span><input class="pos-input pos-input--code" value="7K3Q-ZD9M-AB12" autocomplete="off" autocapitalize="characters" spellcheck="false"><span class="pos-field__help">ڈیش اور خالی جگہ سے فرق نہیں پڑتا۔</span></label><label class="pos-field"><span class="pos-field__label">اس نیٹ ورک پر ہب کا پتا</span><input class="pos-input pos-input--mono" value="192.168.0.107" inputmode="decimal" autocomplete="off"><span class="pos-field__help">وہ پتا جس سے اسکرینیں ہب کھولیں گی۔ اگر تار اور وائی فائی دونوں ہوں تو تار والا لکھیں۔</span></label><label class="pos-field"><span class="pos-field__label">گاہکوں کے وائی فائی کی رینج (بند)</span><input class="pos-input pos-input--mono" value="192.168.50.0/24" autocomplete="off"><span class="pos-field__help">ان رینج پر فون POS نہیں کھول سکتے۔ کئی ہوں تو کوما سے الگ کریں۔</span></label></div>
+<button class="pos-btn pos-btn--primary pos-btn--lg pos-btn--block">ہب سیٹ اپ کریں</button>
+
+</section>
+<aside style="display: flex; flex-direction: column; gap: 16px; padding-top: 8px;"><h2 class="ur-title" style="margin: 0;">آگے کیا ہوگا</h2><ol class="pos-checklist"><li class="pos-checklist__item"><span class="pos-checklist__num">1</span><div class="pos-list__name"><strong>ہب سیٹ اپ کریں</strong><span>یہ کوڈ، پتا اور گاہکوں کا وائی فائی</span></div><span></span></li><li class="pos-checklist__item"><span class="pos-checklist__num">2</span><div class="pos-list__name"><strong>مینیجر کا فون QR اسکین کرے</strong><span>پہلا ایڈمن سائن اِن، <span class="pos-ltr">30</span> منٹ کے لیے</span></div><span></span></li><li class="pos-checklist__item"><span class="pos-checklist__num">3</span><div class="pos-list__name"><strong>پہلی اسکرین منظور کریں</strong><span>کیشیئر یا کچن اسکرین</span></div><span></span></li></ol></aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

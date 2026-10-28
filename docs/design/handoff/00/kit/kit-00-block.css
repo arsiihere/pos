@@ -1,0 +1,43 @@
+
+/* ---------- Added by module 00 (hub access): token-only, logical properties ---------- */
+
+/* Compact app bar for phones (390 wide) */
+.pos-appbar--phone { padding: var(--space-2) var(--space-4); min-height: 64px; gap: var(--space-3); }
+.pos-appbar--phone .pos-appbar__title { font: 700 22px/28px var(--font-sans); }
+
+/* Big code entry (6-char display code, 12-char registration code) */
+.pos-input--code { min-height: var(--touch-kitchen); font: 700 28px/36px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; text-align: center; direction: ltr; }
+[dir="rtl"] .pos-input--code { text-align: center; }
+
+/* Links and addresses that must wrap but never mirror */
+.pos-mono-wrap { font: 500 18px/26px var(--font-mono); direction: ltr; unicode-bidi: isolate; overflow-wrap: anywhere; text-align: start; }
+
+/* Grouped list: a label row between groups ("Kitchen screens · 3") */
+.pos-list__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--surface); border-top: 1px solid var(--line); font: 700 17px/22px var(--font-sans); color: var(--ink-muted); }
+.pos-list__group small { font: 700 15px/1 var(--font-mono); padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface-sunken); color: var(--ink); }
+.pos-list__meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; font: 400 17px/22px var(--font-sans); }
+.pos-list__meta > span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-list__who { display: inline-flex; align-items: center; gap: var(--space-2); font: 700 17px/22px var(--font-sans); }
+/* Column presets for the hub admin lists */
+.pos-list--devices .pos-list__head, .pos-list--devices .pos-list__row { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 0.9fr) 128px; }
+.pos-list--sessions .pos-list__head, .pos-list--sessions .pos-list__row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) 136px; }
+.pos-list--lockouts .pos-list__head, .pos-list--lockouts .pos-list__row { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 136px; }
+
+/* Menu tiles (hub admin home): icon + job + one status line */
+.pos-tiles--menu { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.pos-tiles--menu .pos-tile { min-height: 120px; padding: var(--space-4); gap: var(--space-2); justify-content: flex-start; text-decoration: none; }
+.pos-tile__head { display: flex; align-items: center; gap: var(--space-3); }
+.pos-tile__head .pos-icon { width: 32px; height: 32px; }
+
+/* QR tile that no longer holds a code (expired or not yet made) */
+.pos-code__qr--void { display: grid; place-items: center; background: var(--surface-sunken); border: 2px dashed var(--line-strong); color: var(--ink-muted); text-align: center; padding: var(--space-6); font: 700 17px/22px var(--font-sans); }
+
+/* Loading placeholders (no spinner on lists) */
+.pos-skeleton { display: block; height: 20px; border-radius: var(--radius-sm); background: var(--surface-sunken); animation: pos-pulse 1.4s ease-in-out infinite; }
+@keyframes pos-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .pos-skeleton { animation: none; } }
+
+/* Urdu: kit-additions classes that set a Latin font switch to Nastaliq (taller lines, never fixed heights) */
+[lang="ur"] :is(.pos-appbar__title, .pos-sidenav__brand strong, .pos-sidenav__brand span, .pos-sidenav__item, .pos-sidenav__item small, .pos-seg__opt, .pos-chip, .pos-list__head, .pos-list__name strong, .pos-list__name span, .pos-list__group, .pos-list__meta, .pos-list__meta span, .pos-list__who, .pos-switch, .pos-actionbar__info, .pos-actionbar__info strong, .pos-callout__text h2, .pos-callout__text p, .pos-section__head h2, .pos-section__head p, .pos-explain, .pos-tile, .pos-tile small, .pos-empty h3, .pos-count__unit, .pos-input-affix > span, .pos-code__qr--void) { font-family: var(--font-urdu); line-height: 2; }
+[lang="ur"] .pos-input:not(.pos-input--mono):not(.pos-input--code) { font-family: var(--font-urdu); line-height: 2; }
+.pos-list__row > .pos-chip { justify-self: start; }

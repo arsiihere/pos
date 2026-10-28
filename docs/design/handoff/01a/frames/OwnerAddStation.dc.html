@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add station</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/pos/tokens.css">
+<link rel="stylesheet" href="ds/pos/components/bundle.css">
+<link rel="stylesheet" href="kit-additions.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="pos-root" data-theme="light" dir="ltr" style="width: 720px; min-height: 960px;  display: grid; place-items: center; background: var(--surface-sunken); padding: 32px; box-sizing: border-box;">
+  <div class="pos-dialog pos-dialog--form" role="dialog" aria-modal="true" aria-labelledby="s-title">
+    <h2 class="pos-dialog__title" id="s-title">Add a kitchen station</h2>
+    <p class="pos-dialog__body">A station is a place where food is cooked: a tandoor, a karahi counter, a degh, a fryer.</p>
+    <div class="pos-grid">
+      <label class="pos-field"><span class="pos-field__label">Name</span><input class="pos-input" value="Fryer"></label>
+      <label class="pos-field"><span class="pos-field__label">Where it is (optional)</span><input class="pos-input" placeholder="Back kitchen"></label>
+    </div>
+    <div class="pos-field"><span class="pos-field__label">How it cooks</span>
+      <div class="pos-tiles pos-tiles--pick" style="grid-template-columns: repeat(2, minmax(0, 1fr));" role="group" aria-label="How it cooks">
+        <button class="pos-tile" aria-pressed="false" style="min-height: 96px;">One order at a time<small>Tandoor, karahi, grill</small></button>
+        <button class="pos-tile" aria-pressed="true" style="min-height: 96px;">In batches<small>Degh, fryer basket, a whole pot</small></button>
+      </div>
+    </div>
+    <div class="pos-grid">
+      <label class="pos-field"><span class="pos-field__label">Batches at the same time</span><input class="pos-input pos-input--mono" value="2" inputmode="numeric"><span class="pos-field__help">Two baskets = 2.</span></label>
+      <label class="pos-field"><span class="pos-field__label">A cooked batch stays fresh for</span><span class="pos-input-affix"><input class="pos-input pos-input--mono" value="10" inputmode="decimal"><span>min</span></span><span class="pos-field__help">After that it is not served from this batch. 0 = no limit.</span></label>
+    </div>
+    <label class="pos-field"><span class="pos-field__label">Cook marks it done by</span>
+      <select class="pos-select"><option>Start + Done taps (most accurate)</option><option>One Done tap</option><option>Itself, when the time is up</option></select>
+    </label>
+    <p style="margin: 0; font: 400 15px/20px var(--font-sans); color: var(--ink-muted);">Next: add a batch recipe (for example "Fries 6 min"), then pick this station on the menu items it cooks.</p>
+    <div class="pos-dialog__footer"><button class="pos-btn">Cancel</button><button class="pos-btn pos-btn--primary">Add station</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":960}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

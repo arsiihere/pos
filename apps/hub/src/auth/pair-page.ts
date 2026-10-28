@@ -1,3 +1,4 @@
+import { globalStateClient } from '../lib/global-state.js';
 import { clientPrelude, pageHead } from '../lib/page.js';
 
 export function encodeCrockford128(bytes: Uint8Array): string {
@@ -12,14 +13,17 @@ export function encodeCrockford128(bytes: Uint8Array): string {
   return out;
 }
 
+// 00-S10 … 00-S15 (docs/design/handoff/00/00-design.md §1): a kiosk or kitchen screen asks to be paired (no t), or a
+// phone pairs with its manager's QR (?t=). Rules: §8.2 "Kiosk and KDS pairing" and "Pair page rules (phones)".
 export function pairPage(): string {
-  return `${pageHead({ title: 'pair.title', theme: 'dark' })}
+  return `${pageHead({ title: 'pairing.title', theme: 'dark' })}
 <body class="pos-root">
-<div id="pair_status" class="pos-page" aria-live="polite" hidden></div>
-<div id="screen" class="pos-screen"></div>
+<div id="pair_status" aria-live="polite" hidden></div>
+<div id="screen" class="pos-page"></div>
 <script>
 ${encodeCrockford128.toString()}
 ${clientPrelude()}
+${globalStateClient()}
 function openDeviceDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('pos-device', 1);
@@ -53,31 +57,23 @@ function deleteKey(db, key) {
   });
 }
 const screen = document.getElementById('screen');
-// One full-screen state: icon, title, body and any extra nodes (code, button, form).
-function show(kind, iconName, title, body, extra) {
-  screen.className = 'pos-screen' + (kind ? ' pos-screen--' + kind : '');
-  const parts = [];
-  if (iconName) {
-    const mark = node('div', 'pos-screen__icon');
-    mark.appendChild(icon(iconName));
-    parts.push(mark);
-  }
-  parts.push(node('h1', 'pos-screen__title', title));
-  if (body) parts.push(node('p', 'pos-screen__body', body));
-  screen.replaceChildren(...parts, ...(extra || []));
-}
-function showPaired() {
-  show('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body'));
-}
-// §8.4: a hub that is down (power loss, boot) is retried with backoff capped at 5 s, never silently dropped.
 const status = document.getElementById('pair_status');
-status.hidden = true;
+function show(...parts) {
+  screen.replaceChildren(...parts);
+}
+function actionRow(button) {
+  const row = node('div', 'pos-row');
+  row.style.justifyContent = 'center';
+  row.appendChild(button);
+  return row;
+}
+// 00-F01 on /pair: a calm banner over what is on screen; the code keeps working (§8.4 backoff to 5 s).
 let hubDown = false;
-function setHubDown(down) {
+function setHubDown(down, bodyKey) {
   if (down === hubDown) return;
   hubDown = down;
   if (down) {
-    const notice = banner('info', t('pairing.hub_unreachable'), t('pairing.hub_unreachable_body'));
+    const notice = banner('warn', t('pairing.hub_unreachable'), t(bodyKey || 'pairing.hub_unreachable_body'));
     notice.classList.add('pos-banner--pulse');
     status.replaceChildren(notice);
   } else {
@@ -85,130 +81,183 @@ function setHubDown(down) {
   }
   status.hidden = !down;
 }
-async function fetchRetry(url, init) {
+async function fetchRetry(url, init, bodyKey) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       const res = await fetch(url, init);
       setHubDown(false);
       return res;
     } catch {
-      setHubDown(true);
-      await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 5000)));
+      setHubDown(true, bodyKey);
+      await new Promise((resolve) => setTimeout(resolve, reconnectDelayMs(attempt)));
     }
   }
+}
+async function json(res) {
+  try { return (await res.json()) || {}; } catch { return {}; }
+}
+function global(error, device) {
+  return globalScreen(error, { device, loaded: false, authed: false }, { pairAgain: () => location.reload() });
+}
+// 00-S10 approved / resumed.
+function showPaired(deviceType, stationName) {
+  // M92: the approved poll names the station; a resumed screen does not know it.
+  const kds = stationName ? t('pairing.approved_body', { station: stationName }) : t('pairing.approved_body_kds');
+  const body = deviceType === 'kds' ? kds : t('pairing.approved_body_cashier');
+  show(stateScreen('ok', 'check', t('pairing.approved_title'), body));
+}
+async function wipe(db) {
+  for (const key of ['token', 'device_id', 'device_type']) await deleteKey(db, key);
 }
 async function resumePaired(db, deviceToken) {
   const deviceType = await readKey(db, 'device_type');
   if (deviceType === 'kds') {
     const res = await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + deviceToken }, body: '{}' });
     if (res.status === 401 || res.status === 403) {
-      await deleteKey(db, 'token');
-      await deleteKey(db, 'device_id');
-      await deleteKey(db, 'device_type');
+      await wipe(db);
       return false;
     }
   }
-  showPaired();
+  showPaired(deviceType);
   return true;
 }
-function askAgain(start, body) {
+// 00-S11: expired, too many, hub busy; the 72 px button asks again.
+function askAgain(start, body, waitMs) {
   const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('pairing.new_code'));
   again.type = 'button';
   again.addEventListener('click', start);
-  show('', 'screen', t('pairing.ask_manager'), body, [again]);
-}
-openDeviceDb().then(async (db) => {
-  const deviceToken = await readKey(db, 'token');
-  const adminToken = sessionStorage.getItem('admin_session_token');
-  if (adminToken) {
-    sessionStorage.removeItem('admin_session_token');
-    await fetch('/admin/auth/logout', { method: 'POST', headers: { 'x-admin-session': adminToken, authorization: 'Bearer ' + (deviceToken || '') } });
-  }
-  const pairingToken = new URLSearchParams(location.search).get('t');
-  if (!pairingToken) {
-    if (deviceToken && (await resumePaired(db, deviceToken))) return;
-    let retried = false;
-    const start = () => {
-      show('', 'screen', t('pairing.ask_manager'), t('pairing.asking'));
-      fetchRetry('/pair/requests', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ device_name: 'screen' }),
-      }).then(async (res) => {
-        const body = await res.json();
-        if ((res.status === 429 || res.status === 503) && !retried) {
-          retried = true;
-          setTimeout(start, body.error.details.retry_after_ms);
-          return;
-        }
-        if (res.status !== 200) {
-          askAgain(start, errorText(body.error));
-          return;
-        }
-        const code = node('div', 'pos-code');
-        const qr = node('div', 'pos-code__qr');
-        qr.innerHTML = body.data.approve_qr_svg;
-        code.appendChild(qr);
-        code.appendChild(node('p', 'pos-code__value display-code', body.data.display_code));
-        code.appendChild(node('p', 'pos-code__meta', t('pairing.code_help')));
-        const minutes = Math.ceil((body.data.expires_at - Date.now()) / 60000);
-        if (minutes > 0) code.appendChild(node('p', 'pos-code__meta', t('pairing.expires', { min: minutes })));
-        show('', '', t('pairing.ask_manager'), '', [code]);
-        const tick = () => {
-          fetchRetry('/pair/requests/' + body.data.request_id, { headers: { 'X-Poll-Secret': body.data.poll_secret } })
-            .then(async (polled) => {
-              if (polled.status === 404) {
-                askAgain(start, t('pairing.code_expired'));
-                return;
-              }
-              const update = await polled.json();
-              if (update.data && update.data.status === 'approved') {
-                await writeKey(db, 'token', update.data.device_token);
-                await writeKey(db, 'device_id', update.data.device_id);
-                await writeKey(db, 'device_type', update.data.device_type);
-                if (update.data.device_type === 'kds') {
-                  await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
-                }
-                showPaired();
-                return;
-              }
-              setTimeout(tick, 2000);
-            });
-        };
-        setTimeout(tick, 2000);
-      });
+  const screenState = node('main', 'pos-screen');
+  screenState.appendChild(node('h1', 'pos-screen__title', t('pairing.title')));
+  screenState.appendChild(node('p', 'pos-screen__body', body));
+  screenState.appendChild(actionRow(again));
+  show(screenState);
+  if (waitMs > 0) {
+    const until = Date.now() + waitMs;
+    again.disabled = true;
+    const tick = () => {
+      const left = until - Date.now();
+      if (left <= 0) {
+        again.disabled = false;
+        again.textContent = t('pairing.new_code');
+        return;
+      }
+      again.textContent = t('pairing.new_code_in', { time: mmss(left) });
+      setTimeout(tick, 1000);
     };
-    start();
-    return;
+    tick();
   }
-  if (deviceToken) {
-    showPaired();
-    return;
-  }
-  const ios = /iPhone|iPad/.test(navigator.userAgent) && navigator.standalone !== true;
-  if (ios) {
-    const steps = node('ol', 'pos-stack');
-    for (const [iconName, key] of [['share', 'pairing.ios_step_share'], ['add-home', 'pairing.ios_step_add'], ['phone', 'pairing.ios_step_open']]) {
-      const step = node('li', 'pos-row body-lg');
-      step.appendChild(icon(iconName));
-      step.appendChild(node('span', '', t(key)));
-      steps.appendChild(step);
-    }
-    show('info', 'add-home', t('pairing.ios_add_to_home'), t('pairing.ios_body'), [steps]);
-    return;
-  }
-  let pairRequestId = await new Promise((resolve) => {
-    const read = db.transaction('device').objectStore('device').get('pair_request_id');
-    read.onsuccess = () => resolve(read.result);
-    read.onerror = () => resolve(undefined);
+}
+function pairScreen(db) {
+  let retried = false;
+  const start = () => {
+    show(stateScreen('info', 'sync', t('pairing.starting'), t('pairing.starting_body')));
+    fetchRetry('/pair/requests', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_name: 'screen' }),
+    }).then(async (res) => {
+      const body = await json(res);
+      const error = body.error || {};
+      const details = error.details || {};
+      if (res.status === 503 && !retried) {
+        retried = true;
+        setTimeout(start, Math.min(details.retry_after_ms || 1000, 5000));
+        return;
+      }
+      if (res.status !== 200) {
+        if (global(error, 'screen')) return;
+        if (error.code === 'IP_LOCKED_OUT') return askAgain(start, t('pairing.too_many', { min: Math.max(1, Math.ceil((details.retry_after_ms || 0) / 60000)) }), details.retry_after_ms || 0);
+        return askAgain(start, res.status === 503 ? t('pairing.hub_busy') : errorText(error));
+      }
+      retried = false;
+      const data = body.data;
+      const code = node('div', 'pos-code');
+      const qr = node('div', 'pos-code__qr');
+      qr.innerHTML = data.approve_qr_svg;
+      code.appendChild(qr);
+      const value = node('p', 'pos-code__value display-code', data.display_code);
+      value.setAttribute('aria-label', t('pairing.code_aria'));
+      code.appendChild(value);
+      const meta = node('p', 'pos-code__meta');
+      code.appendChild(meta);
+      const waiting = node('main', 'pos-screen');
+      waiting.appendChild(node('h1', 'pos-screen__title', t('pairing.title')));
+      waiting.appendChild(node('p', 'pos-screen__body', t('pairing.how')));
+      waiting.appendChild(code);
+      show(waiting);
+      let live = true;
+      const countdown = () => {
+        if (!live) return;
+        const left = data.expires_at - Date.now();
+        const parts = T['pairing.expires_in'].split('{time}');
+        meta.replaceChildren(icon('clock'), document.createTextNode(parts[0]), ltr(mmss(left)), document.createTextNode(parts[1] || ''));
+        if (left > 0) setTimeout(countdown, 1000);
+      };
+      countdown();
+      const tick = () => {
+        fetchRetry('/pair/requests/' + data.request_id, { headers: { 'X-Poll-Secret': data.poll_secret } }).then(async (polled) => {
+          if (polled.status === 404) {
+            live = false;
+            askAgain(start, t('pairing.code_expired'));
+            return;
+          }
+          const update = await json(polled);
+          if (update.data && update.data.status === 'approved') {
+            live = false;
+            await writeKey(db, 'token', update.data.device_token);
+            await writeKey(db, 'device_id', update.data.device_id);
+            await writeKey(db, 'device_type', update.data.device_type);
+            if (update.data.device_type === 'kds') {
+              await fetchRetry('/auth/station', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + update.data.device_token }, body: '{}' });
+            }
+            showPaired(update.data.device_type, update.data.station_name);
+            return;
+          }
+          if (polled.status !== 200 && global(update.error, 'screen')) return;
+          setTimeout(tick, 2000);
+        });
+      };
+      setTimeout(tick, 2000);
+    });
+  };
+  start();
+}
+// 00-S13: iOS Safari outside the Home Screen app never pairs (§8.2 phone rule 2).
+function iosSteps() {
+  const page = node('main', 'pos-content pos-content--narrow');
+  page.appendChild(node('h1', 'title', t('pairing.ios_title')));
+  page.appendChild(node('p', 'body', t('pairing.ios_body')));
+  const list = node('ol', 'pos-checklist');
+  [['1', 'share', 'pairing.ios_step_1'], ['2', 'add-home', 'pairing.ios_step_2'], ['3', 'phone', 'pairing.ios_step_3']].forEach(([n, iconName, key]) => {
+    const item = node('li', 'pos-checklist__item');
+    item.appendChild(node('span', 'pos-checklist__num', n));
+    item.appendChild(node('strong', '', t(key)));
+    const mark = node('span', 'pos-callout__icon');
+    mark.appendChild(icon(iconName));
+    item.appendChild(mark);
+    list.appendChild(item);
   });
+  page.appendChild(list);
+  page.appendChild(banner('info', t('pairing.ios_link_time')));
+  show(page);
+}
+function tokenExpired(standaloneIos) {
+  show(stateScreen('danger', 'clock', t('pairing.token_expired'), t(standaloneIos ? 'pairing.token_expired_ios' : 'pairing.token_expired_body')));
+}
+// 00-S12: name the phone, then POST /devices/pair with one pair_request_id per pairing (M14, M60).
+async function pairPhone(db, pairingToken) {
+  const standaloneIos = /iPhone|iPad/.test(navigator.userAgent);
+  let pairRequestId = await readKey(db, 'pair_request_id');
   if (!pairRequestId) {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     pairRequestId = encodeCrockford128(bytes);
     await writeKey(db, 'pair_request_id', pairRequestId);
   }
-  // M82: the device name is a page field (1–40 characters), not a browser dialog.
+  const page = node('main', 'pos-content pos-content--narrow');
+  page.appendChild(node('p', 'caption', t('app.brand')));
+  page.appendChild(node('h1', 'title', t('pairing.phone_title')));
+  page.appendChild(node('p', 'body', t('pairing.phone_intro')));
   const form = node('form', 'pos-card pos-stack');
   const nameField = node('div', 'pos-field');
   const label = node('label', 'pos-field__label', t('pairing.name_label'));
@@ -218,66 +267,82 @@ openDeviceDb().then(async (db) => {
   nameInput.id = 'device_name';
   nameInput.autocomplete = 'off';
   nameInput.setAttribute('maxlength', '40');
+  nameInput.setAttribute('enterkeyhint', 'done');
   const nameError = node('p', 'pos-field__error');
   nameError.appendChild(icon('alert'));
   nameError.appendChild(node('span', '', t('pairing.name_error')));
   nameField.appendChild(label);
   nameField.appendChild(nameInput);
-  nameField.appendChild(node('p', 'pos-field__help', t('pairing.name_help')));
   nameField.appendChild(nameError);
-  form.appendChild(node('h1', 'title', t('pairing.name_title')));
+  nameField.appendChild(node('p', 'pos-field__help', t('pairing.name_help')));
   form.appendChild(nameField);
   const formStatus = node('div');
   form.appendChild(formStatus);
-  const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', t('pairing.name_submit'));
+  const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
   submit.type = 'submit';
+  submit.appendChild(icon('phone'));
+  const submitText = node('span', '', t('pairing.submit'));
+  submit.appendChild(submitText);
   form.appendChild(submit);
-  screen.className = 'pos-screen';
-  screen.replaceChildren(form);
+  page.appendChild(form);
+  page.appendChild(node('p', 'caption', t('pairing.only_you')));
+  show(page);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const name = nameInput.value.trim();
     nameField.classList.toggle('pos-field--error', name.length === 0 || name.length > 40);
     formStatus.replaceChildren();
-    if (name.length === 0 || name.length > 40) return;
+    if (name.length === 0 || name.length > 40 || submit.disabled) return;
     setBusy(submit, true);
-    const send = () => fetch('/devices/pair', {
+    submitText.textContent = t('pairing.busy');
+    const send = () => fetchRetry('/devices/pair', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ pairing_token: pairingToken, pair_request_id: pairRequestId, device_name: name, device_type: 'phone' }),
-    });
-    const failed = (error) => {
-      setBusy(submit, false);
-      formStatus.replaceChildren(banner('danger', errorText(error)));
-    };
+    }, 'pairing.phone_hub_down_body');
     const finish = async (res, retried) => {
       if (res.status === 401) {
         await deleteKey(db, 'pair_request_id');
-        show('warn', 'clock', t('pairing.token_expired'), t('pairing.token_expired_body'));
-        return;
+        return tokenExpired(standaloneIos);
       }
+      const body = await json(res);
       if (res.status === 200) {
-        const body = await res.json();
         await writeKey(db, 'token', body.data.device_token);
         await writeKey(db, 'device_id', body.data.device_id);
         await writeKey(db, 'device_type', body.data.device_type);
         await deleteKey(db, 'pair_request_id');
-        showPaired();
-        return;
+        const who = body.data.owner_name ? t('pairing.paired_body', { owner: body.data.owner_name }) : t('pairing.paired_body_any');
+        return show(stateScreen('ok', 'check', t('pairing.paired_title'), who));
       }
-      if (!retried) {
-        finish(await send(), true);
-        return;
-      }
-      const body = await res.json().catch(() => ({}));
-      failed(body.error);
+      // M14: a 503 is retried once with the same pair_request_id.
+      if (res.status === 503 && !retried) return finish(await send(), true);
+      setBusy(submit, false);
+      submitText.textContent = t('pairing.submit');
+      if (global(body.error, 'phone')) return;
+      formStatus.replaceChildren(banner('danger', errorText(body.error)));
     };
-    // M14: a lost response is retried once with the same pair_request_id.
-    send().then(
-      (res) => finish(res, false),
-      () => send().then((res) => finish(res, true), () => failed({ code: 'SERVICE_UNAVAILABLE' })),
-    );
+    send().then((res) => finish(res, false));
   });
+}
+openDeviceDb().then(async (db) => {
+  const deviceToken = await readKey(db, 'token');
+  // M43: an admin session in this tab is ended before pairing.
+  const adminToken = sessionStorage.getItem('admin_session_token');
+  if (adminToken) {
+    sessionStorage.removeItem('admin_session_token');
+    await fetch('/admin/auth/logout', { method: 'POST', headers: { 'x-admin-session': adminToken, authorization: 'Bearer ' + (deviceToken || '') } });
+  }
+  const pairingToken = new URLSearchParams(location.search).get('t');
+  if (!pairingToken) {
+    if (deviceToken && (await resumePaired(db, deviceToken))) return;
+    return pairScreen(db);
+  }
+  // Phones use the light floor theme (frames Phone*); /pair is served dark for screens (M82).
+  if (document.documentElement && document.documentElement.setAttribute) document.documentElement.setAttribute('data-theme', 'light');
+  // Phone rule 1: already paired → the token in the URL is ignored.
+  if (deviceToken) return show(stateScreen('ok', 'check', t('pairing.paired_title'), t('pairing.paired_body_any')));
+  if (/iPhone|iPad/.test(navigator.userAgent) && navigator.standalone !== true) return iosSteps();
+  pairPhone(db, pairingToken);
 });
 </script>
 </body>

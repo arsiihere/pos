@@ -1,13 +1,17 @@
 /// <reference types="node" />
 import { DomainError, type DeviceType } from '@pos/domain';
+import type { EngineState } from '@pos/engine';
+import type { BranchConfig } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
 import { currentDirectory, type RequestDevice } from '../auth/guards.js';
 import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
 import type { StaffDirectory } from '../auth/staff-directory.js';
+import type { StateHolder } from '../engine-host/state-holder.js';
 import type { Writer } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 
 export interface QueryCtx {
   db: Database.Database;
@@ -15,6 +19,11 @@ export interface QueryCtx {
   directory: StaffDirectory;
   device: RequestDevice | undefined;
   session: SessionRow | undefined;
+  // 01a S16: read-only engine state and the in-memory branch config (S40 N9).
+  state: Readonly<EngineState>;
+  branchConfig: BranchConfig | null;
+  // Branch time for queries that compare against it (§6.18a lockouts).
+  now: number;
 }
 
 export interface QueryDef<Q extends z.ZodType = z.ZodType> {
@@ -62,6 +71,7 @@ export interface QueryRouteDeps {
   readDb: Database.Database;
   writer: Writer;
   clock: Clock;
+  state: StateHolder<EngineState>;
 }
 
 const queryRegistries = new WeakMap<FastifyInstance, ReturnType<typeof createQueryRegistry>>();
@@ -109,6 +119,9 @@ function runQuery(
       directory: currentDirectory(app),
       device: request.device,
       session: request.session,
+      state: deps.state.get(),
+      branchConfig: branchConfig(),
+      now: deps.clock.branchNow(),
     },
     parsed.data,
   );
