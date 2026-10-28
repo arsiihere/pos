@@ -591,6 +591,37 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(commandsTo(sent, 'set-item-availability')[0]?.body).toMatchObject({ payload: { item_id: 'I1', is_available: false } });
   });
 
+  it('[01b §4.4 rows 11, 13; S33] with my_stations and yesterday’s day closed: rows stay, Selling switch works, a save asks for someone who can start the day', async () => {
+    signIn('S_USMAN', 'Usman');
+    const closedDay = {
+      business_day: { business_date: '2026-10-24', opened_at: OPENED, closed_at: OPENED + 12 * 3_600_000 },
+      business_day_started_at: null,
+    };
+    const { api, sent } = fakeHub(
+      () => answer({ manage_stock_scope: 'my_stations', ...closedDay }),
+      (s) => (s.url === '/admin/commands/set-precooked-stock' ? refused(409, 'BUSINESS_DAY_NOT_OPEN') : undefined),
+    );
+    await mount(api);
+    expect(container.querySelector('[data-item-id="I1"]')).not.toBeNull();
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+    expect(hasButton(t('admin_stock.day.start'))).toBe(false);
+    expect(hasButton(t('admin_stock.day.close'))).toBe(false);
+    expect(container.textContent).toContain(t('admin_stock.counter.not_started'));
+
+    const sw = rowOf('I1').querySelector<HTMLElement>('[role="switch"]');
+    expect(sw).not.toBeNull();
+    if (sw) await tap(sw);
+    expect(commandsTo(sent, 'set-item-availability')).toHaveLength(1);
+
+    typeInto(count('I1'), '6');
+    await tap(saveButton());
+    expect(commandsTo(sent, 'set-precooked-stock')).toHaveLength(1);
+    expect(container.textContent).toContain(t('admin_stock.counter.not_started'));
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+    expect(commandsTo(sent, 'open-business-day')).toHaveLength(0);
+    expect(count('I1')?.value).toBe('6');
+  });
+
   it('[01b §4.4 row 11] a change outside the counter’s stations shows the outside_scope text and refreshes', async () => {
     signIn('S_USMAN', 'Usman');
     let reads = 0;
