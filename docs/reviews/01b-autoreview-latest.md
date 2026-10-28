@@ -1,82 +1,80 @@
 VERDICT: BLOCKERS
 
-# 01b batch review: R-1 fix and tasks 43, 44, 46, 47, 50b (5658542..5dcfc6e)
+# 01b batch review: fixes R-1, R-2, P-3/P-4 answers and tasks 51–55 (9564df8..20c28d1)
 
-Checked against: foundation §6; the 01b spec §6.13, §6.14, §6.15a, §7.5, §8, B7, B11; tests #74 c–e, #95, #98, #99; 01a v1.3 S50 a (the owner shell, which 01b does not change); the plan's "Done when" for tasks 43, 44, 46, 47 and 50b; AD-25 (amended) and AD-29 to AD-31. I re-ran the 4 test files in this batch: 26/26 pass.
+Checked against: foundation §6; the 01b spec §3.7, §6.1–§6.12, §8 (views, error mapping, support number Q3), §9, B19, B23, review 2 N4; test #78; the plan's "Done when" for tasks 51–55; AD-29/AD-31 amendments and AD-32; P-3 and P-4 with their answers. I re-ran `pnpm vitest run apps/client/src/features/owner apps/client/src/app`: 27 files, 79 tests, all pass.
 
-## Blockers
-
-- **R-1 (Blocker, T47 / AD-29: a wrong Class B)**: `docs/runbooks/owner-password-reset.md:17-34`, `docs/reviews/01b-auto-decisions.md` (AD-29).
-  - **Problem:** §7.5 asks for "identity check questions" but does not list them. AD-29 picked them itself: the sign-in e-mail, the restaurant and branch names, and the name on the owner's hub tile. Who may receive a temporary owner password is auth and security behaviour. AUTOBUILD puts that explicitly in the Class B exclusion list, so this decision must be Class C (park it for the owner). The chosen questions are also weak:
-    - the restaurant and branch names are public;
-    - every staff member sees the owner's tile name on the hub;
-    - the e-mail is often on invoices or business cards.
-    
-    AD-29 also says "no call-back rule invented". So nothing ties the caller to a known phone number.
-  - **Failure scenario:** a staff member who has left phones support, claims to be the owner and answers all three questions from what they saw at work. Support runs `reset-owner-password` and reads the temporary password aloud. The caller signs in, sets a new password and owns the tenant: staff, roles, PIN resets and the owner lockout. Every one of the real owner's sessions is revoked.
-  - **Required fix:**
-    - Park this as P-n (task T47) with options, for example: (A) call back on a phone number recorded at onboarding; (B) a shared secret set at onboarding; (C) an in-person or video check.
-    - Set T47 to PARKED.
-    - Until the owner answers, change the runbook's identity section to say "Identity check: PENDING owner decision (P-n). Do not reset without the owner's agreed check". Keep the three questions only as a minimum, not as enough.
-    - Mark AD-29 as superseded by P-n.
-
-- **R-2 (Blocker, T50b / AD-31: a wrong Class B, and a change to another module's approved spec)**: `apps/client/src/features/owner/Shell.tsx:100-120,130-138`, `docs/reviews/01b-auto-decisions.md` (AD-31).
-  - **Problem:** 01a v1.3 S50 a (APPROVED) says the owner shell is "a side menu … and, at phone width (≤ 760 px), a bottom tab bar". 01b §8 and §4.4 do not change S50 a. T50b removed the phone tab bar and replaced it with an app-bar Menu button that opens the side nav in an overlay. That is a user-visible behaviour change to 01a's approved spec, made because the design hand-off's frames show it.
-    - AUTOBUILD puts "a fix that needs another module's spec to change" in Class C.
-    - CLAUDE.md says "If code and spec disagree, STOP and ask" and "Any behaviour change goes spec-first".
-    - The plan's "Done when" (render like `StaffPhoneList.html`) points at the design, but the plan ranks below the spec. The conflict had to be parked, not resolved in the plan's favour.
-    - The menu, floor and station pages (01a views) are affected too, not only the 01b views.
-  - **Failure scenario:** the 01a spec and the client now disagree on the phone shell. A later 01a re-review or T59's Playwright pass, if written from S50 a, fails or "fixes" it back. Any future reader of S50 a gets the wrong picture. On the phone, Sign out, which the tab bar's page reached before, is now two taps behind an overlay that no spec describes.
-  - **Required fix:**
-    - Park as P-n (task T50b): "01b design shows a Menu button with an overlay nav on phone; 01a S50 a says bottom tab bar". Options: (A) keep the tab bar (8 items plus Sign out at 390 px); (B) Menu button and overlay, with 01a S50 a amended by the human; (C) a tab bar for 4 items plus a "More" item.
-    - Restore the S50 a phone tab bar (`TabBar` still exists in `components/SideNav.tsx:68`) until the human answers. The laptop nav changes (groups, counts, foot), which match S50 a's side menu, may stay.
-    - Mark AD-31's phone part as superseded by P-n, and set the T51–T56 rows that depend on the phone shell to WAITING only if they need it.
+There are no Blockers. The verdict is BLOCKERS because of the Should-fix findings below; the first line allows only PASS (zero Blockers and zero Should-fix) or BLOCKERS.
 
 ## Should-fix
 
-- **R-3 (Should-fix, T50b)**: `apps/client/src/features/owner/Shell.tsx:104-114`.
-  - **Problem:** the phone nav overlay reuses `.pos-overlay`, the dialog backdrop, but none of the dialog behaviour that 01a test 161 requires of the kit's `Dialog`:
-    - Escape does not close it;
-    - Tab is not trapped, so the page behind stays reachable;
-    - focus does not return to the Menu button;
-    - it has no `role="dialog"` or `aria-modal`.
-    
-    `components/Dialog.tsx` already implements all of this. The fix is moot if R-2 is resolved with option A.
-  - **Failure scenario:** a keyboard or screen-reader user on a tablet at ≤ 760 px opens the menu. Focus stays on the Menu button behind the overlay, Tab walks the hidden page, and Escape does nothing. The overlay can only be closed by tapping the backdrop.
-  - **Required fix:** if the overlay stays (R-2 option B), build it on the existing `Dialog` component, or give it the same Escape, focus-trap and focus-return behaviour. Add a test for each.
+- **R-1 (Should-fix, T51 / T52)**: `apps/client/src/features/owner/staff/StaffForm.tsx:682`, `apps/client/src/features/owner/roles/RoleList.tsx:133`.
+  - **Problem:** the D02 "Mark as left" dialog maps every error other than `CONFIG_STALE` through the generic `errorText`. For `OWN_ADMIN_ACCESS`, `apiErrorKey` returns `errors.OWN_ADMIN_ACCESS` and ignores `details.reason`. So `reason: 'owner_not_linked'` never gets its own §8 text ("Your owner login isn't linked to your staff profile yet … Call support to link it."). `StaffForm`'s main save and `RoleList` use `ownAdminText`; the leave dialog does not. Separately, `LAST_ADMIN_REQUIRED` in the leave dialog and in the role-archive blocked dialog (`RoleList.blockedFor`, falls through to `errorText`) shows the generic sentence with no branch names. §8 says: "`LAST_ADMIN_REQUIRED` → roles field or blocked dialog naming the branches".
+  - **Failure scenario:**
+    - The owner is not yet linked (`owner_users.staff_id` null). They mark Bilal, the only hub admin at Gulberg, as left. The server answers `409 OWN_ADMIN_ACCESS { reason: 'owner_not_linked' }`. The dialog says "You can't remove your own admin access", which is false (Bilal is not the owner) and hides the real fix, `link-owner-staff`.
+    - The owner archives the "Manager" role and gets `LAST_ADMIN_REQUIRED { branch_ids: [B2] }`. The blocked dialog does not say which branch would lose its admin.
+  - **Required fix:**
+    - In `LeftDialog.confirm`, map `OWN_ADMIN_ACCESS` through `ownAdminText(error.details)`.
+    - In `LeftDialog` and `RoleList.blockedFor`, show `LAST_ADMIN_REQUIRED` with the branch names from `details.branch_ids`, as `RoleEditor` already does (`roles.last_admin_body`).
+    - Add `[01b §8]` tests for both codes in the leave dialog and the archive dialog.
+
+- **R-2 (Should-fix, T55)**: `apps/client/src/app/support.ts:13`; `apps/client/src/i18n/ur.ts:153,161`.
+  - **Problem:** `withSupport` adds the number with an English-only regex (`/Call support(?=\.| to | if )/`). For Urdu texts (`account.forgot`, `branches.behind_body`, and the error texts once they are translated) it never matches. Owner answer Q3 and §8: "set → the number is appended" applies to every support text, whatever the language. The tests cover only English.
+  - **Failure scenario:** the build sets `VITE_SUPPORT_PHONE=0300 1234567` and the owner uses the app in Urdu. They forget the password and open `#/account/password`. The caption reads "پاس ورڈ بھول گئے؟ سپورٹ کو فون کریں۔" with no number, which is exactly the case Q3 was answered for.
+  - **Required fix:** give each support text a `{support}` placeholder, or a with-phone variant key, in both `en.ts` and `ur.ts`. Fill it from `supportPhone()` instead of rewriting the English sentence. Add the Urdu case to `support.test.ts` and to the ChangePassword caption test (phone set and unset).
+
+- **R-3 (Should-fix, T54 / AD-32)**: `apps/client/src/features/owner/branches/BranchesView.tsx:63-81`.
+  - **Problem:** §8 / B19 say every branch shows "Hub checked in {time} ago" **and** "Up to date {time} ago", with the second shown as a warning when `hub_last_seen_at − hub_synced_at > hub_stale_after_ms`. AD-32 adds an "away" state (a display-only call, correctly Class B). But it is checked **first** and replaces both B19 lines. While a hub is away, the page no longer shows how far behind it is or whether the behind warning applies.
+  - **Failure scenario:** the Johar Town hub stopped taking config two hours ago (behind) and then lost the internet five minutes ago (away). The owner sees only "Johar Town hub last checked 5 min ago". They assume it is a short outage and do not learn that its config has been stale for two hours. A staff change made since then is not at the branch.
+  - **Required fix:** keep the away notice, but still render the "Up to date {time}" line, and its warning when B19's condition holds, for an away hub. Add a `[01b #78]` case where the hub is both away and behind.
+
+- **R-4 (Should-fix, T47 / T50b: parked answers not applied)**: `docs/runbooks/owner-password-reset.md:19,36`, `docs/plans/01b-status.md` (T47, T50b rows), `apps/client/src/features/owner/Shell.tsx:95-100`.
+  - **Problem:** 43df423 recorded the human's answers to P-3 (call back the owner's mobile number from the onboarding checklist) and P-4 (option B: Menu button and an overlay nav built on the kit `Dialog`; Change password and Sign out reachable on the phone). Nothing in this batch applies them:
+    - The runbook still says "Identity check: PENDING owner decision (P-3) … still do not reset until P-3 is answered".
+    - T47 and T50b are still PARKED.
+    - The phone shell still has the tab bar with no Change password and no Sign out.
+  - **Failure scenario:**
+    - An owner calls support after a lock-out. The runbook forbids any reset, so support either refuses a legitimate owner or ignores the runbook, and the call-back check is never written down.
+    - On a phone the owner cannot sign out or reach `#/account/password` from the nav, although T55 now ships that view.
+  - **Required fix:**
+    - Set T47 and T50b back to TODO (answered).
+    - Add the P-3 call-back step to the runbook's identity section: call back on the number in the onboarding checklist before any temporary password or owner link; the AD-29 questions are a pre-check only.
+    - Build the P-4 B phone nav on `Dialog` (Escape, focus trap, focus return, `role="dialog"`), with tests. Record it under "Design vs spec" in the build log, as the answer says.
 
 ## Nits (non-blocking)
 
-- N-1 (T50b): `apps/client/src/features/owner/Shell.test.tsx`. The build log says this test was written after the change (no TDD), and its names cite `[01b §8]` with no test number. The plan gave this Claude-only task no test step, but the hard rule still applies.
-- N-2 (T50b): the plan's "Done when" (render like `Main.html` at 1440 and `StaffPhoneList.html` at 390) was not checked. The build log defers it to T59, but the status row says DONE without noting this.
-- N-3 (T46): `apps/cloud/test/cli/link-owner-staff.int.test.ts` #99 b says "the CLI holds the tenant lock having verified Y". The hook fires at `apps/cloud/src/cli/link-owner-staff.ts:42`, before the qualification check at `:87`. The outcome is the same because the lock serialises the two writers, but the test does not prove "having verified".
-- N-4 (T47): `docs/runbooks/owner-password-reset.md:31,65`. Support pastes caller-supplied text into SQL by hand (`'<email>'`, `'<name on the tile>'`), on a host whose `DATABASE_URL` can write. Use `psql -v` with `:'email'` and `BEGIN READ ONLY`.
-- N-5 (T50b): the production code no longer uses `TabBar`; only `kit.test.tsx` does. It is dead code, unless R-2 restores it.
+- N-1 (T54): `apps/client/src/features/owner/branches/BranchesView.test.tsx:45`. `warned()` matches any `.pos-hub.is-warn`, so it cannot tell the B19 "behind" warning from the AD-32 "away" notice. The #78 threshold case passes only because the clock is frozen exactly at `seen = threshold`. Assert on the `branches.behind` text instead.
+- N-2 (T55): `apps/client/src/features/owner/account/ChangePassword.tsx:143`. The support caption is hidden on the forced view (`!forced`). §8 puts the caption on `#/account/password` without that exception, and a forced owner whose temporary password expired is the person who most needs it.
+- N-3 (T55): the "Done when" requires `pnpm --filter @pos/client build` with `VITE_SUPPORT_PHONE` set. The build log says it was not run, but the status row says DONE.
+- N-4 (T52): the build log says the tests were written first but first run after the views. Red was never observed for the stated reason.
+- N-5 (T51–T55): no view state was compared with the handoff screens at 1440 / 390. This is deferred to T59, but every "Done when" lists it.
 
 ## Checked and fine
 
-- **Spec patch (previous R-1):** v1.0.1 changes only the text of #97, with the change-log line "auto-patch AD-25". The README version cell and AD-25 are updated. No other spec text changed.
-- **T43:**
-  - #74 c runs (a) and (b) with the reset CLI in-process, on the same clock and on clocks 5 minutes ahead and behind. The reset's `afterOwnerRowLock` is wired to the same pause as the API's.
-  - (a): the refresh's access token → `401 JWT_INVALID`, and its successor → `401 REFRESH_TOKEN_INVALID`.
-  - (b): the refresh → `401 REFRESH_TOKEN_INVALID`, with 1 token row (none issued).
-  - #74 d covers both orders. When the reset goes first, the login → `401 LOGIN_INVALID` with no token row and a counter of 0, so an increment would be caught.
-  - #74 e alternates the start order over 50 runs and asserts change → 200, refresh ∈ {200, 401 `REFRESH_TOKEN_INVALID`}, and no `40P01`.
-  - Waiting is proven with `pg_stat_activity` lock waiters, which is safe because `fileParallelism: false`.
-- **T44:** #98's three cases each run 50 times. Login ‖ login: both 200 and the counter goes 3 → 0. Refresh ‖ refresh with `lock_notice_at` set: exactly one `lockout_notice`, and the notice is cleared. Login ‖ refresh: both 200. Status 200 catches a deadlock even when the 500 body hides the code. The status row records the check with the lock changed to `FOR SHARE`. No change under `src/`.
-- **T46:**
-  - #95: a re-link X → Y writes exactly one audit row (`actor_kind 'cli'`, old and new `staff_id`, printed `link:` line), and Y then gets `OWN_ADMIN_ACCESS`. A re-link from a row that qualifies nowhere to a no-PIN Cook is refused, so there is no vacuous pass.
-  - The no-PIN, `manage-devices` denial, `access-hub-admin` denial and leaver cases are all refused through `expectRefused`, which also checks no audit row and no bump.
-  - #99 a and b use real barriers and lock waiters, with the PATCH's `afterTenantLock` test hook. (a) lists all three branches. (b) gives `409 OWN_ADMIN_ACCESS` after the link.
-- **T50b (apart from R-2 and R-3):**
-  - The laptop nav order, groups and counts follow README §9. The Branches count comes from data the API gave (`allowed.length`), so it respects S50 f.
-  - The foot shows `display_name` as S50 a requires, and AD-31's no-e-mail call is correct.
-  - Every nav link and Sign out go through the discard guard.
-  - AD-30 (label copy) is a correct Class B: §8 fixes no `perm.<key>` text, and no spec-pinned copy changed. "Count stock and switch items off" matches 01a §6.18's `manage-stock` gate on `SetItemAvailability`.
-  - The Urdu to-do list shrank to 16 keys, and the i18n test enforces it.
-- Scope: no migrations, events, API contracts or error codes touched; no test skipped or weakened; no file outside the tasks.
-
-## Fix step outcome
-- R-1: PARKED as P-3 (9564df8). T47 PARKED; runbook identity check marked pending; AD-29 superseded.
-- R-2: PARKED as P-4; S50 a phone tab bar restored (6d1d9a3). T50b PARKED; AD-31 phone part superseded.
-- R-3: MOOT — the phone nav overlay was removed by the R-2 fix (`apps/client/src/features/owner/Shell.tsx`, phone branch renders `TabBar`); if P-4 picks option B, the overlay must be built on `Dialog` (recorded in P-4 B).
+- **Edit forms (B23, review 2 N4):**
+  - Staff, role, idle-inline and stock-counting writes send the held `version` as `expected_version`.
+  - The PIN dialog hands the response's version back to the form, so a PIN reset never makes the next save stale.
+  - `CONFIG_STALE` disables Save and offers Reload. Reload remounts the editor from a fresh read, so nothing of the stale form is kept (the test asserts that).
+- **Staff PATCH:** it sends only the changed fields, and each list whole. Leaving is `{ expected_version, is_active: false }`. `STAFF_LINKED_TO_OWNER` shows the §8 text.
+- **PIN:** the PIN stays in component state only and is cleared after every request, success or failure. The phone hand-over drops the first PIN once the second is typed. The test checks that the DOM no longer holds the value.
+- **Roles:**
+  - "Approved by" is a chip multi-select of active roles, and the role itself can be picked.
+  - "Where" comes from `PERMISSION_SCOPES`.
+  - An approval grant with no approver is refused before sending.
+  - Admin-guard snap-back works, and `OWN_ADMIN_ACCESS` uses `ownAdminText`.
+- **Stock counting:** the PUT sends the whole active set, and a station with nobody is left out (AD-19). After a save, the held version is replaced with the response's.
+- **Teams:** the tree is indented, shows "No PIN" from `has_pin`, each name links to `#/staff/:id`, and it is read-only.
+- **Branches:**
+  - The threshold comes from the response's `hub_stale_after_ms`; there is no `180000` in `apps/client/src`.
+  - Settings check the ranges and stale > gap before sending, and send only the changed fields.
+  - AD-32 is a valid Class B (display only, no wire change). Its placement is R-3.
+- **Session:**
+  - A 503 now goes to the cloud-unreachable state and probe; the probe treats 503 as still down.
+  - `PASSWORD_CHANGE_REQUIRED` marks the stored user and redirects. Every view redirects while `must_change_password` is set, with no side nav.
+  - The lockout notice is stored from login or refresh, shows `failed_count`, and is cleared on sign-out.
+  - `JWT_INVALID` followed by `REFRESH_TOKEN_INVALID` lands on sign-in once.
+- **R-1 / R-2 fixes (previous review):** P-3 and P-4 are parked with options, AD-29 and AD-31 are amended, and the S50 a tab bar is restored with a test.
+- **Scope:**
+  - No server code, migrations, events, API contracts or error codes changed. The `listBranches` client type gains `hub_stale_after_ms`, which the server already sends.
+  - No test is skipped or weakened.
+  - `App.tsx`, `form.ts` and `cloud-admin.ts` changes are needed by the views (Class A, logged).
