@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-161 keys.
+178 keys.
 
 | Key | English |
 |---|---|
@@ -167,3 +167,20 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `branches.gap_range` | Use 0 to 12 hours. |
 | `branches.gap_not_less` | Must be less than the stale-day hours ({n}). |
 | `branches.settings_saved` | Settings saved. {name} gets them within about a minute. |
+| `account.temporary` | Temporary password |
+| `account.hide` | Hide |
+| `account.current_required` | Type your current password. |
+| `account.wrong_current` | This is not your current password. |
+| `account.too_short` | Use at least 10 characters. |
+| `account.mismatch` | The two new passwords are different. |
+| `account.unchanged` | Pick a password you haven’t used here. |
+| `account.too_many` | Too many tries. Wait 15 minutes and try again. |
+| `account.nothing_changed` | Nothing changed. |
+| `account.offline_body` | Nothing changed. Your old password still works. Try again when you are online. |
+| `account.saved` | Password changed. |
+| `account.saved_body` | You stay signed in here. Other devices were signed out. |
+| `account.forced` | Choose a new password to continue. |
+| `account.forced_body` | The temporary password from support works only once and expires 24 hours after it was given. |
+| `account.lock_notice` | Someone tried to sign in to your account with a wrong password {n} times on {date} at {time}. |
+| `account.lock_notice_body` | If this wasn’t you, change your password. |
+| `account.lock_got_it` | Got it |

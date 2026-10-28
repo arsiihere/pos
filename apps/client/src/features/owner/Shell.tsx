@@ -6,6 +6,7 @@ import { SideNav, TabBar, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
 import { t, typeClass } from '../../i18n';
 import { useBranchName } from './branch';
+import { LockoutBanner } from './account/LockoutBanner';
 import { CloudDownBanner } from './cloud';
 import { useLeave } from './guard';
 import { usePhone } from '../../app/phone';
@@ -147,7 +148,8 @@ export function BranchSelect({
   );
 }
 
-// One owner screen: the app bar, then the content with the cloud-unreachable banner on top (S53).
+// One owner screen: the app bar, then the content with the cloud-unreachable banner (S53) and the
+// owner lock notice (01b B01) on top.
 export function Page({
   api,
   title,
@@ -178,6 +180,7 @@ export function Page({
       </AppBar>
       <main className={`pos-content${narrow ? ' pos-content--narrow' : ''}`}>
         <CloudDownBanner api={api} />
+        <LockoutBanner api={api} />
         {children}
       </main>
     </>

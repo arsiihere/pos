@@ -52,6 +52,8 @@ import type {
 const ACCESS_KEY = 'owner_access_token';
 const REFRESH_KEY = 'owner_refresh_token';
 const USER_KEY = 'owner_user';
+// 01b §3.7, §6.13: the lock notice from login or a rotating refresh, shown until the owner dismisses it.
+const NOTICE_KEY = 'owner_lockout_notice';
 
 export type { OwnerUser };
 
@@ -113,6 +115,7 @@ export type BranchDetail = BranchWire;
 export type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
 
 type LoginData = OwnerLogin;
+export type LockoutNotice = NonNullable<OwnerLogin['lockout_notice']>;
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'PUT';
 
@@ -121,6 +124,8 @@ export interface CloudAdminOptions {
   baseUrl?: string;
   storage?: Storage;
   onLoggedOut: () => void;
+  // 01b §8: `403 PASSWORD_CHANGE_REQUIRED` from any owner route sends the owner to #/account/password.
+  onPasswordChangeRequired?: () => void;
 }
 
 type Reply = { status: number; body: unknown } | null;
@@ -143,6 +148,11 @@ export function probeDelayMs(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 5_000);
 }
 
+// 01b §8, review 2 N9: a failed JWT guard read is the cloud-unreachable state (S53), never a sign-out.
+function isUnavailable(reply: Reply): boolean {
+  return reply !== null && reply.status === 503;
+}
+
 function isJwtInvalid(reply: Reply): boolean {
   if (reply === null || reply.status !== 401) return false;
   const error = errorOf(reply);
@@ -160,6 +170,7 @@ export function createCloudAdmin(options: CloudAdminOptions) {
   let lastRead: string | null = null;
   let probeTimer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<(down: boolean) => void>();
+  const noticeListeners = new Set<() => void>();
 
   function setDown(next: boolean): void {
     if (next === down) return;
@@ -177,7 +188,7 @@ export function createCloudAdmin(options: CloudAdminOptions) {
     probeTimer = setTimeout(() => {
       probeTimer = null;
       void send('GET', path, undefined, {}).then((reply) => {
-        if (reply !== null) setDown(false);
+        if (reply !== null && !isUnavailable(reply)) setDown(false);
         else if (down) scheduleProbe(attempt + 1);
       });
     }, probeDelayMs(attempt));
@@ -187,12 +198,18 @@ export function createCloudAdmin(options: CloudAdminOptions) {
     storage.setItem(ACCESS_KEY, data.access_token);
     storage.setItem(REFRESH_KEY, data.refresh_token);
     storage.setItem(USER_KEY, JSON.stringify(data.user));
+    // Older answers (00 before v1.5) carry no notice at all.
+    if (data.lockout_notice) {
+      storage.setItem(NOTICE_KEY, JSON.stringify(data.lockout_notice));
+      for (const listener of noticeListeners) listener();
+    }
   }
 
   function clearLogin(): void {
     storage.removeItem(ACCESS_KEY);
     storage.removeItem(REFRESH_KEY);
     storage.removeItem(USER_KEY);
+    storage.removeItem(NOTICE_KEY);
   }
 
   async function send(method: Method, path: string, body: unknown, headers: Record<string, string>): Promise<Reply> {
@@ -207,7 +224,7 @@ export function createCloudAdmin(options: CloudAdminOptions) {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       const reply = { status: response.status, body: await response.json() };
-      setDown(false);
+      if (!isUnavailable(reply)) setDown(false);
       return reply;
     } catch {
       return null;
@@ -221,6 +238,11 @@ export function createCloudAdmin(options: CloudAdminOptions) {
     if (reply === null || reply.status !== 200) return false;
     storeLogin((reply.body as { data: LoginData }).data);
     return true;
+  }
+
+  function setMustChange(value: boolean): void {
+    const raw = storage.getItem(USER_KEY);
+    if (raw !== null) storage.setItem(USER_KEY, JSON.stringify({ ...(JSON.parse(raw) as OwnerUser), must_change_password: value }));
   }
 
   function logOut(): void {
@@ -251,13 +273,18 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       reply = await send(method, path, body, headers);
       if (isJwtInvalid(reply)) return loggedOut();
     }
-    if (reply === null) {
+    if (reply === null || isUnavailable(reply)) {
       setDown(true);
       scheduleProbe(0);
       return { ok: false, error: { kind: 'network' } };
     }
     if (reply.status >= 200 && reply.status < 300) return { ok: true, data: (reply.body as { data: T }).data };
-    return { ok: false, error: errorOf(reply) };
+    const error = errorOf(reply);
+    if (error.kind === 'api' && error.code === 'PASSWORD_CHANGE_REQUIRED') {
+      setMustChange(true);
+      options.onPasswordChangeRequired?.();
+    }
+    return { ok: false, error };
   }
 
   const branch = (branchId: string) => `/v1/admin/branches/${encodeURIComponent(branchId)}`;
@@ -276,6 +303,20 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       const data = (reply.body as { data: LoginData }).data;
       storeLogin(data);
       return { ok: true, data: data.user };
+    },
+
+    // 01b B01: the lock notice, until dismissed (cleared on sign-out with the tokens).
+    lockoutNotice(): LockoutNotice | null {
+      const raw = storage.getItem(NOTICE_KEY);
+      return raw === null ? null : (JSON.parse(raw) as LockoutNotice);
+    },
+    dismissLockoutNotice(): void {
+      storage.removeItem(NOTICE_KEY);
+      for (const listener of noticeListeners) listener();
+    },
+    onLockoutNotice(listener: () => void): () => void {
+      noticeListeners.add(listener);
+      return () => noticeListeners.delete(listener);
     },
 
     cloudDown: (): boolean => down,
@@ -405,8 +446,7 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       if (result.ok) {
         storage.setItem(ACCESS_KEY, result.data.access_token);
         storage.setItem(REFRESH_KEY, result.data.refresh_token);
-        const raw = storage.getItem(USER_KEY);
-        if (raw !== null) storage.setItem(USER_KEY, JSON.stringify({ ...(JSON.parse(raw) as OwnerUser), must_change_password: false }));
+        setMustChange(false);
       }
       return result;
     },

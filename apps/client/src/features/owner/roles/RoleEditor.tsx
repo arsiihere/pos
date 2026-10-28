@@ -14,7 +14,7 @@ import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
-import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { errorText, ownAdminText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
 import { joinNames } from '../staff/people';
@@ -223,7 +223,7 @@ function Editor({
             permissions: moved,
             title: own ? t('roles.own_admin_title') : fill(t('roles.last_admin_title'), { name: stored?.name ?? name.trim() }),
             text: own
-              ? t(error.details['reason'] === 'owner_not_linked' ? 'errors.OWN_ADMIN_ACCESS_owner_not_linked' : 'errors.OWN_ADMIN_ACCESS')
+              ? ownAdminText(error.details)
               : fill(t('roles.last_admin_body'), { branches: joinNames(ids.map(branchName)) }),
             ...(own ? {} : { detail: t('errors.LAST_ADMIN_REQUIRED') }),
           });

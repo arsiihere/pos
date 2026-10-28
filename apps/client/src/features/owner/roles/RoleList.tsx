@@ -12,7 +12,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
 import { useCloudDown } from '../cloud';
-import { errorText } from '../form';
+import { errorText, ownAdminText } from '../form';
 import { Page } from '../Shell';
 import { joinNames, shortDate } from '../staff/people';
 
@@ -127,7 +127,7 @@ export function RoleList({ api }: { api: CloudAdmin }) {
     if (error.kind === 'api' && error.code === 'OWN_ADMIN_ACCESS') {
       return {
         title,
-        text: t(error.details['reason'] === 'owner_not_linked' ? 'errors.OWN_ADMIN_ACCESS_owner_not_linked' : 'errors.OWN_ADMIN_ACCESS'),
+        text: ownAdminText(error.details),
       };
     }
     return { title, text: errorText(error) ?? '' };

@@ -42,6 +42,13 @@ const FIXED: Record<string, OwnerRoute> = {
   '/account/password': { name: 'account_password' },
 };
 
+// 01b §8, B05: while the owner must change the password every view redirects to #/account/password.
+export const PASSWORD_ROUTE = '/account/password';
+
+export function forcedRoute(path: string, mustChangePassword: boolean): string | null {
+  return mustChangePassword && path !== PASSWORD_ROUTE ? PASSWORD_ROUTE : null;
+}
+
 export function matchOwnerRoute(path: string): OwnerRoute | null {
   const fixed = FIXED[path];
   if (fixed !== undefined) return fixed;

@@ -139,6 +139,18 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'roles.scope_help.my_floors': 'ہر شخص کے فلور',
   'roles.scope_help.my_team': 'جو انہیں رپورٹ کرتے ہیں',
   'roles.approved_by': 'منظور کرنے والے',
+  // 01b task 55: PasswordUrdu
+  'account.title': 'اکاؤنٹ',
+  'account.heading': 'اپنا پاس ورڈ بدلیں',
+  'account.for': 'برائے {name}',
+  'account.current': 'موجودہ پاس ورڈ',
+  'account.new': 'نیا پاس ورڈ',
+  'account.show': 'دکھائیں',
+  'account.new_help': 'کم از کم 10 حروف۔ چھوٹا جملہ یاد رکھنا آسان ہے۔',
+  'account.again': 'نیا پاس ورڈ دوبارہ لکھیں',
+  'account.explain': 'آپ کے اکاؤنٹ سے سائن اِن دوسرے فون اور لیپ ٹاپ سائن آؤٹ ہو جائیں گے۔ ہب ٹیبلٹ اور اسٹاف کے پن متاثر نہیں ہوں گے۔',
+  'account.submit': 'پاس ورڈ بدلیں',
+  'account.forgot': 'پاس ورڈ بھول گئے؟ سپورٹ کو فون کریں۔',
   // 01b task 54: BranchesUrdu, BranchSettingsUrdu
   'branches.title': 'برانچیں اور سیٹنگ',
   'branches.open': 'کھلی',

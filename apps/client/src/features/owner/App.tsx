@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
-import { matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
+import { forcedRoute, matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
+import { t } from '../../i18n';
+import { ChangePassword } from './account/ChangePassword';
 import { BranchPicker } from './BranchPicker';
 import { BranchesView } from './branches/BranchesView';
 import { BranchSettings } from './branches/BranchSettings';
@@ -70,10 +72,14 @@ function Routes({
 
   const loggedIn = user !== null && route !== '/login' && api.currentUser() !== null;
   const single = allowed.length === 1;
+  // 01b §8, B05: read each render, so a PASSWORD_CHANGE_REQUIRED answer (stored by the client) applies at once.
+  const mustChange = loggedIn && (api.currentUser()?.must_change_password ?? false);
+  const forced = loggedIn ? forcedRoute(route, mustChange) : null;
 
   useEffect(() => {
-    if (loggedIn && single && route === '/') navigate('/menu');
-  }, [loggedIn, single, route]);
+    if (forced !== null) navigate(forced);
+    else if (loggedIn && !mustChange && single && route === '/') navigate('/menu');
+  }, [forced, loggedIn, mustChange, single, route]);
 
   function chooseBranch(next: string) {
     storeBranch(next);
@@ -102,6 +108,28 @@ function Routes({
     );
   }
 
+  // 01b §8 B05: forced change after a support reset, with no side nav.
+  if (mustChange) {
+    return (
+      <div className="pos-page">
+        <ChangePassword
+          api={api}
+          userName={user.display_name}
+          forced
+          onChanged={() => {
+            setUser(api.currentUser());
+            navigate('/');
+          }}
+        />
+        <div className="pos-content pos-content--narrow">
+          <button type="button" className="pos-btn" onClick={signOut}>
+            {t('owner.sign_out')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // 01b §8: the 01b views. Staff and roles cover every branch (B8) and need no chosen branch; Teams and
   // Stock counting are per branch and fall back to the picker, as Floors and Stations do.
   const owner = matchOwnerRoute(route);
@@ -115,6 +143,9 @@ function Routes({
         {owner.name === 'staff_edit' && <StaffForm key={owner.id} api={api} staffId={owner.id} branchIds={allowed} />}
         {owner.name === 'roles' && <RoleList api={api} />}
         {owner.name === 'role_edit' && <RoleEditor key={owner.id} api={api} roleId={owner.id} />}
+        {owner.name === 'account_password' && (
+          <ChangePassword api={api} userName={user.display_name} forced={false} onChanged={() => setUser(api.currentUser())} />
+        )}
         {owner.name === 'branches' && <BranchesView api={api} />}
         {owner.name === 'branch_settings' && <BranchSettings key={owner.id} api={api} branchId={owner.id} />}
         {owner.name === 'teams' && branchId !== null && (
