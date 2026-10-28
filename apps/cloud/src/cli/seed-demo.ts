@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { pathToFileURL } from 'node:url';
+import type { DefaultKey } from '@pos/domain';
 import { createPool } from '../db/migrate.js';
 import { systemClock } from '../lib/clock.js';
 import { loadCloudEnv } from '../lib/env.js';
@@ -122,25 +123,24 @@ const ITEMS: ItemPlan[] = [
   { name: 'Halwa puri', category: 'Breakfast', price: 550, station: 'karahi', cook_min: 8 },
 ];
 
-// Default role names → default_key lookups go through the API's role list (§3.8: by key in code, by name here
-// only because this is demo data).
+// 01b §3.8, §6.15, R5: default roles are looked up by default_key, never by name (as seed-tenant does).
 interface StaffPlan {
   name: string;
-  role: string;
+  role: DefaultKey;
   branches: string[];
   pin: string | null;
   lead?: string;
 }
 
 const STAFF: StaffPlan[] = [
-  { name: 'Hamza', role: 'Manager', branches: ['Gulberg'], pin: '2222' },
-  { name: 'Usman', role: 'Cashier', branches: ['Gulberg'], pin: '3333' },
-  { name: 'Ali', role: 'Order taker', branches: ['Gulberg'], pin: '4444' },
-  { name: 'Zain', role: 'Waiter', branches: ['Gulberg'], pin: '5555', lead: 'Ali' },
-  { name: 'Faisal', role: 'Cook', branches: ['Gulberg'], pin: '6666' },
-  { name: 'Kashif', role: 'Manager', branches: ['Johar Town'], pin: '7777' },
-  { name: 'Nadeem', role: 'Waiter', branches: ['Johar Town'], pin: null },
-  { name: 'Imran', role: 'Manager', branches: ['DHA'], pin: '8888' },
+  { name: 'Hamza', role: 'manager', branches: ['Gulberg'], pin: '2222' },
+  { name: 'Usman', role: 'cashier', branches: ['Gulberg'], pin: '3333' },
+  { name: 'Ali', role: 'order_taker', branches: ['Gulberg'], pin: '4444' },
+  { name: 'Zain', role: 'waiter', branches: ['Gulberg'], pin: '5555', lead: 'Ali' },
+  { name: 'Faisal', role: 'cook', branches: ['Gulberg'], pin: '6666' },
+  { name: 'Kashif', role: 'manager', branches: ['Johar Town'], pin: '7777' },
+  { name: 'Nadeem', role: 'waiter', branches: ['Johar Town'], pin: null },
+  { name: 'Imran', role: 'manager', branches: ['DHA'], pin: '8888' },
 ];
 
 export async function seedDemo(base: string, tenantName: string): Promise<void> {
@@ -151,6 +151,7 @@ export async function seedDemo(base: string, tenantName: string): Promise<void> 
   const sys = new SystemContext(pool);
   const codes: { name: string; code: string; branch_id: string }[] = [];
   let owner: { tenant_id: string; staff_id: string };
+  let roleId: Map<string, string>;
   try {
     owner = await seedTenant(
       sys,
@@ -161,6 +162,11 @@ export async function seedDemo(base: string, tenantName: string): Promise<void> 
       const issued = await issueRegistrationCode(sys, { tenantId: owner.tenant_id, branchName: branch.name }, { clock, ids, secrets: cryptoSecrets });
       codes.push({ name: branch.name, code: issued.code, branch_id: issued.branch_id });
     }
+    const keyed = await sys.query<{ default_key: string; role_id: string }>(
+      `SELECT default_key, role_id FROM roles WHERE tenant_id = $1 AND default_key IS NOT NULL`,
+      [owner.tenant_id],
+    );
+    roleId = new Map(keyed.map((r) => [r.default_key, r.role_id]));
   } finally {
     await pool.end();
   }
@@ -247,8 +253,6 @@ export async function seedDemo(base: string, tenantName: string): Promise<void> 
     });
   }
 
-  const { roles } = await call<{ roles: { role_id: string; name: string }[] }>(c, 'GET', '/v1/admin/roles');
-  const roleId = new Map(roles.map((r) => [r.name, r.role_id]));
   const staffIds = new Map<string, string>();
   for (const s of STAFF) {
     const lead = s.lead === undefined ? undefined : staffIds.get(s.lead);
