@@ -4,6 +4,7 @@ import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { ROLES, role } from '../staff/fixtures';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
+import { BranchNames } from '../branch';
 import { RoleList } from './RoleList';
 
 let m: Mounted;
@@ -99,5 +100,28 @@ describe('[01b §8] roles list', () => {
     await click(button(m.container, `${t('roles.archived')}1`));
     await click(button(m.container, t('roles.restore')));
     expect(calls.filter((c) => c.method === 'PATCH')[1]).toMatchObject({ url: '/v1/admin/roles/R_RUN', body: { expected_version: 'v-R_RUN', archived: false } });
+  });
+
+  it('[01b §8] the archive blocked dialog names the branches on LAST_ADMIN_REQUIRED and maps OWN_ADMIN_ACCESS by reason', async () => {
+    let answer = () => fail(409, 'LAST_ADMIN_REQUIRED', { branch_ids: ['B2'] });
+    const { api } = fakeApi(handler(() => answer()));
+    await m.render(
+      <BranchNames.Provider value={new Map([['B1', 'Gulberg'], ['B2', 'Johar Town']])}>
+        <RoleList api={api} />
+      </BranchNames.Provider>,
+    );
+    async function archiveOwner(): Promise<void> {
+      const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
+      await click(button(owner, t('roles.archive')));
+      const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+      await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Owner' })));
+    }
+    await archiveOwner();
+    expect(m.container.textContent).toContain(fill(t('roles.last_admin_body'), { branches: 'Johar Town' }));
+    await click(button(m.container, t('common.close')));
+
+    answer = () => fail(409, 'OWN_ADMIN_ACCESS', { reason: 'owner_not_linked' });
+    await archiveOwner();
+    expect(m.container.textContent).toContain(t('errors.OWN_ADMIN_ACCESS_owner_not_linked'));
   });
 });

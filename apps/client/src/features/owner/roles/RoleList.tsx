@@ -11,6 +11,7 @@ import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
+import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, ownAdminText } from '../form';
 import { Page } from '../Shell';
@@ -43,6 +44,7 @@ export function RoleList({ api }: { api: CloudAdmin }) {
   const [blocked, setBlocked] = useState<Blocked | null>(null);
   const [restoreError, setRestoreError] = useState<Record<string, string>>({});
   const down = useCloudDown(api);
+  const branchName = useBranchName();
 
   const load = useCallback(async () => {
     const [active, archived] = await Promise.all([api.listRoles(), api.listRoles({ archived: true })]);
@@ -128,6 +130,14 @@ export function RoleList({ api }: { api: CloudAdmin }) {
       return {
         title,
         text: ownAdminText(error.details),
+      };
+    }
+    if (error.kind === 'api' && error.code === 'LAST_ADMIN_REQUIRED') {
+      const ids = Array.isArray(error.details['branch_ids']) ? (error.details['branch_ids'] as string[]) : [];
+      return {
+        title,
+        text: fill(t('roles.last_admin_body'), { branches: joinNames(ids.map(branchName)) }),
+        detail: t('errors.LAST_ADMIN_REQUIRED'),
       };
     }
     return { title, text: errorText(error) ?? '' };

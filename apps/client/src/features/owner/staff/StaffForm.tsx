@@ -651,7 +651,7 @@ function LeftDialog({
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [blocked, setBlocked] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<{ text: string; detail?: string } | null>(null);
   const [offline, setOffline] = useState(false);
   const byId = new Map(everyone.map((s) => [s.staff_id, s]));
   const moves = person.branch_ids.flatMap((b) => {
@@ -679,7 +679,11 @@ function LeftDialog({
     const error = result.error;
     if (error.kind === 'network') setOffline(true);
     else if (error.kind === 'api' && error.code === 'CONFIG_STALE') onStale();
-    else setBlocked(errorText(error) ?? '');
+    else if (error.kind === 'api' && error.code === 'OWN_ADMIN_ACCESS') setBlocked({ text: ownAdminText(error.details) });
+    else if (error.kind === 'api' && error.code === 'LAST_ADMIN_REQUIRED') {
+      const ids = Array.isArray(error.details['branch_ids']) ? (error.details['branch_ids'] as string[]) : [];
+      setBlocked({ text: fill(t('roles.last_admin_body'), { branches: joinNames(ids.map(branchName)) }), detail: t('errors.LAST_ADMIN_REQUIRED') });
+    } else setBlocked({ text: errorText(error) ?? '' });
   }
 
   if (blocked !== null) {
@@ -693,7 +697,7 @@ function LeftDialog({
           </button>
         }
       >
-        <Banner tone="danger" text={blocked} />
+        <Banner tone="danger" text={blocked.text} detail={blocked.detail} />
       </Dialog>
     );
   }

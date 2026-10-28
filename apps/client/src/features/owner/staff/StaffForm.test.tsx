@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { GuardProvider } from '../guard';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
@@ -95,6 +96,30 @@ describe('[01b §8] staff form', () => {
 
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-S1', is_active: false });
     expect(m.container.textContent).toContain(t('errors.STAFF_LINKED_TO_OWNER'));
+  });
+
+  it('[01b §8] the Left dialog maps OWN_ADMIN_ACCESS by reason and names the branches on LAST_ADMIN_REQUIRED', async () => {
+    let answer = () => fail(409, 'OWN_ADMIN_ACCESS', { reason: 'owner_not_linked' });
+    const { api } = fakeApi(handler(() => answer()));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    async function markLeft(): Promise<void> {
+      await click(button(m.container, t('staff.mark_left')));
+      const dialog = m.container.querySelector('[role="dialog"]');
+      if (dialog === null) throw new Error('dialog missing');
+      await click(button(dialog, t('staff.mark_left')));
+    }
+    await markLeft();
+    expect(m.container.textContent).toContain(t('errors.OWN_ADMIN_ACCESS_owner_not_linked'));
+    expect(m.container.textContent).not.toContain(t('errors.OWN_ADMIN_ACCESS'));
+    await click(button(m.container, t('common.close')));
+
+    answer = () => fail(409, 'LAST_ADMIN_REQUIRED', { branch_ids: ['B2'] });
+    await markLeft();
+    expect(m.container.textContent).toContain(fill(t('roles.last_admin_body'), { branches: 'Johar Town' }));
   });
 
   it('[01b §8] a new person is created with the form key and the picked roles and branches', async () => {
