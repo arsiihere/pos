@@ -69,3 +69,105 @@ Target: `docs/specs/01c_Menu_Variants_Spec_v0.2.md` (commit f80c033). Read with 
 ## Verdict
 
 **CHANGES REQUIRED** — 2 BLOCKER (B1, B2) and 9 MAJOR (M1–M9). Fix them in v0.3, then re-run G4 on the changed sections.
+
+---
+
+# Run 2 — v0.3
+
+Target: `docs/specs/01c_Menu_Variants_Spec_v0.3.md` (commit fa7644e). Fresh session, 2026-10-29. I checked each finding against the section text and the named test, not the changelog. The code checks were against `apps/cloud/src/modules/restaurant/{service,repository}.ts`, `packages/events/src/{config,admin/restaurant}.ts`, `packages/engine/src/stock.ts`, the hub files in the §4.5 cost list, and 01a v1.3.1 §10. The spec was not edited.
+
+**Verdict: CHANGES REQUIRED** — 0 BLOCKER, 1 MAJOR (N1), 8 MINOR (N2–N9). Of the run-1 findings, 25 are closed and 2 are partly closed (M8 → N1, m1 → N4).
+
+## Hand checks
+
+| Test | Hand result | Spec | Match |
+|---|---|---|---|
+| 8 | Weights 220 000 / 12 000 / 75 000 (Σ 307 000) → 229 315 / 12 508 / 78 177. Roghni ×4: extra 3 000 × 4 × 1 = 12 000, so 24 508 | same | yes |
+| 94 | 150 000 × 2 = 300 000; extra on a g/ml part 50 000 × deal qty 2 = 100 000; total **400 000**. Piece part: 3 000 × 4 × 2 = 24 000 | same | yes (E3 fixed) |
+| 95 | `optionChargeMinor(8000, 1, 2, 'piece')` = 16 000; at deal qty 1 it is 8 000 | same | yes |
+| 102 | ⌊78 177 / 2⌋ = 39 088, remainder 39 089; 12 508 / 4 = 3 127 × 4 | same | yes |
+| 103 | Weights 220 000 / 24 000 / 75 000 (Σ 319 000) → 220 689 / 24 075 / 75 236. This is the failing output of an implementation that weights by the chosen item | same | yes |
+| 104 | `allocateDealMinor(1e12, [1e15, 1])` = [999 999 999 999, 1]. **Plain `Number` arithmetic gives the same answer**, so the test does not tell BigInt from Number (N4) | no expected value stated | weak |
+
+## Closure table (run-1 findings)
+
+| # | Status | Evidence |
+|---|---|---|
+| B1 | CLOSED | §4.3 adds `program_cook_time_ms` and `stock_program_cook_time_ms`. A6 keeps the 01a copy. §4.4 has 02 and 03a rows. Test 93 checks that the snapshot `programs[]` carries `cook_time_ms` and archived programs, which matches `packages/events/src/config.ts:52–58`. The `ItemAdded` assertion is carried to 02's tests, which is right because 02 owns the schema |
+| B2 | CLOSED | V11 a, §3.4.3 and §3.4.4 scale charges by deal quantity: a piece part is extra × part qty × deal qty, and a g/ml part is extra × deal qty. A plain option on a g/ml part takes parent qty = deal qty. Tests 94 and 95 match the hand results |
+| M1 | CLOSED (residue N6) | V9, §3.4.6, `has_plain_options` (§4.6 rule 3), `isGroupSatisfiable` / `isItemOrderable` / `isDealOrderable` per position, test 96 |
+| M2 | CLOSED (residue N5) | §3.4.6 has an `isAvailable(linked item, child qty)` input to `checkOptionChoices`, the §4.4 02 row covers it, and so does test 97 |
+| M3 | CLOSED for the two-party case (residues N2, N3) | The §6 lock-order paragraph puts the group before the item. §6.5 reads unlocked, then takes the group `FOR SHARE`, then the item `FOR UPDATE`. §6.2 locks members in `item_id` order. Test 98. Today's code takes the item first (`service.ts:885`, `repository.ts:628` `lockMenuItem`), so this is a real script change, and the plan must say so |
+| M4 | CLOSED | §6.9 and §6.16 lock the parent `FOR UPDATE`, as the §6 paragraph says. The edge rows and test 99 cover two first-time PUTs |
+| M5 | CLOSED | V8 and §3.3 call the limit a "write-time soft limit". §4.6 rule 3 sets no maximum in `BranchConfigSnapshotSchemaV2` and says the builder does not truncate. Test 100 |
+| M6 | CLOSED | §3.2.4, §6.2 (archived members move too), §6.5 R1 on restore, and R1a (the group must be active). Test 101 |
+| M7 | CLOSED | §4.3 "Weight entered later" requires `{ order_item_id, quantity, line_total_minor }`, computed from the `ItemAdded` copy (D25) in S59 steps. The §4.4 02, 04, 05 and 07 rows read it |
+| M8 | **PARTLY** → N1 | §3.4.8 and §4.4 04 define a per-unit split and the parent→child cascade. The cascade rule as written over-refunds after a partial void, and a "unit" of a g/ml part is not defined |
+| M9 | CLOSED | V11 c weights by the reference choice. The test 8 fixture gives Roghni Rs 60. Test 103 fails a chosen-item implementation |
+| m1 | **PARTLY** → N4 | §4.2 requires BigInt inside and a throw on a non-safe result, but test 104 does not discriminate |
+| m2 | CLOSED | M9 removes the dependence on the chosen item |
+| m3 | CLOSED | V14 and the §6.15 notes upsert parts, rewrite choices only, and keep FK order. Test 105 |
+| m4 | CLOSED | §6.12a deletes only the rows of active options. Test 106 |
+| m5 | CLOSED | §4.6 rule 3 keeps only referenced groups. `deal_part_choices.sort_order` is in the table, the wire, the version input and the snapshot. Test 107 |
+| m6 | CLOSED | The §4.5 list has 4, 140, 143 and 145, checked against 01a §10: 140 says "≤ 13", and 13 + 9 = 22 as the spec states. The hedge is gone. 34 tests counted. (01a #128 has no build step, N7) |
+| m7 | CLOSED (caveat below) | A2 names the tracked rule as a change. §8 adds the "Create a stock item with this name" flow |
+| m8 | CLOSED | No `kind` remains in V3, §5.1, §5.4 or §4.6 |
+| m9 | CLOSED | No dangling reference, see the regressions section |
+| m10 | CLOSED | Tests 111–114 are added. M1/M3/M4/M5/B2 are covered by 96, 98, 99, 100, 94 and 95 |
+| m11 | CLOSED (caveat below) | §8 "Omitted at a branch". Test 115 |
+| m12 | CLOSED | §4.3 has `category_id` (the deal's on `deal` / `deal_part`). The §4.4 07 row says where part option charges count |
+| m13 | CLOSED | One SQL `lower(name)` statement under the group lock (V14, §6.12 R4). Test 116 |
+| m14 | CLOSED | V20 falls back to config, which matches 01a `dayUnits` (`packages/engine/src/stock.ts:19–27`). A draw whose stock item's frozen unit differs is dropped for the day. Test 108 |
+| m15 | CLOSED | §6.12 re-checks only added or changed links. §4.6 rule 6, V16 and §6.5 R4 scope to active groups. Test 109 |
+| m16 | CLOSED | V11 d and §4.2 pass part qty × deal qty. Test 110 |
+
+## Author's calls AU-7 to AU-11
+
+- **AU-7 `has_plain_options`: sound.** The snapshot is the only place 02 can tell "all linked" from "plain options configured but none offered here", because unoffered plain options are left out. The field depends on tenant config only, so it is the same on every branch. Residue: N6, a group that mixes plain and linked options.
+- **AU-8 retired numbers: sound.** This matches 01a's convention (removed 55, 96–101, 104, 109, "Number not reused"). The DoD, §10.8 and §11 all skip 71 and 72.
+- **AU-9 re-read and repeat once:**
+  - *Can it loop?* No. The repeat is bounded at one, and the item `FOR UPDATE` is held during the repeat, so the stored `variant_group_id` cannot change again.
+  - *Can it deadlock?* Yes. The repeat takes the new group's `FOR SHARE` while it holds the item `FOR UPDATE`. That is the item→group order M3 removed (N2).
+  - *Can it miss a change?* Yes, on the path where both the stored and the merged group are null. That path never re-reads after the item lock (N2).
+- **AU-10: sound.** `optionChargeMinor(price, q, dealQty, 'piece')` = price × q × dealQty, which is what B2 asked for (test 95). R28 depletion for such an option needs the parent `deal` line's quantity. That is derivable from the events, so it is not a finding.
+- **AU-11 (first routed choice per branch): sound.** The weight is deterministic for a given snapshot, the hub and the clients use the same snapshot, and the result is copied at order time (D25). A route change moves the weight only for new orders. Unavailable but routed choices stay the reference, which is correct because only the price is used.
+
+## Regressions from the v0.3 edits
+
+- **Removed deal toggle:** `SetDealAvailability`, `DealMade*`, `deal_availability`, V17, §6.22 and tests 71/72 now appear only in the changelog, the V17 tombstone, the §6.22 tombstone, the §10.7 retirements, AU-8 and §12.4. Nothing in §4.2 catch-up, §4.5 A8 or the cost list, §5.2, §6.0, §6.21, §8 or §9 still uses them. `DEAL_NOT_FOUND` is now cloud-only.
+- **Counts:**
+  - Own routes: 14. Touched routes: 22, and §12.2 has 22 rows.
+  - Tests: 1–116 minus 2 = 114.
+  - §10.9: 15 rows, 15 covered.
+  - §12.6: 16 writes listed.
+  - 01a list: 34 entries.
+  - Every 01c test 1–116 (except 71/72) has a §11 step.
+- **§11 / §4.5 mismatch:** 01a #128 is in the §4.5 list but in no §11 step (33 of 34 assigned). §12.2 lists test 116 only under §6.12, not §6.11. Both are N7.
+
+## New findings (run 2)
+
+| # | Sev | Section | Finding | Evidence | Proposed fix |
+|---|---|---|---|---|---|
+| N1 | **MAJOR** | §3.4.8, §4.4 04 row | **The cascade rule over-refunds after a partial void.** "Voiding the deal voids every part and refunds the deal line total" ignores refunds already made. Example: family deal ×1; void 2 of the 4 naan → 3 127 + 3 127 = 6 254 refunded; then void the deal → 320 000 refunded. Total 326 254 on a 320 000 line. The same applies to "voiding a parent line voids its `option_child` lines, each refunded on its own" after a child unit was already voided. Two smaller gaps: (a) the shares are fixed only if the voided units take them in index order, because the remainder goes to the last unit; (b) a "unit" of a g/ml `deal_part` (quantity 1 000 g) is undefined, and `[1, …, 1]` over grams is meaningless | §3.4.8 line 206; §4.4 line 310 | A later void refunds the line's **remaining** refundable amount (refundable − refunds already made). Voided units take shares from index 0 upward. A g/ml part's units are its deals (deal qty shares). Add a test: a part unit void, then a deal void, sums to the deal line total |
+| N2 | MINOR | §6 lock order (AU-9), §6.5 | (a) The repeat step locks the new group `FOR SHARE` while it holds the item `FOR UPDATE`. A §6.2 move of that new group (group `FOR UPDATE`, then members, including this item) gives 40P01. This needs a third write that moved the item between the unlocked read and the lock, so it is rare. The edge row "no deadlock" is still not true. (b) When the unlocked read has a null group and the body sends none, the script locks the item directly and never re-reads. A concurrent join to group G is then checked (R1) without G's lock | §6 line 622; §6.5 line 714, edge line 727; `service.ts:885` | Take a `SAVEPOINT` before the item lock. On a mismatch, `ROLLBACK TO SAVEPOINT` (this releases the item's row lock), lock the new group, and lock the item again. After a second mismatch, return `503`. Always compare the locked row's group with the groups held, including on the null path |
+| N3 | MINOR | §6.11, §6.12 | The reference reads are listed as "linked items, categories, variant groups, items", which puts items before variant groups and contradicts the new §6 rule. A group POST whose option links member I of G and which links to G, running against a §6.2 move of G, deadlocks: the item is held in share mode and waits for G, while G is held for update and waits for I | §6.11 line 791; §6 line 622 | Lock order in §6.11 and §6.12: variant groups, then categories, then items (linked and target) in id order |
+| N4 | MINOR | test 104, m1 | Test 104 passes with `Number` arithmetic (hand check above) and states no expected value | scratch check | Add `allocateDealMinor(95 921 642, [199 714 492 077 708, 199 714 492 077 708])` = `[47 960 821, 47 960 821]`. Float floor gives `[47 960 820, 47 960 822]` |
+| N5 | MINOR | §3.4.6 (M2) | Selectability checks only `isAvailable` for the linked item, not that its groups are satisfiable in the child position. A linked Naan whose required plain group has `options: []` at the branch (F1) is shown as selectable, and then `SubmitOrder` refuses the order | §3.4.6 line 204; §4.2 | Selectable iff `isItemOrderable(linked item, …, 'child', child qty, isAvailable)` |
+| N6 | MINOR | §3.4.6 vs V9 (M1) | V9 says "plain options configured but none offered"; §3.4.6 says "no option offered". A required group with its plain options unoffered at a branch but linked options offered falls between the two. The capacity rule of `isGroupSatisfiable(g, 'child')` is not stated. Cloud's `choices_unsatisfiable` counts linked options, so the owner can save a group (min 2: one plain option of max 1, plus one linked) that makes every attached item unorderable as a deal part, with no owner warning | V9 line 151; §3.4.6; §3.3 merged rules | Define `isGroupSatisfiable(g, 'child')` = `!has_plain_options` or `min_choices ≤ Σ max_quantity` of the **offered plain** options. Use the same wording in §3.4.6. Add the mixed case to test 96 |
+| N7 | MINOR | §11, §12.2 | 01a #128 (units on the item) is in the §4.5 list but in no build step. Test 116 (POST case) is not listed under §6.11 | §4.5 line 368; §11 steps 5, 12, 14–16 | Assign #128 to step 8 (item form fields). Add 116 to the §6.11 row |
+| N8 | MINOR | §6.5 restore (missed in run 1) | A stock item can be archived while its only drawer is archived, because §6.8 R2 counts active drawers. Restoring the item then brings back a draw to an archived stock item. §6.5 does not re-check the draw target on restore, and §4.6 does not say whether such a draw is "tracked" | §6.5 R1/R1a; §6.8 R2; §4.6 rule 4 | On restore, re-check the draw's stock item is active (`422 { field: 'stock_draws.0.stock_item_id', reason: 'archived' }`), or state that the builder drops draws to archived stock items |
+| N9 | MINOR | §8 m7 flow | Retrying a §6.9 PUT whose response was lost sends the "no row" version again, so the owner's own retry gets `409 CONFIG_STALE` "Changed elsewhere". A retried §6.7 POST without the same `Idempotency-Key` gets `409 CONFIG_NAME_TAKEN` | §8 line 975; §6.9; §6.7 | The form keeps the POST's key for its retries and re-reads §6.6 before retrying the PUTs |
+
+## The author's two caveats
+
+- **m11 (warnings computed from paged menu reads): acceptable for the pilot. Yes.** The warning is advisory. The snapshot and the hub stay correct without it, because V11 e drops the deal and the order screen never offers it. The pilot has ~200 items and 3 branches, so a few `GET /v1/admin/menu` pages, and the menu response already carries `routes` per item (`packages/events/src/admin/restaurant.ts:290`). The page already loads those pages for its pickers. Condition: the warning is computed only after the last page (`next_cursor: null`), and the page shows "checking…" until then, so a partial load never shows a false "all sold".
+- **m7 (three-call stock item creation, not atomic): acceptable for the pilot. Yes**, on the N9 condition. Each partial state is valid and visible:
+  - A stock item with no branch rows is listed and can be archived, since it has no drawer.
+  - Branch rows with no draw show "Not used by any dish here" (F4).
+  - The item PATCH is last write wins and idempotent.
+
+  It is a convenience flow for a handful of set-up actions. A server-side atomic endpoint would add a route for no pilot need.
+
+## Verdict
+
+**CHANGES REQUIRED** — 0 BLOCKER, **1 MAJOR open (N1)**, 8 MINOR (N2–N9). N1 is a one-paragraph fix to §3.4.8 and the §4.4 04 row, plus one test. I recommend the MINOR fixes in the same pass: N2/N3 (lock order), N4 (test vector) and N6 (definition) are each a line or two. After that, a run 3 limited to §3.4.6, §3.4.8, §4.4 04, §6 lock order, §6.5, §6.11/§6.12, §11 and tests 96/104 should be enough to approve.
