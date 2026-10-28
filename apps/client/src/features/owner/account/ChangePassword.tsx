@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CloudAdmin } from '../../../api/cloud-admin';
-import { withSupport } from '../../../app/support';
+import { supportText } from '../../../app/support';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { fill } from '../../../i18n/en';
@@ -140,7 +140,7 @@ export function ChangePassword({
           {t('account.submit')}
         </BusyButton>
       </section>
-      {!forced && <p className={typeClass('caption')}>{withSupport(t('account.forgot'))}</p>}
+      {!forced && <p className={typeClass('caption')}>{supportText('account.forgot')}</p>}
     </Page>
   );
 }

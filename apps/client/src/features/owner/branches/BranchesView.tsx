@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Branch, CloudAdmin } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
-import { withSupport } from '../../../app/support';
+import { supportText } from '../../../app/support';
 import { Banner } from '../../../components/Banner';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
@@ -92,7 +92,7 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
                             ? t('branches.never_synced')
                             : fill(t('branches.behind'), { synced: ago(b.hub_synced_at, now) })}
                         </b>
-                        <span>{withSupport(t('branches.behind_body'))}</span>
+                        <span>{supportText('branches.behind_body')}</span>
                       </div>
                     </div>
                   ) : (

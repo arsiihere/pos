@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { supportText } from '../../../app/support';
 import { fill } from '../../../i18n/en';
 import { setLanguage, t } from '../../../i18n';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Mounted } from '../test-api';
@@ -52,7 +53,7 @@ describe('[01b #78] B19 on the owner page', () => {
       expect(rowOf('Gulberg').textContent).toContain(fill(t('branches.hub_ok'), { seen: fill(t('branches.ago_min'), { n: '1' }), synced: fill(t('branches.ago_min'), { n: '4' }) }));
       expect(warned('Gulberg')).toBe(false);
       expect(warned('Johar Town')).toBe(true);
-      expect(rowOf('Johar Town').textContent).toContain(t('branches.behind_body'));
+      expect(rowOf('Johar Town').textContent).toContain(supportText('branches.behind_body'));
 
       // The page uses the response value, not a constant.
       m.unmount();

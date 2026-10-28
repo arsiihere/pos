@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { t } from '../../../i18n';
+import { setLanguage, t } from '../../../i18n';
 import { App } from '../App';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { ChangePassword } from './ChangePassword';
@@ -52,6 +52,23 @@ describe('[01b §8] change password', () => {
     m = mount();
     await renderForm();
     expect(caption()).toBe('Forgot your password? Call support on 0300 1234567.');
+  });
+
+  it('[01b §8, Q3] the Urdu caption gets the number too, and none when unset', async () => {
+    setLanguage('ur');
+    try {
+      vi.stubEnv('VITE_SUPPORT_PHONE', '');
+      await renderForm();
+      expect(caption()).toBe('پاس ورڈ بھول گئے؟ سپورٹ کو فون کریں۔');
+      m.unmount();
+
+      vi.stubEnv('VITE_SUPPORT_PHONE', '0300 1234567');
+      m = mount();
+      await renderForm();
+      expect(caption()).toBe('پاس ورڈ بھول گئے؟ سپورٹ کو 0300 1234567 پر فون کریں۔');
+    } finally {
+      setLanguage('en');
+    }
   });
 
   it('[01b §8] every view redirects to #/account/password while must_change_password', async () => {

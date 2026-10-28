@@ -127,7 +127,8 @@ describe('[01b §8] 01b strings', () => {
   it('the support texts of §8 are the spec copy', () => {
     expect(en['errors.STAFF_LINKED_TO_OWNER']).toBe("This profile is linked to the owner login and can't be marked as left.");
     expect(en['errors.CONFIG_STALE']).toBe('Someone changed this since you opened it');
-    expect(en['errors.OWN_ADMIN_ACCESS_owner_not_linked']).toBe(
+    // With no support number set, {support} is empty (Q3).
+    expect(fill(en['errors.OWN_ADMIN_ACCESS_owner_not_linked'], { support: '' })).toBe(
       "Your owner login isn't linked to your staff profile yet, so admin access can't be removed. Call support to link it.",
     );
     expect(en['roles.approval_help']).toBe(

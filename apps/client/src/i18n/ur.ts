@@ -150,7 +150,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'account.again': 'نیا پاس ورڈ دوبارہ لکھیں',
   'account.explain': 'آپ کے اکاؤنٹ سے سائن اِن دوسرے فون اور لیپ ٹاپ سائن آؤٹ ہو جائیں گے۔ ہب ٹیبلٹ اور اسٹاف کے پن متاثر نہیں ہوں گے۔',
   'account.submit': 'پاس ورڈ بدلیں',
-  'account.forgot': 'پاس ورڈ بھول گئے؟ سپورٹ کو فون کریں۔',
+  'account.forgot': 'پاس ورڈ بھول گئے؟ سپورٹ کو{support} فون کریں۔',
+  'support.on': ' {phone} پر',
   // 01b task 54: BranchesUrdu, BranchSettingsUrdu
   'branches.title': 'برانچیں اور سیٹنگ',
   'branches.open': 'کھلی',
@@ -158,7 +159,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'branches.hub_ok': 'ہب نے {seen} چیک کیا · {synced} تک تازہ',
   'branches.no_hub': 'ابھی ہب نہیں',
   'branches.behind': '{synced} تک تازہ۔',
-  'branches.behind_body': 'ہب چیک کرتا ہے مگر تازہ تبدیلیاں نہیں لے رہا۔ اگر ایسا رہے تو سپورٹ کو فون کریں۔',
+  'branches.behind_body': 'ہب چیک کرتا ہے مگر تازہ تبدیلیاں نہیں لے رہا۔ اگر ایسا رہے تو سپورٹ کو{support} فون کریں۔',
   'branches.foot': 'نئی برانچ سپورٹ شامل کرتی ہے جب اس کا ہب لگتا ہے۔',
   'branches.rename': 'نام بدلیں',
   'branches.settings': 'سیٹنگ',

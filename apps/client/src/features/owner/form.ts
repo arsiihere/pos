@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { CloudError } from '../../api/cloud-admin';
-import { withSupport } from '../../app/support';
+import { supportText } from '../../app/support';
 import { newUlid } from '../../app/ulid';
 import { errorKey } from '../../i18n/en';
 import { t, type MessageKey } from '../../i18n';
@@ -29,14 +29,14 @@ export function errorText(error: CloudError): string | null {
     case 'permission_denied':
       return t('errors.PERMISSION_DENIED');
     case 'api':
-      return withSupport(t(apiErrorKey(error.code, error.details)));
+      return supportText(apiErrorKey(error.code, error.details));
   }
 }
 
 // 01b §8: OWN_ADMIN_ACCESS on the roles field or a blocked dialog; `owner_not_linked` has its own text. The
 // support number is added only when VITE_SUPPORT_PHONE is set (Q3).
 export function ownAdminText(details: Record<string, unknown>): string {
-  return withSupport(t(details['reason'] === 'owner_not_linked' ? 'errors.OWN_ADMIN_ACCESS_owner_not_linked' : 'errors.OWN_ADMIN_ACCESS'));
+  return supportText(details['reason'] === 'owner_not_linked' ? 'errors.OWN_ADMIN_ACCESS_owner_not_linked' : 'errors.OWN_ADMIN_ACCESS');
 }
 
 // S50 e: CONFIG_REFERENCE_INVALID has one text per details.reason; a removed row (any *_NOT_FOUND) says

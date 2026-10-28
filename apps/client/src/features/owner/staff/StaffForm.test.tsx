@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
+import { ownAdminText } from '../form';
 import { GuardProvider } from '../guard';
 import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { BRANCHES, ROLES, STAFF } from './fixtures';
@@ -113,8 +114,8 @@ describe('[01b §8] staff form', () => {
       await click(button(dialog, t('staff.mark_left')));
     }
     await markLeft();
-    expect(m.container.textContent).toContain(t('errors.OWN_ADMIN_ACCESS_owner_not_linked'));
-    expect(m.container.textContent).not.toContain(t('errors.OWN_ADMIN_ACCESS'));
+    expect(m.container.textContent).toContain(ownAdminText({ reason: 'owner_not_linked' }));
+    expect(m.container.textContent).not.toContain(ownAdminText({}));
     await click(button(m.container, t('common.close')));
 
     answer = () => fail(409, 'LAST_ADMIN_REQUIRED', { branch_ids: ['B2'] });

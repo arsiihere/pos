@@ -5,6 +5,7 @@ import { t } from '../../../i18n';
 import { ROLES, role } from '../staff/fixtures';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { BranchNames } from '../branch';
+import { ownAdminText } from '../form';
 import { RoleList } from './RoleList';
 
 let m: Mounted;
@@ -122,6 +123,6 @@ describe('[01b §8] roles list', () => {
 
     answer = () => fail(409, 'OWN_ADMIN_ACCESS', { reason: 'owner_not_linked' });
     await archiveOwner();
-    expect(m.container.textContent).toContain(t('errors.OWN_ADMIN_ACCESS_owner_not_linked'));
+    expect(m.container.textContent).toContain(ownAdminText({ reason: 'owner_not_linked' }));
   });
 });
