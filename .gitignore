@@ -25,3 +25,4 @@ tools/tap-test/data/
 .auto/
 .auto/
 tools/autobuild/logs/
+.tmp-gate/
