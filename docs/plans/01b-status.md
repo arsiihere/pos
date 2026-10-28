@@ -58,9 +58,9 @@
 | T53 | DONE | 1 | T50,T50b | f54b237; station item names not shown (design vs spec) |
 | T54 | DONE | 1 | T50,T50b | f7824f0; AD-32 (hub away notice uses the response threshold) |
 | T55 | DONE | 1 | T50,T50b | 1ad4cdc; JWT then refused refresh passed at once (01a client); build with VITE_SUPPORT_PHONE not run here (sandbox) |
-| T56 | TODO | 0 | T29,T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
-| T57 | TODO | 0 | T12,T22,T24,T27,T31,T32,T38,T48,T49 | |
-| T58 | TODO | 0 | T57 | plan marks STOP after this task; T59+ wait for human |
-| T59 | TODO | 0 | T58 | Playwright via webapp-testing |
-| T60 | TODO | 0 | T59 | |
+| T56 | DONE | 1 | T29,T50,T50b | 576bce8; AD-33 (counter no-day screen, note, outside_scope text) |
+| T57 | DONE | 1 | T12,T22,T24,T27,T31,T32,T38,T48,T49 | 32052dc; #55 failed first (client fixture roles renamed, Class A); #96 watched fail by mutation |
+| T58 | DONE | 1 | T57 | a0db376; README 01b Implemented, pending page flows and release drill; pnpm test 218/906 green |
+| T59 | WAITING | 0 | T58 | plan STOP after T58: set back to TODO when the human confirms; Playwright via webapp-testing |
+| T60 | WAITING | 0 | T59 | waits for T59 (plan STOP after T58) |
 | T61 | PARKED | 0 | T58 | needs hardware; see P-2 |
