@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-16 keys.
+86 keys.
 
 | Key | English |
 |---|---|
@@ -22,3 +22,73 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `errors.reference.loop` | This would make someone report to a person in their own team. |
 | `errors.reference.one_lead_per_branch` | Pick one person they report to at each branch. |
 | `errors.reference.scope_not_allowed` | This permission can't be limited that way. |
+| `staff.left_on` | Left on {date} |
+| `staff.empty_title` | Add your first staff member |
+| `staff.empty_body` | Each person gets a name on the sign-in screen, one or more roles, the branches they work at, and a PIN. |
+| `staff.empty_roles` | {n} roles are ready: {names}. You can change them in Roles. |
+| `staff.no_match` | Nobody matches “{q}” |
+| `staff.no_match_body` | Check the spelling, or look under Left. |
+| `staff.branch_empty` | Nobody works at {branch} yet |
+| `staff.branch_empty_body` | Add staff, or give someone this branch under Works at. |
+| `staff.left_empty` | Nobody has left |
+| `staff.saved` | {name} saved. Changes reach each branch within about a minute. |
+| `staff.moved` | {name} marked as left. {n} people now report to someone else. |
+| `staff.new_title` | New staff member |
+| `staff.name_required` | Type a name, up to 40 letters. |
+| `staff.roles_required` | Pick at least one role. |
+| `staff.works_at_required` | Pick at least one branch. |
+| `staff.nobody` | Nobody |
+| `staff.no_floors` | This branch has no floors yet. |
+| `staff.pin_none` | No PIN yet. They are not on the sign-in screens until one is set. |
+| `staff.never_pick` | Permission to block |
+| `staff.never_remove` | Allow {permission} again |
+| `staff.status_left` | Left. Can’t sign in anywhere. |
+| `staff.bring_back` | Bring back |
+| `staff.bring_back_role` | Their only role was archived. Pick another role, then save. |
+| `staff.left_title` | Mark {name} as left? |
+| `staff.left_body` | They can’t sign in anywhere, and their phone is removed from their branches within about a minute. Their name stays on old orders. You can bring them back later. |
+| `staff.left_moves` | {names} at {branch} will report to {lead} instead. |
+| `staff.left_moves_nobody` | {names} at {branch} will report to nobody. |
+| `staff.left_blocked_title` | {name} can’t be marked as left |
+| `staff.left_offline` | Marking as left needs the internet. Nothing changed. |
+| `staff.fix_count` | {n} things to fix |
+| `staff.fix_one` | 1 thing to fix |
+| `staff.stale_body` | Reload shows the current version. Your changes here are not saved. |
+| `staff.reload` | Reload |
+| `staff.offline` | Can’t save — no internet. Your changes are kept on this page. |
+| `staff.can_fewer` | Show fewer |
+| `staff.grant.allowed` | Allowed |
+| `staff.grant.requires_approval` | Needs approval |
+| `staff.grant.not_granted` | Not allowed |
+| `staff.grant.denied` | Never |
+| `staff.grant.from` | from {roles} |
+| `staff.grant.approved_by` | approved by {roles} |
+| `staff.grant.no_role` | no role gives it |
+| `staff.grant.blocked` | blocked for this person |
+| `staff.scope.branch` | at the branch |
+| `staff.scope.my_floors` | on their floors |
+| `staff.scope.my_team` | for their team |
+| `staff.scope.my_stations` | at their stations |
+| `staff.scope.own_tables` | at tables they open |
+| `staff.or` | or |
+| `staff.not_found` | This person no longer exists. |
+| `staff.not_found_body` | Someone removed them, or the link is old. |
+| `staff.pin.new` | New PIN |
+| `staff.pin.help` | 4 to 6 digits. Two people may have the same PIN. |
+| `staff.pin.again` | Type it again |
+| `staff.pin.short` | PIN is 4 to 6 digits. |
+| `staff.pin.mismatch` | The two PINs are different. Type them again. |
+| `staff.pin.signs_out` | {name} is signed out on every device when you save. Anything they haven’t sent stays on the device. |
+| `staff.pin.save` | Save PIN |
+| `staff.pin.saving` | Saving… |
+| `staff.pin.saved_title` | {name}’s PIN is saved |
+| `staff.pin.saved_body` | It works at {branches} in about a minute. Tell {name} the new PIN. |
+| `staff.pin.first` | They now appear on the sign-in screens at {branches}. |
+| `staff.pin.done` | Done |
+| `staff.pin.offline` | A new PIN needs the internet. Nothing changed. |
+| `staff.pin.offline_body` | {name}’s old PIN still works. Try again when you are online. |
+| `staff.pin.try_again` | Try again |
+| `staff.pin.left` | {name} was marked as left, so a PIN can’t be set. |
+| `staff.pin.left_body` | Bring them back from Staff › Left first. |
+| `staff.pin.hand_back` | Hand the phone back to {name}. |
+| `staff.pin.phone_saved_body` | It works at {branches} in about a minute. Tell {name} the new PIN. Take the phone back. |

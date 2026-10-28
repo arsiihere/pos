@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
-import { navigate, useHashRoute } from '../../app/router';
+import { matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
 import { BranchPicker } from './BranchPicker';
 import { BranchNames, storeBranch, storedBranch } from './branch';
 import { FloorsView } from './floors/FloorsView';
@@ -8,6 +8,8 @@ import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
 import { MenuView } from './menu/MenuView';
 import { Shell } from './Shell';
+import { StaffForm } from './staff/StaffForm';
+import { StaffList } from './staff/StaffList';
 import { StationsView } from './stations/StationsView';
 
 // §8.1: the owner app. No token (or #/login) → login. #/ is the branch picker, skipped with one branch
@@ -95,6 +97,17 @@ function Routes({
   }
 
   const needsBranch = route === '/floors' || route === '/stations';
+  // 01b §8: the 01b views; staff and roles cover every branch (B8) and need no chosen branch.
+  const owner = matchOwnerRoute(route);
+  if (owner !== null) {
+    return (
+      <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
+        {owner.name === 'staff' && <StaffList api={api} branchIds={allowed} />}
+        {owner.name === 'staff_new' && <StaffForm key="new" api={api} staffId={null} branchIds={allowed} />}
+        {owner.name === 'staff_edit' && <StaffForm key={owner.id} api={api} staffId={owner.id} branchIds={allowed} />}
+      </Shell>
+    );
+  }
   if (route === '/menu' || (needsBranch && branchId !== null)) {
     return (
       <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
