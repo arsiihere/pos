@@ -186,6 +186,17 @@ describe('staff list and create (01b §6.1, §6.2)', () => {
     expect(counter.count).toBe(6);
   });
 
+  it('[01b §6.1, AD-11 superseded] ?branch_id outside the owner’s branches → 404 BRANCH_NOT_FOUND, no statement run', async () => {
+    counter.reset();
+    const foreign = await list(`?branch_id=${f.other.branchId}`);
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.json().error).toMatchObject({ code: 'BRANCH_NOT_FOUND', details: { branch_id: f.other.branchId } });
+    const unknown = await list('?branch_id=no-such-branch');
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json().error).toMatchObject({ code: 'BRANCH_NOT_FOUND', details: { branch_id: 'no-such-branch' } });
+    expect(counter.count).toBe(0);
+  });
+
   it('[01b §6.2 rule 1, §3.2 rule 2] a foreign branch → 404 BRANCH_NOT_FOUND; unknown or foreign role → 422 not_found; archived role → 422 role_archived; nothing written', async () => {
     const before = await staffCount();
     const foreignBranch = await create({ display_name: 'X', role_ids: [await roleId('waiter')], branch_ids: [f.branches[0], f.other.branchId] });

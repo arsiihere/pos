@@ -79,8 +79,9 @@ type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string 
 // 00 M8: argon2id m=19456, t=2, p=1.
 const ARGON = { memoryCost: 19_456, timeCost: 2, parallelism: 1, algorithm: Algorithm.Argon2id, version: Version.V0x13 };
 
-// §6.1: 6 statements; each version built in memory (B23).
+// §6.1: 6 statements; each version built in memory (B23). A foreign `?branch_id` → 404, as 6.8/6.10/6.12 (AD-11 superseded).
 export async function listStaff(deps: StaffRolesDeps, tenant: TenantContext, filter: StaffFilter): Promise<StaffWire[]> {
+  if ('branchId' in filter && filter.branchId !== undefined) assertBranchAllowed(tenant, filter.branchId);
   const rows = await selectStaff(new TenantLevelRepository(tenant, deps.pool), filter);
   return rows.map(versioned);
 }
