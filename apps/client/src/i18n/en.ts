@@ -99,6 +99,12 @@ export const en = {
   'admin_stock.day.counts_kept': 'Your {n} counts are kept.',
   'admin_stock.day.start_and_save': 'Start day and save',
   'admin_stock.day.opened_recently_small': 'Someone started it at {time}. Keep counting.',
+  // 01b §4.4 rows 11, 13 (D-6): a `my_stations` counter neither starts nor closes the day.
+  'admin_stock.counter.note': 'You see the items of your stations only. Starting and closing the day is for the manager.',
+  'admin_stock.counter.not_started_title': "The day hasn't been started",
+  'admin_stock.counter.not_started': "The day hasn't been started. Ask someone who can start the day.",
+  'admin_stock.counter.not_started_body': "Ask someone who can start the day. Your stations' items show here once it is open.",
+  'admin_stock.errors.outside_scope': 'You can only change items for your stations.',
   'admin_stock.problem.body': 'Selling goes on with the current version. The owner can fix it in Restaurant setup.',
   'admin_stock.filter': 'Show',
   'admin_stock.filter.to_count': 'To count',

@@ -10,6 +10,7 @@ import { AppBar } from '../../../components/AppBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
+import { Icon } from '../../../components/Icon';
 import { SideNav } from '../../../components/SideNav';
 import { t, typeClass } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
@@ -47,10 +48,21 @@ function dayNotOpen(error: HubError): boolean {
   return error.kind === 'api' && error.code === 'BUSINESS_DAY_NOT_OPEN';
 }
 
+// 01b §4.4 row 11: a `my_stations` counter changed an item of another station.
+function outsideScope(error: HubError): boolean {
+  return error.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'outside_scope';
+}
+
 function errorMessage(error: HubError): Message {
   if (error.kind === 'network') return { tone: 'danger', text: t('admin_stock.errors.network') };
   if (error.kind === 'signed_out') return { tone: 'danger', text: t('errors.ADMIN_SESSION_REQUIRED') };
+  if (outsideScope(error)) return { tone: 'danger', text: t('admin_stock.errors.outside_scope') };
   return { tone: 'danger', text: t(adminErrorKey(error.code)) };
+}
+
+// 01b §4.4 row 13: a counter can't start the day, so a refused save or Add asks for someone who can.
+function notStarted(): Message {
+  return { tone: 'warn', text: t('admin_stock.counter.not_started') };
 }
 
 // Reading window.localStorage itself throws where site data is blocked (S55: the page works without it).
@@ -101,6 +113,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [stale, setStale] = useState(false);
   const [staleAfterHours, setStaleAfterHours] = useState(16);
   const [minGapHours, setMinGapHours] = useState(4);
+  // 01b §4.4 row 13 (D-6): `my_stations` hides Start day, Close day and the stale-day prompt.
+  const [counter, setCounter] = useState(false);
   // "Keep it open" hides the stale prompt until the page reloads.
   const [keepOpen, setKeepOpen] = useState(false);
   const [dayBusy, setDayBusy] = useState(false);
@@ -158,6 +172,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     setStale(answer.day_stale);
     setStaleAfterHours(answer.day_stale_after_hours);
     setMinGapHours(answer.day_min_gap_hours);
+    setCounter(answer.manage_stock_scope === 'my_stations');
     versions.current = { meta_version: answer.meta_version, stock_version: answer.stock_version };
     // §6.19: an unchanged answer carries no item data; the rows stay.
     if (answer.items_meta !== null) setMeta(answer.items_meta);
@@ -284,8 +299,13 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     }
     if (failure !== null) {
       if (failure.kind === 'signed_out') onSignedOut();
-      else if (dayNotOpen(failure)) setBlocked({ kind: 'save' });
-      else if (failure.kind === 'api' && (failure.code === 'STOCK_NOT_TRACKED' || failure.code === 'MENU_ITEM_NOT_FOUND')) {
+      else if (dayNotOpen(failure)) {
+        if (counter) setMessage(notStarted());
+        else setBlocked({ kind: 'save' });
+      } else if (outsideScope(failure)) {
+        setMessage(errorMessage(failure));
+        await refresh();
+      } else if (failure.kind === 'api' && (failure.code === 'STOCK_NOT_TRACKED' || failure.code === 'MENU_ITEM_NOT_FOUND')) {
         const gone = rows.find((r) => r.meta.item_id === failure?.details['item_id'])?.meta.name ?? '';
         setMessage({ tone: 'info', text: fill(t('admin_stock.not_counted_now'), { name: gone }) });
         await refresh();
@@ -326,8 +346,13 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     });
     if (!answer.ok) {
       if (answer.error.kind === 'signed_out') onSignedOut();
-      else if (dayNotOpen(answer.error)) setBlocked({ kind: 'add', itemId, quantity });
-      else setMessage(errorMessage(answer.error));
+      else if (dayNotOpen(answer.error)) {
+        if (counter) setMessage(notStarted());
+        else setBlocked({ kind: 'add', itemId, quantity });
+      } else {
+        setMessage(errorMessage(answer.error));
+        if (outsideScope(answer.error)) await refresh();
+      }
       return;
     }
     pendingAdds.current.delete(itemId);
@@ -469,7 +494,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
         <button type="button" className="pos-btn" onClick={() => (touched > 0 ? setAskSignOut(true) : void signOut('none'))}>
           {t('admin_stock.sign_out')}
         </button>
-        {clock !== null && day !== null && day.closed_at === null && (
+        {clock !== null && !counter && day !== null && day.closed_at === null && (
           <CloseDayButton
             day={day}
             clock={clock}
@@ -480,88 +505,106 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           />
         )}
       </AppBar>
-      <main className="pos-content" data-view="stock">
-        {status !== null && <ConfigProblem status={status} />}
-        {offline && <Banner tone="warn" text={t('admin_stock.reconnecting')} detail={t('admin_stock.reconnecting_body')} />}
-        {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
-        {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} />}
-        {kept !== null && (
-          <div className="pos-callout" data-kept="">
-            <div className="pos-callout__text">
-              <h2>{fill(t('admin_stock.kept.title'), { n: String(kept.n), time: kept.time })}</h2>
-              <p>
-                {t('admin_stock.kept.body')}
-                {kept.changed.length > 0 && ` ${fill(t('admin_stock.kept.changed'), { items: kept.changed.join(', ') })}`}
-              </p>
-            </div>
-            <button type="button" className="pos-btn" onClick={discardKept}>
-              {t('admin_stock.kept.discard')}
-            </button>
+      {counter && noDay ? (
+        <main className="pos-screen pos-screen--warn" data-view="stock" data-not-started="">
+          <div className="pos-screen__icon">
+            <Icon name="clock" />
           </div>
-        )}
-        {clock !== null && stale && !keepOpen && day !== null && (
-          <StalePrompt
-            openedAt={day.opened_at}
-            clock={clock}
-            busy={dayBusy}
-            onCloseAndStart={() => void closeAndStart()}
-            onKeep={() => setKeepOpen(true)}
-          />
-        )}
-        {clock !== null && noDay && <StartDay place="rows" busy={dayBusy} onStart={() => void startDay()} />}
-        {blocked !== null && (
-          <StartDay place="retry" busy={dayBusy} primary waiting={touched} onStart={() => void startDay()} />
-        )}
-        {!noDay && carriedOpen.length > 0 && (
-          <section className="pos-callout pos-callout--accent" data-carry="">
-            <div className="pos-callout__text">
-              <h2>
-                {carriedOpen.length === 1
-                  ? t('admin_stock.carry.title_one')
-                  : fill(t('admin_stock.carry.title'), { n: String(carriedOpen.length) })}
-              </h2>
-              <p>{t('admin_stock.carry.body')}</p>
-            </div>
-            <BusyButton busy={saving} onClick={() => void confirmAll()}>
-              {fill(t('admin_stock.carry.all'), { n: String(carriedOpen.length) })}
-            </BusyButton>
-          </section>
-        )}
-        <AlertBar rows={rows} onPick={(id) => setFocus({ id })} />
-        {clock !== null && (
-          <StockTable
-            rows={rows}
-            startedAt={startedAt}
-            clock={clock}
-            drafts={drafts}
-            onEdit={edit}
-            onConfirm={confirm}
-            onToggle={(id, next) => void toggle(id, next)}
-            adds={adds}
-            onAddEdit={(id, v) => setAdds((a) => new Map(a).set(id, v))}
-            onAdd={(id, quantity) => void add(id, quantity)}
-            notes={notes}
-            restored={restored}
-            focusId={focus}
-          />
-        )}
-      </main>
-      <ActionBar info={info}>
-        {kept !== null && restored.size > 0 && (
-          <button type="button" className="pos-btn" onClick={discardKept}>
-            {t('admin_stock.kept.discard')}
-          </button>
-        )}
-        {blocked === null && (
-          <span data-save="">
-            <BusyButton primary={!noDay} busy={saving} onClick={() => void save()}>
-              {touched === 0
-                ? t('admin_stock.save')
-                : fill(t(touched === 1 ? 'admin_stock.save_one' : 'admin_stock.save_n'), { n: String(touched) })}
-            </BusyButton>
-          </span>
-        )}
-      </ActionBar>
+          <h1 className="pos-screen__title">{t('admin_stock.counter.not_started_title')}</h1>
+          <p className="pos-screen__body">{t('admin_stock.counter.not_started_body')}</p>
+        </main>
+      ) : (
+        <>
+          <main className="pos-content" data-view="stock">
+            {counter && (
+              <div className="pos-explain" data-counter-note="">
+                <Icon name="clipboard" />
+                <span>{t('admin_stock.counter.note')}</span>
+              </div>
+            )}
+            {status !== null && <ConfigProblem status={status} />}
+            {offline && <Banner tone="warn" text={t('admin_stock.reconnecting')} detail={t('admin_stock.reconnecting_body')} />}
+            {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
+            {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} />}
+            {kept !== null && (
+              <div className="pos-callout" data-kept="">
+                <div className="pos-callout__text">
+                  <h2>{fill(t('admin_stock.kept.title'), { n: String(kept.n), time: kept.time })}</h2>
+                  <p>
+                    {t('admin_stock.kept.body')}
+                    {kept.changed.length > 0 && ` ${fill(t('admin_stock.kept.changed'), { items: kept.changed.join(', ') })}`}
+                  </p>
+                </div>
+                <button type="button" className="pos-btn" onClick={discardKept}>
+                  {t('admin_stock.kept.discard')}
+                </button>
+              </div>
+            )}
+            {clock !== null && !counter && stale && !keepOpen && day !== null && (
+              <StalePrompt
+                openedAt={day.opened_at}
+                clock={clock}
+                busy={dayBusy}
+                onCloseAndStart={() => void closeAndStart()}
+                onKeep={() => setKeepOpen(true)}
+              />
+            )}
+            {clock !== null && noDay && <StartDay place="rows" busy={dayBusy} onStart={() => void startDay()} />}
+            {blocked !== null && (
+              <StartDay place="retry" busy={dayBusy} primary waiting={touched} onStart={() => void startDay()} />
+            )}
+            {!noDay && carriedOpen.length > 0 && (
+              <section className="pos-callout pos-callout--accent" data-carry="">
+                <div className="pos-callout__text">
+                  <h2>
+                    {carriedOpen.length === 1
+                      ? t('admin_stock.carry.title_one')
+                      : fill(t('admin_stock.carry.title'), { n: String(carriedOpen.length) })}
+                  </h2>
+                  <p>{t('admin_stock.carry.body')}</p>
+                </div>
+                <BusyButton busy={saving} onClick={() => void confirmAll()}>
+                  {fill(t('admin_stock.carry.all'), { n: String(carriedOpen.length) })}
+                </BusyButton>
+              </section>
+            )}
+            <AlertBar rows={rows} onPick={(id) => setFocus({ id })} />
+            {clock !== null && (
+              <StockTable
+                rows={rows}
+                startedAt={startedAt}
+                clock={clock}
+                drafts={drafts}
+                onEdit={edit}
+                onConfirm={confirm}
+                onToggle={(id, next) => void toggle(id, next)}
+                adds={adds}
+                onAddEdit={(id, v) => setAdds((a) => new Map(a).set(id, v))}
+                onAdd={(id, quantity) => void add(id, quantity)}
+                notes={notes}
+                restored={restored}
+                focusId={focus}
+              />
+            )}
+          </main>
+          <ActionBar info={info}>
+            {kept !== null && restored.size > 0 && (
+              <button type="button" className="pos-btn" onClick={discardKept}>
+                {t('admin_stock.kept.discard')}
+              </button>
+            )}
+            {blocked === null && (
+              <span data-save="">
+                <BusyButton primary={!noDay} busy={saving} onClick={() => void save()}>
+                  {touched === 0
+                    ? t('admin_stock.save')
+                    : fill(t(touched === 1 ? 'admin_stock.save_one' : 'admin_stock.save_n'), { n: String(touched) })}
+                </BusyButton>
+              </span>
+            )}
+          </ActionBar>
+        </>
+      )}
       {askSignOut && (
         <Dialog
           title={fill(t('admin_stock.sign_out_ask'), { n: String(touched) })}

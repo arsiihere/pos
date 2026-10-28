@@ -72,6 +72,7 @@ function item(itemId: string, o: Partial<HubStockItem> = {}): HubStockItem {
 function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
   return {
     unchanged: false,
+    manage_stock_scope: 'branch',
     config_version: 42,
     meta_version: '42.1',
     stock_version: 7,
@@ -528,5 +529,74 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     expect(container.textContent).toContain(t('admin_stock.reconnecting'));
     expect(container.querySelector('.pos-actionbar__info')?.textContent).toContain(fill(t('admin_stock.waiting'), { n: '2' }));
     expect(count('I1')?.value).toBe('6');
+  });
+});
+
+describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
+  const refused = (status: number, code: string, details: Record<string, unknown> = {}) =>
+    json(status, { error: { code, message: 'x', details } });
+  const hasButton = (label: string) => [...container.querySelectorAll('button')].some((b) => b.textContent?.includes(label));
+  const staleDay = { day_stale: true, business_day: { business_date: '2026-10-24', opened_at: OPENED, closed_at: null } };
+  const noDay = { business_day: null, business_day_started_at: null };
+
+  it('[01b #71 page part] my_stations hides Start day, Close day and the stale-day prompt; branch scope keeps them', async () => {
+    signIn('S_USMAN', 'Usman');
+    await mount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...staleDay })).api);
+    expect(hasButton(t('admin_stock.day.close'))).toBe(false);
+    expect(container.textContent).not.toContain(t('admin_stock.stale.close_and_start'));
+    expect(container.textContent).toContain(t('admin_stock.counter.note'));
+    expect(container.querySelector('[data-item-id="I1"]')).not.toBeNull();
+
+    // No day open: no Start day; the "ask someone" screen instead.
+    await remount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...noDay })).api);
+    expect(hasButton(t('admin_stock.day.start'))).toBe(false);
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+    expect(container.textContent).toContain("The day hasn't been started");
+    expect(container.textContent).toContain('Ask someone who can start the day.');
+
+    // The same answers with branch scope render as before.
+    signIn();
+    await remount(fakeHub(() => answer(staleDay)).api);
+    expect(hasButton(t('admin_stock.day.close'))).toBe(true);
+    expect(container.textContent).toContain(t('admin_stock.stale.close_and_start'));
+    expect(container.textContent).not.toContain(t('admin_stock.counter.note'));
+    await remount(fakeHub(() => answer(noDay)).api);
+    expect(container.querySelector('[data-start-day="rows"]')).not.toBeNull();
+  });
+
+  it('[01b #71 page part] under my_stations a 409 BUSINESS_DAY_NOT_OPEN asks for someone who can start the day', async () => {
+    signIn('S_USMAN', 'Usman');
+    const { api, sent } = fakeHub(
+      () => answer({ manage_stock_scope: 'my_stations' }),
+      (s) => (s.url === '/admin/commands/set-precooked-stock' ? refused(409, 'BUSINESS_DAY_NOT_OPEN') : undefined),
+    );
+    await mount(api);
+    typeInto(count('I1'), '6');
+    await tap(saveButton());
+    expect(container.textContent).toContain("The day hasn't been started. Ask someone who can start the day.");
+    expect(container.querySelector('[data-start-day]')).toBeNull();
+    expect(commandsTo(sent, 'open-business-day')).toHaveLength(0);
+    expect(count('I1')?.value).toBe('6');
+  });
+
+  it('[01b §4.4 row 11] a change outside the counter’s stations shows the outside_scope text and refreshes', async () => {
+    signIn('S_USMAN', 'Usman');
+    let reads = 0;
+    const { api } = fakeHub(
+      () => {
+        reads += 1;
+        return answer({ manage_stock_scope: 'my_stations' });
+      },
+      (s) =>
+        s.url === '/admin/commands/set-precooked-stock'
+          ? refused(403, 'PERMISSION_DENIED', { permission: 'manage-stock', reason: 'outside_scope', required_scope: 'my_stations' })
+          : undefined,
+    );
+    await mount(api);
+    const before = reads;
+    typeInto(count('I1'), '6');
+    await tap(saveButton());
+    expect(container.textContent).toContain(t('admin_stock.errors.outside_scope'));
+    expect(reads).toBeGreaterThan(before);
   });
 });
