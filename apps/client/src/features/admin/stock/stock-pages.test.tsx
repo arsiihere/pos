@@ -547,12 +547,13 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(container.textContent).toContain(t('admin_stock.counter.note'));
     expect(container.querySelector('[data-item-id="I1"]')).not.toBeNull();
 
-    // No day open: no Start day; the "ask someone" screen instead.
+    // No day open: no Start day; an "ask someone" notice above the rows, which stay.
     await remount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...noDay })).api);
     expect(hasButton(t('admin_stock.day.start'))).toBe(false);
     expect(container.querySelector('[data-start-day]')).toBeNull();
     expect(container.textContent).toContain("The day hasn't been started");
     expect(container.textContent).toContain('Ask someone who can start the day.');
+    expect(container.querySelector('[data-item-id="I1"]')).not.toBeNull();
 
     // The same answers with branch scope render as before.
     signIn();
@@ -577,6 +578,17 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(container.querySelector('[data-start-day]')).toBeNull();
     expect(commandsTo(sent, 'open-business-day')).toHaveLength(0);
     expect(count('I1')?.value).toBe('6');
+  });
+
+  it('[01b §4.4 row 11] with my_stations and no day open, a row’s Selling switch still sends set-item-availability', async () => {
+    signIn('S_USMAN', 'Usman');
+    const { api, sent } = fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...noDay }));
+    await mount(api);
+    const sw = rowOf('I1').querySelector<HTMLElement>('[role="switch"]');
+    expect(sw).not.toBeNull();
+    if (sw) await tap(sw);
+    expect(commandsTo(sent, 'set-item-availability')).toHaveLength(1);
+    expect(commandsTo(sent, 'set-item-availability')[0]?.body).toMatchObject({ payload: { item_id: 'I1', is_available: false } });
   });
 
   it('[01b §4.4 row 11] a change outside the counter’s stations shows the outside_scope text and refreshes', async () => {

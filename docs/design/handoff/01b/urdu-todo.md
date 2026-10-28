@@ -185,7 +185,5 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `account.lock_notice_body` | If this wasn’t you, change your password. |
 | `account.lock_got_it` | Got it |
 | `admin_stock.counter.note` | You see the items of your stations only. Starting and closing the day is for the manager. |
-| `admin_stock.counter.not_started_title` | The day hasn't been started |
 | `admin_stock.counter.not_started` | The day hasn't been started. Ask someone who can start the day. |
-| `admin_stock.counter.not_started_body` | Ask someone who can start the day. Your stations' items show here once it is open. |
 | `admin_stock.errors.outside_scope` | You can only change items for your stations. |
