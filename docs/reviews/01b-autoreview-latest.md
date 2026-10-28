@@ -75,3 +75,8 @@ Checked against: foundation §6; the 01b spec §6.13, §6.14, §6.15a, §7.5, §
   - AD-30 (label copy) is a correct Class B: §8 fixes no `perm.<key>` text, and no spec-pinned copy changed. "Count stock and switch items off" matches 01a §6.18's `manage-stock` gate on `SetItemAvailability`.
   - The Urdu to-do list shrank to 16 keys, and the i18n test enforces it.
 - Scope: no migrations, events, API contracts or error codes touched; no test skipped or weakened; no file outside the tasks.
+
+## Fix step outcome
+- R-1: PARKED as P-3 (9564df8). T47 PARKED; runbook identity check marked pending; AD-29 superseded.
+- R-2: PARKED as P-4; S50 a phone tab bar restored (6d1d9a3). T50b PARKED; AD-31 phone part superseded.
+- R-3: MOOT — the phone nav overlay was removed by the R-2 fix (`apps/client/src/features/owner/Shell.tsx`, phone branch renders `TabBar`); if P-4 picks option B, the overlay must be built on `Dialog` (recorded in P-4 B).
