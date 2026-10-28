@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-86 keys.
+123 keys.
 
 | Key | English |
 |---|---|
@@ -92,3 +92,40 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `staff.pin.left_body` | Bring them back from Staff › Left first. |
 | `staff.pin.hand_back` | Hand the phone back to {name}. |
 | `staff.pin.phone_saved_body` | It works at {branches} in about a minute. Tell {name} the new PIN. Take the phone back. |
+| `roles.nobody_has` | nobody has it |
+| `roles.archived_on` | Archived {date} |
+| `roles.idle_range` | 1 to 240 minutes |
+| `roles.idle_saving` | Saving… |
+| `roles.idle_not_saved` | Not saved |
+| `roles.archive` | Archive |
+| `roles.restore` | Restore |
+| `roles.restore_explain` | A restored role has nobody. Give it to people in Staff. |
+| `roles.archived_empty` | No archived roles |
+| `roles.archived_empty_body` | A role you archive shows here, and you can restore it. |
+| `roles.name_taken_restore` | Another active role is called {name}. Rename one first. |
+| `roles.archive_title` | Archive {name}? |
+| `roles.archive_body` | {n} people have it. They keep their other roles. Their stock counting through this role stops. |
+| `roles.archive_body_none` | Nobody has it. You can restore it from Archived. |
+| `roles.archive_confirm` | Archive {name} |
+| `roles.blocked_title` | {name} can’t be archived |
+| `roles.blocked_staff` | {names} would have no role left. |
+| `roles.blocked_staff_body` | Give them another role first. |
+| `roles.blocked_role` | {name} approves requests for {names}. |
+| `roles.blocked_role_body` | Change who approves there first. |
+| `roles.open` | Open {name} |
+| `roles.ok` | OK |
+| `roles.new_title` | New role |
+| `roles.name_required` | Type a name, up to 40 letters. |
+| `roles.name_taken` | Another role is called {name}. |
+| `roles.scope.branch` | Whole branch |
+| `roles.scope.my_stations` | Their stations |
+| `roles.scope.own_tables` | Tables they open |
+| `roles.scope_help.my_stations` | stations set in Stock counting |
+| `roles.approver_required` | Pick at least one role to approve. |
+| `roles.this_role` | This role |
+| `roles.snapped` | Snapped back — see the message |
+| `roles.own_admin_title` | You can’t remove your own admin access |
+| `roles.last_admin_title` | {name} needs to keep this |
+| `roles.last_admin_body` | At least one person at {branches} must be able to open the hub admin and pair screens. |
+| `roles.not_found` | This role no longer exists. |
+| `roles.not_found_body` | Someone archived or removed it, or the link is old. |

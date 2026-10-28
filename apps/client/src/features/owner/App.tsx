@@ -8,6 +8,8 @@ import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
 import { MenuView } from './menu/MenuView';
 import { Shell } from './Shell';
+import { RoleEditor } from './roles/RoleEditor';
+import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
 import { StaffList } from './staff/StaffList';
 import { StationsView } from './stations/StationsView';
@@ -105,6 +107,8 @@ function Routes({
         {owner.name === 'staff' && <StaffList api={api} branchIds={allowed} />}
         {owner.name === 'staff_new' && <StaffForm key="new" api={api} staffId={null} branchIds={allowed} />}
         {owner.name === 'staff_edit' && <StaffForm key={owner.id} api={api} staffId={owner.id} branchIds={allowed} />}
+        {owner.name === 'roles' && <RoleList api={api} />}
+        {owner.name === 'role_edit' && <RoleEditor key={owner.id} api={api} roleId={owner.id} />}
       </Shell>
     );
   }
