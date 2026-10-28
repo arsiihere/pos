@@ -622,6 +622,39 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(count('I1')?.value).toBe('6');
   });
 
+  it('[01b §4.4 row 13] (review N-6) a refused save or Add with the no-day banner showing adds no second warning; the banner takes focus', async () => {
+    stubPhone(true);
+    signIn('S_USMAN', 'Usman');
+    const { api } = fakeHub(
+      () => answer({ manage_stock_scope: 'my_stations', ...noDay }),
+      (s) =>
+        s.url === '/admin/commands/set-precooked-stock' || s.url === '/admin/commands/add-precooked-stock'
+          ? refused(409, 'BUSINESS_DAY_NOT_OPEN')
+          : undefined,
+    );
+    await mount(api);
+    const sentence = t('admin_stock.counter.not_started');
+    const times = () => (container.textContent ?? '').split(sentence).length - 1;
+    const banner = container.querySelector<HTMLElement>('[data-not-started]');
+    expect(banner?.textContent).toContain(sentence);
+    expect(times()).toBe(1);
+
+    typeInto(count('I1'), '6');
+    await tap(saveButton());
+    expect(times()).toBe(1);
+    expect(document.activeElement).toBe(banner);
+    expect(count('I1')?.value).toBe('6');
+
+    (document.activeElement as HTMLElement | null)?.blur();
+    await tap(button(t('admin_stock.add'), rowOf('I1')));
+    const sheet = container.querySelector('.pos-sheet');
+    await tap(button('+5', sheet));
+    await tap(button(fill(t('admin_stock.sheet.add_n'), { n: '5' }), sheet));
+    expect(times()).toBe(1);
+    expect(document.activeElement).toBe(container.querySelector('[data-not-started]'));
+    vi.unstubAllGlobals();
+  });
+
   it('[01b §4.4 row 11] a change outside the counter’s stations shows the outside_scope text and refreshes', async () => {
     signIn('S_USMAN', 'Usman');
     let reads = 0;

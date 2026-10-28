@@ -137,6 +137,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [askSignOut, setAskSignOut] = useState(false);
   const [focus, setFocus] = useState<{ id: string } | null>(null);
   const versions = useRef<StockVersions | undefined>(undefined);
+  const noDayBanner = useRef<HTMLDivElement>(null);
   // D32: each save part's and each Add's command_id, kept for retries of the same entries.
   const pendingSaves = useRef(new Map<string, string>());
   const pendingAdds = useRef(new Map<string, { commandId: string; quantity: number }>());
@@ -198,6 +199,17 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const branchId = status?.branch_id ?? null;
   const staffId = api.staffId();
   const key = branchId !== null && openDay !== null && staffId !== null ? draftKey(branchId, openDay, staffId) : null;
+
+  // Review N-6: the no-day banner already says it, so point at it instead of a second warning.
+  const askForStarter = () => {
+    const banner = noDayBanner.current;
+    if (banner === null) {
+      setMessage(notStarted());
+      return;
+    }
+    banner.scrollIntoView?.({ block: 'center' });
+    banner.focus();
+  };
 
   // S55: once the rows, the day and the branch are known, bring back this person's kept counts.
   useEffect(() => {
@@ -300,7 +312,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     if (failure !== null) {
       if (failure.kind === 'signed_out') onSignedOut();
       else if (dayNotOpen(failure)) {
-        if (counter) setMessage(notStarted());
+        if (counter) askForStarter();
         else setBlocked({ kind: 'save' });
       } else if (outsideScope(failure)) {
         setMessage(errorMessage(failure));
@@ -347,7 +359,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     if (!answer.ok) {
       if (answer.error.kind === 'signed_out') onSignedOut();
       else if (dayNotOpen(answer.error)) {
-        if (counter) setMessage(notStarted());
+        if (counter) askForStarter();
         else setBlocked({ kind: 'add', itemId, quantity });
       } else {
         setMessage(errorMessage(answer.error));
@@ -513,7 +525,11 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           </div>
         )}
         {/* 01b §4.4 rows 11, 13: no Start day for a counter, but the rows and the Selling switch stay (01a §6.18 needs no day). */}
-        {counter && noDay && <Banner tone="warn" text={t('admin_stock.counter.not_started')} />}
+        {counter && noDay && (
+          <div ref={noDayBanner} tabIndex={-1} data-not-started="">
+            <Banner tone="warn" text={t('admin_stock.counter.not_started')} />
+          </div>
+        )}
         {status !== null && <ConfigProblem status={status} />}
         {offline && <Banner tone="warn" text={t('admin_stock.reconnecting')} detail={t('admin_stock.reconnecting_body')} />}
         {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
