@@ -1,6 +1,6 @@
 # 01b — Staff and Roles: screen inventory
 
-**Spec:** `docs/specs/01b_Staff_Roles_Spec_v1.0.md` (**APPROVED** 2026-10-27, with 00 v1.5 and 01a v1.3). Every API name, field, limit and error code below comes from that spec; section numbers are cited as `§`. Where the spec gives no wording, the text is marked *(proposed copy)* and the designer may change it, but not the behaviour. Rewritten 2026-10-27 to replace the pre-spec inventory of 2026-10-26, so the 01b design can be regenerated. Conventions in [00-index.md](00-index.md).
+**Spec:** `docs/specs/01b_Staff_Roles_Spec_v1.1.md` (v1.0 **APPROVED** 2026-10-27, with 00 v1.5 and 01a v1.3; v1.1 as-built **APPROVED** 2026-10-28, with 01a v1.3.1). Every API name, field, limit and error code below comes from that spec; section numbers are cited as `§`. Where the spec gives no wording, the text is marked *(proposed copy)* and the designer may change it, but not the behaviour. Rewritten 2026-10-27 to replace the pre-spec inventory of 2026-10-26, so the 01b design can be regenerated. Conventions in [00-index.md](00-index.md).
 
 **What changed since the first design hand-off** (`pos-design-01b-handoff/01b`, 30 frames) is listed in §10 at the end: the frames that must be redrawn, and the screens and states that have no frame yet.
 

@@ -256,4 +256,33 @@ describe('responsibilities GET / PUT (01b §6.8, §3.6)', () => {
       [entry(s, [ali]), entry(t, [bilal])].sort((x, y) => (x.station_id < y.station_id ? -1 : 1)),
     );
   });
+  it('[01b §6.8, AD-19] two entries for one station: 422 with the field and no reason, unless the entries merge to the stored set (no-op → 200)', async () => {
+    const a = f.branches[0];
+    const grill = await station(a, 'Grill');
+    const ali = await person('Ali', [a]);
+    const bilal = await person('Bilal', [a]);
+    const empty = await get(a);
+    const first = await put(a, { expected_version: empty.version, responsibilities: [entry(grill, [ali])] });
+    expect(first.statusCode, first.body).toBe(200);
+    const stored = await get(a);
+    const [v0, audits] = [await directoryVersion(), (await auditRows()).length];
+
+    // The second entry adds nothing, so the entries merge to the stored set: the no-op runs before the duplicate check.
+    const same = await put(a, { expected_version: stored.version, responsibilities: [entry(grill, [ali]), entry(grill, [])] });
+    expect(same.statusCode, same.body).toBe(200);
+    expect(same.json().data).toMatchObject({ responsibilities: stored.responsibilities, version: stored.version });
+    expect([await directoryVersion(), (await auditRows()).length]).toEqual([v0, audits]);
+
+    // Repeats are dropped inside one entry only, so the same person in both entries is not the stored set: refused.
+    const repeated = await put(a, { expected_version: stored.version, responsibilities: [entry(grill, [ali]), entry(grill, [ali])] });
+    expect(repeated.statusCode, repeated.body).toBe(422);
+    expect(repeated.json().error.details).toEqual({ field: 'responsibilities.1.station_id' });
+
+    // A change: the duplicate is refused, nothing written.
+    const changed = await put(a, { expected_version: stored.version, responsibilities: [entry(grill, [ali]), entry(grill, [bilal])] });
+    expect(changed.statusCode, changed.body).toBe(422);
+    expect(changed.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'responsibilities.1.station_id' } });
+    expect(changed.json().error.details).not.toHaveProperty('reason');
+    expect(await get(a)).toEqual(stored);
+  });
 });

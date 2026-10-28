@@ -137,4 +137,23 @@ describe('GET /v1/admin/branches/:branch_id/team-tree (01b §6.12, E6-TEAM AC4)'
       client.release();
     }
   });
+  it('[01b §6.12, AD-28] a person whose stored lead is not active at the branch is a root, so nobody active is hidden', async () => {
+    const a = f.branches[0];
+    const waiter = await roleId('waiter');
+    const hamza = await person('Hamza', 'manager');
+    const bilal = await person('Bilal', 'waiter', hamza.staffId);
+    // B15 moves reports when a lead leaves through the API; set the flag by hand to reach the defensive case.
+    await cloud.pool.query(`UPDATE staff SET is_active = false, left_at = $3 WHERE tenant_id = $1 AND staff_id = $2`, [
+      f.tenantId,
+      hamza.staffId,
+      T,
+    ]);
+
+    const response = await tree(a);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data).toEqual({
+      branch_id: a,
+      roots: [node(ownerStaffId, 'Ada', [await roleId('owner')]), node(bilal.staffId, 'Bilal', [waiter])],
+    });
+  });
 });

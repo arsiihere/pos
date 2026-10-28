@@ -105,7 +105,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
 
   // P-4 answer B: on a phone the app bar's Menu button opens the side nav as an overlay on the kit Dialog;
   // no tab bar. Change password and Sign out are reachable from it.
-  it('phone: Menu button opens the nav on Dialog (role, Escape, focus trap and return); items, foot and navigation', async () => {
+  it('[01a §10 #180] phone: Menu button opens the nav on Dialog (role, Escape, focus trap and return); items, foot and navigation', async () => {
     stubPhone();
     renderShell();
     expect(container.querySelector('nav.pos-sidenav')).toBeNull();

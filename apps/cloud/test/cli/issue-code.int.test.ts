@@ -252,7 +252,8 @@ describe('issue-registration-code', () => {
           [tenant],
         )
       ).rows[0];
-    return { tenant, ownerUserId: seeded.user_id, owner: seeded.staff_id, role, staff, issue, directoryVersion, assigned, counts };
+    const reissue = (branchId: string) => issueRegistrationCode(sys, { tenantId: tenant, branchId }, deps);
+    return { tenant, ownerUserId: seeded.user_id, owner: seeded.staff_id, role, staff, issue, reissue, directoryVersion, assigned, counts };
   }
 
   it('[01b #86] a new branch gets an active manager, not a leaver or one denied access-hub-admin or manage-devices; directory_version +1; waits on the tenant lock; a taken branch name (other case) → refused, nothing written', async () => {
@@ -300,6 +301,49 @@ describe('issue-registration-code', () => {
     const before = await t.counts();
     await expect(t.issue('gulberg')).rejects.toThrow(/branch name/);
     expect(await t.counts()).toEqual(before);
+  });
+
+  it('[01b §4.3 row 19, AD-4] reissue (--branch-id) waits on the tenant lock and bumps nothing: directory_version and the branch\'s staff unchanged', async () => {
+    const t = await tenantWithStaff();
+    await t.staff('m-active', 'Mo', t.role('Manager'));
+    const issued = await t.issue('Gulberg');
+    const v1 = await t.directoryVersion();
+    const assignedBefore = await t.assigned(issued.branch_id);
+    const reissue = () => t.reissue(issued.branch_id);
+
+    const hold = await pool.connect();
+    let reissued: Awaited<ReturnType<typeof reissue>>;
+    try {
+      await hold.query('BEGIN');
+      await hold.query(`SELECT 1 FROM tenants WHERE tenant_id = $1 FOR NO KEY UPDATE`, [t.tenant]);
+      let settled = false;
+      const pending = reissue().finally(() => {
+        settled = true;
+      });
+      let waiting = false;
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline && !settled) {
+        const locks = await pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()`,
+        );
+        if (locks.rows[0]?.n !== '0') {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+      expect(settled).toBe(false);
+      await hold.query('COMMIT');
+      reissued = await pending;
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+
+    expect(reissued.branch_id).toBe(issued.branch_id);
+    expect(await t.directoryVersion()).toBe(v1);
+    expect(await t.assigned(issued.branch_id)).toEqual(assignedBefore);
   });
 
   it('[01b #93] a new branch gets qualifying admins only: the owner and the first manager, not a stock counter, a manager denied manage-devices, one with no PIN or one who has left', async () => {

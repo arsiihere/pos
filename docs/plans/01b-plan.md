@@ -10,7 +10,7 @@
 
 **Tech stack:** the existing 00 / 01a stack; no new dependency anywhere (Global Constraints).
 
-**Spec:** `docs/specs/01b_Staff_Roles_Spec_v1.0.md` (cited "§x", "Bn", "D-n", "J-n", tests "#n"); changes to 00 and 01a land through 01b §4.3 / §4.4 rows, already applied to `docs/specs/00_Hub_Platform_Access_Spec_v1.5.md` ("00 §x") and `docs/specs/01_Restaurant_Setup_Spec_v1.3.md` ("01a §x"); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"). **Read the cited spec section before each task**; the plan does not repeat the spec's tables or SQL.
+**Spec:** `docs/specs/01b_Staff_Roles_Spec_v1.1.md` (v1.1 as-built, renamed from v1.0 on 2026-10-28; cited "§x", "Bn", "D-n", "J-n", tests "#n"); changes to 00 and 01a land through 01b §4.3 / §4.4 rows, already applied to `docs/specs/00_Hub_Platform_Access_Spec_v1.5.md` ("00 §x") and `docs/specs/01_Restaurant_Setup_Spec_v1.3.1.md` ("01a §x"; v1.3.1 since 2026-10-28); foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"). **Read the cited spec section before each task**; the plan does not repeat the spec's tables or SQL.
 
 **Starting point:** modules 00 and 01a are built (`docs/plans/00-plan.md`, `docs/plans/01a-plan.md` finished). Reuse, do not recreate: cloud `withIdempotency`, `inTransaction` (`lib/idempotency.ts`), `writeConfigAudit` (`lib/config-audit.ts`), `bumpConfigVersion`, `coversEveryBranch` (`lib/config-version.ts`), `TenantScopedRepository`, `TenantLevelRepository`, `registerTenantScope`, `loadDirectory` (`modules/hub-registration/repository.ts`), `SystemContext`, `seedTenant`, `issueRegistrationCode`, `migrate`; cloud test helpers `createTestCloud`, `truncateAll`, `restaurantFixture`, `owner`, `pgCounter`, `ROUTE_CASES` (`test/cross-tenant.int.test.ts`); hub `applyStaffDirectory`, `StaffDirectory`, `defineCommand`, `defineQuery`, `writer.run`; hub test helpers `createTestHub`, `seedDirectory`, `aDirectory`, `pairDevice`, `openSession`, `statementCounter`, `stub-config-cloud.ts`; client `api/cloud-admin.ts`, `app/router.ts`, `app/ui-kit.ts`, `app/ulid.ts`, `i18n/{en,ur}.ts`, `components/`.
 
@@ -82,6 +82,7 @@
 | 58 | this docs commit |
 | 59, 60 | waiting for the human (STOP after 58) |
 | 61 | PARKED (P-2, hardware) |
+| 62 | deferred with 59–61 (README R27) |
 
 ## Markers
 
@@ -290,6 +291,7 @@ Every number 1–107 appears exactly once; #74 appears as its lettered cases a�
 | 59 | Page flows 1–3 (Playwright) | pipeline 9 | Claude only, Docker |
 | 60 | Page flows 4–6 (Playwright) | pipeline 9 | Claude only, Docker |
 | 61 | Release drill on the hubs | §7.4 | needs hardware |
+| 62 | Stock sign-in shows "Counts stock" | §8 (AD-33), 01a Q11 | deferred with 59–61 |
 
 ---
 
@@ -1052,3 +1054,16 @@ Every directory write response returns `changed_versions` (§6 script, J-5); cas
 - [ ] **Step 1:** Make the change listed under **Files**.
 - **Done when:** cloud released first with `0005` applied; each hub upgraded one at a time; after each, the branches page shows "Up to date" for that branch within `hub_stale_after_ms`; the 01a §7.8 step "never redeploy a cloud build older than 01b" read out and ticked.
 - [ ] **Commit:** `— (no code; Claude commits the build-log entry)`
+
+### Task 62: Stock sign-in shows "Counts stock" — deferred with 59–61
+
+Added by the v1.1 as-built review (`docs/reviews/01b_v1.1_asbuilt_review.md` S-1, README R27): a v1.0 promise in 01b §8 that the build did not deliver. The hub roster already carries `responsibilities` (`apps/hub/src/queries/staff-roster.ts`); the client does not read them.
+
+**Files:** Modify `apps/client/src/features/admin/stock/AdminLogin.tsx` (and `components/StaffTiles.tsx` if the tile needs a second line), `apps/client/src/api/hub-admin.ts` (roster type), `apps/client/src/i18n/{en,ur}.ts`; test `apps/client/src/features/admin/stock/AdminLogin.test.tsx`. Design: `docs/design/handoff/01b/screens/StockRosterCounts.html` (01a-S10).
+
+- [ ] **Step 1: Tests (write first):** `[01b §8, AD-33]` a roster person with a `count_stock` responsibility shows "Counts stock" under the name; a person with none shows nothing; Urdu text.
+- [ ] **Step 2:** `pnpm vitest run apps/client/src/features/admin/stock/AdminLogin.test.tsx` → FAIL (no label).
+- [ ] **Step 3:** Implement the minimum to pass.
+- [ ] **Step 4:** the same command → PASS; then `pnpm test`.
+- **Done when:** the label shows on the tablet sign-in as in the design screen; 01b §8's "Not built yet" note removed.
+- [ ] **Commit:** `feat(01b): task 62 stock sign-in shows Counts stock [spec §8; 01a Q11]`

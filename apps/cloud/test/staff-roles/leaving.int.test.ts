@@ -301,4 +301,55 @@ describe('leaving, returning and team moves (01b §6.4, B15, §3.5)', () => {
     expect(await audits(atB.staff_id, 'reports_to_reassigned')).toHaveLength(1);
     expect(await audits(person.staff_id, 'update')).toHaveLength(1);
   });
+  const getSet = async (branchId: string) =>
+    (
+      await cloud.app.inject({
+        method: 'GET',
+        url: `/v1/admin/branches/${branchId}/responsibilities`,
+        headers: { authorization: `Bearer ${f.token}` },
+      })
+    ).json().data as { responsibilities: unknown[]; version: string };
+
+  it('[01b §6, D-17] a leaver whose only rows are at an archived station: the branch is listed in changed_versions with its unchanged set version, no responsibility audit row', async () => {
+    const b = f.branches[0];
+    const leaver = await waiter('Imran', [b]);
+    await addStation('ST_OLD', b);
+    await addCounter(b, 'ST_OLD', leaver.staff_id);
+    await cloud.pool.query(`UPDATE stations SET archived_at = $3 WHERE tenant_id = $1 AND station_id = $2`, [f.tenantId, 'ST_OLD', T]);
+    const before = await getSet(b);
+
+    const response = await patch(leaver.staff_id, { expected_version: leaver.version, is_active: false });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(await responsibilitiesOf(leaver.staff_id)).toEqual([]);
+    const after = await getSet(b);
+    expect(after).toEqual(before);
+    expect(response.json().data.changed_versions.responsibilities).toEqual([{ branch_id: b, version: before.version }]);
+    expect(await audits(b, 'update')).toEqual([]);
+  });
+
+  it('[01b §6.4, AD-15] a reports_to sent on the PATCH that marks the person as left is ignored: no lead row, no rule check', async () => {
+    const [a, b] = [f.branches[0], f.branches[1]];
+    const top = await waiter('Hamza', [a]);
+    const leaver = await waiter('Imran', [a], lead(a, top));
+    // A branch the person does not work at would be `wrong_branch` if it were checked.
+    const response = await patch(leaver.staff_id, {
+      expected_version: leaver.version,
+      is_active: false,
+      reports_to: [{ branch_id: b, lead_staff_id: top.staff_id }],
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data.staff).toMatchObject({ is_active: false, reports_to: [] });
+    expect(await leadOf(leaver.staff_id)).toEqual([]);
+  });
+
+  it('[01b §6.4, AD-15] leaving and a rename in one PATCH write one audit row for the person, action `left`', async () => {
+    const person = await waiter('Imran', [f.branches[0]]);
+    const response = await patch(person.staff_id, { expected_version: person.version, is_active: false, display_name: 'Imran K' });
+    expect(response.statusCode, response.body).toBe(200);
+    const rows = (
+      await cloud.pool.query(`SELECT action, after FROM config_audit WHERE tenant_id = $1 AND entity_id = $2`, [f.tenantId, person.staff_id])
+    ).rows.filter((row) => row.action !== 'create');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ action: 'left', after: { display_name: 'Imran K', is_active: false } });
+  });
 });
