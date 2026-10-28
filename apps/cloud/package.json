@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "seed-demo": "tsx src/cli/seed-demo.ts",
     "typecheck": "tsc --noEmit",
     "seed-tenant": "tsx src/cli/seed-tenant.ts",
     "issue-registration-code": "tsx src/cli/issue-registration-code.ts",
