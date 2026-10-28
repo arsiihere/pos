@@ -76,6 +76,13 @@ describe('errors', () => {
     expect(statusOf('PASSWORD_CHANGE_REQUIRED')).toBe(403);
   });
 
+  it('[01c §9] 01c codes have their statuses', () => {
+    expect(statusOf('VARIANT_GROUP_NOT_FOUND')).toBe(404);
+    expect(statusOf('STOCK_ITEM_NOT_FOUND')).toBe(404);
+    expect(statusOf('MODIFIER_GROUP_NOT_FOUND')).toBe(404);
+    expect(statusOf('DEAL_NOT_FOUND')).toBe(404);
+  });
+
   it('[F §6.2] DomainError carries code and details', () => {
     const e = new DomainError('STAFF_NOT_FOUND', { staff_id: 'x' });
     expect(e.code).toBe('STAFF_NOT_FOUND');
