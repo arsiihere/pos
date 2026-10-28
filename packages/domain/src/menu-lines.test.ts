@@ -1,7 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as root from './index';
 import { lineTotalMinor } from './line-total';
-import { allocateDealMinor, childQuantity, optionChargeMinor, orderLineTotalMinor } from './menu-lines';
+import {
+  allocateDealMinor,
+  checkOptionChoices,
+  childQuantity,
+  isDealOrderable,
+  isGroupSatisfiable,
+  isItemOrderable,
+  optionChargeMinor,
+  orderLineTotalMinor,
+  type IsAvailable,
+  type MenuLineDeal,
+  type MenuLineGroup,
+  type MenuLineItem,
+  type MenuLineOption,
+} from './menu-lines';
 
 // Deterministic 64-bit LCG (Knuth MMIX constants); no Math.random (F §6.7). Returns an integer in [0, max].
 function makeRng(seed: bigint): (max: number) => number {
@@ -177,5 +191,275 @@ describe('menu-lines: order-line totals (§3.4.4, V11 a, V18)', () => {
     expect(root.optionChargeMinor).toBe(optionChargeMinor);
     expect(root.allocateDealMinor).toBe(allocateDealMinor);
     expect(root.orderLineTotalMinor).toBe(orderLineTotalMinor);
+  });
+});
+
+// ---- §3.4.6 option checks and orderability (task 4) ----
+
+const opt = (option_id: string, o: Partial<MenuLineOption> = {}): MenuLineOption => ({
+  option_id,
+  price_minor: 0,
+  max_quantity: 1,
+  is_default: false,
+  linked_item_id: null,
+  ...o,
+});
+const linked = (option_id: string, itemId: string, o: Partial<MenuLineOption> = {}): MenuLineOption =>
+  opt(option_id, { linked_item_id: itemId, ...o });
+const grp = (modifier_group_id: string, min_choices: number, max_choices: number, options: MenuLineOption[], hasPlain?: boolean): MenuLineGroup => ({
+  modifier_group_id,
+  min_choices,
+  max_choices,
+  has_plain_options: hasPlain ?? options.some((o) => o.linked_item_id === null),
+  options,
+});
+const itm = (item_id: string, modifier_group_ids: string[] = [], sale_unit: MenuLineItem['sale_unit'] = 'piece'): MenuLineItem => ({
+  item_id,
+  sale_unit,
+  modifier_group_ids,
+});
+const byId = <T,>(key: keyof T, xs: T[]): Record<string, T> => Object.fromEntries(xs.map((x) => [String(x[key]), x]));
+const groupsOf = (...gs: MenuLineGroup[]) => byId<MenuLineGroup>('modifier_group_id', gs);
+const itemsOf = (...is: MenuLineItem[]) => byId<MenuLineItem>('item_id', is);
+// Stock-style availability: an item is available for q when q ≤ stock[item] (absent → unlimited); `off` items never.
+const avail = (stock: Record<string, number> = {}, off: string[] = []): IsAvailable =>
+  (id, q) => !off.includes(id) && (stock[id] === undefined || q <= stock[id]);
+const piece = (quantity: number | null) => ({ quantity, sale_unit: 'piece' as const });
+
+describe('menu-lines: option checks (§3.4.6, V9)', () => {
+  const spice = grp('spice', 1, 1, [opt('mild'), opt('hot')]);
+  const extras = grp('extras', 0, 3, [opt('raita', { max_quantity: 2 }), opt('salad')]);
+  const other = grp('other', 0, 1, [opt('x')]);
+  const gs = groupsOf(spice, extras, other);
+  const none = itemsOf();
+
+  it('[01c #11] Spice min 1 none → below_min; 2 picks of max 1 → above_max; quantity > max_quantity; non-effective group', () => {
+    const run = (chosen: Parameters<typeof checkOptionChoices>[1]) =>
+      checkOptionChoices([spice, extras], chosen, 'line', piece(1), gs, none, avail());
+    expect(run([])).toEqual([{ reason: 'below_min', modifier_group_id: 'spice', option_id: null }]);
+    expect(run([{ modifier_group_id: 'spice', option_id: 'mild', quantity: 1 }])).toEqual([]);
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'mild', quantity: 1 },
+        { modifier_group_id: 'spice', option_id: 'hot', quantity: 1 },
+      ]),
+    ).toEqual([{ reason: 'above_max', modifier_group_id: 'spice', option_id: null }]);
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'mild', quantity: 1 },
+        { modifier_group_id: 'extras', option_id: 'raita', quantity: 3 },
+      ]),
+    ).toContainEqual({ reason: 'quantity_out_of_range', modifier_group_id: 'extras', option_id: 'raita' });
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'mild', quantity: 1 },
+        { modifier_group_id: 'extras', option_id: 'raita', quantity: 0 },
+      ]),
+    ).toContainEqual({ reason: 'quantity_out_of_range', modifier_group_id: 'extras', option_id: 'raita' });
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'mild', quantity: 1 },
+        { modifier_group_id: 'other', option_id: 'x', quantity: 1 },
+      ]),
+    ).toEqual([{ reason: 'not_effective', modifier_group_id: 'other', option_id: 'x' }]);
+    // An option not offered in its (effective) group at this branch is not effective either.
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'mild', quantity: 1 },
+        { modifier_group_id: 'extras', option_id: 'ghost', quantity: 1 },
+      ]),
+    ).toEqual([{ reason: 'not_effective', modifier_group_id: 'extras', option_id: 'ghost' }]);
+    // Σ chosen quantities per group: raita 2 + salad 1 = 3 ≤ max 3; within range.
+    expect(
+      run([
+        { modifier_group_id: 'spice', option_id: 'hot', quantity: 1 },
+        { modifier_group_id: 'extras', option_id: 'raita', quantity: 2 },
+        { modifier_group_id: 'extras', option_id: 'salad', quantity: 1 },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('[01c #12] child position refuses a linked option; A → B → A cannot be built (B offered as child ignores its link to A)', () => {
+    // A (karahi) has linked option B (naan); B has a group whose only option links back to A.
+    const aBread = grp('a-bread', 0, 1, [linked('opt-b', 'B')]);
+    const bBack = grp('b-back', 1, 1, [linked('opt-a', 'A')], false);
+    const groups = groupsOf(aBread, bBack);
+    const items = itemsOf(itm('A', ['a-bread']), itm('B', ['b-back']));
+    const isAvailable = vi.fn(avail());
+    // B in a child position: b-back has no plain option → not offered, no violation, A never looked at.
+    expect(isItemOrderable(items.B!, groups, items, 'child', 3, isAvailable)).toBe(true);
+    expect(isAvailable).toHaveBeenCalledTimes(1);
+    expect(isAvailable).toHaveBeenCalledWith('B', 3);
+    // A's line with linked B → accepted (B orderable as child).
+    expect(checkOptionChoices([aBread], [{ modifier_group_id: 'a-bread', option_id: 'opt-b', quantity: 1 }], 'line', piece(1), groups, items, avail())).toEqual([]);
+    // B as a child carrying its linked option to A → refused, so A → B → A cannot be built.
+    expect(checkOptionChoices([bBack], [{ modifier_group_id: 'b-back', option_id: 'opt-a', quantity: 1 }], 'child', piece(3), groups, items, avail())).toEqual([
+      { reason: 'linked_in_child', modifier_group_id: 'b-back', option_id: 'opt-a' },
+    ]);
+  });
+
+  it('[01c #96] child position: linked-only group not offered; plain group required; empty plain group; mixed group', () => {
+    const bread = grp('bread', 1, 1, [linked('naan', 'Naan')], false);
+    const spiceC = grp('spice', 1, 1, [opt('mild')]);
+    const empty = grp('empty', 1, 1, [], true);
+    const items = itemsOf(itm('Naan'));
+    const groups = groupsOf(bread, spiceC, empty);
+    expect(checkOptionChoices([bread], [], 'child', piece(2), groups, items, avail())).toEqual([]);
+    expect(isGroupSatisfiable(bread, 'child', groups, items, avail())).toBe(true);
+    expect(checkOptionChoices([bread, spiceC], [], 'child', piece(2), groups, items, avail())).toEqual([
+      { reason: 'below_min', modifier_group_id: 'spice', option_id: null },
+    ]);
+    // has_plain_options true, options [] at the branch → not orderable as a child; deal with it as the only choice → not orderable.
+    const kheer = itm('Kheer', ['empty']);
+    const items2 = itemsOf(kheer);
+    expect(isItemOrderable(kheer, groups, items2, 'child', 1, avail())).toBe(false);
+    const deal: MenuLineDeal = { deal_id: 'd', parts: [{ deal_part_id: 'p', quantity: 1, choices: [{ item_id: 'Kheer', extra_price_minor: 0 }] }] };
+    expect(isDealOrderable(deal, 1, groups, items2, avail(), true)).toBe(false);
+    // Mixed (N6): plain "No bread" not offered at the branch (absent from options), linked Naan offered.
+    const mixedNotOffered = grp('mixed', 1, 1, [linked('naan', 'Naan')], true);
+    const karahi = itm('Karahi', ['mixed']);
+    const g1 = groupsOf(mixedNotOffered);
+    const i1 = itemsOf(karahi, itm('Naan'));
+    expect(isGroupSatisfiable(mixedNotOffered, 'child', g1, i1, avail())).toBe(false);
+    expect(isItemOrderable(karahi, g1, i1, 'child', 1, avail())).toBe(false);
+    // Same group with "No bread" offered → satisfiable in a child position; Naan still refused if chosen.
+    const mixed = grp('mixed', 1, 1, [opt('no-bread'), linked('naan', 'Naan')]);
+    const g2 = groupsOf(mixed);
+    expect(isGroupSatisfiable(mixed, 'child', g2, i1, avail())).toBe(true);
+    expect(isItemOrderable(karahi, g2, i1, 'child', 1, avail())).toBe(true);
+    expect(checkOptionChoices([mixed], [{ modifier_group_id: 'mixed', option_id: 'naan', quantity: 1 }], 'child', piece(1), g2, i1, avail())).toContainEqual({
+      reason: 'linked_in_child',
+      modifier_group_id: 'mixed',
+      option_id: 'naan',
+    });
+    // min 2: one offered plain option of max_quantity 1 plus linked Naan → child false, line true.
+    const min2 = grp('min2', 2, 2, [opt('no-bread'), linked('naan', 'Naan')]);
+    const g3 = groupsOf(min2);
+    expect(isGroupSatisfiable(min2, 'child', g3, i1, avail())).toBe(false);
+    expect(isGroupSatisfiable(min2, 'line', g3, i1, avail())).toBe(true);
+  });
+
+  it('[01c #97] linked Naan with isAvailable(Naan, 3) false → violation; true → none', () => {
+    const bread = grp('bread', 0, 3, [linked('naan', 'Naan', { max_quantity: 3 })]);
+    const groups = groupsOf(bread);
+    const items = itemsOf(itm('Naan'));
+    const chosen = [{ modifier_group_id: 'bread', option_id: 'naan', quantity: 3 }];
+    for (const no of [avail({}, ['Naan']), avail({ Naan: 2 })]) {
+      expect(checkOptionChoices([bread], chosen, 'line', piece(1), groups, items, no)).toEqual([
+        { reason: 'linked_not_orderable', modifier_group_id: 'bread', option_id: 'naan' },
+      ]);
+    }
+    expect(checkOptionChoices([bread], chosen, 'line', piece(1), groups, items, avail({ Naan: 3 }))).toEqual([]);
+  });
+
+  it('[01c #122] linked Naan with an empty required plain group not selectable; line-position group of linked breads (P2)', () => {
+    const naanSize = grp('naan-size', 1, 1, [], true);
+    const bread = grp('bread', 0, 3, [linked('naan', 'Naan', { max_quantity: 3 })]);
+    const naan = itm('Naan', ['naan-size']);
+    const items = itemsOf(naan);
+    const chosen = [{ modifier_group_id: 'bread', option_id: 'naan', quantity: 3 }];
+    let groups = groupsOf(naanSize, bread);
+    expect(isItemOrderable(naan, groups, items, 'child', 3, avail())).toBe(false);
+    expect(checkOptionChoices([bread], chosen, 'line', piece(1), groups, items, avail())).toEqual([
+      { reason: 'linked_not_orderable', modifier_group_id: 'bread', option_id: 'naan' },
+    ]);
+    groups = groupsOf(grp('naan-size', 1, 1, [opt('small')]), bread);
+    expect(isItemOrderable(naan, groups, items, 'child', 3, avail())).toBe(true);
+    expect(checkOptionChoices([bread], chosen, 'line', piece(1), groups, items, avail())).toEqual([]);
+
+    // P2: Karahi with required "Bread" (min 1) whose only options are linked Naan and Roghni.
+    const breadReq = grp('bread', 1, 1, [linked('naan', 'Naan'), linked('roghni', 'Roghni')]);
+    const karahi = itm('Karahi', ['bread']);
+    const items2 = itemsOf(karahi, itm('Naan'), itm('Roghni'));
+    const g2 = groupsOf(breadReq);
+    const soldOut = avail({ Naan: 0, Roghni: 0 });
+    expect(isGroupSatisfiable(breadReq, 'line', g2, items2, soldOut)).toBe(false);
+    expect(isItemOrderable(karahi, g2, items2, 'line', 1, soldOut)).toBe(false);
+    const roghniBack = avail({ Naan: 0, Roghni: 5 });
+    expect(isGroupSatisfiable(breadReq, 'line', g2, items2, roghniBack)).toBe(true);
+    expect(isItemOrderable(karahi, g2, items2, 'line', 1, roghniBack)).toBe(true);
+    const withPlain = grp('bread', 1, 1, [linked('naan', 'Naan'), linked('roghni', 'Roghni'), opt('no-bread')]);
+    const g3 = groupsOf(withPlain);
+    expect(isGroupSatisfiable(withPlain, 'line', g3, items2, soldOut)).toBe(true);
+    expect(isItemOrderable(karahi, g3, items2, 'line', 1, soldOut)).toBe(true);
+  });
+
+  it('[01c §12.7 T3] linked option child quantity from parent: piece × 2 → 6; g 1 250 → 3; g with quantity null → 3', () => {
+    const bread = grp('bread', 0, 3, [linked('naan', 'Naan', { max_quantity: 3 })]);
+    const groups = groupsOf(bread);
+    const items = itemsOf(itm('Naan'));
+    const chosen = [{ modifier_group_id: 'bread', option_id: 'naan', quantity: 3 }];
+    const cases: Array<[{ quantity: number | null; sale_unit: MenuLineItem['sale_unit'] }, number]> = [
+      [{ quantity: 2, sale_unit: 'piece' }, 6],
+      [{ quantity: 1250, sale_unit: 'g' }, 3],
+      [{ quantity: null, sale_unit: 'g' }, 3],
+    ];
+    for (const [parent, expected] of cases) {
+      const isAvailable = vi.fn(avail());
+      expect(checkOptionChoices([bread], chosen, 'line', parent, groups, items, isAvailable)).toEqual([]);
+      expect(isAvailable).toHaveBeenCalledWith('Naan', expected);
+      expect(isAvailable).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('[01c §4.2 Q3] a linked item absent from itemsById is not counted (line) and gives linked_not_orderable', () => {
+    const bread = grp('bread', 1, 1, [linked('naan', 'Naan')]);
+    const groups = groupsOf(bread);
+    const karahi = itm('Karahi', ['bread']);
+    const items = itemsOf(karahi);
+    expect(isGroupSatisfiable(bread, 'line', groups, items, avail())).toBe(false);
+    expect(isItemOrderable(karahi, groups, items, 'line', 1, avail())).toBe(false);
+    expect(checkOptionChoices([bread], [{ modifier_group_id: 'bread', option_id: 'naan', quantity: 1 }], 'line', piece(1), groups, items, avail())).toEqual([
+      { reason: 'linked_not_orderable', modifier_group_id: 'bread', option_id: 'naan' },
+    ]);
+  });
+});
+
+describe('menu-lines: orderability (M1, V11 d, m16)', () => {
+  const dealOf = (parts: Array<[number, string[]]>): MenuLineDeal => ({
+    deal_id: 'deal',
+    parts: parts.map(([quantity, ids], i) => ({ deal_part_id: `p${i}`, quantity, choices: ids.map((item_id) => ({ item_id, extra_price_minor: 0 })) })),
+  });
+  const items = itemsOf(itm('Karahi'), itm('Naan'), itm('Roghni'), itm('Drink'));
+  const groups = groupsOf();
+
+  it('[01c #14] isDealOrderable: fixed part off → false; pick-one one off one on → true; all off → false; outside windows → false', () => {
+    const deal = dealOf([
+      [1, ['Karahi']],
+      [2, ['Naan', 'Roghni']],
+    ]);
+    expect(isDealOrderable(deal, 1, groups, items, avail(), true)).toBe(true);
+    expect(isDealOrderable(deal, 1, groups, items, avail({}, ['Karahi']), true)).toBe(false);
+    expect(isDealOrderable(deal, 1, groups, items, avail({}, ['Naan']), true)).toBe(true);
+    expect(isDealOrderable(deal, 1, groups, items, avail({}, ['Naan', 'Roghni']), true)).toBe(false);
+    expect(isDealOrderable(deal, 1, groups, items, avail(), false)).toBe(false);
+    // A choice item absent from itemsById is not orderable.
+    expect(isDealOrderable(dealOf([[1, ['Ghost']]]), 1, groups, items, avail(), true)).toBe(false);
+  });
+
+  it('[01c #110] sold_out Naan with 2 available, part needs 4 per deal → false; 8 available, deal qty 2 → true', () => {
+    const deal = dealOf([[4, ['Naan']]]);
+    expect(isDealOrderable(deal, 1, groups, items, avail({ Naan: 2 }), true)).toBe(false);
+    const isAvailable = vi.fn(avail({ Naan: 8 }));
+    expect(isDealOrderable(deal, 2, groups, items, isAvailable, true)).toBe(true);
+    expect(isAvailable).toHaveBeenCalledWith('Naan', 8);
+  });
+
+  it('[01c §3.4.6] isItemOrderable: unavailable item false; group missing from groupsById (optional empty) skipped; root exports', () => {
+    expect(isItemOrderable(itm('Karahi'), groups, items, 'line', 1, avail({}, ['Karahi']))).toBe(false);
+    expect(isItemOrderable(itm('Karahi', ['optional-empty']), groups, items, 'line', 1, avail())).toBe(true);
+    expect(root.checkOptionChoices).toBe(checkOptionChoices);
+    expect(root.isGroupSatisfiable).toBe(isGroupSatisfiable);
+    expect(root.isItemOrderable).toBe(isItemOrderable);
+    expect(root.isDealOrderable).toBe(isDealOrderable);
+  });
+});
+
+describe('menu-lines: line-position group satisfiability (§4.4 02)', () => {
+  it('[01c #13] isGroupSatisfiable(group, line): min 2 with one option of max_quantity 1 → false', () => {
+    const g = grp('g', 2, 2, [opt('a')]);
+    expect(isGroupSatisfiable(g, 'line', groupsOf(g), itemsOf(), avail())).toBe(false);
+    const g2 = grp('g', 2, 2, [opt('a', { max_quantity: 2 })]);
+    expect(isGroupSatisfiable(g2, 'line', groupsOf(g2), itemsOf(), avail())).toBe(true);
   });
 });

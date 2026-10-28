@@ -83,3 +83,155 @@ export function orderLineTotalMinor(line: LineTotalInput): number | null {
       return 0;
   }
 }
+
+// ---- §3.4.6, V9, V11 d, §4.2: option checks and orderability (structural types; no @pos/events import) ----
+
+export type Position = 'line' | 'child';
+// Supplied by 02 (v0.6 Q3): item On, inside its and its category's windows, not sold out for that quantity.
+export type IsAvailable = (itemId: string, quantity: number) => boolean;
+
+// A snapshot group's `options` holds only the options offered at this branch (the builder filters them).
+export interface MenuLineOption {
+  option_id: string;
+  price_minor: number;
+  max_quantity: number;
+  is_default: boolean;
+  linked_item_id: string | null;
+}
+export interface MenuLineGroup {
+  modifier_group_id: string;
+  min_choices: number;
+  max_choices: number;
+  has_plain_options: boolean;
+  options: MenuLineOption[];
+}
+export interface MenuLineItem {
+  item_id: string;
+  sale_unit: Unit;
+  modifier_group_ids: string[];
+}
+export interface MenuLineDeal {
+  deal_id: string;
+  parts: Array<{ deal_part_id: string; quantity: number; choices: Array<{ item_id: string; extra_price_minor: number }> }>;
+}
+export interface ChosenOption {
+  modifier_group_id: string;
+  option_id: string;
+  quantity: number;
+}
+export interface Violation {
+  reason: 'not_effective' | 'quantity_out_of_range' | 'below_min' | 'above_max' | 'linked_in_child' | 'linked_not_orderable';
+  modifier_group_id: string;
+  option_id: string | null;
+}
+
+type GroupsById = Readonly<Record<string, MenuLineGroup>>;
+type ItemsById = Readonly<Record<string, MenuLineItem>>;
+
+// §3.4.6 N5, Q3: a linked option's item is orderable as a child for the child quantity; an item absent from itemsById is not.
+function linkedOrderable(itemId: string, quantity: number, groupsById: GroupsById, itemsById: ItemsById, isAvailable: IsAvailable): boolean {
+  const item = itemsById[itemId];
+  return item !== undefined && isItemOrderable(item, groupsById, itemsById, 'child', quantity, isAvailable);
+}
+
+// §3.4.6, M1, N6, P2. 'child': a group without plain options is not offered and is satisfiable; otherwise only its plain
+// options count. 'line': plain options always count; a linked option counts only when its item is orderable as a child
+// for 1. The child-position check never reads linked options, so the recursion stops at depth 1 (V9).
+export function isGroupSatisfiable(
+  group: MenuLineGroup,
+  position: Position,
+  groupsById: GroupsById,
+  itemsById: ItemsById,
+  isAvailable: IsAvailable,
+): boolean {
+  if (position === 'child' && !group.has_plain_options) return true;
+  let capacity = 0;
+  for (const o of group.options) {
+    if (capacity >= group.min_choices) break;
+    if (o.linked_item_id === null) capacity += o.max_quantity;
+    else if (position === 'line' && linkedOrderable(o.linked_item_id, 1, groupsById, itemsById, isAvailable)) capacity += o.max_quantity;
+  }
+  return capacity >= group.min_choices;
+}
+
+// M1: available for the quantity and every effective group satisfiable in the position. A group id absent from groupsById
+// is an optional group with no option at this branch, left out of the snapshot (F1), so it is not offered.
+export function isItemOrderable(
+  item: MenuLineItem,
+  groupsById: GroupsById,
+  itemsById: ItemsById,
+  position: Position,
+  quantity: number,
+  isAvailable: IsAvailable,
+): boolean {
+  if (!isAvailable(item.item_id, quantity)) return false;
+  return item.modifier_group_ids.every((id) => {
+    const group = groupsById[id];
+    return group === undefined || isGroupSatisfiable(group, position, groupsById, itemsById, isAvailable);
+  });
+}
+
+// V11 d, m16: inside the deal's (and its category's) windows, supplied as inWindows, and every part has a choice orderable
+// in the child position for part qty × deal qty.
+export function isDealOrderable(
+  deal: MenuLineDeal,
+  dealQuantity: number,
+  groupsById: GroupsById,
+  itemsById: ItemsById,
+  isAvailable: IsAvailable,
+  inWindows: boolean,
+): boolean {
+  if (!inWindows) return false;
+  const dealQty = nonNegative('isDealOrderable', 'deal quantity', dealQuantity);
+  return deal.parts.every((part) => {
+    const qty = safe('isDealOrderable', 'part quantity', nonNegative('isDealOrderable', 'part quantity', part.quantity) * dealQty);
+    return part.choices.some((c) => linkedOrderable(c.item_id, qty, groupsById, itemsById, isAvailable));
+  });
+}
+
+// §3.4.6 (T3): `groups` are the line item's effective groups; `parent` gives the child quantity of a linked option
+// (childQuantity; a g/ml parent does not need its quantity, which may be null while the weight is pending).
+export function checkOptionChoices(
+  groups: readonly MenuLineGroup[],
+  chosen: readonly ChosenOption[],
+  position: Position,
+  parent: { quantity: number | null; sale_unit: Unit },
+  groupsById: GroupsById,
+  itemsById: ItemsById,
+  isAvailable: IsAvailable,
+): Violation[] {
+  const violations: Violation[] = [];
+  const effective = new Map(groups.map((g) => [g.modifier_group_id, g]));
+  const selections = new Map<string, number>();
+  for (const c of chosen) {
+    const group = effective.get(c.modifier_group_id);
+    const option = group?.options.find((o) => o.option_id === c.option_id);
+    const at = { modifier_group_id: c.modifier_group_id, option_id: c.option_id };
+    if (group === undefined || option === undefined) {
+      violations.push({ reason: 'not_effective', ...at });
+      continue;
+    }
+    selections.set(group.modifier_group_id, (selections.get(group.modifier_group_id) ?? 0) + c.quantity);
+    if (!Number.isSafeInteger(c.quantity) || c.quantity < 1 || c.quantity > option.max_quantity) {
+      violations.push({ reason: 'quantity_out_of_range', ...at });
+      continue;
+    }
+    if (option.linked_item_id === null) continue;
+    if (position === 'child') {
+      violations.push({ reason: 'linked_in_child', ...at });
+    } else {
+      const qty = childQuantity(c.quantity, parent.quantity ?? 1, parent.sale_unit);
+      if (!linkedOrderable(option.linked_item_id, qty, groupsById, itemsById, isAvailable)) {
+        violations.push({ reason: 'linked_not_orderable', ...at });
+      }
+    }
+  }
+  for (const group of groups) {
+    if (position === 'child' && !group.has_plain_options) continue;
+    const n = selections.get(group.modifier_group_id) ?? 0;
+    const at = { modifier_group_id: group.modifier_group_id, option_id: null };
+    if (n < group.min_choices) violations.push({ reason: 'below_min', ...at });
+    else if (n > group.max_choices) violations.push({ reason: 'above_max', ...at });
+  }
+  return violations;
+}
