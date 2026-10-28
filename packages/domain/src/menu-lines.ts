@@ -202,8 +202,17 @@ export function checkOptionChoices(
 ): Violation[] {
   const violations: Violation[] = [];
   const effective = new Map(groups.map((g) => [g.modifier_group_id, g]));
-  const selections = new Map<string, number>();
+  // Sum the quantities per (group, option) first, so an option entered twice is range- and stock-checked on its total (M2).
+  const perOption = new Map<string, { modifier_group_id: string; option_id: string; quantity: number; valid: boolean }>();
   for (const c of chosen) {
+    const key = JSON.stringify([c.modifier_group_id, c.option_id]);
+    const entry = perOption.get(key) ?? { modifier_group_id: c.modifier_group_id, option_id: c.option_id, quantity: 0, valid: true };
+    entry.valid &&= Number.isSafeInteger(c.quantity) && c.quantity >= 1;
+    entry.quantity += c.quantity;
+    perOption.set(key, entry);
+  }
+  const selections = new Map<string, number>();
+  for (const c of perOption.values()) {
     const group = effective.get(c.modifier_group_id);
     const option = group?.options.find((o) => o.option_id === c.option_id);
     const at = { modifier_group_id: c.modifier_group_id, option_id: c.option_id };
@@ -211,10 +220,13 @@ export function checkOptionChoices(
       violations.push({ reason: 'not_effective', ...at });
       continue;
     }
-    selections.set(group.modifier_group_id, (selections.get(group.modifier_group_id) ?? 0) + c.quantity);
-    if (!Number.isSafeInteger(c.quantity) || c.quantity < 1 || c.quantity > option.max_quantity) {
+    if (!c.valid || !Number.isSafeInteger(c.quantity) || c.quantity > option.max_quantity) {
       violations.push({ reason: 'quantity_out_of_range', ...at });
       continue;
+    }
+    // §3.4.6: in a child position linked options never count (linked_in_child refuses them below).
+    if (position === 'line' || option.linked_item_id === null) {
+      selections.set(group.modifier_group_id, (selections.get(group.modifier_group_id) ?? 0) + c.quantity);
     }
     if (option.linked_item_id === null) continue;
     if (position === 'child') {

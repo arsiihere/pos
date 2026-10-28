@@ -463,3 +463,46 @@ describe('menu-lines: line-position group satisfiability (§4.4 02)', () => {
     expect(isGroupSatisfiable(g2, 'line', groupsOf(g2), itemsOf(), avail())).toBe(true);
   });
 });
+
+describe('menu-lines: chosen quantities summed per option (§3.4.6, M2)', () => {
+  it('[01c §3.4.6] duplicate entries of one option summing above max_quantity → quantity_out_of_range once', () => {
+    const extras = grp('extras', 0, 10, [opt('raita', { max_quantity: 2 })]);
+    const chosen = [
+      { modifier_group_id: 'extras', option_id: 'raita', quantity: 2 },
+      { modifier_group_id: 'extras', option_id: 'raita', quantity: 2 },
+    ];
+    expect(checkOptionChoices([extras], chosen, 'line', piece(1), groupsOf(extras), itemsOf(), avail())).toEqual([
+      { reason: 'quantity_out_of_range', modifier_group_id: 'extras', option_id: 'raita' },
+    ]);
+    // Split entries within max_quantity are fine: 1 + 1 = 2.
+    const ok = chosen.map((c) => ({ ...c, quantity: 1 }));
+    expect(checkOptionChoices([extras], ok, 'line', piece(1), groupsOf(extras), itemsOf(), avail())).toEqual([]);
+  });
+
+  it('[01c §3.4.6 M2] linked Naan entered twice ({2},{2}) with Naan available for 2 → linked_not_orderable, one isAvailable call for 4', () => {
+    const bread = grp('bread', 0, 4, [linked('naan', 'Naan', { max_quantity: 4 })]);
+    const chosen = [
+      { modifier_group_id: 'bread', option_id: 'naan', quantity: 2 },
+      { modifier_group_id: 'bread', option_id: 'naan', quantity: 2 },
+    ];
+    const isAvailable = vi.fn(avail({ Naan: 2 }));
+    expect(checkOptionChoices([bread], chosen, 'line', piece(1), groupsOf(bread), itemsOf(itm('Naan')), isAvailable)).toEqual([
+      { reason: 'linked_not_orderable', modifier_group_id: 'bread', option_id: 'naan' },
+    ]);
+    expect(isAvailable).toHaveBeenCalledTimes(1);
+    expect(isAvailable).toHaveBeenCalledWith('Naan', 4);
+  });
+
+  it('[01c §3.4.6] out-of-range quantities do not count toward the group; child-position linked options do not count toward min', () => {
+    const spice = grp('spice', 1, 1, [opt('mild')]);
+    expect(checkOptionChoices([spice], [{ modifier_group_id: 'spice', option_id: 'mild', quantity: 5 }], 'line', piece(1), groupsOf(spice), itemsOf(), avail())).toEqual([
+      { reason: 'quantity_out_of_range', modifier_group_id: 'spice', option_id: 'mild' },
+      { reason: 'below_min', modifier_group_id: 'spice', option_id: null },
+    ]);
+    const mixed = grp('mixed', 1, 1, [opt('no-bread'), linked('naan', 'Naan')]);
+    expect(checkOptionChoices([mixed], [{ modifier_group_id: 'mixed', option_id: 'naan', quantity: 1 }], 'child', piece(1), groupsOf(mixed), itemsOf(itm('Naan')), avail())).toEqual([
+      { reason: 'linked_in_child', modifier_group_id: 'mixed', option_id: 'naan' },
+      { reason: 'below_min', modifier_group_id: 'mixed', option_id: null },
+    ]);
+  });
+});
