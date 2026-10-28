@@ -13,6 +13,8 @@ import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
 import { StaffList } from './staff/StaffList';
 import { StationsView } from './stations/StationsView';
+import { StockCountingView } from './stock-counting/StockCountingView';
+import { TeamsView } from './teams/TeamsView';
 
 // §8.1: the owner app. No token (or #/login) → login. #/ is the branch picker, skipped with one branch
 // (S52); #/menu needs no branch (S52, Q7); #/floors and #/stations need one and fall back to the picker.
@@ -98,10 +100,12 @@ function Routes({
     );
   }
 
-  const needsBranch = route === '/floors' || route === '/stations';
-  // 01b §8: the 01b views; staff and roles cover every branch (B8) and need no chosen branch.
+  // 01b §8: the 01b views. Staff and roles cover every branch (B8) and need no chosen branch; Teams and
+  // Stock counting are per branch and fall back to the picker, as Floors and Stations do.
   const owner = matchOwnerRoute(route);
-  if (owner !== null) {
+  const ownerNeedsBranch = owner?.name === 'teams' || owner?.name === 'stock_counting';
+  const needsBranch = route === '/floors' || route === '/stations' || ownerNeedsBranch;
+  if (owner !== null && (!ownerNeedsBranch || branchId !== null)) {
     return (
       <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
         {owner.name === 'staff' && <StaffList api={api} branchIds={allowed} />}
@@ -109,6 +113,12 @@ function Routes({
         {owner.name === 'staff_edit' && <StaffForm key={owner.id} api={api} staffId={owner.id} branchIds={allowed} />}
         {owner.name === 'roles' && <RoleList api={api} />}
         {owner.name === 'role_edit' && <RoleEditor key={owner.id} api={api} roleId={owner.id} />}
+        {owner.name === 'teams' && branchId !== null && (
+          <TeamsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
+        )}
+        {owner.name === 'stock_counting' && branchId !== null && (
+          <StockCountingView key={branchId} api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
+        )}
       </Shell>
     );
   }

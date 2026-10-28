@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-123 keys.
+143 keys.
 
 | Key | English |
 |---|---|
@@ -129,3 +129,23 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `roles.last_admin_body` | At least one person at {branches} must be able to open the hub admin and pair screens. |
 | `roles.not_found` | This role no longer exists. |
 | `roles.not_found_body` | Someone archived or removed it, or the link is old. |
+| `teams.count_one` | 1 person |
+| `teams.flat` | No reporting lines yet. Set “Reports to” on a person. |
+| `teams.empty` | Nobody works at {branch} yet. |
+| `teams.empty_body` | Give people {branch} under “Works at” on their page. |
+| `teams.loaded_at` | Showing the teams from {time}. |
+| `counting.nobody_counts_body` | Its items will show “Not counted today” every morning until someone is chosen. |
+| `counting.unsaved_one` | 1 station changed. Save to send it. |
+| `counting.unsaved` | {n} stations changed. Save to send them. |
+| `counting.unsaved_body` | Saving sends who counts every {branch} station at once. |
+| `counting.saved` | Stock counting at {branch} saved. Changes reach each branch within about a minute. |
+| `counting.changed` | Something changed. Reload and pick again. |
+| `counting.changed_body` | A person left {branch}, or a role or station was archived, since you opened this page. |
+| `counting.no_stations` | {branch} has no stations yet. |
+| `counting.no_stations_body` | Add them in Setup › Kitchen stations. |
+| `counting.open_stations` | Open Kitchen stations |
+| `counting.picker_title` | Who counts {station}? |
+| `counting.people_at` | People who work at {branch} |
+| `counting.roles` | Roles |
+| `counting.roles_help` | A role means everyone with that role at {branch}, now and later. |
+| `counting.done` | Done |
