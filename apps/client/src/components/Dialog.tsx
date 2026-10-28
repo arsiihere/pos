@@ -5,16 +5,19 @@ import { t } from '../i18n';
 // returns to whatever had it before (the trigger) when the dialog goes away.
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// `variant: 'nav'` is the phone owner nav (01b P-4 B): the same focus rules, laid out as a drawer.
 export function Dialog({
   title,
   onClose,
   form = true,
+  variant,
   footer,
   children,
 }: {
   title: string;
   onClose: () => void;
   form?: boolean;
+  variant?: 'nav';
   footer?: ReactNode;
   children?: ReactNode;
 }) {
@@ -49,10 +52,10 @@ export function Dialog({
   };
 
   return (
-    <div className="pos-scrim">
+    <div className={`pos-scrim${variant === 'nav' ? ' pos-overlay--nav' : ''}`}>
       <div
         ref={box}
-        className={`pos-dialog${form ? ' pos-dialog--form' : ''}`}
+        className={`pos-dialog${form ? ' pos-dialog--form' : ''}${variant === 'nav' ? ' pos-dialog--nav' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

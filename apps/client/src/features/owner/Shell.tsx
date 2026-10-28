@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { CloudAdmin } from '../../api/cloud-admin';
 import { AppBar } from '../../components/AppBar';
+import { Dialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
-import { SideNav, TabBar, type NavItem } from '../../components/SideNav';
+import { SideNav, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
 import { t, typeClass } from '../../i18n';
 import { useBranchName } from './branch';
@@ -10,6 +11,9 @@ import { LockoutBanner } from './account/LockoutBanner';
 import { CloudDownBanner } from './cloud';
 import { useLeave } from './guard';
 import { usePhone } from '../../app/phone';
+
+// Opens the side nav on a phone; Page puts its Menu button in the app bar.
+const OpenMenu = createContext<(() => void) | null>(null);
 
 export interface NavCounts {
   staff?: number;
@@ -19,9 +23,9 @@ export interface NavCounts {
 
 // S50 a, 01b README §9: the owner shell. Side nav on a laptop or tablet: Menu, Floors and tables, Kitchen
 // stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
-// Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same items as a
-// bottom tab bar (S50 a; P-4 asks whether the design's Menu button replaces it). Every nav link goes through the
-// discard guard (S50 c).
+// Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same nav opens from
+// the app bar's Menu button as an overlay on the kit Dialog (P-4 answer B; replaces the S50 a tab bar). Every nav
+// link goes through the discard guard (S50 c).
 export function Shell({
   route,
   userName,
@@ -37,6 +41,7 @@ export function Shell({
 }) {
   const phone = usePhone();
   const leave = useLeave();
+  const [menuOpen, setMenuOpen] = useState(false);
   const people = t('owner.nav.group.people');
   const branches = t('owner.nav.group.branches');
   const items: NavItem[] = [
@@ -58,6 +63,7 @@ export function Shell({
     },
   ];
   const onNavigate = (href: string) => {
+    setMenuOpen(false);
     leave(() => navigate(href.replace(/^#/, '')));
     return false;
   };
@@ -83,7 +89,14 @@ export function Shell({
             <Icon name="key" />
             {t('owner.nav.change_password')}
           </a>
-          <button type="button" className="pos-btn pos-btn--block" onClick={() => leave(onSignOut)}>
+          <button
+            type="button"
+            className="pos-btn pos-btn--block"
+            onClick={() => {
+              setMenuOpen(false);
+              leave(onSignOut);
+            }}
+          >
             <Icon name="logout" />
             {t('owner.sign_out')}
           </button>
@@ -94,10 +107,16 @@ export function Shell({
 
   if (phone) {
     return (
-      <div className="pos-page">
-        {children}
-        <TabBar label={t('owner.nav.label')} items={items} onNavigate={onNavigate} />
-      </div>
+      <OpenMenu.Provider value={() => setMenuOpen(true)}>
+        <div className="pos-page">
+          {children}
+          {menuOpen && (
+            <Dialog title={t('owner.title')} form={false} variant="nav" onClose={() => setMenuOpen(false)}>
+              {nav}
+            </Dialog>
+          )}
+        </div>
+      </OpenMenu.Provider>
     );
   }
   return (
@@ -107,6 +126,17 @@ export function Shell({
         <div>{children}</div>
       </div>
     </div>
+  );
+}
+
+// The phone app bar's first button (StaffPhoneList.html); nothing outside the shell or on a laptop.
+function MenuButton() {
+  const open = useContext(OpenMenu);
+  if (open === null) return null;
+  return (
+    <button type="button" className="pos-btn" aria-label={t('owner.nav.open')} onClick={open}>
+      <Icon name="menu" />
+    </button>
   );
 }
 
@@ -173,7 +203,16 @@ export function Page({
       <AppBar
         title={title}
         phone={phone}
-        start={start}
+        start={
+          phone ? (
+            <>
+              <MenuButton />
+              {start}
+            </>
+          ) : (
+            start
+          )
+        }
         after={after}
       >
         {end}

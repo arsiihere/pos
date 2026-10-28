@@ -103,14 +103,29 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     expect(nav.querySelector('.pos-sidenav__foot a')?.textContent).toBe('پاس ورڈ بدلیں');
   });
 
-  // R-2: 01a S50 a (APPROVED) keeps the bottom tab bar at phone width until the human answers P-4.
-  it('phone: the S50 a bottom tab bar with the same items, no Menu button or nav overlay; a tab navigates', async () => {
+  // P-4 answer B: on a phone the app bar's Menu button opens the side nav as an overlay on the kit Dialog;
+  // no tab bar. Change password and Sign out are reachable from it.
+  it('phone: Menu button opens the nav on Dialog (role, Escape, focus trap and return); items, foot and navigation', async () => {
     stubPhone();
     renderShell();
     expect(container.querySelector('nav.pos-sidenav')).toBeNull();
-    expect(container.querySelector('.pos-appbar button[aria-label="Menu"]')).toBeNull();
-    const tabs = container.querySelector('nav.pos-actionbar--tabs')!;
-    expect([...tabs.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+    expect(container.querySelector('nav.pos-actionbar--tabs')).toBeNull();
+    const menu = container.querySelector<HTMLButtonElement>('.pos-appbar button[aria-label="Menu"]')!;
+    expect(menu).not.toBeNull();
+
+    const open = () => {
+      act(() => {
+        menu.focus();
+        menu.click();
+      });
+      const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+      if (dialog === null) throw new Error('nav dialog missing');
+      return dialog;
+    };
+
+    let dialog = open();
+    const nav = dialog.querySelector('nav.pos-sidenav')!;
+    expect([...nav.querySelectorAll(':scope > a.pos-sidenav__item')].map((a) => a.getAttribute('href'))).toEqual([
       '#/menu',
       '#/floors',
       '#/stations',
@@ -120,10 +135,31 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '#/stock-counting',
       '#/branches',
     ]);
-    expect(tabs.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
+    expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
+    const foot = nav.querySelector('.pos-sidenav__foot')!;
+    expect(foot.querySelector('a')?.getAttribute('href')).toBe('#/account/password');
+    expect(foot.querySelector('button')?.textContent).toBe('Sign out');
 
-    await act(async () => tabs.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
+    // Focus moves in and Tab stays inside.
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const focusables = [...dialog.querySelectorAll<HTMLElement>('button, [href]')];
+    act(() => focusables.at(-1)!.focus());
+    act(() => {
+      focusables.at(-1)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    });
+    expect(document.activeElement).toBe(focusables[0]);
+
+    // Escape closes and focus returns to the Menu button.
+    act(() => {
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(menu);
+
+    // A nav item closes the overlay and navigates.
+    dialog = open();
+    await act(async () => dialog.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
     expect(window.location.hash).toBe('#/roles');
-    expect(container.querySelector('.pos-overlay--nav')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 });

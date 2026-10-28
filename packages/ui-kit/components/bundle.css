@@ -433,6 +433,7 @@ a.pos-btn, .pos-btn { text-decoration: none; }
 .pos-sidenav__group { padding: 12px 12px 2px; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
 .pos-sidenav__foot > .pos-sidenav__who { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
 [lang="ur"] :is(.pos-sidenav__group, .pos-sidenav__who) { font-family: var(--font-urdu); line-height: 1.9; }
-/* phone: the side nav opens from the app bar's Menu button over the page (01b StaffPhoneList.html; AD-31) */
+/* phone: the side nav opens from the app bar's Menu button over the page, in a Dialog (01b StaffPhoneList.html; P-4 B) */
 .pos-overlay--nav { position: fixed; place-items: stretch start; padding: 0; }
-.pos-overlay--nav > .pos-sidenav { width: 300px; max-width: 85%; overflow-y: auto; }
+.pos-overlay--nav > .pos-dialog--nav { width: 300px; max-width: 85%; height: 100%; overflow-y: auto; border-radius: 0; display: flex; flex-direction: column; }
+.pos-dialog--nav > .pos-sidenav { flex: 1; width: auto; border: 0; }
