@@ -4,7 +4,7 @@ A module-by-module list of every screen, dialog, banner, notification and printe
 
 **Sources, in order of authority:** `docs/specs/00_Foundation_Spec_v1.7.md` (F), the module specs `00_Hub_Platform_Access_Spec_v1.2.1.md` and `01_Restaurant_Setup_Spec_v1.0.2.md`, `docs/specs/README.md` (module map, R1–R20, carried requirements), `docs/stories/stories-refined.md` (for modules with no spec), `docs/design/ui-brief.md`, `docs/design/ui-brief-01a.md`, `packages/ui-kit/README.md`, and the code in `apps/client/src/**` and `apps/hub/src/**`. Spec wins over stories; code is checked for what exists today. `docs/design/01a-redesign/ui-redesign-01a.md` (named in the task) **does not exist**, and **no canvas or frame names are recorded anywhere in the repo**, so "Design status" below can only say whether a brief or built page exists.
 
-**Not decided here.** Modules 01b, 01c, 02, 03a, 03b, 04, 05, 06 and 07 have no spec yet. Their API names are marked *proposed* and their open questions are owner questions; their specs may change these screens. Nothing here is a spec.
+**Not decided here.** Modules 01c, 02, 03a, 03b, 04, 05, 06 and 07 have no spec yet (01b's file follows its approved spec v1.0). Their API names are marked *proposed* and their open questions are owner questions; their specs may change these screens. Nothing here is a spec.
 
 ---
 
@@ -14,7 +14,7 @@ A module-by-module list of every screen, dialog, banner, notification and printe
 |---|---|---|---|---|
 | 00 Hub Platform & Access | [00-hub-access.md](00-hub-access.md) | v1.2.1 approved, built | 31 | 15 built and kit-styled (00 v1.2); 16 not designed (admin lists, global states) |
 | 01a Restaurant Setup | [01a-setup.md](01a-setup.md) | v1.0.2 approved, built | 26 | all built with kit classes; full brief exists; redesign **not done**; 3 new states (archive confirm, discard, partial save) not designed |
-| 01b Staff and roles | [01b-staff-roles.md](01b-staff-roles.md) | no spec (pilot, before first live order) | 15 | not designed |
+| 01b Staff and roles | [01b-staff-roles.md](01b-staff-roles.md) | v1.0 approved (2026-10-27), backend being built | 24 | first hand-off (30 frames) out of date; rewritten 2026-10-27 for a new design (see its §10) |
 | 01c Menu variants, modifiers, deals | [01c-menu-variants.md](01c-menu-variants.md) | no spec (before 02) | 11 | not designed |
 | 02 Ordering + Tables | [02-ordering-tables.md](02-ordering-tables.md) | no spec | 33 | not designed (listed as provisional in ui-brief §2) |
 | 03a Timing engine | [03a-timing.md](03a-timing.md) | no spec | 7 | not designed |
@@ -23,7 +23,7 @@ A module-by-module list of every screen, dialog, banner, notification and printe
 | 05 Billing | [05-billing.md](05-billing.md) | no spec | 36 | not designed |
 | 06 Offline + Sync | [06-sync-backup.md](06-sync-backup.md) | no spec | 15 | not designed |
 | 07 Owner view | [07-owner-view.md](07-owner-view.md) | no spec | 10 | not designed |
-| **Total** | | | **230** | 38 exist in code (00: 15, 01a: 23); none has design frames |
+| **Total** | | | **239** | 38 exist in code (00: 15, 01a: 23); none has design frames |
 
 ## Conventions used in every file
 
@@ -142,8 +142,8 @@ Settings are data (R18). These are named by stories or specs but have no screen 
 
 | Setting | Default | Story/spec | Proposed home |
 |---|---|---|---|
-| Tax on/off per branch, stale-day hours, min gap | on? / 16 h / 4 h | 01a §6.7 | 01b-S07 |
-| Session idle limit per role | 5 min / 60 min | D28, owner v0.7 | 01b-S08 |
+| Tax on/off per branch, stale-day hours, min gap | off / 16 h (1–48) / 4 h (0–12) | 01a §6.7, 01b B16 | 01b-S07 |
+| Session idle limit per role | Owner 60, Manager 60, Cashier 15, Order taker 15, Waiter 5, Cook 5 (1–240 min) | 01b B13, §6.15 | 01b-S08 |
 | Table colours | story palette | E2-TBL AC1 | ? (02 Q5) |
 | Slip threshold, escalation time, slow threshold, lock TTL, cascade step | 5 min / ? / ? / 10 min / 1 min | E4-SLIP, E2-SOLD, D51, D44 | 03a-S02 (03a Q2) |
 | KDS alert volume per station | — | E3-KDS AC5 | 03b-S05 |
@@ -163,7 +163,7 @@ Every hub admin job (devices, sessions, lockouts, stock, live capacity, printers
 Follows the README build order and milestone A (pilot 2027-02-28: 00, 01a, 01c, 03a, 02, 01b, 04, 03b, 05 + 06's nightly USB backup). Design work leads build, and the shared components come first because 02 reuses them.
 
 1. **Shared components and global states** (app bar, list row, switch, chip, segmented control, sticky action bar, toast, empty state, notification card, PinPad/StaffTiles changes; 00-F01…F08). Needed by everything after.
-2. **01b Staff and roles** — small, owner app; unblocks real staff names and permissions for 02 (01b-S01–S08). Also replaces 01a-S02 branch IDs.
+2. **01b Staff and roles** — small, owner app; unblocks real staff names and permissions for 02 (01b-S01–S10; see 01b §10 for what the new design must add). Also replaces 01a-S02 branch IDs.
 3. **01c Menu variants, modifiers, deals** — shapes the order line and 02-D04 (01c-S01–S06).
 4. **02 Ordering + Tables** — the core pilot surface: login, table map, order screen, parking, table view, offline queue (02-S01…S10, D01…D14, B01…B09). Include 03a-C01 ETA rules and 03a-D01 boost.
 5. **03b KDS + Printing** — KDS views and ticket states, slip notifications, ticket and receipt layouts (03b-*).
