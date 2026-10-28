@@ -52,8 +52,8 @@ describe('[01b §8] roles list', () => {
       handler(() => ok({ role: { ...ROLES[1], idle_minutes: 45, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } })),
     );
     await m.render(<RoleList api={api} />);
-    setValue(idleInput('Waiter'), '45');
-    await blur(idleInput('Waiter'));
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
     const patches = calls.filter((c) => c.method === 'PATCH');
     expect(patches).toHaveLength(1);
     expect(patches[0]?.url).toBe('/v1/admin/roles/R_WAITER');
@@ -61,11 +61,11 @@ describe('[01b §8] roles list', () => {
     expect(m.container.textContent).toContain(t('common.saved'));
 
     // The next save uses the version from the answer; out of range sends nothing.
-    setValue(idleInput('Waiter'), '30');
-    await blur(idleInput('Waiter'));
+    setValue(idleInput('Bera'), '30');
+    await blur(idleInput('Bera'));
     expect(calls.filter((c) => c.method === 'PATCH')[1]?.body).toEqual({ expected_version: 'v2', idle_minutes: 30 });
-    setValue(idleInput('Waiter'), '500');
-    await blur(idleInput('Waiter'));
+    setValue(idleInput('Bera'), '500');
+    await blur(idleInput('Bera'));
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
     expect(m.container.textContent).toContain(t('roles.idle_range'));
   });
@@ -73,8 +73,8 @@ describe('[01b §8] roles list', () => {
   it('[01b §8] a stale idle edit shows the reload message', async () => {
     const { api } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
     await m.render(<RoleList api={api} />);
-    setValue(idleInput('Waiter'), '45');
-    await blur(idleInput('Waiter'));
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
     expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
     expect(button(m.container, t('staff.reload'))).toBeTruthy();
   });
@@ -92,10 +92,10 @@ describe('[01b §8] roles list', () => {
     const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
     await click(button(owner, t('roles.archive')));
     const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
-    await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Owner' })));
+    await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-R_OWNER', archived: true });
-    expect(m.container.textContent).toContain(fill(t('roles.blocked_title'), { name: 'Owner' }));
-    expect(m.container.textContent).toContain(fill(t('roles.blocked_role'), { name: 'Owner', names: 'Waiter' }));
+    expect(m.container.textContent).toContain(fill(t('roles.blocked_title'), { name: 'Malik' }));
+    expect(m.container.textContent).toContain(fill(t('roles.blocked_role'), { name: 'Malik', names: 'Bera' }));
     await click(button(m.container, t('common.close')));
 
     await click(button(m.container, `${t('roles.archived')}1`));
@@ -115,7 +115,7 @@ describe('[01b §8] roles list', () => {
       const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
       await click(button(owner, t('roles.archive')));
       const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
-      await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Owner' })));
+      await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     }
     await archiveOwner();
     expect(m.container.textContent).toContain(fill(t('roles.last_admin_body'), { branches: 'Johar Town' }));

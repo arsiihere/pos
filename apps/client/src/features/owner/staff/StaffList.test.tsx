@@ -67,6 +67,6 @@ describe('[01b §8] staff list', () => {
     const { api } = fakeApi(reads([], []));
     await m.render(<StaffList api={api} branchIds={['B1']} />);
     expect(m.container.textContent).toContain(t('staff.empty_title'));
-    expect(m.container.textContent).toContain('Owner, Waiter, Shift lead');
+    expect(m.container.textContent).toContain('Malik, Bera, Shift lead');
   });
 });

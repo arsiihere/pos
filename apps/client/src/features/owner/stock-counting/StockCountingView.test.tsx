@@ -76,16 +76,16 @@ describe('[01b §8] stock counting', () => {
   it('[01b §8] stock-counting PUT sends the whole active set with expected_version', async () => {
     const calls = await render((call) => ok({ ...(call.body as object), version: 'rv2', changed_versions: { staff: [], roles: [], responsibilities: [] } }));
     expect(row('Degh').textContent).toContain('Usman');
-    expect(row('Degh').textContent).toContain(fill(t('counting.everyone_with'), { role: 'Owner' }));
+    expect(row('Degh').textContent).toContain(fill(t('counting.everyone_with'), { role: 'Malik' }));
     expect(row('Drinks counter').textContent).toContain(t('counting.nobody'));
     expect(m.container.textContent).not.toContain('Old');
     expect(button(m.container, t('counting.save')).disabled).toBe(true);
 
-    // Change one station: Bilal and the Waiter role count Drinks counter.
+    // Change one station: Bilal and the Bera role count Drinks counter.
     await click(button(row('Drinks counter'), t('counting.change')));
     const dialog = () => m.container.querySelector<HTMLElement>('[role="dialog"]')!;
     await click(button(dialog(), 'Bilal'));
-    await click(button(dialog(), 'Waiter'));
+    await click(button(dialog(), 'Bera'));
     await click(button(dialog(), t('counting.done')));
     expect(m.container.textContent).toContain(t('counting.unsaved_one'));
 

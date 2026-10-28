@@ -137,7 +137,7 @@ describe('[01b §8] staff form', () => {
     expect(m.container.textContent).toContain(t('staff.roles_required'));
 
     setValue(m.container.querySelector<HTMLInputElement>('input[name="display_name"]'), 'Ali R.');
-    await click(button(m.container, 'Waiter'));
+    await click(button(m.container, 'Bera'));
     await click(button(m.container, 'Gulberg'));
     await click(button(m.container, t('staff.save')));
     const post = calls.find((c) => c.method === 'POST');

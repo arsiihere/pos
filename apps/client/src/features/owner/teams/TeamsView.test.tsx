@@ -62,7 +62,7 @@ describe('[01b §8] teams', () => {
     const hamza = tree.children[1]!;
     const members = [...hamza.querySelectorAll(':scope > ul > li')].map((li) => li.querySelector('strong')?.textContent);
     expect(members).toEqual(['Bilal', 'Usman']);
-    expect(hamza.textContent).toContain('Waiter · Shift lead');
+    expect(hamza.textContent).toContain('Bera · Shift lead');
     expect(hamza.textContent).toContain(fill(t('teams.count_team'), { n: '2' }));
 
     const usman = hamza.querySelectorAll(':scope > ul > li')[1]!;

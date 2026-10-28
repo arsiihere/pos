@@ -2,6 +2,7 @@ import { DomainError } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listTenantScopes } from '../src/plugins/tenant-scope';
 import { restaurantFixture } from './helpers/restaurant';
+import { ROUTE_CASES } from './helpers/route-cases';
 import { createTestCloud, type TestCloud } from './helpers/test-cloud';
 
 // 01b §6.13: the JWT guard reads the owner row, so a valid token names a real owner.
@@ -81,6 +82,32 @@ describe('tenant scope', () => {
     );
     expect(typeof cloud.app.ownerCredentials.byEmail).toBe('function');
     expect(await cloud.app.ownerCredentials.byEmail('missing@example.com')).toBeNull();
+  });
+
+  it('[01b §12.2, D54] the 14 new 01b routes are registered behind the JWT guard (cross-tenant cases in route-cases.ts)', async () => {
+    const cloud = await createTestCloud();
+    cleanups.push(() => cloud.close());
+    await cloud.app.ready();
+    const routes = [
+      'GET /v1/admin/staff',
+      'POST /v1/admin/staff',
+      'PUT /v1/admin/staff/:staff_id/pin',
+      'PATCH /v1/admin/staff/:staff_id',
+      'GET /v1/admin/roles',
+      'POST /v1/admin/roles',
+      'PATCH /v1/admin/roles/:role_id',
+      'GET /v1/admin/branches/:branch_id/responsibilities',
+      'PUT /v1/admin/branches/:branch_id/responsibilities',
+      'PATCH /v1/admin/branches/:branch_id',
+      'GET /v1/admin/branches/:branch_id/settings',
+      'PATCH /v1/admin/branches/:branch_id/settings',
+      'POST /v1/auth/change-password',
+      'GET /v1/admin/branches/:branch_id/team-tree',
+    ];
+    const scopes = new Map(listTenantScopes(cloud.app).map((route) => [`${route.method} ${route.url}`, route.tenantScope]));
+    expect(routes).toHaveLength(14);
+    expect(routes.map((route) => [route, scopes.get(route)])).toEqual(routes.map((route) => [route, 'jwt']));
+    expect(Object.keys(ROUTE_CASES)).toEqual(expect.arrayContaining(routes));
   });
 
   it('[F §3.4] bad JWT → 401 JWT_INVALID', async () => {

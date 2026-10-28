@@ -13,7 +13,7 @@ export function role(o: Partial<Role> & Pick<Role, 'role_id' | 'name'>): Role {
 export const ROLES: Role[] = [
   role({
     role_id: 'R_OWNER',
-    name: 'Owner',
+    name: 'Malik',
     is_default: true,
     grants: [
       { permission: 'access-hub-admin', grant_type: 'allowed', approver_role_ids: [], scope: 'branch' },
@@ -22,7 +22,7 @@ export const ROLES: Role[] = [
   }),
   role({
     role_id: 'R_WAITER',
-    name: 'Waiter',
+    name: 'Bera',
     is_default: true,
     grants: [{ permission: 'void-item', grant_type: 'requires_approval', approver_role_ids: ['R_OWNER'], scope: 'branch' }],
   }),

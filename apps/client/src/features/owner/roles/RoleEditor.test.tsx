@@ -59,10 +59,10 @@ describe('[01b §8] role editor', () => {
     const row = () => grantRow(t('perm.boost-order'));
     await click(button(row(), t('roles.grant.requires_approval')));
     expect(row().textContent).toContain(t('roles.approval_help'));
-    await click(button(row(), 'Owner'));
-    await click(button(row(), 'Waiter'));
-    expect(button(row(), 'Owner').getAttribute('aria-pressed')).toBe('true');
-    expect(button(row(), 'Waiter').getAttribute('aria-pressed')).toBe('true');
+    await click(button(row(), 'Malik'));
+    await click(button(row(), 'Bera'));
+    expect(button(row(), 'Malik').getAttribute('aria-pressed')).toBe('true');
+    expect(button(row(), 'Bera').getAttribute('aria-pressed')).toBe('true');
 
     await click(button(m.container, t('roles.save')));
     const patch = calls.find((c) => c.method === 'PATCH');
