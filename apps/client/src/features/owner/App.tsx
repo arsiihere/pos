@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
 import { matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
 import { BranchPicker } from './BranchPicker';
+import { BranchesView } from './branches/BranchesView';
+import { BranchSettings } from './branches/BranchSettings';
 import { BranchNames, storeBranch, storedBranch } from './branch';
 import { FloorsView } from './floors/FloorsView';
 import { GuardProvider, useLeave } from './guard';
@@ -113,6 +115,8 @@ function Routes({
         {owner.name === 'staff_edit' && <StaffForm key={owner.id} api={api} staffId={owner.id} branchIds={allowed} />}
         {owner.name === 'roles' && <RoleList api={api} />}
         {owner.name === 'role_edit' && <RoleEditor key={owner.id} api={api} roleId={owner.id} />}
+        {owner.name === 'branches' && <BranchesView api={api} />}
+        {owner.name === 'branch_settings' && <BranchSettings key={owner.id} api={api} branchId={owner.id} />}
         {owner.name === 'teams' && branchId !== null && (
           <TeamsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}

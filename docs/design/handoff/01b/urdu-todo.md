@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-143 keys.
+161 keys.
 
 | Key | English |
 |---|---|
@@ -149,3 +149,21 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `counting.roles` | Roles |
 | `counting.roles_help` | A role means everyone with that role at {branch}, now and later. |
 | `counting.done` | Done |
+| `branches.never_synced` | Not up to date yet. |
+| `branches.away` | {branch} hub last checked {seen}. |
+| `branches.away_body` | It gets the change when it is back online. |
+| `branches.rename_title` | Rename {name} |
+| `branches.name` | Branch name |
+| `branches.name_help` | Up to 60 letters. Different from your other branches. |
+| `branches.name_required` | Type a name, up to 60 letters. |
+| `branches.name_taken` | Another branch is called {name}. |
+| `branches.rename_note` | The hub screens at the branch keep showing the old name for now. |
+| `branches.renamed` | Renamed to {name}. |
+| `branches.renamed_body` | The hub screens there keep the old name for now. |
+| `branches.ago_now` | just now |
+| `branches.ago_days` | {n} days ago |
+| `branches.back_short` | Branches |
+| `branches.stale_range` | Use 1 to 48 hours. |
+| `branches.gap_range` | Use 0 to 12 hours. |
+| `branches.gap_not_less` | Must be less than the stale-day hours ({n}). |
+| `branches.settings_saved` | Settings saved. {name} gets them within about a minute. |

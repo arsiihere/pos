@@ -297,8 +297,8 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       setDown(false);
     },
 
-    // §6.7b (S58) the owner's branches, for their names
-    listBranches: () => call<{ branches: Branch[] }>('GET', '/v1/admin/branches'),
+    // §6.7b (S58) the owner's branches, for their names; 01b B19 the hub times and their warning threshold
+    listBranches: () => call<{ branches: Branch[]; hub_stale_after_ms: number }>('GET', '/v1/admin/branches'),
 
     // §6.2–§6.6 floors and tables
     listFloors: (branchId: string) =>
