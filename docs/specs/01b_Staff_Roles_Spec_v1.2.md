@@ -153,7 +153,7 @@ Source: `docs/reviews/01b-auto-decisions.md`. Each row documents behaviour the m
 |---|---|---|
 | B1 | B20, §4.4 rows 9–11 | `my_stations` on the stock page and the stock commands uses the **stock item's** station at this branch (`stock_item_branches.station_id`); `SetItemAvailability` keeps the item's route station |
 | B2 | §5.1 audit CHECKs | Widened again by 01c's migration `0006_menu_variants.sql` (entities and actions, 01c §4.2) |
-| B3 | §10 tests | Re-keyed to stock items. 01c §4.5 names tests 9, 10 and 11; those numbers are this spec's staff tests (leaver, bring back, last-admin race), so the re-key applies to test **34**, the stock-scope test (`apps/hub/test/commands/stock-scope.int.test.ts`); tests 9–11 are unchanged |
+| B3 | §10 tests | Re-keyed to stock items. 01c v1.0 §4.5 named tests 9, 10 and 11 (corrected to 34 in 01c v1.0.1); those numbers are this spec's staff tests (leaver, bring back, last-admin race), so the re-key applies to test **34**, the stock-scope test (`apps/hub/test/commands/stock-scope.int.test.ts`); tests 9–11 are unchanged |
 
 ### Stories covered
 
