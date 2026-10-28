@@ -171,3 +171,86 @@ Target: `docs/specs/01c_Menu_Variants_Spec_v0.3.md` (commit fa7644e). Fresh sess
 ## Verdict
 
 **CHANGES REQUIRED** — 0 BLOCKER, **1 MAJOR open (N1)**, 8 MINOR (N2–N9). N1 is a one-paragraph fix to §3.4.8 and the §4.4 04 row, plus one test. I recommend the MINOR fixes in the same pass: N2/N3 (lock order), N4 (test vector) and N6 (definition) are each a line or two. After that, a run 3 limited to §3.4.6, §3.4.8, §4.4 04, §6 lock order, §6.5, §6.11/§6.12, §11 and tests 96/104 should be enough to approve.
+
+---
+
+# Run 3 — v0.4
+
+Target: `docs/specs/01c_Menu_Variants_Spec_v0.4.md` (commit a9a2b4c). Narrow run in a fresh session, 2026-10-29. I checked each item against the section text and the named tests, not against the changelog or the self-check table. I re-ran the allocation numbers with BigInt and with float in Node. For the lock order, I checked the cloud code that 01c keeps: `lib/config-version.ts` (bump), `restaurant/service.ts` `putItemRoute`, and the FKs in `0002_restaurant_setup.sql`. The spec was not edited.
+
+**Verdict: CHANGES REQUIRED** — 0 BLOCKER, **1 MAJOR (P1)**, 4 MINOR (P2–P5). N1–N9 are all closed, and so are M8 and m1. P1 was missed in runs 1 and 2. It came to light because N1 now defines an `option_child` unit as "one piece".
+
+## Hand checks (N1, N4)
+
+| Test | Hand result | Spec | Match |
+|---|---|---|---|
+| 117 | Naan part 12 508 over `[1,1,1,1]` = 3 127 × 4. Voiding 2 units refunds 6 254. Voiding the deal then refunds 320 000 − 6 254 = 313 746. Total 320 000 | same | yes |
+| 118 | 300 000 over 220 000 / 12 000 → 284 482 / 15 518. Part A `allocated_price_minor` (extra included, §4.3) = 284 482 + 50 000 × 2 = 384 482, over 2 units (one per deal) → 192 241 / 192 241. Voiding the deal then refunds 400 000 − 384 482 = 15 518, which equals part B's refundable amount. Total 400 000 | same | yes |
+| 118 identity | Σ part refundable = Σ allocated (extras included) + Σ part option charges = deal price × qty + extras + option charges = deal `line_total_minor` (§3.4.4). So "deal void = line total − refunds already made" can never go negative or exceed the line, in any void order | §3.4.8 | yes |
+| Void order | Refundable 10 over 3 units → `[3, 3, 4]`. The first two units voided get 3 each and the last gets 4, in any order of physical units | §3.4.8 | yes |
+| 104 | `allocateDealMinor(95 921 642, [w, w])`, w = 199 714 492 077 708. BigInt gives 47 960 821 / 47 960 821. Float `Math.floor(t·w/Σw)` gives 47 960 820, so the remainder is 47 960 822. The product t·w is not a safe integer | same | yes, and it now tells BigInt from float |
+
+## Closure table
+
+| # | Status | Evidence |
+|---|---|---|
+| N1 | CLOSED (residue P4) | §3.4.8 states:<br>• the refundable amount per line kind;<br>• units (a g/ml part is voided per deal, never per gram);<br>• void-order shares with the remainder on the last remaining unit;<br>• "remaining" on both cascades.<br>§4.4 04 carries the persisted per-line refunded amount and units voided by name. Tests 117–119 match the hand checks. The property test 119 asserts "≤ refundable after every step" and "= exactly once all are voided" |
+| N2 | CLOSED | §6 restart rule:<br>• it compares the locked re-read with the unlocked read, null included;<br>• on a difference it rolls back and restarts, with at most 3 attempts and then `503`;<br>• the no-group path is covered.<br>"An item lock is never followed by a group lock" holds: a rollback releases the group `FOR SHARE` locks, and nothing is locked before the group. The §6.5 script and edge row match. Test 120 a–c covers both paths and the cap. AU-9 is marked superseded |
+| N3 | CLOSED (residue P3) | The §6 table is one order of entity kinds. The §6.2 script locks the members before the category. §6.11 and §6.12 lock variant groups, then items, then categories. The §6.14 order is 4 → 6 → 7. Test 121 is the exact run-2 scenario |
+| N4 | CLOSED | Test 104 replaced. The hand check above confirms it fails a float implementation |
+| N5 | CLOSED (residue P2) | §3.4.6 makes a linked option selectable only through `isItemOrderable(…, 'child', child qty, isAvailable)`. The §4.2 signature gains `groupsById`. The §4.4 02 row matches. Test 122 uses the F1 case |
+| N6 | CLOSED | V9 and §3.4.6 carry the same sentence, compared word for word. §4.2 defines `isGroupSatisfiable` for `'line'` and `'child'`. Test 96 adds three mixed-group cases, including min 2 where `'child'` is false and `'line'` is true |
+| N7 | CLOSED | §11 step 8 re-keys 01a #128. §12.2 row 6.11 lists 116 |
+| N8 | CLOSED | §3.3 row, §6.5 R9 (read under the stock item `FOR SHARE`) and the edge row. The race with a §6.8 archive is serialised: the archive takes `FOR UPDATE`, and its R2 is a read-committed read after the lock. Test 123 |
+| N9 | CLOSED | §8 reuses the POST key and re-reads §6.6 before retrying, so PUTs that already succeeded are skipped. The m11 warnings show only after `next_cursor: null`, with "Checking branches…" until then. Tests 115 and 124 |
+| M8 | CLOSED (via N1; residue P4) | — |
+| m1 | CLOSED (via N4) | — |
+
+## Lock order and the N2 restart rule
+
+I checked each write in §6 against the table, pairing every write that takes `FOR UPDATE` with every write that later waits on a lock of the same kind:
+
+- **§6.2 ‖ §6.5:** the group comes first on both sides. A §6.5 that moves an item into G (merged G) waits on G, so §6.2's member set (`WHERE variant_group_id = G`) cannot gain or lose a row while it runs.
+- **§6.2 ‖ §6.11 / §6.12:** test 121.
+- **§6.5 ‖ §6.12 / §6.15:** the item is `FOR UPDATE` on one side and `FOR SHARE` on the other. Neither side holds a later kind exclusively.
+- **§6.5 ‖ §6.8:** the stock item is share-locked against an update-lock, and the in-use reads run after the lock.
+- **§6.9 / §6.12a / §6.16 ‖ themselves:** parent `FOR UPDATE` (M4).
+- **01a category, tax class and station archives:** one target lock, and the in-use checks are plain reads.
+
+I found no cycle.
+
+**Restart rule:**
+- *Deadlock:* none. The only group→item edge is §6.5, and it never holds the item while it asks for a group.
+- *Livelock:* bounded. Each restart needs another writer to commit a membership change in a window of a few milliseconds. Three attempts, then `503`.
+- *Missed change:* none on `variant_group_id`. Category, draw and tax class are read from the locked row and locked after it, so they cannot go stale. The group's category is held by the group `FOR SHARE`.
+
+Two leads I tested and dropped:
+
+- **Implicit FK locks against the bump.** Tenant-wide bumps take `branches … ORDER BY branch_id FOR UPDATE` (`config-version.ts:37`), which conflicts with the `FOR KEY SHARE` that an insert takes on its FK parent. But no tenant-wide 01c write inserts a row with an FK to `branches`. `item_routes` references `stations`, not `branches` (`0002:147–150`). The branch PUTs bump with a plain `UPDATE`, which takes `FOR NO KEY UPDATE` and is compatible with `KEY SHARE`. So there is no cycle.
+- **01a `putItemRoute`** locks item → route row → station (4 → 9 → 8). That is out of the table's order, but it is not a 01c write. Nothing else locks a station `FOR UPDATE` and then waits on an item route or an item, so it causes no cycle.
+
+## Regressions from the v0.4 edits
+
+- **Tests:** numbers 1–124 with 71 and 72 retired = 122, as the header states. There is no duplicate number. Every 01c test has a §11 step: I checked this by script over §11, with the 01a re-key lists stripped out. New tests in §12.2: 120 and 123 (6.5), 121 (6.2, 6.11), 124 (6.7). 117–119 and 122 are domain-only, in step 3. §10.9 has 15 rows, and all 15 are covered.
+- **Cross-references:**
+  - The §4.2 `checkOptionChoices` signature (with `groupsById`) matches §3.4.6 and the §4.4 02 row.
+  - The §4.3 `allocated_price_minor` "extra included" is consistent with test 118.
+  - AU-9 is marked superseded.
+  - Endpoint counts are unchanged (14 own, 22 touched).
+- **Self-check and notes drift:** see P5.
+
+## New findings (run 3)
+
+| # | Sev | Section | Finding | Evidence | Proposed fix |
+|---|---|---|---|---|---|
+| P1 | **MAJOR** | §3.3 options row, §6.5 merged rules, §3.4.4, §3.4.8 (missed in runs 1–2) | **A linked item can stop being `piece` after it is linked, and nothing refuses it or drops it.** `linked_item_not_piece` is checked only when the group is written (§6.11, §6.12). §6.5 has R6 for deal parts (D-3, "no silent drop") and R8 for weighing in deals, but nothing for an item that an active option links. Example: the owner changes Raita (linked, Rs 80/piece) to `g` at Rs 400/kg. The builder keeps the option, because §4.6 rule 2 drops only unoffered or unrouted options. 02 then bills the child as `lineTotalMinor(price, qty, 'piece')` (§3.4.4), which gives 3 "pieces" × 40 000 = Rs 1,200 instead of the configured charge. The N1 unit "one piece" and `childQuantity` stop meaning anything. Turning `requires_weighing` on for that item (R7 allows it for g/ml) makes a pending-weight child line, which no rule covers. The result is a wrong bill with no warning, which is the same class of fault that D-3 fixed for deals | §3.3 row "`linked_item_id` an active item whose `sale_unit = 'piece'`"; §6.5 R6, R8 (deals only); §4.6 rule 2; §3.4.4 `option_child` total | Add a §6.5 merged rule **R10**: a `sale_unit` change away from `piece`, or `requires_weighing` turned on, while an active option of an active group links the item → `409 CONFIG_IN_USE { used_by: { entity: 'modifier_group', ids } }` (01a S22 pattern, the same read as R4). §6.12 already locks linked items `FOR SHARE`, so the race is covered by §6.5's item `FOR UPDATE`. Add a test: PATCH linked Naan `sale_unit: 'g'` → `409`; with the option archived → `200` |
+| P2 | MINOR | §4.2 `isGroupSatisfiable(g, 'line')`, §3.4.6 (residue of M1, M2, N5) | `'line'` satisfiability counts every option at the branch, including linked options whose item is sold out or 86'd. N5 makes those options not selectable. Example: Karahi has a required "Bread" (min 1) whose only option is linked Naan, and Naan is sold out. `isItemOrderable(Karahi, 'line')` is true, so Karahi shows as orderable, but every `SubmitOrder` is refused and the sheet shows Bread with nothing to pick | §4.2 row (line 267); §3.4.6 | In the `'line'` position, count a linked option toward Σ `max_quantity` only when `isItemOrderable(linked item, …, 'child', 1, isAvailable)`. Add a case to test 122 |
+| P3 | MINOR | §6 table vs §6.9 script | The table's check says "§6.9 (5 → 8 → 9)", but the §6.9 script locks the `stock_item_branches` row `FOR UPDATE` **before** the station `FOR SHARE` (5 → 9 → 8). That breaks "never locks an earlier kind after a later one". No cycle exists today: only §6.9 locks that row, and only under the stock item `FOR UPDATE`. But the table's per-write claim is false, and an implementer has two texts to choose from | §6.9 script (line 819); §6 "Checked per write" (line 669) | Either lock the station before the branch row (C4 lets the version compare read the row without a lock, because the parent `FOR UPDATE` already serialises it), or record §6.9 as 5 → 9 → 8 with that reason |
+| P4 | MINOR | §3.4.8 cascades (residue of N1) | Only a **whole** parent void cascades. Partially voiding an `item` line with piece `option_child` lines is undefined: void 1 of 2 karahis with 3 naan each (child line 6 naan). Should 3 naan be voided and refunded, or none? `childQuantity` ties the child quantity to the parent quantity, so the rule belongs to 01c, and 04 must not guess | §3.4.2, §3.4.8 | State one of these: (a) a partial void of a `piece` parent voids `optQty × voided units` of each child, with each child refunded by its void-order shares; or (b) children are not touched and are voided on their own. A g/ml parent is voided whole. Carry the choice to the §4.4 04 row and add it to test 119's generator |
+| P5 | MINOR | header self-check, §12.6, version row | Traceability drift from the v0.4 edits:<br>• The self-check says N3 is fixed in "§6.4", but the §6.4 text is unchanged (its order lives only in the table), and it omits §6.14, whose script did change.<br>• The §12.6 "Hostile self-review notes" row was edited in v0.4 but still says "Author's calls AU-1–AU-6" (§12.3 has AU-1–AU-11, with AU-9 superseded).<br>• The version row's "changed sections" list omits V9, §3.3, §4.2, §4.4 02 and §6.14 | header self-check; §12.6 last row; §1 version row | Fix the three texts |
+
+## Verdict
+
+**CHANGES REQUIRED** — 0 BLOCKER, **1 MAJOR (P1)**, 4 MINOR (P2–P5).
+
+All nine run-2 findings and the two PARTLY items (M8, m1) are closed. The lock order and the restart rule hold: I found no deadlock, livelock or missed change. P1 is a single merged rule in §6.5 (R10), plus one §3.3 row and one test. P2–P5 are each a sentence or two. After those fixes, a run 4 limited to §6.5 R10, §4.2 `isGroupSatisfiable`, §3.4.8 and §6.9 should be enough to approve.
