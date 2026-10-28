@@ -16,9 +16,18 @@ The CLI prints the temporary password to stdout (01b M3). Run it **only in a she
 
 ### Check it is the owner
 
-**Identity check: PENDING owner decision (P-3). Do not reset without the owner's agreed check.**
+**Identity check (P-3, owner decision): call back the owner's mobile number recorded in the onboarding
+checklist before any temporary password or owner link.** Do not use a number the caller gives you on this call.
+The number lives in the onboarding checklist only; it is not stored in the database.
 
-The questions below are a minimum only, not enough on their own: a former staff member can answer all of them.
+1. Hang up and call back the mobile number in the onboarding checklist.
+2. If the number is missing, does not answer, or the person on it does not confirm the request: stop. Do not
+   reset and do not link.
+3. Write the call-back (date, time, number called, who confirmed) in the support ticket. Never write the
+   temporary password there.
+
+Before the call-back, ask the questions below as a pre-check. They are never enough on their own: a former staff
+member can answer all of them.
 
 1. the e-mail address they sign in to the owner app with;
 2. the restaurant's name and the names of its branches;
@@ -33,7 +42,8 @@ SELECT o.user_id, o.email, o.display_name, t.name AS restaurant,
  WHERE lower(o.email) = lower('<email>');
 ```
 
-If any answer is wrong, stop: do not reset. If they are all right, still do not reset until P-3 is answered and its check is added here.
+If any answer is wrong, stop: do not reset. If they are all right, do the call-back above; reset only when the
+owner confirms on the checklist number.
 
 ### Run the reset
 
