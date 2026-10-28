@@ -53,11 +53,11 @@
 | T49 | DONE | 1 | T8,T16 | c16e802; AD-28; #62 hub half passes at once (00 code, P-3) |
 | T50 | DONE | 1 | T6 | 133722a; AD-27 (interim: nav items before their views, T51-T55); Urdu: 45 keys in docs/design/handoff/01b/urdu-todo.md |
 | T50b | PARKED | 1 | T50 | c5894db; AD-30, AD-31; phone nav PARKED P-4 (R-2: S50 a tab bar restored); laptop shell done; 16 Urdu keys left |
-| T51 | TODO | 0 | T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
-| T52 | TODO | 0 | T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
-| T53 | TODO | 0 | T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
-| T54 | TODO | 0 | T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
-| T55 | TODO | 0 | T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
+| T51 | DONE | 1 | T50,T50b | 388783e; laptop shell only (not blocked by P-4); design vs spec in build log |
+| T52 | DONE | 1 | T50,T50b | 8dd3639; tests written first, first run after the views (failed on missing module) |
+| T53 | DONE | 1 | T50,T50b | f54b237; station item names not shown (design vs spec) |
+| T54 | DONE | 1 | T50,T50b | f7824f0; AD-32 (hub away notice uses the response threshold) |
+| T55 | DONE | 1 | T50,T50b | 1ad4cdc; JWT then refused refresh passed at once (01a client); build with VITE_SUPPORT_PHONE not run here (sandbox) |
 | T56 | TODO | 0 | T29,T50,T50b | needs only the laptop shell and Page (done); not blocked by P-4 |
 | T57 | TODO | 0 | T12,T22,T24,T27,T31,T32,T38,T48,T49 | |
 | T58 | TODO | 0 | T57 | plan marks STOP after this task; T59+ wait for human |
