@@ -16,7 +16,9 @@ The CLI prints the temporary password to stdout (01b M3). Run it **only in a she
 
 ### Check it is the owner
 
-Ask (AD-29: questions the data can check; the owner may add more):
+**Identity check: PENDING owner decision (P-3). Do not reset without the owner's agreed check.**
+
+The questions below are a minimum only, not enough on their own: a former staff member can answer all of them.
 
 1. the e-mail address they sign in to the owner app with;
 2. the restaurant's name and the names of its branches;
@@ -31,7 +33,7 @@ SELECT o.user_id, o.email, o.display_name, t.name AS restaurant,
  WHERE lower(o.email) = lower('<email>');
 ```
 
-If any answer is wrong, stop: do not reset.
+If any answer is wrong, stop: do not reset. If they are all right, still do not reset until P-3 is answered and its check is added here.
 
 ### Run the reset
 

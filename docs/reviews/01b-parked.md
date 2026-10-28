@@ -21,6 +21,16 @@ ANSWER: A — done by human
 **Recommendation:** A.
 ANSWER: A — I will run the drill on hardware after T58–T60. Keep T61 PARKED until I log the result.
 
+## P-3 (task T47) Owner identity check before a password reset or owner link
+**Problem:** 01b §7.5 asks the support runbook for "identity check questions" but does not list them. AD-29 picked the sign-in e-mail, the restaurant and branch names, and the name on the owner's hub tile. Review R-1: these are public or seen by every staff member, and nothing ties the caller to a known phone number, so a former staff member could pass and take over the tenant (staff, roles, PIN resets, owner lockout).
+**Why it can't be auto-decided:** who may receive a temporary owner password is auth/security behaviour (Class B exclusion list) and an owner business fact.
+**Options:**
+- A: Call back on a phone number recorded at onboarding (needs that number stored somewhere support can read; onboarding step).
+- B: A shared secret set at onboarding and kept by support (needs a secure place to keep it).
+- C: An in-person or video check against an ID recorded at onboarding (slow; safest).
+**Recommendation:** A, with the AD-29 questions kept as a pre-check.
+ANSWER:
+
 ## P-4 (task T50b) Phone owner shell: design Menu button vs 01a S50 a bottom tab bar
 **Problem:** The 01b design hand-off (`StaffPhoneList.html`) shows a Menu button in the phone app bar that opens the side nav over the page, and no tab bar. 01a v1.3 S50 a (APPROVED) says the owner shell has, at phone width (≤ 760 px), a bottom tab bar. T50b (AD-31) built the design; review R-2 found that this changes another module's approved spec. The bottom tab bar is restored until this is answered (fix R-2); the laptop side-nav changes (groups, counts, foot) stay.
 **Why it can't be auto-decided:** it needs 01a's approved spec to change (Class C); the phone shell also carries the 01a views (Menu, Floors, Stations).
