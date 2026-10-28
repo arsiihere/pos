@@ -63,6 +63,27 @@ describe('[01b #78] B19 on the owner page', () => {
     });
   }
 
+  it('[01b #78] an away hub keeps the B19 Up to date line, with its warning when it is also behind', async () => {
+    const seen = NOW - 5 * 60_000;
+    await render(
+      [
+        { branch_id: 'B1', name: 'Gulberg', status: 'active', hub_last_seen_at: seen, hub_synced_at: seen },
+        { branch_id: 'B2', name: 'Johar Town', status: 'active', hub_last_seen_at: seen, hub_synced_at: seen - 2 * 3_600_000 },
+      ],
+      180_000,
+    );
+    const five = fill(t('branches.ago_min'), { n: '5' });
+    const gulberg = rowOf('Gulberg').textContent ?? '';
+    expect(gulberg).toContain(fill(t('branches.away'), { branch: 'Gulberg', seen: five }));
+    expect(gulberg).toContain(fill(t('branches.behind'), { synced: five }));
+    expect(gulberg).not.toContain(supportText('branches.behind_body'));
+
+    const johar = rowOf('Johar Town').textContent ?? '';
+    expect(johar).toContain(fill(t('branches.away'), { branch: 'Johar Town', seen: five }));
+    expect(johar).toContain(fill(t('branches.behind'), { synced: fill(t('branches.ago_h'), { n: '2' }) }));
+    expect(johar).toContain(supportText('branches.behind_body'));
+  });
+
   it('[01b §8] a branch with no hub says so; rename shows CONFIG_NAME_TAKEN on the field', async () => {
     const calls = await render(
       [branch('B1', 'Gulberg', 0), { branch_id: 'B3', name: 'DHA', status: 'pending_hub', hub_last_seen_at: null, hub_synced_at: null }],

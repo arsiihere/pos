@@ -73,16 +73,18 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
                   <span>
                     <span className="pos-ltr">{idTail(b.branch_id)}</span>
                   </span>
-                  {pending ? (
-                    <div className="pos-hub">
-                      <span>{t('branches.no_hub')}</span>
-                    </div>
-                  ) : away ? (
+                  {/* AD-32: the away notice comes first but keeps B19's Up to date line and its warning. */}
+                  {away && (
                     <div className="pos-hub is-warn">
                       <div>
                         <b>{fill(t('branches.away'), { branch: b.name, seen: ago(b.hub_last_seen_at ?? now, now) })}</b>
                         <span>{t('branches.away_body')}</span>
                       </div>
+                    </div>
+                  )}
+                  {pending ? (
+                    <div className="pos-hub">
+                      <span>{t('branches.no_hub')}</span>
                     </div>
                   ) : behind ? (
                     <div className="pos-hub is-warn">
@@ -94,6 +96,10 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
                         </b>
                         <span>{supportText('branches.behind_body')}</span>
                       </div>
+                    </div>
+                  ) : away ? (
+                    <div className="pos-hub">
+                      <span>{fill(t('branches.behind'), { synced: ago(b.hub_synced_at ?? now, now) })}</span>
                     </div>
                   ) : (
                     <div className="pos-hub">
