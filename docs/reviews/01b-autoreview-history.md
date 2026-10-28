@@ -704,3 +704,40 @@ None.
   - The route list matches §6.16's 14 routes exactly. All 14 are `tenantScope: 'jwt'` and present in `ROUTE_CASES`.
 - **T58:** the Progress table lists tasks 0–58 with commits, and the build log has entries for 1–57. README status reads "Implemented, pending page flows and release drill". T59–T60 are WAITING for the human, per the plan's STOP. T61 stays PARKED (P-2).
 - **Scope:** no server code, migration, event, upcaster, API contract or error code changed in this batch. No test is skipped or weakened. The test edits in T57 only rename fixture role names.
+
+## 2026-10-28 hostile review: fix R-1 for T56 / AD-33 (da0233f only)
+
+VERDICT: CLEAN
+
+# 01b review: commit da0233f (fix R-1, T56, AD-33 amendment)
+
+Checked against: 01b spec v1.0.1 §4.4 rows 11 and 13, D-6; 01a v1.3 §6.17, §6.17a, §6.18, §8.2, S33; review `01b-autoreview-latest.md` R-1 (required fix (a)) and N-1–N-5; AD-33 and its amendment. I re-ran `pnpm vitest run apps/client/src/features/admin/stock`: 5 files, 35 tests, all pass. `tsc --noEmit` (client) and eslint on `features/admin/stock` are clean. Code was read only.
+
+## Blockers
+
+None.
+
+## Should-fix
+
+None.
+
+## Nits (non-blocking)
+
+- N-6 (da0233f): under `my_stations` with no day open, a refused save or Add sets `message` to `notStarted()`, so the page shows two identical warn banners: the standing no-day banner (`StockApp.tsx:516`) and the 409 message banner. Skip the message when `counter && noDay` already shows it, or leave as is.
+- N-7 (da0233f): the no-day tests use `business_day: null` only. `noDay` also covers a closed day (`business_day.closed_at !== null`, `business_day_started_at: null`, S33), which is the more common 09:30 case after last night's close. One extra remount with a closed day under `my_stations` would pin the banner, the rows and the absence of Start day there too.
+- N-8 (da0233f): the handoff `docs/design/handoff/01b/README.md:190` and `screens/index.html:116` still list `StockCounterNotStarted` as a full-screen state. The handoff is input and is not edited here; the AD-33 amendment records the drop. The design inventory should say "superseded by the banner" so the next reader doesn't rebuild it.
+- Carried, still open: N-1 (role-named "for the manager" in `admin_stock.counter.note`), N-2 (outside_scope fixture shape), N-4, N-5. N-3 is gone: the rows and action bar are no longer hidden, and with no open day there is no draft key, so no kept counts exist to hide.
+
+## Checked and fine
+
+- **R-1 fix (a), as required:**
+  - The full-screen `pos-screen--warn` branch is removed. `main.pos-content`, `StockTable` and `ActionBar` render for every scope.
+  - Under `my_stations` with no day, a warn `Banner` carries the spec sentence ("The day hasn't been started. Ask someone who can start the day."), which holds both the title and the 01b §4.4 row 13 sentence.
+  - Start day is hidden for a counter in both places: the rows-level `StartDay` now has `!counter`. The `retry` `StartDay` cannot appear, because `blocked` is set only on the branch-scope path (`StockApp.tsx:303-304, 350-351`). Close day (`:497`) and the stale prompt (`:535`) keep their `!counter` guards.
+  - The Selling switch works with no day. The new `[01b §4.4 row 11]` test taps I1's switch and asserts one `set-item-availability` with `{ item_id: 'I1', is_available: false }`. That matches 01a §6.18, which needs no open day.
+  - Count save and Add with no day still go to the hub and come back with the 409 sentence, with counts kept (the existing #71 test). The review allowed either that or disabled entry.
+- **Branch scope unchanged:** the same no-day answer without `my_stations` still shows `[data-start-day="rows"]`. The stale and Close day assertions are untouched. The diff is a re-indent of the old non-warn branch plus the two guards.
+- **Tests:** the #71 page test gains a row assertion and no assertion is removed or weakened. The log says the new test failed first with no rows.
+- **i18n:** `not_started_title` and `not_started_body` are removed from `en.ts` and `urdu-todo.md` (183 → 181). Neither key was in `ur.ts`, and grep finds no other use. `admin_stock.counter.not_started` stays.
+- **AD-33 amendment:** Class A is right. The behaviour now follows the approved spec text, so there is no design call left to park. The amendment names the dropped layout and keys.
+- **Commit:** one task, cites `[spec §4.4 rows 11, 13; 01a §6.18]`. Build log entry present. No server code, migration, API contract or error code touched.
