@@ -103,19 +103,26 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     expect(nav.querySelector('.pos-sidenav__foot a')?.textContent).toBe('پاس ورڈ بدلیں');
   });
 
-  it('phone: no nav until the app bar Menu button opens it; a link closes it', async () => {
+  // R-2: 01a S50 a (APPROVED) keeps the bottom tab bar at phone width until the human answers P-4.
+  it('phone: the S50 a bottom tab bar with the same items, no Menu button or nav overlay; a tab navigates', async () => {
     stubPhone();
     renderShell();
     expect(container.querySelector('nav.pos-sidenav')).toBeNull();
-    expect(container.querySelector('.pos-actionbar--tabs')).toBeNull();
-    const menu = container.querySelector<HTMLButtonElement>('.pos-appbar--phone > button[aria-label="Menu"]')!;
-    expect(menu.nextElementSibling?.classList.contains('pos-appbar__title')).toBe(true);
+    expect(container.querySelector('.pos-appbar button[aria-label="Menu"]')).toBeNull();
+    const tabs = container.querySelector('nav.pos-actionbar--tabs')!;
+    expect([...tabs.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/menu',
+      '#/floors',
+      '#/stations',
+      '#/staff',
+      '#/roles',
+      '#/teams',
+      '#/stock-counting',
+      '#/branches',
+    ]);
+    expect(tabs.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
 
-    act(() => menu.click());
-    const nav = container.querySelector('.pos-overlay--nav nav.pos-sidenav')!;
-    expect(navOutline(nav)).toHaveLength(10);
-
-    await act(async () => nav.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
+    await act(async () => tabs.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
     expect(window.location.hash).toBe('#/roles');
     expect(container.querySelector('.pos-overlay--nav')).toBeNull();
   });

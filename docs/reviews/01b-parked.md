@@ -20,3 +20,13 @@ ANSWER: A — done by human
 - B: Defer the drill to the next release window; module stays "pending release drill" in docs/specs/README.md.
 **Recommendation:** A.
 ANSWER: A — I will run the drill on hardware after T58–T60. Keep T61 PARKED until I log the result.
+
+## P-4 (task T50b) Phone owner shell: design Menu button vs 01a S50 a bottom tab bar
+**Problem:** The 01b design hand-off (`StaffPhoneList.html`) shows a Menu button in the phone app bar that opens the side nav over the page, and no tab bar. 01a v1.3 S50 a (APPROVED) says the owner shell has, at phone width (≤ 760 px), a bottom tab bar. T50b (AD-31) built the design; review R-2 found that this changes another module's approved spec. The bottom tab bar is restored until this is answered (fix R-2); the laptop side-nav changes (groups, counts, foot) stay.
+**Why it can't be auto-decided:** it needs 01a's approved spec to change (Class C); the phone shell also carries the 01a views (Menu, Floors, Stations).
+**Options:**
+- A: Keep the S50 a tab bar (now 8 items at 390 px; Change password and Sign out stay off the phone shell as before T50b). No spec change; the design frame is not matched.
+- B: Menu button + overlay nav (the design), with 01a S50 a amended by the human. The overlay must then be built on the kit `Dialog` (Escape, focus trap, focus return, `role="dialog"`; review R-3).
+- C: A tab bar with 4 items plus "More", which opens the rest (needs a spec line in 01a S50 a or 01b §8).
+**Recommendation:** B — eight items do not fit a tab bar at 390 px, and B puts Change password and Sign out on the phone; amend S50 a first.
+ANSWER:

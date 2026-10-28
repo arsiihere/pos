@@ -1,17 +1,14 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { CloudAdmin } from '../../api/cloud-admin';
 import { AppBar } from '../../components/AppBar';
 import { Icon } from '../../components/Icon';
-import { SideNav, type NavItem } from '../../components/SideNav';
+import { SideNav, TabBar, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
 import { t, typeClass } from '../../i18n';
 import { useBranchName } from './branch';
 import { CloudDownBanner } from './cloud';
 import { useLeave } from './guard';
 import { usePhone } from '../../app/phone';
-
-// Opens the side nav on a phone; Page puts its Menu button in the app bar.
-const OpenMenu = createContext<(() => void) | null>(null);
 
 export interface NavCounts {
   staff?: number;
@@ -21,8 +18,9 @@ export interface NavCounts {
 
 // S50 a, 01b README §9: the owner shell. Side nav on a laptop or tablet: Menu, Floors and tables, Kitchen
 // stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
-// Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same nav opens
-// from the app bar's Menu button. Every nav link goes through the discard guard (S50 c).
+// Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same items as a
+// bottom tab bar (S50 a; P-4 asks whether the design's Menu button replaces it). Every nav link goes through the
+// discard guard (S50 c).
 export function Shell({
   route,
   userName,
@@ -38,13 +36,12 @@ export function Shell({
 }) {
   const phone = usePhone();
   const leave = useLeave();
-  const [menuOpen, setMenuOpen] = useState(false);
   const people = t('owner.nav.group.people');
   const branches = t('owner.nav.group.branches');
   const items: NavItem[] = [
     { href: '#/menu', icon: 'list', label: t('owner.nav.menu'), current: route === '/menu' },
-    { href: '#/floors', icon: 'grid', label: t('owner.nav.floors'), current: route === '/floors' },
-    { href: '#/stations', icon: 'flame', label: t('owner.nav.stations'), current: route === '/stations' },
+    { href: '#/floors', icon: 'grid', label: t(phone ? 'owner.nav.floors_short' : 'owner.nav.floors'), current: route === '/floors' },
+    { href: '#/stations', icon: 'flame', label: t(phone ? 'owner.nav.stations_short' : 'owner.nav.stations'), current: route === '/stations' },
     // 01b §8
     { href: '#/staff', icon: 'user', label: t('owner.nav.staff'), count: counts.staff, current: route.startsWith('/staff'), group: people },
     { href: '#/roles', icon: 'shield', label: t('owner.nav.roles'), count: counts.roles, current: route.startsWith('/roles'), group: people },
@@ -60,10 +57,7 @@ export function Shell({
     },
   ];
   const onNavigate = (href: string) => {
-    leave(() => {
-      setMenuOpen(false);
-      navigate(href.replace(/^#/, ''));
-    });
+    leave(() => navigate(href.replace(/^#/, '')));
     return false;
   };
   const password = '#/account/password';
@@ -99,21 +93,10 @@ export function Shell({
 
   if (phone) {
     return (
-      <OpenMenu.Provider value={() => setMenuOpen(true)}>
-        <div className="pos-page">
-          {children}
-          {menuOpen && (
-            <div
-              className="pos-overlay pos-overlay--nav"
-              onClick={(event) => {
-                if (event.target === event.currentTarget) setMenuOpen(false);
-              }}
-            >
-              {nav}
-            </div>
-          )}
-        </div>
-      </OpenMenu.Provider>
+      <div className="pos-page">
+        {children}
+        <TabBar label={t('owner.nav.label')} items={items} onNavigate={onNavigate} />
+      </div>
     );
   }
   return (
@@ -123,17 +106,6 @@ export function Shell({
         <div>{children}</div>
       </div>
     </div>
-  );
-}
-
-// The phone app bar's first button (StaffPhoneList.html); nothing outside the shell or on a laptop.
-function MenuButton() {
-  const open = useContext(OpenMenu);
-  if (open === null) return null;
-  return (
-    <button type="button" className="pos-btn" aria-label={t('owner.nav.open')} onClick={open}>
-      <Icon name="menu" />
-    </button>
   );
 }
 
@@ -199,16 +171,7 @@ export function Page({
       <AppBar
         title={title}
         phone={phone}
-        start={
-          phone ? (
-            <>
-              <MenuButton />
-              {start}
-            </>
-          ) : (
-            start
-          )
-        }
+        start={start}
         after={after}
       >
         {end}
