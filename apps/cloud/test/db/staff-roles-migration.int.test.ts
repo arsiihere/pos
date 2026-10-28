@@ -122,7 +122,7 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
 
     await migrate(pool, migrationsDir, clock);
 
-    expect(await applied(pool)).toEqual([1, 2, 3, 4, 5]);
+    expect(await applied(pool)).toEqual([1, 2, 3, 4, 5, 6]);
     const { rows: constraints } = await pool.query<{ conname: string; convalidated: boolean }>(
       `SELECT conname, convalidated FROM pg_constraint WHERE conname = ANY($1::text[]) ORDER BY conname`,
       [CONSTRAINTS],
@@ -295,7 +295,7 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
 
     const empty = await scratchDatabaseAt(4);
     await migrate(empty.pool, migrationsDir, clock);
-    expect(await applied(empty.pool)).toEqual([1, 2, 3, 4, 5]);
+    expect(await applied(empty.pool)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it('[01b #66] clamps day settings to 48 / 12, the new CHECKs refuse 49 / 13, and set-branch-settings takes the same ranges', async () => {

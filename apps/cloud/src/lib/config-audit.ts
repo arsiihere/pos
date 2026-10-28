@@ -16,7 +16,13 @@ export type AuditEntity =
   | 'role' // 01b B21
   | 'responsibility' // 01b B21
   | 'branch' // 01b §6.9
-  | 'owner_user';
+  | 'owner_user'
+  | 'variant_group' // 01c §5.1
+  | 'stock_item'
+  | 'stock_item_branch'
+  | 'modifier_group'
+  | 'deal'
+  | 'deal_branch';
 export type AuditAction =
   | 'create'
   | 'update'
@@ -29,7 +35,9 @@ export type AuditAction =
   | 'returned' // 01b B21
   | 'reports_to_reassigned' // 01b B15
   | 'password_change' // 01b B21
-  | 'password_reset'; // 01b B21, §6.14
+  | 'password_reset' // 01b B21, §6.14
+  | 'branch_set' // 01c §5.1
+  | 'branch_removed';
 
 export interface AuditEntry {
   actor: { kind: 'owner'; ownerUserId: string } | { kind: 'cli' };
