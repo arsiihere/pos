@@ -35,6 +35,7 @@ import {
   lockFloor,
   lockItemRoute,
   lockMenuItem,
+  readMenuItem,
   lockProgram,
   lockStation,
   lockTable,
@@ -61,6 +62,7 @@ import {
   shareStockItem,
   shareTaxClass,
   shareVariantGroup,
+  shareVariantGroups,
   updateCategory,
   updateFloor,
   updateMenuItem,
@@ -947,20 +949,158 @@ function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: reado
   };
 }
 
-// §6.15: lock → rules on the merged row (units, stock ≤ cook, references; a restored item's routes are re-checked
-// against §3.3, so it cannot bring back a route to a station or program archived meanwhile) → write → audit →
-// bump every branch. Archiving needs no in-use check (open orders hold copies, §4.4).
+// 01c §6.5 restart rule (N2): thrown inside the transaction when the locked item's variant_group_id differs from
+// the unlocked read; withItemRestart rolls back and runs again. Never leaves this module.
+class ItemRestart extends Error {}
+
+const ITEM_ATTEMPTS = 3;
+
+// 01c §6 "§6.5 restart rule" (N2): each attempt is its own transaction; an ItemRestart rolls it back and starts
+// again from the beginning. After attempt 3 → 503 SERVICE_UNAVAILABLE (nothing committed). Any other error ends it.
+export async function withItemRestart<T>(deps: RestaurantDeps, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= ITEM_ATTEMPTS; attempt += 1) {
+    try {
+      return await inTransaction(deps.pool, run);
+    } catch (error) {
+      if (!(error instanceof ItemRestart)) throw error;
+    }
+  }
+  throw new DomainError('SERVICE_UNAVAILABLE');
+}
+
+type SharedGroup = { variant_group_id: string; category_id: string; archived_at: number | null };
+
+// What every §6.5 rule reads: the locked row, the merged row, the groups locked before the item, and the
+// references the first rule locks (category 6, then tax class 7, in the §6 order).
+interface ItemPatch {
+  level: TenantLevelRepository;
+  scoped: TenantScopedRepository;
+  body: PatchMenuItemInput;
+  before: MenuItemRow;
+  merged: MenuItemRow;
+  groups: readonly SharedGroup[];
+  restoring: boolean;
+  routes: RouteRow[];
+  category?: { archived_at: number | null } | undefined;
+  taxClass?: { archived_at: number | null } | undefined;
+}
+
+type ItemRule = (p: ItemPatch) => void | Promise<void>;
+
+const invalidReference = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
+const groupOf = (p: ItemPatch) => p.groups.find((g) => g.variant_group_id === p.merged.variant_group_id);
+const isActive = (p: ItemPatch) => p.merged.archived_at === null;
+
+// 01c §6.5 rule precedence (v0.6 Q2) with the T4 decision (§12.7, P-8): after the no-op, in this order; the first
+// failure answers. Slots owned by later tasks are named no-ops.
+const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> = [
+  // C4 step 4: references on sent fields. The category and tax class are locked here (sent, or on an active
+  // merged row, as 01a did) in the §6 kind order; the variant group was locked before the item.
+  [
+    'references on sent fields',
+    async (p) => {
+      const active = isActive(p);
+      if (p.body.category_id !== undefined || active) p.category = await shareCategory(p.level, p.merged.category_id);
+      if (p.merged.tax_class_id !== null && (p.body.tax_class_id !== undefined || active)) {
+        p.taxClass = await shareTaxClass(p.level, p.merged.tax_class_id);
+      }
+      if (p.body.variant_group_id !== undefined && p.body.variant_group_id !== null) {
+        assertReference('variant_group_id', groupOf(p), active);
+      }
+      if (p.body.category_id !== undefined) assertReference('category_id', p.category, active);
+      if (p.body.tax_class_id !== undefined && p.merged.tax_class_id !== null) assertReference('tax_class_id', p.taxClass, active);
+    },
+  ],
+  // (1) 400
+  ['400 01a units', (p) => assertUnits(p.merged)], // task 14 deletes it (the unit rule moves to the draw, R2)
+  [
+    '400 variant pair',
+    (p) => {
+      if ((p.merged.variant_group_id === null) === (p.merged.variant_name === null)) return;
+      const path = p.merged.variant_name === null ? 'variant_name' : 'variant_group_id';
+      throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: 'variant_group_id and variant_name go together' }] });
+    },
+  ],
+  ['400 R7 sale_unit part', () => {}], // task 14
+  // (2) 409 CONFIG_IN_USE: R4, R10, R6
+  ['409 R4', () => {}], // task 15
+  ['409 R10', () => {}], // task 15
+  ['409 R6', () => {}], // task 15
+  // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9
+  [
+    '422 01a stock_time_exceeds_cook_time',
+    (p) => {
+      if (p.merged.stock_time_ms !== null && p.merged.stock_time_ms > p.merged.cook_time_ms) {
+        throw invalidReference('stock_time_ms', 'stock_time_exceeds_cook_time');
+      }
+    },
+  ],
+  [
+    '422 01a references on the active merged row',
+    (p) => {
+      if (!isActive(p)) return;
+      if (p.body.category_id === undefined) assertReference('category_id', p.category);
+      if (p.body.tax_class_id === undefined && p.merged.tax_class_id !== null) assertReference('tax_class_id', p.taxClass);
+    },
+  ],
+  [
+    '422 01a routes on restore',
+    async (p) => {
+      if (p.restoring) await assertRoutes(p.scoped, p.routes);
+    },
+  ],
+  [
+    '422 R1 category equals the group’s',
+    (p) => {
+      if (p.merged.variant_group_id === null) return;
+      const changed = p.merged.category_id !== p.before.category_id || p.merged.variant_group_id !== p.before.variant_group_id;
+      const group = groupOf(p);
+      if ((changed || p.restoring) && group !== undefined && group.category_id !== p.merged.category_id) {
+        throw invalidReference('category_id', 'category_mismatch');
+      }
+    },
+  ],
+  [
+    '422 R1a restored member’s group is active',
+    (p) => {
+      if (p.restoring && p.merged.variant_group_id !== null && groupOf(p)?.archived_at !== null) {
+        throw invalidReference('variant_group_id', 'archived');
+      }
+    },
+  ],
+  ['422 R2 draw unit', () => {}], // task 14
+  ['422 R3 effective-set limit', () => {}], // task 23
+  ['422 R7 draw part', () => {}], // task 14
+  ['422 R8 weighed item in a deal', () => {}], // task 30
+  ['422 R9 restored draw’s stock item', () => {}], // task 14
+];
+
+// 01c §6.5 (01a §6.15): per attempt (withItemRestart): tenant-wide 403 (C4, before all) → read the item without a
+// lock (404) → lock its stored and merged variant group(s) FOR SHARE in id order (3) → lock the item FOR UPDATE (4);
+// a variant_group_id other than the unlocked read → restart → merge → no-op (row and windows; draws with task 14)
+// → ITEM_PATCH_RULES → write (R5 and 01a's name index) → audit → bump every branch (10). No variant_groups row is
+// locked after the item; later reads of a group use the rows locked before it.
 export async function patchMenuItem(
   deps: RestaurantDeps,
   req: OwnerRequest,
   itemId: string,
   body: PatchMenuItemInput,
 ): Promise<{ item: AdminMenuItem }> {
-  return inTransaction(deps.pool, async (client) => {
+  let attempt = 0;
+  return withItemRestart(deps, async (client) => {
+    attempt += 1;
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
+    await assertTenantWide(level, req.ownerUserId);
+    const seen = await readMenuItem(level, itemId);
+    if (seen === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
+    const mergedGroupId = body.variant_group_id !== undefined ? body.variant_group_id : seen.variant_group_id;
+    const groupIds = [...new Set([seen.variant_group_id, mergedGroupId].filter((id) => id !== null))].sort();
+    const groups = groupIds.length > 0 ? await shareVariantGroups(level, groupIds) : [];
+    await deps.testHooks?.beforeItemLock?.(attempt);
     const before = await lockMenuItem(level, itemId);
     if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
+    if (before.variant_group_id !== seen.variant_group_id) throw new ItemRestart();
     const now = deps.clock.branchNow();
     const { archived, availability_windows: windowInput, ...fields } = body;
     const merged: MenuItemRow = {
@@ -969,26 +1109,28 @@ export async function patchMenuItem(
       ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
     };
     const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
-    // 01c §6.3 wire: the item's draws are read for the response (§6.5 writes them later).
+    // 01c §6.3 wire: the item's draws are read for the response (task 14 writes them and adds them to the no-op).
     const draws = await selectDrawsOf(level, [itemId]);
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput)) {
-      const stored = await selectItemRoutes(scoped, [itemId]);
-      return { item: itemWire(before, beforeWindows, draws, stored) };
-    }
-    assertUnits(merged);
-    if (merged.stock_time_ms !== null && merged.stock_time_ms > merged.cook_time_ms) {
-      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
-    }
-    const active = merged.archived_at === null;
-    if (body.category_id !== undefined || active) {
-      assertReference('category_id', await shareCategory(level, merged.category_id), active);
-    }
-    if (merged.tax_class_id !== null && (body.tax_class_id !== undefined || active)) {
-      assertReference('tax_class_id', await shareTaxClass(level, merged.tax_class_id), active);
-    }
     const routes = await selectItemRoutes(scoped, [itemId]);
-    if (before.archived_at !== null && active) await assertRoutes(scoped, routes);
-    const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () => updateMenuItem(level, merged, now));
+    // T4 (§12.7, V13 divergence): the no-op runs before the reference checks on menu_items.
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput)) {
+      return { item: itemWire(before, beforeWindows, draws, routes) };
+    }
+    const patch: ItemPatch = {
+      level,
+      scoped,
+      body,
+      before,
+      merged,
+      groups,
+      restoring: before.archived_at !== null && merged.archived_at === null,
+      routes,
+    };
+    for (const [, rule] of ITEM_PATCH_RULES) await rule(patch);
+    // (4) R5 (variant name, index) and 01a's active-name index, at the write
+    const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () =>
+      nameTaken('menu_items_variant_name', 'variant', merged.variant_name ?? '', () => updateMenuItem(level, merged, now)),
+    );
     const item = {
       ...row,
       availability_windows: await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput),
@@ -1007,7 +1149,7 @@ export async function patchMenuItem(
       deps,
     );
     await deps.testHooks?.beforeBump?.();
-    await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+    await bumpEveryBranch(level);
     return { item: itemWire(row, item.availability_windows, draws, routes) };
   });
 }

@@ -256,6 +256,8 @@ export const PatchMenuItemBody = z
     category_id: z.string().min(1).optional(),
     tax_class_id: z.string().min(1).nullable().optional(),
     name: Name.optional(),
+    variant_group_id: z.string().min(1).nullable().optional(),
+    variant_name: VariantName.nullable().optional(),
     group_label: GroupLabel.optional(),
     description: Description.optional(),
     sort_order: SortOrder.optional(),
@@ -273,7 +275,16 @@ export const PatchMenuItemBody = z
     availability_windows: AvailabilityWindows.optional(),
     archived: z.boolean().optional(),
   })
-  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' })
+  // 01c §6.5: leaving a group sends both null; one of them null alone → 400 (the merged-row pair is the service's)
+  .superRefine((body, ctx) => {
+    if (body.variant_group_id === null && body.variant_name !== null) {
+      ctx.addIssue({ code: 'custom', path: ['variant_name'], message: 'must be null with variant_group_id null' });
+    }
+    if (body.variant_name === null && body.variant_group_id !== null) {
+      ctx.addIssue({ code: 'custom', path: ['variant_group_id'], message: 'must be null with variant_name null' });
+    }
+  });
 
 // §6.16: { station_id, program_id?, stock_program_id?, price_minor_override? } sets the branch's route;
 // { station_id: null } removes it.

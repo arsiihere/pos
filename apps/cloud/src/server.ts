@@ -40,6 +40,7 @@ export interface CloudTestHooks {
   afterTargetLock?(route: string): Promise<void>; // task 34
   afterReferenceLock?(route: string): Promise<void>; // task 34
   beforeBump?(): Promise<void>; // task 19
+  beforeItemLock?(attempt: number): Promise<void>; // 01c task 13: §6.5 after the group locks, before the item lock (#120)
   beforePrune?(): Promise<void>; // task 15 (#122)
   afterTenantLock?(): Promise<void>; // 01b task 21: directoryWrite, right after tenants … FOR NO KEY UPDATE (#85)
   guardRead?(): Promise<void>; // 01b task 35: a rejection makes the JWT guard's owner-row read fail (#107)

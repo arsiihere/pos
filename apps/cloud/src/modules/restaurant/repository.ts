@@ -558,6 +558,22 @@ export async function shareVariantGroup(
   return rows[0] === undefined ? undefined : { category_id: rows[0].category_id, archived_at: msOrNull(rows[0].archived_at) };
 }
 
+// 01c §6 lock order 3 (§6.5, M3): the item's stored and merged variant groups FOR SHARE in one statement, ids
+// ascending, before the item lock. An unknown id is simply not returned.
+export async function shareVariantGroups(
+  repo: TenantLevelRepository,
+  variantGroupIds: readonly string[],
+): Promise<Array<{ variant_group_id: string; category_id: string; archived_at: number | null }>> {
+  const rows = await repo.query<{ variant_group_id: string; category_id: string; archived_at: string | null }>(
+    `SELECT variant_group_id, category_id, archived_at FROM variant_groups
+      WHERE tenant_id = $1 AND variant_group_id = ANY($2)
+      ORDER BY variant_group_id
+      FOR SHARE`,
+    [variantGroupIds],
+  );
+  return rows.map((row) => ({ variant_group_id: row.variant_group_id, category_id: row.category_id, archived_at: msOrNull(row.archived_at) }));
+}
+
 // 01c §6 lock order 5: a draw's stock item FOR SHARE (§6.4 reference), with its unit for the V4 rule.
 export async function shareStockItem(
   repo: TenantLevelRepository,
@@ -686,6 +702,15 @@ export async function insertMenuItem(
   return menuItemRow(rows[0]!);
 }
 
+// 01c §6.5 restart rule (N2): the item read without a lock, so its variant group(s) can be locked before it.
+export async function readMenuItem(repo: TenantLevelRepository, itemId: string): Promise<MenuItemRow | undefined> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
+    `SELECT ${MENU_ITEM_COLUMNS} FROM menu_items WHERE tenant_id = $1 AND item_id = $2`,
+    [itemId],
+  );
+  return rows[0] === undefined ? undefined : menuItemRow(rows[0]);
+}
+
 export async function lockMenuItem(repo: TenantLevelRepository, itemId: string): Promise<MenuItemRow | undefined> {
   const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
     `SELECT ${MENU_ITEM_COLUMNS} FROM menu_items WHERE tenant_id = $1 AND item_id = $2 FOR UPDATE`,
@@ -700,7 +725,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            sort_order = $8, price_minor = $9, serve_mode = $10, prep_buffer_ms = $11, cook_time_ms = $12,
                            stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
-                           updated_at = $21
+                           updated_at = $21, variant_group_id = $22, variant_name = $23
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -724,6 +749,8 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       item.carries_over,
       item.archived_at,
       now,
+      item.variant_group_id,
+      item.variant_name,
     ],
   );
   return menuItemRow(rows[0]!);
