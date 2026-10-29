@@ -16,7 +16,7 @@ const Payload = z.object({
     .superRefine(uniqueItemIds),
 });
 
-// §6.17: one StockSet per entry, even when on_hand equals the current value (S41).
+// §6.17: one StockSet (v2, 01c §6.18) per entry, even when on_hand equals the current value (S41).
 export function registerSetPrecookedStock(app: FastifyInstance): void {
   commandRegistry(app).register(
     defineCommand({
@@ -33,8 +33,8 @@ export function registerSetPrecookedStock(app: FastifyInstance): void {
             stream_type: 'stock' as const,
             stream_id: entry.item_id,
             event_type: 'StockSet',
-            schema_version: 1,
-            payload: { item_id: entry.item_id, on_hand: entry.on_hand, unit: dayUnits(ctx.state, items[i]!).stock_unit },
+            schema_version: 2,
+            payload: { stock_item_id: entry.item_id, on_hand: entry.on_hand, unit: dayUnits(ctx.state, items[i]!).stock_unit },
             occurred_at: now,
             actor_id: ctx.actor.staffId,
             device_id: ctx.actor.deviceId,

@@ -32,9 +32,9 @@ describe('SetPrecookedStock (§6.17)', () => {
       ],
     });
     expect(stockSets(hub)).toEqual([
-      { stream_id: 'I1', payload: { item_id: 'I1', on_hand: 6, unit: 'piece' } },
-      { stream_id: 'I2', payload: { item_id: 'I2', on_hand: 0, unit: 'piece' } },
-      { stream_id: 'I3', payload: { item_id: 'I3', on_hand: 1_500, unit: 'g' } },
+      { stream_id: 'I1', payload: { stock_item_id: 'I1', on_hand: 6, unit: 'piece' } },
+      { stream_id: 'I2', payload: { stock_item_id: 'I2', on_hand: 0, unit: 'piece' } },
+      { stream_id: 'I3', payload: { stock_item_id: 'I3', on_hand: 1_500, unit: 'g' } },
     ]);
     expect(res.json().data.event_ids).toHaveLength(3);
     expect(engine(hub).stock.I3).toEqual({ on_hand: 1_500, reserved: 0, set_at: now, unit: 'g' });

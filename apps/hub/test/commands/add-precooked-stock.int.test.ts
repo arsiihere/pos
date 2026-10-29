@@ -61,10 +61,10 @@ describe('AddPrecookedStock (§6.17a)', () => {
       ],
     });
     expect(eventsSince(hub, before)).toEqual([
-      { event_type: 'StockAdded', stream_id: 'I3', payload: { item_id: 'I3', quantity: 500, unit: 'g' } },
-      { event_type: 'StockSet', stream_id: 'I1', payload: { item_id: 'I1', on_hand: 2, unit: 'piece' } },
-      { event_type: 'StockSet', stream_id: 'I2', payload: { item_id: 'I2', on_hand: 4, unit: 'piece' } },
-      { event_type: 'StockSet', stream_id: 'I4', payload: { item_id: 'I4', on_hand: 750, unit: 'g' } },
+      { event_type: 'StockAdded', stream_id: 'I3', payload: { stock_item_id: 'I3', quantity: 500, unit: 'g' } },
+      { event_type: 'StockSet', stream_id: 'I1', payload: { stock_item_id: 'I1', on_hand: 2, unit: 'piece' } },
+      { event_type: 'StockSet', stream_id: 'I2', payload: { stock_item_id: 'I2', on_hand: 4, unit: 'piece' } },
+      { event_type: 'StockSet', stream_id: 'I4', payload: { stock_item_id: 'I4', on_hand: 750, unit: 'g' } },
     ]);
     // S45: an add is not a count; set_at stays the count's time.
     expect(engine(hub).stock.I3).toEqual({ on_hand: 1_500, reserved: 0, set_at: countedAt, unit: 'g' });

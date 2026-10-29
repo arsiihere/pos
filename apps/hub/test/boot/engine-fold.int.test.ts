@@ -93,6 +93,35 @@ describe('engine state through boot (S15)', () => {
     expect(engine(second).stock).toEqual(before);
   });
 
+  it('[01c #67] boot fold over a v1 StockSet (item id) then a v2 StockSet (same id) → one entry, latest wins', async () => {
+    registerRestaurantBootSteps();
+    const cfg = writeConfig();
+    cleanups.push(cfg.cleanup);
+    const first = await start(cfg.path, WALL);
+    // a v1 row as an 01a hub stored it (the writer now upcasts on append, so insert it raw)
+    first.deps.db
+      .prepare(
+        `INSERT INTO events (event_id, tenant_id, branch_id, stream_type, stream_id, event_type,
+           schema_version, payload, occurred_at, recorded_at, actor_id, device_id, seq)
+         VALUES ('01J000000000000000000000V1', 'tenant-a', ?, 'stock', 'I1', 'StockSet', 1, ?, ?, ?, NULL, 'hub', ?)`,
+      )
+      .run(BRANCH, JSON.stringify({ item_id: 'I1', on_hand: 12, unit: 'piece' }), WALL, WALL, first.deps.writer.lastSeq() + 1);
+    append(first, [{ ...draft('stock', 'I1', 'StockSet', { stock_item_id: 'I1', on_hand: 7, unit: 'piece' }, WALL), schema_version: 2 }]);
+    const stored = first.deps.db
+      .prepare(`SELECT schema_version, payload FROM events WHERE event_type = 'StockSet' ORDER BY seq`)
+      .all() as Array<{ schema_version: number; payload: string }>;
+    expect(stored.map((row) => [row.schema_version, JSON.parse(row.payload) as unknown])).toEqual([
+      [1, { item_id: 'I1', on_hand: 12, unit: 'piece' }],
+      [2, { stock_item_id: 'I1', on_hand: 7, unit: 'piece' }],
+    ]);
+    await first.stop();
+    cleanups.splice(cleanups.length - 1, 1);
+
+    const second = await start(cfg.path, WALL + 60_000);
+    expect(Object.keys(engine(second).stock)).toEqual(['I1']);
+    expect(engine(second).stock.I1).toMatchObject({ on_hand: 7, reserved: 0, unit: 'piece' });
+  });
+
   it('[01a §10 #93] restart after StockSet → set_at equals its value before the restart', async () => {
     registerRestaurantBootSteps();
     const cfg = writeConfig();

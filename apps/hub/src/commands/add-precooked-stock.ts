@@ -36,10 +36,10 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
             stream_type: 'stock' as const,
             stream_id: entry.item_id,
             event_type: valid ? 'StockAdded' : 'StockSet',
-            schema_version: 1,
+            schema_version: 2,
             payload: valid
-              ? { item_id: entry.item_id, quantity: entry.quantity, unit }
-              : { item_id: entry.item_id, on_hand: entry.quantity, unit },
+              ? { stock_item_id: entry.item_id, quantity: entry.quantity, unit }
+              : { stock_item_id: entry.item_id, on_hand: entry.quantity, unit },
             occurred_at: now,
             actor_id: ctx.actor.staffId,
             device_id: ctx.actor.deviceId,

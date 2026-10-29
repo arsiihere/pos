@@ -127,8 +127,8 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
       { item_id: 'I1', on_hand: 5, unit: 'piece', available: 5 },
       { item_id: 'I4', on_hand: 1_000, unit: 'g', available: 1_000 },
     ]);
-    expect(lastPayload(hub, 'StockSet', 'I1')).toEqual({ item_id: 'I1', on_hand: 5, unit: 'piece' });
-    expect(lastPayload(hub, 'StockSet', 'I4')).toEqual({ item_id: 'I4', on_hand: 1_000, unit: 'g' });
+    expect(lastPayload(hub, 'StockSet', 'I1')).toEqual({ stock_item_id: 'I1', on_hand: 5, unit: 'piece' });
+    expect(lastPayload(hub, 'StockSet', 'I4')).toEqual({ stock_item_id: 'I4', on_hand: 1_000, unit: 'g' });
 
     hub.clock.set(at(22));
     expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close')).json().data.result.reason).toBe('closed');
@@ -143,7 +143,7 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     hub.clock.set(at(23));
     const fresh = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 2_000 }] }, 'cmd-count-3');
     expect(fresh.json().data.result.items[0]).toMatchObject({ unit: 'g', available: 2_000 });
-    expect(lastPayload(hub, 'StockSet', 'I1')).toEqual({ item_id: 'I1', on_hand: 2_000, unit: 'g' });
+    expect(lastPayload(hub, 'StockSet', 'I1')).toEqual({ stock_item_id: 'I1', on_hand: 2_000, unit: 'g' });
   });
 });
 

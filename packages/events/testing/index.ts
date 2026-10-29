@@ -247,11 +247,17 @@ export function aBranchConfigApplied(overrides?: Overrides): PosEvent {
 }
 
 export function aStockSet(overrides?: Overrides): PosEvent {
-  return build(stock('StockSet', 'I1', { item_id: 'I1', on_hand: 10, unit: 'piece' }), overrides);
+  return build(
+    { ...stock('StockSet', 'I1', { stock_item_id: 'I1', on_hand: 10, unit: 'piece' }), schema_version: 2 },
+    overrides,
+  );
 }
 
 export function aStockAdded(overrides?: Overrides): PosEvent {
-  return build(stock('StockAdded', 'I1', { item_id: 'I1', quantity: 5, unit: 'piece' }), overrides);
+  return build(
+    { ...stock('StockAdded', 'I1', { stock_item_id: 'I1', quantity: 5, unit: 'piece' }), schema_version: 2 },
+    overrides,
+  );
 }
 
 export function aBusinessDayOpened(overrides?: Overrides): PosEvent {

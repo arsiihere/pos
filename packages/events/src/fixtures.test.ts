@@ -18,7 +18,7 @@ describe("fixtures", () => {
         version: Number(match[2]),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    expect(versioned).toHaveLength(22);
+    expect(versioned).toHaveLength(24);
     for (const { name, type } of versioned) {
       const stored = JSON.parse(
         readFileSync(join(dir, name), "utf8"),
@@ -130,49 +130,68 @@ describe("fixtures", () => {
     );
   });
 
+  it("[01c §5.3] StockSet.v1.json and StockAdded.v1.json upcast to their .latest.json with stock_item_id = item_id", () => {
+    const dir = fileURLToPath(new URL("../fixtures/", import.meta.url));
+    for (const type of ["StockSet", "StockAdded"]) {
+      const v1 = JSON.parse(
+        readFileSync(join(dir, `${type}.v1.json`), "utf8"),
+      ) as { payload: { item_id: string } };
+      const latest = JSON.parse(
+        readFileSync(join(dir, `${type}.latest.json`), "utf8"),
+      ) as { schema_version: number };
+      const upcast = parseEvent(v1);
+      expect(upcast, type).toEqual(latest);
+      expect(upcast.schema_version, type).toBe(2);
+      expect(upcast.payload, type).toMatchObject({
+        stock_item_id: v1.payload.item_id,
+      });
+      expect(upcast.payload, type).not.toHaveProperty("item_id");
+    }
+  });
+
   it("[01a §4.2] StockSet rejects on_hand 1000001 and -1; StockAdded rejects quantity 0", () => {
-    const set = payloadSchema("StockSet", 1);
+    const set = payloadSchema("StockSet", 2);
     expect(
-      set.safeParse({ item_id: "i", on_hand: 1_000_000, unit: "piece" })
+      set.safeParse({ stock_item_id: "i", on_hand: 1_000_000, unit: "piece" })
         .success,
     ).toBe(true);
     expect(
-      set.safeParse({ item_id: "i", on_hand: 0, unit: "piece" }).success,
+      set.safeParse({ stock_item_id: "i", on_hand: 0, unit: "piece" }).success,
     ).toBe(true);
     expect(
-      set.safeParse({ item_id: "i", on_hand: 1_000_001, unit: "piece" })
+      set.safeParse({ stock_item_id: "i", on_hand: 1_000_001, unit: "piece" })
         .success,
     ).toBe(false);
     expect(
-      set.safeParse({ item_id: "i", on_hand: -1, unit: "piece" }).success,
+      set.safeParse({ stock_item_id: "i", on_hand: -1, unit: "piece" }).success,
     ).toBe(false);
-    const added = payloadSchema("StockAdded", 1);
+    const added = payloadSchema("StockAdded", 2);
     expect(
-      added.safeParse({ item_id: "i", quantity: 1, unit: "g" }).success,
+      added.safeParse({ stock_item_id: "i", quantity: 1, unit: "g" }).success,
     ).toBe(true);
     expect(
-      added.safeParse({ item_id: "i", quantity: 1_000_000, unit: "g" }).success,
+      added.safeParse({ stock_item_id: "i", quantity: 1_000_000, unit: "g" }).success,
     ).toBe(true);
     expect(
-      added.safeParse({ item_id: "i", quantity: 0, unit: "g" }).success,
+      added.safeParse({ stock_item_id: "i", quantity: 0, unit: "g" }).success,
     ).toBe(false);
     expect(
-      added.safeParse({ item_id: "i", quantity: 1_000_001, unit: "g" }).success,
+      added.safeParse({ stock_item_id: "i", quantity: 1_000_001, unit: "g" }).success,
     ).toBe(false);
   });
 
   it("[01a §4.2] StockSet and StockAdded require unit", () => {
     expect(
-      payloadSchema("StockSet", 1).safeParse({ item_id: "i", on_hand: 1 })
+      payloadSchema("StockSet", 2).safeParse({ stock_item_id: "i", on_hand: 1 })
         .success,
     ).toBe(false);
     expect(
-      payloadSchema("StockAdded", 1).safeParse({ item_id: "i", quantity: 1 })
+      payloadSchema("StockAdded", 2).safeParse({ stock_item_id: "i", quantity: 1 })
         .success,
     ).toBe(false);
     expect(
-      payloadSchema("StockSet", 1).safeParse({
-        item_id: "i",
+      payloadSchema("StockSet", 2).safeParse({
+        stock_item_id: "i",
         on_hand: 1,
         unit: "kg",
       }).success,

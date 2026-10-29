@@ -28,11 +28,11 @@ function withEntry(itemId: string, entry: StockEntry): EngineState {
 }
 
 function stockSet(itemId: string, onHand: number, unit: string, at: number) {
-  return aStockSet({ stream_id: itemId, recorded_at: at, payload: { item_id: itemId, on_hand: onHand, unit } });
+  return aStockSet({ stream_id: itemId, recorded_at: at, payload: { stock_item_id: itemId, on_hand: onHand, unit } });
 }
 
 function stockAdded(itemId: string, quantity: number, unit: string, at: number) {
-  return aStockAdded({ stream_id: itemId, recorded_at: at, payload: { item_id: itemId, quantity, unit } });
+  return aStockAdded({ stream_id: itemId, recorded_at: at, payload: { stock_item_id: itemId, quantity, unit } });
 }
 
 describe('@pos/engine stock slice', () => {
