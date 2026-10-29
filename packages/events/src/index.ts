@@ -33,3 +33,4 @@ export * from './admin/restaurant.js';
 export * from './admin/owner-auth.js';
 export * from './admin/hub.js';
 export * from './admin/staff.js';
+export * from './admin/menu-variants.js';
