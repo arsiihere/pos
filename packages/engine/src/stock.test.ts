@@ -1,10 +1,20 @@
-import type { ConfigItemV1 } from '@pos/events';
-import { aBranchConfigV1, aHubStarted, aStockAdded, aStockSet } from '@pos/events/testing';
+import type { ConfigItem, ConfigItemV1 } from '@pos/events';
+import {
+  aBranchConfig,
+  aBranchConfigV1,
+  aBusinessDayClosed,
+  aBusinessDayOpened,
+  aHubStarted,
+  aStockAdded,
+  aStockSet,
+} from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
   availableStock,
   canServeFromStock,
   countIsValid,
+  dayDraws,
+  dayStockUnit,
   initialEngineState,
   saleUnitsAvailable,
   stockLevel,
@@ -104,7 +114,8 @@ describe('@pos/engine stock slice', () => {
       business_date: '2026-10-25',
       opened_at: at,
       closed_at: null,
-      units: { I1: { stock_unit: unit, sale_unit: 'piece' as const, stock_per_sale_unit: unit === 'g' ? 250 : 1 } },
+      stock_units: { I1: unit },
+      draws: { I1: { sale_unit: 'piece' as const, stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: unit === 'g' ? 250 : 1 }] } },
     });
     // The config now says g with a 1 000 g threshold; the open day froze piece.
     const grams = item('I1', { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250, low_stock_threshold: 1000 });
@@ -122,6 +133,55 @@ describe('@pos/engine stock slice', () => {
     });
     expect(stockLevel(gramDay(500), 'I1', T0, grams)).toBe('low');
     expect(stockLevel(gramDay(1500), 'I1', T0, grams)).toBe('ok');
+  });
+
+  it('[01c #108] dayDraws: an item added mid-day uses its config draw; a draw whose stock item changed unit mid-day is not used that day; after the next open the frozen draw', () => {
+    const config = aBranchConfig();
+    const half = config.items.find((i) => i.item_id === 'I1')!;
+    const quarter: ConfigItem = {
+      ...half,
+      item_id: 'I4',
+      name: 'Chicken Karahi — Quarter',
+      variant_name: 'Quarter',
+      sort_order: 4,
+      stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 250 }],
+    };
+    const quarterDraw = { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 250 }] };
+    // Day open with the pot frozen in g; Quarter is not in the day's draws.
+    const open = applyEvent(
+      initialEngineState(),
+      aBusinessDayOpened({
+        recorded_at: T0,
+        payload: {
+          business_date: '2026-10-25',
+          stock_units: { K1: 'g' },
+          draws: {
+            I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] },
+            I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1_000 }] },
+          },
+        },
+      }),
+    );
+    expect(dayDraws(open, quarter, { K1: 'g' })).toEqual(quarterDraw);
+    expect(dayDraws(open, half, { K1: 'g' })).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] });
+
+    // The pot's config stock_unit changes to piece mid-day: Quarter is untracked for the day; Half keeps its frozen draw.
+    expect(dayDraws(open, quarter, { K1: 'piece' })).toEqual({ sale_unit: 'piece', stock_draws: [] });
+    expect(dayStockUnit(open, { stock_item_id: 'K1', stock_unit: 'piece' })).toBe('g');
+    expect(dayDraws(open, half, { K1: 'piece' }).stock_draws).toEqual([{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }]);
+
+    // The next open freezes piece and Quarter's draw: used again.
+    const closed = applyEvent(open, aBusinessDayClosed({ recorded_at: T1 }));
+    const next = applyEvent(
+      closed,
+      aBusinessDayOpened({
+        recorded_at: T1 + 1,
+        payload: { business_date: '2026-10-26', stock_units: { K1: 'piece' }, draws: { I4: quarterDraw } },
+      }),
+    );
+    expect(dayStockUnit(next, { stock_item_id: 'K1', stock_unit: 'piece' })).toBe('piece');
+    expect(dayDraws(next, quarter, { K1: 'piece' })).toEqual(quarterDraw);
+    expect(dayDraws(next, quarter, { K1: 'g' })).toEqual(quarterDraw);
   });
 
   it("[01a S14] stockOf on a missing item → { 0, 0, null, 'piece' }", () => {

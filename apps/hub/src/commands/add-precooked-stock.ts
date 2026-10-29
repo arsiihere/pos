@@ -1,9 +1,10 @@
-import { applyEvent, countIsValid, dayUnits, openDayStartMs, stockOf } from '@pos/engine';
+import { applyEvent, countIsValid, openDayStartMs, stockOf } from '@pos/engine';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
-import { requireItemsInScope, stockItems, stockResult, uniqueItemIds } from './set-precooked-stock.js';
+import { branchConfigV2 } from '../sync/config-v2-view.js';
+import { dayStockUnitOf, requireItemsInScope, stockItems, stockResult, uniqueItemIds } from './set-precooked-stock.js';
 
 const Payload = z.object({
   entries: z
@@ -26,10 +27,11 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
         requireItemsInScope(ctx, items);
         const start = openDayStartMs(ctx.state);
         const now = ctx.clock.branchNow();
+        const config = branchConfigV2();
         const recordedAs: Array<'added' | 'set'> = [];
         const drafts = payload.entries.map((entry, i) => {
           const item = items[i]!;
-          const unit = dayUnits(ctx.state, item).stock_unit;
+          const unit = dayStockUnitOf(ctx.state, config, item);
           const valid = countIsValid(stockOf(ctx.state, entry.item_id), start, { carries_over: item.carries_over, stock_unit: unit });
           recordedAs.push(valid ? 'added' : 'set');
           return {

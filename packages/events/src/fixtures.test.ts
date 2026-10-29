@@ -18,7 +18,7 @@ describe("fixtures", () => {
         version: Number(match[2]),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    expect(versioned).toHaveLength(24);
+    expect(versioned).toHaveLength(25);
     for (const { name, type } of versioned) {
       const stored = JSON.parse(
         readFileSync(join(dir, name), "utf8"),
@@ -130,7 +130,7 @@ describe("fixtures", () => {
     );
   });
 
-  it("[01c §5.3] StockSet.v1.json and StockAdded.v1.json upcast to their .latest.json with stock_item_id = item_id", () => {
+  it("[01c #66] StockSet.v1.json and StockAdded.v1.json upcast to their .latest.json with stock_item_id = item_id; BusinessDayOpened.v1.json upcasts to its .latest.json", () => {
     const dir = fileURLToPath(new URL("../fixtures/", import.meta.url));
     for (const type of ["StockSet", "StockAdded"]) {
       const v1 = JSON.parse(
@@ -147,6 +147,43 @@ describe("fixtures", () => {
       });
       expect(upcast.payload, type).not.toHaveProperty("item_id");
     }
+    // §5.3 row 3: stock_units[k] = stock_unit; draws[k] = one draw from stock item k.
+    const dayV1 = JSON.parse(
+      readFileSync(join(dir, "BusinessDayOpened.v1.json"), "utf8"),
+    ) as {
+      payload: {
+        units: Record<string, { stock_unit: string; sale_unit: string; stock_per_sale_unit: number }>;
+      };
+    };
+    const dayLatest = JSON.parse(
+      readFileSync(join(dir, "BusinessDayOpened.latest.json"), "utf8"),
+    ) as { schema_version: number };
+    const day = parseEvent(dayV1);
+    expect(day).toEqual(dayLatest);
+    expect(day.schema_version).toBe(2);
+    const [[k, units]] = Object.entries(dayV1.payload.units) as [[string, { stock_unit: string; sale_unit: string; stock_per_sale_unit: number }]];
+    expect(day.payload).toEqual({
+      business_date: "2025-10-20",
+      stock_units: { [k]: units.stock_unit },
+      draws: {
+        [k]: {
+          sale_unit: units.sale_unit,
+          stock_draws: [{ stock_item_id: k, quantity_per_sale_unit: units.stock_per_sale_unit }],
+        },
+      },
+    });
+  });
+
+  it("[01c §6.20] BusinessDayOpened v2 accepts empty stock_units and draws; rejects a draw with quantity_per_sale_unit 0, an unknown unit and a bad date", () => {
+    const schema = payloadSchema("BusinessDayOpened", 2);
+    const draw = { stock_item_id: "K1", quantity_per_sale_unit: 500 };
+    const ok = { business_date: "2026-10-25", stock_units: { K1: "g" }, draws: { I1: { sale_unit: "piece", stock_draws: [draw] } } };
+    expect(schema.safeParse(ok).success).toBe(true);
+    expect(schema.safeParse({ business_date: "2026-10-25", stock_units: {}, draws: {} }).success).toBe(true);
+    expect(schema.safeParse({ ...ok, draws: { I1: { sale_unit: "piece", stock_draws: [] } } }).success).toBe(true);
+    expect(schema.safeParse({ ...ok, draws: { I1: { sale_unit: "piece", stock_draws: [{ ...draw, quantity_per_sale_unit: 0 }] } } }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, stock_units: { K1: "kg" } }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, business_date: "25-10-2026" }).success).toBe(false);
   });
 
   it("[01a §4.2] StockSet rejects on_hand 1000001 and -1; StockAdded rejects quantity 0", () => {

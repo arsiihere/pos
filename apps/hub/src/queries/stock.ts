@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
-import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfigV1 } from '@pos/events';
+import { availableStock, dayDraws, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
+import { isStockTrackedV1, type BranchConfig, type BranchConfigV1 } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
-import { manageStockScope, stockScopeFilter } from '../commands/set-precooked-stock.js';
+import { dayStockUnitOf, manageStockScope, stockScopeFilter } from '../commands/set-precooked-stock.js';
+import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { stockVersion } from '../sync/stock-version.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 
@@ -28,6 +29,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
         const inScope = stockScopeFilter(ctx.directory, ctx.session?.staff_id ?? null, resolution);
         const config = scopedConfig(ctx.branchConfig, inScope);
         const state = ctx.state;
+        const v2 = branchConfigV2();
         const start = openDayStartMs(state);
         // R-2: a scoped item list also keys the meta part, so a directory change (stations, scope) reaches the page.
         const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}${config === ctx.branchConfig ? '' : `.${scopeKey(config)}`}`;
@@ -51,8 +53,8 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             day_stale: start !== null && time.now_ms - start > staleAfterHours * 3_600_000,
             day_stale_after_hours: staleAfterHours,
             day_min_gap_hours: config?.day_min_gap_hours ?? DEFAULT_DAY_MIN_GAP_HOURS,
-            items_meta: metaChanged ? itemsMeta(state, config) : null,
-            items: unchanged ? null : stockItems(ctx, config, start),
+            items_meta: metaChanged ? itemsMeta(state, config, v2) : null,
+            items: unchanged ? null : stockItems(ctx, config, v2, start),
           },
         };
       },
@@ -60,11 +62,15 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
   );
 }
 
-function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null) {
+function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, v2: BranchConfig | null) {
   if (config === null) return [];
+  const v2Items = new Map((v2?.items ?? []).map((item) => [item.item_id, item]));
+  const configStockUnits = Object.fromEntries((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
   return config.items.map((item) => {
-    // S44: the units frozen for the open day, else the item's own.
-    const units = dayUnits(state, item);
+    // S44 (01c §3.5.3, V20): the unit and draw frozen for the open day, else the item's own.
+    const v2Item = v2Items.get(item.item_id);
+    const draws = v2Item === undefined ? null : dayDraws(state, v2Item, configStockUnits);
+    const draw = draws?.stock_draws[0];
     const category = config.categories.find((c) => c.category_id === item.category_id);
     return {
       item_id: item.item_id,
@@ -74,9 +80,9 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null) 
       category_name: category?.name ?? item.category_id,
       is_stock_tracked: isStockTrackedV1(config, item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
-      stock_unit: units.stock_unit,
-      sale_unit: units.sale_unit,
-      stock_per_sale_unit: units.stock_per_sale_unit,
+      stock_unit: dayStockUnitOf(state, v2, item),
+      sale_unit: draws?.sale_unit ?? item.sale_unit,
+      stock_per_sale_unit: draw?.quantity_per_sale_unit ?? item.stock_per_sale_unit,
       low_stock_threshold: item.low_stock_threshold,
       carries_over: item.carries_over,
       item_windows: item.availability_windows,
@@ -87,11 +93,11 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null) 
 
 // S14, S41, S46: numbers and flags only; 1 statement for the availability rows.
 // v1.0.2: unit is the open day's frozen unit (else the config's); a count in another unit reads as no count.
-function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, start: number | null) {
+function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null, start: number | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
   return items.map((item) => {
-    const unit = dayUnits(ctx.state, item).stock_unit;
+    const unit = dayStockUnitOf(ctx.state, v2, item);
     const stored = stockOf(ctx.state, item.item_id);
     const entry = stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
     const since = off.get(item.item_id);

@@ -87,7 +87,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const entry = (setAt: number | null): StockEntry => ({ on_hand: 4, reserved: 1, set_at: setAt, unit: 'piece' });
     const state = (setAt: number | null, start: number | null): EngineState => ({
       stock: { I1: entry(setAt) },
-      business_day: start === null ? null : { business_date: '2026-10-25', opened_at: start, closed_at: null, units: {} },
+      business_day: start === null ? null : { business_date: '2026-10-25', opened_at: start, closed_at: null, stock_units: {}, draws: {} },
     });
     expect(availableStock(state(at(25, 8), at(25, 9)), 'I1', at(25, 9), i1)).toBe(0);
     expect(availableStock(state(at(25, 9), at(25, 9)), 'I1', at(25, 9), i1)).toBe(3);

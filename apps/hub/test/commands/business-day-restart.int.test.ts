@@ -1,14 +1,15 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { availableStock, buildEngineState, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { parseEvent, type BranchConfigV1, type ConfigItemV1, type PosEvent } from '@pos/events';
+import { availableStock, buildEngineState, dayDraws, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
+import { parseEvent, type BranchConfig, type BranchConfigV1, type ConfigItemV1, type PosEvent } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
+import { branchConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -94,11 +95,11 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     expect(buildEngineState(log(second))).toEqual(engine(second));
 
     // Test 68's engine fixture holds both day events.
-    const fixture = JSON.parse(readFileSync(new URL('../../../../packages/engine/fixtures/engine-log.v1.json', import.meta.url), 'utf8')) as Array<{ event_type: string }>;
+    const fixture = JSON.parse(readFileSync(new URL('../../../../packages/engine/fixtures/engine-log.v2.json', import.meta.url), 'utf8')) as Array<{ event_type: string }>;
     expect(fixture.map((e) => e.event_type)).toEqual(expect.arrayContaining(['BusinessDayOpened', 'BusinessDayClosed']));
   });
 
-  it('[01a §10 #149] units are frozen for the day: a unit change mid-day takes effect at the next open; an item added mid-day uses its own units', async () => {
+  it('[01a §10 #149] stock units and draws are frozen for the day: a unit change mid-day takes effect at the next open; an item added mid-day uses its own (dayStockUnit / dayDraws)', async () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     hub.clock.set(at(6));
@@ -116,9 +117,12 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     withConfig({ ...changed, items: [...changed.items.map((i) => (i.item_id === 'I1' ? i1g : i)), i4] });
     const state = engine(hub);
     expect(stockOf(state, 'I1')).toMatchObject({ on_hand: 6, unit: 'piece' });
-    expect(dayUnits(state, i1g)).toEqual({ stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 });
+    const v2 = branchConfigV2();
+    expect(dayStockUnit(state, stockItemOf(v2, 'I1'))).toBe('piece');
+    expect(dayDraws(state, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] });
     expect(availableStock(state, 'I1', openDayStartMs(state), i1g)).toBe(6);
-    expect(dayUnits(state, i4)).toEqual({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
+    expect(dayStockUnit(state, stockItemOf(v2, 'I4'))).toBe('g');
+    expect(dayDraws(state, v2ItemOf(v2, 'I4'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] });
 
     hub.clock.set(at(8));
     const recount = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 5 }, { item_id: 'I4', on_hand: 1_000 }] }, 'cmd-count-2');
@@ -133,10 +137,12 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     hub.clock.set(at(22));
     expect((await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close')).json().data.result.reason).toBe('closed');
     expect((await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-2')).json().data.result.reason).toBe('opened');
-    const opened = lastPayload(hub, 'BusinessDayOpened', BRANCH) as { units: Record<string, unknown> };
-    expect(opened.units.I1).toEqual({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
+    const opened = lastPayload(hub, 'BusinessDayOpened', BRANCH) as { stock_units: Record<string, unknown>; draws: Record<string, unknown> };
+    expect(opened.stock_units).toEqual({ I1: 'g', I3: 'g', I4: 'g' });
+    expect(opened.draws.I1).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
     const day2 = engine(hub);
-    expect(dayUnits(day2, i1g)).toEqual({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
+    expect(dayStockUnit(day2, stockItemOf(v2, 'I1'))).toBe('g');
+    expect(dayDraws(day2, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
     expect(availableStock(day2, 'I1', openDayStartMs(day2), i1g)).toBe(0);
     expect(stockLevel(day2, 'I1', openDayStartMs(day2), i1g)).toBe('not_counted');
 
@@ -190,6 +196,22 @@ function item(config: BranchConfigV1 | null, itemId: string): ConfigItemV1 {
   const found = config?.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
   return found;
+}
+
+function stockItemOf(config: BranchConfig | null, stockItemId: string) {
+  const found = config?.stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
+  if (found === undefined) throw new Error(`no stock item ${stockItemId}`);
+  return found;
+}
+
+function v2ItemOf(config: BranchConfig | null, itemId: string) {
+  const found = config?.items.find((candidate) => candidate.item_id === itemId);
+  if (found === undefined) throw new Error(`no item ${itemId}`);
+  return found;
+}
+
+function stockUnitsOf(config: BranchConfig | null): Record<string, BranchConfig['stock_items'][number]['stock_unit']> {
+  return Object.fromEntries((config?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
 }
 
 function adminOn(hub: Hub): Admin {

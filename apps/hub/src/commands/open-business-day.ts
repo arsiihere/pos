@@ -1,15 +1,16 @@
-import type { DayUnits } from '@pos/engine';
-import { isStockTrackedV1 } from '@pos/events';
+import type { Unit } from '@pos/domain';
+import type { DayDraws } from '@pos/engine';
+import { isStockTracked } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { branchConfig } from '../sync/branch-config-holder.js';
+import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { defineCommand } from './registry.js';
 import { requireBranchScope } from './set-precooked-stock.js';
 import { commandRegistry } from './route.js';
 
 const Payload = z.object({}).strict();
 
-// §6.18a, S33: opens a day only when none is open; while one is open it is a no-op.
+// §6.18a, S33 (01c §6.20: BusinessDayOpened v2): opens a day only when none is open; while one is open it is a no-op.
 export function registerOpenBusinessDay(app: FastifyInstance): void {
   commandRegistry(app).register(
     defineCommand({
@@ -28,16 +29,15 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
         }
         const now = ctx.clock.branchNow();
         const businessDate = localDate(now);
-        // S44: the units of every stock-tracked item are frozen for the day.
-        const units: Record<string, DayUnits> = {};
-        const config = branchConfig();
+        // S44, 01c §6.20: frozen for the day are the stock_unit of every stock item and the sale_unit and
+        // draws of every tracked item.
+        const config = branchConfigV2();
+        const stockUnits: Record<string, Unit> = {};
+        for (const stockItem of config?.stock_items ?? []) stockUnits[stockItem.stock_item_id] = stockItem.stock_unit;
+        const draws: Record<string, DayDraws> = {};
         for (const item of config?.items ?? []) {
-          if (config === null || !isStockTrackedV1(config, item)) continue;
-          units[item.item_id] = {
-            stock_unit: item.stock_unit,
-            sale_unit: item.sale_unit,
-            stock_per_sale_unit: item.stock_per_sale_unit,
-          };
+          if (!isStockTracked(item)) continue;
+          draws[item.item_id] = { sale_unit: item.sale_unit, stock_draws: item.stock_draws.map((draw) => ({ ...draw })) };
         }
         // Appended here so the result's opened_at is the event's recorded_at, the day's start.
         const [opened] = ctx.tx.append([
@@ -45,8 +45,8 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
             stream_type: 'hub',
             stream_id: ctx.branch.branchId,
             event_type: 'BusinessDayOpened',
-            schema_version: 1,
-            payload: { business_date: businessDate, units },
+            schema_version: 2,
+            payload: { business_date: businessDate, stock_units: stockUnits, draws },
             occurred_at: now,
             actor_id: ctx.actor.staffId,
             device_id: ctx.actor.deviceId,

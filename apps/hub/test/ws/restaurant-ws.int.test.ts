@@ -125,12 +125,16 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const state = catchUpOf(await staffSocket(hub));
     expect(state.branch_config).toEqual({ config_version: 7, snapshot_hash: HASH, hub_time: { now_ms: at(25, 7), utc_offset_ms: offset(at(25, 7)) } });
     expect(state.availability).toEqual({ unavailable_item_ids: ['I2', 'I3'] });
-    const units = {
-      I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-      I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
+    // 01c §6.20: the open day's frozen stock units and draws (aBranchConfigV1 through the V2 view).
+    const frozen = {
+      stock_units: { I1: 'piece', I3: 'g' },
+      draws: {
+        I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
+        I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
+      },
     };
     expect(state.stock).toEqual({
-      business_day: { business_date: '2026-10-25', opened_at: at(25, 6), closed_at: null, units },
+      business_day: { business_date: '2026-10-25', opened_at: at(25, 6), closed_at: null, ...frozen },
       business_day_started_at: at(25, 6),
       items: {
         I1: { on_hand: 3, reserved: 0, set_at: at(25, 7), unit: 'piece', available: 3, level: 'ok' },

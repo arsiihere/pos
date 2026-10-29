@@ -262,13 +262,18 @@ export function aStockAdded(overrides?: Overrides): PosEvent {
 
 export function aBusinessDayOpened(overrides?: Overrides): PosEvent {
   return build(
-    hub('BusinessDayOpened', envelope.branch_id, {
-      business_date: '2025-10-20',
-      units: {
-        I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-        I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
-      },
-    }),
+    {
+      // 01c §5.3 row 3: 01a's I1 (pieces) and I3 (250 g per piece), each its own stock item (V5).
+      ...hub('BusinessDayOpened', envelope.branch_id, {
+        business_date: '2025-10-20',
+        stock_units: { I1: 'piece', I3: 'g' },
+        draws: {
+          I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
+          I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
+        },
+      }),
+      schema_version: 2,
+    },
     overrides,
   );
 }

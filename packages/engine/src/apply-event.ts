@@ -1,6 +1,6 @@
 import type { Unit } from '@pos/domain';
 import type { PosEvent } from '@pos/events';
-import type { DayUnits, EngineState } from './state.js';
+import type { DayDraws, EngineState } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
@@ -8,7 +8,8 @@ import { stockOf } from './stock.js';
 // StockSet / StockAdded v2 (01c V5): keyed by stock_item_id; parseEvent upcasts v1.
 interface StockSet { stock_item_id: string; on_hand: number; unit: Unit }
 interface StockAdded { stock_item_id: string; quantity: number; unit: Unit }
-interface BusinessDayOpened { business_date: string; units: Record<string, DayUnits> }
+// BusinessDayOpened v2 (01c §5.3 row 3): parseEvent upcasts v1.
+interface BusinessDayOpened { business_date: string; stock_units: Record<string, Unit>; draws: Record<string, DayDraws> }
 
 // Pure fold. Copies only the touched entry; unknown events return `state` itself (S15).
 export function applyEvent(state: EngineState, event: PosEvent): EngineState {
@@ -38,7 +39,13 @@ export function applyEvent(state: EngineState, event: PosEvent): EngineState {
       const p = event.payload as unknown as BusinessDayOpened;
       return {
         ...state,
-        business_day: { business_date: p.business_date, opened_at: event.recorded_at, closed_at: null, units: p.units },
+        business_day: {
+          business_date: p.business_date,
+          opened_at: event.recorded_at,
+          closed_at: null,
+          stock_units: p.stock_units,
+          draws: p.draws,
+        },
       };
     }
     case 'BusinessDayClosed': {

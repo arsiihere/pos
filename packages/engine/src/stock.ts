@@ -1,6 +1,6 @@
 import type { Unit } from '@pos/domain';
-import type { ConfigItemV1 } from '@pos/events';
-import type { DayUnits, EngineState, StockEntry } from './state.js';
+import type { ConfigItem, ConfigItemV1, ConfigStockItem } from '@pos/events';
+import type { DayDraws, EngineState, StockEntry } from './state.js';
 
 const NO_ENTRY: StockEntry = { on_hand: 0, reserved: 0, set_at: null, unit: 'piece' };
 
@@ -15,15 +15,30 @@ export function openDayStartMs(state: EngineState): number | null {
   return day !== null && day.closed_at === null ? day.opened_at : null;
 }
 
-// 01a S44: the units frozen for the open day; else the item's own fields.
-export function dayUnits(state: EngineState, item: ConfigItemV1): DayUnits {
-  const frozen = openDayStartMs(state) !== null ? state.business_day?.units[item.item_id] : undefined;
-  if (frozen !== undefined) return { ...frozen };
-  return {
-    stock_unit: item.stock_unit,
-    sale_unit: item.sale_unit,
-    stock_per_sale_unit: item.stock_per_sale_unit,
-  };
+// 01a S44 (01c §3.5.3): the stock unit frozen for the open day; else the stock item's own.
+export function dayStockUnit(state: EngineState, stockItem: Pick<ConfigStockItem, 'stock_item_id' | 'stock_unit'>): Unit {
+  const frozen = openDayStartMs(state) !== null ? state.business_day?.stock_units[stockItem.stock_item_id] : undefined;
+  return frozen ?? stockItem.stock_unit;
+}
+
+// 01c V20: the sale unit and draws frozen for the open day. Fallback (m14, plan P-6): an item with no
+// frozen entry uses the config's draws, except a draw whose stock item's frozen unit differs from its
+// config unit (configStockUnits); that draw is not used until the next day open.
+export function dayDraws(
+  state: EngineState,
+  item: Pick<ConfigItem, 'item_id' | 'sale_unit' | 'stock_draws'>,
+  configStockUnits: Readonly<Record<string, Unit>>,
+): DayDraws {
+  const day = openDayStartMs(state) !== null ? state.business_day : null;
+  const frozen = day?.draws[item.item_id];
+  if (frozen !== undefined) {
+    return { sale_unit: frozen.sale_unit, stock_draws: frozen.stock_draws.map((draw) => ({ ...draw })) };
+  }
+  const stockDraws = item.stock_draws.filter((draw) => {
+    const frozenUnit = day?.stock_units[draw.stock_item_id];
+    return frozenUnit === undefined || frozenUnit === configStockUnits[draw.stock_item_id];
+  });
+  return { sale_unit: item.sale_unit, stock_draws: stockDraws.map((draw) => ({ ...draw })) };
 }
 
 // 01a S41: the only place the validity rule lives.
@@ -47,7 +62,7 @@ export function availableStock(
   const entry = stockOf(state, itemId);
   const valid = countIsValid(entry, businessDayStartMs, {
     carries_over: item.carries_over,
-    stock_unit: dayUnits(state, item).stock_unit,
+    stock_unit: dayStockUnit(state, { stock_item_id: itemId, stock_unit: item.stock_unit }),
   });
   return valid ? Math.max(0, entry.on_hand - entry.reserved) : 0;
 }
@@ -60,7 +75,7 @@ export function stockLevel(
   businessDayStartMs: number | null,
   item: ConfigItemV1,
 ): 'not_counted' | 'out' | 'low' | 'ok' {
-  const dayUnit = dayUnits(state, item).stock_unit;
+  const dayUnit = dayStockUnit(state, { stock_item_id: itemId, stock_unit: item.stock_unit });
   const valid = countIsValid(stockOf(state, itemId), businessDayStartMs, {
     carries_over: item.carries_over,
     stock_unit: dayUnit,

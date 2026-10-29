@@ -147,10 +147,17 @@ describe('engine state through boot (S15)', () => {
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
+    // A stored v1 payload is upcast (01c §5.3 row 3) before the fold.
     const units = { I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 } };
     append(first, [draft('hub', BRANCH, 'BusinessDayOpened', { business_date: '2025-10-20', units }, WALL)]);
     const opened = engine(first).business_day;
-    expect(opened).toMatchObject({ business_date: '2025-10-20', closed_at: null, units });
+    expect(opened).toEqual({
+      business_date: '2025-10-20',
+      opened_at: expect.any(Number),
+      closed_at: null,
+      stock_units: { I1: 'piece' },
+      draws: { I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] } },
+    });
     await first.stop();
     cleanups.splice(cleanups.length - 1, 1);
 

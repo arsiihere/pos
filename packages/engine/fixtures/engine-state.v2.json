@@ -1,0 +1,45 @@
+{
+  "stock": {
+    "I1": {
+      "on_hand": 8,
+      "reserved": 0,
+      "set_at": 1761000003000,
+      "unit": "piece"
+    },
+    "I3": {
+      "on_hand": 2000,
+      "reserved": 0,
+      "set_at": 1761000004000,
+      "unit": "g"
+    }
+  },
+  "business_day": {
+    "business_date": "2025-10-20",
+    "opened_at": 1761000000000,
+    "closed_at": 1761000007000,
+    "stock_units": {
+      "I1": "piece",
+      "I3": "g"
+    },
+    "draws": {
+      "I1": {
+        "sale_unit": "piece",
+        "stock_draws": [
+          {
+            "stock_item_id": "I1",
+            "quantity_per_sale_unit": 1
+          }
+        ]
+      },
+      "I3": {
+        "sale_unit": "piece",
+        "stock_draws": [
+          {
+            "stock_item_id": "I3",
+            "quantity_per_sale_unit": 250
+          }
+        ]
+      }
+    }
+  }
+}

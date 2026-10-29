@@ -1,10 +1,11 @@
-import { DomainError } from '@pos/domain';
-import { applyEvent, availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfigV1, type ConfigItemV1 } from '@pos/events';
+import { DomainError, type Unit } from '@pos/domain';
+import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
+import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigItemV1 } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
+import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { defineCommand, type CommandCtx } from './registry.js';
 import { commandRegistry } from './route.js';
 
@@ -28,13 +29,14 @@ export function registerSetPrecookedStock(app: FastifyInstance): void {
         const items = stockItems(ctx.state, payload.entries);
         requireItemsInScope(ctx, items);
         const now = ctx.clock.branchNow();
+        const config = branchConfigV2();
         const appended = ctx.tx.append(
           payload.entries.map((entry, i) => ({
             stream_type: 'stock' as const,
             stream_id: entry.item_id,
             event_type: 'StockSet',
             schema_version: 2,
-            payload: { stock_item_id: entry.item_id, on_hand: entry.on_hand, unit: dayUnits(ctx.state, items[i]!).stock_unit },
+            payload: { stock_item_id: entry.item_id, on_hand: entry.on_hand, unit: dayStockUnitOf(ctx.state, config, items[i]!) },
             occurred_at: now,
             actor_id: ctx.actor.staffId,
             device_id: ctx.actor.deviceId,
@@ -104,6 +106,17 @@ function trackedItem(config: BranchConfigV1, itemId: string): ConfigItemV1 {
   if (item === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
   if (!isStockTrackedV1(config, item)) throw new DomainError('STOCK_NOT_TRACKED', { item_id: itemId });
   return item;
+}
+
+// 01a S44 through the V2 view (01c §3.5.3, P-2): the open day's frozen unit of the item's stock item
+// (same id as the item, §5.1); an item with no stock item keeps its own unit.
+export function dayStockUnitOf(
+  state: Readonly<EngineState>,
+  config: BranchConfig | null,
+  item: Pick<ConfigItemV1, 'item_id' | 'stock_unit'>,
+): Unit {
+  const stockItem = config?.stock_items.find((candidate) => candidate.stock_item_id === item.item_id);
+  return dayStockUnit(state, stockItem ?? { stock_item_id: item.item_id, stock_unit: item.stock_unit });
 }
 
 // S40 N8: set_at is the command's clock reading; the stock query is the truth.

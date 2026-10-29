@@ -21,6 +21,7 @@ export * from './events/staff/PinLockoutCleared.v1.js';
 export * from './config.js';
 export * from './events/hub/BranchConfigApplied.v1.js';
 export * from './events/hub/BusinessDayOpened.v1.js';
+export * from './events/hub/BusinessDayOpened.v2.js';
 export * from './events/hub/BusinessDayClosed.v1.js';
 export * from './events/stock/StockSet.v1.js';
 export * from './events/stock/StockSet.v2.js';

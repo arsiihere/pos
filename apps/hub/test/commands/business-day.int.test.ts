@@ -26,14 +26,13 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(opened.statusCode).toBe(200);
     const date = '2026-10-25';
     expect(opened.json().data.result).toEqual({ business_date: date, opened_at: now, changed: true, reason: 'opened' });
-    const units = {
-      I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-      I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
-    };
+    // 01c §6.20: stock_units for every stock item, draws for every tracked item (I2 is untracked).
+    const frozen = { stock_units: V2_STOCK_UNITS, draws: V2_DRAWS };
     expect(eventsOf(hub, 'BusinessDayOpened')).toEqual([
-      { stream_type: 'hub', stream_id: 'branch-1', payload: { business_date: date, units } },
+      { stream_type: 'hub', stream_id: 'branch-1', payload: { business_date: date, ...frozen } },
     ]);
-    const day = { business_date: date, opened_at: now, closed_at: null, units };
+    expect(hub.deps.db.prepare("SELECT schema_version FROM events WHERE event_type = 'BusinessDayOpened'").pluck().all()).toEqual([2]);
+    const day = { business_date: date, opened_at: now, closed_at: null, ...frozen };
     expect(engine(hub).business_day).toEqual(day);
 
     hub.clock.advance(60_000);
@@ -76,7 +75,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(eventsOf(failing, 'BusinessDayOpened')).toEqual([]);
   });
 
-  it('[01a §6.18a] with no config the day opens with empty units; a non-empty payload → 400', async () => {
+  it('[01a §6.18a] with no config the day opens with empty stock_units and draws (01c §6.20); a non-empty payload → 400', async () => {
     const hub = await open();
     const admin = adminOn(hub, 'S_MGR');
     const extra = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', { end_current_day: true }, 'cmd-open-extra');
@@ -84,7 +83,8 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(extra.json().error.code).toBe('VALIDATION_FAILED');
     const opened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-empty');
     expect(opened.statusCode).toBe(200);
-    expect(engine(hub).business_day?.units).toEqual({});
+    expect(eventsOf(hub, 'BusinessDayOpened')[0]?.payload).toEqual({ business_date: '2026-10-25', stock_units: {}, draws: {} });
+    expect(engine(hub).business_day).toMatchObject({ stock_units: {}, draws: {} });
   });
 
   it('[01a §10 #143] close at exactly day_min_gap_hours then open: a new day; a non-carrying count reads not_counted, a carrying one keeps its stock', async () => {
@@ -116,6 +116,10 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
     const reopened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1000');
     expect(reopened.json().data.result).toMatchObject({ opened_at: at(10), changed: true, reason: 'opened' });
+    expect(eventsOf(hub, 'BusinessDayOpened').map((e) => e.payload)).toEqual([
+      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+    ]);
     expect(engine(hub).business_day).toMatchObject({ opened_at: at(10), closed_at: null });
     expect(available(hub, config, 'I1')).toBe(0);
     expect(level(hub, config, 'I1')).toBe('not_counted');
@@ -234,6 +238,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     hub.clock.set(at(24 + 6));
     const next = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-day2');
     expect(next.json().data.result).toEqual({ business_date: '2026-10-26', opened_at: at(30), changed: true, reason: 'opened' });
+    expect(eventsOf(hub, 'BusinessDayOpened').map((e) => e.payload)).toEqual([
+      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+      { business_date: '2026-10-26', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+    ]);
+    expect(engine(hub).business_day).toMatchObject({ business_date: '2026-10-26', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS });
   });
 
   it('[01a §6.18b] CloseBusinessDay before any day was opened → not_open with null fields', async () => {
@@ -245,6 +254,13 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
   });
 });
+
+// aBranchConfigV1 through the V2 view (01c P-2): I1 and I3 are stock items under their own ids.
+const V2_STOCK_UNITS = { I1: 'piece', I3: 'g' };
+const V2_DRAWS = {
+  I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
+  I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
+};
 
 // Local wall-clock hours on 2026-10-25 (the hub's zone, as business_date).
 function at(hours: number, minutes = 0): number {
