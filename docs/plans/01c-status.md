@@ -8,12 +8,20 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 |---|---|---|---|
 | AD-1 | §4.2 `dayDraws` gains `configStockUnits` (plan P-6, gap G3): `dayDraws(state, item, configStockUnits: Readonly<Record<string, Unit>>)`, needed for the V20 m14 fallback | signature | spec, at the as-built review |
 
+## Notes
+
+- **57P01 flake (scratch-database helper race):** one `terminating connection due to administrator command` error from `apps/cloud/test/helpers/scratch-db.ts` in task 1's first full run (pool `end` racing `DROP DATABASE … WITH (FORCE)`); not reproduced. If it appears again: stop and report, do not rerun.
+- **Test runs:** from batch 2 only the controller runs the full gate; subagents run focused `vitest` commands only, never overlapping another run, and use no `pgrep`/`sleep` wait loops.
+
 ## Tasks
 
 | Task | Status | Commit | Tests | Note |
 |---|---|---|---|---|
 | 1 | DONE | `15eb7d5` | #27, [01c §5.1] | Constraint names read from the test DB match §5.1 (no deviation). Expectation-only edits to `staff-roles-migration.int.test.ts` and `migrate-ahead.int.test.ts` (hard-coded applied-migration list → includes 0006; fake future migration → 0007) |
-| 2 | DONE | `5c91601` | [01c §9] | The four 404 codes; F §6.2 already carried them (`0d24760`) |
+| 2 | DONE | `5c91601` | [01c §9] | The four 404 codes; F §6.2 already carried them (`0d24760`). Re-reviewed on opus in batch 2: clean |
+| 3 | DONE | `a558c89` | #1–#10, #87, #94, #95, #102–#104 | `menu-lines.ts` quantities, charges, allocation, line totals |
+| 4 | DONE | `b985c58`, `288e1b9` | #11–#14, #96, #97, #110, #122, [01c §12.7 T3] | One fix round: chosen quantities are summed per option before the range and stock checks (an option entered twice was checked per entry) |
+| 5 | DONE | `fbb9a6c` | #117–#119, #126 | Test-only reference refund model; no `src` change |
 
 ## Checkpoints
 
@@ -25,3 +33,12 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - AD added: AD-1 (recorded on the developer's instruction; applies from task 8).
 - Open seams: none.
 - Watch: one non-reproducible Postgres `57P01` teardown error from the scratch-db helper in task 1's first full run, and 17 cloud failures in task 2's first full run caused by two test runs overlapping on the shared Postgres; both reran green.
+
+### Batch 2 (§11 step 3) — 2026-10-29
+
+- Tasks 3–5 done; task 2 re-reviewed on opus first (clean). All subagents on opus from this batch.
+- Reviews: task 3 clean; task 4 one Important finding fixed in one round; task 5 clean. Minor findings deferred to the final whole-branch review (listed in the build ledger).
+- Gate (controller only, after each task): last run 221 files, 955 tests passing; no 57P01.
+- Tests closed: 01c #1–#14, #87, #94–#97, #102–#104, #110, #117–#119, #122, #126 (28). Re-keyed: none.
+- AD added: none (AD-1 still applies from task 8).
+- Open seams: none.
