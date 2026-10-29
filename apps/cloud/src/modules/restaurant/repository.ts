@@ -512,11 +512,13 @@ export async function linkingGroupIds(repo: TenantLevelRepository, itemId: strin
   return rows.map((row) => row.modifier_group_id);
 }
 
-// 01c §6.5 R4 (V16): the deals with an active part offering the item. One plain read, no lock.
+// 01c §6.5 R4 (V16): the active deals with an active part offering the item (AD-11: parts of archived deals do not
+// count; R8, task 30, reuses this read). One plain read, no lock.
 export async function offeringDealIds(repo: TenantLevelRepository, itemId: string): Promise<string[]> {
   const rows = await repo.query<{ deal_id: string }>(
     `SELECT DISTINCT p.deal_id FROM deal_part_choices c
        JOIN deal_parts p ON p.tenant_id = c.tenant_id AND p.deal_part_id = c.deal_part_id
+       JOIN deals d ON d.tenant_id = p.tenant_id AND d.deal_id = p.deal_id AND d.archived_at IS NULL
       WHERE c.tenant_id = $1 AND c.item_id = $2 AND p.archived_at IS NULL
       ORDER BY p.deal_id`,
     [itemId],
@@ -524,12 +526,13 @@ export async function offeringDealIds(repo: TenantLevelRepository, itemId: strin
   return rows.map((row) => row.deal_id);
 }
 
-// 01c §6.5 R6 (D-3): the deals with an active part offering the item whose other choices would not share the new
-// sale_unit (the part would then mix units). One plain read over deal_part_choices_item, no lock.
+// 01c §6.5 R6 (D-3): the active deals (AD-11) with an active part offering the item whose other choices would not
+// share the new sale_unit (the part would then mix units). One plain read over deal_part_choices_item, no lock.
 export async function dealsBrokenBySaleUnit(repo: TenantLevelRepository, itemId: string, saleUnit: Unit): Promise<string[]> {
   const rows = await repo.query<{ deal_id: string }>(
     `SELECT DISTINCT p.deal_id FROM deal_part_choices c
        JOIN deal_parts p ON p.tenant_id = c.tenant_id AND p.deal_part_id = c.deal_part_id
+       JOIN deals d ON d.tenant_id = p.tenant_id AND d.deal_id = p.deal_id AND d.archived_at IS NULL
        JOIN deal_part_choices other ON other.tenant_id = c.tenant_id AND other.deal_part_id = c.deal_part_id
         AND other.item_id <> c.item_id
        JOIN menu_items m ON m.tenant_id = other.tenant_id AND m.item_id = other.item_id

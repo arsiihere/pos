@@ -141,6 +141,25 @@ describe('01c item PATCH: in-use rules and precedence (§6.5 R4, R10, R6)', () =
     await ok(kulcha, { sale_unit: 'g' });
   });
 
+  it('[01c §6.5 AD-11] a part of an archived deal does not block: archive → 200, sale_unit → 200; the deal active → the 409s', async () => {
+    const naan = await create('Naan');
+    const roghni = await create('Roghni naan');
+    await seedDealPartRows(cloud, f, {
+      dealId: 'DL-1',
+      name: 'Karahi deal',
+      categoryId: menu.categoryIds[0],
+      archived: true,
+      parts: [{ dealPartId: 'DP-BREAD', choices: [naan, roghni] }],
+    });
+    await ok(naan, { sale_unit: 'g' });
+    await ok(naan, { sale_unit: 'piece' });
+    await ok(naan, { archived: true });
+    await ok(naan, { archived: false });
+    await cloud.pool.query(`UPDATE deals SET archived_at = NULL WHERE tenant_id = $1 AND deal_id = 'DL-1'`, [f.tenantId]);
+    expect((await nothingWritten(naan, { sale_unit: 'g' }, 409)).error).toMatchObject(inUse(naan, 'deal', ['DL-1']));
+    expect((await nothingWritten(naan, { archived: true }, 409)).error).toMatchObject(inUse(naan, 'deal', ['DL-1']));
+  });
+
   it('[01c #128] precedence: R10 before R6, R8 and R2; R7 400 first; R4 as before; T4: R10 before 01a stock_time_exceeds_cook_time', async () => {
     const naan = await create('Naan', { stock_time_ms: 120_000 });
     const roghni = await create('Roghni naan');
