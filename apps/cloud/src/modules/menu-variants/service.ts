@@ -273,9 +273,10 @@ export async function createStockItem(
 }
 
 // §6.8 (C4; lock order 5 → 10): tenant-wide check (403) → stock item FOR UPDATE (404) → version (409 CONFIG_STALE,
-// a stale no-op too) → no payload references → no-op (200, nothing written) → R1 a stock_unit change re-runs the
-// V4 unit rule on every active drawer (422 unit_mismatch), R2 archive with an active drawer (409 CONFIG_IN_USE):
-// one plain read of the active drawers, only when R1 or R2 applies → R3 name (index → 409) → write → audit → bump.
+// a stale no-op too) → no payload references → no-op (200, nothing written) → R2 archive with an active drawer
+// (409 CONFIG_IN_USE), then R1 a stock_unit change re-runs the V4 unit rule on every active drawer (422 unit_mismatch);
+// R2 before R1 follows §6.5's precedence 400 → 409 → 422 (AD-13; §6.8 states no order): one plain read of the active
+// drawers, only when R1 or R2 applies → R3 name (index → 409) → write → audit → bump.
 // No cascade: branch rows and draws are untouched.
 export async function patchStockItem(
   deps: MenuVariantDeps,
@@ -304,13 +305,14 @@ export async function patchStockItem(
     const archiving = before.archived_at === null && merged.archived_at !== null;
     if (unitChanged || archiving) {
       const drawers = await selectActiveDrawers(level, [stockItemId]);
-      // R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece
-      if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
-        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
-      }
+      // R2 first (AD-13): archive with an active drawer
       if (archiving && drawers.length > 0) {
         const ids = [...new Set(drawers.map((d) => d.item_id))].sort();
         throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids } });
+      }
+      // R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece
+      if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
       }
     }
     const stockItem = await stockItemNameTaken(merged.name, () => updateStockItem(level, merged, now));

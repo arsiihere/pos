@@ -18,6 +18,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | AD-10 | Task 14's file list gains `packages/events/src/admin/restaurant.ts`: `PatchMenuItemBody` needs `stock_draws` and `requires_weighing` (and drops the deprecated unit fields) for R2, R7, R9; the plan's task 14 list omits it | file-list | plan only |
 | AD-11 | Q-3 (developer decision): item rules R4, R6 and R8 count only active parts of active deals (`deals.archived_at IS NULL` joined in the in-use reads). Condition: a deal restore (§6.15 PATCH that makes the merged deal active) re-checks every active choice item on the merged parts, even when `parts` is not sent: active (else `422 { field: 'parts.N.choices.M.item_id', reason: 'archived' }`), R2 (one `sale_unit` per part), R5 (not weighed); in task 30's plan entry with its test | behaviour where the spec is silent | spec §6.5 and §6.15, at the as-built review |
 | AD-12 | Task 17: `apps/cloud/test/cross-tenant.int.test.ts` (outside the task's file list) gains a named exception for `PUT /v1/admin/stock-items/:id/branches/:branch_id`: with tenant B's ids it answers `404 STOCK_ITEM_NOT_FOUND`, not `BRANCH_NOT_FOUND`, because §6.9 and C2 lock the stock item first and check the branch inside the transaction (still a 404, nothing written); the foreign-branch case is tested with the tenant's own stock item | file-list (test expectation) | plan only |
+| AD-13 | Q-4 (developer decision): on the stock item PATCH (§6.8), R2 (`409 CONFIG_IN_USE`, archive with an active drawer) runs before R1 (`422 unit_mismatch`), matching §6.5's precedence (400 → 409 → 422); §6.8 lists R1 first and states no order | behaviour where the spec is silent | spec §6.8, at the as-built review |
 
 ## Notes
 
@@ -49,6 +50,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 15 follow-up | DONE | `9796dbf` | [01c §6.5 AD-11] | AD-11 (developer, Q-3): R4/R6 reads join active deals |
 | 16 | DONE | `fa30856` | #28–#30, #35, [01c §6.8] | 403 first; `seedStockItem` replaced by the API helper (#123 archives and restores through §6.8); open question Q-4 (R1 before R2) |
 | 17 | DONE | `b5588ad` | #31–#34, [01c V16 P-10], [01c §6.9] | AD-12: stock item lock first, branch read in the transaction (§6.9, C2); the cross-tenant test has a named exception for this route |
+| 16a | DONE | this commit | [01c §6.8 R2 before R1, AD-13] | AD-13 (developer, Q-4): stock item PATCH checks R2 (409) before R1 (422); one drawers read kept |
 
 ## Checkpoints
 

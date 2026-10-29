@@ -184,6 +184,22 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     expect((await auditRows()).at(-1)).toMatchObject({ action: 'restore' });
   });
 
+  it('[01c §6.8 R2 before R1, AD-13] one PATCH changing stock_unit and archiving, with an active drawer whose unit no longer fits → 409 CONFIG_IN_USE, nothing written', async () => {
+    const gravy = await createStockItem(cloud, f, { name: 'Gravy', stock_unit: 'g' });
+    const grams = await item({ name: 'Gravy by weight', sale_unit: 'g', stock_draws: [{ stock_item_id: gravy.stock_item_id, quantity_per_sale_unit: 1 }] });
+    const refused = await nothingWritten(() => patch(gravy.stock_item_id, { expected_version: gravy.version, stock_unit: 'ml', archived: true }), 409);
+    expect(refused.error).toMatchObject({
+      code: 'CONFIG_IN_USE',
+      details: { entity: 'stock_item', id: gravy.stock_item_id, used_by: { entity: 'menu_item', ids: [grams.item_id] } },
+    });
+    expect((await storedItems()).find((row) => row.stock_item_id === gravy.stock_item_id)).toMatchObject({ stock_unit: 'g', archived_at: null });
+    const listed = (await list()).json().data.stock_items as { stock_item_id: string; version: string }[];
+    expect(listed.find((s) => s.stock_item_id === gravy.stock_item_id)?.version).toBe(gravy.version);
+    // control: the unit change alone breaks R1 on the same drawer
+    const unitOnly = await nothingWritten(() => patch(gravy.stock_item_id, { expected_version: gravy.version, stock_unit: 'ml' }), 422);
+    expect(unitOnly.error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'stock_unit', reason: 'unit_mismatch' } });
+  });
+
   it('[01c #35] list: 4 statements; branch rows only for allowed branches; drawers listed (active items only); by lower(name)', async () => {
     const [a, b] = f.branches;
     const pot = await createStockItem(cloud, f, { name: 'karahi pot', stock_unit: 'g' });
