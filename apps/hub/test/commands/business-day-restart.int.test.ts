@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { availableStock, buildEngineState, dayDraws, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
 import { parseEvent, type BranchConfig, type ConfigItem, type PosEvent } from '@pos/events';
-import { aBranchConfigItemStock } from '@pos/events/testing';
+import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
@@ -198,6 +198,35 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
       stock_units: { I1: 'piece', I3: 'piece' },
       draws: { I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 1 }] } },
     });
+  });
+
+  it('[01c §6.20] two items drawing from one stock item: BusinessDayOpened v2 keys stock_units by the stock item and draws by the item', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    hub.clock.set(at(6));
+    await seedDirectory(hub, await longDirectory());
+    // Half (I1, 500 g) and Full (I3, 1 000 g) both draw from K1; K2 is counted here but nothing draws from it.
+    const base = aBranchConfig();
+    withConfig({
+      ...base,
+      stock_items: [
+        ...base.stock_items,
+        { stock_item_id: 'K2', name: 'Fish tray', stock_unit: 'piece', carries_over: false, station_id: 'S1', low_stock_threshold: null },
+      ],
+    });
+    const admin = adminOn(hub);
+    expect((await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open')).statusCode).toBe(200);
+    const opened = lastEvent(hub, 'BusinessDayOpened', BRANCH);
+    expect(opened.schema_version).toBe(2);
+    expect(opened.payload).toEqual({
+      business_date: '2026-10-25',
+      stock_units: { K1: 'g', K2: 'piece' },
+      draws: {
+        I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] },
+        I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1_000 }] },
+      },
+    });
+    expect(engine(hub).business_day).toMatchObject({ stock_units: { K1: 'g', K2: 'piece' } });
   });
 });
 

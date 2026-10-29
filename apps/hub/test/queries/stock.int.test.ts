@@ -430,6 +430,56 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(StockQueryResponse.parse({ data })).toEqual({ data });
   });
 
+  // F4: the cloud builder leaves out items not routed at this branch (01c #80), so a stock item counted here whose
+  // only drawer is routed elsewhere reaches the hub with no item drawing from it.
+  const fishTray: ConfigStockItem = { stock_item_id: 'K2', name: 'Fish tray', stock_unit: 'piece', carries_over: false, station_id: 'S1', low_stock_threshold: null };
+  const friedFish = (o: Partial<BranchConfig['items'][number]>) => ({ ...item(aBranchConfig(), 'I2'), item_id: 'I4', name: 'Fried fish', sort_order: 4, ...o });
+
+  it('[01c #82] a stock item counted here whose only drawer is not routed here → has_tracked_drawers: false; once the drawer is routed with a stock time → true', async () => {
+    const base = aBranchConfig();
+    const hub = await open(at(25, 6));
+    withConfig({ ...base, stock_items: [...base.stock_items, fishTray] });
+    const admin = adminOn(hub, 'S_MGR');
+    await openDay(hub, admin, 'cmd-open');
+    const before = (await query(hub, admin)).json().data;
+    expect(stockMeta(before.stock_items_meta, 'K2')).toMatchObject({ has_tracked_drawers: false, drawers: [] });
+    expect(stockMeta(before.stock_items_meta, 'K1')).toMatchObject({ has_tracked_drawers: true });
+
+    // The next snapshot: the drawer is now routed here with a stock time, so the builder lists it with its draw.
+    hub.clock.set(at(25, 7));
+    withConfig({
+      ...base,
+      config_version: 2,
+      stock_items: [...base.stock_items, fishTray],
+      items: [...base.items, friedFish({ stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K2', quantity_per_sale_unit: 1 }] })],
+    });
+    const after = (await query(hub, admin)).json().data;
+    expect(stockMeta(after.stock_items_meta, 'K2')).toMatchObject({
+      has_tracked_drawers: true,
+      drawers: [{ item_id: 'I4', name: 'Fried fish', variant_name: null, sale_unit: 'piece', quantity_per_sale_unit: 1 }],
+    });
+  });
+
+  it('[01c §6.21] Review Focus 4: SetPrecookedStock on a stock item nothing sold here draws from → 200, one StockSet v2; the row stays on the page', async () => {
+    const base = aBranchConfig();
+    const hub = await open(at(25, 6));
+    withConfig({ ...base, stock_items: [...base.stock_items, fishTray] });
+    const admin = adminOn(hub, 'S_MGR');
+    await openDay(hub, admin, 'cmd-open');
+    hub.clock.set(at(25, 7));
+    const res = await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'K2', on_hand: 12 }] }, 'cmd-count-k2');
+    expect(res.statusCode, res.body).toBe(200);
+    const events = hub.deps.db
+      .prepare("SELECT event_type, schema_version, stream_id, payload FROM events WHERE stream_type = 'stock' ORDER BY seq")
+      .all() as Array<{ event_type: string; schema_version: number; stream_id: string; payload: string }>;
+    expect(events.map((e) => ({ ...e, payload: JSON.parse(e.payload) as unknown }))).toEqual([
+      { event_type: 'StockSet', schema_version: 2, stream_id: 'K2', payload: { stock_item_id: 'K2', on_hand: 12, unit: 'piece' } },
+    ]);
+    const data = (await query(hub, admin)).json().data;
+    expect(stockMeta(data.stock_items_meta, 'K2')).toMatchObject({ has_tracked_drawers: false, drawers: [] });
+    expect(stockRow(data.stock, 'K2')).toMatchObject({ on_hand: 12, unit: 'piece', available: 12, level: 'ok', set_at: at(25, 7) });
+  });
+
   it('[01c #114] hub upgraded while a v1 day is open: the fold gives the upcast draws; the query shows the frozen units; canServeFromStock uses the upcast quantity_per_sale_unit', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfigItemStock());

@@ -52,7 +52,7 @@ describe('hub check-in and up-to-date times (01b B19, D-11, 01a §6.1 step 6, §
   const list = () =>
     cloud.app.inject({ method: 'GET', url: '/v1/admin/branches', headers: { authorization: `Bearer ${f.token}` } });
 
-  it('[01b #67] the poll sets hub_last_seen_at on 304 and 200, hub_synced_at on 304 only; a hub stuck on an old config_version moves only hub_last_seen_at; GET /v1/admin/branches returns both; query counts 2, ≤ 26 with the config and ≤ 17 directory only', async () => {
+  it('[01b #67] the poll sets hub_last_seen_at on 304 and 200, hub_synced_at on 304 only; a hub stuck on an old config_version moves only hub_last_seen_at; GET /v1/admin/branches returns both; query counts 2, ≤ 22 config only and ≤ 17 directory only', async () => {
     const [a, b] = f.branches;
     const t0 = 1_761_000_100_000; // within the owner token's hour
     expect(await times(a)).toEqual({ hub_last_seen_at: null, hub_synced_at: null });
@@ -70,8 +70,8 @@ describe('hub check-in and up-to-date times (01b B19, D-11, 01a §6.1 step 6, §
       cloud.clock.set(at);
       const stuck = await poll(v.config - 1, v.directory);
       expect(stuck.statusCode).toBe(200);
-      // 01b row 6: ≤ 17 for a 200; + 9 builder statements when the config part is built (01c §4.5, AD-16)
-      expect(counter.count).toBeLessThanOrEqual(26);
+      // Config only (the directory is current): AD-16's config-only bound, ≤ 22 (01c §4.5).
+      expect(counter.count).toBeLessThanOrEqual(22);
       expect(await times(a)).toEqual({ hub_last_seen_at: at, hub_synced_at: t0 });
     }
     // A directory behind is also a 200.

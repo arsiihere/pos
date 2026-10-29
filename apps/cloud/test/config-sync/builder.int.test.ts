@@ -328,6 +328,20 @@ describe('buildSnapshot', () => {
     expect(ten).toBeLessThanOrEqual(22);
   });
 
+  it('[01a §10 #140, 01c §4.5] the builder alone on a 5 000-item branch: ≤ 22 statements (transaction control excluded)', async () => {
+    const counter = pgCounter(cloud.pool);
+    await seedMenu(cloud.pool, f, { items: 5_000, archived: true });
+    const client = await cloud.pool.connect();
+    try {
+      counter.reset();
+      const snapshot = await buildSnapshot(client, tenant(), f.branches[0], HEADER);
+      expect(snapshot.items).toHaveLength(5_000);
+      expect(counter.count).toBeLessThanOrEqual(22); // 10 when written: 01a's 7 + variant groups, stock items, draws
+    } finally {
+      client.release();
+    }
+  });
+
   it('[01a §10 #85] hash parity with the hub; a BIGINT left as a string fails the cloud-side parse', async () => {
     await seedMenu(cloud.pool, f);
     const wire = await build(f.branches[0]);
