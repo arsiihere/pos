@@ -11,6 +11,7 @@ export interface BIds {
   taxClassId: string;
   categoryId: string;
   itemId: string;
+  variantGroupId: string;
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -91,6 +92,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PUT /v1/admin/menu-items/:item_id/routes/:branch_id': (ids) => ({
     url: `/v1/admin/menu-items/${ids.itemId}/routes/${ids.branchId}`,
     payload: { station_id: ids.stationId, program_id: ids.programId },
+  }),
+  'POST /v1/admin/variant-groups': (ids) => ({
+    url: '/v1/admin/variant-groups',
+    payload: { name: 'Karahi', category_id: ids.categoryId },
+  }),
+  'PATCH /v1/admin/variant-groups/:variant_group_id': (ids) => ({
+    url: `/v1/admin/variant-groups/${ids.variantGroupId}`,
+    payload: { expected_version: 'stale', name: 'Karahi' },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({

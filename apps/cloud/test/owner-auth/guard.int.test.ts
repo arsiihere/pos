@@ -101,6 +101,7 @@ describe('JWT guard: credential version and forced change', () => {
       taxClassId: 'X',
       categoryId: 'X',
       itemId: 'X',
+      variantGroupId: 'X',
       roleId: 'X',
       staffId: 'X',
       refreshToken: 'X',

@@ -13,6 +13,7 @@ import { registerOwnerCredentials } from './plugins/owner-credentials.js';
 import { registerConfigSyncRoutes } from './modules/config-sync/routes.js';
 import { registerHealthRoutes } from './modules/health/routes.js';
 import { registerHubRegistrationRoutes } from './modules/hub-registration/routes.js';
+import { registerMenuVariantRoutes } from './modules/menu-variants/routes.js';
 import { registerOwnerAuthRoutes } from './modules/owner-auth/routes.js';
 import { registerRestaurantRoutes } from './modules/restaurant/routes.js';
 import { registerStaffRolesRoutes } from './modules/staff-roles/routes.js';
@@ -89,6 +90,7 @@ export function buildCloudServer(deps: CloudDeps): FastifyInstance {
   registerRestaurantRoutes(app, deps);
   registerConfigSyncRoutes(app, deps);
   registerStaffRolesRoutes(app, deps);
+  registerMenuVariantRoutes(app, deps);
   // §7.1, S21: the built owner pages, static and without tenant scope.
   registerClientDist(app, { prefix: '/owner/', dir: CLIENT_DIST_DIR, routeConfig: { tenantScope: 'none' } });
   return app;

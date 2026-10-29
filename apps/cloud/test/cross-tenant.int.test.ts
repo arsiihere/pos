@@ -71,6 +71,12 @@ describe('cross-tenant', () => {
       `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, updated_at) VALUES ($1, $2, $3, $4, $5, 0)`,
       [f.other.tenantId, f.other.branchId, itemId, stationId, programId],
     );
+    const variantGroupId = 'B-VARIANT-GROUP-0000000001';
+    await cloud.pool.query(
+      `INSERT INTO variant_groups (tenant_id, variant_group_id, category_id, name, created_at, updated_at)
+       VALUES ($1, $2, $3, 'B group', 0, 0)`,
+      [f.other.tenantId, variantGroupId, categoryId],
+    );
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1 ORDER BY staff_id`, [
       f.other.tenantId,
     ]);
@@ -89,6 +95,7 @@ describe('cross-tenant', () => {
       taxClassId,
       categoryId,
       itemId,
+      variantGroupId,
       roleId: roles.rows[0]!.role_id,
       staffId: staff.rows[0]!.staff_id,
       refreshToken: loginB.json().data.refresh_token as string,
@@ -105,6 +112,7 @@ describe('cross-tenant', () => {
       ids.taxClassId,
       ids.categoryId,
       ids.itemId,
+      ids.variantGroupId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
@@ -136,7 +144,8 @@ describe('cross-tenant', () => {
       if (
         route.url === '/v1/admin/tax-classes/:tax_class_id' ||
         route.url === '/v1/admin/categories/:category_id' ||
-        route.url === '/v1/admin/menu-items/:item_id'
+        route.url === '/v1/admin/menu-items/:item_id' ||
+        route.url === '/v1/admin/variant-groups/:variant_group_id'
       ) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);

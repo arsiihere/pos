@@ -11,6 +11,7 @@ import { bumpConfigVersion, coversEveryBranch } from '../../lib/config-version.j
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
+import { activeVariantGroupIdsIn } from '../menu-variants/repository.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
@@ -731,6 +732,15 @@ export async function patchCategory(
       const ids = await activeItemIdsWith(level, 'category_id', categoryId);
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'menu_item', ids } });
+      }
+      // 01c V16: an active variant group keeps its category (a plain read after the target lock).
+      const groupIds = await activeVariantGroupIdsIn(level, categoryId);
+      if (groupIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', {
+          entity: 'category',
+          id: categoryId,
+          used_by: { entity: 'variant_group', ids: groupIds },
+        });
       }
     }
     const row = await nameTaken('categories_active_name', 'category', merged.name, () =>
