@@ -245,12 +245,10 @@ export const CreateMenuItemBody = z
     }
   });
 
-// 01a S12, S44, S46 fields the §6.15 PATCH still takes until 01c §6.5 replaces them with the draw (V4).
-const StockPerSaleUnit = z.number().int().min(1).max(1_000_000);
-const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
-const GroupLabel = z.string().trim().min(1).max(60).nullable();
-
-// §6.15: any item field plus archived; routes use §6.16. The rules run on the merged row (service).
+// §6.15 (01c §6.5): any item field plus archived; routes use §6.16. stock_draws replaces the item's draws (0–1,
+// C6 keyed). The rules run on the merged row (service: the V4 unit rule R2, the V18 weighing rule R7). The
+// deprecated fields (group_label, stock_unit, stock_per_sale_unit, low_stock_threshold, carries_over) are dropped
+// by the schema (not .strict()).
 export const PatchMenuItemBody = z
   .object({
     category_id: z.string().min(1).optional(),
@@ -258,7 +256,6 @@ export const PatchMenuItemBody = z
     name: Name.optional(),
     variant_group_id: z.string().min(1).nullable().optional(),
     variant_name: VariantName.nullable().optional(),
-    group_label: GroupLabel.optional(),
     description: Description.optional(),
     sort_order: SortOrder.optional(),
     price_minor: PriceMinor.optional(),
@@ -267,11 +264,9 @@ export const PatchMenuItemBody = z
     cook_time_ms: CookTime.optional(),
     stock_time_ms: StockTime.optional(),
     out_of_stock_behaviour: OutOfStockBehaviour.optional(),
-    stock_unit: Unit.optional(),
     sale_unit: Unit.optional(),
-    stock_per_sale_unit: StockPerSaleUnit.optional(),
-    low_stock_threshold: LowStockThreshold.optional(),
-    carries_over: z.boolean().optional(),
+    requires_weighing: z.boolean().optional(),
+    stock_draws: StockDraws.optional(),
     availability_windows: AvailabilityWindows.optional(),
     archived: z.boolean().optional(),
   })

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createVariantGroup } from '../helpers/menu-variants';
+import { createVariantGroup, seedStockItem } from '../helpers/menu-variants';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -60,6 +60,12 @@ describe('01c item PATCH: lock order, restart, variant fields (§6.5)', () => {
         [itemId],
       )
     ).rows;
+  const drawsOf = async (itemId: string) =>
+    (
+      await cloud.pool.query(`SELECT stock_item_id, quantity_per_sale_unit FROM stock_draws WHERE item_id = $1 ORDER BY stock_item_id`, [
+        itemId,
+      ])
+    ).rows;
   const auditCount = async () => Number((await cloud.pool.query(`SELECT count(*) AS n FROM config_audit`)).rows[0].n);
   const versions = async () =>
     (
@@ -70,10 +76,11 @@ describe('01c item PATCH: lock order, restart, variant fields (§6.5)', () => {
     ).rows.map((row) => Number(row.config_version));
   // The response is the error (or a no-op 200); the row, every audit row and every branch version are unchanged.
   const nothingWritten = async (itemId: string, call: () => ReturnType<typeof patch>, status: number) => {
-    const before = { row: await stored(itemId), audit: await auditCount(), versions: await versions() };
+    const before = { row: await stored(itemId), draws: await drawsOf(itemId), audit: await auditCount(), versions: await versions() };
     const response = await call();
     expect(response.statusCode, response.body).toBe(status);
     expect(await stored(itemId)).toEqual(before.row);
+    expect(await drawsOf(itemId)).toEqual(before.draws);
     expect(await auditCount()).toBe(before.audit);
     expect(await versions()).toEqual(before.versions);
     return response.json() as { error: { code: string; details: Record<string, unknown> } };
@@ -226,5 +233,173 @@ describe('01c item PATCH: lock order, restart, variant fields (§6.5)', () => {
     expect(unknown.statusCode, unknown.body).toBe(403);
     expect(unknown.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
     expect(await auditCount()).toBe(audit);
+  });
+
+  it('[01c #24] PATCH sale_unit alone re-checks the draw unit rule: piece OK; g or ml on a g draw with factor 500 → 422 unit_mismatch', async () => {
+    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const half = await create({ stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] });
+    for (const saleUnit of ['ml', 'g']) {
+      const body = await nothingWritten(half.item_id, () => patch(half.item_id, { sale_unit: saleUnit }), 422);
+      expect(body.error, saleUnit).toMatchObject({
+        code: 'CONFIG_REFERENCE_INVALID',
+        details: { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' },
+      });
+    }
+    await nothingWritten(half.item_id, () => patch(half.item_id, { sale_unit: 'piece' }), 200);
+    // equal units with factor 1 (g / g / 1) → piece is fine with any factor
+    const loose = await create({ name: 'Karahi loose', sale_unit: 'g', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] });
+    const toPiece = await patch(loose.item_id, { sale_unit: 'piece' });
+    expect(toPiece.statusCode, toPiece.body).toBe(200);
+    expect(toPiece.json().data.item).toMatchObject({ sale_unit: 'piece', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] });
+    // the merged draw: a new factor sent alone onto a g / g item → 422
+    const grams = await create({ name: 'Karahi grams', sale_unit: 'g', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] });
+    const body = await nothingWritten(
+      grams.item_id,
+      () => patch(grams.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 2 }] }),
+      422,
+    );
+    expect(body.error).toMatchObject({ details: { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' } });
+  });
+
+  it('[01c #85] weighed item and a draw: POST → 422; PATCH requires_weighing onto an item with a draw → 422; PATCH a draw onto a weighed item → 422', async () => {
+    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const posted = await inject('POST', '/v1/admin/menu-items', {
+      category_id: menu.categoryIds[0],
+      tax_class_id: null,
+      name: 'Fish',
+      price_minor: 400000,
+      serve_mode: 'sync',
+      cook_time_ms: 1_200_000,
+      sale_unit: 'g',
+      requires_weighing: true,
+      stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }],
+    });
+    expect(posted.statusCode, posted.body).toBe(422);
+    expect(posted.json().error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'stock_draws', reason: 'weighed_item_stock_draw' },
+    });
+
+    const drawn = await create({ name: 'Karahi grams', sale_unit: 'g', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] });
+    const onDraw = await nothingWritten(drawn.item_id, () => patch(drawn.item_id, { requires_weighing: true }), 422);
+    expect(onDraw.error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'requires_weighing', reason: 'weighed_item_stock_draw' },
+    });
+
+    const fish = await create({ name: 'Fish', sale_unit: 'g', requires_weighing: true });
+    const addDraw = await nothingWritten(
+      fish.item_id,
+      () => patch(fish.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] }),
+      422,
+    );
+    expect(addDraw.error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'stock_draws', reason: 'weighed_item_stock_draw' },
+    });
+    // turning weighing on together with clearing the draw → 200
+    const cleared = await patch(drawn.item_id, { requires_weighing: true, stock_draws: [] });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(cleared.json().data.item).toMatchObject({ requires_weighing: true, stock_draws: [] });
+    expect(await drawsOf(drawn.item_id)).toEqual([]);
+    expect(await stored(drawn.item_id)).toMatchObject({ requires_weighing: true });
+  });
+
+  it('[01c §6.5 R7] sale_unit piece sent alone onto a weighed g item → 400; requires_weighing alone on a piece item → 400', async () => {
+    const fish = await create({ name: 'Fish', sale_unit: 'g', requires_weighing: true });
+    const body = await nothingWritten(fish.item_id, () => patch(fish.item_id, { sale_unit: 'piece' }), 400);
+    expect(body.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'sale_unit' }] } });
+    const plain = await create({ name: 'Plain' });
+    const weighed = await nothingWritten(plain.item_id, () => patch(plain.item_id, { requires_weighing: true }), 400);
+    expect(weighed.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'requires_weighing' }] } });
+    // the 400 part comes before the draw part (rule precedence)
+    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-PIECE', stockUnit: 'piece' });
+    const drawn = await create({ name: 'Drawn', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 1 }] });
+    const first = await nothingWritten(drawn.item_id, () => patch(drawn.item_id, { requires_weighing: true }), 400);
+    expect(first.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('[01c #123] restore an item whose draw’s stock item is archived → 422 archived, nothing written; restore the stock item first → 200', async () => {
+    const potB = await seedStockItem(cloud, f, { stockItemId: 'SK-POT-B', name: 'Pot B', stockUnit: 'g' });
+    const quarter = await create({ name: 'Karahi Quarter', stock_draws: [{ stock_item_id: potB, quantity_per_sale_unit: 250 }] });
+    expect((await patch(quarter.item_id, { archived: true })).statusCode).toBe(200);
+    // §6.8's archive route is task 16's; Pot B has no active drawer, so its archive is allowed (SQL until then)
+    await cloud.pool.query(`UPDATE stock_items SET archived_at = 1 WHERE stock_item_id = $1`, [potB]);
+    const body = await nothingWritten(quarter.item_id, () => patch(quarter.item_id, { archived: false }), 422);
+    expect(body.error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'stock_draws.0.stock_item_id', reason: 'archived' },
+    });
+    await cloud.pool.query(`UPDATE stock_items SET archived_at = NULL WHERE stock_item_id = $1`, [potB]);
+    const restored = await patch(quarter.item_id, { archived: false });
+    expect(restored.statusCode, restored.body).toBe(200);
+    expect(restored.json().data.item).toMatchObject({
+      archived_at: null,
+      stock_draws: [{ stock_item_id: potB, quantity_per_sale_unit: 250 }],
+    });
+  });
+
+  it('[01c §6.5 S26] re-sending the stored draw → 200 no-op; a draw-only change → one audit row with the draw in before / after, every branch bumped', async () => {
+    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const other = await seedStockItem(cloud, f, { stockItemId: 'SK-POT-2', stockUnit: 'g' });
+    const half = await create({ stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] });
+    await nothingWritten(half.item_id, () => patch(half.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] }), 200);
+    await nothingWritten(
+      half.item_id,
+      () => patch(half.item_id, { name: half.name, stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] }),
+      200,
+    );
+
+    const audits = (await itemAudit(half.item_id)).length;
+    const bumped = (await versions()).map((v) => v + 1);
+    const changed = await patch(half.item_id, { stock_draws: [{ stock_item_id: other, quantity_per_sale_unit: 1000 }] });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json().data.item.stock_draws).toEqual([{ stock_item_id: other, quantity_per_sale_unit: 1000 }]);
+    expect(await drawsOf(half.item_id)).toEqual([{ stock_item_id: other, quantity_per_sale_unit: 1000 }]);
+    expect(await versions()).toEqual(bumped);
+    const rows = await itemAudit(half.item_id);
+    expect(rows).toHaveLength(audits + 1);
+    expect(rows.at(-1)).toMatchObject({
+      action: 'update',
+      before: { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] },
+      after: { stock_draws: [{ stock_item_id: other, quantity_per_sale_unit: 1000 }] },
+    });
+
+    // clearing the draw is a change too
+    const clearedBump = (await versions()).map((v) => v + 1);
+    const cleared = await patch(half.item_id, { stock_draws: [] });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    expect(await drawsOf(half.item_id)).toEqual([]);
+    expect(await versions()).toEqual(clearedBump);
+    expect((await itemAudit(half.item_id)).at(-1)).toMatchObject({ before: { stock_draws: [{ stock_item_id: other }] }, after: { stock_draws: [] } });
+  });
+
+  it('[01c §6.5] a sent draw references an active stock item of the tenant: unknown → 422 not_found, archived → 422 archived; two draws → 400', async () => {
+    const plain = await create({ name: 'Plain' });
+    const old = await seedStockItem(cloud, f, { stockItemId: 'SK-OLD', stockUnit: 'piece', archived: true });
+    const unknown = await nothingWritten(
+      plain.item_id,
+      () => patch(plain.item_id, { stock_draws: [{ stock_item_id: 'SK-NONE', quantity_per_sale_unit: 1 }] }),
+      422,
+    );
+    expect(unknown.error).toMatchObject({ details: { field: 'stock_draws.0.stock_item_id', reason: 'not_found' } });
+    const archived = await nothingWritten(
+      plain.item_id,
+      () => patch(plain.item_id, { stock_draws: [{ stock_item_id: old, quantity_per_sale_unit: 1 }] }),
+      422,
+    );
+    expect(archived.error).toMatchObject({ details: { field: 'stock_draws.0.stock_item_id', reason: 'archived' } });
+    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    await nothingWritten(
+      plain.item_id,
+      () =>
+        patch(plain.item_id, {
+          stock_draws: [
+            { stock_item_id: pot, quantity_per_sale_unit: 1 },
+            { stock_item_id: pot, quantity_per_sale_unit: 2 },
+          ],
+        }),
+      400,
+    );
   });
 });

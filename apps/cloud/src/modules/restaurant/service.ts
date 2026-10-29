@@ -18,6 +18,7 @@ import {
   activeRouteItemIds,
   activeTableIds,
   archiveStationPrograms,
+  deleteDrawsOf,
   deleteWindowsOf,
   insertCategory,
   insertConfigAuditRows,
@@ -925,6 +926,11 @@ export async function createMenuItem(
 
 // 01c §6.3, §5.4: the item wire, exactly its keys (the deprecated columns are left out); routes as 01a §6.11.
 function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[], routes: readonly RouteRow[]): AdminMenuItem {
+  return { ...itemFields(item, windows, draws), routes: wireRoutes(routes) };
+}
+
+// The item wire without its routes: what a menu_item config_audit row holds (§6.4, §6.5: draws in before / after).
+function itemFields(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[]): Omit<AdminMenuItem, 'routes'> {
   return {
     item_id: item.item_id,
     category_id: item.category_id,
@@ -945,7 +951,6 @@ function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: reado
     stock_draws: draws.map(({ stock_item_id, quantity_per_sale_unit }) => ({ stock_item_id, quantity_per_sale_unit })),
     availability_windows: windows.map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
     archived_at: item.archived_at,
-    routes: wireRoutes(routes),
   };
 }
 
@@ -970,17 +975,19 @@ export async function withItemRestart<T>(deps: RestaurantDeps, run: (client: pg.
 
 type SharedGroup = { variant_group_id: string; category_id: string; archived_at: number | null };
 
-// What every §6.5 rule reads: the locked row, the merged row, the groups locked before the item, and the
-// references the first rule locks (category 6, then tax class 7, in the §6 order).
+// What every §6.5 rule reads: the locked row, the merged row and draw, the groups locked before the item, and the
+// references the first rule locks (the draw's stock item 5, category 6, then tax class 7, in the §6 order).
 interface ItemPatch {
   level: TenantLevelRepository;
   scoped: TenantScopedRepository;
   body: PatchMenuItemInput;
   before: MenuItemRow;
   merged: MenuItemRow;
+  draw: DrawRow | undefined;
   groups: readonly SharedGroup[];
   restoring: boolean;
   routes: RouteRow[];
+  stockItem?: { stock_unit: string; archived_at: number | null } | undefined;
   category?: { archived_at: number | null } | undefined;
   taxClass?: { archived_at: number | null } | undefined;
 }
@@ -994,12 +1001,14 @@ const isActive = (p: ItemPatch) => p.merged.archived_at === null;
 // 01c §6.5 rule precedence (v0.6 Q2) with the T4 decision (§12.7, P-8): after the no-op, in this order; the first
 // failure answers. Slots owned by later tasks are named no-ops.
 const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> = [
-  // C4 step 4: references on sent fields. The category and tax class are locked here (sent, or on an active
-  // merged row, as 01a did) in the §6 kind order; the variant group was locked before the item.
+  // C4 step 4: references on sent fields. The merged draw's stock item (5; R2 reads its unit, R9 its archive,
+  // under this lock), then the category and tax class (sent, or on an active merged row, as 01a did) are locked
+  // here in the §6 kind order; the variant group was locked before the item.
   [
     'references on sent fields',
     async (p) => {
       const active = isActive(p);
+      if (p.draw !== undefined) p.stockItem = await shareStockItem(p.level, p.draw.stock_item_id);
       if (p.body.category_id !== undefined || active) p.category = await shareCategory(p.level, p.merged.category_id);
       if (p.merged.tax_class_id !== null && (p.body.tax_class_id !== undefined || active)) {
         p.taxClass = await shareTaxClass(p.level, p.merged.tax_class_id);
@@ -1007,12 +1016,14 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (p.body.variant_group_id !== undefined && p.body.variant_group_id !== null) {
         assertReference('variant_group_id', groupOf(p), active);
       }
+      if (p.body.stock_draws !== undefined && p.draw !== undefined) {
+        assertReference('stock_draws.0.stock_item_id', p.stockItem, active);
+      }
       if (p.body.category_id !== undefined) assertReference('category_id', p.category, active);
       if (p.body.tax_class_id !== undefined && p.merged.tax_class_id !== null) assertReference('tax_class_id', p.taxClass, active);
     },
   ],
   // (1) 400
-  ['400 01a units', (p) => assertUnits(p.merged)], // task 14 deletes it (the unit rule moves to the draw, R2)
   [
     '400 variant pair',
     (p) => {
@@ -1021,7 +1032,14 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: 'variant_group_id and variant_name go together' }] });
     },
   ],
-  ['400 R7 sale_unit part', () => {}], // task 14
+  [
+    '400 R7 sale_unit part',
+    (p) => {
+      if (!p.merged.requires_weighing || p.merged.sale_unit !== 'piece') return;
+      const path = p.body.requires_weighing !== undefined ? 'requires_weighing' : 'sale_unit';
+      throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: "requires_weighing needs sale_unit 'g' or 'ml'" }] });
+    },
+  ],
   // (2) 409 CONFIG_IN_USE: R4, R10, R6
   ['409 R4', () => {}], // task 15
   ['409 R10', () => {}], // task 15
@@ -1068,18 +1086,39 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       }
     },
   ],
-  ['422 R2 draw unit', () => {}], // task 14
+  [
+    '422 R2 draw unit',
+    (p) => {
+      if (p.draw !== undefined && p.stockItem !== undefined) assertDrawUnits(p.merged.sale_unit, p.stockItem.stock_unit, p.draw);
+    },
+  ],
   ['422 R3 effective-set limit', () => {}], // task 23
-  ['422 R7 draw part', () => {}], // task 14
+  [
+    '422 R7 draw part',
+    (p) => {
+      if (!p.merged.requires_weighing || p.draw === undefined) return;
+      const field = p.body.requires_weighing !== undefined && p.body.stock_draws === undefined ? 'requires_weighing' : 'stock_draws';
+      throw invalidReference(field, 'weighed_item_stock_draw');
+    },
+  ],
   ['422 R8 weighed item in a deal', () => {}], // task 30
-  ['422 R9 restored draw’s stock item', () => {}], // task 14
+  [
+    '422 R9 restored draw’s stock item',
+    (p) => {
+      if (p.restoring && p.draw !== undefined && p.stockItem?.archived_at !== null) {
+        throw invalidReference('stock_draws.0.stock_item_id', 'archived');
+      }
+    },
+  ],
 ];
 
 // 01c §6.5 (01a §6.15): per attempt (withItemRestart): tenant-wide 403 (C4, before all) → read the item without a
 // lock (404) → lock its stored and merged variant group(s) FOR SHARE in id order (3) → lock the item FOR UPDATE (4);
-// a variant_group_id other than the unlocked read → restart → merge → no-op (row and windows; draws with task 14)
-// → ITEM_PATCH_RULES → write (R5 and 01a's name index) → audit → bump every branch (10). No variant_groups row is
-// locked after the item; later reads of a group use the rows locked before it.
+// a variant_group_id other than the unlocked read → restart → merge → no-op (row, windows and draws, S26) →
+// ITEM_PATCH_RULES (the draw's stock item is locked in the first, §6 kind 5) → write (R5 and 01a's name index;
+// stock_draws replaced by delete + insert; the deprecated columns as §5.1, P-11) → audit (the item wire, draws in
+// before / after, as on create) → bump every branch (10). No variant_groups row is locked after the item; later
+// reads of a group use the rows locked before it.
 export async function patchMenuItem(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -1102,19 +1141,22 @@ export async function patchMenuItem(
     if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
     if (before.variant_group_id !== seen.variant_group_id) throw new ItemRestart();
     const now = deps.clock.branchNow();
-    const { archived, availability_windows: windowInput, ...fields } = body;
+    const { archived, availability_windows: windowInput, stock_draws: drawInput, ...fields } = body;
     const merged: MenuItemRow = {
       ...before,
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
       ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
     };
     const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
-    // 01c §6.3 wire: the item's draws are read for the response (task 14 writes them and adds them to the no-op).
-    const draws = await selectDrawsOf(level, [itemId]);
+    const beforeDraws: DrawRow[] = (await selectDrawsOf(level, [itemId])).map(({ stock_item_id, quantity_per_sale_unit }) => ({
+      stock_item_id,
+      quantity_per_sale_unit,
+    }));
     const routes = await selectItemRoutes(scoped, [itemId]);
-    // T4 (§12.7, V13 divergence): the no-op runs before the reference checks on menu_items.
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput)) {
-      return { item: itemWire(before, beforeWindows, draws, routes) };
+    // T4 (§12.7, V13 divergence): the no-op runs before the reference checks on menu_items; S26 compares the
+    // merged row, the windows and the draws.
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput) && unchangedDraws(beforeDraws, drawInput)) {
+      return { item: itemWire(before, beforeWindows, beforeDraws, routes) };
     }
     const patch: ItemPatch = {
       level,
@@ -1122,19 +1164,28 @@ export async function patchMenuItem(
       body,
       before,
       merged,
+      draw: (drawInput ?? beforeDraws)[0],
       groups,
       restoring: before.archived_at !== null && merged.archived_at === null,
       routes,
     };
     for (const [, rule] of ITEM_PATCH_RULES) await rule(patch);
     // (4) R5 (variant name, index) and 01a's active-name index, at the write
-    const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () =>
-      nameTaken('menu_items_variant_name', 'variant', merged.variant_name ?? '', () => updateMenuItem(level, merged, now)),
-    );
-    const item = {
-      ...row,
-      availability_windows: await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput),
+    // §5.1 deprecated columns (P-11): set on every item write, never read by 01c.
+    const written: MenuItemRow = {
+      ...merged,
+      group_label: null,
+      stock_unit: merged.sale_unit,
+      stock_per_sale_unit: 1,
+      low_stock_threshold: null,
+      carries_over: false,
     };
+    const row = await nameTaken('menu_items_active_name', 'menu_item', merged.name, () =>
+      nameTaken('menu_items_variant_name', 'variant', merged.variant_name ?? '', () => updateMenuItem(level, written, now)),
+    );
+    const windows = await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput);
+    const draws = await replaceDraws(level, itemId, beforeDraws, drawInput);
+    const item = itemFields(row, windows, draws);
     await writeConfigAudit(
       level,
       {
@@ -1143,14 +1194,14 @@ export async function patchMenuItem(
         entityId: itemId,
         branchId: null,
         action: auditActionFor(before, item),
-        before: { ...before, availability_windows: beforeWindows },
+        before: itemFields(before, beforeWindows, beforeDraws),
         after: item,
       },
       deps,
     );
     await deps.testHooks?.beforeBump?.();
     await bumpEveryBranch(level);
-    return { item: itemWire(row, item.availability_windows, draws, routes) };
+    return { item: { ...item, routes: wireRoutes(routes) } };
   });
 }
 
@@ -1213,6 +1264,25 @@ function unchangedRow<T>(before: T, merged: T): boolean {
   return canonicalJson(before) === canonicalJson(merged);
 }
 
+// 01c §6.5 S26: the sent draws equal the stored ones (pilot: 0–1, compared by stock item).
+function unchangedDraws(current: readonly DrawRow[], next: readonly DrawRow[] | undefined): boolean {
+  if (next === undefined) return true;
+  const keys = (rows: readonly DrawRow[]) => rows.map((d) => `${d.stock_item_id}:${d.quantity_per_sale_unit}`).sort();
+  return canonicalJson(keys(current)) === canonicalJson(keys(next));
+}
+
+// 01c §6.5: stock_draws replaces the item's draws (delete + insert); not sent → the stored draws.
+async function replaceDraws(
+  level: TenantLevelRepository,
+  itemId: string,
+  current: DrawRow[],
+  next: DrawRow[] | undefined,
+): Promise<DrawRow[]> {
+  if (next === undefined || unchangedDraws(current, next)) return current;
+  if (current.length > 0) await deleteDrawsOf(level, itemId);
+  return next.length > 0 ? insertDraws(level, itemId, next) : [];
+}
+
 function unchangedWindows(current: readonly WindowRow[], next: readonly WindowRow[] | undefined): boolean {
   if (next === undefined) return true;
   const keys = (rows: readonly WindowRow[]) => rows.map((w) => `${w.start_ms}-${w.end_ms}`).sort();
@@ -1240,19 +1310,6 @@ async function replaceWindows(
   if (next === undefined) return current;
   if (current.length > 0) await deleteWindowsOf(level, target);
   return next.length > 0 ? insertWindows(level, target, next, ids) : [];
-}
-
-// §3.3, S44: equal units → stock_per_sale_unit 1; different units → sale_unit 'piece'.
-function assertUnits(item: { stock_unit: string; sale_unit: string; stock_per_sale_unit: number }): void {
-  const issue =
-    item.stock_unit === item.sale_unit
-      ? item.stock_per_sale_unit !== 1
-        ? { path: 'stock_per_sale_unit', message: 'must be 1 when stock_unit and sale_unit are equal' }
-        : null
-      : item.sale_unit !== 'piece'
-        ? { path: 'sale_unit', message: "must be 'piece' when it differs from stock_unit" }
-        : null;
-  if (issue !== null) throw new DomainError('VALIDATION_FAILED', { issues: [issue] });
 }
 
 // 01c V4 (01a S44 between the item and its stock item): equal units → quantity_per_sale_unit 1; different units

@@ -612,6 +612,11 @@ export async function insertDraws(repo: TenantLevelRepository, itemId: string, d
   return rows.sort((a, b) => (a.stock_item_id < b.stock_item_id ? -1 : a.stock_item_id > b.stock_item_id ? 1 : 0));
 }
 
+// 01c §6.5: stock_draws replaces the item's draws (delete + insert; the item is locked FOR UPDATE).
+export async function deleteDrawsOf(repo: TenantLevelRepository, itemId: string): Promise<void> {
+  await repo.query(`DELETE FROM stock_draws WHERE tenant_id = $1 AND item_id = $2`, [itemId]);
+}
+
 // Reference checks (§6.14): FOR SHARE against a concurrent archive.
 export async function shareCategory(repo: TenantLevelRepository, categoryId: string): Promise<{ archived_at: number | null } | undefined> {
   const rows = await repo.query<{ archived_at: string | null }>(
@@ -725,7 +730,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            sort_order = $8, price_minor = $9, serve_mode = $10, prep_buffer_ms = $11, cook_time_ms = $12,
                            stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
-                           updated_at = $21, variant_group_id = $22, variant_name = $23
+                           updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -751,6 +756,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       now,
       item.variant_group_id,
       item.variant_name,
+      item.requires_weighing,
     ],
   );
   return menuItemRow(rows[0]!);
