@@ -269,7 +269,7 @@ export const ModifierGroupBranchResponse = z.object({ data: z.object({ branch: M
 
 // ------------------------------------------------------------------------------------------------------ deals
 
-// §3.3: choices 1–20, one per item_id (C6); a single choice has extra 0 (400).
+// §3.3: choices 1–20, one per item_id (C6).
 const Choice = z.object({
   item_id: Id,
   extra_price_minor: PriceMinor.default(0),
@@ -279,17 +279,27 @@ const Choices = z
   .array(Choice)
   .min(1)
   .max(20)
-  .superRefine(uniqueBy((c: z.infer<typeof Choice>) => c.item_id, 'item_id'))
-  .superRefine((choices, ctx) => {
-    if (choices.length === 1 && choices[0]!.extra_price_minor !== 0) {
-      ctx.addIssue({ code: 'custom', path: [0, 'extra_price_minor'], message: 'a single choice has no extra price' });
-    }
-  });
-const partFields = { quantity: PartQuantity, sort_order: SortOrder.default(0), choices: Choices };
+  .superRefine(uniqueBy((c: z.infer<typeof Choice>) => c.item_id, 'item_id'));
+// §6.14: a single choice has extra 0 (400). POST only; on PATCH it is the merged-row rule §6.15 R3.
+const NewChoices = Choices.superRefine((choices, ctx) => {
+  if (choices.length === 1 && choices[0]!.extra_price_minor !== 0) {
+    ctx.addIssue({ code: 'custom', path: [0, 'extra_price_minor'], message: 'a single choice has no extra price' });
+  }
+});
 // §6.14: POST parts carry no ids.
-const NewPart = z.object({ deal_part_id: z.never().optional(), ...partFields });
+const NewPart = z.object({
+  deal_part_id: z.never().optional(),
+  quantity: PartQuantity,
+  sort_order: SortOrder.default(0),
+  choices: NewChoices,
+});
 // §6.15, V14: a part with an id updates (or restores) it.
-const PartEntry = z.object({ deal_part_id: Id.optional(), ...partFields });
+const PartEntry = z.object({
+  deal_part_id: Id.optional(),
+  quantity: PartQuantity,
+  sort_order: SortOrder.default(0),
+  choices: Choices,
+});
 
 // §6.14: tax_class_id is a required key (null = never taxed, 01a S34).
 export const CreateDealBody = z.object({
@@ -303,7 +313,8 @@ export const CreateDealBody = z.object({
   parts: z.array(NewPart).min(1).max(10),
 });
 
-// §6.15
+// §6.15. The single-choice extra rule is not in this schema: it runs in the deal PATCH service as §6.15 R3
+// on the merged parts (step 6, after 404 / 409; plan task 30).
 export const PatchDealBody = z
   .object({
     expected_version: Version,

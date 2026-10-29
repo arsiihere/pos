@@ -101,6 +101,12 @@ describe('01c admin wires (§6, C6, C9)', () => {
     expect(CreateDealBody.safeParse(aDeal({ parts })).success).toBe(false);
   });
 
+  it('[01c §6.14, §6.15 R3] a single choice with an extra fails on POST; the PATCH schema parses it (R3 is the service\'s)', () => {
+    const parts = [{ quantity: 1, choices: [choice('I1', { extra_price_minor: 100 })] }];
+    expect(issuePaths(CreateDealBody, aDeal({ parts }))).toContain('parts.0.choices.0.extra_price_minor');
+    expect(PatchDealBody.safeParse({ expected_version: V, parts }).success).toBe(true);
+  });
+
   it('[01c §6.16] { is_sold: false, price_minor_override: 1 } fails; is_sold: true with it passes', () => {
     expect(PutDealBranchBody.safeParse({ expected_version: V, is_sold: false, price_minor_override: 1 }).success).toBe(false);
     expect(PutDealBranchBody.safeParse({ expected_version: V, is_sold: true, price_minor_override: 1 }).success).toBe(true);
@@ -153,7 +159,6 @@ describe('01c admin wires (§6, C6, C9)', () => {
     expect(parsed.options[0]).toEqual({ name: 'Naan', price_minor: null, max_quantity: 1, is_default: false, linked_item_id: 'I1', sort_order: 0 });
     expect(parsed.links).toEqual([]);
     expect(CreateDealBody.safeParse(aDeal({ parts: [] })).success).toBe(false);
-    expect(CreateDealBody.safeParse(aDeal({ parts: [{ quantity: 1, choices: [choice('I1', { extra_price_minor: 100 })] }] })).success).toBe(false);
     expect(
       CreateDealBody.safeParse(aDeal({ parts: [{ quantity: 1, choices: [choice('I1'), choice('I2', { extra_price_minor: 100 })] }] })).success,
     ).toBe(true);
