@@ -1,4 +1,4 @@
-import type { HubConfigStatus, HubStockAnswer, HubStockItem, HubStockItemMeta } from '@pos/events';
+import type { HubConfigStatus, HubStockAnswer, HubStockItem, HubStockItemMeta, HubStockRow, HubStockRowMeta } from '@pos/events';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,11 +39,7 @@ function meta(itemId: string, o: Partial<HubStockItemMeta> = {}): HubStockItemMe
     category_name: 'Mains',
     is_stock_tracked: true,
     out_of_stock_behaviour: 'cook_fresh',
-    stock_unit: 'piece',
-    sale_unit: 'piece',
-    stock_per_sale_unit: 1,
-    low_stock_threshold: null,
-    carries_over: false,
+    stock_item_ids: [itemId],
     item_windows: [],
     category_windows: [],
     ...o,
@@ -51,18 +47,26 @@ function meta(itemId: string, o: Partial<HubStockItemMeta> = {}): HubStockItemMe
 }
 
 function item(itemId: string, o: Partial<HubStockItem> = {}): HubStockItem {
+  return { item_id: itemId, stock_item_ids: [itemId], is_available: true, unavailable_since: null, ...o };
+}
+
+// 01c §6.21: a stock item with the item's id, drawn by that item (the V1 view's shape).
+function stockMeta(stockItemId: string, o: Partial<HubStockRowMeta> = {}): HubStockRowMeta {
   return {
-    item_id: itemId,
-    on_hand: 5,
-    reserved: 0,
-    unit: 'piece',
-    available: 5,
-    level: 'ok',
-    set_at: hubAt(25, 9, 30),
-    is_available: true,
-    unavailable_since: null,
+    stock_item_id: stockItemId,
+    name: `Item ${stockItemId}`,
+    stock_unit: 'piece',
+    carries_over: false,
+    station_id: 'ST1',
+    low_stock_threshold: null,
+    has_tracked_drawers: true,
+    drawers: [{ item_id: stockItemId, name: `Item ${stockItemId}`, variant_name: null, sale_unit: 'piece', quantity_per_sale_unit: 1 }],
     ...o,
   };
+}
+
+function stock(stockItemId: string, o: Partial<HubStockRow> = {}): HubStockRow {
+  return { stock_item_id: stockItemId, on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: hubAt(25, 9, 30), ...o };
 }
 
 const OPEN_DAY = { business_date: '2026-10-25', opened_at: hubAt(25, 9), closed_at: null };
@@ -81,8 +85,10 @@ function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
     day_stale: false,
     day_stale_after_hours: 16,
     day_min_gap_hours: 4,
-    items_meta: [meta('I1'), meta('I2', { stock_unit: 'g' }), meta('I3', { carries_over: true })],
-    items: [item('I1'), item('I2', { on_hand: 2000, unit: 'g', available: 2000 }), item('I3')],
+    stock_items_meta: [stockMeta('I1'), stockMeta('I2', { stock_unit: 'g' }), stockMeta('I3', { carries_over: true })],
+    stock: [stock('I1'), stock('I2', { on_hand: 2000, unit: 'g', available: 2000 }), stock('I3')],
+    items_meta: [meta('I1'), meta('I2'), meta('I3')],
+    items: [item('I1'), item('I2'), item('I3')],
     ...o,
   };
 }
@@ -94,10 +100,10 @@ function closed(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
     stock_version: 9,
     business_day: { ...OPEN_DAY, closed_at: hubAt(26, 1, 10) },
     business_day_started_at: null,
-    items: [
-      item('I1', { available: 0, level: 'not_counted' }),
-      item('I2', { on_hand: 2000, unit: 'g', available: 0, level: 'not_counted' }),
-      item('I3'),
+    stock: [
+      stock('I1', { available: 0, level: 'not_counted' }),
+      stock('I2', { on_hand: 2000, unit: 'g', available: 0, level: 'not_counted' }),
+      stock('I3'),
     ],
     ...o,
   });
@@ -154,8 +160,9 @@ async function flush(): Promise<void> {
   });
 }
 
+// 01c §8: the count, Add and level are on the stock item's row.
 function rowOf(itemId: string): HTMLElement {
-  const row = container.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+  const row = container.querySelector<HTMLElement>(`[data-stock-item-id="${itemId}"]`);
   if (row === null) throw new Error(`row ${itemId} missing`);
   return row;
 }

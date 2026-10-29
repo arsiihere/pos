@@ -78,7 +78,6 @@ export const StockQueryResponse = z.object({
     day_stale_after_hours: int,
     day_min_gap_hours: int,
     // 01c §6.21: one row per stock item counted here (sent with items_meta), its drawers listed under it.
-    // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
     stock_items_meta: z
       .array(
         z.object({
@@ -100,10 +99,8 @@ export const StockQueryResponse = z.object({
           ),
         }),
       )
-      .nullable()
-      .optional(),
+      .nullable(),
     // 01c §6.21: the numbers per stock item (sent with items).
-    // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
     stock: z
       .array(
         z.object({
@@ -116,8 +113,8 @@ export const StockQueryResponse = z.object({
           set_at: int.nullable(),
         }),
       )
-      .nullable()
-      .optional(),
+      .nullable(),
+    // 01c §6.21: the availability rows per menu item (no unit fields).
     items_meta: z
       .array(
         z.object({
@@ -129,13 +126,7 @@ export const StockQueryResponse = z.object({
           is_stock_tracked: z.boolean(),
           out_of_stock_behaviour: z.enum(['cook_fresh', 'sold_out']),
           // 01c §6.21: the stock items the item draws from.
-          // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
-          stock_item_ids: z.array(z.string()).optional(),
-          stock_unit: Unit, // Seam: removed by task 20
-          sale_unit: Unit, // Seam: removed by task 20
-          stock_per_sale_unit: int, // Seam: removed by task 20
-          low_stock_threshold: int.nullable(), // Seam: removed by task 20
-          carries_over: z.boolean(), // Seam: removed by task 20
+          stock_item_ids: z.array(z.string()),
           item_windows: z.array(Window),
           category_windows: z.array(Window),
         }),
@@ -145,14 +136,7 @@ export const StockQueryResponse = z.object({
       .array(
         z.object({
           item_id: z.string(),
-          // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
-          stock_item_ids: z.array(z.string()).optional(),
-          on_hand: int, // Seam: removed by task 20
-          reserved: int, // Seam: removed by task 20
-          unit: Unit, // Seam: removed by task 20
-          available: int, // Seam: removed by task 20
-          level: Level, // Seam: removed by task 20
-          set_at: int.nullable(), // Seam: removed by task 20
+          stock_item_ids: z.array(z.string()),
           is_available: z.boolean(),
           unavailable_since: int.nullable(),
         }),
@@ -214,8 +198,13 @@ export type HubAdminRoster = z.infer<typeof AdminRosterResponse>['data'];
 export type HubAdminLogin = z.infer<typeof AdminAuthResponse>['data'];
 export type HubConfigStatus = z.infer<typeof ConfigStatusResponse>['data'];
 export type HubStockAnswer = z.infer<typeof StockQueryResponse>['data'];
+// The availability rows per menu item (items_meta, items).
 export type HubStockItemMeta = NonNullable<HubStockAnswer['items_meta']>[number];
 export type HubStockItem = NonNullable<HubStockAnswer['items']>[number];
+// 01c §6.21: the rows per stock item (stock_items_meta, stock) and a stock item's drawers.
+export type HubStockRowMeta = NonNullable<HubStockAnswer['stock_items_meta']>[number];
+export type HubStockDrawer = HubStockRowMeta['drawers'][number];
+export type HubStockRow = NonNullable<HubStockAnswer['stock']>[number];
 export type SetPrecookedStockRequest = z.infer<typeof SetPrecookedStockPayload>;
 export type AddPrecookedStockRequest = z.infer<typeof AddPrecookedStockPayload>;
 export type SetItemAvailabilityRequest = z.infer<typeof SetItemAvailabilityPayload>;

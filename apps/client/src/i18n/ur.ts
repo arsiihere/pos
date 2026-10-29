@@ -210,4 +210,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.manage-devices': 'اسکرینیں جوڑنا اور ہٹانا',
   'perm.access-hub-admin': 'ہب ایڈمن کھولنا',
   'perm.manage-stock': 'اسٹاک گننا اور آئٹم بند کرنا',
+  // 01c task 20: stock page per stock item (§8)
+  'admin_stock.badge.unused': 'یہاں کسی ڈش میں استعمال نہیں',
 };

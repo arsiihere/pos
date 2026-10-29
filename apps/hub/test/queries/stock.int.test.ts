@@ -32,8 +32,11 @@ vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
 });
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
-type ItemRow = { item_id: string; on_hand: number; reserved: number; unit: string; available: number; level: string; set_at: number | null; is_available: boolean; unavailable_since: number | null };
-type MetaRow = { item_id: string; stock_unit: string; sale_unit: string; stock_per_sale_unit: number };
+type ItemRow = { item_id: string; stock_item_ids: string[]; is_available: boolean; unavailable_since: number | null };
+type MetaRow = { item_id: string; stock_item_ids: string[] };
+// 01c §6.21: the item rows keep availability only (no unit or number fields).
+const UNIT_FIELDS = ['stock_unit', 'sale_unit', 'stock_per_sale_unit', 'low_stock_threshold', 'carries_over'];
+const NUMBER_FIELDS = ['on_hand', 'reserved', 'unit', 'available', 'level', 'set_at'];
 type StockRow = { stock_item_id: string; on_hand: number; reserved: number; unit: string; available: number; level: string; set_at: number | null };
 type Drawer = { item_id: string; name: string; variant_name: string | null; sale_unit: string; quantity_per_sale_unit: number };
 type StockMetaRow = { stock_item_id: string; stock_unit: string; has_tracked_drawers: boolean; drawers: Drawer[] };
@@ -86,7 +89,8 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(i1.set_at).toBe(engine(hub).stock.I1!.set_at);
     expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), stockItem(aBranchConfigV1(), 'I1')));
     expect(data.stock.map((r: StockRow) => r.stock_item_id)).toEqual(['I1', 'I3']);
-    expect(row(data.items, 'I1')).toMatchObject({ item_id: 'I1', stock_item_ids: ['I1'], is_available: true, unavailable_since: null });
+    expect(row(data.items, 'I1')).toEqual({ item_id: 'I1', stock_item_ids: ['I1'], is_available: true, unavailable_since: null });
+    for (const r of data.items as ItemRow[]) for (const field of NUMBER_FIELDS) expect(r).not.toHaveProperty(field);
     expect(row(data.items, 'I2')).toMatchObject({ stock_item_ids: [] });
     expect(data.items.map((r: ItemRow) => r.item_id)).toEqual(['I1', 'I2', 'I3']);
   });
@@ -171,21 +175,23 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     let data = (await query(hub, admin)).json().data;
-    expect(row(data.items, 'I1').level).toBe('not_counted');
-    expect(row(data.items, 'I3').level).toBe('not_counted');
+    // 01c §6.21: the level is on the stock item's row (the V1 view: I1 and I3).
+    expect(stockRow(data.stock, 'I1').level).toBe('not_counted');
+    expect(stockRow(data.stock, 'I3').level).toBe('not_counted');
+    expect(row(data.items, 'I1')).not.toHaveProperty('level');
 
     hub.clock.set(at(25, 7));
     await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }, { stock_item_id: 'I3', on_hand: 1_000 }], 'cmd-count-1');
     data = (await query(hub, admin)).json().data;
-    expect(row(data.items, 'I1').level).toBe('out');
-    expect(row(data.items, 'I3').level).toBe('low');
+    expect(stockRow(data.stock, 'I1').level).toBe('out');
+    expect(stockRow(data.stock, 'I3').level).toBe('low');
 
     hub.clock.set(at(25, 8));
     await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 1 }, { stock_item_id: 'I3', on_hand: 1_001 }], 'cmd-count-2');
     data = (await query(hub, admin)).json().data;
-    expect(row(data.items, 'I1').level).toBe('ok');
-    expect(row(data.items, 'I3').level).toBe('ok');
-    expect(row(data.items, 'I1').level).toBe(stockLevel(engine(hub), 'I1', at(25, 6), stockItem(config, 'I1')));
+    expect(stockRow(data.stock, 'I1').level).toBe('ok');
+    expect(stockRow(data.stock, 'I3').level).toBe('ok');
+    expect(stockRow(data.stock, 'I1').level).toBe(stockLevel(engine(hub), 'I1', at(25, 6), stockItem(config, 'I1')));
   });
 
   it('[01a §10 #142] past midnight the open day stays open: OpenBusinessDay is a no-op, yesterday 23:00 count still reads, day_stale true at 18.5 h', async () => {
@@ -206,7 +212,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(data.hub_local_date).toBe('2026-10-25');
     expect(data.day_stale).toBe(true);
     expect(data.day_stale_after_hours).toBe(16);
-    expect(row(data.items, 'I1')).toMatchObject({ on_hand: 5, available: 5, level: 'ok' });
+    expect(stockRow(data.stock, 'I1')).toMatchObject({ on_hand: 5, available: 5, level: 'ok' });
     expect(engine(hub).business_day?.closed_at).toBeNull();
   });
 
@@ -310,7 +316,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(data.stock_version).toBe(lastStockSeq);
   });
 
-  it('[01a S44] after a unit change mid-day the query shows the frozen unit and stock_per_sale_unit', async () => {
+  it('[01a S44] after a unit change mid-day the query shows the frozen unit and quantity_per_sale_unit', async () => {
     const hub = await open(at(25, 6));
     withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
@@ -324,8 +330,11 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     });
 
     const data = (await query(hub, admin)).json().data;
-    expect(row<MetaRow>(data.items_meta, 'I1')).toMatchObject({ stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 });
-    expect(row(data.items, 'I1')).toMatchObject({ unit: 'piece', on_hand: 6, available: 6 });
+    expect(stockMeta(data.stock_items_meta, 'I1')).toMatchObject({
+      stock_unit: 'piece',
+      drawers: [{ item_id: 'I1', sale_unit: 'piece', quantity_per_sale_unit: 1 }],
+    });
+    expect(stockRow(data.stock, 'I1')).toMatchObject({ unit: 'piece', on_hand: 6, available: 6 });
   });
 
   it('[01a §10 #158] items[].unit is the open day\'s frozen unit, else the config\'s; a count in another unit reads as no count', async () => {
@@ -372,8 +381,11 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     withConfig({ ...base, day_min_gap_hours: 2 });
     const data = (await query(hub, admin)).json().data;
     expect(data.day_min_gap_hours).toBe(2);
-    for (const meta of data.items_meta as Array<{ category_id: string; category_name: string }>) {
+    for (const meta of data.items_meta as Array<{ category_id: string; category_name: string; stock_item_ids: string[] }>) {
       expect(meta.category_name).toBe(base.categories.find((c) => c.category_id === meta.category_id)?.name);
+      // 01c §6.21: no unit fields; the stock items the item draws from.
+      expect(Array.isArray(meta.stock_item_ids)).toBe(true);
+      for (const field of UNIT_FIELDS) expect(meta).not.toHaveProperty(field);
     }
     expect(StockQueryResponse.parse((await query(hub, admin)).json()).data.day_min_gap_hours).toBe(2);
   });
@@ -511,11 +523,6 @@ describe('GET /admin/queries/stock (§6.19)', () => {
       is_stock_tracked: false,
       out_of_stock_behaviour: i2.out_of_stock_behaviour,
       stock_item_ids: [],
-      stock_unit: i2.stock_unit,
-      sale_unit: i2.sale_unit,
-      stock_per_sale_unit: i2.stock_per_sale_unit,
-      low_stock_threshold: i2.low_stock_threshold,
-      carries_over: i2.carries_over,
       item_windows: [window],
       category_windows: [window],
     });

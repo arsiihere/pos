@@ -35,6 +35,8 @@ export const en = {
   'admin_stock.badge.not_counted': 'Not counted today',
   'admin_stock.badge.hours': 'Hours {hours}',
   'admin_stock.badge.off_since': 'Off since {day}',
+  // 01c §6.21 (F4): a stock item counted here that nothing sold here draws from.
+  'admin_stock.badge.unused': 'Not used by any dish here',
   'admin_stock.save': 'Save counts',
   'admin_stock.nothing_to_save': 'Change or confirm a count first.',
   'admin_stock.add_label': 'Add',

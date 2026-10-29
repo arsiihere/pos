@@ -64,7 +64,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             stock_items_meta: metaChanged ? stockItemsMeta(state, stockItems, v2) : null,
             stock: unchanged ? null : stockRows(state, stockItems, start),
             items_meta: metaChanged ? itemsMeta(state, config, v2) : null,
-            items: unchanged ? null : itemRows(ctx, config, v2, start),
+            items: unchanged ? null : itemRows(ctx, config, v2),
           },
         };
       },
@@ -133,11 +133,7 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
   if (config === null) return [];
   const draws = itemDraws(state, v2);
   const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
-  const stockItemsById = new Map((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s]));
   return config.items.map((item) => {
-    // S44 (01c §3.5.3, V20): the unit and draw frozen for the open day, else the item's own.
-    const day = draws.get(item.item_id);
-    const draw = day?.stock_draws[0];
     const category = config.categories.find((c) => c.category_id === item.category_id);
     return {
       item_id: item.item_id,
@@ -147,58 +143,29 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
       category_name: category?.name ?? item.category_id,
       is_stock_tracked: isStockTrackedV1(config, item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
-      stock_item_ids: stockItemIdsOf(day, known),
-      // Seam: removed by task 20 (the unit fields below).
-      stock_unit: dayStockUnit(state, stockItemsById.get(item.item_id) ?? untrackedStandIn(item)),
-      sale_unit: day?.sale_unit ?? item.sale_unit,
-      stock_per_sale_unit: draw?.quantity_per_sale_unit ?? item.stock_per_sale_unit,
-      low_stock_threshold: item.low_stock_threshold,
-      carries_over: item.carries_over,
+      // 01c §6.21: the stock items it draws from today (no unit fields).
+      stock_item_ids: stockItemIdsOf(draws.get(item.item_id), known),
       item_windows: item.availability_windows,
       category_windows: category?.availability_windows ?? [],
     };
   });
 }
 
-// S14, S41, S46: the availability rows per menu item; 1 statement for them.
-// Seam: removed by task 20 (the number fields): v1.0.2, unit is the open day's frozen unit (else the config's).
-function itemRows(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null, start: number | null) {
+// S14, S30 (01c §6.21): the availability rows per menu item (the numbers are per stock item); 1 statement for them.
+function itemRows(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
   const draws = itemDraws(ctx.state, v2);
   const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
-  const stockItemsById = new Map((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s]));
   return items.map((item) => {
-    const stockItem = stockItemsById.get(item.item_id) ?? untrackedStandIn(item);
-    const unit = dayStockUnit(ctx.state, stockItem);
-    const entry = countIn(ctx.state, item.item_id, unit);
     const since = off.get(item.item_id);
     return {
       item_id: item.item_id,
       stock_item_ids: stockItemIdsOf(draws.get(item.item_id), known),
-      on_hand: entry.on_hand,
-      reserved: entry.reserved,
-      unit,
-      available: availableStock(ctx.state, item.item_id, start, stockItem),
-      level: stockLevel(ctx.state, item.item_id, start, stockItem),
-      set_at: entry.set_at,
       is_available: since === undefined,
       unavailable_since: since ?? null,
     };
   });
-}
-
-// Seam: removed by task 20 (with the item rows' unit and number fields): an untracked item has no stock item
-// in the view, so its row keeps 01a's numbers from its own unit, carries_over and threshold.
-function untrackedStandIn(item: BranchConfigV1['items'][number]): ConfigStockItem {
-  return {
-    stock_item_id: item.item_id,
-    name: item.name,
-    stock_unit: item.stock_unit,
-    carries_over: item.carries_over,
-    station_id: item.station_id,
-    low_stock_threshold: item.low_stock_threshold,
-  };
 }
 
 function requireManageStock(ctx: QueryCtx): Resolution {
