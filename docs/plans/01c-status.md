@@ -16,6 +16,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | AD-8 | Task 11 (developer decision, spec gap): the variant group wire's `member_ids` lists every member, archived included (§3.2 rule 4); task 12's menu read uses the same rule | API detail where the spec is silent | spec §6.1 / §6.3, at the as-built review |
 | AD-9 | Task 12: error `field` values the spec does not name, on the item POST: `category_mismatch` → `category_id`; equal units with a factor other than 1 → `unit_mismatch` on `stock_draws.0.stock_item_id`; a variant group without `variant_name` (or the reverse) → `400` on the missing field | error detail where the spec is silent | spec §6.4, at the as-built review |
 | AD-10 | Task 14's file list gains `packages/events/src/admin/restaurant.ts`: `PatchMenuItemBody` needs `stock_draws` and `requires_weighing` (and drops the deprecated unit fields) for R2, R7, R9; the plan's task 14 list omits it | file-list | plan only |
+| AD-11 | Q-3 (developer decision): item rules R4, R6 and R8 count only active parts of active deals (`deals.archived_at IS NULL` joined in the in-use reads). Condition: a deal restore (§6.15 PATCH that makes the merged deal active) re-checks every active choice item on the merged parts, even when `parts` is not sent: active (else `422 { field: 'parts.N.choices.M.item_id', reason: 'archived' }`), R2 (one `sale_unit` per part), R5 (not weighed); in task 30's plan entry with its test | behaviour where the spec is silent | spec §6.5 and §6.15, at the as-built review |
 
 ## Notes
 
@@ -84,3 +85,4 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - Task 13 developer checks: no item lock is followed by a group lock on any path; restart capped at 3 then `503`, nothing written; P-8 order (no-op before references, R1–R10 after), 403 first.
 - Open seams: unchanged from batch 3 (V1 names, `config-v2-view.ts`, AD-2/AD-3 helpers).
 - Open question Q-3 (developer): R4/R6 (and R8 from task 30) count active parts of archived deals.
+- Follow-ups after the checkpoint (developer, Q-3): AD-11. Task 15 follow-up commit joins active deals in R4/R6 reads. Task 30's plan entry gains: §6.15 R3 in the service with the stale-version test (Q-2); deal restore re-checks choice items (AD-11 condition) with its test; R8 joins active deals; the #128 R10-before-R8 control.

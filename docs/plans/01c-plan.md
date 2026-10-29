@@ -695,6 +695,11 @@ All three tasks write `packages/domain/src/menu-lines.ts` and `menu-lines.test.t
 **Files:** Modify `apps/cloud/src/modules/menu-variants/{routes,service,repository}.ts`, `apps/cloud/src/modules/restaurant/service.ts` (fill the R8 slot), `apps/cloud/test/helpers/route-cases.ts`, `apps/cloud/test/menu-variants/deals.int.test.ts`.
 
 - [ ] **Step 1: Tests (write first):** `[01c #52]`, `[01c #53]`, `[01c #86]` (deal side and item R8 side), `[01c #105]`.
+- **Added during the build (developer decisions; status board AD-6, AD-11):**
+  - **§6.15 R3 in the service (task 10, Q-2):** the deal PATCH body schema no longer refuses a single-choice part with an extra; the service checks it as §6.15 R3 on the merged parts in step 6. Test `[01c §6.15 R3]`: a PATCH with a stale `expected_version` and a single-choice part with an extra → `409 CONFIG_STALE` (not `400`); with a fresh version → `400`.
+  - **Restore re-checks the choice items (AD-11 condition):** a PATCH that makes the merged deal active (restore) re-checks every active choice item on the merged parts, even when `parts` is not sent: each choice item active (else `422 { field: 'parts.N.choices.M.item_id', reason: 'archived' }`), §6.15 R2 (one `sale_unit` per part) and R5 (not weighed). Test `[01c §6.15 AD-11]`: archive the deal → archive one choice item (and, as a second case, change a choice item's `sale_unit` so its part mixes units) → restore the deal → `422`, nothing written (no audit, no bump).
+  - **R8 joins active deals (AD-11):** the item-side R8 read counts only active parts of active deals, like R4 and R6 (task 15 follow-up).
+  - **#128 "R10 before R8" control (task 15 review):** with R10 and R6 out of the way (the option archived, Naan the only choice of an active part of an active deal), PATCH Naan `{ sale_unit: 'g', requires_weighing: true }` → `422 weighed_item_in_deal`, so #128's ordering step proves R10 before R8.
 - [ ] **Step 2:** `pnpm vitest run apps/cloud/test/menu-variants/deals.int.test.ts` → FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** PASS; then the gate.
