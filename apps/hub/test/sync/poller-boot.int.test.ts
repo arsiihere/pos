@@ -216,10 +216,10 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     const cloud = stubConfigCloud();
     const booted = await start(cfg.path, WALL, cloud);
     cloud.respondWithSnapshot(snapshot(3));
-    // step 6 started the 60 s timer
-    expect(cloud.calls).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(60_000);
+    // step 6 polled once at boot (no config yet, 01c AD-19) and started the 60 s timer
     expect(cloud.calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(cloud.calls).toHaveLength(2);
     expect(branchConfig()?.config_version).toBe(3);
 
     // an in-flight poll that resolves after stop() does not swap and writes nothing
@@ -259,6 +259,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     await booted.stop();
     await vi.advanceTimersByTimeAsync(120_000);
     await poller.pollOnce();
-    expect(cloud.calls).toHaveLength(0);
+    // only step 6's boot poll (no config yet, 01c AD-19)
+    expect(cloud.calls).toHaveLength(1);
   });
 });

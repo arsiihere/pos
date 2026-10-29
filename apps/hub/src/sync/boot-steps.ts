@@ -3,7 +3,7 @@ import { parseEvent, type PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { registerBootStep } from '../lib/boot.js';
 import { loadBranchConfig } from '../projections/branch-config.js';
-import { swapBranchConfig } from './branch-config-holder.js';
+import { branchConfig, swapBranchConfig } from './branch-config-holder.js';
 import { configPoller } from './config-poller.js';
 import { setStockVersion, STOCK_VERSION_EVENTS } from './stock-version.js';
 
@@ -72,6 +72,8 @@ export function registerRestaurantBootSteps(): void {
     if (app === undefined) return;
     const poller = configPoller(app);
     poller.start();
+    // AD-19, S28 b: step 5 left no usable config, so poll once now instead of at the first tick.
+    if (branchConfig() === null) void poller.pollOnce();
     app.addHook('onClose', async () => {
       poller.stop();
     });
