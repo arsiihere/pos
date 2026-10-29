@@ -5,6 +5,8 @@ import type {
   CreateVariantGroupInput,
   PatchStockItemInput,
   PatchVariantGroupInput,
+  PutStockItemBranchInput,
+  StockItemBranchWire,
   StockItemListResponse,
   StockItemWire,
   VariantGroupWire,
@@ -15,13 +17,15 @@ import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit } from '../../lib/config-audit.js';
-import { assertTenantWide, bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
+import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { insertConfigAuditRows, shareCategory } from '../restaurant/repository.js';
+import { insertConfigAuditRows, shareCategory, shareStationsById } from '../restaurant/repository.js';
 import type { OwnerRequest } from '../restaurant/service.js';
 import {
+  branchAllowed,
+  deleteStockItemBranch,
   insertStockItem,
   insertVariantGroup,
   lockStockItem,
@@ -29,11 +33,14 @@ import {
   moveMembers,
   selectActiveDrawers,
   selectMembers,
+  selectStockItemBranch,
   selectStockItemBranches,
   selectStockItems,
   updateStockItem,
+  upsertStockItemBranch,
   updateVariantGroup,
   type MemberRow,
+  type StockItemBranchRecord,
   type StockItemRecord,
   type VariantGroupRecord,
 } from './repository.js';
@@ -323,6 +330,69 @@ export async function patchStockItem(
     await deps.testHooks?.beforeBump?.();
     await bumpEveryBranch(level);
     return { stock_item: toStockItemWire(stockItem) };
+  });
+}
+
+// §6.9 (C4; lock order 5 → 8 on a set → 9 → 10). A branch-scoped write: no tenant-wide check, only that branch
+// is bumped. Stock item FOR UPDATE (404; M4: serialises two PUTs on a row that does not exist yet) → C2 branch read
+// inside the transaction, among the JWT's allowed branches (404 BRANCH_NOT_FOUND) → stored row read without a lock
+// (P3) → version (409 CONFIG_STALE, a stale no-op too) → on a set: the stock item active (422 stock_item_id
+// archived), the station FOR SHARE, an active station of this branch (422 not_found / wrong_branch / archived) →
+// no-op (200, nothing written) → upsert or delete (the row's own lock, 9) → audit branch_set / branch_removed with
+// branch_id → bump that branch (10).
+export async function putStockItemBranch(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  stockItemId: string,
+  branchId: string,
+  body: PutStockItemBranchInput,
+): Promise<{ branch: StockItemBranchWire | null }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const stockItem = await lockStockItem(level, stockItemId);
+    if (stockItem === undefined) throw new DomainError('STOCK_ITEM_NOT_FOUND', { stock_item_id: stockItemId });
+    if (!(await branchAllowed(scoped, branchId))) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    const stored = (await selectStockItemBranch(scoped, stockItemId, branchId)) ?? null;
+    if (body.expected_version !== stockItemBranchVersion(stockItemId, branchId, stored).version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'stock_item_branch', id: stockItemId });
+    }
+    const before = stored === null ? null : { station_id: stored.station_id, low_stock_threshold: stored.low_stock_threshold };
+    const next = body.station_id === null ? null : { station_id: body.station_id, low_stock_threshold: body.low_stock_threshold };
+    if (next !== null) {
+      if (stockItem.archived_at !== null) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_item_id', reason: 'archived' });
+      }
+      const stations = await shareStationsById(scoped, [next.station_id]);
+      const station = stations.find((s) => s.branch_id === branchId);
+      const reason = station === undefined ? (stations.length > 0 ? 'wrong_branch' : 'not_found') : station.archived_at !== null ? 'archived' : null;
+      if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'station_id', reason });
+    }
+    if (canonicalJson(before) === canonicalJson(next)) {
+      return { branch: stored === null ? null : stockItemBranchVersion(stockItemId, branchId, stored) };
+    }
+    let written: StockItemBranchRecord | null = null;
+    if (next !== null) {
+      written = await upsertStockItemBranch(scoped, { stock_item_id: stockItemId, branch_id: branchId, ...next }, deps.clock.branchNow());
+    } else {
+      await deleteStockItemBranch(scoped, stockItemId, branchId);
+    }
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'stock_item_branch',
+        entityId: stockItemId,
+        branchId,
+        action: written === null ? 'branch_removed' : 'branch_set',
+        before,
+        after: next,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { branch: written === null ? null : stockItemBranchVersion(stockItemId, branchId, written) };
   });
 }
 

@@ -162,7 +162,19 @@ describe('cross-tenant', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json().data.branch_id).toBe(f.branches[0]);
       }
-      if (route.url.includes(':branch_id')) {
+      if (route.url === '/v1/admin/stock-items/:stock_item_id/branches/:branch_id') {
+        // 01c §6.9 / C2 (AD-12): the stock item is locked first and the branch is checked inside the transaction,
+        // so B's stock item answers 404 STOCK_ITEM_NOT_FOUND before the branch check (nothing written: the
+        // transaction rolls back). Tenant A's own stock item at a disallowed branch is [01c #32].
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(['STOCK_ITEM_NOT_FOUND', 'BRANCH_NOT_FOUND']).toContain(response.json().error.code);
+        expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
+        const written = await cloud.pool.query(
+          `SELECT (SELECT count(*)::int FROM stock_item_branches) AS rows,
+                  (SELECT count(*)::int FROM config_audit WHERE entity = 'stock_item_branch') AS audit`,
+        );
+        expect(written.rows[0]).toEqual({ rows: 0, audit: 0 });
+      } else if (route.url.includes(':branch_id')) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(response.json().error.code).toBe('BRANCH_NOT_FOUND');
       }

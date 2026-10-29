@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createStockItem, createVariantGroup } from '../helpers/menu-variants';
+import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
+import { createStockItem, createVariantGroup, putStockItemBranch } from '../helpers/menu-variants';
 import { pgCounter } from '../helpers/pg-counter';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
@@ -188,23 +189,16 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     const pot = await createStockItem(cloud, f, { name: 'karahi pot', stock_unit: 'g' });
     const naan = await createStockItem(cloud, f, { name: 'Naan', stock_unit: 'piece', carries_over: true });
     const old = await createStockItem(cloud, f, { name: 'Old pot', stock_unit: 'ml' }, { archived: true });
-    // §6.9's PUT is task 17: the counted rows by SQL (one at the allowed A, one at C, outside the token)
-    await cloud.pool.query(
-      `INSERT INTO stock_item_branches (tenant_id, branch_id, stock_item_id, station_id, low_stock_threshold, updated_at)
-       VALUES ($1, $2, $3, 'ST-1', 2000, 0)`,
-      [f.tenantId, a, pot.stock_item_id],
-    );
+    // the counted rows through §6.9 (one at the allowed A, one at C, outside the list's token)
     const [, , c] = f.branches;
     await cloud.pool.query(
       `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
        VALUES ($1, $2, 'ST-C', 'Karahi', 'slot', 4, 0, 0)`,
       [f.tenantId, c],
     );
-    await cloud.pool.query(
-      `INSERT INTO stock_item_branches (tenant_id, branch_id, stock_item_id, station_id, low_stock_threshold, updated_at)
-       VALUES ($1, $2, $3, 'ST-C', NULL, 0)`,
-      [f.tenantId, c, pot.stock_item_id],
-    );
+    const noRowVersion = (branchId: string) => stockItemBranchVersion(pot.stock_item_id, branchId, null).version;
+    await putStockItemBranch(cloud, f, pot.stock_item_id, a, { expected_version: noRowVersion(a), station_id: 'ST-1', low_stock_threshold: 2000 });
+    await putStockItemBranch(cloud, f, pot.stock_item_id, c, { expected_version: noRowVersion(c), station_id: 'ST-C' });
     const group = await createVariantGroup(cloud, f, { name: 'Chicken Karahi', category_id: menu.categoryIds[0] });
     const half = await item({
       name: 'Chicken Karahi Half',

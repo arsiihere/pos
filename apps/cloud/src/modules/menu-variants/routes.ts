@@ -4,6 +4,8 @@ import {
   CreateVariantGroupBody,
   PatchStockItemBody,
   PatchVariantGroupBody,
+  PutStockItemBranchBody,
+  StockItemBranchResponse,
   StockItemListResponse,
   StockItemResponse,
   VariantGroupResponse,
@@ -19,11 +21,13 @@ import {
   listStockItems,
   patchStockItem,
   patchVariantGroup,
+  putStockItemBranch,
   type MenuVariantDeps,
 } from './service.js';
 
 const VariantGroupParams = z.object({ variant_group_id: z.string().min(1) });
 const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
+const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
 // §6.6
 const StockItemQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
 
@@ -90,6 +94,21 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/stock-items/:stock_item_id');
       const data = await patchStockItem(deps, ownerRequest(app, request), request.params.stock_item_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  // §6.9: branch-scoped (owner, branch allowed; C2 inside the transaction); no Idempotency-Key (01a §6.16 precedent).
+  routes.put(
+    '/v1/admin/stock-items/:stock_item_id/branches/:branch_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: StockItemBranchParams, body: PutStockItemBranchBody, response: { 200: StockItemBranchResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PUT /v1/admin/stock-items/:stock_item_id/branches/:branch_id');
+      const { stock_item_id, branch_id } = request.params;
+      const data = await putStockItemBranch(deps, ownerRequest(app, request), stock_item_id, branch_id, request.body);
       return reply.send({ data });
     },
   );

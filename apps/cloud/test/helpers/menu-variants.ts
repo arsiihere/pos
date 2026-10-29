@@ -1,4 +1,12 @@
-import type { CreateStockItemRequest, CreateVariantGroupRequest, PatchStockItemRequest, StockItemWire, VariantGroupWire } from '@pos/events';
+import type {
+  CreateStockItemRequest,
+  CreateVariantGroupRequest,
+  PatchStockItemRequest,
+  PutStockItemBranchRequest,
+  StockItemBranchWire,
+  StockItemWire,
+  VariantGroupWire,
+} from '@pos/events';
 import { owner, type RestaurantFixture } from './restaurant';
 import type { TestCloud } from './test-cloud';
 
@@ -39,6 +47,24 @@ export async function patchStockItem(
   const response = await cloud.app.inject({ method: 'PATCH', url: `/v1/admin/stock-items/${stockItemId}`, ...owner(f), payload: body });
   if (response.statusCode !== 200) throw new Error(`patch stock item failed: ${response.statusCode} ${response.body}`);
   return response.json().data.stock_item as StockItemWire;
+}
+
+// §6.9 through the API: the stored branch entry (null when removed), or a thrown error with the response body.
+export async function putStockItemBranch(
+  cloud: TestCloud,
+  f: RestaurantFixture,
+  stockItemId: string,
+  branchId: string,
+  body: PutStockItemBranchRequest,
+): Promise<StockItemBranchWire | null> {
+  const response = await cloud.app.inject({
+    method: 'PUT',
+    url: `/v1/admin/stock-items/${stockItemId}/branches/${branchId}`,
+    ...owner(f),
+    payload: body,
+  });
+  if (response.statusCode !== 200) throw new Error(`put stock item branch failed: ${response.statusCode} ${response.body}`);
+  return response.json().data.branch as StockItemBranchWire | null;
 }
 
 // P-4: a modifier group and its options written by SQL until §6.10's route exists (task 15; §6.5 R4, R10 read them).

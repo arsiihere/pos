@@ -324,6 +324,19 @@ export async function activeRouteItemIds(
   return rows.map((row) => row.item_id);
 }
 
+// 01c V16 (P-10): the active stock items counted at the station (index stock_item_branches_station); a row of an
+// archived stock item does not block. A plain read after the station lock.
+export async function activeStockItemIdsAt(repo: TenantScopedRepository, branchId: string, stationId: string): Promise<string[]> {
+  const rows = await repo.query<{ stock_item_id: string }>(
+    `SELECT sb.stock_item_id FROM stock_item_branches sb
+       JOIN stock_items s ON s.tenant_id = sb.tenant_id AND s.stock_item_id = sb.stock_item_id AND s.archived_at IS NULL
+      WHERE sb.tenant_id = $1 AND sb.branch_id = ANY($2) AND sb.branch_id = $3 AND sb.station_id = $4
+      ORDER BY sb.stock_item_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.stock_item_id);
+}
+
 // §6.9: a station that becomes slot archives its active programs; returns them archived, by id.
 export async function archiveStationPrograms(
   repo: TenantScopedRepository,

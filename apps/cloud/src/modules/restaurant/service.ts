@@ -16,6 +16,7 @@ import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
+  activeStockItemIdsAt,
   activeTableIds,
   archiveStationPrograms,
   deleteDrawsOf,
@@ -450,6 +451,13 @@ export async function patchStation(
       const ids = await activeRouteItemIds(scoped, branchId, stationId);
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'menu_item', ids } });
+      }
+    }
+    // 01c V16 (P-10): an archive is refused while an active stock item is counted at the station
+    if (archiving) {
+      const ids = await activeStockItemIdsAt(scoped, branchId, stationId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'stock_item', ids } });
       }
     }
     const station = await nameTaken('stations_active_name', 'station', merged.name, () =>

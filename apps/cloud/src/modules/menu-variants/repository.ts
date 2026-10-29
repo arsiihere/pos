@@ -195,3 +195,50 @@ export async function selectActiveDrawers(repo: TenantLevelRepository, stockItem
     [stockItemIds],
   );
 }
+
+// §6.9 (C2, inside the transaction): the path branch among the JWT's allowed branches ($2), a plain read.
+export async function branchAllowed(repo: TenantScopedRepository, branchId: string): Promise<boolean> {
+  const rows = await repo.query<{ branch_id: string }>(
+    `SELECT branch_id FROM branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
+    [branchId],
+  );
+  return rows.length === 1;
+}
+
+// §6.9 (v0.5, P3): the stored row, read without a lock (the stock item FOR UPDATE serialises every write to it).
+export async function selectStockItemBranch(
+  repo: TenantScopedRepository,
+  stockItemId: string,
+  branchId: string,
+): Promise<StockItemBranchRecord | undefined> {
+  const rows = await repo.query<StockItemBranchRecord>(
+    `SELECT stock_item_id, branch_id, station_id, low_stock_threshold FROM stock_item_branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND stock_item_id = $4`,
+    [branchId, stockItemId],
+  );
+  return rows[0];
+}
+
+// §6 lock order 9: the row written (its own row lock), after the station FOR SHARE.
+export async function upsertStockItemBranch(
+  repo: TenantScopedRepository,
+  row: StockItemBranchRecord,
+  now: number,
+): Promise<StockItemBranchRecord> {
+  const rows = await repo.query<StockItemBranchRecord>(
+    `INSERT INTO stock_item_branches (tenant_id, branch_id, stock_item_id, station_id, low_stock_threshold, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7 FROM branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     ON CONFLICT (tenant_id, branch_id, stock_item_id)
+       DO UPDATE SET station_id = EXCLUDED.station_id, low_stock_threshold = EXCLUDED.low_stock_threshold, updated_at = EXCLUDED.updated_at
+     RETURNING stock_item_id, branch_id, station_id, low_stock_threshold`,
+    [row.branch_id, row.stock_item_id, row.station_id, row.low_stock_threshold, now],
+  );
+  return rows[0]!;
+}
+
+export async function deleteStockItemBranch(repo: TenantScopedRepository, stockItemId: string, branchId: string): Promise<void> {
+  await repo.query(
+    `DELETE FROM stock_item_branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND stock_item_id = $4`,
+    [branchId, stockItemId],
+  );
+}
