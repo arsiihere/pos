@@ -1,9 +1,7 @@
-import { availableStock, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1 } from '@pos/events';
+import { availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
-import { dayStockUnitOf, viewStockItem } from '../commands/set-precooked-stock.js';
-import { branchConfig, currentConfigEntry } from '../sync/branch-config-holder.js';
+import { currentConfigEntry } from '../sync/branch-config-holder.js';
 import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { registerCatchUp, type SocketCtx } from './catch-up.js';
 
@@ -36,24 +34,21 @@ export function registerRestaurantCatchUp(clock: Clock): () => void {
     registerCatchUp({
       part: 'stock',
       appliesTo: staffOnly,
+      // 01c A7 (§4.2, §6.21): `items` keyed by stock_item_id, one per stock item counted here; `business_day` is
+      // the engine BusinessDay (with the frozen stock_units and draws).
       build(_db, raw) {
         const state = raw as EngineState;
-        const config = branchConfig();
-        const v2 = branchConfigV2();
         const start = openDayStartMs(state);
         const items: Record<string, unknown> = {};
-        for (const item of config?.items ?? []) {
-          if (config === null || !isStockTrackedV1(config, item)) continue;
-          // 01c V5 through the view: the tracked item's stock item (same id, §5.1).
-          const stockItem = viewStockItem(v2, item.item_id);
-          const entry = stockOf(state, item.item_id);
-          items[item.item_id] = {
+        for (const stockItem of branchConfigV2()?.stock_items ?? []) {
+          const entry = stockOf(state, stockItem.stock_item_id);
+          items[stockItem.stock_item_id] = {
             on_hand: entry.on_hand,
             reserved: entry.reserved,
             set_at: entry.set_at,
-            unit: dayStockUnitOf(state, v2, item),
-            available: availableStock(state, item.item_id, start, stockItem),
-            level: stockLevel(state, item.item_id, start, stockItem),
+            unit: dayStockUnit(state, stockItem),
+            available: availableStock(state, stockItem.stock_item_id, start, stockItem),
+            level: stockLevel(state, stockItem.stock_item_id, start, stockItem),
           };
         }
         return { business_day: state.business_day, business_day_started_at: start, items };

@@ -77,6 +77,47 @@ export const StockQueryResponse = z.object({
     day_stale: z.boolean(),
     day_stale_after_hours: int,
     day_min_gap_hours: int,
+    // 01c §6.21: one row per stock item counted here (sent with items_meta), its drawers listed under it.
+    // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
+    stock_items_meta: z
+      .array(
+        z.object({
+          stock_item_id: z.string(),
+          name: z.string(),
+          stock_unit: Unit,
+          carries_over: z.boolean(),
+          station_id: z.string(),
+          low_stock_threshold: int.nullable(),
+          has_tracked_drawers: z.boolean(),
+          drawers: z.array(
+            z.object({
+              item_id: z.string(),
+              name: z.string(),
+              variant_name: z.string().nullable(),
+              sale_unit: Unit,
+              quantity_per_sale_unit: int,
+            }),
+          ),
+        }),
+      )
+      .nullable()
+      .optional(),
+    // 01c §6.21: the numbers per stock item (sent with items).
+    // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
+    stock: z
+      .array(
+        z.object({
+          stock_item_id: z.string(),
+          on_hand: int,
+          reserved: int,
+          unit: Unit,
+          available: int,
+          level: Level,
+          set_at: int.nullable(),
+        }),
+      )
+      .nullable()
+      .optional(),
     items_meta: z
       .array(
         z.object({
@@ -87,11 +128,14 @@ export const StockQueryResponse = z.object({
           category_name: z.string(),
           is_stock_tracked: z.boolean(),
           out_of_stock_behaviour: z.enum(['cook_fresh', 'sold_out']),
-          stock_unit: Unit,
-          sale_unit: Unit,
-          stock_per_sale_unit: int,
-          low_stock_threshold: int.nullable(),
-          carries_over: z.boolean(),
+          // 01c §6.21: the stock items the item draws from.
+          // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
+          stock_item_ids: z.array(z.string()).optional(),
+          stock_unit: Unit, // Seam: removed by task 20
+          sale_unit: Unit, // Seam: removed by task 20
+          stock_per_sale_unit: int, // Seam: removed by task 20
+          low_stock_threshold: int.nullable(), // Seam: removed by task 20
+          carries_over: z.boolean(), // Seam: removed by task 20
           item_windows: z.array(Window),
           category_windows: z.array(Window),
         }),
@@ -101,12 +145,14 @@ export const StockQueryResponse = z.object({
       .array(
         z.object({
           item_id: z.string(),
-          on_hand: int,
-          reserved: int,
-          unit: Unit,
-          available: int,
-          level: Level,
-          set_at: int.nullable(),
+          // Seam: removed by task 20 (`.optional()`: required once the client's fixtures carry it).
+          stock_item_ids: z.array(z.string()).optional(),
+          on_hand: int, // Seam: removed by task 20
+          reserved: int, // Seam: removed by task 20
+          unit: Unit, // Seam: removed by task 20
+          available: int, // Seam: removed by task 20
+          level: Level, // Seam: removed by task 20
+          set_at: int.nullable(), // Seam: removed by task 20
           is_available: z.boolean(),
           unavailable_since: int.nullable(),
         }),

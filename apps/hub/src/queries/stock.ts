@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
-import { availableStock, dayDraws, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigStockItem } from '@pos/events';
+import type { Unit } from '@pos/domain';
+import { availableStock, dayDraws, dayStockUnit, openDayStartMs, stockLevel, stockOf, type DayDraws, type EngineState } from '@pos/engine';
+import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigItem, type ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
-import { dayStockUnitOf, manageStockScope, stockScopeFilter } from '../commands/set-precooked-stock.js';
+import { manageStockScope, stockItemScopeFilter, stockScopeFilter } from '../commands/set-precooked-stock.js';
 import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { stockVersion } from '../sync/stock-version.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
@@ -25,14 +26,21 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
       querySchema: Query,
       handle(ctx, q) {
         const resolution = requireManageStock(ctx);
+        const staffId = ctx.session?.staff_id ?? null;
         // 01b B20, §4.4 row 10: under `my_stations` only the items routed to the person's stations; no extra statement.
-        const inScope = stockScopeFilter(ctx.directory, ctx.session?.staff_id ?? null, resolution);
+        const inScope = stockScopeFilter(ctx.directory, staffId, resolution);
         const config = scopedConfig(ctx.branchConfig, inScope);
         const state = ctx.state;
         const v2 = branchConfigV2();
+        // 01c §6.21, 01b B1: the stock rows by the stock item's own station.
+        const inStockScope = stockItemScopeFilter(ctx.directory, staffId, resolution);
+        const allStockItems = v2?.stock_items ?? [];
+        const stockItems = allStockItems.filter(inStockScope);
         const start = openDayStartMs(state);
-        // R-2: a scoped item list also keys the meta part, so a directory change (stations, scope) reaches the page.
-        const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}${config === ctx.branchConfig ? '' : `.${scopeKey(config)}`}`;
+        // R-2: a scoped stock item or item list also keys the meta part, so a directory change (stations, scope)
+        // reaches the page.
+        const scoped = config !== ctx.branchConfig || stockItems.length !== allStockItems.length;
+        const metaVersion = `${config?.config_version ?? 0}.${start ?? 0}${scoped ? `.${scopeKey(stockItems, config)}` : ''}`;
         const currentStockVersion = stockVersion();
         const time = hubTime(clock);
         const day = state.business_day;
@@ -53,8 +61,10 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             day_stale: start !== null && time.now_ms - start > staleAfterHours * 3_600_000,
             day_stale_after_hours: staleAfterHours,
             day_min_gap_hours: config?.day_min_gap_hours ?? DEFAULT_DAY_MIN_GAP_HOURS,
+            stock_items_meta: metaChanged ? stockItemsMeta(state, stockItems, v2) : null,
+            stock: unchanged ? null : stockRows(state, stockItems, start),
             items_meta: metaChanged ? itemsMeta(state, config, v2) : null,
-            items: unchanged ? null : stockItems(ctx, config, v2, start),
+            items: unchanged ? null : itemRows(ctx, config, v2, start),
           },
         };
       },
@@ -62,15 +72,72 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
   );
 }
 
+// 01c §6.21: per stock item, the day's stock_unit and its drawers with the day's quantity_per_sale_unit
+// (dayDraws, V20); has_tracked_drawers when an item of this branch's config draws from it (F4).
+function stockItemsMeta(state: Readonly<EngineState>, stockItems: readonly ConfigStockItem[], v2: BranchConfig | null) {
+  const draws = itemDraws(state, v2);
+  return stockItems.map((stockItem) => {
+    const drawers = (v2?.items ?? []).flatMap((item) => {
+      const day = draws.get(item.item_id)!;
+      const draw = day.stock_draws.find((candidate) => candidate.stock_item_id === stockItem.stock_item_id);
+      if (draw === undefined) return [];
+      return [{ item_id: item.item_id, name: item.name, variant_name: item.variant_name, sale_unit: day.sale_unit, quantity_per_sale_unit: draw.quantity_per_sale_unit }];
+    });
+    return {
+      stock_item_id: stockItem.stock_item_id,
+      name: stockItem.name,
+      stock_unit: dayStockUnit(state, stockItem),
+      carries_over: stockItem.carries_over,
+      station_id: stockItem.station_id,
+      low_stock_threshold: stockItem.low_stock_threshold,
+      has_tracked_drawers: drawers.length > 0,
+      drawers,
+    };
+  });
+}
+
+// 01c §6.21 (01a S41, S46, v1.0.2): the numbers per stock item; a count in another unit than the day's reads as no count.
+function stockRows(state: Readonly<EngineState>, stockItems: readonly ConfigStockItem[], start: number | null) {
+  return stockItems.map((stockItem) => {
+    const unit = dayStockUnit(state, stockItem);
+    const entry = countIn(state, stockItem.stock_item_id, unit);
+    return {
+      stock_item_id: stockItem.stock_item_id,
+      on_hand: entry.on_hand,
+      reserved: entry.reserved,
+      unit,
+      available: availableStock(state, stockItem.stock_item_id, start, stockItem),
+      level: stockLevel(state, stockItem.stock_item_id, start, stockItem),
+      set_at: entry.set_at,
+    };
+  });
+}
+
+// S44 (01c §3.5.3, V20): each item's draws frozen for the open day, else its config draws (with the m14 fallback).
+function itemDraws(state: Readonly<EngineState>, v2: BranchConfig | null): Map<string, DayDraws> {
+  const configStockUnits = Object.fromEntries((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
+  return new Map((v2?.items ?? []).map((item: ConfigItem) => [item.item_id, dayDraws(state, item, configStockUnits)]));
+}
+
+// 01c §6.21: the stock items of this branch's config an item draws from today.
+function stockItemIdsOf(draws: DayDraws | undefined, known: ReadonlySet<string>): string[] {
+  return (draws?.stock_draws ?? []).map((draw) => draw.stock_item_id).filter((id) => known.has(id));
+}
+
+function countIn(state: Readonly<EngineState>, stockItemId: string, unit: Unit) {
+  const stored = stockOf(state, stockItemId);
+  return stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
+}
+
 function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, v2: BranchConfig | null) {
   if (config === null) return [];
-  const v2Items = new Map((v2?.items ?? []).map((item) => [item.item_id, item]));
-  const configStockUnits = Object.fromEntries((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
+  const draws = itemDraws(state, v2);
+  const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
+  const stockItemsById = new Map((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s]));
   return config.items.map((item) => {
     // S44 (01c §3.5.3, V20): the unit and draw frozen for the open day, else the item's own.
-    const v2Item = v2Items.get(item.item_id);
-    const draws = v2Item === undefined ? null : dayDraws(state, v2Item, configStockUnits);
-    const draw = draws?.stock_draws[0];
+    const day = draws.get(item.item_id);
+    const draw = day?.stock_draws[0];
     const category = config.categories.find((c) => c.category_id === item.category_id);
     return {
       item_id: item.item_id,
@@ -80,8 +147,10 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
       category_name: category?.name ?? item.category_id,
       is_stock_tracked: isStockTrackedV1(config, item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
-      stock_unit: dayStockUnitOf(state, v2, item),
-      sale_unit: draws?.sale_unit ?? item.sale_unit,
+      stock_item_ids: stockItemIdsOf(day, known),
+      // Seam: removed by task 20 (the unit fields below).
+      stock_unit: dayStockUnit(state, stockItemsById.get(item.item_id) ?? untrackedStandIn(item)),
+      sale_unit: day?.sale_unit ?? item.sale_unit,
       stock_per_sale_unit: draw?.quantity_per_sale_unit ?? item.stock_per_sale_unit,
       low_stock_threshold: item.low_stock_threshold,
       carries_over: item.carries_over,
@@ -91,20 +160,22 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
   });
 }
 
-// S14, S41, S46: numbers and flags only; 1 statement for the availability rows.
-// v1.0.2: unit is the open day's frozen unit (else the config's); a count in another unit reads as no count.
-function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null, start: number | null) {
+// S14, S41, S46: the availability rows per menu item; 1 statement for them.
+// Seam: removed by task 20 (the number fields): v1.0.2, unit is the open day's frozen unit (else the config's).
+function itemRows(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null, start: number | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
+  const draws = itemDraws(ctx.state, v2);
+  const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
   const stockItemsById = new Map((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s]));
   return items.map((item) => {
     const stockItem = stockItemsById.get(item.item_id) ?? untrackedStandIn(item);
-    const unit = dayStockUnitOf(ctx.state, v2, item);
-    const stored = stockOf(ctx.state, item.item_id);
-    const entry = stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
+    const unit = dayStockUnit(ctx.state, stockItem);
+    const entry = countIn(ctx.state, item.item_id, unit);
     const since = off.get(item.item_id);
     return {
       item_id: item.item_id,
+      stock_item_ids: stockItemIdsOf(draws.get(item.item_id), known),
       on_hand: entry.on_hand,
       reserved: entry.reserved,
       unit,
@@ -117,8 +188,8 @@ function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConf
   });
 }
 
-// Seam until 01c tasks 19–20 (the query lists stock items): an untracked item has no stock item in the view,
-// so its row keeps 01a's numbers from its own unit, carries_over and threshold, as dayStockUnitOf does.
+// Seam: removed by task 20 (with the item rows' unit and number fields): an untracked item has no stock item
+// in the view, so its row keeps 01a's numbers from its own unit, carries_over and threshold.
 function untrackedStandIn(item: BranchConfigV1['items'][number]): ConfigStockItem {
   return {
     stock_item_id: item.item_id,
@@ -143,8 +214,9 @@ function scopedConfig(config: BranchConfigV1 | null, inScope: (item: BranchConfi
   return items.length === config.items.length ? config : { ...config, items };
 }
 
-function scopeKey(config: BranchConfigV1 | null): string {
-  const ids = (config?.items ?? []).map((item) => item.item_id).join(',');
+// R-2 (01c §6.21): the in-scope stock item ids, then the in-scope item ids (item rows stay per route station, B20).
+function scopeKey(stockItems: readonly ConfigStockItem[], config: BranchConfigV1 | null): string {
+  const ids = `${stockItems.map((s) => s.stock_item_id).join(',')}|${(config?.items ?? []).map((item) => item.item_id).join(',')}`;
   return createHash('sha256').update(ids).digest('hex').slice(0, 12);
 }
 

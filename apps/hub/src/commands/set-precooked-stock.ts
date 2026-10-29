@@ -1,6 +1,6 @@
-import { DomainError, type Unit } from '@pos/domain';
+import { DomainError } from '@pos/domain';
 import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import type { BranchConfig, ConfigItemV1, ConfigStockItem } from '@pos/events';
+import type { ConfigItemV1, ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
@@ -121,25 +121,6 @@ export function stockItemScopeFilter(
   if (manageStockScope(resolution) === 'branch') return () => true;
   const stations = new Set(staffId === null ? [] : directory.stationsOf(staffId, 'count_stock'));
   return (stockItem) => stations.has(stockItem.station_id);
-}
-
-// 01a S44 through the V2 view (01c §3.5.3, P-2): the open day's frozen unit of the item's stock item
-// (same id as the item, §5.1); an item with no stock item keeps its own unit.
-export function dayStockUnitOf(
-  state: Readonly<EngineState>,
-  config: BranchConfig | null,
-  item: Pick<ConfigItemV1, 'item_id' | 'stock_unit'>,
-): Unit {
-  const stockItem = config?.stock_items.find((candidate) => candidate.stock_item_id === item.item_id);
-  return dayStockUnit(state, stockItem ?? { stock_item_id: item.item_id, stock_unit: item.stock_unit });
-}
-
-// 01c V5 through the V2 view (P-2): a tracked item's stock item has the item's id (§5.1), so a miss cannot
-// happen under the view. Only the catch-up calls it; task 19 deletes it.
-export function viewStockItem(config: BranchConfig | null, itemId: string): ConfigStockItem {
-  const stockItem = config?.stock_items.find((candidate) => candidate.stock_item_id === itemId);
-  if (stockItem === undefined) throw new Error('viewStockItem: no stock item for a tracked item under the V2 view');
-  return stockItem;
 }
 
 // S40 N8: set_at is the command's clock reading; the stock query is the truth.

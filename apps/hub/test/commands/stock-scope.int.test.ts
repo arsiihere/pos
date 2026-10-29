@@ -1,11 +1,20 @@
-import type { DirectoryInput } from '@pos/events';
+import type { BranchConfig, DirectoryInput } from '@pos/events';
 import type { BranchConfigV1 } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { aBranchConfig, aBranchConfigV1 } from '@pos/events/testing';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+
+// [01b #34]'s last clause needs a stock item counted at another station than its drawers' route, which the V1
+// view cannot express: the view returns a schema-2 config while `view.config` is set. Seam (01c plan P-2):
+// task 21 removes this mock.
+const view = vi.hoisted(() => ({ config: null as BranchConfig | null }));
+vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/sync/config-v2-view')>();
+  return { ...actual, branchConfigV2: () => view.config ?? actual.branchConfigV2() };
+});
 
 type Admin = { staffId: string; device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 
@@ -13,25 +22,32 @@ const cleanups: Array<() => Promise<void>> = [];
 
 describe('manage-stock scope my_stations on the stock page and its item commands (01b B20, §4.4 rows 9–10)', () => {
   afterEach(async () => {
+    view.config = null;
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[01b #34] my_stations: the stock query lists only the counter\'s stations\' items; SetPrecookedStock, AddPrecookedStock, SetItemAvailability with an outside item → 403 outside_scope, nothing appended; scope branch unchanged', async () => {
+  // 01b v1.2 B3 marker (01c B1): stock rows by the stock item's station, item rows by the item's route station.
+  it('[01b #34] my_stations: the stock query lists only the stock items counted at the counter\'s stations, with their menu items; SetPrecookedStock, AddPrecookedStock with an outside stock item and SetItemAvailability with an outside item → 403 outside_scope, nothing appended; scope branch unchanged', async () => {
     const hub = await open();
     const manager = adminOn(hub, 'S_MGR');
     const counter = adminOn(hub, 'S_CNT');
     expect((await command(hub, manager, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open')).statusCode).toBe(200);
 
-    // The stock query: only S1's items (I1, I2) for the counter, every item for the manager; 1 statement each.
+    // The stock query: only the stock items counted at S1 (I1, I2 through the V1 view, by name) with their menu
+    // items for the counter, every stock item for the manager; 1 statement each.
     const mine = statementCounter(hub.deps.readDb);
     const scoped = await query(hub, counter);
     expect(scoped.statusCode, scoped.body).toBe(200);
     expect(mine.count).toBe(1);
-    expect(scoped.json().data.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
-    expect(scoped.json().data.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    const scopedData = scoped.json().data;
+    expect(stockMetaIds(scopedData)).toEqual([['I1', ['I1']], ['I2', ['I2']]]);
+    expect(scopedData.stock.map((row: { stock_item_id: string }) => row.stock_item_id)).toEqual(['I1', 'I2']);
+    expect(scopedData.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    expect(scopedData.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
     const all = statementCounter(hub.deps.readDb);
     const branch = await query(hub, manager);
     expect(all.count).toBe(1);
+    expect(branch.json().data.stock.map((row: { stock_item_id: string }) => row.stock_item_id)).toEqual(['I1', 'I3', 'I2']);
     expect(branch.json().data.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
 
     // Item commands with an item routed to S2 → 403, nothing appended, no processed row.
@@ -60,6 +76,21 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     // Scope branch: every item, as in 01a.
     expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
     expect((await command(hub, manager, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-mgr')).statusCode).toBe(200);
+
+    // 01b B1: the stock item's own station decides, not its drawers' route. K1 is counted at S2 while its
+    // drawers I1 and I3 are routed to S1: the counter (S1) sees no stock row and cannot count K1, but keeps
+    // the S1 item rows and may still switch I1 (route station).
+    view.config = { ...aBranchConfig(), stock_items: aBranchConfig().stock_items.map((s) => ({ ...s, station_id: 'S2' })) };
+    const elsewhere = (await query(hub, counter)).json().data;
+    expect(elsewhere.stock_items_meta).toEqual([]);
+    expect(elsewhere.stock).toEqual([]);
+    expect(elsewhere.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    const pot = await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'K1', on_hand: 6_000 }] }, 'cmd-set-k1');
+    expect(pot.statusCode, pot.body).toBe(403);
+    expect(pot.json().error.details).toMatchObject({ reason: 'outside_scope', stock_item_ids: ['K1'] });
+    expect((await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I1', is_available: false }, 'cmd-off-i1')).statusCode).toBe(200);
+    // The day was opened under the V1 view, so today's frozen draws still name I1 / I3 (V20): K1 has no drawer yet.
+    expect(stockMetaIds((await query(hub, manager)).json().data)).toEqual([['K1', []]]);
   });
 
   it('[01b B20] a my_stations holder with no stations sees no items and may change none', async () => {
@@ -158,6 +189,10 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     expect(again.manage_stock_scope).toBe('my_stations');
   });
 });
+
+function stockMetaIds(data: { stock_items_meta: Array<{ stock_item_id: string; drawers: Array<{ item_id: string }> }> }): Array<[string, string[]]> {
+  return data.stock_items_meta.map((row) => [row.stock_item_id, row.drawers.map((drawer) => drawer.item_id)]);
+}
 
 function hubEvents(hub: TestHub): number {
   return hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'hub'").pluck().get() as number;

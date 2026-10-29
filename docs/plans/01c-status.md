@@ -53,6 +53,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 17 | DONE | `b5588ad` | #31–#34, [01c V16 P-10], [01c §6.9] | AD-12: stock item lock first, branch read in the transaction (§6.9, C2); the cross-tenant test has a named exception for this route |
 | 16a | DONE | this commit | [01c §6.8 R2 before R1, AD-13] | AD-13 (developer, Q-4): stock item PATCH checks R2 (409) before R1 (422); one drawers read kept |
 | 18 | DONE | this commit | #63–#65, #68, #79; re-keyed 01a #59–#61, #130, #134, #147 | AD-14: key renames reach hub tests business-day, stock-scope, queries/stock, ws/restaurant-ws, client `StockApp.tsx` and four client tests; #63–#65 mock `config-v2-view` with `aBranchConfig()` until task 21; `viewStockItem` kept for the catch-up only (plain `Error` on a miss); `open-business-day.ts` unchanged (task 8 already writes v2 from the view) |
+| 19 | DONE | this commit | #70, #114; re-keyed 01a #67, #72, #73, #89, #91, #93, #116, #131, #152, #158; 01b #34 | Additive wire: `stock_items_meta`, `stock`, `stock_item_ids` are `.optional()` and the old item-row unit / number fields carry `// Seam: removed by task 20`; the scope key covers stock item ids and item ids; `dayStockUnitOf`, `viewStockItem` deleted; `untrackedStandIn` and `stockScopeFilter` kept (task 20 / `SetItemAvailability`); #70, #91, #34 mock `config-v2-view` with `aBranchConfig()` until task 21 |
 
 ## Checkpoints
 

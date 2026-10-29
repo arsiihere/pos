@@ -35,12 +35,12 @@ function writeConfig(): { path: string; cleanup: () => void } {
   return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-function draft(stream: 'stock' | 'hub', streamId: string, eventType: string, payload: Record<string, unknown>, at: number): EventDraft {
+function draft(stream: 'stock' | 'hub', streamId: string, eventType: string, payload: Record<string, unknown>, at: number, schemaVersion = 1): EventDraft {
   return {
     stream_type: stream,
     stream_id: streamId,
     event_type: eventType,
-    schema_version: 1,
+    schema_version: schemaVersion,
     payload,
     occurred_at: at,
     actor_id: null,
@@ -71,6 +71,7 @@ describe('engine state through boot (S15)', () => {
     expect(booted.deps.state.get()).toEqual({});
   });
 
+  // 01c V5: the stock stream is keyed by stock item (StockSet / StockAdded v2).
   it('[01a §10 #67] restart → boot step 3 rebuilds stock from StockSet events; values equal pre-restart', async () => {
     registerRestaurantBootSteps();
     const cfg = writeConfig();
@@ -78,14 +79,15 @@ describe('engine state through boot (S15)', () => {
     const first = await start(cfg.path, WALL);
     expect(engine(first)).toEqual({ stock: {}, business_day: null });
     append(first, [
-      draft('stock', 'I1', 'StockSet', { item_id: 'I1', on_hand: 12, unit: 'piece' }, WALL),
-      draft('stock', 'I2', 'StockSet', { item_id: 'I2', on_hand: 2500, unit: 'g' }, WALL),
+      draft('stock', 'K1', 'StockSet', { stock_item_id: 'K1', on_hand: 12, unit: 'piece' }, WALL, 2),
+      draft('stock', 'K2', 'StockSet', { stock_item_id: 'K2', on_hand: 2500, unit: 'g' }, WALL, 2),
     ]);
-    append(first, [draft('stock', 'I2', 'StockAdded', { item_id: 'I2', quantity: 500, unit: 'g' }, WALL)]);
-    append(first, [draft('stock', 'I1', 'StockSet', { item_id: 'I1', on_hand: 9, unit: 'piece' }, WALL)]);
+    append(first, [draft('stock', 'K2', 'StockAdded', { stock_item_id: 'K2', quantity: 500, unit: 'g' }, WALL, 2)]);
+    append(first, [draft('stock', 'K1', 'StockSet', { stock_item_id: 'K1', on_hand: 9, unit: 'piece' }, WALL, 2)]);
     const before = engine(first).stock;
-    expect(before.I1).toMatchObject({ on_hand: 9, reserved: 0, unit: 'piece' });
-    expect(before.I2).toMatchObject({ on_hand: 3000, reserved: 0, unit: 'g' });
+    expect(Object.keys(before)).toEqual(['K1', 'K2']);
+    expect(before.K1).toMatchObject({ on_hand: 9, reserved: 0, unit: 'piece' });
+    expect(before.K2).toMatchObject({ on_hand: 3000, reserved: 0, unit: 'g' });
     await first.stop();
     cleanups.splice(cleanups.length - 1, 1);
 
@@ -127,8 +129,8 @@ describe('engine state through boot (S15)', () => {
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
-    append(first, [draft('stock', 'I1', 'StockSet', { item_id: 'I1', on_hand: 4, unit: 'piece' }, WALL)]);
-    const setAt = engine(first).stock.I1!.set_at;
+    append(first, [draft('stock', 'K1', 'StockSet', { stock_item_id: 'K1', on_hand: 4, unit: 'piece' }, WALL, 2)]);
+    const setAt = engine(first).stock.K1!.set_at;
     const recordedAt = first.deps.db
       .prepare(`SELECT recorded_at FROM events WHERE event_type = 'StockSet'`)
       .pluck()
@@ -139,7 +141,7 @@ describe('engine state through boot (S15)', () => {
 
     const second = await start(cfg.path, WALL + 3_600_000);
     expect(second.deps.clock.branchNow()).toBeGreaterThan(recordedAt);
-    expect(engine(second).stock.I1!.set_at).toBe(setAt);
+    expect(engine(second).stock.K1!.set_at).toBe(setAt);
   });
 
   it('[01a S33] a BusinessDayOpened and BusinessDayClosed in the log are folded at boot', async () => {

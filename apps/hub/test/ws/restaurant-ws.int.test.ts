@@ -1,12 +1,20 @@
 import { availableStock, openDayStartMs, type EngineState } from '@pos/engine';
-import type { BranchConfigV1, EventDraft } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfig, BranchConfigV1, EventDraft } from '@pos/events';
+import { aBranchConfig, aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { toConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
+
+// [01a §10 #91]'s last clause needs a stock item whose id is no item's id, which the V1 view cannot express:
+// the view returns a schema-2 config while `view.config` is set. Seam (01c plan P-2): task 21 removes this mock.
+const view = vi.hoisted(() => ({ config: null as BranchConfig | null }));
+vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/sync/config-v2-view')>();
+  return { ...actual, branchConfigV2: () => view.config ?? actual.branchConfigV2() };
+});
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 type CatchUp = { type: 'catch_up'; state: Record<string, unknown> };
@@ -17,6 +25,7 @@ const cleanups: Array<() => Promise<void>> = [];
 describe('restaurant ws pushes and catch-up (§4.5)', () => {
   afterEach(async () => {
     vi.useRealTimers();
+    view.config = null;
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
@@ -41,6 +50,12 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(eventTypes(staff)).toEqual(staffTypes);
     expect(eventTypes(station)).toEqual(['BranchConfigApplied']);
     expect(eventFrames(station)[0]).toMatchObject({ event: { payload: { config_version: 2, snapshot_hash: HASH } } });
+    // 01c §6.18 (A7): the stock frames name the stock item.
+    const stockFrames = eventFrames(staff).filter((frame) => frame.event.event_type === 'StockSet' || frame.event.event_type === 'StockAdded');
+    expect(stockFrames.map((frame) => frame.event.payload)).toEqual([
+      { stock_item_id: 'I1', on_hand: 4, unit: 'piece' },
+      { stock_item_id: 'I1', quantity: 2, unit: 'piece' },
+    ]);
   });
 
   it('[01a §4.5] BusinessDayClosed reaches staff sockets, not station sockets (#145 push clause)', async () => {
@@ -75,8 +90,8 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
       headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
     });
     expect(res.statusCode).toBe(200);
-    const row = (res.json().data.items as Array<{ item_id: string }>).find((r) => r.item_id === 'I4');
-    expect(row).toMatchObject({ on_hand: 0, reserved: 0, available: 0, set_at: null, level: 'not_counted' });
+    const row = (res.json().data.stock as Array<{ stock_item_id: string }>).find((r) => r.stock_item_id === 'I4');
+    expect(row).toEqual({ stock_item_id: 'I4', on_hand: 0, reserved: 0, unit: 'g', available: 0, set_at: null, level: 'not_counted' });
     const state = engine(hub);
     expect(availableStock(state, 'I4', openDayStartMs(state), toConfigV2(config).stock_items.find((s) => s.stock_item_id === 'I4')!)).toBe(0);
 
@@ -147,6 +162,11 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(station.branch_config).toEqual(state.branch_config);
     expect(station).not.toHaveProperty('availability');
     expect(station).not.toHaveProperty('stock');
+
+    // 01c A7: `stock.items` is keyed by stock_item_id (one stock item K1 drawn by I1 and I3), not by item.
+    view.config = aBranchConfig();
+    const pot = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
+    expect(pot.items).toEqual({ K1: { on_hand: 0, reserved: 0, set_at: null, unit: 'g', available: 0, level: 'not_counted' } });
   });
 
   it('[01a S47] the catch-up branch_config part carries hub_time', async () => {

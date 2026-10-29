@@ -1,4 +1,4 @@
-import { availableStock, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
+import { availableStock, canServeFromStock, dayDraws, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
 import {
   AddPrecookedStockResult,
   AdminAuthResponse,
@@ -9,11 +9,12 @@ import {
   SetItemAvailabilityResult,
   SetPrecookedStockResult,
   StockQueryResponse,
+  type BranchConfig,
   type BranchConfigV1,
   type ConfigStockItem,
 } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { aBranchConfig, aBranchConfigV1 } from '@pos/events/testing';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
 import { toConfigV2 } from '../../src/sync/config-v2-view';
@@ -22,24 +23,44 @@ import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
+// [01c #70] needs one stock item drawn by two items, which the V1 view cannot express: the view returns a
+// schema-2 config while `view.config` is set. Seam (01c plan P-2): task 21 removes this mock.
+const view = vi.hoisted(() => ({ config: null as BranchConfig | null }));
+vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/sync/config-v2-view')>();
+  return { ...actual, branchConfigV2: () => view.config ?? actual.branchConfigV2() };
+});
+
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 type ItemRow = { item_id: string; on_hand: number; reserved: number; unit: string; available: number; level: string; set_at: number | null; is_available: boolean; unavailable_since: number | null };
 type MetaRow = { item_id: string; stock_unit: string; sale_unit: string; stock_per_sale_unit: number };
+type StockRow = { stock_item_id: string; on_hand: number; reserved: number; unit: string; available: number; level: string; set_at: number | null };
+type Drawer = { item_id: string; name: string; variant_name: string | null; sale_unit: string; quantity_per_sale_unit: number };
+type StockMetaRow = { stock_item_id: string; stock_unit: string; has_tracked_drawers: boolean; drawers: Drawer[] };
 
 const cleanups: Array<() => Promise<void>> = [];
 
 describe('GET /admin/queries/stock (§6.19)', () => {
   afterEach(async () => {
+    view.config = null;
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[01a §10 #72] stock query is 1 statement; set_at from EngineState.stock = the latest StockSet recorded_at; available with business_day_started_at; no config → items [], 0 statements', async () => {
+  it('[01a §10 #72] stock query is 1 statement; set_at from EngineState.stock = the latest StockSet recorded_at; available with business_day_started_at; no config → items [], stock [], 0 statements', async () => {
     const empty = await open(at(25, 6));
     const emptyAdmin = adminOn(empty, 'S_MGR');
     const counter0 = statementCounter(empty.deps.readDb);
     const none = await query(empty, emptyAdmin);
     expect(none.statusCode).toBe(200);
-    expect(none.json().data).toMatchObject({ config_version: null, items_meta: [], items: [], business_day: null, business_day_started_at: null });
+    expect(none.json().data).toMatchObject({
+      config_version: null,
+      stock_items_meta: [],
+      stock: [],
+      items_meta: [],
+      items: [],
+      business_day: null,
+      business_day_started_at: null,
+    });
     expect(counter0.count).toBe(0);
 
     const hub = await open(at(25, 6));
@@ -58,11 +79,15 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(counter.count).toBe(1);
     const data = res.json().data;
     expect(data.business_day_started_at).toBe(at(25, 6));
-    const i1 = row(data.items, 'I1');
+    // 01c §6.21: the numbers per stock item (the V1 view: I1 and I3, by name); the item rows keep availability.
+    const i1 = stockRow(data.stock, 'I1');
     const latest = lastRecordedAt(hub, 'StockSet');
-    expect(i1).toEqual({ item_id: 'I1', on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: latest, is_available: true, unavailable_since: null });
+    expect(i1).toEqual({ stock_item_id: 'I1', on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: latest });
     expect(i1.set_at).toBe(engine(hub).stock.I1!.set_at);
     expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), stockItem(aBranchConfigV1(), 'I1')));
+    expect(data.stock.map((r: StockRow) => r.stock_item_id)).toEqual(['I1', 'I3']);
+    expect(row(data.items, 'I1')).toMatchObject({ item_id: 'I1', stock_item_ids: ['I1'], is_available: true, unavailable_since: null });
+    expect(row(data.items, 'I2')).toMatchObject({ stock_item_ids: [] });
     expect(data.items.map((r: ItemRow) => r.item_id)).toEqual(['I1', 'I2', 'I3']);
   });
 
@@ -107,11 +132,11 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     hub.clock.set(at(25, 9));
     await openDay(hub, admin, 'cmd-open-25');
 
-    const before = row((await query(hub, admin)).json().data.items, 'I1');
+    const before = stockRow((await query(hub, admin)).json().data.stock, 'I1');
     expect(before).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted', set_at: at(24, 23) });
     hub.clock.set(at(25, 9, 5));
     await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 4 }], 'cmd-count-25');
-    const after = row((await query(hub, admin)).json().data.items, 'I1');
+    const after = stockRow((await query(hub, admin)).json().data.stock, 'I1');
     expect(after).toMatchObject({ on_hand: 4, available: 4, level: 'ok' });
   });
 
@@ -129,8 +154,9 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     await openDay(hub, admin, 'cmd-open-25');
 
     const data = (await query(hub, admin)).json().data;
-    expect(row(data.items, 'I3')).toMatchObject({ on_hand: 2_000, available: 2_000, level: 'ok' });
-    expect(row(data.items, 'I1')).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted' });
+    expect(stockRow(data.stock, 'I3')).toMatchObject({ on_hand: 2_000, available: 2_000, level: 'ok' });
+    expect(stockRow(data.stock, 'I1')).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted' });
+    expect(stockMeta(data.stock_items_meta, 'I3')).toMatchObject({ carries_over: true });
     expect(availableStock(engine(hub), 'I3', at(25, 9), stockItem(config, 'I3'))).toBe(2_000);
   });
 
@@ -212,6 +238,8 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(data.unchanged).toBe(false);
     expect(data.items_meta).not.toBeNull();
     expect(data.items).not.toBeNull();
+    expect(data.stock_items_meta).not.toBeNull();
+    expect(data.stock).not.toBeNull();
     expect(counter.count).toBe(1);
     expect(data.meta_version).toBe(`1.${at(25, 6)}`);
     expect(data.stock_version).toBe(lastSeq(hub, 'BusinessDayOpened'));
@@ -219,7 +247,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
     counter.reset();
     data = (await query(hub, admin, versions)).json().data;
-    expect(data).toMatchObject({ unchanged: true, items_meta: null, items: null, ...versions });
+    expect(data).toMatchObject({ unchanged: true, stock_items_meta: null, stock: null, items_meta: null, items: null, ...versions });
     expect(counter.count).toBe(0);
 
     hub.clock.set(at(25, 7));
@@ -230,7 +258,8 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(data.stock_version).toBe(lastSeq(hub, 'StockSet'));
     expect(data.meta_version).toBe(versions.meta_version);
     expect(data.items_meta).toBeNull();
-    expect(row(data.items, 'I1').on_hand).toBe(3);
+    expect(data.stock_items_meta).toBeNull();
+    expect(stockRow(data.stock, 'I1').on_hand).toBe(3);
     expect(counter.count).toBe(1);
     versions = { meta_version: data.meta_version, stock_version: data.stock_version };
 
@@ -241,6 +270,8 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(data.stock_version).toBe(versions.stock_version);
     expect(data.items_meta).not.toBeNull();
     expect(data.items).not.toBeNull();
+    expect(data.stock_items_meta).not.toBeNull();
+    expect(data.stock).not.toBeNull();
     expect(counter.count).toBe(1);
     versions = { meta_version: data.meta_version, stock_version: data.stock_version };
 
@@ -256,6 +287,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     data = (await query(hub, admin, versions)).json().data;
     expect(data.stock_version).toBe(lastSeq(hub, 'BusinessDayClosed'));
     expect(data.items).not.toBeNull();
+    expect(data.stock).not.toBeNull();
     versions = { meta_version: data.meta_version, stock_version: data.stock_version };
 
     hub.clock.set(at(26, 6));
@@ -307,20 +339,27 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     await closeDay(hub, admin, 'cmd-close');
     const base = aBranchConfigV1({ config_version: 2 });
     const grams = { stock_unit: 'g' as const, sale_unit: 'piece' as const, stock_per_sale_unit: 250 };
-    withConfig({ ...base, items: base.items.map((i) => (i.item_id === 'I1' || i.item_id === 'I2' ? { ...i, ...grams } : i)) });
+    // I2 becomes stock-tracked (a stock time), so the V1 view gives it a stock item counted in g.
+    withConfig({
+      ...base,
+      items: base.items.map((i) =>
+        i.item_id === 'I1' ? { ...i, ...grams } : i.item_id === 'I2' ? { ...i, ...grams, stock_time_ms: 300_000 } : i,
+      ),
+    });
 
-    // No day open: the config's unit.
+    // No day open: the stock item's unit.
     const closed = (await query(hub, admin)).json().data;
-    expect(row(closed.items, 'I2')).toMatchObject({ unit: 'g' });
-    expect(row(closed.items, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null });
+    expect(stockRow(closed.stock, 'I2')).toMatchObject({ unit: 'g' });
+    expect(stockRow(closed.stock, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null });
 
     hub.clock.set(at(26, 6));
     await openDay(hub, admin, 'cmd-open-2');
     const data = (await query(hub, admin)).json().data;
     // Never counted: the frozen day unit, not stockOf's 'piece' default.
-    expect(row(data.items, 'I2')).toMatchObject({ unit: 'g', on_hand: 0, set_at: null });
+    expect(stockRow(data.stock, 'I2')).toMatchObject({ unit: 'g', on_hand: 0, set_at: null });
+    expect(stockMeta(data.stock_items_meta, 'I2')).toMatchObject({ stock_unit: 'g' });
     // Counted in piece yesterday; the day is in g: no count.
-    expect(row(data.items, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null, available: 0, level: 'not_counted' });
+    expect(stockRow(data.stock, 'I1')).toMatchObject({ unit: 'g', on_hand: 0, reserved: 0, set_at: null, available: 0, level: 'not_counted' });
     expect(engine(hub).stock['I1']).toMatchObject({ unit: 'piece', on_hand: 6 });
   });
 
@@ -337,6 +376,106 @@ describe('GET /admin/queries/stock (§6.19)', () => {
       expect(meta.category_name).toBe(base.categories.find((c) => c.category_id === meta.category_id)?.name);
     }
     expect(StockQueryResponse.parse((await query(hub, admin)).json()).data.day_min_gap_hours).toBe(2);
+  });
+
+  it('[01c #70] stock query: one row per stock item with its drawers; 1 statement when the numbers are sent; no deal rows', async () => {
+    const config = aBranchConfig();
+    const deal = {
+      deal_id: 'D1',
+      category_id: 'C1',
+      name: 'Karahi deal',
+      description: null,
+      sort_order: 1,
+      price_minor: 300_000,
+      tax_class_id: null,
+      availability_windows: [],
+      parts: [{ deal_part_id: 'P1', quantity: 1, sort_order: 1, choices: [{ item_id: 'I1', extra_price_minor: 0, sort_order: 1 }] }],
+    };
+    view.config = { ...config, deals: [deal] };
+    const hub = await open(at(25, 6));
+    withConfig(aBranchConfigV1());
+    const admin = adminOn(hub, 'S_MGR');
+    await openDay(hub, admin, 'cmd-open');
+    hub.clock.set(at(25, 7));
+    await count(hub, admin, [{ stock_item_id: 'K1', on_hand: 6_000 }], 'cmd-count');
+
+    const counter = statementCounter(hub.deps.readDb);
+    const data = (await query(hub, admin)).json().data;
+    expect(counter.count).toBe(1);
+    expect(data.stock_items_meta).toEqual([
+      {
+        stock_item_id: 'K1',
+        name: 'Karahi pot',
+        stock_unit: 'g',
+        carries_over: false,
+        station_id: 'S1',
+        low_stock_threshold: null,
+        has_tracked_drawers: true,
+        drawers: [
+          { item_id: 'I1', name: 'Chicken Karahi — Half', variant_name: 'Half', sale_unit: 'piece', quantity_per_sale_unit: 500 },
+          { item_id: 'I3', name: 'Chicken Karahi — Full', variant_name: 'Full', sale_unit: 'piece', quantity_per_sale_unit: 1_000 },
+        ],
+      },
+    ]);
+    expect(data.stock).toEqual([
+      { stock_item_id: 'K1', on_hand: 6_000, reserved: 0, unit: 'g', available: 6_000, level: 'ok', set_at: lastRecordedAt(hub, 'StockSet') },
+    ]);
+    expect(data.items.map((r: { item_id: string; stock_item_ids: string[] }) => [r.item_id, r.stock_item_ids])).toEqual([
+      ['I1', ['K1']],
+      ['I2', []],
+      ['I3', ['K1']],
+    ]);
+    expect(data.items_meta.map((r: { item_id: string; stock_item_ids: string[] }) => [r.item_id, r.stock_item_ids])).toEqual([
+      ['I1', ['K1']],
+      ['I2', []],
+      ['I3', ['K1']],
+    ]);
+    // No deal rows (v0.3, m9).
+    expect(JSON.stringify(data)).not.toContain('D1');
+    expect(StockQueryResponse.parse({ data })).toEqual({ data });
+  });
+
+  it('[01c #114] hub upgraded while a v1 day is open: the fold gives the upcast draws; the query shows the frozen units; canServeFromStock uses the upcast quantity_per_sale_unit', async () => {
+    const hub = await open(at(25, 6));
+    withConfig(aBranchConfigV1());
+    const admin = adminOn(hub, 'S_MGR');
+    // The rows an 01a hub stored (the writer now upcasts on append, so insert them raw).
+    const units = {
+      I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
+      I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
+    };
+    insertV1(hub, 'hub', 'branch-1', 'BusinessDayOpened', { business_date: '2026-10-25', units }, at(25, 6));
+    insertV1(hub, 'stock', 'I3', 'StockSet', { item_id: 'I3', on_hand: 1_000, unit: 'g' }, at(25, 7));
+    // The upgraded hub's boot step 3 (the real boot() path is #147's setup).
+    hub.deps.state.swap(foldEngineEvents(hub.deps.db, 'branch-1').state);
+    expect(engine(hub).business_day).toMatchObject({
+      stock_units: { I1: 'piece', I3: 'g' },
+      draws: { I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] } },
+    });
+
+    // The config moves mid-day: I1 to g, I3 to 300 g a piece; the open day keeps the frozen values.
+    hub.clock.set(at(25, 8));
+    const base = aBranchConfigV1({ config_version: 2 });
+    withConfig({
+      ...base,
+      items: base.items.map((i) =>
+        i.item_id === 'I1' ? { ...i, stock_unit: 'g', stock_per_sale_unit: 250 } : i.item_id === 'I3' ? { ...i, stock_per_sale_unit: 300 } : i,
+      ),
+    });
+    const data = (await query(hub, admin)).json().data;
+    expect(stockMeta(data.stock_items_meta, 'I1')).toMatchObject({
+      stock_unit: 'piece',
+      drawers: [{ item_id: 'I1', name: 'Chicken Karahi', variant_name: null, sale_unit: 'piece', quantity_per_sale_unit: 1 }],
+    });
+    const i3 = stockMeta(data.stock_items_meta, 'I3');
+    expect(i3).toMatchObject({ stock_unit: 'g', drawers: [{ item_id: 'I3', sale_unit: 'piece', quantity_per_sale_unit: 250 }] });
+    const stock = stockRow(data.stock, 'I3');
+    expect(stock).toMatchObject({ on_hand: 1_000, unit: 'g', available: 1_000, level: 'ok', set_at: at(25, 7) });
+    const perSale = i3.drawers[0]!.quantity_per_sale_unit;
+    expect(canServeFromStock(stock.available, 4, perSale)).toBe(true);
+    expect(canServeFromStock(stock.available, 5, perSale)).toBe(false);
+    const v2Item = toConfigV2(base).items.find((candidate) => candidate.item_id === 'I3')!;
+    expect(dayDraws(engine(hub), v2Item, { I3: 'g' }).stock_draws).toEqual([{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }]);
   });
 
   it('[01a §6.19] an admin without manage-stock → 403', async () => {
@@ -371,6 +510,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
       category_name: config.categories.find((c) => c.category_id === i2.category_id)?.name,
       is_stock_tracked: false,
       out_of_stock_behaviour: i2.out_of_stock_behaviour,
+      stock_item_ids: [],
       stock_unit: i2.stock_unit,
       sale_unit: i2.sale_unit,
       stock_per_sale_unit: i2.stock_per_sale_unit,
@@ -434,6 +574,29 @@ function stockItem(config: BranchConfigV1, stockItemId: string): ConfigStockItem
   const found = toConfigV2(config).stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
   if (found === undefined) throw new Error(`no stock item ${stockItemId}`);
   return found;
+}
+
+function stockRow(rows: StockRow[], stockItemId: string): StockRow {
+  const found = rows.find((r) => r.stock_item_id === stockItemId);
+  if (found === undefined) throw new Error(`no stock row ${stockItemId}`);
+  return found;
+}
+
+function stockMeta(rows: StockMetaRow[], stockItemId: string): StockMetaRow {
+  const found = rows.find((r) => r.stock_item_id === stockItemId);
+  if (found === undefined) throw new Error(`no stock meta row ${stockItemId}`);
+  return found;
+}
+
+function insertV1(hub: TestHub, streamType: 'stock' | 'hub', streamId: string, eventType: string, payload: Record<string, unknown>, at: number): void {
+  const seq = (hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get() as number) + 1;
+  hub.deps.db
+    .prepare(
+      `INSERT INTO events (event_id, tenant_id, branch_id, stream_type, stream_id, event_type,
+         schema_version, payload, occurred_at, recorded_at, actor_id, device_id, seq)
+       VALUES (?, 'tenant-a', 'branch-1', ?, ?, ?, 1, ?, ?, ?, NULL, 'hub', ?)`,
+    )
+    .run(`01J0000000000000000000V1${String(seq).padStart(2, '0')}`, streamType, streamId, eventType, JSON.stringify(payload), at, at, seq);
 }
 
 function row<T = ItemRow>(rows: T[], itemId: string): T {
