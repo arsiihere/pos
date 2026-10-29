@@ -37,27 +37,28 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     // Item commands with an item routed to S2 → 403, nothing appended, no processed row.
     const before = stockEvents(hub);
     const refused = [
-      await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }, { item_id: 'I3', on_hand: 500 }] }, 'cmd-set-out'),
-      await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I3', quantity: 250 }, { item_id: 'I1', quantity: 1 }] }, 'cmd-add-out'),
+      await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }, { stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-out'),
+      await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I3', quantity: 250 }, { stock_item_id: 'I1', quantity: 1 }] }, 'cmd-add-out'),
       await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-out'),
     ];
-    for (const response of refused) {
+    // 01c §6.18: the stock commands name stock items (I3 through the V2 view); SetItemAvailability names items.
+    for (const [response, key] of [[refused[0]!, 'stock_item_ids'], [refused[1]!, 'stock_item_ids'], [refused[2]!, 'item_ids']] as const) {
       expect(response.statusCode, response.body).toBe(403);
       expect(response.json().error).toMatchObject({
         code: 'PERMISSION_DENIED',
-        details: { permission: 'manage-stock', reason: 'outside_scope', item_ids: ['I3'] },
+        details: { permission: 'manage-stock', reason: 'outside_scope', [key]: ['I3'] },
       });
     }
     expect(stockEvents(hub)).toBe(before);
     expect(processed(hub, ['cmd-set-out', 'cmd-add-out', 'cmd-off-out'])).toBe(0);
 
     // Inside the counter's stations → 200.
-    expect((await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }] }, 'cmd-set-in')).statusCode).toBe(200);
-    expect((await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-add-in')).statusCode).toBe(200);
+    expect((await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }] }, 'cmd-set-in')).statusCode).toBe(200);
+    expect((await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I1', quantity: 2 }] }, 'cmd-add-in')).statusCode).toBe(200);
     expect((await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off-in')).statusCode).toBe(200);
 
     // Scope branch: every item, as in 01a.
-    expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
+    expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
     expect((await command(hub, manager, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-mgr')).statusCode).toBe(200);
   });
 

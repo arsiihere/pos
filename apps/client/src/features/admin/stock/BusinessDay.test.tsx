@@ -241,7 +241,7 @@ describe('/admin/stock business day', () => {
     ]);
     expect(sentCommands[1]?.body?.['payload']).toEqual({});
     expect(sentCommands[2]?.body?.['command_id']).toBe(sentCommands[0]?.body?.['command_id']);
-    expect(sentCommands[2]?.body?.['payload']).toEqual({ entries: [{ item_id: 'I1', on_hand: 7 }] });
+    expect(sentCommands[2]?.body?.['payload']).toEqual({ entries: [{ stock_item_id: 'I1', on_hand: 7 }] });
     expect(container.querySelector('[data-start-day]')).toBeNull();
 
     // Day open: the line and Close day; Close day asks first, then sends CloseBusinessDay.
@@ -334,7 +334,7 @@ describe('/admin/stock business day', () => {
     expect(sentCommands[0]?.url).toBe('/admin/commands/add-precooked-stock');
     expect(sentCommands[0]?.body).toMatchObject({
       command_type: 'AddPrecookedStock',
-      payload: { entries: [{ item_id: 'I2', quantity: 1500 }] },
+      payload: { entries: [{ stock_item_id: 'I2', quantity: 1500 }] },
     });
     expect(field('I2', 'add')?.value).toBe('');
     expect(field('I1', 'add')?.value).toBe('3');
@@ -388,7 +388,7 @@ describe('/admin/stock business day', () => {
       '/admin/commands/add-precooked-stock',
     ]);
     expect(sentCommands[2]?.body?.['command_id']).toBe(sentCommands[0]?.body?.['command_id']);
-    expect(sentCommands[2]?.body?.['payload']).toEqual({ entries: [{ item_id: 'I2', quantity: 1500 }] });
+    expect(sentCommands[2]?.body?.['payload']).toEqual({ entries: [{ stock_item_id: 'I2', quantity: 1500 }] });
     expect(field('I2', 'add')?.value).toBe('');
   });
 

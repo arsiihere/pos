@@ -1,20 +1,19 @@
-import { applyEvent, countIsValid, openDayStartMs, stockOf } from '@pos/engine';
+import { applyEvent, countIsValid, dayStockUnit, openDayStartMs, stockOf } from '@pos/engine';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
-import { branchConfigV2 } from '../sync/config-v2-view.js';
-import { dayStockUnitOf, requireItemsInScope, stockItems, stockResult, uniqueItemIds, viewStockItem } from './set-precooked-stock.js';
+import { requireStockItemsInScope, stockItemResult, stockItemsOf, uniqueStockItemIds } from './set-precooked-stock.js';
 
 const Payload = z.object({
   entries: z
-    .array(z.object({ item_id: z.string().min(1), quantity: z.number().int().min(1).max(1_000_000) }))
+    .array(z.object({ stock_item_id: z.string().min(1), quantity: z.number().int().min(1).max(1_000_000) }))
     .min(1)
     .max(200)
-    .superRefine(uniqueItemIds),
+    .superRefine(uniqueStockItemIds),
 });
 
-// §6.17a, S45: an add onto a valid count is a StockAdded; onto an invalid one it is the new count.
+// 01c §6.19 (01a §6.17a), S45: an add onto a valid count is a StockAdded v2; onto an invalid one it is the new count.
 export function registerAddPrecookedStock(app: FastifyInstance): void {
   commandRegistry(app).register(
     defineCommand({
@@ -23,26 +22,24 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
       sessionKind: 'admin',
       permission: 'manage-stock',
       handle(ctx, payload) {
-        const items = stockItems(ctx.state, payload.entries);
-        requireItemsInScope(ctx, items);
+        const stockItems = stockItemsOf(ctx.state, payload.entries);
+        requireStockItemsInScope(ctx, stockItems);
         const start = openDayStartMs(ctx.state);
         const now = ctx.clock.branchNow();
-        const config = branchConfigV2();
-        const stock = items.map((item) => viewStockItem(config, item.item_id));
         const recordedAs: Array<'added' | 'set'> = [];
         const drafts = payload.entries.map((entry, i) => {
-          const item = items[i]!;
-          const unit = dayStockUnitOf(ctx.state, config, item);
-          const valid = countIsValid(stockOf(ctx.state, entry.item_id), start, { carries_over: stock[i]!.carries_over, stock_unit: unit });
+          const stockItem = stockItems[i]!;
+          const unit = dayStockUnit(ctx.state, stockItem);
+          const valid = countIsValid(stockOf(ctx.state, entry.stock_item_id), start, { carries_over: stockItem.carries_over, stock_unit: unit });
           recordedAs.push(valid ? 'added' : 'set');
           return {
             stream_type: 'stock' as const,
-            stream_id: entry.item_id,
+            stream_id: entry.stock_item_id,
             event_type: valid ? 'StockAdded' : 'StockSet',
             schema_version: 2,
             payload: valid
-              ? { stock_item_id: entry.item_id, quantity: entry.quantity, unit }
-              : { stock_item_id: entry.item_id, on_hand: entry.quantity, unit },
+              ? { stock_item_id: entry.stock_item_id, quantity: entry.quantity, unit }
+              : { stock_item_id: entry.stock_item_id, on_hand: entry.quantity, unit },
             occurred_at: now,
             actor_id: ctx.actor.staffId,
             device_id: ctx.actor.deviceId,
@@ -54,9 +51,9 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
           result: {
             // S45: an add is not a count, so its set_at stays the count's time.
             // An 'added' entry always has a set_at: countIsValid is false when it is null.
-            items: payload.entries.map((entry, i) => {
-              const setAt = recordedAs[i] === 'added' ? stockOf(next, entry.item_id).set_at! : now;
-              return { ...stockResult(next, stock[i]!, setAt), recorded_as: recordedAs[i]! };
+            stock_items: payload.entries.map((entry, i) => {
+              const setAt = recordedAs[i] === 'added' ? stockOf(next, entry.stock_item_id).set_at! : now;
+              return { ...stockItemResult(next, stockItems[i]!, setAt), recorded_as: recordedAs[i]! };
             }),
           },
         };

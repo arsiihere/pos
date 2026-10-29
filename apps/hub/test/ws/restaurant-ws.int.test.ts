@@ -28,8 +28,8 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const station = await stationSocket(hub);
 
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set');
-    await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-add');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set');
+    await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I1', quantity: 2 }] }, 'cmd-add');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: true }, 'cmd-on');
     hub.deps.writer.run((tx) => tx.append([configApplied(2)]));
@@ -119,7 +119,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
     hub.clock.set(at(25, 7));
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }, { item_id: 'I3', on_hand: 1_000 }] }, 'cmd-set');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }, { stock_item_id: 'I3', on_hand: 1_000 }] }, 'cmd-set');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-3');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off-2');
 
@@ -165,7 +165,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-24');
     hub.clock.set(at(24, 23));
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set-24');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set-24');
     hub.clock.set(at(24, 23, 30));
     await command(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-24');
     hub.clock.set(at(25, 9));
@@ -173,7 +173,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
     let stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I1).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted' });
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set-25');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set-25');
     stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I1).toMatchObject({ on_hand: 4, available: 4, level: 'ok' });
   });

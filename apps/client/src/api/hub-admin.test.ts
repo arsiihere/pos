@@ -131,20 +131,20 @@ describe('hub-admin client', () => {
   it('[01a §8.2, D7] a command before any config-status read fetches the ids first; each command keeps its command_id', async () => {
     sessionStorage.setItem('admin_session_token', 'AS1');
     sessionStorage.setItem('admin_staff_id', 'S_MGR');
-    const result = { items: [{ item_id: 'I1', on_hand: 4, reserved: 0, unit: 'piece', available: 4, level: 'ok', set_at: 1 }] };
+    const result = { stock_items: [{ stock_item_id: 'I1', on_hand: 4, reserved: 0, unit: 'piece', available: 4, level: 'ok', set_at: 1 }] };
     const { api, calls } = client([
       json(200, { data: STATUS }),
       json(200, { data: { command_id: 'C2', event_ids: ['E2'], result } }),
     ]);
 
-    expect(await api.setPrecookedStock({ entries: [{ item_id: 'I1', on_hand: 4 }] }, 'C2')).toEqual({ ok: true, data: result });
+    expect(await api.setPrecookedStock({ entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'C2')).toEqual({ ok: true, data: result });
     expect(calls.map((c) => c.url)).toEqual(['/admin/queries/config-status', '/admin/commands/set-precooked-stock']);
     expect(calls[1]?.body).toMatchObject({
       command_id: 'C2',
       tenant_id: 'T1',
       branch_id: 'B1',
       command_type: 'SetPrecookedStock',
-      payload: { entries: [{ item_id: 'I1', on_hand: 4 }] },
+      payload: { entries: [{ stock_item_id: 'I1', on_hand: 4 }] },
     });
   });
 

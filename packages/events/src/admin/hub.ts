@@ -115,19 +115,19 @@ export const StockQueryResponse = z.object({
   }),
 });
 
-// §6.17, §6.17a, §6.18, §6.18a, §6.18b payloads.
+// §6.17, §6.17a, §6.18, §6.18a, §6.18b payloads (01c §6.18, §6.19: stock commands by stock item).
 export const SetPrecookedStockPayload = z.object({
-  entries: z.array(z.object({ item_id: z.string(), on_hand: int })),
+  entries: z.array(z.object({ stock_item_id: z.string(), on_hand: int })),
 });
 export const AddPrecookedStockPayload = z.object({
-  entries: z.array(z.object({ item_id: z.string(), quantity: int })),
+  entries: z.array(z.object({ stock_item_id: z.string(), quantity: int })),
 });
 export const SetItemAvailabilityPayload = z.object({ item_id: z.string(), is_available: z.boolean() });
 export const OpenBusinessDayPayload = z.object({});
 export const CloseBusinessDayPayload = z.object({});
 
 const StockResultItem = z.object({
-  item_id: z.string(),
+  stock_item_id: z.string(),
   on_hand: int,
   reserved: int,
   unit: Unit,
@@ -136,9 +136,9 @@ const StockResultItem = z.object({
   set_at: int.nullable(),
 });
 
-export const SetPrecookedStockResult = z.object({ items: z.array(StockResultItem) });
+export const SetPrecookedStockResult = z.object({ stock_items: z.array(StockResultItem) });
 export const AddPrecookedStockResult = z.object({
-  items: z.array(StockResultItem.extend({ recorded_as: z.enum(['added', 'set']) })),
+  stock_items: z.array(StockResultItem.extend({ recorded_as: z.enum(['added', 'set']) })),
 });
 export const SetItemAvailabilityResult = z.object({
   item_id: z.string(),

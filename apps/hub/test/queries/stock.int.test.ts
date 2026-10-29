@@ -47,9 +47,9 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     hub.clock.set(at(25, 7));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count-1');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 6 }], 'cmd-count-1');
     hub.clock.set(at(25, 8));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 5 }], 'cmd-count-2');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 5 }], 'cmd-count-2');
     hub.clock.set(at(25, 9));
 
     const counter = statementCounter(hub.deps.readDb);
@@ -101,7 +101,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-24');
     hub.clock.set(at(24, 23));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 4 }], 'cmd-count-24');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 4 }], 'cmd-count-24');
     hub.clock.set(at(24, 23, 30));
     await closeDay(hub, admin, 'cmd-close-24');
     hub.clock.set(at(25, 9));
@@ -110,7 +110,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const before = row((await query(hub, admin)).json().data.items, 'I1');
     expect(before).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted', set_at: at(24, 23) });
     hub.clock.set(at(25, 9, 5));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 4 }], 'cmd-count-25');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 4 }], 'cmd-count-25');
     const after = row((await query(hub, admin)).json().data.items, 'I1');
     expect(after).toMatchObject({ on_hand: 4, available: 4, level: 'ok' });
   });
@@ -122,7 +122,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-24');
     hub.clock.set(at(24, 23));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 4 }, { item_id: 'I3', on_hand: 2_000 }], 'cmd-count-24');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 4 }, { stock_item_id: 'I3', on_hand: 2_000 }], 'cmd-count-24');
     hub.clock.set(at(24, 23, 30));
     await closeDay(hub, admin, 'cmd-close-24');
     hub.clock.set(at(25, 9));
@@ -149,13 +149,13 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(row(data.items, 'I3').level).toBe('not_counted');
 
     hub.clock.set(at(25, 7));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 0 }, { item_id: 'I3', on_hand: 1_000 }], 'cmd-count-1');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }, { stock_item_id: 'I3', on_hand: 1_000 }], 'cmd-count-1');
     data = (await query(hub, admin)).json().data;
     expect(row(data.items, 'I1').level).toBe('out');
     expect(row(data.items, 'I3').level).toBe('low');
 
     hub.clock.set(at(25, 8));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 1 }, { item_id: 'I3', on_hand: 1_001 }], 'cmd-count-2');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 1 }, { stock_item_id: 'I3', on_hand: 1_001 }], 'cmd-count-2');
     data = (await query(hub, admin)).json().data;
     expect(row(data.items, 'I1').level).toBe('ok');
     expect(row(data.items, 'I3').level).toBe('ok');
@@ -168,7 +168,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-24');
     hub.clock.set(at(24, 23));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 5 }], 'cmd-count');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 5 }], 'cmd-count');
     hub.clock.set(at(25, 0, 30));
 
     const again = await openDay(hub, admin, 'cmd-open-25');
@@ -223,7 +223,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(counter.count).toBe(0);
 
     hub.clock.set(at(25, 7));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 3 }], 'cmd-count');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 3 }], 'cmd-count');
     counter.reset();
     data = (await query(hub, admin, versions)).json().data;
     expect(data.unchanged).toBe(false);
@@ -284,7 +284,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     hub.clock.set(at(25, 7));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 6 }], 'cmd-count');
     const base = aBranchConfigV1({ config_version: 2 });
     withConfig({
       ...base,
@@ -302,7 +302,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-1');
     hub.clock.set(at(25, 7));
-    await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count');
+    await count(hub, admin, [{ stock_item_id: 'I1', on_hand: 6 }], 'cmd-count');
     hub.clock.set(at(25, 23));
     await closeDay(hub, admin, 'cmd-close');
     const base = aBranchConfigV1({ config_version: 2 });
@@ -390,9 +390,9 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     const opened = await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-d5-open');
     expect(commandResponse(OpenBusinessDayResult).parse(opened.json())).toEqual(opened.json());
-    const counted = await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-d5-set');
+    const counted = await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-d5-set');
     expect(commandResponse(SetPrecookedStockResult).parse(counted.json())).toEqual(counted.json());
-    const added = await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-d5-add');
+    const added = await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I1', quantity: 2 }] }, 'cmd-d5-add');
     expect(commandResponse(AddPrecookedStockResult).parse(added.json())).toEqual(added.json());
     const off = await toggle(hub, admin, 'I2', false, 'cmd-d5-off');
     expect(commandResponse(SetItemAvailabilityResult).parse(off.json())).toEqual(off.json());
@@ -505,7 +505,7 @@ async function closeDay(hub: TestHub, admin: Admin, commandId: string) {
   expect(res.json().data.result.reason).toBe('closed');
 }
 
-async function count(hub: TestHub, admin: Admin, entries: Array<{ item_id: string; on_hand: number }>, commandId: string) {
+async function count(hub: TestHub, admin: Admin, entries: Array<{ stock_item_id: string; on_hand: number }>, commandId: string) {
   const res = await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries }, commandId);
   expect(res.statusCode).toBe(200);
 }

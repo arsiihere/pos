@@ -269,10 +269,10 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
 
   const save = async (override?: ReadonlyMap<string, number | null>) => {
     const current = override ?? drafts;
-    // Config order; a cleared input has no number to send.
+    // Config order; a cleared input has no number to send. 01c §6.18: the row's id is its stock item's id (V2 view).
     const entries = rows.flatMap(({ meta: m }) => {
       const value = current.get(m.item_id);
-      return m.is_stock_tracked && value !== undefined && value !== null ? [{ item_id: m.item_id, on_hand: value }] : [];
+      return m.is_stock_tracked && value !== undefined && value !== null ? [{ stock_item_id: m.item_id, on_hand: value }] : [];
     });
     if (entries.length === 0) {
       setMessage({ tone: 'info', text: t('admin_stock.nothing_to_save') });
@@ -300,14 +300,14 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       setDrafts((d) => {
         const next = new Map(d);
         for (const e of saved) {
-          if (next.get(e.item_id) === e.on_hand) {
-            next.delete(e.item_id);
-            bases.current.delete(e.item_id);
+          if (next.get(e.stock_item_id) === e.on_hand) {
+            next.delete(e.stock_item_id);
+            bases.current.delete(e.stock_item_id);
           }
         }
         return next;
       });
-      setRestored((r) => new Set([...r].filter((id) => !saved.some((e) => e.item_id === id))));
+      setRestored((r) => new Set([...r].filter((id) => !saved.some((e) => e.stock_item_id === id))));
     }
     if (failure !== null) {
       if (failure.kind === 'signed_out') onSignedOut();
@@ -317,8 +317,9 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       } else if (outsideScope(failure)) {
         setMessage(errorMessage(failure));
         await refresh();
-      } else if (failure.kind === 'api' && (failure.code === 'STOCK_NOT_TRACKED' || failure.code === 'MENU_ITEM_NOT_FOUND')) {
-        const gone = rows.find((r) => r.meta.item_id === failure?.details['item_id'])?.meta.name ?? '';
+      } else if (failure.kind === 'api' && failure.code === 'STOCK_ITEM_NOT_FOUND') {
+        // 01c §6.18: a row's stock item has the row's id until task 20 (V2 view, §5.1).
+        const gone = rows.find((r) => r.meta.item_id === failure?.details['stock_item_id'])?.meta.name ?? '';
         setMessage({ tone: 'info', text: fill(t('admin_stock.not_counted_now'), { name: gone }) });
         await refresh();
       } else setMessage(errorMessage(failure));
@@ -350,7 +351,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     pendingAdds.current.set(itemId, { commandId, quantity });
     setMessage(null);
     setNotes((n) => new Map(n).set(itemId, { tone: 'info', text: t('admin_stock.adding') }));
-    const answer = await api.addPrecookedStock({ entries: [{ item_id: itemId, quantity }] }, commandId);
+    const answer = await api.addPrecookedStock({ entries: [{ stock_item_id: itemId, quantity }] }, commandId);
     setNotes((n) => {
       const next = new Map(n);
       next.delete(itemId);

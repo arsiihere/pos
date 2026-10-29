@@ -218,7 +218,7 @@ describe('/admin/stock table', () => {
       command_type: 'SetPrecookedStock',
       tenant_id: 'T1',
       branch_id: 'B1',
-      payload: { entries: [{ item_id: 'I1', on_hand: 5 }, { item_id: 'I3', on_hand: 4 }] },
+      payload: { entries: [{ stock_item_id: 'I1', on_hand: 5 }, { stock_item_id: 'I3', on_hand: 4 }] },
     });
     expect(saves[1]?.body?.['command_id']).toBe(saves[0]?.body?.['command_id']);
     expect(saves[1]?.body?.['payload']).toEqual(saves[0]?.body?.['payload']);
@@ -229,7 +229,7 @@ describe('/admin/stock table', () => {
     await act(async () => saveButton().click());
     await flush();
     const third = commandsTo(sent, 'set-precooked-stock')[2];
-    expect(third?.body?.['payload']).toEqual({ entries: [{ item_id: 'I2', on_hand: 2000 }] });
+    expect(third?.body?.['payload']).toEqual({ entries: [{ stock_item_id: 'I2', on_hand: 2000 }] });
     expect(third?.body?.['command_id']).not.toBe(saves[0]?.body?.['command_id']);
   });
 

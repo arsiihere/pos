@@ -294,9 +294,9 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     expect(saves).toHaveLength(1);
     expect(saves[0]?.body?.['payload']).toEqual({
       entries: [
-        { item_id: 'I1', on_hand: 8 },
-        { item_id: 'I2', on_hand: 9 },
-        { item_id: 'I3', on_hand: 20 },
+        { stock_item_id: 'I1', on_hand: 8 },
+        { stock_item_id: 'I2', on_hand: 9 },
+        { stock_item_id: 'I3', on_hand: 20 },
       ],
     });
     // The callout hides once every carried-over row is touched (the fake hub still answers the old counts).
@@ -407,7 +407,7 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     await tap(button('+5', sheet));
     expect(sheet?.textContent).toContain(fill(t('admin_stock.sheet.after'), { left: '8 kg' }));
     await tap(button(fill(t('admin_stock.sheet.add_n'), { n: '5 kg' }), sheet));
-    expect(commandsTo(sent, 'add-precooked-stock')[0]?.body?.['payload']).toEqual({ entries: [{ item_id: 'I1', quantity: 5000 }] });
+    expect(commandsTo(sent, 'add-precooked-stock')[0]?.body?.['payload']).toEqual({ entries: [{ stock_item_id: 'I1', quantity: 5000 }] });
     vi.unstubAllGlobals();
 
     // Sign-in states.
