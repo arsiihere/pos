@@ -37,6 +37,13 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 8 | DONE | `1d5056f` | #66, #108, [01c §5.1 P-2]; re-keyed 01a #68, #133, #143, #145, #149 | Seam `apps/hub/src/sync/config-v2-view.ts` (comment on line 1). AD-2. Catch-up `business_day` now carries `stock_units` / `draws` (the engine `BusinessDay` of §4.2) |
 | 9 | DONE | `eff6b0c` | #69; re-keyed 01a #66, #129, #148, #157 | AD-3. Engine no longer imports `ConfigItemV1` |
 | 9a | DONE | `5dc55d5`, `b4aea7b`, fix round | — | Developer-added. AD-4, README R31. Test type errors fixed in every package; no `src` behaviour change (hub `qr.ts` / `issue-admin-bootstrap.ts` lose their `@ts-expect-error` now that `src/types/qrcode.d.ts` declares the module). Fix round 1: cloud fixture tokens kept without `cv` through a test-only signer (`test/helpers/legacy-token.ts`, [01b #91]). Fix round 2: turbo `typecheck:tests` has `"cache": false` (cloud's test typecheck reads hub files turbo does not hash); `typecheck` stays cached |
+| 9a follow-up | DONE | `818de6b` | — | turbo `globalDependencies: ["tsconfig.base.json"]` (editing it busts every cached typecheck) |
+| 10 | DONE | `78dca24`, `66e778f`, `da47fed`, `6e230f9` | [01c §6, C6], [01c C9], [01c §6.11], [01c §6.16], [01c §5.4] | AD-5, AD-6 (developer: keep `is_sold`). 01b #104's builder allowlist gains `menu-variants/versions.ts` (expectation only). Single-choice-extra rule moved out of the deal PATCH schema (developer); task 30 checks it as §6.15 R3 |
+| 11 | DONE | `1ae8ca1`, `c8b6445` | #15–#20, [01c V16], [01c §6 C4], [01c §6.2 AD-7] | Tenant-wide 403 moved first (spec §6 C4) via `assertTenantWide` + `bumpEveryBranch`; AD-7, AD-8 (developer) |
+| 12 | DONE | `477edbf`, `1a996ad` | #22, #23, #26, [01c §6.4], [01c §6.4 V18], [01c §5.1 P-11], [01c §6 C4]; 01a #41 retired | 403 first on item create; one `VariantGroupWire`; AD-9. `GET /v1/admin/menu` 8 statements; POST 11 (plain) / 14 (group + draw), +1 in task 23 |
+| 13 | DONE | `91c482f` | #101, #111, #120, [01c §6.5], [01c §6.5 T4] | Developer checks passed: no group lock after the item lock on any path (the implicit FK `FOR KEY SHARE` only touches an already-held group); restart 3 then `503`; P-8 order; 403 first |
+| 14 | DONE | `698b134` | #24, #85, #123, [01c §6.5 R7], [01c §6.5 S26]; re-keyed 01a #128 | AD-10. Stock item lock (kind 5) top of rule 1; `assertUnits` deleted; 01a #81 back to `toEqual` |
+| 15 | DONE | `d6c6581` | #25, #83, #128 | R4, R10, R6 in the 409 slot; open question Q-3 (archived deals' parts) |
 
 ## Checkpoints
 
@@ -67,3 +74,13 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - Seam check after task 8: `config-v2-view.ts` carries `// Seam (01c plan P-2): removed by task 21`; it is imported only by `commands/{add-precooked-stock,open-business-day,set-precooked-stock}.ts`, `queries/stock.ts`, `ws/restaurant-catch-up.ts`, its own test and `test/commands/business-day-restart.int.test.ts`, all in task 8's file list. Task 9 added no importer.
 - Open seams: V1 names (`BranchConfigV1`, `ConfigItemV1`, `isStockTrackedV1`, `aBranchConfigV1`; task 21); `config-v2-view.ts` (task 21); AD-2 `dayStockUnitOf` (tasks 19, 21); AD-3 `viewStockItem`, `stockResult` (task 18), `untrackedStandIn` (tasks 19–20).
 - Watch: the gate does not typecheck `*.test.ts` (every package tsconfig excludes them), so type-only test failures cannot show as red.
+
+### Batch 4 (§11 steps 7–8) — 2026-10-29
+
+- Tasks 10–15 done (and the 9a follow-up). Reviews: 13, 14, 15 clean; 10 three fix rounds (01b #104 allowlist, reuse of 01a schemas, single-choice rule placement); 11 and 12 one round each (tenant-wide 403 first, spec §6 C4).
+- Gate (controller only, after each task): last run on `d6c6581` 228 files, 1026 tests passing; typecheck includes tests (AD-4). No 57P01, no 40P01.
+- Tests closed: 01c #15–#20, #22–#26, #83, #85, #101, #111, #120, #123, #128 (19). Re-keyed: 01a #128. Retired: 01a #41 (replaced by 01c #21, task 22).
+- AD added: AD-5 … AD-10 (AD-6, AD-7, AD-8 developer decisions).
+- Task 13 developer checks: no item lock is followed by a group lock on any path; restart capped at 3 then `503`, nothing written; P-8 order (no-op before references, R1–R10 after), 403 first.
+- Open seams: unchanged from batch 3 (V1 names, `config-v2-view.ts`, AD-2/AD-3 helpers).
+- Open question Q-3 (developer): R4/R6 (and R8 from task 30) count active parts of archived deals.
