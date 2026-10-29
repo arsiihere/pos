@@ -6,7 +6,7 @@ import { z } from 'zod';
 // §3.3: names 1–60 characters after trimming.
 const Name = z.string().trim().min(1).max(60);
 // INT column; the spec gives no range, so the column's range keeps a large value from becoming a 500.
-const SortOrder = z.number().int().min(-2_147_483_648).max(2_147_483_647);
+export const SortOrder = z.number().int().min(-2_147_483_648).max(2_147_483_647);
 
 export const CreateFloorBody = z.object({
   name: Name,
@@ -118,7 +118,7 @@ export const PatchTaxClassBody = z
 
 // §3.3, S47: 0–4 windows; minutes of the day 0 … 86 340 000, multiples of 60 000, start ≠ end.
 const TimeOfDayMs = z.number().int().min(0).max(86_340_000).multipleOf(60_000);
-const AvailabilityWindows = z
+export const AvailabilityWindows = z
   .array(
     z
       .object({ start_ms: TimeOfDayMs, end_ms: TimeOfDayMs })
@@ -169,14 +169,14 @@ export const CategoryResponse = z.object({
 const Unit = z.enum(['piece', 'g', 'ml']);
 const ServeMode = z.enum(['immediate', 'sync']);
 const OutOfStockBehaviour = z.enum(['cook_fresh', 'sold_out']);
-const PriceMinor = z.number().int().min(0).max(1_000_000_000);
+export const PriceMinor = z.number().int().min(0).max(1_000_000_000);
 const PrepBuffer = z.number().int().min(0).max(3_600_000);
 const StockTime = z.number().int().min(0).max(14_400_000).nullable();
 const StockPerSaleUnit = z.number().int().min(1).max(1_000_000);
 const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
 // The spec gives the label no length; names' 60 characters keep it a label (S12).
 const GroupLabel = z.string().trim().min(1).max(60).nullable();
-const Description = z.string().max(300).nullable();
+export const Description = z.string().max(300).nullable();
 
 const RouteInput = z.object({
   branch_id: z.string().min(1),

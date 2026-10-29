@@ -1,17 +1,16 @@
 import { z } from 'zod';
+// 01a §3.3 ranges and the S47 windows (0–4; minutes of the day, start ≠ end), shared with the 01a bodies.
+import { AvailabilityWindows, Description, PriceMinor, SortOrder } from './restaurant.js';
 
 // 01c §5.4, §6 (01a D5): the owner admin bodies and wires for variant groups, stock items, modifier groups
 // and deals, shared by the cloud routes and apps/client (browser-safe: zod only). Versions are built only in
 // apps/cloud/src/modules/menu-variants/versions.ts (V13).
 
-// §3.3 ranges. Name lengths per entity; INT columns keep 01a's sort_order range; descriptions as 01a items.
+// §3.3 ranges. Name lengths per entity.
 const Name60 = z.string().trim().min(1).max(60);
 const Name40 = z.string().trim().min(1).max(40);
 const Id = z.string().min(1);
 const Version = z.string().min(1);
-const SortOrder = z.number().int().min(-2_147_483_648).max(2_147_483_647);
-const Description = z.string().max(300).nullable();
-const PriceMinor = z.number().int().min(0).max(1_000_000_000);
 const Unit = z.enum(['piece', 'g', 'ml']);
 const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
 const MinChoices = z.number().int().min(0).max(50);
@@ -20,15 +19,6 @@ const MaxQuantity = z.number().int().min(1).max(20);
 const PartQuantity = z.number().int().min(1).max(1_000_000);
 const TargetKind = z.enum(['category', 'variant_group', 'item']);
 const LinkMode = z.enum(['attach', 'detach']);
-// 01a S47 windows (0–4; minutes of the day, start ≠ end), as the 01a item and category bodies.
-const TimeOfDayMs = z.number().int().min(0).max(86_340_000).multipleOf(60_000);
-const AvailabilityWindows = z
-  .array(
-    z
-      .object({ start_ms: TimeOfDayMs, end_ms: TimeOfDayMs })
-      .refine((w) => w.start_ms !== w.end_ms, { message: 'start_ms and end_ms must differ' }),
-  )
-  .max(4);
 
 // C6: a second entry for one key → 400 at `<list>.N.<key>`, N the repeat as sent. Entries without the key
 // (new options and parts) are not compared.
