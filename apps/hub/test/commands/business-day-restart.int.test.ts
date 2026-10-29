@@ -120,7 +120,7 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     const v2 = branchConfigV2();
     expect(dayStockUnit(state, stockItemOf(v2, 'I1'))).toBe('piece');
     expect(dayDraws(state, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] });
-    expect(availableStock(state, 'I1', openDayStartMs(state), i1g)).toBe(6);
+    expect(availableStock(state, 'I1', openDayStartMs(state), stockItemOf(v2, 'I1'))).toBe(6);
     expect(dayStockUnit(state, stockItemOf(v2, 'I4'))).toBe('g');
     expect(dayDraws(state, v2ItemOf(v2, 'I4'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] });
 
@@ -143,8 +143,8 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     const day2 = engine(hub);
     expect(dayStockUnit(day2, stockItemOf(v2, 'I1'))).toBe('g');
     expect(dayDraws(day2, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
-    expect(availableStock(day2, 'I1', openDayStartMs(day2), i1g)).toBe(0);
-    expect(stockLevel(day2, 'I1', openDayStartMs(day2), i1g)).toBe('not_counted');
+    expect(availableStock(day2, 'I1', openDayStartMs(day2), stockItemOf(v2, 'I1'))).toBe(0);
+    expect(stockLevel(day2, 'I1', openDayStartMs(day2), stockItemOf(v2, 'I1'))).toBe('not_counted');
 
     hub.clock.set(at(23));
     const fresh = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 2_000 }] }, 'cmd-count-3');
@@ -250,12 +250,12 @@ function log(hub: Hub): PosEvent[] {
 
 function available(hub: Hub, itemId: string): number {
   const state = engine(hub);
-  return availableStock(state, itemId, openDayStartMs(state), item(branchConfig(), itemId));
+  return availableStock(state, itemId, openDayStartMs(state), stockItemOf(branchConfigV2(), itemId));
 }
 
 function level(hub: Hub, itemId: string): string {
   const state = engine(hub);
-  return stockLevel(state, itemId, openDayStartMs(state), item(branchConfig(), itemId));
+  return stockLevel(state, itemId, openDayStartMs(state), stockItemOf(branchConfigV2(), itemId));
 }
 
 function lastPayload(hub: Hub, eventType: string, streamId: string): unknown {

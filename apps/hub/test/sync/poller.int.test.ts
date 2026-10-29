@@ -1,9 +1,10 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type DirectoryInput } from '@pos/events';
+import { BranchConfigSnapshotSchemaV1 } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { branchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigFetch } from '../../src/sync/config-client';
 import { configPoller } from '../../src/sync/config-poller';
 import { aDirectory } from '../helpers/fixtures';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
@@ -193,7 +194,9 @@ describe('config poller', () => {
 
   it('[01a §10 #126] a 200 whose envelope fails Zod → last_problem { rejected, malformed }; logs carry the issue path, no pin_hash value, no $argon2id$', async () => {
     const { h, cloud } = await hub();
-    const directory = (await aDirectory({ directory_version: 2 })) as DirectoryInput & { staff: Array<Record<string, unknown>> };
+    const valid = await aDirectory({ directory_version: 2 });
+    // A deliberately invalid directory (pin_hash a number): plain records, passed where okText takes unknown.
+    const directory = { ...valid, staff: valid.staff.map((staff): Record<string, unknown> => ({ ...staff })) };
     directory.staff[0]!.pin_hash = 918273645;
     expect(String(directory.staff[1]!.pin_hash)).toContain('$argon2id$');
     const raw = snapshot(3);

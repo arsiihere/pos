@@ -58,7 +58,7 @@ export async function restaurantFixture(cloud: TestCloud): Promise<RestaurantFix
 
   const branches = issued.map((row) => row.branch_id) as [string, string, string];
   const tokenFor = (branchIds: string[]) =>
-    cloud.app.jwt.sign({ sub: a.user_id, tenant_id: a.tenant_id, allowed_branch_ids: branchIds });
+    cloud.app.jwt.sign({ sub: a.user_id, tenant_id: a.tenant_id, allowed_branch_ids: branchIds, cv: 0 });
   return {
     tenantId: a.tenant_id,
     userId: a.user_id,
@@ -70,7 +70,7 @@ export async function restaurantFixture(cloud: TestCloud): Promise<RestaurantFix
       tenantId: b.tenant_id,
       userId: b.user_id,
       branchId: issuedB.branch_id,
-      token: cloud.app.jwt.sign({ sub: b.user_id, tenant_id: b.tenant_id, allowed_branch_ids: [issuedB.branch_id] }),
+      token: cloud.app.jwt.sign({ sub: b.user_id, tenant_id: b.tenant_id, allowed_branch_ids: [issuedB.branch_id], cv: 0 }),
     },
   };
 }

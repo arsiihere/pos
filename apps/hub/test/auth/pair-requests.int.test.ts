@@ -212,7 +212,6 @@ async function provision(): Promise<{ first_admin_url: string; first_admin_qr_sv
       branch_name: 'Main',
       currency_code: 'PKR',
       kind: 'new_branch',
-      branch_name: 'Main',
       branch_api_key: 'branch-key-plain',
       directory: await aDirectory(),
     },

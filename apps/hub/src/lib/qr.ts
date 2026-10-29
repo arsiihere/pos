@@ -1,4 +1,3 @@
-// @ts-expect-error qrcode@1.5.4 ships JavaScript only.
 import QRCode from 'qrcode';
 
 interface QrModules {

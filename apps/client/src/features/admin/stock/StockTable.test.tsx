@@ -73,6 +73,7 @@ function item(itemId: string, o: Partial<HubStockItem> = {}): HubStockItem {
 function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
   return {
     unchanged: false,
+    manage_stock_scope: 'branch',
     config_version: 42,
     meta_version: '42.1',
     stock_version: 7,

@@ -283,6 +283,8 @@ async function manyStaff(count: number): Promise<Awaited<ReturnType<typeof aDire
     pin_hash: hash,
     role_ids: ['R_WAIT'],
     denied_permissions: [],
+    lead_staff_id: null,
+    floor_ids: [],
   }));
   return directory;
 }

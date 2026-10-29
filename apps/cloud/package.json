@@ -6,6 +6,7 @@
     "dev": "tsx watch src/main.ts",
     "seed-demo": "tsx src/cli/seed-demo.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "seed-tenant": "tsx src/cli/seed-tenant.ts",
     "issue-registration-code": "tsx src/cli/issue-registration-code.ts",
     "set-branch-settings": "tsx src/cli/set-branch-settings.ts",

@@ -70,6 +70,7 @@ const OPEN_DAY = { business_date: '2026-10-25', opened_at: hubAt(25, 9), closed_
 function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
   return {
     unchanged: false,
+    manage_stock_scope: 'branch',
     config_version: 42,
     meta_version: `42.${hubAt(25, 9)}`,
     stock_version: 7,

@@ -6,7 +6,8 @@
     "dev": "tsx watch src/main.ts",
     "issue-admin-bootstrap": "tsx src/setup/issue-admin-bootstrap.ts",
     "smoke": "tsx test/smoke/smoke.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@fastify/websocket": "11.3.4",

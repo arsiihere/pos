@@ -372,7 +372,7 @@ describe('issue-registration-code', () => {
       const allowed = (
         await pool.query<{ allowed_branch_ids: string[] }>(`SELECT allowed_branch_ids FROM owner_users WHERE tenant_id = $1`, [t.tenant])
       ).rows[0]!.allowed_branch_ids;
-      const token = cloud.app.jwt.sign({ sub: t.ownerUserId, tenant_id: t.tenant, allowed_branch_ids: allowed });
+      const token = cloud.app.jwt.sign({ sub: t.ownerUserId, tenant_id: t.tenant, allowed_branch_ids: allowed, cv: 0 });
       const listed = await cloud.app.inject({
         method: 'GET',
         url: `/v1/admin/staff?branch_id=${issued.branch_id}`,

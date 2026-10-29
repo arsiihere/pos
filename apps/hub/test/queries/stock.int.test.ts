@@ -10,11 +10,13 @@ import {
   SetPrecookedStockResult,
   StockQueryResponse,
   type BranchConfigV1,
+  type ConfigStockItem,
 } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
+import { toConfigV2 } from '../../src/sync/config-v2-view';
 import { setStockVersion } from '../../src/sync/stock-version';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -60,7 +62,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const latest = lastRecordedAt(hub, 'StockSet');
     expect(i1).toEqual({ item_id: 'I1', on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: latest, is_available: true, unavailable_since: null });
     expect(i1.set_at).toBe(engine(hub).stock.I1!.set_at);
-    expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), item(aBranchConfigV1(), 'I1')));
+    expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), stockItem(aBranchConfigV1(), 'I1')));
     expect(data.items.map((r: ItemRow) => r.item_id)).toEqual(['I1', 'I2', 'I3']);
   });
 
@@ -83,7 +85,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §10 #116] a non-carrying count from yesterday reads available 0 after the next open, on_hand kept; a new count reads 4', async () => {
     const config = aBranchConfigV1();
-    const i1 = item(config, 'I1');
+    const i1 = stockItem(config, 'I1');
     const entry = (setAt: number | null): StockEntry => ({ on_hand: 4, reserved: 1, set_at: setAt, unit: 'piece' });
     const state = (setAt: number | null, start: number | null): EngineState => ({
       stock: { I1: entry(setAt) },
@@ -129,7 +131,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const data = (await query(hub, admin)).json().data;
     expect(row(data.items, 'I3')).toMatchObject({ on_hand: 2_000, available: 2_000, level: 'ok' });
     expect(row(data.items, 'I1')).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted' });
-    expect(availableStock(engine(hub), 'I3', at(25, 9), item(config, 'I3'))).toBe(2_000);
+    expect(availableStock(engine(hub), 'I3', at(25, 9), stockItem(config, 'I3'))).toBe(2_000);
   });
 
   it('[01a §10 #132] stockLevel not_counted / out / low / ok, and the stock query carries level', async () => {
@@ -157,7 +159,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     data = (await query(hub, admin)).json().data;
     expect(row(data.items, 'I1').level).toBe('ok');
     expect(row(data.items, 'I3').level).toBe('ok');
-    expect(row(data.items, 'I1').level).toBe(stockLevel(engine(hub), 'I1', at(25, 6), item(config, 'I1')));
+    expect(row(data.items, 'I1').level).toBe(stockLevel(engine(hub), 'I1', at(25, 6), stockItem(config, 'I1')));
   });
 
   it('[01a §10 #142] past midnight the open day stays open: OpenBusinessDay is a no-op, yesterday 23:00 count still reads, day_stale true at 18.5 h', async () => {
@@ -425,6 +427,12 @@ function carrying(config: BranchConfigV1, itemId: string): BranchConfigV1 {
 function item(config: BranchConfigV1, itemId: string) {
   const found = config.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
+  return found;
+}
+
+function stockItem(config: BranchConfigV1, stockItemId: string): ConfigStockItem {
+  const found = toConfigV2(config).stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
+  if (found === undefined) throw new Error(`no stock item ${stockItemId}`);
   return found;
 }
 

@@ -1,9 +1,10 @@
 import { availableStock, openDayStartMs, stockLevel, type EngineState } from '@pos/engine';
-import type { BranchConfigV1 } from '@pos/events';
+import type { BranchConfigV1, ConfigStockItem } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
+import { toConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
@@ -288,20 +289,20 @@ function countStock(hub: TestHub, entries: Array<{ item_id: string; on_hand: num
   );
 }
 
-function item(config: BranchConfigV1, itemId: string) {
-  const found = config.items.find((candidate) => candidate.item_id === itemId);
-  if (found === undefined) throw new Error(`no item ${itemId}`);
+function stockItem(config: BranchConfigV1, stockItemId: string): ConfigStockItem {
+  const found = toConfigV2(config).stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
+  if (found === undefined) throw new Error(`no stock item ${stockItemId}`);
   return found;
 }
 
 function available(hub: TestHub, config: BranchConfigV1, itemId: string): number {
   const state = engine(hub);
-  return availableStock(state, itemId, openDayStartMs(state), item(config, itemId));
+  return availableStock(state, itemId, openDayStartMs(state), stockItem(config, itemId));
 }
 
 function level(hub: TestHub, config: BranchConfigV1, itemId: string): string {
   const state = engine(hub);
-  return stockLevel(state, itemId, openDayStartMs(state), item(config, itemId));
+  return stockLevel(state, itemId, openDayStartMs(state), stockItem(config, itemId));
 }
 
 async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub> {

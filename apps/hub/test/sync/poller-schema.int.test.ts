@@ -1,9 +1,10 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV1, type ConfigFetch } from '@pos/events';
+import { BranchConfigSnapshotSchemaV1 } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadBranchConfig } from '../../src/projections/branch-config';
 import { branchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigFetch } from '../../src/sync/config-client';
 import { configPoller } from '../../src/sync/config-poller';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';

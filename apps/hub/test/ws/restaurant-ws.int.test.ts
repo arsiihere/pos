@@ -3,6 +3,7 @@ import type { BranchConfigV1, EventDraft } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { toConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
@@ -77,7 +78,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     const row = (res.json().data.items as Array<{ item_id: string }>).find((r) => r.item_id === 'I4');
     expect(row).toMatchObject({ on_hand: 0, reserved: 0, available: 0, set_at: null, level: 'not_counted' });
     const state = engine(hub);
-    expect(availableStock(state, 'I4', openDayStartMs(state), config.items.find((i) => i.item_id === 'I4')!)).toBe(0);
+    expect(availableStock(state, 'I4', openDayStartMs(state), toConfigV2(config).stock_items.find((s) => s.stock_item_id === 'I4')!)).toBe(0);
 
     const stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I4).toEqual({ on_hand: 0, reserved: 0, set_at: null, unit: 'g', available: 0, level: 'not_counted' });

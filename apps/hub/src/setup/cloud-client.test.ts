@@ -8,7 +8,7 @@ describe('httpCloudClient', () => {
 
   it('[00 §6.4] a cloud_base_url that already ends in /v1 calls /v1/hubs/register and /v1/hubs/confirm once', async () => {
     const urls: string[] = [];
-    vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', (input: Parameters<typeof fetch>[0]) => {
       urls.push(String(input));
       return Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200 }));
     });

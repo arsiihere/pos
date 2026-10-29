@@ -84,10 +84,18 @@ describe('boot', () => {
 
   it('[00 §3.8] registered steps run in order', async () => {
     const seen: string[] = [];
-    registerBootStep('5', () => seen.push('5'));
-    registerBootStep('2', () => seen.push('2'));
-    registerBootStep('6', () => seen.push('6'));
-    registerBootStep('3', () => seen.push('3'));
+    registerBootStep('5', () => {
+      seen.push('5');
+    });
+    registerBootStep('2', () => {
+      seen.push('2');
+    });
+    registerBootStep('6', () => {
+      seen.push('6');
+    });
+    registerBootStep('3', () => {
+      seen.push('3');
+    });
     const cfg = writeConfig({ provisioned: true });
     const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0 });
     cleanups.push(() => booted.stop(), cfg.cleanup);

@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appendEvents } from '../../src/engine-host/append-events';
 import { runMigrations } from '../../src/db/migrate';
@@ -48,7 +49,7 @@ describe('appendEvents', () => {
   it('[F §4.1] invalid payload inserts nothing', async () => {
     const { db } = await migrated();
     const ctx = { clock: fixedClock(T), ids: testIdGen(), tenantId: TENANT, branchId: BRANCH };
-    const bad = draft(0);
+    const bad: EventDraft = draft(0);
     bad.payload = { tenant_id: TENANT };
     db.transaction(() => {
       expect(() => appendEvents(db, [draft(1), bad], ctx)).toThrow();

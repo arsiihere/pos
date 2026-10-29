@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
+
+// Only the fields read below; not .strict(), so the snapshot's other keys are dropped.
+const SnapshotItems = z.object({ items: z.array(z.object({ item_id: z.string(), price_minor: z.number() })) });
 
 const HEADER: SnapshotHeader = {
   config_version: 42,
@@ -62,7 +66,7 @@ describe('per-branch price (S57)', () => {
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
       const snapshot = await buildSnapshot(client, tenant, branchId, HEADER);
-      return snapshot.items.find((item) => item.item_id === itemId)?.price_minor;
+      return SnapshotItems.parse(snapshot).items.find((item) => item.item_id === itemId)?.price_minor;
     } finally {
       client.release();
     }

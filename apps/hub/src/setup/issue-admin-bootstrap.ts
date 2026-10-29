@@ -3,7 +3,6 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { applyEvent, initialEngineState, type EngineState } from '@pos/engine';
-// @ts-expect-error qrcode@1.5.4 ships JavaScript only.
 import QRCode from 'qrcode';
 import { issueAdminBootstrap } from '../auth/bootstrap-tokens.js';
 import { loadHubConfig } from '../config/load.js';

@@ -13,7 +13,7 @@ async function ownerToken(cloud: TestCloud): Promise<{ token: string; tenantId: 
 
 const ALLOWLIST = ['POST /v1/auth/login', 'POST /v1/auth/refresh', 'GET /v1/health', 'GET /owner/', 'GET /owner/*'];
 
-async function readyMessage(app: { ready(): Promise<unknown> }): Promise<string> {
+async function readyMessage(app: { ready(): PromiseLike<unknown> }): Promise<string> {
   try {
     await app.ready();
   } catch (error) {

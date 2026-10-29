@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/db/connection';
@@ -138,7 +139,7 @@ describe('health, heartbeat, HubStarted', () => {
   });
 });
 
-function hubStarted(db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } }): {
+function hubStarted(db: Database.Database): {
   hub_down_at: number | null;
   hub_up_at: number;
   events_replayed: number;

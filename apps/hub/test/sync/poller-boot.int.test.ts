@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type EventDraft } from '@pos/events';
+import { BranchConfigSnapshotSchemaV1, type EventDraft } from '@pos/events';
 import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
@@ -12,6 +12,7 @@ import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigFetch } from '../../src/sync/config-client';
 import { configPoller } from '../../src/sync/config-poller';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
 

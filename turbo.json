@@ -3,6 +3,9 @@
   "tasks": {
     "typecheck": {
       "dependsOn": ["^typecheck"]
+    },
+    "typecheck:tests": {
+      "dependsOn": ["^typecheck"]
     }
   }
 }

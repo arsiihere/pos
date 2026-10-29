@@ -317,7 +317,8 @@ describe('menu-lines: option checks (§3.4.6, V9)', () => {
       'checkOptionChoices: piece parent quantity is null',
     );
     // A g parent may be pending its weight: same violations with quantity null as with 1 250 g.
-    for (const stock of [{}, { Naan: 2 }]) {
+    const stocks: Record<string, number>[] = [{}, { Naan: 2 }];
+    for (const stock of stocks) {
       const withQty = checkOptionChoices([bread, spice], chosen, 'line', { quantity: 1250, sale_unit: 'g' }, groups, items, avail(stock));
       const pending = checkOptionChoices([bread, spice], chosen, 'line', { quantity: null, sale_unit: 'g' }, groups, items, avail(stock));
       expect(pending).toEqual(withQty);
