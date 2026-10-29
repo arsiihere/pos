@@ -289,6 +289,62 @@ describe('01c variant groups (§6.1, §6.2)', () => {
     expect(counter.count).toBe(7);
   });
 
+  it('[01c §6 C4] an owner row missing a branch → 403 tenant_wide_write before 404, 409, 422 and the no-op; nothing written', async () => {
+    const categoryId = await category('Karahi');
+    const group = await createVariantGroup(cloud, f, { name: 'Karahi', category_id: categoryId });
+    await cloud.pool.query(`UPDATE owner_users SET allowed_branch_ids = $3 WHERE tenant_id = $1 AND user_id = $2`, [
+      f.tenantId,
+      f.userId,
+      [f.branches[0]],
+    ]);
+    const before = await versions();
+    const auditBefore = await auditRows();
+    const groupsBefore = (await cloud.pool.query(`SELECT * FROM variant_groups ORDER BY variant_group_id`)).rows;
+    const writes = [
+      () => post('/v1/admin/variant-groups', { name: 'Handi', category_id: categoryId }),
+      () => post('/v1/admin/variant-groups', { name: 'Handi', category_id: 'NO-SUCH-CATEGORY' }), // else 422
+      () => patchGroup(group.variant_group_id, { expected_version: group.version, name: 'Karahi 2' }),
+      () => patchGroup('NO-SUCH-GROUP', { expected_version: 'x', name: 'A' }), // else 404
+      () => patchGroup(group.variant_group_id, { expected_version: 'stale', name: 'A' }), // else 409
+      () => patchGroup(group.variant_group_id, { expected_version: group.version, name: 'Karahi' }), // else no-op 200
+    ];
+    for (const write of writes) {
+      const response = await write();
+      expect(response.statusCode, response.body).toBe(403);
+      expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
+    }
+    expect(await versions()).toEqual(before);
+    expect(await auditRows()).toEqual(auditBefore);
+    expect((await cloud.pool.query(`SELECT * FROM variant_groups ORDER BY variant_group_id`)).rows).toEqual(groupsBefore);
+    const keys = await cloud.pool.query(`SELECT count(*)::int AS n FROM idempotency_keys WHERE route = 'POST /v1/admin/variant-groups'`);
+    expect(keys.rows[0]).toEqual({ n: 1 }); // only the create above; the refused POSTs stored no key
+  });
+
+  it('[01c §6.2 AD-7] restoring a group whose category is archived → 422 archived, nothing written; category restored → 200', async () => {
+    const categoryId = await category('Karahi');
+    const group = await createVariantGroup(cloud, f, { name: 'Karahi', category_id: categoryId });
+    const archived = (await patchGroup(group.variant_group_id, { expected_version: group.version, archived: true })).json().data
+      .variant_group;
+    expect((await patch(`/v1/admin/categories/${categoryId}`, { archived: true })).statusCode).toBe(200);
+    const before = await versions();
+    const auditBefore = await auditRows();
+    const refused = await patchGroup(group.variant_group_id, { expected_version: archived.version, archived: false });
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json().error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'category_id', reason: 'archived' },
+    });
+    expect(await versions()).toEqual(before);
+    expect(await auditRows()).toEqual(auditBefore);
+
+    expect((await patch(`/v1/admin/categories/${categoryId}`, { archived: false })).statusCode).toBe(200);
+    const restored = await patchGroup(group.variant_group_id, { expected_version: archived.version, archived: false });
+    expect(restored.statusCode).toBe(200);
+    // tenant-wide check, lock, members read, category share, update, audit, 2 bump
+    expect(counter.count).toBe(8);
+    expect(restored.json().data.variant_group.archived_at).toBeNull();
+  });
+
   it('[01c V16] archive a category used by an active variant group → 409 CONFIG_IN_USE; with the group archived → 200', async () => {
     const categoryId = await category('Karahi');
     const group = await createVariantGroup(cloud, f, { name: 'Karahi', category_id: categoryId });

@@ -5,7 +5,7 @@ import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit } from '../../lib/config-audit.js';
-import { bumpConfigVersion } from '../../lib/config-version.js';
+import { bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
@@ -29,8 +29,8 @@ export interface MenuVariantDeps {
   testHooks?: CloudTestHooks;
 }
 
-// §6.1: idempotency key → category FOR SHARE (lock order 6) → insert (name index → 409) → audit → bump every
-// branch (10; its owner-row read refuses an owner missing a branch, 403 tenant_wide_write).
+// §6.1: idempotency key → tenant-wide check (403) → category FOR SHARE (lock order 6) → insert (name index → 409)
+// → audit → bump every branch (10).
 export async function createVariantGroup(
   deps: MenuVariantDeps,
   req: OwnerRequest,
@@ -41,6 +41,7 @@ export async function createVariantGroup(
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
       assertCategory(await shareCategory(level, body.category_id));
       const group = await nameTaken(body.name, () =>
         insertVariantGroup(
@@ -69,14 +70,14 @@ export async function createVariantGroup(
         deps,
       );
       await deps.testHooks?.beforeBump?.();
-      await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+      await bumpEveryBranch(level);
       return { status: 201, body: { variant_group: toVariantGroupWire({ ...group, member_ids: [] }) } };
     },
   );
 }
 
-// §6.2 (C4; lock order 3 → 4 → 6 → 10): group FOR UPDATE (404) → version (409 CONFIG_STALE, a stale no-op too)
-// → a category change locks every member FOR UPDATE by item_id, otherwise the members are a plain read →
+// §6.2 (C4; lock order 3 → 4 → 6 → 10): tenant-wide check (403) → group FOR UPDATE (404) → version
+// (409 CONFIG_STALE, a stale no-op too) → a category change locks every member FOR UPDATE by item_id, otherwise the members are a plain read →
 // a sent category_id FOR SHARE (422) → no-op (200, nothing written) → R1 archive with active members (409),
 // R2 name (index → 409) → write; a category change moves every member (M6) → one multi-row audit insert:
 // the group, then one menu_item / update per moved member (C5, branch_id null) → bump every branch.
@@ -88,6 +89,7 @@ export async function patchVariantGroup(
 ): Promise<{ variant_group: VariantGroupWire }> {
   return inTransaction(deps.pool, async (client) => {
     const level = new TenantLevelRepository(req.tenant, client);
+    await assertTenantWide(level, req.ownerUserId);
     const before = await lockVariantGroup(level, variantGroupId);
     if (before === undefined) throw new DomainError('VARIANT_GROUP_NOT_FOUND', { variant_group_id: variantGroupId });
     // the version input has no member_ids (§5.4), so the compare needs no member read
@@ -96,7 +98,11 @@ export async function patchVariantGroup(
     }
     const moving = body.category_id !== undefined && body.category_id !== before.category_id;
     const members = await selectMembers(level, variantGroupId, { lock: moving });
-    if (body.category_id !== undefined) assertCategory(await shareCategory(level, body.category_id));
+    // C4 step 4: a sent category_id, and on a restore the merged one (sent or stored, AD-7), FOR SHARE (slot 6)
+    const restoring = before.archived_at !== null && body.archived === false;
+    if (body.category_id !== undefined || restoring) {
+      assertCategory(await shareCategory(level, body.category_id ?? before.category_id));
+    }
     const now = deps.clock.branchNow();
     const merged: VariantGroupRecord = {
       ...before,
@@ -142,13 +148,22 @@ export async function patchVariantGroup(
       deps,
     );
     await deps.testHooks?.beforeBump?.();
-    await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+    await bumpEveryBranch(level);
     return { variant_group: wire(group, members) };
   });
 }
 
+// member_ids holds every member, archived ones included (§3.2 rule 4, AD-8), by item_id.
 function wire(group: VariantGroupRecord, members: readonly MemberRow[]): VariantGroupWire {
   return toVariantGroupWire({ ...group, member_ids: members.map((m) => m.item_id) });
+}
+
+// C4 (01c §6): the tenant-wide 403 runs before the 404, 409, references and the no-op, as in 01b's directoryWrite
+// (owner check before fn, whose no-op comes later). One statement; the bump then skips its own owner read.
+async function assertTenantWide(level: TenantLevelRepository, ownerUserId: string): Promise<void> {
+  if (!(await coversEveryBranch(level, ownerUserId))) {
+    throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
+  }
 }
 
 function assertCategory(row: { archived_at: number | null } | undefined): void {

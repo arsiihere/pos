@@ -62,3 +62,9 @@ export async function coversEveryBranch(db: TenantSql, ownerUserId: string): Pro
   );
   return rows[0]?.covers === true;
 }
+
+// 01c §6 (C4: the tenant-wide 403 before all): for a write that ran coversEveryBranch first, in its own
+// transaction. Bumps every branch, locked in branch_id order, without a second owner-row read (2 statements).
+export async function bumpEveryBranch(db: TenantSql): Promise<Array<{ branch_id: string; config_version: number }>> {
+  return bumpConfigVersion(db, { kind: 'tenant', ownerUserId: null });
+}
