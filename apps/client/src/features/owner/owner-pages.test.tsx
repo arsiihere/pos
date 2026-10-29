@@ -79,7 +79,8 @@ const PAYE: MenuItem = {
   category_id: 'C1',
   tax_class_id: null,
   name: 'Paye',
-  group_label: null,
+  variant_group_id: null,
+  variant_name: null,
   description: null,
   sort_order: 0,
   price_minor: 45_000,
@@ -88,11 +89,9 @@ const PAYE: MenuItem = {
   cook_time_ms: 600_000,
   stock_time_ms: null,
   out_of_stock_behaviour: 'sold_out',
-  stock_unit: 'piece',
   sale_unit: 'piece',
-  stock_per_sale_unit: 1,
-  low_stock_threshold: null,
-  carries_over: false,
+  requires_weighing: false,
+  stock_draws: [],
   availability_windows: [],
   archived_at: null,
   routes: [
@@ -115,7 +114,7 @@ const SLOT = {
 };
 
 function menuPage(items: MenuItem[], next: string | null = null) {
-  return json(200, { data: { can_edit_tenant: true, tax_classes: [TAX], categories: [CATEGORY], items, next_cursor: next } });
+  return json(200, { data: { can_edit_tenant: true, tax_classes: [TAX], categories: [CATEGORY], variant_groups: [], items, next_cursor: next } });
 }
 
 function defaults(call: Call): Response {

@@ -1,5 +1,4 @@
 import type { Unit } from '@pos/domain';
-import { formatQuantity } from '@pos/domain';
 import { useEffect, useState, type FormEvent } from 'react';
 import type {
   AvailabilityWindow,
@@ -19,7 +18,6 @@ import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
-import { QuantityInput } from '../../../components/QuantityInput';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
 import { Switch } from '../../../components/Switch';
@@ -37,8 +35,9 @@ import { windowText, WindowsField } from './WindowsField';
 
 // §8.1, §6.14–§6.16 (01a-S07): the item form. Sections: what customers see, price (Sold by, price, tax
 // with "No tax" first and selected, S34), kitchen (a station per branch, programs only for a batch station,
-// S11) with a price per branch (S57), ready-made stock (units S44, threshold S46, overnight S41, when it runs out S32), hours (S47);
-// an aside shows how staff will see it, with the next-day warning on a unit change (B02). A client check
+// S11) with a price per branch (S57), ready-made stock (stock time, when it runs out S32), hours (S47);
+// an aside shows how staff will see it. 01c moves the stock units onto the stock item (V4; the form's
+// variant, stock and weighed sections are 01c §8). A client check
 // lists what to fix before anything is sent. A new item POSTs with its routes and the form's key; an edit
 // PATCHes the changed fields, then PUTs each changed route (§6.16); a PUT that fails after the PATCH saved
 // shows which branch was not saved, and Save sends only what is still different (B03, S50 h). On a phone an
@@ -54,7 +53,6 @@ interface RouteChoice {
 }
 
 const NO_ROUTE: RouteChoice = { station_id: '', program_id: '', stock_program_id: '', price: '' };
-const WHOLE_RE = /^[0-9]+$/;
 const MAX_COOK_MS = 4 * 3_600_000;
 
 // §8.1 names these pickers; the labels stay the spec's (owner.item.unit_*).
@@ -63,7 +61,6 @@ const UNIT_OPTIONS: Record<Unit, MessageKey> = {
   g: 'owner.item.unit_g',
   ml: 'owner.item.unit_ml',
 };
-const PER_PIECE_LABEL: Record<'g' | 'ml', MessageKey> = { g: 'owner.item.per_piece_g', ml: 'owner.item.per_piece_ml' };
 const PER_UNIT: Record<Unit, MessageKey> = { piece: 'item.per_piece', g: 'item.per_kg', ml: 'item.per_l' };
 
 const active = (row: { archived_at: number | null }) => row.archived_at === null;
@@ -209,7 +206,6 @@ export function ItemForm({
     Object.fromEntries(branchIds.map((b) => [b, routeOf(item, b)])),
   );
   const [name, setName] = useState(item?.name ?? '');
-  const [groupLabel, setGroupLabel] = useState(item?.group_label ?? '');
   const [description, setDescription] = useState(item?.description ?? '');
   const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find(active)?.category_id ?? '');
   const [taxId, setTaxId] = useState(item?.tax_class_id ?? '');
@@ -219,13 +215,7 @@ export function ItemForm({
   const [prep, setPrep] = useState(item === null ? '' : formatMinutes(item.prep_buffer_ms));
   const [stockTime, setStockTime] = useState(item?.stock_time_ms == null ? '' : formatMinutes(item.stock_time_ms));
   const [outOfStock, setOutOfStock] = useState<OutOfStockBehaviour>(item?.out_of_stock_behaviour ?? 'cook_fresh');
-  const [stockUnit, setStockUnit] = useState<Unit>(item?.stock_unit ?? 'piece');
   const [saleUnit, setSaleUnit] = useState<Unit>(item?.sale_unit ?? 'piece');
-  const [perPiece, setPerPiece] = useState(
-    item !== null && item.stock_unit !== item.sale_unit ? String(item.stock_per_sale_unit) : '',
-  );
-  const [threshold, setThreshold] = useState<number | null>(item?.low_stock_threshold ?? null);
-  const [carriesOver, setCarriesOver] = useState(item?.carries_over ?? false);
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(item?.availability_windows ?? []);
   const [routes, setRoutes] = useState<Record<string, RouteChoice>>(() =>
     Object.fromEntries(branchIds.map((b) => [b, routeOf(item, b)])),
@@ -257,34 +247,6 @@ export function ItemForm({
       live = false;
     };
   }, [api, branchIds]);
-
-  const unitsDiffer = stockUnit !== saleUnit;
-  const startUnits = {
-    stock: item?.stock_unit ?? 'piece',
-    sale: item?.sale_unit ?? 'piece',
-    per: item?.stock_per_sale_unit ?? 1,
-  };
-  const perPieceValue = unitsDiffer ? (WHOLE_RE.test(perPiece.trim()) ? Number(perPiece.trim()) : null) : 1;
-  const unitsChanged =
-    stockUnit !== startUnits.stock ||
-    saleUnit !== startUnits.sale ||
-    (perPieceValue !== null && perPieceValue !== startUnits.per);
-
-  function changeStockUnit(next: Unit) {
-    // The threshold is in the stock unit (S46): 1 500 g must not become 1 500 pieces.
-    if (next !== stockUnit) setThreshold(null);
-    setStockUnit(next);
-    if (saleUnit !== 'piece' && saleUnit !== next) setSaleUnit('piece');
-  }
-
-  // Sold by kg or L means it is also counted in that unit (S44: units differ only with sale_unit piece).
-  function changeSaleUnit(next: Unit) {
-    setSaleUnit(next);
-    if (next !== 'piece' && next !== stockUnit) {
-      setThreshold(null);
-      setStockUnit(next);
-    }
-  }
 
   function changeKeptReady(next: boolean) {
     setKeptReady(next);
@@ -347,7 +309,6 @@ export function ItemForm({
         text: fill(t('item.stock_time_long'), { n: cookMs === null ? '…' : formatMinutes(cookMs) }),
       });
     }
-    if (perPieceValue === null) found.push({ id: 'item-stock_per_sale_unit', section: 'item.section.stock', text: t('item.need_per') });
     for (const b of branchIds) {
       const choice = routes[b] ?? NO_ROUTE;
       if (stationOf(b, choice.station_id)?.station_type === 'batch' && choice.program_id === '') {
@@ -362,12 +323,11 @@ export function ItemForm({
   }
 
   function fields(): Omit<CreateMenuItemBody, 'routes'> | null {
-    if (!priceValue.ok || cookMs === null || prepMs === null || perPieceValue === null || windows === null) return null;
+    if (!priceValue.ok || cookMs === null || prepMs === null || windows === null) return null;
     return {
       category_id: categoryId,
       tax_class_id: taxId === '' ? null : taxId,
       name: name.trim(),
-      group_label: groupLabel.trim() === '' ? null : groupLabel.trim(),
       description: description.trim() === '' ? null : description.trim(),
       price_minor: priceValue.value,
       serve_mode: serveMode,
@@ -375,11 +335,7 @@ export function ItemForm({
       cook_time_ms: cookMs,
       stock_time_ms: stockTimeMs,
       out_of_stock_behaviour: outOfStock,
-      stock_unit: stockUnit,
       sale_unit: saleUnit,
-      stock_per_sale_unit: perPieceValue,
-      low_stock_threshold: threshold,
-      carries_over: carriesOver,
       availability_windows: windows,
     };
   }
@@ -630,13 +586,6 @@ export function ItemForm({
             </div>
             <TextField name="name" label={t('owner.item.name')} value={name} onChange={setName} error={problemFor('item-name')} />
             <Select name="category_id" label={t('owner.item.category')} value={categoryId} options={categoryOptions} onChange={setCategoryId} />
-            <TextField
-              name="group_label"
-              label={t('owner.item.group_label')}
-              value={groupLabel}
-              onChange={setGroupLabel}
-              help={t('item.group_help')}
-            />
             <TextField name="description" label={t('owner.item.description')} value={description} onChange={setDescription} />
           </section>
 
@@ -650,7 +599,7 @@ export function ItemForm({
                 label={t('owner.item.sale_unit')}
                 value={saleUnit}
                 options={(['piece', 'g', 'ml'] as const).map((u) => ({ value: u, label: t(UNIT_OPTIONS[u]) }))}
-                onChange={changeSaleUnit}
+                onChange={setSaleUnit}
               />
             </div>
             <TextField
@@ -802,38 +751,6 @@ export function ItemForm({
             <Switch checked={keptReady} label={t('item.kept_ready')} onChange={changeKeptReady} />
             {keptReady && (
               <>
-                <div className="pos-field">
-                  <span className="pos-field__label">{t('owner.item.stock_unit')}</span>
-                  <Segmented
-                    label={t('owner.item.stock_unit')}
-                    value={stockUnit}
-                    options={(saleUnit === 'piece' ? (['piece', 'g', 'ml'] as const) : [saleUnit]).map((u) => ({
-                      value: u,
-                      label: t(UNIT_OPTIONS[u]),
-                    }))}
-                    onChange={changeStockUnit}
-                  />
-                </div>
-                {unitsDiffer && stockUnit !== 'piece' ? (
-                  <TextField
-                    name="stock_per_sale_unit"
-                    label={t(PER_PIECE_LABEL[stockUnit])}
-                    value={perPiece}
-                    onChange={setPerPiece}
-                    numeric
-                    error={problemFor('item-stock_per_sale_unit')}
-                    help={
-                      perPieceValue !== null && perPieceValue > 0
-                        ? fill(t('item.conversion'), {
-                            counted: formatQuantity(perPieceValue * 25, stockUnit),
-                            n: '25',
-                          })
-                        : undefined
-                    }
-                  />
-                ) : (
-                  stockUnit !== 'piece' && <p className="pos-explain">{t('item.no_conversion')}</p>
-                )}
                 <TextField
                   name="stock_time_minutes"
                   label={t('owner.item.stock_time_minutes')}
@@ -842,10 +759,6 @@ export function ItemForm({
                   numeric
                   error={problemFor('item-stock_time_minutes')}
                 />
-                <div className="pos-field" data-field="low_stock_threshold">
-                  <span className="pos-field__label">{t('owner.item.low_stock')}</span>
-                  <QuantityInput unit={stockUnit} value={threshold} onChange={setThreshold} />
-                </div>
                 <div className="pos-field">
                   <span className="pos-field__label">{t('owner.item.out_of_stock')}</span>
                   <Segmented
@@ -858,7 +771,6 @@ export function ItemForm({
                     onChange={setOutOfStock}
                   />
                 </div>
-                <Switch checked={carriesOver} label={t('owner.item.carries_over')} onChange={setCarriesOver} />
               </>
             )}
           </section>
@@ -895,17 +807,12 @@ export function ItemForm({
           </p>
           <ul className="pos-stack">
             <li>{fill(t('menu.branches_of'), { n: String(soldAt), m: String(branchIds.length) })}</li>
-            {keptReady && <li>{t(UNIT_OPTIONS[stockUnit])}</li>}
-            {keptReady && threshold !== null && (
-              <li className="pos-ltr">{fill(t('item.warns_below'), { n: formatQuantity(threshold, stockUnit) })}</li>
-            )}
             <li>
               {(windows ?? []).length === 0
                 ? t('owner.hours.all_day')
                 : (windows ?? []).map(windowText).join(', ')}
             </li>
           </ul>
-          {unitsChanged && <Banner tone="warn" text={t('owner.item.unit_change_warning')} />}
         </aside>
       </form>
       {archiving && base !== null && (

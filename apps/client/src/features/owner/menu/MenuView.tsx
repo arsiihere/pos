@@ -477,7 +477,6 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                       <ListRow key={row.item_id} muted={archived}>
                         <span className="pos-list__name" data-item-id={row.item_id}>
                           <strong>{row.name}</strong>
-                          {row.group_label !== null && <span>{fill(t('menu.group_n'), { name: row.group_label })}</span>}
                           {phone && <span>{categoryName(row.category_id)}</span>}
                         </span>
                         {!phone && <span>{categoryName(row.category_id)}</span>}

@@ -12,6 +12,7 @@ import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import { activeVariantGroupIdsIn } from '../menu-variants/repository.js';
+import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
@@ -20,6 +21,7 @@ import {
   deleteWindowsOf,
   insertCategory,
   insertConfigAuditRows,
+  insertDraws,
   insertFloor,
   insertItemRoutes,
   insertMenuItem,
@@ -39,9 +41,11 @@ import {
   lockTaxClass,
   programRouteItemIds,
   selectAllCategories,
+  selectAllVariantGroups,
   selectAllTaxClasses,
   selectFloors,
   selectBranches,
+  selectDrawsOf,
   selectItemRoutes,
   selectItemWindows,
   selectMenuPage,
@@ -54,7 +58,9 @@ import {
   shareProgramsById,
   shareStation,
   shareStationsById,
+  shareStockItem,
   shareTaxClass,
+  shareVariantGroup,
   updateCategory,
   updateFloor,
   updateMenuItem,
@@ -64,6 +70,7 @@ import {
   updateTaxClass,
   upsertItemRoute,
   type CategoryRow,
+  type DrawRow,
   type FloorRow,
   type MenuItemRow,
   type ProgramRow,
@@ -75,6 +82,7 @@ import {
   type WindowTarget,
 } from './repository.js';
 import type {
+  AdminMenuItem,
   CreateCategoryInput,
   CreateFloorInput,
   CreateMenuItemInput,
@@ -769,8 +777,9 @@ export async function patchCategory(
   });
 }
 
-// §6.11: 6 fixed statements (coversEveryBranch, tax classes, categories with windows, the item page, its windows,
-// its routes). The cursor is base64url JSON { n: lower(name), id } of the page's last row (S48 keyset).
+// §6.11 (01c §6.3): 8 fixed statements (coversEveryBranch, tax classes, categories with windows, variant groups
+// with their members, the item page, its windows, its routes, its draws). The cursor is base64url JSON
+// { n: lower(name), id } of the page's last row (S48 keyset).
 export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, ownerUserId: string, query: MenuQueryInput) {
   const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
   const level = new TenantLevelRepository(tenant, deps.pool);
@@ -778,6 +787,7 @@ export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, owne
   const canEditTenant = await coversEveryBranch(level, ownerUserId);
   const taxClasses = await selectAllTaxClasses(level);
   const categories = await selectAllCategories(level);
+  const variantGroups = await selectAllVariantGroups(level);
   const rows = await selectMenuPage(level, {
     archived: query.status === 'archived',
     categoryId: query.category_id ?? null,
@@ -789,19 +799,21 @@ export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, owne
   const ids = pageRows.map((row) => row.item.item_id);
   const windows = await selectItemWindows(level, ids);
   const routes = await selectItemRoutes(scoped, ids);
+  const draws = await selectDrawsOf(level, ids);
   const last = pageRows.at(-1);
-  const items = pageRows.map(({ item: { archived_at, ...item } }) => ({
-    ...item,
-    availability_windows: windows
-      .filter((w) => w.item_id === item.item_id)
-      .map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
-    archived_at,
-    routes: wireRoutes(routes.filter((r) => r.item_id === item.item_id)),
-  }));
+  const items = pageRows.map(({ item }) =>
+    itemWire(
+      item,
+      windows.filter((w) => w.item_id === item.item_id),
+      draws.filter((d) => d.item_id === item.item_id),
+      routes.filter((r) => r.item_id === item.item_id),
+    ),
+  );
   return {
     can_edit_tenant: canEditTenant,
     tax_classes: taxClasses,
     categories,
+    variant_groups: variantGroups.map(toVariantGroupWire),
     items,
     next_cursor:
       rows.length > query.limit && last !== undefined
@@ -823,16 +835,17 @@ function decodeCursor(cursor: string): { n: string; id: string } {
   throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'cursor', message: 'cursor does not decode' }] });
 }
 
-// §6.14 on the common write script: [route branches allowed] → key → references FOR SHARE (category, tax class,
-// stations, programs; one statement per kind) → item and routes (one INSERT each) → one audit INSERT → bump
-// every branch (S8). The schema has no availability_windows yet (task 31).
+// §6.14 on the common write script (01c §6.4): [route branches allowed] → key → references FOR SHARE in the §6
+// lock order: variant group (3), the draw's stock item (5), category (6), tax class (7), stations then programs (8;
+// one statement per kind) → the §3.3 item rows (category equals the group's, the V4 draw unit rule, a weighed item
+// has no draw) → item, draw, routes, windows (one INSERT each; branch rows last, 9) → one audit INSERT → bump every
+// branch (10, S8). The deprecated columns are written as §5.1 says (P-11) and are not on the wire.
 export async function createMenuItem(
   deps: RestaurantDeps,
   req: OwnerRequest,
   body: CreateMenuItemInput,
-): Promise<IdempotentResult<{ item: MenuItemWire }>> {
+): Promise<IdempotentResult<{ item: AdminMenuItem }>> {
   for (const route of body.routes) assertBranchAllowed(req.tenant, route.branch_id);
-  assertUnits(body);
   if (body.stock_time_ms !== null && body.stock_time_ms > body.cook_time_ms) {
     throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
   }
@@ -842,20 +855,46 @@ export async function createMenuItem(
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
+      const group = body.variant_group_id === null ? undefined : await shareVariantGroup(level, body.variant_group_id);
+      if (body.variant_group_id !== null) assertReference('variant_group_id', group);
+      const draw = body.stock_draws[0];
+      const stockItem = draw === undefined ? undefined : await shareStockItem(level, draw.stock_item_id);
+      if (draw !== undefined) assertReference('stock_draws.0.stock_item_id', stockItem);
       assertReference('category_id', await shareCategory(level, body.category_id));
       if (body.tax_class_id !== null) assertReference('tax_class_id', await shareTaxClass(level, body.tax_class_id));
       await assertRoutes(scoped, body.routes);
       await deps.testHooks?.afterReferenceLock?.('POST /v1/admin/menu-items');
+      if (group !== undefined && group.category_id !== body.category_id) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'category_id', reason: 'category_mismatch' });
+      }
+      if (draw !== undefined && stockItem !== undefined) assertDrawUnits(body.sale_unit, stockItem.stock_unit, draw);
+      if (body.requires_weighing && draw !== undefined) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_draws', reason: 'weighed_item_stock_draw' });
+      }
       const now = deps.clock.branchNow();
-      const { routes: routeInput, availability_windows: windowInput, ...fields } = body;
+      const { routes: routeInput, availability_windows: windowInput, stock_draws: drawInput, ...fields } = body;
       const row = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
-        insertMenuItem(level, { item_id: deps.ids.next(), ...fields }, now),
+        nameTaken('menu_items_variant_name', 'variant', body.variant_name ?? '', () =>
+          insertMenuItem(
+            level,
+            {
+              item_id: deps.ids.next(),
+              ...fields,
+              // §5.1 deprecated columns (P-11): kept so the 01a CHECKs hold, never read by 01c.
+              group_label: null,
+              stock_unit: body.sale_unit,
+              stock_per_sale_unit: 1,
+              low_stock_threshold: null,
+              carries_over: false,
+            },
+            now,
+          ),
+        ),
       );
+      const draws = drawInput.length > 0 ? await insertDraws(level, row.item_id, drawInput) : [];
       const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, row.item_id, routeInput, now) : [];
-      const item = {
-        ...row,
-        availability_windows: await replaceWindows(level, deps.ids, { item_id: row.item_id }, [], windowInput),
-      };
+      const windows = await replaceWindows(level, deps.ids, { item_id: row.item_id }, [], windowInput);
+      const { routes: wiredRoutes, ...item } = itemWire(row, windows, draws, routes);
       const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
       await insertConfigAuditRows(
         level,
@@ -875,12 +914,36 @@ export async function createMenuItem(
       );
       await deps.testHooks?.beforeBump?.();
       await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
-      return { status: 201, body: { item: { ...item, routes } } };
+      return { status: 201, body: { item: { ...item, routes: wiredRoutes } } };
     },
   );
 }
 
-type MenuItemWire = MenuItemRow & { availability_windows: WindowRow[]; routes: RouteRow[] };
+// 01c §6.3, §5.4: the item wire, exactly its keys (the deprecated columns are left out); routes as 01a §6.11.
+function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[], routes: readonly RouteRow[]): AdminMenuItem {
+  return {
+    item_id: item.item_id,
+    category_id: item.category_id,
+    tax_class_id: item.tax_class_id,
+    name: item.name,
+    variant_group_id: item.variant_group_id,
+    variant_name: item.variant_name,
+    description: item.description,
+    sort_order: item.sort_order,
+    price_minor: item.price_minor,
+    serve_mode: item.serve_mode,
+    prep_buffer_ms: item.prep_buffer_ms,
+    cook_time_ms: item.cook_time_ms,
+    stock_time_ms: item.stock_time_ms,
+    out_of_stock_behaviour: item.out_of_stock_behaviour,
+    sale_unit: item.sale_unit,
+    requires_weighing: item.requires_weighing,
+    stock_draws: draws.map(({ stock_item_id, quantity_per_sale_unit }) => ({ stock_item_id, quantity_per_sale_unit })),
+    availability_windows: windows.map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
+    archived_at: item.archived_at,
+    routes: wireRoutes(routes),
+  };
+}
 
 // §6.15: lock → rules on the merged row (units, stock ≤ cook, references; a restored item's routes are re-checked
 // against §3.3, so it cannot bring back a route to a station or program archived meanwhile) → write → audit →
@@ -890,7 +953,7 @@ export async function patchMenuItem(
   req: OwnerRequest,
   itemId: string,
   body: PatchMenuItemInput,
-): Promise<{ item: MenuItemWire }> {
+): Promise<{ item: AdminMenuItem }> {
   return inTransaction(deps.pool, async (client) => {
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
@@ -904,9 +967,11 @@ export async function patchMenuItem(
       ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
     };
     const beforeWindows = await selectWindowsOf(level, { item_id: itemId });
+    // 01c §6.3 wire: the item's draws are read for the response (§6.5 writes them later).
+    const draws = await selectDrawsOf(level, [itemId]);
     if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput)) {
       const stored = await selectItemRoutes(scoped, [itemId]);
-      return { item: { ...before, availability_windows: beforeWindows, routes: wireRoutes(stored) } };
+      return { item: itemWire(before, beforeWindows, draws, stored) };
     }
     assertUnits(merged);
     if (merged.stock_time_ms !== null && merged.stock_time_ms > merged.cook_time_ms) {
@@ -941,7 +1006,7 @@ export async function patchMenuItem(
     );
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
-    return { item: { ...item, routes: wireRoutes(routes) } };
+    return { item: itemWire(row, item.availability_windows, draws, routes) };
   });
 }
 
@@ -1046,6 +1111,13 @@ function assertUnits(item: { stock_unit: string; sale_unit: string; stock_per_sa
   if (issue !== null) throw new DomainError('VALIDATION_FAILED', { issues: [issue] });
 }
 
+// 01c V4 (01a S44 between the item and its stock item): equal units → quantity_per_sale_unit 1; different units
+// → sale_unit 'piece' (any quantity in range).
+function assertDrawUnits(saleUnit: string, stockUnit: string, draw: DrawRow): void {
+  const ok = saleUnit === stockUnit ? draw.quantity_per_sale_unit === 1 : saleUnit === 'piece';
+  if (!ok) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' });
+}
+
 // §3.3: an item references an active category and (when not null) an active tax class; an archived item may keep
 // an archived one, but never an unknown one.
 function assertReference(field: string, row: { archived_at: number | null } | undefined, requireActive = true): void {
@@ -1130,7 +1202,7 @@ function hooks(deps: RestaurantDeps): { testHooks?: CloudTestHooks } {
 }
 
 // pg 23505 on an *_active_name index → 409 CONFIG_NAME_TAKEN { entity, name } (§6 intro).
-async function nameTaken<T>(index: string, entity: AuditEntity, name: string, write: () => Promise<T>): Promise<T> {
+async function nameTaken<T>(index: string, entity: AuditEntity | 'variant', name: string, write: () => Promise<T>): Promise<T> {
   try {
     return await write();
   } catch (error) {

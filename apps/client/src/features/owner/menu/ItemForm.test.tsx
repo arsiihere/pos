@@ -113,27 +113,10 @@ function buttonWith(text: string, scope: ParentNode = container): HTMLButtonElem
   return [...scope.querySelectorAll('button')].find((b) => b.textContent === text);
 }
 
-// v1.1 (01a-S07): Sold by and Stock unit are segmented controls; the stock fields sit under Kept ready;
-// Available hours start from All day / Only at set hours.
-function pick(group: string, option: string): void {
-  const box = container.querySelector(`.pos-seg[aria-label="${group}"]`);
-  click(buttonWith(option, box ?? container));
-}
-
-function options(group: string): (string | null)[] {
-  return [...(container.querySelector(`.pos-seg[aria-label="${group}"]`)?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
-}
-
-function toggle(label: string): void {
-  click([...container.querySelectorAll('button[role="switch"]')].find((b) => b.textContent === label));
-}
-
+// v1.1 (01a-S07): Available hours start from All day / Only at set hours.
 function addHours(scope: ParentNode): HTMLButtonElement | undefined {
   return [...scope.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Add hours'));
 }
-
-const STOCK = t('owner.item.stock_unit');
-const SALE = t('owner.item.sale_unit');
 
 async function submitForm(): Promise<void> {
   const form = container.querySelector('form');
@@ -236,86 +219,14 @@ describe('owner item and category forms', () => {
     ]);
   });
 
-  it('[01a S44] g / piece shows "Pieces per …" and sends stock_per_sale_unit; changing a unit shows the next-day warning', async () => {
-    const { api, calls } = fakeApi();
-    await renderNewItem(api);
-    expect(field('stock_per_sale_unit')).toBeNull();
-    expect(container.textContent).not.toContain(t('owner.item.unit_change_warning'));
-    toggle(t('item.kept_ready'));
-    expect(options(STOCK)).toEqual([t('owner.item.unit_piece'), t('owner.item.unit_g'), t('owner.item.unit_ml')]);
-
-    pick(STOCK, t('owner.item.unit_g'));
-    expect(field('stock_per_sale_unit')).not.toBeNull();
-    expect(container.textContent).toContain(t('owner.item.per_piece_g'));
-    expect(container.textContent).toContain(t('owner.item.unit_change_warning'));
-    setValue(field('stock_per_sale_unit'), '250');
-    await submitForm();
-    expect(posted(calls)).toMatchObject({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
-
-    // Sold by the kg: equal units hide the field and send 1; it can only be counted in kg then.
-    pick(SALE, t('owner.item.unit_g'));
-    expect(field('stock_per_sale_unit')).toBeNull();
-    expect(options(STOCK)).toEqual([t('owner.item.unit_g')]);
-
-    // An existing item shows the warning only once a unit changes.
-    act(() => root.unmount());
-    root = createRoot(container);
-    const item = {
-      item_id: 'I1',
-      category_id: 'C1',
-      tax_class_id: 'X1',
-      name: 'Paye',
-      group_label: null,
-      description: null,
-      sort_order: 0,
-      price_minor: 90_000,
-      serve_mode: 'immediate',
-      prep_buffer_ms: 0,
-      cook_time_ms: 600_000,
-      stock_time_ms: null,
-      out_of_stock_behaviour: 'sold_out',
-      stock_unit: 'piece',
-      sale_unit: 'piece',
-      stock_per_sale_unit: 1,
-      low_stock_threshold: null,
-      carries_over: false,
-      availability_windows: [],
-      archived_at: null,
-      routes: [],
-    } satisfies MenuItem;
-    const edit = fakeApi();
-    act(() =>
-      root.render(
-        <ItemForm
-          api={edit.api}
-          item={item}
-          taxClasses={TAXES}
-          categories={CATEGORIES}
-          branchIds={['B1']}
-          onSaved={() => {}}
-          onCancel={() => {}}
-        />,
-      ),
-    );
-    await flush();
-    expect(container.textContent).not.toContain(t('owner.item.unit_change_warning'));
-    toggle(t('item.kept_ready'));
-    pick(STOCK, t('owner.item.unit_ml'));
-    expect(container.textContent).toContain(t('owner.item.unit_change_warning'));
-    setValue(field('stock_per_sale_unit'), '330');
-    await submitForm();
-    const patch = edit.calls.find((c) => c.method === 'PATCH');
-    expect(patch).toMatchObject({ url: '/v1/admin/menu-items/I1', key: undefined });
-    expect(patch?.body).toEqual({ stock_unit: 'ml', stock_per_sale_unit: 330 });
-  });
-
-  it('[01a §8.1, S46] editing the price leaves untouched odd times alone; a stock unit change clears the threshold', async () => {
+  it('[01a §8.1] editing the price leaves untouched odd times alone', async () => {
     const item = {
       item_id: 'I2',
       category_id: 'C1',
       tax_class_id: null,
       name: 'Nihari',
-      group_label: null,
+      variant_group_id: null,
+      variant_name: null,
       description: null,
       sort_order: 0,
       price_minor: 90_000,
@@ -324,11 +235,9 @@ describe('owner item and category forms', () => {
       cook_time_ms: 100_001,
       stock_time_ms: 50_001,
       out_of_stock_behaviour: 'cook_fresh',
-      stock_unit: 'g',
       sale_unit: 'g',
-      stock_per_sale_unit: 1,
-      low_stock_threshold: 1500,
-      carries_over: false,
+      requires_weighing: false,
+      stock_draws: [],
       availability_windows: [],
       archived_at: null,
       routes: [],
@@ -351,34 +260,6 @@ describe('owner item and category forms', () => {
     setValue(field('price'), '950');
     await submitForm();
     expect(edit.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ price_minor: 95_000 });
-
-    const threshold = () => container.querySelector<HTMLInputElement>('[data-field="low_stock_threshold"] input');
-    expect(threshold()?.value).toBe('1.5');
-    pick(SALE, t('owner.item.unit_piece'));
-    expect(threshold()?.value).toBe('1.5');
-    pick(STOCK, t('owner.item.unit_piece'));
-    expect(threshold()?.value).toBe('');
-  });
-
-  it('[01a S46, S41] threshold 1.5 kg sends 1500; Keeps overnight sends carries_over true', async () => {
-    const { api, calls } = fakeApi();
-    await renderNewItem(api);
-    toggle(t('item.kept_ready'));
-    pick(SALE, t('owner.item.unit_g'));
-    const threshold = container.querySelector('[data-field="low_stock_threshold"]');
-    expect(threshold?.textContent).toContain(t('quantity.kg'));
-    setValue(threshold?.querySelector('input'), '1.5');
-    const keeps = [...container.querySelectorAll('button[role="switch"]')].find((b) => b.textContent === t('owner.item.carries_over'));
-    expect(keeps?.getAttribute('aria-checked')).toBe('false');
-    click(keeps);
-    await submitForm();
-    expect(posted(calls)).toMatchObject({
-      stock_unit: 'g',
-      sale_unit: 'g',
-      stock_per_sale_unit: 1,
-      low_stock_threshold: 1500,
-      carries_over: true,
-    });
   });
 
   it('[01a S47] 07:00–13:00 sends { 25200000, 46800000 }; a fifth row cannot be added; equal times show a field error', async () => {

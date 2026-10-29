@@ -115,11 +115,13 @@ describe('menu item patch', () => {
     const item = await create({ price_minor: 120000 });
     const response = await patch(item.item_id, { price_minor: 130000 });
     expect(response.statusCode).toBe(200);
+    // the item as created; the §6.15 audit row also holds the stored deprecated columns (01c §5.1) until §6.5
     const row: Record<string, unknown> = { ...item };
     delete row.routes;
+    delete row.stock_draws;
     const rows = await itemAudit(item.item_id);
     expect(rows).toHaveLength(2);
-    expect(rows[1]).toEqual({ branch_id: null, action: 'update', before: row, after: { ...row, price_minor: 130000 } });
+    expect(rows[1]).toMatchObject({ branch_id: null, action: 'update', before: row, after: { ...row, price_minor: 130000 } });
     expect(rows[1]!.before!.price_minor).toBe(120000);
     expect(rows[1]!.after!.price_minor).toBe(130000);
   });
@@ -187,7 +189,9 @@ describe('menu item patch', () => {
   });
 
   it('[01a §10 #128] units: g / piece / 250 and the defaults in the snapshot; threshold and carries_over; the 400s; merged-row sale_unit; a unit change is audited', async () => {
-    const grams = await create({ name: 'Karahi by weight', stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
+    // 01c §6.4 drops the unit fields from the create body: the stored units are set by SQL (01c #23 covers create)
+    const grams = await create({ name: 'Karahi by weight' });
+    await cloud.pool.query(`UPDATE menu_items SET stock_unit = 'g', stock_per_sale_unit = 250 WHERE item_id = $1`, [grams.item_id]);
     expect(await snapshotItem(grams.item_id)).toMatchObject({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
 
     const plain = await create({ name: 'Plain' });
@@ -198,24 +202,9 @@ describe('menu item patch', () => {
       low_stock_threshold: null,
       carries_over: false,
     });
-    const flagged = await create({ name: 'Flagged', low_stock_threshold: 1000, carries_over: true });
+    const flagged = await create({ name: 'Flagged' });
+    await cloud.pool.query(`UPDATE menu_items SET low_stock_threshold = 1000, carries_over = true WHERE item_id = $1`, [flagged.item_id]);
     expect(await snapshotItem(flagged.item_id)).toMatchObject({ low_stock_threshold: 1000, carries_over: true });
-
-    for (const units of [
-      { stock_unit: 'g', sale_unit: 'g', stock_per_sale_unit: 2 },
-      { stock_unit: 'piece', sale_unit: 'g' },
-    ]) {
-      const bad = await inject('POST', '/v1/admin/menu-items', {
-        category_id: menu.categoryIds[0],
-        tax_class_id: null,
-        name: 'Bad units',
-        price_minor: 100,
-        serve_mode: 'immediate',
-        cook_time_ms: 60000,
-        ...units,
-      });
-      expect(bad.statusCode, JSON.stringify(units)).toBe(400);
-    }
 
     const body = await expectNothingWritten(plain.item_id, () => patch(plain.item_id, { sale_unit: 'g' }), 400);
     expect(body.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'sale_unit' }] } });

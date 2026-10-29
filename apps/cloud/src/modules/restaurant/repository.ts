@@ -3,6 +3,7 @@ import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.j
 import type { AuditEntry } from '../../lib/config-audit.js';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
+import type { VariantGroupRow } from '../menu-variants/versions.js';
 
 export interface FloorRow {
   floor_id: string;
@@ -505,6 +506,8 @@ export interface MenuItemRow {
   tax_class_id: string | null;
   name: string;
   group_label: string | null;
+  variant_group_id: string | null;
+  variant_name: string | null;
   description: string | null;
   sort_order: number;
   price_minor: number;
@@ -518,7 +521,14 @@ export interface MenuItemRow {
   stock_per_sale_unit: number;
   low_stock_threshold: number | null;
   carries_over: boolean;
+  requires_weighing: boolean;
   archived_at: number | null;
+}
+
+// 01c V4: how many stock units one sale unit of the item uses.
+export interface DrawRow {
+  stock_item_id: string;
+  quantity_per_sale_unit: number;
 }
 
 export interface RouteRow {
@@ -532,9 +542,59 @@ export interface RouteRow {
 const ROUTE_COLUMNS = 'branch_id, station_id, program_id, stock_program_id, price_minor_override';
 
 const MENU_ITEM_COLUMNS =
-  'item_id, category_id, tax_class_id, name, group_label, description, sort_order, price_minor, serve_mode, ' +
-  'prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, ' +
-  'low_stock_threshold, carries_over, archived_at';
+  'item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name, description, sort_order, ' +
+  'price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, ' +
+  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, archived_at';
+
+// 01c §6 lock order 3: an item's variant group FOR SHARE (§6.4 reference), with what §3.3 checks against.
+export async function shareVariantGroup(
+  repo: TenantLevelRepository,
+  variantGroupId: string,
+): Promise<{ category_id: string; archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ category_id: string; archived_at: string | null }>(
+    `SELECT category_id, archived_at FROM variant_groups WHERE tenant_id = $1 AND variant_group_id = $2 FOR SHARE`,
+    [variantGroupId],
+  );
+  return rows[0] === undefined ? undefined : { category_id: rows[0].category_id, archived_at: msOrNull(rows[0].archived_at) };
+}
+
+// 01c §6 lock order 5: a draw's stock item FOR SHARE (§6.4 reference), with its unit for the V4 rule.
+export async function shareStockItem(
+  repo: TenantLevelRepository,
+  stockItemId: string,
+): Promise<{ stock_unit: Unit; archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ stock_unit: Unit; archived_at: string | null }>(
+    `SELECT stock_unit, archived_at FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR SHARE`,
+    [stockItemId],
+  );
+  return rows[0] === undefined ? undefined : { stock_unit: rows[0].stock_unit, archived_at: msOrNull(rows[0].archived_at) };
+}
+
+// 01c §6.3 statement 8 (and the item write's response): the items' draws, = ANY($ids), by item, then stock item.
+export async function selectDrawsOf(
+  repo: TenantLevelRepository,
+  itemIds: string[],
+): Promise<Array<DrawRow & { item_id: string }>> {
+  return repo.query<DrawRow & { item_id: string }>(
+    `SELECT item_id, stock_item_id, quantity_per_sale_unit FROM stock_draws
+      WHERE tenant_id = $1 AND item_id = ANY($2)
+      ORDER BY item_id, stock_item_id`,
+    [itemIds],
+  );
+}
+
+// 01c §6.4: an item's draws in one multi-row INSERT (pilot: at most one), returned by stock item.
+export async function insertDraws(repo: TenantLevelRepository, itemId: string, draws: DrawRow[]): Promise<DrawRow[]> {
+  const rows = await repo.query<DrawRow>(
+    `INSERT INTO stock_draws (tenant_id, item_id, stock_item_id, quantity_per_sale_unit)
+     SELECT t.tenant_id, $2, u.stock_item_id, u.quantity_per_sale_unit
+       FROM tenants t, unnest($3::text[], $4::int[]) AS u (stock_item_id, quantity_per_sale_unit)
+      WHERE t.tenant_id = $1
+     RETURNING stock_item_id, quantity_per_sale_unit`,
+    [itemId, draws.map((d) => d.stock_item_id), draws.map((d) => d.quantity_per_sale_unit)],
+  );
+  return rows.sort((a, b) => (a.stock_item_id < b.stock_item_id ? -1 : a.stock_item_id > b.stock_item_id ? 1 : 0));
+}
 
 // Reference checks (§6.14): FOR SHARE against a concurrent archive.
 export async function shareCategory(repo: TenantLevelRepository, categoryId: string): Promise<{ archived_at: number | null } | undefined> {
@@ -591,11 +651,11 @@ export async function insertMenuItem(
   now: number,
 ): Promise<MenuItemRow> {
   const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
-    `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, description, sort_order,
-                             price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour,
-                             stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold, carries_over,
-                             created_at, updated_at)
-     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+    `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name,
+                             description, sort_order, price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms,
+                             out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold,
+                             carries_over, requires_weighing, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23
        FROM tenants WHERE tenant_id = $1
      RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -604,6 +664,8 @@ export async function insertMenuItem(
       item.tax_class_id,
       item.name,
       item.group_label,
+      item.variant_group_id,
+      item.variant_name,
       item.description,
       item.sort_order,
       item.price_minor,
@@ -617,6 +679,7 @@ export async function insertMenuItem(
       item.stock_per_sale_unit,
       item.low_stock_threshold,
       item.carries_over,
+      item.requires_weighing,
       now,
     ],
   );
@@ -803,7 +866,22 @@ export async function selectAllCategories(
   return out;
 }
 
-// §6.11 statement 4: one keyset page by (lower(name), item_id) (index menu_items_name_order), limit + 1 rows.
+// 01c §6.3: every variant group, archived included, with every member's id (archived members included, AD-8),
+// in one statement, by sort_order, then id.
+export async function selectAllVariantGroups(repo: TenantLevelRepository): Promise<VariantGroupRow[]> {
+  return repo.query<VariantGroupRow>(
+    `SELECT g.variant_group_id, g.name, g.category_id, g.description, g.sort_order, g.archived_at,
+            COALESCE(array_agg(m.item_id ORDER BY m.item_id) FILTER (WHERE m.item_id IS NOT NULL), '{}') AS member_ids
+       FROM variant_groups g
+       LEFT JOIN menu_items m ON m.tenant_id = g.tenant_id AND m.variant_group_id = g.variant_group_id
+      WHERE g.tenant_id = $1
+      GROUP BY g.tenant_id, g.variant_group_id
+      ORDER BY g.sort_order, g.variant_group_id`,
+  );
+}
+
+// §6.11 statement 4: one keyset page by (lower(name), item_id) (index menu_items_name_order), limit + 1 rows;
+// q matches the item's name or its variant group's name (01c §6.3).
 export async function selectMenuPage(
   repo: TenantLevelRepository,
   o: { archived: boolean; categoryId: string | null; pattern: string | null; after: { n: string; id: string } | null; limit: number },
@@ -813,7 +891,8 @@ export async function selectMenuPage(
       WHERE tenant_id = $1
         AND (archived_at IS NOT NULL) = $2
         AND ($3::text IS NULL OR category_id = $3)
-        AND ($4::text IS NULL OR name ILIKE $4 ESCAPE '\\' OR group_label ILIKE $4 ESCAPE '\\')
+        AND ($4::text IS NULL OR name ILIKE $4 ESCAPE '\\' OR variant_group_id IN (
+              SELECT variant_group_id FROM variant_groups WHERE tenant_id = $1 AND name ILIKE $4 ESCAPE '\\'))
         AND ($5::text IS NULL OR (lower(name), item_id) > ($5, $6::text))
       ORDER BY lower(name), item_id
       LIMIT $7`,

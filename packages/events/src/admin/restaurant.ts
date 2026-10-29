@@ -164,19 +164,35 @@ export const CategoryResponse = z.object({
   }),
 });
 
-// §3.3, S44, S46: the menu item's ranges. The units rule (equal → 1; different → sale_unit 'piece') is the
-// service's, so it can name the field.
+// §3.3, S46: the menu item's ranges.
 const Unit = z.enum(['piece', 'g', 'ml']);
 const ServeMode = z.enum(['immediate', 'sync']);
 const OutOfStockBehaviour = z.enum(['cook_fresh', 'sold_out']);
 export const PriceMinor = z.number().int().min(0).max(1_000_000_000);
 const PrepBuffer = z.number().int().min(0).max(3_600_000);
 const StockTime = z.number().int().min(0).max(14_400_000).nullable();
-const StockPerSaleUnit = z.number().int().min(1).max(1_000_000);
-const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
-// The spec gives the label no length; names' 60 characters keep it a label (S12).
-const GroupLabel = z.string().trim().min(1).max(60).nullable();
 export const Description = z.string().max(300).nullable();
+// 01c §3.3: variant_name 1–30 after trimming.
+const VariantName = z.string().trim().min(1).max(30);
+
+// 01c §3.3, V4: 0–1 draws (pilot), quantity 1 … 1 000 000; one per stock_item_id (C6: the repeat → 400 at
+// stock_draws.N.stock_item_id). The unit rule needs the stock item, so it is the service's (422 unit_mismatch).
+const StockDraws = z
+  .array(
+    z.object({
+      stock_item_id: z.string().min(1),
+      quantity_per_sale_unit: z.number().int().min(1).max(1_000_000),
+    }),
+  )
+  // before max(1): zod skips a refinement once the value has an issue
+  .superRefine((draws, ctx) => {
+    const seen = new Set<string>();
+    draws.forEach((draw, i) => {
+      if (seen.has(draw.stock_item_id)) ctx.addIssue({ code: 'custom', path: [i, 'stock_item_id'], message: 'duplicate stock_item_id' });
+      seen.add(draw.stock_item_id);
+    });
+  })
+  .max(1);
 
 const RouteInput = z.object({
   branch_id: z.string().min(1),
@@ -187,33 +203,52 @@ const RouteInput = z.object({
   price_minor_override: PriceMinor.nullable().default(null),
 });
 
-// §6.14: tax_class_id is a required key (null = never taxed, S34); at most one route per branch.
-export const CreateMenuItemBody = z.object({
-  category_id: z.string().min(1),
-  tax_class_id: z.string().min(1).nullable(),
-  name: Name,
-  group_label: GroupLabel.default(null),
-  description: Description.default(null),
-  sort_order: SortOrder.default(0),
-  price_minor: PriceMinor,
-  serve_mode: ServeMode,
-  prep_buffer_ms: PrepBuffer.default(0),
-  cook_time_ms: CookTime,
-  stock_time_ms: StockTime.default(null),
-  out_of_stock_behaviour: OutOfStockBehaviour.default('cook_fresh'),
-  stock_unit: Unit.default('piece'),
-  sale_unit: Unit.default('piece'),
-  stock_per_sale_unit: StockPerSaleUnit.default(1),
-  low_stock_threshold: LowStockThreshold.default(null),
-  carries_over: z.boolean().default(false),
-  availability_windows: AvailabilityWindows.default([]),
-  routes: z
-    .array(RouteInput)
-    .default([])
-    .refine((routes) => new Set(routes.map((r) => r.branch_id)).size === routes.length, {
-      message: 'at most one route per branch',
-    }),
-});
+// §6.14 (01c §6.4): tax_class_id is a required key (null = never taxed, S34); at most one route per branch.
+// variant_group_id and variant_name go together (§3.3); requires_weighing only with sale_unit g or ml (V18).
+// The deprecated fields (group_label, stock_unit, stock_per_sale_unit, low_stock_threshold, carries_over) are
+// dropped by the schema (not .strict()).
+export const CreateMenuItemBody = z
+  .object({
+    category_id: z.string().min(1),
+    tax_class_id: z.string().min(1).nullable(),
+    name: Name,
+    variant_group_id: z.string().min(1).nullable().default(null),
+    variant_name: VariantName.nullable().default(null),
+    description: Description.default(null),
+    sort_order: SortOrder.default(0),
+    price_minor: PriceMinor,
+    serve_mode: ServeMode,
+    prep_buffer_ms: PrepBuffer.default(0),
+    cook_time_ms: CookTime,
+    stock_time_ms: StockTime.default(null),
+    out_of_stock_behaviour: OutOfStockBehaviour.default('cook_fresh'),
+    sale_unit: Unit.default('piece'),
+    requires_weighing: z.boolean().default(false),
+    stock_draws: StockDraws.default([]),
+    availability_windows: AvailabilityWindows.default([]),
+    routes: z
+      .array(RouteInput)
+      .default([])
+      .refine((routes) => new Set(routes.map((r) => r.branch_id)).size === routes.length, {
+        message: 'at most one route per branch',
+      }),
+  })
+  .superRefine((body, ctx) => {
+    if (body.variant_group_id !== null && body.variant_name === null) {
+      ctx.addIssue({ code: 'custom', path: ['variant_name'], message: 'required with variant_group_id' });
+    }
+    if (body.variant_group_id === null && body.variant_name !== null) {
+      ctx.addIssue({ code: 'custom', path: ['variant_group_id'], message: 'required with variant_name' });
+    }
+    if (body.requires_weighing && body.sale_unit === 'piece') {
+      ctx.addIssue({ code: 'custom', path: ['requires_weighing'], message: "needs sale_unit 'g' or 'ml'" });
+    }
+  });
+
+// 01a S12, S44, S46 fields the §6.15 PATCH still takes until 01c §6.5 replaces them with the draw (V4).
+const StockPerSaleUnit = z.number().int().min(1).max(1_000_000);
+const LowStockThreshold = z.number().int().min(0).max(1_000_000).nullable();
+const GroupLabel = z.string().trim().min(1).max(60).nullable();
 
 // §6.15: any item field plus archived; routes use §6.16. The rules run on the merged row (service).
 export const PatchMenuItemBody = z
@@ -266,12 +301,15 @@ const Route = z.object({
 
 const Window = z.object({ start_ms: z.number(), end_ms: z.number() });
 
+// 01c §6.3: the item wire adds variant_group_id, variant_name, stock_draws and requires_weighing (§5.4); the
+// deprecated columns are not on it.
 const MenuItem = z.object({
   item_id: z.string(),
   category_id: z.string(),
   tax_class_id: z.string().nullable(),
   name: z.string(),
-  group_label: z.string().nullable(),
+  variant_group_id: z.string().nullable(),
+  variant_name: z.string().nullable(),
   description: z.string().nullable(),
   sort_order: z.number(),
   price_minor: z.number(),
@@ -280,14 +318,26 @@ const MenuItem = z.object({
   cook_time_ms: z.number(),
   stock_time_ms: z.number().nullable(),
   out_of_stock_behaviour: OutOfStockBehaviour,
-  stock_unit: Unit,
   sale_unit: Unit,
-  stock_per_sale_unit: z.number(),
-  low_stock_threshold: z.number().nullable(),
-  carries_over: z.boolean(),
+  requires_weighing: z.boolean(),
+  stock_draws: z.array(z.object({ stock_item_id: z.string(), quantity_per_sale_unit: z.number() })),
   availability_windows: z.array(Window),
   archived_at: z.number().nullable(),
   routes: z.array(Route),
+});
+
+// 01c §6.3: the menu read's variant groups, whole, archived included; member_ids lists every member, archived
+// included. The same shape as menu-variants.ts VariantGroupWire, which imports this file (so it cannot be
+// imported here without a cycle).
+const MenuVariantGroup = z.object({
+  variant_group_id: z.string(),
+  name: z.string(),
+  category_id: z.string(),
+  description: z.string().nullable(),
+  sort_order: z.number(),
+  archived_at: z.number().nullable(),
+  member_ids: z.array(z.string()),
+  version: z.string(),
 });
 
 export const MenuItemResponse = z.object({ data: z.object({ item: MenuItem }) });
@@ -308,6 +358,7 @@ export const MenuResponse = z.object({
         availability_windows: z.array(Window),
       }),
     ),
+    variant_groups: z.array(MenuVariantGroup),
     items: z.array(MenuItem),
     next_cursor: z.string().nullable(),
   }),
