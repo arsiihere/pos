@@ -52,10 +52,10 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 15 follow-up | DONE | `9796dbf` | [01c §6.5 AD-11] | AD-11 (developer, Q-3): R4/R6 reads join active deals |
 | 16 | DONE | `fa30856` | #28–#30, #35, [01c §6.8] | 403 first; `seedStockItem` replaced by the API helper (#123 archives and restores through §6.8); open question Q-4 (R1 before R2) |
 | 17 | DONE | `b5588ad` | #31–#34, [01c V16 P-10], [01c §6.9] | AD-12: stock item lock first, branch read in the transaction (§6.9, C2); the cross-tenant test has a named exception for this route |
-| 16a | DONE | this commit | [01c §6.8 R2 before R1, AD-13] | AD-13 (developer, Q-4): stock item PATCH checks R2 (409) before R1 (422); one drawers read kept |
-| 18 | DONE | this commit | #63–#65, #68, #79; re-keyed 01a #59–#61, #130, #134, #147 | AD-14: key renames reach hub tests business-day, stock-scope, queries/stock, ws/restaurant-ws, client `StockApp.tsx` and four client tests; #63–#65 mock `config-v2-view` with `aBranchConfig()` until task 21; `viewStockItem` kept for the catch-up only (plain `Error` on a miss); `open-business-day.ts` unchanged (task 8 already writes v2 from the view) |
-| 19 | DONE | this commit | #70, #114; re-keyed 01a #67, #72, #73, #89, #91, #93, #116, #131, #152, #158; 01b #34 | Additive wire: `stock_items_meta`, `stock`, `stock_item_ids` are `.optional()` and the old item-row unit / number fields carry `// Seam: removed by task 20`; the scope key covers stock item ids and item ids; `dayStockUnitOf`, `viewStockItem` deleted; `untrackedStandIn` and `stockScopeFilter` kept (task 20 / `SetItemAvailability`); #70, #91, #34 mock `config-v2-view` with `aBranchConfig()` until task 21 |
-| 20 | DONE | this commit | re-keyed 01a #77, #132, #156, #166, #167, #171 (#133 client part: fixtures and the row lookup only); [01c §8], [01c §6.21], [01c §6.18] | Wire contracted: the stock item parts and `stock_item_ids` required, the item rows' unit and number fields removed; the hub's untracked stand-in deleted; page: one row per stock item with its drawers (sale units available, Selling switch) and Selling-only rows for items no stock row lists; drafts keyed by `stock_item_id` (old entries skipped); AD-15 (`AlertBar.tsx`); `hub-admin.ts`, `main.tsx` unchanged |
+| 16a | DONE | `273ad2a` | [01c §6.8 R2 before R1, AD-13] | AD-13 (developer, Q-4): stock item PATCH checks R2 (409) before R1 (422); one drawers read kept |
+| 18 | DONE | `d9f45f8` | #63–#65, #68, #79; re-keyed 01a #59–#61, #130, #134, #147 | AD-14: key renames reach hub tests business-day, stock-scope, queries/stock, ws/restaurant-ws, client `StockApp.tsx` and four client tests; #63–#65 mock `config-v2-view` with `aBranchConfig()` until task 21; `viewStockItem` kept for the catch-up only (plain `Error` on a miss); `open-business-day.ts` unchanged (task 8 already writes v2 from the view) |
+| 19 | DONE | `a919c1a` | #70, #114; re-keyed 01a #67, #72, #73, #89, #91, #93, #116, #131, #152, #158; 01b #34 | Additive wire: `stock_items_meta`, `stock`, `stock_item_ids` are `.optional()` and the old item-row unit / number fields carry the task-20 seam marker; the scope key covers stock item ids and item ids; `dayStockUnitOf`, `viewStockItem` deleted; `untrackedStandIn` and `stockScopeFilter` kept (task 20 / `SetItemAvailability`); #70, #91, #34 mock `config-v2-view` with `aBranchConfig()` until task 21 |
+| 20 | DONE | `9c1734a` | re-keyed 01a #77, #132, #156, #166, #167, #171 (#133 client part: fixtures and the row lookup only); [01c §8], [01c §6.21], [01c §6.18] | Wire contracted: the stock item parts and `stock_item_ids` required, the item rows' unit and number fields removed; the hub's untracked stand-in deleted; page: one row per stock item with its drawers (sale units available, Selling switch) and Selling-only rows for items no stock row lists; drafts keyed by `stock_item_id` (old entries skipped); AD-15 (`AlertBar.tsx`); `hub-admin.ts`, `main.tsx` unchanged |
 
 ## Checkpoints
 
@@ -106,3 +106,16 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - AD added: AD-11 (developer), AD-12.
 - Open seams: unchanged (V1 names, `config-v2-view.ts`, AD-2/AD-3 helpers).
 - Open question Q-4 (developer): §6.8 runs R1 (`422`, a drawer's unit) before R2 (`409`, active drawers on archive) when one PATCH changes `stock_unit` and archives; §6.5's Q2 precedence puts `409` before `422`.
+- Resolved after the checkpoint: Q-4 → AD-13 (task 16a).
+
+### Batch 6 (§11 steps 10–11) — 2026-10-29
+
+- Task 16a (developer follow-up, Q-4) and tasks 18–20 done. Reviews all clean, no fix rounds. Three rulings during the batch: AD-14 (task 18 key renames reach callers outside its file list), AD-15 (task 20 `AlertBar.tsx`), and `viewStockItem` kept one task longer for the catch-up (plain `Error`, deleted in task 19).
+- Gate (controller only, after each task): last run on `9c1734a` 230 files, 1054 tests passing. No 57P01, no 40P01.
+- Tests closed: 01c #63–#65, #68, #70, #79, #114, [01c §6.8 R2 before R1], [01c §8]. Re-keyed: 01a #59–#61, #67, #72, #73, #77, #89, #91, #93, #116, #130–#132, #134, #147, #152, #156, #158, #166, #167, #171 (#133 client fixtures); 01b #34.
+- AD added: AD-13 (developer), AD-14, AD-15.
+- Seam check: `git grep -n "Seam: removed by task 20" -- apps packages` and `git grep -n "untrackedStandIn\|viewStockItem" -- apps packages` are empty. Unscoped, the marker remains only in the plan's own task 19 and task 20 text (`01c-plan.md:534`, `:553`), and the helper names only in AD-3 and the task rows. AD-2 `dayStockUnitOf` is deleted (task 19); `stockResult` is renamed `stockItemResult` (task 18).
+- Test mocks until task 21: `config-v2-view` is mocked with `aBranchConfig()` in 01c #63–#65, #70, the last clause of 01a #91 and of 01b #34 (the V1 view cannot express one stock item shared by two items); task 21 removes them.
+- Open seams: V1 names and `config-v2-view.ts` (task 21).
+- As-built notes: stock page rows are stock rows first, then Selling-only rows in config order (the spec gives no order); the Urdu "Not used by any dish here" was written without a design screen (needs a native check); a draft count kept in the old item-keyed format before the upgrade is skipped on restore.
+
