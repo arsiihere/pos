@@ -1,10 +1,9 @@
 import { availableStock, openDayStartMs, stockLevel, type EngineState } from '@pos/engine';
-import type { BranchConfigV1, ConfigStockItem } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfig, ConfigStockItem } from '@pos/events';
+import { aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
-import { toConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
@@ -19,7 +18,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
   it('[01a §10 #133] OpenBusinessDay opens a day with the hub local date and frozen units; a second open is a no-op; restart fold, replay, 403 and COMMIT failure', async () => {
     const hub = await open();
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub, 'S_MGR');
     const now = hub.clock.branchNow();
 
@@ -28,7 +27,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const date = '2026-10-25';
     expect(opened.json().data.result).toEqual({ business_date: date, opened_at: now, changed: true, reason: 'opened' });
     // 01c §6.20: stock_units for every stock item, draws for every tracked item (I2 is untracked).
-    const frozen = { stock_units: V2_STOCK_UNITS, draws: V2_DRAWS };
+    const frozen = { stock_units: STOCK_UNITS, draws: DRAWS };
     expect(eventsOf(hub, 'BusinessDayOpened')).toEqual([
       { stream_type: 'hub', stream_id: 'branch-1', payload: { business_date: date, ...frozen } },
     ]);
@@ -67,7 +66,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
         if (fail) throw new Error('forced commit failure');
       },
     });
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfigItemStock());
     const failAdmin = adminOn(failing, 'S_MGR');
     fail = true;
     const failed = await post(failing, failAdmin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-fail');
@@ -90,7 +89,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
   it('[01a §10 #143] close at exactly day_min_gap_hours then open: a new day; a non-carrying count reads not_counted, a carrying one keeps its stock', async () => {
     const hub = await open();
-    const config = carrying(aBranchConfigV1(), 'I3');
+    const config = carrying(aBranchConfigItemStock(), 'I3');
     withConfig(config);
     const admin = adminOn(hub, 'S_MGR');
     hub.clock.set(at(6));
@@ -118,8 +117,8 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const reopened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1000');
     expect(reopened.json().data.result).toMatchObject({ opened_at: at(10), changed: true, reason: 'opened' });
     expect(eventsOf(hub, 'BusinessDayOpened').map((e) => e.payload)).toEqual([
-      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
-      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+      { business_date: '2026-10-25', stock_units: STOCK_UNITS, draws: DRAWS },
+      { business_date: '2026-10-25', stock_units: STOCK_UNITS, draws: DRAWS },
     ]);
     expect(engine(hub).business_day).toMatchObject({ opened_at: at(10), closed_at: null });
     expect(available(hub, config, 'I1')).toBe(0);
@@ -129,7 +128,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
 
   it('[01a §10 #144] a close inside day_min_gap_hours is a no-op; a smaller gap in the snapshot allows it; a hub clock moved back is recent; retransmit replays', async () => {
     const hub = await open();
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub, 'S_MGR');
     hub.clock.set(at(6));
     await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-0600');
@@ -148,7 +147,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(eventsOf(hub, 'BusinessDayClosed')).toEqual([]);
     expect(engine(hub).business_day?.closed_at).toBeNull();
 
-    withConfig(aBranchConfigV1({ day_min_gap_hours: 2 }));
+    withConfig(aBranchConfigItemStock({ day_min_gap_hours: 2 }));
     const allowed = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-0959-gap2');
     expect(allowed.json().data.result).toMatchObject({ closed_at: at(9, 59), changed: true, reason: 'closed' });
     expect(eventsOf(hub, 'BusinessDayClosed')).toHaveLength(1);
@@ -172,7 +171,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
         if (fail) throw new Error('forced commit failure');
       },
     });
-    const config = carrying(aBranchConfigV1(), 'I3');
+    const config = carrying(aBranchConfigItemStock(), 'I3');
     withConfig(config);
     const admin = adminOn(hub, 'S_MGR');
     hub.clock.set(at(6));
@@ -240,10 +239,10 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     const next = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-day2');
     expect(next.json().data.result).toEqual({ business_date: '2026-10-26', opened_at: at(30), changed: true, reason: 'opened' });
     expect(eventsOf(hub, 'BusinessDayOpened').map((e) => e.payload)).toEqual([
-      { business_date: '2026-10-25', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
-      { business_date: '2026-10-26', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS },
+      { business_date: '2026-10-25', stock_units: STOCK_UNITS, draws: DRAWS },
+      { business_date: '2026-10-26', stock_units: STOCK_UNITS, draws: DRAWS },
     ]);
-    expect(engine(hub).business_day).toMatchObject({ business_date: '2026-10-26', stock_units: V2_STOCK_UNITS, draws: V2_DRAWS });
+    expect(engine(hub).business_day).toMatchObject({ business_date: '2026-10-26', stock_units: STOCK_UNITS, draws: DRAWS });
   });
 
   it('[01a §6.18b] CloseBusinessDay before any day was opened → not_open with null fields', async () => {
@@ -256,9 +255,9 @@ describe('business day commands (§6.18a, §6.18b)', () => {
   });
 });
 
-// aBranchConfigV1 through the V2 view (01c P-2): I1 and I3 are stock items under their own ids.
-const V2_STOCK_UNITS = { I1: 'piece', I3: 'g' };
-const V2_DRAWS = {
+// aBranchConfigItemStock (01c §5.1): I1 and I3 are stock items under their own ids.
+const STOCK_UNITS = { I1: 'piece', I3: 'g' };
+const DRAWS = {
   I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
   I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
 };
@@ -268,8 +267,11 @@ function at(hours: number, minutes = 0): number {
   return new Date(2026, 9, 25, hours, minutes).getTime();
 }
 
-function carrying(config: BranchConfigV1, itemId: string): BranchConfigV1 {
-  return { ...config, items: config.items.map((item) => (item.item_id === itemId ? { ...item, carries_over: true } : item)) };
+function carrying(config: BranchConfig, stockItemId: string): BranchConfig {
+  return {
+    ...config,
+    stock_items: config.stock_items.map((s) => (s.stock_item_id === stockItemId ? { ...s, carries_over: true } : s)),
+  };
 }
 
 function countStock(hub: TestHub, entries: Array<{ item_id: string; on_hand: number; unit: 'piece' | 'g' | 'ml' }>): void {
@@ -289,20 +291,20 @@ function countStock(hub: TestHub, entries: Array<{ item_id: string; on_hand: num
   );
 }
 
-function stockItem(config: BranchConfigV1, stockItemId: string): ConfigStockItem {
-  const found = toConfigV2(config).stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
+function stockItem(config: BranchConfig, stockItemId: string): ConfigStockItem {
+  const found = config.stock_items.find((candidate) => candidate.stock_item_id === stockItemId);
   if (found === undefined) throw new Error(`no stock item ${stockItemId}`);
   return found;
 }
 
-function available(hub: TestHub, config: BranchConfigV1, itemId: string): number {
+function available(hub: TestHub, config: BranchConfig, stockItemId: string): number {
   const state = engine(hub);
-  return availableStock(state, itemId, openDayStartMs(state), stockItem(config, itemId));
+  return availableStock(state, stockItemId, openDayStartMs(state), stockItem(config, stockItemId));
 }
 
-function level(hub: TestHub, config: BranchConfigV1, itemId: string): string {
+function level(hub: TestHub, config: BranchConfig, stockItemId: string): string {
   const state = engine(hub);
-  return stockLevel(state, itemId, openDayStartMs(state), stockItem(config, itemId));
+  return stockLevel(state, stockItemId, openDayStartMs(state), stockItem(config, stockItemId));
 }
 
 async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub> {
@@ -318,8 +320,8 @@ async function open(testHooks?: { beforeCommit?: () => void }): Promise<TestHub>
   return hub;
 }
 
-function withConfig(config: BranchConfigV1): void {
-  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 function adminOn(hub: TestHub, staffId: string): Admin {

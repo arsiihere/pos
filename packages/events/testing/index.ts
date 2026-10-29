@@ -1,4 +1,4 @@
-import type { BranchConfig, BranchConfigV1, ConfigItem, ConfigItemV1 } from '../src/config.js';
+import type { BranchConfig, ConfigItem } from '../src/config.js';
 import type { PosEvent } from '../src/envelope.js';
 
 const T = 1_761_000_000_000;
@@ -290,75 +290,6 @@ export function anItemMadeAvailable(overrides?: Overrides): PosEvent {
   return build(stock('ItemMadeAvailable', 'I1', { item_id: 'I1' }), overrides);
 }
 
-function configItemV1(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItemV1>): ConfigItemV1 {
-  return {
-    item_id: itemId,
-    category_id: 'C1',
-    name,
-    group_label: null,
-    description: null,
-    sort_order: sortOrder,
-    price_minor: 120_000,
-    tax_class_id: null,
-    serve_mode: 'sync',
-    prep_buffer_ms: 0,
-    cook_time_ms: 1_200_000,
-    stock_time_ms: null,
-    out_of_stock_behaviour: 'cook_fresh',
-    stock_unit: 'piece',
-    sale_unit: 'piece',
-    stock_per_sale_unit: 1,
-    low_stock_threshold: null,
-    carries_over: false,
-    availability_windows: [],
-    station_id: 'S1',
-    program_id: null,
-    stock_program_id: null,
-    ...o,
-  };
-}
-
-// 01a §4.3: slot station "Karahi"; I1 (pieces) and I3 (g, sold per 250 g piece)
-// are stock-tracked; I2 is not. Seam (01c P-2): deleted in task 21.
-export function aBranchConfigV1(overrides?: Partial<BranchConfigV1>): BranchConfigV1 {
-  return {
-    snapshot_schema_version: 1,
-    config_version: 1,
-    branch_id: envelope.branch_id,
-    currency_code: 'PKR',
-    tax_enabled: false,
-    day_stale_after_hours: 16,
-    day_min_gap_hours: 4,
-    floors: [],
-    stations: [
-      {
-        station_id: 'S1',
-        name: 'Karahi',
-        location_label: null,
-        station_type: 'slot',
-        capacity: 4,
-        freshness_window_ms: null,
-        completion_mode: 'two_tap',
-        is_archived: false,
-        programs: [],
-      },
-    ],
-    tax_classes: [],
-    categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 1, availability_windows: [] }],
-    items: [
-      configItemV1('I1', 'Chicken Karahi', 1, { stock_time_ms: 300_000 }),
-      configItemV1('I2', 'Mutton Karahi', 2, {}),
-      configItemV1('I3', 'Chicken Karahi — Half', 3, {
-        stock_time_ms: 300_000,
-        stock_unit: 'g',
-        sale_unit: 'piece',
-        stock_per_sale_unit: 250,
-      }),
-    ],
-    ...overrides,
-  };
-}
-
 function configItem(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItem>): ConfigItem {
   return {
     item_id: itemId,
@@ -445,6 +376,33 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
       }),
     ],
     deals: [],
+    ...overrides,
+  };
+}
+
+// 01a's per-item stock fixture in schema 2 (01c §5.1 backfill rule: a tracked item becomes a stock item with
+// the same id, counted at its route station, with one draw): slot station "Karahi"; I1 (pieces, 1 per sale)
+// and I3 (g, 250 g per piece) are stock items; I2 is not stock-tracked. No variant groups.
+export function aBranchConfigItemStock(overrides?: Partial<BranchConfig>): BranchConfig {
+  const base = aBranchConfig();
+  return {
+    ...base,
+    variant_groups: [],
+    stock_items: [
+      { stock_item_id: 'I1', name: 'Chicken Karahi', stock_unit: 'piece', carries_over: false, station_id: 'S1', low_stock_threshold: null },
+      { stock_item_id: 'I3', name: 'Chicken Karahi — Half', stock_unit: 'g', carries_over: false, station_id: 'S1', low_stock_threshold: null },
+    ],
+    items: [
+      configItem('I1', 'Chicken Karahi', 1, {
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }],
+      }),
+      configItem('I2', 'Mutton Karahi', 2, {}),
+      configItem('I3', 'Chicken Karahi — Half', 3, {
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }],
+      }),
+    ],
     ...overrides,
   };
 }

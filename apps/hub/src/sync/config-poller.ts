@@ -1,9 +1,9 @@
 import {
-  BranchConfigSnapshotSchemaV1,
+  BranchConfigSnapshotSchemaV2,
   CONFIG_POLL_INTERVAL_MS,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
-  type BranchConfigV1,
+  type BranchConfig,
   type DirectoryInput,
   type EventDraft,
 } from '@pos/events';
@@ -64,7 +64,7 @@ const MSG = 'config poll';
 interface ConfigPart {
   raw: Record<string, unknown>;
   hash: string;
-  config: BranchConfigV1;
+  config: BranchConfig;
 }
 
 const pollers = new WeakMap<FastifyInstance, ConfigPoller>();
@@ -289,7 +289,7 @@ function checkConfig(raw: Record<string, unknown>, snapshotHash: string): Config
   const hash = sha256hex(canonicalJson(raw));
   if (hash !== snapshotHash) return { reason: 'hash_mismatch' };
   if (raw.snapshot_schema_version !== SNAPSHOT_SCHEMA_VERSION) return { reason: 'schema_unsupported' };
-  const parsed = BranchConfigSnapshotSchemaV1.safeParse(raw);
+  const parsed = BranchConfigSnapshotSchemaV2.safeParse(raw);
   if (!parsed.success) return { reason: 'schema_invalid' };
   return { raw, hash, config: parsed.data };
 }

@@ -1,8 +1,7 @@
 import { availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
-import { currentConfigEntry } from '../sync/branch-config-holder.js';
-import { branchConfigV2 } from '../sync/config-v2-view.js';
+import { branchConfig, currentConfigEntry } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type SocketCtx } from './catch-up.js';
 
 const staffOnly = (socket: SocketCtx) => socket.kind === 'staff';
@@ -40,7 +39,7 @@ export function registerRestaurantCatchUp(clock: Clock): () => void {
         const state = raw as EngineState;
         const start = openDayStartMs(state);
         const items: Record<string, unknown> = {};
-        for (const stockItem of branchConfigV2()?.stock_items ?? []) {
+        for (const stockItem of branchConfig()?.stock_items ?? []) {
           const entry = stockOf(state, stockItem.stock_item_id);
           items[stockItem.stock_item_id] = {
             on_hand: entry.on_hand,

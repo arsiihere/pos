@@ -1,4 +1,4 @@
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory, swapDirectory } from '../../src/auth/guards';
 import { branchConfig, onBranchConfigApplied } from '../../src/sync/branch-config-holder';
@@ -11,7 +11,7 @@ const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
 function snapshot(version: number): Record<string, unknown> {
-  return aBranchConfigV1({ branch_id: BRANCH, config_version: version });
+  return aBranchConfig({ branch_id: BRANCH, config_version: version });
 }
 
 describe('config poller: apply failure (S43)', () => {

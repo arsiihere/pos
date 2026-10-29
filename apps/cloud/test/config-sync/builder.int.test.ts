@@ -1,9 +1,11 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV1 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
+import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
+import { createStockItem, putStockItemBranch } from '../helpers/menu-variants';
 import { pgCounter } from '../helpers/pg-counter';
-import { restaurantFixture, seedMenu, type RestaurantFixture } from '../helpers/restaurant';
+import { owner, restaurantFixture, seedMenu, type RestaurantFixture } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
 const HEADER: SnapshotHeader = {
@@ -37,12 +39,40 @@ describe('buildSnapshot', () => {
       client.release();
     }
   };
+  const sql = (text: string, params: unknown[] = []) => cloud.pool.query(text, [f.tenantId, ...params]);
+  // 01c §4.6: variant groups, stock items, their branch rows and draws by SQL. VG-1 holds IT-0000 (routed at A);
+  // VG-B holds only IT-B (routed at B). 'Karahi pot' sorts after 'fries' by toLowerCase() (before it by code point).
+  const seedVariants = async () => {
+    const [a, b] = f.branches;
+    await sql(
+      `INSERT INTO variant_groups (tenant_id, variant_group_id, category_id, name, sort_order, created_at, updated_at)
+       VALUES ($1, 'VG-1', 'CT-1', 'Chicken Karahi', 1, 0, 0), ($1, 'VG-B', 'CT-1', 'Branch B group', 2, 0, 0)`,
+    );
+    await sql(`UPDATE menu_items SET variant_group_id = 'VG-1', variant_name = 'Half' WHERE tenant_id = $1 AND item_id = 'IT-0000'`);
+    await sql(`UPDATE menu_items SET variant_group_id = 'VG-B', variant_name = 'Only' WHERE tenant_id = $1 AND item_id = 'IT-B'`);
+    await sql(
+      `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, carries_over, archived_at, created_at, updated_at)
+       VALUES ($1, 'SK-1', 'Karahi pot', 'g', false, NULL, 0, 0), ($1, 'SK-2', 'fries', 'piece', true, NULL, 0, 0),
+              ($1, 'SK-3', 'Old pot', 'g', false, 1, 0, 0), ($1, 'SK-4', 'Branch B pot', 'g', false, NULL, 0, 0)`,
+    );
+    await sql(
+      `INSERT INTO stock_item_branches (tenant_id, branch_id, stock_item_id, station_id, low_stock_threshold, updated_at)
+       VALUES ($1, $2, 'SK-1', 'ST-1', 1000, 0), ($1, $2, 'SK-2', 'ST-2', NULL, 0), ($1, $2, 'SK-3', 'ST-1', NULL, 0),
+              ($1, $3, 'SK-4', 'ST-B', NULL, 0)`,
+      [a, b],
+    );
+    await sql(
+      `INSERT INTO stock_draws (tenant_id, item_id, stock_item_id, quantity_per_sale_unit)
+       VALUES ($1, 'IT-0000', 'SK-1', 250), ($1, 'IT-0001', 'SK-2', 1), ($1, 'IT-B', 'SK-4', 100)`,
+    );
+  };
 
   it('[01a §10 #4] only active rows and this branch’s routes, except archived stations, programs and tax classes', async () => {
     await seedMenu(cloud.pool, f, { archived: true });
+    await seedVariants();
     const snapshot = await build(f.branches[0]);
     expect(snapshot).toEqual({
-      snapshot_schema_version: 1,
+      snapshot_schema_version: 2,
       config_version: 42,
       branch_id: f.branches[0],
       currency_code: 'PKR',
@@ -112,12 +142,22 @@ describe('buildSnapshot', () => {
           availability_windows: [{ start_ms: 25200000, end_ms: 46800000 }],
         },
       ],
+      variant_groups: [
+        { variant_group_id: 'VG-1', category_id: 'CT-1', name: 'Chicken Karahi', description: null, sort_order: 1 },
+      ],
+      stock_items: [
+        { stock_item_id: 'SK-2', name: 'fries', stock_unit: 'piece', carries_over: true, station_id: 'ST-2', low_stock_threshold: null },
+        { stock_item_id: 'SK-1', name: 'Karahi pot', stock_unit: 'g', carries_over: false, station_id: 'ST-1', low_stock_threshold: 1000 },
+      ],
+      modifier_groups: [],
+      deals: [],
       items: [
         {
           item_id: 'IT-0000',
           category_id: 'CT-1',
+          variant_group_id: 'VG-1',
+          variant_name: 'Half',
           name: 'Chicken Karahi — Half',
-          group_label: 'Chicken Karahi',
           description: null,
           sort_order: 0,
           price_minor: 120000,
@@ -127,11 +167,9 @@ describe('buildSnapshot', () => {
           cook_time_ms: 1200000,
           stock_time_ms: 300000,
           out_of_stock_behaviour: 'cook_fresh',
-          stock_unit: 'g',
           sale_unit: 'piece',
-          stock_per_sale_unit: 250,
-          low_stock_threshold: 1000,
-          carries_over: false,
+          requires_weighing: false,
+          stock_draws: [{ stock_item_id: 'SK-1', quantity_per_sale_unit: 250 }],
           availability_windows: [
             { start_ms: 3600000, end_ms: 5400000 },
             { start_ms: 3600000, end_ms: 7200000 },
@@ -139,12 +177,14 @@ describe('buildSnapshot', () => {
           station_id: 'ST-1',
           program_id: null,
           stock_program_id: null,
+          modifier_group_ids: [],
         },
         {
           item_id: 'IT-0001',
           category_id: 'CT-1',
+          variant_group_id: null,
+          variant_name: null,
           name: 'Item 1',
-          group_label: null,
           description: null,
           sort_order: 1,
           price_minor: 50001,
@@ -154,15 +194,14 @@ describe('buildSnapshot', () => {
           cook_time_ms: 1200000,
           stock_time_ms: null,
           out_of_stock_behaviour: 'cook_fresh',
-          stock_unit: 'piece',
           sale_unit: 'piece',
-          stock_per_sale_unit: 1,
-          low_stock_threshold: null,
-          carries_over: true,
+          requires_weighing: false,
+          stock_draws: [{ stock_item_id: 'SK-2', quantity_per_sale_unit: 1 }],
           availability_windows: [],
           station_id: 'ST-2',
           program_id: 'PG-1',
           stock_program_id: 'PG-2',
+          modifier_group_ids: [],
         },
       ],
     });
@@ -172,9 +211,102 @@ describe('buildSnapshot', () => {
     expect((other.items as Array<{ item_id: string }>).map((item) => item.item_id)).toEqual(['IT-B']);
     expect((other.stations as Array<{ station_id: string }>).map((station) => station.station_id)).toEqual(['ST-B']);
     expect(other.floors).toEqual([]);
+    expect(other.stock_items).toEqual([expect.objectContaining({ stock_item_id: 'SK-4', station_id: 'ST-B' })]);
   });
 
-  it('[01a §10 #5] snapshot query count is fixed (≤ 13) for 10 and 300 items', async () => {
+  it('[01c #57] the built snapshot parses with BranchConfigSnapshotSchemaV2; canonicalJson is stable across two builds', async () => {
+    await seedMenu(cloud.pool, f, { archived: true });
+    await seedVariants();
+    const first = await build(f.branches[0]);
+    const parsed = BranchConfigSnapshotSchemaV2.parse(first);
+    expect(parsed).toEqual(first);
+    const second = await build(f.branches[0]);
+    expect(sha256hex(canonicalJson(second))).toBe(sha256hex(canonicalJson(first)));
+  });
+
+  it('[01c #58] a draw from a stock item not counted here, or on a slot route with no stock time → stock_draws: []; an API-written draw comes from stock_draws', async () => {
+    const menu = await seedMenu(cloud.pool, f, { items: 3 });
+    await seedVariants();
+    // IT-0000 (stock time set) draws from SK-4, counted only at branch B; IT-0002 (slot, stock_time_ms null) from SK-1.
+    await sql(`UPDATE stock_draws SET stock_item_id = 'SK-4' WHERE tenant_id = $1 AND item_id = 'IT-0000'`);
+    await sql(`INSERT INTO stock_draws (tenant_id, item_id, stock_item_id, quantity_per_sale_unit) VALUES ($1, 'IT-0002', 'SK-1', 5)`);
+    const drawsOf = (snapshot: Record<string, unknown>, itemId: string) =>
+      (snapshot.items as Array<{ item_id: string; stock_draws: unknown }>).find((item) => item.item_id === itemId)?.stock_draws;
+    const seeded = await build(f.branches[0]);
+    expect(drawsOf(seeded, 'IT-0000')).toEqual([]);
+    expect(drawsOf(seeded, 'IT-0002')).toEqual([]);
+    expect(drawsOf(seeded, 'IT-0001')).toEqual([{ stock_item_id: 'SK-2', quantity_per_sale_unit: 1 }]);
+
+    // A piece item with a g draw of 250, created and then PATCHed through the API: the snapshot reads stock_draws,
+    // not the deprecated unit columns the 01c writes reset.
+    const pot = await createStockItem(cloud, f, { name: 'API pot', stock_unit: 'g' });
+    await putStockItemBranch(cloud, f, pot.stock_item_id, f.branches[0], {
+      expected_version: stockItemBranchVersion(pot.stock_item_id, f.branches[0], null).version,
+      station_id: menu.slotStationId,
+    });
+    const created = await cloud.app.inject({
+      method: 'POST',
+      url: '/v1/admin/menu-items',
+      ...owner(f),
+      payload: {
+        category_id: menu.categoryIds[0],
+        tax_class_id: null,
+        name: 'Mutton Karahi Half',
+        price_minor: 150000,
+        serve_mode: 'sync',
+        cook_time_ms: 1_200_000,
+        stock_time_ms: 300_000,
+        sale_unit: 'piece',
+        stock_draws: [{ stock_item_id: pot.stock_item_id, quantity_per_sale_unit: 250 }],
+        routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId }],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const itemId = (created.json().data.item as { item_id: string }).item_id;
+    const patched = await cloud.app.inject({
+      method: 'PATCH',
+      url: `/v1/admin/menu-items/${itemId}`,
+      ...owner(f),
+      payload: { name: 'Mutton Karahi — Half' },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    const deprecated = await cloud.pool.query<{ stock_per_sale_unit: number }>(
+      `SELECT stock_per_sale_unit FROM menu_items WHERE item_id = $1`,
+      [itemId],
+    );
+    expect(deprecated.rows[0]!.stock_per_sale_unit).toBe(1);
+    const viaApi = await build(f.branches[0]);
+    expect(drawsOf(viaApi, itemId)).toEqual([{ stock_item_id: pot.stock_item_id, quantity_per_sale_unit: 250 }]);
+  });
+
+  it('[01c #60] a variant group with no member routed at a branch is absent there', async () => {
+    await seedMenu(cloud.pool, f, { archived: true });
+    await seedVariants();
+    // VG-X's only member is archived (and routed at A); VG-B's only member is routed at B.
+    await sql(
+      `INSERT INTO variant_groups (tenant_id, variant_group_id, category_id, name, sort_order, created_at, updated_at)
+       VALUES ($1, 'VG-X', 'CT-1', 'Old group', 3, 0, 0)`,
+    );
+    await sql(`UPDATE menu_items SET variant_group_id = 'VG-X', variant_name = 'Old' WHERE tenant_id = $1 AND item_id = 'IT-X'`);
+    const groupsOf = (snapshot: Record<string, unknown>) =>
+      (snapshot.variant_groups as Array<{ variant_group_id: string }>).map((group) => group.variant_group_id);
+    expect(groupsOf(await build(f.branches[0]))).toEqual(['VG-1']);
+    expect(groupsOf(await build(f.branches[1]))).toEqual(['VG-B']);
+  });
+
+  it('[01c #93] a batch route resolves program_id and stock_program_id in programs[] with cook_time_ms, archived included; a slot route has both null', async () => {
+    await seedMenu(cloud.pool, f, { archived: true });
+    await sql(`UPDATE batch_programs SET archived_at = 1 WHERE tenant_id = $1 AND program_id = 'PG-2'`);
+    const snapshot = BranchConfigSnapshotSchemaV2.parse(await build(f.branches[0]));
+    const batch = snapshot.items.find((item) => item.item_id === 'IT-0001')!;
+    const programs = snapshot.stations.find((station) => station.station_id === batch.station_id)!.programs;
+    expect(programs.find((program) => program.program_id === batch.program_id)).toMatchObject({ cook_time_ms: 360000, is_archived: false });
+    expect(programs.find((program) => program.program_id === batch.stock_program_id)).toMatchObject({ cook_time_ms: 120000, is_archived: true });
+    const slot = snapshot.items.find((item) => item.item_id === 'IT-0000')!;
+    expect(slot).toMatchObject({ program_id: null, stock_program_id: null });
+  });
+
+  it('[01a §10 #5] snapshot query count is fixed (≤ 22, 01c §4.5) for 10 and 300 items', async () => {
     const counter = pgCounter(cloud.pool);
     const countFor = async (items: number) => {
       f = await restaurantFixture(cloud);
@@ -191,9 +323,9 @@ describe('buildSnapshot', () => {
     };
     const ten = await countFor(10);
     const threeHundred = await countFor(300);
-    expect(ten).toBe(7);
+    expect(ten).toBe(10);
     expect(threeHundred).toBe(ten);
-    expect(ten).toBeLessThanOrEqual(13);
+    expect(ten).toBeLessThanOrEqual(22);
   });
 
   it('[01a §10 #85] hash parity with the hub; a BIGINT left as a string fails the cloud-side parse', async () => {
@@ -203,7 +335,7 @@ describe('buildSnapshot', () => {
     const cloudHash = sha256hex(canonicalJson(wire));
 
     const body = JSON.stringify(wire);
-    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV1.parse(JSON.parse(body))));
+    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(JSON.parse(body))));
     expect(hubHash).toBe(cloudHash);
 
     const raw = await cloud.pool.query<{ price_minor: unknown }>(
@@ -212,7 +344,7 @@ describe('buildSnapshot', () => {
     expect(raw.rows[0]!.price_minor).toBe('120000'); // pg returns BIGINT as a string
     const unconverted = JSON.parse(body) as { items: Array<Record<string, unknown>> };
     unconverted.items[0]!.price_minor = raw.rows[0]!.price_minor;
-    expect(() => BranchConfigSnapshotSchemaV1.parse(unconverted)).toThrow();
+    expect(() => BranchConfigSnapshotSchemaV2.parse(unconverted)).toThrow();
   });
 
   it('[01a S47] two windows with the same start are ordered by end', async () => {

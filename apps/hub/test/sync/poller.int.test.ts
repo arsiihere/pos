@@ -1,6 +1,6 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV1 } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { branchConfig } from '../../src/sync/branch-config-holder';
@@ -14,7 +14,7 @@ const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
 function snapshot(version: number, o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ...aBranchConfigV1({ branch_id: BRANCH, config_version: version }), ...o };
+  return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
 function okText(config: { snapshot_hash: string; snapshot: unknown } | null, directory: unknown = null): ConfigFetch {
@@ -66,7 +66,7 @@ describe('config poller', () => {
     expect(applied).toHaveLength(1);
     expect(JSON.parse(applied[0]!.payload)).toEqual({
       config_version: 3,
-      snapshot_schema_version: 1,
+      snapshot_schema_version: 2,
       snapshot_hash: hash,
       previous_config_version: null,
     });
@@ -75,9 +75,9 @@ describe('config poller', () => {
       { snapshot_hash: hash, config_version: 3, body: canonicalJson(raw) },
     ]);
     expect(h.deps.db.prepare('SELECT * FROM branch_config').all()).toEqual([
-      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 1, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
+      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 2, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
     ]);
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV1.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
     // the directory part rides the same transaction (S6): one published batch holds both events
     const batch = h.published.find((events) => events.some((e) => e.event_type === 'BranchConfigApplied'));
     expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'StaffDirectoryApplied']);
@@ -182,7 +182,7 @@ describe('config poller', () => {
   it('[01a §10 #95] hash before parse: a raw hash mismatch whose Zod-stripped form would match is rejected (hash_mismatch)', async () => {
     const { h, cloud } = await hub();
     const raw = snapshot(3, { promo: {} });
-    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV1.parse(raw)));
+    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(raw)));
     expect(strippedHash).not.toBe(sha256hex(canonicalJson(raw)));
     cloud.next = okText({ snapshot_hash: strippedHash, snapshot: raw });
     const before = writes(h);
@@ -277,7 +277,7 @@ describe('config poller', () => {
 
   it('[01a §12.4] a 1 001-item snapshot logs one warn', async () => {
     const { h, cloud } = await hub();
-    const base = aBranchConfigV1({ branch_id: BRANCH, config_version: 3 });
+    const base = aBranchConfig({ branch_id: BRANCH, config_version: 3 });
     const template = base.items[1]!;
     const items = Array.from({ length: 1_001 }, (_, i) => ({ ...template, item_id: `IT-${i}`, name: `Item ${i}`, sort_order: i }));
     cloud.respondWithSnapshot({ ...base, items });

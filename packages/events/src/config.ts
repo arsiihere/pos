@@ -2,9 +2,9 @@ import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { z } from 'zod';
 import { DirectorySchema } from './directory.js';
 
-// 01a §4.3: the branch config snapshot. NOT .strict(): within version 1 the
+// 01a §4.3, 01c §4.6 (V12): the branch config snapshot is schema 2. NOT .strict(): within a version the
 // cloud may add optional fields, which an older hub drops (S28 c).
-export const SNAPSHOT_SCHEMA_VERSION = 1;
+export const SNAPSHOT_SCHEMA_VERSION = 2;
 
 // 01a §3.4 (01b B19, D-11): the hub's config poll interval; the cloud derives hub_stale_after_ms from it.
 export const CONFIG_POLL_INTERVAL_MS = 60_000;
@@ -72,7 +72,7 @@ const CategoriesSchema = z.array(
   }),
 );
 
-// The top-level fields both schemas share (01c §4.6: "unchanged ... as schema 1").
+// 01c §4.6: the top-level fields unchanged from schema 1.
 const sharedTopLevel = {
   config_version: int.min(1),
   branch_id: z.string(),
@@ -86,48 +86,6 @@ const sharedTopLevel = {
   categories: CategoriesSchema,
 };
 
-// Seam (01c P-2): schema 1 stays live until task 21 deletes it.
-export const BranchConfigSnapshotSchemaV1 = z.object({
-  snapshot_schema_version: z.literal(SNAPSHOT_SCHEMA_VERSION),
-  ...sharedTopLevel,
-  items: z.array(
-    z.object({
-      item_id: z.string(),
-      category_id: z.string(),
-      name: z.string(),
-      group_label: z.string().nullable(),
-      description: z.string().nullable(),
-      sort_order: int,
-      price_minor: int,
-      tax_class_id: z.string().nullable(),
-      serve_mode: z.enum(['immediate', 'sync']),
-      prep_buffer_ms: int,
-      cook_time_ms: int,
-      stock_time_ms: int.nullable(),
-      out_of_stock_behaviour: z.enum(['cook_fresh', 'sold_out']),
-      stock_unit: unit,
-      sale_unit: unit,
-      stock_per_sale_unit: int,
-      low_stock_threshold: int.nullable(),
-      carries_over: z.boolean(),
-      availability_windows: z.array(AvailabilityWindowSchema),
-      station_id: z.string(),
-      program_id: z.string().nullable(),
-      stock_program_id: z.string().nullable(),
-    }),
-  ),
-});
-
-export type BranchConfigV1 = z.infer<typeof BranchConfigSnapshotSchemaV1>;
-export type ConfigItemV1 = BranchConfigV1['items'][number];
-
-// 01a §4.3: slot station + stock_time_ms, or batch station + stock_program_id.
-export function isStockTrackedV1(config: BranchConfigV1, item: ConfigItemV1): boolean {
-  const station = config.stations.find((s) => s.station_id === item.station_id);
-  if (station === undefined) return false;
-  return station.station_type === 'slot' ? item.stock_time_ms !== null : item.stock_program_id !== null;
-}
-
 // 01c §3.3 limits, applied to the fields 01c adds.
 const priceMinor = int.min(0).max(1_000_000_000);
 
@@ -135,7 +93,7 @@ const priceMinor = int.min(0).max(1_000_000_000);
 // group_label, stock_unit, ...) are dropped. modifier_group_ids has no
 // maximum (M5): the 20-group limit is write-time only.
 export const BranchConfigSnapshotSchemaV2 = z.object({
-  snapshot_schema_version: z.literal(2),
+  snapshot_schema_version: z.literal(SNAPSHOT_SCHEMA_VERSION),
   ...sharedTopLevel,
   variant_groups: z.array(
     z.object({
@@ -263,7 +221,7 @@ export function isStockTracked(item: Pick<ConfigItem, 'stock_draws'>): boolean {
 }
 
 // §6.1: the snapshot stays a plain record here; the hub hashes the wire JSON
-// before it parses it with BranchConfigSnapshotSchemaV1 (S27).
+// before it parses it with BranchConfigSnapshotSchemaV2 (S27).
 export const SyncConfigEnvelopeSchema = z.object({
   data: z.object({
     config: z

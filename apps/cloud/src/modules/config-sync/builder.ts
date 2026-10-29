@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV1, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -18,9 +18,26 @@ interface WindowRow {
   end_ms: number;
 }
 
-// §6.1 step 3, §4.3: 7 fixed statements, one builder (S28). Active rows only, except stations, programs and
-// tax classes (S22). Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes)
-// by name, then id; windows by start_ms, end_ms, window_id (S47). Returns the wire object (S27).
+interface StockItemRow {
+  stock_item_id: string;
+  name: string;
+  stock_unit: string;
+  carries_over: boolean;
+  station_id: string;
+  low_stock_threshold: number | null;
+}
+
+interface DrawRow {
+  item_id: string;
+  stock_item_id: string;
+  quantity_per_sale_unit: number;
+}
+
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 10 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// items with this branch's rows, draws. Active rows only, except stations, programs and tax classes (S22).
+// Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
+// stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47). Returns the
+// wire object (S27). modifier_groups, deals and modifier_group_ids stay empty until 01c tasks 27 and 31.
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
@@ -72,12 +89,20 @@ export async function buildSnapshot(
     `SELECT category_id, name, sort_order FROM categories
       WHERE tenant_id = $1 AND archived_at IS NULL ORDER BY sort_order, category_id`,
   );
-  const items = await scoped.query<Record<string, unknown> & { item_id: string; price_minor: string }>(
-    `SELECT m.item_id, m.category_id, m.name, m.group_label, m.description, m.sort_order,
+  const items = await scoped.query<
+    Record<string, unknown> & {
+      item_id: string;
+      price_minor: string;
+      variant_group_id: string | null;
+      station_id: string;
+      stock_time_ms: number | null;
+      stock_program_id: string | null;
+    }
+  >(
+    `SELECT m.item_id, m.category_id, m.variant_group_id, m.variant_name, m.name, m.description, m.sort_order,
             COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
-            m.stock_unit, m.sale_unit, m.stock_per_sale_unit, m.low_stock_threshold, m.carries_over,
-            r.station_id, r.program_id, r.stock_program_id
+            m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id
        FROM item_routes r
        JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id
       WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND m.archived_at IS NULL
@@ -92,6 +117,50 @@ export async function buildSnapshot(
       ORDER BY w.start_ms, w.end_ms, w.window_id`,
     [branchId],
   );
+
+  // 01c §3.2.1, §4.6 rule 5: only groups with an active member routed here.
+  const variantGroups = await level.query<{
+    variant_group_id: string;
+    category_id: string;
+    name: string;
+    description: string | null;
+    sort_order: number;
+  }>(
+    `SELECT variant_group_id, category_id, name, description, sort_order FROM variant_groups
+      WHERE tenant_id = $1 AND archived_at IS NULL AND variant_group_id = ANY($2)
+      ORDER BY sort_order, variant_group_id`,
+    [[...new Set(items.flatMap((item) => (item.variant_group_id === null ? [] : [item.variant_group_id])))]],
+  );
+  // 01c §4.6 rule 4: the active stock items counted at this branch.
+  const stockItems = await scoped.query<StockItemRow>(
+    `SELECT s.stock_item_id, s.name, s.stock_unit, s.carries_over, b.station_id, b.low_stock_threshold
+       FROM stock_item_branches b
+       JOIN stock_items s ON s.tenant_id = b.tenant_id AND s.stock_item_id = b.stock_item_id
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3 AND s.archived_at IS NULL`,
+    [branchId],
+  );
+  // 01c V12: the draws of this snapshot's items (the deprecated item unit columns are never read).
+  const draws = await level.query<DrawRow>(
+    `SELECT item_id, stock_item_id, quantity_per_sale_unit FROM stock_draws
+      WHERE tenant_id = $1 AND item_id = ANY($2) ORDER BY item_id, stock_item_id`,
+    [items.map((item) => item.item_id)],
+  );
+
+  // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
+  stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
+  const counted = new Set(stockItems.map((stockItem) => stockItem.stock_item_id));
+  const stationTypes = new Map(stations.map((row) => [row.station_id, row.station_type]));
+  // 01c V12 (§4.6 rule 4): a draw is listed only when its stock item is counted here and the route tracks
+  // (slot: stock_time_ms set; batch: stock_program_id set).
+  const routeTracks = (item: (typeof items)[number]) =>
+    stationTypes.get(item.station_id) === 'slot' ? item.stock_time_ms !== null : item.stock_program_id !== null;
+  const drawsByItem = new Map<string, Array<{ stock_item_id: string; quantity_per_sale_unit: number }>>();
+  for (const draw of draws) {
+    if (!counted.has(draw.stock_item_id)) continue;
+    const list = drawsByItem.get(draw.item_id) ?? [];
+    list.push({ stock_item_id: draw.stock_item_id, quantity_per_sale_unit: draw.quantity_per_sale_unit });
+    drawsByItem.set(draw.item_id, list);
+  }
 
   const windowsByTarget = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
   for (const w of windows) {
@@ -150,11 +219,21 @@ export async function buildSnapshot(
       ...category,
       availability_windows: windowsOf('category', category.category_id),
     })),
+    variant_groups: variantGroups,
+    stock_items: stockItems,
+    modifier_groups: [],
     items: items.map((item) => ({
       ...item,
       price_minor: Number(item.price_minor), // BIGINT arrives as a string (S27)
+      stock_draws: routeTracks(item) ? (drawsByItem.get(item.item_id) ?? []) : [],
       availability_windows: windowsOf('item', item.item_id),
+      modifier_group_ids: [],
     })),
+    deals: [],
   };
-  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV1.parse(built))) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(built))) as Record<string, unknown>;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }

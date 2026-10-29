@@ -3,7 +3,7 @@ import type { DayDraws } from '@pos/engine';
 import { isStockTracked } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { branchConfigV2 } from '../sync/config-v2-view.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import { defineCommand } from './registry.js';
 import { requireBranchScope } from './set-precooked-stock.js';
 import { commandRegistry } from './route.js';
@@ -31,7 +31,7 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
         const businessDate = localDate(now);
         // S44, 01c §6.20: frozen for the day are the stock_unit of every stock item and the sale_unit and
         // draws of every tracked item.
-        const config = branchConfigV2();
+        const config = branchConfig();
         const stockUnits: Record<string, Unit> = {};
         for (const stockItem of config?.stock_items ?? []) stockUnits[stockItem.stock_item_id] = stockItem.stock_unit;
         const draws: Record<string, DayDraws> = {};

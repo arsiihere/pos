@@ -2,14 +2,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { availableStock, buildEngineState, dayDraws, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { parseEvent, type BranchConfig, type BranchConfigV1, type ConfigItemV1, type PosEvent } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { parseEvent, type BranchConfig, type ConfigItem, type PosEvent } from '@pos/events';
+import { aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
-import { branchConfigV2 } from '../../src/sync/config-v2-view';
 import { aDirectory } from '../helpers/fixtures';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -55,9 +54,9 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     };
 
     const first = await start();
-    cloud.respondWithSnapshot({ ...aBranchConfigV1({ branch_id: BRANCH, config_version: 1 }) }, { directory: await longDirectory() });
+    cloud.respondWithSnapshot({ ...aBranchConfigItemStock({ branch_id: BRANCH, config_version: 1 }) }, { directory: await longDirectory() });
     expect((await configPoller(first.app).pollOnce()).outcome).toBe('applied');
-    const i1 = item(branchConfig(), 'I1');
+    const i1 = stockItemOf(branchConfig(), 'I1');
     expect(i1.carries_over).toBe(false);
     let admin = adminOn(first);
     expect((await post(first, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1')).statusCode).toBe(200);
@@ -104,25 +103,32 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     cleanups.push(() => hub.close());
     hub.clock.set(at(6));
     await seedDirectory(hub, await longDirectory());
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1');
     hub.clock.set(at(7));
     await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 6 }] }, 'cmd-count-1');
 
     // A new snapshot: I1 becomes g / piece / 250, and I4 (g / piece / 250) joins the menu.
-    const changed = aBranchConfigV1({ config_version: 2 });
-    const i1g = { ...item(changed, 'I1'), stock_unit: 'g' as const, sale_unit: 'piece' as const, stock_per_sale_unit: 250 };
-    const i4 = { ...item(changed, 'I3'), item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 };
-    withConfig({ ...changed, items: [...changed.items.map((i) => (i.item_id === 'I1' ? i1g : i)), i4] });
+    const changed = aBranchConfigItemStock({ config_version: 2 });
+    const i1g = { ...item(changed, 'I1'), sale_unit: 'piece' as const, stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] };
+    const i4 = { ...item(changed, 'I3'), item_id: 'I4', name: 'Seekh Kebab', sort_order: 4, stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] };
+    withConfig({
+      ...changed,
+      stock_items: [
+        ...changed.stock_items.map((s) => (s.stock_item_id === 'I1' ? { ...s, stock_unit: 'g' as const } : s)),
+        { ...stockItemOf(changed, 'I3'), stock_item_id: 'I4', name: 'Seekh Kebab' },
+      ],
+      items: [...changed.items.map((i) => (i.item_id === 'I1' ? i1g : i)), i4],
+    });
     const state = engine(hub);
     expect(stockOf(state, 'I1')).toMatchObject({ on_hand: 6, unit: 'piece' });
-    const v2 = branchConfigV2();
+    const v2 = branchConfig();
     expect(dayStockUnit(state, stockItemOf(v2, 'I1'))).toBe('piece');
-    expect(dayDraws(state, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] });
+    expect(dayDraws(state, configItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] });
     expect(availableStock(state, 'I1', openDayStartMs(state), stockItemOf(v2, 'I1'))).toBe(6);
     expect(dayStockUnit(state, stockItemOf(v2, 'I4'))).toBe('g');
-    expect(dayDraws(state, v2ItemOf(v2, 'I4'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] });
+    expect(dayDraws(state, configItemOf(v2, 'I4'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] });
 
     hub.clock.set(at(8));
     const recount = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 5 }, { stock_item_id: 'I4', on_hand: 1_000 }] }, 'cmd-count-2');
@@ -142,7 +148,7 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     expect(opened.draws.I1).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
     const day2 = engine(hub);
     expect(dayStockUnit(day2, stockItemOf(v2, 'I1'))).toBe('g');
-    expect(dayDraws(day2, v2ItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
+    expect(dayDraws(day2, configItemOf(v2, 'I1'), stockUnitsOf(v2))).toEqual({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 250 }] });
     expect(availableStock(day2, 'I1', openDayStartMs(day2), stockItemOf(v2, 'I1'))).toBe(0);
     expect(stockLevel(day2, 'I1', openDayStartMs(day2), stockItemOf(v2, 'I1'))).toBe('not_counted');
 
@@ -157,12 +163,12 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     cleanups.push(() => hub.close());
     hub.clock.set(at(6));
     await seedDirectory(hub, await longDirectory());
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     expect((await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1')).statusCode).toBe(200);
     const day1 = lastEvent(hub, 'BusinessDayOpened', BRANCH);
     expect(day1.schema_version).toBe(2);
-    // I1 and I3 are stock items through the V2 view (same ids); I2 is not tracked, so it has neither.
+    // I1 and I3 are stock items (same ids, 01c §5.1); I2 is not tracked, so it has neither.
     expect(day1.payload).toEqual({
       business_date: '2026-10-25',
       stock_units: { I1: 'piece', I3: 'g' },
@@ -173,8 +179,12 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     });
 
     // A unit change mid-day: I3 becomes pieces, one per sale. The open day keeps g and 250.
-    const changed = aBranchConfigV1({ config_version: 2 });
-    withConfig({ ...changed, items: changed.items.map((i) => (i.item_id === 'I3' ? { ...i, stock_unit: 'piece' as const, stock_per_sale_unit: 1 } : i)) });
+    const changed = aBranchConfigItemStock({ config_version: 2 });
+    withConfig({
+      ...changed,
+      stock_items: changed.stock_items.map((s) => (s.stock_item_id === 'I3' ? { ...s, stock_unit: 'piece' as const } : s)),
+      items: changed.items.map((i) => (i.item_id === 'I3' ? { ...i, stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 1 }] } : i)),
+    });
     hub.clock.set(at(7));
     const counted = await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I3', on_hand: 1_000 }] }, 'cmd-count-1');
     expect(counted.statusCode, counted.body).toBe(200);
@@ -226,11 +236,11 @@ async function longDirectory() {
   return directory;
 }
 
-function withConfig(config: BranchConfigV1): void {
-  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
-function item(config: BranchConfigV1 | null, itemId: string): ConfigItemV1 {
+function item(config: BranchConfig | null, itemId: string): ConfigItem {
   const found = config?.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
   return found;
@@ -242,7 +252,7 @@ function stockItemOf(config: BranchConfig | null, stockItemId: string) {
   return found;
 }
 
-function v2ItemOf(config: BranchConfig | null, itemId: string) {
+function configItemOf(config: BranchConfig | null, itemId: string) {
   const found = config?.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
   return found;
@@ -286,14 +296,14 @@ function log(hub: Hub): PosEvent[] {
   return rows.map((row) => parseEvent({ ...row, payload: JSON.parse(row.payload) }));
 }
 
-function available(hub: Hub, itemId: string): number {
+function available(hub: Hub, stockItemId: string): number {
   const state = engine(hub);
-  return availableStock(state, itemId, openDayStartMs(state), stockItemOf(branchConfigV2(), itemId));
+  return availableStock(state, stockItemId, openDayStartMs(state), stockItemOf(branchConfig(), stockItemId));
 }
 
-function level(hub: Hub, itemId: string): string {
+function level(hub: Hub, stockItemId: string): string {
   const state = engine(hub);
-  return stockLevel(state, itemId, openDayStartMs(state), stockItemOf(branchConfigV2(), itemId));
+  return stockLevel(state, stockItemId, openDayStartMs(state), stockItemOf(branchConfig(), stockItemId));
 }
 
 function lastPayload(hub: Hub, eventType: string, streamId: string): unknown {

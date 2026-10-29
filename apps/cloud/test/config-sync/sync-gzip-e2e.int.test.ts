@@ -31,7 +31,7 @@ describe('config sync end to end (S48)', () => {
     for (const h of hubs.splice(0)) await h.close();
   });
 
-  it('[01a §10 #140] 5 000-item branch: ≤ 13 statements; gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
+  it('[01a §10 #140] 5 000-item branch: ≤ 22 statements; gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
     const f = await restaurantFixture(cloud);
     await seedMenu(cloud.pool, f, { items: 5_000 });
 
@@ -58,8 +58,8 @@ describe('config sync end to end (S48)', () => {
 
     const applied = await poller.pollOnce();
     expect(applied.outcome).toBe('applied');
-    // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3)
-    expect(counter.count).toBeLessThanOrEqual(17);
+    // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3); + 9 builder statements (01c §4.5, AD-16)
+    expect(counter.count).toBeLessThanOrEqual(26);
     expect(seen[0]).toEqual({ status: 200, encoding: 'gzip', acceptEncoding: 'gzip' });
     const config = branchConfig();
     expect(config?.items).toHaveLength(5_000);

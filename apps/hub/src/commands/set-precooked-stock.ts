@@ -1,10 +1,10 @@
 import { DomainError } from '@pos/domain';
 import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import type { ConfigItemV1, ConfigStockItem } from '@pos/events';
+import type { ConfigItem, ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
-import { branchConfigV2 } from '../sync/config-v2-view.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import { defineCommand, type CommandCtx } from './registry.js';
 import { commandRegistry } from './route.js';
 
@@ -59,7 +59,7 @@ export function uniqueStockItemIds(entries: ReadonlyArray<{ stock_item_id: strin
 // 01c §6.18 order (01a §6.17): config present → a business day is open → each entry a stock item of this
 // branch's config (else 404 for the first such entry); every entry is checked before any event is written.
 export function stockItemsOf(state: Readonly<EngineState>, entries: ReadonlyArray<{ stock_item_id: string }>): ConfigStockItem[] {
-  const config = branchConfigV2();
+  const config = branchConfig();
   if (config === null) throw new DomainError('STOCK_ITEM_NOT_FOUND', { stock_item_id: entries[0]!.stock_item_id });
   if (openDayStartMs(state) === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
   return entries.map((entry) => {
@@ -81,7 +81,7 @@ export function requireStockItemsInScope(ctx: CommandCtx, stockItems: ReadonlyAr
 
 // 01b B20, §4.4 row 9: under `manage-stock` scope `my_stations` the items must be routed at this branch to one
 // of the person's count_stock stations (SetItemAvailability); checked after the 01a checks.
-export function requireItemsInScope(ctx: CommandCtx, items: ReadonlyArray<Pick<ConfigItemV1, 'item_id' | 'station_id'>>): void {
+export function requireItemsInScope(ctx: CommandCtx, items: ReadonlyArray<Pick<ConfigItem, 'item_id' | 'station_id'>>): void {
   const inScope = stockScopeFilter(ctx.directory, ctx.actor.staffId, ctx.permission);
   const outside = items.filter((item) => !inScope(item)).map((item) => item.item_id);
   if (outside.length > 0) {
@@ -105,7 +105,7 @@ export function stockScopeFilter(
   directory: StaffDirectory,
   staffId: string | null,
   resolution: Resolution | null,
-): (item: Pick<ConfigItemV1, 'station_id'>) => boolean {
+): (item: Pick<ConfigItem, 'station_id'>) => boolean {
   if (manageStockScope(resolution) === 'branch') return () => true;
   const stations = new Set(staffId === null ? [] : directory.stationsOf(staffId, 'count_stock'));
   return (item) => stations.has(item.station_id);

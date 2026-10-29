@@ -1,6 +1,6 @@
 import type { EngineState } from '@pos/engine';
-import type { BranchConfigV1, DirectoryInput } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfig, DirectoryInput } from '@pos/events';
+import { aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -106,11 +106,12 @@ describe('AddPrecookedStock (§6.17a)', () => {
 
   it('[01c #79] AddPrecookedStock on a stock item counted today → one StockAdded v2, recorded_as added; on one counted before the day open → one StockSet v2, recorded_as set; duplicate id → 400; my_stations outside → 403', async () => {
     const hub = await open({}, {}, counterDirectory);
-    // I1 at S1 (Karahi), I3 at S2 (Grill): both stock items through the V2 view.
-    const base = aBranchConfigV1();
+    // I1 at S1 (Karahi), I3 at S2 (Grill): both stock items, each counted at its route station.
+    const base = aBranchConfigItemStock();
     withConfig({
       ...base,
       stations: [...base.stations, { ...base.stations[0]!, station_id: 'S2', name: 'Grill' }],
+      stock_items: base.stock_items.map((s) => (s.stock_item_id === 'I3' ? { ...s, station_id: 'S2' } : s)),
       items: base.items.map((item) => (item.item_id === 'I3' ? { ...item, station_id: 'S2' } : item)),
     });
     const admin = adminOn(hub, 'S_MGR');
@@ -154,15 +155,19 @@ describe('AddPrecookedStock (§6.17a)', () => {
 });
 
 // I2 and the new I4 (g, counted per piece in the test) are stock-tracked; I5 is not (no stock item).
-function config(): BranchConfigV1 {
-  const base = aBranchConfigV1();
+function config(): BranchConfig {
+  const base = aBranchConfigItemStock();
   const i2 = base.items.find((item) => item.item_id === 'I2')!;
   const i3 = base.items.find((item) => item.item_id === 'I3')!;
+  const [k1, k3] = base.stock_items;
   return {
     ...base,
+    stock_items: [k1!, k3!, { ...k1!, stock_item_id: 'I2', name: 'Mutton Karahi' }, { ...k3!, stock_item_id: 'I4', name: 'Seekh Kebab' }],
     items: [
-      ...base.items.map((item) => (item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000 } : item)),
-      { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 },
+      ...base.items.map((item) =>
+        item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'I2', quantity_per_sale_unit: 1 }] } : item,
+      ),
+      { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4, stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] },
       { ...i2, item_id: 'I5', name: 'Raita', sort_order: 5 },
     ],
   };
@@ -198,8 +203,8 @@ async function open(
   return hub;
 }
 
-function withConfig(c: BranchConfigV1): void {
-  swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+function withConfig(c: BranchConfig): void {
+  swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 function adminOn(hub: TestHub, staffId: string): Admin {

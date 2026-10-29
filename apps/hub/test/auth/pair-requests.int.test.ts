@@ -6,7 +6,7 @@ import { registerSetupRoutes } from '../../src/setup/provision';
 import { writeHubConfigAtomic } from '../../src/config/write';
 import { aDirectory } from '../helpers/fixtures';
 import { stubCloud } from '../helpers/stub-cloud';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { aBranchConfig } from '@pos/events/testing';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
@@ -19,8 +19,8 @@ describe('pairing requests', () => {
 
   it('[00 §10 #149] M92: the approved poll carries station_name from the branch config for a kds and null for a cashier screen', async () => {
     const hub = await open();
-    const config = aBranchConfigV1();
-    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+    const config = aBranchConfig();
+    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
     const approve = async (type: string, stationId: string | null) => {
       const data = (await create(hub, 'Screen', '10.1.0.9')).json().data;
       const deviceId = hub.deps.ids.next();

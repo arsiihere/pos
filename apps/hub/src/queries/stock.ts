@@ -2,14 +2,13 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
 import type { Unit } from '@pos/domain';
 import { availableStock, dayDraws, dayStockUnit, openDayStartMs, stockLevel, stockOf, type DayDraws, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigItem, type ConfigStockItem } from '@pos/events';
+import { isStockTracked, type BranchConfig, type ConfigItem, type ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
 import { manageStockScope, stockItemScopeFilter, stockScopeFilter } from '../commands/set-precooked-stock.js';
-import { branchConfigV2 } from '../sync/config-v2-view.js';
 import { stockVersion } from '../sync/stock-version.js';
 import { defineQuery, queryRegistry, type QueryCtx } from './registry.js';
 
@@ -31,10 +30,10 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
         const inScope = stockScopeFilter(ctx.directory, staffId, resolution);
         const config = scopedConfig(ctx.branchConfig, inScope);
         const state = ctx.state;
-        const v2 = branchConfigV2();
+        const full = ctx.branchConfig;
         // 01c §6.21, 01b B1: the stock rows by the stock item's own station.
         const inStockScope = stockItemScopeFilter(ctx.directory, staffId, resolution);
-        const allStockItems = v2?.stock_items ?? [];
+        const allStockItems = full?.stock_items ?? [];
         const stockItems = allStockItems.filter(inStockScope);
         const start = openDayStartMs(state);
         // R-2: a scoped stock item or item list also keys the meta part, so a directory change (stations, scope)
@@ -61,10 +60,10 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
             day_stale: start !== null && time.now_ms - start > staleAfterHours * 3_600_000,
             day_stale_after_hours: staleAfterHours,
             day_min_gap_hours: config?.day_min_gap_hours ?? DEFAULT_DAY_MIN_GAP_HOURS,
-            stock_items_meta: metaChanged ? stockItemsMeta(state, stockItems, v2) : null,
+            stock_items_meta: metaChanged ? stockItemsMeta(state, stockItems, full) : null,
             stock: unchanged ? null : stockRows(state, stockItems, start),
-            items_meta: metaChanged ? itemsMeta(state, config, v2) : null,
-            items: unchanged ? null : itemRows(ctx, config, v2),
+            items_meta: metaChanged ? itemsMeta(state, config, full) : null,
+            items: unchanged ? null : itemRows(ctx, config, full),
           },
         };
       },
@@ -74,10 +73,10 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
 
 // 01c §6.21: per stock item, the day's stock_unit and its drawers with the day's quantity_per_sale_unit
 // (dayDraws, V20); has_tracked_drawers when an item of this branch's config draws from it (F4).
-function stockItemsMeta(state: Readonly<EngineState>, stockItems: readonly ConfigStockItem[], v2: BranchConfig | null) {
-  const draws = itemDraws(state, v2);
+function stockItemsMeta(state: Readonly<EngineState>, stockItems: readonly ConfigStockItem[], full: BranchConfig | null) {
+  const draws = itemDraws(state, full);
   return stockItems.map((stockItem) => {
-    const drawers = (v2?.items ?? []).flatMap((item) => {
+    const drawers = (full?.items ?? []).flatMap((item) => {
       const day = draws.get(item.item_id)!;
       const draw = day.stock_draws.find((candidate) => candidate.stock_item_id === stockItem.stock_item_id);
       if (draw === undefined) return [];
@@ -114,9 +113,9 @@ function stockRows(state: Readonly<EngineState>, stockItems: readonly ConfigStoc
 }
 
 // S44 (01c §3.5.3, V20): each item's draws frozen for the open day, else its config draws (with the m14 fallback).
-function itemDraws(state: Readonly<EngineState>, v2: BranchConfig | null): Map<string, DayDraws> {
-  const configStockUnits = Object.fromEntries((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
-  return new Map((v2?.items ?? []).map((item: ConfigItem) => [item.item_id, dayDraws(state, item, configStockUnits)]));
+function itemDraws(state: Readonly<EngineState>, full: BranchConfig | null): Map<string, DayDraws> {
+  const configStockUnits = Object.fromEntries((full?.stock_items ?? []).map((s) => [s.stock_item_id, s.stock_unit]));
+  return new Map((full?.items ?? []).map((item: ConfigItem) => [item.item_id, dayDraws(state, item, configStockUnits)]));
 }
 
 // 01c §6.21: the stock items of this branch's config an item draws from today.
@@ -129,19 +128,22 @@ function countIn(state: Readonly<EngineState>, stockItemId: string, unit: Unit) 
   return stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
 }
 
-function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, v2: BranchConfig | null) {
+// The items are the scoped config's; draws and stock items come from the full config (drawers are unscoped).
+function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null, full: BranchConfig | null) {
   if (config === null) return [];
-  const draws = itemDraws(state, v2);
-  const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
+  const draws = itemDraws(state, full);
+  const known = new Set((full?.stock_items ?? []).map((s) => s.stock_item_id));
   return config.items.map((item) => {
     const category = config.categories.find((c) => c.category_id === item.category_id);
+    // 01a A1: group_label is replaced by the variant group; the label is the group's name.
+    const group = config.variant_groups.find((g) => g.variant_group_id === item.variant_group_id);
     return {
       item_id: item.item_id,
       name: item.name,
-      group_label: item.group_label,
+      group_label: group?.name ?? null,
       category_id: item.category_id,
       category_name: category?.name ?? item.category_id,
-      is_stock_tracked: isStockTrackedV1(config, item),
+      is_stock_tracked: isStockTracked(item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
       // 01c §6.21: the stock items it draws from today (no unit fields).
       stock_item_ids: stockItemIdsOf(draws.get(item.item_id), known),
@@ -152,11 +154,11 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
 }
 
 // S14, S30 (01c §6.21): the availability rows per menu item (the numbers are per stock item); 1 statement for them.
-function itemRows(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null) {
+function itemRows(ctx: QueryCtx, config: BranchConfig | null, full: BranchConfig | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
-  const draws = itemDraws(ctx.state, v2);
-  const known = new Set((v2?.stock_items ?? []).map((s) => s.stock_item_id));
+  const draws = itemDraws(ctx.state, full);
+  const known = new Set((full?.stock_items ?? []).map((s) => s.stock_item_id));
   return items.map((item) => {
     const since = off.get(item.item_id);
     return {
@@ -175,14 +177,14 @@ function requireManageStock(ctx: QueryCtx): Resolution {
   return resolution;
 }
 
-function scopedConfig(config: BranchConfigV1 | null, inScope: (item: BranchConfigV1['items'][number]) => boolean): BranchConfigV1 | null {
+function scopedConfig(config: BranchConfig | null, inScope: (item: ConfigItem) => boolean): BranchConfig | null {
   if (config === null) return null;
   const items = config.items.filter(inScope);
   return items.length === config.items.length ? config : { ...config, items };
 }
 
 // R-2 (01c §6.21): the in-scope stock item ids, then the in-scope item ids (item rows stay per route station, B20).
-function scopeKey(stockItems: readonly ConfigStockItem[], config: BranchConfigV1 | null): string {
+function scopeKey(stockItems: readonly ConfigStockItem[], config: BranchConfig | null): string {
   const ids = `${stockItems.map((s) => s.stock_item_id).join(',')}|${(config?.items ?? []).map((item) => item.item_id).join(',')}`;
   return createHash('sha256').update(ids).digest('hex').slice(0, 12);
 }

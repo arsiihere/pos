@@ -1,5 +1,5 @@
-import type { BranchConfigV1 } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfig } from '@pos/events';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { branchConfig, onBranchConfigApplied } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
@@ -19,7 +19,7 @@ describe('onBranchConfigApplied', () => {
     const cloud = stubConfigCloud();
     const h: TestHub = await createTestHub({ configClient: cloud, config: { provisioned: { ...CONFIRMED } } });
     cleanups.push(() => h.close());
-    const calls: Array<{ prev: number | null; next: number; inTx: boolean; swapped: BranchConfigV1 | null; rowVersion: number }> = [];
+    const calls: Array<{ prev: number | null; next: number; inTx: boolean; swapped: BranchConfig | null; rowVersion: number }> = [];
     cleanups.push(
       onBranchConfigApplied((prev, next, tx) => {
         calls.push({
@@ -44,9 +44,9 @@ describe('onBranchConfigApplied', () => {
       }),
     );
 
-    cloud.respondWithSnapshot(aBranchConfigV1({ branch_id: BRANCH, config_version: 3 }));
+    cloud.respondWithSnapshot(aBranchConfig({ branch_id: BRANCH, config_version: 3 }));
     await configPoller(h.app).pollOnce();
-    cloud.respondWithSnapshot(aBranchConfigV1({ branch_id: BRANCH, config_version: 4 }));
+    cloud.respondWithSnapshot(aBranchConfig({ branch_id: BRANCH, config_version: 4 }));
     await configPoller(h.app).pollOnce();
 
     expect(calls).toEqual([
@@ -65,7 +65,7 @@ describe('onBranchConfigApplied', () => {
 
     // unsubscribe: the next apply runs no hook
     cleanups.pop()?.();
-    cloud.respondWithSnapshot(aBranchConfigV1({ branch_id: BRANCH, config_version: 5 }));
+    cloud.respondWithSnapshot(aBranchConfig({ branch_id: BRANCH, config_version: 5 }));
     await configPoller(h.app).pollOnce();
     expect(calls).toHaveLength(2);
   });

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { DomainError, type DeviceType } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
-import type { BranchConfigV1 } from '@pos/events';
+import type { BranchConfig } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
@@ -21,7 +21,7 @@ export interface QueryCtx {
   session: SessionRow | undefined;
   // 01a S16: read-only engine state and the in-memory branch config (S40 N9).
   state: Readonly<EngineState>;
-  branchConfig: BranchConfigV1 | null;
+  branchConfig: BranchConfig | null;
   // Branch time for queries that compare against it (§6.18a lockouts).
   now: number;
 }

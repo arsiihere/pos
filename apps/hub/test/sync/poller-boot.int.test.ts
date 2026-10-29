@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV1, type EventDraft } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { BranchConfigSnapshotSchemaV2, type EventDraft } from '@pos/events';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
 import { openDb } from '../../src/db/connection';
@@ -45,10 +45,10 @@ function writeConfig(): { path: string; dataDir: string; cleanup: () => void } {
 }
 
 function snapshot(version: number, o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ...aBranchConfigV1({ branch_id: BRANCH, config_version: version }), ...o };
+  return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
-function appliedDraft(version: number, hash: string, schema = 1): EventDraft {
+function appliedDraft(version: number, hash: string, schema = 2): EventDraft {
   return {
     stream_type: 'hub',
     stream_id: BRANCH,
@@ -139,7 +139,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     expect((await configPoller(second.app).pollOnce()).outcome).toBe('applied');
     expect(cloud.calls.at(-1)).toEqual({ config_version: 0, directory_version: 0 });
     expect(loadBranchConfig(second.deps.db, BRANCH).state).toBe('APPLIED');
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV1.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
     await second.stop();
 
     // a stored body whose snapshot_schema_version is not ours (after a breaking release)
@@ -147,12 +147,12 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     cleanups.push(cfg2.cleanup);
     const cloud2 = stubConfigCloud();
     const third = await start(cfg2.path, WALL, cloud2);
-    const old = snapshot(9, { snapshot_schema_version: 2 });
+    const old = snapshot(9, { snapshot_schema_version: 1 });
     const oldHash = sha256hex(canonicalJson(old));
     third.deps.db
       .prepare('INSERT INTO config_snapshots (snapshot_hash, config_version, body, received_at) VALUES (?, ?, ?, ?)')
       .run(oldHash, 9, canonicalJson(old), WALL);
-    third.deps.writer.run((tx) => tx.append([appliedDraft(9, oldHash, 2)]));
+    third.deps.writer.run((tx) => tx.append([appliedDraft(9, oldHash, 1)]));
     await third.stop();
 
     const fourth = await start(cfg2.path, WALL + 60_000, cloud2);
@@ -185,7 +185,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     const v3Seq = first.deps.writer.lastSeq();
     const v3Row = first.deps.db.prepare('SELECT * FROM branch_config').get() as Record<string, unknown>;
     // v4 adds a station, so the validator shows which config it reads
-    const v4 = aBranchConfigV1({ branch_id: BRANCH, config_version: 4 });
+    const v4 = aBranchConfig({ branch_id: BRANCH, config_version: 4 });
     cloud.respondWithSnapshot({ ...v4, stations: [...v4.stations, { ...v4.stations[0]!, station_id: 'S4', name: 'Tandoor' }] });
     await configPoller(first.app).pollOnce();
     expect(branchConfig()?.config_version).toBe(4);

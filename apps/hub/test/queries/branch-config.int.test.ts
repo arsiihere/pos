@@ -1,5 +1,5 @@
-import type { BranchConfigV1 } from '@pos/events';
-import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfig } from '@pos/events';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -25,7 +25,7 @@ describe('GET /queries/branch-config (§6.23)', () => {
     expect(before.statusCode).toBe(200);
     expect(before.json()).toEqual({ data: null });
 
-    const config = aBranchConfigV1({ config_version: 9 });
+    const config = aBranchConfig({ config_version: 9 });
     withConfig(config);
     const station = stationOn(hub);
     const counter = statementCounter(hub.deps.readDb);
@@ -58,7 +58,7 @@ describe('GET /queries/branch-config (§6.23)', () => {
     const staff = staffOn(hub);
     expect((await catchUp(hub, staff)).branch_config).toBeNull();
 
-    withConfig(aBranchConfigV1());
+    withConfig(aBranchConfig());
     const expected = { now_ms: t, utc_offset_ms: 18_000_000 };
     expect(((await catchUp(hub, staff)).branch_config as { hub_time: unknown }).hub_time).toEqual(expected);
     expect((await get(hub, staff)).json().data.hub_time).toEqual(expected);
@@ -76,8 +76,8 @@ async function open(): Promise<TestHub> {
   return hub;
 }
 
-function withConfig(config: BranchConfigV1): void {
-  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 type Who = { deviceToken: string; sessionToken: string };

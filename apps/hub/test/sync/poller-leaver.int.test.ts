@@ -1,4 +1,4 @@
-import { aBranchConfigV1 } from '@pos/events/testing';
+import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { configPoller } from '../../src/sync/config-poller';
@@ -10,7 +10,7 @@ const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
 function snapshot(version: number): Record<string, unknown> {
-  return aBranchConfigV1({ branch_id: BRANCH, config_version: version });
+  return aBranchConfig({ branch_id: BRANCH, config_version: version });
 }
 
 // P-3: the cloud half is `[01b #9]` in apps/cloud/test/staff-roles/leaving.int.test.ts. This half feeds the hub

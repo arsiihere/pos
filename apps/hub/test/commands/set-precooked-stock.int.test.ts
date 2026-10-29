@@ -1,18 +1,10 @@
 import { availableStock, dayDraws, openDayStartMs, saleUnitsAvailable, type EngineState } from '@pos/engine';
-import type { BranchConfig, BranchConfigV1, DirectoryInput } from '@pos/events';
-import { aBranchConfig, aBranchConfigV1 } from '@pos/events/testing';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BranchConfig, DirectoryInput } from '@pos/events';
+import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
+import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
-
-// 01c #63–#65 need one stock item drawn by two items, which the V1 view cannot express: the view returns a
-// schema-2 config while `view.config` is set. Seam (01c plan P-2): task 21 removes this mock.
-const view = vi.hoisted(() => ({ config: null as BranchConfig | null }));
-vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/sync/config-v2-view')>();
-  return { ...actual, branchConfigV2: () => view.config ?? actual.branchConfigV2() };
-});
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 
@@ -20,7 +12,6 @@ const cleanups: Array<() => Promise<void>> = [];
 
 describe('SetPrecookedStock (§6.17)', () => {
   afterEach(async () => {
-    view.config = null;
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
@@ -65,7 +56,7 @@ describe('SetPrecookedStock (§6.17)', () => {
   });
 
   it('[01a §10 #61] stock item not in config (unknown, or an item that is not stock-tracked) → 404 STOCK_ITEM_NOT_FOUND for the first such entry; nothing written for any entry', async () => {
-    const { hub, admin } = await openDay(aBranchConfigV1());
+    const { hub, admin } = await openDay(aBranchConfigItemStock());
     const missing = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 3 }, { stock_item_id: 'I9', on_hand: 1 }], 'cmd-missing');
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('STOCK_ITEM_NOT_FOUND');
@@ -160,7 +151,7 @@ describe('SetPrecookedStock (§6.17)', () => {
   });
 
   it('[01c #63] SetPrecookedStock { stock_item_id: Karahi pot, on_hand: 6000 } → one StockSet v2; Half shows saleUnitsAvailable 12, Full 6', async () => {
-    const { hub, admin } = await openV2Day(aBranchConfig());
+    const { hub, admin } = await openConfigDay(aBranchConfig());
     const now = hub.clock.branchNow();
     const res = await setStock(hub, admin, [{ stock_item_id: 'K1', on_hand: 6_000 }], 'cmd-pot');
     expect(res.statusCode, res.body).toBe(200);
@@ -181,7 +172,7 @@ describe('SetPrecookedStock (§6.17)', () => {
 
   it('[01c #64] unknown stock item → 404 STOCK_ITEM_NOT_FOUND; duplicate → 400 path entries.1.stock_item_id; retransmit → replay; COMMIT failure → state unchanged', async () => {
     let fail = false;
-    const { hub, admin } = await openV2Day(aBranchConfig(), {
+    const { hub, admin } = await openConfigDay(aBranchConfig(), {
       beforeCommit() {
         if (fail) throw new Error('forced commit failure');
       },
@@ -214,7 +205,7 @@ describe('SetPrecookedStock (§6.17)', () => {
 
   it('[01c #65] my_stations holder of Karahi counts the Karahi pot → OK; the Tandoor\'s stock item → 403 outside_scope { stock_item_ids } after the 404 checks', async () => {
     const config = withTandoor(aBranchConfig());
-    const { hub } = await openV2Day(config, undefined, counterDirectory);
+    const { hub } = await openConfigDay(config, undefined, counterDirectory);
     const counter = adminOn(hub, 'S_CNT');
 
     const unknownFirst = await setStock(hub, counter, [{ stock_item_id: 'K2', on_hand: 10 }, { stock_item_id: 'K9', on_hand: 1 }], 'cmd-404', 'S_CNT');
@@ -236,10 +227,17 @@ describe('SetPrecookedStock (§6.17)', () => {
   });
 });
 
-// I1 piece, I2 piece (tracked here), I3 g: all stock-tracked.
-function trackedConfig(): BranchConfigV1 {
-  const base = aBranchConfigV1();
-  return { ...base, items: base.items.map((item) => (item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000 } : item)) };
+// I1 piece, I2 piece (tracked here), I3 g: all stock-tracked, each its own stock item.
+function trackedConfig(): BranchConfig {
+  const base = aBranchConfigItemStock();
+  const [k1, k3] = base.stock_items;
+  return {
+    ...base,
+    stock_items: [k1!, k3!, { ...k1!, stock_item_id: 'I2', name: 'Mutton Karahi' }],
+    items: base.items.map((item) =>
+      item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'I2', quantity_per_sale_unit: 1 }] } : item,
+    ),
+  };
 }
 
 // 01c #65: a Tandoor station S2 with its own stock item K2 (naan dough, pieces).
@@ -270,19 +268,18 @@ function counterDirectory(directory: DirectoryInput): void {
   directory.responsibilities = [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }];
 }
 
-// The hub still holds a schema-1 snapshot; the mocked view returns `config` (see the vi.mock above).
-async function openV2Day(
+// The hub holds `config` (a schema-2 snapshot) and a day is open.
+async function openConfigDay(
   config: BranchConfig,
   testHooks?: { beforeCommit?: () => void },
   editDirectory?: (directory: DirectoryInput) => void,
 ): Promise<{ hub: TestHub; admin: Admin }> {
-  view.config = config;
   const hub = await createTestHub(testHooks === undefined ? undefined : { testHooks });
   cleanups.push(() => hub.close());
   const directory = await aDirectory();
   editDirectory?.(directory);
   await seedDirectory(hub, directory);
-  withConfig(aBranchConfigV1());
+  withConfig(config);
   const admin = adminOn(hub, 'S_MGR');
   const opened = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-day');
   if (opened.statusCode !== 200) throw new Error(`open failed: ${opened.body}`);
@@ -290,7 +287,7 @@ async function openV2Day(
 }
 
 async function openDay(
-  config: BranchConfigV1 = trackedConfig(),
+  config: BranchConfig = trackedConfig(),
   testHooks?: { beforeCommit?: () => void },
   denied?: Record<string, string[]>,
 ): Promise<{ hub: TestHub; admin: Admin }> {
@@ -311,8 +308,8 @@ async function open(testHooks?: { beforeCommit?: () => void }, denied: Record<st
   return hub;
 }
 
-function withConfig(config: BranchConfigV1): void {
-  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 function adminOn(hub: TestHub, staffId: string): Admin {

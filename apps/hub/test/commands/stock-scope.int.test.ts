@@ -1,20 +1,10 @@
 import type { BranchConfig, DirectoryInput } from '@pos/events';
-import type { BranchConfigV1 } from '@pos/events';
-import { aBranchConfig, aBranchConfigV1 } from '@pos/events/testing';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
+import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
-
-// [01b #34]'s last clause needs a stock item counted at another station than its drawers' route, which the V1
-// view cannot express: the view returns a schema-2 config while `view.config` is set. Seam (01c plan P-2):
-// task 21 removes this mock.
-const view = vi.hoisted(() => ({ config: null as BranchConfig | null }));
-vi.mock('../../src/sync/config-v2-view', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/sync/config-v2-view')>();
-  return { ...actual, branchConfigV2: () => view.config ?? actual.branchConfigV2() };
-});
 
 type Admin = { staffId: string; device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 
@@ -22,7 +12,6 @@ const cleanups: Array<() => Promise<void>> = [];
 
 describe('manage-stock scope my_stations on the stock page and its item commands (01b B20, §4.4 rows 9–10)', () => {
   afterEach(async () => {
-    view.config = null;
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
@@ -33,7 +22,7 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     const counter = adminOn(hub, 'S_CNT');
     expect((await command(hub, manager, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open')).statusCode).toBe(200);
 
-    // The stock query: only the stock items counted at S1 (I1, I2 through the V1 view, by name) with their menu
+    // The stock query: only the stock items counted at S1 (I1, I2, by name) with their menu
     // items for the counter, every stock item for the manager; 1 statement each.
     const mine = statementCounter(hub.deps.readDb);
     const scoped = await query(hub, counter);
@@ -77,10 +66,20 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
     expect((await command(hub, manager, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-mgr')).statusCode).toBe(200);
 
-    // 01b B1: the stock item's own station decides, not its drawers' route. K1 is counted at S2 while its
-    // drawers I1 and I3 are routed to S1: the counter (S1) sees no stock row and cannot count K1, but keeps
+    // 01b B1: the stock item's own station decides, not its drawers' route. A new snapshot: K1 is counted at S2
+    // while its drawer I1 is routed to S1: the counter (S1) sees no stock row and cannot count K1, but keeps
     // the S1 item rows and may still switch I1 (route station).
-    view.config = { ...aBranchConfig(), stock_items: aBranchConfig().stock_items.map((s) => ({ ...s, station_id: 'S2' })) };
+    const held = twoStations();
+    withConfig({
+      ...held,
+      config_version: 2,
+      stock_items: aBranchConfig().stock_items.map((s) => ({ ...s, station_id: 'S2' })),
+      items: held.items.map((item) =>
+        item.item_id === 'I2'
+          ? { ...item, stock_draws: [] }
+          : { ...item, stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: item.item_id === 'I1' ? 500 : 1_000 }] },
+      ),
+    });
     const elsewhere = (await query(hub, counter)).json().data;
     expect(elsewhere.stock_items_meta).toEqual([]);
     expect(elsewhere.stock).toEqual([]);
@@ -89,7 +88,7 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     expect(pot.statusCode, pot.body).toBe(403);
     expect(pot.json().error.details).toMatchObject({ reason: 'outside_scope', stock_item_ids: ['K1'] });
     expect((await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I1', is_available: false }, 'cmd-off-i1')).statusCode).toBe(200);
-    // The day was opened under the V1 view, so today's frozen draws still name I1 / I3 (V20): K1 has no drawer yet.
+    // The day was opened under the first snapshot, so today's frozen draws still name I1 / I3 (V20): K1 has no drawer yet.
     expect(stockMetaIds((await query(hub, manager)).json().data)).toEqual([['K1', []]]);
   });
 
@@ -198,16 +197,26 @@ function hubEvents(hub: TestHub): number {
   return hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'hub'").pluck().get() as number;
 }
 
-// S1 (I1, I2) and S2 (I3); every item stock-tracked.
-function twoStations(): BranchConfigV1 {
-  const base = aBranchConfigV1();
+// S1 (I1, I2) and S2 (I3); every item stock-tracked, each its own stock item counted at its route station.
+function twoStations(): BranchConfig {
+  const base = aBranchConfigItemStock();
+  const [k1, k3] = base.stock_items;
   return {
     ...base,
     stations: [...base.stations, { ...base.stations[0]!, station_id: 'S2', name: 'Grill' }],
+    stock_items: [k1!, { ...k3!, station_id: 'S2' }, { ...k1!, stock_item_id: 'I2', name: 'Mutton Karahi' }],
     items: base.items.map((item) =>
-      item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000 } : item.item_id === 'I3' ? { ...item, station_id: 'S2' } : item,
+      item.item_id === 'I2'
+        ? { ...item, stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'I2', quantity_per_sale_unit: 1 }] }
+        : item.item_id === 'I3'
+          ? { ...item, station_id: 'S2' }
+          : item,
     ),
   };
+}
+
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 // S_CNT: a stock counter (access-hub-admin, manage-stock with my_stations) counting stock at S1.
@@ -228,7 +237,7 @@ async function open(o: { responsibilities?: DirectoryInput['responsibilities'] }
   directory.staff.push({ ...cashier, staff_id: 'S_CNT', display_name: 'Counter', role_ids: ['R_CNT'] });
   directory.responsibilities = o.responsibilities ?? [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }];
   await seedDirectory(hub, directory);
-  swapBranchConfig({ config: twoStations(), snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 1, appliedAt: 0 });
+  withConfig(twoStations());
   return hub;
 }
 
