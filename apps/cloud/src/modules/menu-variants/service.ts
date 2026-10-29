@@ -5,7 +5,7 @@ import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit } from '../../lib/config-audit.js';
-import { bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
+import { assertTenantWide, bumpEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
@@ -160,12 +160,6 @@ function wire(group: VariantGroupRecord, members: readonly MemberRow[]): Variant
 
 // C4 (01c §6): the tenant-wide 403 runs before the 404, 409, references and the no-op, as in 01b's directoryWrite
 // (owner check before fn, whose no-op comes later). One statement; the bump then skips its own owner read.
-async function assertTenantWide(level: TenantLevelRepository, ownerUserId: string): Promise<void> {
-  if (!(await coversEveryBranch(level, ownerUserId))) {
-    throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
-  }
-}
-
 function assertCategory(row: { archived_at: number | null } | undefined): void {
   const reason = row === undefined ? 'not_found' : row.archived_at !== null ? 'archived' : null;
   if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'category_id', reason });

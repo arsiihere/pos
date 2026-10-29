@@ -7,7 +7,7 @@ import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit, type AuditEntity } from '../../lib/config-audit.js';
-import { bumpConfigVersion, coversEveryBranch } from '../../lib/config-version.js';
+import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
@@ -835,7 +835,8 @@ function decodeCursor(cursor: string): { n: string; id: string } {
   throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'cursor', message: 'cursor does not decode' }] });
 }
 
-// §6.14 on the common write script (01c §6.4): [route branches allowed] → key → references FOR SHARE in the §6
+// §6.14 on the common write script (01c §6.4): key → tenant-wide 403 (§6 C4, before all) → route branches allowed
+// (404) → stock ≤ cook (422) → references FOR SHARE in the §6
 // lock order: variant group (3), the draw's stock item (5), category (6), tax class (7), stations then programs (8;
 // one statement per kind) → the §3.3 item rows (category equals the group's, the V4 draw unit rule, a weighed item
 // has no draw) → item, draw, routes, windows (one INSERT each; branch rows last, 9) → one audit INSERT → bump every
@@ -845,16 +846,17 @@ export async function createMenuItem(
   req: OwnerRequest,
   body: CreateMenuItemInput,
 ): Promise<IdempotentResult<{ item: AdminMenuItem }>> {
-  for (const route of body.routes) assertBranchAllowed(req.tenant, route.branch_id);
-  if (body.stock_time_ms !== null && body.stock_time_ms > body.cook_time_ms) {
-    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
-  }
   return withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
+      for (const route of body.routes) assertBranchAllowed(req.tenant, route.branch_id);
+      if (body.stock_time_ms !== null && body.stock_time_ms > body.cook_time_ms) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_time_ms', reason: 'stock_time_exceeds_cook_time' });
+      }
       const group = body.variant_group_id === null ? undefined : await shareVariantGroup(level, body.variant_group_id);
       if (body.variant_group_id !== null) assertReference('variant_group_id', group);
       const draw = body.stock_draws[0];
@@ -913,7 +915,7 @@ export async function createMenuItem(
         deps,
       );
       await deps.testHooks?.beforeBump?.();
-      await bumpConfigVersion(level, { kind: 'tenant', ownerUserId: req.ownerUserId });
+      await bumpEveryBranch(level);
       return { status: 201, body: { item: { ...item, routes: wiredRoutes } } };
     },
   );

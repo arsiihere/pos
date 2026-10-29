@@ -1,6 +1,9 @@
 import { z } from 'zod';
-// 01a §3.3 ranges and the S47 windows (0–4; minutes of the day, start ≠ end), shared with the 01a bodies.
-import { AvailabilityWindows, Description, PriceMinor, SortOrder } from './restaurant.js';
+// 01a §3.3 ranges and the S47 windows (0–4; minutes of the day, start ≠ end), shared with the 01a bodies; the
+// variant group wire is defined in restaurant.ts because the §6.3 menu read uses it, and re-exported here.
+import { AvailabilityWindows, Description, PriceMinor, SortOrder, VariantGroupWire } from './restaurant.js';
+
+export { VariantGroupWire };
 
 // 01c §5.4, §6 (01a D5): the owner admin bodies and wires for variant groups, stock items, modifier groups
 // and deals, shared by the cloud routes and apps/client (browser-safe: zod only). Versions are built only in
@@ -61,18 +64,6 @@ export const PatchVariantGroupBody = z
     archived: z.boolean().optional(),
   })
   .refine(notVersionOnly, VERSION_ONLY);
-
-export const VariantGroupWire = z.object({
-  variant_group_id: z.string(),
-  name: z.string(),
-  category_id: z.string(),
-  description: z.string().nullable(),
-  sort_order: z.number(),
-  archived_at: z.number().nullable(),
-  member_ids: z.array(z.string()),
-  version: z.string(),
-});
-export type VariantGroupWire = z.infer<typeof VariantGroupWire>;
 
 export const VariantGroupResponse = z.object({ data: z.object({ variant_group: VariantGroupWire }) });
 

@@ -326,10 +326,10 @@ const MenuItem = z.object({
   routes: z.array(Route),
 });
 
-// 01c §6.3: the menu read's variant groups, whole, archived included; member_ids lists every member, archived
-// included. The same shape as menu-variants.ts VariantGroupWire, which imports this file (so it cannot be
-// imported here without a cycle).
-const MenuVariantGroup = z.object({
+// 01c §5.4, §6.3: the variant group wire (§6.1, §6.2 responses and the menu read's variant_groups, whole, archived
+// included; member_ids lists every member, archived included). Defined here because the menu read needs it and
+// menu-variants.ts imports this file; menu-variants.ts re-exports it.
+export const VariantGroupWire = z.object({
   variant_group_id: z.string(),
   name: z.string(),
   category_id: z.string(),
@@ -339,6 +339,7 @@ const MenuVariantGroup = z.object({
   member_ids: z.array(z.string()),
   version: z.string(),
 });
+export type VariantGroupWire = z.infer<typeof VariantGroupWire>;
 
 export const MenuItemResponse = z.object({ data: z.object({ item: MenuItem }) });
 export const ItemRouteResponse = z.object({ data: z.object({ route: Route.nullable() }) });
@@ -358,7 +359,7 @@ export const MenuResponse = z.object({
         availability_windows: z.array(Window),
       }),
     ),
-    variant_groups: z.array(MenuVariantGroup),
+    variant_groups: z.array(VariantGroupWire),
     items: z.array(MenuItem),
     next_cursor: z.string().nullable(),
   }),

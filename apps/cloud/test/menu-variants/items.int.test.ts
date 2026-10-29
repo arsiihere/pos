@@ -177,6 +177,34 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
     }
   });
 
+  it('[01c §6 C4] an owner whose row misses a branch → 403 tenant_wide_write before the 409 and 422, nothing written', async () => {
+    const group = await karahi();
+    await created(item({ variant_group_id: group.variant_group_id, variant_name: 'Half' }));
+    const old = await createVariantGroup(cloud, f, { name: 'Old Pulao', category_id: menu.categoryIds[0] });
+    const archive = await cloud.app.inject({
+      method: 'PATCH',
+      url: `/v1/admin/variant-groups/${old.variant_group_id}`,
+      ...owner(f),
+      payload: { expected_version: old.version, archived: true },
+    });
+    expect(archive.statusCode).toBe(200);
+    await cloud.pool.query(`UPDATE owner_users SET allowed_branch_ids = $3 WHERE tenant_id = $1 AND user_id = $2`, [
+      f.tenantId,
+      f.userId,
+      [f.branches[0]],
+    ]);
+    const keys = async () => Number((await cloud.pool.query(`SELECT count(*) AS n FROM idempotency_keys`)).rows[0].n);
+    for (const payload of [
+      item({ name: 'Taken', variant_group_id: group.variant_group_id, variant_name: 'half' }), // else 409 variant
+      item({ name: 'Archived group', variant_group_id: old.variant_group_id, variant_name: 'Half' }), // else 422 archived
+    ]) {
+      const before = await keys();
+      const error = await refused(payload, 403);
+      expect(error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'tenant_wide_write' } });
+      expect(await keys()).toBe(before);
+    }
+  });
+
   it('[01c §6.4] statements: a group and a draw add 3 (group and stock item FOR SHARE, the draw insert)', async () => {
     const group = await karahi();
     const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
