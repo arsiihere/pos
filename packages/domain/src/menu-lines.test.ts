@@ -91,20 +91,26 @@ describe('menu-lines: deal allocation (V11 c)', () => {
 
   it('[01c #8] Family karahi deal: [229315, 12508, 78177] whichever naan is chosen; Roghni ×4 naan part = 24 508', () => {
     // Weights from each part's reference choice (first by sort_order): Full karahi 220 000 × 1, plain Naan 3 000 × 4, Lassi jug 75 000 × 1.
+    // The chosen naan (plain 3 000 or Roghni 6 000) never enters the weights, so one split serves both picks.
+    const dealQty = 1;
+    const naanPartQty = 4;
     const reference = { karahi: 220_000, naan: 3_000, lassi: 75_000 };
-    // The weights never look at the chosen naan, so both picks build the same inputs.
-    const referenceWeights = (): number[] => [
-      lineTotalMinor(reference.karahi, 1, 'piece'),
-      lineTotalMinor(reference.naan, 4 * 1, 'piece'),
-      lineTotalMinor(reference.lassi, 1, 'piece'),
+    const roghniPrice = 6_000;
+    const weightsFor = (naanPrice: number): number[] => [
+      lineTotalMinor(reference.karahi, 1 * dealQty, 'piece'),
+      lineTotalMinor(naanPrice, naanPartQty * dealQty, 'piece'),
+      lineTotalMinor(reference.lassi, 1 * dealQty, 'piece'),
     ];
-    const plain = allocateDealMinor(320_000 * 1, referenceWeights()); // plain Naan chosen
-    const roghni = allocateDealMinor(320_000 * 1, referenceWeights()); // Roghni chosen
-    expect(plain).toEqual([229_315, 12_508, 78_177]);
-    expect(roghni).toEqual(plain);
+    const split = allocateDealMinor(320_000 * dealQty, weightsFor(reference.naan));
+    expect(split).toEqual([229_315, 12_508, 78_177]);
+    expect(sum(split)).toBe(320_000);
+    // The wrong rule (weights from the chosen Roghni price) gives a different split, so the assertion above pins the rule.
+    const byChosen = allocateDealMinor(320_000 * dealQty, weightsFor(roghniPrice));
+    expect(byChosen).not.toEqual(split);
+    expect(sum(byChosen)).toBe(320_000);
     // Roghni extra +3 000 per piece × part qty 4 × deal qty 1, added on top to the naan part only.
-    const roghniExtra = 3_000 * 4 * 1;
-    expect((roghni[1] as number) + roghniExtra).toBe(24_508);
+    const roghniExtraPerPiece = 3_000;
+    expect((split[1] as number) + roghniExtraPerPiece * naanPartQty * dealQty).toBe(24_508);
   });
 
   it('[01c #102] per-unit void split: [39088, 39089] and [3127, 3127, 3127, 3127]; sum equals the input', () => {
@@ -295,6 +301,30 @@ describe('menu-lines: option checks (§3.4.6, V9)', () => {
     // B as a child carrying its linked option to A → refused, so A → B → A cannot be built.
     expect(checkOptionChoices([bBack], [{ modifier_group_id: 'b-back', option_id: 'opt-a', quantity: 1 }], 'child', piece(3), groups, items, avail())).toEqual([
       { reason: 'linked_in_child', modifier_group_id: 'b-back', option_id: 'opt-a' },
+    ]);
+  });
+
+  it('[01c §3.4.6, V18] piece parent with quantity null throws; g parent with quantity null checks as with a quantity', () => {
+    const bread = grp('bread', 0, 3, [linked('naan', 'Naan', { max_quantity: 3 })]);
+    const groups = groupsOf(bread, spice);
+    const items = itemsOf(itm('Naan'));
+    const chosen = [{ modifier_group_id: 'bread', option_id: 'naan', quantity: 3 }];
+    // V18: a piece parent always has a quantity; null is a caller bug, never defaulted.
+    expect(() => checkOptionChoices([bread], chosen, 'line', piece(null), groups, items, avail())).toThrow(
+      'checkOptionChoices: piece parent quantity is null',
+    );
+    expect(() => checkOptionChoices([spice], [], 'line', piece(null), groups, items, avail())).toThrow(
+      'checkOptionChoices: piece parent quantity is null',
+    );
+    // A g parent may be pending its weight: same violations with quantity null as with 1 250 g.
+    for (const stock of [{}, { Naan: 2 }]) {
+      const withQty = checkOptionChoices([bread, spice], chosen, 'line', { quantity: 1250, sale_unit: 'g' }, groups, items, avail(stock));
+      const pending = checkOptionChoices([bread, spice], chosen, 'line', { quantity: null, sale_unit: 'g' }, groups, items, avail(stock));
+      expect(pending).toEqual(withQty);
+    }
+    expect(checkOptionChoices([bread, spice], chosen, 'line', { quantity: null, sale_unit: 'g' }, groups, items, avail({ Naan: 2 }))).toEqual([
+      { reason: 'linked_not_orderable', modifier_group_id: 'bread', option_id: 'naan' },
+      { reason: 'below_min', modifier_group_id: 'spice', option_id: null },
     ]);
   });
 

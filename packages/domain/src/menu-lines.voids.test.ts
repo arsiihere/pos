@@ -137,6 +137,7 @@ describe('menu-lines: void refunds never exceed what was billed (§3.4.8, N1)', 
     const naanTotal = orderLineTotalMinor({ line_kind: 'option_child', price_minor: 3000, quantity: 6, option_charges_minor: [] });
     expect(naanTotal).toBe(18000);
     expect(allocateDealMinor(18000, [1, 1, 1, 1, 1, 1])).toEqual([3000, 3000, 3000, 3000, 3000, 3000]);
+    // Karahi 220 000 per piece is an invented price for this test (deferred minor: no spec example fixes it).
     const karahi = (): Line => line(440000, 2);
 
     // Karahi × 2, Naan option_quantity 3 (child line 6 naan, 18 000).
@@ -156,6 +157,19 @@ describe('menu-lines: void refunds never exceed what was billed (§3.4.8, N1)', 
     expect(voidParentUnits(b, 1)).toEqual({ parent: 220000, children: [3000] });
     expect(bNaan.voided).toBe(6);
     expect(bNaan.refunded).toBe(18000);
+
+    // Clamp case: a non-last parent unit whose cascade (k × option_quantity) exceeds the child's remaining units.
+    // Karahi × 3 (660 000 → 220 000 per unit), Naan option_quantity 2 → child line 6 naan, 18 000 (3 000 each).
+    const e: Parent = { line: line(660000, 3), saleUnit: 'piece', children: [{ line: line(18000, 6), optionQuantity: 2 }] };
+    const eNaan = e.children[0]?.line as Line;
+    expect(voidUnits(eNaan, 5)).toBe(15000);
+    expect(remaining(eNaan)).toBe(1);
+    expect(voidParentUnits(e, 1)).toEqual({ parent: 220000, children: [3000] }); // wants 2 naan, clamped to the 1 left
+    expect(eNaan.voided).toBe(6);
+    expect(eNaan.refunded).toBe(18000);
+    expect(voidParentUnits(e, 2)).toEqual({ parent: 440000, children: [0] });
+    expect(e.line.refunded).toBe(660000);
+    expect(eNaan.refunded).toBe(18000);
 
     // A 1.25 kg karahi (g) with 3 naan: voided whole only (one unit); its naan follow.
     const gTotal = lineTotalMinor(220000, 1250, 'g');
@@ -185,17 +199,32 @@ describe('menu-lines: void refunds never exceed what was billed (§3.4.8, N1)', 
     let steps = 0;
     for (let i = 0; i < 1000; i++) {
       // Deal: price × qty allocated over parts by weight; each part adds its extras and option charges (§3.4.4, B2).
+      // The deal line total comes from orderLineTotalMinor over the generator's numbers, never from the parts' refundable
+      // amounts, so the exact-refund checks below hold only if allocateDealMinor sums to its input.
       const dealQty = 1 + rng(4);
+      const dealPrice = rng(1_000_000);
       const nParts = 1 + rng(9);
+      const specs = Array.from({ length: nParts }, () => {
+        const piece = rng(1) === 0;
+        return {
+          sale_unit: (piece ? 'piece' : 'g') as Unit,
+          quantity: piece ? 1 + rng(5) : 100 + rng(1_900),
+          extra_price_minor: rng(2) === 0 ? rng(10_000) : 0,
+          option_charges_minor: rng(2) === 0 ? [rng(50_000)] : [],
+        };
+      });
+      const lineTotal = orderLineTotalMinor({ line_kind: 'deal', price_minor: dealPrice, quantity: dealQty, parts: specs }) as number;
       const allocated = allocateDealMinor(
-        rng(1_000_000) * dealQty,
+        dealPrice * dealQty,
         Array.from({ length: nParts }, () => (rng(4) === 0 ? 0 : rng(1_000_000))),
       );
-      const parts = allocated.map((a) => {
-        const units = rng(1) === 0 ? (1 + rng(5)) * dealQty : dealQty; // piece part: part qty × deal qty; g/ml: deal qty
-        return line(a + (rng(2) === 0 ? rng(100_000) : 0), units);
+      const parts = specs.map((sp, k) => {
+        const piece = sp.sale_unit === 'piece';
+        const extras = sp.extra_price_minor * (piece ? sp.quantity : 1) * dealQty + sum(sp.option_charges_minor);
+        // piece part: part qty × deal qty units; g/ml part: one unit per deal portion.
+        return line((allocated[k] as number) + extras, piece ? sp.quantity * dealQty : dealQty);
       });
-      const deal: Deal = { lineTotal: sum(parts.map((p) => p.refundable)), parts, voided: false };
+      const deal: Deal = { lineTotal, parts, voided: false };
 
       // Parent item lines with placed children (option_quantity set) and some later-added children (null).
       const parents: Parent[] = Array.from({ length: rng(3) }, () => {

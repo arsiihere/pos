@@ -128,8 +128,9 @@ export interface Violation {
 type GroupsById = Readonly<Record<string, MenuLineGroup>>;
 type ItemsById = Readonly<Record<string, MenuLineItem>>;
 
-// §3.4.6 N5, Q3: a linked option's item is orderable as a child for the child quantity; an item absent from itemsById is not.
-function linkedOrderable(itemId: string, quantity: number, groupsById: GroupsById, itemsById: ItemsById, isAvailable: IsAvailable): boolean {
+// §3.4.6 N5, Q3, V11 d: is this item orderable in a child position at this quantity? Used for a linked option's item (child
+// quantity) and for a deal part's choice (part qty × deal qty). An item absent from itemsById is not.
+function isChildOrderable(itemId: string, quantity: number, groupsById: GroupsById, itemsById: ItemsById, isAvailable: IsAvailable): boolean {
   const item = itemsById[itemId];
   return item !== undefined && isItemOrderable(item, groupsById, itemsById, 'child', quantity, isAvailable);
 }
@@ -149,7 +150,7 @@ export function isGroupSatisfiable(
   for (const o of group.options) {
     if (capacity >= group.min_choices) break;
     if (o.linked_item_id === null) capacity += o.max_quantity;
-    else if (position === 'line' && linkedOrderable(o.linked_item_id, 1, groupsById, itemsById, isAvailable)) capacity += o.max_quantity;
+    else if (position === 'line' && isChildOrderable(o.linked_item_id, 1, groupsById, itemsById, isAvailable)) capacity += o.max_quantity;
   }
   return capacity >= group.min_choices;
 }
@@ -185,12 +186,13 @@ export function isDealOrderable(
   const dealQty = nonNegative('isDealOrderable', 'deal quantity', dealQuantity);
   return deal.parts.every((part) => {
     const qty = safe('isDealOrderable', 'part quantity', nonNegative('isDealOrderable', 'part quantity', part.quantity) * dealQty);
-    return part.choices.some((c) => linkedOrderable(c.item_id, qty, groupsById, itemsById, isAvailable));
+    return part.choices.some((c) => isChildOrderable(c.item_id, qty, groupsById, itemsById, isAvailable));
   });
 }
 
 // §3.4.6 (T3): `groups` are the line item's effective groups; `parent` gives the child quantity of a linked option
-// (childQuantity; a g/ml parent does not need its quantity, which may be null while the weight is pending).
+// (childQuantity; a g/ml parent does not need its quantity, which may be null while the weight is pending; a piece parent
+// with quantity null throws, V18).
 export function checkOptionChoices(
   groups: readonly MenuLineGroup[],
   chosen: readonly ChosenOption[],
@@ -200,6 +202,8 @@ export function checkOptionChoices(
   itemsById: ItemsById,
   isAvailable: IsAvailable,
 ): Violation[] {
+  // V18: a piece parent always has a quantity; null is a caller bug, not a default of 1.
+  if (parent.sale_unit === 'piece' && parent.quantity === null) throw new Error('checkOptionChoices: piece parent quantity is null');
   const violations: Violation[] = [];
   const effective = new Map(groups.map((g) => [g.modifier_group_id, g]));
   // Sum the quantities per (group, option) first, so an option entered twice is range- and stock-checked on its total (M2).
@@ -232,8 +236,9 @@ export function checkOptionChoices(
     if (position === 'child') {
       violations.push({ reason: 'linked_in_child', ...at });
     } else {
-      const qty = childQuantity(c.quantity, parent.quantity ?? 1, parent.sale_unit);
-      if (!linkedOrderable(option.linked_item_id, qty, groupsById, itemsById, isAvailable)) {
+      // Null here is only a g/ml parent (piece threw above); childQuantity ignores a g/ml parent's quantity, so 0 is unused.
+      const qty = childQuantity(c.quantity, parent.quantity ?? 0, parent.sale_unit);
+      if (!isChildOrderable(option.linked_item_id, qty, groupsById, itemsById, isAvailable)) {
         violations.push({ reason: 'linked_not_orderable', ...at });
       }
     }
