@@ -1,26 +1,43 @@
 import { DomainError } from '@pos/domain';
 import { canonicalJson } from '@pos/domain/hash';
-import type { CreateVariantGroupInput, PatchVariantGroupInput, VariantGroupWire } from '@pos/events';
+import type {
+  CreateStockItemInput,
+  CreateVariantGroupInput,
+  PatchStockItemInput,
+  PatchVariantGroupInput,
+  StockItemListResponse,
+  StockItemWire,
+  VariantGroupWire,
+} from '@pos/events';
+import type { z } from 'zod';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
+import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
 import type { Clock } from '../../lib/clock.js';
 import { auditActionFor, writeConfigAudit } from '../../lib/config-audit.js';
-import { assertTenantWide, bumpEveryBranch } from '../../lib/config-version.js';
+import { assertTenantWide, bumpEveryBranch, coversEveryBranch } from '../../lib/config-version.js';
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import { insertConfigAuditRows, shareCategory } from '../restaurant/repository.js';
 import type { OwnerRequest } from '../restaurant/service.js';
 import {
+  insertStockItem,
   insertVariantGroup,
+  lockStockItem,
   lockVariantGroup,
   moveMembers,
+  selectActiveDrawers,
   selectMembers,
+  selectStockItemBranches,
+  selectStockItems,
+  updateStockItem,
   updateVariantGroup,
   type MemberRow,
+  type StockItemRecord,
   type VariantGroupRecord,
 } from './repository.js';
-import { toVariantGroupWire } from './versions.js';
+import { stockItemBranchVersion, toStockItemWire, toVariantGroupWire } from './versions.js';
 
 export interface MenuVariantDeps {
   pool: pg.Pool;
@@ -167,6 +184,159 @@ function assertCategory(row: { archived_at: number | null } | undefined): void {
 
 function hooks(deps: MenuVariantDeps): { testHooks?: CloudTestHooks } {
   return deps.testHooks !== undefined ? { testHooks: deps.testHooks } : {};
+}
+
+// ------------------------------------------------------------------------------------------------ stock items
+
+type StockItemList = z.infer<typeof StockItemListResponse>['data'];
+
+// §6.6: 4 fixed statements (coversEveryBranch, stock items, branch rows = ANY at the JWT's allowed branches,
+// drawers joined to active items = ANY). Every allowed branch gets an entry, "no row" as station_id null with the
+// no-row version (AD-6), by branch_id.
+export async function listStockItems(
+  deps: MenuVariantDeps,
+  tenant: TenantContext,
+  ownerUserId: string,
+  query: { status: 'active' | 'archived' },
+): Promise<StockItemList> {
+  const level = new TenantLevelRepository(tenant, deps.pool);
+  const scoped = new TenantScopedRepository(tenant, deps.pool);
+  const canEditTenant = await coversEveryBranch(level, ownerUserId);
+  const items = await selectStockItems(level, { archived: query.status === 'archived' });
+  const ids = items.map((row) => row.stock_item_id);
+  const branchRows = await selectStockItemBranches(scoped, ids);
+  const drawers = await selectActiveDrawers(level, ids);
+  const branchIds = [...tenant.branchIds].sort();
+  return {
+    can_edit_tenant: canEditTenant,
+    stock_items: items.map((row) => ({
+      ...toStockItemWire(row),
+      branches: branchIds.map((branchId) =>
+        stockItemBranchVersion(
+          row.stock_item_id,
+          branchId,
+          branchRows.find((b) => b.stock_item_id === row.stock_item_id && b.branch_id === branchId) ?? null,
+        ),
+      ),
+      drawers: drawers
+        .filter((d) => d.stock_item_id === row.stock_item_id)
+        .map((d) => ({ item_id: d.item_id, name: d.name, variant_name: d.variant_name, quantity_per_sale_unit: d.quantity_per_sale_unit })),
+    })),
+  };
+}
+
+// §6.7 (lock order 10 only: insert, no lock): idempotency key → tenant-wide check (403) → insert (name index → 409)
+// → audit → bump every branch.
+export async function createStockItem(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  body: CreateStockItemInput,
+): Promise<IdempotentResult<{ stock_item: StockItemWire }>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
+      const stockItem = await stockItemNameTaken(body.name, () =>
+        insertStockItem(
+          level,
+          { stock_item_id: deps.ids.next(), name: body.name, stock_unit: body.stock_unit, carries_over: body.carries_over },
+          deps.clock.branchNow(),
+        ),
+      );
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'stock_item',
+          entityId: stockItem.stock_item_id,
+          branchId: null,
+          action: 'create',
+          before: null,
+          after: stockItem,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
+      return { status: 201, body: { stock_item: toStockItemWire(stockItem) } };
+    },
+  );
+}
+
+// §6.8 (C4; lock order 5 → 10): tenant-wide check (403) → stock item FOR UPDATE (404) → version (409 CONFIG_STALE,
+// a stale no-op too) → no payload references → no-op (200, nothing written) → R1 a stock_unit change re-runs the
+// V4 unit rule on every active drawer (422 unit_mismatch), R2 archive with an active drawer (409 CONFIG_IN_USE):
+// one plain read of the active drawers, only when R1 or R2 applies → R3 name (index → 409) → write → audit → bump.
+// No cascade: branch rows and draws are untouched.
+export async function patchStockItem(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  stockItemId: string,
+  body: PatchStockItemInput,
+): Promise<{ stock_item: StockItemWire }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    await assertTenantWide(level, req.ownerUserId);
+    const before = await lockStockItem(level, stockItemId);
+    if (before === undefined) throw new DomainError('STOCK_ITEM_NOT_FOUND', { stock_item_id: stockItemId });
+    if (body.expected_version !== toStockItemWire(before).version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'stock_item', id: stockItemId });
+    }
+    const now = deps.clock.branchNow();
+    const merged: StockItemRecord = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.stock_unit !== undefined ? { stock_unit: body.stock_unit } : {}),
+      ...(body.carries_over !== undefined ? { carries_over: body.carries_over } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (canonicalJson(before) === canonicalJson(merged)) return { stock_item: toStockItemWire(before) };
+    const unitChanged = merged.stock_unit !== before.stock_unit;
+    const archiving = before.archived_at === null && merged.archived_at !== null;
+    if (unitChanged || archiving) {
+      const drawers = await selectActiveDrawers(level, [stockItemId]);
+      // R1 (V4): equal units → quantity 1; different units → the drawer sells by the piece
+      if (unitChanged && drawers.some((d) => !(d.sale_unit === merged.stock_unit ? d.quantity_per_sale_unit === 1 : d.sale_unit === 'piece'))) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
+      }
+      if (archiving && drawers.length > 0) {
+        const ids = [...new Set(drawers.map((d) => d.item_id))].sort();
+        throw new DomainError('CONFIG_IN_USE', { entity: 'stock_item', id: stockItemId, used_by: { entity: 'menu_item', ids } });
+      }
+    }
+    const stockItem = await stockItemNameTaken(merged.name, () => updateStockItem(level, merged, now));
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'stock_item',
+        entityId: stockItemId,
+        branchId: null,
+        action: auditActionFor(before, stockItem),
+        before,
+        after: stockItem,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpEveryBranch(level);
+    return { stock_item: toStockItemWire(stockItem) };
+  });
+}
+
+// R3: pg 23505 on stock_items_active_name → 409 CONFIG_NAME_TAKEN { entity: 'stock_item', name }.
+async function stockItemNameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code === '23505' && pgError.constraint === 'stock_items_active_name') {
+      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'stock_item', name });
+    }
+    throw error;
+  }
 }
 
 // R2: pg 23505 on variant_groups_active_name → 409 CONFIG_NAME_TAKEN { entity: 'variant_group', name }.

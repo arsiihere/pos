@@ -1,4 +1,4 @@
-import type { CreateVariantGroupRequest, VariantGroupWire } from '@pos/events';
+import type { CreateStockItemRequest, CreateVariantGroupRequest, PatchStockItemRequest, StockItemWire, VariantGroupWire } from '@pos/events';
 import { owner, type RestaurantFixture } from './restaurant';
 import type { TestCloud } from './test-cloud';
 
@@ -15,18 +15,30 @@ export async function createVariantGroup(
   return response.json().data.variant_group as VariantGroupWire;
 }
 
-// A stock item written by SQL until §6.7's route exists (task 16 moves callers to the API).
-export async function seedStockItem(
+// §6.7 through the API (then §6.8 to archive it): the stock item's wire, or a thrown error with the response body.
+export async function createStockItem(
   cloud: TestCloud,
   f: RestaurantFixture,
-  o: { stockItemId: string; name?: string; stockUnit: 'piece' | 'g' | 'ml'; archived?: boolean },
-): Promise<string> {
-  await cloud.pool.query(
-    `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, archived_at, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, 0, 0)`,
-    [f.tenantId, o.stockItemId, o.name ?? o.stockItemId, o.stockUnit, o.archived === true ? 1 : null],
-  );
-  return o.stockItemId;
+  body: CreateStockItemRequest,
+  o?: { archived?: boolean },
+): Promise<StockItemWire> {
+  const response = await cloud.app.inject({ method: 'POST', url: '/v1/admin/stock-items', ...owner(f), payload: body });
+  if (response.statusCode !== 201) throw new Error(`create stock item failed: ${response.statusCode} ${response.body}`);
+  const created = response.json().data.stock_item as StockItemWire;
+  if (o?.archived !== true) return created;
+  return patchStockItem(cloud, f, created.stock_item_id, { expected_version: created.version, archived: true });
+}
+
+// §6.8 through the API: the patched wire, or a thrown error with the response body.
+export async function patchStockItem(
+  cloud: TestCloud,
+  f: RestaurantFixture,
+  stockItemId: string,
+  body: PatchStockItemRequest,
+): Promise<StockItemWire> {
+  const response = await cloud.app.inject({ method: 'PATCH', url: `/v1/admin/stock-items/${stockItemId}`, ...owner(f), payload: body });
+  if (response.statusCode !== 200) throw new Error(`patch stock item failed: ${response.statusCode} ${response.body}`);
+  return response.json().data.stock_item as StockItemWire;
 }
 
 // P-4: a modifier group and its options written by SQL until §6.10's route exists (task 15; §6.5 R4, R10 read them).

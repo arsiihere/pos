@@ -1,5 +1,6 @@
 import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
-import type { VariantGroupRow } from './versions.js';
+import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
+import type { StockItemRow, VariantGroupRow } from './versions.js';
 
 // 01c §5.1 variant_groups. The stored row without its members; member_ids come from menu_items.
 export type VariantGroupRecord = Omit<VariantGroupRow, 'member_ids' | 'archived_at'> & { archived_at: number | null };
@@ -97,4 +98,100 @@ export async function activeVariantGroupIdsIn(repo: TenantLevelRepository, categ
     [categoryId],
   );
   return rows.map((row) => row.variant_group_id);
+}
+
+// ------------------------------------------------------------------------------------------------ stock items
+
+// 01c §5.1 stock_items as stored (archived_at a number).
+export type StockItemRecord = Omit<StockItemRow, 'archived_at'> & { archived_at: number | null };
+
+const STOCK_ITEM_COLUMNS = 'stock_item_id, name, stock_unit, carries_over, archived_at';
+
+type RawStockItem = Omit<StockItemRecord, 'archived_at'> & { archived_at: string | null };
+
+function stockItemRow(row: RawStockItem): StockItemRecord {
+  return { ...row, archived_at: row.archived_at === null ? null : Number(row.archived_at) };
+}
+
+// §6.7: insert, no lock (the name index → 23505 stock_items_active_name).
+export async function insertStockItem(
+  repo: TenantLevelRepository,
+  row: Omit<StockItemRecord, 'archived_at'>,
+  now: number,
+): Promise<StockItemRecord> {
+  const rows = await repo.query<RawStockItem>(
+    `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, carries_over, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $6 FROM tenants WHERE tenant_id = $1
+     RETURNING ${STOCK_ITEM_COLUMNS}`,
+    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, now],
+  );
+  return stockItemRow(rows[0]!);
+}
+
+// §6 lock order 5: the §6.8 target.
+export async function lockStockItem(repo: TenantLevelRepository, stockItemId: string): Promise<StockItemRecord | undefined> {
+  const rows = await repo.query<RawStockItem>(
+    `SELECT ${STOCK_ITEM_COLUMNS} FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR UPDATE`,
+    [stockItemId],
+  );
+  return rows[0] === undefined ? undefined : stockItemRow(rows[0]);
+}
+
+export async function updateStockItem(repo: TenantLevelRepository, row: StockItemRecord, now: number): Promise<StockItemRecord> {
+  const rows = await repo.query<RawStockItem>(
+    `UPDATE stock_items SET name = $3, stock_unit = $4, carries_over = $5, archived_at = $6, updated_at = $7
+      WHERE tenant_id = $1 AND stock_item_id = $2
+      RETURNING ${STOCK_ITEM_COLUMNS}`,
+    [row.stock_item_id, row.name, row.stock_unit, row.carries_over, row.archived_at, now],
+  );
+  return stockItemRow(rows[0]!);
+}
+
+// §6.6 statement 2: the active or the archived stock items, by lower(name), then id (C3).
+export async function selectStockItems(repo: TenantLevelRepository, o: { archived: boolean }): Promise<StockItemRecord[]> {
+  const rows = await repo.query<RawStockItem>(
+    `SELECT ${STOCK_ITEM_COLUMNS} FROM stock_items
+      WHERE tenant_id = $1 AND archived_at IS ${o.archived ? 'NOT NULL' : 'NULL'}
+      ORDER BY lower(name), stock_item_id`,
+  );
+  return rows.map(stockItemRow);
+}
+
+export interface StockItemBranchRecord {
+  stock_item_id: string;
+  branch_id: string;
+  station_id: string;
+  low_stock_threshold: number | null;
+}
+
+// §6.6 statement 3: the stored branch rows of these stock items at the JWT's allowed branches ($2).
+export async function selectStockItemBranches(repo: TenantScopedRepository, stockItemIds: string[]): Promise<StockItemBranchRecord[]> {
+  return repo.query<StockItemBranchRecord>(
+    `SELECT stock_item_id, branch_id, station_id, low_stock_threshold FROM stock_item_branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND stock_item_id = ANY($3)
+      ORDER BY stock_item_id, branch_id`,
+    [stockItemIds],
+  );
+}
+
+export interface DrawerRecord {
+  stock_item_id: string;
+  item_id: string;
+  name: string;
+  variant_name: string | null;
+  sale_unit: StockItemRow['stock_unit'];
+  quantity_per_sale_unit: number;
+}
+
+// §6.6 statement 4 and §6.8 R1 / R2: the active items drawing from these stock items, a plain read (no lock),
+// by stock item, then lower(name), then item_id (C3).
+export async function selectActiveDrawers(repo: TenantLevelRepository, stockItemIds: string[]): Promise<DrawerRecord[]> {
+  return repo.query<DrawerRecord>(
+    `SELECT d.stock_item_id, d.item_id, m.name, m.variant_name, m.sale_unit, d.quantity_per_sale_unit
+       FROM stock_draws d
+       JOIN menu_items m ON m.tenant_id = d.tenant_id AND m.item_id = d.item_id
+      WHERE d.tenant_id = $1 AND d.stock_item_id = ANY($2) AND m.archived_at IS NULL
+      ORDER BY d.stock_item_id, lower(m.name), d.item_id`,
+    [stockItemIds],
+  );
 }

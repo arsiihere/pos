@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createVariantGroup, seedStockItem } from '../helpers/menu-variants';
+import { createStockItem, createVariantGroup } from '../helpers/menu-variants';
 import { pgCounter } from '../helpers/pg-counter';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
@@ -96,8 +96,8 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
   });
 
   it('[01c #23] sale_unit g + stock item piece → 422 unit_mismatch; two draws → 400 at stock_draws.1', async () => {
-    const naan = await seedStockItem(cloud, f, { stockItemId: 'SK-NAAN', stockUnit: 'piece' });
-    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const naan = (await createStockItem(cloud, f, { name: 'Naan', stock_unit: 'piece' })).stock_item_id;
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
 
     const mismatch = await refused(
       item({ name: 'Naan by weight', sale_unit: 'g', stock_draws: [{ stock_item_id: naan, quantity_per_sale_unit: 1 }] }),
@@ -158,18 +158,23 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
        VALUES ($1, 'VG-F', 'CT-F', 'Their group', 0, 0)`,
       [f.other.tenantId],
     );
-    await cloud.pool.query(
-      `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, created_at, updated_at) VALUES ($1, 'SK-F', 'Their pot', 'g', 0, 0)`,
-      [f.other.tenantId],
-    );
-    const archivedPot = await seedStockItem(cloud, f, { stockItemId: 'SK-OLD', stockUnit: 'g', archived: true });
+    // tenant B's own stock item, through the API with B's token
+    const theirs = await cloud.app.inject({
+      method: 'POST',
+      url: '/v1/admin/stock-items',
+      ...owner(f, f.other.token),
+      payload: { name: 'Their pot', stock_unit: 'g' },
+    });
+    expect(theirs.statusCode, theirs.body).toBe(201);
+    const foreignPot = theirs.json().data.stock_item.stock_item_id as string;
+    const archivedPot = (await createStockItem(cloud, f, { name: 'Old pot', stock_unit: 'g' }, { archived: true })).stock_item_id;
 
     for (const [payload, field, reason] of [
       [item({ variant_group_id: group.variant_group_id, variant_name: 'Half' }), 'variant_group_id', 'archived'],
       [item({ variant_group_id: 'VG-F', variant_name: 'Half' }), 'variant_group_id', 'not_found'],
       [item({ variant_group_id: 'NO-SUCH', variant_name: 'Half' }), 'variant_group_id', 'not_found'],
       [item({ stock_draws: [{ stock_item_id: archivedPot, quantity_per_sale_unit: 500 }] }), 'stock_draws.0.stock_item_id', 'archived'],
-      [item({ stock_draws: [{ stock_item_id: 'SK-F', quantity_per_sale_unit: 500 }] }), 'stock_draws.0.stock_item_id', 'not_found'],
+      [item({ stock_draws: [{ stock_item_id: foreignPot, quantity_per_sale_unit: 500 }] }), 'stock_draws.0.stock_item_id', 'not_found'],
       [item({ stock_draws: [{ stock_item_id: 'NO-SUCH', quantity_per_sale_unit: 500 }] }), 'stock_draws.0.stock_item_id', 'not_found'],
     ] as const) {
       const error = await refused(payload, 422);
@@ -207,7 +212,7 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
 
   it('[01c §6.4] statements: a group and a draw add 3 (group and stock item FOR SHARE, the draw insert)', async () => {
     const group = await karahi();
-    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
     await created(item({ name: 'Plain' }));
     const plain = counter.count;
     await created(item({ variant_group_id: group.variant_group_id, variant_name: 'Half', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] }));
@@ -215,7 +220,7 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
   });
 
   it('[01c §6.4 V18] requires_weighing with sale_unit piece → 400; with a draw → 422 weighed_item_stock_draw; g alone → 201', async () => {
-    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
     const piece = await refused(item({ name: 'Fish', requires_weighing: true }), 400);
     expect(piece.code).toBe('VALIDATION_FAILED');
     expect(issuePaths(piece)).toContain('requires_weighing');
@@ -256,7 +261,7 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
   it('[01c #26] menu read: variant_groups whole; q=Karahi matches a member through its group name; 8 statements', async () => {
     const group = await karahi();
     const archivedGroup = await createVariantGroup(cloud, f, { name: 'Old Pulao', category_id: menu.categoryIds[0] });
-    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
     const half = await created(
       item({ name: 'Half plate', variant_group_id: group.variant_group_id, variant_name: 'Half', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] }),
     );

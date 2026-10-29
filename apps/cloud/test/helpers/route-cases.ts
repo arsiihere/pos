@@ -12,6 +12,7 @@ export interface BIds {
   categoryId: string;
   itemId: string;
   variantGroupId: string;
+  stockItemId: string;
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -100,6 +101,12 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/variant-groups/:variant_group_id': (ids) => ({
     url: `/v1/admin/variant-groups/${ids.variantGroupId}`,
     payload: { expected_version: 'stale', name: 'Karahi' },
+  }),
+  'GET /v1/admin/stock-items': () => ({ url: '/v1/admin/stock-items' }),
+  'POST /v1/admin/stock-items': () => ({ url: '/v1/admin/stock-items', payload: { name: 'Karahi pot', stock_unit: 'g' } }),
+  'PATCH /v1/admin/stock-items/:stock_item_id': (ids) => ({
+    url: `/v1/admin/stock-items/${ids.stockItemId}`,
+    payload: { expected_version: 'stale', name: 'Karahi pot' },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({

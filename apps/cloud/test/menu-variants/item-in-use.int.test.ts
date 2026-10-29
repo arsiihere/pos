@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedDealPartRows, seedModifierGroupRows, seedStockItem } from '../helpers/menu-variants';
+import { createStockItem, seedDealPartRows, seedModifierGroupRows } from '../helpers/menu-variants';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -183,7 +183,7 @@ describe('01c item PATCH: in-use rules and precedence (§6.5 R4, R10, R6)', () =
       inUse(naan, 'modifier_group', ['MG-BREAD']),
     );
     // a draw to a piece stock item: R10 before R2's 422 unit_mismatch
-    const pieces = await seedStockItem(cloud, f, { stockItemId: 'SK-NAAN', stockUnit: 'piece' });
+    const pieces = (await createStockItem(cloud, f, { name: 'Naan', stock_unit: 'piece' })).stock_item_id;
     await ok(naan, { stock_draws: [{ stock_item_id: pieces, quantity_per_sale_unit: 1 }] });
     expect((await nothingWritten(naan, { sale_unit: 'g' }, 409)).error).toMatchObject(inUse(naan, 'modifier_group', ['MG-BREAD']));
     // the Bread option and the deal part archived → R2

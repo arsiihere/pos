@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedStockItem } from '../helpers/menu-variants';
+import { createStockItem } from '../helpers/menu-variants';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -189,7 +189,7 @@ describe('menu item patch', () => {
   });
 
   it('[01a §10 #128] units (01c V4: on the draw): g stock item / piece item / 250 in the response and the menu read; R2 422 and R7 400; a draw change is audited', async () => {
-    const pot = await seedStockItem(cloud, f, { stockItemId: 'SK-POT', stockUnit: 'g' });
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
     const plain = await create({ name: 'Karahi by weight' });
     expect(plain.stock_draws).toEqual([]);
     const drawn = await patch(plain.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] });
