@@ -1,5 +1,5 @@
-import { aBranchConfig } from '@pos/events/testing';
-import type { BranchConfig } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfigV1 } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { itemAvailability } from '../../src/projections/item-availability';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -18,7 +18,7 @@ describe('SetItemAvailability (§6.18)', () => {
 
   it('[01a §10 #69] toggle off → ItemMadeUnavailable, row 0 with changed_at = recorded_at; off again → no event, changed false; on → ItemMadeAvailable', async () => {
     const hub = await open();
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
 
     const off = await toggle(hub, admin, 'I1', false, 'cmd-off');
@@ -59,7 +59,7 @@ describe('SetItemAvailability (§6.18)', () => {
     expect(noConfig.statusCode).toBe(404);
     expect(noConfig.json().error.code).toBe('MENU_ITEM_NOT_FOUND');
 
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const first = await toggle(hub, admin, 'I1', false, 'cmd-1');
     expect(first.statusCode).toBe(200);
     const replay = await toggle(hub, admin, 'I1', false, 'cmd-1');
@@ -84,7 +84,7 @@ describe('SetItemAvailability (§6.18)', () => {
 
   it('[01a §10 #71] itemAvailability(db, ids) is 1 statement for 1 and 100 ids; a missing row is available', async () => {
     const hub = await open();
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     expect((await toggle(hub, admin, 'I1', false, 'cmd-off')).statusCode).toBe(200);
     expect((await toggle(hub, admin, 'I2', false, 'cmd-off-2')).statusCode).toBe(200);
@@ -114,7 +114,7 @@ async function open(denied: Record<string, string[]> = {}): Promise<TestHub> {
   return hub;
 }
 
-function withConfig(c: BranchConfig): void {
+function withConfig(c: BranchConfigV1): void {
   swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 

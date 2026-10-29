@@ -1,5 +1,5 @@
-import { aBranchConfig } from '@pos/events/testing';
-import type { BranchConfig } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
+import type { BranchConfigV1 } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -61,7 +61,7 @@ function lock(hub: TestHub, subjectType: string, subjectId: string, lockedUntil:
     .run('branch-1', subjectType, subjectId, lockedUntil);
 }
 
-function withConfig(config: BranchConfig): void {
+function withConfig(config: BranchConfigV1): void {
   swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 
@@ -76,7 +76,7 @@ describe('admin list queries (§6.18a–c, M88)', () => {
     const admin = adminOn(hub, 'S_MGR');
     expect((await get(hub, admin, 'stations')).json().data).toEqual({ stations: [] });
 
-    const base = aBranchConfig();
+    const base = aBranchConfigV1();
     const station = base.stations[0]!;
     const cats = ['Naan', 'Roti', 'Kulcha', 'Paratha', 'Empty'].map((name, i) => ({ category_id: `C${i}`, name, sort_order: 5 - i, availability_windows: [] }));
     const item = base.items[0]!;

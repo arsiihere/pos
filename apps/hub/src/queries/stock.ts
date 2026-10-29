@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
 import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTracked, type BranchConfig } from '@pos/events';
+import { isStockTrackedV1, type BranchConfigV1 } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
@@ -60,7 +60,7 @@ export function registerStockQuery(app: FastifyInstance, clock: Clock): void {
   );
 }
 
-function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
+function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null) {
   if (config === null) return [];
   return config.items.map((item) => {
     // S44: the units frozen for the open day, else the item's own.
@@ -72,7 +72,7 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
       group_label: item.group_label,
       category_id: item.category_id,
       category_name: category?.name ?? item.category_id,
-      is_stock_tracked: isStockTracked(config, item),
+      is_stock_tracked: isStockTrackedV1(config, item),
       out_of_stock_behaviour: item.out_of_stock_behaviour,
       stock_unit: units.stock_unit,
       sale_unit: units.sale_unit,
@@ -87,7 +87,7 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfig | null) {
 
 // S14, S41, S46: numbers and flags only; 1 statement for the availability rows.
 // v1.0.2: unit is the open day's frozen unit (else the config's); a count in another unit reads as no count.
-function stockItems(ctx: QueryCtx, config: BranchConfig | null, start: number | null) {
+function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, start: number | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
   return items.map((item) => {
@@ -116,13 +116,13 @@ function requireManageStock(ctx: QueryCtx): Resolution {
   return resolution;
 }
 
-function scopedConfig(config: BranchConfig | null, inScope: (item: BranchConfig['items'][number]) => boolean): BranchConfig | null {
+function scopedConfig(config: BranchConfigV1 | null, inScope: (item: BranchConfigV1['items'][number]) => boolean): BranchConfigV1 | null {
   if (config === null) return null;
   const items = config.items.filter(inScope);
   return items.length === config.items.length ? config : { ...config, items };
 }
 
-function scopeKey(config: BranchConfig | null): string {
+function scopeKey(config: BranchConfigV1 | null): string {
   const ids = (config?.items ?? []).map((item) => item.item_id).join(',');
   return createHash('sha256').update(ids).digest('hex').slice(0, 12);
 }

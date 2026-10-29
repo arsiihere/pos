@@ -1,4 +1,4 @@
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { branchConfig, currentConfigEntry, swapBranchConfig, type ConfigEntry } from './branch-config-holder';
 
@@ -11,7 +11,7 @@ describe('branch config holder', () => {
     expect(branchConfig()).toBeNull();
     expect(currentConfigEntry()).toBeNull();
     const entry: ConfigEntry = {
-      config: aBranchConfig({ config_version: 7 }),
+      config: aBranchConfigV1({ config_version: 7 }),
       snapshotHash: 'a'.repeat(64),
       configVersion: 7,
       snapshotSchemaVersion: 1,

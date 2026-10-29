@@ -1,5 +1,5 @@
 import type { EventDraft } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { canonicalJson, sha256hex } from '../../src/lib/hash';
 import { loadBranchConfig, readBranchConfigRow } from '../../src/projections/branch-config';
@@ -57,7 +57,7 @@ describe('restaurant projections', () => {
 
   it('[01a §10 #49] UPDATE or DELETE on config_snapshots aborts (trigger)', async () => {
     const h = await hub();
-    const hash = storeBody(h, aBranchConfig());
+    const hash = storeBody(h, aBranchConfigV1());
     expect(() => h.deps.db.prepare('UPDATE config_snapshots SET body = ? WHERE snapshot_hash = ?').run('{}', hash)).toThrow(
       /config snapshots are immutable/,
     );
@@ -101,7 +101,7 @@ describe('restaurant projections', () => {
     expect(loadBranchConfig(h.deps.db, BRANCH)).toEqual({ state: 'NONE' });
     expect(readBranchConfigRow(h.deps.db, BRANCH)).toBeUndefined();
 
-    const config = aBranchConfig({ config_version: 4, branch_id: BRANCH });
+    const config = aBranchConfigV1({ config_version: 4, branch_id: BRANCH });
     const missingHash = sha256hex(canonicalJson(config));
     h.deps.writer.run((tx) => tx.append([configApplied(missingHash, 4)]));
     const missing = loadBranchConfig(h.deps.db, BRANCH);
@@ -122,7 +122,7 @@ describe('restaurant projections', () => {
     h.deps.writer.run((tx) => tx.append([configApplied(hash, 5, 2)]));
     expect(loadBranchConfig(h.deps.db, BRANCH)).toMatchObject({ state: 'BODY_MISSING', row: { snapshot_schema_version: 2 } });
 
-    const v2Body = { ...aBranchConfig({ branch_id: BRANCH }), config_version: 6, snapshot_schema_version: 2 };
+    const v2Body = { ...aBranchConfigV1({ branch_id: BRANCH }), config_version: 6, snapshot_schema_version: 2 };
     const v2Hash = storeBody(h, v2Body);
     h.deps.writer.run((tx) => tx.append([configApplied(v2Hash, 6)]));
     expect(loadBranchConfig(h.deps.db, BRANCH)).toMatchObject({ state: 'BODY_MISSING', row: { config_version: 6 } });

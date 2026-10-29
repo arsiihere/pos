@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
 import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type EventDraft } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
 import { openDb } from '../../src/db/connection';
@@ -44,7 +44,7 @@ function writeConfig(): { path: string; dataDir: string; cleanup: () => void } {
 }
 
 function snapshot(version: number, o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
+  return { ...aBranchConfigV1({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
 function appliedDraft(version: number, hash: string, schema = 1): EventDraft {
@@ -184,7 +184,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     const v3Seq = first.deps.writer.lastSeq();
     const v3Row = first.deps.db.prepare('SELECT * FROM branch_config').get() as Record<string, unknown>;
     // v4 adds a station, so the validator shows which config it reads
-    const v4 = aBranchConfig({ branch_id: BRANCH, config_version: 4 });
+    const v4 = aBranchConfigV1({ branch_id: BRANCH, config_version: 4 });
     cloud.respondWithSnapshot({ ...v4, stations: [...v4.stations, { ...v4.stations[0]!, station_id: 'S4', name: 'Tandoor' }] });
     await configPoller(first.app).pollOnce();
     expect(branchConfig()?.config_version).toBe(4);

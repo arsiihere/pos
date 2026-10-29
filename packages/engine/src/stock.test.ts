@@ -1,5 +1,5 @@
-import type { ConfigItem } from '@pos/events';
-import { aBranchConfig, aHubStarted, aStockAdded, aStockSet } from '@pos/events/testing';
+import type { ConfigItemV1 } from '@pos/events';
+import { aBranchConfigV1, aHubStarted, aStockAdded, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
   availableStock,
@@ -17,8 +17,8 @@ import {
 const T0 = 1_761_000_000_000;
 const T1 = T0 + 60_000;
 
-function item(id: string, o: Partial<ConfigItem> = {}): ConfigItem {
-  const found = aBranchConfig().items.find((i) => i.item_id === id);
+function item(id: string, o: Partial<ConfigItemV1> = {}): ConfigItemV1 {
+  const found = aBranchConfigV1().items.find((i) => i.item_id === id);
   if (found === undefined) throw new Error(id);
   return { ...found, ...o };
 }

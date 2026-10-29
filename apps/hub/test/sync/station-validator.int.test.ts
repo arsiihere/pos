@@ -1,4 +1,4 @@
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
@@ -57,7 +57,7 @@ describe('station validator from the branch config (§6.22)', () => {
     expect(kdsCount()).toBe(0);
 
     // after apply
-    const base = aBranchConfig({ branch_id: BRANCH, config_version: 3 });
+    const base = aBranchConfigV1({ branch_id: BRANCH, config_version: 3 });
     const archived = { ...base.stations[0]!, station_id: 'S2', name: 'Old grill', is_archived: true };
     cloud.respondWithSnapshot({ ...base, stations: [...base.stations, archived] });
     expect((await configPoller(h.app).pollOnce()).outcome).toBe('applied');

@@ -1,6 +1,6 @@
 import type { DirectoryInput } from '@pos/events';
-import type { BranchConfig } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import type { BranchConfigV1 } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -163,8 +163,8 @@ function hubEvents(hub: TestHub): number {
 }
 
 // S1 (I1, I2) and S2 (I3); every item stock-tracked.
-function twoStations(): BranchConfig {
-  const base = aBranchConfig();
+function twoStations(): BranchConfigV1 {
+  const base = aBranchConfigV1();
   return {
     ...base,
     stations: [...base.stations, { ...base.stations[0]!, station_id: 'S2', name: 'Grill' }],

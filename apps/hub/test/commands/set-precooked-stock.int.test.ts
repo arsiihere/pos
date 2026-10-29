@@ -1,6 +1,6 @@
 import type { EngineState } from '@pos/engine';
-import type { BranchConfig } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import type { BranchConfigV1 } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -56,7 +56,7 @@ describe('SetPrecookedStock (§6.17)', () => {
   });
 
   it('[01a §10 #61] item not in config → 404 MENU_ITEM_NOT_FOUND; not stock-tracked → 422 STOCK_NOT_TRACKED; nothing written for any entry', async () => {
-    const { hub, admin } = await openDay(aBranchConfig());
+    const { hub, admin } = await openDay(aBranchConfigV1());
     const missing = await setStock(hub, admin, [{ item_id: 'I1', on_hand: 3 }, { item_id: 'I9', on_hand: 1 }], 'cmd-missing');
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe('MENU_ITEM_NOT_FOUND');
@@ -152,13 +152,13 @@ describe('SetPrecookedStock (§6.17)', () => {
 });
 
 // I1 piece, I2 piece (tracked here), I3 g: all stock-tracked.
-function trackedConfig(): BranchConfig {
-  const base = aBranchConfig();
+function trackedConfig(): BranchConfigV1 {
+  const base = aBranchConfigV1();
   return { ...base, items: base.items.map((item) => (item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000 } : item)) };
 }
 
 async function openDay(
-  config: BranchConfig = trackedConfig(),
+  config: BranchConfigV1 = trackedConfig(),
   testHooks?: { beforeCommit?: () => void },
   denied?: Record<string, string[]>,
 ): Promise<{ hub: TestHub; admin: Admin }> {
@@ -179,7 +179,7 @@ async function open(testHooks?: { beforeCommit?: () => void }, denied: Record<st
   return hub;
 }
 
-function withConfig(config: BranchConfig): void {
+function withConfig(config: BranchConfigV1): void {
   swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 

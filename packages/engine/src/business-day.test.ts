@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { parseEvent, type ConfigItem, type PosEvent } from '@pos/events';
-import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, aStockSet } from '@pos/events/testing';
+import { parseEvent, type ConfigItemV1, type PosEvent } from '@pos/events';
+import { aBranchConfigV1, aBusinessDayClosed, aBusinessDayOpened, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
@@ -18,8 +18,8 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')) as unknown;
 }
 
-function item(id: string, o: Partial<ConfigItem> = {}): ConfigItem {
-  const found = aBranchConfig().items.find((i) => i.item_id === id);
+function item(id: string, o: Partial<ConfigItemV1> = {}): ConfigItemV1 {
+  const found = aBranchConfigV1().items.find((i) => i.item_id === id);
   if (found === undefined) throw new Error(id);
   return { ...found, ...o };
 }

@@ -1,5 +1,5 @@
 import { availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTracked } from '@pos/events';
+import { isStockTrackedV1 } from '@pos/events';
 import type { Clock } from '../lib/clock.js';
 import { hubTime } from '../lib/hub-time.js';
 import { branchConfig, currentConfigEntry } from '../sync/branch-config-holder.js';
@@ -40,7 +40,7 @@ export function registerRestaurantCatchUp(clock: Clock): () => void {
         const start = openDayStartMs(state);
         const items: Record<string, unknown> = {};
         for (const item of config?.items ?? []) {
-          if (config === null || !isStockTracked(config, item)) continue;
+          if (config === null || !isStockTrackedV1(config, item)) continue;
           const entry = stockOf(state, item.item_id);
           items[item.item_id] = {
             on_hand: entry.on_hand,

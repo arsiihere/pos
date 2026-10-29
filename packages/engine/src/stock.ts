@@ -1,5 +1,5 @@
 import type { Unit } from '@pos/domain';
-import type { ConfigItem } from '@pos/events';
+import type { ConfigItemV1 } from '@pos/events';
 import type { DayUnits, EngineState, StockEntry } from './state.js';
 
 const NO_ENTRY: StockEntry = { on_hand: 0, reserved: 0, set_at: null, unit: 'piece' };
@@ -16,7 +16,7 @@ export function openDayStartMs(state: EngineState): number | null {
 }
 
 // 01a S44: the units frozen for the open day; else the item's own fields.
-export function dayUnits(state: EngineState, item: ConfigItem): DayUnits {
+export function dayUnits(state: EngineState, item: ConfigItemV1): DayUnits {
   const frozen = openDayStartMs(state) !== null ? state.business_day?.units[item.item_id] : undefined;
   if (frozen !== undefined) return { ...frozen };
   return {
@@ -42,7 +42,7 @@ export function availableStock(
   state: EngineState,
   itemId: string,
   businessDayStartMs: number | null,
-  item: ConfigItem,
+  item: ConfigItemV1,
 ): number {
   const entry = stockOf(state, itemId);
   const valid = countIsValid(entry, businessDayStartMs, {
@@ -58,7 +58,7 @@ export function stockLevel(
   state: EngineState,
   itemId: string,
   businessDayStartMs: number | null,
-  item: ConfigItem,
+  item: ConfigItemV1,
 ): 'not_counted' | 'out' | 'low' | 'ok' {
   const dayUnit = dayUnits(state, item).stock_unit;
   const valid = countIsValid(stockOf(state, itemId), businessDayStartMs, {

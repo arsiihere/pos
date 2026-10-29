@@ -1,6 +1,6 @@
 import type { EngineState } from '@pos/engine';
-import type { BranchConfig } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import type { BranchConfigV1 } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -106,8 +106,8 @@ describe('AddPrecookedStock (§6.17a)', () => {
 });
 
 // I2 and the new I4 (g, counted per piece in the test) are stock-tracked; I5 is not.
-function config(): BranchConfig {
-  const base = aBranchConfig();
+function config(): BranchConfigV1 {
+  const base = aBranchConfigV1();
   const i2 = base.items.find((item) => item.item_id === 'I2')!;
   const i3 = base.items.find((item) => item.item_id === 'I3')!;
   return {
@@ -129,7 +129,7 @@ async function open(testHooks: { beforeCommit?: () => void }, denied: Record<str
   return hub;
 }
 
-function withConfig(c: BranchConfig): void {
+function withConfig(c: BranchConfigV1): void {
   swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 

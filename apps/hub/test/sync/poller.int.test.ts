@@ -1,6 +1,6 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type DirectoryInput } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { branchConfig } from '../../src/sync/branch-config-holder';
@@ -13,7 +13,7 @@ const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
 function snapshot(version: number, o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
+  return { ...aBranchConfigV1({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
 function okText(config: { snapshot_hash: string; snapshot: unknown } | null, directory: unknown = null): ConfigFetch {
@@ -274,7 +274,7 @@ describe('config poller', () => {
 
   it('[01a §12.4] a 1 001-item snapshot logs one warn', async () => {
     const { h, cloud } = await hub();
-    const base = aBranchConfig({ branch_id: BRANCH, config_version: 3 });
+    const base = aBranchConfigV1({ branch_id: BRANCH, config_version: 3 });
     const template = base.items[1]!;
     const items = Array.from({ length: 1_001 }, (_, i) => ({ ...template, item_id: `IT-${i}`, name: `Item ${i}`, sort_order: i }));
     cloud.respondWithSnapshot({ ...base, items });

@@ -9,9 +9,9 @@ import {
   SetItemAvailabilityResult,
   SetPrecookedStockResult,
   StockQueryResponse,
-  type BranchConfig,
+  type BranchConfigV1,
 } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { foldEngineEvents } from '../../src/sync/boot-steps';
@@ -41,7 +41,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(counter0.count).toBe(0);
 
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     hub.clock.set(at(25, 7));
@@ -60,13 +60,13 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const latest = lastRecordedAt(hub, 'StockSet');
     expect(i1).toEqual({ item_id: 'I1', on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: latest, is_available: true, unavailable_since: null });
     expect(i1.set_at).toBe(engine(hub).stock.I1!.set_at);
-    expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), item(aBranchConfig(), 'I1')));
+    expect(i1.available).toBe(availableStock(engine(hub), 'I1', at(25, 6), item(aBranchConfigV1(), 'I1')));
     expect(data.items.map((r: ItemRow) => r.item_id)).toEqual(['I1', 'I2', 'I3']);
   });
 
   it('[01a §10 #103] unavailable_since: off yesterday 22:00 before a 05:00 open → yesterday 22:00; off today 06:00 → today 06:00; available → null', async () => {
     const hub = await open(at(24, 22));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     expect((await toggle(hub, admin, 'I2', false, 'cmd-off-2')).statusCode).toBe(200);
     hub.clock.set(at(25, 5));
@@ -82,7 +82,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
   });
 
   it('[01a §10 #116] a non-carrying count from yesterday reads available 0 after the next open, on_hand kept; a new count reads 4', async () => {
-    const config = aBranchConfig();
+    const config = aBranchConfigV1();
     const i1 = item(config, 'I1');
     const entry = (setAt: number | null): StockEntry => ({ on_hand: 4, reserved: 1, set_at: setAt, unit: 'piece' });
     const state = (setAt: number | null, start: number | null): EngineState => ({
@@ -114,7 +114,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
   });
 
   it('[01a §10 #131] a carrying item counted yesterday 23:00 keeps its stock after a 09:00 open; a non-carrying one reads 0 and not_counted', async () => {
-    const config = carrying(aBranchConfig(), 'I3');
+    const config = carrying(aBranchConfigV1(), 'I3');
     const hub = await open(at(24, 10));
     withConfig(config);
     const admin = adminOn(hub, 'S_MGR');
@@ -133,8 +133,8 @@ describe('GET /admin/queries/stock (§6.19)', () => {
   });
 
   it('[01a §10 #132] stockLevel not_counted / out / low / ok, and the stock query carries level', async () => {
-    const base = aBranchConfig();
-    const config: BranchConfig = {
+    const base = aBranchConfigV1();
+    const config: BranchConfigV1 = {
       ...base,
       items: base.items.map((i) => (i.item_id === 'I3' ? { ...i, low_stock_threshold: 1_000 } : i)),
     };
@@ -162,7 +162,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §10 #142] past midnight the open day stays open: OpenBusinessDay is a no-op, yesterday 23:00 count still reads, day_stale true at 18.5 h', async () => {
     const hub = await open(at(24, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-24');
     hub.clock.set(at(24, 23));
@@ -184,7 +184,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §10 #146] day_stale: false at exactly 16 h, true at 16 h 1 min, false with day_stale_after_hours 20', async () => {
     const hub = await open(at(24, 9));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
 
@@ -192,7 +192,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect((await query(hub, admin)).json().data.day_stale).toBe(false);
     hub.clock.set(at(25, 1, 1));
     expect((await query(hub, admin)).json().data.day_stale).toBe(true);
-    withConfig(aBranchConfig({ config_version: 2, day_stale_after_hours: 20 }));
+    withConfig(aBranchConfigV1({ config_version: 2, day_stale_after_hours: 20 }));
     const data = (await query(hub, admin)).json().data;
     expect(data.day_stale).toBe(false);
     expect(data.day_stale_after_hours).toBe(20);
@@ -200,7 +200,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §10 #152] stock poll versions: parts sent only when their version moved; unchanged is 0 statements; restart keeps stock_version', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     const counter = statementCounter(hub.deps.readDb);
@@ -232,7 +232,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     expect(counter.count).toBe(1);
     versions = { meta_version: data.meta_version, stock_version: data.stock_version };
 
-    withConfig(aBranchConfig({ config_version: 2 }));
+    withConfig(aBranchConfigV1({ config_version: 2 }));
     counter.reset();
     data = (await query(hub, admin, versions)).json().data;
     expect(data.meta_version).toBe(`2.${at(25, 6)}`);
@@ -278,12 +278,12 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a S44] after a unit change mid-day the query shows the frozen unit and stock_per_sale_unit', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open');
     hub.clock.set(at(25, 7));
     await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count');
-    const base = aBranchConfig({ config_version: 2 });
+    const base = aBranchConfigV1({ config_version: 2 });
     withConfig({
       ...base,
       items: base.items.map((i) => (i.item_id === 'I1' ? { ...i, stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 } : i)),
@@ -296,14 +296,14 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §10 #158] items[].unit is the open day\'s frozen unit, else the config\'s; a count in another unit reads as no count', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     await openDay(hub, admin, 'cmd-open-1');
     hub.clock.set(at(25, 7));
     await count(hub, admin, [{ item_id: 'I1', on_hand: 6 }], 'cmd-count');
     hub.clock.set(at(25, 23));
     await closeDay(hub, admin, 'cmd-close');
-    const base = aBranchConfig({ config_version: 2 });
+    const base = aBranchConfigV1({ config_version: 2 });
     const grams = { stock_unit: 'g' as const, sale_unit: 'piece' as const, stock_per_sale_unit: 250 };
     withConfig({ ...base, items: base.items.map((i) => (i.item_id === 'I1' || i.item_id === 'I2' ? { ...i, ...grams } : i)) });
 
@@ -327,7 +327,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const admin = adminOn(hub, 'S_MGR');
     expect((await query(hub, admin)).json().data.day_min_gap_hours).toBe(4);
 
-    const base = aBranchConfig();
+    const base = aBranchConfigV1();
     withConfig({ ...base, day_min_gap_hours: 2 });
     const data = (await query(hub, admin)).json().data;
     expect(data.day_min_gap_hours).toBe(2);
@@ -339,7 +339,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §6.19] an admin without manage-stock → 403', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const owner = adminOn(hub, 'S_OWNER');
     const res = await query(hub, owner);
     expect(res.statusCode).toBe(403);
@@ -348,9 +348,9 @@ describe('GET /admin/queries/stock (§6.19)', () => {
   });
 
   it('[01a §6.19] items_meta carries the snapshot fields in config order, with item and category windows', async () => {
-    const base = aBranchConfig();
+    const base = aBranchConfigV1();
     const window = { start_ms: 43_200_000, end_ms: 54_000_000 };
-    const config: BranchConfig = {
+    const config: BranchConfigV1 = {
       ...base,
       categories: base.categories.map((c) => ({ ...c, availability_windows: [window] })),
       items: base.items.map((i) => (i.item_id === 'I2' ? { ...i, availability_windows: [window] } : i)),
@@ -384,7 +384,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
   it('[01a §7.7, D5] real stock, command and admin login answers parse with the shared @pos/events schemas', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub, 'S_MGR');
     const opened = await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-d5-open');
     expect(commandResponse(OpenBusinessDayResult).parse(opened.json())).toEqual(opened.json());
@@ -418,11 +418,11 @@ function at(day: number, hours: number, minutes = 0): number {
   return new Date(2026, 9, day, hours, minutes).getTime();
 }
 
-function carrying(config: BranchConfig, itemId: string): BranchConfig {
+function carrying(config: BranchConfigV1, itemId: string): BranchConfigV1 {
   return { ...config, items: config.items.map((i) => (i.item_id === itemId ? { ...i, carries_over: true } : i)) };
 }
 
-function item(config: BranchConfig, itemId: string) {
+function item(config: BranchConfigV1, itemId: string) {
   const found = config.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
   return found;
@@ -447,7 +447,7 @@ async function open(start: number): Promise<TestHub> {
   return hub;
 }
 
-function withConfig(config: BranchConfig): void {
+function withConfig(config: BranchConfigV1): void {
   swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 

@@ -1,5 +1,5 @@
 import { ConfigStatusResponse } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { onBranchConfigApplied } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
@@ -14,7 +14,7 @@ const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
 
 function snapshot(version: number): Record<string, unknown> {
-  return aBranchConfig({ branch_id: BRANCH, config_version: version });
+  return aBranchConfigV1({ branch_id: BRANCH, config_version: version });
 }
 
 describe('GET /admin/queries/config-status (§6.21)', () => {

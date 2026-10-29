@@ -1,6 +1,6 @@
 import { availableStock, openDayStartMs, type EngineState } from '@pos/engine';
-import type { BranchConfig, EventDraft } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import type { BranchConfigV1, EventDraft } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -21,7 +21,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a §10 #73] StockSet, StockAdded, BusinessDayOpened and ItemMade* reach staff sockets, not station sockets; BranchConfigApplied reaches both', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub);
     const staff = await staffSocket(hub);
     const station = await stationSocket(hub);
@@ -44,7 +44,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a §4.5] BusinessDayClosed reaches staff sockets, not station sockets (#145 push clause)', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
     const staff = await staffSocket(hub);
@@ -60,9 +60,9 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
   });
 
   it('[01a §10 #89] a new stock-tracked item with no StockSet reads 0 in the stock query, availableStock and the catch-up stock part', async () => {
-    const base = aBranchConfig();
+    const base = aBranchConfigV1();
     const i3 = base.items.find((i) => i.item_id === 'I3')!;
-    const config: BranchConfig = { ...base, items: [...base.items, { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 }] };
+    const config: BranchConfigV1 = { ...base, items: [...base.items, { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 }] };
     const hub = await open(at(25, 6));
     withConfig(config);
     const admin = adminOn(hub);
@@ -85,7 +85,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a §10 #90] under fake timers the ItemMadeUnavailable frame arrives with the clock advanced < 5 000 ms; a later reconnect has the item in availability', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub);
     const staff = await staffSocket(hub);
 
@@ -113,7 +113,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(early.stock).toEqual({ business_day: null, business_day_started_at: null, items: {} });
     expect(catchUpOf(await stationSocket(hub)).branch_config).toBeNull();
 
-    const config = aBranchConfig({ config_version: 7 });
+    const config = aBranchConfigV1({ config_version: 7 });
     withConfig(config);
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
@@ -146,7 +146,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a S47] the catch-up branch_config part carries hub_time', async () => {
     const hub = await open(at(25, 12, 34));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const part = catchUpOf(await staffSocket(hub)).branch_config as { hub_time: { now_ms: number; utc_offset_ms: number } };
     expect(part.hub_time).toEqual({ now_ms: at(25, 12, 34), utc_offset_ms: offset(at(25, 12, 34)) });
     hub.clock.advance(90_000);
@@ -156,7 +156,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a S41] the catch-up stock part reads available 0 for yesterday’s non-carrying count after the next open (#116 catch-up clause)', async () => {
     const hub = await open(at(24, 10));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-24');
     hub.clock.set(at(24, 23));
@@ -194,7 +194,7 @@ async function open(start: number): Promise<TestHub> {
   return hub;
 }
 
-function withConfig(config: BranchConfig): void {
+function withConfig(config: BranchConfigV1): void {
   swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 

@@ -1,6 +1,6 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import { BranchConfigSnapshotSchemaV1, type ConfigFetch } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadBranchConfig } from '../../src/projections/branch-config';
 import { branchConfig } from '../../src/sync/branch-config-holder';
@@ -12,7 +12,7 @@ const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
 function snapshot(version: number, o: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
+  return { ...aBranchConfigV1({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
 describe('config poller: schema version and stored body', () => {
@@ -55,7 +55,7 @@ describe('config poller: schema version and stored body', () => {
 
   it('[01a §10 #94] unknown fields accepted: hash over the raw JSON, dropped from branchConfig(), kept in the stored body; restart parses the body to the same config', async () => {
     const { h, cloud } = await hub();
-    const base = snapshot(3) as ReturnType<typeof aBranchConfig>;
+    const base = snapshot(3) as ReturnType<typeof aBranchConfigV1>;
     const raw = {
       ...base,
       promo: {},

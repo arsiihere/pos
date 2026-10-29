@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV1, SNAPSHOT_SCHEMA_VERSION, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV1, SNAPSHOT_SCHEMA_VERSION, type BranchConfigV1 } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { ConfigEntry } from '../sync/branch-config-holder.js';
 import { itemAvailabilityProjection } from './item-availability.js';
@@ -46,7 +46,7 @@ export function readBranchConfigRow(db: Database.Database, branchId: string): Br
     .get(branchId) as BranchConfigRow | undefined;
 }
 
-export function parseStoredSnapshot(body: string): BranchConfig {
+export function parseStoredSnapshot(body: string): BranchConfigV1 {
   return BranchConfigSnapshotSchemaV1.parse(JSON.parse(body));
 }
 

@@ -2,8 +2,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { availableStock, buildEngineState, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { parseEvent, type BranchConfig, type ConfigItem, type PosEvent } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { parseEvent, type BranchConfigV1, type ConfigItemV1, type PosEvent } from '@pos/events';
+import { aBranchConfigV1 } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
@@ -54,7 +54,7 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     };
 
     const first = await start();
-    cloud.respondWithSnapshot({ ...aBranchConfig({ branch_id: BRANCH, config_version: 1 }) }, { directory: await longDirectory() });
+    cloud.respondWithSnapshot({ ...aBranchConfigV1({ branch_id: BRANCH, config_version: 1 }) }, { directory: await longDirectory() });
     expect((await configPoller(first.app).pollOnce()).outcome).toBe('applied');
     const i1 = item(branchConfig(), 'I1');
     expect(i1.carries_over).toBe(false);
@@ -103,14 +103,14 @@ describe('business day across restart; units frozen per day (S33, S44)', () => {
     cleanups.push(() => hub.close());
     hub.clock.set(at(6));
     await seedDirectory(hub, await longDirectory());
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigV1());
     const admin = adminOn(hub);
     await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1');
     hub.clock.set(at(7));
     await post(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 6 }] }, 'cmd-count-1');
 
     // A new snapshot: I1 becomes g / piece / 250, and I4 (g / piece / 250) joins the menu.
-    const changed = aBranchConfig({ config_version: 2 });
+    const changed = aBranchConfigV1({ config_version: 2 });
     const i1g = { ...item(changed, 'I1'), stock_unit: 'g' as const, sale_unit: 'piece' as const, stock_per_sale_unit: 250 };
     const i4 = { ...item(changed, 'I3'), item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 };
     withConfig({ ...changed, items: [...changed.items.map((i) => (i.item_id === 'I1' ? i1g : i)), i4] });
@@ -182,11 +182,11 @@ async function longDirectory() {
   return directory;
 }
 
-function withConfig(config: BranchConfig): void {
+function withConfig(config: BranchConfigV1): void {
   swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
 }
 
-function item(config: BranchConfig | null, itemId: string): ConfigItem {
+function item(config: BranchConfigV1 | null, itemId: string): ConfigItemV1 {
   const found = config?.items.find((candidate) => candidate.item_id === itemId);
   if (found === undefined) throw new Error(`no item ${itemId}`);
   return found;

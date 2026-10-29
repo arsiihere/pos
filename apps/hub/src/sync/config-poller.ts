@@ -3,7 +3,7 @@ import {
   CONFIG_POLL_INTERVAL_MS,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
-  type BranchConfig,
+  type BranchConfigV1,
   type DirectoryInput,
   type EventDraft,
 } from '@pos/events';
@@ -64,7 +64,7 @@ const MSG = 'config poll';
 interface ConfigPart {
   raw: Record<string, unknown>;
   hash: string;
-  config: BranchConfig;
+  config: BranchConfigV1;
 }
 
 const pollers = new WeakMap<FastifyInstance, ConfigPoller>();

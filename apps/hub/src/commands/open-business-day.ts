@@ -1,5 +1,5 @@
 import type { DayUnits } from '@pos/engine';
-import { isStockTracked } from '@pos/events';
+import { isStockTrackedV1 } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { branchConfig } from '../sync/branch-config-holder.js';
@@ -32,7 +32,7 @@ export function registerOpenBusinessDay(app: FastifyInstance): void {
         const units: Record<string, DayUnits> = {};
         const config = branchConfig();
         for (const item of config?.items ?? []) {
-          if (config === null || !isStockTracked(config, item)) continue;
+          if (config === null || !isStockTrackedV1(config, item)) continue;
           units[item.item_id] = {
             stock_unit: item.stock_unit,
             sale_unit: item.sale_unit,

@@ -1,4 +1,4 @@
-import type { BranchConfig, ConfigItem } from '../src/config.js';
+import type { BranchConfig, BranchConfigV1, ConfigItem, ConfigItemV1 } from '../src/config.js';
 import type { PosEvent } from '../src/envelope.js';
 
 const T = 1_761_000_000_000;
@@ -285,7 +285,7 @@ export function anItemMadeAvailable(overrides?: Overrides): PosEvent {
   return build(stock('ItemMadeAvailable', 'I1', { item_id: 'I1' }), overrides);
 }
 
-function configItem(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItem>): ConfigItem {
+function configItemV1(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItemV1>): ConfigItemV1 {
   return {
     item_id: itemId,
     category_id: 'C1',
@@ -314,8 +314,8 @@ function configItem(itemId: string, name: string, sortOrder: number, o: Partial<
 }
 
 // 01a §4.3: slot station "Karahi"; I1 (pieces) and I3 (g, sold per 250 g piece)
-// are stock-tracked; I2 is not.
-export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
+// are stock-tracked; I2 is not. Seam (01c P-2): deleted in task 21.
+export function aBranchConfigV1(overrides?: Partial<BranchConfigV1>): BranchConfigV1 {
   return {
     snapshot_schema_version: 1,
     config_version: 1,
@@ -341,15 +341,105 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
     tax_classes: [],
     categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 1, availability_windows: [] }],
     items: [
-      configItem('I1', 'Chicken Karahi', 1, { stock_time_ms: 300_000 }),
-      configItem('I2', 'Mutton Karahi', 2, {}),
-      configItem('I3', 'Chicken Karahi — Half', 3, {
+      configItemV1('I1', 'Chicken Karahi', 1, { stock_time_ms: 300_000 }),
+      configItemV1('I2', 'Mutton Karahi', 2, {}),
+      configItemV1('I3', 'Chicken Karahi — Half', 3, {
         stock_time_ms: 300_000,
         stock_unit: 'g',
         sale_unit: 'piece',
         stock_per_sale_unit: 250,
       }),
     ],
+    ...overrides,
+  };
+}
+
+function configItem(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItem>): ConfigItem {
+  return {
+    item_id: itemId,
+    category_id: 'C1',
+    variant_group_id: null,
+    variant_name: null,
+    name,
+    description: null,
+    sort_order: sortOrder,
+    price_minor: 120_000,
+    tax_class_id: null,
+    serve_mode: 'sync',
+    prep_buffer_ms: 0,
+    cook_time_ms: 1_200_000,
+    stock_time_ms: null,
+    out_of_stock_behaviour: 'cook_fresh',
+    sale_unit: 'piece',
+    requires_weighing: false,
+    stock_draws: [],
+    availability_windows: [],
+    station_id: 'S1',
+    program_id: null,
+    stock_program_id: null,
+    modifier_group_ids: [],
+    ...o,
+  };
+}
+
+// 01c §4.6: slot station "Karahi"; stock item K1 "Karahi pot" counted in g
+// there; Half I1 draws 500 g, Full I3 draws 1 000 g (variant group V1);
+// I2 is not stock-tracked.
+export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
+  return {
+    snapshot_schema_version: 2,
+    config_version: 1,
+    branch_id: envelope.branch_id,
+    currency_code: 'PKR',
+    tax_enabled: false,
+    day_stale_after_hours: 16,
+    day_min_gap_hours: 4,
+    floors: [],
+    stations: [
+      {
+        station_id: 'S1',
+        name: 'Karahi',
+        location_label: null,
+        station_type: 'slot',
+        capacity: 4,
+        freshness_window_ms: null,
+        completion_mode: 'two_tap',
+        is_archived: false,
+        programs: [],
+      },
+    ],
+    tax_classes: [],
+    categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 1, availability_windows: [] }],
+    variant_groups: [
+      { variant_group_id: 'V1', category_id: 'C1', name: 'Chicken Karahi', description: null, sort_order: 1 },
+    ],
+    stock_items: [
+      {
+        stock_item_id: 'K1',
+        name: 'Karahi pot',
+        stock_unit: 'g',
+        carries_over: false,
+        station_id: 'S1',
+        low_stock_threshold: null,
+      },
+    ],
+    modifier_groups: [],
+    items: [
+      configItem('I1', 'Chicken Karahi — Half', 1, {
+        variant_group_id: 'V1',
+        variant_name: 'Half',
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }],
+      }),
+      configItem('I2', 'Mutton Karahi', 2, {}),
+      configItem('I3', 'Chicken Karahi — Full', 3, {
+        variant_group_id: 'V1',
+        variant_name: 'Full',
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1_000 }],
+      }),
+    ],
+    deals: [],
     ...overrides,
   };
 }

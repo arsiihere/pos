@@ -1,21 +1,21 @@
-import type { BranchConfig } from '@pos/events';
+import type { BranchConfigV1 } from '@pos/events';
 import type { WriterTx } from '../engine-host/writer.js';
 
 export interface ConfigEntry {
-  config: BranchConfig;
+  config: BranchConfigV1;
   snapshotHash: string;
   configVersion: number;
   snapshotSchemaVersion: number;
   appliedAt: number;
 }
 
-type ConfigHook = (prev: BranchConfig | null, next: BranchConfig, tx: WriterTx) => void;
+type ConfigHook = (prev: BranchConfigV1 | null, next: BranchConfigV1, tx: WriterTx) => void;
 
 let current: ConfigEntry | null = null;
 const hooks: ConfigHook[] = [];
 
 // §4.2: null before the first apply; swapped after COMMIT (D45).
-export function branchConfig(): BranchConfig | null {
+export function branchConfig(): BranchConfigV1 | null {
   return current?.config ?? null;
 }
 
@@ -37,6 +37,6 @@ export function onBranchConfigApplied(fn: ConfigHook): () => void {
 }
 
 // A throw propagates and fails the whole apply (S43).
-export function runBranchConfigHooks(prev: BranchConfig | null, next: BranchConfig, tx: WriterTx): void {
+export function runBranchConfigHooks(prev: BranchConfigV1 | null, next: BranchConfigV1, tx: WriterTx): void {
   for (const fn of [...hooks]) fn(prev, next, tx);
 }

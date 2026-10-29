@@ -1,6 +1,6 @@
 import { DomainError } from '@pos/domain';
 import { applyEvent, availableStock, dayUnits, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTracked, type BranchConfig, type ConfigItem } from '@pos/events';
+import { isStockTrackedV1, type BranchConfigV1, type ConfigItemV1 } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
@@ -60,7 +60,7 @@ export function uniqueItemIds(entries: ReadonlyArray<{ item_id: string }>, rc: z
 
 // §6.17 order: config present → a business day is open → each entry in config and stock-tracked;
 // every entry is checked before any event is written.
-export function stockItems(state: Readonly<EngineState>, entries: ReadonlyArray<{ item_id: string }>): ConfigItem[] {
+export function stockItems(state: Readonly<EngineState>, entries: ReadonlyArray<{ item_id: string }>): ConfigItemV1[] {
   const config = branchConfig();
   if (config === null) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: entries[0]!.item_id });
   if (openDayStartMs(state) === null) throw new DomainError('BUSINESS_DAY_NOT_OPEN');
@@ -69,7 +69,7 @@ export function stockItems(state: Readonly<EngineState>, entries: ReadonlyArray<
 
 // 01b B20, §4.4 row 9: under `manage-stock` scope `my_stations` the items must be routed at this branch to one
 // of the person's count_stock stations; checked after the 01a checks, before any event is written.
-export function requireItemsInScope(ctx: CommandCtx, items: ReadonlyArray<Pick<ConfigItem, 'item_id' | 'station_id'>>): void {
+export function requireItemsInScope(ctx: CommandCtx, items: ReadonlyArray<Pick<ConfigItemV1, 'item_id' | 'station_id'>>): void {
   const inScope = stockScopeFilter(ctx.directory, ctx.actor.staffId, ctx.permission);
   const outside = items.filter((item) => !inScope(item)).map((item) => item.item_id);
   if (outside.length > 0) {
@@ -93,21 +93,21 @@ export function stockScopeFilter(
   directory: StaffDirectory,
   staffId: string | null,
   resolution: Resolution | null,
-): (item: Pick<ConfigItem, 'station_id'>) => boolean {
+): (item: Pick<ConfigItemV1, 'station_id'>) => boolean {
   if (manageStockScope(resolution) === 'branch') return () => true;
   const stations = new Set(staffId === null ? [] : directory.stationsOf(staffId, 'count_stock'));
   return (item) => stations.has(item.station_id);
 }
 
-function trackedItem(config: BranchConfig, itemId: string): ConfigItem {
+function trackedItem(config: BranchConfigV1, itemId: string): ConfigItemV1 {
   const item = config.items.find((candidate) => candidate.item_id === itemId);
   if (item === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
-  if (!isStockTracked(config, item)) throw new DomainError('STOCK_NOT_TRACKED', { item_id: itemId });
+  if (!isStockTrackedV1(config, item)) throw new DomainError('STOCK_NOT_TRACKED', { item_id: itemId });
   return item;
 }
 
 // S40 N8: set_at is the command's clock reading; the stock query is the truth.
-export function stockResult(state: EngineState, item: ConfigItem, setAt: number) {
+export function stockResult(state: EngineState, item: ConfigItemV1, setAt: number) {
   const entry = stockOf(state, item.item_id);
   const start = openDayStartMs(state);
   return {
