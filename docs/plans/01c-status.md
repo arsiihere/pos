@@ -15,6 +15,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | AD-7 | Task 11 (developer decision, spec gap): a variant group PATCH that restores the group re-checks the merged category; an archived category → `422 CONFIG_REFERENCE_INVALID { field: 'category_id', reason: 'archived' }`, nothing written (otherwise archive group → archive category → restore group leaves an active group in an archived category, against V16). The check runs with the references (C4 step 4), so a restore whose category is archived and whose name collides answers 422 before 409 | behaviour added where §6.2 is silent | spec §6.2, at the as-built review |
 | AD-8 | Task 11 (developer decision, spec gap): the variant group wire's `member_ids` lists every member, archived included (§3.2 rule 4); task 12's menu read uses the same rule | API detail where the spec is silent | spec §6.1 / §6.3, at the as-built review |
 | AD-9 | Task 12: error `field` values the spec does not name, on the item POST: `category_mismatch` → `category_id`; equal units with a factor other than 1 → `unit_mismatch` on `stock_draws.0.stock_item_id`; a variant group without `variant_name` (or the reverse) → `400` on the missing field | error detail where the spec is silent | spec §6.4, at the as-built review |
+| AD-10 | Task 14's file list gains `packages/events/src/admin/restaurant.ts`: `PatchMenuItemBody` needs `stock_draws` and `requires_weighing` (and drops the deprecated unit fields) for R2, R7, R9; the plan's task 14 list omits it | file-list | plan only |
 
 ## Notes
 
