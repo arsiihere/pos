@@ -17,6 +17,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | AD-9 | Task 12: error `field` values the spec does not name, on the item POST: `category_mismatch` → `category_id`; equal units with a factor other than 1 → `unit_mismatch` on `stock_draws.0.stock_item_id`; a variant group without `variant_name` (or the reverse) → `400` on the missing field | error detail where the spec is silent | spec §6.4, at the as-built review |
 | AD-10 | Task 14's file list gains `packages/events/src/admin/restaurant.ts`: `PatchMenuItemBody` needs `stock_draws` and `requires_weighing` (and drops the deprecated unit fields) for R2, R7, R9; the plan's task 14 list omits it | file-list | plan only |
 | AD-11 | Q-3 (developer decision): item rules R4, R6 and R8 count only active parts of active deals (`deals.archived_at IS NULL` joined in the in-use reads). Condition: a deal restore (§6.15 PATCH that makes the merged deal active) re-checks every active choice item on the merged parts, even when `parts` is not sent: active (else `422 { field: 'parts.N.choices.M.item_id', reason: 'archived' }`), R2 (one `sale_unit` per part), R5 (not weighed); in task 30's plan entry with its test | behaviour where the spec is silent | spec §6.5 and §6.15, at the as-built review |
+| AD-12 | Task 17: `apps/cloud/test/cross-tenant.int.test.ts` (outside the task's file list) gains a named exception for `PUT /v1/admin/stock-items/:id/branches/:branch_id`: with tenant B's ids it answers `404 STOCK_ITEM_NOT_FOUND`, not `BRANCH_NOT_FOUND`, because §6.9 and C2 lock the stock item first and check the branch inside the transaction (still a 404, nothing written); the foreign-branch case is tested with the tenant's own stock item | file-list (test expectation) | plan only |
 
 ## Notes
 
@@ -45,6 +46,9 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 13 | DONE | `91c482f` | #101, #111, #120, [01c §6.5], [01c §6.5 T4] | Developer checks passed: no group lock after the item lock on any path (the implicit FK `FOR KEY SHARE` only touches an already-held group); restart 3 then `503`; P-8 order; 403 first |
 | 14 | DONE | `698b134` | #24, #85, #123, [01c §6.5 R7], [01c §6.5 S26]; re-keyed 01a #128 | AD-10. Stock item lock (kind 5) top of rule 1; `assertUnits` deleted; 01a #81 back to `toEqual` |
 | 15 | DONE | `d6c6581` | #25, #83, #128 | R4, R10, R6 in the 409 slot; open question Q-3 (archived deals' parts) |
+| 15 follow-up | DONE | `9796dbf` | [01c §6.5 AD-11] | AD-11 (developer, Q-3): R4/R6 reads join active deals |
+| 16 | DONE | `fa30856` | #28–#30, #35, [01c §6.8] | 403 first; `seedStockItem` replaced by the API helper (#123 archives and restores through §6.8); open question Q-4 (R1 before R2) |
+| 17 | DONE | `b5588ad` | #31–#34, [01c V16 P-10], [01c §6.9] | AD-12: stock item lock first, branch read in the transaction (§6.9, C2); the cross-tenant test has a named exception for this route |
 
 ## Checkpoints
 
@@ -86,3 +90,12 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - Open seams: unchanged from batch 3 (V1 names, `config-v2-view.ts`, AD-2/AD-3 helpers).
 - Open question Q-3 (developer): R4/R6 (and R8 from task 30) count active parts of archived deals.
 - Follow-ups after the checkpoint (developer, Q-3): AD-11. Task 15 follow-up commit joins active deals in R4/R6 reads. Task 30's plan entry gains: §6.15 R3 in the service with the stale-version test (Q-2); deal restore re-checks choice items (AD-11 condition) with its test; R8 joins active deals; the #128 R10-before-R8 control.
+
+### Batch 5 (§11 step 9) — 2026-10-29
+
+- Tasks 16–17 done (plus the AD-11 follow-up to task 15). Reviews: 16 and 17 clean, no fix rounds; task 17 stopped once for a ruling (AD-12, spec order kept).
+- Gate (controller only, after each task): last run on `b5588ad` 230 files, 1041 tests passing. No 57P01, no 40P01.
+- Tests closed: 01c #28–#35 (8). Re-keyed: none.
+- AD added: AD-11 (developer), AD-12.
+- Open seams: unchanged (V1 names, `config-v2-view.ts`, AD-2/AD-3 helpers).
+- Open question Q-4 (developer): §6.8 runs R1 (`422`, a drawer's unit) before R2 (`409`, active drawers on archive) when one PATCH changes `stock_unit` and archives; §6.5's Q2 precedence puts `409` before `422`.
