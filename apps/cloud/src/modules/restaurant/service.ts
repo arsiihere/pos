@@ -31,7 +31,10 @@ import {
   insertTable,
   insertTaxClass,
   insertWindows,
+  offeringDealIds,
   deleteItemRoute,
+  dealsBrokenBySaleUnit,
+  linkingGroupIds,
   lockCategory,
   lockFloor,
   lockItemRoute,
@@ -990,6 +993,7 @@ interface ItemPatch {
   stockItem?: { stock_unit: string; archived_at: number | null } | undefined;
   category?: { archived_at: number | null } | undefined;
   taxClass?: { archived_at: number | null } | undefined;
+  linkingGroupIds?: string[] | undefined;
 }
 
 type ItemRule = (p: ItemPatch) => void | Promise<void>;
@@ -997,6 +1001,10 @@ type ItemRule = (p: ItemPatch) => void | Promise<void>;
 const invalidReference = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
 const groupOf = (p: ItemPatch) => p.groups.find((g) => g.variant_group_id === p.merged.variant_group_id);
 const isActive = (p: ItemPatch) => p.merged.archived_at === null;
+const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal', ids: string[]) =>
+  new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: p.before.item_id, used_by: { entity, ids } });
+// R4 and R10 share one read (§6.5 R10: "the same read as R4"); read once per attempt.
+const linkingGroups = async (p: ItemPatch) => (p.linkingGroupIds ??= await linkingGroupIds(p.level, p.before.item_id));
 
 // 01c §6.5 rule precedence (v0.6 Q2) with the T4 decision (§12.7, P-8): after the no-op, in this order; the first
 // failure answers. Slots owned by later tasks are named no-ops.
@@ -1041,9 +1049,35 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
     },
   ],
   // (2) 409 CONFIG_IN_USE: R4, R10, R6
-  ['409 R4', () => {}], // task 15
-  ['409 R10', () => {}], // task 15
-  ['409 R6', () => {}], // task 15
+  // (V16, D-3; P1). Plain reads after the item lock, no lock taken (§6 "Lock order").
+  [
+    '409 R4 archive while linked or offered',
+    async (p) => {
+      if (p.before.archived_at !== null || isActive(p)) return;
+      const groupIds = await linkingGroups(p);
+      if (groupIds.length > 0) throw inUse(p, 'modifier_group', groupIds);
+      const dealIds = await offeringDealIds(p.level, p.before.item_id);
+      if (dealIds.length > 0) throw inUse(p, 'deal', dealIds);
+    },
+  ],
+  [
+    '409 R10 linked item stays piece',
+    async (p) => {
+      const awayFromPiece = p.before.sale_unit === 'piece' && p.merged.sale_unit !== 'piece';
+      const weighingOn = !p.before.requires_weighing && p.merged.requires_weighing;
+      if (!awayFromPiece && !weighingOn) return;
+      const groupIds = await linkingGroups(p);
+      if (groupIds.length > 0) throw inUse(p, 'modifier_group', groupIds);
+    },
+  ],
+  [
+    '409 R6 deal part would mix units',
+    async (p) => {
+      if (p.merged.sale_unit === p.before.sale_unit) return;
+      const dealIds = await dealsBrokenBySaleUnit(p.level, p.before.item_id, p.merged.sale_unit);
+      if (dealIds.length > 0) throw inUse(p, 'deal', dealIds);
+    },
+  ],
   // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9
   [
     '422 01a stock_time_exceeds_cook_time',
