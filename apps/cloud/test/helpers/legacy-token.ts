@@ -1,3 +1,4 @@
+// Deliberately frozen at the pre-B5 token format (no cv claim), mirroring what app.jwt.sign produced before 01b B5; do not follow later signer changes.
 import { createHmac } from 'node:crypto';
 import type { TestCloud } from './test-cloud';
 

@@ -30,7 +30,7 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 7 | DONE | `c415a17`, `b353f8b` | [01c §4.6], [01c §4.2 P-7] | One fix round: test files are not typechecked by the gate, so the P-7 assignability check also lives as a type-only assertion at the end of `packages/events/src/config.ts` (one scoped `eslint-disable-next-line no-unused-vars`). `options` 0–50 per §4.6 F1 |
 | 8 | DONE | `1d5056f` | #66, #108, [01c §5.1 P-2]; re-keyed 01a #68, #133, #143, #145, #149 | Seam `apps/hub/src/sync/config-v2-view.ts` (comment on line 1). AD-2. Catch-up `business_day` now carries `stock_units` / `draws` (the engine `BusinessDay` of §4.2) |
 | 9 | DONE | `eff6b0c` | #69; re-keyed 01a #66, #129, #148, #157 | AD-3. Engine no longer imports `ConfigItemV1` |
-| 9a | DONE | this commit | — | Developer-added. AD-4, README R31. Test type errors fixed in every package; no `src` behaviour change (hub `qr.ts` / `issue-admin-bootstrap.ts` lose their `@ts-expect-error` now that `src/types/qrcode.d.ts` declares the module) |
+| 9a | DONE | `5dc55d5`, `b4aea7b`, fix round | — | Developer-added. AD-4, README R31. Test type errors fixed in every package; no `src` behaviour change (hub `qr.ts` / `issue-admin-bootstrap.ts` lose their `@ts-expect-error` now that `src/types/qrcode.d.ts` declares the module). Fix round 1: cloud fixture tokens kept without `cv` through a test-only signer (`test/helpers/legacy-token.ts`, [01b #91]). Fix round 2: turbo `typecheck:tests` has `"cache": false` (cloud's test typecheck reads hub files turbo does not hash); `typecheck` stays cached |
 
 ## Checkpoints
 
