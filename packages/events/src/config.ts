@@ -1,3 +1,4 @@
+import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { z } from 'zod';
 import { DirectorySchema } from './directory.js';
 
@@ -274,3 +275,15 @@ export const SyncConfigEnvelopeSchema = z.object({
     directory: DirectorySchema.nullable(),
   }),
 });
+
+// Plan P-7: the schema-2 types must stay assignable to the @pos/domain
+// menu-line inputs. Checked here in src, because the package typecheck
+// excludes *.test.ts (the expectTypeOf test in config.test.ts is not compiled).
+type AssertTrue<T extends true> = T;
+type Extends<A, B> = [A] extends [B] ? true : false;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- compile-time check only, never referenced
+type P7Assignability = [
+  AssertTrue<Extends<ConfigItem, MenuLineItem>>,
+  AssertTrue<Extends<ConfigModifierGroup, MenuLineGroup>>,
+  AssertTrue<Extends<ConfigDeal, MenuLineDeal>>,
+];
