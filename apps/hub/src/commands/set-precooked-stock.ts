@@ -1,6 +1,6 @@
 import { DomainError, type Unit } from '@pos/domain';
 import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigItemV1 } from '@pos/events';
+import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigItemV1, type ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
@@ -45,7 +45,7 @@ export function registerSetPrecookedStock(app: FastifyInstance): void {
         const next = appended.reduce(applyEvent, ctx.state);
         return {
           events: [],
-          result: { items: payload.entries.map((entry, i) => stockResult(next, items[i]!, now)) },
+          result: { items: items.map((item) => stockResult(next, viewStockItem(config, item.item_id), now)) },
         };
       },
     }),
@@ -119,17 +119,26 @@ export function dayStockUnitOf(
   return dayStockUnit(state, stockItem ?? { stock_item_id: item.item_id, stock_unit: item.stock_unit });
 }
 
+// 01c V5 through the V2 view (P-2): a tracked item's stock item has the item's id (§5.1). Called only after
+// the item passed 01a's tracked check, so a miss is the same rule failing (STOCK_NOT_TRACKED).
+export function viewStockItem(config: BranchConfig | null, itemId: string): ConfigStockItem {
+  const stockItem = config?.stock_items.find((candidate) => candidate.stock_item_id === itemId);
+  if (stockItem === undefined) throw new DomainError('STOCK_NOT_TRACKED', { item_id: itemId });
+  return stockItem;
+}
+
 // S40 N8: set_at is the command's clock reading; the stock query is the truth.
-export function stockResult(state: EngineState, item: ConfigItemV1, setAt: number) {
-  const entry = stockOf(state, item.item_id);
+// 01c V5, §3.5.1: the numbers and level of the stock item (same id as the item through the view).
+export function stockResult(state: EngineState, stockItem: ConfigStockItem, setAt: number) {
+  const entry = stockOf(state, stockItem.stock_item_id);
   const start = openDayStartMs(state);
   return {
-    item_id: item.item_id,
+    item_id: stockItem.stock_item_id,
     on_hand: entry.on_hand,
     reserved: entry.reserved,
     unit: entry.unit,
-    available: availableStock(state, item.item_id, start, item),
-    level: stockLevel(state, item.item_id, start, item),
+    available: availableStock(state, stockItem.stock_item_id, start, stockItem),
+    level: stockLevel(state, stockItem.stock_item_id, start, stockItem),
     set_at: setAt,
   };
 }

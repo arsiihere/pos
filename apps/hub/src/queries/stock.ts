@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_DAY_MIN_GAP_HOURS, DEFAULT_DAY_STALE_AFTER_HOURS, DomainError } from '@pos/domain';
 import { availableStock, dayDraws, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import { isStockTrackedV1, type BranchConfig, type BranchConfigV1 } from '@pos/events';
+import { isStockTrackedV1, type BranchConfig, type BranchConfigV1, type ConfigStockItem } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution } from '../auth/staff-directory.js';
@@ -96,7 +96,9 @@ function itemsMeta(state: Readonly<EngineState>, config: BranchConfigV1 | null, 
 function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConfig | null, start: number | null) {
   const items = config?.items ?? [];
   const off = offSince(ctx, items.map((item) => item.item_id));
+  const stockItemsById = new Map((v2?.stock_items ?? []).map((s) => [s.stock_item_id, s]));
   return items.map((item) => {
+    const stockItem = stockItemsById.get(item.item_id) ?? untrackedStandIn(item);
     const unit = dayStockUnitOf(ctx.state, v2, item);
     const stored = stockOf(ctx.state, item.item_id);
     const entry = stored.unit === unit ? stored : { on_hand: 0, reserved: 0, set_at: null };
@@ -106,13 +108,26 @@ function stockItems(ctx: QueryCtx, config: BranchConfigV1 | null, v2: BranchConf
       on_hand: entry.on_hand,
       reserved: entry.reserved,
       unit,
-      available: availableStock(ctx.state, item.item_id, start, item),
-      level: stockLevel(ctx.state, item.item_id, start, item),
+      available: availableStock(ctx.state, item.item_id, start, stockItem),
+      level: stockLevel(ctx.state, item.item_id, start, stockItem),
       set_at: entry.set_at,
       is_available: since === undefined,
       unavailable_since: since ?? null,
     };
   });
+}
+
+// Seam until 01c tasks 19–20 (the query lists stock items): an untracked item has no stock item in the view,
+// so its row keeps 01a's numbers from its own unit, carries_over and threshold, as dayStockUnitOf does.
+function untrackedStandIn(item: BranchConfigV1['items'][number]): ConfigStockItem {
+  return {
+    stock_item_id: item.item_id,
+    name: item.name,
+    stock_unit: item.stock_unit,
+    carries_over: item.carries_over,
+    station_id: item.station_id,
+    low_stock_threshold: item.low_stock_threshold,
+  };
 }
 
 function requireManageStock(ctx: QueryCtx): Resolution {

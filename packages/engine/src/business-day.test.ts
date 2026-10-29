@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { parseEvent, type BranchConfig, type ConfigItem, type ConfigItemV1, type PosEvent } from '@pos/events';
-import { aBranchConfig, aBranchConfigV1, aBusinessDayClosed, aBusinessDayOpened, aStockSet } from '@pos/events/testing';
+import { parseEvent, type BranchConfig, type ConfigItem, type ConfigStockItem, type PosEvent } from '@pos/events';
+import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
@@ -20,10 +20,9 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')) as unknown;
 }
 
-function item(id: string, o: Partial<ConfigItemV1> = {}): ConfigItemV1 {
-  const found = aBranchConfigV1().items.find((i) => i.item_id === id);
-  if (found === undefined) throw new Error(id);
-  return { ...found, ...o };
+// 01c V5: a stock item counted in pieces, keyed like the builders' default StockSet (stock_item_id 'I1').
+function stockItem(id: string, o: Partial<ConfigStockItem> = {}): ConfigStockItem {
+  return { ...aBranchConfig().stock_items[0]!, stock_item_id: id, stock_unit: 'piece', ...o };
 }
 
 function v2Item(config: BranchConfig, id: string): ConfigItem {
@@ -93,7 +92,7 @@ describe('@pos/engine business day', () => {
   it('[01a S46] stockLevel cases', () => {
     const open = fold([aBusinessDayOpened({ recorded_at: T0 })]);
     const start = openDayStartMs(open);
-    const withThreshold = item('I1', { low_stock_threshold: 1_000 });
+    const withThreshold = stockItem('I1', { low_stock_threshold: 1_000 });
     const count = (n: number) => applyEvent(open, aStockSet({ recorded_at: T0 + 1, payload: { on_hand: n } }));
 
     expect(stockLevel(open, 'I1', start, withThreshold)).toBe('not_counted');
@@ -101,6 +100,6 @@ describe('@pos/engine business day', () => {
     expect(stockLevel(count(0), 'I1', start, withThreshold)).toBe('out');
     expect(stockLevel(count(1_000), 'I1', start, withThreshold)).toBe('low');
     expect(stockLevel(count(1_001), 'I1', start, withThreshold)).toBe('ok');
-    expect(stockLevel(count(1), 'I1', start, item('I1', { low_stock_threshold: null }))).toBe('ok');
+    expect(stockLevel(count(1), 'I1', start, stockItem('I1', { low_stock_threshold: null }))).toBe('ok');
   });
 });

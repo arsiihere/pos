@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
 import { branchConfigV2 } from '../sync/config-v2-view.js';
-import { dayStockUnitOf, requireItemsInScope, stockItems, stockResult, uniqueItemIds } from './set-precooked-stock.js';
+import { dayStockUnitOf, requireItemsInScope, stockItems, stockResult, uniqueItemIds, viewStockItem } from './set-precooked-stock.js';
 
 const Payload = z.object({
   entries: z
@@ -28,11 +28,12 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
         const start = openDayStartMs(ctx.state);
         const now = ctx.clock.branchNow();
         const config = branchConfigV2();
+        const stock = items.map((item) => viewStockItem(config, item.item_id));
         const recordedAs: Array<'added' | 'set'> = [];
         const drafts = payload.entries.map((entry, i) => {
           const item = items[i]!;
           const unit = dayStockUnitOf(ctx.state, config, item);
-          const valid = countIsValid(stockOf(ctx.state, entry.item_id), start, { carries_over: item.carries_over, stock_unit: unit });
+          const valid = countIsValid(stockOf(ctx.state, entry.item_id), start, { carries_over: stock[i]!.carries_over, stock_unit: unit });
           recordedAs.push(valid ? 'added' : 'set');
           return {
             stream_type: 'stock' as const,
@@ -55,7 +56,7 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
             // An 'added' entry always has a set_at: countIsValid is false when it is null.
             items: payload.entries.map((entry, i) => {
               const setAt = recordedAs[i] === 'added' ? stockOf(next, entry.item_id).set_at! : now;
-              return { ...stockResult(next, items[i]!, setAt), recorded_as: recordedAs[i]! };
+              return { ...stockResult(next, stock[i]!, setAt), recorded_as: recordedAs[i]! };
             }),
           },
         };
