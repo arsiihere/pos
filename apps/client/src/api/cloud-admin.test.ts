@@ -350,6 +350,50 @@ describe('cloud-admin client', () => {
     }
   });
 
+  it('[01c §6.1, §6.2, §6.6–§6.9] each size group and stock item call sends the §6 method, path, body and key', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    const group = { name: 'Chicken Karahi', category_id: 'C1' };
+    const stock = { name: 'Karahi pot', stock_unit: 'g' as const, carries_over: false };
+    const cases: Array<{
+      run: (api: ReturnType<typeof createCloudAdmin>) => Promise<unknown>;
+      method: string;
+      url: string;
+      body?: unknown;
+      key?: string;
+    }> = [
+      { run: (api) => api.createVariantGroup(group, 'K1'), method: 'POST', url: '/v1/admin/variant-groups', body: group, key: 'K1' },
+      {
+        run: (api) => api.patchVariantGroup('VG1', { expected_version: 'v1', archived: true }),
+        method: 'PATCH',
+        url: '/v1/admin/variant-groups/VG1',
+        body: { expected_version: 'v1', archived: true },
+      },
+      { run: (api) => api.listStockItems(), method: 'GET', url: '/v1/admin/stock-items' },
+      { run: (api) => api.listStockItems({ status: 'archived' }), method: 'GET', url: '/v1/admin/stock-items?status=archived' },
+      { run: (api) => api.createStockItem(stock, 'K2'), method: 'POST', url: '/v1/admin/stock-items', body: stock, key: 'K2' },
+      {
+        run: (api) => api.patchStockItem('SI1', { expected_version: 'v2', stock_unit: 'piece' }),
+        method: 'PATCH',
+        url: '/v1/admin/stock-items/SI1',
+        body: { expected_version: 'v2', stock_unit: 'piece' },
+      },
+      {
+        run: (api) => api.putStockItemBranch('SI1', 'B1', { expected_version: 'v3', station_id: 'S1', low_stock_threshold: 1500 }),
+        method: 'PUT',
+        url: '/v1/admin/stock-items/SI1/branches/B1',
+        body: { expected_version: 'v3', station_id: 'S1', low_stock_threshold: 1500 },
+      },
+    ];
+    for (const c of cases) {
+      const data = { marker: c.url };
+      const { calls, fetchFn } = fakeFetch([json(200, { data })]);
+      const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+      expect(await c.run(api), c.url).toEqual({ ok: true, data });
+      expect(calls[0], c.url).toMatchObject({ method: c.method, url: c.url, body: c.body });
+      expect(calls[0]?.headers['Idempotency-Key'], c.url).toBe(c.key);
+    }
+  });
+
   it('[01b §8] changePassword sends both passwords and keeps the new token pair; the user no longer must change', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     sessionStorage.setItem('owner_refresh_token', 'R1');

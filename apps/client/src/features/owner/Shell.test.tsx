@@ -61,11 +61,17 @@ function stubPhone() {
 }
 
 describe('[01b §8] owner shell (design handoff README §9)', () => {
-  it('laptop: Menu, Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; counts; foot', () => {
+  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; counts; foot', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
-      'Menu',
+      '# Menu',
+      'Items',
+      'Size groups',
+      'Choice groups',
+      'Deals',
+      'Stock items',
+      '# Restaurant',
       'Floors and tables',
       'Kitchen stations',
       '# People',
@@ -92,7 +98,13 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
-      'مینیو',
+      '# مینیو',
+      'آئٹم',
+      'سائز گروپ',
+      'چوائس گروپ',
+      'ڈیل',
+      'اسٹاک آئٹم',
+      '# ریسٹورنٹ',
       'فلور اور میزیں',
       'کچن اسٹیشن',
       '# لوگ',
@@ -130,6 +142,10 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     const nav = dialog.querySelector('nav.pos-sidenav')!;
     expect([...nav.querySelectorAll(':scope > a.pos-sidenav__item')].map((a) => a.getAttribute('href'))).toEqual([
       '#/menu',
+      '#/size-groups',
+      '#/choice-groups',
+      '#/deals',
+      '#/stock-items',
       '#/floors',
       '#/stations',
       '#/staff',

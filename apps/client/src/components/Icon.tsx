@@ -175,6 +175,36 @@ const PATHS = {
       <path d="M13.5 6.5l4 4" />
     </>
   ),
+  // 01c side nav: Size groups, Choice groups, Deals, Stock items.
+  layers: (
+    <>
+      <path d="M12 3l9 5-9 5-9-5z" />
+      <path d="M3 13l9 5 9-5" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M5 6h14" />
+      <path d="M5 12h14" />
+      <path d="M5 18h14" />
+      <circle cx="9" cy="6" r="2" />
+      <circle cx="15" cy="12" r="2" />
+      <circle cx="8" cy="18" r="2" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M3 12V4h8l10 10-8 8z" />
+      <circle cx="7.5" cy="8.5" r="1.5" />
+    </>
+  ),
+  pot: (
+    <>
+      <path d="M4 10h16v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" />
+      <path d="M2 10h20" />
+      <path d="M9 6c0-1 1-1.5 1-2.5M14 6c0-1 1-1.5 1-2.5" />
+    </>
+  ),
   archive: (
     <>
       <rect x="3.5" y="4.5" width="17" height="4" rx="1" />

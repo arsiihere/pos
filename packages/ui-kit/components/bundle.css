@@ -2137,3 +2137,46 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
 .pos-forced > .pos-appbar { flex: none; flex-wrap: nowrap; }
 .pos-forced > .pos-appbar--phone > .pos-appbar__title { flex: 1; min-width: 0; }
 .pos-forced__main { overflow-y: auto; min-height: 0; }
+
+/* ---------- Pulse page layout · 01c-B size groups and stock items ---------- */
+/* Lists (SizeGroups, StockItems): search 300 on the start side, helper line on the end side; the whole row opens. */
+.pos-c01bar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pos-c01bar__search { width: 300px; }
+.pos-c01bar__note { margin-inline-start: auto; }
+.pos-list--open .pos-list__row { position: relative; }
+.pos-list--open .pos-rowlink::after { content: ""; position: absolute; inset: 0; }
+.pos-list--open .pos-list__row:hover { background: var(--surface-soft); }
+.pos-c01unit { font-size: 16px; }
+/* Forms (SizeGroupForm, StockItemForm): one 980 column, sections 16 apart */
+.pos-c01form { gap: var(--space-4); max-width: 980px; width: 100%; }
+.pos-disclosure--soft { box-shadow: none; background: var(--surface-soft); }
+/* Setting switches (Keeps overnight, Counted here) read in ink when off; the kit's off colour marks a stopped sale. */
+.pos-c01form .pos-switch { color: var(--ink); }
+.pos-list--sizes .pos-list__row { grid-template-columns: minmax(0, 1fr) 160px 120px auto; gap: var(--space-4); }
+.pos-list--sizes .pos-list__num { font-size: 18px; }
+.pos-list--dishes .pos-list__row, .pos-list--sizes .pos-list__row { min-height: 80px; }
+.pos-list--dishes .pos-list__row { display: flex; align-items: center; gap: var(--space-4); }
+.pos-list--dishes .pos-list__name { flex: 1; }
+.pos-c01form .pos-list__name strong { font-size: 17px; line-height: 22px; }
+.pos-c01form .pos-field__error .pos-icon { width: 18px; height: 18px; flex: none; }
+/* In use (01c-D04): one row per user, the name with its icon, Open at the end */
+.pos-inuse__row { padding: 0; }
+.pos-inuse__row span { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink); }
+/* Dialogs in 01c follow the 01c frames (PROMPT "Dialogs"): wide ones up to 100dvh - 32, full ones fill the phone. */
+.pos-scrim > .pos-dialog.pos-dialog--wide { max-height: calc(100dvh - 32px); overflow: hidden; }
+.pos-scrim:has(> .pos-dialog--full) { padding: 0; }
+.pos-scrim > .pos-dialog.pos-dialog--full { max-height: none; height: 100dvh; overflow: hidden; }
+/* Phone (SizeGroupsPhone, StockItemsPhone, StockItemPhone): cards, one column, Save in the bottom bar */
+.pos-c01cards { display: flex; flex-direction: column; gap: var(--space-3); }
+.pos-c01card { text-decoration: none; color: inherit; }
+.pos-c01card .pos-pcard__top > .pos-icon { flex: none; color: var(--ink); }
+@media (max-width: 760px) {
+  .pos-c01bar__search { width: 100%; }
+  .pos-appbar--phone ~ .pos-content:has(.pos-c01cards, .pos-c01form) { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+  .pos-list--sizes .pos-list__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .pos-list--sizes .pos-list__row > .pos-chip { grid-column: 1; justify-self: start; }
+  .pos-c01form ~ .pos-actionbar { margin: auto calc(var(--space-4) * -1) calc(var(--space-3) * -1); padding: var(--space-3) var(--space-4); }
+  .pos-c01form ~ .pos-actionbar .pos-actionbar__end { flex: 1; }
+  .pos-c01form ~ .pos-actionbar .pos-actionbar__end > .pos-btn { flex: 1; }
+}
+.pos-appbar--phone ~ .pos-content .pos-c01form .pos-grid { grid-template-columns: minmax(0, 1fr); }

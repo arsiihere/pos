@@ -21,8 +21,8 @@ export interface NavCounts {
   branches?: number;
 }
 
-// S50 a, 01b README §9: the owner shell. Side nav on a laptop or tablet: Menu, Floors and tables, Kitchen
-// stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
+// S50 a, 01b README §9, 01c CHANGES §1: the owner shell. Side nav on a laptop or tablet: Menu: Items, Size
+// groups, Choice groups, Deals, Stock items; Restaurant: Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
 // Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same nav opens from
 // the app bar's Menu button as an overlay drawer with the kit Dialog's focus rules (S50 a v1.3.1, P-4 answer B;
 // Pulse frame OwnerMenuPhoneNav): close button, Escape, a scrim tap and choosing a page close it. Every nav link
@@ -45,12 +45,31 @@ export function Shell({
   const phone = usePhone();
   const leave = useLeave();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menu = t('owner.nav.group.menu');
+  const restaurant = t('owner.nav.group.restaurant');
   const people = t('owner.nav.group.people');
   const branches = t('owner.nav.group.branches');
   const items: NavItem[] = [
-    { href: '#/menu', icon: 'list', label: t('owner.nav.menu'), current: route === '/menu' },
-    { href: '#/floors', icon: 'grid', label: t(phone ? 'owner.nav.floors_short' : 'owner.nav.floors'), current: route === '/floors' },
-    { href: '#/stations', icon: 'flame', label: t(phone ? 'owner.nav.stations_short' : 'owner.nav.stations'), current: route === '/stations' },
+    // 01c hand-off CHANGES §1, Q4: section "Menu" with Items · Size groups · Choice groups · Deals · Stock items.
+    { href: '#/menu', icon: 'list', label: t('owner.nav.items'), current: route.split('?')[0] === '/menu', group: menu },
+    { href: '#/size-groups', icon: 'layers', label: t('owner.nav.size_groups'), current: route.startsWith('/size-groups'), group: menu },
+    { href: '#/choice-groups', icon: 'sliders', label: t('owner.nav.choice_groups'), current: route.startsWith('/choice-groups'), group: menu },
+    { href: '#/deals', icon: 'tag', label: t('owner.nav.deals'), current: route.startsWith('/deals'), group: menu },
+    { href: '#/stock-items', icon: 'pot', label: t('owner.nav.stock_items'), current: route.startsWith('/stock-items'), group: menu },
+    {
+      href: '#/floors',
+      icon: 'grid',
+      label: t(phone ? 'owner.nav.floors_short' : 'owner.nav.floors'),
+      current: route === '/floors',
+      group: restaurant,
+    },
+    {
+      href: '#/stations',
+      icon: 'flame',
+      label: t(phone ? 'owner.nav.stations_short' : 'owner.nav.stations'),
+      current: route === '/stations',
+      group: restaurant,
+    },
     // 01b §8
     { href: '#/staff', icon: 'user', label: t('owner.nav.staff'), count: counts.staff, current: route.startsWith('/staff'), group: people },
     { href: '#/roles', icon: 'shield', label: t('owner.nav.roles'), count: counts.roles, current: route.startsWith('/roles'), group: people },

@@ -14,6 +14,8 @@ import type {
   BranchSettingsPatchRequest,
   BranchWire,
   ChangedPassword,
+  CreateStockItemRequest,
+  CreateVariantGroupRequest,
   ChangedVersions,
   ChangePasswordRequest,
   CreateCategoryRequest,
@@ -29,10 +31,13 @@ import type {
   PatchFloorRequest,
   PatchMenuItemRequest,
   PatchProgramRequest,
+  PatchStockItemRequest,
+  PatchVariantGroupRequest,
   PatchStationRequest,
   PatchTableRequest,
   PatchTaxClassRequest,
   PutItemRouteRequest,
+  PutStockItemBranchRequest,
   ResponsibilitiesPutRequest,
   ResponsibilitySetWire,
   RoleCreateRequest,
@@ -41,7 +46,10 @@ import type {
   StaffCreateRequest,
   StaffPatchRequest,
   StaffWire,
+  StockItemBranchWire,
+  StockItemWire,
   TeamNode,
+  VariantGroupWire,
 } from '@pos/events';
 
 // §8.1: the owner app's cloud client for §6.2–§6.16 and the 00 owner login. Tokens live in
@@ -113,6 +121,18 @@ export type Role = RoleWire;
 export type ResponsibilitySet = ResponsibilitySetWire;
 export type BranchDetail = BranchWire;
 export type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string | null };
+
+// 01c §5.4, §6.1–§6.9: size groups (code: variant groups) and stock items.
+export type VariantGroup = VariantGroupWire;
+export type StockItemBranch = StockItemBranchWire;
+export interface StockDrawer {
+  item_id: string;
+  name: string;
+  variant_name: string | null;
+  quantity_per_sale_unit: number;
+}
+export type StockItem = StockItemWire & { branches: StockItemBranch[]; drawers: StockDrawer[] };
+export type StockUnit = StockItemWire['stock_unit'];
 
 type LoginData = OwnerLogin;
 export type LockoutNotice = NonNullable<OwnerLogin['lockout_notice']>;
@@ -399,6 +419,29 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       call<{ item: MenuItem }>('PATCH', `/v1/admin/menu-items/${id(itemId)}`, body),
     putItemRoute: (itemId: string, branchId: string, body: PutItemRouteBody) =>
       call<{ route: Route | null }>('PUT', `/v1/admin/menu-items/${id(itemId)}/routes/${id(branchId)}`, body),
+
+    // 01c §6.1–§6.2 size groups (variant groups); the list is the §6.3 menu read's `variant_groups`.
+    createVariantGroup: (body: CreateVariantGroupRequest, key: string) =>
+      call<{ variant_group: VariantGroup }>('POST', '/v1/admin/variant-groups', body, key),
+    patchVariantGroup: (variantGroupId: string, body: PatchVariantGroupRequest) =>
+      call<{ variant_group: VariantGroup }>('PATCH', `/v1/admin/variant-groups/${id(variantGroupId)}`, body),
+
+    // 01c §6.6–§6.9 stock items and their per-branch rows (a branch PUT takes no Idempotency-Key)
+    listStockItems: (query: { status?: 'active' | 'archived' } = {}) =>
+      call<{ can_edit_tenant: boolean; stock_items: StockItem[] }>(
+        'GET',
+        `/v1/admin/stock-items${query.status === undefined ? '' : `?status=${query.status}`}`,
+      ),
+    createStockItem: (body: CreateStockItemRequest, key: string) =>
+      call<{ stock_item: StockItemWire }>('POST', '/v1/admin/stock-items', body, key),
+    patchStockItem: (stockItemId: string, body: PatchStockItemRequest) =>
+      call<{ stock_item: StockItemWire }>('PATCH', `/v1/admin/stock-items/${id(stockItemId)}`, body),
+    putStockItemBranch: (stockItemId: string, branchId: string, body: PutStockItemBranchRequest) =>
+      call<{ branch: StockItemBranch | null }>(
+        'PUT',
+        `/v1/admin/stock-items/${id(stockItemId)}/branches/${id(branchId)}`,
+        body,
+      ),
 
     // 01b §6.1–§6.4 staff and PINs
     listStaff: (query: { status?: 'active' | 'left'; branch_id?: string }) => {

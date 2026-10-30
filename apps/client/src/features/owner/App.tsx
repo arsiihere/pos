@@ -11,7 +11,11 @@ import { FloorsView } from './floors/FloorsView';
 import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
 import { MenuView } from './menu/MenuView';
-import { Shell } from './Shell';
+import { Page, Shell } from './Shell';
+import { SizeGroupForm } from './size-groups/SizeGroupForm';
+import { SizeGroupList } from './size-groups/SizeGroupList';
+import { StockItemForm } from './stock-items/StockItemForm';
+import { StockItemList } from './stock-items/StockItemList';
 import { RoleEditor } from './roles/RoleEditor';
 import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
@@ -154,13 +158,22 @@ function Routes({
         {owner.name === 'stock_counting' && branchId !== null && (
           <StockCountingView key={branchId} api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}
+        {owner.name === 'size_groups' && <SizeGroupList api={api} />}
+        {owner.name === 'size_group_edit' && <SizeGroupForm key={owner.id} api={api} groupId={owner.id} />}
+        {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} />}
+        {owner.name === 'stock_item_edit' && <StockItemForm key={owner.id} api={api} stockItemId={owner.id} branchIds={allowed} />}
+        {/* 01c-S02 and S04 are built by the next 01c groups; the nav entries already lead here. */}
+        {owner.name === 'choice_groups' && <Page api={api} title={t('owner.nav.choice_groups')}>{null}</Page>}
+        {owner.name === 'deals' && <Page api={api} title={t('owner.nav.deals')}>{null}</Page>}
       </Shell>
     );
   }
-  if (route === '/menu' || (needsBranch && branchId !== null)) {
+  // 01c: #/menu?item=… and #/menu?new_size_of=… (size group and stock item Open links) are the menu view too.
+  const isMenu = route.split('?')[0] === '/menu';
+  if (isMenu || (needsBranch && branchId !== null)) {
     return (
       <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
-        {route === '/menu' && <MenuView api={api} />}
+        {isMenu && <MenuView api={api} />}
         {route === '/floors' && branchId !== null && (
           <FloorsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}

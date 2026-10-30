@@ -54,4 +54,15 @@ describe('router', () => {
     expect(matchOwnerRoute('/menu')).toBeNull();
     expect(matchOwnerRoute('/staff/S1/extra')).toBeNull();
   });
+
+  it('[01c §8] matches the Menu section views: size groups, stock items, choice groups, deals', () => {
+    expect(matchOwnerRoute('/size-groups')).toEqual({ name: 'size_groups' });
+    expect(matchOwnerRoute('/size-groups/new')).toEqual({ name: 'size_group_edit', id: 'new' });
+    expect(matchOwnerRoute('/size-groups/VG%201')).toEqual({ name: 'size_group_edit', id: 'VG 1' });
+    expect(matchOwnerRoute('/stock-items')).toEqual({ name: 'stock_items' });
+    expect(matchOwnerRoute('/stock-items/SI1')).toEqual({ name: 'stock_item_edit', id: 'SI1' });
+    expect(matchOwnerRoute('/choice-groups')).toEqual({ name: 'choice_groups' });
+    expect(matchOwnerRoute('/deals')).toEqual({ name: 'deals' });
+    expect(matchOwnerRoute('/stock-items/SI1/branches')).toBeNull();
+  });
 });
