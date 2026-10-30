@@ -128,7 +128,7 @@ async function resumePaired(db, deviceToken) {
   showPaired(deviceType);
   return true;
 }
-// 00-S11: expired (warn, clock), too many (danger, lock), hub busy (warn, sync); the 72 px button asks again.
+// 00-S11: expired (warn, clock), too many (danger, lock), hub busy (warn, sync); the 72 px button (88 on the wall) asks again.
 function askAgain(start, body, waitMs, kind, iconName) {
   const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-pair__again');
   again.type = 'button';

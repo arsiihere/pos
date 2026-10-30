@@ -1609,7 +1609,11 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-code__meta { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; }
 .pos-screen > .pos-pair__status { max-width: 720px; width: 100%; }
 .pos-pair__again, .pos-screen--wall .pos-btn--lg { min-width: 320px; }
-.pos-page--fit > .pos-screen { min-height: 0; flex: 1; overflow: hidden; }
+/* Fits the screen; a state taller than a small kiosk (1280×720) scrolls inside, with no visible scrollbar */
+.pos-page--fit > .pos-screen { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: none; justify-content: safe center; }
+.pos-page--fit > .pos-screen::-webkit-scrollbar { display: none; }
+/* Pair screens are tapped from a distance: 72 px buttons (wall size keeps 88) */
+.pos-page--fit > .pos-screen:not(.pos-screen--wall) .pos-btn--lg { min-height: var(--touch-kitchen); }
 /* Pair this phone (00-S12/S13): phone column, 16 px gutters */
 .pos-phonepair { width: 100%; max-width: 560px; margin-inline: auto; padding: var(--space-6) var(--space-4); gap: var(--space-6); }
 .pos-phonepair--ios { gap: var(--space-5); }
@@ -1627,7 +1631,11 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-signin__who { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .pos-signin__head { display: flex; flex-direction: column; gap: var(--space-4); }
 .pos-signin__head > p { color: var(--ink-muted); }
-.pos-signin .pos-staff { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pos-signin .pos-staff { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+/* Tablet and small laptop (761–1180): narrower gutters and PIN card so the names keep room */
+@media (min-width: 761px) and (max-width: 1180px) {
+  .pos-signin, .pos-signin--approve { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: var(--space-8); padding: var(--space-8); }
+}
 .pos-staff__tile--skeleton { cursor: default; }
 .pos-staff__tile--skeleton > .pos-skeleton { width: 70%; height: 22px; }
 .pos-staff__tile--skeleton > .pos-skeleton + .pos-skeleton { width: 50%; height: 14px; }
