@@ -11,7 +11,7 @@ import { language, t, typeClass } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
-import { BranchSelect, Page } from '../Shell';
+import { BranchSelect, Page, PeopleTabs } from '../Shell';
 import { roleNames } from '../staff/people';
 
 // 01b §8 #/teams (01b-S10, §6.12): the branch's leads and their members as an indented, read-only list
@@ -92,6 +92,7 @@ export function TeamsView({
   const select = <BranchSelect branchIds={branchIds} value={branchId} onChange={onBranch} />;
   return (
     <Page api={api} title={t('teams.title')} end={phone ? undefined : select}>
+      <PeopleTabs current="teams" />
       {phone && <div className="pos-branchpick">{select}</div>}
       {down && shown !== null && <p className={`${typeClass('caption')} pos-intro`}>{fill(t('teams.loaded_at'), { time })}</p>}
       {error !== null && <Banner tone="danger" text={error} />}

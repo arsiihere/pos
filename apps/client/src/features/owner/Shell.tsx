@@ -5,7 +5,7 @@ import { Drawer } from '../../components/Drawer';
 import { Icon } from '../../components/Icon';
 import { SideNav, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
-import { t, typeClass } from '../../i18n';
+import { t, typeClass, type MessageKey } from '../../i18n';
 import { useBranchName } from './branch';
 import { LockoutBanner } from './account/LockoutBanner';
 import { CloudDownBanner } from './cloud';
@@ -16,14 +16,20 @@ import { usePhone } from '../../app/phone';
 const OpenMenu = createContext<{ open: () => void; expanded: boolean } | null>(null);
 
 export interface NavCounts {
-  staff?: number;
-  roles?: number;
   branches?: number;
 }
 
+// The People pages: Staff, Roles, Teams and Stock counting share one nav entry (owner decision 2026-10-30,
+// 01c CHANGES §1) and a tab strip on their list pages.
+function isPeopleRoute(route: string): boolean {
+  const path = route.split('?')[0] ?? '';
+  return /^\/(staff|roles)(\/|$)/.test(path) || path === '/teams' || path === '/stock-counting';
+}
+
 // S50 a, 01b README §9, 01c CHANGES §1: the owner shell. Side nav on a laptop or tablet: Menu: Items, Size
-// groups, Choice groups, Deals, Stock items; Restaurant: Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
-// Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same nav opens from
+// groups, Choice groups, Deals, Stock items; Restaurant: Floors and tables, Kitchen stations, People (Staff,
+// Roles, Teams, Stock counting as tabs; owner decision 2026-10-30), Branches and settings; foot: who is signed in,
+// Change password, Sign out. A count next to Branches when known. On a phone the same nav opens from
 // the app bar's Menu button as an overlay drawer with the kit Dialog's focus rules (S50 a v1.3.1, P-4 answer B;
 // Pulse frame OwnerMenuPhoneNav): close button, Escape, a scrim tap and choosing a page close it. Every nav link
 // goes through the discard guard (S50 c). Laptop and tablet fit the screen: the shell is 100dvh and only the
@@ -47,8 +53,6 @@ export function Shell({
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = t('owner.nav.group.menu');
   const restaurant = t('owner.nav.group.restaurant');
-  const people = t('owner.nav.group.people');
-  const branches = t('owner.nav.group.branches');
   const items: NavItem[] = [
     // 01c hand-off CHANGES §1, Q4: section "Menu" with Items · Size groups · Choice groups · Deals · Stock items.
     { href: '#/menu', icon: 'list', label: t('owner.nav.items'), current: route.split('?')[0] === '/menu', group: menu },
@@ -70,18 +74,15 @@ export function Shell({
       current: route === '/stations',
       group: restaurant,
     },
-    // 01b §8
-    { href: '#/staff', icon: 'user', label: t('owner.nav.staff'), count: counts.staff, current: route.startsWith('/staff'), group: people },
-    { href: '#/roles', icon: 'shield', label: t('owner.nav.roles'), count: counts.roles, current: route.startsWith('/roles'), group: people },
-    { href: '#/teams', icon: 'team', label: t('owner.nav.teams'), current: route === '/teams', group: people },
-    { href: '#/stock-counting', icon: 'clipboard', label: t('owner.nav.stock_counting'), current: route === '/stock-counting', group: people },
+    // 01b §8; one entry for Staff, Roles, Teams and Stock counting (owner decision 2026-10-30)
+    { href: '#/staff', icon: 'user', label: t('owner.nav.people'), current: isPeopleRoute(route), group: restaurant },
     {
       href: '#/branches',
       icon: 'home',
       label: t('owner.nav.branches'),
       count: counts.branches,
       current: route.startsWith('/branches'),
-      group: branches,
+      group: restaurant,
     },
   ];
   const onNavigate = (href: string) => {
@@ -167,6 +168,39 @@ function MenuButton() {
     >
       <Icon name="menu" />
     </button>
+  );
+}
+
+export type PeopleTab = 'staff' | 'roles' | 'teams' | 'counting';
+
+const PEOPLE_TABS: readonly { tab: PeopleTab; href: string; label: MessageKey }[] = [
+  { tab: 'staff', href: '#/staff', label: 'staff.title' },
+  { tab: 'roles', href: '#/roles', label: 'roles.title' },
+  { tab: 'teams', href: '#/teams', label: 'teams.title' },
+  { tab: 'counting', href: '#/stock-counting', label: 'counting.title' },
+];
+
+// Owner decision 2026-10-30 (01c CHANGES §1): the tab strip at the top of the four People list pages (not on
+// the staff form or role editor). Each tab is a link to its route; a choice goes through the discard guard.
+export function PeopleTabs({ current }: { current: PeopleTab }) {
+  const leave = useLeave();
+  return (
+    <nav className="pos-seg pos-peopletabs" aria-label={t('owner.nav.people')}>
+      {PEOPLE_TABS.map(({ tab, href, label }) => (
+        <a
+          key={tab}
+          className="pos-seg__opt"
+          href={href}
+          aria-current={tab === current ? 'page' : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            leave(() => navigate(href.replace(/^#/, '')));
+          }}
+        >
+          {t(label)}
+        </a>
+      ))}
+    </nav>
   );
 }
 

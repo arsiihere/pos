@@ -7,7 +7,7 @@ import { BranchNames } from './branch';
 import { BranchPicker } from './BranchPicker';
 import { GuardProvider } from './guard';
 import { LoginView } from './login/LoginView';
-import { Page, Shell } from './Shell';
+import { Page, PeopleTabs, Shell } from './Shell';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -32,7 +32,7 @@ function renderShell(route = '/staff') {
   act(() =>
     root.render(
       <GuardProvider>
-        <Shell route={route} userName="Arif" counts={{ staff: 9, roles: 7, branches: 3 }} onSignOut={() => {}}>
+        <Shell route={route} userName="Arif" counts={{ branches: 3 }} onSignOut={() => {}}>
           <Page api={api} title="Staff">
             <p>body</p>
           </Page>
@@ -61,7 +61,7 @@ function stubPhone() {
 }
 
 describe('[01b §8] owner shell (design handoff README §9)', () => {
-  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; counts; foot', () => {
+  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations, People, Branches and settings (owner decision 2026-10-30, 01c CHANGES §1); counts; foot', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
@@ -74,16 +74,12 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '# Restaurant',
       'Floors and tables',
       'Kitchen stations',
-      '# People',
-      'Staff [9]',
-      'Roles [7]',
-      'Teams',
-      'Stock counting',
-      '# Branches',
+      'People',
       'Branches and settings [3]',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
-    expect(nav.querySelector('.pos-sidenav__item small .pos-ltr')?.textContent).toBe('9');
+    expect(nav.querySelector('a[aria-current="page"]')?.textContent).toBe('People');
+    expect(nav.querySelector('.pos-sidenav__item small .pos-ltr')?.textContent).toBe('3');
     const foot = nav.querySelector('.pos-sidenav__foot')!;
     expect(foot.querySelector('.pos-sidenav__who')?.textContent).toBe('Arif');
     expect(foot.querySelector('a.pos-sidenav__item')?.getAttribute('href')).toBe('#/account/password');
@@ -107,12 +103,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '# ریسٹورنٹ',
       'فلور اور میزیں',
       'کچن اسٹیشن',
-      '# لوگ',
-      'اسٹاف [9]',
-      'رولز [7]',
-      'ٹیمیں',
-      'اسٹاک کی گنتی',
-      '# برانچیں',
+      'لوگ',
       'برانچیں اور سیٹنگ [3]',
     ]);
     expect(nav.querySelector('.pos-sidenav__foot a')?.textContent).toBe('پاس ورڈ بدلیں');
@@ -149,9 +140,6 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '#/floors',
       '#/stations',
       '#/staff',
-      '#/roles',
-      '#/teams',
-      '#/stock-counting',
       '#/branches',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
@@ -177,9 +165,58 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
 
     // A nav item closes the overlay and navigates.
     dialog = open();
-    await act(async () => dialog.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
-    expect(window.location.hash).toBe('#/roles');
+    await act(async () => dialog.querySelector<HTMLAnchorElement>('a[href="#/branches"]')!.click());
+    expect(window.location.hash).toBe('#/branches');
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe('[owner decision 2026-10-30, 01c CHANGES §1] one People entry with tabs', () => {
+  it.each(['/staff', '/staff/new', '/staff/S1', '/roles', '/roles/R1', '/teams', '/stock-counting'])(
+    'People is the current nav entry on %s',
+    (route) => {
+      renderShell(route);
+      const nav = container.querySelector('nav.pos-sidenav')!;
+      const current = [...nav.querySelectorAll('a[aria-current="page"]')];
+      expect(current.map((a) => a.textContent)).toEqual(['People']);
+      expect(current[0]?.getAttribute('href')).toBe('#/staff');
+    },
+  );
+
+  it('People is not current on other routes', () => {
+    renderShell('/menu');
+    const nav = container.querySelector('nav.pos-sidenav')!;
+    expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/menu');
+  });
+
+  it.each([
+    ['staff', '#/staff'],
+    ['roles', '#/roles'],
+    ['teams', '#/teams'],
+    ['counting', '#/stock-counting'],
+  ] as const)('tabs: Staff, Roles, Teams, Stock counting link to their routes; %s is current', (current, href) => {
+    act(() => root.render(<PeopleTabs current={current} />));
+    const tabs = container.querySelector('nav.pos-seg.pos-peopletabs[aria-label="People"]')!;
+    const links = [...tabs.querySelectorAll<HTMLAnchorElement>(':scope > a.pos-seg__opt')];
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Staff', '#/staff'],
+      ['Roles', '#/roles'],
+      ['Teams', '#/teams'],
+      ['Stock counting', '#/stock-counting'],
+    ]);
+    expect(links.filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.getAttribute('href'))).toEqual([href]);
+  });
+
+  it('tabs: choosing one goes through the discard guard and navigates', async () => {
+    act(() =>
+      root.render(
+        <GuardProvider>
+          <PeopleTabs current="staff" />
+        </GuardProvider>,
+      ),
+    );
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href="#/teams"]')!.click());
+    expect(window.location.hash).toBe('#/teams');
   });
 });
 

@@ -1039,7 +1039,7 @@ a.pos-btn, .pos-btn { text-decoration: none; }
 /* Segmented control: 56 px options */
 .pos-seg { gap: 4px; padding: 4px; border-radius: calc(var(--radius-md) + 4px); background: var(--surface-sunken); }
 .pos-seg__opt { min-height: var(--touch-min); padding: 0 var(--space-5); border-radius: var(--radius-md); color: var(--ink-muted); font: 650 16px/22px var(--font-sans); }
-.pos-seg__opt[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); box-shadow: 0 1px 0 var(--control-edge), 0 4px 12px rgb(60 10 5 / 0.08), inset 0 0 0 2px var(--accent); }
+.pos-seg__opt[aria-pressed="true"], a.pos-seg__opt[aria-current="page"] { background: var(--surface-raised); color: var(--ink); box-shadow: 0 1px 0 var(--control-edge), 0 4px 12px rgb(60 10 5 / 0.08), inset 0 0 0 2px var(--accent); }
 .pos-seg__count { font: 700 13px/1 var(--font-sans); padding: 5px 8px; background: var(--surface-raised); }
 .pos-seg__opt[aria-pressed="true"] .pos-seg__count { background: var(--accent); color: var(--on-accent); }
 
@@ -2215,3 +2215,14 @@ button.pos-pick:nth-child(odd) { background: var(--surface-soft); }
 button.pos-pick[aria-disabled="true"] { cursor: default; }
 button.pos-pick .num { color: var(--ink); white-space: nowrap; }
 button.pos-pick.is-off .num { color: var(--ink-muted); }
+
+/* ---------- Pulse page layout · R2-A People tabs ---------- */
+/* Owner decision 2026-10-30 (01c CHANGES §1): Staff · Roles · Teams · Stock counting as kit segmented links at the
+   top of the four People list pages. Sized to its tabs; on a narrow screen the strip scrolls on its own. */
+.pos-peopletabs { align-self: flex-start; flex: none; flex-wrap: nowrap; max-inline-size: 100%; overflow-x: auto; scrollbar-width: none; }
+.pos-peopletabs > .pos-seg__opt { flex: none; text-decoration: none; white-space: nowrap; }
+.pos-peopletabs > .pos-seg__opt:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+@media (max-width: 760px) {
+  .pos-peopletabs { align-self: stretch; }
+  .pos-peopletabs > .pos-seg__opt { flex: 1 0 auto; justify-content: center; padding-inline: var(--space-2); font-size: 15px; }
+}

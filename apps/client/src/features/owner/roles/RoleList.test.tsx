@@ -53,6 +53,20 @@ async function blur(el: HTMLElement): Promise<void> {
 }
 
 describe('[01b §8] roles list', () => {
+  it('[owner decision 2026-10-30] the People tab strip sits at the top of the content; roles is current', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(<RoleList api={api} />);
+    const tabs = m.container.querySelector('main.pos-content > nav.pos-seg.pos-peopletabs');
+    expect(tabs).not.toBeNull();
+    expect([...tabs!.querySelectorAll('a.pos-seg__opt')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/staff',
+      '#/roles',
+      '#/teams',
+      '#/stock-counting',
+    ]);
+    expect(tabs!.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/roles');
+  });
+
   it('[01b §8] inline idle edit sends { expected_version, idle_minutes }', async () => {
     const { api, calls } = fakeApi(
       handler(() => ok({ role: { ...ROLES[1], idle_minutes: 45, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } })),

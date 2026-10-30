@@ -16,7 +16,7 @@ import { t, typeClass } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, ownAdminText } from '../form';
-import { Page } from '../Shell';
+import { Page, PeopleTabs } from '../Shell';
 import { joinNames, shortDate } from '../staff/people';
 
 // 01b §8 #/roles (01b-S03, S03a, S08, D03): active and archived roles; idle minutes are saved when the
@@ -369,6 +369,7 @@ export function RoleList({ api }: { api: CloudAdmin }) {
 
   return (
     <Page api={api} title={t('roles.title')} end={add}>
+      <PeopleTabs current="roles" />
       {error !== null && <Banner tone="danger" text={error} />}
       {body}
       {archiving !== null && (

@@ -13,7 +13,7 @@ import { t, typeClass } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
-import { Page } from '../Shell';
+import { Page, PeopleTabs } from '../Shell';
 import { PinDialog } from './PinDialog';
 import { roleNames, shortDate } from './people';
 
@@ -200,6 +200,7 @@ export function StaffList({ api, branchIds }: { api: CloudAdmin; branchIds: read
 
   return (
     <Page api={api} title={t('staff.title')} end={add}>
+      <PeopleTabs current="staff" />
       {saved !== null && <Banner tone="ok" text={saved} />}
       {error !== null && <Banner tone="danger" text={error} />}
       {body}

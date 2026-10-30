@@ -63,6 +63,8 @@ describe('[01b §8] role editor', () => {
   it('[01b §8] "Approved by" is a multi-select of role chips; "Where" offers only PERMISSION_SCOPES[permission]', async () => {
     const { api, calls } = fakeApi(handler((call) => ok({ role: { ...ROLES[2], ...(call.body as object) }, changed_versions: { staff: [], roles: [], responsibilities: [] } })));
     await render(api, 'R_LEAD');
+    // Owner decision 2026-10-30: the People tabs are on the list pages only; the editor keeps its back link.
+    expect(m.container.querySelector('.pos-peopletabs')).toBeNull();
 
     // "Where" lists exactly the permission's scopes; a branch-only permission has no "Where".
     const where = grantRow(t('perm.approve-void')).querySelector<HTMLSelectElement>('select');

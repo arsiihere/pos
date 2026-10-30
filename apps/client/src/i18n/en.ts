@@ -555,6 +555,7 @@ export const en = {
   'owner.nav.teams': 'Teams',
   'owner.nav.stock_counting': 'Stock counting',
   'owner.nav.branches': 'Branches and settings',
+  'owner.nav.people': 'People', // owner decision 2026-10-30: one People entry
   'owner.nav.group.people': 'People',
   'owner.nav.group.branches': 'Branches',
   'owner.nav.change_password': 'Change password',

@@ -74,6 +74,19 @@ async function render(write: (call: Call) => Response) {
 }
 
 describe('[01b §8] stock counting', () => {
+  it('[owner decision 2026-10-30] the People tab strip sits at the top of the content; stock-counting is current', async () => {
+    await render(() => ok({}));
+    const tabs = m.container.querySelector('main.pos-content > nav.pos-seg.pos-peopletabs');
+    expect(tabs).not.toBeNull();
+    expect([...tabs!.querySelectorAll('a.pos-seg__opt')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/staff',
+      '#/roles',
+      '#/teams',
+      '#/stock-counting',
+    ]);
+    expect(tabs!.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/stock-counting');
+  });
+
   it('[01b §8] stock-counting PUT sends the whole active set with expected_version', async () => {
     const calls = await render((call) => ok({ ...(call.body as object), version: 'rv2', changed_versions: { staff: [], roles: [], responsibilities: [] } }));
     expect(row('Degh').textContent).toContain('Usman');

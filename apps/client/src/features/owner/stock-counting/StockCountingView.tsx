@@ -17,7 +17,7 @@ import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
 import { useDirtyForm } from '../guard';
-import { BranchSelect, Page } from '../Shell';
+import { BranchSelect, Page, PeopleTabs } from '../Shell';
 
 // 01b §8 #/stock-counting (01b-S05, §6.8): who counts stock at each active station of the branch. Change
 // picks people (who work at the branch) and roles per station; Save sends the whole active set with the
@@ -235,6 +235,7 @@ export function StockCountingView({
 
   return (
     <Page api={api} title={t('counting.title')} end={actions}>
+      <PeopleTabs current="counting" />
       {phone && <div className="pos-branchpick">{select}</div>}
       {loadError !== null && <Banner tone="danger" text={loadError} />}
       {notice === 'saved' && <Banner tone="ok" text={fill(t('counting.saved'), { branch })} />}

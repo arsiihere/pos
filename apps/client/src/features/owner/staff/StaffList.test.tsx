@@ -36,6 +36,20 @@ function names(): string[] {
 }
 
 describe('[01b §8] staff list', () => {
+  it('[owner decision 2026-10-30] the People tab strip sits at the top of the content; staff is current', async () => {
+    const { api } = fakeApi(reads());
+    await m.render(<StaffList api={api} branchIds={['B1']} />);
+    const tabs = m.container.querySelector('main.pos-content > nav.pos-seg.pos-peopletabs');
+    expect(tabs).not.toBeNull();
+    expect([...tabs!.querySelectorAll('a.pos-seg__opt')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/staff',
+      '#/roles',
+      '#/teams',
+      '#/stock-counting',
+    ]);
+    expect(tabs!.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
+  });
+
   it('[01b §8] shows roles, branches and PIN state; search, branch filter and Left are client-side', async () => {
     const { api, calls } = fakeApi(reads());
     await m.render(

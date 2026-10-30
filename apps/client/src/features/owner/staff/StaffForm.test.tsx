@@ -61,6 +61,8 @@ describe('[01b §8] staff form', () => {
         <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
       </GuardProvider>,
     );
+    // Owner decision 2026-10-30: the People tabs are on the list pages only; the form keeps its back link.
+    expect(m.container.querySelector('.pos-peopletabs')).toBeNull();
     setValue(m.container.querySelector<HTMLInputElement>('input[name="display_name"]'), 'Bilal K.');
     await click(button(m.container, t('staff.save')));
 
