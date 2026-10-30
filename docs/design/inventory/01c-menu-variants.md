@@ -25,7 +25,7 @@
 | ID | Name | Kind |
 |---|---|---|
 | 01c-S01 | Item form — Variants section (extends 01a-S07) | section |
-| 01c-D01 | Variant editor (name, price, overrides: cook time, station per branch, stock use) | sheet |
+| 01c-D01 | Retired by spec V2 — a size is a full item (01a-S07 + 01c-S01). | — |
 | 01c-S02 | Modifier groups list | screen |
 | 01c-S03 | Modifier group form (name, min/max, options with price/free, station/cook overrides, serve mode, attached to items/categories) | screen |
 | 01c-D02 | Attach group to items / categories picker | dialog |
@@ -36,11 +36,11 @@
 | 01c-B01 | Override validation ("Choose a station that cooks at Gulberg") | inline error |
 | 01c-B02 | Stock page rows for pools (extends 01a-S11) | row variant |
 
-**Count: 11.**
+**Count: 10** (01c-D01 retired, designer decision 2026-10-30).
 
 ## 4. Per screen
 
-### 01c-S01 / 01c-D01 Variants
+### 01c-S01 Variants
 | Label | Type | Validation | Default | API (proposed) | LTR |
 |---|---|---|---|---|---|
 | Variant name | text | 1–30, unique within item | — | `variants[].name` ("Half", "Full", "Quarter", "Small 250 ml") | — |
@@ -99,13 +99,13 @@ Not designed. Extends 01a-S07 (itself awaiting redesign).
 ## Story AC → screen IDs
 | Story AC | Screens |
 |---|---|
-| E0-MENU AC4 (variants override price, cook time, station) | 01c-S01, D01 |
+| E0-MENU AC4 (variants override price, cook time, station) | 01c-S01 |
 | E0-MENU AC5 (add-ons: price, station) | 01c-S03 |
 | E0-MENU AC6 (combos, one line) | 01c-S05; 02-S05 shows the line |
 | E0-MENU edge: unconfigured station | 01c-B01 |
 | E0-MENU edge: combo with unavailable item | 02-B05 |
 | E0-MENU edge: zero-price add-on | 01c-S03 |
-| E1-ROUTE AC3 (modifier overrides) | 01c-S03, D01 |
+| E1-ROUTE AC3 (modifier overrides) | 01c-S03, S01 |
 | E1-ROUTE AC1 (serve mode per modifier) | 01c-S03 |
 | E1-ROUTE edge (modifier to unconfigured station) | 01c-B01 |
 | 01a carried: stock pools | 01c-S06, B02 |

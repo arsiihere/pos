@@ -1295,3 +1295,14 @@ None.
 
 10. One owner login per restaurant in P1; a partner owner who owns only some branches is deferred until one is needed (B8, §12.4).
 13. Order takers take orders; waiters (helpers) serve. They are separate roles; someone who does both during a rush has both roles (B17, D-12).
+
+---
+
+## Proposed changes — needs approval (2026-10-30)
+
+> **Proposed — needs approval.** Nothing in this section changes the approved text above. It records the change requested by designer decision Q8 of 2026-10-30 (`docs/design/open-questions/01c-menu-variants.md`): one stale-save pattern for every module. If approved, apply it spec-first: bump the version (v1.3), update `docs/specs/README.md`, the 01b brief, the plan, then the code.
+
+| # | Section | Approved text | Proposed change | Reason |
+|---|---|---|---|---|
+| P1 | §8 client contract, row "Edit forms (staff, role, stock counting)" (B23) | "on `409 CONFIG_STALE` show "Someone changed this since you opened it" with **Reload**, keeping nothing of the stale form (B23)" | "on `409 CONFIG_STALE` show a warn banner at the top of the form (on the row for the roles idle row): title "Changed elsewhere", body "Someone saved this after you opened it. What you typed is still here — copy it, then reload.", button **Reload** (primary). The draft stays editable and copyable until Reload; never auto-retry; Reload loads the current version and discards the draft. Key `errors.CONFIG_STALE` (text replaced)." | One pattern across 00/01a/01b/01c (01c-B03). Server behaviour (B23, §9 `CONFIG_STALE`) is unchanged: still `409`, nothing written. The client must not resend the kept draft with the old version |
+| P2 | §8 error mapping ("`CONFIG_STALE` → the reload message above") | as written | Unchanged wording; it now points at the P1 banner | Follows P1 |
