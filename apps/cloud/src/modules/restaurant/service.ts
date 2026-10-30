@@ -995,7 +995,7 @@ const ITEM_ATTEMPTS = 3;
 
 // 01c §6 "§6.5 restart rule" (N2): each attempt is its own transaction; an ItemRestart rolls it back and starts
 // again from the beginning. After attempt 3 → 503 SERVICE_UNAVAILABLE (nothing committed). Any other error ends it.
-export async function withItemRestart<T>(deps: RestaurantDeps, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+async function withItemRestart<T>(deps: RestaurantDeps, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   for (let attempt = 1; attempt <= ITEM_ATTEMPTS; attempt += 1) {
     try {
       return await inTransaction(deps.pool, run);

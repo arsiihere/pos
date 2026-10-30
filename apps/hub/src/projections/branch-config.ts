@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { ConfigEntry } from '../sync/branch-config-holder.js';
 import { itemAvailabilityProjection } from './item-availability.js';
@@ -44,10 +44,6 @@ export function readBranchConfigRow(db: Database.Database, branchId: string): Br
        FROM branch_config WHERE branch_id = ?`,
     )
     .get(branchId) as BranchConfigRow | undefined;
-}
-
-export function parseStoredSnapshot(body: string): BranchConfig {
-  return BranchConfigSnapshotSchemaV2.parse(JSON.parse(body));
 }
 
 // S5, §3.2: 2 primary-key reads. A body that is absent or of another schema version is BODY_MISSING (S28 b).
