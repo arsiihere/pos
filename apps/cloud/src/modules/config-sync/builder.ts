@@ -2,6 +2,7 @@ import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION } from '@pos/even
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
+import { effectiveGroupIds, type LinkRow } from '../menu-variants/effective-set.js';
 
 export interface SnapshotHeader {
   config_version: number;
@@ -27,17 +28,43 @@ interface StockItemRow {
   low_stock_threshold: number | null;
 }
 
+interface GroupOptionRow {
+  modifier_group_id: string;
+  name: string;
+  min_choices: number;
+  max_choices: number;
+  sort_order: number;
+  option_id: string | null;
+  option_name: string | null;
+  price_minor: string | null;
+  max_quantity: number | null;
+  is_default: boolean | null;
+  linked_item_id: string | null;
+  option_sort_order: number | null;
+}
+
+interface SnapshotOption {
+  option_id: string;
+  name: string;
+  price_minor: number;
+  max_quantity: number;
+  is_default: boolean;
+  linked_item_id: string | null;
+  sort_order: number;
+}
+
 interface DrawRow {
   item_id: string;
   stock_item_id: string;
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 10 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
-// items with this branch's rows, draws. Active rows only, except stations, programs and tax classes (S22).
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 12 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// items with this branch's rows, draws, modifier groups with options, links. Active rows only, except stations,
+// programs and tax classes (S22).
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
 // stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47). Returns the
-// wire object (S27). modifier_groups, deals and modifier_group_ids stay empty until 01c tasks 27 and 31.
+// wire object (S27). deals stay empty until 01c task 31.
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
@@ -92,6 +119,7 @@ export async function buildSnapshot(
   const items = await scoped.query<
     Record<string, unknown> & {
       item_id: string;
+      category_id: string;
       price_minor: string;
       variant_group_id: string | null;
       station_id: string;
@@ -146,6 +174,25 @@ export async function buildSnapshot(
     [items.map((item) => item.item_id)],
   );
 
+  // 01c §4.6 rule 3: the active groups with their active options, by group sort_order, id, then option sort_order, id.
+  const groupRows = await level.query<GroupOptionRow>(
+    `SELECT g.modifier_group_id, g.name, g.min_choices, g.max_choices, g.sort_order,
+            o.option_id, o.name AS option_name, o.price_minor, o.max_quantity, o.is_default, o.linked_item_id,
+            o.sort_order AS option_sort_order
+       FROM modifier_groups g
+       LEFT JOIN modifier_options o
+         ON o.tenant_id = g.tenant_id AND o.modifier_group_id = g.modifier_group_id AND o.archived_at IS NULL
+      WHERE g.tenant_id = $1 AND g.archived_at IS NULL
+      ORDER BY g.sort_order, g.modifier_group_id, o.sort_order, o.option_id`,
+  );
+  const activeGroupIds = [...new Set(groupRows.map((row) => row.modifier_group_id))];
+  // 01c V8: the links of the active groups; resolved per item in memory (effectiveGroupIds).
+  const links = await level.query<LinkRow>(
+    `SELECT modifier_group_id, target_kind, target_id, mode FROM modifier_group_links
+      WHERE tenant_id = $1 AND modifier_group_id = ANY($2)`,
+    [activeGroupIds],
+  );
+
   // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
   stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
   const counted = new Set(stockItems.map((stockItem) => stockItem.stock_item_id));
@@ -161,6 +208,70 @@ export async function buildSnapshot(
     list.push({ stock_item_id: draw.stock_item_id, quantity_per_sale_unit: draw.quantity_per_sale_unit });
     drawsByItem.set(draw.item_id, list);
   }
+
+  // 01c §4.6 rules 2, 3 (F1, M1): each active group's options at this branch. A linked option whose item is not
+  // in this snapshot (not routed here, or archived) is left out; its null price is the item's effective branch price.
+  const itemsById = new Map(items.map((item) => [item.item_id, item]));
+  const groups: Array<{
+    modifier_group_id: string;
+    name: string;
+    min_choices: number;
+    max_choices: number;
+    sort_order: number;
+    has_plain_options: boolean;
+    options: SnapshotOption[];
+  }> = [];
+  for (const row of groupRows) {
+    let group = groups.at(-1);
+    if (group === undefined || group.modifier_group_id !== row.modifier_group_id) {
+      group = {
+        modifier_group_id: row.modifier_group_id,
+        name: row.name,
+        min_choices: row.min_choices,
+        max_choices: row.max_choices,
+        sort_order: row.sort_order,
+        has_plain_options: false,
+        options: [],
+      };
+      groups.push(group);
+    }
+    if (row.option_id === null) continue;
+    if (row.linked_item_id === null) group.has_plain_options = true; // M1: configured, offered here or not
+    const linked = row.linked_item_id === null ? undefined : itemsById.get(row.linked_item_id);
+    if (row.linked_item_id !== null && linked === undefined) continue;
+    const price = row.price_minor ?? linked?.price_minor;
+    group.options.push({
+      option_id: row.option_id,
+      name: row.option_name!,
+      price_minor: Number(price), // BIGINT arrives as a string (S27)
+      max_quantity: row.max_quantity!,
+      is_default: row.is_default!,
+      linked_item_id: row.linked_item_id,
+      sort_order: row.option_sort_order!,
+    });
+  }
+  // F1: an optional group left with no options here is left out everywhere; a required one is kept with options: [].
+  const offeredGroups = groups.filter((group) => group.options.length > 0 || group.min_choices >= 1);
+  // m15 (§4.6 rule 6): only active targets count — this snapshot's items, active categories, active variant groups.
+  const activeTargets = new Set<string>([
+    ...items.map((item) => item.item_id),
+    ...categories.map((category) => category.category_id),
+    ...variantGroups.map((group) => group.variant_group_id),
+  ]);
+  const groupIdsByItem = new Map(
+    items.map((item) => [
+      item.item_id,
+      // V8 resolution, no maximum (M5)
+      effectiveGroupIds(
+        { item_id: item.item_id, category_id: item.category_id, variant_group_id: item.variant_group_id },
+        links,
+        offeredGroups,
+        activeTargets,
+      ),
+    ]),
+  );
+  // m5: only groups some item references.
+  const referenced = new Set([...groupIdsByItem.values()].flat());
 
   const windowsByTarget = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
   for (const w of windows) {
@@ -221,13 +332,13 @@ export async function buildSnapshot(
     })),
     variant_groups: variantGroups,
     stock_items: stockItems,
-    modifier_groups: [],
+    modifier_groups: offeredGroups.filter((group) => referenced.has(group.modifier_group_id)),
     items: items.map((item) => ({
       ...item,
       price_minor: Number(item.price_minor), // BIGINT arrives as a string (S27)
       stock_draws: routeTracks(item) ? (drawsByItem.get(item.item_id) ?? []) : [],
       availability_windows: windowsOf('item', item.item_id),
-      modifier_group_ids: [],
+      modifier_group_ids: groupIdsByItem.get(item.item_id) ?? [],
     })),
     deals: [],
   };
