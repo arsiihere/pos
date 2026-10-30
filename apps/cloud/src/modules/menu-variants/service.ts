@@ -621,7 +621,8 @@ function sortedUnique(ids: readonly string[]): string[] {
 // archive of the omitted active rows, V14) when sent, the links (delete + multi-row insert) when sent → one audit
 // row, whole active lists before / after (V15) → bump every branch (10) → the group's branch rows (response).
 // Merged-row rules after the no-op, in order: R1 min ≤ max (400), R2 choices_unsatisfiable, R3 defaults_exceed_max
-// (422), R4 option names (409 modifier_option, one statement, options sent), R5 effective-set limit (links sent),
+// (422), R4 option names (409 modifier_option, one statement, options sent), R5 effective-set limit (links sent,
+// merged group active),
 // R6 linked items on a restore without options (the stored active options' linked items join the items' FOR SHARE
 // only then, §12.7 T1).
 export async function patchModifierGroup(
@@ -720,8 +721,9 @@ export async function patchModifierGroup(
       const repeated = await firstRepeatedName(level, body.options.map((o) => o.name));
       if (repeated !== undefined) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_option', name: repeated });
     }
-    // R5 (V8): the effective-set limit when links are sent (one read; nothing when no attach link)
-    if (body.links !== undefined) {
+    // R5 (V8): the effective-set limit when links are sent and the merged group is active (an archived group is in no
+    // effective set, V8 / m15; a restore that sends links is checked); one read, nothing when no attach link
+    if (body.links !== undefined && merged.archived_at === null) {
       await assertGroupLinksWithinLimit(level, { modifier_group_id: modifierGroupId, sort_order: merged.sort_order }, body.links);
     }
     // R6 (Q1, T1): a restore without options checks the stored active options' linked items, locked above; with

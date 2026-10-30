@@ -625,7 +625,7 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
         { target_kind: 'item', target_id: naan, mode: 'detach' },
       ],
     });
-    // dropping the detach would make Bread Naan's 21st group → 422 at links
+    // dropping the detach would make "Spice level" Naan's 21st group → 422 at links
     const error = await refused(
       () => patch(group.modifier_group_id, { expected_version: group.version, links: [{ target_kind: 'category', target_id: karahi, mode: 'attach' }] }),
       422,
@@ -635,6 +635,19 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
     const same = await ok(group.modifier_group_id, { expected_version: group.version, name: 'Spice', links: group.links });
     expect(same.links).toEqual(group.links);
     expect(others).toHaveLength(20);
+
+    // review I-1: an archived group is in no effective set → links onto Naan (at 20) → 200; restoring it with those
+    // links sent is still checked → 422
+    const extra = await createModifierGroup(cloud, f, { name: 'Extra', min_choices: 0, max_choices: 1, options: [{ name: 'Yes', price_minor: 0 }] });
+    const archivedExtra = await ok(extra.modifier_group_id, { expected_version: extra.version, archived: true });
+    const naanLink = [{ target_kind: 'item' as const, target_id: naan, mode: 'attach' as const }];
+    const linked = await ok(extra.modifier_group_id, { expected_version: archivedExtra.version, links: naanLink });
+    expect(linked.links).toEqual(naanLink);
+    const restoreWithLinks = await refused(
+      () => patch(extra.modifier_group_id, { expected_version: linked.version, archived: false, links: naanLink }),
+      422,
+    );
+    expect(restoreWithLinks.details).toEqual({ field: 'links', reason: 'too_many_groups' });
   });
 
   it('[01c #125] Naan linked by active Bread: §6.5 R10 refuses the unit change; §6.12 R6 refuses restoring Bread onto a non-piece or archived Naan (T1 steps)', async () => {
@@ -652,7 +665,12 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
     const inUse = { code: 'CONFIG_IN_USE', details: { entity: 'menu_item', id: naan, used_by: { entity: 'modifier_group', ids: [bread.modifier_group_id] } } };
     const restore = () => patch(bread.modifier_group_id, { expected_version: bread.version, archived: false });
     const restoreRefused = async (reason: string) => {
+      const auditBefore = (await counts()).audit;
+      const versionsBefore = await versions();
+      // refused() compares every modifier table, the audit count and the branch versions; stated here for the edge rows
       const error = await refused(restore, 422);
+      expect((await counts()).audit).toBe(auditBefore);
+      expect(await versions()).toEqual(versionsBefore);
       expect(error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'options.0.linked_item_id', reason } });
       expect(await groupArchived(bread.modifier_group_id)).toBe(true);
     };
@@ -701,6 +719,9 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
     await okItem(naan, { sale_unit: 'piece', archived: false });
     expect(await itemRow(naan)).toEqual({ sale_unit: 'piece', requires_weighing: false, archived: false });
     const restored = await ok(bread.modifier_group_id, { expected_version: bread.version, archived: false });
+    // tenant-wide check, group lock, options read, links read, linked items FOR SHARE (R6), group update, audit,
+    // 2 bump, branch rows read (AD-26 d: 9 → 10)
+    expect(counter.count).toBe(10);
     expect(restored.archived_at).toBeNull();
     expect(restored.options.map((o) => o.linked_item_id)).toEqual([naan, null]);
   });
