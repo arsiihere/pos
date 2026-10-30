@@ -1,7 +1,14 @@
 import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
 import type { EffectiveSetItem, LinkRow } from './effective-set.js';
-import type { ModifierGroupRow, ModifierLinkRow, ModifierOptionRow, StockItemRow, VariantGroupRow } from './versions.js';
+import type {
+  ModifierGroupRow,
+  ModifierLinkRow,
+  ModifierOptionBranchRow,
+  ModifierOptionRow,
+  StockItemRow,
+  VariantGroupRow,
+} from './versions.js';
 
 // 01c §5.1 variant_groups. The stored row without its members; member_ids come from menu_items.
 export type VariantGroupRecord = Omit<VariantGroupRow, 'member_ids' | 'archived_at'> & { archived_at: number | null };
@@ -423,4 +430,136 @@ export async function selectAffectedItems(
       ORDER BY a.item_id`,
     [targets.categoryIds, targets.variantGroupIds, targets.itemIds],
   );
+}
+
+type RawModifierGroup = Omit<ModifierGroupRecord, 'archived_at'> & { archived_at: string | null };
+type RawOption = Omit<ModifierOptionRow, 'price_minor' | 'archived_at'> & { price_minor: string | null; archived_at: string | null };
+const MODIFIER_GROUP_COLUMNS = 'modifier_group_id, name, min_choices, max_choices, sort_order, archived_at';
+const OPTION_COLUMNS = 'option_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order, archived_at';
+
+function modifierGroupRow(row: RawModifierGroup): ModifierGroupRecord {
+  return { ...row, archived_at: row.archived_at === null ? null : Number(row.archived_at) };
+}
+
+function optionRow(row: RawOption): ModifierOptionRow {
+  return {
+    ...row,
+    price_minor: row.price_minor === null ? null : Number(row.price_minor),
+    archived_at: row.archived_at === null ? null : Number(row.archived_at),
+  };
+}
+
+// §6 lock order 1: the §6.12 / §6.12a target.
+export async function lockModifierGroup(repo: TenantLevelRepository, modifierGroupId: string): Promise<ModifierGroupRecord | undefined> {
+  const rows = await repo.query<RawModifierGroup>(
+    `SELECT ${MODIFIER_GROUP_COLUMNS} FROM modifier_groups WHERE tenant_id = $1 AND modifier_group_id = $2 FOR UPDATE`,
+    [modifierGroupId],
+  );
+  return rows[0] === undefined ? undefined : modifierGroupRow(rows[0]);
+}
+
+export async function updateModifierGroup(repo: TenantLevelRepository, row: ModifierGroupRecord, now: number): Promise<ModifierGroupRecord> {
+  const rows = await repo.query<RawModifierGroup>(
+    `UPDATE modifier_groups SET name = $3, min_choices = $4, max_choices = $5, sort_order = $6, archived_at = $7, updated_at = $8
+      WHERE tenant_id = $1 AND modifier_group_id = $2
+      RETURNING ${MODIFIER_GROUP_COLUMNS}`,
+    [row.modifier_group_id, row.name, row.min_choices, row.max_choices, row.sort_order, row.archived_at, now],
+  );
+  return modifierGroupRow(rows[0]!);
+}
+
+// Every option (active and archived) of these groups, one = ANY, by group then option_id.
+export async function selectModifierOptions(
+  repo: TenantLevelRepository,
+  modifierGroupIds: readonly string[],
+): Promise<Array<ModifierOptionRow & { modifier_group_id: string }>> {
+  const rows = await repo.query<RawOption & { modifier_group_id: string }>(
+    `SELECT modifier_group_id, ${OPTION_COLUMNS} FROM modifier_options
+      WHERE tenant_id = $1 AND modifier_group_id = ANY($2)
+      ORDER BY modifier_group_id, option_id`,
+    [modifierGroupIds],
+  );
+  return rows.map((row) => ({ ...optionRow(row), modifier_group_id: row.modifier_group_id }));
+}
+
+// The links of these groups, one = ANY.
+export async function selectModifierLinks(
+  repo: TenantLevelRepository,
+  modifierGroupIds: readonly string[],
+): Promise<Array<ModifierLinkRow & { modifier_group_id: string }>> {
+  return repo.query<ModifierLinkRow & { modifier_group_id: string }>(
+    `SELECT modifier_group_id, target_kind, target_id, mode FROM modifier_group_links
+      WHERE tenant_id = $1 AND modifier_group_id = ANY($2)
+      ORDER BY modifier_group_id, target_kind, target_id`,
+    [modifierGroupIds],
+  );
+}
+
+// §6.12, V14: the sent options in one multi-row INSERT … ON CONFLICT (tenant_id, option_id) DO UPDATE (a sent id is
+// an option of this group, checked before; a restored one gets archived_at null), so modifier_option_branches rows
+// that reference an option survive every edit.
+export async function upsertModifierOptions(
+  repo: TenantLevelRepository,
+  modifierGroupId: string,
+  options: ReadonlyArray<Omit<ModifierOptionRow, 'archived_at'>>,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO modifier_options
+       (tenant_id, option_id, modifier_group_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order)
+     SELECT t.tenant_id, o.option_id, $2, o.name, o.price_minor, o.max_quantity, o.is_default, o.linked_item_id, o.sort_order
+       FROM tenants t,
+            unnest($3::text[], $4::text[], $5::bigint[], $6::int[], $7::boolean[], $8::text[], $9::int[])
+              AS o (option_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order)
+      WHERE t.tenant_id = $1
+     ON CONFLICT (tenant_id, option_id) DO UPDATE
+        SET name = EXCLUDED.name, price_minor = EXCLUDED.price_minor, max_quantity = EXCLUDED.max_quantity,
+            is_default = EXCLUDED.is_default, linked_item_id = EXCLUDED.linked_item_id, sort_order = EXCLUDED.sort_order,
+            archived_at = NULL
+      WHERE modifier_options.modifier_group_id = EXCLUDED.modifier_group_id`,
+    [
+      modifierGroupId,
+      options.map((o) => o.option_id),
+      options.map((o) => o.name),
+      options.map((o) => (o.price_minor === null ? null : Number(o.price_minor))),
+      options.map((o) => o.max_quantity),
+      options.map((o) => o.is_default),
+      options.map((o) => o.linked_item_id),
+      options.map((o) => o.sort_order),
+    ],
+  );
+}
+
+// §6.12, V14: the group's active options left out of the sent list are archived (never deleted).
+export async function archiveOmittedOptions(
+  repo: TenantLevelRepository,
+  modifierGroupId: string,
+  keptOptionIds: readonly string[],
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `UPDATE modifier_options SET archived_at = $3
+      WHERE tenant_id = $1 AND modifier_group_id = $2 AND archived_at IS NULL AND NOT (option_id = ANY($4))`,
+    [modifierGroupId, now, keptOptionIds],
+  );
+}
+
+// §6.12, V14: links are rewritten, one DELETE then one multi-row INSERT (insertModifierLinks).
+export async function deleteModifierLinks(repo: TenantLevelRepository, modifierGroupId: string): Promise<void> {
+  await repo.query(`DELETE FROM modifier_group_links WHERE tenant_id = $1 AND modifier_group_id = $2`, [modifierGroupId]);
+}
+
+export type OptionBranchRecord = ModifierOptionBranchRow & { branch_id: string; modifier_group_id: string };
+
+// V19: the stored difference rows of these groups' options (active and archived; the wire keeps the active ones)
+// at the JWT's allowed branches ($2), one statement, by group, branch, option.
+export async function selectOptionBranches(repo: TenantScopedRepository, modifierGroupIds: readonly string[]): Promise<OptionBranchRecord[]> {
+  const rows = await repo.query<Omit<OptionBranchRecord, 'price_minor_override'> & { price_minor_override: string | null }>(
+    `SELECT o.modifier_group_id, b.branch_id, b.option_id, b.is_offered, b.price_minor_override
+       FROM modifier_option_branches b
+       JOIN modifier_options o ON o.tenant_id = b.tenant_id AND o.option_id = b.option_id
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND o.modifier_group_id = ANY($3)
+      ORDER BY o.modifier_group_id, b.branch_id, b.option_id`,
+    [modifierGroupIds],
+  );
+  return rows.map((row) => ({ ...row, price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override) }));
 }

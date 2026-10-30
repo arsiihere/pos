@@ -4,6 +4,7 @@ import {
   CreateStockItemBody,
   CreateVariantGroupBody,
   ModifierGroupResponse,
+  PatchModifierGroupBody,
   PatchStockItemBody,
   PatchVariantGroupBody,
   PutStockItemBranchBody,
@@ -22,6 +23,7 @@ import {
   createStockItem,
   createVariantGroup,
   listStockItems,
+  patchModifierGroup,
   patchStockItem,
   patchVariantGroup,
   putStockItemBranch,
@@ -30,6 +32,7 @@ import {
 
 const VariantGroupParams = z.object({ variant_group_id: z.string().min(1) });
 const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
+const ModifierGroupParams = z.object({ modifier_group_id: z.string().min(1) });
 const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
 // §6.6
 const StockItemQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
@@ -125,6 +128,19 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('POST /v1/admin/modifier-groups');
       return sendIdempotent(reply, await createModifierGroup(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/modifier-groups/:modifier_group_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: ModifierGroupParams, body: PatchModifierGroupBody, response: { 200: ModifierGroupResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/modifier-groups/:modifier_group_id');
+      const data = await patchModifierGroup(deps, ownerRequest(app, request), request.params.modifier_group_id, request.body);
+      return reply.send({ data });
     },
   );
 }

@@ -5,6 +5,7 @@ import type {
   CreateStockItemInput,
   CreateVariantGroupInput,
   ModifierGroupWire,
+  PatchModifierGroupInput,
   PatchStockItemInput,
   PatchVariantGroupInput,
   PutStockItemBranchInput,
@@ -27,7 +28,9 @@ import { insertConfigAuditRows, shareCategory, shareStationsById, shareVariantGr
 import type { OwnerRequest } from '../restaurant/service.js';
 import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './effective-set.js';
 import {
+  archiveOmittedOptions,
   branchAllowed,
+  deleteModifierLinks,
   deleteStockItemBranch,
   firstRepeatedName,
   insertModifierGroup,
@@ -39,23 +42,38 @@ import {
   shareItemsById,
   insertStockItem,
   insertVariantGroup,
+  lockModifierGroup,
   lockStockItem,
   lockVariantGroup,
   moveMembers,
   selectActiveDrawers,
   selectMembers,
+  selectModifierLinks,
+  selectModifierOptions,
+  selectOptionBranches,
   selectStockItemBranch,
   selectStockItemBranches,
   selectStockItems,
+  updateModifierGroup,
   updateStockItem,
+  upsertModifierOptions,
   upsertStockItemBranch,
   updateVariantGroup,
   type MemberRow,
+  type ModifierGroupRecord,
   type StockItemBranchRecord,
   type StockItemRecord,
   type VariantGroupRecord,
 } from './repository.js';
-import { stockItemBranchVersion, toModifierGroupWire, toStockItemWire, toVariantGroupWire } from './versions.js';
+import {
+  stockItemBranchVersion,
+  toModifierGroupWire,
+  toStockItemWire,
+  toVariantGroupWire,
+  type ModifierGroupRow,
+  type ModifierLinkRow,
+  type ModifierOptionRow,
+} from './versions.js';
 
 export interface MenuVariantDeps {
   pool: pg.Pool;
@@ -441,10 +459,9 @@ async function nameTaken<T>(
 
 // -------------------------------------------------------------------------------------------- modifier groups
 
-// §6.11 (C4; lock order 3 → 4 → 6 → 10): idempotency key → tenant-wide check (403) → references FOR SHARE per kind,
-// one = ANY each, ids ascending: link variant groups (3), then the linked and target items together (4), then link
-// categories (6) → C1 checks in body order (options.N.linked_item_id: not_found / archived / linked_item_not_piece;
-// links.N.target_id: not_found / archived) → merged group rules (§3.3, in §6.12's order): choices_unsatisfiable,
+// §6.11 (C4; lock order 3 → 4 → 6 → 10): idempotency key → tenant-wide check (403) → references FOR SHARE and C1
+// checks (assertGroupReferences: link variant groups, then the linked and target items together, then link
+// categories) → merged group rules (§3.3, in §6.12's order): choices_unsatisfiable,
 // defaults_exceed_max, option names (one lower(name) statement, m13; 409 modifier_option), effective-set limit on
 // the items the attach links reach (one read; 422 at links) → insert group (name index → 409), options, links
 // (multi-row) → one audit row (options and links in after, V15) → bump every branch (10).
@@ -459,38 +476,11 @@ export async function createModifierGroup(
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
       await assertTenantWide(level, req.ownerUserId);
-      const targetsOf = (kind: LinkRow['target_kind']) => sortedUnique(body.links.filter((l) => l.target_kind === kind).map((l) => l.target_id));
-      const variantGroupIds = targetsOf('variant_group');
-      const linkedItemIds = body.options.flatMap((o) => (o.linked_item_id === null ? [] : [o.linked_item_id]));
-      const itemIds = sortedUnique([...linkedItemIds, ...targetsOf('item')]);
-      const categoryIds = targetsOf('category');
-      const variantGroups = variantGroupIds.length > 0 ? await shareVariantGroups(level, variantGroupIds) : [];
-      const items = itemIds.length > 0 ? await shareItemsById(level, itemIds) : [];
-      const categories = categoryIds.length > 0 ? await shareCategoriesById(level, categoryIds) : [];
-      body.options.forEach((option, i) => {
-        if (option.linked_item_id === null) return;
-        const linked = items.find((row) => row.item_id === option.linked_item_id);
-        const reason =
-          linked === undefined
-            ? 'not_found'
-            : linked.archived_at !== null
-              ? 'archived'
-              : linked.sale_unit !== 'piece' || linked.requires_weighing
-                ? 'linked_item_not_piece'
-                : null;
-        if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.linked_item_id`, reason });
-      });
-      body.links.forEach((link, i) => {
-        const rows: ReadonlyArray<{ id: string; archived_at: number | null }> =
-          link.target_kind === 'variant_group'
-            ? variantGroups.map((row) => ({ id: row.variant_group_id, archived_at: row.archived_at }))
-            : link.target_kind === 'item'
-              ? items.map((row) => ({ id: row.item_id, archived_at: row.archived_at }))
-              : categories.map((row) => ({ id: row.category_id, archived_at: row.archived_at }));
-        const target = rows.find((row) => row.id === link.target_id);
-        const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
-        if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
-      });
+      await assertGroupReferences(
+        level,
+        body.options.map((o) => o.linked_item_id),
+        body.links.map((link, i) => ({ link, i })),
+      );
       if (body.min_choices > body.options.reduce((sum, o) => sum + o.max_quantity, 0)) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'min_choices', reason: 'choices_unsatisfiable' });
       }
@@ -610,3 +600,154 @@ function sortedUnique(ids: readonly string[]): string[] {
   return [...new Set(ids)].sort();
 }
 
+
+// §6.12 (C4; lock order 1 → 3 → 4 → 6 → 10): tenant-wide check (403) → group FOR UPDATE (404) → its options and
+// links (plain reads under the group lock) → version (409 CONFIG_STALE, a stale no-op too) → payload checks: each
+// sent option_id an option of this group, active or archived (422 not_found at options.N.option_id); references
+// FOR SHARE per kind, one = ANY each (variant groups, then items, then categories): the sent options' linked items
+// and the targets of added or changed links only (m15) → C1 checks in body order as on create → no-op (200,
+// nothing written) → write: the group row (name index → 409), the options (one upsert of the sent rows + one
+// archive of the omitted active rows, V14) when sent, the links (delete + multi-row insert) when sent → one audit
+// row, whole active lists before / after (V15) → bump every branch (10) → the group's branch rows (response).
+// The merged-row rules R1–R6 are task 25's.
+export async function patchModifierGroup(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  modifierGroupId: string,
+  body: PatchModifierGroupInput,
+): Promise<{ modifier_group: ModifierGroupWire }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    await assertTenantWide(level, req.ownerUserId);
+    const group = await lockModifierGroup(level, modifierGroupId);
+    if (group === undefined) throw new DomainError('MODIFIER_GROUP_NOT_FOUND', { modifier_group_id: modifierGroupId });
+    const storedOptions = await selectModifierOptions(level, [modifierGroupId]);
+    const storedLinks = await selectModifierLinks(level, [modifierGroupId]);
+    const before = toModifierGroupWire({ ...group, options: storedOptions, links: storedLinks }, req.tenant.branchIds, []);
+    if (body.expected_version !== before.version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'modifier_group', id: modifierGroupId });
+    }
+    // C4 step 4: the sent option ids (C1), then the references FOR SHARE per kind in the §6 lock order
+    body.options?.forEach((option, i) => {
+      if (option.option_id !== undefined && !storedOptions.some((stored) => stored.option_id === option.option_id)) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.option_id`, reason: 'not_found' });
+      }
+    });
+    const storedLink = (l: ModifierLinkRow) =>
+      storedLinks.some((s) => s.target_kind === l.target_kind && s.target_id === l.target_id && s.mode === l.mode);
+    const checkedLinks = (body.links ?? []).map((link, i) => ({ link, i })).filter(({ link }) => !storedLink(link));
+    await assertGroupReferences(
+      level,
+      (body.options ?? []).map((o) => o.linked_item_id),
+      checkedLinks,
+    );
+    const now = deps.clock.branchNow();
+    const options: ModifierOptionRow[] =
+      body.options === undefined
+        ? storedOptions
+        : [
+            ...body.options.map((o) => ({
+              option_id: o.option_id ?? deps.ids.next(),
+              name: o.name,
+              price_minor: o.price_minor,
+              max_quantity: o.max_quantity,
+              is_default: o.is_default,
+              linked_item_id: o.linked_item_id,
+              sort_order: o.sort_order,
+              archived_at: null,
+            })),
+            ...storedOptions
+              .filter((stored) => !body.options!.some((o) => o.option_id === stored.option_id))
+              .map((stored) => ({ ...stored, archived_at: stored.archived_at ?? now })),
+          ];
+    const merged: ModifierGroupRecord = {
+      ...group,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.min_choices !== undefined ? { min_choices: body.min_choices } : {}),
+      ...(body.max_choices !== undefined ? { max_choices: body.max_choices } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (group.archived_at ?? now) : null } : {}),
+    };
+    const links = body.links ?? storedLinks;
+    const after = toModifierGroupWire({ ...merged, options, links }, req.tenant.branchIds, []);
+    // C4 step 5 (S26): the version input is the whole merged row (fields, active options, links)
+    if (after.version === before.version) {
+      return { modifier_group: await withBranches(scoped, req, { ...group, options: storedOptions, links: storedLinks }) };
+    }
+    const written = await nameTaken('modifier_groups_active_name', 'modifier_group', merged.name, () => updateModifierGroup(level, merged, now));
+    if (body.options !== undefined) {
+      const sent = options.slice(0, body.options.length);
+      await upsertModifierOptions(level, modifierGroupId, sent);
+      await archiveOmittedOptions(level, modifierGroupId, sent.map((o) => o.option_id), now);
+    }
+    if (body.links !== undefined) {
+      await deleteModifierLinks(level, modifierGroupId);
+      if (body.links.length > 0) await insertModifierLinks(level, modifierGroupId, body.links);
+    }
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'modifier_group',
+        entityId: modifierGroupId,
+        branchId: null,
+        action: auditActionFor(group, written),
+        before: modifierGroupAudit(before),
+        after: modifierGroupAudit(after),
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpEveryBranch(level);
+    return { modifier_group: await withBranches(scoped, req, { ...written, options, links }) };
+  });
+}
+
+// The group's wire with its difference rows at the owner's allowed branches (one statement, V19).
+async function withBranches(scoped: TenantScopedRepository, req: OwnerRequest, row: ModifierGroupRow): Promise<ModifierGroupWire> {
+  const branchRows = await selectOptionBranches(scoped, [row.modifier_group_id]);
+  return toModifierGroupWire(row, req.tenant.branchIds, branchRows);
+}
+
+// §6.11, §6.12 C1 (C4 step 4): the linked items and link targets FOR SHARE per kind in the §6 lock order, one = ANY
+// each, ids ascending (variant groups 3, items 4, categories 6; a kind with no id reads nothing), then checked in
+// body order: options.N.linked_item_id (not_found / archived / linked_item_not_piece), links.N.target_id
+// (not_found / archived). `linkedItemIds` is indexed like the options; `links` carries each link's index as sent.
+async function assertGroupReferences(
+  level: TenantLevelRepository,
+  linkedItemIds: ReadonlyArray<string | null>,
+  links: ReadonlyArray<{ link: Omit<LinkRow, 'modifier_group_id'>; i: number }>,
+): Promise<void> {
+  const targetsOf = (kind: LinkRow['target_kind']) => sortedUnique(links.filter(({ link }) => link.target_kind === kind).map(({ link }) => link.target_id));
+  const variantGroupIds = targetsOf('variant_group');
+  const itemIds = sortedUnique([...linkedItemIds.flatMap((id) => (id === null ? [] : [id])), ...targetsOf('item')]);
+  const categoryIds = targetsOf('category');
+  const variantGroups = variantGroupIds.length > 0 ? await shareVariantGroups(level, variantGroupIds) : [];
+  const items = itemIds.length > 0 ? await shareItemsById(level, itemIds) : [];
+  const categories = categoryIds.length > 0 ? await shareCategoriesById(level, categoryIds) : [];
+  linkedItemIds.forEach((itemId, i) => {
+    if (itemId === null) return;
+    const linked = items.find((row) => row.item_id === itemId);
+    const reason =
+      linked === undefined
+        ? 'not_found'
+        : linked.archived_at !== null
+          ? 'archived'
+          : linked.sale_unit !== 'piece' || linked.requires_weighing
+            ? 'linked_item_not_piece'
+            : null;
+    if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.linked_item_id`, reason });
+  });
+  for (const { link, i } of links) {
+    const rows: ReadonlyArray<{ id: string; archived_at: number | null }> =
+      link.target_kind === 'variant_group'
+        ? variantGroups.map((row) => ({ id: row.variant_group_id, archived_at: row.archived_at }))
+        : link.target_kind === 'item'
+          ? items.map((row) => ({ id: row.item_id, archived_at: row.archived_at }))
+          : categories.map((row) => ({ id: row.category_id, archived_at: row.archived_at }));
+    const target = rows.find((row) => row.id === link.target_id);
+    const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
+    if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
+  }
+}

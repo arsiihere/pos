@@ -13,6 +13,7 @@ export interface BIds {
   itemId: string;
   variantGroupId: string;
   stockItemId: string;
+  modifierGroupId: string;
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -121,6 +122,10 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
       options: [{ name: 'Normal', price_minor: 0 }],
       links: [{ target_kind: 'category', target_id: ids.categoryId, mode: 'attach' }],
     },
+  }),
+  'PATCH /v1/admin/modifier-groups/:modifier_group_id': (ids) => ({
+    url: `/v1/admin/modifier-groups/${ids.modifierGroupId}`,
+    payload: { expected_version: 'stale', name: 'Spice level' },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({
