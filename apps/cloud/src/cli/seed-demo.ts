@@ -172,15 +172,30 @@ const STAFF: StaffPlan[] = [
   { name: 'Imran', role: 'manager', branches: ['DHA'], pin: '8888' },
 ];
 
-export async function seedDemo(base: string, tenantName: string, deps: { pool: pg.Pool; out: (text: string) => void }): Promise<void> {
+// The seed's last write: the PIN of the last staff member that has one. seed-tenant commits the owner first, so
+// the owner alone does not mean the seed finished.
+const LAST_PIN_STAFF = STAFF.filter((s) => s.pin !== null).at(-1)!.name;
+
+// Resolves to the process exit code: 0 seeded or already seeded, 1 partially seeded.
+export async function seedDemo(base: string, tenantName: string, deps: { pool: pg.Pool; out: (text: string) => void }): Promise<0 | 1> {
   const clock = systemClock();
   const ids = ulidGen(clock);
   const sys = new SystemContext(deps.pool);
-  // Idempotent: the demo owner already exists → nothing is written (registration codes are only shown once).
-  const seeded = await sys.query<{ tenant_id: string }>(`SELECT tenant_id FROM owner_users WHERE lower(email) = lower($1)`, [OWNER_EMAIL]);
+  // Idempotent: the demo owner exists and the seed finished → nothing is written (registration codes are only shown once).
+  // AD-36 b: if the seed's last write is missing, an earlier run died part-way; never resume it.
+  const seeded = await sys.query<{ tenant_id: string; complete: boolean }>(
+    `SELECT o.tenant_id,
+            EXISTS (SELECT 1 FROM staff s WHERE s.tenant_id = o.tenant_id AND s.display_name = $2 AND s.pin_hash IS NOT NULL) AS complete
+       FROM owner_users o WHERE lower(o.email) = lower($1)`,
+    [OWNER_EMAIL, LAST_PIN_STAFF],
+  );
   if (seeded[0] !== undefined) {
+    if (!seeded[0].complete) {
+      deps.out(`partially seeded: tenant_id ${seeded[0].tenant_id} (${OWNER_EMAIL}); nothing written. Wipe the database and seed again.\n`);
+      return 1;
+    }
     deps.out(`already seeded: tenant_id ${seeded[0].tenant_id} (${OWNER_EMAIL}); nothing written. Wipe the database to seed again.\n`);
-    return;
+    return 0;
   }
   const owner = await seedTenant(
     sys,
@@ -385,6 +400,7 @@ export async function seedDemo(base: string, tenantName: string, deps: { pool: p
     `menu: ${ITEMS.length} items; variant group Chicken Karahi (Half 500 g, Full 1 000 g of Karahi pot); ` +
       `${STOCK_ITEMS.length} stock items; modifier groups Spice level, Bread (Naan); Family karahi deal at every branch\n`,
   );
+  return 0;
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {
@@ -401,6 +417,9 @@ if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
     out: (text) => process.stdout.write(text),
   })
     .finally(() => pool.end())
+    .then((code) => {
+      process.exitCode = code;
+    })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : 'seed failed';
       process.stderr.write(`${message}\n`);

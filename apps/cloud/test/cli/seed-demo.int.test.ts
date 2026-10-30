@@ -141,10 +141,26 @@ describe('seed-demo', () => {
       // Idempotent: the second run writes nothing and does not fail.
       const before = await counts();
       const again: string[] = [];
-      await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => again.push(text) });
+      expect(await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => again.push(text) })).toBe(0);
       expect(again.join('')).toContain('already seeded');
       expect(await counts()).toEqual(before);
     },
     120_000,
   );
+
+  // Runs on the seed above. The owner is committed first (seed-tenant), so a run that dies part-way leaves it;
+  // the seed's last write is the last staff PIN (Imran). Without it the seed is incomplete: refuse, write nothing.
+  it('[01c §7] AD-36 b: the owner exists but the seed did not finish → "partially seeded", exit code 1, nothing written', async () => {
+    await cloud.pool.query(`UPDATE staff SET pin_hash = NULL, pin_set_at = NULL WHERE display_name = 'Imran'`);
+    const tenantId = (await cloud.pool.query<{ tenant_id: string }>(`SELECT tenant_id FROM tenants`)).rows[0]!.tenant_id;
+    const before = await counts();
+    const out: string[] = [];
+    const code = await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => out.push(text) });
+    expect(code).toBe(1);
+    expect(out.join('')).toContain(`partially seeded: tenant_id ${tenantId}`);
+    expect(out.join('')).not.toContain('already seeded');
+    expect(await counts()).toEqual(before);
+    const pin = await cloud.pool.query<{ pin_hash: string | null }>(`SELECT pin_hash FROM staff WHERE display_name = 'Imran'`);
+    expect(pin.rows[0]!.pin_hash).toBeNull();
+  });
 });
