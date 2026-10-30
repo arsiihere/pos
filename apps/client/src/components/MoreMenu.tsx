@@ -4,7 +4,8 @@ import { Icon, type IconName } from './Icon';
 // The Pulse "⋯" More menu (kit .pos-more + .pos-menu; 01a hand-off CHANGES §2): a 56 px button with
 // aria-haspopup="menu" that opens a menu with an optional info head and its items. Destructive items are
 // `danger` (.pos-menu__item--danger) and should open the existing confirm. The menu closes on Escape, on a
-// tap outside it and after a pick; focus goes back to the ⋯ button. Arrow keys move between items.
+// tap outside it, on Tab and after a pick; focus goes back to the ⋯ button (not on Tab). Items are not tab
+// stops: arrow keys, Home and End move between them (roving focus).
 //
 // It renders the button and the menu side by side: the kit places .pos-menu against the nearest positioned
 // parent (.pos-appbar, .pos-section, .pos-list__row.has-menu), on the end side, which is the start of the
@@ -52,8 +53,15 @@ export function MoreMenu({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
+      // Only this menu closes, not an enclosing Dialog or Drawer.
       event.preventDefault();
+      event.stopPropagation();
       close(true);
+      return;
+    }
+    if (event.key === 'Tab') {
+      // ARIA menu pattern: Tab leaves the menu and closes it; focus moves on naturally.
+      setOpen(false);
       return;
     }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return;
@@ -99,11 +107,12 @@ export function MoreMenu({
               {info.detail !== undefined && <span>{info.detail}</span>}
             </div>
           )}
-          {items.map((item) => (
+          {items.map((item, i) => (
             <button
-              key={item.label}
+              key={`${i}-${item.label}`}
               type="button"
               role="menuitem"
+              tabIndex={-1}
               className={`pos-menu__item${item.danger === true ? ' pos-menu__item--danger' : ''}`}
               disabled={item.disabled}
               onClick={() => {

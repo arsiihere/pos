@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Dialog } from './Dialog';
 import { Drawer } from './Drawer';
 import { MoreMenu } from './MoreMenu';
 
@@ -103,6 +104,53 @@ describe('MoreMenu (Pulse ⋯ menu, 01a hand-off CHANGES §2)', () => {
     key(items[2]!, 'Escape');
     expect(container.querySelector('.pos-menu')).toBeNull();
     expect(document.activeElement).toBe(more);
+  });
+
+  it('Tab closes it (items are not tab stops; arrow keys move focus)', () => {
+    renderMenu();
+    const more = $<HTMLButtonElement>('button.pos-more');
+    act(() => more.click());
+    const items = [...container.querySelectorAll<HTMLButtonElement>('.pos-menu__item')];
+    expect(items.map((b) => b.tabIndex)).toEqual([-1, -1, -1]);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => {
+      items[0]!.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(false); // focus moves on naturally
+    expect(container.querySelector('.pos-menu')).toBeNull();
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Escape inside a Dialog closes only the menu, not the dialog', () => {
+    const onClose = vi.fn();
+    act(() =>
+      root.render(
+        <Dialog title="Edit" onClose={onClose}>
+          <div className="pos-section">
+            <MoreMenu label="More for Paye" items={[{ label: 'Archive Paye', onSelect: vi.fn(), danger: true }]} />
+          </div>
+        </Dialog>,
+      ),
+    );
+    const more = $<HTMLButtonElement>('button.pos-more');
+    act(() => more.click());
+    key($('.pos-menu__item'), 'Escape');
+    expect(container.querySelector('.pos-menu')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(more);
+  });
+
+  it('two items with the same label both render', () => {
+    act(() =>
+      root.render(
+        <header className="pos-appbar">
+          <MoreMenu label="More" items={[{ label: 'Same', onSelect: vi.fn() }, { label: 'Same', onSelect: vi.fn() }]} />
+        </header>,
+      ),
+    );
+    act(() => $<HTMLButtonElement>('button.pos-more').click());
+    expect(container.querySelectorAll('.pos-menu__item')).toHaveLength(2);
   });
 
   it('an outside tap closes it without a pick; the ⋯ button toggles it', () => {

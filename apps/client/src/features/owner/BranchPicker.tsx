@@ -29,7 +29,7 @@ export function BranchPicker({
       <header className="pos-appbar">
         <NavBrand title={userName} sub={t('owner.title')} avatar={userName} />
         <div className="pos-appbar__end">
-          <span className={typeClass('caption')}>{userName}</span>
+          <span className={`pos-picker__who ${typeClass('caption')}`}>{userName}</span>
           <button type="button" className="pos-btn" onClick={onSignOut}>
             {t('owner.sign_out')}
           </button>

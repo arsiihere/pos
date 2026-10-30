@@ -1585,7 +1585,7 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-login__aside p { font-size: 17px; line-height: 24px; }
   .pos-login__main { padding: var(--space-6) var(--space-4) var(--space-8); }
   .pos-appbar:has(> .pos-sidenav__brand) { padding-inline: var(--space-4); }
-  .pos-appbar:has(> .pos-sidenav__brand) .pos-appbar__end > .caption { display: none; }
+  .pos-appbar:has(> .pos-sidenav__brand) .pos-appbar__end > .pos-picker__who { display: none; }
   .pos-picker { padding: var(--space-6) var(--space-4); gap: var(--space-5); }
   .pos-linkline { flex-wrap: wrap; row-gap: 0; }
   .pos-picker__go > .pos-btn { flex: 1; }
