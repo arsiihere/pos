@@ -1590,3 +1590,123 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-linkline { flex-wrap: wrap; row-gap: 0; }
   .pos-picker__go > .pos-btn { flex: 1; }
 }
+
+/* ---------- Pulse page layout · 00-B pair and approve ---------- */
+.pos-row--center { justify-content: center; }
+.pos-screen > .caption { color: var(--ink-muted); }
+/* Hub page scripts wrap icons (.pos-icon-wrap): banner icons get the kit's filled disc too (frames *HubDown, *Locked) */
+.pos-banner > .pos-icon-wrap { flex: none; }
+.pos-banner > .pos-icon-wrap > .pos-icon { width: 40px; height: 40px; padding: 9px; border-radius: 50%; background: currentColor; stroke: var(--surface-raised); box-sizing: border-box; }
+.pos-banner--warn > .pos-icon-wrap > .pos-icon { background: var(--warn-fill); }
+.pos-banner--danger > .pos-icon-wrap > .pos-icon { background: var(--danger-fill); }
+.pos-banner--ok > .pos-icon-wrap > .pos-icon { background: var(--ok-fill); }
+.pos-banner--info > .pos-icon-wrap > .pos-icon { background: var(--info-fill); }
+[data-theme="dark"] .pos-banner > .pos-icon-wrap > .pos-icon { stroke: var(--surface); }
+.pos-banner--pulse > .pos-icon-wrap > .pos-icon { animation: pos-spin 1.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .pos-banner--pulse > .pos-icon-wrap > .pos-icon { animation: none; } }
+/* Pair this screen (00-S10/S11): code meta as one line, the hub-down banner under the code, the ask-again button */
+.pos-screen.pos-pair .pos-screen__title { max-width: 24ch; }
+.pos-screen.pos-pair .pos-screen__body { max-width: 46ch; }
+.pos-code__meta { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; }
+.pos-screen > .pos-pair__status { max-width: 720px; width: 100%; }
+.pos-pair__again, .pos-screen--wall .pos-btn--lg { min-width: 320px; }
+.pos-page--fit > .pos-screen { min-height: 0; flex: 1; overflow: hidden; }
+/* Pair this phone (00-S12/S13): phone column, 16 px gutters */
+.pos-phonepair { width: 100%; max-width: 560px; margin-inline: auto; padding: var(--space-6) var(--space-4); gap: var(--space-6); }
+.pos-phonepair--ios { gap: var(--space-5); }
+.pos-phonepair__head { display: flex; flex-direction: column; gap: var(--space-2); }
+.pos-phonepair__head > p, .pos-phonepair__note { color: var(--ink-muted); }
+.pos-phonepair__card { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4); }
+.pos-phonepair__status:empty { display: none; }
+.pos-phonepair__step { font-weight: 700; }
+.pos-callout__icon.pos-phonepair__mark { width: 48px; height: 48px; }
+/* First-admin and manager sign-in (00-S03, 00-S07): names left, PIN card right; one column on a phone */
+.pos-signin { display: grid; grid-template-columns: minmax(0, 560px) 440px; gap: 64px; align-items: center; justify-content: center; align-content: center; padding: var(--space-12) 120px; }
+.pos-signin--approve { grid-template-columns: minmax(0, 1fr) 420px; gap: var(--space-12); align-items: start; align-content: start; padding: 40px 64px; }
+.pos-approve__main:has(> .pos-signin) { display: block; padding: 0; }
+.pos-signin:not(.pos-signin--approve) .pos-pinfor { gap: var(--space-5); }
+.pos-signin__who { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.pos-signin__head { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-signin__head > p { color: var(--ink-muted); }
+.pos-signin .pos-staff { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pos-staff__tile--skeleton { cursor: default; }
+.pos-staff__tile--skeleton > .pos-skeleton { width: 70%; height: 22px; }
+.pos-staff__tile--skeleton > .pos-skeleton + .pos-skeleton { width: 50%; height: 14px; }
+.pos-signin__card { display: flex; flex-direction: column; gap: var(--space-5); align-items: center; padding: var(--space-8); }
+.pos-signin__card > * { width: 100%; }
+.pos-signin__card > .pos-pinfor { width: auto; }
+.pos-signin__status:empty { display: none; }
+.pos-signin__card--empty .pos-empty { padding: var(--space-4) 0; }
+.pos-signin__card--empty .pos-icon { width: 40px; height: 40px; }
+.pos-pinfor { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.pos-pinfor > p { color: var(--ink-muted); }
+.pos-signin__next { width: 100%; max-width: 440px; }
+/* Approve a screen (00-S08/S09): one 680 px card; the outcome line under Approve */
+.pos-approve__main { display: grid; grid-template-columns: minmax(0, 680px); justify-content: center; align-content: start; padding-top: var(--space-5); }
+.pos-approve__main:has(> .pos-screen) { display: flex; padding: 0; }
+.pos-approve__main > .pos-screen { flex: 1; }
+.pos-approve__card { display: flex; flex-direction: column; gap: 18px; padding: var(--space-6) 28px; }
+.pos-approve__status:empty { display: none; }
+.pos-approve__card .pos-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pos-approve__who { gap: 10px; font-weight: 650; flex-wrap: nowrap; }
+.pos-approve__who > .body { font-weight: inherit; }
+.pos-approve__status:not(:empty) ~ .pos-outcome, .pos-approve__banner:not(:empty) ~ .pos-content .pos-outcome { display: none; }
+.pos-approve__banner:not(:empty) { padding: var(--space-4) var(--space-6) 0; }
+@media (max-width: 760px) {
+  .pos-signin, .pos-signin--approve { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: stretch; align-content: start; padding: var(--space-4); }
+  .pos-signin__head { gap: var(--space-1); }
+  .pos-signin__head > .body-lg { font-size: 17px; line-height: 24px; }
+  .pos-signin .pos-staff { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  .pos-signin__card { gap: var(--space-3); padding: var(--space-4); }
+  .pos-signin__card--empty { padding: var(--space-8) var(--space-4); }
+  .pos-pinfor { display: block; }
+  .pos-pinfor > p, .pos-pinfor > strong { display: inline; color: var(--ink); }
+  .pos-pinfor > strong { font: 700 17px/24px var(--font-sans); letter-spacing: 0; }
+  .pos-pinfor > p::after { content: " "; }
+  /* Approve on a phone: phone app bar, the form on the page (no card), one station per row, no outcome line */
+  .pos-approve > .pos-appbar { min-height: 68px; padding: var(--space-2) var(--space-4); gap: var(--space-3); flex-wrap: nowrap; }
+  .pos-approve > .pos-appbar .pos-appbar__title { font-size: 22px; line-height: 28px; }
+  .pos-approve__back > span, .pos-approve .pos-appbar__end { display: none; }
+  .pos-approve__main { padding: var(--space-4); }
+  .pos-approve__card { gap: 14px; padding: 0; background: none; box-shadow: none; border-radius: 0; }
+  .pos-approve__card .pos-tiles { grid-template-columns: minmax(0, 1fr); }
+  .pos-approve__card .pos-outcome { display: none; }
+  .pos-pair__again { min-width: 0; }
+}
+
+/* ---------- Pulse page layout · 01a-B floors and stations ---------- */
+/* Section head row: title block on the start side, chips / buttons / More on the end side (frames OwnerFloors, OwnerStations). */
+.pos-section__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.pos-section__tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-inline-start: auto; }
+/* App-bar branch select: "Branch" label beside a 240 px select (frames OwnerFloors, OwnerStations) */
+.pos-appbar__branch { gap: var(--space-2); flex-wrap: nowrap; }
+.pos-appbar__branch > .pos-field__label { font: 700 17px/22px var(--font-sans); color: var(--ink-muted); }
+.pos-appbar__branch > .pos-select { width: 240px; }
+/* Archived floor (Show archived): sunken, muted title */
+.pos-section--archived { background: var(--surface-sunken); }
+.pos-section--archived .pos-section__head h2 { color: var(--ink-muted); }
+/* Bulk add tables: one wrapping row, fields 140 / 140 / 160, preview takes the rest */
+.pos-bulk { flex-wrap: wrap; align-items: flex-end; }
+.pos-bulk__name { width: 140px; }
+.pos-bulk__seats { width: 160px; }
+.pos-bulk__preview { flex: 1; min-width: 200px; padding-bottom: 14px; }
+.pos-bulk > .pos-banner, .pos-bulk__full { flex-basis: 100%; }
+.pos-bulk > .pos-field__error, .pos-firstfloor > .pos-field__error { display: flex; }
+/* First floor (OwnerFloorsEmpty): the empty card holds one form */
+.pos-firstfloor { align-items: stretch; text-align: start; gap: var(--space-5); }
+.pos-firstfloor > .pos-explain { margin: 0; }
+.pos-firstfloor__go { justify-content: flex-end; }
+/* Stations: closed stations are rows, the open one is a section (OwnerStations) */
+.pos-list--stations .pos-list__row { grid-template-columns: minmax(0, 1fr) auto; }
+.pos-section--open .pos-section__head h3 { margin: 0; font: 800 18px/24px var(--font-display); }
+.pos-list--programs .pos-list__row { grid-template-columns: minmax(0, 1fr) 200px auto; }
+.pos-list--programs .pos-list__num { font-size: 18px; }
+.pos-btn--start { align-self: flex-start; }
+.pos-seg__opt[disabled] { color: var(--ink-muted); cursor: not-allowed; }
+[lang="ur"] .pos-section--open .pos-section__head h3 { font-family: var(--font-urdu); line-height: 2; }
+@media (max-width: 760px) {
+  .pos-bulk__name, .pos-bulk__seats { width: calc(50% - var(--space-2)); }
+  .pos-bulk__preview { flex-basis: 100%; padding-bottom: 0; }
+  .pos-firstfloor .pos-grid, .pos-section--open .pos-grid { grid-template-columns: minmax(0, 1fr); }
+  .pos-firstfloor__go > .pos-btn { flex: 1; }
+}

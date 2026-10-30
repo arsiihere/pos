@@ -101,6 +101,8 @@ export const EN = {
   'approve.preview_kds': 'It opens the station view and shows new tickets.',
   'approve.preview_cashier': 'It opens the staff sign-in.',
   'approve.audit_note': 'Approving is recorded with your name.',
+  // 00-S08 outcome line under Approve (Pulse 00 CHANGES §3); {what} is bold.
+  'approve.outcome': 'The new screen will open as {what}. {next}',
   'approve.err_code_format': 'The code has 6 letters and digits',
   'approve.err_kind': 'Pick what this screen is.',
   'approve.err_station': 'Pick the station.',
@@ -397,6 +399,8 @@ export const UR: Partial<Record<StringKey, string>> = {
   'approve.preview_title': 'نئی اسکرین یوں کھلے گی',
   'approve.preview_kds_name': 'کچن اسکرین · {station}',
   'approve.preview_kds': 'یہ اسٹیشن کا منظر کھولے گی اور نئی ٹکٹیں دکھائے گی۔',
+  // Urdu draft — needs native review (Pulse 00 CHANGES §3).
+  'approve.outcome': 'نئی اسکرین یوں کھلے گی: {what}۔ {next}',
 
   'pairing.title': 'مینیجر سے کہیں کہ اس اسکرین کو جوڑیں',
   'pairing.how': 'مینیجر کے فون یا ٹیبلٹ پر «اسکرین منظور کریں» کھولیں، پھر یہ QR اسکین کریں یا کوڈ لکھیں۔',

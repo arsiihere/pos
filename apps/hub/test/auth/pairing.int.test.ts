@@ -237,6 +237,34 @@ describe('device pairing', () => {
     expect(textOf(screen.screen)).not.toMatch(/pairing\.|errors\./);
   });
 
+  it('[00 §8.2] Pulse pair screens: wall size on a 1920 kitchen screen only; the hub-down banner sits inside the code screen; too many codes is a danger lock screen with an LTR countdown', async () => {
+    const hub = await open();
+    const html = (await hub.app.inject({ method: 'GET', url: '/pair' })).body;
+    const request = jsonResponse(200, { data: { request_id: 'R1', poll_secret: 'p', display_code: 'ABCDEF', approve_qr_svg: '<svg></svg>', expires_at: Date.now() + 581_000 } });
+    const isScreen = (el: { className: string }) => el.className.split(' ').includes('pos-screen');
+    const fetch = (url: string) => (url === '/pair/requests' ? Promise.resolve(request) : Promise.reject(new TypeError('fetch failed')));
+    const wall = await runPage(html, { innerWidth: 1920, fetch });
+    const waiting = wall.findAll(isScreen)[0]!;
+    expect(waiting.classList.contains('pos-screen--wall')).toBe(true);
+    expect(wall.screen.classList.contains('pos-page--fit')).toBe(true);
+    await wall.advance();
+    expect(wall.byId('pair_status').hidden).toBe(false);
+    expect(waiting.children).toContain(wall.byId('pair_status'));
+    const kiosk = await runPage(html, { innerWidth: 1280, fetch });
+    expect(kiosk.findAll(isScreen)[0]!.classList.contains('pos-screen--wall')).toBe(false);
+
+    const locked = await runPage(html, {
+      fetch: () => Promise.resolve(jsonResponse(429, { error: { code: 'IP_LOCKED_OUT', details: { retry_after_ms: 232_000 } } })),
+    });
+    const state = locked.findAll(isScreen)[0]!;
+    expect(state.className).toContain('pos-screen--danger');
+    expect(textOf(state)).toContain(EN['pairing.too_many'].replace('{min}', '4'));
+    const again = locked.findAll((el) => el.tagName === 'button', state)[0]!;
+    expect(again.disabled).toBe(true);
+    expect(again.className).toContain('pos-btn--lg');
+    expect(locked.findAll((el) => el.className === 'pos-ltr', again)[0]!.textContent).toBe('3:52');
+  });
+
   it('[00 §10 #139] phone pairing asks for the name in a field, never window.prompt; an empty name sends nothing; a name pairs; 401 shows the expired-QR screen', async () => {
     const hub = await open();
     const html = (await hub.app.inject({ method: 'GET', url: '/pair?t=tok' })).body;

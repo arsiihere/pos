@@ -18,7 +18,7 @@ export function encodeCrockford128(bytes: Uint8Array): string {
 export function pairPage(): string {
   return `${pageHead({ title: 'pairing.title', theme: 'dark' })}
 <body class="pos-root">
-<div id="pair_status" aria-live="polite" hidden></div>
+<div id="pair_status" class="pos-pair__status" aria-live="polite" hidden></div>
 <div id="screen" class="pos-page"></div>
 <script>
 ${encodeCrockford128.toString()}
@@ -58,12 +58,19 @@ function deleteKey(db, key) {
 }
 const screen = document.getElementById('screen');
 const status = document.getElementById('pair_status');
+// Kitchen-size screens (1920 wide) get the wall size: QR 320, code 112, title 60, button 88 (frames Pair*, 00-F02 Kds).
+const WALL = typeof window !== 'undefined' && window.innerWidth >= 1920;
 function show(...parts) {
+  for (const part of parts) {
+    if (!part.classList.contains('pos-screen')) continue;
+    if (WALL) part.classList.add('pos-screen--wall');
+    // 00-F01 on a screen state: the banner sits under the code (frame PairHubDown).
+    part.appendChild(status);
+  }
   screen.replaceChildren(...parts);
 }
 function actionRow(button) {
-  const row = node('div', 'pos-row');
-  row.style.justifyContent = 'center';
+  const row = node('div', 'pos-row pos-row--center');
   row.appendChild(button);
   return row;
 }
@@ -73,7 +80,7 @@ function setHubDown(down, bodyKey) {
   if (down === hubDown) return;
   hubDown = down;
   if (down) {
-    const notice = banner('warn', t('pairing.hub_unreachable'), t(bodyKey || 'pairing.hub_unreachable_body'));
+    const notice = banner('warn', t('pairing.hub_unreachable'), t(bodyKey || 'pairing.hub_unreachable_body'), '', 'sync');
     notice.classList.add('pos-banner--pulse');
     status.replaceChildren(notice);
   } else {
@@ -97,7 +104,7 @@ async function json(res) {
   try { return (await res.json()) || {}; } catch { return {}; }
 }
 function global(error, device) {
-  return globalScreen(error, { device, loaded: false, authed: false }, { pairAgain: () => location.reload() });
+  return globalScreen(error, { device, loaded: false, authed: false }, { pairAgain: () => location.reload(), wall: WALL });
 }
 // 00-S10 approved / resumed.
 function showPaired(deviceType, stationName) {
@@ -121,27 +128,26 @@ async function resumePaired(db, deviceToken) {
   showPaired(deviceType);
   return true;
 }
-// 00-S11: expired, too many, hub busy; the 72 px button asks again.
-function askAgain(start, body, waitMs) {
-  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('pairing.new_code'));
+// 00-S11: expired (warn, clock), too many (danger, lock), hub busy (warn, sync); the 72 px button asks again.
+function askAgain(start, body, waitMs, kind, iconName) {
+  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-pair__again');
   again.type = 'button';
   again.addEventListener('click', start);
-  const screenState = node('main', 'pos-screen');
-  screenState.appendChild(node('h1', 'pos-screen__title', t('pairing.title')));
-  screenState.appendChild(node('p', 'pos-screen__body', body));
-  screenState.appendChild(actionRow(again));
-  show(screenState);
+  const label = () => again.replaceChildren(icon('reload'), document.createTextNode(t('pairing.new_code')));
+  label();
+  show(stateScreen(kind || 'warn', iconName || 'alert', t('pairing.title'), body, [actionRow(again)]));
   if (waitMs > 0) {
     const until = Date.now() + waitMs;
     again.disabled = true;
+    const parts = T['pairing.new_code_in'].split('{time}');
     const tick = () => {
       const left = until - Date.now();
       if (left <= 0) {
         again.disabled = false;
-        again.textContent = t('pairing.new_code');
+        label();
         return;
       }
-      again.textContent = t('pairing.new_code_in', { time: mmss(left) });
+      again.replaceChildren(document.createTextNode(parts[0]), ltr(mmss(left)), document.createTextNode(parts[1] || ''));
       setTimeout(tick, 1000);
     };
     tick();
@@ -166,8 +172,8 @@ function pairScreen(db) {
       }
       if (res.status !== 200) {
         if (global(error, 'screen')) return;
-        if (error.code === 'IP_LOCKED_OUT') return askAgain(start, t('pairing.too_many', { min: Math.max(1, Math.ceil((details.retry_after_ms || 0) / 60000)) }), details.retry_after_ms || 0);
-        return askAgain(start, res.status === 503 ? t('pairing.hub_busy') : errorText(error));
+        if (error.code === 'IP_LOCKED_OUT') return askAgain(start, t('pairing.too_many', { min: Math.max(1, Math.ceil((details.retry_after_ms || 0) / 60000)) }), details.retry_after_ms || 0, 'danger', 'lock');
+        return res.status === 503 ? askAgain(start, t('pairing.hub_busy'), 0, 'warn', 'sync') : askAgain(start, errorText(error), 0, 'warn', 'alert');
       }
       retried = false;
       const data = body.data;
@@ -175,12 +181,12 @@ function pairScreen(db) {
       const qr = node('div', 'pos-code__qr');
       qr.innerHTML = data.approve_qr_svg;
       code.appendChild(qr);
-      const value = node('p', 'pos-code__value display-code', data.display_code);
+      const value = node('div', 'pos-code__value display-code', data.display_code);
       value.setAttribute('aria-label', t('pairing.code_aria'));
       code.appendChild(value);
       const meta = node('p', 'pos-code__meta');
       code.appendChild(meta);
-      const waiting = node('main', 'pos-screen');
+      const waiting = node('main', 'pos-screen pos-pair');
       waiting.appendChild(node('h1', 'pos-screen__title', t('pairing.title')));
       waiting.appendChild(node('p', 'pos-screen__body', t('pairing.how')));
       waiting.appendChild(code);
@@ -198,7 +204,7 @@ function pairScreen(db) {
         fetchRetry('/pair/requests/' + data.request_id, { headers: { 'X-Poll-Secret': data.poll_secret } }).then(async (polled) => {
           if (polled.status === 404) {
             live = false;
-            askAgain(start, t('pairing.code_expired'));
+            askAgain(start, t('pairing.code_expired'), 0, 'warn', 'clock');
             return;
           }
           const update = await json(polled);
@@ -224,21 +230,23 @@ function pairScreen(db) {
 }
 // 00-S13: iOS Safari outside the Home Screen app never pairs (§8.2 phone rule 2).
 function iosSteps() {
-  const page = node('main', 'pos-content pos-content--narrow');
-  page.appendChild(node('h1', 'title', t('pairing.ios_title')));
-  page.appendChild(node('p', 'body', t('pairing.ios_body')));
+  const page = node('main', 'pos-content pos-phonepair pos-phonepair--ios');
+  const head = node('div', 'pos-phonepair__head');
+  head.appendChild(node('h1', 'title', t('pairing.ios_title')));
+  head.appendChild(node('p', 'body', t('pairing.ios_body')));
+  page.appendChild(head);
   const list = node('ol', 'pos-checklist');
   [['1', 'share', 'pairing.ios_step_1'], ['2', 'add-home', 'pairing.ios_step_2'], ['3', 'phone', 'pairing.ios_step_3']].forEach(([n, iconName, key]) => {
     const item = node('li', 'pos-checklist__item');
     item.appendChild(node('span', 'pos-checklist__num', n));
-    item.appendChild(node('strong', '', t(key)));
-    const mark = node('span', 'pos-callout__icon');
+    item.appendChild(node('span', 'body pos-phonepair__step', t(key)));
+    const mark = node('span', 'pos-callout__icon pos-phonepair__mark');
     mark.appendChild(icon(iconName));
     item.appendChild(mark);
     list.appendChild(item);
   });
   page.appendChild(list);
-  page.appendChild(banner('info', t('pairing.ios_link_time')));
+  page.appendChild(banner('info', t('pairing.ios_link_time'), '', '', 'clock'));
   show(page);
 }
 function tokenExpired(standaloneIos) {
@@ -254,11 +262,15 @@ async function pairPhone(db, pairingToken) {
     pairRequestId = encodeCrockford128(bytes);
     await writeKey(db, 'pair_request_id', pairRequestId);
   }
-  const page = node('main', 'pos-content pos-content--narrow');
-  page.appendChild(node('p', 'caption', t('app.brand')));
-  page.appendChild(node('h1', 'title', t('pairing.phone_title')));
-  page.appendChild(node('p', 'body', t('pairing.phone_intro')));
-  const form = node('form', 'pos-card pos-stack');
+  const page = node('main', 'pos-content pos-phonepair');
+  // 00-F01: the hub-down banner sits above the title (frame PhoneHubDown).
+  page.appendChild(status);
+  const head = node('div', 'pos-phonepair__head');
+  head.appendChild(node('p', 'caption', t('app.brand')));
+  head.appendChild(node('h1', 'title', t('pairing.phone_title')));
+  head.appendChild(node('p', 'body', t('pairing.phone_intro')));
+  page.appendChild(head);
+  const form = node('form', 'pos-card pos-phonepair__card');
   const nameField = node('div', 'pos-field');
   const label = node('label', 'pos-field__label', t('pairing.name_label'));
   label.setAttribute('for', 'device_name');
@@ -276,7 +288,7 @@ async function pairPhone(db, pairingToken) {
   nameField.appendChild(nameError);
   nameField.appendChild(node('p', 'pos-field__help', t('pairing.name_help')));
   form.appendChild(nameField);
-  const formStatus = node('div');
+  const formStatus = node('div', 'pos-phonepair__status');
   form.appendChild(formStatus);
   const submit = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
   submit.type = 'submit';
@@ -285,7 +297,7 @@ async function pairPhone(db, pairingToken) {
   submit.appendChild(submitText);
   form.appendChild(submit);
   page.appendChild(form);
-  page.appendChild(node('p', 'caption', t('pairing.only_you')));
+  page.appendChild(node('p', 'caption pos-phonepair__note', t('pairing.only_you')));
   show(page);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -334,6 +346,8 @@ openDeviceDb().then(async (db) => {
   }
   const pairingToken = new URLSearchParams(location.search).get('t');
   if (!pairingToken) {
+    // Kiosk and kitchen screens fit the screen: no page scroll, no scrollbars.
+    screen.classList.add('pos-page--fit');
     if (deviceToken && (await resumePaired(db, deviceToken))) return;
     return pairScreen(db);
   }

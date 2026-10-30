@@ -2,7 +2,8 @@ import { pinPadClient } from '../lib/page.js';
 
 // 00-S03 / 00-S07 (docs/design/handoff/00/00-design.md §1): name tiles + PIN card, shared by /admin/bootstrap,
 // /admin/approve and /admin. Needs clientPrelude() and globalStateClient() before it.
-// o: { roster, card (elements), load() → Promise<{ status, body }>, login(staffId, pin) → Promise<{ status, body }>,
+// o: { roster, card (elements), sub (optional: the line under the title; says "Getting the staff list…" while
+//      loading, frame BootLoading), load() → Promise<{ status, body }>, login(staffId, pin) → Promise<{ status, body }>,
 //      onDone(data), onExpired(), global(error) → true when the page showed a global state (00-F*) }
 export function signInClient(): string {
   return `${pinPadClient()}
@@ -11,10 +12,12 @@ function adminSignIn(o) {
   let tiles = [];
   let busyRetried = false;
   const who = node('strong', 'title', '');
-  const head = node('div', 'pos-stack');
+  // "PIN for" over the name; one line on a phone (frames BootSignIn, BootSignInLaptop).
+  const head = node('div', 'pos-pinfor');
   head.appendChild(node('p', 'body', t('pin.for')));
   head.appendChild(who);
-  const status = node('div');
+  const subText = o.sub ? o.sub.textContent : '';
+  const status = node('div', 'pos-signin__status');
   status.name = 'auth_error';
   status.setAttribute('aria-live', 'polite');
   const pad = pinPad(() => submit());
@@ -50,19 +53,25 @@ function adminSignIn(o) {
   const skeleton = () => {
     const parts = [];
     for (let i = 0; i < 3; i += 1) {
-      const tile = node('div', 'pos-staff__tile');
+      const tile = node('div', 'pos-staff__tile pos-staff__tile--skeleton');
+      tile.appendChild(node('span', 'pos-skeleton'));
       tile.appendChild(node('span', 'pos-skeleton'));
       parts.push(tile);
     }
     o.roster.replaceChildren(...parts);
     o.roster.setAttribute('aria-busy', 'true');
-    say(node('p', 'caption', t('bootstrap.loading')));
+    // Frame BootLoading: the line under the title says it; the PIN card waits for the names.
+    if (o.sub) o.sub.textContent = t('bootstrap.loading');
+    else say(node('p', 'caption', t('bootstrap.loading')));
+    o.card.hidden = true;
   };
   const render = (staff) => {
     const now = Date.now();
     tiles = [];
     o.roster.replaceChildren();
     o.roster.removeAttribute('aria-busy');
+    o.card.hidden = false;
+    if (o.sub) o.sub.textContent = subText;
     say(null);
     for (const member of staff) {
       const tile = node('button', 'pos-staff__tile', member.display_name);
@@ -79,9 +88,12 @@ function adminSignIn(o) {
     }
     if (staff.length === 0) {
       const empty = node('div', 'pos-empty');
+      empty.appendChild(icon('user'));
       empty.appendChild(node('h3', '', t('bootstrap.no_admins_title')));
-      empty.appendChild(node('p', '', t('bootstrap.no_admins')));
+      empty.appendChild(node('p', 'body', t('bootstrap.no_admins')));
       o.card.replaceChildren(empty);
+      o.card.classList.add('pos-signin__card--empty');
+      if (o.sub) o.sub.textContent = '';
       return;
     }
     // A phone's roster holds only its owner (M38): pre-select.
@@ -94,8 +106,10 @@ function adminSignIn(o) {
     try {
       res = await o.load();
     } catch {
+      o.card.hidden = false;
       return say(renderGlobalState({ id: 'F01', mode: 'banner' }));
     }
+    o.card.hidden = false;
     if (res.status === 200) return render(res.body.data.staff);
     const error = res.body && res.body.error;
     if (error && error.code === 'PAIRING_TOKEN_INVALID') return o.onExpired();
@@ -139,14 +153,14 @@ function adminSignIn(o) {
       const tile = tiles.find((item) => item.member === selected);
       if (tile) lockTile(tile, Date.now() + (details.retry_after_ms || 0), Date.now());
       pad.lock(true);
-      return say(banner('danger', t('pin.locked_title'), t('pin.locked_person', { name: selected.display_name, min })));
+      return say(banner('danger', t('pin.locked_title'), t('pin.locked_person', { name: selected.display_name, min }), '', 'lock'));
     }
     if (error.code === 'IP_LOCKED_OUT' || error.code === 'DEVICE_LOCKED_OUT') {
       pad.lock(true);
       setTimeout(() => pad.lock(false), details.retry_after_ms || 0);
       return say(error.code === 'IP_LOCKED_OUT'
-        ? banner('danger', t('pin.locked_ip'), t('pin.locked_ip_body', { min }))
-        : banner('danger', t('pin.locked_device', { min }), t('pin.locked_device_body')));
+        ? banner('danger', t('pin.locked_ip'), t('pin.locked_ip_body', { min }), '', 'lock')
+        : banner('danger', t('pin.locked_device', { min }), t('pin.locked_device_body'), '', 'lock'));
     }
     if (error.code === 'PERMISSION_DENIED' || error.code === 'STAFF_NOT_FOUND') {
       say(banner('danger', t('bootstrap.not_admin'), t('bootstrap.not_admin_body')));

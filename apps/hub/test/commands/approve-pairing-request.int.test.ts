@@ -221,7 +221,8 @@ describe('ApprovePairingRequest', () => {
     await signIn();
     expect(page.session.get('admin_session_token')).toBe('adm');
     expect(JSON.parse(page.session.get('admin_permissions')!)).toEqual({ 'manage-devices': true, 'manage-staff': true });
-    expect(textOf(page.byId('approve_end'))).toBe('Imran');
+    // The avatar initial, then the name (frame ApproveForm app bar).
+    expect(textOf(page.byId('approve_end'))).toBe('I Imran');
     expect(textOf(page.screen)).not.toMatch(/errors\.|pin\.|attempts_remaining/);
   });
 
@@ -247,13 +248,20 @@ describe('ApprovePairingRequest', () => {
     const page = await runPage(html, { session, fetch });
     const form = () => page.findAll((el) => el.tagName === 'form')[0]!;
     const opts = () => page.find('device_type')!.children;
-    expect(textOf(page.byId('approve_end'))).toBe('Owner');
+    expect(textOf(page.byId('approve_end'))).toBe('O Owner');
+    // Pulse: one outcome line under Approve replaces the aside; hidden until a kind is picked (CHANGES §2).
+    const outcome = () => page.findAll((el) => el.className === 'pos-outcome', form())[0]!;
+    expect(outcome().hidden).toBe(true);
+    expect(textOf(page.screen)).not.toContain(EN['approve.preview_title']);
+    expect(textOf(page.screen)).not.toContain(EN['approve.audit_note']);
     page.find('display_code')!.value = 'ab s-12 3';
     await page.submit(form());
     expect(sent).toHaveLength(0);
     expect(textOf(form())).toContain(EN['approve.err_kind']);
     await page.click(opts()[0]!);
     expect(textOf(page.screen)).toContain(EN['approve.preview_cashier']);
+    expect(outcome().hidden).toBe(false);
+    expect(textOf(outcome()).replace(/\s+/g, ' ').replace(/ \./g, '.')).toBe(`The new screen will open as ${EN['approve.kind_cashier']}. ${EN['approve.preview_cashier']}`);
     await page.submit(form());
     expect(sent[0]).toMatchObject({
       command_type: 'ApprovePairingRequest',
@@ -278,11 +286,14 @@ describe('ApprovePairingRequest', () => {
     expect(textOf(tandoor)).toBe('Tandoor Naan, Roti');
     await page.click(tandoor);
     expect(textOf(page.screen)).toContain(EN['approve.preview_kds_name'].replace('{station}', 'Tandoor'));
+    expect(page.findAll((el) => el.tagName === 'b', outcome())[0]!.textContent).toBe(EN['approve.preview_kds_name'].replace('{station}', 'Tandoor'));
     await page.submit(form());
     expect(sent[1]).toMatchObject({ payload: { display_code: 'ABC124', device_type: 'kds', station_id: 'T' } });
     expect(textOf(page.screen)).toContain(EN['approve.done_title']);
     expect(textOf(page.screen)).toContain(EN['approve.done_body_kds'].replace('{station}', 'Tandoor'));
-    const again = page.findAll((el) => el.textContent === EN['approve.another']);
+    // The audit note moved from the form to the result screen (CHANGES §2).
+    expect(textOf(page.screen)).toContain(EN['approve.audit_note']);
+    const again = page.findAll((el) => el.tagName === 'button' && textOf(el) === EN['approve.another']);
     expect(again).toHaveLength(1);
     await page.click(again[0]!);
     expect(page.find('display_code')?.value).toBe('');

@@ -215,10 +215,10 @@ function setBusy(button, on) {
   else button.removeAttribute('aria-busy');
 }
 const BANNER_ICONS = { ok: 'check', warn: 'clock', danger: 'alert', info: 'sync' };
-function banner(kind, text, detail, name) {
+function banner(kind, text, detail, name, iconName) {
   const box = node('div', 'pos-banner pos-banner--' + kind);
   box.setAttribute('role', kind === 'danger' ? 'alert' : 'status');
-  box.appendChild(icon(BANNER_ICONS[kind]));
+  box.appendChild(icon(iconName || BANNER_ICONS[kind]));
   const words = node('p', '', text);
   if (name) words.name = name;
   if (detail) words.appendChild(node('small', '', detail));
