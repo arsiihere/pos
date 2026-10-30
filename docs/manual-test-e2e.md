@@ -1,4 +1,4 @@
-# End-to-end manual test: a restaurant day (modules 00, 01a, 01b)
+# End-to-end manual test: a restaurant day (modules 00, 01a, 01b, 01c data)
 
 A hand test of everything built so far, on one Ubuntu laptop and one phone on the same Wi-Fi. It plays out a restaurant day at **Arif Chatkhara**: set up the cloud, register the Gulberg hub, check the owner screens, put a new waiter on a phone, then try the bad things that happen in real life (a wrong PIN, a person who leaves, a power cut).
 
@@ -6,7 +6,10 @@ This runbook doesn't repeat the module runbooks. For more detail on a step, see:
 
 - `docs/manual-test-00.md`: hub setup, pairing, PIN lockout, revoke, restart (00);
 - `docs/manual-test-01a.md`: menu, stock page, business day, restore drill (01a);
+- `docs/plans/01c-manual-checks.md`: the 01c stock page (one pot, two drawers) and the schema-1 hub upgrade (01c);
 - `docs/runbooks/owner-password-reset.md`: the support path for a locked-out owner.
+
+**After 01c (spec v1.1):** the seed now writes 01c data (stock items, a variant group, modifier groups, a deal) and the hub stock page lists one row per **stock item**. The 01c owner-app views (variant groups, stock items, modifier groups, deals) are not built yet: they are deferred to the UI module (01c AD-35, branch `ui-pulse`), so this runbook checks 01c through the seed output, the database and the hub stock page only.
 
 Nothing here changes product code. Everything runs from the repo with `tsx`. Hub data lives under `~/pos-manual`, never `/opt` or `/etc`.
 
@@ -118,10 +121,12 @@ cloud pnpm -s seed-demo | tee $M/seed.txt
 - stations (BBQ Grill and Karahi as slot stations; Tandoor with programs Naan and Roghni naan; Fryer with Fries 180; Drinks);
 - a tax class "Sales tax 16%";
 - 7 categories, Breakfast only 07:00–11:00;
-- 13 items with routes per branch, several of them stock-tracked: Chicken biryani counted in kg, Raita and Soft drink kept overnight, DHA prices 10% higher;
+- 14 items with routes per branch; DHA prices 10% higher. 01c: **Chicken Karahi — Half** (Rs 1,150) and **— Full** (Rs 2,200) in the variant group **Chicken Karahi** (they replace 01a's Chicken karahi (half));
+- 7 **stock items**, each counted at every branch that has its station, with one draw per stock-tracked item: **Karahi pot** (g) shared by Half (500 g a sale) and Full (1 000 g), Chicken tikka, Seekh kebab (4 pcs), Chicken biryani (g, shown in kg; 350 g a piece), Fries, Raita and Soft drink 1.5 L (both kept overnight);
+- modifier groups **Spice level** (Mild, Normal by default, Hot; on category Karahi) and **Bread** (linked Naan, up to 6; on the Chicken Karahi group); the **Family karahi deal** Rs 3,200 (DHA Rs 3,520), sold at every branch;
 - 8 staff (see the table above), with a Reports-to line from Zain to Ali.
 
-**You should see:** `tenant_id …`, the owner login, three `branch … registration code XXXX…` lines, and the staff PINs. Codes are valid for 24 h.
+**You should see:** `tenant_id …`, the owner login, three `branch … registration code XXXX…` lines, the staff PINs, and `menu: 14 items; variant group Chicken Karahi (Half 500 g, Full 1 000 g of Karahi pot); 7 stock items; modifier groups Spice level, Bread (Naan); Family karahi deal at every branch`. Codes are valid for 24 h.
 
 ```sh
 pg -c "select version, name from schema_migrations order by version"
@@ -129,8 +134,8 @@ pg -c "select name, status from branches order by name"
 pg -c "select name, default_key from roles order by name"
 ```
 
-**You should see:** migrations `0001`–`0005`; three branches, all `pending_hub`; six roles (Cashier, Cook, Manager, Order taker, Owner, Waiter).
-**If not:** `email already exists` → the database is already seeded; wipe it (step 8). `login failed … is the cloud running` → start T1 first.
+**You should see:** cloud migrations `0001`–`0006` (`0006_menu_variants`; the hub's own migrations stop at `0005`, 01c adds none); three branches, all `pending_hub`; six roles (Cashier, Cook, Manager, Order taker, Owner, Waiter).
+**If not:** a second run on a fully seeded database prints `already seeded …` and exits 0, writing nothing (the registration codes are shown only once, so keep `$M/seed.txt`); a run that died part-way leaves the owner behind, so the next run prints `partially seeded: tenant_id …`, writes nothing and exits 1: wipe and reseed (step 8). `login failed … is the cloud running` → start T1 first.
 
 ---
 
@@ -211,7 +216,7 @@ If the link has expired: `cd $POS/apps/hub && pnpm issue-admin-bootstrap` prints
 
 The stock page needs a paired **Cashier screen** in the same origin. In a **second tab** open `http://<LAN_IP>:3000/pair`, note the 6-character code, approve it in the first tab as **Cashier screen** with no station → "This screen is paired". Then open `http://<LAN_IP>:3000/admin/stock/` in that second tab and sign in as **Arif / 1234**.
 
-**You should see:** within 60 s (the hub polls the cloud every 60 s), "Menu version N · checked just now" and the stock-tracked Gulberg items: Chicken tikka, Seekh kebab, Chicken biryani (kg), Fries, Raita, Soft drink 1.5 L. Rows without stock tracking show only the Available / Off switch. A **Start day** button sits on top. Tap **Start day** once.
+**You should see:** within 60 s (the hub polls at once at boot when it holds no config, then every 60 s), "Menu version N · checked just now" and **one row per stock item** counted at Gulberg, each with the items that draw from it listed under it (each with its own Selling switch): **Karahi pot** (g, with Chicken Karahi — Half and — Full under it), Chicken tikka, Seekh kebab (4 pcs), Chicken biryani (kg), Fries, Raita, Soft drink 1.5 L. Items that draw from no stock item (Malai boti, Mutton karahi (half), Naan, Roghni naan, Mint margarita, Halwa puri) follow as Selling-only rows. A **Start day** button sits on top. Tap **Start day** once.
 
 ---
 
@@ -224,7 +229,7 @@ Go through the screens. For each one, note anything that looks wrong (step "Find
 | # | Screen | Do | You should see |
 |---|---|---|---|
 | 5.1 | Branch picker | open it | Gulberg, Johar Town, DHA **by name** |
-| 5.2 | **Menu** (Gulberg) | browse; search "naan"; open Chicken biryani | 13 items in 7 categories; the search finds Naan and Roghni naan; biryani is in kg with 350 g per piece; Breakfast shows 07:00–11:00 |
+| 5.2 | **Menu** (Gulberg) | browse; search "naan"; open Chicken biryani | 14 items in 7 categories, Chicken Karahi — Half and — Full among them; the search finds Naan and Roghni naan; biryani is sold by the piece (its 350 g a piece is the draw on the Chicken biryani stock item; the owner app shows no stock or variant section until the UI module, 01c AD-35); Breakfast shows 07:00–11:00 |
 | 5.3 | Menu (DHA) | switch branch, open Chicken tikka | DHA's price is 715 (650 + 10%) |
 | 5.4 | **Floors and tables** | add table **G6**, 4 seats, on Ground; rename it to "G1" | G6 is added; renaming to G1 gives "That name is already used…" |
 | 5.5 | **Stations** | open Tandoor | programs Naan 3 min and Roghni naan 4 min; a freshness window. BBQ Grill (slot) has neither field |
@@ -266,7 +271,7 @@ On the phone, open `http://<LAN_IP>:3000/admin/stock/`.
 Tap **Bilal**, enter `9999` on the PIN pad.
 
 **You should see:**
-- only **BBQ Grill** items: Chicken tikka and Seekh kebab (scope `my_stations`);
+- only **BBQ Grill** rows (scope `my_stations`): the stock items Chicken tikka and Seekh kebab (4 pcs), with their drawers; no Karahi pot (counted at Karahi);
 - **no** Start day, Close day or stale-day prompt (a counter can't run the day);
 - a count works: Chicken tikka **20** → **Save counts** → "Counts saved." Back on the laptop's stock tab, the same 20 appears within 15 s.
 
