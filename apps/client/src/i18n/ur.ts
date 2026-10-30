@@ -217,4 +217,16 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.nav.close': 'سائیڈ مینیو بند کریں',
   'owner.picker.menu_line': 'مینیو سب برانچوں کا ایک ہے۔',
   'owner.picker.id_note': 'برانچ سیٹنگ میں نام رکھنے کے بعد برانچوں کے نام دکھیں گے۔ تب تک ہر برانچ کی آئی ڈی کا آخری حصہ دکھتا ہے۔',
+  // Pulse 01a hand-off CHANGES §3: floors and stations — Urdu draft — needs native review
+  'owner.floors.more': 'فلور کے مزید اختیارات',
+  'floors.menu_info': 'ترتیب {n} · {t} میزیں · {s} نشستیں',
+  'floors.menu_archive': '{floor} آرکائیو کریں',
+  'floors.archived_shown': 'آرکائیو دکھائے جا رہے ہیں',
+  'floors.hide_archived': 'آرکائیو فلور چھپائیں',
+  'stations.used_by_short': '{n} آئٹم استعمال کرتے ہیں',
+  'stations.used_by_names': '{n} آئٹم استعمال کرتے ہیں: {names}',
+  'stations.menu_archive': '{station} آرکائیو کریں',
+  'owner.stations.more': 'اسٹیشن کے مزید اختیارات',
+  'stations.hide_archived': 'آرکائیو اسٹیشن چھپائیں',
+  'stations.menu_info': 'آرکائیو سے پہلے دیکھا جاتا ہے کہ کوئی آئٹم یہاں نہ پکتا ہو۔',
 };

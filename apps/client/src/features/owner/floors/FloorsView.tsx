@@ -6,8 +6,8 @@ import { Chip } from '../../../components/Chip';
 import { ConfirmDialog, Dialog } from '../../../components/Dialog';
 import { SavedChip, UndoChip, useFlash } from '../../../components/FlashChip';
 import { Icon } from '../../../components/Icon';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Skeleton } from '../../../components/Skeleton';
-import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { language, t } from '../../../i18n';
 import { useBranchName } from '../branch';
@@ -21,6 +21,8 @@ import { TableDialog } from './TableDialog';
 // (with a floor move); Add tables adds a range (S51); the first floor and its tables come from one form.
 // Archived rows are behind Show archived (§6.2 returns them all). A floor is archived after a confirm, or
 // shows what blocks it; a table archives at once with an 8 s Undo (S50 b). Saves show a Saved chip (S50 d).
+// Pulse (01a hand-off CHANGES §2): Rename / Archive sit in each floor's More menu; Show archived is an
+// app-bar More item, and while archived floors show, the "Archived shown ✕" filter chip hides them.
 type FloorRow = Floor & { tables: Table[] };
 
 const INT_RE = /^-?[0-9]+$/;
@@ -78,10 +80,13 @@ function seatsText(n: number): string {
   return fill(t('owner.floors.seats_n'), { n: String(n) });
 }
 
-function floorSummary(tables: readonly Table[]): string {
+function floorCounts(tables: readonly Table[]): { tables: string; seats: string } {
   const live = tables.filter(active);
-  const seats = live.reduce((sum, x) => sum + (x.seats ?? 0), 0);
-  return fill(t('floors.summary'), { tables: String(live.length), seats: String(seats) });
+  return { tables: String(live.length), seats: String(live.reduce((sum, x) => sum + (x.seats ?? 0), 0)) };
+}
+
+function floorSummary(tables: readonly Table[]): string {
+  return fill(t('floors.summary'), floorCounts(tables));
 }
 
 function shortDate(ms: number): string {
@@ -202,23 +207,15 @@ function FirstFloorForm({
       : t('owner.floors.add_floor');
 
   return (
-    <form className="pos-section" data-form="add-floor" noValidate onSubmit={(e) => void submit(e)}>
+    <form className="pos-empty pos-card pos-firstfloor" data-form="add-floor" noValidate onSubmit={(e) => void submit(e)}>
       <div className="pos-section__head">
         <h2>{t('floors.first_title')}</h2>
         <p>{t('floors.first_body')}</p>
       </div>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.floors.floor_name')}</span>
-        <input className="pos-input" name="floor_name" value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <div className="pos-row">
+      <div className="pos-grid">
         <label className="pos-field">
-          <span className="pos-field__label">{t('floors.first_table')}</span>
-          <input className="pos-input pos-input--mono" name="first" value={range.first} onChange={(e) => change({ first: e.target.value })} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('floors.last_table')}</span>
-          <input className="pos-input pos-input--mono" name="last" value={range.last} onChange={(e) => change({ last: e.target.value })} />
+          <span className="pos-field__label">{t('owner.floors.floor_name')}</span>
+          <input className="pos-input" name="floor_name" value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label className="pos-field">
           <span className="pos-field__label">{t('floors.seats_per_table')}</span>
@@ -232,18 +229,33 @@ function FirstFloorForm({
           <span className="pos-field__help">{t('floors.seats_help')}</span>
         </label>
       </div>
+      <div className="pos-grid">
+        <label className="pos-field">
+          <span className="pos-field__label">{t('floors.first_table')}</span>
+          <input className="pos-input pos-input--mono" name="first" value={range.first} onChange={(e) => change({ first: e.target.value })} />
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('floors.last_table')}</span>
+          <input className="pos-input pos-input--mono" name="last" value={range.last} onChange={(e) => change({ last: e.target.value })} />
+        </label>
+      </div>
       {names !== null && names.length > 0 && seats !== undefined && (
         <p className="pos-explain">
-          {previewText(names, seats)} {t('floors.parking_note')}
+          <Icon name="check" />
+          <span>
+            {previewText(names, seats)} {t('floors.parking_note')}
+          </span>
         </p>
       )}
       {names === null && <p className="pos-field__error">{t('floors.range_invalid')}</p>}
       {(error ?? bulk.error) !== null && <Banner tone="danger" text={error ?? bulk.error ?? ''} />}
-      <BusyButton busy={busy} primary disabled={down || names === null || seats === undefined} type="submit">
-        {bulk.progress !== null
-          ? fill(t('floors.adding_progress'), { i: String(bulk.progress.i), n: String(bulk.progress.n) })
-          : label}
-      </BusyButton>
+      <div className="pos-row pos-firstfloor__go">
+        <BusyButton busy={busy} primary size="lg" disabled={down || names === null || seats === undefined} type="submit">
+          {bulk.progress !== null
+            ? fill(t('floors.adding_progress'), { i: String(bulk.progress.i), n: String(bulk.progress.n) })
+            : label}
+        </BusyButton>
+      </div>
     </form>
   );
 }
@@ -369,7 +381,28 @@ export function FloorsView({
       end={
         !empty && (
           <>
-            <Switch checked={showArchived} label={t('owner.common.show_archived')} onChange={setShowArchived} />
+            {showArchived && (
+              <button
+                type="button"
+                className="pos-filterchip"
+                aria-label={t('floors.hide_archived')}
+                onClick={() => setShowArchived(false)}
+              >
+                <Icon name="archive" />
+                {t('floors.archived_shown')}
+                <Icon name="x" />
+              </button>
+            )}
+            <MoreMenu
+              label={t('owner.floors.more')}
+              items={[
+                {
+                  label: t(showArchived ? 'floors.hide_archived' : 'owner.common.show_archived'),
+                  icon: 'archive',
+                  onSelect: () => setShowArchived(!showArchived),
+                },
+              ]}
+            />
             <button type="button" className="pos-btn pos-btn--primary" onClick={() => setAddingFloor(true)}>
               <Icon name="plus" />
               {t('owner.floors.add_floor')}
@@ -396,8 +429,8 @@ export function FloorsView({
         const id = floor.floor_id;
         if (archived) {
           return (
-            <section key={id} className="pos-section pos-section--sunken" data-floor-id={id}>
-              <div className="pos-row">
+            <section key={id} className="pos-section pos-section--archived" data-floor-id={id}>
+              <div className="pos-section__top">
                 <div className="pos-section__head">
                   <h2>{floor.name}</h2>
                   <p>
@@ -407,24 +440,28 @@ export function FloorsView({
                     })}
                   </p>
                 </div>
-                <Chip tone="warn">{t('owner.common.archived')}</Chip>
-                <button
-                  type="button"
-                  className="pos-btn"
-                  disabled={down}
-                  onClick={() => void patchFloor(id, { archived: false })}
-                >
-                  {t('owner.common.restore')}
-                </button>
+                <div className="pos-section__tools">
+                  <Chip tone="info" icon="archive">
+                    {t('owner.common.archived')}
+                  </Chip>
+                  <button
+                    type="button"
+                    className="pos-btn"
+                    disabled={down}
+                    onClick={() => void patchFloor(id, { archived: false })}
+                  >
+                    {t('owner.common.restore')}
+                  </button>
+                </div>
               </div>
             </section>
           );
         }
         return (
           <section key={id} className="pos-section" data-floor-id={id}>
-            <div className="pos-row">
+            <div className="pos-section__top">
               {renaming === id ? (
-                <>
+                <div className="pos-row">
                   <CommitInput
                     name="name"
                     label={t('owner.floors.floor_name')}
@@ -443,42 +480,50 @@ export function FloorsView({
                   <button type="button" className="pos-btn" onClick={() => setRenaming(null)}>
                     {t('floors.done')}
                   </button>
-                </>
+                </div>
               ) : (
                 <div className="pos-section__head">
                   <h2>{floor.name}</h2>
                   <p>{floorSummary(floor.tables)}</p>
                 </div>
               )}
-              <SavedChip shown={saved.shown && savedId === id} />
-              {undo?.floorId === id && (
-                <UndoChip
-                  paused={down}
-                  onUndo={() => void restoreTable(undo.table, id)}
-                  onDone={() => setUndo(null)}
-                />
-              )}
-              <div className="pos-appbar__end">
-                {renaming !== id && (
-                  <button type="button" className="pos-btn" onClick={() => setRenaming(id)}>
-                    {t('floors.rename')}
-                  </button>
+              <div className="pos-section__tools">
+                <SavedChip shown={saved.shown && savedId === id} />
+                {undo?.floorId === id && (
+                  <UndoChip
+                    paused={down}
+                    onUndo={() => void restoreTable(undo.table, id)}
+                    onDone={() => setUndo(null)}
+                  />
                 )}
-                <button
-                  type="button"
-                  className="pos-btn"
-                  disabled={down}
-                  onClick={() => {
-                    const live = floor.tables.filter(active);
-                    setAsk(
-                      live.length > 0
-                        ? { kind: 'floor-blocked', floor, names: live.map((x) => x.name) }
-                        : { kind: 'archive-floor', floor },
-                    );
+                <MoreMenu
+                  label={fill(t('common.more_for'), { name: floor.name })}
+                  info={{
+                    title: floor.name,
+                    detail: fill(t('floors.menu_info'), {
+                      n: String(floor.sort_order),
+                      t: floorCounts(floor.tables).tables,
+                      s: floorCounts(floor.tables).seats,
+                    }),
                   }}
-                >
-                  {t('owner.common.archive')}
-                </button>
+                  items={[
+                    ...(renaming === id ? [] : [{ label: t('floors.rename'), icon: 'edit' as const, onSelect: () => setRenaming(id) }]),
+                    {
+                      label: fill(t('floors.menu_archive'), { floor: floor.name }),
+                      icon: 'archive',
+                      danger: true,
+                      disabled: down,
+                      onSelect: () => {
+                        const live = floor.tables.filter(active);
+                        setAsk(
+                          live.length > 0
+                            ? { kind: 'floor-blocked', floor, names: live.map((x) => x.name) }
+                            : { kind: 'archive-floor', floor },
+                        );
+                      },
+                    },
+                  ]}
+                />
               </div>
             </div>
             <div className="pos-tiles">
@@ -584,7 +629,7 @@ export function FloorsView({
           }
         >
           <p className="pos-dialog__body">{fill(t('archive.floor_blocked_body'), { n: String(ask.names.length) })}</p>
-          <div className="pos-row">
+          <div className="pos-chipgrid">
             {ask.names.map((name) => (
               <Chip key={name}>
                 <span className="pos-ltr">{name}</span>

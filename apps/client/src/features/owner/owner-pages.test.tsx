@@ -220,7 +220,9 @@ describe('owner pages (v1.1 design hand-off)', () => {
     render(<StationsView api={st.api} branchId={B1} />);
     await flush();
     await click(button(t('owner.common.edit'), container.querySelector('[data-station-id="S1"]')));
-    await click(button(t('owner.common.archive'), container.querySelector('[data-station-id="S1"]')));
+    // Pulse: Archive {station} is in the open station's More menu.
+    await click(container.querySelector<HTMLButtonElement>('[data-station-id="S1"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Tandoor', container.querySelector('[data-station-id="S1"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Tandoor?');
     await click(button(t('common.cancel'), dialog()));
     expect(st.calls.filter((c) => c.method === 'PATCH')).toHaveLength(0);
@@ -247,7 +249,9 @@ describe('owner pages (v1.1 design hand-off)', () => {
     });
     render(<FloorsView api={fl.api} branchId={B1} />);
     await flush();
-    await click(button(t('owner.common.archive'), container.querySelector('[data-floor-id="F2"]')));
+    // Pulse: Archive {floor} is in the floor's More menu.
+    await click(container.querySelector<HTMLButtonElement>('[data-floor-id="F2"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Roof', container.querySelector('[data-floor-id="F2"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Roof?');
     await click(button(t('common.cancel'), dialog()));
 
@@ -402,7 +406,8 @@ describe('owner pages (v1.1 design hand-off)', () => {
     );
     render(<FloorsView api={fl.api} branchId={B1} />);
     await flush();
-    await click(button(t('floors.rename')));
+    await click(container.querySelector<HTMLButtonElement>('[data-floor-id="F1"] button.pos-more') as HTMLButtonElement);
+    await click(button(t('floors.rename'), container.querySelector('[data-floor-id="F1"] [role="menu"]')));
     const name = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]');
     typeInto(name, 'Hall');
     act(() => name?.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));

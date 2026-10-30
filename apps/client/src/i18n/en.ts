@@ -845,6 +845,18 @@ export const en = {
   'owner.nav.close': 'Close the side menu',
   'owner.picker.menu_line': 'Menu is the same for every branch.',
   'owner.picker.id_note': 'Branch names show once they are set in Branch settings. Until then the end of each branch’s ID shows.',
+  // Pulse 01a hand-off CHANGES §3: floors and stations More menus
+  'owner.floors.more': 'More for floors',
+  'floors.menu_info': 'Position {n} · {t} tables · {s} seats',
+  'floors.menu_archive': 'Archive {floor}',
+  'floors.archived_shown': 'Archived shown',
+  'floors.hide_archived': 'Hide archived floors',
+  'stations.used_by_short': 'Used by {n} items',
+  'stations.used_by_names': 'Used by {n} items: {names}',
+  'stations.menu_archive': 'Archive {station}',
+  'owner.stations.more': 'More for stations',
+  'stations.hide_archived': 'Hide archived stations',
+  'stations.menu_info': 'Archiving checks no item still cooks here.',
 } as const;
 
 export type MessageKey = keyof typeof en;

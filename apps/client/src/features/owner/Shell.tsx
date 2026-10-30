@@ -167,7 +167,7 @@ export function BranchSelect({
   const branchName = useBranchName();
   if (branchIds.length < 2) return null;
   return (
-    <label className="pos-row">
+    <label className="pos-row pos-appbar__branch">
       <span className="pos-field__label">{t('owner.branch')}</span>
       <select
         className="pos-select"

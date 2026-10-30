@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCloudAdmin } from '../../../api/cloud-admin';
+import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { StationsView } from './StationsView';
 
@@ -225,5 +226,86 @@ describe('owner stations view', () => {
     expect(dialog?.querySelector('[data-in-use]')?.textContent).toBe('Paye');
     await click(button(t('common.close'), dialog));
     expect(station('S1')?.textContent).toContain(t('owner.stations.type_locked'));
+  });
+
+  it('[01a hand-off S04] Archive {station} sits in the open station\'s More menu; a CONFIG_IN_USE answer shows the "Used by" hint with the names', async () => {
+    let archiveAnswer: 'in-use' | 'ok' = 'in-use';
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET' && call.url.startsWith('/v1/admin/menu')) {
+        return json(200, {
+          data: {
+            can_edit_tenant: true,
+            tax_classes: [],
+            categories: [],
+            items: [
+              { item_id: 'I1', name: 'Paye' },
+              { item_id: 'I2', name: 'Chicken Biryani · Half' },
+            ],
+            next_cursor: null,
+          },
+        });
+      }
+      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER] } });
+      if (archiveAnswer === 'in-use') {
+        return json(409, {
+          error: { code: 'CONFIG_IN_USE', message: 'in use', details: { used_by: { entity: 'menu_item', ids: ['I1', 'I2', 'I9'] } } },
+        });
+      }
+      return json(200, { data: { station: { ...FRYER, archived_at: 5 } } });
+    });
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+
+    // A closed station has no More menu; the open one has, with no Archive block at its foot.
+    expect(station('S2')?.querySelector('.pos-more')).toBeNull();
+    await click(button(t('owner.common.edit'), station('S2')));
+    expect(station('S2')?.tagName).toBe('SECTION');
+    expect(station('S2')?.textContent).not.toContain(t('owner.stations.archive_station'));
+    expect(station('S2')?.querySelector('.pos-hint')).toBeNull();
+    const more = station('S2')?.querySelector<HTMLButtonElement>('button.pos-more');
+    expect(more?.getAttribute('aria-label')).toBe(fill(t('common.more_for'), { name: 'Fryer' }));
+    await click(more as HTMLButtonElement);
+    const menu = station('S2')?.querySelector('[role="menu"]');
+    expect(menu?.textContent).toContain(t('stations.menu_info'));
+    const item = button(fill(t('stations.menu_archive'), { station: 'Fryer' }), menu);
+    expect(item.className).toContain('pos-menu__item--danger');
+    await click(item);
+    const confirm = container.querySelector('[role="dialog"]');
+    expect(confirm?.textContent).toContain(fill(t('archive.item_title'), { name: 'Fryer' }));
+    await click(button(fill(t('archive.archive_name'), { name: 'Fryer' }), confirm));
+    expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: '/v1/admin/branches/B1/stations/S2', body: { archived: true } });
+    const blocked = container.querySelector('[role="dialog"]');
+    expect(blocked?.textContent).toContain(fill(t('archive.blocked_title'), { name: 'Fryer' }));
+    await click(button(t('common.close'), blocked));
+
+    // The station stays open and now names the items that use it.
+    const hint = station('S2')?.querySelector<HTMLButtonElement>('button.pos-hint');
+    expect(hint?.textContent).toBe(fill(t('stations.used_by_short'), { n: '3' }));
+    const names = `Paye, Chicken Biryani · Half, ${fill(t('archive.and_more'), { n: '1' })}`;
+    expect(hint?.title).toBe(names);
+    expect(hint?.getAttribute('aria-label')).toBe(fill(t('stations.used_by_names'), { n: '3', names }));
+
+    archiveAnswer = 'ok';
+    await click(station('S2')?.querySelector<HTMLButtonElement>('button.pos-more') as HTMLButtonElement);
+    await click(button(fill(t('stations.menu_archive'), { station: 'Fryer' }), station('S2')?.querySelector('[role="menu"]')));
+    await click(button(fill(t('archive.archive_name'), { name: 'Fryer' }), container.querySelector('[role="dialog"]')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
+  });
+
+  it('[01a hand-off S04] Show archived is an app-bar More item; its chip hides archived stations again', async () => {
+    const { api } = fakeApi(() => json(200, { data: { stations: [KARAHI, { ...FRYER, archived_at: 9 }] } }));
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+    const shown = () => [...container.querySelectorAll<HTMLElement>('[data-station-id]')].map((x) => x.dataset['stationId']);
+    expect(shown()).toEqual(['S1']);
+    expect(container.querySelector('button[role="switch"]')).toBeNull();
+    await click(container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more') as HTMLButtonElement);
+    await click(button(t('owner.common.show_archived'), container.querySelector('.pos-appbar [role="menu"]')));
+    expect(shown()).toEqual(['S1', 'S2']);
+    expect(station('S2')?.textContent).toContain(t('owner.common.restore'));
+    const chip = container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-filterchip');
+    expect(chip?.getAttribute('aria-label')).toBe(t('stations.hide_archived'));
+    await click(chip as HTMLButtonElement);
+    expect(shown()).toEqual(['S1']);
   });
 });

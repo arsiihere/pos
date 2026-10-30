@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CloudAdmin, CompletionMode, PatchStationBody, Program, Station, StationType } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
@@ -6,12 +6,11 @@ import { BusyButton } from '../../../components/BusyButton';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { SavedChip, UndoChip, useFlash } from '../../../components/FlashChip';
 import { Icon } from '../../../components/Icon';
-import { List, ListRow } from '../../../components/List';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
-import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
-import { t, typeClass } from '../../../i18n';
+import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
@@ -24,6 +23,9 @@ import { AddStationDialog, COMPLETION_MODES, parseWhole, RecipeDialog, typeOptio
 // §8.1 #/stations (01a-S04): one row per station with a summary; Edit opens it in place with its batch
 // recipes; Save station sends one PATCH of the changed fields. A type change or an archive that items
 // still use is refused (§6.9) and shows the items (S50 b). Recipes archive at once with Undo.
+// Pulse (01a hand-off CHANGES §2): the open station is its own section; Archive {station} sits in its More
+// menu, and once the items using it are known (a CONFIG_IN_USE answer) its head shows the hint "Used by {n}
+// items" with their names in the tooltip and aria-label. Show archived is an app-bar More item.
 type StationRow = Station & { programs: Program[] };
 
 const MODE_SHORT: Record<CompletionMode, 'owner.stations.mode_two_tap_short' | 'owner.stations.mode_single_tap_short' | 'owner.stations.mode_auto_done_short'> = {
@@ -43,6 +45,20 @@ function summary(station: Station): string {
     .join(' · ');
 }
 
+// Closed stations show as list rows; the open one (one at a time) is its own section between them.
+type Run = { kind: 'open'; station: StationRow } | { kind: 'rows'; stations: StationRow[] };
+
+function runs(stations: readonly StationRow[], open: string | null): Run[] {
+  const out: Run[] = [];
+  for (const station of stations) {
+    const last = out.at(-1);
+    if (station.station_id === open && station.archived_at === null) out.push({ kind: 'open', station });
+    else if (last?.kind === 'rows') last.stations.push(station);
+    else out.push({ kind: 'rows', stations: [station] });
+  }
+  return out;
+}
+
 function StationEditor({
   api,
   branchId,
@@ -55,6 +71,8 @@ function StationEditor({
   onAddRecipe,
   onEditRecipe,
   showArchived,
+  inUse,
+  chips,
 }: {
   api: CloudAdmin;
   branchId: string;
@@ -67,6 +85,8 @@ function StationEditor({
   onAddRecipe: () => void;
   onEditRecipe: (program: Program) => void;
   showArchived: boolean;
+  inUse: InUse | undefined;
+  chips: ReactNode;
 }) {
   const [name, setName] = useState(station.name);
   const [label, setLabel] = useState(station.location_label ?? '');
@@ -122,93 +142,127 @@ function StationEditor({
   const programs = station.programs.filter((p) => showArchived || p.archived_at === null);
 
   return (
-    <div className="pos-section">
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.stations.station_name')}</span>
-        <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.stations.location_label')}</span>
-        <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
-      </label>
+    <section className="pos-section pos-section--open" data-station-id={station.station_id}>
+      <div className="pos-section__top">
+        <div className="pos-section__head">
+          <h2>{station.name}</h2>
+          {inUse !== undefined && <UsedByHint inUse={inUse} />}
+        </div>
+        <div className="pos-section__tools">
+          {chips}
+          <button type="button" className="pos-btn" onClick={() => leave(onClose)}>
+            {t('common.close')}
+          </button>
+          <BusyButton busy={busy} disabled={down} onClick={() => void save()}>
+            {t('owner.stations.save_station')}
+          </BusyButton>
+          <MoreMenu
+            label={fill(t('common.more_for'), { name: station.name })}
+            info={{
+              title: `${station.name} · ${t(station.station_type === 'batch' ? 'owner.stations.cooks_batches' : 'owner.stations.cooks_each')}`,
+              detail: t('stations.menu_info'),
+            }}
+            items={[
+              {
+                label: fill(t('stations.menu_archive'), { station: station.name }),
+                icon: 'archive',
+                danger: true,
+                disabled: down,
+                onSelect: onArchive,
+              },
+            ]}
+          />
+        </div>
+      </div>
+      {error !== null && <Banner tone="danger" text={error} />}
+      <div className="pos-grid">
+        <label className="pos-field">
+          <span className="pos-field__label">{t('owner.stations.station_name')}</span>
+          <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('owner.stations.location_label')}</span>
+          <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </label>
+      </div>
       <div className="pos-field">
         <span className="pos-field__label">{t('owner.stations.type')}</span>
-        {typeLocked ? (
-          <>
-            <p className={typeClass('body')}>{t(type === 'batch' ? 'owner.stations.type_batch' : 'owner.stations.type_slot')}</p>
-            <span className="pos-field__help">{t('owner.stations.type_locked')}</span>
-          </>
-        ) : (
-          <Segmented label={t('owner.stations.type')} options={typeOptions()} value={type} onChange={setType} />
-        )}
+        <Segmented label={t('owner.stations.type')} options={typeOptions()} value={type} onChange={setType} locked={typeLocked} />
+        {typeLocked && <span className="pos-field__help">{t('owner.stations.type_locked')}</span>}
       </div>
-      <label className="pos-field">
-        <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
-        <input className="pos-input pos-input--mono" name="capacity" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
-      </label>
-      {type === 'batch' && (
+      <div className="pos-grid pos-grid--3">
         <label className="pos-field">
-          <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
-          <input
-            className="pos-input pos-input--mono"
-            name="freshness_minutes"
-            inputMode="decimal"
-            value={freshness}
-            onChange={(e) => setFreshness(e.target.value)}
-          />
+          <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
+          <input className="pos-input pos-input--mono" name="capacity" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         </label>
-      )}
-      <label className="pos-field">
-        <span className="pos-field__label">{t('owner.stations.completion_mode')}</span>
-        <select className="pos-select" name="completion_mode" value={mode} onChange={(e) => setMode(e.target.value as CompletionMode)}>
-          {COMPLETION_MODES.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(option.label)}
-            </option>
-          ))}
-        </select>
-      </label>
+        {type === 'batch' && (
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
+            <input
+              className="pos-input pos-input--mono"
+              name="freshness_minutes"
+              inputMode="decimal"
+              value={freshness}
+              onChange={(e) => setFreshness(e.target.value)}
+            />
+          </label>
+        )}
+        <label className="pos-field">
+          <span className="pos-field__label">{t('owner.stations.completion_mode')}</span>
+          <select className="pos-select" name="completion_mode" value={mode} onChange={(e) => setMode(e.target.value as CompletionMode)}>
+            {COMPLETION_MODES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {t(option.label)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {station.station_type === 'batch' && (
-        <div className="pos-stack">
-          <div className="pos-section__head">
-            <h2>{t('owner.stations.programs')}</h2>
+        <>
+          <div className="pos-section__head pos-section__head--sub">
+            <h3>{t('owner.stations.programs')}</h3>
             <p>{t('owner.stations.programs_body')}</p>
           </div>
-          <ul className="pos-list">
-            {programs.map((program) => (
-              <li key={program.program_id} className={`pos-list__row${program.archived_at === null ? '' : ' is-muted'}`} data-program-id={program.program_id}>
-                <span className="pos-list__name">
+          {programs.length > 0 && (
+            <ul className="pos-list pos-list--programs">
+              {programs.map((program) => (
+                <li key={program.program_id} className={`pos-list__row${program.archived_at === null ? '' : ' is-muted'}`} data-program-id={program.program_id}>
                   <strong>{program.name}</strong>
-                  <span className="pos-ltr">{fill(t('owner.stations.minutes_n'), { n: formatMinutes(program.cook_time_ms) })}</span>
-                </span>
-                <button type="button" className="pos-btn" onClick={() => onEditRecipe(program)}>
-                  {t(program.archived_at === null ? 'owner.common.edit' : 'owner.common.restore')}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button type="button" className="pos-btn" onClick={onAddRecipe}>
+                  <span className="pos-list__num">{fill(t('owner.stations.minutes_n'), { n: formatMinutes(program.cook_time_ms) })}</span>
+                  <button type="button" className="pos-btn" onClick={() => onEditRecipe(program)}>
+                    {t(program.archived_at === null ? 'owner.common.edit' : 'owner.common.restore')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="pos-btn pos-btn--start" onClick={onAddRecipe}>
             <Icon name="plus" />
             {t('owner.stations.add_program')}
           </button>
-        </div>
+        </>
       )}
-      <div className="pos-dialog__danger">
-        <strong>{t('owner.stations.archive_station')}</strong>
-        <button type="button" className="pos-btn pos-btn--danger" disabled={down} onClick={onArchive}>
-          {t('owner.common.archive')}
-        </button>
-      </div>
-      {error !== null && <Banner tone="danger" text={error} />}
-      <div className="pos-dialog__footer">
-        <button type="button" className="pos-btn" onClick={() => leave(onClose)}>
-          {t('common.close')}
-        </button>
-        <BusyButton busy={busy} primary disabled={down} onClick={() => void save()}>
-          {t('owner.stations.save_station')}
-        </BusyButton>
-      </div>
-    </div>
+    </section>
+  );
+}
+
+// The items known to use a station (from a CONFIG_IN_USE answer): a hint whose tooltip and accessible
+// name list them (01a hand-off CHANGES §2, S04).
+function UsedByHint({ inUse }: { inUse: InUse }) {
+  const n = String(inUse.ids.length);
+  const more = inUse.ids.length - inUse.names.length;
+  const names = [...inUse.names, ...(more > 0 ? [fill(t('archive.and_more'), { n: String(more) })] : [])].join(', ');
+  return (
+    <button
+      type="button"
+      className="pos-hint"
+      title={names}
+      aria-label={fill(t('stations.used_by_names'), { n, names })}
+    >
+      <Icon name="info" />
+      {fill(t('stations.used_by_short'), { n })}
+    </button>
   );
 }
 
@@ -237,6 +291,8 @@ export function StationsView({
   const [adding, setAdding] = useState(false);
   const [ask, setAsk] = useState<Ask>(null);
   const [typeLocked, setTypeLocked] = useState<Set<string>>(new Set());
+  // Items a CONFIG_IN_USE answer named for a station (its archive or type change): the "Used by" hint.
+  const [usedBy, setUsedBy] = useState<ReadonlyMap<string, InUse>>(new Map());
   const [undo, setUndo] = useState<{ stationId: string; program: Program } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const saved = useFlash();
@@ -285,8 +341,11 @@ export function StationsView({
     const result = await api.patchStation(branchId, station.station_id, { archived: true });
     if (!result.ok) {
       const ids = usedIds(result.error);
-      if (ids !== null) setAsk({ kind: 'blocked', station, inUse: await itemNames(api, ids), type: false });
-      else setError(errorText(result.error));
+      if (ids !== null) {
+        const inUse = await itemNames(api, ids);
+        setUsedBy((known) => new Map(known).set(station.station_id, inUse));
+        setAsk({ kind: 'blocked', station, inUse, type: false });
+      } else setError(errorText(result.error));
     } else setOpen(null);
     await load();
   }
@@ -300,6 +359,15 @@ export function StationsView({
 
   const visible = (row: { archived_at: number | null }) => showArchived || row.archived_at === null;
 
+  const chips = (id: string) => (
+    <>
+      <SavedChip shown={saved.shown && savedId === id} />
+      {undo?.stationId === id && (
+        <UndoChip paused={down} onUndo={() => void setProgramArchived(id, undo.program, false)} onDone={() => setUndo(null)} />
+      )}
+    </>
+  );
+
   return (
     <Page
       api={api}
@@ -307,7 +375,28 @@ export function StationsView({
       after={<BranchSelect branchIds={branchIds} value={branchId} onChange={onBranch} />}
       end={
         <>
-          <Switch checked={showArchived} label={t('owner.common.show_archived')} onChange={setShowArchived} />
+          {showArchived && (
+            <button
+              type="button"
+              className="pos-filterchip"
+              aria-label={t('stations.hide_archived')}
+              onClick={() => setShowArchived(false)}
+            >
+              <Icon name="archive" />
+              {t('floors.archived_shown')}
+              <Icon name="x" />
+            </button>
+          )}
+          <MoreMenu
+            label={t('owner.stations.more')}
+            items={[
+              {
+                label: t(showArchived ? 'stations.hide_archived' : 'owner.common.show_archived'),
+                icon: 'archive',
+                onSelect: () => setShowArchived(!showArchived),
+              },
+            ]}
+          />
           <button type="button" className="pos-btn pos-btn--primary" onClick={() => setAdding(true)}>
             <Icon name="plus" />
             {t('owner.stations.add_station')}
@@ -317,74 +406,67 @@ export function StationsView({
     >
       {error !== null && <Banner tone="danger" text={error} />}
       {stations === null && <Skeleton lines={4} />}
-      {stations !== null && (
-        <List preset="stack">
-          {stations.filter(visible).map((station) => {
-            const id = station.station_id;
-            const archived = station.archived_at !== null;
-            return (
-              <ListRow key={id} muted={archived}>
-                <div className="pos-stack" data-station-id={id}>
-                  <div className="pos-row">
+      {stations !== null &&
+        runs(stations.filter(visible), open).map((run) =>
+          run.kind === 'open' ? (
+            <StationEditor
+              key={`${run.station.station_id}-${run.station.name}-${run.station.station_type}-${run.station.capacity}-${run.station.completion_mode}-${run.station.freshness_window_ms ?? ''}-${run.station.location_label ?? ''}`}
+              api={api}
+              branchId={branchId}
+              station={run.station}
+              showArchived={showArchived}
+              typeLocked={typeLocked.has(run.station.station_id)}
+              inUse={usedBy.get(run.station.station_id)}
+              chips={chips(run.station.station_id)}
+              onSaved={() => {
+                setOpen(null);
+                flashSaved(run.station.station_id);
+                void load();
+              }}
+              onClose={() => setOpen(null)}
+              onTypeBlocked={(inUse) => {
+                const station = run.station;
+                setTypeLocked(new Set([...typeLocked, station.station_id]));
+                setUsedBy((known) => new Map(known).set(station.station_id, inUse));
+                setAsk({ kind: 'blocked', station, inUse, type: true });
+              }}
+              onArchive={() => setAsk({ kind: 'archive', station: run.station })}
+              onAddRecipe={() => setAsk({ kind: 'recipe', station: run.station, program: null })}
+              onEditRecipe={(program) =>
+                program.archived_at === null
+                  ? setAsk({ kind: 'recipe', station: run.station, program })
+                  : void setProgramArchived(run.station.station_id, program, false)
+              }
+            />
+          ) : (
+            <ul key={run.stations[0]?.station_id} className="pos-list pos-list--stations">
+              {run.stations.map((station) => {
+                const id = station.station_id;
+                const archived = station.archived_at !== null;
+                return (
+                  <li key={id} className={`pos-list__row${archived ? ' is-muted' : ''}`} data-station-id={id}>
                     <span className="pos-list__name">
                       <strong>{station.name}</strong>
                       <span>{summary(station)}</span>
                     </span>
-                    <SavedChip shown={saved.shown && savedId === id} />
-                    {undo?.stationId === id && (
-                      <UndoChip
-                        paused={down}
-                        onUndo={() => void setProgramArchived(id, undo.program, false)}
-                        onDone={() => setUndo(null)}
-                      />
-                    )}
-                    <div className="pos-appbar__end">
+                    <div className="pos-section__tools">
+                      {chips(id)}
                       {archived ? (
                         <button type="button" className="pos-btn" disabled={down} onClick={() => void restoreStation(station)}>
                           {t('owner.common.restore')}
                         </button>
                       ) : (
-                        open !== id && (
-                          <button type="button" className="pos-btn" onClick={() => setOpen(id)}>
-                            {t('owner.common.edit')}
-                          </button>
-                        )
+                        <button type="button" className="pos-btn" onClick={() => setOpen(id)}>
+                          {t('owner.common.edit')}
+                        </button>
                       )}
                     </div>
-                  </div>
-                  {open === id && !archived && (
-                    <StationEditor
-                      key={`${id}-${station.name}-${station.station_type}-${station.capacity}-${station.completion_mode}-${station.freshness_window_ms ?? ''}-${station.location_label ?? ''}`}
-                      api={api}
-                      branchId={branchId}
-                      station={station}
-                      showArchived={showArchived}
-                      typeLocked={typeLocked.has(id)}
-                      onSaved={() => {
-                        setOpen(null);
-                        flashSaved(id);
-                        void load();
-                      }}
-                      onClose={() => setOpen(null)}
-                      onTypeBlocked={(inUse) => {
-                        setTypeLocked(new Set([...typeLocked, id]));
-                        setAsk({ kind: 'blocked', station, inUse, type: true });
-                      }}
-                      onArchive={() => setAsk({ kind: 'archive', station })}
-                      onAddRecipe={() => setAsk({ kind: 'recipe', station, program: null })}
-                      onEditRecipe={(program) =>
-                        program.archived_at === null
-                          ? setAsk({ kind: 'recipe', station, program })
-                          : void setProgramArchived(id, program, false)
-                      }
-                    />
-                  )}
-                </div>
-              </ListRow>
-            );
-          })}
-        </List>
-      )}
+                  </li>
+                );
+              })}
+            </ul>
+          ),
+        )}
 
       {adding && (
         <AddStationDialog

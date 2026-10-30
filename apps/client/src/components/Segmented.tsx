@@ -13,16 +13,20 @@ export function Segmented<V extends string>({
   value,
   onChange,
   block = false,
+  locked = false,
 }: {
   label: string;
   options: readonly SegOption<V>[];
   value: V;
   onChange: (value: V) => void;
   block?: boolean;
+  // Only the pressed option can be chosen (the other options are disabled), e.g. a station type in use.
+  locked?: boolean;
 }) {
   const group = useRef<HTMLDivElement>(null);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (locked) return;
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     const rtl = group.current?.closest('[dir]')?.getAttribute('dir') === 'rtl';
     const forward = (event.key === 'ArrowRight') !== rtl;
@@ -49,6 +53,7 @@ export function Segmented<V extends string>({
           type="button"
           className="pos-seg__opt"
           aria-pressed={o.value === value}
+          disabled={locked && o.value !== value}
           onClick={() => onChange(o.value)}
         >
           {o.label}

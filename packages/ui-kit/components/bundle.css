@@ -1508,7 +1508,6 @@ button.pos-chip { min-width: var(--touch-min); justify-content: center; }
 .pos-dialog--full > .pos-seg .pos-seg__opt { padding-inline: 10px; font-size: 15px; }
 
 /* ---------- Legacy: rules the pre-Pulse pages still use; removed when the last page moves off them (docs/plans/ui-pulse-plan.md) ---------- */
-.pos-section--sunken { background: var(--surface-sunken); }
 .pos-tile.is-muted { color: var(--ink-muted); border-style: dashed; }
 /* The client entries fill the window like the hub pages (the hub resets these in its page CSS). */
 body.pos-root { margin: 0; min-height: 100vh; }
@@ -1682,6 +1681,17 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-appbar__branch { gap: var(--space-2); flex-wrap: nowrap; }
 .pos-appbar__branch > .pos-field__label { font: 700 17px/22px var(--font-sans); color: var(--ink-muted); }
 .pos-appbar__branch > .pos-select { width: 240px; }
+.pos-appbar--phone .pos-appbar__branch > .pos-field__label { color: var(--on-chrome-muted); }
+/* Kit fix: a Dialog's scrim covers the viewport (the 01a drawer scrim rule made it position: absolute, so it
+   covered only the nearest positioned box and scrolled away on long phone pages). */
+.pos-scrim:has(> .pos-dialog) { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: var(--space-4); }
+/* Popups: centred, never taller than the screen (hand-off PROMPT "Popups") */
+.pos-scrim > .pos-dialog { max-height: calc(100dvh - 64px); overflow-y: auto; }
+/* Table dialog: archive block head; blocked floor: the tables as a 6-column chip grid (OwnerTableDialog, OwnerArchiveFloor) */
+.pos-dialog__danger > .pos-section__head strong { font: 700 17px/22px var(--font-sans); }
+.pos-dialog__danger > .pos-section__head span { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-chipgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-2); }
+.pos-chipgrid > .pos-chip { justify-content: center; }
 /* Archived floor (Show archived): sunken, muted title */
 .pos-section--archived { background: var(--surface-sunken); }
 .pos-section--archived .pos-section__head h2 { color: var(--ink-muted); }
@@ -1709,4 +1719,5 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-bulk__preview { flex-basis: 100%; padding-bottom: 0; }
   .pos-firstfloor .pos-grid, .pos-section--open .pos-grid { grid-template-columns: minmax(0, 1fr); }
   .pos-firstfloor__go > .pos-btn { flex: 1; }
+  .pos-chipgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

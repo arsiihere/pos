@@ -124,47 +124,49 @@ export function BulkTables({
   };
 
   return (
-    <div className="pos-explain pos-stack" data-form="bulk-tables">
-      <div className="pos-row">
-        <label className="pos-field">
-          <span className="pos-field__label">{t('floors.from')}</span>
-          <input className="pos-input pos-input--mono" name="first" value={range.first} onChange={(e) => change({ first: e.target.value })} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('floors.to')}</span>
-          <input className="pos-input pos-input--mono" name="last" value={range.last} onChange={(e) => change({ last: e.target.value })} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('floors.seats_each')}</span>
-          <input
-            className="pos-input pos-input--mono"
-            name="seats"
-            inputMode="numeric"
-            value={range.seats}
-            onChange={(e) => change({ seats: e.target.value })}
-          />
-        </label>
-      </div>
-      {names !== null && seats !== undefined && <p className={typeClass('body')}>{previewText(names, seats)}</p>}
-      {complete && names === null && <p className="pos-field__error">{t('floors.range_invalid')}</p>}
-      {bulk.error !== null && <Banner tone="danger" text={bulk.error} />}
-      <div className="pos-row">
-        <button type="button" className="pos-btn" onClick={onCancel} disabled={bulk.progress !== null}>
-          {t('common.cancel')}
-        </button>
-        <BusyButton
-          busy={bulk.progress !== null}
-          disabled={names === null || seats === undefined || down}
-          onClick={() => {
-            if (names === null || seats === undefined) return;
-            void bulk.run(floorId, names, seats).then((ok) => onDone(ok));
-          }}
-        >
-          {bulk.progress !== null
-            ? fill(t('floors.adding_progress'), { i: String(bulk.progress.i), n: String(bulk.progress.n) })
-            : fill(t('floors.add_n_tables'), { n: String(names?.length ?? 0) })}
-        </BusyButton>
-      </div>
+    <div className="pos-explain pos-bulk" data-form="bulk-tables">
+      <label className="pos-field pos-bulk__name">
+        <span className="pos-field__label">{t('floors.from')}</span>
+        <input className="pos-input pos-input--mono" name="first" value={range.first} onChange={(e) => change({ first: e.target.value })} />
+      </label>
+      <label className="pos-field pos-bulk__name">
+        <span className="pos-field__label">{t('floors.to')}</span>
+        <input className="pos-input pos-input--mono" name="last" value={range.last} onChange={(e) => change({ last: e.target.value })} />
+      </label>
+      <label className="pos-field pos-bulk__seats">
+        <span className="pos-field__label">{t('floors.seats_each')}</span>
+        <input
+          className="pos-input pos-input--mono"
+          name="seats"
+          inputMode="numeric"
+          value={range.seats}
+          onChange={(e) => change({ seats: e.target.value })}
+        />
+      </label>
+      <span className={`pos-bulk__preview ${typeClass('body')}`}>
+        {names !== null && seats !== undefined ? previewText(names, seats) : ''}
+      </span>
+      <button type="button" className="pos-btn" onClick={onCancel} disabled={bulk.progress !== null}>
+        {t('common.cancel')}
+      </button>
+      <BusyButton
+        busy={bulk.progress !== null}
+        disabled={names === null || seats === undefined || down}
+        onClick={() => {
+          if (names === null || seats === undefined) return;
+          void bulk.run(floorId, names, seats).then((ok) => onDone(ok));
+        }}
+      >
+        {bulk.progress !== null
+          ? fill(t('floors.adding_progress'), { i: String(bulk.progress.i), n: String(bulk.progress.n) })
+          : fill(t('floors.add_n_tables'), { n: String(names?.length ?? 0) })}
+      </BusyButton>
+      {complete && names === null && <p className="pos-field__error pos-bulk__full">{t('floors.range_invalid')}</p>}
+      {bulk.error !== null && (
+        <div className="pos-bulk__full">
+          <Banner tone="danger" text={bulk.error} />
+        </div>
+      )}
     </div>
   );
 }
