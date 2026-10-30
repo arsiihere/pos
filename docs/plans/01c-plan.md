@@ -1,4 +1,4 @@
-# 01c Menu: variants, modifiers, deals — Implementation Plan (spec v1.0.1)
+# 01c Menu: variants, modifiers, deals — Implementation Plan (spec v1.1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** the existing stack (CLAUDE.md): Node 22, Fastify 5, PostgreSQL 16 (cloud), SQLite / better-sqlite3 (hub), React (client), Zod, Vitest. No new dependency.
 
-**Spec:** `docs/specs/01c_Menu_Variants_Spec_v1.0.1.md` (cited "§x", "Vn", tests "#n"), with `docs/reviews/01c_hostile_G4.md` run 5 (T1–T4, carried in §12.7). Changed specs, already applied with "Changed by 01c v1.0" markers: `docs/specs/01_Restaurant_Setup_Spec_v2.0.md` ("01a §x", tests "01a #n"), `docs/specs/01b_Staff_Roles_Spec_v1.2.md` ("01b #n"), foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"). **Read the cited spec section before each task**; the plan does not repeat the spec's tables or SQL.
+**Spec:** `docs/specs/01c_Menu_Variants_Spec_v1.1.md` (v1.1 as-built over v1.0.1, which tasks 1–39 were written against; cited "§x", "Vn", tests "#n"), with `docs/reviews/01c_hostile_G4.md` run 5 (T1–T4, carried in §12.7). Changed specs, already applied with "Changed by 01c v1.0" markers: `docs/specs/01_Restaurant_Setup_Spec_v2.0.md` ("01a §x", tests "01a #n"), `docs/specs/01b_Staff_Roles_Spec_v1.2.md` ("01b #n"), foundation `docs/specs/00_Foundation_Spec_v1.7.md` ("F §x"). **Read the cited spec section before each task**; the plan does not repeat the spec's tables or SQL.
 
 **Starting point:** 00, 01a and 01b are built. Already done, no task: §11 step 20 (01a v2.0, 01b v1.2, README rows; commit `a490006`) and the F §6.2 append of the four 404 codes (commit `0d24760`). Reuse, do not recreate: cloud `withIdempotency`, `inTransaction` (`lib/idempotency.ts`), `writeConfigAudit`, `auditActionFor` (`lib/config-audit.ts`), `bumpConfigVersion`, `coversEveryBranch` (`lib/config-version.ts`), `TenantScopedRepository`, `TenantLevelRepository`, `nameTaken`, `unchangedRow`, `replaceWindows`, `assertReference`, `assertRoutes` (`modules/restaurant/service.ts`), `canonicalJson`, `sha256hex` (`@pos/domain/hash`), the 01b version style (`modules/staff-roles/versions.ts`); cloud test helpers `createTestCloud`, `restaurantFixture`, `seedMenu`, `pgCounter`, `scratchDatabaseAt`, `ROUTE_CASES`; hub `defineCommand`, `defineQuery`, `registerCatchUp`, `branchConfig()`, `stockScopeFilter`, `requireBranchScope`; hub test helpers `createTestHub`, `stub-config-cloud.ts`, `statementCounter`; `@pos/events/testing` builders; client `api/cloud-admin.ts`, `api/hub-admin.ts`, `i18n/{en,ur}.ts`, `features/owner/versions.ts`.
 
@@ -25,7 +25,7 @@
 
 Every task implicitly includes these. Values copied from the spec.
 
-- **Gate:** every task ends with `pnpm -w typecheck && pnpm -w lint && pnpm -w test` green. A batch ends with its checkpoint (below).
+- **Gate:** every task ends with `pnpm -w typecheck && pnpm -w lint && pnpm -w test` green. A batch ends with its checkpoint (below). *As built (AD-4, task 9a, README R31):* test files are type-checked in the gate: each package has a `tsconfig.test.json` (module ESNext, moduleResolution Bundler, tests and test helpers; `src` keeps NodeNext) and a `typecheck:tests` script; `pnpm -w typecheck` runs both, so a type error in a test fails the gate (no casts to silence it; turbo `typecheck:tests` uncached).
 - **Dependencies:** none new in any `package.json` (§7).
 - **Spec-first:** if code and spec disagree, stop and ask (CLAUDE.md). The spec gaps found while writing this plan are in "Spec gaps" at the end; the plan's choice for each is a Plan decision, to be confirmed by the developer before the task that needs it.
 - **Determinism (F §6.7):** no `Date.now()`, `Math.random()`, `ulid()` in hub, cloud or package `src/`; injected `Clock`, `IdGen`.
@@ -836,6 +836,19 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 ### Task 40 (optional, out of plan): 01a v2.0 prose rewrite
 
 01a v2.0 records 01c's changes as "Changed by 01c v1.0" markers over the 01a v1.3.1 text (R26); a marker wins where it and the text differ. Folding the markers into rewritten 01a prose is a docs-only task, not needed for the build or for 02; do it only if the developer asks (spec-first: version bump, changelog, no behaviour change).
+
+## Final review fixes (after task 39)
+
+Spec 01c v1.1 (as-built, P1, P2). Each fix: TDD, one commit, only its files.
+
+### Task 41: `archived_parts` carries quantity and choices [spec 01c v1.1 §5.4, §6.13; test #129]
+
+- **Files:** `packages/events/src/admin/menu-variants.ts` (deal wire schema: `archived_parts: [{ deal_part_id, quantity, choices: [{ item_id }] }]`); `apps/cloud/src/modules/menu-variants/` (`versions.ts` deal wire, and the deal read in `repository.ts` / `service.ts` so archived parts come with their choices; §6.13 stays at its 5 fixed statements); test in `apps/cloud/test/menu-variants/deals.int.test.ts` (and the `versions.test.ts` wire expectation).
+- **Test #129:** an archived part returns its quantity and choices in `sort_order` (then `item_id`); restoring it (its `deal_part_id` sent in `parts`) is unchanged (same part id, quantity, choices); the deal `version` does not change merely because `archived_parts` carries more fields (not hashed, §5.4).
+- The §6.14 POST and §6.15 PATCH responses carry the same deal wire (`versions.ts`), so they gain the fields too; the §6.15 audit `after` still leaves out `archived_parts` (AD-30 d).
+- Update task 39 step 2: 125 distinct numbers, 1–129 without 71, 72, 115, 124.
+- No migration (archiving a part sets only `archived_at` and keeps its choices, AD-31 c). P1 (i18n key prefix) is a spec erratum with no 01c code: the keys belong to the UI module.
+- **Commit:** `feat(01c): archived_parts carries quantity and choices [spec §5.4, §6.13; test #129]`
 
 ---
 
