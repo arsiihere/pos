@@ -48,7 +48,7 @@ function headings(): string[] {
 }
 
 describe('[01b §8] staff form', () => {
-  it('[01b §8] sends expected_version and shows the reload message on CONFIG_STALE', async () => {
+  it('[01b §8] sends expected_version; CONFIG_STALE keeps the draft until Reload [owner decision 2026-10-30, 01b P1]', async () => {
     let stale = true;
     const { api, calls } = fakeApi(
       handler((call) => {
@@ -69,16 +69,31 @@ describe('[01b §8] staff form', () => {
     const patch = calls.find((c) => c.method === 'PATCH');
     expect(patch?.url).toBe('/v1/admin/staff/S2');
     expect(patch?.body).toEqual({ expected_version: 'v-S2', display_name: 'Bilal K.' });
-    expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
+    const banner = m.container.querySelector<HTMLElement>('[data-stale]');
+    expect(banner?.textContent).toContain(t('stale.title'));
+    expect(banner?.textContent).toContain(t('stale.body'));
     // B03: Reload is the one primary; the page's Save is off while the banner shows.
     expect(button(m.container, t('staff.save')).disabled).toBe(true);
-    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent?.trim())).toEqual([t('staff.reload')]);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent?.trim())).toEqual([t('stale.reload')]);
+    // The draft stays: what was typed is still in the field and can still be edited (and copied).
+    const field = () => m.container.querySelector<HTMLInputElement>('input[name="display_name"]')!;
+    expect(field().value).toBe('Bilal K.');
+    expect(field().disabled).toBe(false);
+    setValue(field(), 'Bilal Khan');
+    expect(field().value).toBe('Bilal Khan');
+    expect(button(m.container, t('staff.save')).disabled).toBe(true);
+    // Nothing is retried.
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
 
-    // Reload keeps nothing of the stale form (B23).
+    // Reload discards the draft and reads the current version.
     stale = false;
-    await click(button(m.container, t('staff.reload')));
-    expect(m.container.querySelector<HTMLInputElement>('input[name="display_name"]')?.value).toBe('Bilal');
-    expect(m.container.textContent).not.toContain(t('errors.CONFIG_STALE'));
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(field().value).toBe('Bilal');
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    expect(button(m.container, t('staff.save')).disabled).toBe(false);
   });
 
   it('[01b §8] floors field hidden without a my_floors grant', async () => {

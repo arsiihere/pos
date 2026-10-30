@@ -5,7 +5,7 @@ import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { GuardProvider } from '../guard';
 import { ROLES } from '../staff/fixtures';
-import { button, click, fail, fakeApi, mount, ok, type Call, type Mounted } from '../test-api';
+import { button, click, fail, fakeApi, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { RoleEditor } from './RoleEditor';
 
 let m: Mounted;
@@ -177,7 +177,42 @@ describe('[01b §8] role editor', () => {
     expect(save.disabled).toBe(true);
     expect(save.className).not.toContain('pos-btn--primary');
     expect(m.container.querySelectorAll('.pos-btn--primary')).toHaveLength(1);
-    expect(button(m.container, t('staff.reload')).className).toContain('pos-btn--primary');
+    expect(button(m.container, t('stale.reload')).className).toContain('pos-btn--primary');
+  });
+
+  it('[owner decision 2026-10-30, 01b P1] CONFIG_STALE keeps the draft until Reload; nothing is retried', async () => {
+    let stale = true;
+    const { api, calls } = fakeApi(
+      handler((call) =>
+        stale
+          ? fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_LEAD' })
+          : ok({ role: { ...ROLES[2], ...(call.body as object) }, changed_versions: { staff: [], roles: [], responsibilities: [] } }),
+      ),
+    );
+    await render(api, 'R_LEAD');
+    const field = () => m.container.querySelector<HTMLInputElement>('input[name="name"]')!;
+    setValue(field(), 'Floor lead');
+    await click(button(m.container, t('roles.save')));
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: ROLES[2]!.version, name: 'Floor lead' });
+    const banner = m.container.querySelector<HTMLElement>('[data-stale]');
+    expect(banner?.textContent).toContain(t('stale.title'));
+    expect(banner?.textContent).toContain(t('stale.body'));
+    // The draft stays editable; Save is off and nothing is sent again.
+    expect(field().value).toBe('Floor lead');
+    setValue(field(), 'Floor leader');
+    expect(field().value).toBe('Floor leader');
+    expect(button(m.container, t('roles.save')).disabled).toBe(true);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+
+    // Reload discards the draft and shows the current version.
+    stale = false;
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(field().value).toBe(ROLES[2]!.name);
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    expect(button(m.container, t('roles.save')).disabled).toBe(false);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });
 
   it('[01b §8] Pulse: a picked approver chip shows a check', async () => {

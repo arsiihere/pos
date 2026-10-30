@@ -13,6 +13,7 @@ import { Disclosure } from '../../../components/Disclosure';
 import { Icon } from '../../../components/Icon';
 import { MoreMenu } from '../../../components/MoreMenu';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { fill } from '../../../i18n/en';
 import { t, typeClass, type MessageKey } from '../../../i18n';
 import { useCloudDown } from '../cloud';
@@ -26,7 +27,9 @@ import { noteSaved } from './StaffList';
 // 01b §8 #/staff/new and #/staff/:id (01b-S02, C02, D02): who, roles, branches, a lead per branch (B1),
 // floors per branch when a role uses "Their floors", the owner's "Never allow" list, PIN and status. C02
 // is computed here with the §3.3 rule. An edit sends `expected_version` and only the changed fields (each
-// list whole, §6.4); `409 CONFIG_STALE` shows Reload and keeps nothing of the stale form (B23).
+// list whole, §6.4); `409 CONFIG_STALE` shows "Changed elsewhere" and keeps the draft editable and copyable;
+// Reload discards it and reads the current version; nothing is retried (owner decision 2026-10-30, 01b
+// proposal P1; same as 01c §8).
 
 interface Loaded {
   staff: Staff[]; // active and left
@@ -258,7 +261,7 @@ function Editor({
         ? [t('staff.who')]
         : []
       : Object.keys(patch ?? {}).map((field) => t(FIELD_LABEL[field] ?? 'staff.who'));
-  useDirtyForm(changedFields.length === 0 || stale ? null : { name: draft.name.trim() || title, fields: changedFields });
+  useDirtyForm(changedFields.length === 0 ? null : { name: draft.name.trim() || title, fields: changedFields });
 
   function update(next: Partial<Draft>) {
     setDraft((prev) => ({ ...prev, ...next }));
@@ -402,21 +405,7 @@ function Editor({
         )
       }
     >
-      {stale && (
-        <div className="pos-banner pos-banner--warn" role="status">
-          <Icon name="sync" />
-          <p>
-            {t('errors.CONFIG_STALE')}
-            <small>{t('staff.stale_body')}</small>
-          </p>
-          <div className="pos-banner__action pos-row">
-            <button type="button" className="pos-btn pos-btn--primary" onClick={onReload}>
-              <Icon name="reload" />
-              {t('staff.reload')}
-            </button>
-          </div>
-        </div>
-      )}
+      {stale && <StaleBanner onReload={onReload} />}
       {banner !== null && <Banner tone={banner.tone} text={banner.text} detail={banner.detail} />}
       <div className="pos-split pos-staffform">
         <div className="pos-stack pos-staffform__main">

@@ -13,6 +13,7 @@ import { EmptyState } from '../../../components/EmptyState';
 import { Icon } from '../../../components/Icon';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { fill, type MessageKey } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
@@ -26,7 +27,8 @@ import { joinNames } from '../staff/people';
 // permission, grouped as PERMISSION_CATALOGUE. "Approved by" is a multi-select of role chips (the role
 // itself included, §6.6); "Where" offers only PERMISSION_SCOPES[permission] and shows when there is a
 // choice. A PATCH sends `expected_version` and the changed fields (grants whole, §6.7). An admin guard
-// (§3.4) snaps the two admin grants back to the stored ones and says why.
+// (§3.4) snaps the two admin grants back to the stored ones and says why. `409 CONFIG_STALE` shows "Changed
+// elsewhere" and keeps the draft until Reload (owner decision 2026-10-30, 01b proposal P1; same as 01c §8).
 type GrantType = 'allowed' | 'requires_approval' | 'not_granted';
 
 interface GrantDraft {
@@ -199,7 +201,7 @@ function Editor({
   const fieldLabel: Record<string, string> = { name: t('roles.name'), idle_minutes: t('roles.idle'), grants: t('roles.approved_by') };
   const changed =
     stored === null ? (name.trim() !== '' || wire(grants).length > 0 ? [t('roles.name')] : []) : Object.keys(patch).map((k) => fieldLabel[k] ?? k);
-  useDirtyForm(changed.length === 0 || stale ? null : { name: name.trim() || title, fields: changed });
+  useDirtyForm(changed.length === 0 ? null : { name: name.trim() || title, fields: changed });
 
   function setGrant(permission: Permission, next: Partial<GrantDraft>) {
     setGrants((prev) => ({ ...prev, [permission]: { ...prev[permission], ...next } }));
@@ -332,21 +334,7 @@ function Editor({
 
   return (
     <Page api={api} title={title} start={back} end={phone ? undefined : actions}>
-      {stale && (
-        <div className="pos-banner pos-banner--warn" role="status">
-          <Icon name="sync" />
-          <p>
-            {t('errors.CONFIG_STALE')}
-            <small>{t('staff.stale_body')}</small>
-          </p>
-          <div className="pos-banner__action pos-row">
-            <button type="button" className="pos-btn pos-btn--primary" onClick={onReload}>
-              <Icon name="reload" />
-              {t('staff.reload')}
-            </button>
-          </div>
-        </div>
-      )}
+      {stale && <StaleBanner onReload={onReload} />}
       {banner !== null && <Banner tone={banner.tone} text={banner.text} detail={banner.detail} />}
       <section className="pos-section">
         <div className="pos-grid">

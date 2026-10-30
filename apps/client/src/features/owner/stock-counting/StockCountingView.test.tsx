@@ -124,10 +124,10 @@ describe('[01b §8] stock counting', () => {
     await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
     await click(button(m.container, t('counting.done')));
     await click(button(m.container, t('counting.save')));
-    expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
-    expect(button(m.container, t('staff.reload'))).toBeTruthy();
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    expect(button(m.container, t('stale.reload'))).toBeTruthy();
 
-    await click(button(m.container, t('staff.reload')));
+    await click(button(m.container, t('stale.reload')));
     await click(button(row('Degh'), t('counting.change')));
     await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
     await click(button(m.container, t('counting.done')));
@@ -149,6 +149,44 @@ describe('[01b §8] stock counting', () => {
     expect(m.container.querySelector('p.pos-note')?.textContent).toBe(t('counting.explain'));
   });
 
+  it('[owner decision 2026-10-30, 01b P1] CONFIG_STALE keeps the picks until Reload; nothing is retried', async () => {
+    let stale = true;
+    const calls = await render((call) =>
+      stale ? fail(409, 'CONFIG_STALE', { entity: 'responsibility', id: 'B1' }) : ok({ ...(call.body as object), version: 'rv2' }),
+    );
+    await click(button(row('Degh'), t('counting.change')));
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
+    await click(button(m.container, t('counting.done')));
+    await click(button(m.container, t('counting.save')));
+    const banner = m.container.querySelector<HTMLElement>('[data-stale]');
+    expect(banner?.textContent).toContain(t('stale.title'));
+    expect(banner?.textContent).toContain(t('stale.body'));
+    // The draft stays on screen and can still be changed; Save stays off and nothing is sent again.
+    expect(row('Degh').textContent).toContain('Bilal');
+    await click(button(row('BBQ grill'), t('counting.change')));
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
+    await click(button(m.container, t('counting.done')));
+    expect(row('BBQ grill').textContent).toContain('Bilal');
+    expect(button(m.container, t('counting.save')).disabled).toBe(true);
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1);
+
+    // Reload drops the picks and reads the current set; Save is primary again once something changes.
+    stale = false;
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    expect(row('Degh').textContent).not.toContain('Bilal');
+    expect(row('BBQ grill').textContent).not.toContain('Bilal');
+    await click(button(row('Degh'), t('counting.change')));
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
+    await click(button(m.container, t('counting.done')));
+    const save = button(m.container, t('counting.save'));
+    expect(save.disabled).toBe(false);
+    expect(save.classList.contains('pos-btn--primary')).toBe(true);
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1);
+  });
+
   it('[hand-off B03] while Reload shows it is the one primary; Save is disabled and secondary', async () => {
     await render(() => fail(409, 'CONFIG_STALE', { entity: 'responsibility', id: 'B1' }));
     await click(button(row('Degh'), t('counting.change')));
@@ -159,7 +197,7 @@ describe('[01b §8] stock counting', () => {
     const save = button(m.container, t('counting.save'));
     expect(save.disabled).toBe(true);
     expect(save.classList.contains('pos-btn--primary')).toBe(false);
-    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent)).toEqual([t('staff.reload')]);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent)).toEqual([t('stale.reload')]);
   });
 
   it('[hand-off ResponsibilitiesPhone] phone: branch select in the content, Save in the bottom action bar', async () => {

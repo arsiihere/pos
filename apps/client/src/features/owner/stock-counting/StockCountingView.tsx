@@ -11,6 +11,7 @@ import { EmptyState } from '../../../components/EmptyState';
 import { Icon } from '../../../components/Icon';
 import { ListRow } from '../../../components/List';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
 import { useBranchName } from '../branch';
@@ -22,7 +23,8 @@ import { BranchSelect, Page, PeopleTabs } from '../Shell';
 // 01b §8 #/stock-counting (01b-S05, §6.8): who counts stock at each active station of the branch. Change
 // picks people (who work at the branch) and roles per station; Save sends the whole active set with the
 // held `expected_version` (a station with nobody is left out: it stores nothing, AD-19). CONFIG_STALE
-// shows Reload; a 422 means a person, role or station changed meanwhile.
+// shows "Changed elsewhere": the picks stay until Reload, which reads the current set (owner decision
+// 2026-10-30, 01b proposal P1; same as 01c §8); a 422 means a person, role or station changed meanwhile.
 // Pulse (hand-off 01b-S05): people / role chips with their icons, a "Nobody yet" warn chip per station and
 // one summary warn banner, the help line as a small note. While Reload shows, Save is disabled and not
 // primary (B03: Reload is the one primary). Phone: branch select in the content, stacked rows, Save in the
@@ -240,14 +242,12 @@ export function StockCountingView({
       {loadError !== null && <Banner tone="danger" text={loadError} />}
       {notice === 'saved' && <Banner tone="ok" text={fill(t('counting.saved'), { branch })} />}
       {notice === 'stale' && (
-        <div className="pos-banner pos-banner--warn" role="status">
-          <Icon name="reload" />
-          <p>
-            {t('errors.CONFIG_STALE')}
-            <small>{t('staff.stale_body')}</small>
-          </p>
-          {reload}
-        </div>
+        <StaleBanner
+          onReload={() => {
+            setNotice(null);
+            void load();
+          }}
+        />
       )}
       {notice === 'changed' && (
         <div className="pos-banner pos-banner--danger" role="alert">

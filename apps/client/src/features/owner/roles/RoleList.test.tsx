@@ -90,13 +90,29 @@ describe('[01b §8] roles list', () => {
     expect(m.container.textContent).toContain(t('roles.idle_range'));
   });
 
-  it('[01b §8] a stale idle edit shows the reload message', async () => {
-    const { api } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+  it('[01b §8] a stale idle edit keeps the typed minutes until Reload [owner decision 2026-10-30, 01b P1]', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
     await m.render(<RoleList api={api} />);
     setValue(idleInput('Bera'), '45');
     await blur(idleInput('Bera'));
-    expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
-    expect(button(m.container, t('staff.reload'))).toBeTruthy();
+    const banner = m.container.querySelector<HTMLElement>('[data-stale]');
+    expect(banner?.textContent).toContain(t('stale.title'));
+    expect(banner?.textContent).toContain(t('stale.body'));
+    // The typed value stays, can still be edited, and is never sent again with the old version.
+    expect(idleInput('Bera').value).toBe('45');
+    setValue(idleInput('Bera'), '50');
+    await blur(idleInput('Bera'));
+    expect(idleInput('Bera').value).toBe('50');
+    expect(m.container.querySelector('[data-stale]')).not.toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+
+    // Reload drops the typed minutes and reads the roles again.
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(idleInput('Bera').value).toBe(String(ROLES[1]!.idle_minutes));
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });
 
   it('[01b §8] archive in use shows the D03 blocked variant; archived roles can be restored', async () => {
@@ -171,7 +187,7 @@ describe('[01b §8] roles list', () => {
     setValue(idleInput('Bera'), '45');
     await blur(idleInput('Bera'));
     expect(m.container.querySelectorAll('.pos-btn--primary')).toHaveLength(1);
-    expect(button(m.container, t('staff.reload')).className).toContain('pos-btn--primary');
+    expect(button(m.container, t('stale.reload')).className).toContain('pos-btn--primary');
     expect(button(m.container, t('roles.new')).className).not.toContain('pos-btn--primary');
   });
 

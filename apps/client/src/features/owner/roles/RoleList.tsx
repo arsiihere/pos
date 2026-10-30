@@ -11,6 +11,7 @@ import { ListRow } from '../../../components/List';
 import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
 import { useBranchName } from '../branch';
@@ -86,6 +87,8 @@ export function RoleList({ api }: { api: CloudAdmin }) {
 
   async function saveIdle(r: Role) {
     const typed = idle[r.role_id];
+    // While "Changed elsewhere" shows for this role nothing is sent again with the old version.
+    if (idleState[r.role_id] === 'stale') return;
     if (typed === undefined || typed.trim() === String(r.idle_minutes)) return;
     const value = /^\d+$/.test(typed.trim()) ? Number(typed.trim()) : NaN;
     if (!(value >= 1 && value <= 240)) {
@@ -194,7 +197,8 @@ export function RoleList({ api }: { api: CloudAdmin }) {
           label: fill(t('roles.menu_archive'), { role: r.name }),
           icon: 'archive',
           danger: true,
-          disabled: down,
+          // A stale role is reloaded first: nothing is sent with the old version.
+          disabled: down || idleState[r.role_id] === 'stale',
           onSelect: () => setArchiving(r),
         },
       ]}
@@ -211,21 +215,9 @@ export function RoleList({ api }: { api: CloudAdmin }) {
     </div>
   );
 
-  const reloadBanner = (
-    <div className="pos-banner pos-banner--warn" role="status">
-      <Icon name="sync" />
-      <p>
-        {t('errors.CONFIG_STALE')}
-        <small>{t('staff.stale_body')}</small>
-      </p>
-      <div className="pos-banner__action pos-row">
-        <button type="button" className="pos-btn pos-btn--primary" onClick={() => void load()}>
-          <Icon name="reload" />
-          {t('staff.reload')}
-        </button>
-      </div>
-    </div>
-  );
+  // Owner decision 2026-10-30 (01b proposal P1; same as 01c §8): the typed minutes stay in the box until
+  // Reload, which reads the current roles; nothing is retried.
+  const reloadBanner = <StaleBanner onReload={() => void load()} />;
 
   // RolesStale: the Reload banner takes a full-width row just above the role it is about.
   const activeRow = (r: Role) =>
@@ -257,6 +249,7 @@ export function RoleList({ api }: { api: CloudAdmin }) {
                 const value = e.target.value;
                 setIdle((s) => ({ ...s, [r.role_id]: value }));
                 setIdleState((s) => {
+                  if (s[r.role_id] === 'stale') return s;
                   const next = { ...s };
                   delete next[r.role_id];
                   return next;
