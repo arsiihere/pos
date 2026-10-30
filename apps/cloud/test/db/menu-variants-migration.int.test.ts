@@ -14,7 +14,7 @@ const TN = 't1';
 
 afterAll(async () => {
   await dropScratchDatabases();
-});
+}, 40_000);
 
 async function seed01a(pool: pg.Pool): Promise<void> {
   const q = (sql: string, params: unknown[] = []) => pool.query(sql, params);

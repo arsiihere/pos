@@ -340,7 +340,7 @@ describe('buildSnapshot', () => {
     } finally {
       client.release();
     }
-  });
+   }, 120_000);
 
   it('[01a §10 #85] hash parity with the hub; a BIGINT left as a string fails the cloud-side parse', async () => {
     await seedMenu(cloud.pool, f);

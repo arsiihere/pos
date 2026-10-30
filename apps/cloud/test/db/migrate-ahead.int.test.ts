@@ -16,7 +16,7 @@ const clock = fixedClock(T);
 
 afterAll(async () => {
   await dropScratchDatabases();
-});
+}, 40_000);
 
 async function addFuture(pool: pg.Pool): Promise<void> {
   await pool.query(

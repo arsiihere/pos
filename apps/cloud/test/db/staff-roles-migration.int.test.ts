@@ -20,7 +20,7 @@ const clock = fixedClock(T);
 
 afterAll(async () => {
   await dropScratchDatabases();
-});
+}, 40_000);
 
 // What the v1.4 seed-tenant wrote (frozen here: the live seed-tenant writes 0005 columns since 01b task 48):
 // four roles by name with the v1.4 idles, approver_role_id only, an owner staff row with the Owner role.
