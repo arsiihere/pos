@@ -658,12 +658,48 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
 
     const before = await versions();
     const restored = await patched(deal.deal_id, restore);
-    // tenant-wide check, deal lock, parts read, windows read, the stored active parts' choice items FOR SHARE, deal
-    // update, audit, 2 bump
-    expect(counter.count).toBe(9);
+    // tenant-wide check, deal lock, parts read, windows read, the stored active parts' choice items FOR SHARE, the
+    // merged category FOR SHARE (AD-34; tax class null: not read), deal update, audit, 2 bump
+    expect(counter.count).toBe(10);
     expect(restored).toEqual(deal);
     expect(await versions()).toEqual(before.map((v) => v + 1));
     expect((await dealAudit(deal.deal_id)).map((row) => row.action)).toEqual(['create', 'archive', 'restore']);
+  });
+
+  it('[01c §6.15 AD-34] restore re-checks the merged category and tax class without them sent: archived → 422, nothing written; both active → 200', async () => {
+    const category = (await inject('POST', '/v1/admin/categories', { name: 'Deals' })).json().data.category.category_id as string;
+    const taxClass = (await inject('POST', '/v1/admin/tax-classes', { name: 'Deal tax', rate_bp: 500 })).json().data.tax_class
+      .tax_class_id as string;
+    const deal = await createDeal(cloud, f, { ...plainDeal('Family karahi'), category_id: category, tax_class_id: taxClass });
+    const archived = await patched(deal.deal_id, { expected_version: deal.version, archived: true });
+    const restore = { expected_version: archived.version, archived: false };
+    const setArchived = async (table: 'categories' | 'tax_classes', id: string, on: boolean) => {
+      const response = await inject('PATCH', `/v1/admin/${table === 'categories' ? 'categories' : 'tax-classes'}/${id}`, { archived: on });
+      expect(response.statusCode, response.body).toBe(200);
+    };
+
+    // the category archived while the deal was archived (V16 counts active deals only, AD-11)
+    await setArchived('categories', category, true);
+    expect(await refused(() => patchDeal(deal.deal_id, restore), 422)).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'category_id', reason: 'archived' },
+    });
+    await setArchived('categories', category, false);
+
+    await setArchived('tax_classes', taxClass, true);
+    expect(await refused(() => patchDeal(deal.deal_id, restore), 422)).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'tax_class_id', reason: 'archived' },
+    });
+    await setArchived('tax_classes', taxClass, false);
+
+    // control: both active → 200
+    const restored = await patchDeal(deal.deal_id, restore);
+    expect(restored.statusCode, restored.body).toBe(200);
+    // tenant-wide check, deal lock, parts read, windows read, choice items, category, tax class FOR SHARE, deal
+    // update, audit, 2 bump
+    expect(counter.count).toBe(11);
+    expect(restored.json().data.deal).toEqual(deal);
   });
 
   it('[01c #86] deal side: PATCH parts with a weighed choice → 422 weighed_item_in_deal at parts.N.choices.M.item_id (§6.15 R5); item side: requires_weighing on an offered item → 422 at requires_weighing (§6.5 R8)', async () => {

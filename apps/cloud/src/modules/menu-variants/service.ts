@@ -1135,7 +1135,7 @@ function assertSingleChoiceExtras(parts: ReadonlyArray<{ choices: ReadonlyArray<
 // too) → C4 step 4: each sent deal_part_id a part of this deal, active or archived (422 parts.N.deal_part_id
 // not_found); references FOR SHARE (assertDealReferences): the choice items of the sent parts, or on a restore
 // without parts the stored active parts' choice items in wire order (AD-11), then the category and the tax class
-// when sent (R4) → no-op (the merged version equals the stored one: 200, nothing written) → merged rules: R3
+// when sent (R4) or, on a restore, the merged ones (AD-34; a null tax class is not read) → no-op (the merged version equals the stored one: 200, nothing written) → merged rules: R3
 // single-choice extras (400), then R2 units and R5 weighed per checked part (422) → write: the deal row (R1, name
 // index → 409); parts sent: the sent parts' choices deleted, the parts upserted, the omitted active parts archived,
 // the choices inserted (V14, m3 FK order); windows sent: delete + insert → one audit row (V15) → bump every branch.
@@ -1162,7 +1162,13 @@ export async function patchDeal(
     // AD-11: a restore re-checks every active choice item of the merged parts, even when parts is not sent
     const restoring = deal.archived_at !== null && body.archived === false;
     const checkedParts: DealPartsToCheck = body.parts ?? (restoring ? before.parts : []);
-    const items = await assertDealReferences(level, { parts: checkedParts, category_id: body.category_id, tax_class_id: body.tax_class_id });
+    // AD-34 (Q-8): a restore also re-checks the merged category and tax class when not sent (R4 "only when sent"
+    // holds for every other PATCH); under their FOR SHARE locks, after the choice items (4 → 6 → 7)
+    const items = await assertDealReferences(level, {
+      parts: checkedParts,
+      category_id: body.category_id ?? (restoring ? deal.category_id : undefined),
+      tax_class_id: body.tax_class_id !== undefined ? body.tax_class_id : restoring ? deal.tax_class_id : undefined,
+    });
     const now = deps.clock.branchNow();
     const parts: DealPartRow[] =
       body.parts === undefined
