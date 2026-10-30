@@ -386,4 +386,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'item.create_link': 'بنائیں اور جوڑیں',
   'item.finish_linking': 'جوڑنا مکمل کریں',
   'menu.size_group_sub': 'سائز گروپ · {n} سائز · ایک ٹائل',
+  'item.stock_needs_ready': '“Kept ready” آن ہونے تک گنتی نہیں ہوتی۔',
+  'item.stock_body': 'پہلے سے پکا کھانا: اسٹاک سے کتنا وقت لگتا ہے، اور ختم ہونے پر کیا ہو۔',
 };

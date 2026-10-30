@@ -221,7 +221,7 @@ function TextField({
 }
 
 // 01c contract §2, 01c-B01: a 422 / name-taken refusal on a 01c field marks that field (the row as sent).
-function serverProblem(error: CloudError): Problem | null {
+function serverProblem(error: CloudError, weighedOn: boolean): Problem | null {
   if (error.kind !== 'api') return null;
   const field = error.details['field'];
   if (error.code === 'CONFIG_NAME_TAKEN' && error.details['entity'] === 'variant') {
@@ -233,6 +233,8 @@ function serverProblem(error: CloudError): Problem | null {
   if (field === 'variant_name') return { id: 'item-variant_name', section: 'item.size_title', text };
   if (field === 'category_id') return { id: 'item-category_id', section: 'item.section.customers', text };
   if (field === 'requires_weighing') return { id: 'item-requires_weighing', section: 'item.weighed_title', text };
+  // While weighed is on the stock fields are hidden: the error shows on the switch.
+  if (field.startsWith('stock_draws') && weighedOn) return { id: 'item-requires_weighing', section: 'item.weighed_title', text };
   if (field.startsWith('stock_draws')) {
     return field.endsWith('quantity_per_sale_unit')
       ? { id: 'item-uses', section: 'item.draw_title', text }
@@ -250,7 +252,8 @@ function inUseOf(error: CloudError): InUseRow[] | null {
     return [{ name: fill(t('item.in_use_groups'), { n: String(n) }), href: '#/choice-groups' }];
   }
   if (usedBy?.entity === 'deal') return [{ name: fill(t('item.in_use_deals'), { n: String(n) }), href: '#/deals' }];
-  return [];
+  // Any other user: the generic "Still in use…" banner (errorText), never an empty dialog.
+  return null;
 }
 
 interface Mini {
@@ -322,6 +325,8 @@ export function ItemForm({
   const [miniKey, setMiniKey] = useState('');
   const [miniError, setMiniError] = useState<{ field: 'name' | null; text: string } | null>(null);
   const [linking, setLinking] = useState<LinkStep | 0>(0);
+  // The last create's answer was lost: the stock item may exist, so its key is kept for the next try.
+  const [keyInDoubt, setKeyInDoubt] = useState(false);
   const [partWay, setPartWay] = useState<PartWay | null>(null);
   const [inUse, setInUse] = useState<{ title: string; rows: InUseRow[] } | null>(null);
   const [taxId, setTaxId] = useState(item?.tax_class_id ?? '');
@@ -586,7 +591,7 @@ export function ItemForm({
       onSaved(errorText(result));
       return;
     }
-    const field = serverProblem(result);
+    const field = serverProblem(result, weighedOn);
     if (field !== null) {
       setProblems([field]);
       return;
@@ -649,7 +654,8 @@ export function ItemForm({
   // 01c-S01 mini-form (Q9): named after the size group, else the item; counted in the item's own unit.
   function openMini() {
     setMini({ name: (group?.name ?? name.trim()).slice(0, 60), unit: saleUnit, uses: '' });
-    setMiniKey(newUlid());
+    // N9: after a POST whose answer was lost, the next attempt keeps that key (a replay, never name-taken).
+    if (!keyInDoubt) setMiniKey(newUlid());
     setMiniError(null);
   }
 
@@ -660,7 +666,11 @@ export function ItemForm({
     return parsed.ok && parsed.value >= 1 && parsed.value <= MAX_USES ? parsed.value : null;
   })();
   const miniMismatch = miniDiffers && saleUnit !== 'piece';
-  const miniReady = mini !== null && mini.name.trim() !== '' && mini.name.trim().length <= 60 && !miniMismatch && miniUses !== null;
+  // Step 3 PATCHes the stored item and step 2 uses the routes: an unsaved Sold by or station waits for Save.
+  const miniUnsaved =
+    base !== null &&
+    (saleUnit !== base.sale_unit || branchIds.some((b) => !sameRoute(routes[b] ?? NO_ROUTE, baseRoutes[b] ?? NO_ROUTE)));
+  const miniReady = !miniUnsaved && mini !== null && mini.name.trim() !== '' && mini.name.trim().length <= 60 && !miniMismatch && miniUses !== null;
 
   async function runLink(plan: LinkPlan, known: string | null) {
     setLinking(1);
@@ -671,6 +681,7 @@ export function ItemForm({
       const draw = { stock_item_id: result.stockItemId, quantity_per_sale_unit: plan.quantity };
       setMini(null);
       setPartWay(null);
+      setKeyInDoubt(false);
       setStockId(result.stockItemId);
       setUses(plan.stockUnit === saleUnit ? '' : quantityInput(plan.quantity, plan.stockUnit));
       if (base !== null) setBase({ ...base, stock_draws: [draw] });
@@ -682,6 +693,7 @@ export function ItemForm({
     if (result.stockItemId === null && mini !== null) {
       // Step 1 refused or lost: the mini-form stays; Create and link retries with the same key.
       if (isKeyMismatch(result.error)) setMiniKey(newUlid());
+      setKeyInDoubt(result.error.kind !== 'api');
       const taken = apiCode(result.error) === 'CONFIG_NAME_TAKEN';
       setMiniError({ field: taken ? 'name' : null, text: taken ? t('errors.CONFIG_NAME_TAKEN') : (text ?? '') });
       return;
@@ -988,7 +1000,11 @@ export function ItemForm({
     <section className="pos-section" data-section="draw">
       <div className="pos-section__head">
         <h2>{t('item.draw_title')}</h2>
-        <p>{stock === undefined ? t('item.stock_help') : t(group === undefined ? 'item.stock_linked' : 'item.stock_linked_shared')}</p>
+        <p>
+          {stock === undefined
+            ? t('item.stock_help')
+            : t(group === undefined ? 'item.stock_linked' : 'item.stock_linked_shared')}
+        </p>
       </div>
       <div className={stock === undefined || sameUnit ? 'pos-pickrow' : 'pos-grid'}>
         <Select
@@ -1022,6 +1038,12 @@ export function ItemForm({
         )}
       </div>
       {sameUnit && <p className="pos-note">{t('item.uses_same')}</p>}
+      {/* 01c A2: the hub counts an item only with a stock time or stock program and a draw. */}
+      {stockId !== '' && !keptReady && (
+        <p className="pos-note" data-needs-ready="">
+          {t('item.stock_needs_ready')}
+        </p>
+      )}
       {stock !== undefined && (
         <div className="pos-sumlines" data-stock-summary="">
           <b>
@@ -1110,12 +1132,21 @@ export function ItemForm({
             {linking !== 0 ? (
               <span className="pos-progress-line" role="status">
                 <span className="pos-spin" aria-hidden="true" />
-                {fill(t('item.creating'), { n: String(linking) })}
+                {fill(t('item.creating'), { n: String(linking), total: String(base === null ? 2 : 3) })}
               </span>
             ) : (
-              <span className="pos-note">{t('item.mini_note')}</span>
+              <span className="pos-note">{t(miniUnsaved ? 'item.mini_save_first' : 'item.mini_note')}</span>
             )}
-            <button type="button" className="pos-btn" disabled={linking !== 0} onClick={() => setMini(null)}>
+            <button
+              type="button"
+              className="pos-btn"
+              disabled={linking !== 0}
+              onClick={() => {
+                setMini(null);
+                // A create whose answer was lost may have made it: show it in the picker.
+                if (keyInDoubt) void readStockItems().then((list) => list !== null && setStockItems(list));
+              }}
+            >
               {t('owner.common.cancel')}
             </button>
             <button
@@ -1143,7 +1174,7 @@ export function ItemForm({
             {linking !== 0 ? (
               <span className="pos-progress-line" role="status">
                 <span className="pos-spin" aria-hidden="true" />
-                {fill(t('item.creating'), { n: String(linking) })}
+                {fill(t('item.creating'), { n: String(linking), total: String(base === null ? 2 : 3) })}
               </span>
             ) : (
               <button type="button" className="pos-btn pos-btn--row" onClick={() => void runLink(partWay.plan, partWay.stockItemId)}>

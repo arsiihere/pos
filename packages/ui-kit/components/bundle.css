@@ -2226,12 +2226,14 @@ button.pos-tick:disabled { cursor: default; }
 .pos-list__grouptitle { display: inline-flex; align-items: center; gap: var(--space-2); }
 .pos-itemform .pos-fold__head > .pos-switch { color: var(--ink); }
 .pos-itemform .pos-pickrow > .pos-field { flex: 1; }
-.pos-itemform .pos-sumlines a .pos-icon { width: 18px; height: 18px; }
+.pos-itemform .pos-sumlines a .pos-icon { inline-size: 18px; block-size: 18px; }
 @media (max-width: 760px) {
   .pos-itemform .pos-fold__head { flex-wrap: wrap; }
   .pos-itemform .pos-fold__head > .pos-btn { inline-size: 100%; }
   .pos-mini__foot > .pos-btn { flex: 1; }
 }
+
+/* ---------- Pulse page layout · 01c choice picker dialog ---------- */
 /* The full-screen picker on a phone keeps its footer: only the list scrolls. */
 .pos-dialog--full[data-choice-picker] { display: flex; flex-direction: column; }
 .pos-dialog--full[data-choice-picker] .pos-dialog__scroll { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: var(--space-2); }

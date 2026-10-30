@@ -3,6 +3,7 @@ import type { Category, MenuItem, StockItem, TaxClass, VariantGroup } from '../.
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
+import { GuardProvider } from '../guard';
 import { ItemForm } from './ItemForm';
 import { MenuView } from './MenuView';
 
@@ -87,6 +88,8 @@ function server(
   options: { stock?: StockItem[]; on?: (call: Call) => Response | undefined; lose?: (call: Call) => boolean } = {},
 ) {
   const stock = [...(options.stock ?? [])];
+  // §6 Idempotency: the same key replays the stored 201; a new key with a taken name → 409.
+  const byKey = new Map<string, StockItem>();
   return fakeApi((call) => {
     const answer = options.on?.(call);
     if (answer !== undefined) return answer;
@@ -102,10 +105,12 @@ function server(
     }
     if (call.method === 'POST' && call.url === '/v1/admin/stock-items') {
       const body = call.body as { name: string; stock_unit: 'g' };
-      let made = stock.find((s) => s.name === body.name);
+      let made = call.key === undefined ? undefined : byKey.get(call.key);
       if (made === undefined) {
+        if (stock.some((s) => s.name === body.name)) return fail(409, 'CONFIG_NAME_TAKEN', { entity: 'stock_item' });
         made = pot({ stock_item_id: 'K9', name: body.name, stock_unit: body.stock_unit, branches: ['B1', 'B2'].map((b) => ({ branch_id: b, station_id: null, low_stock_threshold: null, version: `${b}-none` })) });
         stock.push(made);
+        if (call.key !== undefined) byKey.set(call.key, made);
       }
       return new Response(JSON.stringify({ data: { stock_item: made } }), { status: 201 });
     }
@@ -125,6 +130,7 @@ function server(
 
 async function renderForm(api: ReturnType<typeof fakeApi>['api'], it: MenuItem | null, extra: { newSizeOf?: string; branchIds?: string[] } = {}) {
   await ui.render(
+    <GuardProvider>
     <ItemForm
       api={api}
       item={it}
@@ -135,7 +141,8 @@ async function renderForm(api: ReturnType<typeof fakeApi>['api'], it: MenuItem |
       {...(extra.newSizeOf === undefined ? {} : { newSizeOf: extra.newSizeOf })}
       onSaved={() => {}}
       onCancel={() => {}}
-    />,
+    />
+    </GuardProvider>,
   );
   await flush();
 }
@@ -231,7 +238,12 @@ describe('01c-S01 item form sections', () => {
     await save();
     expect(patches(calls)).toEqual([{ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1000 }] }]);
 
+    // Unsaved changes: Open stock item asks first (the guard), and goes only after Discard.
+    setValue(field('name'), 'Chicken Karahi — Small');
     await click(summary?.querySelector('a') as HTMLElement);
+    expect(window.location.hash).not.toBe('#/stock-items/K1');
+    expect(ui.container.textContent).toContain(fill(t('discard.title'), { name: 'Chicken Karahi — Half' }));
+    await click(button(ui.container, t('discard.discard')));
     expect(window.location.hash).toBe('#/stock-items/K1');
   });
 
@@ -271,6 +283,45 @@ describe('01c-S01 item form sections', () => {
     expect(dialog?.textContent).toContain(fill(t('item.in_use_change'), { name: 'Chicken Karahi — Half' }));
     expect(dialog?.textContent).toContain(fill(t('item.in_use_groups'), { n: '2' }));
     expect(dialog?.querySelector('a')?.getAttribute('href')).toBe('#/choice-groups');
+  });
+});
+
+describe('01c-S01 review fixes', () => {
+  it('[01c A2] a linked stock item with Kept ready off says it is not counted yet; Kept ready on removes the note', async () => {
+    const { api } = server({ stock: [pot()] });
+    await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    expect(q('[data-needs-ready]')?.textContent).toBe(t('item.stock_needs_ready'));
+    expect(section('draw')?.textContent).not.toContain('Counted each morning');
+    await click(section('stock')?.querySelector('[role="switch"]') as HTMLElement);
+    expect(q('[data-needs-ready]')).toBeNull();
+  });
+
+  it('CONFIG_IN_USE for another kind of user shows the generic banner, not an empty dialog', async () => {
+    const { api } = server({
+      on: (call) =>
+        call.method === 'PATCH' ? fail(409, 'CONFIG_IN_USE', { entity: 'menu_item', used_by: { entity: 'variant_group', ids: ['VG1'] } }) : undefined,
+    });
+    await renderForm(api, item());
+    setValue(field('name'), 'Paneer');
+    await save();
+    expect(q('[data-in-use]')).toBeNull();
+    expect(q('.pos-banner--danger')?.textContent).toContain(t('errors.CONFIG_IN_USE'));
+  });
+
+  it('Cancel after a lost create keeps its key: reopening replays the 201 instead of name-taken', async () => {
+    let lost = false;
+    const { api, calls } = server({ lose: (call) => call.method === 'POST' && call.url === '/v1/admin/stock-items' && !lost && (lost = true) });
+    await renderForm(api, item());
+    await click(button(section('draw') as HTMLElement, t('item.create_stock')));
+    await click(button(q('[data-mini]') as HTMLElement, t('item.create_link')));
+    await click(button(q('[data-mini]') as HTMLElement, t('owner.common.cancel')));
+    await click(button(section('draw') as HTMLElement, t('item.create_stock')));
+    await click(button(q('[data-mini]') as HTMLElement, t('item.create_link')));
+    const posts = calls.filter((c) => c.method === 'POST');
+    expect(posts).toHaveLength(2);
+    expect(posts[1]?.key).toBe(posts[0]?.key);
+    expect(ui.container.textContent).not.toContain(t('errors.CONFIG_NAME_TAKEN'));
+    expect(field<HTMLSelectElement>('stock_item_id')?.value).toBe('K9');
   });
 });
 
