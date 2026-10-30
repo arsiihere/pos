@@ -312,21 +312,33 @@ describe('hub admin page (M86)', () => {
     expect(textOf(page.screen)).not.toContain(EN['admin.offline']);
   });
 
-  it('[00 §8.4 F05] hub busy after a command: warn banner "Hub busy, try again." with Try again, which repeats the same command_id', async () => {
+  it('[00 §8.4 F05] hub busy after a command: one silent retry after retry_after_ms (same command_id), then "Hub busy, try again." whose Try again waits retry_after_ms and repeats the same command_id', async () => {
     const source = await html();
     const hub = fakeHub();
     let busy = true;
     hub.answers['/admin/commands/clear-pin-lockout'] = () =>
-      busy ? jsonResponse(503, { error: { code: 'SERVICE_UNAVAILABLE', details: { retry_after_ms: 1000 } } }) : jsonResponse(200, { data: { result: { cleared: true } } });
+      busy ? jsonResponse(503, { error: { code: 'SERVICE_UNAVAILABLE', details: { retry_after_ms: 1500 } } }) : jsonResponse(200, { data: { result: { cleared: true } } });
     const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#lockouts' });
     await page.click(byText(page, EN['lockouts.unlock'], page.find('lockout_staff_S_WAIT'))!);
     await page.click(page.find('dialog_confirm', page.body)!);
-    expect(textOf(page.screen)).toContain(EN['global.busy']);
-    expect(textOf(page.screen)).toContain(EN['global.busy_small']);
-    busy = false;
-    await page.click(byText(page, EN['global.try_again'], page.screen)!);
+    // First 503: no banner yet, the retry waits retry_after_ms.
+    expect(hub.sent).toHaveLength(1);
+    expect(textOf(page.screen)).not.toContain(EN['global.busy']);
+    expect(page.delays).toContain(1500);
+    await page.advance();
     expect(hub.sent).toHaveLength(2);
     expect(hub.sent[1]!.body.command_id).toBe(hub.sent[0]!.body.command_id);
+    // Second 503: the F05 banner.
+    expect(textOf(page.screen)).toContain(EN['global.busy']);
+    expect(textOf(page.screen)).toContain(EN['global.busy_small']);
+    const again = byText(page, EN['global.try_again'], page.screen)!;
+    expect(again.disabled).toBe(true);
+    while (again.disabled && (await page.advance()));
+    expect(again.disabled).toBe(false);
+    busy = false;
+    await page.click(again);
+    expect(hub.sent).toHaveLength(3);
+    expect(hub.sent[2]!.body.command_id).toBe(hub.sent[0]!.body.command_id);
     expect(textOf(page.screen)).not.toContain(EN['global.busy']);
     expect(textOf(page.screen)).toContain(EN['lockouts.unlocked'].replace('{name}', 'Bilal'));
   });

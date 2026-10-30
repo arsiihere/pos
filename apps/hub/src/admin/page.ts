@@ -172,35 +172,49 @@ function setOffline(on) {
 }
 // commandId: one per user action, so Try again after "Hub busy" (00-F05) repeats the same command.
 async function command(name, type, payload, commandId) {
-  let res;
-  try {
-    res = await call('/admin/commands/' + name, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({
-        command_id: commandId || newCommandId(),
-        tenant_id: ctx.tenant_id,
-        branch_id: ctx.branch_id,
-        command_type: type,
-        payload,
-        occurred_at: Date.now(),
-        actor_id: sessionStorage.getItem('admin_staff_id'),
-        device_id: state.deviceId,
-      }),
-    });
-  } catch {
-    setOffline(true);
-    paint();
-    return null;
+  const id = commandId || newCommandId();
+  // §8.4 / 00-F05: one silent retry after retry_after_ms (same command_id), then the caller shows "Hub busy".
+  for (let attempt = 0; ; attempt += 1) {
+    let res;
+    try {
+      res = await call('/admin/commands/' + name, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({
+          command_id: id,
+          tenant_id: ctx.tenant_id,
+          branch_id: ctx.branch_id,
+          command_type: type,
+          payload,
+          occurred_at: Date.now(),
+          actor_id: sessionStorage.getItem('admin_staff_id'),
+          device_id: state.deviceId,
+        }),
+      });
+    } catch {
+      setOffline(true);
+      paint();
+      return null;
+    }
+    if (res.status === 200) return { result: res.body.data.result };
+    const error = res.body.error || { code: 'INTERNAL_ERROR' };
+    if (error.code === 'ADMIN_SESSION_REQUIRED') {
+      await signIn();
+      return null;
+    }
+    if (error.code === 'SERVICE_UNAVAILABLE') {
+      const details = error.details || {};
+      const wait = Math.min(details.retry_after_ms > 0 ? details.retry_after_ms : 1000, 5000);
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        continue;
+      }
+      state.busyWait = wait;
+      return { error };
+    }
+    if (globalScreen(error, {}, { pairAgain: () => { location.href = '/pair'; } })) return null;
+    return { error };
   }
-  if (res.status === 200) return { result: res.body.data.result };
-  const error = res.body.error || { code: 'INTERNAL_ERROR' };
-  if (error.code === 'ADMIN_SESSION_REQUIRED') {
-    await signIn();
-    return null;
-  }
-  if (globalScreen(error, {}, { pairAgain: () => { location.href = '/pair'; } })) return null;
-  return { error };
 }
 // --- shell ---
 function initials(name) {
@@ -370,14 +384,21 @@ function notice(kind, text, detail) {
   state.notice = banner(kind, text, detail);
 }
 // 00-F05: "Hub busy, try again." with an inline Try again that repeats the same command (same command_id).
+// Try again stays off until retry_after_ms has passed again (the hub asked for that pause).
 function busyNotice(retry) {
-  state.notice = renderGlobalState({ id: 'F05', mode: 'banner' }, {
+  const box = renderGlobalState({ id: 'F05', mode: 'banner' }, {
     retry: async () => {
       state.notice = null;
       paint();
       await retry();
     },
   });
+  for (const child of Array.from(box.children)) {
+    if (!child.classList.contains('pos-banner__action')) continue;
+    child.disabled = true;
+    setTimeout(() => { child.disabled = false; }, state.busyWait || 1000);
+  }
+  state.notice = box;
 }
 function newCommandId() {
   const bytes = new Uint8Array(16);

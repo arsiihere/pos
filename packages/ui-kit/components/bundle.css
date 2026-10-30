@@ -1772,9 +1772,8 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-admin__qr { gap: var(--space-4); }
 .pos-admin__qracts { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; max-width: 420px; }
 .pos-admin__link > .pos-mono-wrap { margin: 0; }
-/* Confirm dialogs 00-D01…D03 are 560 wide; on a scrolled phone page the scrim stays on the screen. */
+/* Confirm dialogs 00-D01…D03 are 560 wide (the scrim is fixed by .pos-scrim:has(> .pos-dialog)). */
 .pos-dialog--confirm { max-width: 560px; }
-body > .pos-scrim { position: fixed; }
 @media (max-width: 760px) {
   .pos-appbar--phone ~ .pos-admin__content { padding: var(--space-4); gap: var(--space-4); }
   .pos-admin__actions { justify-content: space-between; }
