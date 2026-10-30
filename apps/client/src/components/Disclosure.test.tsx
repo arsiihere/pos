@@ -81,6 +81,25 @@ describe('Disclosure (Pulse 01b)', () => {
     expect(document.activeElement).toBe(head);
   });
 
+  it('controlled: `open` wins and a toggle asks the owner through onOpenChange', () => {
+    const asked: boolean[] = [];
+    const draw = (open: boolean) =>
+      act(() =>
+        root.render(
+          <Disclosure variant="group" title="Kitchen items" open={open} onOpenChange={(next) => asked.push(next)}>
+            <button type="button">Allowed</button>
+          </Disclosure>,
+        ),
+      );
+    draw(false);
+    const head = toggle('button.pos-group__toggle');
+    act(() => head?.click());
+    expect(asked).toEqual([true]);
+    draw(true);
+    expect(head?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Allowed');
+  });
+
   it('Escape from a control inside a group leaves the group open', () => {
     act(() =>
       root.render(

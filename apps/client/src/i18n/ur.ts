@@ -154,6 +154,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'roles.scope_help.my_floors': 'ہر شخص کے فلور',
   'roles.scope_help.my_team': 'جو انہیں رپورٹ کرتے ہیں',
   'roles.approved_by': 'منظور کرنے والے',
+  // Pulse 01b hand-off CHANGES §3: roles list and role editor (01b-B) — Urdu draft — needs native review
+  'roles.menu_info': '{people} · {n} منٹ بعد سائن آؤٹ',
+  'roles.menu_archive': '{role} آرکائیو کریں',
+  'roles.new_short': 'نیا',
+  'role_editor.grants_help': 'اجازت ہے، منظوری چاہیے، اجازت نہیں کا مطلب',
+  'role_editor.count_allowed': '{n} اجازت ہے',
+  'role_editor.count_approval': '{n} منظوری چاہیے',
+  'role_editor.count_not': '{n} اجازت نہیں',
   // 01b task 55: PasswordUrdu
   'account.title': 'اکاؤنٹ',
   'account.heading': 'اپنا پاس ورڈ بدلیں',

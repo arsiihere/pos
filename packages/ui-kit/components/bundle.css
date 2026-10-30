@@ -2076,3 +2076,64 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
   .pos-staffform__bar .pos-actionbar__end > .pos-btn { flex: 1; }
   .pos-staffform__bar .pos-actionbar__end > .pos-btn:last-child { flex: 2; }
 }
+
+/* ---------- Pulse page layout · 01b-B roles list and role editor ---------- */
+/* Roles list (Roles, RolesIdle, RolesRowMenu, RolesStale): name + Default chip 10 apart, idle box 140 wide. */
+.pos-roles__intro { margin: 0; color: var(--ink-muted); }
+.pos-roles__name { display: flex; gap: 10px; align-items: center; }
+.pos-roles__idle { gap: var(--space-2); flex-wrap: nowrap; }
+.pos-roles__affix { width: 140px; }
+.pos-roles__affix.is-error > .pos-input { box-shadow: inset 0 0 0 2px var(--danger-fill); background: var(--danger-tint); }
+.pos-list__side > .pos-roles__range { flex-basis: 100%; justify-content: flex-end; }
+.pos-list--rows .pos-list__row.pos-roles__stale { display: block; padding-block: var(--space-2); }
+.pos-list--roles + .pos-note { display: flex; gap: var(--space-2); align-items: center; }
+/* Row More menu: the open row is tinted and the menu may hang below the list. */
+.pos-list--roles .pos-list__row:has(.pos-more[aria-expanded="true"]) { background: var(--surface-soft); }
+.pos-list--roles:has(.pos-more[aria-expanded="true"]) { overflow: visible; }
+.pos-list--roles:has(.pos-more[aria-expanded="true"]) > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
+.pos-list--roles:has(.pos-more[aria-expanded="true"]) > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
+.pos-list--roles .pos-prow { position: relative; }
+/* Role editor (RoleEditor, RoleEditorErrors, RoleEditorStale): idle box up to 220. */
+.pos-roleeditor__idle { max-width: 220px; }
+/* Phone (RolesPhone, RoleEditorPhone): 12 px rhythm, 16 px gutters, Save role full width in the bottom bar. */
+.pos-appbar--phone ~ .pos-content:has(.pos-list--roles, .pos-roleeditor__bar) { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+.pos-list--roles.pos-list--stack .pos-roles__name { gap: var(--space-2); flex-wrap: wrap; }
+.pos-roleeditor__bar { display: contents; }
+.pos-roleeditor__bar .pos-actionbar { padding: var(--space-3) var(--space-4); flex-wrap: nowrap; margin-inline: calc(-1 * var(--space-4)); margin-block-end: calc(-1 * var(--space-3)); }
+.pos-roleeditor__bar .pos-actionbar__end { flex: 1; display: flex; }
+
+/* ---------- Pulse page layout · 01b-C teams, stock counting, branches, password ---------- */
+/* Page intro and foot lines (Teams, Responsibilities, Branches, Password): muted, no paragraph margin. */
+.pos-intro { margin: 0; color: var(--ink-muted); }
+/* The stock-counting help line: a small note with an info icon. */
+.pos-note--icon { display: flex; gap: var(--space-2); align-items: flex-start; }
+.pos-note--icon > .pos-icon { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.pos-tree__node > .pos-chip { flex: none; }
+/* Phone (TeamsPhone, ResponsibilitiesPhone): the branch select sits in the content, full width; its label stays for screen readers. */
+.pos-branchpick > .pos-appbar__branch { width: 100%; }
+.pos-branchpick .pos-select { flex: 1; width: 100%; }
+.pos-branchpick .pos-field__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Branches (Branches, BranchesRowMenu, BranchesPhone): name + status chip on one line; phone Rename / Settings share the row. */
+.pos-branchrow__name { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.pos-branchrow__acts { flex-wrap: nowrap; }
+.pos-branchrow__acts > .pos-btn { flex: 1; }
+/* Branch settings (BranchSettings): sections 820 wide, hour fields 240, switch label in ink. */
+.pos-settings { max-width: 820px; }
+.pos-settings .pos-switch { color: var(--ink); }
+.pos-settings__hours { max-width: 240px; }
+/* Change password (Password, PasswordForced): a 560 card, 20 px rhythm, Show 56 px tall. */
+.pos-pwcard { max-width: var(--content-max); display: flex; flex-direction: column; gap: var(--space-5); }
+.pos-pwshow { min-height: var(--touch-min); }
+.pos-pwcard--flat { max-width: none; padding: 0; background: none; box-shadow: none; gap: var(--space-3); }
+/* Phone: 12 / 16 px rhythm; the page primary full width in a bottom action bar (…Phone frames). */
+.pos-appbar--phone ~ .pos-content:has(> .pos-intro, > .pos-pagebar, .pos-branchrow__acts) { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+.pos-appbar--phone ~ .pos-forced__main { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+.pos-pagebar { display: contents; }
+.pos-pagebar > .pos-actionbar { margin: auto calc(-1 * var(--space-4)) calc(-1 * var(--space-3)); padding: var(--space-3) var(--space-4); flex-wrap: nowrap; }
+.pos-pagebar .pos-actionbar__end { flex: 1; display: flex; margin-inline-start: 0; }
+.pos-pagebar .pos-actionbar__end > .pos-btn { flex: 1; }
+/* Forced change (PasswordForced, PasswordForcedPhone): the app bar keeps one line; only the main region scrolls. */
+.pos-forced { min-height: 0; }
+.pos-forced > .pos-appbar { flex: none; flex-wrap: nowrap; }
+.pos-forced > .pos-appbar--phone > .pos-appbar__title { flex: 1; min-width: 0; }
+.pos-forced__main { overflow-y: auto; min-height: 0; }

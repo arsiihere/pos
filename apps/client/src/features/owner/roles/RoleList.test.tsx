@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { ROLES, role } from '../staff/fixtures';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { BranchNames } from '../branch';
 import { ownAdminText } from '../form';
-import { RoleList } from './RoleList';
+import { peopleText, RoleList } from './RoleList';
 
 let m: Mounted;
 
@@ -37,6 +37,12 @@ function idleInput(name: string): HTMLInputElement {
   const input = m.container.querySelector<HTMLInputElement>(`input[aria-label="${name}"]`);
   if (!input) throw new Error(`idle input ${name} missing`);
   return input;
+}
+
+// Archive moved into the row's More menu (Pulse RolesRowMenu).
+async function openArchive(row: HTMLElement, name: string): Promise<void> {
+  await click(row.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${fill(t('common.more_for'), { name })}"]`)!);
+  await click(button(row, fill(t('roles.menu_archive'), { role: name })));
 }
 
 async function blur(el: HTMLElement): Promise<void> {
@@ -90,7 +96,7 @@ describe('[01b §8] roles list', () => {
     );
     await m.render(<RoleList api={api} />);
     const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
-    await click(button(owner, t('roles.archive')));
+    await openArchive(owner, 'Malik');
     const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
     await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-R_OWNER', archived: true });
@@ -113,16 +119,69 @@ describe('[01b §8] roles list', () => {
     );
     async function archiveOwner(): Promise<void> {
       const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
-      await click(button(owner, t('roles.archive')));
+      await openArchive(owner, 'Malik');
       const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
       await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     }
     await archiveOwner();
     expect(m.container.textContent).toContain(fill(t('roles.last_admin_body'), { branches: 'Johar Town' }));
-    await click(button(m.container, t('common.close')));
+    const blockedDialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(button(blockedDialog, t('roles.ok')).className).toContain('pos-btn--primary');
+    await click(button(blockedDialog, t('roles.ok')));
 
     answer = () => fail(409, 'OWN_ADMIN_ACCESS', { reason: 'owner_not_linked' });
     await archiveOwner();
     expect(m.container.textContent).toContain(ownAdminText({ reason: 'owner_not_linked' }));
+  });
+
+  it('[01b §8] Pulse: the row More menu names the role, people and idle time; Edit stays on the row', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(<RoleList api={api} />);
+    const row = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][1]!;
+    expect(row.querySelector('button.pos-btn')?.textContent).toBe(t('roles.edit'));
+    expect(() => button(row, t('roles.archive'))).toThrow();
+    await click(row.querySelector<HTMLButtonElement>('button.pos-more')!);
+    const menu = row.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.querySelector('.pos-menu__info b')?.textContent).toBe(ROLES[1]!.name);
+    expect(menu.querySelector('.pos-menu__info span')?.textContent).toBe(
+      fill(t('roles.menu_info'), { people: peopleText(ROLES[1]!.staff_count), n: String(ROLES[1]!.idle_minutes) }),
+    );
+    expect(button(menu, fill(t('roles.menu_archive'), { role: ROLES[1]!.name })).className).toContain('pos-menu__item--danger');
+    expect(m.container.querySelector('.pos-note')?.textContent).toBe(t('roles.idle_explain'));
+  });
+
+  it('[01b §8] Pulse: while a row shows Reload it is the one primary; New role turns secondary', async () => {
+    const { api } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+    await m.render(<RoleList api={api} />);
+    expect(button(m.container, t('roles.new')).className).toContain('pos-btn--primary');
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
+    expect(m.container.querySelectorAll('.pos-btn--primary')).toHaveLength(1);
+    expect(button(m.container, t('staff.reload')).className).toContain('pos-btn--primary');
+    expect(button(m.container, t('roles.new')).className).not.toContain('pos-btn--primary');
+  });
+
+  it('[01b §8] Pulse phone: each row shows people and idle time with Edit; Archive stays in the More menu', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      const { api } = fakeApi(handler(() => ok({})));
+      await m.render(<RoleList api={api} />);
+      const row = [...m.container.querySelectorAll<HTMLElement>('.pos-list--stack .pos-list__row')][1]!;
+      expect(row.querySelector('.pos-list__name > span')?.textContent).toBe(
+        fill(t('roles.menu_info'), { people: peopleText(ROLES[1]!.staff_count), n: String(ROLES[1]!.idle_minutes) }),
+      );
+      expect(row.querySelector('input')).toBeNull();
+      expect(button(row, t('roles.edit'))).toBeTruthy();
+      expect(button(m.container, t('roles.new_short'))).toBeTruthy();
+      await openArchive(row, ROLES[1]!.name);
+      expect(m.container.querySelector('[role="dialog"]')?.textContent).toContain(fill(t('roles.archive_title'), { name: ROLES[1]!.name }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

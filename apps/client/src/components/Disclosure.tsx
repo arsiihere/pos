@@ -7,6 +7,7 @@ import { Icon, type IconName } from './Icon';
 // `inPlace` (row only): once open, the section replaces the row, as drawn on StaffFormImran, and focus moves
 // into it. Enter or Space toggles (native button); Escape inside an open group (not from a control in it) closes it
 // and refocuses the toggle.
+// `open` + `onOpenChange` make it controlled, e.g. the role editor opening every group with an error (01b-S04).
 export function Disclosure({
   variant = 'row',
   title,
@@ -14,6 +15,8 @@ export function Disclosure({
   icon,
   defaultOpen = false,
   inPlace = false,
+  open: controlled,
+  onOpenChange,
   children,
 }: {
   variant?: 'row' | 'group';
@@ -22,9 +25,16 @@ export function Disclosure({
   icon?: IconName;
   defaultOpen?: boolean;
   inPlace?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [own, setOwn] = useState(defaultOpen);
+  const open = controlled ?? own;
+  const setOpen = (next: boolean) => {
+    setOwn(next);
+    onOpenChange?.(next);
+  };
   const [opened, setOpened] = useState(false);
   const id = useId();
   const toggle = useRef<HTMLButtonElement>(null);

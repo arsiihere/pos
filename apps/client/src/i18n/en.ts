@@ -758,6 +758,14 @@ export const en = {
   'roles.last_admin_body': 'At least one person at {branches} must be able to open the hub admin and pair screens.',
   'roles.not_found': 'This role no longer exists.',
   'roles.not_found_body': 'Someone archived or removed it, or the link is old.',
+  // Pulse 01b hand-off CHANGES §3: roles list and role editor (01b-B)
+  'roles.menu_info': '{people} · signs out after {n} min',
+  'roles.menu_archive': 'Archive {role}',
+  'roles.new_short': 'New',
+  'role_editor.grants_help': 'What Allowed, Needs approval and Not allowed mean',
+  'role_editor.count_allowed': '{n} allowed',
+  'role_editor.count_approval': '{n} needs approval',
+  'role_editor.count_not': '{n} not allowed',
   // 01b §8 teams and stock counting (task 53; 01b-S10, S05)
   'teams.intro': 'Who reports to whom at {branch}. Change a line on the person.',
   'teams.count_team': '{n} people in their team',

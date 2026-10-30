@@ -2,15 +2,18 @@ import { PERMISSION_CATALOGUE, PERMISSIONS, type Permission, type PermissionGrou
 import type { RolePatchRequest } from '@pos/events';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { CloudAdmin, CloudError, Role } from '../../../api/cloud-admin';
+import { usePhone } from '../../../app/phone';
 import { navigate } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
+import { ActionBar } from '../../../components/ActionBar';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
+import { Disclosure } from '../../../components/Disclosure';
 import { EmptyState } from '../../../components/EmptyState';
 import { Icon } from '../../../components/Icon';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
-import { fill } from '../../../i18n/en';
+import { fill, type MessageKey } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
@@ -86,12 +89,7 @@ export function RoleEditor({ api, roleId }: { api: CloudAdmin; roleId: string })
     void load();
   }, [load]);
 
-  const back = (
-    <a className="pos-btn" href="#/roles" aria-label={t('roles.back')}>
-      <Icon name="back" flip />
-      {t('roles.title')}
-    </a>
-  );
+  const back = <BackLink />;
 
   if (roles === null) {
     return (
@@ -114,6 +112,35 @@ export function RoleEditor({ api, roleId }: { api: CloudAdmin; roleId: string })
   }
   return <Editor key={generation} api={api} roles={roles} role={role} back={back} onReload={() => void load()} />;
 }
+
+// Phone (RoleEditorPhone): the back arrow alone.
+function BackLink() {
+  const phone = usePhone();
+  return (
+    <a className="pos-btn" href="#/roles" aria-label={t('roles.back')}>
+      <Icon name="back" flip />
+      {!phone && t('roles.title')}
+    </a>
+  );
+}
+
+// "3 allowed · 2 needs approval": a group's count summary; zero counts are left out (RoleEditor frame).
+function groupSummary(group: PermissionGroup, grants: Grants): string {
+  const inGroup = PERMISSION_CATALOGUE.filter((entry) => entry.group === group).map((entry) => grants[entry.key].grant_type);
+  const parts: [GrantType, MessageKey][] = [
+    ['allowed', 'role_editor.count_allowed'],
+    ['requires_approval', 'role_editor.count_approval'],
+    ['not_granted', 'role_editor.count_not'],
+  ];
+  return parts
+    .map(([type, key]) => [inGroup.filter((g) => g === type).length, key] as const)
+    .filter(([n]) => n > 0)
+    .map(([n, key]) => fill(t(key), { n: String(n) }))
+    .join(' · ');
+}
+
+const groupOf = (permission: Permission): PermissionGroup =>
+  PERMISSION_CATALOGUE.find((entry) => entry.key === permission)?.group ?? 'orders';
 
 function Editor({
   api,
@@ -141,6 +168,13 @@ function Editor({
   const down = useCloudDown(api);
   const leave = useLeave();
   const branchName = useBranchName();
+  const phone = usePhone();
+  // 01b-S04: on open the first group is open; a group with an error or a snapped-back control opens too.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<PermissionGroup>>(() => new Set([GROUPS[0] ?? 'orders']));
+  const openGroupsOf = (permissions: readonly Permission[]) => {
+    if (permissions.length === 0) return;
+    setOpenGroups((prev) => new Set([...prev, ...permissions.map(groupOf)]));
+  };
 
   const approverRoles = roles.filter((r) => r.archived_at === null);
   const title = role === null ? t('roles.new_title') : fill(t('roles.edit_title'), { name: role.name });
@@ -186,6 +220,7 @@ function Editor({
       }
     }
     setErrors(found);
+    openGroupsOf(Object.keys(found.grants ?? {}) as Permission[]);
     if (labels.length > 0) {
       setBanner({
         tone: 'danger',
@@ -218,6 +253,7 @@ function Editor({
           const back = grantsOf(stored);
           const moved = ADMIN.filter((p) => JSON.stringify(grants[p]) !== JSON.stringify(back[p]));
           setGrants((prev) => ({ ...prev, ...Object.fromEntries(ADMIN.map((p) => [p, back[p]])) }));
+          openGroupsOf(moved);
           const own = error.code === 'OWN_ADMIN_ACCESS';
           setSnapped({
             permissions: moved,
@@ -268,27 +304,34 @@ function Editor({
     showError(result.error);
   }
 
+  // B03: while the stale banner shows, Reload is the one primary and Save is disabled and secondary.
+  const saveButton = (
+    <BusyButton primary={!stale} busy={busy} disabled={down || stale} size={phone ? 'lg block' : undefined} onClick={() => void save()}>
+      {t('roles.save')}
+    </BusyButton>
+  );
   const actions = (
     <>
       <button type="button" className="pos-btn" onClick={() => leave(() => navigate('/roles'))}>
         {t('common.cancel')}
       </button>
-      <BusyButton primary busy={busy} disabled={down || stale} onClick={() => void save()}>
-        {t('roles.save')}
-      </BusyButton>
+      {saveButton}
     </>
   );
+  const grantsHelp = `${t('roles.explain_allowed')}${t('roles.explain_allowed_text')}${t('roles.explain_approval')}${t('roles.explain_approval_text')}${t('roles.explain_not')}${t('roles.explain_not_text')}`;
 
   return (
-    <Page api={api} title={title} start={back} end={actions}>
+    <Page api={api} title={title} start={back} end={phone ? undefined : actions}>
       {stale && (
         <div className="pos-banner pos-banner--warn" role="status">
+          <Icon name="sync" />
           <p>
             {t('errors.CONFIG_STALE')}
             <small>{t('staff.stale_body')}</small>
           </p>
           <div className="pos-banner__action pos-row">
             <button type="button" className="pos-btn pos-btn--primary" onClick={onReload}>
+              <Icon name="reload" />
               {t('staff.reload')}
             </button>
           </div>
@@ -308,7 +351,7 @@ function Editor({
           </label>
           <label className={`pos-field${errors.idle !== undefined ? ' pos-field--error' : ''}`}>
             <span className="pos-field__label">{t('roles.idle')}</span>
-            <span className="pos-input-affix">
+            <span className="pos-input-affix pos-roleeditor__idle">
               <input className="pos-input pos-input--mono" name="idle_minutes" inputMode="numeric" value={idle} onChange={(e) => setIdle(e.target.value)} />
               <span>{t('roles.min')}</span>
             </span>
@@ -320,19 +363,26 @@ function Editor({
           </label>
         </div>
       </section>
-      <div className="pos-explain">
-        <span>
-          <b>{t('roles.explain_allowed')}</b>
-          {t('roles.explain_allowed_text')}
-          <b>{t('roles.explain_approval')}</b>
-          {t('roles.explain_approval_text')}
-          <b>{t('roles.explain_not')}</b>
-          {t('roles.explain_not_text')}
-        </span>
-      </div>
+      <button type="button" className="pos-hint" title={grantsHelp} aria-label={grantsHelp}>
+        <Icon name="info" />
+        {t('role_editor.grants_help')}
+      </button>
       {GROUPS.map((group) => (
-        <section key={group}>
-          <h2 className="heading">{t(`roles.group.${group}`)}</h2>
+        <Disclosure
+          key={group}
+          variant="group"
+          title={t(`roles.group.${group}`)}
+          summary={groupSummary(group, grants)}
+          open={openGroups.has(group)}
+          onOpenChange={(open) =>
+            setOpenGroups((prev) => {
+              const next = new Set(prev);
+              if (open) next.add(group);
+              else next.delete(group);
+              return next;
+            })
+          }
+        >
           <ul className="pos-grants">
             {PERMISSION_CATALOGUE.filter((entry) => entry.group === group).map((entry) => (
               <GrantControl
@@ -343,12 +393,18 @@ function Editor({
                 roles={approverRoles}
                 error={errors.grants?.[entry.key]}
                 snapped={snapped?.permissions.includes(entry.key) ?? false}
+                stack={phone}
                 onChange={(next) => setGrant(entry.key, next)}
               />
             ))}
           </ul>
-        </section>
+        </Disclosure>
       ))}
+      {phone && (
+        <div className="pos-roleeditor__bar">
+          <ActionBar>{saveButton}</ActionBar>
+        </div>
+      )}
       {snapped !== null && (
         <Dialog
           title={snapped.title}
@@ -374,6 +430,7 @@ function GrantControl({
   roles,
   error,
   snapped,
+  stack,
   onChange,
 }: {
   permission: Permission;
@@ -382,14 +439,18 @@ function GrantControl({
   roles: readonly Role[];
   error: string | undefined;
   snapped: boolean;
+  stack: boolean;
   onChange: (next: Partial<GrantDraft>) => void;
 }) {
   const label = t(`perm.${permission}`);
   const granted = grant.grant_type !== 'not_granted';
   const where = granted && scopes.length > 1;
   return (
-    <li className={`pos-grant${error !== undefined ? ' is-error' : ''}`}>
-      <div className="pos-grant__label">{label}</div>
+    <li className={`pos-grant${stack ? ' pos-grant--stack' : ''}${error !== undefined ? ' is-error' : ''}${snapped ? ' is-snapped' : ''}`}>
+      <div className="pos-grant__label">
+        {label}
+        {snapped && <small>{t('roles.snapped')}</small>}
+      </div>
       <Segmented<GrantType>
         label={label}
         value={grant.grant_type}
@@ -400,7 +461,7 @@ function GrantControl({
           { value: 'not_granted', label: t('roles.grant.not_granted') },
         ]}
       />
-      {grant.grant_type === 'requires_approval' || where || snapped ? (
+      {grant.grant_type === 'requires_approval' || where ? (
         <div className="pos-grant__more">
           {grant.grant_type === 'requires_approval' && (
             <div className="pos-grant__more">
@@ -420,6 +481,7 @@ function GrantControl({
                       })
                     }
                   >
+                    {grant.approvers.includes(r.role_id) && <Icon name="check" />}
                     {r.name}
                   </button>
                 ))}
@@ -451,7 +513,6 @@ function GrantControl({
               )}
             </label>
           )}
-          {snapped && <span className="pos-field__error">{t('roles.snapped')}</span>}
         </div>
       ) : (
         <span />
