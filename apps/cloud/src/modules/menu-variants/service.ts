@@ -557,9 +557,9 @@ function modifierGroupAudit(wire: ModifierGroupWire): object {
   };
 }
 
-// §3.3 effective-set row on a group write that changes links (M5, a plain read): the active items the group's attach
-// links reach, with their stored links, plus this group's own links; any item above 20 → 422 at links. A group with
-// no attach link reaches no item, so nothing is read.
+// §3.3 effective-set row on a group write that changes links (§6.11; §6.12 R5; M5, a plain read): the active items
+// the group's attach links reach, with the other groups' stored links, plus this group's `links`; any item above
+// 20 → 422 at links. A group with no attach link reaches no item, so nothing is read.
 async function assertGroupLinksWithinLimit(
   repo: TenantLevelRepository,
   group: { modifier_group_id: string; sort_order: number },
@@ -575,12 +575,14 @@ async function assertGroupLinksWithinLimit(
   });
   const own = links.map((l) => ({ ...l, modifier_group_id: group.modifier_group_id }));
   for (const item of affected) {
+    // §6.12 R5: the group's stored links (read with the item, when the group is active) are replaced by `links`
+    const others = item.links.filter((l) => l.modifier_group_id !== group.modifier_group_id);
     const active = new Set([
       item.item_id,
       ...(item.category_active ? [item.category_id] : []),
       ...(item.variant_group_active && item.variant_group_id !== null ? [item.variant_group_id] : []),
     ]);
-    assertEffectiveSetLimit([item], [...item.links, ...own], [...groupsOf(item.links), group], active, 'links');
+    assertEffectiveSetLimit([item], [...others, ...own], [...groupsOf(others), group], active, 'links');
   }
 }
 
@@ -618,7 +620,10 @@ function sortedUnique(ids: readonly string[]): string[] {
 // nothing written) → write: the group row (name index → 409), the options (one upsert of the sent rows + one
 // archive of the omitted active rows, V14) when sent, the links (delete + multi-row insert) when sent → one audit
 // row, whole active lists before / after (V15) → bump every branch (10) → the group's branch rows (response).
-// The merged-row rules R1–R6 are task 25's.
+// Merged-row rules after the no-op, in order: R1 min ≤ max (400), R2 choices_unsatisfiable, R3 defaults_exceed_max
+// (422), R4 option names (409 modifier_option, one statement, options sent), R5 effective-set limit (links sent),
+// R6 linked items on a restore without options (the stored active options' linked items join the items' FOR SHARE
+// only then, §12.7 T1).
 export async function patchModifierGroup(
   deps: MenuVariantDeps,
   req: OwnerRequest,
@@ -646,10 +651,21 @@ export async function patchModifierGroup(
     const storedLink = (l: ModifierLinkRow) =>
       storedLinks.some((s) => s.target_kind === l.target_kind && s.target_id === l.target_id && s.mode === l.mode);
     const checkedLinks = (body.links ?? []).map((link, i) => ({ link, i })).filter(({ link }) => !storedLink(link));
-    await assertGroupReferences(
+    // R6 on a restore without options (T1): the stored active options' linked items, indexed by sort_order, then
+    // option_id, join the items' = ANY lock here and are checked in R6's slot below; on no other PATCH are they locked
+    const restoring = group.archived_at !== null && body.archived === false;
+    const restoredLinkedItemIds =
+      restoring && body.options === undefined
+        ? storedOptions
+            .filter((o) => o.archived_at === null)
+            .sort((a, b) => a.sort_order - b.sort_order || (a.option_id < b.option_id ? -1 : a.option_id > b.option_id ? 1 : 0))
+            .map((o) => o.linked_item_id)
+        : [];
+    const items = await assertGroupReferences(
       level,
       (body.options ?? []).map((o) => o.linked_item_id),
       checkedLinks,
+      restoredLinkedItemIds,
     );
     const now = deps.clock.branchNow();
     const options: ModifierOptionRow[] =
@@ -684,6 +700,33 @@ export async function patchModifierGroup(
     if (after.version === before.version) {
       return { modifier_group: await withBranches(scoped, req, { ...group, options: storedOptions, links: storedLinks }) };
     }
+    // C4 step 6, merged-row rules in order; the first failure answers
+    const activeOptions = options.filter((o) => o.archived_at === null);
+    // R1: min ≤ max on the merged row (400, before the DB CHECK); the path is the sent field (min_choices when both)
+    if (merged.min_choices > merged.max_choices) {
+      const path = body.min_choices !== undefined ? 'min_choices' : 'max_choices';
+      throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: 'min_choices must not exceed max_choices' }] });
+    }
+    // R2, R3 (§3.3) on the merged min / max and the merged active options
+    if (merged.min_choices > activeOptions.reduce((sum, o) => sum + o.max_quantity, 0)) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'min_choices', reason: 'choices_unsatisfiable' });
+    }
+    if (activeOptions.filter((o) => o.is_default).length > merged.max_choices) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'options', reason: 'defaults_exceed_max' });
+    }
+    // R4 (m13): one lower(name) statement under the group lock, when options are sent (the merged active options are
+    // the sent ones; unsent, the stored active names are unchanged)
+    if (body.options !== undefined) {
+      const repeated = await firstRepeatedName(level, body.options.map((o) => o.name));
+      if (repeated !== undefined) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_option', name: repeated });
+    }
+    // R5 (V8): the effective-set limit when links are sent (one read; nothing when no attach link)
+    if (body.links !== undefined) {
+      await assertGroupLinksWithinLimit(level, { modifier_group_id: modifierGroupId, sort_order: merged.sort_order }, body.links);
+    }
+    // R6 (Q1, T1): a restore without options checks the stored active options' linked items, locked above; with
+    // options sent, C4 step 4 has already checked every merged active option's linked item (assertLinkedItems)
+    assertLinkedItems(restoredLinkedItemIds, items);
     const written = await nameTaken('modifier_groups_active_name', 'modifier_group', merged.name, () => updateModifierGroup(level, merged, now));
     if (body.options !== undefined) {
       const sent = options.slice(0, body.options.length);
@@ -719,22 +762,47 @@ async function withBranches(scoped: TenantScopedRepository, req: OwnerRequest, r
   return toModifierGroupWire(row, req.tenant.branchIds, branchRows);
 }
 
+type SharedItem = Awaited<ReturnType<typeof shareItemsById>>[number];
+
 // §6.11, §6.12 C1 (C4 step 4): the linked items and link targets FOR SHARE per kind in the §6 lock order, one = ANY
 // each, ids ascending (variant groups 3, items 4, categories 6; a kind with no id reads nothing), then checked in
-// body order: options.N.linked_item_id (not_found / archived / linked_item_not_piece), links.N.target_id
-// (not_found / archived). `linkedItemIds` is indexed like the options; `links` carries each link's index as sent.
+// body order: options.N.linked_item_id (assertLinkedItems), links.N.target_id (not_found / archived).
+// `linkedItemIds` is indexed like the sent options; `links` carries each link's index as sent. `heldItemIds` join
+// the items' = ANY lock unchecked (§6.12 R6 on a restore without options checks them later, T1); the locked item
+// rows are returned.
 async function assertGroupReferences(
   level: TenantLevelRepository,
   linkedItemIds: ReadonlyArray<string | null>,
   links: ReadonlyArray<{ link: Omit<LinkRow, 'modifier_group_id'>; i: number }>,
-): Promise<void> {
+  heldItemIds: ReadonlyArray<string | null> = [],
+): Promise<SharedItem[]> {
   const targetsOf = (kind: LinkRow['target_kind']) => sortedUnique(links.filter(({ link }) => link.target_kind === kind).map(({ link }) => link.target_id));
   const variantGroupIds = targetsOf('variant_group');
-  const itemIds = sortedUnique([...linkedItemIds.flatMap((id) => (id === null ? [] : [id])), ...targetsOf('item')]);
+  const nonNull = (ids: ReadonlyArray<string | null>) => ids.flatMap((id) => (id === null ? [] : [id]));
+  const itemIds = sortedUnique([...nonNull(linkedItemIds), ...nonNull(heldItemIds), ...targetsOf('item')]);
   const categoryIds = targetsOf('category');
   const variantGroups = variantGroupIds.length > 0 ? await shareVariantGroups(level, variantGroupIds) : [];
   const items = itemIds.length > 0 ? await shareItemsById(level, itemIds) : [];
   const categories = categoryIds.length > 0 ? await shareCategoriesById(level, categoryIds) : [];
+  assertLinkedItems(linkedItemIds, items);
+  for (const { link, i } of links) {
+    const rows: ReadonlyArray<{ id: string; archived_at: number | null }> =
+      link.target_kind === 'variant_group'
+        ? variantGroups.map((row) => ({ id: row.variant_group_id, archived_at: row.archived_at }))
+        : link.target_kind === 'item'
+          ? items.map((row) => ({ id: row.item_id, archived_at: row.archived_at }))
+          : categories.map((row) => ({ id: row.category_id, archived_at: row.archived_at }));
+    const target = rows.find((row) => row.id === link.target_id);
+    const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
+    if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
+  }
+  return items;
+}
+
+// §3.3 options row, §6.11, §6.12 C4 step 4 and R6 (one check): each linked item, by its index in `linkedItemIds`, is
+// found, active, sale_unit 'piece' and not requires_weighing; archived is checked before linked_item_not_piece
+// (§12.7 T1, as 01a's assertReference) → 422 at options.N.linked_item_id. `items` are the rows locked FOR SHARE.
+function assertLinkedItems(linkedItemIds: ReadonlyArray<string | null>, items: readonly SharedItem[]): void {
   linkedItemIds.forEach((itemId, i) => {
     if (itemId === null) return;
     const linked = items.find((row) => row.item_id === itemId);
@@ -748,17 +816,6 @@ async function assertGroupReferences(
             : null;
     if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.linked_item_id`, reason });
   });
-  for (const { link, i } of links) {
-    const rows: ReadonlyArray<{ id: string; archived_at: number | null }> =
-      link.target_kind === 'variant_group'
-        ? variantGroups.map((row) => ({ id: row.variant_group_id, archived_at: row.archived_at }))
-        : link.target_kind === 'item'
-          ? items.map((row) => ({ id: row.item_id, archived_at: row.archived_at }))
-          : categories.map((row) => ({ id: row.category_id, archived_at: row.archived_at }));
-    const target = rows.find((row) => row.id === link.target_id);
-    const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
-    if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
-  }
 }
 
 type ModifierGroupList = z.infer<typeof ModifierGroupListResponse>['data'];

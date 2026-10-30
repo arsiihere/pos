@@ -302,6 +302,21 @@ describe('01c modifier group create (§6.11) and the effective-set limit', () =>
     expect((await postGroup(plainGroup('Spice level'))).statusCode).toBe(201);
   });
 
+  it('[01c #116] options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on POST (m13)', async () => {
+    const error = await refused(
+      () =>
+        postGroup({
+          ...plainGroup('Sides'),
+          options: [
+            { name: 'Raita', price_minor: 100 },
+            { name: 'raita', price_minor: 100 },
+          ],
+        }),
+      409,
+    );
+    expect(error).toMatchObject({ code: 'CONFIG_NAME_TAKEN', details: { entity: 'modifier_option', name: 'raita' } });
+  });
+
   it('[01c #41] 21st effective group on an item → 422 too_many_groups on the group write, and on an item PATCH into a category carrying it', async () => {
     const plainCategory = await category('Grill');
     const extraCategory = await category('Specials');

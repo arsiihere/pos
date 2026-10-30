@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CreateModifierGroupRequest, ModifierGroupWire } from '@pos/events';
 import { createModifierGroup } from '../helpers/menu-variants';
@@ -12,10 +13,30 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
   let f: RestaurantFixture;
   let menu: SeededMenu;
   let counter: ReturnType<typeof pgCounter>;
+  // §12.7 T1: the statements of the last handler, as sent (pgCounter counts only); reset with the counter.
+  let statements: string[] = [];
 
   beforeAll(async () => {
-    cloud = await createTestCloud({ testHooks: { handlerStart: () => counter.reset() } });
+    cloud = await createTestCloud({
+      testHooks: {
+        handlerStart: () => {
+          counter.reset();
+          statements = [];
+        },
+      },
+    });
     counter = pgCounter(cloud.pool);
+    const logged = new WeakSet<pg.PoolClient>();
+    cloud.pool.on('acquire', (client) => {
+      if (logged.has(client)) return;
+      logged.add(client);
+      const original = client.query.bind(client) as (...args: unknown[]) => unknown;
+      (client as { query: unknown }).query = (...args: unknown[]) => {
+        const first = args[0];
+        statements.push(typeof first === 'string' ? first : ((first as { text?: string } | undefined)?.text ?? ''));
+        return original(...args);
+      };
+    });
     await cloud.app.ready();
   });
   afterAll(async () => {
@@ -102,9 +123,9 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
       ],
     });
     expect(first.statusCode, first.body).toBe(200);
-    // tenant-wide check, group lock, options read, links read, group update, options upsert, archive omitted,
-    // audit, 2 bump, branch rows read
-    expect(counter.count).toBe(11);
+    // tenant-wide check, group lock, options read, links read, option names (R4), group update, options upsert,
+    // archive omitted, audit, 2 bump, branch rows read
+    expect(counter.count).toBe(12);
     const patched = first.json().data.modifier_group as ModifierGroupWire;
     expect(patched.options).toEqual([
       { option_id: o1!.option_id, name: 'Mild (less chilli)', price_minor: 0, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 0 },
@@ -315,9 +336,9 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
       ],
     });
     expect(rewritten.statusCode, rewritten.body).toBe(200);
-    // tenant-wide check, group lock, options read, links read, item FOR SHARE (the added link only), group update,
-    // links delete, links insert, audit, 2 bump, branch rows read
-    expect(counter.count).toBe(12);
+    // tenant-wide check, group lock, options read, links read, item FOR SHARE (the added link only), effective-set
+    // read (R5), group update, links delete, links insert, audit, 2 bump, branch rows read
+    expect(counter.count).toBe(13);
     const wire = rewritten.json().data.modifier_group as ModifierGroupWire;
     expect(wire.links).toEqual([
       { target_kind: 'category', target_id: old, mode: 'attach' },
@@ -446,5 +467,270 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
 
     const scalars = await ok(group.modifier_group_id, { expected_version: group.version, min_choices: 1, max_choices: 1, sort_order: 4 });
     expect(scalars).toMatchObject({ min_choices: 1, max_choices: 1, sort_order: 4, options: group.options });
+  });
+
+  // ------------------------------------------------------------------------------ merged-row rules R1–R6 (task 25)
+
+  const item = async (name: string, o: object = {}) => {
+    const response = await inject('POST', '/v1/admin/menu-items', {
+      category_id: menu.categoryIds[0],
+      tax_class_id: null,
+      name,
+      price_minor: 10000,
+      sale_unit: 'piece',
+      serve_mode: 'sync',
+      cook_time_ms: 600_000,
+      routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId }],
+      ...o,
+    });
+    expect(response.statusCode, response.body).toBe(201);
+    return response.json().data.item.item_id as string;
+  };
+  const patchItem = (id: string, payload: object) => inject('PATCH', `/v1/admin/menu-items/${id}`, payload);
+  const okItem = async (id: string, payload: object) => {
+    const response = await patchItem(id, payload);
+    expect(response.statusCode, response.body).toBe(200);
+  };
+  const itemRow = async (id: string) =>
+    (
+      await cloud.pool.query<{ sale_unit: string; requires_weighing: boolean; archived: boolean }>(
+        `SELECT sale_unit, requires_weighing, archived_at IS NOT NULL AS archived FROM menu_items WHERE item_id = $1`,
+        [id],
+      )
+    ).rows[0];
+  const groupArchived = async (id: string) =>
+    (await cloud.pool.query<{ archived: boolean }>(`SELECT archived_at IS NOT NULL AS archived FROM modifier_groups WHERE modifier_group_id = $1`, [id]))
+      .rows[0]!.archived;
+  const linkedItemLocks = () => statements.filter((text) => /FROM menu_items/.test(text) && /FOR SHARE/.test(text));
+
+  it('[01c #48] PATCH min_choices alone above the merged options capacity → 422 choices_unsatisfiable (R2)', async () => {
+    const fresh = await createModifierGroup(cloud, f, {
+      name: 'Sides',
+      min_choices: 0,
+      max_choices: 3,
+      options: [
+        { name: 'Raita', price_minor: 100 },
+        { name: 'Salad', price_minor: 100 },
+      ],
+    });
+    const unsatisfiable = await refused(() => patch(fresh.modifier_group_id, { expected_version: fresh.version, min_choices: 3 }), 422);
+    expect(unsatisfiable).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'min_choices', reason: 'choices_unsatisfiable' } });
+    // the merged options count: sending options whose Σ max_quantity covers the stored min_choices 3 → 200
+    const raised = await ok(fresh.modifier_group_id, {
+      expected_version: fresh.version,
+      min_choices: 3,
+      options: fresh.options.map(({ option_id, name, price_minor }) => ({ option_id, name, price_minor, max_quantity: 2 })),
+    });
+    expect(raised.min_choices).toBe(3);
+    // and options that no longer cover it → 422
+    const shrunk = await refused(
+      () => patch(fresh.modifier_group_id, { expected_version: raised.version, options: [{ option_id: fresh.options[0]!.option_id, name: 'Raita', price_minor: 100, max_quantity: 2 }] }),
+      422,
+    );
+    expect(shrunk.details).toMatchObject({ field: 'min_choices', reason: 'choices_unsatisfiable' });
+  });
+
+  it('[01c §6.12 R1] merged min_choices > max_choices → 400 at the sent field (not the DB CHECK); R3 defaults_exceed_max on the merged max', async () => {
+    const group = await spice({ min_choices: 1, max_choices: 2 });
+    const minSent = await refused(() => patch(group.modifier_group_id, { expected_version: group.version, min_choices: 3 }), 400);
+    expect(minSent.code).toBe('VALIDATION_FAILED');
+    expect(issuePaths(minSent)).toEqual(['min_choices']);
+    const maxSent = await refused(() => patch(group.modifier_group_id, { expected_version: group.version, max_choices: 1, min_choices: 2 }), 400);
+    expect(issuePaths(maxSent)).toEqual(['min_choices']);
+    const onlyMax = await createModifierGroup(cloud, f, {
+      name: 'Two',
+      min_choices: 2,
+      max_choices: 2,
+      options: [
+        { name: 'A', price_minor: 0 },
+        { name: 'B', price_minor: 0 },
+      ],
+    });
+    expect(issuePaths(await refused(() => patch(onlyMax.modifier_group_id, { expected_version: onlyMax.version, max_choices: 1 }), 400))).toEqual([
+      'max_choices',
+    ]);
+
+    // R3: two defaults stored, max lowered to 1 → 422 defaults_exceed_max at options
+    const defaults = await createModifierGroup(cloud, f, {
+      name: 'Defaults',
+      min_choices: 0,
+      max_choices: 2,
+      options: [
+        { name: 'A', price_minor: 0, is_default: true },
+        { name: 'B', price_minor: 0, is_default: true },
+      ],
+    });
+    const exceeded = await refused(() => patch(defaults.modifier_group_id, { expected_version: defaults.version, max_choices: 1 }), 422);
+    expect(exceeded).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'options', reason: 'defaults_exceed_max' } });
+    // one default left in the sent options → 200
+    const fixed = await ok(defaults.modifier_group_id, {
+      expected_version: defaults.version,
+      max_choices: 1,
+      options: defaults.options.map(({ option_id, name }, i) => ({ option_id, name, price_minor: 0, is_default: i === 0 })),
+    });
+    expect(fixed.max_choices).toBe(1);
+  });
+
+  it('[01c #112] a PATCH whose body is only expected_version → 400', async () => {
+    const group = await spice();
+    const error = await refused(() => patch(group.modifier_group_id, { expected_version: group.version }), 400);
+    expect(error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('[01c #116] options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on PATCH (R4); an archived option name is free', async () => {
+    const group = await spice();
+    const [mild, hot] = group.options;
+    const error = await refused(
+      () =>
+        patch(group.modifier_group_id, {
+          expected_version: group.version,
+          options: [
+            { option_id: mild!.option_id, name: 'Raita', price_minor: 0 },
+            { option_id: hot!.option_id, name: 'raita', price_minor: 50 },
+          ],
+        }),
+      409,
+    );
+    expect(error).toMatchObject({ code: 'CONFIG_NAME_TAKEN', details: { entity: 'modifier_option', name: 'raita' } });
+    // Hot archived (omitted), then a new active option named "hot" → 200: only active options count
+    const renamed = await ok(group.modifier_group_id, {
+      expected_version: group.version,
+      options: [
+        { option_id: mild!.option_id, name: 'Mild', price_minor: 0 },
+        { name: 'HOT', price_minor: 70 },
+      ],
+    });
+    expect(renamed.archived_options).toEqual([{ option_id: hot!.option_id, name: 'Hot' }]);
+  });
+
+  it('[01c §6.12 R5] links sent → effective-set limit (V8, 20); the group own stored links are replaced, not counted with the new ones', async () => {
+    const naan = await item('Naan');
+    const others = [];
+    for (let i = 0; i < 20; i += 1) {
+      others.push(
+        await createModifierGroup(cloud, f, {
+          name: `G${String(i).padStart(2, '0')}`,
+          min_choices: 0,
+          max_choices: 1,
+          options: [{ name: 'Yes', price_minor: 0 }],
+          links: [{ target_kind: 'item', target_id: naan, mode: 'attach' }],
+        }),
+      );
+    }
+    const karahi = menu.categoryIds[0]!;
+    // attach on Naan's category, detach on Naan: Naan keeps 20 effective groups
+    const group = await spice({
+      links: [
+        { target_kind: 'category', target_id: karahi, mode: 'attach' },
+        { target_kind: 'item', target_id: naan, mode: 'detach' },
+      ],
+    });
+    // dropping the detach would make Bread Naan's 21st group → 422 at links
+    const error = await refused(
+      () => patch(group.modifier_group_id, { expected_version: group.version, links: [{ target_kind: 'category', target_id: karahi, mode: 'attach' }] }),
+      422,
+    );
+    expect(error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'links', reason: 'too_many_groups' } });
+    // the same links again with a rename → 200 (the stored links are not counted beside the sent ones)
+    const same = await ok(group.modifier_group_id, { expected_version: group.version, name: 'Spice', links: group.links });
+    expect(same.links).toEqual(group.links);
+    expect(others).toHaveLength(20);
+  });
+
+  it('[01c #125] Naan linked by active Bread: §6.5 R10 refuses the unit change; §6.12 R6 refuses restoring Bread onto a non-piece or archived Naan (T1 steps)', async () => {
+    const naan = await item('Naan');
+    let bread = await createModifierGroup(cloud, f, {
+      name: 'Bread',
+      min_choices: 0,
+      max_choices: 2,
+      options: [
+        { name: 'Naan', linked_item_id: naan, sort_order: 0 },
+        { name: 'Butter', price_minor: 50, sort_order: 1 },
+      ],
+    });
+    const [naanOption, butter] = bread.options;
+    const inUse = { code: 'CONFIG_IN_USE', details: { entity: 'menu_item', id: naan, used_by: { entity: 'modifier_group', ids: [bread.modifier_group_id] } } };
+    const restore = () => patch(bread.modifier_group_id, { expected_version: bread.version, archived: false });
+    const restoreRefused = async (reason: string) => {
+      const error = await refused(restore, 422);
+      expect(error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'options.0.linked_item_id', reason } });
+      expect(await groupArchived(bread.modifier_group_id)).toBe(true);
+    };
+
+    // (1) Naan → g → 409 modifier group, nothing written
+    expect(await refused(() => patchItem(naan, { sale_unit: 'g' }), 409)).toMatchObject(inUse);
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'piece', requires_weighing: false, archived: false });
+    // (2) weighed and g → the same 409
+    expect(await refused(() => patchItem(naan, { requires_weighing: true, sale_unit: 'g' }), 409)).toMatchObject(inUse);
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'piece', requires_weighing: false, archived: false });
+    // (3) the linking option archived → the unit change 200
+    bread = await ok(bread.modifier_group_id, { expected_version: bread.version, options: [{ option_id: butter!.option_id, name: 'Butter', price_minor: 50, sort_order: 1 }] });
+    expect(bread.archived_options).toEqual([{ option_id: naanOption!.option_id, name: 'Naan' }]);
+    await okItem(naan, { sale_unit: 'g' });
+    // (4) Naan back to piece, the option restored → 200
+    await okItem(naan, { sale_unit: 'piece' });
+    bread = await ok(bread.modifier_group_id, {
+      expected_version: bread.version,
+      options: [
+        { option_id: naanOption!.option_id, name: 'Naan', linked_item_id: naan, sort_order: 0 },
+        { option_id: butter!.option_id, name: 'Butter', price_minor: 50, sort_order: 1 },
+      ],
+    });
+    expect(bread.options.map((o) => o.option_id)).toEqual([naanOption!.option_id, butter!.option_id]);
+    // (5) Bread archived → Naan g → 200
+    bread = await ok(bread.modifier_group_id, { expected_version: bread.version, archived: true });
+    await okItem(naan, { sale_unit: 'g' });
+    // (6) restore Bread → 422 linked_item_not_piece at options.0, Bread still archived; the stored linked item is
+    // locked FOR SHARE (R6 runs: a restore without options)
+    await restoreRefused('linked_item_not_piece');
+    expect(linkedItemLocks()).toHaveLength(1);
+    // (7) Naan weighed (still g) → restore → 422 linked_item_not_piece
+    await okItem(naan, { requires_weighing: true });
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'g', requires_weighing: true, archived: false });
+    await restoreRefused('linked_item_not_piece');
+    // (8) Naan not weighed, piece, then archived → restore → 422 archived
+    await okItem(naan, { requires_weighing: false, sale_unit: 'piece' });
+    await okItem(naan, { archived: true });
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'piece', requires_weighing: false, archived: true });
+    await restoreRefused('archived');
+    // (9) Naan archived and g → 422 archived (archived checked first, T1)
+    await okItem(naan, { sale_unit: 'g' });
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'g', requires_weighing: false, archived: true });
+    await restoreRefused('archived');
+    // (10) Naan restored as an active piece item → restore Bread 200
+    await okItem(naan, { sale_unit: 'piece', archived: false });
+    expect(await itemRow(naan)).toEqual({ sale_unit: 'piece', requires_weighing: false, archived: false });
+    const restored = await ok(bread.modifier_group_id, { expected_version: bread.version, archived: false });
+    expect(restored.archived_at).toBeNull();
+    expect(restored.options.map((o) => o.linked_item_id)).toEqual([naan, null]);
+  });
+
+  it('[01c §12.7 T1] a rename of an active group takes no FOR SHARE on its linked items; R6 on a restore indexes the stored active options by sort_order, then option_id', async () => {
+    const naan = await item('Naan');
+    const roti = await item('Roti');
+    const bread = await createModifierGroup(cloud, f, {
+      name: 'Bread',
+      min_choices: 0,
+      max_choices: 3,
+      options: [
+        { name: 'Butter', price_minor: 50, sort_order: 0 },
+        { name: 'Roti', linked_item_id: roti, sort_order: 1 },
+        { name: 'Naan', linked_item_id: naan, sort_order: 1 },
+      ],
+    });
+    const renamed = await patch(bread.modifier_group_id, { expected_version: bread.version, name: 'Breads' });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    // tenant-wide check, group lock, options read, links read, group update, audit, 2 bump, branch rows read
+    expect(counter.count).toBe(9);
+    expect(statements.filter((text) => /menu_items/.test(text))).toEqual([]);
+    const archived = await ok(bread.modifier_group_id, { expected_version: renamed.json().data.modifier_group.version, archived: true });
+
+    // of the two options at sort_order 1, the one with the later option_id is index 2
+    const tied = bread.options.filter((o) => o.sort_order === 1).sort((a, b) => (a.option_id < b.option_id ? -1 : 1));
+    await okItem(tied[1]!.linked_item_id!, { sale_unit: 'g' });
+    const error = await refused(() => patch(bread.modifier_group_id, { expected_version: archived.version, archived: false }), 422);
+    expect(error.details).toEqual({ field: 'options.2.linked_item_id', reason: 'linked_item_not_piece' });
+    // both stored linked items in one = ANY lock, by item_id
+    expect(linkedItemLocks()).toHaveLength(1);
   });
 });
