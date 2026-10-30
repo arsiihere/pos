@@ -4,10 +4,13 @@ import type {
   CreateModifierGroupInput,
   CreateStockItemInput,
   CreateVariantGroupInput,
+  ModifierGroupBranchWire,
+  ModifierGroupListResponse,
   ModifierGroupWire,
   PatchModifierGroupInput,
   PatchStockItemInput,
   PatchVariantGroupInput,
+  PutModifierGroupBranchInput,
   PutStockItemBranchInput,
   StockItemBranchWire,
   StockItemListResponse,
@@ -30,12 +33,14 @@ import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './
 import {
   archiveOmittedOptions,
   branchAllowed,
+  deleteActiveOptionBranchRows,
   deleteModifierLinks,
   deleteStockItemBranch,
   firstRepeatedName,
   insertModifierGroup,
   insertModifierLinks,
   insertModifierOptions,
+  insertOptionBranchRows,
   selectAffectedItems,
   selectLinksOfTargets,
   shareCategoriesById,
@@ -47,7 +52,10 @@ import {
   lockVariantGroup,
   moveMembers,
   selectActiveDrawers,
+  selectActiveOptionBranchRows,
+  selectActiveOptionIds,
   selectMembers,
+  selectModifierGroups,
   selectModifierLinks,
   selectModifierOptions,
   selectOptionBranches,
@@ -66,6 +74,7 @@ import {
   type VariantGroupRecord,
 } from './repository.js';
 import {
+  modifierGroupBranchVersion,
   stockItemBranchVersion,
   toModifierGroupWire,
   toStockItemWire,
@@ -750,4 +759,94 @@ async function assertGroupReferences(
     const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
     if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
   }
+}
+
+type ModifierGroupList = z.infer<typeof ModifierGroupListResponse>['data'];
+
+// §6.10: 5 fixed statements (coversEveryBranch, groups, options = ANY, links = ANY, branch rows at the JWT's allowed
+// branches = ANY); by sort_order, then id; each group's branches list every allowed branch (V19).
+export async function listModifierGroups(
+  deps: MenuVariantDeps,
+  tenant: TenantContext,
+  ownerUserId: string,
+  query: { status: 'active' | 'archived' },
+): Promise<ModifierGroupList> {
+  const level = new TenantLevelRepository(tenant, deps.pool);
+  const scoped = new TenantScopedRepository(tenant, deps.pool);
+  const canEditTenant = await coversEveryBranch(level, ownerUserId);
+  const groups = await selectModifierGroups(level, { archived: query.status === 'archived' });
+  const ids = groups.map((group) => group.modifier_group_id);
+  const options = await selectModifierOptions(level, ids);
+  const links = await selectModifierLinks(level, ids);
+  const branchRows = await selectOptionBranches(scoped, ids);
+  return {
+    can_edit_tenant: canEditTenant,
+    modifier_groups: groups.map((group) => {
+      const id = group.modifier_group_id;
+      return toModifierGroupWire(
+        { ...group, options: options.filter((o) => o.modifier_group_id === id), links: links.filter((l) => l.modifier_group_id === id) },
+        tenant.branchIds,
+        branchRows.filter((row) => row.modifier_group_id === id),
+      );
+    }),
+  };
+}
+
+// §6.12a (C4; lock order 1 → 9 → 10). A branch-scoped write: no tenant-wide check, only that branch is bumped.
+// Group FOR UPDATE (404; serialises with §6.12 and other branch PUTs on the group) → C2 branch read inside the
+// transaction, among the JWT's allowed branches (404 BRANCH_NOT_FOUND) → the stored rows of the group's active
+// options at the branch, read without a lock → version (409 CONFIG_STALE modifier_group_branch, a stale no-op too)
+// → the group active (422 modifier_group_id archived) → each option_id an active option of this group (one = ANY;
+// 422 options.N.option_id not_found) → normalise (default entries dropped, V19) → no-op (200, nothing written) →
+// delete the rows of the group's active options at the branch (rows of archived options stay, m4) + one multi-row
+// insert → audit modifier_group / branch_set with branch_id, the difference lists before / after → bump that branch.
+export async function putModifierGroupBranch(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  modifierGroupId: string,
+  branchId: string,
+  body: PutModifierGroupBranchInput,
+): Promise<{ branch: ModifierGroupBranchWire }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const group = await lockModifierGroup(level, modifierGroupId);
+    if (group === undefined) throw new DomainError('MODIFIER_GROUP_NOT_FOUND', { modifier_group_id: modifierGroupId });
+    if (!(await branchAllowed(scoped, branchId))) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    const stored = await selectActiveOptionBranchRows(scoped, modifierGroupId, branchId);
+    const before = modifierGroupBranchVersion(modifierGroupId, branchId, stored, new Set(stored.map((row) => row.option_id)));
+    if (body.expected_version !== before.version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'modifier_group_branch', id: modifierGroupId });
+    }
+    if (group.archived_at !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'modifier_group_id', reason: 'archived' });
+    if (body.options.length > 0) {
+      const active = new Set(await selectActiveOptionIds(level, modifierGroupId, body.options.map((o) => o.option_id)));
+      body.options.forEach((option, i) => {
+        if (!active.has(option.option_id)) {
+          throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.option_id`, reason: 'not_found' });
+        }
+      });
+    }
+    const normalised = body.options.filter((o) => !(o.is_offered && o.price_minor_override === null));
+    const after = modifierGroupBranchVersion(modifierGroupId, branchId, normalised, new Set(normalised.map((row) => row.option_id)));
+    if (after.version === before.version) return { branch: before };
+    await deleteActiveOptionBranchRows(scoped, modifierGroupId, branchId);
+    if (normalised.length > 0) await insertOptionBranchRows(scoped, branchId, normalised, deps.clock.branchNow());
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'modifier_group',
+        entityId: modifierGroupId,
+        branchId,
+        action: 'branch_set',
+        before: before.options,
+        after: after.options,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { branch: after };
+  });
 }

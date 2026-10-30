@@ -563,3 +563,79 @@ export async function selectOptionBranches(repo: TenantScopedRepository, modifie
   );
   return rows.map((row) => ({ ...row, price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override) }));
 }
+
+// §6.10 statement 2: the active or the archived groups, by sort_order, then id.
+export async function selectModifierGroups(repo: TenantLevelRepository, o: { archived: boolean }): Promise<ModifierGroupRecord[]> {
+  const rows = await repo.query<RawModifierGroup>(
+    `SELECT ${MODIFIER_GROUP_COLUMNS} FROM modifier_groups
+      WHERE tenant_id = $1 AND archived_at IS ${o.archived ? 'NOT NULL' : 'NULL'}
+      ORDER BY sort_order, modifier_group_id`,
+  );
+  return rows.map(modifierGroupRow);
+}
+
+// §6.12a (P3): the stored difference rows of the group's ACTIVE options at this branch (the version input, V19),
+// read without a lock (the group FOR UPDATE serialises every write to them), by option_id.
+export async function selectActiveOptionBranchRows(
+  repo: TenantScopedRepository,
+  modifierGroupId: string,
+  branchId: string,
+): Promise<ModifierOptionBranchRow[]> {
+  const rows = await repo.query<Omit<ModifierOptionBranchRow, 'price_minor_override'> & { price_minor_override: string | null }>(
+    `SELECT b.option_id, b.is_offered, b.price_minor_override
+       FROM modifier_option_branches b
+       JOIN modifier_options o ON o.tenant_id = b.tenant_id AND o.option_id = b.option_id
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3
+        AND o.modifier_group_id = $4 AND o.archived_at IS NULL
+      ORDER BY b.option_id`,
+    [branchId, modifierGroupId],
+  );
+  return rows.map((row) => ({ ...row, price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override) }));
+}
+
+// §6.12a payload check: which of these ids are active options of the group (one = ANY).
+export async function selectActiveOptionIds(
+  repo: TenantLevelRepository,
+  modifierGroupId: string,
+  optionIds: readonly string[],
+): Promise<string[]> {
+  const rows = await repo.query<{ option_id: string }>(
+    `SELECT option_id FROM modifier_options
+      WHERE tenant_id = $1 AND modifier_group_id = $2 AND archived_at IS NULL AND option_id = ANY($3)`,
+    [modifierGroupId, optionIds],
+  );
+  return rows.map((row) => row.option_id);
+}
+
+// §6.12a (v0.3 m4): the rows of the group's active options at this branch are deleted; rows of archived options stay.
+export async function deleteActiveOptionBranchRows(repo: TenantScopedRepository, modifierGroupId: string, branchId: string): Promise<void> {
+  await repo.query(
+    `DELETE FROM modifier_option_branches b
+      USING modifier_options o
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3
+        AND o.tenant_id = b.tenant_id AND o.option_id = b.option_id AND o.modifier_group_id = $4 AND o.archived_at IS NULL`,
+    [branchId, modifierGroupId],
+  );
+}
+
+// §6.12a: the normalised difference rows (lock order 9, the rows' own locks), one multi-row INSERT.
+export async function insertOptionBranchRows(
+  repo: TenantScopedRepository,
+  branchId: string,
+  rows: readonly ModifierOptionBranchRow[],
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO modifier_option_branches (tenant_id, branch_id, option_id, is_offered, price_minor_override, updated_at)
+     SELECT br.tenant_id, br.branch_id, r.option_id, r.is_offered, r.price_minor_override, $7
+       FROM branches br, unnest($4::text[], $5::boolean[], $6::bigint[]) AS r (option_id, is_offered, price_minor_override)
+      WHERE br.tenant_id = $1 AND br.branch_id = ANY($2) AND br.branch_id = $3`,
+    [
+      branchId,
+      rows.map((r) => r.option_id),
+      rows.map((r) => r.is_offered),
+      rows.map((r) => (r.price_minor_override === null ? null : Number(r.price_minor_override))),
+      now,
+    ],
+  );
+}

@@ -113,6 +113,7 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/stock-items/${ids.stockItemId}/branches/${ids.branchId}`,
     payload: { expected_version: 'stale', station_id: ids.stationId },
   }),
+  'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
   'POST /v1/admin/modifier-groups': (ids) => ({
     url: '/v1/admin/modifier-groups',
     payload: {
@@ -126,6 +127,10 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/modifier-groups/:modifier_group_id': (ids) => ({
     url: `/v1/admin/modifier-groups/${ids.modifierGroupId}`,
     payload: { expected_version: 'stale', name: 'Spice level' },
+  }),
+  'PUT /v1/admin/modifier-groups/:modifier_group_id/branches/:branch_id': (ids) => ({
+    url: `/v1/admin/modifier-groups/${ids.modifierGroupId}/branches/${ids.branchId}`,
+    payload: { expected_version: 'stale', options: [] },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({
