@@ -8,6 +8,7 @@ import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { bySortThenName } from '../c01';
 import type { WholeMenu } from '../menu-pages';
+import { MenuRetry } from './useMenuPages';
 
 // 01c-D02 "Applies to" (§8 "Views", V8; Q13): a wide dialog (full screen on a phone) with search, tabs with
 // counts (Categories · Size groups · Items; items grouped by category, growing as the menu pages arrive), a
@@ -20,6 +21,8 @@ export function AppliesToDialog({
   groupName,
   menu,
   loading,
+  error = null,
+  onRetry,
   links,
   onDone,
   onClose,
@@ -27,6 +30,8 @@ export function AppliesToDialog({
   groupName: string;
   menu: WholeMenu;
   loading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   links: readonly ModifierLink[];
   onDone: (links: ModifierLink[]) => void;
   onClose: () => void;
@@ -85,7 +90,12 @@ export function AppliesToDialog({
       .filter((g) => match(g.name))
       .map((g) => {
         const n = items.filter((i) => i.variant_group_id === g.variant_group_id).length;
-        return row('variant_group', g.variant_group_id, g.name, `${categoryName(g.category_id)} · ${fill(t('size_groups.n_sizes'), { n: String(n) })}`);
+        return row(
+          'variant_group',
+          g.variant_group_id,
+          g.name,
+          `${categoryName(g.category_id)} · ${fill(t('size_groups.n_sizes'), { n: String(n) })}`,
+        );
       });
   else
     rows = categories.flatMap((c) => {
@@ -96,7 +106,8 @@ export function AppliesToDialog({
           {c.name}
         </div>,
         ...inCategory.map((i) => {
-          const group = i.variant_group_id === null ? undefined : menu.variant_groups.find((g) => g.variant_group_id === i.variant_group_id);
+          const group =
+            i.variant_group_id === null ? undefined : menu.variant_groups.find((g) => g.variant_group_id === i.variant_group_id);
           return row('item', i.item_id, i.name, group === undefined ? c.name : fill(t('applies.in_size_group'), { name: group.name }));
         }),
       ];
@@ -144,13 +155,26 @@ export function AppliesToDialog({
           value={tab}
           onChange={setTab}
           options={[
-            { value: 'category', label: t('applies.tab_categories'), count: categories.length },
-            { value: 'variant_group', label: t('applies.tab_size_groups'), count: sizeGroups.length },
-            { value: 'item', label: t('applies.tab_items'), count: items.length },
+            {
+              value: 'category',
+              label: t('applies.tab_categories'),
+              count: categories.length,
+            },
+            {
+              value: 'variant_group',
+              label: t('applies.tab_size_groups'),
+              count: sizeGroups.length,
+            },
+            {
+              value: 'item',
+              label: t('applies.tab_items'),
+              count: items.length,
+            },
           ]}
         />
         <div className="pos-dialog__scroll">
           {rows}
+          {error !== null && onRetry !== undefined && <MenuRetry error={error} onRetry={onRetry} />}
           {tab === 'item' && loading && (
             <div className="pos-progress-line pos-cgdialog__loading" role="status">
               <span className="pos-spin" />

@@ -88,6 +88,9 @@ export function canBeKitchenItem(item: MenuItem): boolean {
 export async function findChoiceGroup(api: CloudAdmin, groupId: string) {
   const [active, archived] = await Promise.all([api.listModifierGroups(), api.listModifierGroups({ status: 'archived' })]);
   if (!active.ok) return active;
+  const inActive = active.data.modifier_groups.find((g) => g.modifier_group_id === groupId);
+  // A failed archived read is an error, not "isn't here any more" (the group may be archived).
+  if (groupId !== 'new' && inActive === undefined && !archived.ok) return archived;
   const all = [...active.data.modifier_groups, ...(archived.ok ? archived.data.modifier_groups : [])];
   return {
     ok: true as const,

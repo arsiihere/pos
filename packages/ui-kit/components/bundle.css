@@ -2207,17 +2207,19 @@ button.pos-tick:disabled { cursor: default; }
 .pos-cgdialog__rule { margin-top: var(--space-1); }
 .pos-cgdialog__search { width: 100%; }
 .pos-cgdialog__loading { padding: var(--space-3) var(--space-4); }
+/* Phone (ChoiceGroupPhone): options as cards with an edit sheet; the sheet's Remove sits on the start side. */
+.pos-cgcards { display: flex; flex-direction: column; gap: var(--space-3); }
+.pos-cgcard.is-error { background: var(--danger-tint); }
+.pos-cgcard .pos-pcard__top > .pos-iconbtn { color: var(--ink); }
+.pos-cgsheet { gap: var(--space-4); }
+.pos-cgpick2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); }
+.pos-cgsheet__remove { margin-inline-end: auto; }
+/* Applies to (AppliesToItems): tab counts are plain text, as drawn. */
+[data-applies-to] .pos-seg__opt .pos-seg__count { background: none; color: inherit; padding: 0; min-width: 0; font: inherit; }
 @media (max-width: 760px) {
   .pos-cgbar { flex-wrap: wrap; }
-  .pos-opts__head, .pos-opt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .pos-opt > .pos-input:first-child, .pos-opt > .pos-select { grid-column: 1 / -1; }
-  .pos-opt > .pos-input-affix { order: 1; width: 100%; }
-  .pos-opt > .pos-select { order: 2; }
-  .pos-opt > .pos-tick, .pos-opt > .pos-iconbtn, .pos-opt > span:empty { order: 3; }
-  .pos-opt > .pos-iconbtn { justify-self: end; }
-  .pos-opt .pos-field__help, .pos-opt .pos-field__error { order: 4; grid-column: 1 / -1; margin-top: 0; }
-  .pos-brow__opt { grid-template-columns: minmax(0, 1fr) auto; }
-  .pos-brow__opt > .pos-field { grid-column: 1 / -1; }
+  .pos-cgform .pos-brow__opt { grid-template-columns: minmax(0, 1fr) auto; }
+  .pos-cgform .pos-brow__opt > .pos-field { grid-column: 1 / -1; }
 }
 
 /* ---------- Pulse page layout · 01c-C item form sections and menu nesting ---------- */

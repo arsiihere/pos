@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudAdmin } from '../../../api/cloud-admin';
 import { BranchNames } from '../branch';
 import { GuardProvider } from '../guard';
@@ -59,8 +59,8 @@ const CATS = [
 ];
 const VGS = [{ variant_group_id: 'VG1', name: 'Chicken Karahi', category_id: 'C1', description: null, sort_order: 0, archived_at: null, member_ids: [], version: 'vg' }];
 const PAGE1 = [item('I1', 'Chicken Karahi — Half', 'C1', [B1, B2, B3], { variant_group_id: 'VG1', variant_name: 'Half' }), item('I2', 'Lassi', 'C1', [B1, B2, B3])];
-// Naan is routed at Gulberg and Johar Town only (not DHA); it arrives on the second menu page.
-const PAGE2 = [item('N1', 'Naan', 'C2', [B1, B2]), item('N2', 'Roghni naan', 'C2', [B1, B2, B3]), item('W1', 'Naan (per kg)', 'C2', [B1], { sale_unit: 'g' })];
+// Naan is routed at Johar Town and DHA only (not Gulberg, X in contract §7); it arrives on the second menu page.
+const PAGE2 = [item('N1', 'Naan', 'C2', [B2, B3]), item('N2', 'Roghni naan', 'C2', [B1, B2, B3]), item('W1', 'Naan (per kg)', 'C2', [B1], { sale_unit: 'g' })];
 
 const branches = (rows: Record<string, unknown[]> = {}) =>
   [B1, B2, B3].map((branch_id) => ({ branch_id, options: rows[branch_id] ?? [], version: `bv-${branch_id}` }));
@@ -114,15 +114,18 @@ interface Options {
   write?: (call: Call) => Response | undefined;
   canEdit?: boolean;
   groups?: unknown[];
-  page2?: () => Promise<Response>;
+  page2?: () => Promise<Response> | Response;
+  archivedFails?: boolean;
+  groupsAfter?: () => unknown[];
 }
 function handler(o: Options = {}) {
   return (call: Call): Response | Promise<Response> => {
     const written = call.method === 'GET' ? undefined : o.write?.(call);
     if (written !== undefined) return written;
     const canEdit = o.canEdit ?? true;
-    if (call.url === '/v1/admin/modifier-groups') return ok({ can_edit_tenant: canEdit, modifier_groups: o.groups ?? [SPICE, BREAD] });
-    if (call.url === '/v1/admin/modifier-groups?status=archived') return ok({ can_edit_tenant: canEdit, modifier_groups: [] });
+    if (call.url === '/v1/admin/modifier-groups') return ok({ can_edit_tenant: canEdit, modifier_groups: o.groupsAfter?.() ?? o.groups ?? [SPICE, BREAD] });
+    if (call.url === '/v1/admin/modifier-groups?status=archived')
+      return o.archivedFails ? fail(503, 'SERVICE_UNAVAILABLE') : ok({ can_edit_tenant: canEdit, modifier_groups: [] });
     if (call.url.startsWith('/v1/admin/menu')) {
       const base = { can_edit_tenant: canEdit, tax_classes: [], categories: CATS, variant_groups: VGS };
       if (call.url.includes('cursor=P2')) return o.page2 ? o.page2() : ok({ ...base, items: PAGE2, next_cursor: null });
@@ -158,7 +161,7 @@ describe('[01c-S02] choice groups list', () => {
     expect(rows[1]!.querySelector('a.pos-rowlink')?.getAttribute('href')).toBe('#/choice-groups/MG2');
   });
 
-  it('[#115] "Checking branches…" and no omission warning until the last menu page; then "Not offered at DHA"', async () => {
+  it('[#115] "Checking branches…" and no omission warning until the last menu page; then "Not offered at Gulberg"', async () => {
     let release: (r: Response) => void = () => {};
     const page2 = () => new Promise<Response>((resolve) => (release = resolve));
     const { api } = fakeApi(handler({ page2 }));
@@ -171,7 +174,7 @@ describe('[01c-S02] choice groups list', () => {
     await flush();
     await flush();
     expect(m.container.querySelector('[data-checking]')).toBeNull();
-    expect([...bread().querySelectorAll('.pos-chip--warn')].map((c) => c.textContent)).toEqual(['Not offered at DHA: its item is not sold there']);
+    expect([...bread().querySelectorAll('.pos-chip--warn')].map((c) => c.textContent)).toEqual(['Not offered at Gulberg: its item is not sold there']);
   });
 
   it('[01c-B05] a required group with nothing offered at a branch shows a chip; read-only hides New; empty card', async () => {
@@ -363,8 +366,9 @@ describe('[01c-S10] at each branch', () => {
     const { api, calls } = fakeApi(handler({ write: (c) => (c.method === 'PUT' ? ok({ branch: stored }) : undefined) }));
     await form(api, 'MG2');
     expect([...branchRow('Johar Town').querySelectorAll('.pos-chip')].map((c) => c.textContent)).toEqual(['All 4 offered', 'Garlic naan Rs 70']);
-    // DHA: Naan has no route there → 01c-B04 chip after the last menu page.
-    expect(branchRow('DHA').textContent).toContain('Not offered at DHA: its item is not sold there');
+    // Gulberg: Naan has no route there → 01c-B04 chip after the last menu page.
+    expect(branchRow('Gulberg').textContent).toContain('Not offered at Gulberg: its item is not sold there');
+    expect(branchRow('DHA').textContent).not.toContain('Not offered at');
     await click(branchRow('DHA').querySelector<HTMLButtonElement>('.pos-brow__toggle')!);
     await click(branchRow('DHA').querySelector<HTMLButtonElement>('button[aria-label="Offered here: Roghni naan"]')!);
     setValue(branchRow('DHA').querySelector<HTMLInputElement>('input[aria-label="Price here: Garlic naan"]'), '70');
@@ -409,3 +413,107 @@ describe('[01c-S10] at each branch', () => {
 function json201(group: unknown): Response {
   return new Response(JSON.stringify({ data: { modifier_group: group } }), { status: 201, headers: { 'Content-Type': 'application/json' } });
 }
+
+describe('[01c-D review fixes]', () => {
+  const failingPage2 = () => {
+    let fails = true;
+    const page2 = () =>
+      fails
+        ? fail(503, 'SERVICE_UNAVAILABLE')
+        : ok({ can_edit_tenant: true, tax_classes: [], categories: CATS, variant_groups: VGS, items: PAGE2, next_cursor: null });
+    return { page2, heal: () => (fails = false) };
+  };
+
+  it('I2: a failed menu page on the list shows an error with Retry, never an endless "Checking branches…"', async () => {
+    const { page2, heal } = failingPage2();
+    const { api, calls } = fakeApi(handler({ page2 }));
+    await render(<ChoiceGroupList api={api} />);
+    await flush();
+    expect(m.container.querySelector('[data-checking]')).toBeNull();
+    expect(m.container.querySelector('[data-menu-error]')?.textContent).toContain('Not every item loaded');
+    expect(m.container.textContent).not.toContain('Not offered at');
+    heal();
+    const before = calls.filter((c) => c.url.startsWith('/v1/admin/menu')).length;
+    await click(button(m.container.querySelector('[data-menu-error]')!, 'Retry'));
+    await flush();
+    expect(calls.filter((c) => c.url.startsWith('/v1/admin/menu')).length).toBe(before + 2);
+    expect(m.container.querySelector('[data-menu-error]')).toBeNull();
+    expect(m.container.textContent).toContain('Not offered at Gulberg: its item is not sold there');
+  });
+
+  it('I2: on the form and in Applies to, a failed page shows the error instead of "Loading more items…"', async () => {
+    const { page2 } = failingPage2();
+    const { api } = fakeApi(handler({ page2 }));
+    await form(api, 'MG2');
+    await flush();
+    expect(m.container.querySelector('[data-menu-error]')).not.toBeNull();
+    await click(button(m.container, 'Applies to…'));
+    const dialog = m.container.querySelector<HTMLElement>('[data-applies-to]')!;
+    await click([...dialog.querySelectorAll<HTMLButtonElement>('.pos-seg__opt')].find((b) => b.textContent?.startsWith('Items'))!);
+    expect(dialog.textContent).not.toContain('Loading more items…');
+    expect(dialog.querySelector('[data-menu-error]')).not.toBeNull();
+  });
+
+  it('M3: a failed archived read is an error, not "isn\'t here any more"', async () => {
+    const { api } = fakeApi(handler({ archivedFails: true }));
+    await form(api, 'MG-ARCHIVED');
+    expect(m.container.querySelector('.pos-gone')).toBeNull();
+    expect(m.container.querySelector('.pos-banner--danger')).not.toBeNull();
+  });
+
+  it('M4: an archived group shows its branch rows read-only', async () => {
+    const { api } = fakeApi(handler({ groups: [{ ...BREAD, archived_at: 1 }] }));
+    await form(api, 'MG2');
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('.pos-brow__toggle')!);
+    expect(branchRow('DHA').querySelector<HTMLButtonElement>('button[role="switch"]')?.disabled).toBe(true);
+    expect(branchRow('DHA').querySelector<HTMLInputElement>('input[name="price_here"]')?.disabled).toBe(true);
+  });
+
+  it('M7: Reload on a stale row rebuilds from the fresh option list; M2: 422 options.N marks that option', async () => {
+    let fresh = false;
+    const { api } = fakeApi(
+      handler({
+        groupsAfter: () => (fresh ? [SPICE, { ...BREAD, options: [...BREAD.options, opt('O8', 'Kulcha', 4, { price_minor: 4000 })] }] : [SPICE, BREAD]),
+        write: () => (fresh ? fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'options.0.option_id', reason: 'not_found' }) : fail(409, 'CONFIG_STALE', { entity: 'modifier_group_branch' })),
+      }),
+    );
+    await form(api, 'MG2');
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('.pos-brow__toggle')!);
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('button[aria-label="Offered here: Naan"]')!);
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('.pos-btn--row')!);
+    fresh = true;
+    await click(button(branchRow('DHA').querySelector('[data-stale]')!, 'Reload'));
+    expect(branchRow('DHA').querySelector('[data-option-id="O8"]')).not.toBeNull();
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('button[aria-label="Offered here: Roghni naan"]')!);
+    await click(branchRow('DHA').querySelector<HTMLButtonElement>('.pos-btn--row')!);
+    expect(branchRow('DHA').querySelector('[data-option-id="O5"] .pos-field__error')?.textContent).toBe('This no longer exists. Pick another one.');
+  });
+
+  it('I1: on a phone the options are cards; the edit sheet changes one option and Add option adds one', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 760px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      const { api, calls } = fakeApi(handler({ write: (c) => (c.method === 'PATCH' ? ok({ modifier_group: BREAD }) : undefined) }));
+      await form(api, 'MG2');
+      expect(m.container.querySelector('.pos-opts')).toBeNull();
+      expect(optRow(0).querySelector('.sub')?.textContent).toBe('Goes to kitchen as Naan · up to 6 · item price');
+      expect(optRow(3).querySelector('.sub')?.textContent).toBe('A note only · up to 1 · Rs 50');
+      await click(optRow(2).querySelector<HTMLButtonElement>('button[aria-label="Edit Garlic naan"]')!);
+      const sheet = () => m.container.querySelector<HTMLElement>('[data-option-sheet]')!;
+      setValue(sheet().querySelector<HTMLInputElement>('input[name="sheet.price"]'), '65');
+      await click(button(m.container.querySelector('[role="dialog"]')!, 'Done'));
+      expect(m.container.querySelector('[data-option-sheet]')).toBeNull();
+      expect(optRow(2).querySelector('.sub')?.textContent).toContain('Rs 65');
+      await click(button(m.container, 'Add option'));
+      setValue(sheet().querySelector<HTMLInputElement>('input[name="sheet.name"]'), 'Kulcha');
+      setValue(sheet().querySelector<HTMLInputElement>('input[name="sheet.price"]'), '40');
+      await click(button(m.container.querySelector('[role="dialog"]')!, 'Done'));
+      await click(button(m.container.querySelector('.pos-actionbar')!, 'Save'));
+      const body = lastWrite(calls).body as { options: { option_id?: string; name: string; price_minor: number | null }[] };
+      expect(body.options[2]).toMatchObject({ option_id: 'O6', price_minor: 6500 });
+      expect(body.options[4]).toMatchObject({ name: 'Kulcha', price_minor: 4000 });
+      expect(body.options[4]?.option_id).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

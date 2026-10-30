@@ -35,18 +35,25 @@ function draftOf(group: ModifierGroup, entry: ModifierGroupBranch): Record<strin
     group.options.map((o) => {
       const row = entry.options.find((x) => x.option_id === o.option_id);
       const price = row?.price_minor_override ?? null;
-      return [o.option_id, { offered: row?.is_offered ?? true, price: price === null ? '' : formatRupees(price) }];
+      return [
+        o.option_id,
+        {
+          offered: row?.is_offered ?? true,
+          price: price === null ? '' : formatRupees(price),
+        },
+      ];
     }),
   );
 }
 
 export function ChoiceBranchRow({
   api,
-  group,
+  group: loadedGroup,
   entry,
   items,
   menuDone,
   down,
+  archived = false,
   onDirty,
 }: {
   api: CloudAdmin;
@@ -55,25 +62,45 @@ export function ChoiceBranchRow({
   items: ReadonlyMap<string, MenuItem>;
   menuDone: boolean;
   down: boolean;
+  // An archived group's rows are shown, not edited (a PUT would get 422 modifier_group_id archived, §6.12a).
+  archived?: boolean;
   onDirty: (branchId: string, dirty: boolean) => void;
 }) {
   const branchName = useBranchName();
+  // The group as last read: a stale row's Reload rebuilds from the fresh option list too.
+  const [group, setGroup] = useState(loadedGroup);
   const [stored, setStored] = useState(entry);
-  const [draft, setDraft] = useState(() => draftOf(group, entry));
+  const [draft, setDraft] = useState(() => draftOf(loadedGroup, entry));
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceError, setPriceError] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
   const name = branchName(stored.branch_id);
   const options = [...group.options].sort((a, b) => a.sort_order - b.sort_order || a.option_id.localeCompare(b.option_id));
 
   // The difference list the draft stands for; a price that does not parse keeps the row dirty and is caught on Save.
   const diff = options.flatMap((o): Entry[] => {
     const d = draft[o.option_id] ?? { offered: true, price: '' };
-    if (!d.offered) return [{ option_id: o.option_id, is_offered: false, price_minor_override: null }];
+    if (!d.offered)
+      return [
+        {
+          option_id: o.option_id,
+          is_offered: false,
+          price_minor_override: null,
+        },
+      ];
     if (d.price.trim() === '') return [];
     const parsed = parseRupees(d.price);
-    return [{ option_id: o.option_id, is_offered: true, price_minor_override: parsed.ok ? parsed.value : NaN }];
+    return [
+      {
+        option_id: o.option_id,
+        is_offered: true,
+        price_minor_override: parsed.ok ? parsed.value : NaN,
+      },
+    ];
   });
   const storedDiff = options.flatMap((o): Entry[] => {
     const row = stored.options.find((x) => x.option_id === o.option_id);
@@ -83,7 +110,9 @@ export function ChoiceBranchRow({
     diff.length !== storedDiff.length ||
     diff.some((d, i) => {
       const s = storedDiff[i];
-      return s === undefined || s.option_id !== d.option_id || s.is_offered !== d.is_offered || s.price_minor_override !== d.price_minor_override;
+      return (
+        s === undefined || s.option_id !== d.option_id || s.is_offered !== d.is_offered || s.price_minor_override !== d.price_minor_override
+      );
     });
   useEffect(() => onDirty(stored.branch_id, dirty), [onDirty, stored.branch_id, dirty]);
 
@@ -91,9 +120,10 @@ export function ChoiceBranchRow({
   const f1 = nothingOffered(group, drafted);
   const omitted = menuDone && omittedAt(group, drafted, items);
 
-  function reset(next: ModifierGroupBranch) {
+  function reset(next: ModifierGroupBranch, nextGroup: ModifierGroup = group) {
+    setGroup(nextGroup);
     setStored(next);
-    setDraft(draftOf(group, next));
+    setDraft(draftOf(nextGroup, next));
     setStale(false);
     setError(undefined);
     setPriceError(null);
@@ -105,9 +135,10 @@ export function ChoiceBranchRow({
       setError(errorText(found.error) ?? undefined);
       return;
     }
-    const next = found.data.group?.branches.find((b) => b.branch_id === stored.branch_id);
-    if (next === undefined) setError(t('errors.NOT_FOUND_stale'));
-    else reset(next);
+    const fresh = found.data.group;
+    const next = fresh?.branches.find((b) => b.branch_id === stored.branch_id);
+    if (fresh === null || next === undefined) setError(t('errors.NOT_FOUND_stale'));
+    else reset(next, fresh);
   }
 
   async function save() {
@@ -115,7 +146,10 @@ export function ChoiceBranchRow({
     setPriceError(null);
     const bad = diff.find((d) => Number.isNaN(d.price_minor_override) || (d.price_minor_override ?? 0) > MAX_PRICE);
     if (bad !== undefined) {
-      setPriceError(bad.option_id);
+      setPriceError({
+        id: bad.option_id,
+        text: t('choice_group.price_invalid'),
+      });
       return;
     }
     setBusy(true);
@@ -131,8 +165,19 @@ export function ChoiceBranchRow({
     const code = apiCode(result.error);
     if (code === 'CONFIG_STALE') setStale(true);
     else if (code === 'CONFIG_REFERENCE_INVALID' && result.error.kind === 'api') {
-      setError(result.error.details['field'] === 'modifier_group_id' ? t('choice_group.branch_archived') : referenceText(result.error.details));
-    } else if (code === 'BRANCH_NOT_FOUND') setError(t('choice_group.branch_gone'));
+      const field = result.error.details['field'];
+      // options.N… is an index into the difference list as sent (§8 "Errors").
+      const at = typeof field === 'string' ? /^options\.(\d+)/.exec(field) : null;
+      const sentEntry = at === null ? undefined : diff[Number(at[1])];
+      if (field === 'modifier_group_id') setError(t('choice_group.branch_archived'));
+      else if (sentEntry !== undefined)
+        setPriceError({
+          id: sentEntry.option_id,
+          text: referenceText(result.error.details),
+        });
+      else setError(referenceText(result.error.details));
+    } else if (code === 'MODIFIER_GROUP_NOT_FOUND') setError(t('choice_group.gone_title'));
+    else if (code === 'BRANCH_NOT_FOUND') setError(t('choice_group.branch_gone'));
     else setError(errorText(result.error) ?? undefined);
   }
 
@@ -152,7 +197,9 @@ export function ChoiceBranchRow({
       ) : (
         <span className="pos-chip">
           <Icon name="x" />
-          {fill(t('choice_group.n_off'), { n: String(options.length - offeredCount) })}
+          {fill(t('choice_group.n_off'), {
+            n: String(options.length - offeredCount),
+          })}
         </span>
       )}
       {diff
@@ -196,7 +243,11 @@ export function ChoiceBranchRow({
       <div className="pos-brow__opts">
         {options.map((o) => {
           const d = draft[o.option_id] ?? { offered: true, price: '' };
-          const set = (change: Partial<Draft>) => setDraft((prev) => ({ ...prev, [o.option_id]: { ...d, ...change } }));
+          const set = (change: Partial<Draft>) =>
+            setDraft((prev) => ({
+              ...prev,
+              [o.option_id]: { ...d, ...change },
+            }));
           return (
             <div key={o.option_id} className={`pos-brow__opt${d.offered ? '' : ' is-off'}`} data-option-id={o.option_id}>
               <span>
@@ -205,11 +256,12 @@ export function ChoiceBranchRow({
               </span>
               <Switch
                 checked={d.offered}
+                disabled={archived}
                 label={t('choice_group.offered_here')}
                 name={fill(t('choice_group.offered_named'), { name: o.name })}
                 onChange={(next) => set(next ? { offered: true } : { offered: false, price: '' })}
               />
-              <label className={`pos-field${priceError === o.option_id ? ' pos-field--error' : ''}`}>
+              <label className={`pos-field${priceError?.id === o.option_id ? ' pos-field--error' : ''}`}>
                 <span className="pos-input-affix">
                   <span>{t('owner.menu.rupees')}</span>
                   <input
@@ -217,13 +269,15 @@ export function ChoiceBranchRow({
                     name="price_here"
                     inputMode="decimal"
                     placeholder={t('choice_group.same_as_base')}
-                    aria-label={fill(t('choice_group.price_here_named'), { name: o.name })}
+                    aria-label={fill(t('choice_group.price_here_named'), {
+                      name: o.name,
+                    })}
                     value={d.price}
-                    disabled={!d.offered}
+                    disabled={archived || !d.offered}
                     onChange={(e) => set({ price: e.target.value })}
                   />
                 </span>
-                {priceError === o.option_id && <span className="pos-field__error">{t('choice_group.price_invalid')}</span>}
+                {priceError?.id === o.option_id && <span className="pos-field__error">{priceError.text}</span>}
               </label>
             </div>
           );

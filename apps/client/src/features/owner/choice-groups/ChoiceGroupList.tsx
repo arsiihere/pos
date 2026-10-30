@@ -10,19 +10,21 @@ import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { bySortThenName, ListBar, ListEmpty } from '../c01';
 import { errorText } from '../form';
-import { loadMenuPages, type WholeMenu } from '../menu-pages';
 import { Page } from '../Shell';
 import { appliesText, nothingOffered, omittedAt, optionsText, pickText } from './choice';
+import { MenuRetry, useMenuPages } from './useMenuPages';
 
 // 01c-S02 (§8 "Views", §6.10; Q12): choice groups (archived ones behind ⋯ "Show archived"), searched by name,
 // sorted by sort_order then name. Columns Choice group (Required / Optional + branch warning chips) · Customers
 // pick · Options (first 3 + "+N") · Applies to. 01c-B04 "Not offered at X" chips appear only after the last
 // menu page has loaded (m11, N9; "Checking branches…" until then); 01c-B05 chips need no menu.
 export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
-  const [list, setList] = useState<{ canEdit: boolean; groups: ModifierGroup[] } | null>(null);
+  const [list, setList] = useState<{
+    canEdit: boolean;
+    groups: ModifierGroup[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<WholeMenu | null>(null);
-  const [checked, setChecked] = useState(false);
+  const { menu, done: checked, error: menuError, retry } = useMenuPages(api);
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const phone = usePhone();
@@ -31,7 +33,10 @@ export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
   const load = useCallback(async () => {
     const result = await api.listModifierGroups(archived ? { status: 'archived' } : {});
     if (result.ok) {
-      setList({ canEdit: result.data.can_edit_tenant, groups: result.data.modifier_groups });
+      setList({
+        canEdit: result.data.can_edit_tenant,
+        groups: result.data.modifier_groups,
+      });
       setError(null);
     } else setError(errorText(result.error));
   }, [api, archived]);
@@ -39,18 +44,6 @@ export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    let live = true;
-    void loadMenuPages(api, (next, done) => {
-      if (!live) return;
-      setMenu(next);
-      setChecked(done);
-    });
-    return () => {
-      live = false;
-    };
-  }, [api]);
 
   const items = useMemo(() => new Map((menu?.items ?? []).map((item) => [item.item_id, item])), [menu]);
   const needle = search.trim().toLowerCase();
@@ -61,8 +54,18 @@ export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
   const warnings = (group: ModifierGroup) => {
     const out: string[] = [];
     for (const branch of group.branches) {
-      if (checked && omittedAt(group, branch, items)) out.push(fill(t('choice_groups.omitted'), { branch: branchName(branch.branch_id) }));
-      if (nothingOffered(group, branch)) out.push(fill(t('choice_groups.nothing_at'), { branch: branchName(branch.branch_id) }));
+      if (checked && omittedAt(group, branch, items))
+        out.push(
+          fill(t('choice_groups.omitted'), {
+            branch: branchName(branch.branch_id),
+          }),
+        );
+      if (nothingOffered(group, branch))
+        out.push(
+          fill(t('choice_groups.nothing_at'), {
+            branch: branchName(branch.branch_id),
+          }),
+        );
     }
     return out.length === 0 ? null : (
       <div className="pos-chips">
@@ -123,7 +126,7 @@ export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
             hideArchivedLabel={t('choice_groups.hide_archived')}
             helper={checked ? t('choice_groups.helper') : ''}
           />
-          {!checked && (
+          {!checked && menuError === null && (
             <span className="pos-progress-line pos-cgbar__checking" role="status" data-checking="">
               <span className="pos-spin" />
               {t('choice_groups.checking')}
@@ -131,6 +134,7 @@ export function ChoiceGroupList({ api }: { api: CloudAdmin }) {
           )}
         </div>
         {error !== null && <Banner tone="danger" text={error} />}
+        {menuError !== null && <MenuRetry error={menuError} onRetry={retry} />}
         {groups.length === 0 ? (
           <ListEmpty icon="search" title={needle === '' ? t('c01.none_archived') : fill(t('c01.no_match'), { q: search.trim() })} />
         ) : phone ? (
