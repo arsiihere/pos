@@ -141,6 +141,37 @@ describe('[01c-S06] stock items list', () => {
 });
 
 describe('[01c-S07] stock item form', () => {
+  it('[S50 c] the back link goes through the unsaved-changes guard', async () => {
+    const { api } = fakeApi(handler());
+    window.location.hash = '#/stock-items/SI1';
+    await form(api, 'SI1');
+    setValue(m.container.querySelector<HTMLInputElement>('input[name="name"]'), 'Big pot');
+    await click(m.container.querySelector<HTMLAnchorElement>('.pos-appbar a[href="#/stock-items"]')!);
+    expect(window.location.hash).toBe('#/stock-items/SI1');
+    expect(m.container.querySelector('[role="dialog"]')).not.toBeNull();
+    await click(button(m.container.querySelector('[role="dialog"]')!, 'Discard changes'));
+    expect(window.location.hash).toBe('#/stock-items');
+  });
+
+  it('an archived stock item shows its branch rows read-only', async () => {
+    const { api } = fakeApi(handler());
+    await form(api, 'SI3');
+    await click(row('Gulberg').querySelector<HTMLButtonElement>('.pos-brow__toggle')!);
+    expect(row('Gulberg').querySelector<HTMLButtonElement>('button[role="switch"]')?.disabled).toBe(true);
+  });
+
+  it('a page Reload with an unsaved branch row asks first', async () => {
+    const { api } = fakeApi(handler((call) => (call.method === 'PATCH' ? fail(409, 'CONFIG_STALE', { entity: 'stock_item', id: 'SI1' }) : undefined)));
+    await form(api, 'SI1');
+    await click(row('Johar Town').querySelector<HTMLButtonElement>('.pos-brow__toggle')!);
+    setValue(row('Johar Town').querySelector<HTMLInputElement>('input[name="low_stock_threshold"]'), '3');
+    setValue(m.container.querySelector<HTMLInputElement>('input[name="name"]'), 'Big pot');
+    await click(button(m.container.querySelector('.pos-appbar')!, 'Save'));
+    await click(button(m.container.querySelector('[data-stale]')!, 'Reload'));
+    expect(m.container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(row('Johar Town').querySelector<HTMLInputElement>('input[name="low_stock_threshold"]')?.value).toBe('3');
+  });
+
   it('new: Counted in defaults to piece; POST with an Idempotency-Key; the new stock item opens for its branch rows', async () => {
     const created = { ...DRINK, stock_item_id: 'SI7', name: 'Raita', stock_unit: 'piece' };
     const { api, calls } = fakeApi(handler((call) => (call.method === 'POST' ? ok({ stock_item: created }) : undefined)));
@@ -184,6 +215,10 @@ describe('[01c-S07] stock item form', () => {
     const summary = m.container.querySelectorAll('[data-fix-summary]');
     expect(summary).toHaveLength(1);
     expect(summary[0]?.querySelector('a')?.textContent).toBe('Counted in');
+    // Picking the old unit again clears the field error and the summary with it.
+    await click(button(m.container, 'g'));
+    expect(m.container.querySelector('#si-unit')?.classList.contains('pos-field--error')).toBe(false);
+    expect(m.container.querySelector('[data-fix-summary]')).toBeNull();
   });
 
   it('branch rows: chips when collapsed; the row Save shows only after a change and PUTs that row with its version', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CloudAdmin, StockItem } from '../../../api/cloud-admin';
 import { usePhone } from '../../../app/phone';
 import { Banner } from '../../../components/Banner';
@@ -25,8 +25,12 @@ export function StockItemList({ api, branchIds }: { api: CloudAdmin; branchIds: 
   const phone = usePhone();
   const branchName = useBranchName();
 
+  // Only the latest read's answer is shown, so toggling "Show archived" mid-read never shows the older list.
+  const latest = useRef(0);
   const load = useCallback(async () => {
+    const request = ++latest.current;
     const result = await api.listStockItems(archived ? { status: 'archived' } : {});
+    if (request !== latest.current) return;
     if (result.ok) {
       setData(result.data);
       setError(null);

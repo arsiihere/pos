@@ -50,7 +50,7 @@ export function InUseDialog({
         </h2>
         <p className="pos-dialog__body">{body ?? t('errors.CONFIG_IN_USE')}</p>
         {rows.map((row, i) => (
-          <div key={`${row.name}-${i}`} className="pos-removed__row pos-inuse__row">
+          <div key={`${row.name}-${i}`} className="pos-inuse__row">
             <span>
               <Icon name={icon} /> {row.name}
             </span>

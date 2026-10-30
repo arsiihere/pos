@@ -149,7 +149,8 @@ function Editor({
     const trimmed = name.trim();
     if (trimmed === '' || trimmed.length > 60) found.name = t('size_group.name_required');
     if (categoryId === '') found.category_id = t('size_group.category_required');
-    if (!Number.isSafeInteger(sortValue)) {
+    // The server's sort_order is an int32 (01a SortOrder).
+    if (!Number.isInteger(sortValue) || sortValue < -2_147_483_648 || sortValue > 2_147_483_647) {
       found.sort_order = t('size_group.sort_invalid');
       setDetailsOpen(true);
     }
@@ -245,7 +246,9 @@ function Editor({
 
   if (gone) return <SizeGroupGone api={api} back={back} />;
 
-  const fixes: FixEntry[] = (Object.keys(errors) as Field[]).map((field) => ({ target: FIELD_ID[field], label: labels[field] }));
+  const fixes: FixEntry[] = (Object.keys(errors) as Field[])
+    .filter((field) => errors[field] !== undefined)
+    .map((field) => ({ target: FIELD_ID[field], label: labels[field] }));
   const saveButton = !readOnly && (
     <BusyButton primary busy={busy} disabled={down || stale} onClick={() => void save()}>
       {group === null ? t('size_group.create') : t('size_group.save')}
@@ -358,7 +361,7 @@ function Editor({
                 <input
                   className="pos-input"
                   name="description"
-                  maxLength={200}
+                  maxLength={300}
                   value={description}
                   disabled={readOnly}
                   onChange={(e) => setDescription(e.target.value)}

@@ -2168,8 +2168,8 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
 .pos-c01form .pos-list__name strong { font-size: 17px; line-height: 22px; }
 .pos-c01form .pos-field__error .pos-icon { width: 18px; height: 18px; flex: none; }
 /* In use (01c-D04): one row per user, the name with its icon, Open at the end */
-.pos-inuse__row { padding: 0; }
-.pos-inuse__row span { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink); }
+.pos-inuse__row { display: flex; align-items: center; gap: var(--space-3); padding: 0; }
+.pos-inuse__row span { flex: 1; display: inline-flex; align-items: center; gap: var(--space-2); font: 600 16px/22px var(--font-sans); color: var(--ink); }
 /* Dialogs in 01c follow the 01c frames (PROMPT "Dialogs"): wide ones up to 100dvh - 32, full ones fill the phone. */
 .pos-scrim > .pos-dialog.pos-dialog--wide { max-height: calc(100dvh - 32px); overflow: hidden; }
 .pos-scrim:has(> .pos-dialog--full) { padding: 0; }

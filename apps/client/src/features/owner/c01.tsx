@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 import type { CloudError, MenuItem } from '../../api/cloud-admin';
 import { usePhone } from '../../app/phone';
+import { navigate } from '../../app/router';
 import { Icon, type IconName } from '../../components/Icon';
 import { t, type MessageKey } from '../../i18n';
+import { useLeave } from './guard';
 
 // Shared pieces of the 01c owner lists and forms (size groups, stock items; later choice groups and deals).
 
@@ -54,11 +56,21 @@ export function referenceText(details: Record<string, unknown>): string {
   return known === undefined ? t('errors.CONFIG_REFERENCE_INVALID') : t(`errors.reference.${known}` as MessageKey);
 }
 
-// A form's back link to its list; the arrow alone on a phone (StockItemPhone).
+// A form's back link to its list; the arrow alone on a phone (StockItemPhone). It goes through the
+// unsaved-changes guard (S50 c) like Cancel; with no dirty form it just navigates.
 export function BackLink({ href, list, label }: { href: string; list: string; label: string }) {
   const phone = usePhone();
+  const leave = useLeave();
   return (
-    <a className="pos-btn" href={href} aria-label={label}>
+    <a
+      className="pos-btn"
+      href={href}
+      aria-label={label}
+      onClick={(event) => {
+        event.preventDefault();
+        leave(() => navigate(href.replace(/^#/, '')));
+      }}
+    >
       <Icon name="back" flip />
       {!phone && list}
     </a>

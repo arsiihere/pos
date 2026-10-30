@@ -45,6 +45,8 @@ interface Loaded {
 async function findStockItem(api: CloudAdmin, stockItemId: string) {
   const [active, archived] = await Promise.all([api.listStockItems(), api.listStockItems({ status: 'archived' })]);
   if (!active.ok) return active;
+  // An id not among the active items needs the archived read; a failed one is an error, not "not found".
+  if (!archived.ok && !active.data.stock_items.some((s) => s.stock_item_id === stockItemId) && stockItemId !== 'new') return archived;
   const all = [...active.data.stock_items, ...(archived.ok ? archived.data.stock_items : [])];
   return {
     ok: true as const,
@@ -261,7 +263,9 @@ function Editor({
 
   if (gone) return <StockItemGone api={api} back={back} />;
 
-  const fixes: FixEntry[] = (Object.keys(errors) as Field[]).map((field) => ({ target: FIELD_ID[field], label: labels[field] }));
+  const fixes: FixEntry[] = (Object.keys(errors) as Field[])
+    .filter((field) => errors[field] !== undefined)
+    .map((field) => ({ target: FIELD_ID[field], label: labels[field] }));
   const saveButton = !readOnly && (
     <BusyButton primary busy={busy} disabled={down || stale} onClick={() => void save()}>
       {item === null ? t('stock_item.create') : t('stock_item.save')}
@@ -298,7 +302,12 @@ function Editor({
         </>
       }
     >
-      {stale && <StaleBanner onReload={onReload} />}
+      {stale && (
+        <StaleBanner
+          // Reload re-reads the whole form, so unsaved branch rows are asked about first.
+          onReload={() => (rowDirty.size === 0 ? onReload() : leave(onReload))}
+        />
+      )}
       <ErrorSummary entries={fixes} />
       {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
       {archived && <Banner tone="info" text={t('stock_item.archived_note')} />}
@@ -333,7 +342,12 @@ function Editor({
                 locked={readOnly}
                 onChange={(next) => {
                   setUnit(next);
-                  setErrors((prev) => ({ ...prev, stock_unit: undefined }));
+                  setErrors((prev) => {
+                    // The key goes, so the summary banner's count drops with the inline error (01c-B01).
+                    const rest = { ...prev };
+                    delete rest.stock_unit;
+                    return rest;
+                  });
                 }}
                 options={UNITS.map((u) => ({ value: u, label: unitOption(u) }))}
               />
@@ -385,6 +399,7 @@ function Editor({
                   entry={entry}
                   stations={stations.get(entry.branch_id) ?? []}
                   down={down}
+                  archived={archived}
                   onDirty={onRowDirty}
                 />
               ))}
@@ -456,6 +471,7 @@ function StockBranchRow({
   entry,
   stations,
   down,
+  archived,
   onDirty,
 }: {
   api: CloudAdmin;
@@ -464,6 +480,8 @@ function StockBranchRow({
   entry: StockItemBranch;
   stations: readonly { station_id: string; name: string; archived_at: number | null }[];
   down: boolean;
+  // An archived stock item's rows are shown, not edited (a set would get 422 stock_item_id archived, §6.9).
+  archived: boolean;
   onDirty: (branchId: string, dirty: boolean) => void;
 }) {
   const branchName = useBranchName();
@@ -505,7 +523,7 @@ function StockBranchRow({
       return;
     }
     const next = found.data.item?.branches.find((b) => b.branch_id === stored.branch_id);
-    if (next === undefined) setError(t('errors.NOT_FOUND_stale'));
+    if (next === undefined) setError(t('stock_item.branch_gone'));
     else reset(next);
   }
 
@@ -588,6 +606,7 @@ function StockBranchRow({
       <div className="pos-brow__grid">
         <Switch
           checked={counted}
+          disabled={archived}
           label={t('stock_item.counted_here')}
           onChange={(next) => {
             setCounted(next);
@@ -599,7 +618,12 @@ function StockBranchRow({
           <>
             <label className={`pos-field${fieldError.station !== undefined ? ' pos-field--error' : ''}`}>
               <span className="pos-field__label">{t('stock_item.station')}</span>
-              <select className="pos-select" name="station_id" value={stationId} onChange={(e) => setStationId(e.target.value)}>
+              <select
+                className="pos-select"
+                name="station_id"
+                value={stationId}
+                disabled={archived}
+                onChange={(e) => setStationId(e.target.value)}>
                 {stationId === '' && <option value="">{t('stock_item.station_pick')}</option>}
                 {options.map((s) => (
                   <option key={s.station_id} value={s.station_id}>
@@ -615,6 +639,7 @@ function StockBranchRow({
                 <input
                   className="pos-input pos-input--mono"
                   name="low_stock_threshold"
+                  disabled={archived}
                   inputMode="decimal"
                   value={threshold}
                   onChange={(e) => setThreshold(e.target.value)}
