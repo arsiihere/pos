@@ -2,6 +2,9 @@ import type { TenantLevelRepository } from '../../db/tenant-level-repository.js'
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
 import type { EffectiveSetItem, LinkRow } from './effective-set.js';
 import type {
+  DealBranchRow,
+  DealPartRow,
+  DealRow,
   ModifierGroupRow,
   ModifierLinkRow,
   ModifierOptionBranchRow,
@@ -638,4 +641,136 @@ export async function insertOptionBranchRows(
       now,
     ],
   );
+}
+
+// ------------------------------------------------------------------------------------------------------ deals
+
+export type DealRecord = Omit<DealRow, 'availability_windows' | 'parts' | 'price_minor' | 'archived_at'> & {
+  price_minor: number;
+  archived_at: number | null;
+};
+export type DealPartRecord = DealPartRow & { deal_id: string };
+
+const DEAL_COLUMNS = 'deal_id, name, category_id, tax_class_id, description, sort_order, price_minor, archived_at';
+
+type RawDeal = Omit<DealRecord, 'price_minor' | 'archived_at'> & { price_minor: string; archived_at: string | null };
+
+function dealRow(row: RawDeal): DealRecord {
+  return { ...row, price_minor: Number(row.price_minor), archived_at: row.archived_at === null ? null : Number(row.archived_at) };
+}
+
+// §6.14: insert, no lock (the name index → 23505 deals_active_name).
+export async function insertDeal(repo: TenantLevelRepository, row: Omit<DealRecord, 'archived_at'>, now: number): Promise<DealRecord> {
+  const rows = await repo.query<RawDeal>(
+    `INSERT INTO deals (tenant_id, deal_id, category_id, tax_class_id, name, description, sort_order, price_minor, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $9 FROM tenants WHERE tenant_id = $1
+     RETURNING ${DEAL_COLUMNS}`,
+    [row.deal_id, row.category_id, row.tax_class_id, row.name, row.description, row.sort_order, row.price_minor, now],
+  );
+  return dealRow(rows[0]!);
+}
+
+// §6.14: the deal's parts, one multi-row INSERT.
+export async function insertDealParts(
+  repo: TenantLevelRepository,
+  dealId: string,
+  parts: ReadonlyArray<{ deal_part_id: string; quantity: number; sort_order: number }>,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO deal_parts (tenant_id, deal_part_id, deal_id, quantity, sort_order)
+     SELECT t.tenant_id, p.deal_part_id, $2, p.quantity, p.sort_order
+       FROM tenants t, unnest($3::text[], $4::int[], $5::int[]) AS p (deal_part_id, quantity, sort_order)
+      WHERE t.tenant_id = $1`,
+    [dealId, parts.map((p) => p.deal_part_id), parts.map((p) => p.quantity), parts.map((p) => p.sort_order)],
+  );
+}
+
+// §6.14: every part's choices, one multi-row INSERT.
+export async function insertDealChoices(
+  repo: TenantLevelRepository,
+  choices: ReadonlyArray<{ deal_part_id: string; item_id: string; extra_price_minor: number; sort_order: number }>,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO deal_part_choices (tenant_id, deal_part_id, item_id, extra_price_minor, sort_order)
+     SELECT t.tenant_id, c.deal_part_id, c.item_id, c.extra_price_minor, c.sort_order
+       FROM tenants t, unnest($2::text[], $3::text[], $4::bigint[], $5::int[]) AS c (deal_part_id, item_id, extra_price_minor, sort_order)
+      WHERE t.tenant_id = $1`,
+    [
+      choices.map((c) => c.deal_part_id),
+      choices.map((c) => c.item_id),
+      choices.map((c) => c.extra_price_minor),
+      choices.map((c) => c.sort_order),
+    ],
+  );
+}
+
+// §6.13 statement 2: the active or the archived deals, by sort_order, then id.
+export async function selectDeals(repo: TenantLevelRepository, o: { archived: boolean }): Promise<DealRecord[]> {
+  const rows = await repo.query<RawDeal>(
+    `SELECT ${DEAL_COLUMNS} FROM deals
+      WHERE tenant_id = $1 AND archived_at IS ${o.archived ? 'NOT NULL' : 'NULL'}
+      ORDER BY sort_order, deal_id`,
+  );
+  return rows.map(dealRow);
+}
+
+// §6.13 statement 3: every part (active and archived) of these deals with its choices joined, one statement.
+export async function selectDealParts(repo: TenantLevelRepository, dealIds: readonly string[]): Promise<DealPartRecord[]> {
+  const rows = await repo.query<{
+    deal_id: string;
+    deal_part_id: string;
+    quantity: number;
+    sort_order: number;
+    archived_at: string | null;
+    choices: Array<{ item_id: string; extra_price_minor: number; sort_order: number }>;
+  }>(
+    `SELECT p.deal_id, p.deal_part_id, p.quantity, p.sort_order, p.archived_at,
+            COALESCE(
+              json_agg(json_build_object('item_id', c.item_id, 'extra_price_minor', c.extra_price_minor, 'sort_order', c.sort_order)
+                       ORDER BY c.sort_order, c.item_id) FILTER (WHERE c.item_id IS NOT NULL),
+              '[]') AS choices
+       FROM deal_parts p
+       LEFT JOIN deal_part_choices c ON c.tenant_id = p.tenant_id AND c.deal_part_id = p.deal_part_id
+      WHERE p.tenant_id = $1 AND p.deal_id = ANY($2)
+      GROUP BY p.deal_id, p.deal_part_id, p.quantity, p.sort_order, p.archived_at
+      ORDER BY p.deal_id, p.sort_order, p.deal_part_id`,
+    [dealIds],
+  );
+  return rows.map((row) => ({ ...row, archived_at: row.archived_at === null ? null : Number(row.archived_at) }));
+}
+
+// §6.13 statement 4: the windows of these deals, = ANY (S47 window order).
+export async function selectDealWindows(
+  repo: TenantLevelRepository,
+  dealIds: readonly string[],
+): Promise<Array<{ deal_id: string; start_ms: number; end_ms: number }>> {
+  return repo.query<{ deal_id: string; start_ms: number; end_ms: number }>(
+    `SELECT deal_id, start_ms, end_ms FROM availability_windows
+      WHERE tenant_id = $1 AND deal_id = ANY($2)
+      ORDER BY deal_id, start_ms, end_ms, window_id`,
+    [dealIds],
+  );
+}
+
+export type DealBranchRecord = DealBranchRow & { deal_id: string; branch_id: string };
+
+// §6.13 statement 5: the stored deal_branches rows of these deals at the JWT's allowed branches ($2).
+export async function selectDealBranches(repo: TenantScopedRepository, dealIds: readonly string[]): Promise<DealBranchRecord[]> {
+  const rows = await repo.query<{ deal_id: string; branch_id: string; price_minor_override: string | null }>(
+    `SELECT deal_id, branch_id, price_minor_override FROM deal_branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND deal_id = ANY($3)
+      ORDER BY deal_id, branch_id`,
+    [dealIds],
+  );
+  return rows.map((row) => ({ ...row, price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override) }));
+}
+
+// V16 (01a category and tax class archive checks): the active deals of a category or a tax class (AD-11: only
+// active deals count; indexes deals_category, deals_tax_class). A plain read after the target lock.
+export async function activeDealIdsWith(repo: TenantLevelRepository, column: 'category_id' | 'tax_class_id', id: string): Promise<string[]> {
+  const rows = await repo.query<{ deal_id: string }>(
+    `SELECT deal_id FROM deals WHERE tenant_id = $1 AND ${column} = $2 AND archived_at IS NULL ORDER BY deal_id`,
+    [id],
+  );
+  return rows.map((row) => row.deal_id);
 }

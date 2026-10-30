@@ -1,8 +1,11 @@
 import { DomainError } from '@pos/domain';
 import {
+  CreateDealBody,
   CreateModifierGroupBody,
   CreateStockItemBody,
   CreateVariantGroupBody,
+  DealListResponse,
+  DealResponse,
   ModifierGroupBranchResponse,
   ModifierGroupListResponse,
   ModifierGroupResponse,
@@ -22,9 +25,11 @@ import { z } from 'zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import type { OwnerRequest } from '../restaurant/service.js';
 import {
+  createDeal,
   createModifierGroup,
   createStockItem,
   createVariantGroup,
+  listDeals,
   listModifierGroups,
   listStockItems,
   patchModifierGroup,
@@ -40,7 +45,7 @@ const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
 const ModifierGroupParams = z.object({ modifier_group_id: z.string().min(1) });
 const ModifierGroupBranchParams = z.object({ modifier_group_id: z.string().min(1), branch_id: z.string().min(1) });
 const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
-// §6.6, §6.10
+// §6.6, §6.10, §6.13 (AD-30)
 const StatusQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
 
 // 01c §6: owner routes (JWT, tenant guard, password guard). Tenant-wide writes; the owner must cover every branch.
@@ -175,6 +180,31 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
       const { modifier_group_id, branch_id } = request.params;
       const data = await putModifierGroupBranch(deps, ownerRequest(app, request), modifier_group_id, branch_id, request.body);
       return reply.send({ data });
+    },
+  );
+
+  routes.get(
+    '/v1/admin/deals',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { querystring: StatusQuery, response: { 200: DealListResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('GET /v1/admin/deals');
+      const { tenant, ownerUserId } = ownerRequest(app, request);
+      return reply.send({ data: await listDeals(deps, tenant, ownerUserId, request.query) });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/deals',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: CreateDealBody, response: { 201: DealResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/deals');
+      return sendIdempotent(reply, await createDeal(deps, ownerRequest(app, request), request.body));
     },
   );
 }

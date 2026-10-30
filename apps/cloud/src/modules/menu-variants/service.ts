@@ -1,9 +1,12 @@
 import { DomainError } from '@pos/domain';
 import { canonicalJson } from '@pos/domain/hash';
 import type {
+  CreateDealInput,
   CreateModifierGroupInput,
   CreateStockItemInput,
   CreateVariantGroupInput,
+  DealListResponse,
+  DealWire,
   ModifierGroupBranchWire,
   ModifierGroupListResponse,
   ModifierGroupWire,
@@ -27,12 +30,26 @@ import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { insertConfigAuditRows, shareCategory, shareStationsById, shareVariantGroups } from '../restaurant/repository.js';
+import {
+  insertConfigAuditRows,
+  insertWindows,
+  shareCategory,
+  shareStationsById,
+  shareTaxClass,
+  shareVariantGroups,
+} from '../restaurant/repository.js';
 import type { OwnerRequest } from '../restaurant/service.js';
 import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './effective-set.js';
 import {
   archiveOmittedOptions,
   branchAllowed,
+  insertDeal,
+  insertDealChoices,
+  insertDealParts,
+  selectDealBranches,
+  selectDealParts,
+  selectDeals,
+  selectDealWindows,
   deleteActiveOptionBranchRows,
   deleteModifierLinks,
   deleteStockItemBranch,
@@ -74,8 +91,10 @@ import {
   type VariantGroupRecord,
 } from './repository.js';
 import {
+  dealBranchVersion,
   modifierGroupBranchVersion,
   stockItemBranchVersion,
+  toDealWire,
   toModifierGroupWire,
   toStockItemWire,
   toVariantGroupWire,
@@ -450,10 +469,10 @@ export async function putStockItemBranch(
 
 
 // The active-name unique indexes (§6.2 R2, §6.8 R3, §3.3): pg 23505 on `index` → 409 CONFIG_NAME_TAKEN { entity, name }.
-type NameIndex = 'variant_groups_active_name' | 'stock_items_active_name' | 'modifier_groups_active_name';
+type NameIndex = 'variant_groups_active_name' | 'stock_items_active_name' | 'modifier_groups_active_name' | 'deals_active_name';
 async function nameTaken<T>(
   index: NameIndex,
-  entity: 'variant_group' | 'stock_item' | 'modifier_group',
+  entity: 'variant_group' | 'stock_item' | 'modifier_group' | 'deal',
   name: string,
   write: () => Promise<T>,
 ): Promise<T> {
@@ -907,5 +926,169 @@ export async function putModifierGroupBranch(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { branch: after };
+  });
+}
+
+// ------------------------------------------------------------------------------------------------------ deals
+
+type DealList = z.infer<typeof DealListResponse>['data'];
+
+// §6.13: 5 fixed statements (coversEveryBranch, deals, parts with their choices joined, windows = ANY, branch rows
+// at the JWT's allowed branches = ANY); by sort_order, then id. Every allowed branch gets an entry, "no row" as
+// is_sold false with the no-row version (AD-6), by branch_id. `status` as §6.6 / §6.10 (AD-30).
+export async function listDeals(
+  deps: MenuVariantDeps,
+  tenant: TenantContext,
+  ownerUserId: string,
+  query: { status: 'active' | 'archived' },
+): Promise<DealList> {
+  const level = new TenantLevelRepository(tenant, deps.pool);
+  const scoped = new TenantScopedRepository(tenant, deps.pool);
+  const canEditTenant = await coversEveryBranch(level, ownerUserId);
+  const deals = await selectDeals(level, { archived: query.status === 'archived' });
+  const ids = deals.map((deal) => deal.deal_id);
+  const parts = await selectDealParts(level, ids);
+  const windows = await selectDealWindows(level, ids);
+  const branchRows = await selectDealBranches(scoped, ids);
+  const branchIds = [...tenant.branchIds].sort();
+  return {
+    can_edit_tenant: canEditTenant,
+    deals: deals.map((deal) => {
+      const id = deal.deal_id;
+      return {
+        ...toDealWire({
+          ...deal,
+          parts: parts.filter((p) => p.deal_id === id),
+          availability_windows: windows.filter((w) => w.deal_id === id).map((w) => ({ start_ms: w.start_ms, end_ms: w.end_ms })),
+        }),
+        branches: branchIds.map((branchId) =>
+          dealBranchVersion(id, branchId, branchRows.find((row) => row.deal_id === id && row.branch_id === branchId) ?? null),
+        ),
+      };
+    }),
+  };
+}
+
+// §6.14 (C4; lock order 4 → 6 → 7 → 10): idempotency key → tenant-wide check (403) → references FOR SHARE in the
+// §6 lock order: the choice items (one = ANY, item_id order), then the category, then the tax class (when not null)
+// → C1 checks in body order: each choice item found and active (422 parts.N.choices.M.item_id), the category, the tax
+// class (422 not_found / archived) → §3.3 deal rules per part, in body order: the choices share one sale_unit
+// (422 choice_unit_mismatch at parts.N.choices), no choice item is weighed (V18; 422 weighed_item_in_deal at
+// parts.N.choices.M.item_id) (AD-30) → insert deal (name index → 409 deal), parts, choices and windows (each one
+// multi-row INSERT; no windows → no insert) → one audit row (parts, choices, windows in after, V15) → bump every
+// branch (10). Sold at no branch until §6.16.
+export async function createDeal(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  body: CreateDealInput,
+): Promise<IdempotentResult<{ deal: DealWire }>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
+      await assertDealReferences(level, body);
+      const now = deps.clock.branchNow();
+      const dealId = deps.ids.next();
+      const deal = await nameTaken('deals_active_name', 'deal', body.name, () =>
+        insertDeal(
+          level,
+          {
+            deal_id: dealId,
+            name: body.name,
+            category_id: body.category_id,
+            tax_class_id: body.tax_class_id,
+            description: body.description,
+            sort_order: body.sort_order,
+            price_minor: body.price_minor,
+          },
+          now,
+        ),
+      );
+      const parts = body.parts.map((part) => ({
+        deal_part_id: deps.ids.next(),
+        quantity: part.quantity,
+        sort_order: part.sort_order,
+        archived_at: null,
+        choices: part.choices.map((c) => ({ item_id: c.item_id, extra_price_minor: c.extra_price_minor, sort_order: c.sort_order })),
+      }));
+      await insertDealParts(level, dealId, parts);
+      await insertDealChoices(
+        level,
+        parts.flatMap((part) => part.choices.map((c) => ({ ...c, deal_part_id: part.deal_part_id }))),
+      );
+      const windows =
+        body.availability_windows.length > 0 ? await insertWindows(level, { deal_id: dealId }, body.availability_windows, deps.ids) : [];
+      const wire = toDealWire({ ...deal, parts, availability_windows: windows });
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'deal',
+          entityId: dealId,
+          branchId: null,
+          action: 'create',
+          before: null,
+          after: dealAudit(wire),
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
+      return { status: 201, body: { deal: wire } };
+    },
+  );
+}
+
+// V15: the deal's config_audit before / after: the deal with its windows and its whole active parts (with choices).
+function dealAudit(wire: DealWire): object {
+  return {
+    deal_id: wire.deal_id,
+    name: wire.name,
+    category_id: wire.category_id,
+    tax_class_id: wire.tax_class_id,
+    description: wire.description,
+    sort_order: wire.sort_order,
+    price_minor: wire.price_minor,
+    archived_at: wire.archived_at,
+    availability_windows: wire.availability_windows,
+    parts: wire.parts,
+  };
+}
+
+// §6.14 C4 step 4 and the §3.3 deal rules (task 30's §6.15 reuses it on the merged parts): the choice items FOR SHARE
+// (kind 4, one = ANY by item_id), the category (6), the tax class (7, when not null); then in body order: every choice
+// item found and active, the category, the tax class; then per part: one sale_unit (choice_unit_mismatch), no
+// weighed choice (V18).
+async function assertDealReferences(
+  level: TenantLevelRepository,
+  body: Pick<CreateDealInput, 'category_id' | 'tax_class_id'> & { parts: ReadonlyArray<{ choices: ReadonlyArray<{ item_id: string }> }> },
+): Promise<void> {
+  const itemIds = sortedUnique(body.parts.flatMap((part) => part.choices.map((c) => c.item_id)));
+  const items = await shareItemsById(level, itemIds);
+  const category = await shareCategory(level, body.category_id);
+  const taxClass = body.tax_class_id === null ? null : await shareTaxClass(level, body.tax_class_id);
+  const byId = new Map(items.map((row) => [row.item_id, row]));
+  body.parts.forEach((part, n) => {
+    part.choices.forEach((choice, m) => {
+      const row = byId.get(choice.item_id);
+      const reason = row === undefined ? 'not_found' : row.archived_at !== null ? 'archived' : null;
+      if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices.${m}.item_id`, reason });
+    });
+  });
+  assertCategory(category);
+  if (taxClass !== null) {
+    const reason = taxClass === undefined ? 'not_found' : taxClass.archived_at !== null ? 'archived' : null;
+    if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'tax_class_id', reason });
+  }
+  body.parts.forEach((part, n) => {
+    const units = new Set(part.choices.map((c) => byId.get(c.item_id)!.sale_unit));
+    if (units.size > 1) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices`, reason: 'choice_unit_mismatch' });
+    part.choices.forEach((choice, m) => {
+      if (byId.get(choice.item_id)!.requires_weighing) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices.${m}.item_id`, reason: 'weighed_item_in_deal' });
+      }
+    });
   });
 }

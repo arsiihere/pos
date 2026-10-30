@@ -1,7 +1,9 @@
 import type {
+  CreateDealRequest,
   CreateModifierGroupRequest,
   CreateStockItemRequest,
   CreateVariantGroupRequest,
+  DealWire,
   ModifierGroupWire,
   PatchStockItemRequest,
   PutStockItemBranchRequest,
@@ -78,6 +80,13 @@ export async function createModifierGroup(
   const response = await cloud.app.inject({ method: 'POST', url: '/v1/admin/modifier-groups', ...owner(f), payload: body });
   if (response.statusCode !== 201) throw new Error(`create modifier group failed: ${response.statusCode} ${response.body}`);
   return response.json().data.modifier_group as ModifierGroupWire;
+}
+
+// §6.14 through the API: the created deal's wire, or a thrown error with the response body.
+export async function createDeal(cloud: TestCloud, f: RestaurantFixture, body: CreateDealRequest): Promise<DealWire> {
+  const response = await cloud.app.inject({ method: 'POST', url: '/v1/admin/deals', ...owner(f), payload: body });
+  if (response.statusCode !== 201) throw new Error(`create deal failed: ${response.statusCode} ${response.body}`);
+  return response.json().data.deal as DealWire;
 }
 
 // P-4: a modifier group and its options written by SQL until §6.10's route exists (task 15; §6.5 R4, R10 read them).

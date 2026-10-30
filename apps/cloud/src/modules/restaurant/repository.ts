@@ -1017,11 +1017,18 @@ export async function selectItemRoutes(
   return rows.map((row) => ({ ...routeRow(row), item_id: row.item_id }));
 }
 
-export type WindowTarget = { item_id: string } | { category_id: string };
+// 01c §6.14: a deal's windows live in availability_windows.deal_id (§5.1).
+export type WindowTarget = { item_id: string } | { category_id: string } | { deal_id: string };
+
+function windowColumn(target: WindowTarget): ['item_id' | 'category_id' | 'deal_id', string] {
+  if ('item_id' in target) return ['item_id', target.item_id];
+  if ('category_id' in target) return ['category_id', target.category_id];
+  return ['deal_id', target.deal_id];
+}
 
 // S47: a target's windows, by start_ms, end_ms, window_id.
 export async function selectWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<WindowRow[]> {
-  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  const [column, id] = windowColumn(target);
   return repo.query<WindowRow>(
     `SELECT start_ms, end_ms FROM availability_windows
       WHERE tenant_id = $1 AND ${column} = $2
@@ -1032,7 +1039,7 @@ export async function selectWindowsOf(repo: TenantLevelRepository, target: Windo
 
 // §6.13–6.15: a PATCH with availability_windows deletes the target's rows ...
 export async function deleteWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<void> {
-  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  const [column, id] = windowColumn(target);
   await repo.query(`DELETE FROM availability_windows WHERE tenant_id = $1 AND ${column} = $2`, [id]);
 }
 
@@ -1044,14 +1051,15 @@ export async function insertWindows(
   ids: IdGen,
 ): Promise<WindowRow[]> {
   const rows = await repo.query<WindowRow & { window_id: string }>(
-    `INSERT INTO availability_windows (tenant_id, window_id, item_id, category_id, start_ms, end_ms)
-     SELECT t.tenant_id, u.window_id, $2, $3, u.start_ms, u.end_ms
-       FROM tenants t, unnest($4::text[], $5::int[], $6::int[]) AS u (window_id, start_ms, end_ms)
+    `INSERT INTO availability_windows (tenant_id, window_id, item_id, category_id, deal_id, start_ms, end_ms)
+     SELECT t.tenant_id, u.window_id, $2, $3, $4, u.start_ms, u.end_ms
+       FROM tenants t, unnest($5::text[], $6::int[], $7::int[]) AS u (window_id, start_ms, end_ms)
       WHERE t.tenant_id = $1
      RETURNING window_id, start_ms, end_ms`,
     [
       'item_id' in target ? target.item_id : null,
       'category_id' in target ? target.category_id : null,
+      'deal_id' in target ? target.deal_id : null,
       windows.map(() => ids.next()),
       windows.map((w) => w.start_ms),
       windows.map((w) => w.end_ms),

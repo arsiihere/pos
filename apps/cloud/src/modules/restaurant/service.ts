@@ -11,7 +11,7 @@ import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { activeVariantGroupIdsIn } from '../menu-variants/repository.js';
+import { activeDealIdsWith, activeVariantGroupIdsIn } from '../menu-variants/repository.js';
 import { assertItemEffectiveSets } from '../menu-variants/service.js';
 import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
@@ -629,7 +629,7 @@ export async function createTaxClass(
   );
 }
 
-// §6.12 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write → audit → bump every branch.
+// §6.12 PATCH: lock → rules on the merged row (S22 in-use check on archive: items, then 01c V16 active deals) → write → audit → bump every branch.
 export async function patchTaxClass(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -652,6 +652,11 @@ export async function patchTaxClass(
       const ids = await activeItemIdsWith(level, 'tax_class_id', taxClassId);
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'tax_class', id: taxClassId, used_by: { entity: 'menu_item', ids } });
+      }
+      // 01c V16: an active deal keeps its tax class (a plain read after the target lock; AD-11 active deals only).
+      const dealIds = await activeDealIdsWith(level, 'tax_class_id', taxClassId);
+      if (dealIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'tax_class', id: taxClassId, used_by: { entity: 'deal', ids: dealIds } });
       }
     }
     const taxClass = await nameTaken('tax_classes_active_name', 'tax_class', merged.name, () =>
@@ -727,7 +732,8 @@ export async function createCategory(
   );
 }
 
-// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive) → write (windows replaced when sent,
+// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive: items, then 01c V16 active variant
+// groups, then active deals) → write (windows replaced when sent,
 // S47) → audit → bump every branch.
 export async function patchCategory(
   deps: RestaurantDeps,
@@ -764,6 +770,11 @@ export async function patchCategory(
           id: categoryId,
           used_by: { entity: 'variant_group', ids: groupIds },
         });
+      }
+      // 01c V16: an active deal keeps its category (a plain read after the target lock; AD-11 active deals only).
+      const dealIds = await activeDealIdsWith(level, 'category_id', categoryId);
+      if (dealIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'deal', ids: dealIds } });
       }
     }
     const row = await nameTaken('categories_active_name', 'category', merged.name, () =>

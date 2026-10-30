@@ -132,6 +132,17 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/modifier-groups/${ids.modifierGroupId}/branches/${ids.branchId}`,
     payload: { expected_version: 'stale', options: [] },
   }),
+  'GET /v1/admin/deals': () => ({ url: '/v1/admin/deals' }),
+  'POST /v1/admin/deals': (ids) => ({
+    url: '/v1/admin/deals',
+    payload: {
+      name: 'Family karahi',
+      category_id: ids.categoryId,
+      tax_class_id: ids.taxClassId,
+      price_minor: 250000,
+      parts: [{ quantity: 1, choices: [{ item_id: ids.itemId }] }],
+    },
+  }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({
     url: '/v1/admin/staff',
