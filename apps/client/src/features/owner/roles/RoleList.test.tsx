@@ -161,7 +161,7 @@ describe('[01b §8] roles list', () => {
     expect(button(m.container, t('roles.new')).className).not.toContain('pos-btn--primary');
   });
 
-  it('[01b §8] Pulse phone: each row shows people and idle time with Edit; Archive stays in the More menu', async () => {
+  it('[01b §8] Pulse phone: each row shows people, Edit and the S08 idle box; Archive stays in the More menu', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === '(max-width: 760px)',
       media: query,
@@ -169,14 +169,18 @@ describe('[01b §8] roles list', () => {
       removeEventListener: () => {},
     }));
     try {
-      const { api } = fakeApi(handler(() => ok({})));
+      const { api, calls } = fakeApi(
+        handler(() => ok({ role: { ...ROLES[1], idle_minutes: 45, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } })),
+      );
       await m.render(<RoleList api={api} />);
       const row = [...m.container.querySelectorAll<HTMLElement>('.pos-list--stack .pos-list__row')][1]!;
-      expect(row.querySelector('.pos-list__name > span')?.textContent).toBe(
-        fill(t('roles.menu_info'), { people: peopleText(ROLES[1]!.staff_count), n: String(ROLES[1]!.idle_minutes) }),
-      );
-      expect(row.querySelector('input')).toBeNull();
+      expect(row.querySelector('.pos-list__name > span')?.textContent).toBe(peopleText(ROLES[1]!.staff_count));
       expect(button(row, t('roles.edit'))).toBeTruthy();
+      // The inline idle box saves on leaving it, as on a laptop.
+      setValue(idleInput('Bera'), '45');
+      await blur(idleInput('Bera'));
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-R_WAITER', idle_minutes: 45 });
+      expect(row.textContent).toContain(t('common.saved'));
       expect(button(m.container, t('roles.new_short'))).toBeTruthy();
       await openArchive(row, ROLES[1]!.name);
       expect(m.container.querySelector('[role="dialog"]')?.textContent).toContain(fill(t('roles.archive_title'), { name: ROLES[1]!.name }));

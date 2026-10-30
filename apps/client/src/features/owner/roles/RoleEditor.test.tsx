@@ -1,5 +1,5 @@
 import { PERMISSION_SCOPES } from '@pos/domain';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudAdmin } from '../../../api/cloud-admin';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
@@ -186,4 +186,35 @@ describe('[01b §8] role editor', () => {
     expect(button(grantRow(t('perm.boost-order')), 'Malik').querySelector('svg')).not.toBeNull();
     expect(button(grantRow(t('perm.boost-order')), 'Bera').querySelector('svg')).toBeNull();
   });
+
+  it('[01b §8] Pulse phone: Save role in the bottom bar, no Cancel; the back arrow asks before dropping changes (S50 c)', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      window.location.hash = '#/roles/R_LEAD';
+      const { api } = fakeApi(handler(() => ok({})));
+      await render(api, 'R_LEAD');
+      expect(m.container.querySelector('.pos-actionbar button')?.className).toContain('pos-btn--lg pos-btn--block');
+      expect(() => button(m.container, t('common.cancel'))).toThrow();
+      expect(grantRow(t('perm.boost-order')).className).toContain('pos-grant--stack');
+
+      const back = m.container.querySelector<HTMLAnchorElement>(`a[aria-label="${t('roles.back')}"]`)!;
+      expect(back.textContent).toBe('');
+      await click(button(grantRow(t('perm.boost-order')), t('roles.grant.allowed')));
+      await click(back);
+      expect(window.location.hash).toBe('#/roles/R_LEAD');
+      const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog.textContent).toContain(t('discard.keep'));
+      await click(button(dialog, t('discard.discard')));
+      expect(window.location.hash).toBe('#/roles');
+    } finally {
+      vi.unstubAllGlobals();
+      window.location.hash = '';
+    }
+  });
 });
+

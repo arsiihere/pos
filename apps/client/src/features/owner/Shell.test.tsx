@@ -263,4 +263,22 @@ describe('[01a S50 a, Pulse 01a-A] owner shell, sign in and picker in the Pulse 
     expect(container.querySelector<HTMLInputElement>('.pos-input-affix > input')?.type).toBe('text');
     expect(container.querySelector('button[type="submit"]')?.className).toBe('pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
   });
+
+  it('phone: a page with a back link shows back alone in its app bar (StaffFormPhone, RoleEditorPhone)', () => {
+    stubPhone();
+    act(() =>
+      root.render(
+        <GuardProvider>
+          <Shell route="/roles/R1" userName="Arif" counts={{}} onSignOut={() => {}}>
+            <Page api={api} title="Edit Shift lead" start={<a className="pos-btn" href="#/roles" aria-label="Back to Roles" />}>
+              <p>body</p>
+            </Page>
+          </Shell>
+        </GuardProvider>,
+      ),
+    );
+    const bar = container.querySelector('.pos-appbar.pos-appbar--phone')!;
+    expect(bar.querySelector('button[aria-label="Menu"]')).toBeNull();
+    expect(bar.querySelector('a[aria-label="Back to Roles"]')).not.toBeNull();
+  });
 });

@@ -238,61 +238,77 @@ export function RoleList({ api }: { api: CloudAdmin }) {
       roleRow(r)
     );
 
+  // S08 inline idle box: blur saves; the chip or the range error follows it.
+  const idleBox = (r: Role) => {
+    const range = idleState[r.role_id] === 'range';
+    return (
+      <>
+        <label className="pos-row pos-roles__idle">
+          <span className="label">{t('roles.idle')}</span>
+          <span className={`pos-input-affix pos-roles__affix${range ? ' is-error' : ''}`}>
+            <input
+              className="pos-input pos-input--mono"
+              inputMode="numeric"
+              aria-label={r.name}
+              aria-invalid={range ? true : undefined}
+              disabled={down}
+              value={idle[r.role_id] ?? String(r.idle_minutes)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setIdle((s) => ({ ...s, [r.role_id]: value }));
+                setIdleState((s) => {
+                  const next = { ...s };
+                  delete next[r.role_id];
+                  return next;
+                });
+              }}
+              onBlur={() => void saveIdle(r)}
+            />
+            <span>{t('roles.min')}</span>
+          </span>
+        </label>
+        {!range && <IdleChip state={idleState[r.role_id]} />}
+      </>
+    );
+  };
+  const rangeError = (r: Role) =>
+    idleState[r.role_id] === 'range' && (
+      <span className="pos-field__error pos-roles__range">
+        <Icon name="alert" />
+        {t('roles.idle_range')}
+      </span>
+    );
+  const edit = (r: Role) => (
+    <button type="button" className="pos-btn" onClick={() => navigate(`/roles/${encodeURIComponent(r.role_id)}`)}>
+      {t('roles.edit')}
+    </button>
+  );
+
   const roleRow = (r: Role) => {
     if (phone) {
-      // RolesPhone: name + "{people} · signs out after {n} min", Edit; idle minutes are edited in the role.
+      // RolesPhone: name + people, Edit and ⋯; the S08 idle box stays on its own line under them.
       return (
         <ListRow key={r.role_id}>
           <div className="pos-prow">
-            {name(r, metaText(r))}
-            <button type="button" className="pos-btn" onClick={() => navigate(`/roles/${encodeURIComponent(r.role_id)}`)}>
-              {t('roles.edit')}
-            </button>
+            {name(r, peopleText(r.staff_count))}
+            {edit(r)}
             {more(r)}
+          </div>
+          <div className="pos-roles__phoneidle">
+            {idleBox(r)}
+            {rangeError(r)}
           </div>
         </ListRow>
       );
     }
-    const range = idleState[r.role_id] === 'range';
     return (
       <ListRow key={r.role_id}>
         {name(r, peopleText(r.staff_count))}
         <div className="pos-list__side">
-          <label className="pos-row pos-roles__idle">
-            <span className="label">{t('roles.idle')}</span>
-            <span className={`pos-input-affix pos-roles__affix${range ? ' is-error' : ''}`}>
-              <input
-                className="pos-input pos-input--mono"
-                inputMode="numeric"
-                aria-label={r.name}
-                aria-invalid={range ? true : undefined}
-                disabled={down}
-                value={idle[r.role_id] ?? String(r.idle_minutes)}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setIdle((s) => ({ ...s, [r.role_id]: value }));
-                  setIdleState((s) => {
-                    const next = { ...s };
-                    delete next[r.role_id];
-                    return next;
-                  });
-                }}
-                onBlur={() => void saveIdle(r)}
-              />
-              <span>{t('roles.min')}</span>
-            </span>
-          </label>
-          {!range && <IdleChip state={idleState[r.role_id]} />}
-          <button type="button" className="pos-btn" onClick={() => navigate(`/roles/${encodeURIComponent(r.role_id)}`)}>
-            {t('roles.edit')}
-          </button>
+          {idleBox(r)}
+          {edit(r)}
           {more(r)}
-          {range && (
-            <span className="pos-field__error pos-roles__range">
-              <Icon name="alert" />
-              {t('roles.idle_range')}
-            </span>
-          )}
+          {rangeError(r)}
         </div>
       </ListRow>
     );

@@ -113,11 +113,21 @@ export function RoleEditor({ api, roleId }: { api: CloudAdmin; roleId: string })
   return <Editor key={generation} api={api} roles={roles} role={role} back={back} onReload={() => void load()} />;
 }
 
-// Phone (RoleEditorPhone): the back arrow alone.
+// Phone (RoleEditorPhone): the back arrow alone. With no Cancel on phone it is the way out, so it goes through
+// the unsaved-changes guard (S50 c) like Cancel does.
 function BackLink() {
   const phone = usePhone();
+  const leave = useLeave();
   return (
-    <a className="pos-btn" href="#/roles" aria-label={t('roles.back')}>
+    <a
+      className="pos-btn"
+      href="#/roles"
+      aria-label={t('roles.back')}
+      onClick={(e) => {
+        e.preventDefault();
+        leave(() => navigate('/roles'));
+      }}
+    >
       <Icon name="back" flip />
       {!phone && t('roles.title')}
     </a>

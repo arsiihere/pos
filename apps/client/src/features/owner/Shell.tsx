@@ -233,16 +233,8 @@ export function Page({
       <AppBar
         title={title}
         phone={phone}
-        start={
-          phone ? (
-            <>
-              <MenuButton />
-              {start}
-            </>
-          ) : (
-            start
-          )
-        }
+        // Phone: a page with a back link shows back alone (StaffFormPhone, RoleEditorPhone); others get Menu.
+        start={phone ? (start ?? <MenuButton />) : start}
         after={after}
       >
         {end}
