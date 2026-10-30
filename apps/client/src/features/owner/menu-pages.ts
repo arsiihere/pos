@@ -29,3 +29,24 @@ export async function loadEveryItem(api: CloudAdmin): Promise<CloudResult<WholeM
   if (!archived.ok) return archived;
   return { ok: true, data: { ...active.data, items: [...active.data.items, ...archived.data.items] } };
 }
+
+// 01c §8 "Omitted at a branch" (m11, N9): every active menu page in order, each handed to `onPage` as it
+// arrives with the items so far; `done` is true only after the page whose next_cursor is null, so a view can
+// show "Checking branches…" until then and never warn from a partial load.
+export async function loadMenuPages(
+  api: CloudAdmin,
+  onPage: (menu: WholeMenu, done: boolean) => void,
+): Promise<CloudResult<WholeMenu>> {
+  const all: MenuItem[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await api.getMenu({ status: 'active', limit: MENU_PAGE_LIMIT, ...(cursor === undefined ? {} : { cursor }) });
+    if (!page.ok) return page;
+    const { items, next_cursor, ...rest } = page.data;
+    all.push(...items);
+    const menu = { ...rest, items: [...all] };
+    onPage(menu, next_cursor === null);
+    if (next_cursor === null) return { ok: true, data: menu };
+    cursor = next_cursor;
+  }
+}

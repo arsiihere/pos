@@ -62,6 +62,8 @@ describe('router', () => {
     expect(matchOwnerRoute('/stock-items')).toEqual({ name: 'stock_items' });
     expect(matchOwnerRoute('/stock-items/SI1')).toEqual({ name: 'stock_item_edit', id: 'SI1' });
     expect(matchOwnerRoute('/choice-groups')).toEqual({ name: 'choice_groups' });
+    expect(matchOwnerRoute('/choice-groups/new')).toEqual({ name: 'choice_group_edit', id: 'new' });
+    expect(matchOwnerRoute('/choice-groups/MG1')).toEqual({ name: 'choice_group_edit', id: 'MG1' });
     expect(matchOwnerRoute('/deals')).toEqual({ name: 'deals' });
     expect(matchOwnerRoute('/stock-items/SI1/branches')).toBeNull();
   });

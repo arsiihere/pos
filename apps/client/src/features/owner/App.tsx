@@ -3,6 +3,8 @@ import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
 import { forcedRoute, matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
 import { t } from '../../i18n';
 import { ChangePassword } from './account/ChangePassword';
+import { ChoiceGroupForm } from './choice-groups/ChoiceGroupForm';
+import { ChoiceGroupList } from './choice-groups/ChoiceGroupList';
 import { BranchPicker } from './BranchPicker';
 import { BranchesView } from './branches/BranchesView';
 import { BranchSettings } from './branches/BranchSettings';
@@ -159,7 +161,8 @@ function Routes({
         {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} />}
         {owner.name === 'stock_item_edit' && <StockItemForm key={owner.id} api={api} stockItemId={owner.id} branchIds={allowed} />}
         {/* 01c-S02 and S04 are built by the next 01c groups; the nav entries already lead here. */}
-        {owner.name === 'choice_groups' && <Page api={api} title={t('owner.nav.choice_groups')}>{null}</Page>}
+        {owner.name === 'choice_groups' && <ChoiceGroupList api={api} />}
+        {owner.name === 'choice_group_edit' && <ChoiceGroupForm key={owner.id} api={api} groupId={owner.id} />}
         {owner.name === 'deals' && <Page api={api} title={t('owner.nav.deals')}>{null}</Page>}
       </Shell>
     );

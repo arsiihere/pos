@@ -2188,3 +2188,34 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
   .pos-c01form ~ .pos-actionbar .pos-actionbar__end > .pos-btn { flex: 1; }
 }
 .pos-appbar--phone ~ .pos-content .pos-c01form .pos-grid { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------- Pulse page layout · 01c-D choice groups ---------- */
+/* List (ChoiceGroups, ChoiceGroupsChecking): "Checking branches…" sits where the helper line is, once per page. */
+.pos-cgbar { display: flex; align-items: center; gap: var(--space-3); }
+.pos-cgbar > .pos-c01bar { flex: 1; min-width: 0; }
+.pos-cgbar__checking { white-space: nowrap; }
+.pos-list--cg .pos-cgpick { color: var(--ink); font-weight: 650; }
+.pos-list--cg .pos-list__name .pos-chips { margin-top: var(--space-2); }
+/* Form (ChoiceGroupForm): one 1080 column; "Customers pick" at least / at most on one line. */
+.pos-c01form.pos-cgform { max-width: 1080px; }
+.pos-pickrow { display: flex; align-items: center; gap: var(--space-3); }
+.pos-pickrow .pos-input { width: 140px; }
+button.pos-tick { appearance: none; border: 0; padding: 0; background: transparent; color: var(--ink); cursor: pointer; }
+button.pos-tick:disabled { cursor: default; }
+.pos-chip--off { color: var(--ink-muted); background: var(--surface-sunken); border-color: var(--line); }
+.pos-target__group, .pos-cgform .pos-opts__head, .pos-cgform .pos-removed__head { text-transform: uppercase; }
+.pos-cgdialog__rule { margin-top: var(--space-1); }
+.pos-cgdialog__search { width: 100%; }
+.pos-cgdialog__loading { padding: var(--space-3) var(--space-4); }
+@media (max-width: 760px) {
+  .pos-cgbar { flex-wrap: wrap; }
+  .pos-opts__head, .pos-opt { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pos-opt > .pos-input:first-child, .pos-opt > .pos-select { grid-column: 1 / -1; }
+  .pos-opt > .pos-input-affix { order: 1; width: 100%; }
+  .pos-opt > .pos-select { order: 2; }
+  .pos-opt > .pos-tick, .pos-opt > .pos-iconbtn, .pos-opt > span:empty { order: 3; }
+  .pos-opt > .pos-iconbtn { justify-self: end; }
+  .pos-opt .pos-field__help, .pos-opt .pos-field__error { order: 4; grid-column: 1 / -1; margin-top: 0; }
+  .pos-brow__opt { grid-template-columns: minmax(0, 1fr) auto; }
+  .pos-brow__opt > .pos-field { grid-column: 1 / -1; }
+}

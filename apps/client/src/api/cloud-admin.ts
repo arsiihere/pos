@@ -21,6 +21,7 @@ import type {
   CreateCategoryRequest,
   CreateFloorRequest,
   CreateMenuItemRequest,
+  CreateModifierGroupRequest,
   CreateProgramRequest,
   CreateStationRequest,
   CreateTableRequest,
@@ -30,6 +31,7 @@ import type {
   PatchCategoryRequest,
   PatchFloorRequest,
   PatchMenuItemRequest,
+  PatchModifierGroupRequest,
   PatchProgramRequest,
   PatchStockItemRequest,
   PatchVariantGroupRequest,
@@ -37,7 +39,10 @@ import type {
   PatchTableRequest,
   PatchTaxClassRequest,
   PutItemRouteRequest,
+  PutModifierGroupBranchRequest,
   PutStockItemBranchRequest,
+  ModifierGroupBranchWire,
+  ModifierGroupWire,
   ResponsibilitiesPutRequest,
   ResponsibilitySetWire,
   RoleCreateRequest,
@@ -133,6 +138,11 @@ export interface StockDrawer {
 }
 export type StockItem = StockItemWire & { branches: StockItemBranch[]; drawers: StockDrawer[] };
 export type StockUnit = StockItemWire['stock_unit'];
+// 01c §5.4, §6.10–§6.12a: choice groups (code: modifier groups) and their per-branch difference lists.
+export type ModifierGroup = ModifierGroupWire;
+export type ModifierGroupBranch = ModifierGroupBranchWire;
+export type ModifierOption = ModifierGroupWire['options'][number];
+export type ModifierLink = ModifierGroupWire['links'][number];
 
 type LoginData = OwnerLogin;
 export type LockoutNotice = NonNullable<OwnerLogin['lockout_notice']>;
@@ -440,6 +450,23 @@ export function createCloudAdmin(options: CloudAdminOptions) {
       call<{ branch: StockItemBranch | null }>(
         'PUT',
         `/v1/admin/stock-items/${id(stockItemId)}/branches/${id(branchId)}`,
+        body,
+      ),
+
+    // 01c §6.10–§6.12a choice groups (modifier groups); a branch PUT takes no Idempotency-Key
+    listModifierGroups: (query: { status?: 'active' | 'archived' } = {}) =>
+      call<{ can_edit_tenant: boolean; modifier_groups: ModifierGroup[] }>(
+        'GET',
+        `/v1/admin/modifier-groups${query.status === undefined ? '' : `?status=${query.status}`}`,
+      ),
+    createModifierGroup: (body: CreateModifierGroupRequest, key: string) =>
+      call<{ modifier_group: ModifierGroup }>('POST', '/v1/admin/modifier-groups', body, key),
+    patchModifierGroup: (modifierGroupId: string, body: PatchModifierGroupRequest) =>
+      call<{ modifier_group: ModifierGroup }>('PATCH', `/v1/admin/modifier-groups/${id(modifierGroupId)}`, body),
+    putModifierGroupBranch: (modifierGroupId: string, branchId: string, body: PutModifierGroupBranchRequest) =>
+      call<{ branch: ModifierGroupBranch }>(
+        'PUT',
+        `/v1/admin/modifier-groups/${id(modifierGroupId)}/branches/${id(branchId)}`,
         body,
       ),
 
