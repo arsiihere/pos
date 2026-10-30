@@ -26,3 +26,9 @@ tools/tap-test/data/
 .auto/
 tools/autobuild/logs/
 .tmp-gate/
+# Design hand-offs: frames, renders and zips stay local; only the mappings and briefs are tracked.
+/updated-designs/**
+!/updated-designs/**/
+!/updated-designs/brief/*.md
+!/updated-designs/handoff/*/MAPPING.md
+!/updated-designs/handoff/*/brief/*.md
