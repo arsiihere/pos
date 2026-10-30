@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
 // The Pulse "⋯" More menu (kit .pos-more + .pos-menu; 01a hand-off CHANGES §2): a 56 px button with
@@ -21,11 +21,14 @@ export interface MoreMenuItem {
 export function MoreMenu({
   label,
   info,
+  head,
   items,
   up = false,
 }: {
   label: string; // the button's and the menu's accessible name, e.g. "More for Paye"
   info?: { title: string; detail?: string };
+  // A custom head instead of `info`, e.g. the stock page's menu status line (.pos-menu__status).
+  head?: ReactNode;
   items: readonly MoreMenuItem[];
   up?: boolean;
 }) {
@@ -101,6 +104,7 @@ export function MoreMenu({
           aria-label={label}
           onKeyDown={onKeyDown}
         >
+          {head}
           {info !== undefined && (
             <div className="pos-menu__info">
               <b>{info.title}</b>

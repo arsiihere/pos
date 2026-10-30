@@ -13,12 +13,12 @@ export function AlertBar({ rows, onPick }: { rows: readonly StockRow[]; onPick: 
   return (
     <div className="pos-row" data-alert-bar="">
       {low.map((r) => (
-        <Chip key={r.meta.stock_item_id} tone="warn" onClick={() => onPick(r.meta.stock_item_id)}>
+        <Chip key={r.meta.stock_item_id} tone="warn" icon="alert" onClick={() => onPick(r.meta.stock_item_id)}>
           {fill(t('admin_stock.alert.low'), { items: `${r.meta.name} ${formatQuantity(r.stock.available, r.meta.stock_unit)}` })}
         </Chip>
       ))}
       {out.map((r) => (
-        <Chip key={r.meta.stock_item_id} tone="danger" onClick={() => onPick(r.meta.stock_item_id)}>
+        <Chip key={r.meta.stock_item_id} tone="danger" icon="x" onClick={() => onPick(r.meta.stock_item_id)}>
           {fill(t('admin_stock.alert.out'), { items: r.meta.name })}
         </Chip>
       ))}

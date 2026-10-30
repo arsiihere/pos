@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { HubAdmin, HubError } from '../../../api/hub-admin';
+import { usePhone } from '../../../app/phone';
 import { AppBar } from '../../../components/AppBar';
 import { Banner } from '../../../components/Banner';
-import { EmptyState } from '../../../components/EmptyState';
+import { Chip } from '../../../components/Chip';
+import { Icon } from '../../../components/Icon';
 import { PinPad } from '../../../components/PinPad';
 import { Skeleton } from '../../../components/Skeleton';
 import { StaffTiles, type StaffTile } from '../../../components/StaffTiles';
-import { t, typeClass } from '../../../i18n';
+import { t } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
 
 // §8.2, S35 i, S54 d (01a-S10): the admin roster and PIN pad (same endpoints as 00 §8.2), from the shared
@@ -35,6 +37,7 @@ function errorBanner(error: HubError): { text: string; detail?: string } {
 }
 
 export function AdminLogin({ api, onLoggedIn }: { api: HubAdmin; onLoggedIn: () => void }) {
+  const phone = usePhone();
   const [staff, setStaff] = useState<StaffTile[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -60,6 +63,7 @@ export function AdminLogin({ api, onLoggedIn }: { api: HubAdmin; onLoggedIn: () 
         staff_id: s.staff_id,
         display_name: s.display_name,
         locked_until: s.locked_until,
+        sub: (s.role_names ?? []).join(', '),
       })),
     );
   }, [api]);
@@ -85,49 +89,69 @@ export function AdminLogin({ api, onLoggedIn }: { api: HubAdmin; onLoggedIn: () 
   };
 
   const pinRefused = error?.kind === 'api' && error.code === 'PIN_INVALID';
+  // 01a-S10: "Forgot your PIN?" shows only after a wrong PIN or a lock (brief §6 Q-list, StockPinError).
+  const forgot = error?.kind === 'api' && (error.code === 'PIN_INVALID' || error.code === 'PIN_LOCKED_OUT');
   const banner = error === null ? null : errorBanner(error);
   const name = staff?.find((s) => s.staff_id === selected)?.display_name;
+  const [pinBefore, pinAfter] = t('admin_stock.login.pin_for').split('{name}');
 
   return (
-    <div className="pos-page">
-      <AppBar title={t('admin_stock.title')} />
-      <main className="pos-content pos-content--narrow">
-        <h1 className={typeClass('title')}>{t('admin_stock.login.title')}</h1>
-        {offline ? (
-          <section className="pos-callout pos-callout--warn">
-            <div className="pos-callout__text">
-              <h2>{t('admin_stock.login.offline')}</h2>
-              <p>{t('admin_stock.login.offline_body')}</p>
-            </div>
-            <button type="button" className="pos-btn" onClick={() => void load()}>
+    <div className={`pos-page${phone ? '' : ' pos-page--fit'}`}>
+      <AppBar
+        title={t('admin_stock.title')}
+        phone={phone}
+        after={<Chip icon="lock">{t('admin_stock.login.title')}</Chip>}
+      />
+      {offline ? (
+        <main className="pos-screen pos-screen--warn">
+          <div className="pos-screen__icon pos-screen__icon--spin">
+            <Icon name="sync" />
+          </div>
+          <h2 className="pos-screen__title">{t('admin_stock.login.offline')}</h2>
+          <p className="pos-screen__body">{t('admin_stock.login.offline_body')}</p>
+          <div className="pos-row pos-signin__retry">
+            <button type="button" className="pos-btn pos-btn--primary pos-btn--lg" onClick={() => void load()}>
+              <Icon name="reload" />
               {t('admin_stock.login.retry_now')}
             </button>
-          </section>
-        ) : staff === null ? (
-          <Skeleton lines={3} />
-        ) : staff.length === 0 && error === null ? (
-          <EmptyState title={t('admin_stock.login.no_admins')} body={t('admin_stock.login.no_admins_body')} />
-        ) : (
-          <div className="pos-split">
-            <section className="pos-section">
-              <div className="pos-section__head">
-                <h2>{t('admin_stock.login.who')}</h2>
-                <p>{t('admin_stock.login.pick')}</p>
-              </div>
-              <StaffTiles staff={staff} selectedId={selected} onPick={setSelected} />
-              <p className="pos-field__help">{t('admin_stock.login.forgot')}</p>
-            </section>
-            {selected !== null && (
-              <section className="pos-card pos-stack">
-                <h2 className={typeClass('heading')}>{fill(t('admin_stock.login.pin_for'), { name: name ?? '' })}</h2>
-                {banner !== null && <Banner tone="danger" text={banner.text} detail={banner.detail} />}
-                <PinPad onSubmit={(pin) => void submit(pin)} disabled={busy} error={pinRefused} />
-              </section>
-            )}
           </div>
-        )}
-        {banner !== null && selected === null && <Banner tone="danger" text={banner.text} detail={banner.detail} />}
-      </main>
+        </main>
+      ) : staff === null ? (
+        <main className="pos-content">
+          <Skeleton lines={3} />
+        </main>
+      ) : staff.length === 0 && error === null ? (
+        <main className="pos-screen pos-screen--info">
+          <div className="pos-screen__icon">
+            <Icon name="user" />
+          </div>
+          <h2 className="pos-screen__title">{t('admin_stock.login.no_admins')}</h2>
+          <p className="pos-screen__body">{t('admin_stock.login.no_admins_body')}</p>
+        </main>
+      ) : (
+        <main className="pos-content pos-signin">
+          <section className="pos-signin__who">
+            <div className="pos-section__head">
+              <h2>{t('admin_stock.login.who')}</h2>
+              <p>{t('admin_stock.login.pick')}</p>
+            </div>
+            <StaffTiles staff={staff} selectedId={selected} onPick={setSelected} />
+            {forgot && <Banner tone="info" icon="user" text={t('admin_stock.login.forgot')} />}
+            {banner !== null && selected === null && <Banner tone="danger" text={banner.text} detail={banner.detail} />}
+          </section>
+          {selected !== null && (
+            <section className="pos-card pos-signin__pad">
+              <div className="pos-signin__for">
+                <p>{pinBefore}</p>
+                <strong>{name ?? ''}</strong>
+                {pinAfter !== undefined && pinAfter !== '' && <p>{pinAfter}</p>}
+              </div>
+              {banner !== null && <Banner tone="danger" text={banner.text} detail={banner.detail} />}
+              <PinPad onSubmit={(pin) => void submit(pin)} disabled={busy} error={pinRefused} />
+            </section>
+          )}
+        </main>
+      )}
     </div>
   );
 }

@@ -5,20 +5,20 @@ import type { HubAdmin, HubError, StockVersions } from '../../../api/hub-admin';
 import { createHubClock, hubTimeText, type HubClock } from '../../../app/hub-clock';
 import { usePhone } from '../../../app/phone';
 import { newUlid } from '../../../app/ulid';
-import { ActionBar } from '../../../components/ActionBar';
 import { AppBar } from '../../../components/AppBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
+import { MoreMenu, type MoreMenuItem } from '../../../components/MoreMenu';
 import { SideNav } from '../../../components/SideNav';
-import { t, typeClass } from '../../../i18n';
+import { t } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
 import { AdminLogin } from './AdminLogin';
 import { pageRows } from './badges';
 import { AlertBar } from './AlertBar';
-import { CloseDayButton, DayChip, type BusinessDay } from './BusinessDayBar';
-import { ConfigChip, ConfigProblem } from './ConfigStatus';
+import { CloseDayDialog, DayChip, type BusinessDay } from './BusinessDayBar';
+import { ConfigChip, ConfigProblem, MenuStatus } from './ConfigStatus';
 import { draftKey, loadDraft, removeDraft, restoreDraft, saveDraft } from './draft';
 import { StalePrompt } from './StalePrompt';
 import { StartDay } from './StartDay';
@@ -78,13 +78,20 @@ function tail(id: string): string {
   return `…${id.slice(-4)}`;
 }
 
+// Avatar initials: the first letters of two words, or the first two letters of one ("Imran" → "IM").
+function avatarText(name: string): string {
+  const words = name.trim().split(/\s+/).filter((w) => w !== '');
+  const letters = words.length > 1 ? words.slice(0, 2).map((w) => [...w][0] ?? '') : [...(words[0] ?? '')].slice(0, 2);
+  return letters.join('').toUpperCase();
+}
+
 // S54 f: from tablet width the page sits in the 00-S20 hub admin shell (00 M86); on a phone it has only
-// its own app bar.
+// its own app bar. Pulse: the shell fits the screen and only the content region scrolls (hand-off PROMPT).
 function Shell({ branchId, children }: { branchId: string | null; children: ReactNode }) {
   const phone = usePhone();
-  if (phone) return <div className="pos-page">{children}</div>;
+  if (phone) return <div className="pos-page pos-page--stock">{children}</div>;
   return (
-    <div className="pos-page">
+    <div className="pos-page pos-page--fit">
       <div className="pos-shell">
         <SideNav
           label={t('admin_stock.shell.title')}
@@ -97,7 +104,7 @@ function Shell({ branchId, children }: { branchId: string | null; children: Reac
             { href: '/admin/stock/', icon: 'box', label: t('admin_stock.title'), current: true },
           ]}
         />
-        <div>{children}</div>
+        <div className="pos-shell__main">{children}</div>
       </div>
     </div>
   );
@@ -139,6 +146,12 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [restored, setRestored] = useState<ReadonlySet<string>>(new Set());
   const [kept, setKept] = useState<{ n: number; time: string; changed: string[] } | null>(null);
   const [askSignOut, setAskSignOut] = useState(false);
+  // 01a-D10 from the More menu.
+  const [askCloseDay, setAskCloseDay] = useState(false);
+  // 01c-B02 (brief Q17): a save or Add refused 404 STOCK_ITEM_NOT_FOUND; nothing was saved. Reload is the one
+  // primary and Save waits for it.
+  const [changedInSetup, setChangedInSetup] = useState(false);
+  const phone = usePhone();
   const [focus, setFocus] = useState<{ id: string } | null>(null);
   const versions = useRef<StockVersions | undefined>(undefined);
   const noDayBanner = useRef<HTMLDivElement>(null);
@@ -317,9 +330,9 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
         setMessage(errorMessage(failure));
         await refresh();
       } else if (failure.kind === 'api' && failure.code === 'STOCK_ITEM_NOT_FOUND') {
-        // 01c §6.18: the stock item is no longer counted here.
-        const gone = rows.find((r) => r.meta.stock_item_id === failure?.details['stock_item_id'])?.meta.name ?? '';
-        setMessage({ tone: 'info', text: fill(t('admin_stock.not_counted_now'), { name: gone }) });
+        // 01c §6.18: the stock item is no longer counted here; nothing was written for any entry. The rows
+        // are read again at once; the banner stays until Reload (01c-B02).
+        setChangedInSetup(true);
         await refresh();
       } else setMessage(errorMessage(failure));
       return;
@@ -361,6 +374,9 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       else if (dayNotOpen(answer.error)) {
         if (counter) askForStarter();
         else setBlocked({ kind: 'add', stockItemId, quantity });
+      } else if (answer.error.kind === 'api' && answer.error.code === 'STOCK_ITEM_NOT_FOUND') {
+        setChangedInSetup(true);
+        await refresh();
       } else {
         setMessage(errorMessage(answer.error));
         if (outsideScope(answer.error)) await refresh();
@@ -447,6 +463,13 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     await refresh();
   };
 
+  // 01c-B02: Reload reads the rows again and lets Save go; the typed counts of the rows still here stay.
+  const reloadAfterChange = async () => {
+    setChangedInSetup(false);
+    setMessage(null);
+    await refresh();
+  };
+
   const discardKept = () => {
     setDrafts(new Map());
     bases.current.clear();
@@ -468,6 +491,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const countedToday = rows.filter((r) => !toCount(r, startedAt)).length;
   const name = api.adminName();
 
+  const progress = rows.length === 0 ? 0 : countedToday / rows.length;
   const info = offline ? (
     <>
       <strong>{fill(t('admin_stock.waiting'), { n: String(touched) })}</strong>
@@ -486,37 +510,76 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   ) : (
     <>
       <strong>{fill(t('admin_stock.counted_n'), { n: String(countedToday), m: String(rows.length) })}</strong>
-      <span>{t('admin_stock.save_help')}</span>
+      {!phone && <progress className="pos-progress" max={1} value={progress} aria-hidden="true" />}
     </>
+  );
+  // The bar's help line (01c-B02 "Count the pot once…"); the other states carry their own second line.
+  const note = !offline && !(kept !== null && restored.size > 0) && savedLine === null;
+
+  const canCloseDay = clock !== null && !counter && day !== null && day.closed_at === null;
+  const signOutNow = () => (touched > 0 ? setAskSignOut(true) : void signOut('none'));
+  const moreItems: MoreMenuItem[] = [
+    ...(canCloseDay ? [{ label: t('admin_stock.day.close'), icon: 'archive' as const, danger: true, disabled: dayBusy, onSelect: () => setAskCloseDay(true) }] : []),
+    ...(phone ? [{ label: t('admin_stock.sign_out'), icon: 'logout' as const, onSelect: signOutNow }] : []),
+  ];
+  const [whoBefore, whoAfter] = t('admin_stock.signed_in_as').split('{name}');
+
+  // 01c-B02 (Q17): the 404 banner with Reload; on a tablet it stays under the app bar while the rows scroll.
+  const changedBanner = changedInSetup && (
+    <div className="pos-banner pos-banner--warn" role="status" data-changed-in-setup="">
+      <Icon name="reload" />
+      <p>
+        {t('admin_stock.changed_in_setup')}
+        <small>{t('admin_stock.nothing_saved')}</small>
+      </p>
+      <div className="pos-banner__action pos-row">
+        <button type="button" className="pos-btn pos-btn--primary" onClick={() => void reloadAfterChange()}>
+          <Icon name="reload" />
+          {t('admin_stock.reload')}
+        </button>
+      </div>
+    </div>
   );
 
   return (
     <Shell branchId={branchId}>
       <AppBar
         title={t('admin_stock.title')}
+        phone={phone}
         after={
           <>
             {clock !== null && <DayChip day={day} clock={clock} staleAfterHours={staleAfterHours} />}
-            {status !== null && <ConfigChip status={status} clock={clock} />}
+            {/* B10: the chip stays in the app bar only while the menu has a problem; else it heads More. */}
+            {status !== null && status.last_problem !== null && <ConfigChip status={status} clock={clock} />}
           </>
         }
       >
-        {name !== null && <span className={typeClass('body')}>{fill(t('admin_stock.signed_in_as'), { name })}</span>}
-        <button type="button" className="pos-btn" onClick={() => (touched > 0 ? setAskSignOut(true) : void signOut('none'))}>
-          {t('admin_stock.sign_out')}
-        </button>
-        {clock !== null && !counter && day !== null && day.closed_at === null && (
-          <CloseDayButton
-            day={day}
-            clock={clock}
-            busy={dayBusy}
-            keepsOvernight={rows.filter((r) => r.meta.carries_over).map((r) => r.meta.name)}
-            switchedOff={page.all.filter((r) => !r.item.is_available).map((r) => r.meta.name)}
-            onClose={() => void closeDay()}
+        {name !== null && (
+          <span className="pos-who">
+            <span className="pos-avatar" aria-hidden="true">
+              {avatarText(name)}
+            </span>
+            {whoBefore !== undefined && whoBefore !== '' && <span className="pos-vh">{whoBefore}</span>}
+            {name}
+            {whoAfter !== undefined && whoAfter !== '' && <span className="pos-vh">{whoAfter}</span>}
+          </span>
+        )}
+        {!phone && (
+          <button type="button" className="pos-btn" onClick={signOutNow}>
+            {t('admin_stock.sign_out')}
+          </button>
+        )}
+        {(status !== null || moreItems.length > 0) && (
+          <MoreMenu
+            label={t('admin_stock.more')}
+            head={status === null ? undefined : <MenuStatus status={status} clock={clock} />}
+            items={moreItems}
           />
         )}
       </AppBar>
+      {!phone && changedBanner && <div className="pos-banners">{changedBanner}</div>}
       <main className="pos-content" data-view="stock">
+        {phone && changedBanner}
         {counter && (
           <div className="pos-explain" data-counter-note="">
             <Icon name="clipboard" />
@@ -530,21 +593,32 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           </div>
         )}
         {status !== null && <ConfigProblem status={status} />}
-        {offline && <Banner tone="warn" text={t('admin_stock.reconnecting')} detail={t('admin_stock.reconnecting_body')} />}
+        {offline && (
+          <div className="pos-banner pos-banner--warn pos-banner--pulse" role="status">
+            <Icon name="sync" />
+            <p>
+              {t('admin_stock.reconnecting')}
+              <small>{t('admin_stock.reconnecting_body')}</small>
+            </p>
+          </div>
+        )}
         {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
         {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} />}
         {kept !== null && (
-          <div className="pos-callout" data-kept="">
-            <div className="pos-callout__text">
-              <h2>{fill(t('admin_stock.kept.title'), { n: String(kept.n), time: kept.time })}</h2>
-              <p>
+          <div className="pos-banner pos-banner--ok" role="status" data-kept="">
+            <Icon name="check" />
+            <p>
+              {fill(t('admin_stock.kept.title'), { n: String(kept.n), time: kept.time })}
+              <small>
                 {t('admin_stock.kept.body')}
                 {kept.changed.length > 0 && ` ${fill(t('admin_stock.kept.changed'), { items: kept.changed.join(', ') })}`}
-              </p>
+              </small>
+            </p>
+            <div className="pos-banner__action pos-row">
+              <button type="button" className="pos-btn" onClick={discardKept}>
+                {t('admin_stock.kept.discard')}
+              </button>
             </div>
-            <button type="button" className="pos-btn" onClick={discardKept}>
-              {t('admin_stock.kept.discard')}
-            </button>
           </div>
         )}
         {clock !== null && !counter && stale && !keepOpen && day !== null && (
@@ -561,7 +635,10 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           <StartDay place="retry" busy={dayBusy} primary waiting={touched} onStart={() => void startDay()} />
         )}
         {!noDay && carriedOpen.length > 0 && (
-          <section className="pos-callout pos-callout--accent" data-carry="">
+          <section className="pos-callout" data-carry="">
+            <div className="pos-callout__icon">
+              <Icon name="check" />
+            </div>
             <div className="pos-callout__text">
               <h2>
                 {carriedOpen.length === 1
@@ -570,12 +647,14 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
               </h2>
               <p>{t('admin_stock.carry.body')}</p>
             </div>
-            <BusyButton busy={saving} onClick={() => void confirmAll()}>
-              {fill(t('admin_stock.carry.all'), { n: String(carriedOpen.length) })}
-            </BusyButton>
+            <div className="pos-callout__actions">
+              <BusyButton busy={saving} onClick={() => void confirmAll()}>
+                <Icon name="check" />
+                {fill(t('admin_stock.carry.all'), { n: String(carriedOpen.length) })}
+              </BusyButton>
+            </div>
           </section>
         )}
-        <AlertBar rows={rows} onPick={(id) => setFocus({ id })} />
         {clock !== null && (
           <StockTable
             rows={rows}
@@ -593,25 +672,43 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
             itemNotes={itemNotes}
             restored={restored}
             focusId={focus}
+            alerts={<AlertBar rows={rows} onPick={(id) => setFocus({ id })} />}
           />
         )}
       </main>
-      <ActionBar info={info}>
-        {kept !== null && restored.size > 0 && (
-          <button type="button" className="pos-btn" onClick={discardKept}>
-            {t('admin_stock.kept.discard')}
-          </button>
-        )}
-        {blocked === null && (
-          <span data-save="">
-            <BusyButton primary={!noDay} busy={saving} onClick={() => void save()}>
-              {touched === 0
-                ? t('admin_stock.save')
-                : fill(t(touched === 1 ? 'admin_stock.save_one' : 'admin_stock.save_n'), { n: String(touched) })}
-            </BusyButton>
-          </span>
-        )}
-      </ActionBar>
+      <footer className="pos-actionbar">
+        <div className="pos-actionbar__info">{info}</div>
+        {note && !phone && <span className="pos-note">{t('admin_stock.bar_note')}</span>}
+        <div className="pos-actionbar__end">
+          {kept !== null && restored.size > 0 && (
+            <button type="button" className="pos-btn" onClick={discardKept}>
+              {t('admin_stock.kept.discard')}
+            </button>
+          )}
+          {blocked === null && (
+            <span data-save="">
+              <BusyButton primary={!noDay && !changedInSetup} disabled={changedInSetup} size="lg" busy={saving} onClick={() => void save()}>
+                {touched === 0
+                  ? t('admin_stock.save')
+                  : fill(t(touched === 1 ? 'admin_stock.save_one' : 'admin_stock.save_n'), { n: String(touched) })}
+              </BusyButton>
+            </span>
+          )}
+        </div>
+      </footer>
+      {askCloseDay && day !== null && clock !== null && (
+        <CloseDayDialog
+          day={day}
+          clock={clock}
+          keepsOvernight={rows.filter((r) => r.meta.carries_over).map((r) => r.meta.name)}
+          switchedOff={page.all.filter((r) => !r.item.is_available).map((r) => r.meta.name)}
+          onCancel={() => setAskCloseDay(false)}
+          onClose={() => {
+            setAskCloseDay(false);
+            void closeDay();
+          }}
+        />
+      )}
       {askSignOut && (
         <Dialog
           title={fill(t('admin_stock.sign_out_ask'), { n: String(touched) })}

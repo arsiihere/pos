@@ -1,5 +1,6 @@
 import { fill } from '../i18n/en';
 import { t } from '../i18n';
+import { Icon } from './Icon';
 
 // S35 i: UI kit staff tiles (the admin roster, 02's staff login). Data and callbacks only.
 // S54 d: the roster sends `locked_until` only while the hub holds a lock, so any value means locked
@@ -9,6 +10,8 @@ export interface StaffTile {
   staff_id: string;
   display_name: string;
   locked_until?: number | null;
+  // The line under the name when not locked (the roster's role names, 01a-S10 StockPin).
+  sub?: string;
 }
 
 export function StaffTiles({
@@ -37,8 +40,13 @@ export function StaffTiles({
             onClick={() => onPick(s.staff_id)}
           >
             {s.display_name}
-            {locked && (
-              <small>{left > 0 ? fill(t('staff.locked_for'), { n: String(Math.ceil(left / 60_000)) }) : t('staff.locked')}</small>
+            {locked ? (
+              <small>
+                <Icon name="lock" />
+                {left > 0 ? fill(t('staff.locked_for'), { n: String(Math.ceil(left / 60_000)) }) : t('staff.locked')}
+              </small>
+            ) : (
+              s.sub !== undefined && s.sub !== '' && <small>{s.sub}</small>
             )}
           </button>
         );

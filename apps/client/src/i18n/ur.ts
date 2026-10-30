@@ -224,6 +224,16 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.manage-stock': 'اسٹاک گننا اور آئٹم بند کرنا',
   // 01c task 20: stock page per stock item (§8)
   'admin_stock.badge.unused': 'یہاں کسی ڈش میں استعمال نہیں',
+  // Pulse 01a hand-off CHANGES §3 (stock page), 01c-B02 — Urdu draft — needs native review
+  'admin_stock.more': 'مزید: مینیو کی حالت اور دن بند کریں',
+  'admin_stock.menu_ok': 'مینیو تازہ ہے',
+  'admin_stock.left_hint': '{n} بیچنے کو باقی، {m} آرڈرز پر',
+  'admin_stock.left': 'باقی',
+  'admin_stock.col.stock_item': 'اسٹاک آئٹم · ڈشیں',
+  'admin_stock.bar_note': 'دیگ ایک بار گنیں۔ ہر ڈش دکھاتی ہے کہ ابھی کتنی فروخت باقی ہے۔',
+  'admin_stock.changed_in_setup': 'سیٹ اپ میں ایک اسٹاک آئٹم بدل گیا۔ یہ صفحہ دوبارہ لوڈ کریں اور پھر سے گنیں۔',
+  'admin_stock.nothing_saved': 'کچھ محفوظ نہیں ہوا۔',
+  'admin_stock.reload': 'دوبارہ لوڈ کریں',
   // Pulse 01a hand-off CHANGES §3 — Urdu draft — needs native review
   'common.more_for': '{name} کے مزید اختیارات',
   'owner.nav.close': 'سائیڈ مینیو بند کریں',

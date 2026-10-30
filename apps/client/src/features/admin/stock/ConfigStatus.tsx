@@ -2,6 +2,7 @@ import type { HubConfigStatus } from '@pos/events';
 import type { HubClock } from '../../../app/hub-clock';
 import { Banner } from '../../../components/Banner';
 import { Chip } from '../../../components/Chip';
+import { Icon } from '../../../components/Icon';
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 
@@ -42,7 +43,7 @@ export function ConfigChip({ status, clock }: { status: HubConfigStatus; clock: 
   const offline = status.last_poll?.outcome === 'offline';
   return (
     <span data-status-line="">
-      <Chip tone={problem ? 'warn' : offline ? 'info' : 'ok'}>{statusLine(status, clock)}</Chip>
+      <Chip tone={problem ? 'warn' : offline ? 'info' : 'ok'} icon={problem ? 'alert' : undefined}>{statusLine(status, clock)}</Chip>
     </span>
   );
 }
@@ -50,6 +51,32 @@ export function ConfigChip({ status, clock }: { status: HubConfigStatus; clock: 
 export function ConfigProblem({ status }: { status: HubConfigStatus }) {
   const problem = problemText(status);
   return problem === null ? null : <Banner tone="danger" text={problem} detail={t('admin_stock.problem.body')} />;
+}
+
+// 01a hand-off StockMore: the status line heads the app bar's More menu; "Menu up to date" over the line
+// while the hub runs a menu version and its last poll went through, otherwise the line alone (warn while
+// last_problem is set, info while offline or waiting).
+export function MenuStatus({ status, clock }: { status: HubConfigStatus; clock: HubClock | null }) {
+  const problem = status.last_problem !== null;
+  const outcome = status.last_poll?.outcome;
+  const upToDate = !problem && status.config_version !== null && outcome !== 'offline' && outcome !== 'not_ready';
+  const line = statusLine(status, clock);
+  const tone = upToDate ? '' : problem ? ' pos-menu__status--warn' : ' pos-menu__status--info';
+  return (
+    <div className={`pos-menu__status${tone}`}>
+      <Icon name={upToDate ? 'check' : problem ? 'alert' : 'sync'} />
+      <div>
+        {upToDate ? (
+          <>
+            <b>{t('admin_stock.menu_ok')}</b>
+            <span data-status-line="">{line}</span>
+          </>
+        ) : (
+          <b data-status-line="">{line}</b>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // The chip and the banner together (the stock view places them apart).

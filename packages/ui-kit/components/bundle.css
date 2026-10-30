@@ -1929,3 +1929,150 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-staffform__bar .pos-actionbar__end > .pos-btn { flex: 1; }
   .pos-staffform__bar .pos-actionbar__end > .pos-btn:last-child { flex: 2; }
 }
+
+/* ---------- Pulse page layout · 01a-D stock page ---------- */
+/* Text for screen readers only ("Signed in as", "Still right" beside its tick). */
+.pos-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Tablet (1280+): the hub admin shell fits the screen; app bar, filters and the Save bar stay, the rows scroll (Main, HubStock). */
+.pos-shell__main > .pos-appbar, .pos-shell__main > .pos-banners, .pos-shell__main > .pos-actionbar { flex: none; }
+.pos-shell .pos-appbar .pos-who { color: var(--ink); }
+.pos-shell__main:has(> .pos-content[data-view="stock"]) > .pos-appbar { flex-wrap: nowrap; }
+.pos-shell__main:has(> .pos-content[data-view="stock"]) > .pos-appbar :is(.pos-chip, [data-status-line]) { min-width: 0; white-space: normal; }
+.pos-shell__main:has(> .pos-content[data-view="stock"]) > .pos-appbar > .pos-appbar__end { flex: none; flex-wrap: nowrap; }
+.pos-who > .pos-avatar { flex: none; }
+.pos-content[data-view="stock"] { gap: var(--space-4); }
+.pos-content[data-view="stock"] > * { flex-shrink: 0; }
+.pos-stock { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-stock__bar { position: sticky; top: calc(-1 * var(--space-6)); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-block: calc(-1 * var(--space-2)); padding-block: var(--space-2); background: var(--surface); }
+.pos-stock__find { display: flex; align-items: stretch; gap: var(--space-3); }
+.pos-stock__find > .pos-input-affix { width: 240px; }
+.pos-stock__find > .pos-select { width: 188px; }
+/* Columns: Stock item · dishes | Count now | Left to sell | Fresh batch (field + Add) | Selling */
+.pos-stock .pos-list--stock .pos-list__head, .pos-stock .pos-list--stock .pos-list__row { grid-template-columns: minmax(0, 1fr) 214px 120px 184px 112px; }
+.pos-stock .pos-list__row[tabindex="-1"]:focus { outline: none; }
+.pos-stock .pos-list__row:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.pos-stock .pos-list__tags { align-items: center; }
+.pos-stock .pos-list__tags .pos-list__meta { font: 500 14px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-stock .pos-count__same .pos-icon { width: 22px; height: 22px; }
+.pos-stock__add { display: flex; align-items: center; gap: var(--space-2); }
+.pos-stock__add .pos-count .pos-input { width: 76px; }
+.pos-stock__add > .pos-btn { flex: none; padding-inline: var(--space-4); }
+/* Left to sell: number, unit in small type; with on orders, an info button whose tooltip says so (Main). */
+.pos-stock__left { display: inline-flex; align-items: baseline; gap: var(--space-1); }
+.pos-stock__left > small, .pos-numbtn > small { font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-stock .pos-list__num small { margin-inline-start: 0; }
+.pos-numhint { position: relative; display: inline-flex; }
+.pos-numbtn { gap: var(--space-1); color: var(--ink); }
+.pos-numhint__tip { position: absolute; z-index: 3; inset-block-end: calc(100% + var(--space-1)); inset-inline-start: 0; display: none; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--ink); color: var(--surface-raised); font: 600 14px/20px var(--font-sans); white-space: nowrap; box-shadow: var(--shadow-pop); }
+.pos-numhint:hover > .pos-numhint__tip, .pos-numbtn:focus-visible + .pos-numhint__tip, .pos-numbtn:active + .pos-numhint__tip { display: block; }
+.pos-list:has(.pos-numhint) { overflow: visible; }
+.pos-list:has(.pos-numhint) > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
+.pos-list:has(.pos-numhint) > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
+/* Dish rows under their stock item (01c-B02 HubStock): smaller number, "left" beside it. */
+.pos-list--stock .pos-list__row--dish .pos-list__num { font-size: 18px; line-height: 24px; }
+.pos-list--stock .pos-list__row--dish .pos-list__tags { margin-top: var(--space-1); }
+/* Action bar: count + progress, the help note, Save at the end (Main, HubStock). */
+.pos-actionbar > .pos-note { font: 400 15px/20px var(--font-sans); }
+progress.pos-progress { appearance: none; display: block; border: 0; height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
+progress.pos-progress::-webkit-progress-bar { background: var(--surface-sunken); }
+progress.pos-progress::-webkit-progress-value { background: var(--accent); }
+progress.pos-progress::-moz-progress-bar { background: var(--accent); }
+/* More menu head: menu status line (StockMore); warn / info while the menu is not up to date. */
+.pos-menu__status--warn .pos-icon, .pos-menu__status--warn b { color: var(--warn); }
+.pos-menu__status--info .pos-icon, .pos-menu__status--info b { color: var(--info); }
+.pos-menu:has(> .pos-menu__status) { min-width: 300px; }
+/* Close day summary (StockCloseDay): label and value per row. */
+.pos-list--pairs { border-radius: var(--radius-md); }
+.pos-list--pairs .pos-list__row { grid-template-columns: minmax(0, 1fr) auto; }
+.pos-list--pairs .pos-list__row > span { font: 400 16px/22px var(--font-sans); color: var(--ink-muted); }
+.pos-list--pairs .pos-list__row > strong { font: 700 16px/22px var(--font-sans); text-align: end; }
+/* Sign-in (StockPin*): names on the start side, the PIN card 420 wide on the end side. */
+.pos-signin { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 48px; align-content: start; align-items: start; padding: 40px 64px; }
+.pos-signin__who { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.pos-signin__who .pos-section__head h2 { margin: 0; font: 700 28px/34px var(--font-sans); }
+.pos-signin__who .pos-section__head p { margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted); }
+.pos-signin .pos-staff { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pos-staff__tile small .pos-icon { width: 18px; height: 18px; }
+.pos-signin__pad { display: flex; flex-direction: column; align-items: center; gap: var(--space-5); padding: var(--space-8); }
+.pos-signin__pad > .pos-banner { width: 100%; }
+.pos-signin__for { text-align: center; }
+.pos-signin__for p { margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted); }
+.pos-signin__for strong { display: block; font: 700 26px/32px var(--font-sans); }
+.pos-signin__retry { justify-content: center; }
+.pos-page:not(.pos-page--fit) > .pos-screen { flex: 1; }
+/* Add a fresh batch sheet (StockAddSheet) */
+.pos-sheet__title { margin: 0; font: 700 24px/30px var(--font-sans); }
+.pos-sheet__sub { margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted); }
+.pos-sheet__qty > .pos-input { flex: 1; width: auto; min-height: 64px; font-size: 28px; text-align: end; }
+.pos-sheet__qty > .pos-count__unit { align-self: stretch; display: grid; place-items: center; margin: 0; padding: 0 var(--space-3); }
+[lang="ur"] :is(.pos-sheet__title, .pos-sheet__sub, .pos-signin__for p, .pos-signin__for strong, .pos-signin__who .pos-section__head h2, .pos-signin__who .pos-section__head p, .pos-numhint__tip, .pos-stock__left > small) { font-family: var(--font-urdu); line-height: 1.9; }
+/* Phone (StockPhone, HubStockPhone): one card per stock item, its dishes under it; 16 px gutters. */
+@media (max-width: 760px) {
+  .pos-page--stock > .pos-content { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+  .pos-page--stock > .pos-actionbar { padding: var(--space-3) var(--space-4); flex-wrap: nowrap; }
+  .pos-page--stock > .pos-actionbar .pos-actionbar__info { min-width: 0; }
+  .pos-page--stock .pos-appbar--phone .pos-appbar__end { gap: var(--space-2); }
+  .pos-page--stock .pos-appbar--phone .pos-who { display: none; }
+  .pos-stock { gap: var(--space-3); }
+  .pos-stock__bar { position: static; margin: 0; padding: 0; flex-direction: column; align-items: stretch; gap: var(--space-3); }
+  .pos-stock__bar > .pos-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pos-stock__bar > .pos-seg .pos-seg__opt { justify-content: center; padding-inline: var(--space-2); }
+  .pos-page--stock .pos-appbar--phone { flex-wrap: nowrap; }
+  .pos-page--stock .pos-appbar--phone > .pos-chip { min-width: 0; white-space: normal; padding-block: var(--space-1); }
+  .pos-stock__find { flex-direction: column; }
+  .pos-stock__find > .pos-input-affix, .pos-stock__find > .pos-select { width: 100%; }
+  .pos-stock__cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+  .pos-pcard.is-touched { background: var(--accent-tint); }
+  .pos-pcard:focus { outline: none; }
+  .pos-pcard__count { display: flex; align-items: stretch; gap: var(--space-2); }
+  .pos-pcard__count > .pos-count { flex: 1; min-width: 0; }
+  .pos-pcard__count > .pos-count .pos-input { flex: 1; width: auto; min-width: 0; }
+  .pos-pcard__count > .pos-btn { flex: none; }
+  .pos-pcard__dish { padding-top: var(--space-1); border-top: 1px solid var(--line); }
+  .pos-pcard__dish .pos-list__name strong { font-size: 16px; }
+  .pos-pcard .pos-stock__left .pos-list__num, .pos-pcard .pos-stock__left > small { font: 500 15px/20px var(--font-sans); color: var(--ink-muted); }
+  .pos-signin { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); padding: var(--space-4); }
+  .pos-signin .pos-staff { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pos-signin__pad { padding: var(--space-6) var(--space-4); }
+}
+
+/* ---------- Pulse page layout · 01b-A staff list and staff form ---------- */
+/* Staff list (Main, StaffLoading, StaffEmpty): search 300 + branch 220 at the start, status at the end. */
+.pos-row--apart { justify-content: space-between; }
+.pos-staff__bar { justify-content: space-between; }
+.pos-staff__search { width: 300px; }
+.pos-staff__branch { width: 220px; }
+.pos-staff__empty-body { margin: 0; max-width: 56ch; }
+.pos-staff__loading > .pos-skeleton:nth-child(2) { width: 70%; height: 28px; }
+.pos-staff__loading > .pos-skeleton:nth-child(3) { width: 50%; height: 18px; }
+.pos-staff__loading > .pos-skeleton:nth-child(4) { width: 80px; height: 28px; }
+.pos-staff__loading .pos-list__acts > .pos-skeleton { width: 120px; height: 48px; }
+.pos-staff__loading .pos-list__acts > .pos-skeleton + .pos-skeleton { width: 72px; }
+.pos-list--staff .pos-list__acts { justify-content: flex-end; gap: var(--space-2); }
+/* Not found (StaffNotFound). */
+.pos-staff__gone { flex: 1; }
+/* Phone (StaffPhoneList, StaffPhone): 12 px rhythm, 16 px gutters, the name block is the person's link. */
+.pos-staff__bar--phone, .pos-staff__filters { display: flex; flex-direction: column; gap: var(--space-3); }
+.pos-staff__bar--phone .pos-staff__search, .pos-staff__bar--phone .pos-staff__branch { width: 100%; }
+.pos-staff__bar--phone .pos-seg__opt { white-space: nowrap; }
+.pos-staff__link { display: flex; flex-direction: column; color: inherit; text-decoration: none; }
+.pos-list--staff-phone .pos-list__row { cursor: pointer; }
+.pos-appbar--phone ~ .pos-content:has(.pos-staff__bar--phone, .pos-list--staff-phone, .pos-staffform) { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+
+/* Staff form (StaffForm, StaffFormImran, StaffFormMore): sections 16 apart, C02 card 380 wide, sticky in its column. */
+.pos-split.pos-staffform { grid-template-columns: minmax(0, 1fr) 380px; }
+.pos-staffform__main { gap: var(--space-4); }
+.pos-cando { display: flex; flex-direction: column; gap: var(--space-3); align-self: start; position: sticky; top: 0; }
+.pos-cando__body { display: flex; flex-direction: column; gap: var(--space-3); }
+.pos-cando__body > .caption, .pos-cando__body > .ur-body { margin: 0; color: var(--ink-muted); }
+.pos-group__body { display: flex; flex-direction: column; gap: var(--space-2); }
+@media (max-width: 760px) {
+  .pos-split.pos-staffform { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .pos-staffform__main { gap: var(--space-3); }
+  .pos-staffform > .pos-cando { order: -1; position: static; }
+  .pos-staffform__bar { display: contents; }
+  .pos-staffform__bar .pos-actionbar { padding: var(--space-3) var(--space-4); flex-wrap: nowrap; margin-inline: calc(-1 * var(--space-4)); margin-block-end: calc(-1 * var(--space-3)); }
+  .pos-staffform__bar .pos-actionbar__end { flex: 1; display: flex; gap: var(--space-3); }
+  .pos-staffform__bar .pos-actionbar__end > .pos-btn { flex: 1; }
+  .pos-staffform__bar .pos-actionbar__end > .pos-btn:last-child { flex: 2; }
+}

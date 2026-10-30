@@ -1,10 +1,11 @@
-import { formatQuantity } from '@pos/domain';
+import { formatQuantity, type Unit } from '@pos/domain';
 import { saleUnitsAvailable } from '@pos/engine';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { hubTimeText, type HubClock } from '../../../app/hub-clock';
 import { usePhone } from '../../../app/phone';
 import { Chip, type ChipTone } from '../../../components/Chip';
 import { EmptyState } from '../../../components/EmptyState';
+import { Icon } from '../../../components/Icon';
 import { List, ListRow } from '../../../components/List';
 import { QuantityInput } from '../../../components/QuantityInput';
 import { Segmented } from '../../../components/Segmented';
@@ -53,6 +54,27 @@ export interface RowNote {
 
 const UNIT_WORD = { piece: 'admin_stock.unit.piece', g: 'admin_stock.unit.g', ml: 'admin_stock.unit.ml' } as const;
 
+// A quantity with its unit word for a sentence: "3 kg", "8 pcs".
+function withUnit(value: number, unit: Unit): string {
+  const text = formatQuantity(value, unit);
+  return unit === 'piece' ? `${text} ${t('quantity.pcs')}` : text;
+}
+
+// A formatted quantity as the frames draw it: the number, then the unit in small type. `.pos-list__num` keeps
+// formatQuantity's text ("2.6 kg", "8"); a piece count gets "pcs" beside it unless `bare` (a dish's "12 left").
+function Qty({ text, unit, bare = false }: { text: string; unit: Unit; bare?: boolean }) {
+  const space = text.indexOf(' ');
+  return (
+    <>
+      <span className="pos-list__num">
+        {space < 0 ? text : text.slice(0, space)}
+        {space >= 0 && <small>{text.slice(space)}</small>}
+      </span>
+      {unit === 'piece' && !bare && <small>{t('quantity.pcs')}</small>}
+    </>
+  );
+}
+
 export function StockTable({
   rows,
   items = [],
@@ -69,6 +91,7 @@ export function StockTable({
   itemNotes = new Map(),
   restored = new Set(),
   focusId = null,
+  alerts = null,
 }: {
   // 01c §8: the stock item rows (keyed by stock_item_id) and the menu items no stock row lists.
   rows: readonly StockRow[];
@@ -88,6 +111,8 @@ export function StockTable({
   itemNotes?: ReadonlyMap<string, RowNote>;
   restored?: ReadonlySet<string>;
   focusId?: { id: string } | null;
+  // B14: the low / out chips, shown between the filters and the rows (01a hand-off Main).
+  alerts?: ReactNode;
 }) {
   const phone = usePhone();
   const [query, setQuery] = useState('');
@@ -146,23 +171,22 @@ export function StockTable({
   // The chips a menu item's row carries: its hours or Off badge, sold out at 0, a failed switch.
   const itemChips = (row: ItemRow) => {
     const note = itemNotes.get(row.meta.item_id);
-    return (
-      <>
-        {itemBadges(row, startedAt, clock).map((b) => (
-          <Chip key={b.kind} tone={b.tone}>
-            {b.text}
-          </Chip>
-        ))}
-        {row.meta.out_of_stock_behaviour === 'sold_out' && <Chip>{t('admin_stock.sold_out_when_0')}</Chip>}
-        {note !== undefined && <Chip tone={note.tone}>{note.text}</Chip>}
-      </>
-    );
+    return [
+      ...itemBadges(row, startedAt, clock).map((b) => (
+        <Chip key={b.kind} tone={b.tone}>
+          {b.text}
+        </Chip>
+      )),
+      ...(row.meta.out_of_stock_behaviour === 'sold_out' ? [<Chip key="sold_out">{t('admin_stock.sold_out_when_0')}</Chip>] : []),
+      ...(note !== undefined ? [<Chip key="note" tone={note.tone}>{note.text}</Chip>] : []),
+    ];
   };
+  const tags = (chips: ReactNode[]) => (chips.length === 0 ? null : <div className="pos-list__tags">{chips}</div>);
 
-  const stockRow = (row: StockRow) => {
-    const { meta, stock } = row;
-    const id = meta.stock_item_id;
-    const value = drafts.has(id) ? (drafts.get(id) ?? null) : shownOnHand(row);
+  // The chips a stock row carries: level, not counted / not used here, kept counts, a note, when it was counted.
+  const stockChips = (row: StockRow) => {
+    const { stock } = row;
+    const id = row.meta.stock_item_id;
     const note = notes.get(id);
     const counted =
       stock.set_at === null
@@ -170,64 +194,98 @@ export function StockTable({
         : fill(t(startedAt !== null && stock.set_at < startedAt ? 'admin_stock.counted_last_night' : 'admin_stock.set_at'), {
             time: hubTimeText(stock.set_at, clock.utcOffsetMs),
           });
-    const sub = [t(UNIT_WORD[meta.stock_unit]), meta.carries_over ? t('admin_stock.keeps_overnight') : null].filter((p) => p !== null).join(' · ');
+    return [
+      ...(stock.level === 'low' ? [<Chip key="low" tone="warn" icon="alert">{t('admin_stock.badge.low')}</Chip>] : []),
+      ...(stock.level === 'out' ? [<Chip key="out" tone="danger" icon="x">{t('admin_stock.badge.out')}</Chip>] : []),
+      ...stockBadges(row).map((b) => (
+        <Chip key={b.kind} tone={b.tone} icon={b.kind === 'unused' ? 'info' : 'clock'}>
+          {b.text}
+        </Chip>
+      )),
+      ...(restored.has(id) ? [<Chip key="kept" tone="warn">{t('admin_stock.kept.not_saved_yet')}</Chip>] : []),
+      ...(note !== undefined ? [<Chip key="note" tone={note.tone}>{note.text}</Chip>] : []),
+      ...(counted !== null && !restored.has(id) ? [<small key="counted" className="pos-list__meta pos-ltr">{counted}</small>] : []),
+    ];
+  };
+
+  // Count now: the input in the stock unit and Still right (shown once there is a count to confirm).
+  const countField = (row: StockRow) => {
+    const id = row.meta.stock_item_id;
+    const value = drafts.has(id) ? (drafts.get(id) ?? null) : shownOnHand(row);
     return (
-      <ListRow key={`stock:${id}`} touched={drafts.has(id)} attrs={{ 'data-stock-item-id': id, tabIndex: -1 }}>
-        <span className="pos-list__name">
-          <strong>{meta.name}</strong>
-          <span>{sub}</span>
-          <span className="pos-row">
-            {stock.level === 'low' && <Chip tone="warn">{t('admin_stock.badge.low')}</Chip>}
-            {stock.level === 'out' && <Chip tone="danger">{t('admin_stock.badge.out')}</Chip>}
-            {stockBadges(row).map((b) => (
-              <Chip key={b.kind} tone={b.tone}>
-                {b.text}
-              </Chip>
-            ))}
-            {restored.has(id) && <Chip tone="info">{t('admin_stock.kept.not_saved_yet')}</Chip>}
-            {note !== undefined && <Chip tone={note.tone}>{note.text}</Chip>}
-            {counted !== null && !restored.has(id) && <small className="pos-ltr">{counted}</small>}
-          </span>
-        </span>
-        <div className="pos-count pos-ltr" data-field="on_hand">
-          <QuantityInput compact unit={meta.stock_unit} value={value} onChange={(v) => onEdit(id, v)} label={t('admin_stock.on_hand')} />
+      <div className="pos-count pos-ltr" data-field="on_hand">
+        <QuantityInput
+          compact
+          unit={row.meta.stock_unit}
+          value={value}
+          onChange={(v) => onEdit(id, v)}
+          label={`${row.meta.name}: ${t('admin_stock.on_hand')}`}
+        />
+        {shownOnHand(row) !== null && (
           <button
             type="button"
             className="pos-count__same"
             aria-pressed={drafts.has(id) && drafts.get(id) === shownOnHand(row)}
-            disabled={shownOnHand(row) === null}
             onClick={() => onConfirm(id)}
           >
-            {t('admin_stock.confirm')}
+            <Icon name="check" />
+            <span className="pos-vh">{t('admin_stock.confirm')}</span>
           </button>
+        )}
+      </div>
+    );
+  };
+
+  const addButton = (onClick: () => void, disabled = false) => (
+    <button type="button" className="pos-btn" disabled={disabled} onClick={onClick}>
+      <Icon name="plus" />
+      {t('admin_stock.add')}
+    </button>
+  );
+
+  const stockRow = (row: StockRow) => {
+    const { meta, stock } = row;
+    const id = meta.stock_item_id;
+    const sub = [t(UNIT_WORD[meta.stock_unit]), meta.carries_over ? t('admin_stock.keeps_overnight') : null].filter((p) => p !== null).join(' · ');
+    const left = formatQuantity(stock.available, meta.stock_unit);
+    const hint = fill(t('admin_stock.left_hint'), { n: withUnit(stock.available, meta.stock_unit), m: withUnit(stock.reserved, meta.stock_unit) });
+    return (
+      <ListRow key={`stock:${id}`} touched={drafts.has(id)} attrs={{ 'data-stock-item-id': id, tabIndex: -1 }}>
+        <div className="pos-list__name">
+          <strong>{meta.name}</strong>
+          <span>{sub}</span>
+          {tags(stockChips(row))}
         </div>
-        <span className="pos-stack">
-          {/* The column head says Left to sell; a phone row has no head, so it says it itself. */}
-          {phone && <small>{t('admin_stock.available_label')}</small>}
-          <span className="pos-list__num pos-ltr">{formatQuantity(stock.available, meta.stock_unit)}</span>
-          <small className="pos-ltr">{fill(t('admin_stock.on_orders'), { n: formatQuantity(stock.reserved, meta.stock_unit) })}</small>
-        </span>
-        {phone ? (
-          <button type="button" className="pos-btn" onClick={() => setSheet(id)}>
-            {t('admin_stock.add')}
-          </button>
-        ) : (
-          <span className="pos-row">
-            <span className="pos-count pos-ltr" data-field="add">
-              <QuantityInput
-                compact
-                showUnit={false}
-                unit={meta.stock_unit}
-                value={adds.get(id) ?? null}
-                onChange={(v) => onAddEdit(id, v)}
-                label={t('admin_stock.add_label')}
-              />
-            </span>
-            <button type="button" className="pos-btn" disabled={(adds.get(id) ?? null) === null || adds.get(id) === 0} onClick={() => onAdd(id)}>
-              {t('admin_stock.add')}
+        {countField(row)}
+        {/* 01a hand-off CHANGES §2: "{n} on orders" sits in the Left to sell number's tooltip. */}
+        {stock.reserved > 0 ? (
+          <span className="pos-numhint">
+            <button type="button" className="pos-numbtn" aria-label={hint} aria-describedby={`onorders-${id}`}>
+              <Qty text={left} unit={meta.stock_unit} />
+              <Icon name="info" />
             </button>
+            <span className="pos-numhint__tip pos-ltr" role="tooltip" id={`onorders-${id}`}>
+              {fill(t('admin_stock.on_orders'), { n: formatQuantity(stock.reserved, meta.stock_unit) })}
+            </span>
+          </span>
+        ) : (
+          <span className="pos-stock__left">
+            <Qty text={left} unit={meta.stock_unit} />
           </span>
         )}
+        <span className="pos-stock__add">
+          <span className="pos-count pos-ltr" data-field="add">
+            <QuantityInput
+              compact
+              showUnit={false}
+              unit={meta.stock_unit}
+              value={adds.get(id) ?? null}
+              onChange={(v) => onAddEdit(id, v)}
+              label={`${meta.name}: ${t('admin_stock.add_label')}`}
+            />
+          </span>
+          {addButton(() => onAdd(id), (adds.get(id) ?? null) === null || adds.get(id) === 0)}
+        </span>
         <span />
       </ListRow>
     );
@@ -235,31 +293,36 @@ export function StockTable({
 
   // 01c §8: a drawer under its stock row, with the whole sale units the stock covers; the Selling switch
   // when its menu item is on this page (under `my_stations` a drawer may be another station's item).
+  const drawerLeft = (row: StockRow, drawer: StockRow['drawers'][number]['drawer']) =>
+    formatQuantity(saleUnitsAvailable(row.stock.available, drawer.quantity_per_sale_unit), drawer.sale_unit);
+
   const drawerRow = (row: StockRow, { drawer, row: item }: StockRow['drawers'][number]) => (
-    <ListRow key={`drawer:${row.meta.stock_item_id}:${drawer.item_id}`} attrs={{ 'data-item-id': drawer.item_id }}>
-      <span className="pos-list__name">
-        <span>{drawer.name}</span>
-        <span className="pos-row">{item !== null && itemChips(item)}</span>
-      </span>
+    <li
+      key={`drawer:${row.meta.stock_item_id}:${drawer.item_id}`}
+      data-item-id={drawer.item_id}
+      className={`pos-list__row pos-list__row--dish${item !== null && !item.item.is_available ? ' is-muted' : ''}`}
+    >
+      <div className="pos-list__name">
+        <strong>{drawer.name}</strong>
+        {item !== null && tags(itemChips(item))}
+      </div>
       <span />
-      <span className="pos-stack">
-        {phone && <small>{t('admin_stock.available_label')}</small>}
-        <span className="pos-list__num pos-ltr">
-          {formatQuantity(saleUnitsAvailable(row.stock.available, drawer.quantity_per_sale_unit), drawer.sale_unit)}
-        </span>
+      <span className="pos-stock__left">
+        <Qty text={drawerLeft(row, drawer)} unit={drawer.sale_unit} bare />
+        <small>{t('admin_stock.left')}</small>
       </span>
       <span />
       {item !== null ? selling(item) : <span />}
-    </ListRow>
+    </li>
   );
 
   const itemRow = (row: ItemRow) => (
-    <ListRow key={`item:${row.meta.item_id}`} attrs={{ 'data-item-id': row.meta.item_id, tabIndex: -1 }}>
-      <span className="pos-list__name">
+    <ListRow key={`item:${row.meta.item_id}`} muted={!row.item.is_available} attrs={{ 'data-item-id': row.meta.item_id, tabIndex: -1 }}>
+      <div className="pos-list__name">
         <strong>{row.meta.name}</strong>
         <span>{row.meta.category_name}</span>
-        <span className="pos-row">{itemChips(row)}</span>
-      </span>
+        {tags(itemChips(row))}
+      </div>
       <span />
       <span />
       <span />
@@ -267,13 +330,101 @@ export function StockTable({
     </ListRow>
   );
 
+  // Phone (StockPhone, HubStockPhone): one card per stock item, its dishes under it with their switches.
+  // The sub line: level, what is left and on orders; quantities isolated so an Urdu line keeps them whole.
+  const phoneLine = (row: StockRow) => {
+    const { meta, stock } = row;
+    const level =
+      stock.level === 'low'
+        ? t('admin_stock.badge.low')
+        : stock.level === 'out'
+          ? t('admin_stock.badge.out')
+          : stock.level === 'not_counted'
+            ? t('admin_stock.badge.not_counted')
+            : null;
+    const [ordersLead, ordersTail] = t('admin_stock.on_orders').split('{n}');
+    const parts: ReactNode[] = [
+      ...(level === null ? [] : [level]),
+      ...(stock.level === 'not_counted'
+        ? []
+        : [
+            <>
+              <bdi>{withUnit(stock.available, meta.stock_unit)}</bdi> {t('admin_stock.left')}
+            </>,
+          ]),
+      ...(stock.reserved > 0
+        ? [
+            <>
+              {ordersLead}
+              <bdi>{withUnit(stock.reserved, meta.stock_unit)}</bdi>
+              {ordersTail}
+            </>,
+          ]
+        : []),
+    ];
+    return parts.map((part, i) => (
+      <Fragment key={i}>
+        {i > 0 && ' · '}
+        {part}
+      </Fragment>
+    ));
+  };
+
+  const stockCard = (row: StockRow) => {
+    const { meta } = row;
+    const id = meta.stock_item_id;
+    const chips = stockChips(row).filter((c) => c.key !== 'low' && c.key !== 'out' && c.key !== 'not_counted');
+    return (
+      <li key={`stock:${id}`} className={`pos-pcard${drafts.has(id) ? ' is-touched' : ''}`} data-stock-item-id={id} tabIndex={-1}>
+        <div className="pos-pcard__top">
+          <div>
+            <strong>{meta.name}</strong>
+            <span className="sub">{phoneLine(row)}</span>
+          </div>
+        </div>
+        {tags(chips)}
+        <div className="pos-pcard__count">
+          {countField(row)}
+          {addButton(() => setSheet(id))}
+        </div>
+        {row.drawers.map(({ drawer, row: item }) => (
+          <div key={drawer.item_id} className="pos-prow pos-pcard__dish" data-item-id={drawer.item_id}>
+            <div className="pos-list__name">
+              <strong>{drawer.name}</strong>
+              <span className="pos-stock__left">
+                <Qty text={drawerLeft(row, drawer)} unit={drawer.sale_unit} bare />
+                <small>{t('admin_stock.left')}</small>
+              </span>
+              {item !== null && tags(itemChips(item))}
+            </div>
+            {item !== null && selling(item)}
+          </div>
+        ))}
+      </li>
+    );
+  };
+
+  const itemCard = (row: ItemRow) => (
+    <li key={`item:${row.meta.item_id}`} className="pos-pcard" data-item-id={row.meta.item_id} tabIndex={-1}>
+      <div className="pos-prow">
+        <div className="pos-list__name">
+          <strong>{row.meta.name}</strong>
+          <span>{row.meta.category_name}</span>
+        </div>
+        {selling(row)}
+      </div>
+      {tags(itemChips(row))}
+    </li>
+  );
+
   return (
-    <div className="pos-stack">
-      <div className="pos-row">
+    <div className="pos-stock">
+      <div className="pos-stock__bar">
         <Segmented
           label={t('admin_stock.filter')}
           value={level}
           onChange={setLevel}
+          block={phone}
           options={[
             { value: 'to_count', label: t('admin_stock.filter.to_count'), count: count('to_count') },
             { value: 'low_out', label: t('admin_stock.filter.low_out'), count: count('low_out') },
@@ -281,28 +432,36 @@ export function StockTable({
             { value: 'all', label: t('admin_stock.filter.all'), count: count('all') },
           ]}
         />
-        <input
-          className="pos-input"
-          type="search"
-          aria-label={t('admin_stock.search')}
-          placeholder={t('admin_stock.search')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <select
-          className="pos-select"
-          aria-label={t('admin_stock.category')}
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          <option value="">{t('admin_stock.all_categories')}</option>
-          {categories.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
+        <span className="pos-stock__find">
+          <label className="pos-input-affix">
+            <span>
+              <Icon name="search" />
+            </span>
+            <input
+              className="pos-input"
+              type="search"
+              aria-label={t('admin_stock.search')}
+              placeholder={t('admin_stock.search')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          <select
+            className="pos-select"
+            aria-label={t('admin_stock.category')}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="">{t('admin_stock.all_categories')}</option>
+            {categories.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </span>
       </div>
+      {alerts}
       {empty && <p>{t('admin_stock.empty')}</p>}
       {!empty && shownStock.length === 0 && shownItems.length === 0 && (
         <EmptyState
@@ -322,19 +481,27 @@ export function StockTable({
           </button>
         </EmptyState>
       )}
-      {(shownStock.length > 0 || shownItems.length > 0) && (
-        <List
-          preset={phone ? 'stack' : 'stock'}
-          head={
-            phone
-              ? undefined
-              : [t('admin_stock.col.item'), t('admin_stock.on_hand'), t('admin_stock.available_label'), t('admin_stock.col.add'), t('admin_stock.col.selling')]
-          }
-        >
-          {shownStock.flatMap((row) => [stockRow(row), ...row.drawers.map((d) => drawerRow(row, d))])}
-          {shownItems.map(itemRow)}
-        </List>
-      )}
+      {(shownStock.length > 0 || shownItems.length > 0) &&
+        (phone ? (
+          <ul className="pos-stock__cards">
+            {shownStock.map(stockCard)}
+            {shownItems.map(itemCard)}
+          </ul>
+        ) : (
+          <List
+            preset="stock"
+            head={[
+              t('admin_stock.col.stock_item'),
+              t('admin_stock.on_hand'),
+              t('admin_stock.available_label'),
+              t('admin_stock.col.add'),
+              t('admin_stock.col.selling'),
+            ]}
+          >
+            {shownStock.flatMap((row) => [stockRow(row), ...row.drawers.map((d) => drawerRow(row, d))])}
+            {shownItems.map(itemRow)}
+          </List>
+        ))}
       {sheetRow !== undefined && (
         <AddSheet
           row={sheetRow}

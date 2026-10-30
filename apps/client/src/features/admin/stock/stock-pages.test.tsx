@@ -206,6 +206,8 @@ async function tap(el: HTMLElement): Promise<void> {
 }
 
 const saveButton = () => container.querySelector<HTMLButtonElement>('[data-save] button') as HTMLButtonElement;
+// Pulse (01a hand-off CHANGES §2): the app bar's ⋯ More menu holds the menu status line and Close day.
+const openMore = () => tap(container.querySelector<HTMLButtonElement>('.pos-appbar .pos-more') as HTMLButtonElement);
 const commandsTo = (sent: Sent[], name: string) => sent.filter((s) => s.url === `/admin/commands/${name}`);
 const keyFor = (staff = 'S_MGR', opened = OPENED) => draftKey(BRANCH, opened, staff);
 
@@ -500,7 +502,17 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     await mount(api);
     expect(container.querySelector('.pos-appbar')?.textContent).toContain(fill(t('admin_stock.signed_in_as'), { name: 'Imran' }));
     expect(container.querySelector('.pos-appbar')?.textContent).toContain('Day open: Sun 25 Oct since 06:00 (5 h)');
-    expect(container.querySelector('[data-status-line]')?.textContent).toBe('Menu version 42 · checked just now');
+    // The menu status line heads the More menu (StockMore): "Menu up to date" over the line; Close day is its danger item.
+    expect(container.querySelector('[data-status-line]')).toBeNull();
+    const more = container.querySelector<HTMLButtonElement>('.pos-appbar .pos-more');
+    expect(more?.getAttribute('aria-label')).toBe(t('admin_stock.more'));
+    await openMore();
+    expect(more?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[role="menu"] [data-status-line]')?.textContent).toBe('Menu version 42 · checked just now');
+    expect(container.querySelector('[role="menu"] .pos-menu__status b')?.textContent).toBe(t('admin_stock.menu_ok'));
+    expect(button(t('admin_stock.day.close'), container.querySelector('[role="menu"]')).className).toContain('pos-menu__item--danger');
+    await openMore();
+    expect(container.querySelector('[role="menu"]')).toBeNull();
 
     // From tablet width: the 00-S20 side menu, Stock current.
     const links = [...container.querySelectorAll<HTMLAnchorElement>('.pos-sidenav a')];
@@ -571,6 +583,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
   it('[01b #71 page part] my_stations hides Start day, Close day and the stale-day prompt; branch scope keeps them', async () => {
     signIn('S_USMAN', 'Usman');
     await mount(fakeHub(() => answer({ manage_stock_scope: 'my_stations', ...staleDay })).api);
+    await openMore();
     expect(hasButton(t('admin_stock.day.close'))).toBe(false);
     expect(container.textContent).not.toContain(t('admin_stock.stale.close_and_start'));
     expect(container.textContent).toContain(t('admin_stock.counter.note'));
@@ -587,6 +600,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     // The same answers with branch scope render as before.
     signIn();
     await remount(fakeHub(() => answer(staleDay)).api);
+    await openMore();
     expect(hasButton(t('admin_stock.day.close'))).toBe(true);
     expect(container.textContent).toContain(t('admin_stock.stale.close_and_start'));
     expect(container.textContent).not.toContain(t('admin_stock.counter.note'));
@@ -634,7 +648,9 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(container.querySelector('[data-item-id="I1"]')).not.toBeNull();
     expect(container.querySelector('[data-start-day]')).toBeNull();
     expect(hasButton(t('admin_stock.day.start'))).toBe(false);
+    await openMore();
     expect(hasButton(t('admin_stock.day.close'))).toBe(false);
+    await openMore();
     expect(container.textContent).toContain(t('admin_stock.counter.not_started'));
 
     const sw = rowOf('I1').querySelector<HTMLElement>('[role="switch"]');

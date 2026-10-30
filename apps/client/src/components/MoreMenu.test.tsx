@@ -235,3 +235,20 @@ describe('Drawer (owner phone side menu, spec 01a S50 a v1.3.1)', () => {
     expect(document.activeElement).toBe($('#opener'));
   });
 });
+
+describe('MoreMenu head (stock page menu status, 01a hand-off StockMore)', () => {
+  it('shows a custom head above the items while open, and focus still lands on the first item', () => {
+    act(() =>
+      root.render(
+        <header className="pos-appbar">
+          <MoreMenu label="More" head={<div className="pos-menu__status">Menu up to date</div>} items={[{ label: 'Close day', danger: true, onSelect: () => {} }]} />
+        </header>,
+      ),
+    );
+    expect(container.querySelector('.pos-menu__status')).toBeNull();
+    act(() => $('.pos-more').click());
+    const menu = $('[role="menu"]');
+    expect(menu.firstElementChild?.className).toBe('pos-menu__status');
+    expect(document.activeElement?.textContent).toBe('Close day');
+  });
+});
