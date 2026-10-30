@@ -502,14 +502,14 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     await mount(api);
     expect(container.querySelector('.pos-appbar')?.textContent).toContain(fill(t('admin_stock.signed_in_as'), { name: 'Imran' }));
     expect(container.querySelector('.pos-appbar')?.textContent).toContain('Day open: Sun 25 Oct since 06:00 (5 h)');
-    // The menu status line heads the More menu (StockMore): "Menu up to date" over the line; Close day is its danger item.
-    expect(container.querySelector('[data-status-line]')).toBeNull();
+    expect(container.querySelector('[data-status-line]')?.textContent).toBe('Menu version 42 · checked just now');
+    // Pulse (StockMore): More repeats the status under "Menu up to date"; Close day is its danger item.
     const more = container.querySelector<HTMLButtonElement>('.pos-appbar .pos-more');
     expect(more?.getAttribute('aria-label')).toBe(t('admin_stock.more'));
     await openMore();
     expect(more?.getAttribute('aria-expanded')).toBe('true');
-    expect(container.querySelector('[role="menu"] [data-status-line]')?.textContent).toBe('Menu version 42 · checked just now');
     expect(container.querySelector('[role="menu"] .pos-menu__status b')?.textContent).toBe(t('admin_stock.menu_ok'));
+    expect(container.querySelector('[role="menu"] .pos-menu__status span')?.textContent).toBe('Menu version 42 · checked just now');
     expect(button(t('admin_stock.day.close'), container.querySelector('[role="menu"]')).className).toContain('pos-menu__item--danger');
     await openMore();
     expect(container.querySelector('[role="menu"]')).toBeNull();
@@ -552,6 +552,18 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     signIn();
     await remount(fakeHub(() => answer()).api);
     expect(container.querySelector('.pos-sidenav')).toBeNull();
+  });
+
+  it('[01a S54 e, §8.2 #102 page part] the header chip shows Waiting for hub confirmation and offline without opening More', async () => {
+    signIn();
+    let status: HubConfigStatus = { ...STATUS, config_version: null, last_poll: { outcome: 'not_ready', at: hubAt(11) } };
+    const hub = fakeHub(() => answer(), (s) => (s.url.startsWith('/admin/queries/config-status') ? json(200, { data: status }) : undefined));
+    await mount(hub.api);
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(container.querySelector('.pos-appbar [data-status-line]')?.textContent).toBe('Waiting for hub confirmation');
+    status = { ...STATUS, last_poll: { outcome: 'offline', at: hubAt(11) } };
+    await remount(hub.api);
+    expect(container.querySelector('.pos-appbar [data-status-line]')?.textContent).toBe('Menu version 42 · checked just now · offline');
   });
 
   it('[01a §10 #172 waiting part] while the hub is unreachable the action bar counts the waiting counts', async () => {

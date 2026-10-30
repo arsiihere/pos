@@ -53,7 +53,7 @@ export function ConfigProblem({ status }: { status: HubConfigStatus }) {
   return problem === null ? null : <Banner tone="danger" text={problem} detail={t('admin_stock.problem.body')} />;
 }
 
-// 01a hand-off StockMore: the status line heads the app bar's More menu; "Menu up to date" over the line
+// 01a hand-off StockMore: the status line also heads the app bar's More menu (the header chip stays, S54 e); "Menu up to date" over the line
 // while the hub runs a menu version and its last poll went through, otherwise the line alone (warn while
 // last_problem is set, info while offline or waiting).
 export function MenuStatus({ status, clock }: { status: HubConfigStatus; clock: HubClock | null }) {
@@ -69,10 +69,10 @@ export function MenuStatus({ status, clock }: { status: HubConfigStatus; clock: 
         {upToDate ? (
           <>
             <b>{t('admin_stock.menu_ok')}</b>
-            <span data-status-line="">{line}</span>
+            <span>{line}</span>
           </>
         ) : (
-          <b data-status-line="">{line}</b>
+          <b>{line}</b>
         )}
       </div>
     </div>

@@ -10,6 +10,7 @@ export function BusyButton({
   onClick,
   children,
   primary = false,
+  danger = false,
   disabled = false,
   type = 'button',
   form,
@@ -19,6 +20,8 @@ export function BusyButton({
   onClick?: () => void;
   children: ReactNode;
   primary?: boolean;
+  // Outlined destructive (pos-btn--danger), e.g. Close day in its confirm.
+  danger?: boolean;
   // S53: also disabled while the cloud is unreachable.
   disabled?: boolean;
   type?: 'button' | 'submit';
@@ -43,7 +46,7 @@ export function BusyButton({
       <button
         type={type}
         form={form}
-        className={`pos-btn${primary ? ' pos-btn--primary' : ''}${size === undefined ? '' : size.split(' ').map((m) => ` pos-btn--${m}`).join('')}${busy ? ' is-busy' : ''}`}
+        className={`pos-btn${primary ? ' pos-btn--primary' : ''}${danger ? ' pos-btn--danger' : ''}${size === undefined ? '' : size.split(' ').map((m) => ` pos-btn--${m}`).join('')}${busy ? ' is-busy' : ''}`}
         disabled={busy || disabled}
         aria-busy={busy ? true : undefined}
         onClick={onClick}

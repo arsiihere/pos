@@ -579,6 +579,41 @@ describe('/admin/stock rows per stock item (01c §8)', () => {
     expect(saveButton().disabled).toBe(false);
   });
 
+  it('[01c-B02 Q17] while the changed-in-setup banner shows, All N are still right and the sign-out Save send nothing', async () => {
+    // Two stock items carried over from last night (counted before the day started).
+    const data = answer({
+      stock_items_meta: [{ ...karahi(), carries_over: true }, stockMeta('K2', { carries_over: true })],
+      stock: [
+        stockNumbers('K1', { unit: 'g', on_hand: 2_600, available: 2_600, set_at: hubAt(5) }),
+        stockNumbers('K2', { set_at: hubAt(5) }),
+      ],
+    });
+    const { api, sent } = fakeHub([data], () =>
+      json(404, { error: { code: 'STOCK_ITEM_NOT_FOUND', message: 'x', details: { stock_item_id: 'K1' }, request_id: 'R' } }),
+    );
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    const saves = () => commandsTo(sent, 'set-precooked-stock').length;
+    const all = () => container.querySelector<HTMLButtonElement>('[data-carry] button');
+    // A typed count for K1 is refused 404: the banner shows; K2 is still waiting in the callout.
+    typeInto(stockRowOf('K1').querySelector('[data-field="on_hand"] input'), '1');
+    await act(async () => saveButton().click());
+    await flush();
+    expect(container.querySelector('[data-changed-in-setup]')).not.toBeNull();
+    expect(saves()).toBe(1);
+    expect(all()).not.toBeNull();
+
+    // Now every save path waits for Reload.
+    expect(saveButton().disabled).toBe(true);
+    expect(all()?.disabled).toBe(true);
+    await act(async () => all()?.click());
+    await flush();
+    act(() => button(container, t('admin_stock.sign_out')).click());
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(button(dialog!, t('admin_stock.save')).disabled).toBe(true);
+    expect(saves()).toBe(1);
+  });
+
   it('[01c-B02 Q17] an Add refused 404 STOCK_ITEM_NOT_FOUND shows the same banner', async () => {
     const data = answer({ stock_items_meta: [karahi()], stock: [stockNumbers('K1', { unit: 'g', on_hand: 2_600, available: 2_600 })] });
     const { api } = fakeHub([data], () =>
@@ -601,9 +636,26 @@ describe('/admin/stock rows per stock item (01c §8)', () => {
     const hint = stockRowOf('K1').querySelector<HTMLButtonElement>('button.pos-numbtn');
     expect(hint?.querySelector('.pos-list__num')?.textContent).toBe('3 kg');
     expect(hint?.getAttribute('aria-label')).toBe(fill(t('admin_stock.left_hint'), { n: '3 kg', m: '1.5 kg' }));
-    const tip = container.querySelector(`#${hint?.getAttribute('aria-describedby') ?? 'none'}`);
-    expect(tip?.getAttribute('role')).toBe('tooltip');
+    const tip = stockRowOf('K1').querySelector('[role="tooltip"]');
     expect(tip?.textContent).toBe(fill(t('admin_stock.on_orders'), { n: '1.5 kg' }));
+    // A tap opens it (touch tablets have no hover); a second tap, Escape or a tap elsewhere closes it.
+    const holder = () => stockRowOf('K1').querySelector('.pos-numhint');
+    expect(hint?.getAttribute('aria-expanded')).toBe('false');
+    act(() => hint?.click());
+    expect(holder()?.classList.contains('is-open')).toBe(true);
+    expect(hint?.getAttribute('aria-expanded')).toBe('true');
+    act(() => hint?.click());
+    expect(holder()?.classList.contains('is-open')).toBe(false);
+    act(() => hint?.click());
+    act(() => {
+      hint?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(holder()?.classList.contains('is-open')).toBe(false);
+    act(() => hint?.click());
+    act(() => {
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+    expect(holder()?.classList.contains('is-open')).toBe(false);
     // Nothing on orders: a plain number, no button.
     act(() => root.unmount());
     root = createRoot(container);

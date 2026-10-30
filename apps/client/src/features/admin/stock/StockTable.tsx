@@ -119,6 +119,20 @@ export function StockTable({
   const [category, setCategory] = useState('');
   const [level, setLevel] = useState<Level>('all');
   const [sheet, setSheet] = useState<string | null>(null);
+  // 01a hand-off S11 row: the "on orders" tip opens on a tap (touch tablets have no hover) and closes on
+  // a second tap, Escape or a tap elsewhere.
+  const [tip, setTip] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tip === null) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.(`[data-numhint="${tip}"]`)) return;
+      setTip(null);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [tip]);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -259,8 +273,20 @@ export function StockTable({
         {countField(row)}
         {/* 01a hand-off CHANGES §2: "{n} on orders" sits in the Left to sell number's tooltip. */}
         {stock.reserved > 0 ? (
-          <span className="pos-numhint">
-            <button type="button" className="pos-numbtn" aria-label={hint} aria-describedby={`onorders-${id}`}>
+          <span className={`pos-numhint${tip === id ? ' is-open' : ''}`} data-numhint={id}>
+            <button
+              type="button"
+              className="pos-numbtn"
+              aria-label={hint}
+              aria-expanded={tip === id}
+              onClick={() => setTip(tip === id ? null : id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && tip === id) {
+                  e.preventDefault();
+                  setTip(null);
+                }
+              }}
+            >
               <Qty text={left} unit={meta.stock_unit} />
               <Icon name="info" />
             </button>
@@ -345,13 +371,9 @@ export function StockTable({
     const [ordersLead, ordersTail] = t('admin_stock.on_orders').split('{n}');
     const parts: ReactNode[] = [
       ...(level === null ? [] : [level]),
-      ...(stock.level === 'not_counted'
-        ? []
-        : [
-            <>
-              <bdi>{withUnit(stock.available, meta.stock_unit)}</bdi> {t('admin_stock.left')}
-            </>,
-          ]),
+      <>
+        <bdi>{withUnit(stock.available, meta.stock_unit)}</bdi> {t('admin_stock.left')}
+      </>,
       ...(stock.reserved > 0
         ? [
             <>

@@ -280,6 +280,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const carriedOpen = carried.filter((r) => !drafts.has(r.meta.stock_item_id));
 
   const save = async (override?: ReadonlyMap<string, number | null>) => {
+    // 01c-B02: nothing saves while the "stock item changed in setup" banner waits for Reload.
+    if (changedInSetup) return;
     const current = override ?? drafts;
     // Row order; a cleared input has no number to send (01c §6.18: by stock item).
     const entries = rows.flatMap(({ meta: m }) => {
@@ -466,7 +468,6 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   // 01c-B02: Reload reads the rows again and lets Save go; the typed counts of the rows still here stay.
   const reloadAfterChange = async () => {
     setChangedInSetup(false);
-    setMessage(null);
     await refresh();
   };
 
@@ -549,8 +550,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
         after={
           <>
             {clock !== null && <DayChip day={day} clock={clock} staleAfterHours={staleAfterHours} />}
-            {/* B10: the chip stays in the app bar only while the menu has a problem; else it heads More. */}
-            {status !== null && status.last_problem !== null && <ConfigChip status={status} clock={clock} />}
+            {/* S54 e, §8.2 (B10): the one status line is a header chip in every state; More repeats it. */}
+            {status !== null && <ConfigChip status={status} clock={clock} />}
           </>
         }
       >
@@ -648,7 +649,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
               <p>{t('admin_stock.carry.body')}</p>
             </div>
             <div className="pos-callout__actions">
-              <BusyButton busy={saving} onClick={() => void confirmAll()}>
+              <BusyButton busy={saving} disabled={changedInSetup} onClick={() => void confirmAll()}>
                 <Icon name="check" />
                 {fill(t('admin_stock.carry.all'), { n: String(carriedOpen.length) })}
               </BusyButton>
@@ -703,9 +704,10 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           keepsOvernight={rows.filter((r) => r.meta.carries_over).map((r) => r.meta.name)}
           switchedOff={page.all.filter((r) => !r.item.is_available).map((r) => r.meta.name)}
           onCancel={() => setAskCloseDay(false)}
-          onClose={() => {
+          busy={dayBusy}
+          onClose={async () => {
+            await closeDay();
             setAskCloseDay(false);
-            void closeDay();
           }}
         />
       )}
@@ -721,7 +723,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
               <button type="button" className="pos-btn" onClick={() => void signOut('keep')}>
                 {t('admin_stock.sign_out_keep')}
               </button>
-              <button type="button" className="pos-btn pos-btn--primary" onClick={() => void signOut('save')}>
+              <button type="button" className="pos-btn pos-btn--primary" disabled={changedInSetup} onClick={() => void signOut('save')}>
                 {t('admin_stock.save')}
               </button>
             </>

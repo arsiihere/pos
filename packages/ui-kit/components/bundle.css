@@ -1943,10 +1943,10 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-content[data-view="stock"] { gap: var(--space-4); }
 .pos-content[data-view="stock"] > * { flex-shrink: 0; }
 .pos-stock { display: flex; flex-direction: column; gap: var(--space-4); }
-.pos-stock__bar { position: sticky; top: calc(-1 * var(--space-6)); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-block: calc(-1 * var(--space-2)); padding-block: var(--space-2); background: var(--surface); }
+.pos-stock__bar { position: sticky; inset-block-start: calc(-1 * var(--space-6)); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-block: calc(-1 * var(--space-2)); padding-block: var(--space-2); background: var(--surface); }
 .pos-stock__find { display: flex; align-items: stretch; gap: var(--space-3); }
-.pos-stock__find > .pos-input-affix { width: 240px; }
-.pos-stock__find > .pos-select { width: 188px; }
+.pos-stock__find > .pos-input-affix { width: 220px; }
+.pos-stock__find > .pos-select { width: 208px; }
 /* Columns: Stock item · dishes | Count now | Left to sell | Fresh batch (field + Add) | Selling */
 .pos-stock .pos-list--stock .pos-list__head, .pos-stock .pos-list--stock .pos-list__row { grid-template-columns: minmax(0, 1fr) 214px 120px 184px 112px; }
 .pos-stock .pos-list__row[tabindex="-1"]:focus { outline: none; }
@@ -1964,13 +1964,13 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-numhint { position: relative; display: inline-flex; }
 .pos-numbtn { gap: var(--space-1); color: var(--ink); }
 .pos-numhint__tip { position: absolute; z-index: 3; inset-block-end: calc(100% + var(--space-1)); inset-inline-start: 0; display: none; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--ink); color: var(--surface-raised); font: 600 14px/20px var(--font-sans); white-space: nowrap; box-shadow: var(--shadow-pop); }
-.pos-numhint:hover > .pos-numhint__tip, .pos-numbtn:focus-visible + .pos-numhint__tip, .pos-numbtn:active + .pos-numhint__tip { display: block; }
+.pos-numhint:hover > .pos-numhint__tip, .pos-numhint.is-open > .pos-numhint__tip, .pos-numbtn:focus-visible + .pos-numhint__tip { display: block; }
 .pos-list:has(.pos-numhint) { overflow: visible; }
 .pos-list:has(.pos-numhint) > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
 .pos-list:has(.pos-numhint) > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
 /* Dish rows under their stock item (01c-B02 HubStock): smaller number, "left" beside it. */
 .pos-list--stock .pos-list__row--dish .pos-list__num { font-size: 18px; line-height: 24px; }
-.pos-list--stock .pos-list__row--dish .pos-list__tags { margin-top: var(--space-1); }
+.pos-list--stock .pos-list__row--dish .pos-list__tags { margin-block-start: var(--space-1); }
 /* Action bar: count + progress, the help note, Save at the end (Main, HubStock). */
 .pos-actionbar > .pos-note { font: 400 15px/20px var(--font-sans); }
 progress.pos-progress { appearance: none; display: block; border: 0; height: 8px; width: 220px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
@@ -2028,7 +2028,7 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
   .pos-pcard__count > .pos-count { flex: 1; min-width: 0; }
   .pos-pcard__count > .pos-count .pos-input { flex: 1; width: auto; min-width: 0; }
   .pos-pcard__count > .pos-btn { flex: none; }
-  .pos-pcard__dish { padding-top: var(--space-1); border-top: 1px solid var(--line); }
+  .pos-pcard__dish { padding-block-start: var(--space-1); border-block-start: 1px solid var(--line); }
   .pos-pcard__dish .pos-list__name strong { font-size: 16px; }
   .pos-pcard .pos-stock__left .pos-list__num, .pos-pcard .pos-stock__left > small { font: 500 15px/20px var(--font-sans); color: var(--ink-muted); }
   .pos-signin { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); padding: var(--space-4); }

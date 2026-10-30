@@ -1,4 +1,5 @@
 import { hubDayText, hubTimeText, type HubClock } from '../../../app/hub-clock';
+import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
 import { t } from '../../../i18n';
@@ -38,6 +39,7 @@ export function CloseDayDialog({
   clock,
   keepsOvernight,
   switchedOff,
+  busy = false,
   onClose,
   onCancel,
 }: {
@@ -45,6 +47,8 @@ export function CloseDayDialog({
   clock: HubClock;
   keepsOvernight: readonly string[];
   switchedOff: readonly string[];
+  // CloseBusinessDay is running: the dialog stays with a busy Close day (and the slow-call line after 3 s).
+  busy?: boolean;
   onClose: () => void;
   onCancel: () => void;
 }) {
@@ -52,15 +56,15 @@ export function CloseDayDialog({
   return (
     <Dialog
       title={t('admin_stock.day.close_title')}
-      onClose={onCancel}
+      onClose={busy ? () => {} : onCancel}
       footer={
         <>
-          <button type="button" className="pos-btn" onClick={onCancel}>
+          <button type="button" className="pos-btn" disabled={busy} onClick={onCancel}>
             {t('admin_stock.day.cancel')}
           </button>
-          <button type="button" className="pos-btn pos-btn--danger" onClick={onClose}>
+          <BusyButton danger busy={busy} onClick={onClose}>
             {t('admin_stock.day.close')}
-          </button>
+          </BusyButton>
         </>
       }
     >
