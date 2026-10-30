@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePhone } from '../../../app/phone';
 import type { CloudAdmin, ResponsibilitySet, Role, Staff, Station } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
+import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
+import { EmptyState } from '../../../components/EmptyState';
+import { Icon } from '../../../components/Icon';
 import { ListRow } from '../../../components/List';
 import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
@@ -19,6 +23,10 @@ import { BranchSelect, Page } from '../Shell';
 // picks people (who work at the branch) and roles per station; Save sends the whole active set with the
 // held `expected_version` (a station with nobody is left out: it stores nothing, AD-19). CONFIG_STALE
 // shows Reload; a 422 means a person, role or station changed meanwhile.
+// Pulse (hand-off 01b-S05): people / role chips with their icons, a "Nobody yet" warn chip per station and
+// one summary warn banner, the help line as a small note. While Reload shows, Save is disabled and not
+// primary (B03: Reload is the one primary). Phone: branch select in the content, stacked rows, Save in the
+// bottom action bar (ResponsibilitiesPhone).
 interface Entry {
   staff_ids: string[];
   role_ids: string[];
@@ -62,6 +70,7 @@ export function StockCountingView({
   const down = useCloudDown(api);
   const branchName = useBranchName();
   const branch = branchName(branchId);
+  const phone = usePhone();
 
   const load = useCallback(async () => {
     setLoaded(null);
@@ -121,18 +130,24 @@ export function StockCountingView({
     else setNotice({ error: errorText(error) ?? '' });
   }
 
-  const actions = (
+  const reloading = notice === 'stale' || notice === 'changed';
+  const select = <BranchSelect branchIds={branchIds} value={branchId} onChange={onBranch} />;
+  const saveButton = (
+    <BusyButton primary={!reloading} size={phone ? 'lg block' : undefined} busy={busy} disabled={down || changed.length === 0 || reloading} onClick={() => void save()}>
+      {t('counting.save')}
+    </BusyButton>
+  );
+  const actions = phone ? undefined : (
     <>
-      <BranchSelect branchIds={branchIds} value={branchId} onChange={onBranch} />
-      <BusyButton primary busy={busy} disabled={down || changed.length === 0 || notice === 'stale' || notice === 'changed'} onClick={() => void save()}>
-        {t('counting.save')}
-      </BusyButton>
+      {select}
+      {saveButton}
     </>
   );
 
   const reload = (
     <div className="pos-banner__action pos-row">
       <button type="button" className="pos-btn pos-btn--primary" onClick={() => { setNotice(null); void load(); }}>
+        <Icon name="reload" />
         {t('staff.reload')}
       </button>
     </div>
@@ -143,64 +158,89 @@ export function StockCountingView({
     body = loadError === null ? <Skeleton lines={5} /> : null;
   } else if (loaded.stations.length === 0) {
     body = (
-      <div className="pos-empty pos-card">
-        <h3>{fill(t('counting.no_stations'), { branch })}</h3>
-        <p>{t('counting.no_stations_body')}</p>
-        <button type="button" className="pos-btn pos-btn--primary" onClick={() => navigate('/stations')}>
+      <EmptyState card icon="flame" title={fill(t('counting.no_stations'), { branch })} body={t('counting.no_stations_body')}>
+        <button type="button" className="pos-btn" onClick={() => navigate('/stations')}>
+          <Icon name="forward" flip />
           {t('counting.open_stations')}
         </button>
-      </div>
+      </EmptyState>
     );
   } else {
     const nobody = loaded.stations.filter((s) => {
       const e = draft[s.station_id];
       return e === undefined || (e.staff_ids.length === 0 && e.role_ids.length === 0);
     });
+    const rows = loaded.stations.map((s) => {
+      const entry = draft[s.station_id];
+      const people = (entry?.staff_ids ?? []).map((id) => staffById.get(id)?.display_name ?? id);
+      const roles = (entry?.role_ids ?? []).map((id) => roleById.get(id)?.name ?? id);
+      const name = (
+        <div className="pos-list__name">
+          <strong>{s.name}</strong>
+          <div className="pos-list__tags">
+            {people.map((who) => (
+              <Chip key={`s-${who}`} icon="user">
+                {who}
+              </Chip>
+            ))}
+            {roles.map((role) => (
+              <Chip key={`r-${role}`} tone="accent" icon="shield">
+                {fill(t('counting.everyone_with'), { role })}
+              </Chip>
+            ))}
+            {people.length === 0 && roles.length === 0 && (
+              <Chip tone="warn" icon="alert">
+                {t('counting.nobody')}
+              </Chip>
+            )}
+          </div>
+        </div>
+      );
+      const change = (
+        <button type="button" className="pos-btn" disabled={down} onClick={() => setPicking(s)}>
+          {t('counting.change')}
+        </button>
+      );
+      return (
+        <ListRow key={s.station_id} touched={changed.includes(s)}>
+          {phone ? (
+            <div className="pos-prow">
+              {name}
+              {change}
+            </div>
+          ) : (
+            <>
+              {name}
+              <div className="pos-list__side">{change}</div>
+            </>
+          )}
+        </ListRow>
+      );
+    });
     body = (
       <>
-        <ul className="pos-list pos-list--rows">
-          {loaded.stations.map((s) => {
-            const entry = draft[s.station_id];
-            const people = (entry?.staff_ids ?? []).map((id) => staffById.get(id)?.display_name ?? id);
-            const roles = (entry?.role_ids ?? []).map((id) => roleById.get(id)?.name ?? id);
-            return (
-              <ListRow key={s.station_id} touched={changed.includes(s)}>
-                <div className="pos-list__name">
-                  <strong>{s.name}</strong>
-                  <div className="pos-list__tags">
-                    {people.map((name) => (
-                      <Chip key={`s-${name}`}>{name}</Chip>
-                    ))}
-                    {roles.map((name) => (
-                      <Chip key={`r-${name}`} tone="accent">
-                        {fill(t('counting.everyone_with'), { role: name })}
-                      </Chip>
-                    ))}
-                    {people.length === 0 && roles.length === 0 && <Chip tone="warn">{t('counting.nobody')}</Chip>}
-                  </div>
-                </div>
-                <div className="pos-list__side">
-                  <button type="button" className="pos-btn" disabled={down} onClick={() => setPicking(s)}>
-                    {t('counting.change')}
-                  </button>
-                </div>
-              </ListRow>
-            );
-          })}
-        </ul>
-        {nobody.map((s) => (
-          <Banner key={s.station_id} tone="warn" text={fill(t('counting.nobody_counts'), { station: s.name, branch })} detail={t('counting.nobody_counts_body')} />
-        ))}
+        <ul className={`pos-list ${phone ? 'pos-list--stack' : 'pos-list--rows'}`}>{rows}</ul>
+        {/* One summary banner for every station nobody counts (hand-off: "one summary warn banner"). */}
+        {nobody.length > 0 && (
+          <Banner
+            tone="warn"
+            icon="alert"
+            text={fill(t('counting.nobody_counts'), { station: nobody.map((s) => s.name).join(', '), branch })}
+            detail={t('counting.nobody_counts_body')}
+          />
+        )}
       </>
     );
   }
 
   return (
     <Page api={api} title={t('counting.title')} end={actions}>
+      {phone && <div className="pos-branchpick">{select}</div>}
       {loadError !== null && <Banner tone="danger" text={loadError} />}
       {notice === 'saved' && <Banner tone="ok" text={fill(t('counting.saved'), { branch })} />}
       {notice === 'stale' && (
         <div className="pos-banner pos-banner--warn" role="status">
+          <Icon name="reload" />
           <p>
             {t('errors.CONFIG_STALE')}
             <small>{t('staff.stale_body')}</small>
@@ -209,7 +249,8 @@ export function StockCountingView({
         </div>
       )}
       {notice === 'changed' && (
-        <div className="pos-banner pos-banner--warn" role="status">
+        <div className="pos-banner pos-banner--danger" role="alert">
+          <Icon name="alert" />
           <p>
             {t('counting.changed')}
             <small>{fill(t('counting.changed_body'), { branch })}</small>
@@ -225,11 +266,19 @@ export function StockCountingView({
           detail={fill(t('counting.unsaved_body'), { branch })}
         />
       )}
-      <p className={typeClass('body')}>{t('counting.intro')}</p>
+      {!phone && <p className={`${typeClass('body')} pos-intro`}>{t('counting.intro')}</p>}
       {body}
-      <div className="pos-explain">
-        <span>{t('counting.explain')}</span>
-      </div>
+      {!phone && (
+        <p className="pos-note pos-note--icon">
+          <Icon name="info" />
+          <span>{t('counting.explain')}</span>
+        </p>
+      )}
+      {phone && (
+        <div className="pos-pagebar">
+          <ActionBar>{saveButton}</ActionBar>
+        </div>
+      )}
       {picking !== null && loaded !== null && (
         <Picker
           station={picking}
@@ -278,6 +327,7 @@ function Picker({
             {t('common.cancel')}
           </button>
           <button type="button" className="pos-btn pos-btn--primary" onClick={() => onDone(picked)}>
+            <Icon name="check" />
             {t('counting.done')}
           </button>
         </>
@@ -295,6 +345,7 @@ function Picker({
               aria-pressed={picked.staff_ids.includes(s.staff_id)}
               onClick={() => setPicked({ ...picked, staff_ids: flip(picked.staff_ids, s.staff_id) })}
             >
+              {picked.staff_ids.includes(s.staff_id) && <Icon name="check" />}
               {s.display_name}
             </button>
           ))}
@@ -311,6 +362,7 @@ function Picker({
               aria-pressed={picked.role_ids.includes(r.role_id)}
               onClick={() => setPicked({ ...picked, role_ids: flip(picked.role_ids, r.role_id) })}
             >
+              {picked.role_ids.includes(r.role_id) && <Icon name="check" />}
               {r.name}
             </button>
           ))}

@@ -211,6 +211,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'account.submit': 'پاس ورڈ بدلیں',
   'account.forgot': 'پاس ورڈ بھول گئے؟ سپورٹ کو{support} فون کریں۔',
   'support.on': ' {phone} پر',
+  // Pulse 01b hand-off CHANGES §3: teams, stock counting, branches, password (01b-C) — Urdu draft — needs native review
+  'teams.phone_hint': 'رپورٹنگ بدلنے کے لیے نام پر ٹیپ کریں۔',
+  'branches.menu_id': 'برانچ آئی ڈی {tail}',
+  'branches.menu_rename': '{branch} کا نام بدلیں',
+  'account.forced_title': 'نیا پاس ورڈ چنیں',
   // 01b task 54: BranchesUrdu, BranchSettingsUrdu
   'branches.title': 'برانچیں اور سیٹنگ',
   'branches.open': 'کھلی',

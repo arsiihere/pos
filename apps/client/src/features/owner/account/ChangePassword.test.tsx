@@ -119,4 +119,19 @@ describe('[01b §8] change password', () => {
     // The passwords leave the form after the request.
     expect([...m.container.querySelectorAll<HTMLInputElement>('input')].map((i) => i.value)).toEqual(['', '', '']);
   });
+
+  it('[hand-off 01b-S09, B05] Show is the 56 px kit button; forced mode has its own app bar with Sign out', async () => {
+    await renderForm();
+    expect(button(m.container, t('account.show')).classList.contains('pos-pwshow')).toBe(true);
+    m.unmount();
+    m = mount();
+    let signedOut = false;
+    const { api } = fakeApi(() => ok(TOKENS));
+    await m.render(<ChangePassword api={api} userName="Arif" forced onChanged={() => {}} onSignOut={() => (signedOut = true)} />);
+    expect(m.container.querySelector('.pos-forced > .pos-appbar .pos-sidenav__brand')?.textContent).toContain('Arif');
+    expect(m.container.querySelector('.pos-forced__main .pos-banner--warn')?.textContent).toContain(t('account.forced'));
+    expect(m.container.querySelector('.pos-sidenav')).toBeNull();
+    await click(button(m.container, t('owner.sign_out')));
+    expect(signedOut).toBe(true);
+  });
 });

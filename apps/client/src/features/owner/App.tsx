@@ -124,12 +124,8 @@ function Routes({
             setUser(api.currentUser());
             navigate('/');
           }}
+          onSignOut={signOut}
         />
-        <div className="pos-content pos-content--narrow">
-          <button type="button" className="pos-btn" onClick={signOut}>
-            {t('owner.sign_out')}
-          </button>
-        </div>
       </div>
     );
   }

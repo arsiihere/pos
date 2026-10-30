@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { BRANCHES, ROLES } from '../staff/fixtures';
@@ -17,6 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   m.unmount();
   sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 const NAMES = new Map(BRANCHES.map((b) => [b.branch_id, b.name]));
@@ -79,5 +80,24 @@ describe('[01b §8] teams', () => {
     m = mount();
     await render([]);
     expect(m.container.textContent).toContain(fill(t('teams.empty'), { branch: 'Gulberg' }));
+  });
+
+  it('[01b §8, hand-off 01b-S10] each row ends in a chevron; "No PIN" is a warn chip with the alert icon', async () => {
+    await render(ROOTS);
+    const links = [...m.container.querySelectorAll<HTMLAnchorElement>('a.pos-tree__node')];
+    expect(links).toHaveLength(4);
+    for (const link of links) expect(link.lastElementChild?.matches('svg.pos-icon--flip')).toBe(true);
+    const chip = m.container.querySelector('.pos-chip--warn')!;
+    expect(chip.textContent).toBe(t('teams.no_pin'));
+    expect(chip.querySelector('path')?.getAttribute('d')).toBe('M12 3.5L2.5 20h19L12 3.5z');
+  });
+
+  it('[hand-off TeamsPhone] phone: branch select in the content, no intro, the tap hint as the foot', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 760px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    await render(ROOTS);
+    expect(m.container.querySelector('.pos-content > .pos-branchpick select')).not.toBeNull();
+    expect(m.container.querySelector('.pos-appbar select')).toBeNull();
+    expect(m.container.textContent).not.toContain(fill(t('teams.intro'), { branch: 'Gulberg' }));
+    expect(m.container.textContent).toContain(t('teams.phone_hint'));
   });
 });

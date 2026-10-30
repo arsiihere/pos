@@ -2108,7 +2108,11 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
 /* The stock-counting help line: a small note with an info icon. */
 .pos-note--icon { display: flex; gap: var(--space-2); align-items: flex-start; }
 .pos-note--icon > .pos-icon { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+[lang="ur"] .pos-note--icon { font-family: var(--font-urdu); line-height: 2; }
 .pos-tree__node > .pos-chip { flex: none; }
+/* Empty cards (TeamsEmpty, ResponsibilitiesNoStations): 40 px icon, body without paragraph margin. */
+.pos-content:has(> .pos-intro, > .pos-pagebar) > .pos-empty > .pos-icon { width: 40px; height: 40px; }
+.pos-content:has(> .pos-intro, > .pos-pagebar) > .pos-empty > p { margin: 0; max-width: 56ch; }
 /* Phone (TeamsPhone, ResponsibilitiesPhone): the branch select sits in the content, full width; its label stays for screen readers. */
 .pos-branchpick > .pos-appbar__branch { width: 100%; }
 .pos-branchpick .pos-select { flex: 1; width: 100%; }
@@ -2137,6 +2141,7 @@ progress.pos-progress::-moz-progress-bar { background: var(--accent); }
 .pos-forced > .pos-appbar { flex: none; flex-wrap: nowrap; }
 .pos-forced > .pos-appbar--phone > .pos-appbar__title { flex: 1; min-width: 0; }
 .pos-forced__main { overflow-y: auto; min-height: 0; }
+@media (min-width: 761px) { .pos-page:has(> .pos-forced) { height: 100dvh; min-height: 0; overflow: hidden; } }
 
 /* ---------- Pulse page layout · 01c-B size groups and stock items ---------- */
 /* Lists (SizeGroups, StockItems): search 300 on the start side, helper line on the end side; the whole row opens. */

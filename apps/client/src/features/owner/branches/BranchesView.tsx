@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
+import { usePhone } from '../../../app/phone';
 import type { Branch, CloudAdmin } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
 import { supportText } from '../../../app/support';
 import { Banner } from '../../../components/Banner';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
+import { Icon } from '../../../components/Icon';
 import { ListRow } from '../../../components/List';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
@@ -18,6 +21,8 @@ import { Page } from '../Shell';
 // the second warns when `hub_last_seen_at − hub_synced_at > hub_stale_after_ms`, the threshold the list
 // response carries (D-11: no constant here). A hub that stopped checking in for longer than the same
 // threshold shows the away notice (AD-32). Rename is D04 (§6.9); Settings opens #/branches/:id/settings.
+// Pulse (hand-off 01b-S06): Rename moved into the row's More menu, whose info head shows the branch ID tail
+// (no longer on the row); Settings stays visible. The phone keeps both as buttons (BranchesPhone).
 export function ago(ms: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - ms) / 60_000);
   if (minutes < 1) return t('branches.ago_now');
@@ -33,6 +38,7 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
   const [renaming, setRenaming] = useState<Branch | null>(null);
   const [renamed, setRenamed] = useState<string | null>(null);
   const down = useCloudDown(api);
+  const phone = usePhone();
 
   const load = useCallback(async () => {
     const result = await api.listBranches();
@@ -51,13 +57,13 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
   const now = Date.now();
 
   return (
-    <Page api={api} title={t('branches.title')}>
+    <Page api={api} title={phone ? t('branches.back_short') : t('branches.title')}>
       {error !== null && <Banner tone="danger" text={error} />}
       {renamed !== null && <Banner tone="ok" text={fill(t('branches.renamed'), { name: renamed })} detail={t('branches.renamed_body')} />}
       {list === null ? (
         error === null && <Skeleton lines={3} />
       ) : (
-        <ul className="pos-list pos-list--rows">
+        <ul className={`pos-list ${phone ? 'pos-list--stack' : 'pos-list--rows'}`}>
           {list.branches.map((b) => {
             const pending = b.status === 'pending_hub' || b.hub_last_seen_at === null;
             const behind =
@@ -66,16 +72,20 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
             return (
               <ListRow key={b.branch_id}>
                 <div className="pos-list__name">
-                  <strong>
+                  <strong className="pos-branchrow__name">
                     {b.name}
-                    {b.status === 'active' ? <Chip tone="ok">{t('branches.open')}</Chip> : <Chip tone="info">{t('branches.not_open')}</Chip>}
+                    {b.status === 'active' ? (
+                      <Chip tone="ok">{t('branches.open')}</Chip>
+                    ) : (
+                      <Chip tone="info" icon="clock">
+                        {t('branches.not_open')}
+                      </Chip>
+                    )}
                   </strong>
-                  <span>
-                    <span className="pos-ltr">{idTail(b.branch_id)}</span>
-                  </span>
                   {/* AD-32: the away notice comes first but keeps B19's Up to date line and its warning. */}
                   {away && (
                     <div className="pos-hub is-warn">
+                      <Icon name="clock" />
                       <div>
                         <b>{fill(t('branches.away'), { branch: b.name, seen: ago(b.hub_last_seen_at ?? now, now) })}</b>
                         <span>{t('branches.away_body')}</span>
@@ -88,6 +98,7 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
                     </div>
                   ) : behind ? (
                     <div className="pos-hub is-warn">
+                      <Icon name="alert" />
                       <div>
                         <b>
                           {b.hub_synced_at === null
@@ -112,11 +123,28 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
                     </div>
                   )}
                 </div>
-                <div className="pos-list__side">
-                  <button type="button" className="pos-btn" disabled={down} onClick={() => setRenaming(b)}>
-                    {t('branches.rename')}
-                  </button>
+                <div className={phone ? 'pos-row pos-branchrow__acts' : 'pos-list__side'}>
+                  {phone ? (
+                    <button type="button" className="pos-btn" disabled={down} onClick={() => setRenaming(b)}>
+                      <Icon name="edit" />
+                      {t('branches.rename')}
+                    </button>
+                  ) : (
+                    <MoreMenu
+                      label={fill(t('common.more_for'), { name: b.name })}
+                      info={{ title: b.name, detail: fill(t('branches.menu_id'), { tail: idTail(b.branch_id) }) }}
+                      items={[
+                        {
+                          label: fill(t('branches.menu_rename'), { branch: b.name }),
+                          icon: 'edit',
+                          disabled: down,
+                          onSelect: () => setRenaming(b),
+                        },
+                      ]}
+                    />
+                  )}
                   <button type="button" className="pos-btn" onClick={() => navigate(`/branches/${encodeURIComponent(b.branch_id)}/settings`)}>
+                    <Icon name="forward" flip />
                     {t('branches.settings')}
                   </button>
                 </div>
@@ -125,7 +153,7 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
           })}
         </ul>
       )}
-      <p className={typeClass('caption')}>{t('branches.foot')}</p>
+      {!phone && <p className={`${typeClass('caption')} pos-intro`}>{t('branches.foot')}</p>}
       {renaming !== null && (
         <RenameDialog
           api={api}
@@ -190,6 +218,7 @@ function RenameDialog({
             {t('common.cancel')}
           </button>
           <button type="button" className="pos-btn pos-btn--primary" disabled={busy} onClick={() => void save()}>
+            <Icon name="edit" />
             {t('branches.rename')}
           </button>
         </>
@@ -201,6 +230,7 @@ function RenameDialog({
         {error !== null ? <span className="pos-field__error">{error}</span> : <span className="pos-field__help">{t('branches.name_help')}</span>}
       </label>
       <div className="pos-explain">
+        <Icon name="screen" />
         <span>{t('branches.rename_note')}</span>
       </div>
     </Dialog>

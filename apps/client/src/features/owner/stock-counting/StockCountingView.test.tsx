@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { BranchNames } from '../branch';
@@ -17,6 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   m.unmount();
   sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 const NAMES = new Map(BRANCHES.map((b) => [b.branch_id, b.name]));
@@ -120,5 +121,40 @@ describe('[01b §8] stock counting', () => {
     answer = fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'responsibilities.0.staff_ids.0', reason: 'not_at_branch' });
     await click(button(m.container, t('counting.save')));
     expect(m.container.textContent).toContain(t('counting.changed'));
+  });
+
+  it('[hand-off 01b-S05] one summary warn banner names every station nobody counts; the help line is a note', async () => {
+    await render(() => ok({}));
+    await click(button(row('BBQ grill'), t('counting.change')));
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Usman'));
+    await click(button(m.container, t('counting.done')));
+    expect(row('BBQ grill').querySelector('.pos-chip--warn')?.textContent).toBe(t('counting.nobody'));
+    expect(row('Drinks counter').querySelector('.pos-chip--warn')?.textContent).toBe(t('counting.nobody'));
+    const warns = m.container.querySelectorAll('.pos-banner--warn');
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.textContent).toContain(fill(t('counting.nobody_counts'), { station: 'BBQ grill, Drinks counter', branch: 'Gulberg' }));
+    expect(m.container.querySelector('p.pos-note')?.textContent).toBe(t('counting.explain'));
+  });
+
+  it('[hand-off B03] while Reload shows it is the one primary; Save is disabled and secondary', async () => {
+    await render(() => fail(409, 'CONFIG_STALE', { entity: 'responsibility', id: 'B1' }));
+    await click(button(row('Degh'), t('counting.change')));
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, 'Bilal'));
+    await click(button(m.container, t('counting.done')));
+    expect(button(m.container, t('counting.save')).classList.contains('pos-btn--primary')).toBe(true);
+    await click(button(m.container, t('counting.save')));
+    const save = button(m.container, t('counting.save'));
+    expect(save.disabled).toBe(true);
+    expect(save.classList.contains('pos-btn--primary')).toBe(false);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent)).toEqual([t('staff.reload')]);
+  });
+
+  it('[hand-off ResponsibilitiesPhone] phone: branch select in the content, Save in the bottom action bar', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 760px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    await render(() => ok({}));
+    expect(m.container.querySelector('.pos-content > .pos-branchpick select')).not.toBeNull();
+    expect(m.container.querySelector('.pos-actionbar')?.textContent).toBe(t('counting.save'));
+    expect(m.container.querySelector('.pos-appbar .pos-btn--primary')).toBeNull();
+    expect(row('Degh').querySelector('.pos-prow')).not.toBeNull();
   });
 });

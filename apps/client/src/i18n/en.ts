@@ -1014,6 +1014,11 @@ export const en = {
   'account.lock_notice': 'Someone tried to sign in to your account with a wrong password {n} times on {date} at {time}.',
   'account.lock_notice_body': 'If this wasn’t you, change your password.',
   'account.lock_got_it': 'Got it',
+  // Pulse 01b hand-off CHANGES §3: teams, stock counting, branches, password (01b-C)
+  'teams.phone_hint': 'Tap a name to change who they report to.',
+  'branches.menu_id': 'Branch ID {tail}',
+  'branches.menu_rename': 'Rename {branch}',
+  'account.forced_title': 'Choose a new password',
   // Pulse 01a hand-off CHANGES §3: owner shell, branch picker, More menus
   'common.more_for': 'More for {name}',
   'owner.nav.close': 'Close the side menu',
