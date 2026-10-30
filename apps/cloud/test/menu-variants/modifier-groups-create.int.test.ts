@@ -302,7 +302,7 @@ describe('01c modifier group create (§6.11) and the effective-set limit', () =>
     expect((await postGroup(plainGroup('Spice level'))).statusCode).toBe(201);
   });
 
-  it('[01c #116] options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on POST (m13)', async () => {
+  it('[01c #116] (half a: POST) options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on POST (m13)', async () => {
     const error = await refused(
       () =>
         postGroup({

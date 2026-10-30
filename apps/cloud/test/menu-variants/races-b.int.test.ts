@@ -275,7 +275,7 @@ describe('01c races #98, #99, #121 (§6 lock order)', () => {
   );
 
   it(
-    '[01c #99] two §6.9 PUTs at Gulberg for a stock item with no row there, both with the "no row" version: one 200, one 409 CONFIG_STALE',
+    '[01c #99] (half a: §6.9) two §6.9 PUTs at Gulberg for a stock item with no row there, both with the "no row" version: one 200, one 409 CONFIG_STALE',
     async () => {
       const gulberg = f.branches[0];
       const pot = await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' });
@@ -307,7 +307,7 @@ describe('01c races #98, #99, #121 (§6 lock order)', () => {
   );
 
   it(
-    '[01c #99] two §6.16 PUTs at Gulberg for a deal with no row there, both with the "no row" version: one 200, one 409 CONFIG_STALE',
+    '[01c #99] (half b: §6.16) two §6.16 PUTs at Gulberg for a deal with no row there, both with the "no row" version: one 200, one 409 CONFIG_STALE',
     async () => {
       const gulberg = f.branches[0];
       const karahi = await item('Chicken Karahi');

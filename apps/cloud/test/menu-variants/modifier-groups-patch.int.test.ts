@@ -577,7 +577,7 @@ describe('01c modifier group PATCH (§6.12): options and links rewrite', () => {
     expect(error.code).toBe('VALIDATION_FAILED');
   });
 
-  it('[01c #116] options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on PATCH (R4); an archived option name is free', async () => {
+  it('[01c #116] (half b: PATCH) options "Raita" and "raita" in one group → 409 CONFIG_NAME_TAKEN modifier_option on PATCH (R4); an archived option name is free', async () => {
     const group = await spice();
     const [mild, hot] = group.options;
     const error = await refused(
