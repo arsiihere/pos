@@ -1037,7 +1037,7 @@ const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal', ids: string[]) =
 const linkingGroups = async (p: ItemPatch) => (p.linkingGroupIds ??= await linkingGroupIds(p.level, p.before.item_id));
 
 // 01c §6.5 rule precedence (v0.6 Q2) with the T4 decision (§12.7, P-8): after the no-op, in this order; the first
-// failure answers. Slots owned by later tasks are named no-ops.
+// failure answers.
 const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> = [
   // C4 step 4: references on sent fields. The merged draw's stock item (5; R2 reads its unit, R9 its archive,
   // under this lock), then the category and tax class (sent, or on an active merged row, as 01a did) are locked
@@ -1181,7 +1181,14 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       throw invalidReference(field, 'weighed_item_stock_draw');
     },
   ],
-  ['422 R8 weighed item in a deal', () => {}], // task 30
+  // (V18) requires_weighing turned on while an active part of an active deal offers the item (AD-11): one plain read
+  [
+    '422 R8 weighed item in a deal',
+    async (p) => {
+      if (p.before.requires_weighing || !p.merged.requires_weighing) return;
+      if ((await offeringDealIds(p.level, p.before.item_id)).length > 0) throw invalidReference('requires_weighing', 'weighed_item_in_deal');
+    },
+  ],
   [
     '422 R9 restored draw’s stock item',
     (p) => {

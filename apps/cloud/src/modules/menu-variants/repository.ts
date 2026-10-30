@@ -704,6 +704,63 @@ export async function insertDealChoices(
   );
 }
 
+// §6 lock order 2: the §6.15 / §6.16 target.
+export async function lockDeal(repo: TenantLevelRepository, dealId: string): Promise<DealRecord | undefined> {
+  const rows = await repo.query<RawDeal>(`SELECT ${DEAL_COLUMNS} FROM deals WHERE tenant_id = $1 AND deal_id = $2 FOR UPDATE`, [dealId]);
+  return rows[0] === undefined ? undefined : dealRow(rows[0]);
+}
+
+// §6.15: the deal row (the name index → 23505 deals_active_name).
+export async function updateDeal(repo: TenantLevelRepository, row: DealRecord, now: number): Promise<DealRecord> {
+  const rows = await repo.query<RawDeal>(
+    `UPDATE deals SET name = $3, category_id = $4, tax_class_id = $5, description = $6, sort_order = $7, price_minor = $8,
+                      archived_at = $9, updated_at = $10
+      WHERE tenant_id = $1 AND deal_id = $2
+      RETURNING ${DEAL_COLUMNS}`,
+    [row.deal_id, row.name, row.category_id, row.tax_class_id, row.description, row.sort_order, row.price_minor, row.archived_at, now],
+  );
+  return dealRow(rows[0]!);
+}
+
+// §6.15, V14 (m3) FK order: the sent parts' choices are deleted before their parts are written (one DELETE)...
+export async function deleteDealChoices(repo: TenantLevelRepository, dealPartIds: readonly string[]): Promise<void> {
+  await repo.query(`DELETE FROM deal_part_choices WHERE tenant_id = $1 AND deal_part_id = ANY($2)`, [dealPartIds]);
+}
+
+// ... the sent parts in one multi-row INSERT … ON CONFLICT (tenant_id, deal_part_id) DO UPDATE (a sent id is a part
+// of this deal, checked before; a restored one gets archived_at null), so a part keeps its row and ULID ...
+export async function upsertDealParts(
+  repo: TenantLevelRepository,
+  dealId: string,
+  parts: ReadonlyArray<{ deal_part_id: string; quantity: number; sort_order: number }>,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO deal_parts (tenant_id, deal_part_id, deal_id, quantity, sort_order)
+     SELECT t.tenant_id, p.deal_part_id, $2, p.quantity, p.sort_order
+       FROM tenants t, unnest($3::text[], $4::int[], $5::int[]) AS p (deal_part_id, quantity, sort_order)
+      WHERE t.tenant_id = $1
+     ON CONFLICT (tenant_id, deal_part_id) DO UPDATE
+        SET quantity = EXCLUDED.quantity, sort_order = EXCLUDED.sort_order, archived_at = NULL
+      WHERE deal_parts.deal_id = EXCLUDED.deal_id`,
+    [dealId, parts.map((p) => p.deal_part_id), parts.map((p) => p.quantity), parts.map((p) => p.sort_order)],
+  );
+}
+
+// ... the deal's active parts left out of the sent list are archived (never deleted; their choices are kept), then
+// the sent parts' choices are inserted (insertDealChoices).
+export async function archiveOmittedParts(
+  repo: TenantLevelRepository,
+  dealId: string,
+  keptPartIds: readonly string[],
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `UPDATE deal_parts SET archived_at = $3
+      WHERE tenant_id = $1 AND deal_id = $2 AND archived_at IS NULL AND NOT (deal_part_id = ANY($4))`,
+    [dealId, now, keptPartIds],
+  );
+}
+
 // §6.13 statement 2: the active or the archived deals, by sort_order, then id.
 export async function selectDeals(repo: TenantLevelRepository, o: { archived: boolean }): Promise<DealRecord[]> {
   const rows = await repo.query<RawDeal>(

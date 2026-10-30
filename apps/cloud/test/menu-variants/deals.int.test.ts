@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2, type CreateDealRequest, type DealBranchWire, type DealWire } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2, type CreateDealRequest, type DealBranchWire, type DealWire, type PatchDealRequest } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { createDeal } from '../helpers/menu-variants';
@@ -16,9 +16,10 @@ const HEADER: SnapshotHeader = {
 
 type ListedDeal = DealWire & { branches: DealBranchWire[] };
 
-// 01c §6.13 deal list, §6.14 deal create (§3.3 deal rules, V10, V18); V16 a category or tax class used by an
-// active deal cannot be archived.
-describe('01c deal list (§6.13) and create (§6.14)', () => {
+// 01c §6.13 deal list, §6.14 deal create (§3.3 deal rules, V10, V18), §6.15 deal PATCH (V14 parts upsert, m3,
+// V18); §6.5 R8 (weighed item in a deal, item side); V16 a category or tax class used by an active deal cannot be
+// archived.
+describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
   let menu: SeededMenu;
@@ -70,13 +71,27 @@ describe('01c deal list (§6.13) and create (§6.14)', () => {
                 (SELECT count(*)::int FROM config_audit) AS audit`,
       )
     ).rows[0];
+  // Every deal, part, choice and deal window row of tenant A, as stored.
+  const dealRows = async () =>
+    (
+      await cloud.pool.query<{ rows: unknown }>(
+        `SELECT json_build_object(
+                  'deals', (SELECT json_agg(d ORDER BY d.deal_id) FROM deals d WHERE d.tenant_id = $1),
+                  'parts', (SELECT json_agg(p ORDER BY p.deal_part_id) FROM deal_parts p WHERE p.tenant_id = $1),
+                  'choices', (SELECT json_agg(c ORDER BY c.deal_part_id, c.item_id) FROM deal_part_choices c WHERE c.tenant_id = $1),
+                  'windows', (SELECT json_agg(w ORDER BY w.window_id) FROM availability_windows w WHERE w.tenant_id = $1 AND w.deal_id IS NOT NULL)
+                ) AS rows`,
+        [f.tenantId],
+      )
+    ).rows[0]!.rows;
   // The call answers `status` with nothing written and no branch bumped; the error is returned.
   const refused = async (call: () => Promise<{ statusCode: number; body: string; json: () => unknown }>, status: number) => {
-    const before = { counts: await counts(), versions: await versions() };
+    const before = { counts: await counts(), versions: await versions(), rows: await dealRows() };
     const response = await call();
     expect(response.statusCode, response.body).toBe(status);
     expect(await counts()).toEqual(before.counts);
     expect(await versions()).toEqual(before.versions);
+    expect(await dealRows()).toEqual(before.rows);
     return (response.json() as { error: { code: string; details: Record<string, unknown> } }).error;
   };
   const issuePaths = (error: { details: Record<string, unknown> }) => (error.details.issues as Array<{ path: string }>).map((i) => i.path);
@@ -96,6 +111,41 @@ describe('01c deal list (§6.13) and create (§6.14)', () => {
     price_minor: 100000,
     parts: [{ quantity: 1, choices: choices.map((item_id) => ({ item_id })) }],
   });
+
+  const patchDeal = (dealId: string, payload: object) => inject('PATCH', `/v1/admin/deals/${dealId}`, payload);
+  const patched = async (dealId: string, payload: PatchDealRequest) => {
+    const response = await patchDeal(dealId, payload);
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json().data.deal as DealWire;
+  };
+  const patchItem = async (itemId: string, payload: object) => {
+    const response = await inject('PATCH', `/v1/admin/menu-items/${itemId}`, payload);
+    expect(response.statusCode, response.body).toBe(200);
+  };
+  const storedParts = async (dealId: string) =>
+    (
+      await cloud.pool.query<{ deal_part_id: string; quantity: number; archived_at: string | null }>(
+        `SELECT deal_part_id, quantity, archived_at FROM deal_parts WHERE tenant_id = $1 AND deal_id = $2 ORDER BY deal_part_id`,
+        [f.tenantId, dealId],
+      )
+    ).rows;
+  const storedChoices = async (dealPartId: string) =>
+    (
+      await cloud.pool.query<{ item_id: string; extra_price_minor: string; sort_order: number }>(
+        `SELECT item_id, extra_price_minor, sort_order FROM deal_part_choices WHERE tenant_id = $1 AND deal_part_id = $2 ORDER BY item_id`,
+        [f.tenantId, dealPartId],
+      )
+    ).rows;
+  const dealAudit = async (dealId: string) =>
+    (
+      await cloud.pool.query<{ action: string; before: unknown; after: unknown }>(
+        `SELECT action, before, after FROM config_audit WHERE tenant_id = $1 AND entity = 'deal' AND entity_id = $2 ORDER BY at, audit_id`,
+        [f.tenantId, dealId],
+      )
+    ).rows;
+  // V15: the audited deal is the wire without version and archived_parts
+  const auditedDeal = (wire: DealWire) => Object.fromEntries(Object.entries(wire).filter(([key]) => key !== 'version' && key !== 'archived_parts'));
+  const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
   it('[01c #49] Family karahi deal with 3 parts → 201, one audit row, every branch bumped, replay; in no snapshot until §6.16', async () => {
     const karahi = await item({ name: 'Mutton Karahi', sale_unit: 'g', price_minor: 400 });
@@ -366,6 +416,411 @@ describe('01c deal list (§6.13) and create (§6.14)', () => {
     expect(counter.count).toBe(5);
     expect((archived.json().data as { deals: ListedDeal[] }).deals.map((d) => [d.deal_id, d.archived_at])).toEqual([[deal.deal_id, 7]]);
     expect((await list()).json().data.deals).toHaveLength(19);
+  });
+
+  // ------------------------------------------------------------------------------------------- §6.15 deal PATCH
+
+  it('[01c #52] keeps P1 (quantity changed), omits P2, adds P3 → P1 same id, P2 archived, P3 new ULID; sending P2 again → restored, same id', async () => {
+    const [naan, roghni, raita] = menu.itemIds as [string, string, string];
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 1, choices: [{ item_id: naan }] },
+        { quantity: 2, sort_order: 1, choices: [{ item_id: roghni }] },
+      ],
+    });
+    const [p1, p2] = deal.parts.map((p) => p.deal_part_id) as [string, string];
+    const before = await versions();
+    const first = await patchDeal(deal.deal_id, {
+      expected_version: deal.version,
+      parts: [
+        { deal_part_id: p1, quantity: 3, choices: [{ item_id: naan }] },
+        { quantity: 1, sort_order: 2, choices: [{ item_id: raita }] },
+      ],
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    // tenant-wide check, deal lock, parts read, windows read, choice items FOR SHARE, deal update, sent parts'
+    // choices delete, parts upsert, archive omitted, choices insert, audit, 2 bump
+    expect(counter.count).toBe(13);
+    const wire = first.json().data.deal as DealWire;
+    const p3 = wire.parts[1]!.deal_part_id;
+    expect(wire.parts).toEqual([
+      { deal_part_id: p1, quantity: 3, sort_order: 0, choices: [{ item_id: naan, extra_price_minor: 0, sort_order: 0 }] },
+      { deal_part_id: p3, quantity: 1, sort_order: 2, choices: [{ item_id: raita, extra_price_minor: 0, sort_order: 0 }] },
+    ]);
+    expect(p3).toMatch(ULID);
+    expect([p1, p2]).not.toContain(p3);
+    expect(wire.archived_parts).toEqual([{ deal_part_id: p2 }]);
+    expect(wire.version).not.toBe(deal.version);
+    expect(await versions()).toEqual(before.map((v) => v + 1));
+    expect((await storedParts(deal.deal_id)).map((p) => [p.deal_part_id, p.quantity, p.archived_at !== null])).toEqual(
+      [
+        [p1, 3, false],
+        [p2, 2, true],
+        [p3, 1, false],
+      ].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)),
+    );
+
+    const restored = await patched(deal.deal_id, {
+      expected_version: wire.version,
+      parts: [
+        { deal_part_id: p1, quantity: 3, choices: [{ item_id: naan }] },
+        { deal_part_id: p2, quantity: 2, sort_order: 1, choices: [{ item_id: roghni }] },
+        { deal_part_id: p3, quantity: 1, sort_order: 2, choices: [{ item_id: raita }] },
+      ],
+    });
+    expect(restored.parts.map((p) => p.deal_part_id)).toEqual([p1, p2, p3]);
+    expect(restored.archived_parts).toEqual([]);
+    expect((await storedParts(deal.deal_id)).every((p) => p.archived_at === null)).toBe(true);
+    expect((await counts())!.parts).toBe(3);
+    expect((await dealAudit(deal.deal_id)).map((row) => row.action)).toEqual(['create', 'update', 'update']);
+  });
+
+  it('[01c #105] m3: omitting P2 keeps its row (archived_at, same ULID) and its choices; the sent parts’ choices are rewritten; sending P2’s id restores it with its choices', async () => {
+    const [naan, roghni, raita] = menu.itemIds as [string, string, string];
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 2, choices: [{ item_id: naan }, { item_id: roghni, extra_price_minor: 3000, sort_order: 1 }] },
+        { quantity: 1, sort_order: 1, choices: [{ item_id: raita }] },
+      ],
+    });
+    const [p1, p2] = deal.parts.map((p) => p.deal_part_id) as [string, string];
+    const wire = await patched(deal.deal_id, {
+      expected_version: deal.version,
+      parts: [{ deal_part_id: p1, quantity: 2, choices: [{ item_id: naan }, { item_id: raita, extra_price_minor: 500, sort_order: 1 }] }],
+    });
+    expect(wire.parts).toEqual([
+      {
+        deal_part_id: p1,
+        quantity: 2,
+        sort_order: 0,
+        choices: [
+          { item_id: naan, extra_price_minor: 0, sort_order: 0 },
+          { item_id: raita, extra_price_minor: 500, sort_order: 1 },
+        ],
+      },
+    ]);
+    // P1's choices rewritten (Roghni gone); P2 kept with archived_at and its choices
+    expect(await storedChoices(p1)).toEqual(
+      [
+        { item_id: naan, extra_price_minor: '0', sort_order: 0 },
+        { item_id: raita, extra_price_minor: '500', sort_order: 1 },
+      ].sort((a, b) => (a.item_id < b.item_id ? -1 : 1)),
+    );
+    expect(await storedChoices(p2)).toEqual([{ item_id: raita, extra_price_minor: '0', sort_order: 0 }]);
+    expect((await storedParts(deal.deal_id)).find((p) => p.deal_part_id === p2)).toEqual({
+      deal_part_id: p2,
+      quantity: 1,
+      archived_at: String(cloud.clock.branchNow()),
+    });
+    expect(wire.archived_parts).toEqual([{ deal_part_id: p2 }]);
+
+    const restored = await patched(deal.deal_id, {
+      expected_version: wire.version,
+      parts: [
+        { deal_part_id: p1, quantity: 2, choices: [{ item_id: naan }, { item_id: raita, extra_price_minor: 500, sort_order: 1 }] },
+        { deal_part_id: p2, quantity: 1, sort_order: 1, choices: [{ item_id: raita }] },
+      ],
+    });
+    expect(restored.parts[1]).toEqual({ deal_part_id: p2, quantity: 1, sort_order: 1, choices: [{ item_id: raita, extra_price_minor: 0, sort_order: 0 }] });
+    expect(await storedChoices(p2)).toEqual([{ item_id: raita, extra_price_minor: '0', sort_order: 0 }]);
+    expect(restored.archived_parts).toEqual([]);
+  });
+
+  it('[01c #53] part id of another deal → 422 not_found; stale → 409 CONFIG_STALE; body only version → 400; repeated deal_part_id → 400; unknown deal → 404', async () => {
+    const naan = menu.itemIds[0]!;
+    const deal = await createDeal(cloud, f, plainDeal('Family karahi'));
+    const other = await createDeal(cloud, f, plainDeal('Lunch deal'));
+    const own = deal.parts[0]!.deal_part_id;
+    const foreign = other.parts[0]!.deal_part_id;
+    for (const [id, i] of [
+      [foreign, 1],
+      ['DP-NOPE', 1],
+    ] as const) {
+      const error = await refused(
+        () =>
+          patchDeal(deal.deal_id, {
+            expected_version: deal.version,
+            parts: [
+              { deal_part_id: own, quantity: 1, choices: [{ item_id: naan }] },
+              { deal_part_id: id, quantity: 1, choices: [{ item_id: naan }] },
+            ],
+          }),
+        422,
+      );
+      expect(error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: `parts.${i}.deal_part_id`, reason: 'not_found' } });
+    }
+    // another tenant's part id is not_found too, never leaked
+    await cloud.pool.query(`INSERT INTO categories (tenant_id, category_id, name, created_at, updated_at) VALUES ($1, 'B-CT-1', 'B', 0, 0)`, [
+      f.other.tenantId,
+    ]);
+    await cloud.pool.query(
+      `INSERT INTO deals (tenant_id, deal_id, category_id, name, price_minor, created_at, updated_at) VALUES ($1, 'B-DEAL', 'B-CT-1', 'B', 0, 0, 0)`,
+      [f.other.tenantId],
+    );
+    await cloud.pool.query(`INSERT INTO deal_parts (tenant_id, deal_part_id, deal_id, quantity) VALUES ($1, 'B-PART', 'B-DEAL', 1)`, [
+      f.other.tenantId,
+    ]);
+    expect(
+      await refused(
+        () => patchDeal(deal.deal_id, { expected_version: deal.version, parts: [{ deal_part_id: 'B-PART', quantity: 1, choices: [{ item_id: naan }] }] }),
+        422,
+      ),
+    ).toMatchObject({ details: { field: 'parts.0.deal_part_id', reason: 'not_found' } });
+
+    const stale = await refused(() => patchDeal(deal.deal_id, { expected_version: 'stale', name: 'Family deal' }), 409);
+    expect(stale).toMatchObject({ code: 'CONFIG_STALE', details: { entity: 'deal', id: deal.deal_id } });
+    // a stale no-op is stale too
+    expect((await refused(() => patchDeal(deal.deal_id, { expected_version: 'stale', name: deal.name }), 409)).code).toBe('CONFIG_STALE');
+    expect((await refused(() => patchDeal(deal.deal_id, { expected_version: deal.version }), 400)).code).toBe('VALIDATION_FAILED');
+    const repeated = await refused(
+      () =>
+        patchDeal(deal.deal_id, {
+          expected_version: deal.version,
+          parts: [
+            { deal_part_id: own, quantity: 1, choices: [{ item_id: naan }] },
+            { deal_part_id: own, quantity: 2, choices: [{ item_id: naan }] },
+          ],
+        }),
+      400,
+    );
+    expect(issuePaths(repeated)).toContain('parts.1.deal_part_id');
+    expect((await refused(() => patchDeal(deal.deal_id, { expected_version: deal.version, parts: [] }), 400)).code).toBe('VALIDATION_FAILED');
+    for (const id of ['DL-NOPE', 'B-DEAL']) {
+      expect(await refused(() => patchDeal(id, { expected_version: deal.version, name: 'X' }), 404)).toMatchObject({
+        code: 'DEAL_NOT_FOUND',
+        details: { deal_id: id },
+      });
+    }
+  });
+
+  it('[01c §6.15 R3] a single-choice part with an extra: stale version → 409 CONFIG_STALE (not 400); fresh → 400 at parts.0.choices.0.extra_price_minor', async () => {
+    const naan = menu.itemIds[0]!;
+    const deal = await createDeal(cloud, f, plainDeal('Family karahi'));
+    const parts = [{ deal_part_id: deal.parts[0]!.deal_part_id, quantity: 1, choices: [{ item_id: naan, extra_price_minor: 3000 }] }];
+    const stale = await refused(() => patchDeal(deal.deal_id, { expected_version: 'stale', parts }), 409);
+    expect(stale).toMatchObject({ code: 'CONFIG_STALE', details: { entity: 'deal', id: deal.deal_id } });
+    const fresh = await refused(() => patchDeal(deal.deal_id, { expected_version: deal.version, parts }), 400);
+    expect(fresh.code).toBe('VALIDATION_FAILED');
+    expect(issuePaths(fresh)).toEqual(['parts.0.choices.0.extra_price_minor']);
+    // a new part (no id) too; two choices may carry an extra
+    const added = await refused(
+      () => patchDeal(deal.deal_id, { expected_version: deal.version, parts: [parts[0]!, { quantity: 1, choices: [{ item_id: naan, extra_price_minor: 1 }] }] }),
+      400,
+    );
+    expect(issuePaths(added)).toEqual(['parts.0.choices.0.extra_price_minor', 'parts.1.choices.0.extra_price_minor']);
+    const two = await patched(deal.deal_id, {
+      expected_version: deal.version,
+      parts: [{ ...parts[0]!, choices: [...parts[0]!.choices, { item_id: menu.itemIds[1]! }] }],
+    });
+    expect(two.parts[0]!.choices.map((c) => c.extra_price_minor).sort()).toEqual([0, 3000]);
+  });
+
+  it('[01c §6.15 AD-11] restore re-checks every active choice item without parts: archived item, mixed units, weighed item → 422, nothing written; then → 200 restore', async () => {
+    const naan = await item({ name: 'Naan' });
+    const roghni = await item({ name: 'Roghni naan' });
+    const raita = await item({ name: 'Raita' });
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 1, choices: [{ item_id: naan }] },
+        { quantity: 1, sort_order: 1, choices: [{ item_id: roghni }, { item_id: raita, sort_order: 1 }] },
+      ],
+    });
+    const archived = await patched(deal.deal_id, { expected_version: deal.version, archived: true });
+    expect(archived.archived_at).toBe(cloud.clock.branchNow());
+    const restore = { expected_version: archived.version, archived: false };
+
+    // the choice item archived while the deal was archived (§6.5 R4 counts active deals only, AD-11)
+    await patchItem(raita, { archived: true });
+    expect(await refused(() => patchDeal(deal.deal_id, restore), 422)).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'parts.1.choices.1.item_id', reason: 'archived' },
+    });
+    await patchItem(raita, { archived: false });
+
+    // a choice item's sale_unit changed so its part mixes units (§6.5 R6 counts active deals only): R2
+    await patchItem(roghni, { sale_unit: 'g' });
+    expect(await refused(() => patchDeal(deal.deal_id, restore), 422)).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'parts.1.choices', reason: 'choice_unit_mismatch' },
+    });
+    await patchItem(roghni, { sale_unit: 'piece' });
+
+    // a choice item turned weighed (§6.5 R8 counts active deals only): R5
+    await patchItem(naan, { sale_unit: 'g', requires_weighing: true });
+    expect(await refused(() => patchDeal(deal.deal_id, restore), 422)).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'parts.0.choices.0.item_id', reason: 'weighed_item_in_deal' },
+    });
+    await patchItem(naan, { sale_unit: 'piece', requires_weighing: false });
+
+    const before = await versions();
+    const restored = await patched(deal.deal_id, restore);
+    // tenant-wide check, deal lock, parts read, windows read, the stored active parts' choice items FOR SHARE, deal
+    // update, audit, 2 bump
+    expect(counter.count).toBe(9);
+    expect(restored).toEqual(deal);
+    expect(await versions()).toEqual(before.map((v) => v + 1));
+    expect((await dealAudit(deal.deal_id)).map((row) => row.action)).toEqual(['create', 'archive', 'restore']);
+  });
+
+  it('[01c #86] deal side: PATCH parts with a weighed choice → 422 weighed_item_in_deal at parts.N.choices.M.item_id (§6.15 R5); item side: requires_weighing on an offered item → 422 at requires_weighing (§6.5 R8)', async () => {
+    const naan = menu.itemIds[1]!;
+    const fish = await item({ name: 'Fish', sale_unit: 'g', requires_weighing: true, price_minor: 300 });
+    const karahi = await item({ name: 'Mutton Karahi', sale_unit: 'g', price_minor: 400 });
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 1, choices: [{ item_id: naan }] },
+        { quantity: 500, sort_order: 1, choices: [{ item_id: karahi }] },
+      ],
+    });
+    const [p1, p2] = deal.parts.map((p) => p.deal_part_id) as [string, string];
+    const weighedChoice = await refused(
+      () =>
+        patchDeal(deal.deal_id, {
+          expected_version: deal.version,
+          parts: [
+            { deal_part_id: p1, quantity: 1, choices: [{ item_id: naan }] },
+            { deal_part_id: p2, quantity: 500, choices: [{ item_id: karahi }, { item_id: fish, sort_order: 1 }] },
+          ],
+        }),
+      422,
+    );
+    expect(weighedChoice).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'parts.1.choices.1.item_id', reason: 'weighed_item_in_deal' } });
+
+    // item side: the karahi is the only choice of an active part of an active deal
+    const before = { rows: await dealRows(), versions: await versions(), counts: await counts() };
+    const itemBefore = (await cloud.pool.query(`SELECT * FROM menu_items WHERE item_id = $1`, [karahi])).rows;
+    const weighing = await inject('PATCH', `/v1/admin/menu-items/${karahi}`, { requires_weighing: true });
+    expect(weighing.statusCode, weighing.body).toBe(422);
+    expect(weighing.json().error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'requires_weighing', reason: 'weighed_item_in_deal' },
+    });
+    expect((await cloud.pool.query(`SELECT * FROM menu_items WHERE item_id = $1`, [karahi])).rows).toEqual(itemBefore);
+    expect({ rows: await dealRows(), versions: await versions(), counts: await counts() }).toEqual(before);
+  });
+
+  it('[01c §6.5 R8 AD-11] R8 counts active parts of active deals only: the part archived → 200; the deal archived → 200', async () => {
+    const karahi = await item({ name: 'Mutton Karahi', sale_unit: 'g', price_minor: 400 });
+    const naan = menu.itemIds[1]!;
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 500, choices: [{ item_id: karahi }] },
+        { quantity: 1, sort_order: 1, choices: [{ item_id: naan }] },
+      ],
+    });
+    // the karahi's part archived (omitted from the parts list)
+    const omitted = await patched(deal.deal_id, {
+      expected_version: deal.version,
+      parts: [{ deal_part_id: deal.parts[1]!.deal_part_id, quantity: 1, sort_order: 1, choices: [{ item_id: naan }] }],
+    });
+    await patchItem(karahi, { requires_weighing: true });
+    await patchItem(karahi, { requires_weighing: false });
+    // the part active again, the deal archived
+    const back = await patched(deal.deal_id, {
+      expected_version: omitted.version,
+      parts: deal.parts.map((p) => ({ deal_part_id: p.deal_part_id, quantity: p.quantity, sort_order: p.sort_order, choices: p.choices })),
+    });
+    const weighing = await inject('PATCH', `/v1/admin/menu-items/${karahi}`, { requires_weighing: true });
+    expect(weighing.statusCode).toBe(422);
+    await patched(deal.deal_id, { expected_version: back.version, archived: true });
+    await patchItem(karahi, { requires_weighing: true });
+  });
+
+  it('[01c §6.15] fields and windows; no-op → 200, nothing written; archive / restore audited; name taken → 409; sent references checked, unsent trusted (R4); R2 on sent parts', async () => {
+    const [naan, roghni] = menu.itemIds as [string, string];
+    const karahi = await item({ name: 'Mutton Karahi', sale_unit: 'g', price_minor: 400 });
+    const deal = await createDeal(cloud, f, plainDeal('Family karahi', [naan, roghni]));
+    const category = (await inject('POST', '/v1/admin/categories', { name: 'Deals' })).json().data.category.category_id as string;
+    const before = await versions();
+    const first = await patchDeal(deal.deal_id, {
+      expected_version: deal.version,
+      name: 'Family deal',
+      category_id: category,
+      tax_class_id: menu.taxClassId,
+      description: 'For four',
+      sort_order: 4,
+      price_minor: 260000,
+      availability_windows: [{ start_ms: 43_200_000, end_ms: 82_800_000 }],
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    // tenant-wide check, deal lock, parts read, windows read, category / tax class FOR SHARE, deal update, windows
+    // delete + insert, audit, 2 bump (no parts: no choice items lock)
+    expect(counter.count).toBe(12);
+    const wire = first.json().data.deal as DealWire;
+    expect(wire).toEqual({
+      ...deal,
+      name: 'Family deal',
+      category_id: category,
+      tax_class_id: menu.taxClassId,
+      description: 'For four',
+      sort_order: 4,
+      price_minor: 260000,
+      availability_windows: [{ start_ms: 43_200_000, end_ms: 82_800_000 }],
+      version: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(wire.version).not.toBe(deal.version);
+    expect(await versions()).toEqual(before.map((v) => v + 1));
+    const audit = await dealAudit(deal.deal_id);
+    expect(audit[1]).toEqual({ action: 'update', before: auditedDeal(deal), after: auditedDeal(wire) });
+
+    // no-op: the same values (and the same parts by id) → 200 with the stored deal, nothing written
+    const sameParts = wire.parts.map((p) => ({ deal_part_id: p.deal_part_id, quantity: p.quantity, sort_order: p.sort_order, choices: p.choices }));
+    const unchanged = { counts: await counts(), versions: await versions(), rows: await dealRows() };
+    const noop = await patchDeal(deal.deal_id, { expected_version: wire.version, name: 'Family deal', price_minor: 260000, parts: sameParts });
+    expect(noop.statusCode, noop.body).toBe(200);
+    // tenant-wide check, deal lock, parts read, windows read, choice items FOR SHARE (C4 step 4 before the no-op)
+    expect(counter.count).toBe(5);
+    expect(noop.json().data.deal).toEqual(wire);
+    expect({ counts: await counts(), versions: await versions(), rows: await dealRows() }).toEqual(unchanged);
+    expect(((await patchDeal(deal.deal_id, { expected_version: wire.version, sort_order: 4 })).json().data.deal as DealWire).version).toBe(wire.version);
+
+    // sent references: unknown / archived category or tax class → 422; an unsent archived category is trusted (R4)
+    const seeded = await seedArchived();
+    const cases: Array<[object, string, string]> = [
+      [{ category_id: 'CT-NOPE' }, 'category_id', 'not_found'],
+      [{ category_id: seeded.categoryId }, 'category_id', 'archived'],
+      [{ tax_class_id: 'TX-NOPE' }, 'tax_class_id', 'not_found'],
+      [{ tax_class_id: seeded.taxClassId }, 'tax_class_id', 'archived'],
+      [{ parts: [{ quantity: 1, choices: [{ item_id: seeded.itemId }] }] }, 'parts.0.choices.0.item_id', 'archived'],
+      [{ parts: [{ quantity: 1, choices: [{ item_id: naan }, { item_id: 'IT-NOPE' }] }] }, 'parts.0.choices.1.item_id', 'not_found'],
+      // R2 on the sent parts with the items' current sale_unit
+      [{ parts: [{ quantity: 1, choices: [{ item_id: naan }, { item_id: karahi }] }] }, 'parts.0.choices', 'choice_unit_mismatch'],
+    ];
+    for (const [body, field, reason] of cases) {
+      expect(await refused(() => patchDeal(deal.deal_id, { expected_version: wire.version, ...body }), 422), field).toMatchObject({
+        code: 'CONFIG_REFERENCE_INVALID',
+        details: { field, reason },
+      });
+    }
+    const listed = async () => ((await list()).json().data.deals as ListedDeal[]).find((d) => d.deal_id === deal.deal_id)!;
+    await cloud.pool.query(`UPDATE deals SET category_id = $2 WHERE deal_id = $1`, [deal.deal_id, seeded.categoryId]);
+    const trusted = await patched(deal.deal_id, { expected_version: (await listed()).version, name: 'Family deal 2' });
+    expect(trusted.category_id).toBe(seeded.categoryId);
+    await cloud.pool.query(`UPDATE deals SET category_id = $2 WHERE deal_id = $1`, [deal.deal_id, category]);
+    const current = await listed();
+
+    // name taken by another active deal (case-insensitive) → 409; windows cleared → []
+    await createDeal(cloud, f, plainDeal('Lunch deal'));
+    expect(await refused(() => patchDeal(deal.deal_id, { expected_version: current.version, name: 'LUNCH deal' }), 409)).toMatchObject({
+      code: 'CONFIG_NAME_TAKEN',
+      details: { entity: 'deal', name: 'LUNCH deal' },
+    });
+    const cleared = await patched(deal.deal_id, { expected_version: current.version, availability_windows: [], tax_class_id: null });
+    expect(cleared).toMatchObject({ availability_windows: [], tax_class_id: null });
+    expect((await counts())!.windows).toBe(0);
+
+    // archive → audited 'archive'; the name is then free for another deal; restore while it is taken → 409
+    const archived = await patched(deal.deal_id, { expected_version: cleared.version, archived: true });
+    expect(archived.archived_at).toBe(cloud.clock.branchNow());
+    await createDeal(cloud, f, plainDeal('Family deal 2'));
+    expect((await refused(() => patchDeal(deal.deal_id, { expected_version: archived.version, archived: false }), 409)).code).toBe('CONFIG_NAME_TAKEN');
+    expect((await dealAudit(deal.deal_id)).map((row) => row.action)).toEqual(['create', 'update', 'update', 'update', 'archive']);
   });
 
   // One archived item, category and tax class of tenant A, by SQL.

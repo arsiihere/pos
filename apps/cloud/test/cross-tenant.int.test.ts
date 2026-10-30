@@ -88,6 +88,11 @@ describe('cross-tenant', () => {
        VALUES ($1, $2, 'B spice', 0, 1, 0, 0)`,
       [f.other.tenantId, modifierGroupId],
     );
+    const dealId = 'B-DEAL-00000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO deals (tenant_id, deal_id, category_id, name, price_minor, created_at, updated_at) VALUES ($1, $2, $3, 'B deal', 0, 0, 0)`,
+      [f.other.tenantId, dealId, categoryId],
+    );
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1 ORDER BY staff_id`, [
       f.other.tenantId,
     ]);
@@ -109,6 +114,7 @@ describe('cross-tenant', () => {
       variantGroupId,
       stockItemId,
       modifierGroupId,
+      dealId,
       roleId: roles.rows[0]!.role_id,
       staffId: staff.rows[0]!.staff_id,
       refreshToken: loginB.json().data.refresh_token as string,
@@ -128,6 +134,7 @@ describe('cross-tenant', () => {
       ids.variantGroupId,
       ids.stockItemId,
       ids.modifierGroupId,
+      ids.dealId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
@@ -162,7 +169,8 @@ describe('cross-tenant', () => {
         route.url === '/v1/admin/menu-items/:item_id' ||
         route.url === '/v1/admin/variant-groups/:variant_group_id' ||
         route.url === '/v1/admin/stock-items/:stock_item_id' ||
-        route.url === '/v1/admin/modifier-groups/:modifier_group_id'
+        route.url === '/v1/admin/modifier-groups/:modifier_group_id' ||
+        route.url === '/v1/admin/deals/:deal_id'
       ) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);

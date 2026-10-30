@@ -3,9 +3,9 @@ import { createStockItem, seedDealPartRows, seedModifierGroupRows } from '../hel
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
-// 01c §6.5 R4, R10, R6 (V16, P1, D-3) and the rule precedence (v0.6 Q2, §12.7 T4). Modifier groups and deals are
+// 01c §6.5 R4, R10, R6, R8 (V16, P1, D-3, V18) and the rule precedence (v0.6 Q2, §12.7 T4). Modifier groups and deals are
 // seeded by SQL before their writers exist (P-4).
-describe('01c item PATCH: in-use rules and precedence (§6.5 R4, R10, R6)', () => {
+describe('01c item PATCH: in-use rules and precedence (§6.5 R4, R10, R6, R8)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
   let menu: SeededMenu;
@@ -174,6 +174,18 @@ describe('01c item PATCH: in-use rules and precedence (§6.5 R4, R10, R6)', () =
     expect((await nothingWritten(naan, { sale_unit: 'g', requires_weighing: true }, 409)).error).toMatchObject(
       inUse(naan, 'modifier_group', ['MG-BREAD']),
     );
+    // control (task 15 review): R10 and R6 out of the way (the option archived; Naan the only choice of an active part
+    // of an active deal) → R8's 422, so the step above proves R10 before R8
+    await setOption(true);
+    await setPart(true);
+    await seedDealPartRows(cloud, f, { dealId: 'DL-SOLO', name: 'Solo deal', categoryId: menu.categoryIds[0], parts: [{ dealPartId: 'DP-SOLO', choices: [naan] }] });
+    expect((await nothingWritten(naan, { sale_unit: 'g', requires_weighing: true }, 422)).error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'requires_weighing', reason: 'weighed_item_in_deal' },
+    });
+    await cloud.pool.query(`UPDATE deals SET archived_at = 1 WHERE tenant_id = $1 AND deal_id = 'DL-SOLO'`, [f.tenantId]);
+    await setPart(false);
+    await setOption(false);
     // R7's 400 first
     expect((await nothingWritten(naan, { requires_weighing: true }, 400)).error.code).toBe('VALIDATION_FAILED');
     // R4 as before

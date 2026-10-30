@@ -14,6 +14,7 @@ export interface BIds {
   variantGroupId: string;
   stockItemId: string;
   modifierGroupId: string;
+  dealId: string;
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -142,6 +143,10 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
       price_minor: 250000,
       parts: [{ quantity: 1, choices: [{ item_id: ids.itemId }] }],
     },
+  }),
+  'PATCH /v1/admin/deals/:deal_id': (ids) => ({
+    url: `/v1/admin/deals/${ids.dealId}`,
+    payload: { expected_version: 'stale', name: 'Family karahi' },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({

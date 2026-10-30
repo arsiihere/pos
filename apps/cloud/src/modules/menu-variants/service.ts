@@ -10,6 +10,7 @@ import type {
   ModifierGroupBranchWire,
   ModifierGroupListResponse,
   ModifierGroupWire,
+  PatchDealInput,
   PatchModifierGroupInput,
   PatchStockItemInput,
   PatchVariantGroupInput,
@@ -31,6 +32,7 @@ import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import {
+  deleteWindowsOf,
   insertConfigAuditRows,
   insertWindows,
   shareCategory,
@@ -42,7 +44,9 @@ import type { OwnerRequest } from '../restaurant/service.js';
 import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './effective-set.js';
 import {
   archiveOmittedOptions,
+  archiveOmittedParts,
   branchAllowed,
+  deleteDealChoices,
   insertDeal,
   insertDealChoices,
   insertDealParts,
@@ -64,6 +68,7 @@ import {
   shareItemsById,
   insertStockItem,
   insertVariantGroup,
+  lockDeal,
   lockModifierGroup,
   lockStockItem,
   lockVariantGroup,
@@ -79,11 +84,14 @@ import {
   selectStockItemBranch,
   selectStockItemBranches,
   selectStockItems,
+  updateDeal,
   updateModifierGroup,
   updateStockItem,
+  upsertDealParts,
   upsertModifierOptions,
   upsertStockItemBranch,
   updateVariantGroup,
+  type DealRecord,
   type MemberRow,
   type ModifierGroupRecord,
   type StockItemBranchRecord,
@@ -98,6 +106,7 @@ import {
   toModifierGroupWire,
   toStockItemWire,
   toVariantGroupWire,
+  type DealPartRow,
   type ModifierGroupRow,
   type ModifierLinkRow,
   type ModifierOptionRow,
@@ -988,7 +997,8 @@ export async function createDeal(
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
       await assertTenantWide(level, req.ownerUserId);
-      await assertDealReferences(level, body);
+      const items = await assertDealReferences(level, body);
+      assertDealPartRules(body.parts, items);
       const now = deps.clock.branchNow();
       const dealId = deps.ids.next();
       const deal = await nameTaken('deals_active_name', 'deal', body.name, () =>
@@ -1057,38 +1067,160 @@ function dealAudit(wire: DealWire): object {
   };
 }
 
-// §6.14 C4 step 4 and the §3.3 deal rules (task 30's §6.15 reuses it on the merged parts): the choice items FOR SHARE
-// (kind 4, one = ANY by item_id), the category (6), the tax class (7, when not null); then in body order: every choice
-// item found and active, the category, the tax class; then per part: one sale_unit (choice_unit_mismatch), no
-// weighed choice (V18).
+type DealPartsToCheck = ReadonlyArray<{ choices: ReadonlyArray<{ item_id: string }> }>;
+type DealItems = ReadonlyMap<string, SharedItem>;
+
+// §6.14 and §6.15 C4 step 4: the references FOR SHARE in the §6 lock order: the choice items (kind 4, one = ANY by
+// item_id; none when no part is checked), the category (6, when given), the tax class (7, when given and not null);
+// then in body order: every choice item found and active (422 parts.N.choices.M.item_id), the category, the tax
+// class. Returns the locked choice items for the §3.3 part rules (assertDealPartRules).
 async function assertDealReferences(
   level: TenantLevelRepository,
-  body: Pick<CreateDealInput, 'category_id' | 'tax_class_id'> & { parts: ReadonlyArray<{ choices: ReadonlyArray<{ item_id: string }> }> },
-): Promise<void> {
-  const itemIds = sortedUnique(body.parts.flatMap((part) => part.choices.map((c) => c.item_id)));
-  const items = await shareItemsById(level, itemIds);
-  const category = await shareCategory(level, body.category_id);
-  const taxClass = body.tax_class_id === null ? null : await shareTaxClass(level, body.tax_class_id);
+  refs: { parts: DealPartsToCheck; category_id?: string | undefined; tax_class_id?: string | null | undefined },
+): Promise<DealItems> {
+  const itemIds = sortedUnique(refs.parts.flatMap((part) => part.choices.map((c) => c.item_id)));
+  const items = itemIds.length > 0 ? await shareItemsById(level, itemIds) : [];
+  const category = refs.category_id === undefined ? null : await shareCategory(level, refs.category_id);
+  const taxClass = refs.tax_class_id === undefined || refs.tax_class_id === null ? null : await shareTaxClass(level, refs.tax_class_id);
   const byId = new Map(items.map((row) => [row.item_id, row]));
-  body.parts.forEach((part, n) => {
+  refs.parts.forEach((part, n) => {
     part.choices.forEach((choice, m) => {
       const row = byId.get(choice.item_id);
       const reason = row === undefined ? 'not_found' : row.archived_at !== null ? 'archived' : null;
       if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices.${m}.item_id`, reason });
     });
   });
-  assertCategory(category);
+  if (category !== null) assertCategory(category);
   if (taxClass !== null) {
     const reason = taxClass === undefined ? 'not_found' : taxClass.archived_at !== null ? 'archived' : null;
     if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'tax_class_id', reason });
   }
-  body.parts.forEach((part, n) => {
-    const units = new Set(part.choices.map((c) => byId.get(c.item_id)!.sale_unit));
+  return byId;
+}
+
+// §3.3 deal rules (§6.14; §6.15 R2 and R5 on the checked parts), per part in body order: the choices share one
+// sale_unit (422 choice_unit_mismatch at parts.N.choices), then no choice item is weighed (V18; 422
+// weighed_item_in_deal at parts.N.choices.M.item_id). `items` holds every choice item (assertDealReferences).
+function assertDealPartRules(parts: DealPartsToCheck, items: DealItems): void {
+  parts.forEach((part, n) => {
+    const units = new Set(part.choices.map((c) => items.get(c.item_id)!.sale_unit));
     if (units.size > 1) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices`, reason: 'choice_unit_mismatch' });
     part.choices.forEach((choice, m) => {
-      if (byId.get(choice.item_id)!.requires_weighing) {
+      if (items.get(choice.item_id)!.requires_weighing) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.choices.${m}.item_id`, reason: 'weighed_item_in_deal' });
       }
     });
+  });
+}
+
+// §6.15 R3 (§3.3; on POST the schema's rule, task 10 Q-2): a single-choice part has extra 0 → 400 with one issue
+// per such sent part, at the path the POST schema uses.
+function assertSingleChoiceExtras(parts: ReadonlyArray<{ choices: ReadonlyArray<{ extra_price_minor: number }> }>): void {
+  const issues = parts.flatMap((part, n) =>
+    part.choices.length === 1 && part.choices[0]!.extra_price_minor !== 0
+      ? [{ path: `parts.${n}.choices.0.extra_price_minor`, message: 'a single choice has no extra price' }]
+      : [],
+  );
+  if (issues.length > 0) throw new DomainError('VALIDATION_FAILED', { issues });
+}
+
+// §6.15 (C4; lock order 2 → 4 → 6 → 7 → 10): tenant-wide check (403) → deal FOR UPDATE (404 DEAL_NOT_FOUND) → its
+// parts with choices and its windows (plain reads under the deal lock) → version (409 CONFIG_STALE, a stale no-op
+// too) → C4 step 4: each sent deal_part_id a part of this deal, active or archived (422 parts.N.deal_part_id
+// not_found); references FOR SHARE (assertDealReferences): the choice items of the sent parts, or on a restore
+// without parts the stored active parts' choice items in wire order (AD-11), then the category and the tax class
+// when sent (R4) → no-op (the merged version equals the stored one: 200, nothing written) → merged rules: R3
+// single-choice extras (400), then R2 units and R5 weighed per checked part (422) → write: the deal row (R1, name
+// index → 409); parts sent: the sent parts' choices deleted, the parts upserted, the omitted active parts archived,
+// the choices inserted (V14, m3 FK order); windows sent: delete + insert → one audit row (V15) → bump every branch.
+export async function patchDeal(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  dealId: string,
+  body: PatchDealInput,
+): Promise<{ deal: DealWire }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    await assertTenantWide(level, req.ownerUserId);
+    const deal = await lockDeal(level, dealId);
+    if (deal === undefined) throw new DomainError('DEAL_NOT_FOUND', { deal_id: dealId });
+    const storedParts = await selectDealParts(level, [dealId]);
+    const storedWindows = (await selectDealWindows(level, [dealId])).map((w) => ({ start_ms: w.start_ms, end_ms: w.end_ms }));
+    const before = toDealWire({ ...deal, parts: storedParts, availability_windows: storedWindows });
+    if (body.expected_version !== before.version) throw new DomainError('CONFIG_STALE', { entity: 'deal', id: dealId });
+    body.parts?.forEach((part, n) => {
+      if (part.deal_part_id !== undefined && !storedParts.some((stored) => stored.deal_part_id === part.deal_part_id)) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `parts.${n}.deal_part_id`, reason: 'not_found' });
+      }
+    });
+    // AD-11: a restore re-checks every active choice item of the merged parts, even when parts is not sent
+    const restoring = deal.archived_at !== null && body.archived === false;
+    const checkedParts: DealPartsToCheck = body.parts ?? (restoring ? before.parts : []);
+    const items = await assertDealReferences(level, { parts: checkedParts, category_id: body.category_id, tax_class_id: body.tax_class_id });
+    const now = deps.clock.branchNow();
+    const parts: DealPartRow[] =
+      body.parts === undefined
+        ? storedParts
+        : [
+            ...body.parts.map((part) => ({
+              deal_part_id: part.deal_part_id ?? deps.ids.next(),
+              quantity: part.quantity,
+              sort_order: part.sort_order,
+              archived_at: null,
+              choices: part.choices,
+            })),
+            ...storedParts
+              .filter((stored) => !body.parts!.some((part) => part.deal_part_id === stored.deal_part_id))
+              .map((stored) => ({ ...stored, archived_at: stored.archived_at ?? now })),
+          ];
+    const merged: DealRecord = {
+      ...deal,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.category_id !== undefined ? { category_id: body.category_id } : {}),
+      ...(body.tax_class_id !== undefined ? { tax_class_id: body.tax_class_id } : {}),
+      ...(body.description !== undefined ? { description: body.description } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.price_minor !== undefined ? { price_minor: body.price_minor } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (deal.archived_at ?? now) : null } : {}),
+    };
+    const windows = body.availability_windows ?? storedWindows;
+    // C4 step 5 (S26): the version input is the whole merged deal (fields, windows, active parts with choices)
+    if (toDealWire({ ...merged, parts, availability_windows: windows }).version === before.version) return { deal: before };
+    // C4 step 6, merged-row rules: R3 (400), then R2 and R5 per checked part (422); R1 at the write
+    if (body.parts !== undefined) assertSingleChoiceExtras(body.parts);
+    assertDealPartRules(checkedParts, items);
+    const written = await nameTaken('deals_active_name', 'deal', merged.name, () => updateDeal(level, merged, now));
+    if (body.parts !== undefined) {
+      const sent = parts.slice(0, body.parts.length);
+      const sentIds = sent.map((part) => part.deal_part_id);
+      await deleteDealChoices(level, sentIds);
+      await upsertDealParts(level, dealId, sent);
+      await archiveOmittedParts(level, dealId, sentIds, now);
+      await insertDealChoices(
+        level,
+        sent.flatMap((part) => part.choices.map((c) => ({ ...c, extra_price_minor: Number(c.extra_price_minor), deal_part_id: part.deal_part_id }))),
+      );
+    }
+    if (body.availability_windows !== undefined) {
+      await deleteWindowsOf(level, { deal_id: dealId });
+      if (body.availability_windows.length > 0) await insertWindows(level, { deal_id: dealId }, body.availability_windows, deps.ids);
+    }
+    const after = toDealWire({ ...written, parts, availability_windows: windows });
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'deal',
+        entityId: dealId,
+        branchId: null,
+        action: auditActionFor(deal, written),
+        before: dealAudit(before),
+        after: dealAudit(after),
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpEveryBranch(level);
+    return { deal: after };
   });
 }

@@ -9,6 +9,7 @@ import {
   ModifierGroupBranchResponse,
   ModifierGroupListResponse,
   ModifierGroupResponse,
+  PatchDealBody,
   PatchModifierGroupBody,
   PatchStockItemBody,
   PatchVariantGroupBody,
@@ -32,6 +33,7 @@ import {
   listDeals,
   listModifierGroups,
   listStockItems,
+  patchDeal,
   patchModifierGroup,
   patchStockItem,
   patchVariantGroup,
@@ -44,6 +46,7 @@ const VariantGroupParams = z.object({ variant_group_id: z.string().min(1) });
 const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
 const ModifierGroupParams = z.object({ modifier_group_id: z.string().min(1) });
 const ModifierGroupBranchParams = z.object({ modifier_group_id: z.string().min(1), branch_id: z.string().min(1) });
+const DealParams = z.object({ deal_id: z.string().min(1) });
 const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
 // §6.6, §6.10, §6.13 (AD-30)
 const StatusQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
@@ -205,6 +208,19 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('POST /v1/admin/deals');
       return sendIdempotent(reply, await createDeal(deps, ownerRequest(app, request), request.body));
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/deals/:deal_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: DealParams, body: PatchDealBody, response: { 200: DealResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/deals/:deal_id');
+      const data = await patchDeal(deps, ownerRequest(app, request), request.params.deal_id, request.body);
+      return reply.send({ data });
     },
   );
 }
