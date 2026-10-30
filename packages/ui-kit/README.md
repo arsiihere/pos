@@ -30,7 +30,7 @@ Load `tokens.css` and `components/bundle.css`, wrap the page in `.pos-root`, and
 
 ## Type
 
-- **Pulse fonts** (2026-10-30 hand-off): **Figtree** for UI text, **Bricolage Grotesque** for titles and big numbers, **Geist Mono** for codes, PINs and addresses, **Noto Nastaliq Urdu** for Urdu. All OFL, all bundled in `fonts/`; nothing loads from the internet.
+- **Pulse fonts** (2026-10-30 hand-off): **Figtree** for UI text, **Bricolage Grotesque** for titles and big numbers, **Geist Mono** for codes, PINs and addresses, **Noto Nastaliq Urdu** for Urdu. All OFL, all bundled in `fonts/` with their licence texts (`OFL-*.txt`, not served by the hub); nothing loads from the internet.
 - Defaults: `body-lg` (20px) on kiosk, tablet and KDS; `body` (17px) on phones. Nothing a cook or cashier must read is below 17px. `caption` (15px, `ink-muted`) is for metadata only, never on KDS.
 - `display` for the one headline of a full-screen state; `code-display` (72px) for the pairing code, readable at 3 m.
 
