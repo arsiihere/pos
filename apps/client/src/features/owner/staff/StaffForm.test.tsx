@@ -204,6 +204,15 @@ describe('[01b §8] staff form', () => {
     );
     expect(headings()).toContain(t('staff.never'));
     expect(m.container.querySelector('button.pos-disclosure')).toBeNull();
+    // StaffFormImran: one row per block, Remove keeps the old "Allow … again" name and action.
+    const row = m.container.querySelector('.pos-never .pos-list__row');
+    expect(row?.textContent).toContain(t('perm.approve-void'));
+    expect(row?.textContent).toContain(t('staff.never_row_help'));
+    const remove = button(row as Element, t('staff.never_remove_short'));
+    expect(remove.getAttribute('aria-label')).toBe(fill(t('staff.never_remove'), { permission: t('perm.approve-void') }));
+    await click(remove);
+    expect(m.container.querySelector('.pos-never')).toBeNull();
+    expect(m.container.textContent).toContain(t('staff.never_none'));
   });
 
   it('[hand-off 01b-C02] What {name} can do is closed with grant counts that follow the roles live', async () => {

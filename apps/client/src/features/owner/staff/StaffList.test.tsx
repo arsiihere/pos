@@ -119,7 +119,9 @@ describe('[01b §8] staff list', () => {
     try {
       const { api } = fakeApi(reads([...STAFF, person({ staff_id: 'S5', display_name: 'Bilal A.' })]));
       await m.render(<StaffList api={api} branchIds={['B1']} />);
-      const add = () => [...m.container.querySelectorAll('button')].find((b) => b.textContent?.trim() === t('staff.add'));
+      // Phone app bar: short "Add", accessible name still "Add staff".
+      const add = () => m.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('staff.add')}"]`);
+      expect(add()?.textContent?.trim()).toBe(t('staff.add_short'));
       expect(add()?.classList.contains('pos-btn--primary')).toBe(true);
 
       setValue(m.container.querySelector<HTMLInputElement>('input[type="search"]'), 'bil');

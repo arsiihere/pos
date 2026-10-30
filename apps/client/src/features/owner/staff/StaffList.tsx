@@ -81,10 +81,11 @@ export function StaffList({ api, branchIds }: { api: CloudAdmin; branchIds: read
       type="button"
       className={`pos-btn${rush ? '' : ' pos-btn--primary'}`}
       disabled={down}
+      aria-label={phone ? t('staff.add') : undefined}
       onClick={() => navigate('/staff/new')}
     >
       <Icon name="plus" />
-      {t('staff.add')}
+      {phone ? t('staff.add_short') : t('staff.add')}
     </button>
   );
 

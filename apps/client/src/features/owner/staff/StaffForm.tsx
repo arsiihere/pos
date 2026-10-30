@@ -605,20 +605,24 @@ function Editor({
               {draft.denied.length === 0 ? (
                 <p className={typeClass('body')}>{t('staff.never_none')}</p>
               ) : (
-                <div className="pos-row">
+                <ul className="pos-list pos-list--rows pos-never">
                   {draft.denied.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className="pos-chip pos-chip--danger"
-                      aria-label={fill(t('staff.never_remove'), { permission: t(`perm.${p}`) })}
-                      onClick={() => update({ denied: draft.denied.filter((d) => d !== p) })}
-                    >
-                      {t(`perm.${p}`)}
-                      <Icon name="x" />
-                    </button>
+                    <li key={p} className="pos-list__row">
+                      <div className="pos-list__name">
+                        <strong>{t(`perm.${p}`)}</strong>
+                        <span>{t('staff.never_row_help')}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="pos-btn"
+                        aria-label={fill(t('staff.never_remove'), { permission: t(`perm.${p}`) })}
+                        onClick={() => update({ denied: draft.denied.filter((d) => d !== p) })}
+                      >
+                        {t('staff.never_remove_short')}
+                      </button>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </section>
           </Disclosure>

@@ -80,4 +80,21 @@ describe('Disclosure (Pulse 01b)', () => {
     expect(head?.getAttribute('aria-expanded')).toBe('false');
     expect(document.activeElement).toBe(head);
   });
+
+  it('Escape from a control inside a group leaves the group open', () => {
+    act(() =>
+      root.render(
+        <Disclosure variant="group" title="Orders and tables" defaultOpen>
+          <select aria-label="Where">
+            <option>Branch</option>
+          </select>
+        </Disclosure>,
+      ),
+    );
+    const select = container.querySelector('select');
+    act(() => {
+      select?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(container.querySelector('.pos-group__toggle')?.getAttribute('aria-expanded')).toBe('true');
+  });
 });

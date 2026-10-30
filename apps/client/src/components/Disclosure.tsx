@@ -5,7 +5,8 @@ import { Icon, type IconName } from './Icon';
 // shows a rare section in place. `row` is the one-line row "Advanced · Never allow · Nothing blocked." (01b
 // staff form); `group` is a role-editor permission group with its count summary under the name.
 // `inPlace` (row only): once open, the section replaces the row, as drawn on StaffFormImran, and focus moves
-// into it. Enter or Space toggles (native button); Escape inside an open group closes it and refocuses the toggle.
+// into it. Enter or Space toggles (native button); Escape inside an open group (not from a control in it) closes it
+// and refocuses the toggle.
 export function Disclosure({
   variant = 'row',
   title,
@@ -54,6 +55,8 @@ export function Disclosure({
             className="pos-group__body"
             onKeyDown={(event) => {
               if (event.key !== 'Escape' || event.defaultPrevented) return;
+              // A control inside the group (select, input, a menu) keeps its own Escape.
+              if (event.target !== event.currentTarget && (event.target as HTMLElement).closest('select, input, textarea, [role="menu"], [aria-haspopup]') !== null) return;
               setOpen(false);
               toggle.current?.focus();
             }}
