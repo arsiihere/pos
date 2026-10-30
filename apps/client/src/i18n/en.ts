@@ -1019,6 +1019,7 @@ export const en = {
   'branches.menu_id': 'Branch ID {tail}',
   'branches.menu_rename': 'Rename {branch}',
   'account.forced_title': 'Choose a new password',
+  'branches.title_short': 'Branches',
   // Pulse 01a hand-off CHANGES §3: owner shell, branch picker, More menus
   'common.more_for': 'More for {name}',
   'owner.nav.close': 'Close the side menu',

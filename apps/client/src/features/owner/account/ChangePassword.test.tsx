@@ -134,4 +134,18 @@ describe('[01b §8] change password', () => {
     await click(button(m.container, t('owner.sign_out')));
     expect(signedOut).toBe(true);
   });
+
+  it('[01b §8 B05, S53] forced mode keeps the cloud-down banner and the lock notice, and has a page heading', async () => {
+    sessionStorage.setItem('owner_lockout_notice', JSON.stringify({ locked_at: Date.UTC(2026, 9, 27, 17, 42), failed_count: 10 }));
+    const { api } = fakeApi(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    await m.render(<ChangePassword api={api} userName="Arif" forced onChanged={() => {}} onSignOut={() => {}} />);
+    fillForm('temp-password', 'a long new password');
+    await click(button(m.container, t('account.submit')));
+    const main = m.container.querySelector('.pos-forced__main')!;
+    expect(main.textContent).toContain(t('common.cloud_down'));
+    expect(main.textContent).toContain('with a wrong password 10 times on');
+    expect(main.querySelector('h1')?.textContent).toBe(t('account.forced_title'));
+  });
 });

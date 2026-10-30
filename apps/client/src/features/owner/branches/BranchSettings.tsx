@@ -23,6 +23,27 @@ import { Page } from '../Shell';
 // settings full width in the bottom action bar (BranchSettingsPhone).
 const whole = (text: string) => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : NaN);
 
+// The back link (the only exit on a phone, where Cancel is not shown) goes through the unsaved-changes
+// guard (S50 c) like Cancel does.
+function BackLink() {
+  const phone = usePhone();
+  const leave = useLeave();
+  return (
+    <a
+      className="pos-btn"
+      href="#/branches"
+      aria-label={t('branches.back')}
+      onClick={(e) => {
+        e.preventDefault();
+        leave(() => navigate('/branches'));
+      }}
+    >
+      <Icon name="back" flip />
+      {!phone && t('branches.back_short')}
+    </a>
+  );
+}
+
 export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: string }) {
   const [stored, setStored] = useState<BranchDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,13 +60,7 @@ export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: s
     };
   }, [api, branchId]);
 
-  const phone = usePhone();
-  const back = (
-    <a className="pos-btn" href="#/branches" aria-label={t('branches.back')}>
-      <Icon name="back" flip />
-      {!phone && t('branches.back_short')}
-    </a>
-  );
+  const back = <BackLink />;
 
   if (stored === null) {
     return (

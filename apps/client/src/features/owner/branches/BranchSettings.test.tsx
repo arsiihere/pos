@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { GuardProvider } from '../guard';
@@ -68,5 +68,25 @@ describe('[01b §8] branch settings', () => {
       body: { tax_enabled: true, day_stale_after_hours: 10 },
     });
     expect(m.container.textContent).toContain(fill(t('branches.settings_saved'), { name: 'Gulberg' }));
+  });
+
+  it('[01b §8, S50 c] phone: the back arrow asks before dropping changes', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 760px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    try {
+      window.location.hash = '#/branches/B1/settings';
+      await render();
+      const back = m.container.querySelector<HTMLAnchorElement>(`a[aria-label="${t('branches.back')}"]`)!;
+      expect(back.textContent).toBe('');
+      setValue(m.container.querySelector<HTMLInputElement>('input[name="day_stale_after_hours"]'), '20');
+      await click(back);
+      expect(window.location.hash).toBe('#/branches/B1/settings');
+      const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog.textContent).toContain(t('discard.keep'));
+      await click(button(dialog, t('discard.discard')));
+      expect(window.location.hash).toBe('#/branches');
+    } finally {
+      vi.unstubAllGlobals();
+      window.location.hash = '';
+    }
   });
 });

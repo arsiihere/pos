@@ -216,6 +216,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'branches.menu_id': 'برانچ آئی ڈی {tail}',
   'branches.menu_rename': '{branch} کا نام بدلیں',
   'account.forced_title': 'نیا پاس ورڈ چنیں',
+  'branches.title_short': 'برانچیں',
   // 01b task 54: BranchesUrdu, BranchSettingsUrdu
   'branches.title': 'برانچیں اور سیٹنگ',
   'branches.open': 'کھلی',

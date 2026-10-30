@@ -9,7 +9,8 @@ import { Icon } from '../../../components/Icon';
 import { NavBrand } from '../../../components/SideNav';
 import { fill } from '../../../i18n/en';
 import { t, typeClass } from '../../../i18n';
-import { useCloudDown } from '../cloud';
+import { CloudDownBanner, useCloudDown } from '../cloud';
+import { LockoutBanner } from './LockoutBanner';
 import { errorText } from '../form';
 import { Page } from '../Shell';
 
@@ -180,6 +181,10 @@ export function ChangePassword({
           </div>
         </header>
         <main className="pos-forced__main">
+          {/* The shell's page banners (cloud unreachable, lock notice) still show while forced. */}
+          <CloudDownBanner api={api} />
+          <LockoutBanner api={api} />
+          {!phone && <h1 className="pos-vh">{t('account.forced_title')}</h1>}
           {banners}
           {card}
         </main>

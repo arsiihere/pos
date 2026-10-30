@@ -57,7 +57,7 @@ export function BranchesView({ api }: { api: CloudAdmin }) {
   const now = Date.now();
 
   return (
-    <Page api={api} title={phone ? t('branches.back_short') : t('branches.title')}>
+    <Page api={api} title={phone ? t('branches.title_short') : t('branches.title')}>
       {error !== null && <Banner tone="danger" text={error} />}
       {renamed !== null && <Banner tone="ok" text={fill(t('branches.renamed'), { name: renamed })} detail={t('branches.renamed_body')} />}
       {list === null ? (
