@@ -1,8 +1,10 @@
 import { DomainError } from '@pos/domain';
 import { canonicalJson } from '@pos/domain/hash';
 import type {
+  CreateModifierGroupInput,
   CreateStockItemInput,
   CreateVariantGroupInput,
+  ModifierGroupWire,
   PatchStockItemInput,
   PatchVariantGroupInput,
   PutStockItemBranchInput,
@@ -21,11 +23,20 @@ import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { insertConfigAuditRows, shareCategory, shareStationsById } from '../restaurant/repository.js';
+import { insertConfigAuditRows, shareCategory, shareStationsById, shareVariantGroups } from '../restaurant/repository.js';
 import type { OwnerRequest } from '../restaurant/service.js';
+import { assertEffectiveSetLimit, type EffectiveSetItem, type LinkRow } from './effective-set.js';
 import {
   branchAllowed,
   deleteStockItemBranch,
+  firstRepeatedName,
+  insertModifierGroup,
+  insertModifierLinks,
+  insertModifierOptions,
+  selectAffectedItems,
+  selectLinksOfTargets,
+  shareCategoriesById,
+  shareItemsById,
   insertStockItem,
   insertVariantGroup,
   lockStockItem,
@@ -44,7 +55,7 @@ import {
   type StockItemRecord,
   type VariantGroupRecord,
 } from './repository.js';
-import { stockItemBranchVersion, toStockItemWire, toVariantGroupWire } from './versions.js';
+import { stockItemBranchVersion, toModifierGroupWire, toStockItemWire, toVariantGroupWire } from './versions.js';
 
 export interface MenuVariantDeps {
   pool: pg.Pool;
@@ -103,6 +114,7 @@ export async function createVariantGroup(
 // §6.2 (C4; lock order 3 → 4 → 6 → 10): tenant-wide check (403) → group FOR UPDATE (404) → version
 // (409 CONFIG_STALE, a stale no-op too) → a category change locks every member FOR UPDATE by item_id, otherwise the members are a plain read →
 // a sent category_id FOR SHARE (422) → no-op (200, nothing written) → R1 archive with active members (409),
+// R3 a category change re-checks every member's effective set (one links read; 422 too_many_groups),
 // R2 name (index → 409) → write; a category change moves every member (M6) → one multi-row audit insert:
 // the group, then one menu_item / update per moved member (C5, branch_id null) → bump every branch.
 export async function patchVariantGroup(
@@ -142,6 +154,19 @@ export async function patchVariantGroup(
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'variant_group', id: variantGroupId, used_by: { entity: 'menu_item', ids } });
       }
+    }
+    // R3 (V8, §3.3): a category change re-checks the effective-set limit for every member under the new category
+    if (moving && members.length > 0) {
+      await assertItemEffectiveSets(
+        level,
+        members.map((m) => ({ item_id: m.item_id, category_id: merged.category_id, variant_group_id: variantGroupId })),
+        new Set([
+          ...members.filter((m) => m.archived_at === null).map((m) => m.item_id),
+          merged.category_id,
+          ...(merged.archived_at === null ? [variantGroupId] : []),
+        ]),
+        'category_id',
+      );
     }
     const group = await nameTaken(merged.name, () => updateVariantGroup(level, merged, now));
     const moved = moving ? await moveMembers(level, variantGroupId, group.category_id, now) : [];
@@ -419,6 +444,190 @@ async function nameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
     const pgError = error as { code?: string; constraint?: string };
     if (pgError.code === '23505' && pgError.constraint === 'variant_groups_active_name') {
       throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'variant_group', name });
+    }
+    throw error;
+  }
+}
+
+// -------------------------------------------------------------------------------------------- modifier groups
+
+// §6.11 (C4; lock order 3 → 4 → 6 → 10): idempotency key → tenant-wide check (403) → references FOR SHARE per kind,
+// one = ANY each, ids ascending: link variant groups (3), then the linked and target items together (4), then link
+// categories (6) → C1 checks in body order (options.N.linked_item_id: not_found / archived / linked_item_not_piece;
+// links.N.target_id: not_found / archived) → merged group rules (§3.3, in §6.12's order): choices_unsatisfiable,
+// defaults_exceed_max, option names (one lower(name) statement, m13; 409 modifier_option), effective-set limit on
+// the items the attach links reach (one read; 422 at links) → insert group (name index → 409), options, links
+// (multi-row) → one audit row (options and links in after, V15) → bump every branch (10).
+export async function createModifierGroup(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  body: CreateModifierGroupInput,
+): Promise<IdempotentResult<{ modifier_group: ModifierGroupWire }>> {
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertTenantWide(level, req.ownerUserId);
+      const targetsOf = (kind: LinkRow['target_kind']) => sortedUnique(body.links.filter((l) => l.target_kind === kind).map((l) => l.target_id));
+      const variantGroupIds = targetsOf('variant_group');
+      const linkedItemIds = body.options.flatMap((o) => (o.linked_item_id === null ? [] : [o.linked_item_id]));
+      const itemIds = sortedUnique([...linkedItemIds, ...targetsOf('item')]);
+      const categoryIds = targetsOf('category');
+      const variantGroups = variantGroupIds.length > 0 ? await shareVariantGroups(level, variantGroupIds) : [];
+      const items = itemIds.length > 0 ? await shareItemsById(level, itemIds) : [];
+      const categories = categoryIds.length > 0 ? await shareCategoriesById(level, categoryIds) : [];
+      body.options.forEach((option, i) => {
+        if (option.linked_item_id === null) return;
+        const linked = items.find((row) => row.item_id === option.linked_item_id);
+        const reason =
+          linked === undefined
+            ? 'not_found'
+            : linked.archived_at !== null
+              ? 'archived'
+              : linked.sale_unit !== 'piece' || linked.requires_weighing
+                ? 'linked_item_not_piece'
+                : null;
+        if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `options.${i}.linked_item_id`, reason });
+      });
+      body.links.forEach((link, i) => {
+        const rows: ReadonlyArray<{ id: string; archived_at: number | null }> =
+          link.target_kind === 'variant_group'
+            ? variantGroups.map((row) => ({ id: row.variant_group_id, archived_at: row.archived_at }))
+            : link.target_kind === 'item'
+              ? items.map((row) => ({ id: row.item_id, archived_at: row.archived_at }))
+              : categories.map((row) => ({ id: row.category_id, archived_at: row.archived_at }));
+        const target = rows.find((row) => row.id === link.target_id);
+        const reason = target === undefined ? 'not_found' : target.archived_at !== null ? 'archived' : null;
+        if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `links.${i}.target_id`, reason });
+      });
+      if (body.min_choices > body.options.reduce((sum, o) => sum + o.max_quantity, 0)) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'min_choices', reason: 'choices_unsatisfiable' });
+      }
+      if (body.options.filter((o) => o.is_default).length > body.max_choices) {
+        throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'options', reason: 'defaults_exceed_max' });
+      }
+      const repeated = await firstRepeatedName(level, body.options.map((o) => o.name));
+      if (repeated !== undefined) throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_option', name: repeated });
+      const modifierGroupId = deps.ids.next();
+      await assertGroupLinksWithinLimit(level, { modifier_group_id: modifierGroupId, sort_order: body.sort_order }, body.links);
+      const now = deps.clock.branchNow();
+      const group = await modifierGroupNameTaken(body.name, () =>
+        insertModifierGroup(
+          level,
+          { modifier_group_id: modifierGroupId, name: body.name, min_choices: body.min_choices, max_choices: body.max_choices, sort_order: body.sort_order },
+          now,
+        ),
+      );
+      const options = await insertModifierOptions(
+        level,
+        modifierGroupId,
+        body.options.map((o) => ({
+          option_id: deps.ids.next(),
+          name: o.name,
+          price_minor: o.price_minor,
+          max_quantity: o.max_quantity,
+          is_default: o.is_default,
+          linked_item_id: o.linked_item_id,
+          sort_order: o.sort_order,
+        })),
+      );
+      const links = body.links.length > 0 ? await insertModifierLinks(level, modifierGroupId, body.links) : [];
+      const wire = toModifierGroupWire({ ...group, options, links }, req.tenant.branchIds, []);
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'modifier_group',
+          entityId: modifierGroupId,
+          branchId: null,
+          action: 'create',
+          before: null,
+          after: modifierGroupAudit(wire),
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpEveryBranch(level);
+      return { status: 201, body: { modifier_group: wire } };
+    },
+  );
+}
+
+// V15: the group's config_audit before / after: the group with its whole active options and links lists.
+function modifierGroupAudit(wire: ModifierGroupWire): object {
+  return {
+    modifier_group_id: wire.modifier_group_id,
+    name: wire.name,
+    min_choices: wire.min_choices,
+    max_choices: wire.max_choices,
+    sort_order: wire.sort_order,
+    archived_at: wire.archived_at,
+    options: wire.options,
+    links: wire.links,
+  };
+}
+
+// §3.3 effective-set row on a group write that changes links (M5, a plain read): the active items the group's attach
+// links reach, with their stored links, plus this group's own links; any item above 20 → 422 at links. A group with
+// no attach link reaches no item, so nothing is read.
+async function assertGroupLinksWithinLimit(
+  repo: TenantLevelRepository,
+  group: { modifier_group_id: string; sort_order: number },
+  links: ReadonlyArray<Omit<LinkRow, 'modifier_group_id'>>,
+): Promise<void> {
+  const attached = links.filter((l) => l.mode === 'attach');
+  if (attached.length === 0) return;
+  const ofKind = (kind: LinkRow['target_kind']) => sortedUnique(attached.filter((l) => l.target_kind === kind).map((l) => l.target_id));
+  const affected = await selectAffectedItems(repo, {
+    categoryIds: ofKind('category'),
+    variantGroupIds: ofKind('variant_group'),
+    itemIds: ofKind('item'),
+  });
+  const own = links.map((l) => ({ ...l, modifier_group_id: group.modifier_group_id }));
+  for (const item of affected) {
+    const active = new Set([
+      item.item_id,
+      ...(item.category_active ? [item.category_id] : []),
+      ...(item.variant_group_active && item.variant_group_id !== null ? [item.variant_group_id] : []),
+    ]);
+    assertEffectiveSetLimit([item], [...item.links, ...own], [...groupsOf(item.links), group], active, 'links');
+  }
+}
+
+// §6.4, §6.5 R3, §6.2 R3 (§3.3 effective-set row, M5): one plain read of the links reaching these items (their
+// categories, variant groups and ids, as they will be after the write); any item above 20 → 422 at `field`.
+// activeTargets: the ids among them that are active (V8, m15).
+export async function assertItemEffectiveSets(
+  repo: TenantLevelRepository,
+  items: readonly EffectiveSetItem[],
+  activeTargets: ReadonlySet<string>,
+  field: string,
+): Promise<void> {
+  const links = await selectLinksOfTargets(repo, {
+    categoryIds: sortedUnique(items.map((i) => i.category_id)),
+    variantGroupIds: sortedUnique(items.flatMap((i) => (i.variant_group_id === null ? [] : [i.variant_group_id]))),
+    itemIds: sortedUnique(items.map((i) => i.item_id)),
+  });
+  assertEffectiveSetLimit(items, links, groupsOf(links), activeTargets, field);
+}
+
+function groupsOf(links: ReadonlyArray<{ modifier_group_id: string; sort_order: number }>): Array<{ modifier_group_id: string; sort_order: number }> {
+  return [...new Map(links.map((l) => [l.modifier_group_id, { modifier_group_id: l.modifier_group_id, sort_order: l.sort_order }])).values()];
+}
+
+function sortedUnique(ids: readonly string[]): string[] {
+  return [...new Set(ids)].sort();
+}
+
+// §3.3: pg 23505 on modifier_groups_active_name → 409 CONFIG_NAME_TAKEN { entity: 'modifier_group', name }.
+async function modifierGroupNameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code === '23505' && pgError.constraint === 'modifier_groups_active_name') {
+      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_group', name });
     }
     throw error;
   }

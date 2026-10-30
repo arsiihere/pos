@@ -210,13 +210,16 @@ describe('01c items: create and menu read (§6.3, §6.4)', () => {
     }
   });
 
-  it('[01c §6.4] statements: a group and a draw add 3 (group and stock item FOR SHARE, the draw insert)', async () => {
+  it('[01c §6.4] statements: 12 plain (with the effective-set read); a group and a draw add 3 (group and stock item FOR SHARE, the draw insert)', async () => {
     const group = await karahi();
     const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
     await created(item({ name: 'Plain' }));
     const plain = counter.count;
+    // 11 before task 23, + the effective-set links read (§6.4)
+    expect(plain).toBe(12);
     await created(item({ variant_group_id: group.variant_group_id, variant_name: 'Half', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 500 }] }));
     expect(counter.count).toBe(plain + 3);
+    expect(counter.count).toBe(15);
   });
 
   it('[01c §6.4 V18] requires_weighing with sale_unit piece → 400; with a draw → 422 weighed_item_stock_draw; g alone → 201', async () => {

@@ -12,6 +12,7 @@ import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
 import { activeVariantGroupIdsIn } from '../menu-variants/repository.js';
+import { assertItemEffectiveSets } from '../menu-variants/service.js';
 import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
@@ -853,7 +854,7 @@ function decodeCursor(cursor: string): { n: string; id: string } {
 // (404) → stock ≤ cook (422) → references FOR SHARE in the §6
 // lock order: variant group (3), the draw's stock item (5), category (6), tax class (7), stations then programs (8;
 // one statement per kind) → the §3.3 item rows (category equals the group's, the V4 draw unit rule, a weighed item
-// has no draw) → item, draw, routes, windows (one INSERT each; branch rows last, 9) → one audit INSERT → bump every
+// has no draw, the effective-set limit: one links read) → item, draw, routes, windows (one INSERT each; branch rows last, 9) → one audit INSERT → bump every
 // branch (10, S8). The deprecated columns are written as §5.1 says (P-11) and are not on the wire.
 export async function createMenuItem(
   deps: RestaurantDeps,
@@ -887,6 +888,16 @@ export async function createMenuItem(
       if (body.requires_weighing && draw !== undefined) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_draws', reason: 'weighed_item_stock_draw' });
       }
+      // §3.3 effective-set row (V8, M5): the new item's category and variant group links, one plain read; the
+      // references above are active. A group carrying the excess answers at variant_group_id, else category_id.
+      const itemId = deps.ids.next();
+      const newItem = { item_id: itemId, category_id: body.category_id, variant_group_id: body.variant_group_id };
+      await assertItemEffectiveSets(
+        level,
+        [newItem],
+        new Set([itemId, body.category_id, ...(body.variant_group_id === null ? [] : [body.variant_group_id])]),
+        body.variant_group_id === null ? 'category_id' : 'variant_group_id',
+      );
       const now = deps.clock.branchNow();
       const { routes: routeInput, availability_windows: windowInput, stock_draws: drawInput, ...fields } = body;
       const row = await nameTaken('menu_items_active_name', 'menu_item', body.name, () =>
@@ -894,7 +905,7 @@ export async function createMenuItem(
           insertMenuItem(
             level,
             {
-              item_id: deps.ids.next(),
+              item_id: itemId,
               ...fields,
               // §5.1 deprecated columns (P-11): kept so the 01a CHECKs hold, never read by 01c.
               group_label: null,
@@ -1134,7 +1145,23 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (p.draw !== undefined && p.stockItem !== undefined) assertDrawUnits(p.merged.sale_unit, p.stockItem.stock_unit, p.draw);
     },
   ],
-  ['422 R3 effective-set limit', () => {}], // task 23
+  // (V8, §3.3, M5) one plain links read when category_id or variant_group_id changes. A changed group answers at
+  // variant_group_id, else category_id. Targets are active unless read archived (the item itself: the merged row).
+  [
+    '422 R3 effective-set limit',
+    async (p) => {
+      const groupChanged = p.merged.variant_group_id !== p.before.variant_group_id;
+      if (!groupChanged && p.merged.category_id === p.before.category_id) return;
+      const group = groupOf(p);
+      const active = new Set([
+        ...(isActive(p) ? [p.merged.item_id] : []),
+        ...(p.category === undefined || p.category.archived_at === null ? [p.merged.category_id] : []),
+        ...(p.merged.variant_group_id !== null && group?.archived_at === null ? [p.merged.variant_group_id] : []),
+      ]);
+      const item = { item_id: p.merged.item_id, category_id: p.merged.category_id, variant_group_id: p.merged.variant_group_id };
+      await assertItemEffectiveSets(p.level, [item], active, groupChanged ? 'variant_group_id' : 'category_id');
+    },
+  ],
   [
     '422 R7 draw part',
     (p) => {

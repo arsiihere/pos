@@ -1,6 +1,7 @@
 import type { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.js';
-import type { StockItemRow, VariantGroupRow } from './versions.js';
+import type { EffectiveSetItem, LinkRow } from './effective-set.js';
+import type { ModifierGroupRow, ModifierLinkRow, ModifierOptionRow, StockItemRow, VariantGroupRow } from './versions.js';
 
 // 01c §5.1 variant_groups. The stored row without its members; member_ids come from menu_items.
 export type VariantGroupRecord = Omit<VariantGroupRow, 'member_ids' | 'archived_at'> & { archived_at: number | null };
@@ -240,5 +241,186 @@ export async function deleteStockItemBranch(repo: TenantScopedRepository, stockI
   await repo.query(
     `DELETE FROM stock_item_branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND stock_item_id = $4`,
     [branchId, stockItemId],
+  );
+}
+
+// -------------------------------------------------------------------------------------------- modifier groups
+
+// §6 lock order 4 (§6.11): the linked and target items FOR SHARE in one = ANY, by item_id. An unknown or
+// another tenant's id is simply not returned.
+export async function shareItemsById(
+  repo: TenantLevelRepository,
+  itemIds: readonly string[],
+): Promise<Array<{ item_id: string; sale_unit: string; requires_weighing: boolean; archived_at: number | null }>> {
+  const rows = await repo.query<{ item_id: string; sale_unit: string; requires_weighing: boolean; archived_at: string | null }>(
+    `SELECT item_id, sale_unit, requires_weighing, archived_at FROM menu_items
+      WHERE tenant_id = $1 AND item_id = ANY($2)
+      ORDER BY item_id
+      FOR SHARE`,
+    [itemIds],
+  );
+  return rows.map((row) => ({ ...row, archived_at: row.archived_at === null ? null : Number(row.archived_at) }));
+}
+
+// §6 lock order 6 (§6.11): the target categories FOR SHARE in one = ANY, by category_id.
+export async function shareCategoriesById(
+  repo: TenantLevelRepository,
+  categoryIds: readonly string[],
+): Promise<Array<{ category_id: string; archived_at: number | null }>> {
+  const rows = await repo.query<{ category_id: string; archived_at: string | null }>(
+    `SELECT category_id, archived_at FROM categories
+      WHERE tenant_id = $1 AND category_id = ANY($2)
+      ORDER BY category_id
+      FOR SHARE`,
+    [categoryIds],
+  );
+  return rows.map((row) => ({ category_id: row.category_id, archived_at: row.archived_at === null ? null : Number(row.archived_at) }));
+}
+
+// §3.3, V14 (m13): option names are unique among the group's active options by Postgres lower(), in one statement:
+// the first name (in list order) whose lower() equals an earlier one's, as sent; undefined when all differ.
+export async function firstRepeatedName(repo: TenantLevelRepository, names: readonly string[]): Promise<string | undefined> {
+  const rows = await repo.query<{ name: string }>(
+    `SELECT n.name FROM tenants t, unnest($2::text[]) WITH ORDINALITY AS n (name, i)
+      WHERE t.tenant_id = $1
+        AND EXISTS (SELECT 1 FROM unnest($2::text[]) WITH ORDINALITY AS m (name, j) WHERE m.j < n.i AND lower(m.name) = lower(n.name))
+      ORDER BY n.i
+      LIMIT 1`,
+    [names],
+  );
+  return rows[0]?.name;
+}
+
+export type ModifierGroupRecord = Omit<ModifierGroupRow, 'options' | 'links' | 'archived_at'> & { archived_at: number | null };
+
+// §6.11: insert, no lock (the name index → 23505 modifier_groups_active_name).
+export async function insertModifierGroup(
+  repo: TenantLevelRepository,
+  row: Omit<ModifierGroupRecord, 'archived_at'>,
+  now: number,
+): Promise<ModifierGroupRecord> {
+  const rows = await repo.query<Omit<ModifierGroupRecord, 'archived_at'> & { archived_at: string | null }>(
+    `INSERT INTO modifier_groups (tenant_id, modifier_group_id, name, min_choices, max_choices, sort_order, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $7 FROM tenants WHERE tenant_id = $1
+     RETURNING modifier_group_id, name, min_choices, max_choices, sort_order, archived_at`,
+    [row.modifier_group_id, row.name, row.min_choices, row.max_choices, row.sort_order, now],
+  );
+  const inserted = rows[0]!;
+  return { ...inserted, archived_at: inserted.archived_at === null ? null : Number(inserted.archived_at) };
+}
+
+// §6.11: the group's options, one multi-row INSERT (BIGINT price as a JSON number through Number()).
+export async function insertModifierOptions(
+  repo: TenantLevelRepository,
+  modifierGroupId: string,
+  options: ReadonlyArray<Omit<ModifierOptionRow, 'archived_at'>>,
+): Promise<ModifierOptionRow[]> {
+  type Raw = Omit<ModifierOptionRow, 'price_minor' | 'archived_at'> & { price_minor: string | null; archived_at: string | null };
+  const rows = await repo.query<Raw>(
+    `INSERT INTO modifier_options
+       (tenant_id, option_id, modifier_group_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order)
+     SELECT t.tenant_id, o.option_id, $2, o.name, o.price_minor, o.max_quantity, o.is_default, o.linked_item_id, o.sort_order
+       FROM tenants t,
+            unnest($3::text[], $4::text[], $5::bigint[], $6::int[], $7::boolean[], $8::text[], $9::int[])
+              AS o (option_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order)
+      WHERE t.tenant_id = $1
+     RETURNING option_id, name, price_minor, max_quantity, is_default, linked_item_id, sort_order, archived_at`,
+    [
+      modifierGroupId,
+      options.map((o) => o.option_id),
+      options.map((o) => o.name),
+      options.map((o) => (o.price_minor === null ? null : Number(o.price_minor))),
+      options.map((o) => o.max_quantity),
+      options.map((o) => o.is_default),
+      options.map((o) => o.linked_item_id),
+      options.map((o) => o.sort_order),
+    ],
+  );
+  return rows.map((row) => ({
+    ...row,
+    price_minor: row.price_minor === null ? null : Number(row.price_minor),
+    archived_at: row.archived_at === null ? null : Number(row.archived_at),
+  }));
+}
+
+// §6.11: the group's links, one multi-row INSERT.
+export async function insertModifierLinks(
+  repo: TenantLevelRepository,
+  modifierGroupId: string,
+  links: readonly ModifierLinkRow[],
+): Promise<ModifierLinkRow[]> {
+  return repo.query<ModifierLinkRow>(
+    `INSERT INTO modifier_group_links (tenant_id, modifier_group_id, target_kind, target_id, mode)
+     SELECT t.tenant_id, $2, l.target_kind, l.target_id, l.mode
+       FROM tenants t, unnest($3::text[], $4::text[], $5::text[]) AS l (target_kind, target_id, mode)
+      WHERE t.tenant_id = $1
+     RETURNING target_kind, target_id, mode`,
+    [modifierGroupId, links.map((l) => l.target_kind), links.map((l) => l.target_id), links.map((l) => l.mode)],
+  );
+}
+
+// A stored link of an active group, with that group's sort_order (V8 ordering).
+export type StoredLink = LinkRow & { sort_order: number };
+
+// §6.4, §6.5 R3, §6.2 R3 (V8): the links of active groups that target any of these categories, variant groups or
+// items; one plain read (M5: a soft limit, no lock).
+export async function selectLinksOfTargets(
+  repo: TenantLevelRepository,
+  targets: { categoryIds: readonly string[]; variantGroupIds: readonly string[]; itemIds: readonly string[] },
+): Promise<StoredLink[]> {
+  return repo.query<StoredLink>(
+    `SELECT l.modifier_group_id, l.target_kind, l.target_id, l.mode, g.sort_order
+       FROM modifier_group_links l
+       JOIN modifier_groups g ON g.tenant_id = l.tenant_id AND g.modifier_group_id = l.modifier_group_id
+      WHERE l.tenant_id = $1 AND g.archived_at IS NULL
+        AND ((l.target_kind = 'category' AND l.target_id = ANY($2))
+          OR (l.target_kind = 'variant_group' AND l.target_id = ANY($3))
+          OR (l.target_kind = 'item' AND l.target_id = ANY($4)))
+      ORDER BY l.modifier_group_id, l.target_kind, l.target_id`,
+    [targets.categoryIds, targets.variantGroupIds, targets.itemIds],
+  );
+}
+
+// An active item a group write reaches, with what its effective set needs.
+export interface AffectedItem extends EffectiveSetItem {
+  category_active: boolean;
+  variant_group_active: boolean;
+  links: StoredLink[];
+}
+
+// §6.11 effective-set read (one statement, M5 plain read): the active items these attach targets reach (the items,
+// the members of the variant groups, the items of the categories), each with the stored links of active groups that
+// reach it and whether its category and variant group are active; by item_id.
+export async function selectAffectedItems(
+  repo: TenantLevelRepository,
+  targets: { categoryIds: readonly string[]; variantGroupIds: readonly string[]; itemIds: readonly string[] },
+): Promise<AffectedItem[]> {
+  return repo.query<AffectedItem>(
+    `WITH affected AS (
+       SELECT m.item_id, m.category_id, m.variant_group_id FROM menu_items m
+        WHERE m.tenant_id = $1 AND m.archived_at IS NULL
+          AND (m.item_id = ANY($4) OR m.variant_group_id = ANY($3) OR m.category_id = ANY($2))
+     )
+     SELECT a.item_id, a.category_id, a.variant_group_id,
+            c.archived_at IS NULL AS category_active,
+            (v.variant_group_id IS NOT NULL AND v.archived_at IS NULL) AS variant_group_active,
+            COALESCE(
+              json_agg(json_build_object('modifier_group_id', l.modifier_group_id, 'target_kind', l.target_kind,
+                                         'target_id', l.target_id, 'mode', l.mode, 'sort_order', l.sort_order)
+                       ORDER BY l.modifier_group_id, l.target_kind) FILTER (WHERE l.modifier_group_id IS NOT NULL),
+              '[]') AS links
+       FROM affected a
+       JOIN categories c ON c.tenant_id = $1 AND c.category_id = a.category_id
+       LEFT JOIN variant_groups v ON v.tenant_id = $1 AND v.variant_group_id = a.variant_group_id
+       LEFT JOIN (SELECT gl.modifier_group_id, gl.target_kind, gl.target_id, gl.mode, g.sort_order
+                    FROM modifier_group_links gl
+                    JOIN modifier_groups g ON g.tenant_id = gl.tenant_id AND g.modifier_group_id = gl.modifier_group_id
+                   WHERE gl.tenant_id = $1 AND g.archived_at IS NULL) l
+         ON (l.target_kind = 'item' AND l.target_id = a.item_id)
+         OR (l.target_kind = 'variant_group' AND l.target_id = a.variant_group_id)
+         OR (l.target_kind = 'category' AND l.target_id = a.category_id)
+      GROUP BY a.item_id, a.category_id, a.variant_group_id, c.archived_at, v.variant_group_id, v.archived_at
+      ORDER BY a.item_id`,
+    [targets.categoryIds, targets.variantGroupIds, targets.itemIds],
   );
 }

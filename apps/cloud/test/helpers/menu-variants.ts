@@ -1,6 +1,8 @@
 import type {
+  CreateModifierGroupRequest,
   CreateStockItemRequest,
   CreateVariantGroupRequest,
+  ModifierGroupWire,
   PatchStockItemRequest,
   PutStockItemBranchRequest,
   StockItemBranchWire,
@@ -65,6 +67,17 @@ export async function putStockItemBranch(
   });
   if (response.statusCode !== 200) throw new Error(`put stock item branch failed: ${response.statusCode} ${response.body}`);
   return response.json().data.branch as StockItemBranchWire | null;
+}
+
+// §6.11 through the API: the created group's wire, or a thrown error with the response body.
+export async function createModifierGroup(
+  cloud: TestCloud,
+  f: RestaurantFixture,
+  body: CreateModifierGroupRequest,
+): Promise<ModifierGroupWire> {
+  const response = await cloud.app.inject({ method: 'POST', url: '/v1/admin/modifier-groups', ...owner(f), payload: body });
+  if (response.statusCode !== 201) throw new Error(`create modifier group failed: ${response.statusCode} ${response.body}`);
+  return response.json().data.modifier_group as ModifierGroupWire;
 }
 
 // P-4: a modifier group and its options written by SQL until §6.10's route exists (task 15; §6.5 R4, R10 read them).

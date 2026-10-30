@@ -112,6 +112,16 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/stock-items/${ids.stockItemId}/branches/${ids.branchId}`,
     payload: { expected_version: 'stale', station_id: ids.stationId },
   }),
+  'POST /v1/admin/modifier-groups': (ids) => ({
+    url: '/v1/admin/modifier-groups',
+    payload: {
+      name: 'Spice level',
+      min_choices: 0,
+      max_choices: 1,
+      options: [{ name: 'Normal', price_minor: 0 }],
+      links: [{ target_kind: 'category', target_id: ids.categoryId, mode: 'attach' }],
+    },
+  }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({
     url: '/v1/admin/staff',

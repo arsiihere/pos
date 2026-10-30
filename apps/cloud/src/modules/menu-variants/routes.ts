@@ -1,7 +1,9 @@
 import { DomainError } from '@pos/domain';
 import {
+  CreateModifierGroupBody,
   CreateStockItemBody,
   CreateVariantGroupBody,
+  ModifierGroupResponse,
   PatchStockItemBody,
   PatchVariantGroupBody,
   PutStockItemBranchBody,
@@ -16,6 +18,7 @@ import { z } from 'zod';
 import { sendIdempotent } from '../../lib/idempotency.js';
 import type { OwnerRequest } from '../restaurant/service.js';
 import {
+  createModifierGroup,
   createStockItem,
   createVariantGroup,
   listStockItems,
@@ -110,6 +113,18 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
       const { stock_item_id, branch_id } = request.params;
       const data = await putStockItemBranch(deps, ownerRequest(app, request), stock_item_id, branch_id, request.body);
       return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/modifier-groups',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { body: CreateModifierGroupBody, response: { 201: ModifierGroupResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/modifier-groups');
+      return sendIdempotent(reply, await createModifierGroup(deps, ownerRequest(app, request), request.body));
     },
   );
 }

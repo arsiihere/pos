@@ -195,8 +195,8 @@ describe('01c variant groups (§6.1, §6.2)', () => {
     const auditBefore = (await auditRows()).length;
     const moved = await patchGroup(group.variant_group_id, { expected_version: group.version, category_id: to });
     expect(moved.statusCode).toBe(200);
-    // lock, members lock, category share, update, members update, audit (1 multi-row), 3 bump
-    expect(counter.count).toBe(9);
+    // lock, members lock, category share, R3 links read, update, members update, audit (1 multi-row), 3 bump
+    expect(counter.count).toBe(10);
     expect(moved.json().data.variant_group).toMatchObject({ category_id: to, member_ids: ['IT-FULL', 'IT-HALF'] });
     expect(moved.json().data.variant_group.version).not.toBe(group.version);
     expect(await itemCategories()).toEqual([
