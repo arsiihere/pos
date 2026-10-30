@@ -2226,3 +2226,10 @@ button.pos-pick.is-off .num { color: var(--ink-muted); }
   .pos-peopletabs { align-self: stretch; }
   .pos-peopletabs > .pos-seg__opt { flex: 1 0 auto; justify-content: center; padding-inline: var(--space-2); font-size: 15px; }
 }
+
+/* ---------- Pulse page layout · R2-C item form folded Branches and kitchen, Ready-made stock, Hours ---------- */
+/* Owner decision 2026-10-30: the 01a sections sit in one kit disclosure (01c-S01), kept mounted while closed. */
+.pos-itemform .pos-disclosure__body { display: flex; flex-direction: column; gap: var(--space-6); min-inline-size: 0; }
+.pos-itemform .pos-disclosure__body[hidden] { display: none; }
+.pos-itemform .pos-disclosure > span { min-inline-size: 0; }
+.pos-itemform .pos-disclosure[aria-expanded="true"] > .pos-icon:last-child { transform: rotate(180deg); }

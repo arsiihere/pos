@@ -518,6 +518,10 @@ export const en = {
   'item.quick_group': 'Size group: {name}',
   'item.stock_needs_ready': 'Not counted until “Kept ready” is on.',
   'item.mini_save_first': 'Save the item first: Sold by or a branch station has changed.',
+  // Owner decision 2026-10-30: the folded Branches and kitchen, Ready-made stock, Hours row and its stock summary.
+  'item.fold_title': 'Branches and kitchen, Ready-made stock, Hours',
+  'item.fold_draw': '{stock} · {qty} per sale',
+  'item.fold_not_counted': 'Not counted',
   'menu.size_group_sub': 'Size group · {n} sizes · one tile',
   'menu.open_group': 'Open {name}',
   'menu.item_gone': "This item isn't here any more. It may have been deleted on another device.",

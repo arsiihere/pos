@@ -286,6 +286,82 @@ describe('01c-S01 item form sections', () => {
   });
 });
 
+describe('owner decision 2026-10-30: Branches and kitchen, Ready-made stock, Hours fold into one row', () => {
+  const fold = () => q<HTMLButtonElement>('button.pos-disclosure');
+  const foldBody = () => document.getElementById(fold()?.getAttribute('aria-controls') ?? '');
+
+  it('an edit starts folded; the row sums up the stock draw when counted (stock time + draw), else "Not counted"', async () => {
+    const { api } = server({ stock: [pot()] });
+    await renderForm(api, item({ stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    expect(fold()?.getAttribute('aria-expanded')).toBe('false');
+    expect(fold()?.textContent).toBe(`${t('item.fold_title')} · ${fill(t('item.fold_draw'), { stock: 'Karahi pot', qty: '\u20660.5 kg\u2069' })}`);
+    // Kept mounted while closed: the sections are in the page, hidden.
+    expect(foldBody()?.hidden).toBe(true);
+    expect(foldBody()?.querySelector('[data-section="stock"]')).not.toBeNull();
+
+    await click(fold());
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    expect(foldBody()?.hidden).toBe(false);
+    // 01c A2: Kept ready off → no stock time → not counted.
+    await click(section('stock')?.querySelector('[role="switch"]') as HTMLElement);
+    expect(fold()?.textContent).toBe(`${t('item.fold_title')} · ${t('item.fold_not_counted')}`);
+  });
+
+  it('a draw without a stock time or stock program, and an item with no draw, read "Not counted"', async () => {
+    const { api } = server({ stock: [pot()] });
+    await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    expect(fold()?.textContent).toContain(t('item.fold_not_counted'));
+    ui.unmount();
+    ui = mount();
+    await renderForm(api, item({ stock_time_ms: 300_000 }));
+    expect(fold()?.textContent).toContain(t('item.fold_not_counted'));
+  });
+
+  it('a new item starts open; an error inside a folded row opens it, and the field shows its error', async () => {
+    const { api, calls } = server();
+    await renderForm(api, null);
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    ui.unmount();
+    ui = mount();
+    await renderForm(api, item());
+    expect(fold()?.getAttribute('aria-expanded')).toBe('false');
+    setValue(field('cook_minutes'), '');
+    await save();
+    expect(patches(calls)).toHaveLength(0);
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    expect(foldBody()?.hidden).toBe(false);
+    expect(q('#item-cook_minutes')?.closest('.pos-field')?.textContent).toContain(t('item.need_cook'));
+  });
+
+  it('typed hours survive closing and reopening the row (kept mounted)', async () => {
+    const { api } = server();
+    await renderForm(api, item());
+    await click(fold());
+    const hours = () => q('[data-field="availability_windows"]') as HTMLElement;
+    await click(button(hours(), t('owner.hours.set_hours')));
+    setValue(hours().querySelector('input[name="start"]'), '07:00');
+    await click(fold());
+    await click(fold());
+    expect(hours().querySelector<HTMLInputElement>('input[name="start"]')?.value).toBe('07:00');
+  });
+});
+
+describe('01c P1: reference error keys', () => {
+  it('422 unit_mismatch at stock_draws.0.stock_item_id marks the stock field with errors.reference.unit_mismatch', async () => {
+    const { api } = server({
+      stock: [pot()],
+      on: (call) =>
+        call.method === 'PATCH' ? fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' }) : undefined,
+    });
+    await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    setValue(field('uses'), '1');
+    await save();
+    expect(q('#item-stock_item_id')?.closest('.pos-field')?.textContent).toContain(t('errors.reference.unit_mismatch'));
+    expect(q('#item-stock_item_id')?.closest('.pos-field')?.textContent).not.toContain(t('errors.reference.unit_mismatch_stock'));
+    expect(ui.container.querySelectorAll('.pos-banner--danger')).toHaveLength(1);
+  });
+});
+
 describe('01c-S01 review fixes', () => {
   it('[01c A2] a linked stock item with Kept ready off says it is not counted yet; Kept ready on removes the note', async () => {
     const { api } = server({ stock: [pot()] });

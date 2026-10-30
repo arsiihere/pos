@@ -3,7 +3,8 @@ import type { CloudError, MenuItem } from '../../api/cloud-admin';
 import { usePhone } from '../../app/phone';
 import { navigate } from '../../app/router';
 import { Icon, type IconName } from '../../components/Icon';
-import { t, type MessageKey } from '../../i18n';
+import { t } from '../../i18n';
+import { referenceKey } from './form';
 import { useLeave } from './guard';
 
 // Shared pieces of the 01c owner lists and forms (size groups, stock items; later choice groups and deals).
@@ -32,28 +33,10 @@ export function apiCode(error: CloudError): string | null {
   return error.kind === 'api' ? error.code : null;
 }
 
-// 01c-B01, Q7: the text for a 422 CONFIG_REFERENCE_INVALID { field, reason }; keys stay errors.reference.<reason>
-// (as built), unit_mismatch on a stock item's own unit has its own text; any other reason → the generic text.
-const REFERENCE_REASONS = [
-  'archived',
-  'not_found',
-  'wrong_branch',
-  'category_mismatch',
-  'unit_mismatch',
-  'linked_item_not_piece',
-  'choices_unsatisfiable',
-  'defaults_exceed_max',
-  'too_many_groups',
-  'choice_unit_mismatch',
-  'weighed_item_in_deal',
-  'weighed_item_stock_draw',
-] as const;
-
+// 01c-B01, Q7, 01c P1: the text for a 422 CONFIG_REFERENCE_INVALID { field, reason }: errors.reference.<reason>,
+// unit_mismatch on a stock item's own unit (stock_unit) has its own text; any other reason → the generic text.
 export function referenceText(details: Record<string, unknown>): string {
-  const reason = details['reason'];
-  if (reason === 'unit_mismatch' && details['field'] === 'stock_unit') return t('errors.reference.unit_mismatch_stock');
-  const known = REFERENCE_REASONS.find((r) => r === reason);
-  return known === undefined ? t('errors.CONFIG_REFERENCE_INVALID') : t(`errors.reference.${known}` as MessageKey);
+  return t(referenceKey(details));
 }
 
 // A form's back link to its list; the arrow alone on a phone (StockItemPhone). It goes through the

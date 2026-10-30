@@ -8,6 +8,8 @@ import { Icon, type IconName } from './Icon';
 // into it. Enter or Space toggles (native button); Escape inside an open group (not from a control in it) closes it
 // and refocuses the toggle.
 // `open` + `onOpenChange` make it controlled, e.g. the role editor opening every group with an error (01b-S04).
+// `keepMounted` (row, not inPlace): the closed section stays in the page, hidden, so a draft typed inside it
+// (e.g. hours rows) survives close and reopen (the item form's folded Branches and kitchen, Hours).
 export function Disclosure({
   variant = 'row',
   title,
@@ -15,6 +17,7 @@ export function Disclosure({
   icon,
   defaultOpen = false,
   inPlace = false,
+  keepMounted = false,
   open: controlled,
   onOpenChange,
   children,
@@ -25,6 +28,7 @@ export function Disclosure({
   icon?: IconName;
   defaultOpen?: boolean;
   inPlace?: boolean;
+  keepMounted?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
@@ -87,7 +91,14 @@ export function Disclosure({
   }
   return (
     <>
-      <button ref={toggle} type="button" className="pos-disclosure" aria-expanded={open} aria-controls={open ? id : undefined} onClick={onToggle}>
+      <button
+        ref={toggle}
+        type="button"
+        className="pos-disclosure"
+        aria-expanded={open}
+        aria-controls={open || keepMounted ? id : undefined}
+        onClick={onToggle}
+      >
         {icon !== undefined && <Icon name={icon} />}
         <span>
           {title}
@@ -95,8 +106,8 @@ export function Disclosure({
         </span>
         <Icon name="chevron" />
       </button>
-      {open && (
-        <div id={id} ref={region} className="pos-disclosure__body">
+      {(open || keepMounted) && (
+        <div id={id} ref={region} className="pos-disclosure__body" hidden={!open}>
           {children}
         </div>
       )}

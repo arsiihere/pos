@@ -37,6 +37,28 @@ describe('Disclosure (Pulse 01b)', () => {
     expect(document.getElementById(row?.getAttribute('aria-controls') ?? '')?.textContent).toBe('Add');
   });
 
+  it('keepMounted: the closed section stays in the page, hidden, and keeps its state across close and reopen', () => {
+    act(() =>
+      root.render(
+        <Disclosure title="Hours" keepMounted>
+          <input aria-label="from" defaultValue="" />
+        </Disclosure>,
+      ),
+    );
+    const row = toggle('button.pos-disclosure');
+    const body = () => document.getElementById(row?.getAttribute('aria-controls') ?? '');
+    expect(body()?.hidden).toBe(true);
+    act(() => row?.click());
+    expect(body()?.hidden).toBe(false);
+    const input = container.querySelector('input')!;
+    input.value = '07:00';
+    act(() => row?.click());
+    expect(body()?.hidden).toBe(true);
+    act(() => row?.click());
+    expect(container.querySelector('input')).toBe(input);
+    expect(input.value).toBe('07:00');
+  });
+
   it('inPlace: the open section replaces the row and takes focus; defaultOpen starts open', () => {
     act(() =>
       root.render(

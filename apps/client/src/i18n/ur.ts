@@ -389,4 +389,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'menu.size_group_sub': 'سائز گروپ · {n} سائز · ایک ٹائل',
   'item.stock_needs_ready': '“Kept ready” آن ہونے تک گنتی نہیں ہوتی۔',
   'item.stock_body': 'پہلے سے پکا کھانا: اسٹاک سے کتنا وقت لگتا ہے، اور ختم ہونے پر کیا ہو۔',
+  // Owner decision 2026-10-30: folded item-form row — Urdu draft — needs native review
+  'item.fold_title': 'برانچیں اور کچن، تیار اسٹاک، اوقات',
+  'item.fold_draw': '{stock} · فی فروخت {qty}',
+  'item.fold_not_counted': 'گنتی نہیں',
 };

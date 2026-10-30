@@ -23,6 +23,7 @@ import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { ConfirmDialog } from '../../../components/Dialog';
+import { Disclosure } from '../../../components/Disclosure';
 import { Icon } from '../../../components/Icon';
 import { InUseDialog, type InUseRow } from '../../../components/InUseDialog';
 import { MoreMenu } from '../../../components/MoreMenu';
@@ -59,6 +60,10 @@ import { windowText, WindowsField } from './WindowsField';
 // (a stock item, uses per sale in its unit, a read-only summary, and the inline "Create a stock item with this
 // name" mini-form, linkStock.ts). Server field errors land on their field under the one summary banner (01c-B01);
 // CONFIG_IN_USE opens 01c-D04.
+// Owner decision 2026-10-30 (O5): Branches and kitchen, Ready-made stock and Hours fold into the frames' one
+// "Branches and kitchen, Hours" disclosure (01c-S01). Its row sums up the stock draw ("Karahi pot · 0.5 kg per
+// sale", or "Not counted", 01c A2). It is open for a new item, and opens on an error inside; it stays mounted
+// while closed so nothing typed inside is lost.
 type StationRow = Station & { programs: Program[] };
 
 interface RouteChoice {
@@ -270,6 +275,10 @@ interface PartWay {
 
 const MAX_USES = 1_000_000;
 
+// The fields inside the folded disclosure: an error on any of them opens it.
+const IN_FOLD = (id: string) =>
+  id.startsWith('route-') || ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours'].includes(id);
+
 export function ItemForm({
   api,
   item,
@@ -352,10 +361,16 @@ export function ItemForm({
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [archiving, setArchiving] = useState(false);
   const [full, setFull] = useState(item === null);
+  const [foldOpen, setFoldOpen] = useState(item === null);
   const [summaryOpen, setSummaryOpen] = useState(() =>
     typeof window.matchMedia === 'function' ? window.matchMedia(SUMMARY_OPEN_QUERY).matches : true,
   );
   const summaryId = useId();
+
+  // An error inside the folded part (a client check, a field refusal or a branch PUT that failed) opens it.
+  useEffect(() => {
+    if (problems.some((p) => IN_FOLD(p.id)) || Object.keys(failed).length > 0) setFoldOpen(true);
+  }, [problems, failed]);
 
   useEffect(() => {
     let live = true;
@@ -847,7 +862,14 @@ export function ItemForm({
                   <strong>{t('item.section.kitchen')}</strong>
                   <span>{fill(t('item.cook_n'), { n: formatMinutes(cookMs ?? 0) })}</span>
                 </span>
-                <button type="button" className="pos-btn" onClick={() => setFull(true)}>
+                <button
+                  type="button"
+                  className="pos-btn"
+                  onClick={() => {
+                    setFull(true);
+                    setFoldOpen(true);
+                  }}
+                >
                   {t('owner.common.edit')}
                 </button>
               </li>
@@ -856,7 +878,14 @@ export function ItemForm({
                   <strong>{t('item.section.hours')}</strong>
                   <span>{(windows ?? []).length === 0 ? t('owner.hours.all_day') : (windows ?? []).map(windowText).join(', ')}</span>
                 </span>
-                <button type="button" className="pos-btn" onClick={() => setFull(true)}>
+                <button
+                  type="button"
+                  className="pos-btn"
+                  onClick={() => {
+                    setFull(true);
+                    setFoldOpen(true);
+                  }}
+                >
                   {t('owner.common.edit')}
                 </button>
               </li>
@@ -1187,6 +1216,23 @@ export function ItemForm({
     </section>
   );
 
+  // The folded row's summary (owner decision 2026-10-30): the stock draw, counted only with a stock time or a
+  // stock program and a draw (01c A2); weighed items draw nothing.
+  const counted =
+    !weighedOn &&
+    draws !== undefined &&
+    draws.length > 0 &&
+    (stockTimeMs !== null || branchIds.some((b) => routeBody(b).stock_program_id !== null));
+  const foldSummary = !counted
+    ? t('item.fold_not_counted')
+    : stock === undefined
+      ? '…'
+      : fill(t('item.fold_draw'), {
+          stock: stock.name,
+          // An LTR isolate keeps "0.5 kg" in order inside Urdu text.
+          qty: `\u2066${formatQuantity(draws?.[0]?.quantity_per_sale_unit ?? 1, stock.stock_unit)}\u2069`,
+        });
+
   return (
     <Page
       api={api}
@@ -1267,195 +1313,204 @@ export function ItemForm({
           {weighedSection}
           {drawSection}
 
-          <section className="pos-section">
-            <div className="pos-section__head">
-              <h2>{t('item.branches_title')}</h2>
-              <p>{fill(t('item.branches_body'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })}</p>
-            </div>
-            {stations === null ? (
-              <Skeleton lines={2} />
-            ) : (
-              <div className="pos-routes">
-                <div className="pos-list__head pos-routes__head" aria-hidden="true">
-                  <span>{t('owner.branch')}</span>
-                  <span>{t('item.price_here')}</span>
-                  <span>{t('owner.item.station')}</span>
-                  <span>{t('owner.item.program')}</span>
-                </div>
-                <ul className="pos-list">
-                  {branchIds.map((b) => {
-                    const choice = routes[b] ?? NO_ROUTE;
-                    const station = stationOf(b, choice.station_id);
-                    const programs = station?.station_type === 'batch' ? station.programs.filter(active) : [];
-                    const set = (patch: Partial<RouteChoice>) => setRoutes({ ...routes, [b]: { ...choice, ...patch } });
-                    const problem = problemFor(`route-${b}`);
-                    const routeFailed = failed[b];
-                    const at = (label: string) => `${label} · ${branchName(b)}`;
-                    return (
-                      <li
-                        key={b}
-                        id={`route-${b}`}
-                        tabIndex={-1}
-                        className={`pos-list__row${problem !== undefined || routeFailed !== undefined ? ' pos-field--error' : ''}`}
-                        data-route-branch={b}
-                      >
-                        <span className="pos-list__name">
-                          <strong>
-                            <bdi>{branchName(b)}</bdi>
-                          </strong>
-                          {branchName(b) !== idTail(b) && <span className="pos-ltr pos-routes__tail">{idTail(b)}</span>}
-                        </span>
-                        <label className="pos-field">
-                          <span className="pos-field__label pos-routes__label">{t('item.price_here')}</span>
-                          <span className="pos-input-affix pos-ltr">
-                            <span>{t('owner.menu.rupees')}</span>
-                            <input
-                              className="pos-input pos-input--mono"
-                              name="price_minor_override"
-                              inputMode="decimal"
-                              aria-label={fill(t('item.price_at'), { branch: branchName(b) })}
-                              aria-invalid={problem !== undefined ? true : undefined}
-                              disabled={choice.station_id === ''}
-                              placeholder={
-                                choice.station_id === ''
-                                  ? t('owner.item.not_sold_here')
-                                  : fill(t('item.price_same'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })
-                              }
-                              value={choice.price}
-                              onChange={(e) => set({ price: e.target.value })}
-                            />
-                          </span>
-                        </label>
-                        <Select
-                          name="station_id"
-                          label={t('owner.item.station')}
-                          labelClass="pos-routes__label"
-                          ariaLabel={at(t('owner.item.station'))}
-                          value={choice.station_id}
-                          options={[
-                            { value: '', label: t('owner.item.not_sold_here') },
-                            ...(stations[b] ?? [])
-                              .filter((s) => active(s) || s.station_id === choice.station_id)
-                              .map((s) => ({ value: s.station_id, label: s.name })),
-                          ]}
-                          onChange={(next) => chooseStation(b, next)}
-                        />
-                        <div className="pos-routes__recipe">
-                          {station?.station_type === 'batch' ? (
-                            <>
-                              <Select
-                                name="program_id"
-                                label={t('owner.item.program')}
-                                labelClass="pos-routes__label"
-                                ariaLabel={at(t('owner.item.program'))}
-                                value={choice.program_id}
-                                options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
-                                onChange={(next) => set({ program_id: next })}
-                              />
-                              <Select
-                                name="stock_program_id"
-                                label={t('owner.item.stock_program')}
-                                ariaLabel={at(t('owner.item.stock_program'))}
-                                value={choice.stock_program_id}
-                                options={[
-                                  { value: '', label: t('owner.item.no_stock_program') },
-                                  ...programs.map((p) => ({ value: p.program_id, label: p.name })),
-                                ]}
-                                onChange={(next) => {
-                                  set({ stock_program_id: next });
-                                  if (next !== '') setKeptReady(true);
-                                }}
-                              />
-                            </>
-                          ) : (
-                            station !== undefined && <span className="pos-list__meta">{t('item.no_recipe_needed')}</span>
-                          )}
-                        </div>
-                        {problem !== undefined && <span className="pos-field__error">{problem}</span>}
-                        {routeFailed !== undefined && <span className="pos-field__error">{routeFailed}</span>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-            <div className="pos-grid pos-grid--3">
-              <TextField
-                name="cook_minutes"
-                label={t('owner.item.cook_minutes')}
-                value={cook}
-                onChange={setCook}
-                numeric
-                error={problemFor('item-cook_minutes')}
-              />
-              <TextField
-                name="prep_minutes"
-                label={t('owner.item.prep_minutes')}
-                value={prep}
-                onChange={setPrep}
-                numeric
-                error={problemFor('item-prep_minutes')}
-              />
-              <div className="pos-field">
-                <span className="pos-field__label">{t('owner.item.serve_mode')}</span>
-                <Segmented
-                  label={t('owner.item.serve_mode')}
-                  value={serveMode}
-                  block
-                  options={[
-                    { value: 'immediate', label: t('owner.item.serve_immediate') },
-                    { value: 'sync', label: t('owner.item.serve_sync') },
-                  ]}
-                  onChange={setServeMode}
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Kept ready off folds the section to its head and switch (CHANGES §2, OwnerItemSimple). */}
-          <section className={`pos-section${keptReady ? '' : ' pos-section--folded'}`} data-section="stock">
-            <div className="pos-section__top">
+          <Disclosure
+            keepMounted
+            icon="home"
+            title={t('item.fold_title')}
+            summary={foldSummary}
+            open={foldOpen}
+            onOpenChange={setFoldOpen}
+          >
+            <section className="pos-section">
               <div className="pos-section__head">
-                <h2>{t('item.section.stock')}</h2>
-                <p>{t('item.stock_body')}</p>
+                <h2>{t('item.branches_title')}</h2>
+                <p>{fill(t('item.branches_body'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })}</p>
               </div>
-              <Switch checked={keptReady} label={t('item.kept_ready')} onChange={changeKeptReady} />
-            </div>
-            {keptReady && (
-              <div className="pos-grid">
+              {stations === null ? (
+                <Skeleton lines={2} />
+              ) : (
+                <div className="pos-routes">
+                  <div className="pos-list__head pos-routes__head" aria-hidden="true">
+                    <span>{t('owner.branch')}</span>
+                    <span>{t('item.price_here')}</span>
+                    <span>{t('owner.item.station')}</span>
+                    <span>{t('owner.item.program')}</span>
+                  </div>
+                  <ul className="pos-list">
+                    {branchIds.map((b) => {
+                      const choice = routes[b] ?? NO_ROUTE;
+                      const station = stationOf(b, choice.station_id);
+                      const programs = station?.station_type === 'batch' ? station.programs.filter(active) : [];
+                      const set = (patch: Partial<RouteChoice>) => setRoutes({ ...routes, [b]: { ...choice, ...patch } });
+                      const problem = problemFor(`route-${b}`);
+                      const routeFailed = failed[b];
+                      const at = (label: string) => `${label} · ${branchName(b)}`;
+                      return (
+                        <li
+                          key={b}
+                          id={`route-${b}`}
+                          tabIndex={-1}
+                          className={`pos-list__row${problem !== undefined || routeFailed !== undefined ? ' pos-field--error' : ''}`}
+                          data-route-branch={b}
+                        >
+                          <span className="pos-list__name">
+                            <strong>
+                              <bdi>{branchName(b)}</bdi>
+                            </strong>
+                            {branchName(b) !== idTail(b) && <span className="pos-ltr pos-routes__tail">{idTail(b)}</span>}
+                          </span>
+                          <label className="pos-field">
+                            <span className="pos-field__label pos-routes__label">{t('item.price_here')}</span>
+                            <span className="pos-input-affix pos-ltr">
+                              <span>{t('owner.menu.rupees')}</span>
+                              <input
+                                className="pos-input pos-input--mono"
+                                name="price_minor_override"
+                                inputMode="decimal"
+                                aria-label={fill(t('item.price_at'), { branch: branchName(b) })}
+                                aria-invalid={problem !== undefined ? true : undefined}
+                                disabled={choice.station_id === ''}
+                                placeholder={
+                                  choice.station_id === ''
+                                    ? t('owner.item.not_sold_here')
+                                    : fill(t('item.price_same'), { price: priceValue.ok ? shownRupees(priceValue.value) : '…' })
+                                }
+                                value={choice.price}
+                                onChange={(e) => set({ price: e.target.value })}
+                              />
+                            </span>
+                          </label>
+                          <Select
+                            name="station_id"
+                            label={t('owner.item.station')}
+                            labelClass="pos-routes__label"
+                            ariaLabel={at(t('owner.item.station'))}
+                            value={choice.station_id}
+                            options={[
+                              { value: '', label: t('owner.item.not_sold_here') },
+                              ...(stations[b] ?? [])
+                                .filter((s) => active(s) || s.station_id === choice.station_id)
+                                .map((s) => ({ value: s.station_id, label: s.name })),
+                            ]}
+                            onChange={(next) => chooseStation(b, next)}
+                          />
+                          <div className="pos-routes__recipe">
+                            {station?.station_type === 'batch' ? (
+                              <>
+                                <Select
+                                  name="program_id"
+                                  label={t('owner.item.program')}
+                                  labelClass="pos-routes__label"
+                                  ariaLabel={at(t('owner.item.program'))}
+                                  value={choice.program_id}
+                                  options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
+                                  onChange={(next) => set({ program_id: next })}
+                                />
+                                <Select
+                                  name="stock_program_id"
+                                  label={t('owner.item.stock_program')}
+                                  ariaLabel={at(t('owner.item.stock_program'))}
+                                  value={choice.stock_program_id}
+                                  options={[
+                                    { value: '', label: t('owner.item.no_stock_program') },
+                                    ...programs.map((p) => ({ value: p.program_id, label: p.name })),
+                                  ]}
+                                  onChange={(next) => {
+                                    set({ stock_program_id: next });
+                                    if (next !== '') setKeptReady(true);
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              station !== undefined && <span className="pos-list__meta">{t('item.no_recipe_needed')}</span>
+                            )}
+                          </div>
+                          {problem !== undefined && <span className="pos-field__error">{problem}</span>}
+                          {routeFailed !== undefined && <span className="pos-field__error">{routeFailed}</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              <div className="pos-grid pos-grid--3">
                 <TextField
-                  name="stock_time_minutes"
-                  label={t('owner.item.stock_time_minutes')}
-                  value={stockTime}
-                  onChange={setStockTime}
+                  name="cook_minutes"
+                  label={t('owner.item.cook_minutes')}
+                  value={cook}
+                  onChange={setCook}
                   numeric
-                  error={problemFor('item-stock_time_minutes')}
+                  error={problemFor('item-cook_minutes')}
+                />
+                <TextField
+                  name="prep_minutes"
+                  label={t('owner.item.prep_minutes')}
+                  value={prep}
+                  onChange={setPrep}
+                  numeric
+                  error={problemFor('item-prep_minutes')}
                 />
                 <div className="pos-field">
-                  <span className="pos-field__label">{t('owner.item.out_of_stock')}</span>
+                  <span className="pos-field__label">{t('owner.item.serve_mode')}</span>
                   <Segmented
-                    label={t('owner.item.out_of_stock')}
-                    value={outOfStock}
+                    label={t('owner.item.serve_mode')}
+                    value={serveMode}
                     block
                     options={[
-                      { value: 'cook_fresh', label: t('owner.item.cook_fresh') },
-                      { value: 'sold_out', label: t('owner.item.sold_out') },
+                      { value: 'immediate', label: t('owner.item.serve_immediate') },
+                      { value: 'sync', label: t('owner.item.serve_sync') },
                     ]}
-                    onChange={setOutOfStock}
+                    onChange={setServeMode}
                   />
                 </div>
               </div>
-            )}
-          </section>
+            </section>
 
-          <section className="pos-section pos-section--hours" id="item-hours" tabIndex={-1}>
-            <WindowsField
-              value={item?.availability_windows ?? []}
-              onChange={setWindows}
-              outer={category?.availability_windows ?? []}
-              outerName={category?.name}
-            />
-          </section>
+            {/* Kept ready off folds the section to its head and switch (CHANGES §2, OwnerItemSimple). */}
+            <section className={`pos-section${keptReady ? '' : ' pos-section--folded'}`} data-section="stock">
+              <div className="pos-section__top">
+                <div className="pos-section__head">
+                  <h2>{t('item.section.stock')}</h2>
+                  <p>{t('item.stock_body')}</p>
+                </div>
+                <Switch checked={keptReady} label={t('item.kept_ready')} onChange={changeKeptReady} />
+              </div>
+              {keptReady && (
+                <div className="pos-grid">
+                  <TextField
+                    name="stock_time_minutes"
+                    label={t('owner.item.stock_time_minutes')}
+                    value={stockTime}
+                    onChange={setStockTime}
+                    numeric
+                    error={problemFor('item-stock_time_minutes')}
+                  />
+                  <div className="pos-field">
+                    <span className="pos-field__label">{t('owner.item.out_of_stock')}</span>
+                    <Segmented
+                      label={t('owner.item.out_of_stock')}
+                      value={outOfStock}
+                      block
+                      options={[
+                        { value: 'cook_fresh', label: t('owner.item.cook_fresh') },
+                        { value: 'sold_out', label: t('owner.item.sold_out') },
+                      ]}
+                      onChange={setOutOfStock}
+                    />
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="pos-section pos-section--hours" id="item-hours" tabIndex={-1}>
+              <WindowsField
+                value={item?.availability_windows ?? []}
+                onChange={setWindows}
+                outer={category?.availability_windows ?? []}
+                outerName={category?.name}
+              />
+            </section>
+          </Disclosure>
         </fieldset>
 
         {/* "How staff will see it": a collapsible summary, open by default from 1200 px wide (CHANGES §2). */}
