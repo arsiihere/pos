@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { ownAdminText } from '../form';
@@ -247,4 +247,35 @@ describe('[01b §8] staff form', () => {
     );
     expect([...m.container.querySelectorAll('.pos-cando__sum .pos-chip')].map((c) => c.textContent?.trim())).toEqual([t('cando.none')]);
   });
+
+  it('[01b §8] phone: the back arrow asks before dropping changes (S50 c)', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      window.location.hash = '#/staff/S2';
+      const { api } = fakeApi(handler(() => ok({})));
+      await m.render(
+        <GuardProvider>
+          <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+        </GuardProvider>,
+      );
+      const back = m.container.querySelector<HTMLAnchorElement>(`a[aria-label="${t('staff.back')}"]`)!;
+      expect(back.textContent).toBe('');
+      setValue(m.container.querySelector<HTMLInputElement>('input[name="display_name"]'), 'Bilal K.');
+      await click(back);
+      expect(window.location.hash).toBe('#/staff/S2');
+      const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog.textContent).toContain(t('discard.keep'));
+      await click(button(dialog, t('discard.discard')));
+      expect(window.location.hash).toBe('#/staff');
+    } finally {
+      vi.unstubAllGlobals();
+      window.location.hash = '';
+    }
+  });
 });
+

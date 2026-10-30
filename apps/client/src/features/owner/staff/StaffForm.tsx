@@ -175,10 +175,20 @@ export function StaffForm({ api, staffId, branchIds }: { api: CloudAdmin; staffI
 }
 
 // Phone (StaffFormPhone): the back arrow alone.
+// It goes through the unsaved-changes guard (S50 c) like Cancel does.
 function BackLink() {
   const phone = usePhone();
+  const leave = useLeave();
   return (
-    <a className="pos-btn" href="#/staff" aria-label={t('staff.back')}>
+    <a
+      className="pos-btn"
+      href="#/staff"
+      aria-label={t('staff.back')}
+      onClick={(e) => {
+        e.preventDefault();
+        leave(() => navigate('/staff'));
+      }}
+    >
       <Icon name="back" flip />
       {!phone && t('staff.title')}
     </a>
