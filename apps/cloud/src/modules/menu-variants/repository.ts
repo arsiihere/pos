@@ -831,3 +831,36 @@ export async function activeDealIdsWith(repo: TenantLevelRepository, column: 'ca
   );
   return rows.map((row) => row.deal_id);
 }
+
+// §6.16 (v0.5, P3): the stored deal_branches row at this branch, read without a lock (the deal FOR UPDATE serialises
+// every write to it).
+export async function selectDealBranch(repo: TenantScopedRepository, dealId: string, branchId: string): Promise<DealBranchRecord | undefined> {
+  const rows = await repo.query<{ deal_id: string; branch_id: string; price_minor_override: string | null }>(
+    `SELECT deal_id, branch_id, price_minor_override FROM deal_branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND deal_id = $4`,
+    [branchId, dealId],
+  );
+  const row = rows[0];
+  return row === undefined ? undefined : { ...row, price_minor_override: row.price_minor_override === null ? null : Number(row.price_minor_override) };
+}
+
+// §6 lock order 9 (§6.16: 2 → 9): the row written, its own row lock.
+export async function upsertDealBranch(repo: TenantScopedRepository, row: DealBranchRecord, now: number): Promise<DealBranchRecord> {
+  const rows = await repo.query<{ deal_id: string; branch_id: string; price_minor_override: string | null }>(
+    `INSERT INTO deal_branches (tenant_id, branch_id, deal_id, price_minor_override, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6 FROM branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     ON CONFLICT (tenant_id, branch_id, deal_id)
+       DO UPDATE SET price_minor_override = EXCLUDED.price_minor_override, updated_at = EXCLUDED.updated_at
+     RETURNING deal_id, branch_id, price_minor_override`,
+    [row.branch_id, row.deal_id, row.price_minor_override, now],
+  );
+  const written = rows[0]!;
+  return { ...written, price_minor_override: written.price_minor_override === null ? null : Number(written.price_minor_override) };
+}
+
+export async function deleteDealBranch(repo: TenantScopedRepository, dealId: string, branchId: string): Promise<void> {
+  await repo.query(`DELETE FROM deal_branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND deal_id = $4`, [
+    branchId,
+    dealId,
+  ]);
+}

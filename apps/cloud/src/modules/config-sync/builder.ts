@@ -53,18 +53,42 @@ interface SnapshotOption {
   sort_order: number;
 }
 
+interface DealChoiceRow {
+  deal_id: string;
+  category_id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  price_minor: string;
+  tax_class_id: string | null;
+  deal_part_id: string;
+  quantity: number;
+  part_sort_order: number;
+  item_id: string | null;
+  extra_price_minor: string | null;
+  choice_sort_order: number | null;
+}
+
+interface SnapshotDealPart {
+  deal_part_id: string;
+  quantity: number;
+  sort_order: number;
+  choices: Array<{ item_id: string; extra_price_minor: number; sort_order: number }>;
+}
+
 interface DrawRow {
   item_id: string;
   stock_item_id: string;
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 13 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
-// items with this branch's rows, draws, modifier groups with options, this branch's option rows, links. Active rows
-// only, except stations, programs and tax classes (S22).
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 16 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
+// branch's deal rows, the deals sold here with their active parts and choices, deal windows. Active rows only, except
+// stations, programs and tax classes (S22).
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
-// stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47). Returns the
-// wire object (S27). deals stay empty until 01c task 31.
+// stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47); deal choices by
+// sort_order, then item_id (m5). Returns the wire object (S27).
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
@@ -200,6 +224,33 @@ export async function buildSnapshot(
     [activeGroupIds],
   );
 
+  // 01c §6.16, V11 e: this branch's deal rows (branch-scoped by the primary key); a deal with no row here is not sold.
+  const dealBranches = await scoped.query<{ deal_id: string; price_minor_override: string | null }>(
+    `SELECT deal_id, price_minor_override FROM deal_branches WHERE ${branch}`,
+    [branchId],
+  );
+  const soldDealIds = dealBranches.map((row) => row.deal_id);
+  // 01c §4.6 rule 5: the active deals sold here, their active parts and each part's choices (a part with no choice
+  // row still returns one row), by deal sort_order, id, part sort_order, id, then choice sort_order, item_id (m5).
+  const dealRows = await level.query<DealChoiceRow>(
+    `SELECT d.deal_id, d.category_id, d.name, d.description, d.sort_order, d.price_minor, d.tax_class_id,
+            p.deal_part_id, p.quantity, p.sort_order AS part_sort_order,
+            c.item_id, c.extra_price_minor, c.sort_order AS choice_sort_order
+       FROM deals d
+       JOIN deal_parts p ON p.tenant_id = d.tenant_id AND p.deal_id = d.deal_id AND p.archived_at IS NULL
+       LEFT JOIN deal_part_choices c ON c.tenant_id = p.tenant_id AND c.deal_part_id = p.deal_part_id
+      WHERE d.tenant_id = $1 AND d.archived_at IS NULL AND d.deal_id = ANY($2)
+      ORDER BY d.sort_order, d.deal_id, p.sort_order, p.deal_part_id, c.sort_order, c.item_id`,
+    [soldDealIds],
+  );
+  // 01c §4.6: the windows of the deals sold here (S47 window order).
+  const dealWindows = await level.query<{ deal_id: string; start_ms: number; end_ms: number }>(
+    `SELECT deal_id, start_ms, end_ms FROM availability_windows
+      WHERE tenant_id = $1 AND deal_id = ANY($2)
+      ORDER BY start_ms, end_ms, window_id`,
+    [soldDealIds],
+  );
+
   // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
   stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
   const counted = new Set(stockItems.map((stockItem) => stockItem.stock_item_id));
@@ -285,6 +336,42 @@ export async function buildSnapshot(
   // m5: only groups some item references.
   const referenced = new Set([...groupIdsByItem.values()].flat());
 
+  // 01c §4.6 rules 1, 5 (V11 e, S57): a choice is listed only when its item is in this snapshot (routed here and
+  // active, m15); a deal is left out when a part keeps no choice. The first listed choice is the part's reference
+  // choice at this branch (V11 c, AU-11). Price: this branch's override, else the deal's price_minor.
+  const overrides = new Map(dealBranches.map((row) => [row.deal_id, row.price_minor_override]));
+  const dealWindowsById = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
+  for (const w of dealWindows) {
+    const list = dealWindowsById.get(w.deal_id) ?? [];
+    list.push({ start_ms: w.start_ms, end_ms: w.end_ms });
+    dealWindowsById.set(w.deal_id, list);
+  }
+  const deals: Array<Record<string, unknown> & { deal_id: string; parts: SnapshotDealPart[] }> = [];
+  for (const row of dealRows) {
+    let deal = deals.at(-1);
+    if (deal === undefined || deal.deal_id !== row.deal_id) {
+      deal = {
+        deal_id: row.deal_id,
+        category_id: row.category_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        price_minor: Number(overrides.get(row.deal_id) ?? row.price_minor), // BIGINT arrives as a string (S27)
+        tax_class_id: row.tax_class_id,
+        availability_windows: dealWindowsById.get(row.deal_id) ?? [],
+        parts: [],
+      };
+      deals.push(deal);
+    }
+    let part = deal.parts.at(-1);
+    if (part === undefined || part.deal_part_id !== row.deal_part_id) {
+      part = { deal_part_id: row.deal_part_id, quantity: row.quantity, sort_order: row.part_sort_order, choices: [] };
+      deal.parts.push(part);
+    }
+    if (row.item_id === null || !itemsById.has(row.item_id)) continue;
+    part.choices.push({ item_id: row.item_id, extra_price_minor: Number(row.extra_price_minor), sort_order: row.choice_sort_order! });
+  }
+
   const windowsByTarget = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
   for (const w of windows) {
     const key = w.item_id !== null ? `item:${w.item_id}` : `category:${w.category_id}`;
@@ -352,7 +439,7 @@ export async function buildSnapshot(
       availability_windows: windowsOf('item', item.item_id),
       modifier_group_ids: groupIdsByItem.get(item.item_id) ?? [],
     })),
-    deals: [],
+    deals: deals.filter((deal) => deal.parts.every((part) => part.choices.length > 0)),
   };
   return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(built))) as Record<string, unknown>;
 }

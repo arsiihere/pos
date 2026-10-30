@@ -4,6 +4,7 @@ import {
   CreateModifierGroupBody,
   CreateStockItemBody,
   CreateVariantGroupBody,
+  DealBranchResponse,
   DealListResponse,
   DealResponse,
   ModifierGroupBranchResponse,
@@ -13,6 +14,7 @@ import {
   PatchModifierGroupBody,
   PatchStockItemBody,
   PatchVariantGroupBody,
+  PutDealBranchBody,
   PutModifierGroupBranchBody,
   PutStockItemBranchBody,
   StockItemBranchResponse,
@@ -37,6 +39,7 @@ import {
   patchModifierGroup,
   patchStockItem,
   patchVariantGroup,
+  putDealBranch,
   putModifierGroupBranch,
   putStockItemBranch,
   type MenuVariantDeps,
@@ -47,6 +50,7 @@ const StockItemParams = z.object({ stock_item_id: z.string().min(1) });
 const ModifierGroupParams = z.object({ modifier_group_id: z.string().min(1) });
 const ModifierGroupBranchParams = z.object({ modifier_group_id: z.string().min(1), branch_id: z.string().min(1) });
 const DealParams = z.object({ deal_id: z.string().min(1) });
+const DealBranchParams = z.object({ deal_id: z.string().min(1), branch_id: z.string().min(1) });
 const StockItemBranchParams = z.object({ stock_item_id: z.string().min(1), branch_id: z.string().min(1) });
 // §6.6, §6.10, §6.13 (AD-30)
 const StatusQuery = z.object({ status: z.enum(['active', 'archived']).default('active') });
@@ -220,6 +224,21 @@ export function registerMenuVariantRoutes(app: FastifyInstance, deps: MenuVarian
     async (request, reply) => {
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/deals/:deal_id');
       const data = await patchDeal(deps, ownerRequest(app, request), request.params.deal_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  // §6.16: branch-scoped (owner, branch allowed; C2 inside the transaction); idempotent PUT, no Idempotency-Key.
+  routes.put(
+    '/v1/admin/deals/:deal_id/branches/:branch_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: DealBranchParams, body: PutDealBranchBody, response: { 200: DealBranchResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PUT /v1/admin/deals/:deal_id/branches/:branch_id');
+      const { deal_id, branch_id } = request.params;
+      const data = await putDealBranch(deps, ownerRequest(app, request), deal_id, branch_id, request.body);
       return reply.send({ data });
     },
   );

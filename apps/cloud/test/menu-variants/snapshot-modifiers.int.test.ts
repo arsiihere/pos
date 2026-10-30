@@ -479,7 +479,7 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     ]);
   });
 
-  it('[01c #127] backstop: required Bread with plain Butter and linked Naan; Naan set by SQL to g, then weighed, then archived → Naan left out, Butter stays; Butter not offered too → Bread kept with options: []; Naan back to an active piece item → the option is back; 13 statements', async () => {
+  it('[01c #127] backstop: required Bread with plain Butter and linked Naan; Naan set by SQL to g, then weighed, then archived → Naan left out, Butter stays; Butter not offered too → Bread kept with options: []; Naan back to an active piece item → the option is back; 16 statements', async () => {
     const [a] = f.branches;
     const naan = await naanItem();
     const bread = await createModifierGroup(cloud, f, {
@@ -512,8 +512,8 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
 
     await setNaan(`sale_unit = 'piece', stock_unit = 'piece', requires_weighing = false, archived_at = NULL`);
     expect(await optionIds()).toEqual([naanOption]);
-    // 01c §6.17: task 27's 12 + this branch's option rows; unchanged by what the rows hold
-    expect(statements).toBe(13);
-    expect(await countBuild(a)).toBe(13);
+    // 01c §6.17: task 27's 12 + this branch's option rows (+ task 31's 3 deal reads); unchanged by what the rows hold
+    expect(statements).toBe(16);
+    expect(await countBuild(a)).toBe(16);
   });
 });

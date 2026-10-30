@@ -5,8 +5,9 @@ import { branchConfig } from '../../../hub/src/sync/branch-config-holder';
 import { httpConfigClient } from '../../../hub/src/sync/config-client';
 import { configPoller } from '../../../hub/src/sync/config-poller';
 import { createTestHub, type TestHub } from '../../../hub/test/helpers/test-hub';
+import { createDeal } from '../helpers/menu-variants';
 import { pgCounter } from '../helpers/pg-counter';
-import { restaurantFixture, seedMenu } from '../helpers/restaurant';
+import { owner, restaurantFixture, seedMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
 const realFetch = globalThis.fetch;
@@ -31,9 +32,28 @@ describe('config sync end to end (S48)', () => {
     for (const h of hubs.splice(0)) await h.close();
   });
 
-  it('[01a §10 #140] 5 000-item branch: ≤ 22 statements; gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
+  it('[01a §10 #140] 5 000-item branch with a deal sold there: ≤ 26 statements with the directory (AD-16); gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
     const f = await restaurantFixture(cloud);
-    await seedMenu(cloud.pool, f, { items: 5_000 });
+    const menu = await seedMenu(cloud.pool, f, { items: 5_000 });
+    // 01c §6.14, §6.16: one deal sold at branch A, so the builder's deal reads return rows
+    const deal = await createDeal(cloud, f, {
+      name: 'Family karahi deal',
+      category_id: menu.categoryIds[0]!,
+      tax_class_id: null,
+      price_minor: 320_000,
+      parts: [{ quantity: 2, choices: [{ item_id: menu.itemIds[2]! }, { item_id: menu.itemIds[3]!, extra_price_minor: 3_000 }] }],
+    });
+    const listed = await cloud.app.inject({ method: 'GET', url: '/v1/admin/deals', headers: owner(f).headers });
+    const noRow = (listed.json().data.deals as Array<{ branches: Array<{ branch_id: string; version: string }> }>)[0]!.branches.find(
+      (b) => b.branch_id === f.branches[0],
+    )!.version;
+    const sold = await cloud.app.inject({
+      method: 'PUT',
+      url: `/v1/admin/deals/${deal.deal_id}/branches/${f.branches[0]}`,
+      ...owner(f),
+      payload: { expected_version: noRow, is_sold: true, price_minor_override: 300_000 },
+    });
+    expect(sold.statusCode, sold.body).toBe(200);
 
     const seen: Array<{ status: number; encoding: string | null; acceptEncoding: string | null }> = [];
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -58,11 +78,13 @@ describe('config sync end to end (S48)', () => {
 
     const applied = await poller.pollOnce();
     expect(applied.outcome).toBe('applied');
-    // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3); + 9 builder statements (01c §4.5, AD-16)
+    // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3); + 9 builder statements (01c §4.5, §6.17,
+    // AD-16); measured 26 after 01c task 31 (builder 16)
     expect(counter.count).toBeLessThanOrEqual(26);
     expect(seen[0]).toEqual({ status: 200, encoding: 'gzip', acceptEncoding: 'gzip' });
     const config = branchConfig();
     expect(config?.items).toHaveLength(5_000);
+    expect(config?.deals.map((d) => [d.deal_id, d.price_minor])).toEqual([[deal.deal_id, 300_000]]);
     const stored = h.deps.db.prepare('SELECT snapshot_hash, body FROM config_snapshots').get() as { snapshot_hash: string; body: string };
     expect(sha256hex(stored.body)).toBe(stored.snapshot_hash);
 

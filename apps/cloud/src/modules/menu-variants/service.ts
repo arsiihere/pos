@@ -5,6 +5,7 @@ import type {
   CreateModifierGroupInput,
   CreateStockItemInput,
   CreateVariantGroupInput,
+  DealBranchWire,
   DealListResponse,
   DealWire,
   ModifierGroupBranchWire,
@@ -14,6 +15,7 @@ import type {
   PatchModifierGroupInput,
   PatchStockItemInput,
   PatchVariantGroupInput,
+  PutDealBranchInput,
   PutModifierGroupBranchInput,
   PutStockItemBranchInput,
   StockItemBranchWire,
@@ -46,10 +48,12 @@ import {
   archiveOmittedOptions,
   archiveOmittedParts,
   branchAllowed,
+  deleteDealBranch,
   deleteDealChoices,
   insertDeal,
   insertDealChoices,
   insertDealParts,
+  selectDealBranch,
   selectDealBranches,
   selectDealParts,
   selectDeals,
@@ -87,10 +91,12 @@ import {
   updateDeal,
   updateModifierGroup,
   updateStockItem,
+  upsertDealBranch,
   upsertDealParts,
   upsertModifierOptions,
   upsertStockItemBranch,
   updateVariantGroup,
+  type DealBranchRecord,
   type DealRecord,
   type MemberRow,
   type ModifierGroupRecord,
@@ -1222,5 +1228,61 @@ export async function patchDeal(
     await deps.testHooks?.beforeBump?.();
     await bumpEveryBranch(level);
     return { deal: after };
+  });
+}
+
+// §6.16 (C4; lock order 2 → 9 → 10). A branch-scoped write: no tenant-wide check, only that branch is bumped. Deal
+// FOR UPDATE (404; M4: serialises two PUTs on a row that does not exist yet) → C2 branch read inside the
+// transaction, among the JWT's allowed branches (404 BRANCH_NOT_FOUND) → stored row read without a lock (P3) →
+// version (409 CONFIG_STALE deal_branch, a stale no-op too) → on is_sold: true, the deal active (422 deal_id
+// archived) → no-op (200, nothing written) → upsert or delete (the row's own lock, 9) → audit deal_branch /
+// branch_set or branch_removed with branch_id → bump that branch (10). The entry carries is_sold (AD-6).
+export async function putDealBranch(
+  deps: MenuVariantDeps,
+  req: OwnerRequest,
+  dealId: string,
+  branchId: string,
+  body: PutDealBranchInput,
+): Promise<{ branch: DealBranchWire | null }> {
+  return inTransaction(deps.pool, async (client) => {
+    const level = new TenantLevelRepository(req.tenant, client);
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const deal = await lockDeal(level, dealId);
+    if (deal === undefined) throw new DomainError('DEAL_NOT_FOUND', { deal_id: dealId });
+    if (!(await branchAllowed(scoped, branchId))) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+    const stored = (await selectDealBranch(scoped, dealId, branchId)) ?? null;
+    if (body.expected_version !== dealBranchVersion(dealId, branchId, stored).version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'deal_branch', id: dealId });
+    }
+    if (body.is_sold && deal.archived_at !== null) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'deal_id', reason: 'archived' });
+    }
+    const before = stored === null ? null : { price_minor_override: stored.price_minor_override === null ? null : Number(stored.price_minor_override) };
+    const next = body.is_sold ? { price_minor_override: body.price_minor_override } : null;
+    if (canonicalJson(before) === canonicalJson(next)) {
+      return { branch: stored === null ? null : dealBranchVersion(dealId, branchId, stored) };
+    }
+    let written: DealBranchRecord | null = null;
+    if (next !== null) {
+      written = await upsertDealBranch(scoped, { deal_id: dealId, branch_id: branchId, ...next }, deps.clock.branchNow());
+    } else {
+      await deleteDealBranch(scoped, dealId, branchId);
+    }
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'deal_branch',
+        entityId: dealId,
+        branchId,
+        action: written === null ? 'branch_removed' : 'branch_set',
+        before,
+        after: next,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { branch: written === null ? null : dealBranchVersion(dealId, branchId, written) };
   });
 }

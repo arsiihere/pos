@@ -148,6 +148,10 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
     url: `/v1/admin/deals/${ids.dealId}`,
     payload: { expected_version: 'stale', name: 'Family karahi' },
   }),
+  'PUT /v1/admin/deals/:deal_id/branches/:branch_id': (ids) => ({
+    url: `/v1/admin/deals/${ids.dealId}/branches/${ids.branchId}`,
+    payload: { expected_version: 'stale', is_sold: true },
+  }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({
     url: '/v1/admin/staff',

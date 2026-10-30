@@ -323,7 +323,7 @@ describe('buildSnapshot', () => {
     };
     const ten = await countFor(10);
     const threeHundred = await countFor(300);
-    expect(ten).toBe(13); // 01c tasks 27, 28: + modifier groups with options, this branch's option rows, links
+    expect(ten).toBe(16); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows
     expect(threeHundred).toBe(ten);
     expect(ten).toBeLessThanOrEqual(22);
   });
@@ -336,7 +336,7 @@ describe('buildSnapshot', () => {
       counter.reset();
       const snapshot = await buildSnapshot(client, tenant(), f.branches[0], HEADER);
       expect(snapshot.items).toHaveLength(5_000);
-      expect(counter.count).toBeLessThanOrEqual(22); // 13 (01c tasks 27, 28): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links
+      expect(counter.count).toBeLessThanOrEqual(22); // 16 (01c tasks 27, 28, 31): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows
     } finally {
       client.release();
     }
