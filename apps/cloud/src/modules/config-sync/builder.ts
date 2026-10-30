@@ -59,9 +59,9 @@ interface DrawRow {
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 12 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
-// items with this branch's rows, draws, modifier groups with options, links. Active rows only, except stations,
-// programs and tax classes (S22).
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 13 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// items with this branch's rows, draws, modifier groups with options, this branch's option rows, links. Active rows
+// only, except stations, programs and tax classes (S22).
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
 // stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47). Returns the
 // wire object (S27). deals stay empty until 01c task 31.
@@ -122,6 +122,8 @@ export async function buildSnapshot(
       category_id: string;
       price_minor: string;
       variant_group_id: string | null;
+      sale_unit: string;
+      requires_weighing: boolean;
       station_id: string;
       stock_time_ms: number | null;
       stock_program_id: string | null;
@@ -186,6 +188,11 @@ export async function buildSnapshot(
       ORDER BY g.sort_order, g.modifier_group_id, o.sort_order, o.option_id`,
   );
   const activeGroupIds = [...new Set(groupRows.map((row) => row.modifier_group_id))];
+  // 01c V19: this branch's option differences (rows of archived options are never matched, m4).
+  const optionBranches = await scoped.query<{ option_id: string; is_offered: boolean; price_minor_override: string | null }>(
+    `SELECT option_id, is_offered, price_minor_override FROM modifier_option_branches WHERE ${branch}`,
+    [branchId],
+  );
   // 01c V8: the links of the active groups; resolved per item in memory (effectiveGroupIds).
   const links = await level.query<LinkRow>(
     `SELECT modifier_group_id, target_kind, target_id, mode FROM modifier_group_links
@@ -209,8 +216,11 @@ export async function buildSnapshot(
     drawsByItem.set(draw.item_id, list);
   }
 
-  // 01c §4.6 rules 2, 3 (F1, M1): each active group's options at this branch. A linked option whose item is not
-  // in this snapshot (not routed here, or archived) is left out; its null price is the item's effective branch price.
+  // 01c §4.6 rules 2, 3 (V19, F1, M1): each active group's options at this branch. Left out: an option not offered
+  // here; a linked option whose item is not in this snapshot (not routed here, or archived); backstop (Q1): a linked
+  // option whose item is not sale_unit 'piece' or is weighed. Price (AU-4): branch override, else the option's
+  // price_minor, else the linked item's effective branch price.
+  const branchRows = new Map(optionBranches.map((row) => [row.option_id, row]));
   const itemsById = new Map(items.map((item) => [item.item_id, item]));
   const groups: Array<{
     modifier_group_id: string;
@@ -237,9 +247,11 @@ export async function buildSnapshot(
     }
     if (row.option_id === null) continue;
     if (row.linked_item_id === null) group.has_plain_options = true; // M1: configured, offered here or not
+    const atBranch = branchRows.get(row.option_id);
+    if (atBranch?.is_offered === false) continue;
     const linked = row.linked_item_id === null ? undefined : itemsById.get(row.linked_item_id);
-    if (row.linked_item_id !== null && linked === undefined) continue;
-    const price = row.price_minor ?? linked?.price_minor;
+    if (row.linked_item_id !== null && (linked === undefined || linked.sale_unit !== 'piece' || linked.requires_weighing)) continue;
+    const price = atBranch?.price_minor_override ?? row.price_minor ?? linked?.price_minor;
     group.options.push({
       option_id: row.option_id,
       name: row.option_name!,

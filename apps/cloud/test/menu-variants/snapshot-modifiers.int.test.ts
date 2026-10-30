@@ -1,7 +1,9 @@
+import { isGroupSatisfiable } from '@pos/domain';
 import { BranchConfigSnapshotSchemaV2, type BranchConfig, type CreateModifierGroupRequest, type ModifierGroupWire } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { createModifierGroup, createVariantGroup, seedModifierGroupRows } from '../helpers/menu-variants';
+import { pgCounter } from '../helpers/pg-counter';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -42,6 +44,19 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
       client.release();
     }
   };
+  // The builder's statement count (01c #127; transaction control excluded).
+  const countBuild = async (branchId: string) => {
+    const counter = pgCounter(cloud.pool);
+    const client = await cloud.pool.connect();
+    try {
+      const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
+      counter.reset();
+      BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return counter.count;
+    } finally {
+      client.release();
+    }
+  };
   const idsOf = (snapshot: BranchConfig, itemId: string) => snapshot.items.find((item) => item.item_id === itemId)?.modifier_group_ids;
   const groupOf = (snapshot: BranchConfig, groupId: string) => snapshot.modifier_groups.find((g) => g.modifier_group_id === groupId);
   const inject = (method: 'POST' | 'PATCH', url: string, payload: object) => cloud.app.inject({ method, url, ...owner(f), payload });
@@ -69,6 +84,41 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
       links: [karahi()],
       ...o,
     });
+  // §6.12a through the API, at the group's current branch version.
+  const putBranch = async (group: ModifierGroupWire, branchId: string, options: object[]) => {
+    const version = group.branches.find((branch) => branch.branch_id === branchId)!.version;
+    const response = await cloud.app.inject({
+      method: 'PUT',
+      url: `/v1/admin/modifier-groups/${group.modifier_group_id}/branches/${branchId}`,
+      ...owner(f),
+      payload: { expected_version: version, options },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  };
+  const groupWire = async (groupId: string): Promise<ModifierGroupWire> => {
+    const response = await cloud.app.inject({ method: 'GET', url: '/v1/admin/modifier-groups', headers: owner(f).headers });
+    expect(response.statusCode, response.body).toBe(200);
+    return (response.json().data.modifier_groups as ModifierGroupWire[]).find((g) => g.modifier_group_id === groupId)!;
+  };
+  const putRoute = async (itemId: string, branchId: string, payload: object) => {
+    const response = await cloud.app.inject({ method: 'PUT', url: `/v1/admin/menu-items/${itemId}/routes/${branchId}`, ...owner(f), payload });
+    expect(response.statusCode, response.body).toBe(200);
+  };
+  // Naan (serve mode immediate, 1 min), Rs 30, routed at A only.
+  const naanItem = () =>
+    createItem({
+      category_id: menu.categoryIds[1],
+      tax_class_id: null,
+      name: 'Naan',
+      price_minor: 3_000,
+      serve_mode: 'immediate',
+      cook_time_ms: 60_000,
+      routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId }],
+    });
+  const versions = async () =>
+    (
+      await cloud.pool.query<{ config_version: string }>(`SELECT config_version FROM branches WHERE tenant_id = $1 ORDER BY branch_id`, [f.tenantId])
+    ).rows.map((row) => Number(row.config_version));
   // P-4: links by SQL, for groups seeded by seedModifierGroupRows (V2 bounds kept: 1 plain option each).
   const seedLinks = async (rows: ReadonlyArray<{ groupId: string; kind: 'category' | 'variant_group' | 'item'; targetId: string; mode: 'attach' | 'detach' }>) => {
     for (const row of rows) {
@@ -281,5 +331,189 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     const snapshot = await build(a);
     expect(idsOf(snapshot, menu.itemIds[0]!)).toEqual(['MG-A', 'MG-B', 'MG-C']);
     expect(snapshot.modifier_groups.map((g) => g.modifier_group_id)).toEqual(['MG-A', 'MG-B', 'MG-C']);
+  });
+
+  it('[01c #59] linked option price: the option override wins; else the linked item’s branch override; omitted where the linked item has no route; the linked item keeps its own serve_mode, station and cook time; plain options carry no station or timing fields', async () => {
+    const [a, b] = f.branches;
+    const naan = await naanItem();
+    await putRoute(naan, a, { station_id: 'ST-1', price_minor_override: 3_500 });
+    const bread = await createModifierGroup(cloud, f, {
+      name: 'Bread',
+      min_choices: 0,
+      max_choices: 2,
+      options: [
+        { name: 'Butter', price_minor: 500, sort_order: 1 },
+        { name: 'Naan', price_minor: null, linked_item_id: naan, sort_order: 2 },
+      ],
+      links: [karahi()],
+    });
+    const [butter, naanOption] = bread.options;
+    const optionsAt = async (branchId: string) => groupOf(await build(branchId), bread.modifier_group_id)?.options;
+
+    // null option price → the linked item's branch override (S57)
+    let atA = await build(a);
+    expect(groupOf(atA, bread.modifier_group_id)!.options).toEqual([
+      { option_id: butter!.option_id, name: 'Butter', price_minor: 500, max_quantity: 1, is_default: false, linked_item_id: null, sort_order: 1 },
+      { option_id: naanOption!.option_id, name: 'Naan', price_minor: 3_500, max_quantity: 1, is_default: false, linked_item_id: naan, sort_order: 2 },
+    ]);
+    // V7: the linked item is in the snapshot with its own serve mode, station and cook time
+    expect(atA.items.find((item) => item.item_id === naan)).toMatchObject({ serve_mode: 'immediate', station_id: 'ST-1', cook_time_ms: 60_000 });
+    // the option's own price wins over the item's branch price
+    const priced = await patchGroup(bread.modifier_group_id, {
+      expected_version: bread.version,
+      options: [
+        { option_id: butter!.option_id, name: 'Butter', price_minor: 500, sort_order: 1 },
+        { option_id: naanOption!.option_id, name: 'Naan', price_minor: 2_000, linked_item_id: naan, sort_order: 2 },
+      ],
+    });
+    expect((await optionsAt(a))!.map((o) => o.price_minor)).toEqual([500, 2_000]);
+    // the option's branch override wins over both
+    await putBranch(priced, a, [{ option_id: naanOption!.option_id, is_offered: true, price_minor_override: 2_500 }]);
+    atA = await build(a);
+    expect(groupOf(atA, bread.modifier_group_id)!.options.map((o) => o.price_minor)).toEqual([500, 2_500]);
+    // Branch B: Naan has no route there → its option is left out, Butter stays
+    expect((await optionsAt(b))!.map((o) => o.option_id)).toEqual([butter!.option_id]);
+  });
+
+  it('[01c #88] PUT at A [O1 not offered, O2 offered at 4 000] → A omits O1 and prices O2 at 4 000; B keeps both at base; one audit row branch_set at A; only A bumped', async () => {
+    const [a, b] = f.branches;
+    const group = await spice({
+      min_choices: 0,
+      options: [
+        { name: 'Mild', price_minor: 100, sort_order: 1 },
+        { name: 'Normal', price_minor: 200, sort_order: 2 },
+      ],
+    });
+    const [o1, o2] = group.options;
+    const before = await versions();
+    await putBranch(group, a, [
+      { option_id: o1!.option_id, is_offered: false },
+      { option_id: o2!.option_id, is_offered: true, price_minor_override: 4_000 },
+    ]);
+    const order = [...f.branches].sort();
+    expect(await versions()).toEqual(before.map((v, i) => (order[i] === a ? v + 1 : v)));
+    const audit = await cloud.pool.query<{ entity: string; action: string; branch_id: string | null }>(
+      `SELECT entity, action, branch_id FROM config_audit WHERE tenant_id = $1 AND entity_id = $2 AND action = 'branch_set'`,
+      [f.tenantId, group.modifier_group_id],
+    );
+    expect(audit.rows).toEqual([{ entity: 'modifier_group', action: 'branch_set', branch_id: a }]);
+
+    expect(groupOf(await build(a), group.modifier_group_id)!.options.map((o) => [o.option_id, o.price_minor])).toEqual([[o2!.option_id, 4_000]]);
+    expect(groupOf(await build(b), group.modifier_group_id)!.options.map((o) => [o.option_id, o.price_minor])).toEqual([
+      [o1!.option_id, 100],
+      [o2!.option_id, 200],
+    ]);
+  });
+
+  it('[01c #89] linked Naan (option price null; Naan’s A route override 3 500) with an A option override 2 500 → 2 500; without the option override → 3 500', async () => {
+    const [a] = f.branches;
+    const naan = await naanItem();
+    await putRoute(naan, a, { station_id: 'ST-1', price_minor_override: 3_500 });
+    const bread = await createModifierGroup(cloud, f, {
+      name: 'Bread',
+      min_choices: 0,
+      max_choices: 1,
+      options: [{ name: 'Naan', linked_item_id: naan }],
+      links: [karahi()],
+    });
+    const option = bread.options[0]!.option_id;
+    const priceAtA = async () => groupOf(await build(a), bread.modifier_group_id)!.options.map((o) => o.price_minor);
+    await putBranch(bread, a, [{ option_id: option, is_offered: true, price_minor_override: 2_500 }]);
+    expect(await priceAtA()).toEqual([2_500]);
+    await putBranch(await groupWire(bread.modifier_group_id), a, []);
+    expect(await priceAtA()).toEqual([3_500]);
+  });
+
+  it('[01c #92] required Spice level with every option not offered at A → 200; A keeps the group with options: []; isGroupSatisfiable is false for it', async () => {
+    const [a] = f.branches;
+    const group = await spice();
+    await putBranch(
+      group,
+      a,
+      group.options.map((o) => ({ option_id: o.option_id, is_offered: false })),
+    );
+    const snapshot = await build(a);
+    const kept = groupOf(snapshot, group.modifier_group_id)!;
+    expect(kept).toMatchObject({ min_choices: 1, has_plain_options: true, options: [] });
+    expect(idsOf(snapshot, menu.itemIds[0]!)).toEqual([group.modifier_group_id]);
+    const groupsById = Object.fromEntries(snapshot.modifier_groups.map((g) => [g.modifier_group_id, g]));
+    const itemsById = Object.fromEntries(snapshot.items.map((item) => [item.item_id, item]));
+    expect(isGroupSatisfiable(kept, 'line', groupsById, itemsById, () => true)).toBe(false);
+  });
+
+  it('[01c #106] O2 archived with an A row; a PUT at A for O1 keeps O2’s row; restoring O2 brings its A override back into the snapshot', async () => {
+    const [a] = f.branches;
+    const group = await spice({
+      min_choices: 0,
+      options: [
+        { name: 'Mild', price_minor: 100, sort_order: 1 },
+        { name: 'Normal', price_minor: 200, sort_order: 2 },
+      ],
+    });
+    const [o1, o2] = group.options;
+    await putBranch(group, a, [{ option_id: o2!.option_id, is_offered: true, price_minor_override: 4_000 }]);
+    const archived = await patchGroup(group.modifier_group_id, {
+      expected_version: group.version,
+      options: [{ option_id: o1!.option_id, name: 'Mild', price_minor: 100, sort_order: 1 }],
+    });
+    await putBranch(archived, a, [{ option_id: o1!.option_id, is_offered: true, price_minor_override: 150 }]);
+    const rows = await cloud.pool.query(`SELECT option_id, price_minor_override::int AS price FROM modifier_option_branches WHERE branch_id = $1 ORDER BY option_id`, [a]);
+    expect(rows.rows).toEqual(
+      [
+        { option_id: o1!.option_id, price: 150 },
+        { option_id: o2!.option_id, price: 4_000 },
+      ].sort((x, y) => (x.option_id < y.option_id ? -1 : 1)),
+    );
+    expect(groupOf(await build(a), group.modifier_group_id)!.options.map((o) => [o.option_id, o.price_minor])).toEqual([[o1!.option_id, 150]]);
+
+    await patchGroup(group.modifier_group_id, {
+      expected_version: (await groupWire(group.modifier_group_id)).version,
+      options: [
+        { option_id: o1!.option_id, name: 'Mild', price_minor: 100, sort_order: 1 },
+        { option_id: o2!.option_id, name: 'Normal', price_minor: 200, sort_order: 2 },
+      ],
+    });
+    expect(groupOf(await build(a), group.modifier_group_id)!.options.map((o) => [o.option_id, o.price_minor])).toEqual([
+      [o1!.option_id, 150],
+      [o2!.option_id, 4_000],
+    ]);
+  });
+
+  it('[01c #127] backstop: required Bread with plain Butter and linked Naan; Naan set by SQL to g, then weighed, then archived → Naan left out, Butter stays; Butter not offered too → Bread kept with options: []; Naan back to an active piece item → the option is back; 13 statements', async () => {
+    const [a] = f.branches;
+    const naan = await naanItem();
+    const bread = await createModifierGroup(cloud, f, {
+      name: 'Bread',
+      min_choices: 1,
+      max_choices: 2,
+      options: [
+        { name: 'Butter', price_minor: 500, sort_order: 1 },
+        { name: 'Naan', linked_item_id: naan, sort_order: 2 },
+      ],
+      links: [karahi()],
+    });
+    const [butter, naanOption] = bread.options.map((o) => o.option_id);
+    const optionIds = async () => groupOf(await build(a), bread.modifier_group_id)?.options.map((o) => o.option_id);
+    const setNaan = (set: string) => cloud.pool.query(`UPDATE menu_items SET ${set} WHERE tenant_id = $1 AND item_id = $2`, [f.tenantId, naan]);
+    expect(await optionIds()).toEqual([butter, naanOption]);
+    const statements = await countBuild(a);
+
+    await setNaan(`sale_unit = 'g', stock_unit = 'g'`); // the deprecated unit column follows (01a S44 CHECK)
+    expect(await optionIds()).toEqual([butter]);
+    await setNaan(`requires_weighing = true`);
+    expect(await optionIds()).toEqual([butter]);
+    await setNaan(`archived_at = 1`);
+    expect(await optionIds()).toEqual([butter]);
+
+    await putBranch(bread, a, [{ option_id: butter!, is_offered: false }]);
+    const snapshot = await build(a);
+    expect(groupOf(snapshot, bread.modifier_group_id)).toMatchObject({ min_choices: 1, has_plain_options: true, options: [] });
+    expect(idsOf(snapshot, menu.itemIds[0]!)).toEqual([bread.modifier_group_id]);
+
+    await setNaan(`sale_unit = 'piece', stock_unit = 'piece', requires_weighing = false, archived_at = NULL`);
+    expect(await optionIds()).toEqual([naanOption]);
+    // 01c §6.17: task 27's 12 + this branch's option rows; unchanged by what the rows hold
+    expect(statements).toBe(13);
+    expect(await countBuild(a)).toBe(13);
   });
 });
