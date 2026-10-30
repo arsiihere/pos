@@ -1,3 +1,4 @@
+import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import { BranchConfigSnapshotSchemaV2, type CreateDealRequest, type DealBranchWire, type DealWire, type PatchDealRequest } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
@@ -387,7 +388,7 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
     const listed = data.deals[0]!;
     expect(listed).toEqual({
       ...deal,
-      archived_parts: [{ deal_part_id: 'DP-OLD' }],
+      archived_parts: [{ deal_part_id: 'DP-OLD', quantity: 1, choices: [{ item_id: naan }] }],
       branches: [
         { branch_id: a, is_sold: true, price_minor_override: 300000, version: expect.stringMatching(/^[0-9a-f]{64}$/) },
         { branch_id: b, is_sold: false, price_minor_override: null, version: expect.stringMatching(/^[0-9a-f]{64}$/) },
@@ -450,7 +451,7 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
     ]);
     expect(p3).toMatch(ULID);
     expect([p1, p2]).not.toContain(p3);
-    expect(wire.archived_parts).toEqual([{ deal_part_id: p2 }]);
+    expect(wire.archived_parts).toEqual([{ deal_part_id: p2, quantity: 2, choices: [{ item_id: roghni }] }]);
     expect(wire.version).not.toBe(deal.version);
     expect(await versions()).toEqual(before.map((v) => v + 1));
     expect((await storedParts(deal.deal_id)).map((p) => [p.deal_part_id, p.quantity, p.archived_at !== null])).toEqual(
@@ -514,7 +515,7 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
       quantity: 1,
       archived_at: String(cloud.clock.branchNow()),
     });
-    expect(wire.archived_parts).toEqual([{ deal_part_id: p2 }]);
+    expect(wire.archived_parts).toEqual([{ deal_part_id: p2, quantity: 1, choices: [{ item_id: raita }] }]);
 
     const restored = await patched(deal.deal_id, {
       expected_version: wire.version,
@@ -526,6 +527,81 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
     expect(restored.parts[1]).toEqual({ deal_part_id: p2, quantity: 1, sort_order: 1, choices: [{ item_id: raita, extra_price_minor: 0, sort_order: 0 }] });
     expect(await storedChoices(p2)).toEqual([{ item_id: raita, extra_price_minor: '0', sort_order: 0 }]);
     expect(restored.archived_parts).toEqual([]);
+  });
+
+  it('[01c #129] archived_parts carries quantity and choices in sort_order (then item_id), not hashed; restoring the part is unchanged', async () => {
+    // naan sorts after roghni by item_id, so sort_order (naan 1, roghni 2) is not the item_id order
+    const [roghni, naan, karahi] = menu.itemIds as [string, string, string];
+    const deal = await createDeal(cloud, f, {
+      ...plainDeal('Family karahi'),
+      parts: [
+        { quantity: 1, choices: [{ item_id: karahi }] },
+        {
+          quantity: 4,
+          sort_order: 1,
+          choices: [
+            { item_id: roghni, extra_price_minor: 2000, sort_order: 2 },
+            { item_id: naan, sort_order: 1 },
+          ],
+        },
+      ],
+    });
+    const [karahiPart, naanPart] = deal.parts.map((p) => p.deal_part_id) as [string, string];
+    const naanChoices = [
+      { item_id: naan, extra_price_minor: 0, sort_order: 1 },
+      { item_id: roghni, extra_price_minor: 2000, sort_order: 2 },
+    ];
+    expect(deal.parts[1]).toEqual({ deal_part_id: naanPart, quantity: 4, sort_order: 1, choices: naanChoices });
+
+    const omitted = await patched(deal.deal_id, {
+      expected_version: deal.version,
+      parts: [{ deal_part_id: karahiPart, quantity: 1, choices: [{ item_id: karahi }] }],
+    });
+    const archivedNaan = { deal_part_id: naanPart, quantity: 4, choices: [{ item_id: naan }, { item_id: roghni }] };
+    expect(omitted.archived_parts).toEqual([archivedNaan]);
+
+    const listed = ((await list()).json().data as { deals: ListedDeal[] }).deals.find((d) => d.deal_id === deal.deal_id)!;
+    expect(listed.archived_parts).toEqual([archivedNaan]);
+    // §5.4: the version is the hash of the version input alone (no archived_parts)
+    const versionInput = {
+      deal_id: listed.deal_id,
+      name: listed.name,
+      category_id: listed.category_id,
+      tax_class_id: listed.tax_class_id,
+      description: listed.description,
+      sort_order: listed.sort_order,
+      price_minor: listed.price_minor,
+      archived: false,
+      availability_windows: listed.availability_windows,
+      parts: listed.parts,
+    };
+    expect(listed.version).toBe(sha256hex(canonicalJson(versionInput)));
+    expect(listed.version).toBe(omitted.version);
+    // a no-op PATCH with the listed version answers the same deal, nothing written
+    const before = await dealRows();
+    const noop = await patched(deal.deal_id, { expected_version: listed.version, name: 'Family karahi' });
+    expect(noop).toEqual(omitted);
+    expect(await dealRows()).toEqual(before);
+
+    // restore from what archived_parts carries: same id, quantity and choices
+    const restored = await patched(deal.deal_id, {
+      expected_version: listed.version,
+      parts: [
+        { deal_part_id: karahiPart, quantity: 1, choices: [{ item_id: karahi }] },
+        {
+          deal_part_id: archivedNaan.deal_part_id,
+          quantity: archivedNaan.quantity,
+          sort_order: 1,
+          choices: [
+            { item_id: naan, sort_order: 1 },
+            { item_id: roghni, extra_price_minor: 2000, sort_order: 2 },
+          ],
+        },
+      ],
+    });
+    expect(restored.parts[1]).toEqual({ deal_part_id: naanPart, quantity: 4, sort_order: 1, choices: naanChoices });
+    expect(restored.archived_parts).toEqual([]);
+    expect(restored.version).toBe(deal.version);
   });
 
   it('[01c #53] part id of another deal → 422 not_found; stale → 409 CONFIG_STALE; body only version → 400; repeated deal_part_id → 400; unknown deal → 404', async () => {

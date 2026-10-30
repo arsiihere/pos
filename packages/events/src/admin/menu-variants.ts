@@ -356,7 +356,7 @@ export const DealWire = z.object({
   archived_at: z.number().nullable(),
   availability_windows: z.array(z.object({ start_ms: z.number(), end_ms: z.number() })),
   parts: z.array(DealPartWire),
-  archived_parts: z.array(z.object({ deal_part_id: z.string() })),
+  archived_parts: z.array(z.object({ deal_part_id: z.string(), quantity: z.number(), choices: z.array(z.object({ item_id: z.string() })) })),
   version: z.string(),
 });
 export type DealWire = z.infer<typeof DealWire>;

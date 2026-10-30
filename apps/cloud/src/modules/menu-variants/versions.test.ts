@@ -79,7 +79,17 @@ function aDealRow(o: Partial<DealRow> = {}): DealRow {
         ],
       },
       { deal_part_id: 'P1', quantity: 2, sort_order: 0, archived_at: null, choices: [{ item_id: 'I5', extra_price_minor: 0, sort_order: 0 }] },
-      { deal_part_id: 'P0', quantity: 1, sort_order: 0, archived_at: 900, choices: [] },
+      {
+        deal_part_id: 'P0',
+        quantity: 3,
+        sort_order: 0,
+        archived_at: 900,
+        choices: [
+          { item_id: 'I8', extra_price_minor: 0, sort_order: 2 },
+          { item_id: 'I9', extra_price_minor: 500, sort_order: 1 },
+          { item_id: 'I7', extra_price_minor: 0, sort_order: 2 },
+        ],
+      },
     ],
     ...o,
   };
@@ -213,7 +223,8 @@ describe('menu-variants versions (01c §5.4, V13)', () => {
     expect(wire.version).toBe(hash(DEAL_INPUT));
     expect(wire.parts).toEqual(DEAL_INPUT.parts);
     expect(wire.availability_windows).toEqual(DEAL_INPUT.availability_windows);
-    expect(wire.archived_parts).toEqual([{ deal_part_id: 'P0' }]);
+    // v1.1 (P2): quantity and choices (sort_order, then item_id), not hashed (the version above is DEAL_INPUT's)
+    expect(wire.archived_parts).toEqual([{ deal_part_id: 'P0', quantity: 3, choices: [{ item_id: 'I9' }, { item_id: 'I7' }, { item_id: 'I8' }] }]);
     const strings = aDealRow({
       price_minor: '250000',
       parts: aDealRow().parts.map((part) => ({

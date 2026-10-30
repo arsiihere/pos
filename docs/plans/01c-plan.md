@@ -152,7 +152,7 @@ ENGINE_STATE_VERSION = 2   // task 8; fixtures engine-state.v2.json, engine-log.
 
 ## Coverage table (§10 → task)
 
-126 live tests (1–128; 71, 72 retired), of which **124 are built in 01c**: #115 and #124 are deferred to the UI module with tasks 34–37 (AD-35). Checked by script: every one of the 124 appears in exactly one task below, no retired number appears, and #115 and #124 appear only in the deferred rows 34 and 37.
+127 live tests (1–129; 71, 72 retired), of which **125 are built in 01c** (#129 added by task 41, spec v1.1 P2): #115 and #124 are deferred to the UI module with tasks 34–37 (AD-35). Checked by script: every one of the 125 appears in exactly one task below, no retired number appears, and #115 and #124 appear only in the deferred rows 34 and 37.
 
 | Task | 01c tests | Re-keyed 01a / 01b tests |
 |---|---|---|
@@ -826,7 +826,7 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 **Spec:** §12.1, §12.2, §10.9.
 
 - [ ] **Step 1:** `docker compose down && docker compose up -d postgres`, then `pnpm -w typecheck && pnpm -w lint && pnpm -w test` from a clean checkout → green. Record the counts.
-- [ ] **Step 2:** Coverage script: `grep -rhoE "\[01c #[0-9]+\]" apps packages | sort -u` gives the live 01c tests minus #115 and #124: 124 distinct numbers, 1–128 without 71 and 72 (retired) and without 115 and 124 (deferred to the UI module, AD-35); each live number is present, and only in the test file(s) of the task that owns it (coverage table above); a number split into halves has one `it(` per half, titled `(half a: …)` / `(half b: …)` (#99: §6.9 / §6.16; #116: POST / PATCH; AD-37).
+- [ ] **Step 2:** Coverage script: `grep -rhoE "\[01c #[0-9]+\]" apps packages | sort -u` gives the live 01c tests minus #115 and #124: 125 distinct numbers, 1–129 without 71 and 72 (retired) and without 115 and 124 (deferred to the UI module, AD-35); each live number is present, and only in the test file(s) of the task that owns it (coverage table above); a number split into halves has one `it(` per half, titled `(half a: …)` / `(half b: …)` (#99: §6.9 / §6.16; #116: POST / PATCH; AD-37).
 - [ ] **Step 3:** §12.2 endpoint checklist: every route answers per its row (auth, versioned, idempotency, audit), every route in `ROUTE_CASES`, every listed test green.
 - [ ] **Step 4: Manual — stock page.** `seed-demo`, pair a hub, sign in at `/admin/stock`: the **Karahi pot appears once** with **Half and Full listed under it**; open the day; count 6 000 g → Half shows 12, Full 6; add 1 000 g → Half 14, Full 7; reload → same numbers; a `my_stations` counter of the Tandoor does not see the pot.
 - [ ] **Step 5: Manual — schema-1 hub.** Build the hub from `main` (pre-01c, schema 1) and point it at the 01c cloud: the poll is refused as `schema_unsupported`, the danger banner shows on `/admin/stock` and in the config status, the last config is kept, and nothing crashes. Then the 01c hub applies the same snapshot.

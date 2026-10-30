@@ -12,7 +12,7 @@ Surface: owner app `apps/client`, entry `owner` (01a S35; §8 heading). The hub 
 
 - **Versions.** Every versioned form keeps the `version` it loaded and sends it (`expected_version`) (§8 "Versions"; §6.2, §6.8, §6.9, §6.12, §6.12a, §6.15, §6.16 bodies). Items carry no version: last write wins (§6.5, S23, V13).
 - **409 CONFIG_STALE.** Show "Changed elsewhere — reload". Keep the user's draft so it can be copied. Never retry blind (§8 "Versions"). The `entity` values are `variant_group`, `stock_item`, `stock_item_branch`, `modifier_group`, `modifier_group_branch`, `deal`, `deal_branch` (§9).
-- **Ids and Restore.** Forms send `option_id` / `deal_part_id` for existing rows and nothing for new rows (§8 "Ids"; §6.11 and §6.14 POSTs carry no ids, else `400`). Rows the form leaves out are archived (§6.12 and §6.15 edges "Omitted … archived"). List "Removed" rows under the form with **Restore**. Restore sends the archived id, which comes back with the same ULID (§8 "Ids"; §6.12 edge "An archived option's own id"; §6.15 "restored by its id"). The restore source is `archived_options: [{ option_id, name }]` / `archived_parts: [{ deal_part_id }]` on the wire (§5.4).
+- **Ids and Restore.** Forms send `option_id` / `deal_part_id` for existing rows and nothing for new rows (§8 "Ids"; §6.11 and §6.14 POSTs carry no ids, else `400`). Rows the form leaves out are archived (§6.12 and §6.15 edges "Omitted … archived"). List "Removed" rows under the form with **Restore**. Restore sends the archived id, which comes back with the same ULID (§8 "Ids"; §6.12 edge "An archived option's own id"; §6.15 "restored by its id"). The restore source is `archived_options: [{ option_id, name }]` / `archived_parts: [{ deal_part_id, quantity, choices: [{ item_id }] }]` on the wire (§5.4, v1.1 P2; choices in `sort_order`, then `item_id`, so a Removed row can read "4 × Naan or Roghni naan").
 - **Archived lists.** `GET` takes `status?` ∈ `active` (default), `archived` on stock items (§6.6) and modifier groups (§6.10). Deals take it too (AD-30 a, developer Q-7), so archived deals can be listed for restore. Variant groups come whole, archived included, in the §6.3 menu read.
 - **Read-only.** With `can_edit_tenant: false`, the tenant-level views open read-only (01a §8.1 rule). Branch rows stay editable for allowed branches (§8 "Read-only"). `can_edit_tenant` is returned by §6.6, §6.10 and §6.13. Tenant-level writes need an owner who covers every branch (§6.0), else `403 PERMISSION_DENIED { reason: 'tenant_wide_write' }` (§6 shared failures).
 - **Allowed branches only.** `branches` arrays list only the owner's allowed branches (§6.6, §6.10, §6.13; §5.4 modifier group wire).
@@ -116,7 +116,7 @@ Wire: `GET /v1/admin/menu` (§6.3) adds `variant_groups` (whole, archived includ
 
 - **List:** `GET /v1/admin/deals` (with `status?`, AD-30 a) → `{ can_edit_tenant, deals: [DealWire] }` (§6.13). Each deal has:
   - `parts` (active, each with `choices`: `item_id`, `extra_price_minor`, `sort_order`).
-  - `archived_parts`.
+  - `archived_parts` (`{ deal_part_id, quantity, choices: [{ item_id }] }`, v1.1 P2; not hashed into `version`).
   - `availability_windows`.
   - `branches`.
   - `version`.

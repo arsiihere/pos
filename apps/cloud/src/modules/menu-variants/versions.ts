@@ -264,7 +264,15 @@ export function toDealWire(row: DealRow): DealWire {
     archived_at: numberOrNull(row.archived_at),
     availability_windows: input.availability_windows,
     parts: input.parts,
-    archived_parts: sortedParts(archived).map((part) => ({ deal_part_id: part.deal_part_id })),
+    // v1.1 (P2): quantity and choices as stored, choices by sort_order then item_id (V13); not in `input`, so not hashed
+    archived_parts: sortedParts(archived).map((part) => ({
+      deal_part_id: part.deal_part_id,
+      quantity: Number(part.quantity),
+      choices: part.choices
+        .slice()
+        .sort((a, b) => Number(a.sort_order) - Number(b.sort_order) || compare(a.item_id, b.item_id))
+        .map((c) => ({ item_id: c.item_id })),
+    })),
     version: hash(input),
   };
 }
