@@ -1,5 +1,6 @@
 import { formatQuantity, parseQuantity, type Unit } from '@pos/domain';
 import { useEffect, useId, useState, type FormEvent } from 'react';
+import { flushSync } from 'react-dom';
 import type {
   AvailabilityWindow,
   Category,
@@ -277,7 +278,8 @@ const MAX_USES = 1_000_000;
 
 // The fields inside the folded disclosure: an error on any of them opens it.
 const IN_FOLD = (id: string) =>
-  id.startsWith('route-') || ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours'].includes(id);
+  id.startsWith('route-') ||
+  ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready'].includes(id);
 
 export function ItemForm({
   api,
@@ -366,6 +368,12 @@ export function ItemForm({
     typeof window.matchMedia === 'function' ? window.matchMedia(SUMMARY_OPEN_QUERY).matches : true,
   );
   const summaryId = useId();
+
+  // Focus a field, opening the folded part first when the field is inside it (the fix links, the A2 note).
+  function reveal(id: string, target: () => HTMLElement | null = () => document.getElementById(id)) {
+    if (IN_FOLD(id)) flushSync(() => setFoldOpen(true));
+    target()?.focus();
+  }
 
   // An error inside the folded part (a client check, a field refusal or a branch PUT that failed) opens it.
   useEffect(() => {
@@ -799,7 +807,7 @@ export function ItemForm({
                   key={p.id}
                   type="button"
                   className="pos-fixlinks__link"
-                  onClick={() => document.getElementById(p.id)?.focus()}
+                  onClick={() => reveal(p.id)}
                 >
                   {`${t(p.section)}: ${p.text}`}
                 </button>
@@ -1070,7 +1078,15 @@ export function ItemForm({
       {/* 01c A2: the hub counts an item only with a stock time or stock program and a draw. */}
       {stockId !== '' && !keptReady && (
         <p className="pos-note" data-needs-ready="">
-          {t('item.stock_needs_ready')}
+          {t('item.stock_needs_ready')}{' '}
+          {/* The Kept ready switch is in the folded row: this opens it and moves to the switch. */}
+          <button
+            type="button"
+            className="pos-fixlinks__link"
+            onClick={() => reveal('item-kept_ready', () => document.querySelector<HTMLElement>('[data-section="stock"] [role="switch"]'))}
+          >
+            {t('item.show_kept_ready')}
+          </button>
         </p>
       )}
       {stock !== undefined && (
@@ -1217,7 +1233,9 @@ export function ItemForm({
   );
 
   // The folded row's summary (owner decision 2026-10-30): the stock draw, counted only with a stock time or a
-  // stock program and a draw (01c A2); weighed items draw nothing.
+  // stock program and a draw (01c A2); weighed items draw nothing. A2 also needs the stock item counted at the
+  // branch; the one-line summary leaves that to the Stock section's branch lines. Equal units draw "the amount
+  // sold" (V4, quantity 1), so that summary has no amount.
   const counted =
     !weighedOn &&
     draws !== undefined &&
@@ -1227,7 +1245,9 @@ export function ItemForm({
     ? t('item.fold_not_counted')
     : stock === undefined
       ? '…'
-      : fill(t('item.fold_draw'), {
+      : sameUnit
+        ? fill(t('item.fold_draw_same'), { stock: stock.name })
+        : fill(t('item.fold_draw'), {
           stock: stock.name,
           // An LTR isolate keeps "0.5 kg" in order inside Urdu text.
           qty: `\u2066${formatQuantity(draws?.[0]?.quantity_per_sale_unit ?? 1, stock.stock_unit)}\u2069`,

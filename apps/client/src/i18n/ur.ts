@@ -393,4 +393,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'item.fold_title': 'برانچیں اور کچن، تیار اسٹاک، اوقات',
   'item.fold_draw': '{stock} · فی فروخت {qty}',
   'item.fold_not_counted': 'گنتی نہیں',
+  'item.fold_draw_same': '{stock} · جتنا بیچا گیا',
+  'item.show_kept_ready': '“Kept ready” دکھائیں',
 };

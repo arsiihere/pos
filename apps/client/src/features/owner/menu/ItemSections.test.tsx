@@ -346,6 +346,44 @@ describe('owner decision 2026-10-30: Branches and kitchen, Ready-made stock, Hou
   });
 });
 
+describe('R2-C review fixes', () => {
+  const fold = () => q<HTMLButtonElement>('button.pos-disclosure');
+
+  it('I1: equal units (g item, g stock) read "the amount sold", never a converted 1; a piece item shows the amount in the stock unit', async () => {
+    const { api } = server({ stock: [pot()] });
+    await renderForm(api, item({ sale_unit: 'g', stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1 }] }));
+    expect(fold()?.textContent).toBe(`${t('item.fold_title')} · ${fill(t('item.fold_draw_same'), { stock: 'Karahi pot' })}`);
+    expect(fold()?.textContent).not.toContain('0.001');
+    ui.unmount();
+    ui = mount();
+    await renderForm(api, item({ stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    expect(fold()?.textContent).toContain(fill(t('item.fold_draw'), { stock: 'Karahi pot', qty: '\u20660.5 kg\u2069' }));
+  });
+
+  it('I2: a fix link for a field inside the closed row opens the row, then focuses the field', async () => {
+    const { api } = server();
+    await renderForm(api, item());
+    setValue(field('cook_minutes'), '');
+    await save();
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    await click(fold());
+    expect(fold()?.getAttribute('aria-expanded')).toBe('false');
+    const link = [...ui.container.querySelectorAll<HTMLButtonElement>('.pos-fixlinks__link')].find((b) => b.textContent?.includes(t('item.need_cook')));
+    await click(link as HTMLElement);
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(q('#item-cook_minutes'));
+  });
+
+  it('m1: the "Not counted until Kept ready is on" note opens the row and moves to the Kept ready switch', async () => {
+    const { api } = server({ stock: [pot()] });
+    await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
+    expect(fold()?.getAttribute('aria-expanded')).toBe('false');
+    await click(button(q('[data-needs-ready]') as HTMLElement, t('item.show_kept_ready')));
+    expect(fold()?.getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(section('stock')?.querySelector('[role="switch"]'));
+  });
+});
+
 describe('01c P1: reference error keys', () => {
   it('422 unit_mismatch at stock_draws.0.stock_item_id marks the stock field with errors.reference.unit_mismatch', async () => {
     const { api } = server({
@@ -366,7 +404,7 @@ describe('01c-S01 review fixes', () => {
   it('[01c A2] a linked stock item with Kept ready off says it is not counted yet; Kept ready on removes the note', async () => {
     const { api } = server({ stock: [pot()] });
     await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }));
-    expect(q('[data-needs-ready]')?.textContent).toBe(t('item.stock_needs_ready'));
+    expect(q('[data-needs-ready]')?.textContent).toBe(`${t('item.stock_needs_ready')} ${t('item.show_kept_ready')}`);
     expect(section('draw')?.textContent).not.toContain('Counted each morning');
     await click(section('stock')?.querySelector('[role="switch"]') as HTMLElement);
     expect(q('[data-needs-ready]')).toBeNull();

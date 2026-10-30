@@ -522,6 +522,8 @@ export const en = {
   'item.fold_title': 'Branches and kitchen, Ready-made stock, Hours',
   'item.fold_draw': '{stock} · {qty} per sale',
   'item.fold_not_counted': 'Not counted',
+  'item.fold_draw_same': '{stock} · the amount sold',
+  'item.show_kept_ready': 'Show “Kept ready”',
   'menu.size_group_sub': 'Size group · {n} sizes · one tile',
   'menu.open_group': 'Open {name}',
   'menu.item_gone': "This item isn't here any more. It may have been deleted on another device.",

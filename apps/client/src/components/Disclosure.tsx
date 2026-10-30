@@ -35,6 +35,8 @@ export function Disclosure({
 }) {
   const [own, setOwn] = useState(defaultOpen);
   const open = controlled ?? own;
+  // keepMounted is for the plain row; an inPlace row swaps its toggle for the section, so it is ignored there.
+  const kept = keepMounted && !inPlace;
   const setOpen = (next: boolean) => {
     setOwn(next);
     onOpenChange?.(next);
@@ -96,7 +98,7 @@ export function Disclosure({
         type="button"
         className="pos-disclosure"
         aria-expanded={open}
-        aria-controls={open || keepMounted ? id : undefined}
+        aria-controls={open || kept ? id : undefined}
         onClick={onToggle}
       >
         {icon !== undefined && <Icon name={icon} />}
@@ -106,7 +108,7 @@ export function Disclosure({
         </span>
         <Icon name="chevron" />
       </button>
-      {(open || keepMounted) && (
+      {(open || kept) && (
         <div id={id} ref={region} className="pos-disclosure__body" hidden={!open}>
           {children}
         </div>
