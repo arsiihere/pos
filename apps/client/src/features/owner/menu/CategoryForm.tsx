@@ -89,23 +89,25 @@ export function CategoryForm({
   return (
     <Dialog title={t(category === null ? 'owner.category.new' : 'owner.category.edit')} onClose={() => leave(onCancel)}>
       <form className="pos-stack" data-form="category" noValidate onSubmit={(e) => void submit(e)}>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.category.name')}</span>
-          <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.category.position')}</span>
-          <input
-            className="pos-input pos-input--mono"
-            name="sort_order"
-            inputMode="numeric"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          />
-          <span className="pos-field__help">{t('owner.category.position_help')}</span>
-        </label>
+        <div className="pos-grid">
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.category.name')}</span>
+            <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.category.position')}</span>
+            <input
+              className="pos-input pos-input--mono"
+              name="sort_order"
+              inputMode="numeric"
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            />
+            <span className="pos-field__help">{t('owner.category.position_help')}</span>
+          </label>
+        </div>
         <WindowsField value={category?.availability_windows ?? []} onChange={setWindows} />
-        <p className="pos-explain">{fill(t('owner.category.hours_note'), { name: name.trim() === '' ? t('owner.category.this') : name.trim() })}</p>
+        <p className="pos-note">{fill(t('owner.category.hours_note'), { name: name.trim() === '' ? t('owner.category.this') : name.trim() })}</p>
         {error !== null && <Banner tone="danger" text={error} />}
         <div className="pos-dialog__footer">
           <button type="button" className="pos-btn" onClick={() => leave(onCancel)}>

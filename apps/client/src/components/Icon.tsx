@@ -114,6 +114,7 @@ const PATHS = {
   ),
   back: <path d="M15 5l-7 7 7 7" />,
   forward: <path d="M9 5l7 7-7 7" />,
+  chevron: <path d="M6 9.5l6 6 6-6" />,
   wifi: (
     <>
       <path d="M2.5 8.5a14 14 0 0 1 19 0" />

@@ -1784,3 +1784,107 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-admin__content > .pos-tiles--home { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .pos-admin__content > .pos-tiles--home .pos-tile { min-height: 0; }
 }
+
+/* ---------- Pulse page layout · 01a-C menu and item form ---------- */
+/* Menu toolbar (OwnerMenu): tabs on the start side, search 280 + category 200 on the end side; it stays at the
+   top of the content region while the list scrolls under it. */
+.pos-menubar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; background: var(--surface); box-shadow: 0 calc(var(--space-3) * -1) 0 var(--surface), 0 var(--space-2) 0 var(--surface); }
+.pos-menubar__find { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-inline-start: auto; }
+.pos-menubar__search { width: 280px; }
+.pos-menubar__category { width: 200px; }
+/* Item rows: 20 px price; the warn chip only when partial (else plain meta text) */
+.pos-list--menu .pos-list__num, .pos-list--cats .pos-list__num { font-size: 20px; }
+.pos-list--menu .pos-list__tags { align-items: center; }
+.pos-list--menu:has(.pos-rowact > :nth-child(2)) :is(.pos-list__head, .pos-list__row) { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) 170px minmax(0, 1fr) 216px; }
+/* Loading rows: one skeleton bar per column (OwnerMenuLoading) */
+.pos-list[aria-busy="true"] .pos-list__row > .pos-skeleton { width: 60%; height: 24px; }
+.pos-list[aria-busy="true"] .pos-list__row > .pos-skeleton:nth-child(2) { width: 50%; height: 20px; }
+.pos-list[aria-busy="true"] .pos-list__row > .pos-skeleton:nth-child(3) { width: 40%; height: 20px; }
+.pos-list[aria-busy="true"] .pos-list__row > .pos-skeleton:nth-child(4) { width: 70%; height: 20px; }
+.pos-list[aria-busy="true"] .pos-list__row > .pos-skeleton:nth-child(5) { width: 100%; height: 40px; }
+/* Categories (Order · Category · Hours) and tax rates (Tax rate · Rate): Edit + ⋯ at the row end */
+.pos-list--cats .pos-list__head, .pos-list--cats .pos-list__row { grid-template-columns: 80px minmax(0, 2fr) minmax(0, 1.2fr) 220px; }
+.pos-list--tax .pos-list__head, .pos-list--tax .pos-list__row { grid-template-columns: minmax(0, 2fr) 160px 220px; }
+.pos-rowact { display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; }
+.pos-list--cats .pos-rowact, .pos-list--tax .pos-rowact { justify-content: flex-start; }
+.pos-list__row:has(> .pos-rowact > .pos-more) { position: relative; }
+.pos-list__row:has(> .pos-rowact > .pos-more[aria-expanded="true"]) { background: var(--surface-soft); }
+.pos-list:has(> .pos-list__row > .pos-rowact > .pos-more[aria-expanded="true"]) { overflow: visible; }
+.pos-list:has(> .pos-list__row > .pos-rowact > .pos-more[aria-expanded="true"]) > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
+.pos-list:has(> .pos-list__row > .pos-rowact > .pos-more[aria-expanded="true"]) > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
+/* First run (OwnerMenuFirstRun): one centred 816 px column, larger type */
+.pos-firstrun { width: 100%; max-width: 816px; margin-inline: auto; gap: var(--space-5); }
+.pos-firstrun > .pos-section__head { gap: var(--space-2); }
+.pos-firstrun > .pos-section__head h2 { font: 800 26px/32px var(--font-display); }
+.pos-firstrun > .pos-section__head p { font: 500 19px/28px var(--font-sans); }
+.pos-firstrun .pos-checklist__item .pos-list__name strong { font-size: 19px; line-height: 24px; }
+.pos-firstrun .pos-checklist__item .pos-list__name span { font-size: 17px; line-height: 24px; }
+/* Inline add of a tax rate (OwnerMenuTax): name fills, rate 180, buttons at the end */
+.pos-taxadd { align-items: flex-end; flex-wrap: wrap; background: var(--surface-raised); }
+.pos-taxadd__name { flex: 1 1 260px; }
+.pos-taxadd__rate { width: 180px; }
+.pos-taxadd > .pos-banner { flex-basis: 100%; }
+/* Item form (OwnerItem*): sections 20 px apart; the summary aside stays at the top of the content region */
+.pos-itemform > .pos-stack { gap: var(--space-5); }
+.pos-itemform > .pos-summary { position: sticky; top: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-summary__body { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-summary__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); margin: 0; }
+.pos-summary__head > strong { font: 700 22px/28px var(--font-sans); min-width: 0; overflow-wrap: anywhere; }
+.pos-summary__head > .pos-list__num { font-size: 20px; white-space: nowrap; }
+.pos-summary__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font: 400 17px/24px var(--font-sans); }
+.pos-summary__list > li { display: flex; align-items: flex-start; gap: var(--space-3); }
+.pos-summary__list .pos-icon { flex: none; color: var(--ok); }
+.pos-summary__toggle .pos-icon { flex: none; }
+.pos-summary:has(> .pos-summary__toggle[aria-expanded="false"]) .pos-summary__toggle { margin-block: -8px; }
+/* Branches and kitchen: one head row, then a row per branch (Branch 128 · Price here 168 · Cooked at · Recipe) */
+.pos-routes { display: flex; flex-direction: column; gap: var(--space-4); }
+.pos-routes__head, .pos-routes .pos-list__row { grid-template-columns: 128px 168px minmax(0, 0.9fr) minmax(0, 1.2fr); }
+.pos-routes__head { border-radius: var(--radius-md); }
+.pos-routes .pos-list__row > .pos-field__error { grid-column: 1 / -1; }
+.pos-routes__recipe { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.pos-routes .pos-select { min-width: 0; width: 100%; }
+.pos-routes__tail { font: 500 14px/20px var(--font-mono); }
+/* Hours: the field's legend reads as the section title */
+.pos-section--hours > .pos-field > .pos-field__label { padding: 0; font: 800 21px/26px var(--font-display); color: var(--ink); }
+[lang="ur"] .pos-section--hours > .pos-field > .pos-field__label { font-family: var(--font-urdu); line-height: 2; }
+/* "{n} things to fix": each problem is an inline link to its field, separated by " · " (OwnerItemErrors) */
+.pos-fixlinks__link { appearance: none; display: inline; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pos-fixlinks__link + .pos-fixlinks__link::before { content: " · "; display: inline-block; white-space: pre; text-decoration: none; }
+/* Kept ready reads as a plain setting when off (the kit's off switch is red for Selling Off) */
+.pos-itemform .pos-section__top > .pos-switch { color: var(--ink); }
+/* Owner phone: 16 px gutters (hand-off PROMPT "Phone") */
+.pos-appbar--phone ~ .pos-content:has(> .pos-menubar, > .pos-quickprice, > .pos-itemform) { padding: var(--space-3) var(--space-4) var(--space-4); gap: var(--space-3); }
+/* Phone price page (OwnerItemPhone): price, tax and the branches line on one card; Save price in the bottom bar */
+.pos-quickprice__card { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); }
+.pos-quickprice__card > p { margin: 0; font-weight: 700; }
+.pos-quickprice { flex: 1; gap: var(--space-4); }
+.pos-quickprice > fieldset { gap: var(--space-4); }
+.pos-quickprice > .pos-actionbar { margin: auto calc(var(--space-4) * -1) calc(var(--space-4) * -1); padding: var(--space-3) var(--space-4); }
+.pos-quickprice > .pos-actionbar > .pos-actionbar__end { width: 100%; }
+.pos-quickprice > .pos-actionbar .pos-btn--primary { flex: 1; min-height: var(--touch-kitchen); }
+.pos-quickprice .pos-list--stack .pos-list__row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+@media (min-width: 761px) {
+  .pos-routes__label { display: none; }
+}
+@media (max-width: 1100px) {
+  .pos-menubar__find { margin-inline-start: 0; }
+}
+/* Under 1200 px the summary (closed by default) sits above the form, full width */
+@media (max-width: 1199px) {
+  .pos-itemform { grid-template-columns: minmax(0, 1fr); }
+  .pos-itemform > .pos-summary { position: static; order: -1; }
+}
+@media (max-width: 760px) {
+  .pos-menubar { position: static; }
+  .pos-menubar > .pos-seg { width: 100%; flex-wrap: nowrap; }
+  .pos-menubar > .pos-seg > .pos-seg__opt { flex: 1 1 auto; min-width: 0; justify-content: center; gap: 6px; padding-inline: var(--space-1); font-size: 15px; white-space: nowrap; }
+  .pos-menubar__find { width: 100%; }
+  .pos-menubar__search { flex: 1 1 100%; width: auto; }
+  .pos-menubar__category { flex: 1 1 100%; width: auto; }
+  .pos-list--menuphone .pos-list__row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+  .pos-list--menuphone .pos-list__num { font-size: 18px; }
+  .pos-list--rows .pos-rowact { margin-inline-start: auto; }
+  .pos-itemform .pos-grid, .pos-itemform .pos-grid--3, form[data-form="category"] > .pos-grid { grid-template-columns: minmax(0, 1fr); }
+  .pos-routes__head { display: none; }
+  .pos-routes .pos-list__row { grid-template-columns: minmax(0, 1fr); }
+}

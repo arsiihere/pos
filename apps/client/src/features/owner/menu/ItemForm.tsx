@@ -1,5 +1,5 @@
 import type { Unit } from '@pos/domain';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import type {
   AvailabilityWindow,
   Category,
@@ -14,16 +14,18 @@ import type {
   Station,
   TaxClass,
 } from '../../../api/cloud-admin';
+import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey, typeClass } from '../../../i18n';
-import { useBranchName } from '../branch';
+import { idTail, useBranchName } from '../branch';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -37,7 +39,8 @@ import { windowText, WindowsField } from './WindowsField';
 // with "No tax" first and selected, S34), kitchen (a station per branch, programs only for a batch station,
 // S11) with a price per branch (S57), ready-made stock (stock time, when it runs out S32), hours (S47);
 // an aside shows how staff will see it. 01c moves the stock units onto the stock item (V4; the form's
-// variant, stock and weighed sections are 01c §8). A client check
+// variant, stock and weighed sections are 01c §8). Pulse (CHANGES §2): Archive item is in the app-bar More
+// menu (edit only); Kept ready off folds the stock section; the aside is a collapsible summary. A client check
 // lists what to fix before anything is sent. A new item POSTs with its routes and the form's key; an edit
 // PATCHes the changed fields, then PUTs each changed route (§6.16); a PUT that fails after the PATCH saved
 // shows which branch was not saved, and Save sends only what is still different (B03, S50 h). On a phone an
@@ -62,6 +65,9 @@ const UNIT_OPTIONS: Record<Unit, MessageKey> = {
   ml: 'owner.item.unit_ml',
 };
 const PER_UNIT: Record<Unit, MessageKey> = { piece: 'item.per_piece', g: 'item.per_kg', ml: 'item.per_l' };
+const PER_UNIT_SHORT: Record<Unit, MessageKey> = { piece: 'menu.per.piece', g: 'menu.per.kg', ml: 'menu.per.l' };
+// The summary aside starts open on a laptop and closed under 1200 px wide (CHANGES §2).
+const SUMMARY_OPEN_QUERY = '(min-width: 1200px)';
 
 const active = (row: { archived_at: number | null }) => row.archived_at === null;
 
@@ -107,6 +113,8 @@ function Select({
   options,
   onChange,
   id,
+  labelClass,
+  ariaLabel,
 }: {
   name: string;
   label: string;
@@ -114,11 +122,20 @@ function Select({
   options: { value: string; label: string }[];
   onChange: (next: string) => void;
   id?: string;
+  labelClass?: string;
+  ariaLabel?: string;
 }) {
   return (
     <label className="pos-field">
-      <span className="pos-field__label">{label}</span>
-      <select className="pos-select" id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)}>
+      <span className={labelClass === undefined ? 'pos-field__label' : `pos-field__label ${labelClass}`}>{label}</span>
+      <select
+        className="pos-select"
+        id={id}
+        name={name}
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -138,6 +155,7 @@ function TextField({
   help,
   error,
   unit,
+  prefix,
 }: {
   name: string;
   label: string;
@@ -147,6 +165,7 @@ function TextField({
   help?: string;
   error?: string;
   unit?: string;
+  prefix?: string;
 }) {
   const input = (
     <input
@@ -162,12 +181,13 @@ function TextField({
   return (
     <label className={`pos-field${error === undefined ? '' : ' pos-field--error'}`}>
       <span className="pos-field__label">{label}</span>
-      {unit === undefined ? (
+      {unit === undefined && prefix === undefined ? (
         input
       ) : (
         <span className="pos-input-affix pos-ltr">
+          {prefix !== undefined && <span>{prefix}</span>}
           {input}
-          <span>{unit}</span>
+          {unit !== undefined && <span>{unit}</span>}
         </span>
       )}
       {help !== undefined && <span className="pos-field__help">{help}</span>}
@@ -231,6 +251,10 @@ export function ItemForm({
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [archiving, setArchiving] = useState(false);
   const [full, setFull] = useState(item === null);
+  const [summaryOpen, setSummaryOpen] = useState(() =>
+    typeof window.matchMedia === 'function' ? window.matchMedia(SUMMARY_OPEN_QUERY).matches : true,
+  );
+  const summaryId = useId();
 
   useEffect(() => {
     let live = true;
@@ -456,13 +480,14 @@ export function ItemForm({
     <a
       className="pos-btn"
       href="#/menu"
+      aria-label={phone ? t('owner.nav.menu') : undefined}
       onClick={(e) => {
         e.preventDefault();
         leave(onCancel);
       }}
     >
       <Icon name="back" flip />
-      {t('owner.nav.menu')}
+      {!phone && t('owner.nav.menu')}
     </a>
   );
 
@@ -488,12 +513,12 @@ export function ItemForm({
           <Icon name="alert" />
           <p>
             {fill(t('item.fix_n'), { n: String(problems.length) })}
-            <small className="pos-row">
+            <small className="pos-fixlinks">
               {problems.map((p) => (
                 <button
                   key={p.id}
                   type="button"
-                  className="pos-btn"
+                  className="pos-fixlinks__link"
                   onClick={() => document.getElementById(p.id)?.focus()}
                 >
                   {`${t(p.section)}: ${p.text}`}
@@ -504,17 +529,20 @@ export function ItemForm({
         </div>
       )}
       {failedBranches.length > 0 && (
-        <div className="pos-stack">
-          <Banner
-            tone="warn"
-            text={t('item.partial')}
-            detail={failedBranches
-              .map((b) => fill(t('item.partial_body'), { branch: branchName(b), reason: failed[b] ?? '' }))
-              .join(' ')}
-          />
-          <BusyButton busy={busy} disabled={down} onClick={() => void submit()}>
-            {fill(t('item.save_branch_again'), { branch: failedBranches.map(branchName).join(', ') })}
-          </BusyButton>
+        // B03 (OwnerItemPartial): the warn banner holds its Save {branch} again button.
+        <div className="pos-banner pos-banner--warn" role="status">
+          <Icon name="alert" />
+          <p>
+            {t('item.partial')}
+            <small>
+              {failedBranches.map((b) => fill(t('item.partial_body'), { branch: branchName(b), reason: failed[b] ?? '' })).join(' ')}
+            </small>
+          </p>
+          <span className="pos-banner__action">
+            <BusyButton busy={busy} disabled={down} onClick={() => void submit()}>
+              {fill(t('item.save_branch_again'), { branch: failedBranches.map(branchName).join(', ') })}
+            </BusyButton>
+          </span>
         </div>
       )}
       {categoryOptions.length === 0 && <Banner tone="info" text={t('item.need_category')} />}
@@ -526,23 +554,26 @@ export function ItemForm({
   if (phone && !full && item !== null) {
     return (
       <Page api={api} title={item.name} start={back}>
-        <form className="pos-stack" id="item-form" data-form="item" noValidate onSubmit={(e) => void submit(e)}>
+        <form className="pos-stack pos-quickprice" id="item-form" data-form="item" noValidate onSubmit={(e) => void submit(e)}>
           <fieldset className="pos-stack" disabled={readOnly}>
             {banners}
-            <TextField
-              name="price"
-              label={t('owner.item.price')}
-              value={price}
-              onChange={setPrice}
-              numeric
-              unit={t(PER_UNIT[saleUnit])}
-              help={fill(t('item.price_was'), { old: shownRupees(item.price_minor) })}
-              error={problemFor('item-price')}
-            />
-            <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
-            <p className={typeClass('body')} data-on-sale="">
-              {fill(t('menu.branches_of'), { n: String(soldAt), m: String(branchIds.length) })}
-            </p>
+            <section className="pos-card pos-quickprice__card">
+              <TextField
+                name="price"
+                label={t('owner.item.price')}
+                value={price}
+                onChange={setPrice}
+                numeric
+                prefix={t('owner.menu.rupees')}
+                unit={t(PER_UNIT[saleUnit])}
+                help={fill(t('item.price_was'), { old: shownRupees(item.price_minor) })}
+                error={problemFor('item-price')}
+              />
+              <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
+              <p className={typeClass('body')} data-on-sale="">
+                {fill(t('menu.branches_of'), { n: String(soldAt), m: String(branchIds.length) })}
+              </p>
+            </section>
             <ul className="pos-list pos-list--stack">
               <li className="pos-list__row">
                 <span className="pos-list__name">
@@ -563,30 +594,60 @@ export function ItemForm({
                 </button>
               </li>
             </ul>
-            <p className="pos-field__help">{t('item.reach_branches')}</p>
+            <p className="pos-note">{t('item.reach_branches')}</p>
           </fieldset>
           {!readOnly && (
-            <BusyButton busy={busy} primary disabled={down} type="submit">
-              {t('item.save_price')}
-            </BusyButton>
+            <ActionBar>
+              <BusyButton busy={busy} primary disabled={down} type="submit">
+                {t('item.save_price')}
+              </BusyButton>
+            </ActionBar>
           )}
         </form>
       </Page>
     );
   }
 
+  const hoursText = (windows ?? []).length === 0 ? t('owner.hours.all_day') : (windows ?? []).map(windowText).join(', ');
+
   return (
-    <Page api={api} title={title} start={back} end={actions}>
+    <Page
+      api={api}
+      title={title}
+      start={back}
+      end={
+        <>
+          {base !== null && !readOnly && (
+            <MoreMenu
+              label={t('item.more')}
+              info={{ title: t('item.menu_info_title'), detail: t('item.archive_body') }}
+              items={[
+                {
+                  label: fill(t('item.menu_archive'), { item: base.name }),
+                  icon: 'archive',
+                  danger: true,
+                  disabled: down,
+                  onSelect: () => setArchiving(true),
+                },
+              ]}
+            />
+          )}
+          {actions}
+        </>
+      }
+    >
       {banners}
-      <form className="pos-split" id="item-form" data-form="item" noValidate onSubmit={(e) => void submit(e)}>
+      <form className="pos-split pos-itemform" id="item-form" data-form="item" noValidate onSubmit={(e) => void submit(e)}>
         <fieldset className="pos-stack" disabled={readOnly}>
           <section className="pos-section">
             <div className="pos-section__head">
               <h2>{t('item.section.customers')}</h2>
             </div>
-            <TextField name="name" label={t('owner.item.name')} value={name} onChange={setName} error={problemFor('item-name')} />
-            <Select name="category_id" label={t('owner.item.category')} value={categoryId} options={categoryOptions} onChange={setCategoryId} />
-            <TextField name="description" label={t('owner.item.description')} value={description} onChange={setDescription} />
+            <div className="pos-grid">
+              <TextField name="name" label={t('owner.item.name')} value={name} onChange={setName} error={problemFor('item-name')} />
+              <Select name="category_id" label={t('owner.item.category')} value={categoryId} options={categoryOptions} onChange={setCategoryId} />
+              <TextField name="description" label={t('owner.item.description')} value={description} onChange={setDescription} />
+            </div>
           </section>
 
           <section className="pos-section">
@@ -602,16 +663,19 @@ export function ItemForm({
                 onChange={setSaleUnit}
               />
             </div>
-            <TextField
-              name="price"
-              label={t('owner.item.price')}
-              value={price}
-              onChange={setPrice}
-              numeric
-              unit={t(PER_UNIT[saleUnit])}
-              error={problemFor('item-price')}
-            />
-            <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
+            <div className="pos-grid">
+              <TextField
+                name="price"
+                label={t('owner.item.price')}
+                value={price}
+                onChange={setPrice}
+                numeric
+                prefix={t('owner.menu.rupees')}
+                unit={t(PER_UNIT[saleUnit])}
+                error={problemFor('item-price')}
+              />
+              <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
+            </div>
           </section>
 
           <section className="pos-section">
@@ -622,30 +686,38 @@ export function ItemForm({
             {stations === null ? (
               <Skeleton lines={2} />
             ) : (
-              <ul className="pos-list">
-                {branchIds.map((b) => {
-                  const choice = routes[b] ?? NO_ROUTE;
-                  const station = stationOf(b, choice.station_id);
-                  const programs = station?.station_type === 'batch' ? station.programs.filter(active) : [];
-                  const set = (patch: Partial<RouteChoice>) => setRoutes({ ...routes, [b]: { ...choice, ...patch } });
-                  const problem = problemFor(`route-${b}`);
-                  const routeFailed = failed[b];
-                  return (
-                    <li
-                      key={b}
-                      id={`route-${b}`}
-                      tabIndex={-1}
-                      className={`pos-list__row${problem !== undefined || routeFailed !== undefined ? ' pos-field--error' : ''}`}
-                      data-route-branch={b}
-                    >
-                      <span className="pos-list__name">
-                        <strong>
-                          <bdi>{branchName(b)}</bdi>
-                        </strong>
-                      </span>
-                      <div className="pos-row">
+              <div className="pos-routes">
+                <div className="pos-list__head pos-routes__head" aria-hidden="true">
+                  <span>{t('owner.branch')}</span>
+                  <span>{t('item.price_here')}</span>
+                  <span>{t('owner.item.station')}</span>
+                  <span>{t('owner.item.program')}</span>
+                </div>
+                <ul className="pos-list">
+                  {branchIds.map((b) => {
+                    const choice = routes[b] ?? NO_ROUTE;
+                    const station = stationOf(b, choice.station_id);
+                    const programs = station?.station_type === 'batch' ? station.programs.filter(active) : [];
+                    const set = (patch: Partial<RouteChoice>) => setRoutes({ ...routes, [b]: { ...choice, ...patch } });
+                    const problem = problemFor(`route-${b}`);
+                    const routeFailed = failed[b];
+                    const at = (label: string) => `${label} · ${branchName(b)}`;
+                    return (
+                      <li
+                        key={b}
+                        id={`route-${b}`}
+                        tabIndex={-1}
+                        className={`pos-list__row${problem !== undefined || routeFailed !== undefined ? ' pos-field--error' : ''}`}
+                        data-route-branch={b}
+                      >
+                        <span className="pos-list__name">
+                          <strong>
+                            <bdi>{branchName(b)}</bdi>
+                          </strong>
+                          {branchName(b) !== idTail(b) && <span className="pos-ltr pos-routes__tail">{idTail(b)}</span>}
+                        </span>
                         <label className="pos-field">
-                          <span className="pos-field__label">{t('item.price_here')}</span>
+                          <span className="pos-field__label pos-routes__label">{t('item.price_here')}</span>
                           <span className="pos-input-affix pos-ltr">
                             <span>{t('owner.menu.rupees')}</span>
                             <input
@@ -668,6 +740,8 @@ export function ItemForm({
                         <Select
                           name="station_id"
                           label={t('owner.item.station')}
+                          labelClass="pos-routes__label"
+                          ariaLabel={at(t('owner.item.station'))}
                           value={choice.station_id}
                           options={[
                             { value: '', label: t('owner.item.not_sold_here') },
@@ -677,41 +751,46 @@ export function ItemForm({
                           ]}
                           onChange={(next) => chooseStation(b, next)}
                         />
-                        {station?.station_type === 'batch' ? (
-                          <>
-                            <Select
-                              name="program_id"
-                              label={t('owner.item.program')}
-                              value={choice.program_id}
-                              options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
-                              onChange={(next) => set({ program_id: next })}
-                            />
-                            <Select
-                              name="stock_program_id"
-                              label={t('owner.item.stock_program')}
-                              value={choice.stock_program_id}
-                              options={[
-                                { value: '', label: t('owner.item.no_stock_program') },
-                                ...programs.map((p) => ({ value: p.program_id, label: p.name })),
-                              ]}
-                              onChange={(next) => {
-                                set({ stock_program_id: next });
-                                if (next !== '') setKeptReady(true);
-                              }}
-                            />
-                          </>
-                        ) : (
-                          station !== undefined && <span className="pos-field__help">{t('item.no_recipe_needed')}</span>
-                        )}
-                      </div>
-                      {problem !== undefined && <span className="pos-field__error">{problem}</span>}
-                      {routeFailed !== undefined && <span className="pos-field__error">{routeFailed}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
+                        <div className="pos-routes__recipe">
+                          {station?.station_type === 'batch' ? (
+                            <>
+                              <Select
+                                name="program_id"
+                                label={t('owner.item.program')}
+                                labelClass="pos-routes__label"
+                                ariaLabel={at(t('owner.item.program'))}
+                                value={choice.program_id}
+                                options={programs.map((p) => ({ value: p.program_id, label: p.name }))}
+                                onChange={(next) => set({ program_id: next })}
+                              />
+                              <Select
+                                name="stock_program_id"
+                                label={t('owner.item.stock_program')}
+                                ariaLabel={at(t('owner.item.stock_program'))}
+                                value={choice.stock_program_id}
+                                options={[
+                                  { value: '', label: t('owner.item.no_stock_program') },
+                                  ...programs.map((p) => ({ value: p.program_id, label: p.name })),
+                                ]}
+                                onChange={(next) => {
+                                  set({ stock_program_id: next });
+                                  if (next !== '') setKeptReady(true);
+                                }}
+                              />
+                            </>
+                          ) : (
+                            station !== undefined && <span className="pos-list__meta">{t('item.no_recipe_needed')}</span>
+                          )}
+                        </div>
+                        {problem !== undefined && <span className="pos-field__error">{problem}</span>}
+                        {routeFailed !== undefined && <span className="pos-field__error">{routeFailed}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             )}
-            <div className="pos-row">
+            <div className="pos-grid pos-grid--3">
               <TextField
                 name="cook_minutes"
                 label={t('owner.item.cook_minutes')}
@@ -728,29 +807,33 @@ export function ItemForm({
                 numeric
                 error={problemFor('item-prep_minutes')}
               />
-            </div>
-            <div className="pos-field">
-              <span className="pos-field__label">{t('owner.item.serve_mode')}</span>
-              <Segmented
-                label={t('owner.item.serve_mode')}
-                value={serveMode}
-                options={[
-                  { value: 'immediate', label: t('owner.item.serve_immediate') },
-                  { value: 'sync', label: t('owner.item.serve_sync') },
-                ]}
-                onChange={setServeMode}
-              />
+              <div className="pos-field">
+                <span className="pos-field__label">{t('owner.item.serve_mode')}</span>
+                <Segmented
+                  label={t('owner.item.serve_mode')}
+                  value={serveMode}
+                  block
+                  options={[
+                    { value: 'immediate', label: t('owner.item.serve_immediate') },
+                    { value: 'sync', label: t('owner.item.serve_sync') },
+                  ]}
+                  onChange={setServeMode}
+                />
+              </div>
             </div>
           </section>
 
-          <section className="pos-section">
-            <div className="pos-section__head">
-              <h2>{t('item.section.stock')}</h2>
-              <p>{t('item.stock_body')}</p>
+          {/* Kept ready off folds the section to its head and switch (CHANGES §2, OwnerItemSimple). */}
+          <section className={`pos-section${keptReady ? '' : ' pos-section--folded'}`} data-section="stock">
+            <div className="pos-section__top">
+              <div className="pos-section__head">
+                <h2>{t('item.section.stock')}</h2>
+                <p>{t('item.stock_body')}</p>
+              </div>
+              <Switch checked={keptReady} label={t('item.kept_ready')} onChange={changeKeptReady} />
             </div>
-            <Switch checked={keptReady} label={t('item.kept_ready')} onChange={changeKeptReady} />
             {keptReady && (
-              <>
+              <div className="pos-grid">
                 <TextField
                   name="stock_time_minutes"
                   label={t('owner.item.stock_time_minutes')}
@@ -764,6 +847,7 @@ export function ItemForm({
                   <Segmented
                     label={t('owner.item.out_of_stock')}
                     value={outOfStock}
+                    block
                     options={[
                       { value: 'cook_fresh', label: t('owner.item.cook_fresh') },
                       { value: 'sold_out', label: t('owner.item.sold_out') },
@@ -771,11 +855,11 @@ export function ItemForm({
                     onChange={setOutOfStock}
                   />
                 </div>
-              </>
+              </div>
             )}
           </section>
 
-          <section className="pos-section" id="item-hours" tabIndex={-1}>
+          <section className="pos-section pos-section--hours" id="item-hours" tabIndex={-1}>
             <WindowsField
               value={item?.availability_windows ?? []}
               onChange={setWindows}
@@ -783,36 +867,43 @@ export function ItemForm({
               outerName={category?.name}
             />
           </section>
-
-          {item !== null && !readOnly && (
-            <div className="pos-dialog__danger">
-              <div>
-                <strong>{t('item.archive_title')}</strong>
-                <p className="pos-field__help">{t('item.archive_body')}</p>
-              </div>
-              <button type="button" className="pos-btn pos-btn--danger" disabled={down} onClick={() => setArchiving(true)}>
-                {t('item.archive')}
-              </button>
-            </div>
-          )}
         </fieldset>
 
-        <aside className="pos-card pos-stack" aria-label={t('item.preview')}>
-          <h2 className={typeClass('heading')}>{t('item.preview')}</h2>
-          <p className="pos-list__name">
-            <strong>{name.trim() === '' ? t('owner.item.new') : name.trim()}</strong>
-            {priceValue.ok && (
-              <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(priceValue.value)} ${t(PER_UNIT[saleUnit])}`}</span>
-            )}
-          </p>
-          <ul className="pos-stack">
-            <li>{fill(t('menu.branches_of'), { n: String(soldAt), m: String(branchIds.length) })}</li>
-            <li>
-              {(windows ?? []).length === 0
-                ? t('owner.hours.all_day')
-                : (windows ?? []).map(windowText).join(', ')}
-            </li>
-          </ul>
+        {/* "How staff will see it": a collapsible summary, open by default from 1200 px wide (CHANGES §2). */}
+        <aside className="pos-card pos-summary" aria-label={t('item.preview')}>
+          <button
+            type="button"
+            className="pos-summary__toggle"
+            aria-expanded={summaryOpen}
+            aria-controls={summaryId}
+            onClick={() => setSummaryOpen(!summaryOpen)}
+          >
+            {t('item.preview')}
+            <Icon name="chevron" />
+          </button>
+          {summaryOpen && (
+            <div className="pos-summary__body" id={summaryId}>
+              <p className="pos-summary__head">
+                <strong>{name.trim() === '' ? t('owner.item.new') : name.trim()}</strong>
+                {priceValue.ok && (
+                  <span className="pos-list__num pos-ltr">
+                    {`${t('owner.menu.rupees')} ${shownRupees(priceValue.value)}`}
+                    <small>{t(PER_UNIT_SHORT[saleUnit])}</small>
+                  </span>
+                )}
+              </p>
+              <ul className="pos-summary__list">
+                <li>
+                  <Icon name="check" />
+                  {fill(t('menu.branches_of'), { n: String(soldAt), m: String(branchIds.length) })}
+                </li>
+                <li>
+                  <Icon name="check" />
+                  {hoursText}
+                </li>
+              </ul>
+            </div>
+          )}
         </aside>
       </form>
       {archiving && base !== null && (

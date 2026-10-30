@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 // Kit .pos-list with its column presets; rows are grid rows the caller fills.
-export type ListPreset = 'menu' | 'stock' | 'stack';
+export type ListPreset = 'menu' | 'menuphone' | 'cats' | 'tax' | 'rows' | 'stock' | 'stack';
 
 export function List({
   preset,

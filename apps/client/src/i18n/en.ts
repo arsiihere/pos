@@ -300,7 +300,7 @@ export const en = {
   'owner.menu.add_tax_class': 'Add tax rate',
   'owner.menu.categories': 'Categories',
   'owner.menu.items': 'Items',
-  'owner.menu.search': 'Search items',
+  'owner.menu.search': 'Find an item',
   'owner.menu.category_filter': 'Category',
   'owner.menu.all_categories': 'All categories',
   'owner.menu.status': 'Show',
@@ -367,7 +367,7 @@ export const en = {
   'menu.show_archived': 'Show archived',
   'menu.col_item': 'Item',
   'menu.col_price': 'Price',
-  'menu.col_notes': 'Sold at · notes',
+  'menu.col_notes': 'Sold at',
   'menu.group_n': 'Group: {name}',
   'menu.sold_out_when_gone': 'Sold out when gone',
   'menu.view': 'View',
@@ -857,6 +857,20 @@ export const en = {
   'owner.stations.more': 'More for stations',
   'stations.hide_archived': 'Hide archived stations',
   'stations.menu_info': 'Archiving checks no item still cooks here.',
+  // Pulse 01a hand-off CHANGES §3: menu list, category and tax rows, item form More menus
+  'owner.menu.more': 'More for the menu',
+  'menu.show_archived_items': 'Show archived items',
+  'menu.hide_archived_items': 'Hide archived items',
+  'menu.archived_shown': 'Archived shown',
+  'menu.col_order': 'Order',
+  'menu.col_tax': 'Tax rate',
+  'categories.menu_archive': 'Archive {category}',
+  'categories.menu_hours': 'Hours {hours}',
+  'tax.menu_archive': 'Archive {rate}',
+  'item.more': 'More for this item',
+  'item.menu_archive': 'Archive {item}',
+  'item.menu_info_title': 'Archive',
+  'menu.new_short': 'New',
 } as const;
 
 export type MessageKey = keyof typeof en;
