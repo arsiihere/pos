@@ -133,6 +133,13 @@ describe('shared components', () => {
     act(() => root.render(<Banner tone="info" text="Waiting" />));
     expect(container.querySelector('.pos-banner')?.className).toBe('pos-banner pos-banner--info');
     expect(container.querySelector('.pos-banner')?.getAttribute('role')).toBe('status');
+
+    // 01a B04 (Pulse): the cloud-unreachable banner draws the wifi icon instead of the tone's.
+    const plain = container.querySelector('.pos-banner svg')?.innerHTML;
+    act(() => root.render(<Banner tone="info" icon="wifi" text="Waiting" />));
+    const wifi = container.querySelector('.pos-banner > svg.pos-icon');
+    expect(wifi?.querySelectorAll('path')).toHaveLength(4);
+    expect(wifi?.innerHTML).not.toBe(plain);
   });
 
   it('[01a S44] QuantityInput shows 1500 g as "1.5" with "kg" and emits 1500 for "1.5"; rejects "1.2345"', () => {

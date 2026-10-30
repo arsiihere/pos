@@ -113,6 +113,22 @@ const PATHS = {
     </>
   ),
   back: <path d="M15 5l-7 7 7 7" />,
+  forward: <path d="M9 5l7 7-7 7" />,
+  wifi: (
+    <>
+      <path d="M2.5 8.5a14 14 0 0 1 19 0" />
+      <path d="M5.5 12a9.5 9.5 0 0 1 13 0" />
+      <path d="M8.5 15.5a5 5 0 0 1 7 0" />
+      <path d="M12 19v.01" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5.5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="18.5" cy="12" r="1.6" />
+    </>
+  ),
   x: (
     <>
       <path d="M6 6l12 12" />

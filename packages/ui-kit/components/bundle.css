@@ -1508,19 +1508,7 @@ button.pos-chip { min-width: var(--touch-min); justify-content: center; }
 .pos-dialog--full > .pos-seg .pos-seg__opt { padding-inline: 10px; font-size: 15px; }
 
 /* ---------- Legacy: rules the pre-Pulse pages still use; removed when the last page moves off them (docs/plans/ui-pulse-plan.md) ---------- */
-.pos-actionbar--tabs { padding: var(--space-2); justify-content: space-around; gap: var(--space-2); }
-.pos-actionbar--tabs .pos-sidenav__item { flex: 1; flex-direction: column; justify-content: center; gap: 2px; font: 700 15px/20px var(--font-sans); }
 .pos-section--sunken { background: var(--surface-sunken); }
-.pos-hero { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.pos-hero__aside { display: flex; flex-direction: column; justify-content: space-between; gap: var(--space-6); padding: var(--space-12); background: var(--action); color: var(--on-action); }
-.pos-hero__main { display: grid; place-items: center; padding: var(--space-12) var(--space-6); }
-.pos-hero__main > * { width: 100%; max-width: 420px; }
-@media (max-width: 760px) { .pos-hero { grid-template-columns: minmax(0, 1fr); } .pos-hero__aside { padding: var(--space-6); } }
-.pos-sidenav__group { padding: 12px 12px 2px; font: 400 15px/20px var(--font-sans); color: var(--ink-muted); }
-[lang="ur"] :is(.pos-sidenav__group, .pos-sidenav__who) { font-family: var(--font-urdu); line-height: 1.9; }
-.pos-overlay--nav { position: fixed; place-items: stretch start; padding: 0; }
-.pos-overlay--nav > .pos-dialog--nav { width: 300px; max-width: 85%; height: 100%; overflow-y: auto; border-radius: 0; display: flex; flex-direction: column; }
-.pos-dialog--nav > .pos-sidenav { flex: 1; width: auto; border: 0; }
 .pos-tile.is-muted { color: var(--ink-muted); border-style: dashed; }
 /* The client entries fill the window like the hub pages (the hub resets these in its page CSS). */
 body.pos-root { margin: 0; min-height: 100vh; }
@@ -1554,4 +1542,51 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-setup__card { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); padding: var(--space-6) var(--space-4); }
   .pos-tiles--addr { grid-template-columns: minmax(0, 1fr); }
   .pos-setup .pos-input--code { font-size: 22px; letter-spacing: 0.06em; }
+}
+
+/* ---------- Pulse page layout · 01a-A owner shell ---------- */
+/* Owner shell (1280+): fits the screen (.pos-page--fit); the side nav and the content region scroll on their own. */
+.pos-page--fit > .pos-shell { min-height: 0; }
+.pos-shell > .pos-sidenav { min-height: 0; }
+.pos-shell__main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pos-shell__main > .pos-content { overflow-y: auto; }
+.pos-shell__main > .pos-content > * { flex-shrink: 0; }
+/* Side nav: avatar in the brand block (replaces the frame's placeholder initials), group headings on the chrome */
+.pos-sidenav__brand:has(> .pos-avatar)::before { content: none; }
+.pos-sidenav__brand > .pos-avatar { width: 44px; height: 44px; border: 0; font: 800 16px/1 var(--font-display); font-style: normal; letter-spacing: -0.02em; }
+.pos-sidenav__group { padding: 18px 12px 6px; font: 700 12px/16px var(--font-sans); letter-spacing: 0.02em; color: var(--on-chrome-muted); }
+[lang="ur"] :is(.pos-sidenav__group, .pos-sidenav__who) { font-family: var(--font-urdu); letter-spacing: 0; line-height: 1.9; }
+/* Phone drawer (v1.3.1): a fixed layer over the page holds the scrim and the drawer */
+.pos-drawer-layer { position: fixed; inset: 0; z-index: 20; }
+.pos-drawer-layer .pos-sidenav--drawer { max-width: calc(100% - var(--space-12)); overflow-y: auto; }
+.pos-sidenav--drawer .pos-sidenav__brand { padding-inline-end: calc(var(--touch-min) + var(--space-3)); }
+.pos-appbar--phone > .pos-more:first-child { flex: none; }
+/* Owner sign in (01a-S01): brand aside + form */
+.pos-login { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.pos-login__aside { position: relative; overflow: hidden; gap: var(--space-6); }
+.pos-login__lead { position: relative; z-index: 1; display: flex; flex-direction: column; gap: var(--space-4); max-width: 500px; }
+.pos-login__main { display: grid; place-items: center; padding: var(--space-12); }
+.pos-login__form { width: 100%; max-width: 420px; gap: var(--space-6); }
+.pos-login__form .pos-section__head h2 { margin: 0; font: 700 32px/38px var(--font-sans); }
+.pos-login__form .pos-section__head p { margin: 0; font: 400 17px/24px var(--font-sans); color: var(--ink-muted); }
+[lang="ur"] :is(.pos-login__mark strong, .pos-login__aside h1, .pos-login__aside p, .pos-login__aside small, .pos-login__form .pos-section__head h2, .pos-login__form .pos-section__head p) { font-family: var(--font-urdu); letter-spacing: 0; line-height: 2; }
+/* Branch picker (01a-S02) */
+.pos-picker { padding-top: calc(var(--space-12) + var(--space-2)); gap: var(--space-6); }
+.pos-picker > h1, .pos-picker__lead { margin: 0; }
+.pos-picker__lead { color: var(--ink-muted); }
+.pos-picker .pos-tiles--pick { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.pos-picker .pos-tiles--pick .pos-tile { min-height: 120px; }
+.pos-picker__go { justify-content: flex-end; }
+.pos-linkline a .pos-icon { width: 20px; height: 20px; }
+@media (max-width: 760px) {
+  .pos-login { grid-template-columns: minmax(0, 1fr); }
+  .pos-login__aside { padding: var(--space-6) var(--space-4); }
+  .pos-login__aside h1 { font-size: 34px; line-height: 38px; }
+  .pos-login__aside p { font-size: 17px; line-height: 24px; }
+  .pos-login__main { padding: var(--space-6) var(--space-4) var(--space-8); }
+  .pos-appbar:has(> .pos-sidenav__brand) { padding-inline: var(--space-4); }
+  .pos-appbar:has(> .pos-sidenav__brand) .pos-appbar__end > .caption { display: none; }
+  .pos-picker { padding: var(--space-6) var(--space-4); gap: var(--space-5); }
+  .pos-linkline { flex-wrap: wrap; row-gap: 0; }
+  .pos-picker__go > .pos-btn { flex: 1; }
 }

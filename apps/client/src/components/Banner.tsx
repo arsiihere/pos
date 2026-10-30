@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Icon, type IconName } from './Icon';
 
 // S35 i: UI kit Banner; data in, no API calls. Status always has an icon and a word (UI kit README).
 export type BannerTone = 'ok' | 'warn' | 'danger' | 'info';
@@ -29,12 +30,17 @@ const ICONS: Record<BannerTone, ReactNode> = {
   ),
 };
 
-export function Banner({ tone, text, detail }: { tone: BannerTone; text: string; detail?: string }) {
+// `icon` replaces the tone's icon where a frame draws a specific one (cloud unreachable: wifi, 01a B04).
+export function Banner({ tone, text, detail, icon }: { tone: BannerTone; text: string; detail?: string; icon?: IconName }) {
   return (
     <div className={`pos-banner pos-banner--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
-      <svg className="pos-icon" viewBox="0 0 24 24" aria-hidden="true">
-        {ICONS[tone]}
-      </svg>
+      {icon !== undefined ? (
+        <Icon name={icon} />
+      ) : (
+        <svg className="pos-icon" viewBox="0 0 24 24" aria-hidden="true">
+          {ICONS[tone]}
+        </svg>
+      )}
       <p>
         {text}
         {detail !== undefined && <small>{detail}</small>}

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { CloudAdmin } from '../../api/cloud-admin';
 import { AppBar } from '../../components/AppBar';
-import { Dialog } from '../../components/Dialog';
+import { Drawer } from '../../components/Drawer';
 import { Icon } from '../../components/Icon';
 import { SideNav, type NavItem } from '../../components/SideNav';
 import { navigate } from '../../app/router';
@@ -13,7 +13,7 @@ import { useLeave } from './guard';
 import { usePhone } from '../../app/phone';
 
 // Opens the side nav on a phone; Page puts its Menu button in the app bar.
-const OpenMenu = createContext<(() => void) | null>(null);
+const OpenMenu = createContext<{ open: () => void; expanded: boolean } | null>(null);
 
 export interface NavCounts {
   staff?: number;
@@ -24,8 +24,11 @@ export interface NavCounts {
 // S50 a, 01b README §9: the owner shell. Side nav on a laptop or tablet: Menu, Floors and tables, Kitchen
 // stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; foot: who is signed in,
 // Change password, Sign out. Counts next to Staff, Roles, Branches when known. On a phone the same nav opens from
-// the app bar's Menu button as an overlay on the kit Dialog (P-4 answer B; replaces the S50 a tab bar). Every nav
-// link goes through the discard guard (S50 c).
+// the app bar's Menu button as an overlay drawer with the kit Dialog's focus rules (S50 a v1.3.1, P-4 answer B;
+// Pulse frame OwnerMenuPhoneNav): close button, Escape, a scrim tap and choosing a page close it. Every nav link
+// goes through the discard guard (S50 c). Laptop and tablet fit the screen: the shell is 100dvh and only the
+// content region scrolls (01a hand-off PROMPT, layout). Login returns no restaurant name or email (S50 a), so
+// the brand block shows the owner's display name over "Restaurant setup".
 export function Shell({
   route,
   userName,
@@ -72,9 +75,10 @@ export function Shell({
   const nav = (
     <SideNav
       label={t('owner.title')}
-      brand={{ title: t('owner.title') }}
+      brand={{ title: userName, sub: t('owner.title'), avatar: userName }}
       items={items}
       onNavigate={onNavigate}
+      drawer={phone ? { onClose: () => setMenuOpen(false), closeLabel: t('owner.nav.close') } : undefined}
       foot={
         <>
           <span className={`pos-sidenav__who ${typeClass('caption')}`}>{userName}</span>
@@ -107,23 +111,23 @@ export function Shell({
 
   if (phone) {
     return (
-      <OpenMenu.Provider value={() => setMenuOpen(true)}>
+      <OpenMenu.Provider value={{ open: () => setMenuOpen(true), expanded: menuOpen }}>
         <div className="pos-page">
           {children}
           {menuOpen && (
-            <Dialog title={t('owner.title')} form={false} variant="nav" onClose={() => setMenuOpen(false)}>
+            <Drawer label={t('owner.title')} onClose={() => setMenuOpen(false)}>
               {nav}
-            </Dialog>
+            </Drawer>
           )}
         </div>
       </OpenMenu.Provider>
     );
   }
   return (
-    <div className="pos-page">
+    <div className="pos-page pos-page--fit">
       <div className="pos-shell">
         {nav}
-        <div>{children}</div>
+        <div className="pos-shell__main">{children}</div>
       </div>
     </div>
   );
@@ -131,10 +135,17 @@ export function Shell({
 
 // The phone app bar's first button (StaffPhoneList.html); nothing outside the shell or on a laptop.
 function MenuButton() {
-  const open = useContext(OpenMenu);
-  if (open === null) return null;
+  const menu = useContext(OpenMenu);
+  if (menu === null) return null;
   return (
-    <button type="button" className="pos-btn" aria-label={t('owner.nav.open')} onClick={open}>
+    <button
+      type="button"
+      className="pos-more"
+      aria-label={t('owner.nav.open')}
+      aria-haspopup="dialog"
+      aria-expanded={menu.expanded}
+      onClick={menu.open}
+    >
       <Icon name="menu" />
     </button>
   );

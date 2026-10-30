@@ -1,7 +1,8 @@
 import { Fragment, type MouseEvent, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
-// Kit .pos-sidenav (laptop, tablet) and the phone tab bar (.pos-actionbar as a nav), one item list.
+// Kit .pos-sidenav: the side nav on a laptop or tablet, and the same nav as a phone drawer
+// (.pos-sidenav--drawer inside a Drawer, spec 01a S50 a v1.3.1).
 export interface NavItem {
   href: string;
   icon: IconName;
@@ -20,25 +21,57 @@ function guarded(onNavigate: Guard | undefined, href: string) {
   };
 }
 
+// Initials for the brand avatar: the first letter of the first two words ("Arif Chatkhara" → "AC").
+export function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => [...word][0] ?? '')
+    .join('')
+    .toUpperCase();
+}
+
+// The Pulse brand block: an initials avatar, a name and a line under it. Also used in a stand-alone app bar.
+export function NavBrand({ title, sub, avatar }: { title: string; sub?: string; avatar?: string }) {
+  return (
+    <div className="pos-sidenav__brand">
+      {avatar !== undefined && (
+        <i className="pos-avatar" aria-hidden="true">
+          {initials(avatar)}
+        </i>
+      )}
+      <div>
+        <strong>{title}</strong>
+        {sub !== undefined && <span>{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function SideNav({
   label,
   brand,
   items,
   foot,
   onNavigate,
+  drawer,
 }: {
   label: string;
-  brand: { title: string; sub?: string };
+  brand: { title: string; sub?: string; avatar?: string };
   items: readonly NavItem[];
   foot?: ReactNode;
   onNavigate?: Guard;
+  drawer?: { onClose: () => void; closeLabel: string }; // the phone drawer form, with its close button
 }) {
   return (
-    <nav className="pos-sidenav" aria-label={label}>
-      <div className="pos-sidenav__brand">
-        <strong>{brand.title}</strong>
-        {brand.sub !== undefined && <span>{brand.sub}</span>}
-      </div>
+    <nav className={`pos-sidenav${drawer !== undefined ? ' pos-sidenav--drawer' : ''}`} aria-label={label}>
+      {drawer !== undefined && (
+        <button type="button" className="pos-more pos-drawer__close" aria-label={drawer.closeLabel} onClick={drawer.onClose}>
+          <Icon name="x" />
+        </button>
+      )}
+      <NavBrand {...brand} />
       {items.map((item, i) => (
         <Fragment key={item.href}>
           {item.group !== undefined && item.group !== items[i - 1]?.group && (
@@ -61,25 +94,6 @@ export function SideNav({
         </Fragment>
       ))}
       {foot !== undefined && <div className="pos-sidenav__foot">{foot}</div>}
-    </nav>
-  );
-}
-
-export function TabBar({ label, items, onNavigate }: { label: string; items: readonly NavItem[]; onNavigate?: Guard }) {
-  return (
-    <nav className="pos-actionbar pos-actionbar--tabs" aria-label={label}>
-      {items.map((item) => (
-        <a
-          key={item.href}
-          className="pos-sidenav__item"
-          href={item.href}
-          aria-current={item.current === true ? 'page' : undefined}
-          onClick={guarded(onNavigate, item.href)}
-        >
-          <Icon name={item.icon} />
-          {item.label}
-        </a>
-      ))}
     </nav>
   );
 }

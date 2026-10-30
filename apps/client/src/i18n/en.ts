@@ -840,6 +840,11 @@ export const en = {
   'account.lock_notice': 'Someone tried to sign in to your account with a wrong password {n} times on {date} at {time}.',
   'account.lock_notice_body': 'If this wasn’t you, change your password.',
   'account.lock_got_it': 'Got it',
+  // Pulse 01a hand-off CHANGES §3: owner shell, branch picker, More menus
+  'common.more_for': 'More for {name}',
+  'owner.nav.close': 'Close the side menu',
+  'owner.picker.menu_line': 'Menu is the same for every branch.',
+  'owner.picker.id_note': 'Branch names show once they are set in Branch settings. Until then the end of each branch’s ID shows.',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -212,4 +212,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.manage-stock': 'اسٹاک گننا اور آئٹم بند کرنا',
   // 01c task 20: stock page per stock item (§8)
   'admin_stock.badge.unused': 'یہاں کسی ڈش میں استعمال نہیں',
+  // Pulse 01a hand-off CHANGES §3 — Urdu draft — needs native review
+  'common.more_for': '{name} کے مزید اختیارات',
+  'owner.nav.close': 'سائیڈ مینیو بند کریں',
+  'owner.picker.menu_line': 'مینیو سب برانچوں کا ایک ہے۔',
+  'owner.picker.id_note': 'برانچ سیٹنگ میں نام رکھنے کے بعد برانچوں کے نام دکھیں گے۔ تب تک ہر برانچ کی آئی ڈی کا آخری حصہ دکھتا ہے۔',
 };
