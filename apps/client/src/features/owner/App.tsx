@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
 import { forcedRoute, matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
-import { t } from '../../i18n';
 import { ChangePassword } from './account/ChangePassword';
 import { ChoiceGroupForm } from './choice-groups/ChoiceGroupForm';
 import { ChoiceGroupList } from './choice-groups/ChoiceGroupList';
@@ -9,11 +8,13 @@ import { BranchPicker } from './BranchPicker';
 import { BranchesView } from './branches/BranchesView';
 import { BranchSettings } from './branches/BranchSettings';
 import { BranchNames, storeBranch, storedBranch } from './branch';
+import { DealForm } from './deals/DealForm';
+import { DealList } from './deals/DealList';
 import { FloorsView } from './floors/FloorsView';
 import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
 import { MenuView } from './menu/MenuView';
-import { Page, Shell } from './Shell';
+import { Shell } from './Shell';
 import { SizeGroupForm } from './size-groups/SizeGroupForm';
 import { SizeGroupList } from './size-groups/SizeGroupList';
 import { StockItemForm } from './stock-items/StockItemForm';
@@ -160,10 +161,10 @@ function Routes({
         {owner.name === 'size_group_edit' && <SizeGroupForm key={owner.id} api={api} groupId={owner.id} />}
         {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} />}
         {owner.name === 'stock_item_edit' && <StockItemForm key={owner.id} api={api} stockItemId={owner.id} branchIds={allowed} />}
-        {/* 01c-S02 and S04 are built by the next 01c groups; the nav entries already lead here. */}
         {owner.name === 'choice_groups' && <ChoiceGroupList api={api} />}
         {owner.name === 'choice_group_edit' && <ChoiceGroupForm key={owner.id} api={api} groupId={owner.id} />}
-        {owner.name === 'deals' && <Page api={api} title={t('owner.nav.deals')}>{null}</Page>}
+        {owner.name === 'deals' && <DealList api={api} />}
+        {owner.name === 'deal_edit' && <DealForm key={owner.id} api={api} dealId={owner.id} />}
       </Shell>
     );
   }

@@ -350,10 +350,11 @@ describe('cloud-admin client', () => {
     }
   });
 
-  it('[01c §6.1, §6.2, §6.6–§6.9] each size group and stock item call sends the §6 method, path, body and key', async () => {
+  it('[01c §6.1, §6.2, §6.6–§6.9, §6.13–§6.16] each size group, stock item and deal call sends the §6 method, path, body and key', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     const group = { name: 'Chicken Karahi', category_id: 'C1' };
     const stock = { name: 'Karahi pot', stock_unit: 'g' as const, carries_over: false };
+    const deal = { name: 'Family karahi deal', category_id: 'C1', tax_class_id: null, price_minor: 320000, parts: [{ quantity: 1, choices: [{ item_id: 'I2' }] }] };
     const cases: Array<{
       run: (api: ReturnType<typeof createCloudAdmin>) => Promise<unknown>;
       method: string;
@@ -382,6 +383,21 @@ describe('cloud-admin client', () => {
         method: 'PUT',
         url: '/v1/admin/stock-items/SI1/branches/B1',
         body: { expected_version: 'v3', station_id: 'S1', low_stock_threshold: 1500 },
+      },
+      { run: (api) => api.listDeals(), method: 'GET', url: '/v1/admin/deals' },
+      { run: (api) => api.listDeals({ status: 'archived' }), method: 'GET', url: '/v1/admin/deals?status=archived' },
+      { run: (api) => api.createDeal(deal, 'K3'), method: 'POST', url: '/v1/admin/deals', body: deal, key: 'K3' },
+      {
+        run: (api) => api.patchDeal('D1', { expected_version: 'v4', price_minor: 330000 }),
+        method: 'PATCH',
+        url: '/v1/admin/deals/D1',
+        body: { expected_version: 'v4', price_minor: 330000 },
+      },
+      {
+        run: (api) => api.putDealBranch('D1', 'B1', { expected_version: 'v5', is_sold: true, price_minor_override: 350000 }),
+        method: 'PUT',
+        url: '/v1/admin/deals/D1/branches/B1',
+        body: { expected_version: 'v5', is_sold: true, price_minor_override: 350000 },
       },
     ];
     for (const c of cases) {

@@ -38,7 +38,8 @@ export type OwnerRoute =
   | { name: 'stock_item_edit'; id: string }
   | { name: 'choice_groups' }
   | { name: 'choice_group_edit'; id: string }
-  | { name: 'deals' };
+  | { name: 'deals' }
+  | { name: 'deal_edit'; id: string };
 
 const FIXED: Record<string, OwnerRoute> = {
   '/staff': { name: 'staff' },
@@ -75,6 +76,8 @@ export function matchOwnerRoute(path: string): OwnerRoute | null {
   if (stockItem !== null) return { name: 'stock_item_edit', id: decodeURIComponent(stockItem[1]!) };
   const choiceGroup = /^\/choice-groups\/([^/]+)$/.exec(path);
   if (choiceGroup !== null) return { name: 'choice_group_edit', id: decodeURIComponent(choiceGroup[1]!) };
+  const deal = /^\/deals\/([^/]+)$/.exec(path);
+  if (deal !== null) return { name: 'deal_edit', id: decodeURIComponent(deal[1]!) };
   const settings = /^\/branches\/([^/]+)\/settings$/.exec(path);
   if (settings !== null) return { name: 'branch_settings', id: decodeURIComponent(settings[1]!) };
   return null;

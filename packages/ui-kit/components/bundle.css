@@ -2233,3 +2233,21 @@ button.pos-tick:disabled { cursor: default; }
 /* The full-screen picker on a phone keeps its footer: only the list scrolls. */
 .pos-dialog--full[data-choice-picker] { display: flex; flex-direction: column; }
 .pos-dialog--full[data-choice-picker] .pos-dialog__scroll { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* ---------- Pulse page layout · 01c-E deals ---------- */
+/* Deals list (Deals, DealsPhone): price 18 px; B04 warnings wrap inside the name column; "Checking branches…" under the bar. */
+.pos-list--deals .pos-deals__price, .pos-c01card .pos-deals__price { font-size: 18px; line-height: 24px; white-space: nowrap; flex: none; }
+.pos-list--deals .pos-list__name .pos-chip--warn, .pos-c01card .pos-chip--warn { white-space: normal; min-height: 32px; padding-block: 4px; }
+.pos-deals__checking { margin-block: calc(var(--space-1) * -1); }
+/* Deal form (DealForm, DealErrors, DealBranches): hours fieldset without a frame; a choice row with an error. */
+.pos-dealform__hours { border: 0; margin: 0; padding: 0; min-width: 0; }
+.pos-choice.is-error { background: var(--danger-tint); }
+.pos-part > .pos-field__error { display: flex; align-items: center; gap: var(--space-2); }
+/* Choice picker (DealChoicePicker, DealChoicePickerPhone): tick rows are buttons (role=checkbox). */
+.pos-picker__sub { margin-top: var(--space-1); }
+.pos-picker__search { width: 100%; }
+button.pos-pick { appearance: none; border: 0; width: 100%; background: transparent; color: var(--ink); font: inherit; text-align: start; cursor: pointer; }
+button.pos-pick:nth-child(odd) { background: var(--surface-soft); }
+button.pos-pick[aria-disabled="true"] { cursor: default; }
+button.pos-pick .num { color: var(--ink); white-space: nowrap; }
+button.pos-pick.is-off .num { color: var(--ink-muted); }

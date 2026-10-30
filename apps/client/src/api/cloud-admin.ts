@@ -16,6 +16,11 @@ import type {
   ChangedPassword,
   CreateStockItemRequest,
   CreateVariantGroupRequest,
+  CreateDealRequest,
+  DealBranchWire,
+  DealWire,
+  PatchDealRequest,
+  PutDealBranchRequest,
   ChangedVersions,
   ChangePasswordRequest,
   CreateCategoryRequest,
@@ -143,6 +148,10 @@ export type ModifierGroup = ModifierGroupWire;
 export type ModifierGroupBranch = ModifierGroupBranchWire;
 export type ModifierOption = ModifierGroupWire['options'][number];
 export type ModifierLink = ModifierGroupWire['links'][number];
+
+// 01c §5.4, §6.13–§6.16: deals; branch entries carry is_sold (AD-6) and list every allowed branch.
+export type DealBranch = DealBranchWire;
+export type Deal = DealWire & { branches: DealBranch[] };
 
 type LoginData = OwnerLogin;
 export type LockoutNotice = NonNullable<OwnerLogin['lockout_notice']>;
@@ -452,6 +461,18 @@ export function createCloudAdmin(options: CloudAdminOptions) {
         `/v1/admin/stock-items/${id(stockItemId)}/branches/${id(branchId)}`,
         body,
       ),
+
+    // 01c §6.13–§6.16 deals (status?: AD-30 a) and their per-branch rows (a branch PUT takes no Idempotency-Key)
+    listDeals: (query: { status?: 'active' | 'archived' } = {}) =>
+      call<{ can_edit_tenant: boolean; deals: Deal[] }>(
+        'GET',
+        `/v1/admin/deals${query.status === undefined ? '' : `?status=${query.status}`}`,
+      ),
+    createDeal: (body: CreateDealRequest, key: string) => call<{ deal: DealWire }>('POST', '/v1/admin/deals', body, key),
+    patchDeal: (dealId: string, body: PatchDealRequest) =>
+      call<{ deal: DealWire }>('PATCH', `/v1/admin/deals/${id(dealId)}`, body),
+    putDealBranch: (dealId: string, branchId: string, body: PutDealBranchRequest) =>
+      call<{ branch: DealBranch | null }>('PUT', `/v1/admin/deals/${id(dealId)}/branches/${id(branchId)}`, body),
 
     // 01c §6.10–§6.12a choice groups (modifier groups); a branch PUT takes no Idempotency-Key
     listModifierGroups: (query: { status?: 'active' | 'archived' } = {}) =>
