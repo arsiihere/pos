@@ -1,0 +1,423 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Category, MenuItem, StockItem, TaxClass, VariantGroup } from '../../../api/cloud-admin';
+import { t } from '../../../i18n';
+import { fill } from '../../../i18n/en';
+import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
+import { ItemForm } from './ItemForm';
+import { MenuView } from './MenuView';
+
+// 01c §8, contract §2 (01c-S01): the item form's Size group, Weighed when served and Stock sections, the
+// "Create a stock item with this name" mini-form (test #124), and the menu list's nested sizes (01a-S05).
+
+let ui: Mounted;
+beforeEach(() => {
+  sessionStorage.clear();
+  sessionStorage.setItem('owner_access_token', 'A1');
+  ui = mount();
+});
+afterEach(() => {
+  ui.unmount();
+  sessionStorage.clear();
+  window.location.hash = '';
+});
+
+const TAXES: TaxClass[] = [{ tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, archived_at: null }];
+const CATEGORIES: Category[] = [
+  { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [] },
+  { category_id: 'C2', name: 'BBQ', sort_order: 1, archived_at: null, availability_windows: [] },
+];
+const GROUPS: VariantGroup[] = [
+  { variant_group_id: 'VG1', name: 'Chicken Karahi', category_id: 'C1', description: null, sort_order: 0, archived_at: null, member_ids: ['I1', 'I2'], version: 'v1' },
+];
+const STATION = {
+  station_id: 'S1',
+  name: 'Karahi counter',
+  location_label: null,
+  station_type: 'slot',
+  capacity: 4,
+  freshness_window_ms: null,
+  completion_mode: 'two_tap',
+  archived_at: null,
+  programs: [],
+};
+
+function item(extra: Partial<MenuItem> = {}): MenuItem {
+  return {
+    item_id: 'I1',
+    category_id: 'C1',
+    tax_class_id: null,
+    name: 'Chicken Karahi — Half',
+    variant_group_id: null,
+    variant_name: null,
+    description: null,
+    sort_order: 0,
+    price_minor: 115_000,
+    serve_mode: 'immediate',
+    prep_buffer_ms: 0,
+    cook_time_ms: 600_000,
+    stock_time_ms: null,
+    out_of_stock_behaviour: 'cook_fresh',
+    sale_unit: 'piece',
+    requires_weighing: false,
+    stock_draws: [],
+    availability_windows: [],
+    archived_at: null,
+    routes: [{ branch_id: 'B1', station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null }],
+    ...extra,
+  };
+}
+
+function pot(extra: Partial<StockItem> = {}): StockItem {
+  return {
+    stock_item_id: 'K1',
+    name: 'Karahi pot',
+    stock_unit: 'g',
+    carries_over: false,
+    archived_at: null,
+    version: 'k1',
+    branches: ['B1', 'B2', 'B3', 'B4'].map((b) => ({ branch_id: b, station_id: 'S1', low_stock_threshold: 1000, version: `${b}-v1` })),
+    drawers: [],
+    ...extra,
+  };
+}
+
+// A small cloud: stations per branch, the stock item list (§6.6), POST/PUT stock items, item PATCH/POST.
+// `lose` (test #124): the server does the call, then its answer is lost (the fetch fails).
+function server(
+  options: { stock?: StockItem[]; on?: (call: Call) => Response | undefined; lose?: (call: Call) => boolean } = {},
+) {
+  const stock = [...(options.stock ?? [])];
+  return fakeApi((call) => {
+    const answer = options.on?.(call);
+    if (answer !== undefined) return answer;
+    const reply = handle(call);
+    if (options.lose?.(call) === true) throw new TypeError('Failed to fetch');
+    return reply;
+  });
+
+  function handle(call: Call): Response {
+    if (call.url.endsWith('/stations')) return ok({ stations: [STATION] });
+    if (call.method === 'GET' && call.url.startsWith('/v1/admin/stock-items')) {
+      return ok({ can_edit_tenant: true, stock_items: call.url.includes('archived') ? [] : stock });
+    }
+    if (call.method === 'POST' && call.url === '/v1/admin/stock-items') {
+      const body = call.body as { name: string; stock_unit: 'g' };
+      let made = stock.find((s) => s.name === body.name);
+      if (made === undefined) {
+        made = pot({ stock_item_id: 'K9', name: body.name, stock_unit: body.stock_unit, branches: ['B1', 'B2'].map((b) => ({ branch_id: b, station_id: null, low_stock_threshold: null, version: `${b}-none` })) });
+        stock.push(made);
+      }
+      return new Response(JSON.stringify({ data: { stock_item: made } }), { status: 201 });
+    }
+    const put = /^\/v1\/admin\/stock-items\/(\w+)\/branches\/(\w+)$/.exec(call.url);
+    if (call.method === 'PUT' && put !== null) {
+      const row = stock.find((s) => s.stock_item_id === put[1])?.branches.find((b) => b.branch_id === put[2]);
+      const body = call.body as { expected_version: string; station_id: string };
+      if (row === undefined || row.version !== body.expected_version) return fail(409, 'CONFIG_STALE', { entity: 'stock_item_branch' });
+      row.station_id = body.station_id;
+      row.version = `${put[2]}-v2`;
+      return ok({ branch: row });
+    }
+    if (call.method === 'PATCH') return ok({ item: item() });
+    return new Response(JSON.stringify({ data: { item: item({ item_id: 'I9' }) } }), { status: 201 });
+  }
+}
+
+async function renderForm(api: ReturnType<typeof fakeApi>['api'], it: MenuItem | null, extra: { newSizeOf?: string; branchIds?: string[] } = {}) {
+  await ui.render(
+    <ItemForm
+      api={api}
+      item={it}
+      taxClasses={TAXES}
+      categories={CATEGORIES}
+      branchIds={extra.branchIds ?? ['B1']}
+      variantGroups={GROUPS}
+      {...(extra.newSizeOf === undefined ? {} : { newSizeOf: extra.newSizeOf })}
+      onSaved={() => {}}
+      onCancel={() => {}}
+    />,
+  );
+  await flush();
+}
+
+const q = <T extends Element>(sel: string) => ui.container.querySelector<T>(sel);
+const field = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => q<T>(`[name="${name}"]`);
+const section = (name: string) => q<HTMLElement>(`[data-section="${name}"]`);
+const saveButton = () => button(ui.container, t('item.save'));
+
+async function save() {
+  const form = q<HTMLFormElement>('form#item-form');
+  if (form === null) throw new Error('form missing');
+  await click(saveButton());
+  await flush();
+}
+
+const patches = (calls: Call[]) => calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
+
+describe('01c-S01 item form sections', () => {
+  it('a plain item folds Size group to one line; Put in a size group picks the group, fills its category and needs a size name', async () => {
+    const { api, calls } = server();
+    await renderForm(api, item({ category_id: 'C2' }));
+    expect(section('size')?.classList.contains('pos-section--quiet')).toBe(true);
+    expect(section('size')?.textContent).toContain(t('item.size_section_plain'));
+    expect(field('variant_group_id')).toBeNull();
+
+    await click(button(section('size') as HTMLElement, t('item.put_in_group')));
+    setValue(field('variant_group_id'), 'VG1');
+    expect(field<HTMLSelectElement>('category_id')?.value).toBe('C1');
+
+    await save();
+    expect(patches(calls)).toHaveLength(0);
+    expect(q('[data-fix-summary], .pos-banner--danger')?.textContent).toContain(t('item.need_size_name'));
+
+    setValue(field('variant_name'), 'Half');
+    await save();
+    expect(patches(calls)).toEqual([{ category_id: 'C1', variant_group_id: 'VG1', variant_name: 'Half' }]);
+  });
+
+  it('Remove from size group sends variant_group_id and variant_name null together', async () => {
+    const { api, calls } = server();
+    await renderForm(api, item({ variant_group_id: 'VG1', variant_name: 'Half' }));
+    expect(field<HTMLSelectElement>('variant_group_id')?.value).toBe('VG1');
+    await click(button(section('size') as HTMLElement, t('item.size_remove')));
+    expect(section('size')?.classList.contains('pos-section--quiet')).toBe(true);
+    await save();
+    expect(patches(calls)).toEqual([{ variant_group_id: null, variant_name: null }]);
+  });
+
+  it('Add a size (new_size_of) fills the size group and its category; the POST carries both', async () => {
+    const { api, calls } = server();
+    await renderForm(api, null, { newSizeOf: 'VG1' });
+    expect(field<HTMLSelectElement>('variant_group_id')?.value).toBe('VG1');
+    expect(field<HTMLSelectElement>('category_id')?.value).toBe('C1');
+    setValue(field('name'), 'Chicken Karahi — Full');
+    setValue(field('price'), '2,200');
+    setValue(field('cook_minutes'), '20');
+    setValue(field('variant_name'), 'Full');
+    await click(button(ui.container, t('item.add')));
+    const post = calls.find((c) => c.method === 'POST');
+    expect(post?.key).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(post?.body).toMatchObject({ category_id: 'C1', variant_group_id: 'VG1', variant_name: 'Full', requires_weighing: false, stock_draws: [] });
+  });
+
+  it('Weighed when served shows only for kg / L items; on, it hides the stock link and drops the draw', async () => {
+    const { api, calls } = server({ stock: [pot()] });
+    await renderForm(api, item());
+    expect(section('weighed')).toBeNull();
+    ui.unmount();
+    ui = mount();
+    await renderForm(api, item({ sale_unit: 'g', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1 }] }));
+    expect(field('stock_item_id')).not.toBeNull();
+    await click(section('weighed')?.querySelector('[role="switch"]') as HTMLElement);
+    expect(field('stock_item_id')).toBeNull();
+    expect(section('draw')?.textContent).toContain(t('item.stock_not_used'));
+    await save();
+    expect(patches(calls)).toEqual([{ requires_weighing: true, stock_draws: [] }]);
+  });
+
+  it('Stock: uses per sale in the stock unit (kg), a summary of at most 3 branches + "+N more", Open stock item after the guard', async () => {
+    const { api, calls } = server({ stock: [pot()] });
+    await renderForm(api, item({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] }), { branchIds: ['B1', 'B2', 'B3', 'B4'] });
+    expect(field<HTMLSelectElement>('stock_item_id')?.value).toBe('K1');
+    expect(field<HTMLInputElement>('uses')?.value).toBe('0.5');
+    const summary = q('[data-stock-summary]');
+    expect(summary?.querySelector('b')?.textContent).toBe(
+      fill(t('item.stock_head'), { name: 'Karahi pot', unit: 'g', keeps: t('item.no_keep') }),
+    );
+    expect(summary?.textContent).toContain(fill(t('item.stock_line_alert'), { branch: 'B1', station: 'Karahi counter', n: '1 kg' }));
+    expect([...(summary?.querySelectorAll('span') ?? [])].map((s) => s.textContent)).toContain(fill(t('item.more_n'), { n: '1' }));
+
+    setValue(field('uses'), '1');
+    await save();
+    expect(patches(calls)).toEqual([{ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1000 }] }]);
+
+    await click(summary?.querySelector('a') as HTMLElement);
+    expect(window.location.hash).toBe('#/stock-items/K1');
+  });
+
+  it('a kg item with stock counted in pieces is stopped before sending (unit_mismatch on the stock field)', async () => {
+    const { api, calls } = server({ stock: [pot({ stock_unit: 'piece' })] });
+    await renderForm(api, item({ sale_unit: 'g' }));
+    setValue(field('stock_item_id'), 'K1');
+    setValue(field('uses'), '1');
+    await save();
+    expect(patches(calls)).toHaveLength(0);
+    expect(q('#item-stock_item_id')?.closest('.pos-field')?.textContent).toContain(t('errors.reference.unit_mismatch'));
+  });
+
+  it('422 category_mismatch at variant_group_id marks the size group field under the one summary banner', async () => {
+    const { api } = server({
+      on: (call) => (call.method === 'PATCH' ? fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'variant_group_id', reason: 'category_mismatch' }) : undefined),
+    });
+    await renderForm(api, item({ variant_group_id: 'VG1', variant_name: 'Half' }));
+    setValue(field('variant_name'), 'Small');
+    await save();
+    expect(q('#item-variant_group_id')?.closest('.pos-field')?.textContent).toContain(t('errors.reference.category_mismatch'));
+    expect(ui.container.querySelectorAll('.pos-banner--danger')).toHaveLength(1);
+  });
+
+  it('409 CONFIG_NAME_TAKEN { entity: variant } marks the size name; 409 CONFIG_IN_USE opens the in-use dialog', async () => {
+    let answer = fail(409, 'CONFIG_NAME_TAKEN', { entity: 'variant' });
+    const { api } = server({ on: (call) => (call.method === 'PATCH' ? answer : undefined) });
+    await renderForm(api, item({ sale_unit: 'g', variant_group_id: 'VG1', variant_name: 'Half' }));
+    setValue(field('variant_name'), 'Full');
+    await save();
+    expect(q('#item-variant_name')?.closest('.pos-field')?.textContent).toContain(t('errors.CONFIG_NAME_TAKEN'));
+
+    answer = fail(409, 'CONFIG_IN_USE', { entity: 'menu_item', id: 'I1', used_by: { entity: 'modifier_group', ids: ['M1', 'M2'] } });
+    await click(section('weighed')?.querySelector('[role="switch"]') as HTMLElement);
+    await save();
+    const dialog = q('[data-in-use]');
+    expect(dialog?.textContent).toContain(fill(t('item.in_use_change'), { name: 'Chicken Karahi — Half' }));
+    expect(dialog?.textContent).toContain(fill(t('item.in_use_groups'), { n: '2' }));
+    expect(dialog?.querySelector('a')?.getAttribute('href')).toBe('#/choice-groups');
+  });
+});
+
+describe('01c-S01 Create a stock item with this name', () => {
+  it('opens inline, disables Save item, waits for uses when units differ, then runs the 3 calls in order', async () => {
+    const { api, calls } = server();
+    await renderForm(api, item({ variant_group_id: 'VG1', variant_name: 'Half' }));
+    await click(button(section('draw') as HTMLElement, t('item.create_stock')));
+    const mini = () => q<HTMLElement>('[data-mini]');
+    expect(field<HTMLInputElement>('mini_name')?.value).toBe('Chicken Karahi');
+    expect(saveButton().disabled).toBe(true);
+    expect(field('mini_uses')).toBeNull();
+
+    await click(button(mini() as HTMLElement, 'g'));
+    const create = button(mini() as HTMLElement, t('item.create_link'));
+    expect(create.disabled).toBe(true);
+    setValue(field('mini_uses'), '0.5');
+    expect(create.disabled).toBe(false);
+
+    calls.length = 0;
+    await click(create);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST /v1/admin/stock-items',
+      'GET /v1/admin/stock-items',
+      'PUT /v1/admin/stock-items/K9/branches/B1',
+      'PATCH /v1/admin/menu-items/I1',
+      'GET /v1/admin/stock-items',
+    ]);
+    expect(calls[0]?.key).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(calls[0]?.body).toEqual({ name: 'Chicken Karahi', stock_unit: 'g', carries_over: false });
+    expect(calls[2]?.body).toEqual({ expected_version: 'B1-none', station_id: 'S1', low_stock_threshold: null });
+    expect(calls[3]?.body).toEqual({ stock_draws: [{ stock_item_id: 'K9', quantity_per_sale_unit: 500 }] });
+    expect(mini()).toBeNull();
+    expect(field<HTMLSelectElement>('stock_item_id')?.value).toBe('K9');
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it('[01c §10 #124] a lost POST is retried with the same key (replayed 201); a PUT whose answer was lost is skipped after the re-read', async () => {
+    let lostPost = false;
+    let lostPut = false;
+    const { api, calls } = server({
+      lose: (call) => {
+        if (call.method === 'POST' && call.url === '/v1/admin/stock-items' && !lostPost) return (lostPost = true);
+        if (call.method === 'PUT' && call.url.endsWith('/branches/B1') && !lostPut) return (lostPut = true);
+        return false;
+      },
+    });
+    await ui.render(
+      <ItemForm
+        api={api}
+        item={item({ routes: ['B1', 'B2'].map((b) => ({ branch_id: b, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null })) })}
+        taxClasses={TAXES}
+        categories={CATEGORIES}
+        branchIds={['B1', 'B2']}
+        variantGroups={GROUPS}
+        onSaved={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await flush();
+    await click(button(section('draw') as HTMLElement, t('item.create_stock')));
+    const mini = () => q<HTMLElement>('[data-mini]') as HTMLElement;
+    await click(button(mini(), 'g'));
+    setValue(field('mini_uses'), '0.5');
+
+    // 1. The POST's answer is lost: the mini-form stays; Create and link again sends the same key.
+    await click(button(mini(), t('item.create_link')));
+    expect(mini()).not.toBeNull();
+    await click(button(mini(), t('item.create_link')));
+    const posts = calls.filter((c) => c.method === 'POST');
+    expect(posts).toHaveLength(2);
+    expect(posts[1]?.key).toBe(posts[0]?.key);
+
+    // 2. The B1 PUT's answer is lost: the part-way banner with Finish linking.
+    const banner = () => q<HTMLElement>('[data-partway]');
+    expect(banner()?.textContent).toContain(t('item.partway'));
+    expect(banner()?.textContent).toContain(fill(t('item.partway_body'), { name: 'Chicken Karahi — Half' }));
+    expect(q('[data-mini]')).toBeNull();
+    const before = calls.length;
+    await click(button(banner() as HTMLElement, t('item.finish_linking')));
+
+    // The retry re-reads §6.6, skips B1 (already counted there), PUTs only B2 with the version just read, then links.
+    const retry = calls.slice(before).map((c) => `${c.method} ${c.url}`);
+    expect(retry.slice(0, 3)).toEqual([
+      'GET /v1/admin/stock-items',
+      'PUT /v1/admin/stock-items/K9/branches/B2',
+      'PATCH /v1/admin/menu-items/I1',
+    ]);
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2);
+    expect(calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/B1'))).toHaveLength(1);
+    expect(ui.container.textContent).not.toContain(t('stale.title'));
+    expect(ui.container.textContent).not.toContain(t('errors.CONFIG_NAME_TAKEN'));
+    expect(banner()).toBeNull();
+    expect(field<HTMLSelectElement>('stock_item_id')?.value).toBe('K9');
+  });
+});
+
+describe('01a-S05 menu list with size groups (01c Q12) and the 01c-S09 links', () => {
+  function menuServer(items: MenuItem[]) {
+    return server({
+      stock: [pot()],
+      on: (call) =>
+        call.method === 'GET' && call.url.startsWith('/v1/admin/menu')
+          ? ok({ can_edit_tenant: true, tax_classes: TAXES, categories: CATEGORIES, variant_groups: GROUPS, items, next_cursor: null })
+          : undefined,
+    });
+  }
+  const half = item({ variant_group_id: 'VG1', variant_name: 'Half', stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] });
+  const naan = item({ item_id: 'I3', name: 'Naan', category_id: 'C2' });
+  const full = item({ item_id: 'I2', name: 'Chicken Karahi — Full', variant_group_id: 'VG1', variant_name: 'Full' });
+
+  it('nests the sizes under their size group row (Open → the size group), each size named by its size', async () => {
+    window.location.hash = '#/menu';
+    const { api } = menuServer([half, naan, full]);
+    await ui.render(<MenuView api={api} />);
+    await flush();
+    const rows = [...ui.container.querySelectorAll('.pos-list__row')];
+    expect(rows.map((r) => r.className.includes('--group') ? 'group' : r.className.includes('--size') ? 'size' : 'item')).toEqual([
+      'group',
+      'size',
+      'size',
+      'item',
+    ]);
+    expect(rows[0]?.textContent).toContain('Chicken Karahi');
+    expect(rows[0]?.textContent).toContain(fill(t('menu.size_group_sub'), { n: '2' }));
+    expect(rows[0]?.querySelector('a')?.getAttribute('href')).toBe('#/size-groups/VG1');
+    expect(rows[1]?.querySelector('strong')?.textContent).toBe('Half');
+    expect(rows[1]?.textContent).toContain(fill(t('size_group.draws'), { qty: '0.5 kg', stock: 'Karahi pot' }));
+    expect(rows[3]?.querySelector('strong')?.textContent).toBe('Naan');
+  });
+
+  it('#/menu?item=<id> opens that item; #/menu?new_size_of=<group> opens a new size of it; Cancel goes back to #/menu', async () => {
+    window.location.hash = '#/menu?item=I2';
+    const { api } = menuServer([half, full]);
+    await ui.render(<MenuView api={api} />);
+    await flush();
+    expect(field<HTMLInputElement>('name')?.value).toBe('Chicken Karahi — Full');
+    await click(button(ui.container, t('owner.common.cancel')));
+    expect(window.location.hash).toBe('#/menu');
+    await flush();
+    expect(field('variant_group_id')).toBeNull();
+
+    window.location.hash = '#/menu?new_size_of=VG1';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await flush();
+    expect(field<HTMLSelectElement>('variant_group_id')?.value).toBe('VG1');
+    expect(field<HTMLSelectElement>('category_id')?.value).toBe('C1');
+    expect(field<HTMLInputElement>('name')?.value).toBe('');
+  });
+});

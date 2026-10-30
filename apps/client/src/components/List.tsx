@@ -33,8 +33,11 @@ export function ListRow({
   muted = false,
   id,
   attrs,
+  className,
   children,
 }: {
+  // An extra row class, e.g. pos-list__row--group / --size (01c menu nesting).
+  className?: string;
   touched?: boolean;
   muted?: boolean;
   id?: string;
@@ -43,7 +46,7 @@ export function ListRow({
   children: ReactNode;
 }) {
   return (
-    <li id={id} {...attrs} className={`pos-list__row${touched ? ' is-touched' : ''}${muted ? ' is-muted' : ''}`}>
+    <li id={id} {...attrs} className={`pos-list__row${className === undefined ? '' : ` ${className}`}${touched ? ' is-touched' : ''}${muted ? ' is-muted' : ''}`}>
       {children}
     </li>
   );

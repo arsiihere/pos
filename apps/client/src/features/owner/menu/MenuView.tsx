@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery, TaxClass } from '../../../api/cloud-admin';
+import { formatQuantity } from '@pos/domain';
+import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery, StockItem, TaxClass, VariantGroup } from '../../../api/cloud-admin';
+import { navigate, useHashRoute } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
@@ -14,6 +16,8 @@ import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
 import { useBranchName } from '../branch';
+import { sizeLabel } from '../c01';
+import { loadEveryItem } from '../menu-pages';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -33,6 +37,9 @@ import { windowText } from './WindowsField';
 // form replaces the list (one primary button per screen); closing it reloads the list. Category and tax
 // rows keep Edit and put Archive in the row's More menu (Pulse CHANGES §2). Archive asks first
 // and shows what blocks it (S50 b). The item total shows only once every page is loaded (S50 f).
+// 01c (Q12, MenuNested): a size group's row (Open → its page) with its loaded sizes nested under it, each with
+// "Draws {qty} from {stock}". #/menu?item=<id> opens that item's form and #/menu?new_size_of=<group> a new
+// size of that group (01c-S09 Open / Add a size); closing either goes back to #/menu.
 export const SEARCH_DELAY_MS = 300;
 
 type Status = NonNullable<MenuQuery['status']>;
@@ -206,6 +213,28 @@ function TaxDialog({
   );
 }
 
+type Entry = { kind: 'item'; row: MenuItem; size: boolean } | { kind: 'group'; group: VariantGroup; size: number };
+
+// Rows in list order; a size group sits where its first loaded size is, its loaded sizes right under it.
+function nest(items: readonly MenuItem[], groups: readonly VariantGroup[]): Entry[] {
+  const byId = new Map(groups.map((g) => [g.variant_group_id, g]));
+  const entries: Entry[] = [];
+  const done = new Set<string>();
+  for (const row of items) {
+    const group = row.variant_group_id === null ? undefined : byId.get(row.variant_group_id);
+    if (group === undefined) {
+      entries.push({ kind: 'item', row, size: false });
+      continue;
+    }
+    if (done.has(group.variant_group_id)) continue;
+    done.add(group.variant_group_id);
+    const sizes = items.filter((i) => i.variant_group_id === group.variant_group_id);
+    entries.push({ kind: 'group', group, size: sizes.length });
+    for (const size of sizes) entries.push({ kind: 'item', row: size, size: true });
+  }
+  return entries;
+}
+
 type Ask =
   | { kind: 'archive-category'; category: Category }
   | { kind: 'archive-tax'; taxClass: TaxClass }
@@ -232,8 +261,15 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const branchName = useBranchName();
   const down = useCloudDown(api);
   const [editing, setEditing] = useState<
-    { kind: 'item'; item: MenuItem | null } | { kind: 'category'; category: Category | null } | null
+    { kind: 'item'; item: MenuItem | null; newSizeOf?: string } | { kind: 'category'; category: Category | null } | null
   >(null);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const route = useHashRoute();
+  const linkQuery = route.startsWith('/menu?') ? new URLSearchParams(route.slice('/menu?'.length)) : null;
+  const linkItem = linkQuery?.get('item') ?? null;
+  const linkNewSize = linkQuery?.get('new_size_of') ?? null;
+  // The link already opened (so closing the form does not open it again before the hash changes).
+  const opened = useRef<string | null>(null);
   // The route picker's branches: the owner's allowed branches (§6.14 routes only for those).
   const branchIds = useMemo(() => api.currentUser()?.allowed_branch_ids ?? [], [api]);
   // Only the latest request's answer is shown, so a slow older search never replaces a newer one.
@@ -267,6 +303,44 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // "Draws {qty} from {stock}" on size rows (§6.6); without it the rows show their description.
+  useEffect(() => {
+    let live = true;
+    void api.listStockItems({}).then((result) => {
+      if (live && result.ok && Array.isArray(result.data.stock_items)) setStockItems(result.data.stock_items);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
+  // 01c-S09 links: open the asked item (read from every menu page when it is not on the first) or a new size.
+  useEffect(() => {
+    if (menu === null || (linkItem === null && linkNewSize === null)) {
+      opened.current = null;
+      return;
+    }
+    if (opened.current === route) return;
+    opened.current = route;
+    if (linkNewSize !== null) {
+      setEditing({ kind: 'item', item: null, newSizeOf: linkNewSize });
+      return;
+    }
+    const found = items.find((row) => row.item_id === linkItem);
+    if (found !== undefined) {
+      setEditing({ kind: 'item', item: found });
+      return;
+    }
+    void loadEveryItem(api).then((result) => {
+      const item = result.ok ? result.data.items.find((row) => row.item_id === linkItem) : undefined;
+      if (item !== undefined) setEditing({ kind: 'item', item });
+      else {
+        setError(result.ok ? t('menu.item_gone') : errorText(result.error));
+        navigate('/menu');
+      }
+    });
+  }, [api, menu, items, route, linkItem, linkNewSize]);
 
   const wasDown = useRef(down);
   useEffect(() => {
@@ -328,7 +402,13 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   function closeForm(notice?: string | null) {
     setEditing(null);
     setError(notice ?? null);
+    if (linkQuery !== null) navigate('/menu');
     void load();
+  }
+
+  function cancelForm() {
+    setEditing(null);
+    if (linkQuery !== null) navigate('/menu');
   }
 
   // The item form replaces the list; the category form is a dialog over the Categories tab (01a-S06).
@@ -341,8 +421,10 @@ export function MenuView({ api }: { api: CloudAdmin }) {
         categories={menu.categories}
         branchIds={branchIds}
         readOnly={!canEdit}
+        variantGroups={menu.variant_groups}
+        {...(editing.newSizeOf === undefined ? {} : { newSizeOf: editing.newSizeOf })}
         onSaved={closeForm}
-        onCancel={() => setEditing(null)}
+        onCancel={cancelForm}
       />
     );
   }
@@ -367,6 +449,13 @@ export function MenuView({ api }: { api: CloudAdmin }) {
     return group !== undefined ? fill(t('menu.group_n'), { name: group }) : (row.description ?? undefined);
   };
   const editLabel = t(canEdit ? 'owner.common.edit' : 'menu.view');
+  // A nested size's sub line (MenuNested): what it draws from its stock item, else its description.
+  const sizeSub = (row: MenuItem) => {
+    const draw = row.stock_draws[0];
+    const stock = draw === undefined ? undefined : stockItems.find((s) => s.stock_item_id === draw.stock_item_id);
+    if (draw === undefined || stock === undefined) return row.description ?? undefined;
+    return fill(t('size_group.draws'), { qty: formatQuantity(draw.quantity_per_sale_unit, stock.stock_unit), stock: stock.name });
+  };
 
   return (
     <Page
@@ -521,11 +610,52 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                       : [t('menu.col_item'), t('owner.item.category'), t('menu.col_price'), t('menu.col_notes'), '']
                   }
                 >
-                  {items.map((row) => {
+                  {nest(items, menu?.variant_groups ?? []).map((entry) => {
+                    if (entry.kind === 'group') {
+                      const { group } = entry;
+                      const open = (
+                        <span className="pos-rowact">
+                          <a
+                            className="pos-btn"
+                            href={`#/size-groups/${encodeURIComponent(group.variant_group_id)}`}
+                            aria-label={fill(t('menu.open_group'), { name: group.name })}
+                          >
+                            {t('in_use.open')}
+                          </a>
+                        </span>
+                      );
+                      const label = (
+                        <span className="pos-list__name" data-group-id={group.variant_group_id}>
+                          <strong className="pos-list__grouptitle">
+                            <Icon name="layers" />
+                            {group.name}
+                          </strong>
+                          <span>{fill(t('menu.size_group_sub'), { n: String(entry.size) })}</span>
+                        </span>
+                      );
+                      return phone ? (
+                        <ListRow key={`g-${group.variant_group_id}`} className="pos-list__row--group">
+                          {label}
+                          <span />
+                          {open}
+                        </ListRow>
+                      ) : (
+                        <ListRow key={`g-${group.variant_group_id}`} className="pos-list__row--group">
+                          {label}
+                          <span>{categoryName(group.category_id)}</span>
+                          <span />
+                          <span />
+                          {open}
+                        </ListRow>
+                      );
+                    }
+                    const { row } = entry;
+                    const rowClass = entry.size ? 'pos-list__row--size' : undefined;
                     const archived = row.archived_at !== null;
                     const sold = row.routes.filter((r) => branchIds.includes(r.branch_id)).length;
                     const soldText = fill(t('menu.branches_of'), { n: String(sold), m: String(branchIds.length) });
-                    const sub = subLine(row);
+                    const sub = entry.size ? sizeSub(row) : subLine(row);
+                    const rowName = entry.size ? sizeLabel(row) : row.name;
                     // S57 e: "{branch} Rs {price}" for each allowed branch with its own price (spec §8.1).
                     const overrides = row.routes
                       .filter((r) => r.price_minor_override !== null && branchIds.includes(r.branch_id))
@@ -569,9 +699,9 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                       </span>
                     );
                     return phone ? (
-                      <ListRow key={row.item_id} muted={archived}>
+                      <ListRow key={row.item_id} muted={archived} className={rowClass}>
                         <span className="pos-list__name" data-item-id={row.item_id}>
-                          <strong>{row.name}</strong>
+                          <strong>{rowName}</strong>
                           <span>{`${categoryName(row.category_id)} · ${soldText}`}</span>
                           {(overrides.length > 0 || archived) && (
                             <span className="pos-list__tags">
@@ -584,9 +714,9 @@ export function MenuView({ api }: { api: CloudAdmin }) {
                         {actions}
                       </ListRow>
                     ) : (
-                      <ListRow key={row.item_id} muted={archived}>
+                      <ListRow key={row.item_id} muted={archived} className={rowClass}>
                         <span className="pos-list__name" data-item-id={row.item_id}>
-                          <strong>{row.name}</strong>
+                          <strong>{rowName}</strong>
                           {sub !== undefined && <span>{sub}</span>}
                         </span>
                         <span>{categoryName(row.category_id)}</span>

@@ -164,7 +164,7 @@ describe('owner menu view', () => {
 
   it('[01a §8.1, S48] typing sends one request after 300 ms; Load more appends the next page; a repeated item_id is shown once', async () => {
     vi.useFakeTimers();
-    const { api, calls } = fakeApi((call) => {
+    const { api, calls: allCalls } = fakeApi((call) => {
       const url = new URL(call.url, 'http://cloud');
       if (url.searchParams.get('cursor') === 'c2') {
         return json(200, page([item('I3', 'Karahi Gosht'), item('I4', 'Karahi Mutton')], null));
@@ -172,10 +172,12 @@ describe('owner menu view', () => {
       if (url.searchParams.get('q') === 'kar') return json(200, page([item('I3', 'Karahi Gosht')], 'c2'));
       return json(200, page([item('I1', 'Aloo Paratha'), item('I2', 'Chicken Tikka')], 'c1'));
     });
+    // The menu reads only (the view also reads the stock items once, 01c size rows).
+    const menuCalls = () => allCalls.filter((c) => c.url.startsWith('/v1/admin/menu'));
     act(() => root.render(<MenuView api={api} />));
     await flush();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe('/v1/admin/menu?status=active');
+    expect(menuCalls()).toHaveLength(1);
+    expect(menuCalls()[0]?.url).toBe('/v1/admin/menu?status=active');
     expect(itemIds()).toEqual(['I1', 'I2']);
 
     const search = container.querySelector<HTMLInputElement>('input[name="q"]');
@@ -185,22 +187,22 @@ describe('owner menu view', () => {
     await flush(100);
     typeInto(search, 'kar');
     await flush(299);
-    expect(calls).toHaveLength(1);
+    expect(menuCalls()).toHaveLength(1);
     await flush(1);
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.url).toBe('/v1/admin/menu?q=kar&status=active');
+    expect(menuCalls()).toHaveLength(2);
+    expect(menuCalls()[1]?.url).toBe('/v1/admin/menu?q=kar&status=active');
     expect(itemIds()).toEqual(['I3']);
 
     const loadMore = [...container.querySelectorAll('button')].find((b) => b.textContent === t('owner.menu.load_more'));
     if (!loadMore) throw new Error('Load more missing');
     await act(async () => loadMore.click());
     await flush();
-    expect(calls).toHaveLength(3);
-    expect(calls[2]?.url).toBe('/v1/admin/menu?q=kar&status=active&cursor=c2');
+    expect(menuCalls()).toHaveLength(3);
+    expect(menuCalls()[2]?.url).toBe('/v1/admin/menu?q=kar&status=active&cursor=c2');
     expect(itemIds()).toEqual(['I3', 'I4']);
     expect([...container.querySelectorAll('button')].some((b) => b.textContent === t('owner.menu.load_more'))).toBe(false);
     await flush(1_000);
-    expect(calls).toHaveLength(3);
+    expect(menuCalls()).toHaveLength(3);
   });
   it('[01a §8.1 Pulse 01a-S05] Show archived items is in the app-bar More menu; the Archived shown chip goes back to active', async () => {
     const { api, calls } = fakeApi((call) =>

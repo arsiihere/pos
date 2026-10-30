@@ -1,4 +1,4 @@
-import type { Unit } from '@pos/domain';
+import { formatQuantity, parseQuantity, type Unit } from '@pos/domain';
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import type {
   AvailabilityWindow,
@@ -12,13 +12,19 @@ import type {
   Program,
   ServeMode,
   Station,
+  StockItem,
+  StockUnit,
   TaxClass,
+  VariantGroup,
 } from '../../../api/cloud-admin';
+import { navigate } from '../../../app/router';
+import { newUlid } from '../../../app/ulid';
 import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { Icon } from '../../../components/Icon';
+import { InUseDialog, type InUseRow } from '../../../components/InUseDialog';
 import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { Skeleton } from '../../../components/Skeleton';
@@ -26,6 +32,7 @@ import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey, typeClass } from '../../../i18n';
 import { idTail, useBranchName } from '../branch';
+import { apiCode, bySortThenName, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -33,6 +40,8 @@ import { formatMinutes, parseMinutes } from '../minutes';
 import { formatRupees, parseRupees, shownRupees } from '../money';
 import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
+import { quantityAffix, quantityInput, unitOption } from '../stock-items/stock';
+import { linkStock, type LinkPlan, type LinkStep } from './linkStock';
 import { windowText, WindowsField } from './WindowsField';
 
 // §8.1, §6.14–§6.16 (01a-S07): the item form. Sections: what customers see, price (Sold by, price, tax
@@ -45,6 +54,11 @@ import { windowText, WindowsField } from './WindowsField';
 // PATCHes the changed fields, then PUTs each changed route (§6.16); a PUT that fails after the PATCH saved
 // shows which branch was not saved, and Save sends only what is still different (B03, S50 h). On a phone an
 // edit opens price first (S50 g). Read-only (S8) shows the same form without saving.
+// 01c §8 (01c-S01, contract §2): "Size group" (folds to one line when plain; Remove sends variant_group_id and
+// variant_name null together), "Weighed when served" (kg / L items only; on hides the stock link) and "Stock"
+// (a stock item, uses per sale in its unit, a read-only summary, and the inline "Create a stock item with this
+// name" mini-form, linkStock.ts). Server field errors land on their field under the one summary banner (01c-B01);
+// CONFIG_IN_USE opens 01c-D04.
 type StationRow = Station & { programs: Program[] };
 
 interface RouteChoice {
@@ -115,6 +129,8 @@ function Select({
   id,
   labelClass,
   ariaLabel,
+  error,
+  disabled,
 }: {
   name: string;
   label: string;
@@ -124,15 +140,19 @@ function Select({
   id?: string;
   labelClass?: string;
   ariaLabel?: string;
+  error?: string;
+  disabled?: boolean;
 }) {
   return (
-    <label className="pos-field">
+    <label className={`pos-field${error === undefined ? '' : ' pos-field--error'}`}>
       <span className={labelClass === undefined ? 'pos-field__label' : `pos-field__label ${labelClass}`}>{label}</span>
       <select
         className="pos-select"
         id={id}
         name={name}
         aria-label={ariaLabel}
+        aria-invalid={error !== undefined ? true : undefined}
+        disabled={disabled}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -142,6 +162,7 @@ function Select({
           </option>
         ))}
       </select>
+      {error !== undefined && <span className="pos-field__error">{error}</span>}
     </label>
   );
 }
@@ -156,6 +177,7 @@ function TextField({
   error,
   unit,
   prefix,
+  placeholder,
 }: {
   name: string;
   label: string;
@@ -166,6 +188,7 @@ function TextField({
   error?: string;
   unit?: string;
   prefix?: string;
+  placeholder?: string;
 }) {
   const input = (
     <input
@@ -174,6 +197,7 @@ function TextField({
       name={name}
       inputMode={numeric ? 'decimal' : undefined}
       aria-invalid={error !== undefined ? true : undefined}
+      placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />
@@ -196,6 +220,53 @@ function TextField({
   );
 }
 
+// 01c contract §2, 01c-B01: a 422 / name-taken refusal on a 01c field marks that field (the row as sent).
+function serverProblem(error: CloudError): Problem | null {
+  if (error.kind !== 'api') return null;
+  const field = error.details['field'];
+  if (error.code === 'CONFIG_NAME_TAKEN' && error.details['entity'] === 'variant') {
+    return { id: 'item-variant_name', section: 'item.size_title', text: t('errors.CONFIG_NAME_TAKEN') };
+  }
+  if (error.code !== 'CONFIG_REFERENCE_INVALID' || typeof field !== 'string') return null;
+  const text = referenceText(error.details);
+  if (field === 'variant_group_id') return { id: 'item-variant_group_id', section: 'item.size_title', text };
+  if (field === 'variant_name') return { id: 'item-variant_name', section: 'item.size_title', text };
+  if (field === 'category_id') return { id: 'item-category_id', section: 'item.section.customers', text };
+  if (field === 'requires_weighing') return { id: 'item-requires_weighing', section: 'item.weighed_title', text };
+  if (field.startsWith('stock_draws')) {
+    return field.endsWith('quantity_per_sale_unit')
+      ? { id: 'item-uses', section: 'item.draw_title', text }
+      : { id: 'item-stock_item_id', section: 'item.draw_title', text };
+  }
+  return null;
+}
+
+// 01c-D04 for an item: what still uses it (choice groups first, §6.5), one row per kind with its list.
+function inUseOf(error: CloudError): InUseRow[] | null {
+  if (error.kind !== 'api' || error.code !== 'CONFIG_IN_USE') return null;
+  const usedBy = error.details['used_by'] as { entity?: unknown; ids?: unknown } | undefined;
+  const n = Array.isArray(usedBy?.ids) ? usedBy.ids.length : 0;
+  if (usedBy?.entity === 'modifier_group') {
+    return [{ name: fill(t('item.in_use_groups'), { n: String(n) }), href: '#/choice-groups' }];
+  }
+  if (usedBy?.entity === 'deal') return [{ name: fill(t('item.in_use_deals'), { n: String(n) }), href: '#/deals' }];
+  return [];
+}
+
+interface Mini {
+  name: string;
+  unit: StockUnit;
+  uses: string;
+}
+
+interface PartWay {
+  plan: LinkPlan;
+  stockItemId: string | null;
+  error: string | null;
+}
+
+const MAX_USES = 1_000_000;
+
 export function ItemForm({
   api,
   item,
@@ -205,6 +276,8 @@ export function ItemForm({
   onSaved,
   onCancel,
   readOnly = false,
+  variantGroups = [],
+  newSizeOf,
 }: {
   api: CloudAdmin;
   item: MenuItem | null;
@@ -214,7 +287,13 @@ export function ItemForm({
   onSaved: (notice?: string | null) => void;
   onCancel: () => void;
   readOnly?: boolean;
+  // 01c §6.3: the menu read's size groups (archived included).
+  variantGroups?: readonly VariantGroup[];
+  // 01c-S09 "Add a size" (#/menu?new_size_of=…): a new item with the size group and its category filled in.
+  newSizeOf?: string;
 }) {
+  const groupOf = (id: string) => variantGroups.find((g) => g.variant_group_id === id);
+  const prefill = item === null && newSizeOf !== undefined ? groupOf(newSizeOf) : undefined;
   const branchName = useBranchName();
   const { key } = useIdempotencyKey();
   const phone = usePhone();
@@ -227,7 +306,24 @@ export function ItemForm({
   );
   const [name, setName] = useState(item?.name ?? '');
   const [description, setDescription] = useState(item?.description ?? '');
-  const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find(active)?.category_id ?? '');
+  const [categoryId, setCategoryId] = useState(
+    item?.category_id ?? prefill?.category_id ?? categories.find(active)?.category_id ?? '',
+  );
+  // 01c-S01 sections.
+  const [groupId, setGroupId] = useState(item?.variant_group_id ?? prefill?.variant_group_id ?? '');
+  const [sizeName, setSizeName] = useState(item?.variant_name ?? '');
+  const [sizeOpen, setSizeOpen] = useState(groupId !== '');
+  const [weighed, setWeighed] = useState(item?.requires_weighing ?? false);
+  const storedDraw = item?.stock_draws[0];
+  const [stockId, setStockId] = useState(storedDraw?.stock_item_id ?? '');
+  const [uses, setUses] = useState('');
+  const [stockItems, setStockItems] = useState<StockItem[] | null>(null);
+  const [mini, setMini] = useState<Mini | null>(null);
+  const [miniKey, setMiniKey] = useState('');
+  const [miniError, setMiniError] = useState<{ field: 'name' | null; text: string } | null>(null);
+  const [linking, setLinking] = useState<LinkStep | 0>(0);
+  const [partWay, setPartWay] = useState<PartWay | null>(null);
+  const [inUse, setInUse] = useState<{ title: string; rows: InUseRow[] } | null>(null);
   const [taxId, setTaxId] = useState(item?.tax_class_id ?? '');
   const [price, setPrice] = useState(item === null ? '' : formatRupees(item.price_minor));
   const [serveMode, setServeMode] = useState<ServeMode>(item?.serve_mode ?? 'immediate');
@@ -271,6 +367,38 @@ export function ItemForm({
       live = false;
     };
   }, [api, branchIds]);
+
+  // 01c §6.6: the stock items for the picker and the summary; an archived linked one is read too (R9).
+  async function readStockItems(): Promise<StockItem[] | null> {
+    const active = await api.listStockItems({});
+    if (!active.ok) return null;
+    // A reply without the list (an older cloud) reads as no stock items.
+    const list = Array.isArray(active.data.stock_items) ? [...active.data.stock_items] : [];
+    const linked = storedDraw?.stock_item_id;
+    if (linked !== undefined && !list.some((s) => s.stock_item_id === linked)) {
+      const archived = await api.listStockItems({ status: 'archived' });
+      if (archived.ok && Array.isArray(archived.data.stock_items)) {
+        list.push(...archived.data.stock_items.filter((s) => s.stock_item_id === linked));
+      }
+    }
+    return list;
+  }
+
+  useEffect(() => {
+    let live = true;
+    void readStockItems().then((list) => {
+      if (!live || list === null) return;
+      setStockItems(list);
+      const linked = list.find((s) => s.stock_item_id === storedDraw?.stock_item_id);
+      if (linked !== undefined && storedDraw !== undefined && linked.stock_unit !== item?.sale_unit) {
+        setUses(quantityInput(storedDraw.quantity_per_sale_unit, linked.stock_unit));
+      }
+    });
+    return () => {
+      live = false;
+    };
+    // Read once when the form opens.
+  }, [api]);
 
   function changeKeptReady(next: boolean) {
     setKeptReady(next);
@@ -318,6 +446,25 @@ export function ItemForm({
       : parseMinutes(stockTime);
   const priceValue = parseRupees(price);
 
+  // 01c: the size group, weighing and the stock draw as they will be sent.
+  const group = groupId === '' ? undefined : groupOf(groupId);
+  const weighedOn = saleUnit !== 'piece' && weighed;
+  const stock = stockId === '' ? undefined : stockItems?.find((s) => s.stock_item_id === stockId);
+  const sameUnit = stock !== undefined && stock.stock_unit === saleUnit;
+  const usesValue = (() => {
+    if (stock === undefined || sameUnit) return null;
+    const parsed = parseQuantity(uses, stock.stock_unit);
+    return parsed.ok && parsed.value >= 1 && parsed.value <= MAX_USES ? parsed.value : null;
+  })();
+  // V4: equal units → 1; different units → the typed amount (the item must be sold by piece). Until the stock
+  // items are read, the stored draw stays as it is. undefined = not sendable (check() says why).
+  const draws = ((): MenuItem['stock_draws'] | undefined => {
+    if (weighedOn || stockId === '') return [];
+    if (stock === undefined) return storedDraw?.stock_item_id === stockId ? [storedDraw] : [];
+    if (sameUnit) return [{ stock_item_id: stockId, quantity_per_sale_unit: 1 }];
+    return usesValue === null ? undefined : [{ stock_item_id: stockId, quantity_per_sale_unit: usesValue }];
+  })();
+
   function check(): Problem[] {
     const found: Problem[] = [];
     if (name.trim() === '' || name.trim().length > 60)
@@ -343,11 +490,26 @@ export function ItemForm({
       }
     }
     if (windows === null) found.push({ id: 'item-hours', section: 'item.section.hours', text: t('owner.hours.invalid') });
+    if (groupId !== '') {
+      if (group !== undefined && group.category_id !== categoryId) {
+        found.push({ id: 'item-variant_group_id', section: 'item.size_title', text: t('errors.reference.category_mismatch') });
+      }
+      if (sizeName.trim() === '' || sizeName.trim().length > 30) {
+        found.push({ id: 'item-variant_name', section: 'item.size_title', text: t('item.need_size_name') });
+      }
+    }
+    if (!weighedOn && stock !== undefined && !sameUnit) {
+      if (saleUnit !== 'piece') {
+        found.push({ id: 'item-stock_item_id', section: 'item.draw_title', text: t('errors.reference.unit_mismatch') });
+      } else if (usesValue === null) {
+        found.push({ id: 'item-uses', section: 'item.draw_title', text: t('item.need_uses') });
+      }
+    }
     return found;
   }
 
   function fields(): Omit<CreateMenuItemBody, 'routes'> | null {
-    if (!priceValue.ok || cookMs === null || prepMs === null || windows === null) return null;
+    if (!priceValue.ok || cookMs === null || prepMs === null || windows === null || draws === undefined) return null;
     return {
       category_id: categoryId,
       tax_class_id: taxId === '' ? null : taxId,
@@ -361,6 +523,10 @@ export function ItemForm({
       out_of_stock_behaviour: outOfStock,
       sale_unit: saleUnit,
       availability_windows: windows,
+      variant_group_id: groupId === '' ? null : groupId,
+      variant_name: groupId === '' ? null : sizeName.trim(),
+      requires_weighing: weighedOn,
+      stock_draws: draws,
     };
   }
 
@@ -368,6 +534,11 @@ export function ItemForm({
     const patch: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(next)) {
       if (JSON.stringify(value) !== JSON.stringify(current[field as keyof MenuItem])) patch[field] = value;
+    }
+    // §6.5 edge: the size group and the size name go together (one null alone → 400).
+    if ('variant_group_id' in patch || 'variant_name' in patch) {
+      patch['variant_group_id'] = next.variant_group_id;
+      patch['variant_name'] = next.variant_name;
     }
     return patch;
   }
@@ -396,7 +567,7 @@ export function ItemForm({
 
   async function submit(e?: FormEvent) {
     e?.preventDefault();
-    if (busy || readOnly) return;
+    if (busy || readOnly || mini !== null || linking !== 0) return;
     const found = check();
     setProblems(found);
     const next = fields();
@@ -413,6 +584,16 @@ export function ItemForm({
     if (isKeyMismatch(result)) {
       // The form closes (a new one gets a new key) and the list is reloaded (form.ts).
       onSaved(errorText(result));
+      return;
+    }
+    const field = serverProblem(result);
+    if (field !== null) {
+      setProblems([field]);
+      return;
+    }
+    const users = inUseOf(result);
+    if (users !== null) {
+      setInUse({ title: fill(t('item.in_use_change'), { name: base?.name ?? name.trim() }), rows: users });
       return;
     }
     setError(errorText(result));
@@ -456,8 +637,74 @@ export function ItemForm({
     setBusy(true);
     const result = await api.patchMenuItem(base.item_id, { archived: true });
     setBusy(false);
-    if (result.ok) onSaved();
+    if (result.ok) {
+      onSaved();
+      return;
+    }
+    const users = inUseOf(result.error);
+    if (users !== null) setInUse({ title: fill(t('in_use.title'), { name: base.name }), rows: users });
     else setError(errorText(result.error));
+  }
+
+  // 01c-S01 mini-form (Q9): named after the size group, else the item; counted in the item's own unit.
+  function openMini() {
+    setMini({ name: (group?.name ?? name.trim()).slice(0, 60), unit: saleUnit, uses: '' });
+    setMiniKey(newUlid());
+    setMiniError(null);
+  }
+
+  const miniDiffers = mini !== null && mini.unit !== saleUnit;
+  const miniUses = (() => {
+    if (mini === null || !miniDiffers) return 1;
+    const parsed = parseQuantity(mini.uses, mini.unit);
+    return parsed.ok && parsed.value >= 1 && parsed.value <= MAX_USES ? parsed.value : null;
+  })();
+  const miniMismatch = miniDiffers && saleUnit !== 'piece';
+  const miniReady = mini !== null && mini.name.trim() !== '' && mini.name.trim().length <= 60 && !miniMismatch && miniUses !== null;
+
+  async function runLink(plan: LinkPlan, known: string | null) {
+    setLinking(1);
+    setMiniError(null);
+    const result = await linkStock(api, plan, known, setLinking);
+    setLinking(0);
+    if (result.ok) {
+      const draw = { stock_item_id: result.stockItemId, quantity_per_sale_unit: plan.quantity };
+      setMini(null);
+      setPartWay(null);
+      setStockId(result.stockItemId);
+      setUses(plan.stockUnit === saleUnit ? '' : quantityInput(plan.quantity, plan.stockUnit));
+      if (base !== null) setBase({ ...base, stock_draws: [draw] });
+      const list = await readStockItems();
+      if (list !== null) setStockItems(list);
+      return;
+    }
+    const text = errorText(result.error);
+    if (result.stockItemId === null && mini !== null) {
+      // Step 1 refused or lost: the mini-form stays; Create and link retries with the same key.
+      if (isKeyMismatch(result.error)) setMiniKey(newUlid());
+      const taken = apiCode(result.error) === 'CONFIG_NAME_TAKEN';
+      setMiniError({ field: taken ? 'name' : null, text: taken ? t('errors.CONFIG_NAME_TAKEN') : (text ?? '') });
+      return;
+    }
+    setMini(null);
+    setPartWay({ plan, stockItemId: result.stockItemId, error: text });
+  }
+
+  function createAndLink() {
+    if (mini === null || !miniReady || miniUses === null) return;
+    void runLink(
+      {
+        name: mini.name.trim(),
+        stockUnit: mini.unit,
+        key: miniKey,
+        stations: branchIds
+          .filter((b) => (routes[b] ?? NO_ROUTE).station_id !== '')
+          .map((b) => ({ branch_id: b, station_id: (routes[b] ?? NO_ROUTE).station_id })),
+        quantity: miniUses,
+        itemId: base?.item_id ?? null,
+      },
+      null,
+    );
   }
 
   const taxOptions = [
@@ -500,7 +747,13 @@ export function ItemForm({
       <button type="button" className="pos-btn" onClick={() => leave(onCancel)}>
         {t('owner.common.cancel')}
       </button>
-      <BusyButton busy={busy} primary disabled={down || categoryOptions.length === 0} type="submit" form="item-form">
+      <BusyButton
+        busy={busy}
+        primary
+        disabled={down || categoryOptions.length === 0 || mini !== null || linking !== 0}
+        type="submit"
+        form="item-form"
+      >
         {saveLabel}
       </BusyButton>
     </>
@@ -512,7 +765,7 @@ export function ItemForm({
         <div className="pos-banner pos-banner--danger" role="alert">
           <Icon name="alert" />
           <p>
-            {fill(t('item.fix_n'), { n: String(problems.length) })}
+            {problems.length === 1 ? t('fix.one') : fill(t('item.fix_n'), { n: String(problems.length) })}
             <small className="pos-fixlinks">
               {problems.map((p) => (
                 <button
@@ -557,6 +810,8 @@ export function ItemForm({
         <form className="pos-stack pos-quickprice" id="item-form" data-form="item" noValidate onSubmit={(e) => void submit(e)}>
           <fieldset className="pos-stack" disabled={readOnly}>
             {banners}
+            {/* Q11: the quick-price page names the size group and shows no 01c sections. */}
+            {group !== undefined && <p className="pos-note">{fill(t('item.quick_group'), { name: group.name })}</p>}
             <section className="pos-card pos-quickprice__card">
               <TextField
                 name="price"
@@ -610,6 +865,297 @@ export function ItemForm({
 
   const hoursText = (windows ?? []).length === 0 ? t('owner.hours.all_day') : (windows ?? []).map(windowText).join(', ');
 
+  // 01c-S01 "Size group": plain → one quiet line with Put in a size group; in a group → picker + size name.
+  const groupOptions = [
+    { value: '', label: t('item.size_pick') },
+    ...[...variantGroups]
+      .filter((g) => g.archived_at === null || g.variant_group_id === item?.variant_group_id)
+      .sort(bySortThenName)
+      .map((g) => ({ value: g.variant_group_id, label: g.name })),
+  ];
+  const sizeSection = sizeOpen ? (
+    <section className="pos-section" data-section="size">
+      <div className="pos-fold__head">
+        <div className="pos-section__head">
+          <h2>{t('item.size_title')}</h2>
+        </div>
+        {!readOnly && (
+          <button
+            type="button"
+            className="pos-btn"
+            onClick={() => {
+              setGroupId('');
+              setSizeName('');
+              setSizeOpen(false);
+            }}
+          >
+            {t('item.size_remove')}
+          </button>
+        )}
+      </div>
+      <div className="pos-grid">
+        <Select
+          name="variant_group_id"
+          id="item-variant_group_id"
+          label={t('item.size_title')}
+          value={groupId}
+          options={groupOptions}
+          onChange={(next) => {
+            setGroupId(next);
+            const picked = groupOf(next);
+            if (picked !== undefined) setCategoryId(picked.category_id);
+          }}
+          error={problemFor('item-variant_group_id')}
+        />
+        <TextField
+          name="variant_name"
+          label={t('item.size_name')}
+          value={sizeName}
+          onChange={setSizeName}
+          placeholder={t('item.size_name_placeholder')}
+          help={t('item.size_name_help')}
+          error={problemFor('item-variant_name')}
+        />
+      </div>
+    </section>
+  ) : (
+    <section className="pos-section pos-section--quiet" data-section="size">
+      <div className="pos-fold__head">
+        <div className="pos-section__head">
+          <h2>{t('item.size_title')}</h2>
+          <p>{t('item.size_section_plain')}</p>
+        </div>
+        {!readOnly && (
+          <button type="button" className="pos-btn" onClick={() => setSizeOpen(true)}>
+            <Icon name="layers" />
+            {t('item.put_in_group')}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+
+  // V18: "Weighed when served" only for kg / L items.
+  const weighedSection = saleUnit !== 'piece' && (
+    <section className="pos-section" data-section="weighed">
+      <div className="pos-fold__head pos-itemform__switchhead" id="item-requires_weighing" tabIndex={-1}>
+        <div className="pos-section__head">
+          <h2>{t('item.weighed_title')}</h2>
+          <p>{t('item.weighed_help')}</p>
+        </div>
+        <Switch checked={weighed} label={t('item.weighed_title')} onChange={setWeighed} />
+      </div>
+      {problemFor('item-requires_weighing') !== undefined && (
+        <span className="pos-field__error">{problemFor('item-requires_weighing')}</span>
+      )}
+    </section>
+  );
+
+  // 01c-S01 "Stock": picker, uses per sale in the stock item's unit, the summary, the mini-form.
+  const stockOptions = [
+    { value: '', label: t('item.stock_none') },
+    ...(stockItems ?? [])
+      .filter((s) => s.archived_at === null || s.stock_item_id === stockId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((s) => ({ value: s.stock_item_id, label: s.name })),
+    ...(stockId !== '' && stockItems?.some((s) => s.stock_item_id === stockId) !== true
+      ? [{ value: stockId, label: stockItems === null ? '…' : t('owner.common.archived') }]
+      : []),
+  ];
+  const stationName = (branchId: string, stationId: string) =>
+    stations?.[branchId]?.find((x) => x.station_id === stationId)?.name ?? idTail(stationId);
+  const summaryLines =
+    stock === undefined
+      ? []
+      : branchIds.map((b) => {
+          const row = stock.branches.find((r) => r.branch_id === b);
+          if (row === undefined || row.station_id === null) return fill(t('item.stock_line_none'), { branch: branchName(b) });
+          const at = { branch: branchName(b), station: stationName(b, row.station_id) };
+          return row.low_stock_threshold === null
+            ? fill(t('stock_items.at'), at)
+            : fill(t('item.stock_line_alert'), { ...at, n: formatQuantity(row.low_stock_threshold, stock.stock_unit) });
+        });
+  const openStock = (id: string) => leave(() => navigate(`/stock-items/${encodeURIComponent(id)}`));
+  const usesQty = draws?.[0]?.quantity_per_sale_unit;
+  const drawSection = weighedOn ? (
+    <section className="pos-section pos-section--quiet" data-section="draw">
+      <div className="pos-section__head">
+        <h2>{t('item.draw_title')}</h2>
+      </div>
+      <p className="pos-note">{t('item.stock_not_used')}</p>
+    </section>
+  ) : (
+    <section className="pos-section" data-section="draw">
+      <div className="pos-section__head">
+        <h2>{t('item.draw_title')}</h2>
+        <p>{stock === undefined ? t('item.stock_help') : t(group === undefined ? 'item.stock_linked' : 'item.stock_linked_shared')}</p>
+      </div>
+      <div className={stock === undefined || sameUnit ? 'pos-pickrow' : 'pos-grid'}>
+        <Select
+          name="stock_item_id"
+          id="item-stock_item_id"
+          label={t('item.stock_item')}
+          value={stockId}
+          options={stockOptions}
+          disabled={mini !== null || linking !== 0 || partWay !== null}
+          onChange={(next) => {
+            setStockId(next);
+            setUses('');
+          }}
+          error={problemFor('item-stock_item_id')}
+        />
+        {stock !== undefined && !sameUnit && (
+          <TextField
+            name="uses"
+            label={t('item.uses')}
+            value={uses}
+            onChange={setUses}
+            numeric
+            unit={quantityAffix(stock.stock_unit)}
+            help={
+              usesQty === undefined
+                ? t('item.uses_help')
+                : `${t('item.uses_help')} ${fill(t('item.uses_a_sale'), { qty: formatQuantity(usesQty, stock.stock_unit) })}`
+            }
+            error={problemFor('item-uses')}
+          />
+        )}
+      </div>
+      {sameUnit && <p className="pos-note">{t('item.uses_same')}</p>}
+      {stock !== undefined && (
+        <div className="pos-sumlines" data-stock-summary="">
+          <b>
+            {fill(t('item.stock_head'), {
+              name: stock.name,
+              unit: unitOption(stock.stock_unit),
+              keeps: t(stock.carries_over ? 'item.keeps' : 'item.no_keep'),
+            })}
+          </b>
+          {summaryLines.slice(0, 3).map((line, i) => (
+            <span key={i}>{line}</span>
+          ))}
+          {summaryLines.length > 3 && <span>{fill(t('item.more_n'), { n: String(summaryLines.length - 3) })}</span>}
+          <a
+            href={`#/stock-items/${encodeURIComponent(stock.stock_item_id)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              openStock(stock.stock_item_id);
+            }}
+          >
+            {t('item.open_stock')}
+            <Icon name="forward" flip />
+          </a>
+        </div>
+      )}
+      {stockId === '' && mini === null && partWay === null && !readOnly && (
+        <div className="pos-row">
+          <button type="button" className="pos-btn" onClick={openMini}>
+            <Icon name="plus" />
+            {t('item.create_stock')}
+          </button>
+          <span className="pos-note">{t('item.create_stock_note')}</span>
+        </div>
+      )}
+      {mini !== null && (
+        <div className="pos-mini" data-mini="">
+          <h3 className="pos-mini__title">{t('item.mini_title')}</h3>
+          {miniError !== null && miniError.field === null && miniError.text !== '' && <Banner tone="danger" text={miniError.text} />}
+          <div className="pos-grid pos-grid--3">
+            <label className={`pos-field${miniError?.field === 'name' ? ' pos-field--error' : ''}`}>
+              <span className="pos-field__label">{t('stock_item.name')}</span>
+              <input
+                className="pos-input"
+                name="mini_name"
+                maxLength={60}
+                disabled={linking !== 0}
+                value={mini.name}
+                onChange={(e) => setMini({ ...mini, name: e.target.value })}
+              />
+              {miniError?.field === 'name' && <span className="pos-field__error">{miniError.text}</span>}
+            </label>
+            <div className={`pos-field${miniMismatch ? ' pos-field--error' : ''}`}>
+              <span className="pos-field__label">{t('stock_item.unit')}</span>
+              <Segmented
+                label={t('stock_item.unit')}
+                value={mini.unit}
+                block
+                locked={linking !== 0}
+                options={(['piece', 'g', 'ml'] as const).map((u) => ({ value: u, label: unitOption(u) }))}
+                onChange={(unit) => setMini({ ...mini, unit, uses: '' })}
+              />
+              {miniMismatch && <span className="pos-field__error">{t('errors.reference.unit_mismatch')}</span>}
+            </div>
+            {miniDiffers && !miniMismatch && (
+              <label className="pos-field">
+                <span className="pos-field__label">{t('item.uses')}</span>
+                <span className="pos-input-affix pos-ltr">
+                  <input
+                    className="pos-input pos-input--mono"
+                    name="mini_uses"
+                    inputMode="decimal"
+                    disabled={linking !== 0}
+                    placeholder={t('item.mini_uses_placeholder')}
+                    value={mini.uses}
+                    onChange={(e) => setMini({ ...mini, uses: e.target.value })}
+                  />
+                  <span>{quantityAffix(mini.unit)}</span>
+                </span>
+                <span className="pos-field__help">
+                  {fill(t('item.mini_uses_help'), { size: sizeName.trim() || name.trim() || t('owner.item.new') })}
+                </span>
+              </label>
+            )}
+          </div>
+          <div className="pos-mini__foot">
+            {linking !== 0 ? (
+              <span className="pos-progress-line" role="status">
+                <span className="pos-spin" aria-hidden="true" />
+                {fill(t('item.creating'), { n: String(linking) })}
+              </span>
+            ) : (
+              <span className="pos-note">{t('item.mini_note')}</span>
+            )}
+            <button type="button" className="pos-btn" disabled={linking !== 0} onClick={() => setMini(null)}>
+              {t('owner.common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="pos-btn pos-btn--primary"
+              disabled={!miniReady || linking !== 0}
+              onClick={createAndLink}
+            >
+              {t('item.create_link')}
+            </button>
+          </div>
+        </div>
+      )}
+      {partWay !== null && (
+        <div className="pos-banner pos-banner--warn" role="status" data-partway="">
+          <Icon name="alert" />
+          <p>
+            {t('item.partway')}
+            <small>
+              {fill(t('item.partway_body'), { name: partWay.plan.name })}
+              {partWay.error !== null && ` ${partWay.error}`}
+            </small>
+          </p>
+          <span className="pos-banner__action">
+            {linking !== 0 ? (
+              <span className="pos-progress-line" role="status">
+                <span className="pos-spin" aria-hidden="true" />
+                {fill(t('item.creating'), { n: String(linking) })}
+              </span>
+            ) : (
+              <button type="button" className="pos-btn pos-btn--row" onClick={() => void runLink(partWay.plan, partWay.stockItemId)}>
+                {t('item.finish_linking')}
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <Page
       api={api}
@@ -645,7 +1191,15 @@ export function ItemForm({
             </div>
             <div className="pos-grid">
               <TextField name="name" label={t('owner.item.name')} value={name} onChange={setName} error={problemFor('item-name')} />
-              <Select name="category_id" label={t('owner.item.category')} value={categoryId} options={categoryOptions} onChange={setCategoryId} />
+              <Select
+                name="category_id"
+                id="item-category_id"
+                label={t('owner.item.category')}
+                value={categoryId}
+                options={categoryOptions}
+                onChange={setCategoryId}
+                error={problemFor('item-category_id')}
+              />
               <TextField name="description" label={t('owner.item.description')} value={description} onChange={setDescription} />
             </div>
           </section>
@@ -677,6 +1231,10 @@ export function ItemForm({
               <Select name="tax_class_id" label={t('owner.item.tax_class')} value={taxId} options={taxOptions} onChange={setTaxId} />
             </div>
           </section>
+
+          {sizeSection}
+          {weighedSection}
+          {drawSection}
 
           <section className="pos-section">
             <div className="pos-section__head">
@@ -901,11 +1459,39 @@ export function ItemForm({
                   <Icon name="check" />
                   {hoursText}
                 </li>
+                <li>
+                  <Icon name="check" />
+                  {group !== undefined
+                    ? fill(t('item.sum_tile'), { group: group.name, size: sizeName.trim() || '…' })
+                    : t('item.sum_own_tile')}
+                </li>
+                <li>
+                  <Icon name="check" />
+                  {weighedOn
+                    ? t('item.sum_weighed')
+                    : stock !== undefined && draws !== undefined && draws.length > 0
+                      ? fill(t('size_group.draws'), {
+                          qty: formatQuantity(draws[0]?.quantity_per_sale_unit ?? 1, stock.stock_unit),
+                          stock: stock.name,
+                        })
+                      : t('item.sum_not_counted')}
+                </li>
               </ul>
             </div>
           )}
         </aside>
       </form>
+      {inUse !== null && (
+        <InUseDialog
+          name={base?.name ?? name.trim()}
+          title={inUse.title}
+          body={t('item.in_use_body')}
+          rows={inUse.rows}
+          icon="sliders"
+          onClose={() => setInUse(null)}
+          onOpen={() => setInUse(null)}
+        />
+      )}
       {archiving && base !== null && (
         <ConfirmDialog
           title={fill(t('archive.item_title'), { name: base.name })}

@@ -14,6 +14,7 @@ export interface InUseRow {
 
 export function InUseDialog({
   name,
+  title,
   body,
   rows,
   unnamed = 0,
@@ -22,6 +23,8 @@ export function InUseDialog({
   onOpen,
 }: {
   name: string;
+  // Another title than "{name} can't be archived yet" (e.g. a change that is blocked).
+  title?: string;
   body?: string;
   rows: readonly InUseRow[];
   unnamed?: number;
@@ -46,7 +49,7 @@ export function InUseDialog({
         data-in-use=""
       >
         <h2 className="pos-dialog__title" id={titleId}>
-          {fill(t('in_use.title'), { name })}
+          {title ?? fill(t('in_use.title'), { name })}
         </h2>
         <p className="pos-dialog__body">{body ?? t('errors.CONFIG_IN_USE')}</p>
         {rows.map((row, i) => (
