@@ -151,6 +151,12 @@ const q = <T extends Element>(sel: string) => ui.container.querySelector<T>(sel)
 const field = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => q<T>(`[name="${name}"]`);
 const section = (name: string) => q<HTMLElement>(`[data-section="${name}"]`);
 const saveButton = () => button(ui.container, t('item.save'));
+// The folded Branches and kitchen, Ready-made stock, Hours row; a missing row fails the test.
+const foldRow = () => {
+  const row = q<HTMLButtonElement>('button.pos-disclosure');
+  if (row === null) throw new Error('fold row missing');
+  return row;
+};
 
 async function save() {
   const form = q<HTMLFormElement>('form#item-form');
@@ -299,7 +305,7 @@ describe('owner decision 2026-10-30: Branches and kitchen, Ready-made stock, Hou
     expect(foldBody()?.hidden).toBe(true);
     expect(foldBody()?.querySelector('[data-section="stock"]')).not.toBeNull();
 
-    await click(fold());
+    await click(foldRow());
     expect(fold()?.getAttribute('aria-expanded')).toBe('true');
     expect(foldBody()?.hidden).toBe(false);
     // 01c A2: Kept ready off → no stock time → not counted.
@@ -336,12 +342,12 @@ describe('owner decision 2026-10-30: Branches and kitchen, Ready-made stock, Hou
   it('typed hours survive closing and reopening the row (kept mounted)', async () => {
     const { api } = server();
     await renderForm(api, item());
-    await click(fold());
+    await click(foldRow());
     const hours = () => q('[data-field="availability_windows"]') as HTMLElement;
     await click(button(hours(), t('owner.hours.set_hours')));
-    setValue(hours().querySelector('input[name="start"]'), '07:00');
-    await click(fold());
-    await click(fold());
+    setValue(hours().querySelector<HTMLInputElement>('input[name="start"]'), '07:00');
+    await click(foldRow());
+    await click(foldRow());
     expect(hours().querySelector<HTMLInputElement>('input[name="start"]')?.value).toBe('07:00');
   });
 });
@@ -366,7 +372,7 @@ describe('R2-C review fixes', () => {
     setValue(field('cook_minutes'), '');
     await save();
     expect(fold()?.getAttribute('aria-expanded')).toBe('true');
-    await click(fold());
+    await click(foldRow());
     expect(fold()?.getAttribute('aria-expanded')).toBe('false');
     const link = [...ui.container.querySelectorAll<HTMLButtonElement>('.pos-fixlinks__link')].find((b) => b.textContent?.includes(t('item.need_cook')));
     await click(link as HTMLElement);
