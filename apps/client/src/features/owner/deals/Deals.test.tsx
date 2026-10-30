@@ -116,12 +116,13 @@ const OLD = { ...BIRYANI, deal_id: 'D3', name: 'Old platter', archived_at: 1 };
 
 function handler(
   write: (call: Call) => Response | undefined = () => undefined,
-  o: { canEdit?: boolean; deals?: unknown[]; secondPage?: () => Promise<Response> } = {},
+  o: { canEdit?: boolean; deals?: unknown[]; secondPage?: () => Response | Promise<Response>; archivedFail?: boolean } = {},
 ) {
   return (call: Call): Response | Promise<Response> => {
     const written = call.method === 'GET' ? undefined : write(call);
     if (written !== undefined) return written;
     if (call.url === '/v1/admin/deals') return ok({ can_edit_tenant: o.canEdit ?? true, deals: o.deals ?? [DEAL, BIRYANI] });
+    if (call.url === '/v1/admin/deals?status=archived' && o.archivedFail === true) return fail(503, 'SERVICE_UNAVAILABLE');
     if (call.url === '/v1/admin/deals?status=archived') return ok({ can_edit_tenant: o.canEdit ?? true, deals: [OLD] });
     if (call.url.startsWith('/v1/admin/menu')) {
       if (call.url.includes('cursor=c2')) return o.secondPage?.() ?? ok(page([ROGHNI, FISH, RICE], null));
@@ -172,6 +173,31 @@ describe('[01c-S04] deals list', () => {
     await flush();
     await flush();
     expect(m.container.querySelector('[data-checking]')).toBeNull();
+    expect(texts(m.container.querySelectorAll('[data-omission]'))).toEqual(['Not sold at Gulberg: part 2 has no routed choice']);
+  });
+
+  it('[review I1] a failed menu page: no endless "Checking branches…"; an error with Retry that reloads from page 1', async () => {
+    let failing = true;
+    const { api, calls } = fakeApi(handler(undefined, { secondPage: () => (failing ? fail(500, 'INTERNAL') : ok(page([ROGHNI, FISH, RICE], null))) }));
+    await render(<DealList api={api} />);
+    expect(m.container.querySelector('[data-checking]')).toBeNull();
+    expect(m.container.querySelector('[data-omission]')).toBeNull();
+    const banner = m.container.querySelector<HTMLElement>('[data-menu-error]')!;
+    expect(banner.querySelector('p')?.firstChild?.textContent).toBe(
+      "Couldn't check the branches. Branch warnings are not shown until the menu loads.",
+    );
+    // A later deal read (Show archived and back) does not wipe the menu error.
+    await click(m.container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more')!);
+    await click(button(m.container, 'Show archived deals'));
+    expect(m.container.querySelector('[data-menu-error]')).not.toBeNull();
+    await click(m.container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more')!);
+    await click(button(m.container, 'Hide archived deals'));
+    failing = false;
+    const firstPages = calls.filter((c) => c.url.startsWith('/v1/admin/menu') && !c.url.includes('cursor')).length;
+    await click(button(m.container.querySelector('[data-menu-error]')!, 'Retry'));
+    await flush();
+    expect(calls.filter((c) => c.url.startsWith('/v1/admin/menu') && !c.url.includes('cursor')).length).toBe(firstPages + 1);
+    expect(m.container.querySelector('[data-menu-error]')).toBeNull();
     expect(texts(m.container.querySelectorAll('[data-omission]'))).toEqual(['Not sold at Gulberg: part 2 has no routed choice']);
   });
 
@@ -354,6 +380,33 @@ describe('[01c-S05] deal form', () => {
     setValue(m.container.querySelector<HTMLInputElement>('input[name="name"]'), 'Karahi deal');
     await click(button(m.container.querySelector('.pos-appbar')!, 'Save'));
     expect(m.container.querySelector('.pos-gone button')?.textContent).toBe('Back to Deals');
+  });
+
+  it('[review I2] a failed archived read shows an error, not "This deal isn\'t here any more"', async () => {
+    const { api } = fakeApi(handler(undefined, { archivedFail: true }));
+    await form(api, 'D3');
+    expect(m.container.querySelector('.pos-gone')).toBeNull();
+    expect(m.container.querySelector('.pos-banner--danger')).not.toBeNull();
+    m.unmount();
+    m = mount();
+    // An active deal still opens when only the archived read fails.
+    await form(api, 'D1');
+    expect(m.container.querySelector<HTMLInputElement>('input[name="name"]')?.value).toBe('Family karahi deal');
+  });
+
+  it('[review I3] Hours keep the edited window across close and reopen', async () => {
+    const { api } = fakeApi(handler());
+    await form(api, 'D1');
+    const toggle = () => m.container.querySelector<HTMLButtonElement>('#deal-hours')!;
+    await click(toggle());
+    await click(button(m.container.querySelector('#deal-hours-body')!, 'Only at set hours'));
+    setValue(m.container.querySelector<HTMLInputElement>('#deal-hours-body input[name="start"]'), '12:00');
+    setValue(m.container.querySelector<HTMLInputElement>('#deal-hours-body input[name="end"]'), '15:00');
+    await click(toggle());
+    expect(toggle().textContent).toContain('12:00–15:00');
+    await click(toggle());
+    expect(m.container.querySelector<HTMLInputElement>('#deal-hours-body input[name="start"]')?.value).toBe('12:00');
+    expect(m.container.querySelector<HTMLInputElement>('#deal-hours-body input[name="end"]')?.value).toBe('15:00');
   });
 
   it('read-only: tenant fields disabled, no Save, no Add part; branch rows stay editable', async () => {

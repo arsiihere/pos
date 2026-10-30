@@ -52,8 +52,11 @@ interface Loaded {
 async function findDeal(api: CloudAdmin, dealId: string) {
   const [active, archived] = await Promise.all([api.listDeals(), api.listDeals({ status: 'archived' })]);
   if (!active.ok) return active;
-  const all = [...active.data.deals, ...(archived.ok ? archived.data.deals : [])];
-  return { ok: true as const, data: { canEditTenant: active.data.can_edit_tenant, deal: all.find((d) => d.deal_id === dealId) ?? null } };
+  const inActive = active.data.deals.find((d) => d.deal_id === dealId);
+  // A failed archived read is an error, never "not found" (review I2); a new deal needs no lookup.
+  if (inActive === undefined && dealId !== 'new' && !archived.ok) return archived;
+  const deal = inActive ?? (archived.ok ? archived.data.deals.find((d) => d.deal_id === dealId) : undefined) ?? null;
+  return { ok: true as const, data: { canEditTenant: active.data.can_edit_tenant, deal } };
 }
 
 export function DealForm({ api, dealId }: { api: CloudAdmin; dealId: string }) {
@@ -203,6 +206,8 @@ function Editor({
   const [stale, setStale] = useState(false);
   const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [leaveAfterSave, setLeaveAfterSave] = useState(false);
   const [rowDirty, setRowDirty] = useState<ReadonlySet<string>>(new Set());
   const { key, renew } = useIdempotencyKey();
   const down = useCloudDown(api);
@@ -269,10 +274,17 @@ function Editor({
     parts: t('deal.parts'),
   };
   const changed = [
-    ...(deal === null ? (name.trim() !== '' || parts.length > 0 ? [labels.name ?? ''] : []) : Object.keys(patch).map((k) => labels[k] ?? k)),
+    ...(saved ? [] : deal === null ? (name.trim() !== '' || parts.length > 0 ? [labels.name ?? ''] : []) : Object.keys(patch).map((k) => labels[k] ?? k)),
     ...[...rowDirty].map(branchName),
   ];
   useDirtyForm(changed.length === 0 || gone ? null : { name: name.trim() || title, fields: changed });
+  // After a saved PATCH with branch rows still unsaved, ask about the rows only (review M5): the guard sees the
+  // saved fields as clean once this render has registered, so the leave runs from an effect.
+  useEffect(() => {
+    if (!leaveAfterSave) return;
+    setLeaveAfterSave(false);
+    leave(() => navigate('/deals'));
+  }, [leaveAfterSave, leave]);
 
   const onRowDirty = useCallback((branchId: string, dirty: boolean) => {
     setRowDirty((prev) => {
@@ -370,7 +382,11 @@ function Editor({
     const result = await api.patchDeal(deal.deal_id, { expected_version: deal.version, ...patch });
     setBusy(false);
     if (result.ok) {
-      done();
+      if (rowDirty.size === 0) navigate('/deals');
+      else {
+        setSaved(true);
+        setLeaveAfterSave(true);
+      }
       return;
     }
     showError(result.error);
@@ -584,12 +600,16 @@ function Editor({
             </span>
             <Icon name="chevron" />
           </button>
-          {hoursOpen && (
-            <fieldset className={`pos-dealform__hours ${fieldClass('availability_windows')}`} id="deal-hours-body" disabled={readOnly}>
-              <WindowsField value={deal?.availability_windows ?? []} onChange={setWindows} />
-              {fieldError('availability_windows')}
-            </fieldset>
-          )}
+          {/* Kept mounted while closed so its rows (the draft) survive close and reopen (review I3). */}
+          <fieldset
+            className={`pos-dealform__hours ${fieldClass('availability_windows')}`}
+            id="deal-hours-body"
+            hidden={!hoursOpen}
+            disabled={readOnly}
+          >
+            <WindowsField value={deal?.availability_windows ?? []} onChange={setWindows} />
+            {fieldError('availability_windows')}
+          </fieldset>
           <button
             type="button"
             className="pos-disclosure pos-disclosure--soft"
@@ -610,7 +630,7 @@ function Editor({
                 <input
                   className="pos-input"
                   name="description"
-                  maxLength={200}
+                  maxLength={300}
                   value={description}
                   disabled={readOnly}
                   onChange={(e) => setDescription(e.target.value)}
@@ -979,6 +999,7 @@ function DealBranchRow({
       <div className="pos-brow__grid">
         <Switch
           checked={sold}
+          disabled={busy || down}
           label={t('deal.sold_here')}
           onChange={(next) => {
             setSold(next);

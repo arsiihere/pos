@@ -24,6 +24,8 @@ export function DealList({ api }: { api: CloudAdmin }) {
   const [data, setData] = useState<{ can_edit_tenant: boolean; deals: Deal[] } | null>(null);
   const [menu, setMenu] = useState<WholeMenu | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const [menuAttempt, setMenuAttempt] = useState(0);
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const phone = usePhone();
@@ -41,17 +43,19 @@ export function DealList({ api }: { api: CloudAdmin }) {
     void load();
   }, [load]);
 
+  // The menu read has its own error and Retry (from page 1), so a failed page never leaves "Checking branches…"
+  // up for good and a later deal read cannot wipe it (review I1; local until a shared helper lands).
   useEffect(() => {
     let live = true;
     void loadWholeMenu(api).then((result) => {
       if (!live) return;
       if (result.ok) setMenu(result.data);
-      else setError(errorText(result.error));
+      else setMenuError(errorText(result.error) ?? '');
     });
     return () => {
       live = false;
     };
-  }, [api]);
+  }, [api, menuAttempt]);
 
   const items = new Map<string, MenuItem>((menu?.items ?? []).map((item) => [item.item_id, item]));
   const categoryName = (id: string) => menu?.categories.find((c) => c.category_id === id)?.name ?? '';
@@ -60,7 +64,7 @@ export function DealList({ api }: { api: CloudAdmin }) {
   const needle = search.trim().toLowerCase();
   const rows = (data?.deals ?? []).filter((d) => needle === '' || d.name.toLowerCase().includes(needle)).sort(bySortThenName);
   const canEdit = data?.can_edit_tenant === true;
-  const checking = menu === null;
+  const checking = menu === null && menuError === null;
   const href = (d: Deal) => `#/deals/${encodeURIComponent(d.deal_id)}`;
   const rupees = (minor: number) => `${t('owner.menu.rupees')} ${shownRupees(minor)}`;
 
@@ -107,7 +111,7 @@ export function DealList({ api }: { api: CloudAdmin }) {
     );
   };
   const warnings = (d: Deal) =>
-    checking
+    menu === null
       ? []
       : omissions(d, items).map((o) => (
           <span key={`${o.branchId}-${o.part}`} className="pos-chip pos-chip--warn" data-omission="">
@@ -134,13 +138,35 @@ export function DealList({ api }: { api: CloudAdmin }) {
           archived={archived}
           onHideArchived={() => setArchived(false)}
           hideArchivedLabel={t('deals.hide_archived')}
-          helper={checking ? '' : t('deals.helper')}
+          helper={menu === null ? '' : t('deals.helper')}
         />
         {checking && (
           <span className="pos-progress-line pos-deals__checking" role="status" data-checking="">
             <span className="pos-spin" />
             {t('deals.checking')}
           </span>
+        )}
+        {menuError !== null && (
+          <div className="pos-banner pos-banner--danger" role="alert" data-menu-error="">
+            <Icon name="alert" />
+            <p>
+              {t('deals.menu_failed')}
+              {menuError !== '' && <small>{menuError}</small>}
+            </p>
+            <div className="pos-banner__action pos-row">
+              <button
+                type="button"
+                className="pos-btn"
+                onClick={() => {
+                  setMenuError(null);
+                  setMenuAttempt((n) => n + 1);
+                }}
+              >
+                <Icon name="reload" />
+                {t('deals.retry')}
+              </button>
+            </div>
+          </div>
         )}
         {error !== null && <Banner tone="danger" text={error} />}
         {rows.length === 0 ? (
@@ -156,7 +182,9 @@ export function DealList({ api }: { api: CloudAdmin }) {
                       <strong>{d.name}</strong>
                       <span className="sub"><bdi>{partsLine(d, items)}</bdi></span>
                     </div>
-                    <span className="pos-list__num pos-deals__price">{rupees(d.price_minor)}</span>
+                    <span className="pos-list__num pos-deals__price">
+                    {t('owner.menu.rupees')} <span className="num">{shownRupees(d.price_minor)}</span>
+                  </span>
                   </div>
                   {soldAt(d)}
                   {warn.length > 0 && <div className="pos-chips">{warn}</div>}
@@ -185,7 +213,9 @@ export function DealList({ api }: { api: CloudAdmin }) {
                       <span>{fill(t('deals.meta'), { category: categoryName(d.category_id), tax: taxName(d.tax_class_id) })}</span>
                     )}
                   </div>
-                  <span className="pos-list__num pos-deals__price">{rupees(d.price_minor)}</span>
+                  <span className="pos-list__num pos-deals__price">
+                    {t('owner.menu.rupees')} <span className="num">{shownRupees(d.price_minor)}</span>
+                  </span>
                   <span className="pos-list__muted"><bdi>{partsLine(d, items)}</bdi></span>
                   {soldAt(d)}
                   <a className="pos-rowlink" href={href(d)} aria-label={fill(t('c01.open_named'), { name: d.name })}>

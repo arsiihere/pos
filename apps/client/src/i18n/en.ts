@@ -835,6 +835,8 @@ export const en = {
   'deals.hide_archived': 'Hide archived deals',
   'deals.checking': 'Checking branches…',
   'deals.omitted': 'Not sold at {branch}: part {n} has no routed choice',
+  'deals.menu_failed': "Couldn't check the branches. Branch warnings are not shown until the menu loads.",
+  'deals.retry': 'Retry',
   'deal.title': 'Deal',
   'deal.new_title': 'New deal',
   'deal.back_label': 'Back to Deals',
