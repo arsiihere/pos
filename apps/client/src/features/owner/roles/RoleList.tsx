@@ -169,9 +169,15 @@ export function RoleList({ api }: { api: CloudAdmin }) {
   }
 
   async function restore(r: Role) {
+    if (idleState[r.role_id] === 'stale') return;
     const result = await api.patchRole(r.role_id, { expected_version: r.version, archived: false });
     if (result.ok) {
       replace(result.data.role);
+      return;
+    }
+    // Owner decision 2026-10-30 (01b P1): a stale Restore is not sent again with the old version; Reload first.
+    if (result.error.kind === 'api' && result.error.code === 'CONFIG_STALE') {
+      setIdleState((s) => ({ ...s, [r.role_id]: 'stale' }));
       return;
     }
     const taken = result.error.kind === 'api' && result.error.code === 'CONFIG_NAME_TAKEN';
@@ -334,23 +340,26 @@ export function RoleList({ api }: { api: CloudAdmin }) {
               show === 'active' ? (
                 activeRow(r)
               ) : (
-                <ListRow key={r.role_id} muted>
-                  <div className="pos-list__name">
-                    <strong>{r.name}</strong>
-                    <span>
-                      {r.archived_at === null ? '' : fill(t('roles.archived_on'), { date: shortDate(r.archived_at) })} · {t('roles.nobody_has')}
-                    </span>
-                  </div>
-                  <div className="pos-list__side">
-                    {restoreError[r.role_id] !== undefined ? (
-                      <span className="pos-field__error">{restoreError[r.role_id]}</span>
-                    ) : (
-                      <button type="button" className="pos-btn" disabled={down} onClick={() => void restore(r)}>
-                        {t('roles.restore')}
-                      </button>
-                    )}
-                  </div>
-                </ListRow>
+                <Fragment key={r.role_id}>
+                  {idleState[r.role_id] === 'stale' && <li className="pos-list__row pos-roles__stale">{reloadBanner}</li>}
+                  <ListRow muted>
+                    <div className="pos-list__name">
+                      <strong>{r.name}</strong>
+                      <span>
+                        {r.archived_at === null ? '' : fill(t('roles.archived_on'), { date: shortDate(r.archived_at) })} · {t('roles.nobody_has')}
+                      </span>
+                    </div>
+                    <div className="pos-list__side">
+                      {restoreError[r.role_id] !== undefined ? (
+                        <span className="pos-field__error">{restoreError[r.role_id]}</span>
+                      ) : (
+                        <button type="button" className="pos-btn" disabled={down || idleState[r.role_id] === 'stale'} onClick={() => void restore(r)}>
+                          {t('roles.restore')}
+                        </button>
+                      )}
+                    </div>
+                  </ListRow>
+                </Fragment>
               ),
             )}
           </ul>

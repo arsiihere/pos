@@ -111,6 +111,33 @@ describe('[01b §8] staff form', () => {
     expect(m.container.textContent).toContain('Ground floor');
   });
 
+  it('[owner decision 2026-10-30, 01b P1] a Mark-as-left 409 CONFIG_STALE keeps the draft and sends nothing again', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'staff', id: 'S2' })));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    const field = () => m.container.querySelector<HTMLInputElement>('input[name="display_name"]')!;
+    setValue(field(), 'Bilal K.');
+    await openMarkLeft('Bilal');
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, t('staff.mark_left')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([
+      expect.objectContaining({ body: { expected_version: 'v-S2', is_active: false } }),
+    ]);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    expect(field().value).toBe('Bilal K.');
+    expect(button(m.container, t('staff.save')).disabled).toBe(true);
+    // Mark as left stays off until Reload.
+    await click(m.container.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${t('staff.more')}"]`)!);
+    const left = button(m.container, fill(t('staff.menu_left'), { name: 'Bilal' }));
+    expect(left.disabled).toBe(true);
+    await click(left);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+  });
+
   it('[01b §8] STAFF_LINKED_TO_OWNER shows its message on the Left switch', async () => {
     const { api, calls } = fakeApi(handler(() => fail(409, 'STAFF_LINKED_TO_OWNER', { staff_id: 'S1' })));
     await m.render(

@@ -139,6 +139,60 @@ describe('[01b §8] roles list', () => {
     expect(calls.filter((c) => c.method === 'PATCH')[1]).toMatchObject({ url: '/v1/admin/roles/R_RUN', body: { expected_version: 'v-R_RUN', archived: false } });
   });
 
+  it('[owner decision 2026-10-30, 01b P1] a stale role cannot be archived until Reload', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+    await m.render(<RoleList api={api} />);
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
+    const bera = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')].find((r) => r.querySelector('strong')?.firstChild?.textContent === 'Bera')!;
+    await click(bera.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${fill(t('common.more_for'), { name: 'Bera' })}"]`)!);
+    const archive = button(bera, fill(t('roles.menu_archive'), { role: 'Bera' }));
+    expect(archive.disabled).toBe(true);
+    await click(archive);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('[owner decision 2026-10-30, 01b P1] an Archive 409 CONFIG_STALE shows Changed elsewhere above the role', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_OWNER' })));
+    await m.render(<RoleList api={api} />);
+    const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
+    await openArchive(owner, 'Malik');
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, fill(t('roles.archive_confirm'), { name: 'Malik' })));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('[owner decision 2026-10-30, 01b P1] a stale Restore shows Changed elsewhere and is not resent until Reload', async () => {
+    let stale = true;
+    const { api, calls } = fakeApi(
+      handler(() =>
+        stale
+          ? fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_RUN' })
+          : ok({ role: { ...RUNNER, archived_at: null, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } }),
+      ),
+    );
+    await m.render(<RoleList api={api} />);
+    await click(button(m.container, `${t('roles.archived')}1`));
+    await click(button(m.container, t('roles.restore')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    const restore = button(m.container, t('roles.restore'));
+    expect(restore.disabled).toBe(true);
+    await click(restore);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent?.trim())).toEqual([t('stale.reload')]);
+
+    stale = false;
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    await click(button(m.container, t('roles.restore')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
+  });
+
   it('[01b §8] the archive blocked dialog names the branches on LAST_ADMIN_REQUIRED and maps OWN_ADMIN_ACCESS by reason', async () => {
     let answer = () => fail(409, 'LAST_ADMIN_REQUIRED', { branch_ids: ['B2'] });
     const { api } = fakeApi(handler(() => answer()));
