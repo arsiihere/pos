@@ -10,6 +10,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { boot, registerBootStep } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
+import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -39,7 +40,7 @@ describe('boot', () => {
       WALL,
     );
     db.close();
-    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() });
+    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(booted.deps.clock.branchNow()).toBe(WALL + 1);
     const rows = booted.deps.db
@@ -55,7 +56,7 @@ describe('boot', () => {
 
   it('[00 §3.7] the production boot (main.ts options) registers no test command: TestNoop → 404 ROUTE_NOT_FOUND, nothing written', async () => {
     const cfg = writeConfig({ provisioned: true });
-    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() });
+    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     booted.deps.db
       .prepare(
@@ -98,7 +99,7 @@ describe('boot', () => {
       seen.push('3');
     });
     const cfg = writeConfig({ provisioned: true });
-    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() });
+    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(seen).toEqual(['2', '3', '5', '6']);
   });
@@ -140,13 +141,14 @@ describe('boot', () => {
         callback();
       },
     });
-    const cfg = writeConfig({ provisioned: true, cloudBaseUrl: 'http://127.0.0.1:1' });
+    const cfg = writeConfig({ provisioned: true });
     const booted = await boot({
       configPath: cfg.path,
       wallNow: () => WALL,
       monoNow: () => 0,
       logStream,
       configClient: stubConfigCloud(),
+      cloudClient: offlineCloud(),
     });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     await vi.waitFor(() => {
@@ -164,7 +166,7 @@ describe('boot', () => {
   });
 });
 
-function writeConfig(o: { provisioned: boolean; cloudBaseUrl?: string }): { path: string; dataDir: string; cleanup: () => void } {
+function writeConfig(o: { provisioned: boolean }): { path: string; dataDir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'pos-boot-'));
   const dataDir = join(dir, 'data');
   const backupDir = join(dir, 'backup');
@@ -172,7 +174,7 @@ function writeConfig(o: { provisioned: boolean; cloudBaseUrl?: string }): { path
   mkdirSync(backupDir);
   const path = join(dir, 'config.json');
   const body: Record<string, unknown> = {
-    cloud_base_url: o.cloudBaseUrl ?? 'https://cloud.example',
+    cloud_base_url: 'https://cloud.example',
     http_port: 3000,
     data_dir: dataDir,
     backup_dir: backupDir,

@@ -37,3 +37,11 @@ export function stubCloud(): StubCloud {
 }
 
 export { CloudError, CloudUnreachableError };
+
+// A cloud that cannot be reached (as offline as stubConfigCloud()'s default): boot tests that do not test the confirm call.
+export function offlineCloud(): StubCloud {
+  const stub = stubCloud();
+  stub.confirmError = new CloudUnreachableError();
+  stub.registerError = new CloudUnreachableError();
+  return stub;
+}

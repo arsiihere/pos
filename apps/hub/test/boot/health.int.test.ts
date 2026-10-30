@@ -9,6 +9,7 @@ import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { boot, registerBootStep, type BootOptions } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
+import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -128,6 +129,7 @@ describe('health, heartbeat, HubStarted', () => {
       wallNow: () => WALL,
       monoNow: () => mono,
       configClient: stubConfigCloud(),
+      cloudClient: offlineCloud(),
     });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(beat(booted.deps.db)).toBeUndefined();
@@ -161,7 +163,7 @@ function beat(db: { prepare: (sql: string) => { get: () => unknown } }): number 
 }
 
 function bootOpts(cfg: { path: string }): BootOptions {
-  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() };
+  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() };
 }
 
 function writeConfig(provisioned: boolean): { path: string; dataDir: string; cleanup: () => void } {

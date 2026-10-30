@@ -24,7 +24,7 @@ import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { publisherFor } from '../ws/server.js';
-import { httpCloudClient } from '../setup/cloud-client.js';
+import { httpCloudClient, type CloudClient } from '../setup/cloud-client.js';
 import { startConfirmTask } from '../setup/confirm-task.js';
 import { registerSetupRoutes } from '../setup/provision.js';
 import { createBranchClock, type Clock } from './clock.js';
@@ -68,6 +68,8 @@ export interface BootOptions {
   logStream?: NodeJS.WritableStream;
   // 01a §3.4: the config poll client; tests pass a stub (default: HTTP to cloud_base_url).
   configClient?: ConfigClient;
+  // 00 M41: the hub confirm client; tests pass a stub (default: HTTP to cloud_base_url).
+  cloudClient?: CloudClient;
 }
 
 export interface BootHandle {
@@ -179,7 +181,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '7';
     if (!isConfirmed(config)) {
       stopConfirm = startConfirmTask({
-        cloud: httpCloudClient(config.cloud_base_url),
+        cloud: opts.cloudClient ?? httpCloudClient(config.cloud_base_url),
         config,
         configPath: opts.configPath,
         clock: deps.clock,
