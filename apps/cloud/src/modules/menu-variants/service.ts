@@ -78,7 +78,7 @@ export async function createVariantGroup(
       const level = new TenantLevelRepository(req.tenant, client);
       await assertTenantWide(level, req.ownerUserId);
       assertCategory(await shareCategory(level, body.category_id));
-      const group = await nameTaken(body.name, () =>
+      const group = await nameTaken('variant_groups_active_name', 'variant_group', body.name, () =>
         insertVariantGroup(
           level,
           {
@@ -155,20 +155,18 @@ export async function patchVariantGroup(
         throw new DomainError('CONFIG_IN_USE', { entity: 'variant_group', id: variantGroupId, used_by: { entity: 'menu_item', ids } });
       }
     }
-    // R3 (V8, §3.3): a category change re-checks the effective-set limit for every member under the new category
-    if (moving && members.length > 0) {
+    // R3 (V8, §3.3): a category change re-checks the effective-set limit for every active member under the new
+    // category (AD-21 c: an archived member is not sold, as on the group POST)
+    const activeMembers = members.filter((m) => m.archived_at === null);
+    if (moving && activeMembers.length > 0) {
       await assertItemEffectiveSets(
         level,
-        members.map((m) => ({ item_id: m.item_id, category_id: merged.category_id, variant_group_id: variantGroupId })),
-        new Set([
-          ...members.filter((m) => m.archived_at === null).map((m) => m.item_id),
-          merged.category_id,
-          ...(merged.archived_at === null ? [variantGroupId] : []),
-        ]),
+        activeMembers.map((m) => ({ item_id: m.item_id, category_id: merged.category_id, variant_group_id: variantGroupId })),
+        new Set([...activeMembers.map((m) => m.item_id), merged.category_id, ...(merged.archived_at === null ? [variantGroupId] : [])]),
         'category_id',
       );
     }
-    const group = await nameTaken(merged.name, () => updateVariantGroup(level, merged, now));
+    const group = await nameTaken('variant_groups_active_name', 'variant_group', merged.name, () => updateVariantGroup(level, merged, now));
     const moved = moving ? await moveMembers(level, variantGroupId, group.category_id, now) : [];
     const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
     const beforeOf = new Map(members.map((m) => [m.item_id, m.row]));
@@ -270,7 +268,7 @@ export async function createStockItem(
     async (client) => {
       const level = new TenantLevelRepository(req.tenant, client);
       await assertTenantWide(level, req.ownerUserId);
-      const stockItem = await stockItemNameTaken(body.name, () =>
+      const stockItem = await nameTaken('stock_items_active_name', 'stock_item', body.name, () =>
         insertStockItem(
           level,
           { stock_item_id: deps.ids.next(), name: body.name, stock_unit: body.stock_unit, carries_over: body.carries_over },
@@ -340,7 +338,7 @@ export async function patchStockItem(
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'stock_unit', reason: 'unit_mismatch' });
       }
     }
-    const stockItem = await stockItemNameTaken(merged.name, () => updateStockItem(level, merged, now));
+    const stockItem = await nameTaken('stock_items_active_name', 'stock_item', merged.name, () => updateStockItem(level, merged, now));
     await writeConfigAudit(
       level,
       {
@@ -423,28 +421,20 @@ export async function putStockItemBranch(
   });
 }
 
-// R3: pg 23505 on stock_items_active_name → 409 CONFIG_NAME_TAKEN { entity: 'stock_item', name }.
-async function stockItemNameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
-  try {
-    return await write();
-  } catch (error) {
-    const pgError = error as { code?: string; constraint?: string };
-    if (pgError.code === '23505' && pgError.constraint === 'stock_items_active_name') {
-      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'stock_item', name });
-    }
-    throw error;
-  }
-}
 
-// R2: pg 23505 on variant_groups_active_name → 409 CONFIG_NAME_TAKEN { entity: 'variant_group', name }.
-async function nameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
+// The active-name unique indexes (§6.2 R2, §6.8 R3, §3.3): pg 23505 on `index` → 409 CONFIG_NAME_TAKEN { entity, name }.
+type NameIndex = 'variant_groups_active_name' | 'stock_items_active_name' | 'modifier_groups_active_name';
+async function nameTaken<T>(
+  index: NameIndex,
+  entity: 'variant_group' | 'stock_item' | 'modifier_group',
+  name: string,
+  write: () => Promise<T>,
+): Promise<T> {
   try {
     return await write();
   } catch (error) {
     const pgError = error as { code?: string; constraint?: string };
-    if (pgError.code === '23505' && pgError.constraint === 'variant_groups_active_name') {
-      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'variant_group', name });
-    }
+    if (pgError.code === '23505' && pgError.constraint === index) throw new DomainError('CONFIG_NAME_TAKEN', { entity, name });
     throw error;
   }
 }
@@ -512,7 +502,7 @@ export async function createModifierGroup(
       const modifierGroupId = deps.ids.next();
       await assertGroupLinksWithinLimit(level, { modifier_group_id: modifierGroupId, sort_order: body.sort_order }, body.links);
       const now = deps.clock.branchNow();
-      const group = await modifierGroupNameTaken(body.name, () =>
+      const group = await nameTaken('modifier_groups_active_name', 'modifier_group', body.name, () =>
         insertModifierGroup(
           level,
           { modifier_group_id: modifierGroupId, name: body.name, min_choices: body.min_choices, max_choices: body.max_choices, sort_order: body.sort_order },
@@ -620,15 +610,3 @@ function sortedUnique(ids: readonly string[]): string[] {
   return [...new Set(ids)].sort();
 }
 
-// §3.3: pg 23505 on modifier_groups_active_name → 409 CONFIG_NAME_TAKEN { entity: 'modifier_group', name }.
-async function modifierGroupNameTaken<T>(name: string, write: () => Promise<T>): Promise<T> {
-  try {
-    return await write();
-  } catch (error) {
-    const pgError = error as { code?: string; constraint?: string };
-    if (pgError.code === '23505' && pgError.constraint === 'modifier_groups_active_name') {
-      throw new DomainError('CONFIG_NAME_TAKEN', { entity: 'modifier_group', name });
-    }
-    throw error;
-  }
-}

@@ -358,5 +358,36 @@ describe('01c modifier group create (§6.11) and the effective-set limit', () =>
       422,
     );
     expect(viaGroup.details).toMatchObject({ field: 'links', reason: 'too_many_groups' });
+
+    // AD-21 c: §6.2 R3 counts active members only; a move that puts only an archived member over the limit → 200
+    const mutton = await createVariantGroup(cloud, f, { name: 'Mutton Karahi', category_id: menu.categoryIds[0] });
+    const muttonHalf = await item({ name: 'Mutton Karahi Half', variant_group_id: mutton.variant_group_id, variant_name: 'Half' });
+    expect((await inject('PATCH', `/v1/admin/menu-items/${muttonHalf}`, { archived: true })).statusCode).toBe(200);
+    const archivedMove = await inject('PATCH', `/v1/admin/variant-groups/${mutton.variant_group_id}`, {
+      expected_version: mutton.version,
+      category_id: twentyOne,
+    });
+    expect(archivedMove.statusCode, archivedMove.body).toBe(200);
+  });
+
+  it('[01c §6.4, §6.5 R3, AD-21 a] a write that sets the variant group answers at variant_group_id: item POST and PATCH → 422', async () => {
+    const twenty = await category('Twenty');
+    for (let i = 0; i < 20; i += 1) {
+      await createModifierGroup(cloud, f, plainGroup(`Group ${i}`, [{ target_kind: 'category', target_id: twenty, mode: 'attach' }]));
+    }
+    const seekh = await createVariantGroup(cloud, f, { name: 'Seekh', category_id: twenty });
+    // no member yet: the variant group may carry a 21st
+    await createModifierGroup(cloud, f, plainGroup('On the group', [{ target_kind: 'variant_group', target_id: seekh.variant_group_id, mode: 'attach' }]));
+    const posted = await refused(
+      () => inject('POST', '/v1/admin/menu-items', itemBody({ name: 'Seekh Half', category_id: twenty, variant_group_id: seekh.variant_group_id, variant_name: 'Half' })),
+      422,
+    );
+    expect(posted).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'variant_group_id', reason: 'too_many_groups' } });
+    const loose = await item({ name: 'Seekh loose', category_id: twenty });
+    const joined = await refused(
+      () => inject('PATCH', `/v1/admin/menu-items/${loose}`, { variant_group_id: seekh.variant_group_id, variant_name: 'Full' }),
+      422,
+    );
+    expect(joined).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'variant_group_id', reason: 'too_many_groups' } });
   });
 });
