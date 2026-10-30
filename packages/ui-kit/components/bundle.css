@@ -1889,47 +1889,6 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-routes .pos-list__row { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ---------- Pulse page layout · 01b-A staff list and staff form ---------- */
-/* Staff list (Main, StaffLoading, StaffEmpty): search 300 + branch 220 at the start, status at the end. */
-.pos-row--apart { justify-content: space-between; }
-.pos-staff__bar { justify-content: space-between; }
-.pos-staff__search { width: 300px; }
-.pos-staff__branch { width: 220px; }
-.pos-staff__empty-body { margin: 0; max-width: 56ch; }
-.pos-staff__loading > .pos-skeleton:nth-child(2) { width: 70%; height: 28px; }
-.pos-staff__loading > .pos-skeleton:nth-child(3) { width: 50%; height: 18px; }
-.pos-staff__loading > .pos-skeleton:nth-child(4) { width: 80px; height: 28px; }
-.pos-staff__loading .pos-list__acts > .pos-skeleton { width: 120px; height: 48px; }
-.pos-staff__loading .pos-list__acts > .pos-skeleton + .pos-skeleton { width: 72px; }
-.pos-list--staff .pos-list__acts { justify-content: flex-end; gap: var(--space-2); }
-/* Not found (StaffNotFound). */
-.pos-staff__gone { flex: 1; }
-/* Phone (StaffPhoneList, StaffPhone): 12 px rhythm, 16 px gutters, the name block is the person's link. */
-.pos-staff__bar--phone, .pos-staff__filters { display: flex; flex-direction: column; gap: var(--space-3); }
-.pos-staff__bar--phone .pos-staff__search, .pos-staff__bar--phone .pos-staff__branch { width: 100%; }
-.pos-staff__bar--phone .pos-seg__opt { white-space: nowrap; }
-.pos-staff__link { display: flex; flex-direction: column; color: inherit; text-decoration: none; }
-.pos-list--staff-phone .pos-list__row { cursor: pointer; }
-.pos-appbar--phone ~ .pos-content:has(.pos-staff__bar--phone, .pos-list--staff-phone, .pos-staffform) { padding: var(--space-3) var(--space-4); gap: var(--space-3); }
-
-/* Staff form (StaffForm, StaffFormImran, StaffFormMore): sections 16 apart, C02 card 380 wide, sticky in its column. */
-.pos-split.pos-staffform { grid-template-columns: minmax(0, 1fr) 380px; }
-.pos-staffform__main { gap: var(--space-4); }
-.pos-cando { display: flex; flex-direction: column; gap: var(--space-3); align-self: start; position: sticky; top: 0; }
-.pos-cando__body { display: flex; flex-direction: column; gap: var(--space-3); }
-.pos-cando__body > .caption, .pos-cando__body > .ur-body { margin: 0; color: var(--ink-muted); }
-.pos-group__body { display: flex; flex-direction: column; gap: var(--space-2); }
-@media (max-width: 760px) {
-  .pos-split.pos-staffform { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-  .pos-staffform__main { gap: var(--space-3); }
-  .pos-staffform > .pos-cando { order: -1; position: static; }
-  .pos-staffform__bar { display: contents; }
-  .pos-staffform__bar .pos-actionbar { padding: var(--space-3) var(--space-4); flex-wrap: nowrap; margin-inline: calc(-1 * var(--space-4)); margin-block-end: calc(-1 * var(--space-3)); }
-  .pos-staffform__bar .pos-actionbar__end { flex: 1; display: flex; gap: var(--space-3); }
-  .pos-staffform__bar .pos-actionbar__end > .pos-btn { flex: 1; }
-  .pos-staffform__bar .pos-actionbar__end > .pos-btn:last-child { flex: 2; }
-}
-
 /* ---------- Pulse page layout · 01a-D stock page ---------- */
 /* Text for screen readers only ("Signed in as", "Still right" beside its tick). */
 .pos-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
