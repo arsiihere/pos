@@ -18,16 +18,9 @@ Every group had:
 3. a fix round, wherever the review found a Critical or Important issue;
 4. a scoped re-review.
 
-Every group ended with no Critical or Important finding open; Minor findings were parked (list below). Final gate at e234780: typecheck, lint and tests green (250 files, 1318 tests).
+Every group ended with no Critical or Important finding open; Minor findings were parked (list below). Final gate at 7840fd9 (after the owner-decision round): typecheck, lint and tests green (250 files, 1351 tests).
 
-**Decisions for you (details below):**
-- O1: the People nav merge.
-- O2: the font licence texts.
-- O3: the 01b-B03 "keep the draft" proposal.
-- O4: Show archived as a More item plus a chip.
-- O5: Ready-made stock on the item form.
-- O6: Urdu review.
-- O7: frame details that no API provides, left out.
+**Decisions for you:** the seven raised at the end of the run (O1–O7) were answered by the owner on 2026-10-30 and are applied; see "Owner decisions". Pending: 01c P2 (API change), and the Urdu native review.
 
 **Blockers:** none.
 
@@ -50,6 +43,11 @@ Every group ended with no Critical or Important finding open; Minor findings wer
 | 01c-C Item form sections | 01c-S01, 01a-S05 nesting | 8fa504d, b7d4dea | 1 Important fixed |
 | 01c-D Choice groups | 01c-S02, S03, S10, D02, B04, B05 | 1171e01, 572eb9a | 2 Important fixed |
 | 01c-E Deals | 01c-S04, S05, S11, D03, B04 | 3b7a699, 9f85408 | 3 Important fixed |
+| R2-A People nav | owner decision 1 | bbb7993 | clean |
+| R2-B 01b keep the draft | owner decision 3 (01b P1) | f032499, de3850b | 1 Important fixed (+ Restore resend) |
+| R2-C Stock fold + error keys | owner decision 5, 01c P1 | e5f912b, d8e1e52 | 2 Important fixed |
+| R2-D Font licences | owner decision 2 | 9a43761 | clean |
+| Hand-off docs in git | owner instruction | 5ff7f82 | — |
 
 Per-group reports, reviews and screenshots: the working folder `.superpowers/sdd/ui-pulse-plan/` (git-ignored) and the scratchpad `shots/out/`.
 
@@ -74,7 +72,7 @@ The spec wins for behaviour and the frame wins for looks. Each implementer's rep
   - the hub admin side nav stays at tablet width (#172);
   - not-counted rows show 0 (S41);
   - the "counts kept" banner keeps Discard.
-- D9. 01b-B03 stale form: the look comes from the frame ("Changed elsewhere" + Reload). The draft behaviour is the approved 01b v1.2 one: Reload keeps nothing. The keep-draft change is only a proposal (see O3).
+- D9. 01b-B03 stale form: the look comes from the frame ("Changed elsewhere" + Reload). At first the draft behaviour followed the approved 01b v1.2 text (Reload keeps nothing). After the owner approved proposal P1 (O3), the 01b forms keep the draft too.
 - D10. 00-F05: admin commands retry once after `retry_after_ms` with the same `command_id` before showing "Hub busy" (spec 00 §8.4).
 - D11. Owner sign-in returns no restaurant name or email, so the nav brand shows the owner's display name.
 - D12. 01c quantities show in kg/L ("0.5 kg") per 01a S44, where the frames draw "500 g".
@@ -90,18 +88,43 @@ The spec wins for behaviour and the frame wins for looks. Each implementer's rep
 - D17. New size groups, stock items, choice groups and deals open their edit page after Create, so sizes and branch rows can be added there.
 - D18. Failed menu-page loads on the choice-group and deal pages show an error with Retry, never an endless "Checking branches…".
 
-## Open decisions for the owner
+## Owner decisions (2026-10-30, after the run) — applied
 
-- O1. 01c CHANGES §1 folds 01b's Staff · Roles · Teams · Stock counting into one **People** nav entry ("needs the owner's OK"). Not done: the entries stay separate, and the side nav scrolls inside itself at 800 px high.
-- O2. No licence texts for Figtree, Bricolage Grotesque and Geist Mono (OFL) came in the hand-off. Add them to `packages/ui-kit/fonts/` before release.
-- O3. 01b-B03 "keep the draft" (designer Q8) is drafted as "Proposed — needs approval" in the 01b spec. Until approved, 01b forms reload without the draft. The 01c forms keep the draft, per 01c §8.
-- O4. "Show archived" moved from a segmented control into the app-bar More menu, plus a chip, on menu, floors and stations. The spec wording says "Active / Archived switch", so please confirm.
-- O5. The item form keeps the existing "Ready-made stock" section next to the new 01c "Stock" section. The frames' collapsed "Branches and kitchen, Hours" disclosure was not built. Should Ready-made stock fold into it?
-- O6. Urdu: many new strings are English-only or drafts marked for review, and need a native review. The 01c Urdu was promised with the next frame set.
-- O7. Details the frames show but no API gives, left out:
-  - station item sub-lines on stock counting;
-  - item counts on categories;
-  - paired details for read-only admins (hidden, as the frame draws).
+- O1 People nav: **done** (bbb7993). One "People" entry with tabs Staff · Roles · Teams · Stock counting on the four list pages; routes unchanged; forms keep their back link.
+- O2 Font licences: **done** (9a43761). OFL texts for Figtree, Bricolage Grotesque and Geist Mono next to the fonts; every copyright line read from the font's own name table.
+- O3 01b keep the draft on 409 CONFIG_STALE: **done** (f032499, de3850b). Staff form (incl. Mark as left), role editor, roles list (idle minutes, Archive, Restore) and stock counting keep what was typed under the shared "Changed elsewhere" banner. Reload discards the draft and loads the current version. No auto-retry, no resend with the old version. Teams, branch settings and password send no version and have no stale path. 01b proposal P1 is approved by the owner; the spec text is applied later in the as-built pass (spec files not edited here).
+- O4 "Show archived" in the ⋯ More menu (with an "Archived shown ✕" chip) on menu, floors, stations and the 01c lists: **accepted by the owner** as built.
+- O5 Ready-made stock: **done** (e5f912b, d8e1e52). Folded into the collapsed "Branches and kitchen, Ready-made stock, Hours" row. Its one-line summary shows the stock draw ("Karahi pot · 0.5 kg per sale", "{stock} · the amount sold" when the units match) or "Not counted" (01c A2). The row opens on an error inside, and fix links open it first. The title adds "Ready-made stock" to the frame's text (key `item.fold_title`).
+- O6 Urdu: left as drafts, list below for a native review.
+- O7 Frame details with no API data behind them: accepted as done.
+- 01c P1 (approved): owner error texts use `errors.reference.<reason>`; `unit_mismatch` on field `stock_unit` uses `errors.reference.unit_mismatch_stock`, on `stock_draws.0.stock_item_id` the plain `unit_mismatch`. **Done** (e5f912b): one shared mapping for 01a, 01b and 01c, tested.
+
+## Pending follow-ups
+
+- **01c P2** (approved, API change not landed yet): archived deal parts will carry `quantity` and `choices`. Until the API returns them, the deal form's "Removed" row keeps its fallback text ("A removed part" + Restore), and a restored part comes back empty, with its id. When the API lands, the row reads e.g. "4 × Naan or Roghni naan" and Restore brings the choices back.
+- 01b and 01c spec texts for P1/P2 are applied by the owner in the as-built pass.
+
+## Urdu for native review (owner decision 6: drafts stay)
+
+Owner app (`apps/client/src/i18n/ur.ts`, missing keys fall back to English):
+- 1275 English keys, 352 with Urdu.
+- **186 Urdu drafts** sit under `// … Urdu draft — needs native review` comments:
+  - item 24, staff 21, deal 17, owner 16, deals 11, size_groups 10, admin_stock 9;
+  - choice_groups 8, menu 7, choice_group 7, stations 5;
+  - stock_item, roles, cando, role_editor, floors 4 each;
+  - stale, teams, deal_picker, branches, applies 3 each;
+  - smaller groups for the rest.
+- **923 keys have no Urdu yet:**
+  - owner 146, admin_stock 125, item 82, staff 72, choice_group 64;
+  - errors 54 (incl. every `errors.reference.*` 01c reason and `unit_mismatch_stock`);
+  - deal 41, roles 38, stock_item 33, floors 33, size_group 32, menu 27, choice_groups 23;
+  - branches 18, account 17, stock_items 16, archive 16, counting 15;
+  - smaller groups for the rest.
+- The 01c Urdu was promised with the designer's next frame set.
+
+Hub pages (`apps/hub/src/lib/strings.ts`):
+- 343 keys, 103 with Urdu; drafts sit under the three "Urdu draft — needs native review (Pulse 00 CHANGES §3)" blocks.
+- **240 keys have no Urdu:** errors 35, devices 27, pairing 24, sessions 24, setup 21, global 20, lockouts 19, approve 18, addphone 15, admin 14, bootstrap 11, pin 11.
 
 ## Parked minor findings (not fixed)
 
@@ -131,3 +154,5 @@ None.
 - 0369870 (all of 00 + 01a shell, floors and stations): typecheck, lint, test green — 243 files, 1181 tests.
 - 85347a7 (00 + 01a + 01b, 01c size groups and stock items): typecheck and lint green. Tests 1254/1258. The 4 failures are 5 s cloud timeouts (#75, #53, #109, #11) while five agents ran; re-run alone: 7/7 pass.
 - **e234780 (final, all four modules; clean worktree): typecheck, lint, test green — 250 files, 1318 tests.**
+- d8e1e52 (round 2: owner decisions): typecheck:tests failed, with 6 nullable-element type errors in `ItemSections.test.tsx`; fixed in 7840fd9, no casts.
+- **7840fd9 (final, round 2 included; clean worktree): typecheck, lint, test green — 250 files, 1351 tests.**
