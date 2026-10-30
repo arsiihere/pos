@@ -11,6 +11,7 @@ import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../../src/projections/access-reconcile';
 import { createTestHub } from '../helpers/test-hub';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
@@ -113,7 +114,7 @@ describe('access reconciliation', () => {
     copyTail(db, join(copy.dataDir, 'hub.sqlite'));
     db.close();
 
-    const booted = await boot({ configPath: copy.path, wallNow: () => WALL, monoNow: () => 0 });
+    const booted = await boot({ configPath: copy.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() });
     cleanups.push(() => booted.stop());
     const revoked = await booted.app.inject({
       method: 'GET',
@@ -276,7 +277,7 @@ describe('access reconciliation', () => {
     await h.app.close();
     h.deps.readDb.close();
     h.deps.db.close();
-    late.booted = await boot({ configPath, wallNow: () => WALL, monoNow: () => 0 });
+    late.booted = await boot({ configPath, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() });
     const caughtUp = late.booted.deps.db.prepare('SELECT token_hash FROM devices WHERE device_id = ?').pluck().get(device);
     expect(caughtUp).toBe(`rotated:${eventId}`);
   });
@@ -338,7 +339,7 @@ async function bootSeeded(seed: (db: Database.Database) => void): Promise<{ db: 
   await runMigrations(db, { dir: migrationsDir, clock: fixedClock(WALL) });
   seed(db);
   db.close();
-  const booted = await boot({ configPath: cfg.path, wallNow: () => WALL + 10_000, monoNow: () => 0 });
+  const booted = await boot({ configPath: cfg.path, wallNow: () => WALL + 10_000, monoNow: () => 0, configClient: stubConfigCloud() });
   return {
     db: booted.deps.db,
     async stop() {

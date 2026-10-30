@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { setStockVersion, stockVersion } from '../../src/sync/stock-version';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
@@ -54,7 +55,7 @@ describe('engine state through boot (S15)', () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
   async function start(path: string, wall: number): Promise<BootHandle> {
-    const booted = await boot({ configPath: path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'] });
+    const booted = await boot({ configPath: path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud() });
     cleanups.push(() => booted.stop());
     return booted;
   }

@@ -7,8 +7,9 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
-import { boot, registerBootStep } from '../../src/lib/boot';
+import { boot, registerBootStep, type BootOptions } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
@@ -126,6 +127,7 @@ describe('health, heartbeat, HubStarted', () => {
       configPath: cfg.path,
       wallNow: () => WALL,
       monoNow: () => mono,
+      configClient: stubConfigCloud(),
     });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(beat(booted.deps.db)).toBeUndefined();
@@ -158,8 +160,8 @@ function beat(db: { prepare: (sql: string) => { get: () => unknown } }): number 
   return row?.last_beat;
 }
 
-function bootOpts(cfg: { path: string }): { configPath: string; wallNow: () => number; monoNow: () => number } {
-  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0 };
+function bootOpts(cfg: { path: string }): BootOptions {
+  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud() };
 }
 
 function writeConfig(provisioned: boolean): { path: string; dataDir: string; cleanup: () => void } {

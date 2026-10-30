@@ -7,6 +7,7 @@ import { boot } from '../../src/lib/boot';
 import { buildBigFixture } from '../helpers/big-fixture';
 import { PIN } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory } from '../helpers/test-hub';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 export interface Measure {
   name: string;
@@ -112,7 +113,7 @@ async function measureBoot(): Promise<Measure> {
     );
     let stop: () => Promise<void> = async () => undefined;
     const value = await timed(async () => {
-      const booted = await boot({ configPath, wallNow: Date.now, monoNow: () => performance.now() });
+      const booted = await boot({ configPath, wallNow: Date.now, monoNow: () => performance.now(), configClient: stubConfigCloud() });
       stop = async () => booted.stop();
     });
     await stop();
