@@ -82,6 +82,14 @@ const PATHS = {
       <path d="M9 12l2 2 4-4" />
     </>
   ),
+  // 01b staff form: Advanced · Never allow.
+  block: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+      <path d="M9.5 9.5l5 5" />
+      <path d="M14.5 9.5l-5 5" />
+    </>
+  ),
   team: (
     <>
       <circle cx="12" cy="5.5" r="2.5" />

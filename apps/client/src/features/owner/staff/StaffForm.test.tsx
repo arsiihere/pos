@@ -35,6 +35,14 @@ function handler(write: (call: Call) => Response, staff = STAFF) {
   };
 }
 
+// Mark as left sits in the app bar's More menu (hand-off 01b-S02).
+async function openMarkLeft(name: string): Promise<void> {
+  const more = m.container.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${t('staff.more')}"]`);
+  if (more === null) throw new Error('More missing');
+  await click(more);
+  await click(button(m.container, fill(t('staff.menu_left'), { name })));
+}
+
 function headings(): string[] {
   return [...m.container.querySelectorAll('h2')].map((h) => h.textContent ?? '');
 }
@@ -60,6 +68,9 @@ describe('[01b §8] staff form', () => {
     expect(patch?.url).toBe('/v1/admin/staff/S2');
     expect(patch?.body).toEqual({ expected_version: 'v-S2', display_name: 'Bilal K.' });
     expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
+    // B03: Reload is the one primary; the page's Save is off while the banner shows.
+    expect(button(m.container, t('staff.save')).disabled).toBe(true);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent?.trim())).toEqual([t('staff.reload')]);
 
     // Reload keeps nothing of the stale form (B23).
     stale = false;
@@ -90,7 +101,7 @@ describe('[01b §8] staff form', () => {
         <StaffForm api={api} staffId="S1" branchIds={['B1', 'B2']} />
       </GuardProvider>,
     );
-    await click(button(m.container, t('staff.mark_left')));
+    await openMarkLeft('Arif');
     const dialog = m.container.querySelector('[role="dialog"]');
     if (dialog === null) throw new Error('dialog missing');
     await click(button(dialog, t('staff.mark_left')));
@@ -108,7 +119,7 @@ describe('[01b §8] staff form', () => {
       </GuardProvider>,
     );
     async function markLeft(): Promise<void> {
-      await click(button(m.container, t('staff.mark_left')));
+      await openMarkLeft('Bilal');
       const dialog = m.container.querySelector('[role="dialog"]');
       if (dialog === null) throw new Error('dialog missing');
       await click(button(dialog, t('staff.mark_left')));
@@ -143,5 +154,88 @@ describe('[01b §8] staff form', () => {
     const post = calls.find((c) => c.method === 'POST');
     expect(post?.key).toMatch(/^[0-9A-Z]{26}$/);
     expect(post?.body).toEqual({ display_name: 'Ali R.', role_ids: ['R_WAITER'], branch_ids: ['B1'], denied_permissions: [], reports_to: [], floors: [] });
+  });
+
+  it('[hand-off 01b-S02] Mark as left is a More item on an edit only; the Status section keeps its text', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect([...m.container.querySelectorAll('main button')].some((b) => b.textContent?.trim() === t('staff.mark_left'))).toBe(false);
+    expect(m.container.textContent).toContain(t('staff.status_working'));
+    await openMarkLeft('Bilal');
+    expect(m.container.querySelector('[role="dialog"]')?.textContent).toContain(fill(t('staff.left_title'), { name: 'Bilal' }));
+    m.unmount();
+
+    m = mount();
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId={null} branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect(m.container.querySelector('button.pos-more')).toBeNull();
+  });
+
+  it('[hand-off 01b-S02] Never allow is folded into the Advanced disclosure, open when the person has a block', async () => {
+    const blocked = STAFF.map((s) => (s.staff_id === 'S3' ? { ...s, denied_permissions: ['approve-void' as const] } : s));
+    const { api } = fakeApi(handler(() => ok({}), blocked));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    const toggle = m.container.querySelector<HTMLButtonElement>('button.pos-disclosure');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle?.textContent).toContain(t('staff.advanced_never'));
+    expect(toggle?.textContent).toContain(t('staff.never_none'));
+    expect(headings()).not.toContain(t('staff.never'));
+    await click(toggle as HTMLButtonElement);
+    expect(headings()).toContain(t('staff.never'));
+    expect(button(m.container, t('staff.never_add'))).toBeTruthy();
+    m.unmount();
+
+    m = mount();
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S3" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect(headings()).toContain(t('staff.never'));
+    expect(m.container.querySelector('button.pos-disclosure')).toBeNull();
+  });
+
+  it('[hand-off 01b-C02] What {name} can do is closed with grant counts that follow the roles live', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    const toggle = m.container.querySelector<HTMLButtonElement>('button.pos-cando__toggle');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle?.textContent).toContain(fill(t('staff.can_title'), { name: 'Bilal' }));
+    expect(m.container.querySelector('.pos-can')).toBeNull();
+    const sum = () => [...m.container.querySelectorAll('.pos-cando__sum .pos-chip')].map((c) => c.textContent?.trim());
+    // Bera: void-item needs approval.
+    expect(sum()).toEqual([fill(t('cando.count_approval'), { n: '1' })]);
+
+    await click(button(m.container, 'Shift lead'));
+    expect(sum()).toEqual([fill(t('cando.count_allowed'), { n: '2' }), fill(t('cando.count_approval'), { n: '1' })]);
+
+    await click(toggle as HTMLButtonElement);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(m.container.querySelector('.pos-can')).not.toBeNull();
+  });
+
+  it('[hand-off 01b-C02] a person with nothing allowed shows "Nothing allowed yet"', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId={null} branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect([...m.container.querySelectorAll('.pos-cando__sum .pos-chip')].map((c) => c.textContent?.trim())).toEqual([t('cando.none')]);
   });
 });
