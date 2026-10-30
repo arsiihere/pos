@@ -37,6 +37,9 @@ const ICONS = {
   cable: '<path d="M7 3v5"/><path d="M11 3v5"/><rect x="5" y="8" width="8" height="6" rx="1.5"/><path d="M9 14v3a4 4 0 0 0 4 4h6"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   link: '<path d="M10 14l4-4"/><path d="M8.5 11.5L6 14a3 3 0 0 0 4 4l2.5-2.5"/><path d="M15.5 12.5L18 10a3 3 0 0 0-4-4l-2.5 2.5"/>',
+  // Pulse 00 hand-off (hub admin): row "more" button, disclosure chevron.
+  more: '<circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/>',
+  chevron: '<path d="M6 9.5l6 6 6-6"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

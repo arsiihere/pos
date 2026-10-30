@@ -120,6 +120,14 @@ describe('hub admin page (M86)', () => {
     expect(text).toContain(EN['devices.approve']);
     expect(text).toContain(EN['admin.tile_add_phone_title']);
     expect(text).toContain('Imran');
+    // Pulse 00-S20: one big number per tile, no Other-jobs tile grid, "Branch hub · {host}" in the side-nav foot.
+    const nums = page.findAll((el) => el.className === 'pos-tile__num').map((el) => el.textContent);
+    expect(nums).toEqual(['3', '2', '3']);
+    expect(text).not.toContain(EN['admin.tile_stock']);
+    const foot = page.findAll((el) => el.className === 'pos-sidenav__foot')[0]!;
+    expect(textOf(foot)).toContain(EN['admin.branch_line'].split('{host}')[0]!.trim());
+    expect(textOf(foot)).toContain('Imran');
+    expect(page.findAll((el) => el.className === 'pos-sidenav__foot').length).toBe(1);
 
     const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': false }) }, fetch: fakeHub().fetch });
     expect(textOf(viewer.screen)).not.toContain(EN['devices.approve']);
@@ -137,8 +145,21 @@ describe('hub admin page (M86)', () => {
     expect(text).toContain(EN['devices.type_kds'].replace('{station}', 'Degh'));
     expect(text).toContain(EN['devices.type_phone'].replace('{owner}', 'Bilal'));
     expect(text).toContain(EN['devices.seen_hour'].replace('{n}', '3'));
+    // Pulse 00-S16: 4 columns; paired details and Remove moved into the row's ⋯ menu.
+    expect(text).not.toContain(EN['devices.col_paired']);
+    expect(byText(page, EN['devices.remove'], page.screen)).toBeUndefined();
     const row = page.find('device_D3')!;
-    await page.click(byText(page, EN['devices.remove'], row)!);
+    const more = page.find('more_D3', row)!;
+    expect(more.getAttribute('aria-label')).toBe(EN['devices.more'].replace('{name}', "Bilal's phone"));
+    await page.click(more);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const [pairedHead, pairedTail] = EN['devices.menu_paired'].split('{date}');
+    expect(textOf(row)).toContain(pairedHead! + EN['devices.today'].split('{time}')[0]);
+    expect(textOf(row)).toContain(pairedTail!.replace('{name}', 'Imran'));
+    expect(textOf(row)).toContain(EN['devices.source_token']);
+    await page.click(page.find('remove_D3', row)!);
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)).toHaveLength(0);
     expect(textOf(page.body)).toContain(EN['devices.remove_title'].replace('{name}', "Bilal's phone"));
     page.find('remove_reason', page.body)!.value = ' Lost ';
     await page.click(page.find('dialog_confirm', page.body)!);
@@ -149,6 +170,65 @@ describe('hub admin page (M86)', () => {
     const viewer = await runPage(source, { store: STORE, session: { ...SESSION, admin_permissions: JSON.stringify({ 'manage-devices': false, 'manage-staff': true }) }, fetch: fakeHub().fetch, hash: '#devices' });
     expect(textOf(viewer.screen)).toContain(EN['devices.read_only']);
     expect(byText(viewer, EN['devices.remove'], viewer.screen)).toBeUndefined();
+    expect(viewer.findAll((el) => el.className === 'pos-more')).toHaveLength(0);
+  });
+
+  it('[00 §8.2 M86] screens and phones: the row menu closes on Escape with focus back on ⋯, arrow keys move between items; offline keeps the menu but Remove is off', async () => {
+    const source = await html();
+    const hub = fakeHub();
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
+    const row = page.find('device_D2')!;
+    const more = page.find('more_D2', row)!;
+    await page.click(more);
+    const menu = page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)[0]!;
+    expect(menu.getAttribute('role')).toBe('menu');
+    const remove = page.find('remove_D2', menu)!;
+    expect(remove.getAttribute('role')).toBe('menuitem');
+    expect(textOf(remove)).toBe(EN['devices.menu_remove'].replace('{name}', 'Degh'));
+    expect(page.active).toBe(remove);
+    menu.listeners.keydown!({ key: 'ArrowDown', preventDefault() {} });
+    expect(page.active).toBe(remove);
+    menu.listeners.keydown!({ key: 'Escape', preventDefault() {} });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(page.active).toBe(more);
+    expect(page.findAll((el) => el.className.split(' ').includes('pos-menu'), row)).toHaveLength(0);
+
+    hub.down = true;
+    await page.click(page.find('tab_removed')!);
+    await page.click(page.find('tab_in_use')!);
+    expect(all(page)).toContain(EN['admin.offline']);
+    const offlineMore = page.find('more_D2')!;
+    await page.click(offlineMore);
+    const off = page.find('remove_D2')!;
+    expect(off.disabled).toBe(true);
+    await page.click(off);
+    expect(textOf(page.body)).not.toContain(EN['devices.remove_title'].replace('{name}', 'Degh'));
+  });
+
+  it('[00 §8.2 M86] screens and phones: In use / Removed filter replaces the switch; Removed refetches with include_revoked and lists only removed rows with their reason', async () => {
+    const source = await html();
+    const urls: string[] = [];
+    const hub = fakeHub();
+    const removed = { ...DEVICES.devices[0]!, device_id: 'D7', device_name: 'Tablet 3', device_type: 'tablet', revoked_at: NOW - 86_400_000 * 3, revoked_by_name: 'Imran', revoked_reason: 'Lost on the family hall floor', active_session: null };
+    const fetch = (url: string, init?: unknown): Promise<unknown> => {
+      urls.push(url);
+      if (url === '/admin/queries/devices?include_revoked=true') return Promise.resolve(jsonResponse(200, { data: { devices: [...DEVICES.devices, removed] } }));
+      return hub.fetch(url, init);
+    };
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch, hash: '#devices' });
+    expect(textOf(page.screen)).not.toContain(EN['devices.show_removed']);
+    const inUse = page.find('tab_in_use')!;
+    expect(inUse.getAttribute('aria-pressed')).toBe('true');
+    expect(textOf(inUse)).toBe(`${EN['devices.tab_in_use']}   3`);
+    await page.click(page.find('tab_removed')!);
+    expect(urls).toContain('/admin/queries/devices?include_revoked=true');
+    expect(page.find('tab_removed')!.getAttribute('aria-pressed')).toBe('true');
+    expect(textOf(page.find('tab_removed'))).toContain('1');
+    const text = textOf(page.screen);
+    expect(text).toContain('Tablet 3');
+    expect(text).toContain('Lost on the family hall floor');
+    expect(page.find('device_D1')).toBeUndefined();
+    expect(page.find('more_D7')).toBeUndefined();
   });
 
   it('[00 §8.2 M86] add a phone: pick a name, Make QR sends GenerateDevicePairingToken for that owner, shows the QR, link and countdown; Done goes back to the list', async () => {
@@ -164,7 +244,11 @@ describe('hub admin page (M86)', () => {
     expect(hub.sent[0]!.body).toMatchObject({ command_type: 'GenerateDevicePairingToken', payload: { device_type: 'phone', owner_staff_id: 'S_ALI' } });
     const text = textOf(page.screen);
     expect(text).toContain(EN['addphone.scan_title'].replace('{name}', 'Ali'));
-    expect(text).toContain('http://192.168.0.107:3000/pair?t=abc');
+    // Pulse 00-S17: pair_url (RARE) only after Show link.
+    expect(text).not.toContain('http://192.168.0.107:3000/pair?t=abc');
+    await page.click(page.find('show_link')!);
+    expect(textOf(page.screen)).toContain('http://192.168.0.107:3000/pair?t=abc');
+    expect(page.find('show_link')).toBeUndefined();
     expect(text).toContain('9:41');
     await page.click(byText(page, EN['addphone.done'], page.screen)!);
     expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
@@ -176,13 +260,20 @@ describe('hub admin page (M86)', () => {
     hub.answers['/admin/commands/force-logout-session'] = () => jsonResponse(200, { data: { result: { session_id: 'SS2', ended_at: NOW, already_ended: true } } });
     const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#sessions' });
     const text = textOf(page.screen);
-    expect(text).toContain(EN['sessions.idle_rule_h'].replace('{n}', '1'));
+    // Pulse 00-S18: the sub-line is the kind only; the idle rule and "since" left the row, the warn stays.
+    expect(text).not.toContain(EN['sessions.idle_rule_h'].replace('{n}', '1'));
+    expect(text).not.toContain(EN['sessions.stays_on']);
+    expect(text).not.toContain('since');
+    expect(textOf(page.find('session_SS1'))).toContain(EN['sessions.kind_staff']);
+    expect(textOf(page.find('session_SS2'))).toContain(EN['sessions.kind_station']);
     expect(text).toContain(EN['sessions.idle_soon'].replace('{n}', '1'));
-    expect(text).toContain(EN['sessions.stays_on']);
     expect(text).toContain(EN['sessions.you']);
+    const logOut = byText(page, EN['sessions.log_out'], page.find('session_SS1'))!;
+    expect(logOut.className.split(' ')).toContain('pos-btn--danger');
     expect(byText(page, EN['sessions.log_out'], page.find('session_SA'))).toBeUndefined();
     await page.click(byText(page, EN['sessions.log_out'], page.find('session_SS2'))!);
     expect(textOf(page.body)).toContain(EN['sessions.end_kds_title'].replace('{station}', 'Degh'));
+    expect(page.find('dialog_confirm', page.body)!.className.split(' ')).toContain('pos-btn--danger');
     await page.click(page.find('dialog_confirm', page.body)!);
     expect(hub.sent[0]!.body).toMatchObject({ command_type: 'ForceLogoutSession', payload: { session_id: 'SS2' } });
     expect(textOf(page.screen)).toContain(EN['sessions.already_ended']);
@@ -195,9 +286,16 @@ describe('hub admin page (M86)', () => {
     const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#lockouts' });
     const text = textOf(page.screen);
     expect(text).toContain('Bilal');
-    expect(text).toContain('Counter 2');
-    expect(text).toContain(EN['lockouts.none_ip']);
-    expect(text).toContain(EN['staff.locked_min'].replace('{min}', '14'));
+    expect(text.replace(/\s+/g, ' ')).toContain(EN['staff.locked_min'].replace('{min}', '14'));
+    // Pulse 00-S19: people first; screens and addresses behind one disclosure row with their count.
+    expect(text).not.toContain('Counter 2');
+    const more = page.find('lockouts_more')!;
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(textOf(more).replace(/\s+/g, ' ')).toContain(EN['lockouts.more_toggle'].replace('{n}', '1'));
+    await page.click(more);
+    expect(page.find('lockouts_more')).toBeUndefined();
+    expect(textOf(page.screen)).toContain('Counter 2');
+    expect(textOf(page.screen)).toContain(EN['lockouts.none_ip']);
     await page.click(byText(page, EN['lockouts.unlock'], page.find('lockout_staff_S_WAIT'))!);
     expect(textOf(page.body)).toContain(EN['lockouts.confirm_title'].replace('{name}', 'Bilal'));
     await page.click(page.find('dialog_confirm', page.body)!);
@@ -212,6 +310,37 @@ describe('hub admin page (M86)', () => {
     hub.down = false;
     for (let i = 0; i < 5 && textOf(page.screen).includes(EN['admin.offline']); i += 1) await page.advance();
     expect(textOf(page.screen)).not.toContain(EN['admin.offline']);
+  });
+
+  it('[00 §8.4 F05] hub busy after a command: warn banner "Hub busy, try again." with Try again, which repeats the same command_id', async () => {
+    const source = await html();
+    const hub = fakeHub();
+    let busy = true;
+    hub.answers['/admin/commands/clear-pin-lockout'] = () =>
+      busy ? jsonResponse(503, { error: { code: 'SERVICE_UNAVAILABLE', details: { retry_after_ms: 1000 } } }) : jsonResponse(200, { data: { result: { cleared: true } } });
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#lockouts' });
+    await page.click(byText(page, EN['lockouts.unlock'], page.find('lockout_staff_S_WAIT'))!);
+    await page.click(page.find('dialog_confirm', page.body)!);
+    expect(textOf(page.screen)).toContain(EN['global.busy']);
+    expect(textOf(page.screen)).toContain(EN['global.busy_small']);
+    busy = false;
+    await page.click(byText(page, EN['global.try_again'], page.screen)!);
+    expect(hub.sent).toHaveLength(2);
+    expect(hub.sent[1]!.body.command_id).toBe(hub.sent[0]!.body.command_id);
+    expect(textOf(page.screen)).not.toContain(EN['global.busy']);
+    expect(textOf(page.screen)).toContain(EN['lockouts.unlocked'].replace('{name}', 'Bilal'));
+  });
+
+  it('[00 §8.4 F01] nothing loaded and the hub does not answer: the full hub-down state in the content region', async () => {
+    const source = await html();
+    const hub = fakeHub();
+    hub.down = true;
+    const page = await runPage(source, { store: STORE, session: SESSION, fetch: hub.fetch, hash: '#devices' });
+    expect(textOf(page.screen)).toContain(EN['global.hub_down_title']);
+    expect(textOf(page.screen)).toContain(EN['global.hub_down_body']);
+    hub.down = false;
+    for (let i = 0; i < 5 && textOf(page.screen).includes(EN['global.hub_down_title']); i += 1) await page.advance();
+    expect(textOf(page.screen)).toContain(EN['devices.group_cashier']);
   });
 
   it('[00 §8.2 M86] no admin session → the shared sign-in; no device token and no bootstrap session → can\'t approve here', async () => {

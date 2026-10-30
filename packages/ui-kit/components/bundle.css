@@ -1729,3 +1729,59 @@ body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
   .pos-firstfloor__go > .pos-btn { flex: 1; }
   .pos-chipgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ---------- Pulse page layout · 00-C hub admin ---------- */
+/* Shell (1280+): .pos-page--fit + .pos-shell__main; the hub-down banner sits between the app bar and the scrolling content. */
+.pos-admin__notice { flex: none; padding: var(--space-4) var(--space-6) 0; }
+.pos-shell__main > .pos-actionbar { flex: none; }
+.pos-admin__refreshed { color: var(--ink-muted); }
+.pos-admin__section { display: flex; flex-direction: column; gap: var(--space-2); }
+.pos-admin__muted { color: var(--ink-muted); }
+.pos-sidenav__who > .pos-avatar { font-style: normal; }
+.pos-admin__host { color: var(--ink-muted); text-align: center; }
+/* Hub page scripts wrap icons (.pos-icon-wrap): row ⋯ sits at the row end, the disclosure chevron at the far end. */
+.pos-list__row > .pos-more { justify-self: end; }
+/* Admin lists keep the frame's dark 600 meta text (a later shared rule mutes .pos-list__meta). */
+:is(.pos-list--devices, .pos-list--sessions, .pos-list--lockouts) .pos-list__meta { font: 600 16px/22px var(--font-sans); color: var(--ink); }
+:is(.pos-list--devices, .pos-list--sessions, .pos-list--lockouts) .pos-list__meta > span { font: 500 14px/20px var(--font-sans); color: var(--ink-muted); }
+.pos-disclosure > .pos-icon-wrap:last-child { margin-inline-start: auto; color: var(--ink-muted); }
+.pos-disclosure > .pos-icon-wrap:first-child { color: var(--ink-muted); }
+/* Row menu: the list lets an open menu overflow it; upward when the row is low in the scrolling region (DevicesRowMenu). */
+.pos-list:has(> .has-menu) { overflow: visible; }
+.pos-list:has(> .has-menu) > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
+.pos-list:has(> .has-menu) > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
+.pos-list__row.has-menu .pos-menu--up { top: auto; bottom: calc(100% - var(--space-2)); }
+.pos-menu__item > .pos-icon-wrap { flex: none; }
+/* Loading rows under the column heads (DevicesLoading). */
+.pos-list__row > .pos-skeleton { width: 50%; height: 20px; }
+.pos-list__row > .pos-skeleton:first-child { width: 60%; height: 24px; }
+.pos-list__row > .pos-skeleton:last-child:not(:first-child) { width: 100%; height: 40px; }
+/* Removed tab: the reason chip spans the three data columns (DevicesRemoved). */
+.pos-admin__span3 { grid-column: span 3; }
+/* Signed in now: warn last activity is clock + word, not a chip (Sessions). */
+.pos-admin__warn { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); font-weight: 700; }
+.pos-admin__warn .pos-icon { width: 18px; height: 18px; }
+:is(.pos-list--sessions, .pos-list--stack) .pos-list__meta > span.pos-admin__warn { font: 700 16px/22px var(--font-sans); color: var(--warn); }
+/* Locked out: "No one is locked out." line (LockoutsEmpty). */
+.pos-admin__none { display: flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); }
+/* Add a phone (AddPhonePick, AddPhoneQr) */
+.pos-admin__pick { gap: var(--space-4); }
+.pos-admin__find { max-width: 360px; }
+.pos-admin__staff { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pos-admin__qrcard { max-width: 640px; width: 100%; margin-inline: auto; }
+.pos-admin__qr { gap: var(--space-4); }
+.pos-admin__qracts { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; max-width: 420px; }
+.pos-admin__link > .pos-mono-wrap { margin: 0; }
+/* Confirm dialogs 00-D01…D03 are 560 wide; on a scrolled phone page the scrim stays on the screen. */
+.pos-dialog--confirm { max-width: 560px; }
+body > .pos-scrim { position: fixed; }
+@media (max-width: 760px) {
+  .pos-appbar--phone ~ .pos-admin__content { padding: var(--space-4); gap: var(--space-4); }
+  .pos-admin__actions { justify-content: space-between; }
+  .pos-admin__phonerow { justify-content: space-between; flex-wrap: nowrap; align-items: flex-start; }
+  .pos-admin__phonerow > .pos-list__name { flex: 1; }
+  .pos-admin__staff { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pos-admin__find { max-width: none; }
+  .pos-admin__content > .pos-tiles--home { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .pos-admin__content > .pos-tiles--home .pos-tile { min-height: 0; }
+}
