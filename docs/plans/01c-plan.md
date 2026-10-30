@@ -152,7 +152,7 @@ ENGINE_STATE_VERSION = 2   // task 8; fixtures engine-state.v2.json, engine-log.
 
 ## Coverage table (§10 → task)
 
-126 live tests (1–128; 71, 72 retired). Checked by script: every live number appears in exactly one task below, and no retired number appears.
+126 live tests (1–128; 71, 72 retired), of which **124 are built in 01c**: #115 and #124 are deferred to the UI module with tasks 34–37 (AD-35). Checked by script: every one of the 124 appears in exactly one task below, no retired number appears, and #115 and #124 appear only in the deferred rows 34 and 37.
 
 | Task | 01c tests | Re-keyed 01a / 01b tests |
 |---|---|---|
@@ -186,10 +186,10 @@ ENGINE_STATE_VERSION = 2   // task 8; fixtures engine-state.v2.json, engine-log.
 | 31 | 54, 55, 62, 107 | 01a #140 |
 | 32 | 73, 74, 75, 76 | — |
 | 33 | 98, 99, 121 | — |
-| 34 | 124 | — |
-| 37 | 115 | — |
+| 34 (DEFERRED, AD-35) | 124 — deferred to the UI module | — |
+| 37 (DEFERRED, AD-35) | 115 — deferred to the UI module | — |
 
-Totals: 01c 126 / 126 live (16 + 8 + 4 + 1 + 2 + 1 + 6 + 3 + 3 + 3 + 3 + 4 + 4 + 5 + 2 + 5 + 4 + 4 + 6 + 4 + 3 + 6 + 6 + 5 + 4 + 4 + 4 + 3 + 1 + 1 = 126). 01a: the 34 tests of §4.5 (4, 41, 59, 60, 61, 66, 67, 72, 73, 77, 89, 91, 93, 116, 128, 129, 130, 131, 132, 133, 134, 140, 143, 145, 147, 148, 149, 152, 156, 157, 158, 166, 167, 171) each once, plus #68 (P-12). 01b: #34 once.
+Totals: 01c 124 / 124 live in this module (1 + 16 + 8 + 4 + 1 + 2 + 1 + 6 + 3 + 3 + 3 + 3 + 4 + 4 + 5 + 2 + 5 + 4 + 4 + 6 + 4 + 3 + 6 + 6 + 5 + 4 + 4 + 4 + 3 = 124, tasks 1–33): the 126 live §10 tests less #115 and #124, deferred to the UI module with tasks 34 and 37 (AD-35). 01a: the 34 tests of §4.5 (4, 41, 59, 60, 61, 66, 67, 72, 73, 77, 89, 91, 93, 116, 128, 129, 130, 131, 132, 133, 134, 140, 143, 145, 147, 148, 149, 152, 156, 157, 158, 166, 167, 171) each once, plus #68 (P-12). 01b: #34 once.
 
 **Moved from §11's step (P-1, P-3):** 21 (step 8 → task 22, needs the schema-2 builder); 36, 37, 59, 81, 88, 89, 92, 106, 127 (steps 10, 12, 18 → builder tasks 27–28); 54, 55 (step 11 → task 31); 84 (step 17 → task 22, its snapshot case); 85 (step 17 → task 14); 86 (step 17 → task 30); 83 (step 19 → task 15); 77, 78 (step 18/19 → tasks 26, 29); 80, 82 (step 19 → task 22); 120 (step 13 → task 13, it tests the restart rule itself); 125 (steps 8 and 10 → task 25, one task); 101 (§6.2 and §6.5 parts → task 13); 116 (POST and PATCH → task 25); 107 (three parts → task 31); 109 (PATCH, builder, R4 → task 27); 25 (option and deal-part cases → task 15, P-4); 01a #116, #131, #132 (step 5 → tasks 19–20: they are hub query tests); 01a #133, #143, #145, #149 (step 14 → task 8, where `BusinessDayOpened` v2 lands).
 
@@ -232,10 +232,10 @@ Totals: 01c 126 / 126 live (16 + 8 + 4 + 1 + 2 + 1 + 6 + 3 + 3 + 3 + 3 + 4 + 4 +
 | | 31 | Deal branch PUT §6.16; builder deals; statement bounds | needs Docker Postgres |
 | 10 (13) | 32 | Races 73–76 | needs Docker Postgres |
 | | 33 | Races 98, 99, 121 | needs Docker Postgres |
-| 11 (15) | 34 | Owner item form: variant, stock, weighed; create-stock-item flow | |
-| | 35 | Owner views: variant groups, stock items | |
-| | 36 | Owner view: modifier groups with the per-branch tab | |
-| | 37 | Owner view: deals; omitted-at-branch warnings | |
+| 11 (15) | 34 | Owner item form: variant, stock, weighed; create-stock-item flow | DEFERRED (AD-35) |
+| | 35 | Owner views: variant groups, stock items | DEFERRED (AD-35) |
+| | 36 | Owner view: modifier groups with the per-branch tab | DEFERRED (AD-35) |
+| | 37 | Owner view: deals; omitted-at-branch warnings | DEFERRED (AD-35) |
 | 12 (16, DoD) | 38 | `seed-demo` 01c data | needs Docker Postgres |
 | | 39 | Full suite, Definition of Done, manual checks | Manual |
 | — | 40 | (optional, out of plan) 01a v2.0 prose rewrite | docs only |
@@ -751,9 +751,13 @@ Barrier tests use the existing `afterTargetLock` / `afterReferenceLock` hooks (a
 
 ## Batch 11 — Owner app views (§11 step 15)
 
+**DEFERRED (AD-35, developer 2026-10-30): the whole batch (tasks 34–37) moves to a later UI module that maps 00 / 01a / 01b / 01c onto the new "Pulse" design in one pass; no owner-app view is built or restyled in 01c, and the existing owner app keeps compiling with its tests green. Tests #115 and #124 move with it. The §8 requirements are kept in the UI contract, see `docs/plans/01c-ui-contract.md`. The text below is kept as written.**
+
 Component tests with the mocked API of `features/owner/test-api.ts`. Every view: `can_edit_tenant: false` → read-only (branch rows stay editable for allowed branches); `409 CONFIG_STALE` → "Changed elsewhere — reload", draft kept, no blind retry; `422` field paths map to the row as sent; "Removed" rows with **Restore**; new i18n keys in `en.ts` and `ur.ts`, including `errors.CONFIG_REFERENCE_INVALID.<reason>` for the nine new reasons (§8). Navigation entries in `features/owner/{App,Shell}.tsx`.
 
 ### Task 34: Owner item form: variant, stock, weighed; create-stock-item flow
+
+**DEFERRED (AD-35, developer 2026-10-30): not built in 01c; test #124 deferred to the UI module; see `docs/plans/01c-ui-contract.md` (Item form).**
 
 **Spec:** §8 "Views" (item form), m7, N9, V18.
 
@@ -767,6 +771,8 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 
 ### Task 35: Owner views: variant groups, stock items
 
+**DEFERRED (AD-35, developer 2026-10-30): not built in 01c; see `docs/plans/01c-ui-contract.md` (Variant groups, Stock items).**
+
 **Spec:** §8 (Variant groups; Stock items with "Counted here at station …, alert below …").
 
 **Files:** Create `apps/client/src/features/owner/menu-variants/{VariantGroupsView,StockItemsView}.tsx` and tests; Modify `apps/client/src/api/cloud-admin.ts`, `features/owner/{App,Shell}.tsx`, `i18n/{en,ur}.ts`.
@@ -777,6 +783,8 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 
 ### Task 36: Owner view: modifier groups with the per-branch tab
 
+**DEFERRED (AD-35, developer 2026-10-30): not built in 01c; see `docs/plans/01c-ui-contract.md` (Modifier groups).**
+
 **Spec:** §8 (options table, "Applies to" attach / opt-out, per-branch "Offered here / Price here", F1 warning).
 
 **Files:** Create `apps/client/src/features/owner/menu-variants/ModifierGroupsView.tsx` and test; Modify `api/cloud-admin.ts`, `{App,Shell}.tsx`, `i18n/{en,ur}.ts`.
@@ -786,6 +794,8 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 - [ ] **Commit:** `feat(01c): task 36 owner modifier groups view [spec §8, V19, F1]`
 
 ### Task 37: Owner view: deals; omitted-at-branch warnings
+
+**DEFERRED (AD-35, developer 2026-10-30): not built in 01c; test #115 deferred to the UI module; see `docs/plans/01c-ui-contract.md` (Deals, Omitted at a branch).**
 
 **Spec:** §8 (Deals: parts with choices, "Sold here / Price here"; "Omitted at a branch", m11, N9).
 
@@ -816,7 +826,7 @@ Component tests with the mocked API of `features/owner/test-api.ts`. Every view:
 **Spec:** §12.1, §12.2, §10.9.
 
 - [ ] **Step 1:** `docker compose down && docker compose up -d postgres`, then `pnpm -w typecheck && pnpm -w lint && pnpm -w test` from a clean checkout → green. Record the counts.
-- [ ] **Step 2:** Coverage script: `grep -rhoE "\[01c #[0-9]+\]" apps packages | sort -u` gives 126 distinct numbers, 1–128 without 71 and 72; each appears in exactly one `it(` (`grep -rc`).
+- [ ] **Step 2:** Coverage script: `grep -rhoE "\[01c #[0-9]+\]" apps packages | sort -u` gives the live 01c tests minus #115 and #124: 124 distinct numbers, 1–128 without 71 and 72 (retired) and without 115 and 124 (deferred to the UI module, AD-35); each appears in exactly one `it(` (`grep -rc`).
 - [ ] **Step 3:** §12.2 endpoint checklist: every route answers per its row (auth, versioned, idempotency, audit), every route in `ROUTE_CASES`, every listed test green.
 - [ ] **Step 4: Manual — stock page.** `seed-demo`, pair a hub, sign in at `/admin/stock`: the **Karahi pot appears once** with **Half and Full listed under it**; open the day; count 6 000 g → Half shows 12, Full 6; add 1 000 g → Half 14, Full 7; reload → same numbers; a `my_stations` counter of the Tandoor does not see the pot.
 - [ ] **Step 5: Manual — schema-1 hub.** Build the hub from `main` (pre-01c, schema 1) and point it at the 01c cloud: the poll is refused as `schema_unsupported`, the danger banner shows on `/admin/stock` and in the config status, the last config is kept, and nothing crashes. Then the 01c hub applies the same snapshot.
