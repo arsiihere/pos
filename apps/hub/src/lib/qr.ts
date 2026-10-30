@@ -1,15 +1,7 @@
 import QRCode from 'qrcode';
 
-interface QrModules {
-  size: number;
-  get(row: number, col: number): number;
-}
-
 export function qrSvg(text: string): string {
-  const created = (QRCode as { create(text: string, options: { errorCorrectionLevel: 'M' }): { modules: QrModules } }).create(
-    text,
-    { errorCorrectionLevel: 'M' },
-  );
+  const created = QRCode.create(text, { errorCorrectionLevel: 'M' });
   const size = created.modules.size;
   const quiet = 4;
   const dim = size + quiet * 2;

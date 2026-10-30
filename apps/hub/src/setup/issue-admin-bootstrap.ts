@@ -57,9 +57,7 @@ export async function runIssueAdminBootstrap(o: {
     registerAccessReconcile({ projections, writer, clock });
     const issued = writer.run((tx) => issueAdminBootstrap(tx, 'cli', { clock, ids, secrets: cryptoSecrets })).result;
     const url = `http://${config.advertised_host}:${config.http_port}/admin/bootstrap#t=${issued.token}`;
-    const qr = await (
-      QRCode as { toString(text: string, options: { type: 'terminal'; small: boolean }): Promise<string> }
-    ).toString(url, { type: 'terminal', small: true });
+    const qr = await QRCode.toString(url, { type: 'terminal', small: true });
     o.out.write(`${url}\n${new Date(issued.expires_at).toISOString()}\n${qr}`);
     return { url, expires_at: issued.expires_at };
   } finally {
