@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hostChoices } from '../../src/lib/net';
-import { EN } from '../../src/lib/strings';
+import { EN, UR } from '../../src/lib/strings';
 import { setupPage } from '../../src/setup/page';
 import { jsonResponse, runPage, textOf, type PageSandbox } from '../helpers/page-sandbox';
 
@@ -75,7 +75,14 @@ describe('setup page', () => {
     const status = page.byId('setup_status');
     const host = page.byId('advertised_host');
     const tiles = page.byId('host_tiles').children;
-    expect(tiles.map((tile) => textOf(tile))).toEqual([`192.168.0.107 ${EN['setup.host_cable']}`, `192.168.1.34 ${EN['setup.host_wifi']}`, EN['setup.host_other']]);
+    expect(tiles.map((tile) => textOf(tile))).toEqual([
+      `192.168.0.107 ${EN['setup.host_cable']}`,
+      `192.168.1.34 ${EN['setup.host_wifi']}`,
+      `${EN['setup.host_other']} ${EN['setup.host_other_hint']}`,
+    ]);
+    // Pulse: the address is the tile's big mono line, the kind its small line with an icon.
+    expect(tiles[0]!.children[0]).toMatchObject({ tagName: 'b', className: 'pos-ltr', textContent: '192.168.0.107' });
+    expect(tiles[0]!.children[1]!.children[0]!.innerHTML).toContain('M9 14v3a4 4 0 0 0 4 4h6');
     expect(tiles[0]!.getAttribute('aria-pressed')).toBe('true');
     expect(host.hidden).toBe(true);
     expect(host.value).toBe('192.168.0.107');
@@ -96,6 +103,8 @@ describe('setup page', () => {
     expect(page.byId('field_guest_network_cidrs').classList.contains('pos-field--error')).toBe(false);
     expect(textOf(status)).toContain(EN['errors.SERVICE_UNAVAILABLE_cloud']);
     expect(textOf(status)).toContain(EN['errors.SERVICE_UNAVAILABLE_cloud_body'].replace('{s}', '5'));
+    // SetupCloudDown frame: the cloud banner carries the Wi-Fi icon.
+    expect(status.children[0]!.children[0]!.innerHTML).toContain('M2.5 8.5a14 14 0 0 1 19 0');
     expect(button.disabled).toBe(true);
     await advanceUntil(page, () => !button.disabled);
     expect(button.disabled).toBe(false);
@@ -143,12 +152,42 @@ describe('setup page', () => {
     expect(textOf(page.body)).not.toMatch(/errors\.|setup\./);
   });
 
+  it('[00 §10 #137] 00-S02 SetupLinkExpired: after first_admin_expires_at the QR is void, the chip says "Link expired" and the CLI command shows', async () => {
+    const page = await runPage(setupPage(CHOICES), {
+      fetch: (url) =>
+        url.endsWith('/health')
+          ? Promise.reject(new TypeError('down'))
+          : Promise.resolve(
+              jsonResponse(200, {
+                data: { restarting: true, first_admin_url: 'http://192.168.0.107:3000/admin/bootstrap#t=tok', first_admin_qr_svg: '<svg></svg>', first_admin_expires_at: Date.now() - 1 },
+              }),
+            ),
+    });
+    fill(page);
+    await page.submit(page.byId('setup'));
+    await page.settle();
+    const done = page.byId('setup_done');
+    await advanceUntil(page, () => textOf(done).includes(EN['setup.link_expired_title']));
+    const text = textOf(done);
+    expect(text).toContain(EN['setup.link_expired_chip']);
+    expect(text).toContain(EN['setup.qr_expired']);
+    expect(text).toContain('issue-admin-bootstrap');
+    expect(text).toContain('http://192.168.0.107:3000/admin/bootstrap#t=tok');
+  });
+
   it('[00 §10 #140] M83: ?lang=ur → lang ur, dir rtl, Urdu text, remembered; navigator ur-PK → Urdu; en-US → English; a key missing from UR shows English', async () => {
     const fetch = () => new Promise<never>(() => undefined);
     const ur = await runPage(setupPage(CHOICES), { fetch, search: '?lang=ur' });
     expect(ur.documentElement).toMatchObject({ lang: 'ur', dir: 'rtl' });
     expect(ur.local.get('pos-lang')).toBe('ur');
-    expect(textOf(ur.byId('host_tiles'))).toContain(EN['setup.host_other']);
+    expect(textOf(ur.byId('host_tiles'))).toContain(UR['setup.host_other']);
+    expect(textOf(ur.byId('host_tiles'))).toContain(UR['setup.host_cable']);
+    expect(ur.byId('setup_steps').getAttribute('aria-label')).toBe(UR['setup.next_title']);
+    // A key missing from UR (setup.busy) shows its English text.
+    expect(UR['setup.busy']).toBeUndefined();
+    fill(ur);
+    await ur.submit(ur.byId('setup'));
+    expect(ur.byId('setup_submit').textContent).toBe(EN['setup.busy']);
     const remembered = await runPage(setupPage(CHOICES), { fetch, local: { 'pos-lang': 'ur' } });
     expect(remembered.documentElement.dir).toBe('rtl');
     const fromBrowser = await runPage(setupPage(CHOICES), { fetch, language: 'ur-PK' });

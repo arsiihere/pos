@@ -14,6 +14,7 @@ export const EN = {
   'setup.host_cable': 'Cable',
   'setup.host_wifi': 'Wi-Fi',
   'setup.host_other': 'Other address',
+  'setup.host_other_hint': 'Type it',
   'setup.cidr_label': 'Customer Wi-Fi ranges (blocked)',
   'setup.cidr_help': "Phones on these ranges can't open the POS. Separate several with commas.",
   'setup.submit': 'Set up hub',
@@ -43,6 +44,7 @@ export const EN = {
   'setup.link_expired_title': 'This link has expired',
   'setup.link_expired_body': 'It was valid for 30 minutes. Ask support to make a new first-admin link.',
   'setup.qr_expired': 'QR expired',
+  'setup.link_expired_chip': 'Link expired',
   'setup.link_cli': 'Make a new link on the hub:',
 
   'bootstrap.title': 'Sign in as the first admin',
@@ -357,6 +359,11 @@ export const UR: Partial<Record<StringKey, string>> = {
   'setup.code_help': 'ڈیش اور خالی جگہ سے فرق نہیں پڑتا۔',
   'setup.host_label': 'اس نیٹ ورک پر ہب کا پتا',
   'setup.host_help': 'وہ پتا جس سے اسکرینیں ہب کھولیں گی۔ اگر تار اور وائی فائی دونوں ہوں تو تار والا لکھیں۔',
+  // Urdu draft — needs native review (Pulse 00 CHANGES §3).
+  'setup.host_cable': 'تار',
+  'setup.host_wifi': 'وائی فائی',
+  'setup.host_other': 'کوئی اور پتا',
+  'setup.host_other_hint': 'لکھیں',
   'setup.cidr_label': 'گاہکوں کے وائی فائی کی رینج (بند)',
   'setup.cidr_help': 'ان رینج پر فون POS نہیں کھول سکتے۔ کئی ہوں تو کوما سے الگ کریں۔',
   'setup.submit': 'ہب سیٹ اپ کریں',

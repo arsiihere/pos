@@ -153,7 +153,8 @@ function renderGlobalState(state, actions) {
   }
   const screen = node('main', 'pos-screen pos-screen--' + GLOBAL_KIND[state.id]);
   screen.setAttribute('role', state.id === 'F02' || state.id === 'F08' ? 'alert' : 'status');
-  const badge = node('div', 'pos-screen__icon');
+  // 00-F06: the sync icon turns while setup runs (frame GlobalNotSetUp; stops under reduced motion).
+  const badge = node('div', state.id === 'F06' ? 'pos-screen__icon pos-screen__icon--spin' : 'pos-screen__icon');
   badge.appendChild(icon(state.id === 'F02' && state.variant === 'phone' ? 'phone' : GLOBAL_ICON[state.id]));
   screen.appendChild(badge);
   const title = {
@@ -180,7 +181,7 @@ function renderGlobalState(state, actions) {
   }[state.id];
   screen.appendChild(node('p', 'pos-screen__body', t(body)));
   if (state.id === 'F07' && state.address) {
-    screen.appendChild(node('p', 'pos-mono-wrap', 'http://' + state.address));
+    screen.appendChild(node('p', 'pos-mono-wrap pos-mono-wrap--lg', 'http://' + state.address));
   }
   if ((state.id === 'F02' || state.id === 'F08') && act.pairAgain) {
     screen.appendChild(globalAction('link', t('global.pair_again'), act.pairAgain));

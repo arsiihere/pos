@@ -33,6 +33,9 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   reload: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
   download: '<path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M5 20h14"/>',
+  // Pulse 00 hand-off (Setup address tiles): network cable, pencil.
+  cable: '<path d="M7 3v5"/><path d="M11 3v5"/><rect x="5" y="8" width="8" height="6" rx="1.5"/><path d="M9 14v3a4 4 0 0 0 4 4h6"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   link: '<path d="M10 14l4-4"/><path d="M8.5 11.5L6 14a3 3 0 0 0 4 4l2.5-2.5"/><path d="M15.5 12.5L18 10a3 3 0 0 0-4-4l-2.5 2.5"/>',
 } as const;
 
@@ -90,7 +93,7 @@ export function tag(name: string, className: string, key: StringKey, attrs = '')
   return `<${name}${className === '' ? '' : ` class="${className}"`} data-t="${key}"${attrs === '' ? '' : ` ${attrs}`}>${esc(EN[key])}</${name}>`;
 }
 
-// A kit Field rendered on the hub. The page script marks it with pos-field--error (field_<id>).
+// A kit Field rendered on the hub. The page script marks it with pos-field--error (field_<id>). Pulse order: error, then help.
 export function fieldHtml(o: {
   id: string;
   label: StringKey;
@@ -110,7 +113,7 @@ export function fieldHtml(o: {
     .join(' ');
   return `<div class="pos-field" id="field_${o.id}">
   ${tag('label', 'pos-field__label', o.label, `for="${o.id}"`)}
-  <input class="pos-input${o.code === true ? ' pos-input--code' : o.mono === true ? ' pos-input--mono' : ''}" id="${o.id}" name="${o.id}"${describedBy === '' ? '' : ` aria-describedby="${describedBy}"`}${o.attrs === undefined ? '' : ` ${o.attrs}`}>${help}${error}
+  <input class="pos-input${o.code === true ? ' pos-input--code' : o.mono === true ? ' pos-input--mono' : ''}" id="${o.id}" name="${o.id}"${describedBy === '' ? '' : ` aria-describedby="${describedBy}"`}${o.attrs === undefined ? '' : ` ${o.attrs}`}>${error}${help}
 </div>`;
 }
 

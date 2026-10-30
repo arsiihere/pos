@@ -1526,3 +1526,32 @@ button.pos-chip { min-width: var(--touch-min); justify-content: center; }
 body.pos-root { margin: 0; min-height: 100vh; }
 body.pos-root > #root, body.pos-root > #root > .pos-page { min-height: 100vh; }
 .pos-root fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* ---------- Pulse page layout · 00-A hub setup ---------- */
+/* Fit to screen (1280+): the page never scrolls, only the content region does. */
+.pos-page--fit { height: 100dvh; min-height: 0; overflow: hidden; }
+.pos-page--fit > .pos-content { overflow-y: auto; min-height: 0; }
+.pos-appbar .pos-sidenav__brand { padding: 0; }
+.pos-setup__offline:not(:empty) { padding: var(--space-4) var(--space-6) 0; }
+.pos-setup { display: grid; grid-template-columns: minmax(0, 1080px); justify-content: center; align-content: start; padding-top: 36px; }
+.pos-setup__card { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 40px; padding: 36px 40px; }
+.pos-setup__aside { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.pos-setup__intro { display: flex; flex-direction: column; gap: 10px; }
+.pos-setup__intro > p { color: var(--ink-muted); }
+/* The older number-stepper rule (border, fill, direction: ltr) must not reach the vertical step list. */
+.pos-stepper.pos-stepper--v { display: grid; border: 0; border-radius: 0; background: none; direction: inherit; }
+.pos-setup__main { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.pos-setup__fields { display: flex; flex-direction: column; gap: var(--space-5); }
+.pos-setup__status:empty { display: none; }
+.pos-tiles--addr .pos-tile b.pos-setup__other { font-family: var(--font-sans); direction: inherit; }
+[lang="ur"] .pos-tiles--addr .pos-tile b.pos-setup__other { font-family: var(--font-urdu); }
+.pos-setup__link { max-width: 560px; text-align: center; }
+.pos-mono-wrap--lg { font-size: 28px; line-height: 36px; }
+.pos-screen__icon--spin .pos-icon { animation: pos-spin 1.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .pos-screen__icon--spin .pos-icon { animation: none; } }
+@media (max-width: 760px) {
+  .pos-setup { padding: var(--space-4); }
+  .pos-setup__card { grid-template-columns: minmax(0, 1fr); gap: var(--space-6); padding: var(--space-6) var(--space-4); }
+  .pos-tiles--addr { grid-template-columns: minmax(0, 1fr); }
+  .pos-setup .pos-input--code { font-size: 22px; letter-spacing: 0.06em; }
+}
