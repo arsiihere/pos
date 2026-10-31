@@ -1,6 +1,8 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { globalStateClient, globalStateFor, reconnectDelayMs, type GlobalCtx, type GlobalSignal } from './global-state';
+import { runPage, textOf } from '../../test/helpers/page-sandbox';
+import { clientPrelude } from './page';
 import { EN } from './strings';
 
 const CTX: GlobalCtx = { loaded: true, device: 'screen', app: false, authed: true, tokenRotated: false, busyRetried: false };
@@ -54,6 +56,20 @@ describe('global states 00-F01…F08', () => {
       mode: 'screen',
       address: '192.168.0.107:3000',
     });
+  });
+
+  it('[00 §8.4 F06, F07] Pulse frames: F06 icon spins, F07 shows the address in the large mono line', async () => {
+    const html = `<script>${clientPrelude()}${globalStateClient()}
+document.body.appendChild(renderGlobalState({ id: 'F06', mode: 'screen' }, {}));
+document.body.appendChild(renderGlobalState({ id: 'F07', mode: 'screen', address: '192.168.0.107:3000' }, {}));
+</script>`;
+    const page = await runPage(html, { fetch: () => new Promise<never>(() => undefined) });
+    const [f06, f07] = page.body.children;
+    expect(f06!.children[0]!.className).toBe('pos-screen__icon pos-screen__icon--spin');
+    expect(textOf(f06)).toContain(EN['global.not_set_up_title']);
+    expect(f07!.children[0]!.className).toBe('pos-screen__icon');
+    const address = f07!.children.at(-1)!;
+    expect(address).toMatchObject({ className: 'pos-mono-wrap pos-mono-wrap--lg', textContent: 'http://192.168.0.107:3000' });
   });
 
   it('[00 §8.4 F08] WS 4401 is F08 only after DeviceTokenRotated; plain 4401 and KDS "replaced" stay with the page', () => {

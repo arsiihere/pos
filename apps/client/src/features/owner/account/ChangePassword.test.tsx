@@ -119,4 +119,33 @@ describe('[01b §8] change password', () => {
     // The passwords leave the form after the request.
     expect([...m.container.querySelectorAll<HTMLInputElement>('input')].map((i) => i.value)).toEqual(['', '', '']);
   });
+
+  it('[hand-off 01b-S09, B05] Show is the 56 px kit button; forced mode has its own app bar with Sign out', async () => {
+    await renderForm();
+    expect(button(m.container, t('account.show')).classList.contains('pos-pwshow')).toBe(true);
+    m.unmount();
+    m = mount();
+    let signedOut = false;
+    const { api } = fakeApi(() => ok(TOKENS));
+    await m.render(<ChangePassword api={api} userName="Arif" forced onChanged={() => {}} onSignOut={() => (signedOut = true)} />);
+    expect(m.container.querySelector('.pos-forced > .pos-appbar .pos-sidenav__brand')?.textContent).toContain('Arif');
+    expect(m.container.querySelector('.pos-forced__main .pos-banner--warn')?.textContent).toContain(t('account.forced'));
+    expect(m.container.querySelector('.pos-sidenav')).toBeNull();
+    await click(button(m.container, t('owner.sign_out')));
+    expect(signedOut).toBe(true);
+  });
+
+  it('[01b §8 B05, S53] forced mode keeps the cloud-down banner and the lock notice, and has a page heading', async () => {
+    sessionStorage.setItem('owner_lockout_notice', JSON.stringify({ locked_at: Date.UTC(2026, 9, 27, 17, 42), failed_count: 10 }));
+    const { api } = fakeApi(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    await m.render(<ChangePassword api={api} userName="Arif" forced onChanged={() => {}} onSignOut={() => {}} />);
+    fillForm('temp-password', 'a long new password');
+    await click(button(m.container, t('account.submit')));
+    const main = m.container.querySelector('.pos-forced__main')!;
+    expect(main.textContent).toContain(t('common.cloud_down'));
+    expect(main.textContent).toContain('with a wrong password 10 times on');
+    expect(main.querySelector('h1')?.textContent).toBe(t('account.forced_title'));
+  });
 });

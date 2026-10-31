@@ -1,6 +1,7 @@
 import { ErrorCatalogue } from '@pos/domain';
 import { describe, expect, it } from 'vitest';
 import { t } from '../../i18n';
+import { referenceText } from './c01';
 import { errorText } from './form';
 
 const REASONS = [
@@ -41,5 +42,18 @@ describe('[01a §10 #160] error text (S50 e)', () => {
     for (const code of ['FLOOR_NOT_FOUND', 'TABLE_NOT_FOUND', 'PROGRAM_NOT_FOUND', 'MENU_ITEM_NOT_FOUND']) {
       expect(errorText({ kind: 'api', status: 404, code, details: {} })).toBe(t('errors.NOT_FOUND_stale'));
     }
+  });
+
+  it('01c P1: every reason reads errors.reference.<reason> (01a, 01b, 01c); unit_mismatch on stock_unit has its own text', () => {
+    const text = (details: Record<string, unknown>) =>
+      errorText({ kind: 'api', status: 422, code: 'CONFIG_REFERENCE_INVALID', details });
+    expect(text({ field: 'stock_unit', reason: 'unit_mismatch' })).toBe(t('errors.reference.unit_mismatch_stock'));
+    expect(t('errors.reference.unit_mismatch_stock')).toBe('Some dishes use this stock in the old unit. Change those dishes first.');
+    expect(text({ field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' })).toBe(t('errors.reference.unit_mismatch'));
+    expect(text({ field: 'variant_group_id', reason: 'category_mismatch' })).toBe(t('errors.reference.category_mismatch'));
+    expect(text({ field: 'role_id', reason: 'role_archived' })).toBe(t('errors.reference.role_archived'));
+    expect(text({ field: 'x', reason: 'something_new' })).toBe(t('errors.CONFIG_REFERENCE_INVALID'));
+    expect(referenceText({ field: 'stock_unit', reason: 'unit_mismatch' })).toBe(t('errors.reference.unit_mismatch_stock'));
+    expect(referenceText({ field: 'route', reason: 'program_required' })).toBe(t('errors.reference.program_required'));
   });
 });

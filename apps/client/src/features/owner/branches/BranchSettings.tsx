@@ -1,7 +1,9 @@
 import type { BranchSettingsPatchRequest } from '@pos/events';
 import { useEffect, useState, type ReactNode } from 'react';
+import { usePhone } from '../../../app/phone';
 import type { BranchDetail, CloudAdmin } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
+import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Icon } from '../../../components/Icon';
@@ -17,7 +19,30 @@ import { Page } from '../Shell';
 // 01b §8 #/branches/:id/settings (01b-S07, §6.10, B16): tax on or off, the stale-day hours (1–48) and the
 // second Start-day gap (0–12). The form checks the ranges and stale > gap before sending, then PATCHes only
 // the changed fields (the server re-checks the merged row).
+// Pulse (hand-off 01b-S07): no tabs; sections 820 wide, hour fields 240. Phone: icon-only back, Save
+// settings full width in the bottom action bar (BranchSettingsPhone).
 const whole = (text: string) => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : NaN);
+
+// The back link (the only exit on a phone, where Cancel is not shown) goes through the unsaved-changes
+// guard (S50 c) like Cancel does.
+function BackLink() {
+  const phone = usePhone();
+  const leave = useLeave();
+  return (
+    <a
+      className="pos-btn"
+      href="#/branches"
+      aria-label={t('branches.back')}
+      onClick={(e) => {
+        e.preventDefault();
+        leave(() => navigate('/branches'));
+      }}
+    >
+      <Icon name="back" flip />
+      {!phone && t('branches.back_short')}
+    </a>
+  );
+}
 
 export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: string }) {
   const [stored, setStored] = useState<BranchDetail | null>(null);
@@ -35,12 +60,7 @@ export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: s
     };
   }, [api, branchId]);
 
-  const back = (
-    <a className="pos-btn" href="#/branches" aria-label={t('branches.back')}>
-      <Icon name="back" flip />
-      {t('branches.back_short')}
-    </a>
-  );
+  const back = <BackLink />;
 
   if (stored === null) {
     return (
@@ -71,6 +91,7 @@ function SettingsForm({
   const [busy, setBusy] = useState(false);
   const down = useCloudDown(api);
   const leave = useLeave();
+  const phone = usePhone();
 
   const staleValue = whole(stale);
   const gapValue = whole(gap);
@@ -113,34 +134,37 @@ function SettingsForm({
     setBanner({ tone: 'danger', text: errorText(result.error) ?? '' });
   }
 
-  const actions = (
+  const saveButton = (
+    <BusyButton primary size={phone ? 'lg block' : undefined} busy={busy} disabled={down} onClick={() => void save()}>
+      {t('branches.save_settings')}
+    </BusyButton>
+  );
+  const actions = phone ? undefined : (
     <>
       <button type="button" className="pos-btn" onClick={() => leave(() => navigate('/branches'))}>
         {t('common.cancel')}
       </button>
-      <BusyButton primary busy={busy} disabled={down} onClick={() => void save()}>
-        {t('branches.save_settings')}
-      </BusyButton>
+      {saveButton}
     </>
   );
 
   return (
     <Page api={api} title={fill(t('branches.settings_title'), { name: stored.name })} start={back} end={actions}>
       {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
-      <section className="pos-section">
+      <section className="pos-section pos-settings">
         <div className="pos-section__head">
           <h2>{t('branches.tax')}</h2>
           <p>{t('branches.tax_help')}</p>
         </div>
         <Switch checked={tax} label={t('branches.tax_switch')} onChange={setTax} />
       </section>
-      <section className="pos-section">
+      <section className="pos-section pos-settings">
         <div className="pos-section__head">
           <h2>{t('branches.day')}</h2>
         </div>
         <label className={`pos-field${errors.stale !== undefined ? ' pos-field--error' : ''}`}>
           <span className="pos-field__label">{t('branches.stale')}</span>
-          <span className="pos-input-affix">
+          <span className="pos-input-affix pos-settings__hours">
             <input className="pos-input pos-input--mono" name="day_stale_after_hours" inputMode="numeric" value={stale} onChange={(e) => setStale(e.target.value)} />
             <span>{t('branches.hours')}</span>
           </span>
@@ -152,7 +176,7 @@ function SettingsForm({
         </label>
         <label className={`pos-field${errors.gap !== undefined ? ' pos-field--error' : ''}`}>
           <span className="pos-field__label">{t('branches.gap')}</span>
-          <span className="pos-input-affix">
+          <span className="pos-input-affix pos-settings__hours">
             <input className="pos-input pos-input--mono" name="day_min_gap_hours" inputMode="numeric" value={gap} onChange={(e) => setGap(e.target.value)} />
             <span>{t('branches.hours')}</span>
           </span>
@@ -163,6 +187,11 @@ function SettingsForm({
           )}
         </label>
       </section>
+      {phone && (
+        <div className="pos-pagebar">
+          <ActionBar>{saveButton}</ActionBar>
+        </div>
+      )}
     </Page>
   );
 }

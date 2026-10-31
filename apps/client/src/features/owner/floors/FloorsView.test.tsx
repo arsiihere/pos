@@ -96,6 +96,17 @@ function addFloorForm(): HTMLFormElement {
   return form;
 }
 
+// Pulse: Rename / Archive sit in the floor's More menu; Show archived is an app-bar More item.
+function menuItem(more: HTMLButtonElement | null | undefined, label: string): HTMLButtonElement {
+  if (!more) throw new Error('More button missing');
+  act(() => more.click());
+  const menu = more.parentElement?.querySelector('[role="menu"]');
+  return button(label, menu ?? container);
+}
+
+const floorMore = (id: string) => container.querySelector<HTMLButtonElement>(`[data-floor-id="${id}"] button.pos-more`);
+const barMore = () => container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more');
+
 async function submit(form: HTMLFormElement): Promise<void> {
   await act(async () => {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -189,7 +200,8 @@ describe('owner floors view', () => {
     act(() => root.render(<FloorsView api={api} branchId="B1" />));
     await flush();
 
-    act(() => button(t('floors.rename'), container.querySelector('[data-floor-id="F1"]') ?? container).click());
+    const rename = menuItem(floorMore('F1'), t('floors.rename'));
+    act(() => rename.click());
     const name = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]');
     typeInto(name, 'Basement');
     blur(name);
@@ -234,14 +246,15 @@ describe('owner floors view', () => {
     act(() => button(t('common.cancel'), container.querySelector('[role="dialog"]') ?? container).click());
     expect(container.querySelector('[role="dialog"]')).toBeNull();
 
-    const toggle = container.querySelector<HTMLButtonElement>('button[role="switch"]');
-    expect(toggle?.textContent).toBe(t('owner.common.show_archived'));
-    act(() => toggle?.click());
+    const toggle = menuItem(barMore(), t('owner.common.show_archived'));
+    expect(toggle.getAttribute('role')).toBe('menuitem');
+    act(() => toggle.click());
     expect(shownFloors()).toEqual(['F1', 'F2']);
     expect(shownTables()).toEqual(['T1', 'T2']);
     expect(container.querySelector('[data-floor-id="F2"]')?.textContent).toContain(t('owner.common.restore'));
 
-    act(() => button(t('floors.rename'), container.querySelector('[data-floor-id="F1"]') ?? container).click());
+    const rename = menuItem(floorMore('F1'), t('floors.rename'));
+    act(() => rename.click());
     const sort = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="sort_order"]');
     expect(sort?.value).toBe('0');
     typeInto(sort, '3');
@@ -341,5 +354,75 @@ describe('owner floors view', () => {
     expect(posts().at(-1)?.key).not.toBe(formKey);
     expect([0, 1, 2, 3, 4, 5, 6].map((i) => keyAt(formKey, i))).not.toContain(posts().at(-1)?.key);
     expect(select?.disabled).toBe(false);
+  });
+
+  it('[01a hand-off S03] a floor More menu names the floor and its counts; Archive {floor} opens the confirm or the blocked dialog', async () => {
+    const floors = [
+      { ...GROUND, sort_order: 1, tables: [{ table_id: 'T1', name: 'T1', seats: 4, sort_order: 0, archived_at: null }] },
+      { floor_id: 'F2', name: 'Roof', sort_order: 2, archived_at: null, tables: [] },
+    ];
+    const { api, calls } = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { floors } });
+      return json(200, { data: { floor: { ...floors[1], archived_at: 5 } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+
+    // No Rename / Archive buttons on the floor head any more.
+    expect(container.querySelector('[data-floor-id="F1"] .pos-section__top')?.textContent).not.toContain(t('floors.rename'));
+    expect(floorMore('F1')?.getAttribute('aria-label')).toBe(fill(t('common.more_for'), { name: 'Ground' }));
+    expect(floorMore('F1')?.getAttribute('aria-haspopup')).toBe('menu');
+    const blocked = menuItem(floorMore('F1'), fill(t('floors.menu_archive'), { floor: 'Ground' }));
+    const menu = container.querySelector('[data-floor-id="F1"] [role="menu"]');
+    expect(menu?.querySelector('.pos-menu__info')?.textContent).toBe(
+      'Ground' + fill(t('floors.menu_info'), { n: '1', t: '1', s: '4' }),
+    );
+    expect(blocked.className).toContain('pos-menu__item--danger');
+    act(() => blocked.click());
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(fill(t('archive.blocked_title'), { name: 'Ground' }));
+    act(() => button(t('common.close'), container.querySelector('[role="dialog"]') ?? container).click());
+
+    const archive = menuItem(floorMore('F2'), fill(t('floors.menu_archive'), { floor: 'Roof' }));
+    act(() => archive.click());
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(fill(t('archive.item_title'), { name: 'Roof' }));
+    await act(async () => button(fill(t('archive.archive_name'), { name: 'Roof' }), dialog ?? container).click());
+    await flush();
+    expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: '/v1/admin/branches/B1/floors/F2', body: { archived: true } });
+  });
+
+  it('[01a hand-off S03] Show archived (app-bar More) adds the "Archived shown" chip, which hides archived floors again', async () => {
+    const floors = [
+      { ...GROUND, tables: [] },
+      { floor_id: 'F2', name: 'Rooftop', sort_order: 1, archived_at: 20, tables: [] },
+    ];
+    const { api } = fakeApi(() => json(200, { data: { floors } }));
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+
+    const shown = () => [...container.querySelectorAll<HTMLElement>('[data-floor-id]')].map((f) => f.dataset['floorId']);
+    const chip = () => container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-filterchip');
+    expect(chip()).toBeNull();
+    expect(barMore()?.getAttribute('aria-label')).toBe(t('owner.floors.more'));
+    const show = menuItem(barMore(), t('owner.common.show_archived'));
+    act(() => show.click());
+    expect(shown()).toEqual(['F1', 'F2']);
+    expect(chip()?.textContent).toBe(t('floors.archived_shown'));
+    expect(chip()?.getAttribute('aria-label')).toBe(t('floors.hide_archived'));
+    expect(container.querySelector('[data-floor-id="F2"]')?.className).toContain('pos-section--archived');
+    // One primary on the page: Add floor.
+    expect(container.querySelectorAll('.pos-btn--primary')).toHaveLength(1);
+
+    act(() => chip()?.click());
+    expect(shown()).toEqual(['F1']);
+    expect(chip()).toBeNull();
+
+    // The More item reads Hide archived floors while they show.
+    const again = menuItem(barMore(), t('owner.common.show_archived'));
+    act(() => again.click());
+    const hide = menuItem(barMore(), t('floors.hide_archived'));
+    act(() => hide.click());
+    expect(shown()).toEqual(['F1']);
   });
 });

@@ -39,6 +39,9 @@ export interface StubElement {
   add(option: { text: string; value: string }): void;
 }
 
+// The element last focused (document.activeElement in the page script).
+let focused: StubElement | null = null;
+
 export function element(tagName: string): StubElement {
   const classes = (): string[] => el.className.split(/\s+/).filter(Boolean);
   const el: StubElement = {
@@ -102,7 +105,9 @@ export function element(tagName: string): StubElement {
     removeAttribute(name) {
       delete el.attributes[name];
     },
-    focus() {},
+    focus() {
+      focused = el;
+    },
     add(option) {
       el.options.push(option);
       if (el.options.length === 1) el.value = option.value;
@@ -135,6 +140,8 @@ export interface PageSandbox {
   session: Map<string, string>;
   delays: number[];
   prompts: number;
+  // document.activeElement: the element the script focused last.
+  active: StubElement | null;
   byId(id: string): StubElement;
   find(name: string, root?: StubElement): StubElement | undefined;
   findAll(match: (el: StubElement) => boolean, root?: StubElement): StubElement[];
@@ -155,8 +162,10 @@ export async function runPage(
     userAgent?: string;
     language?: string;
     local?: Record<string, string>;
+    innerWidth?: number;
   },
 ): Promise<PageSandbox> {
+  focused = null;
   const script = html.slice(html.indexOf('<script>') + '<script>'.length, html.lastIndexOf('</script>'));
   const store = new Map<string, unknown>(Object.entries(o.store ?? {}));
   const session = new Map<string, string>(Object.entries(o.session ?? {}));
@@ -201,6 +210,9 @@ export async function runPage(
       createTextNode: (text: string) => Object.assign(element('#text'), { textContent: text }),
       body,
       documentElement,
+      get activeElement() {
+        return focused;
+      },
     },
     localStorage: {
       getItem: (key: string) => local.get(key) ?? null,
@@ -217,6 +229,7 @@ export async function runPage(
     history: { replaceState() {} },
     navigator: { userAgent: o.userAgent ?? 'test', language: o.language ?? 'en-US' },
     window: {
+      innerWidth: o.innerWidth ?? 1280,
       prompt: () => {
         counters.prompts += 1;
         return null;
@@ -265,6 +278,9 @@ export async function runPage(
     delays,
     get prompts() {
       return counters.prompts;
+    },
+    get active() {
+      return focused;
     },
     byId,
     settle,

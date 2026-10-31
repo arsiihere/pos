@@ -3,8 +3,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCloudAdmin } from '../../api/cloud-admin';
 import { setLanguage } from '../../i18n';
+import { BranchNames } from './branch';
+import { BranchPicker } from './BranchPicker';
 import { GuardProvider } from './guard';
-import { Page, Shell } from './Shell';
+import { LoginView } from './login/LoginView';
+import { Page, PeopleTabs, Shell } from './Shell';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -29,7 +32,7 @@ function renderShell(route = '/staff') {
   act(() =>
     root.render(
       <GuardProvider>
-        <Shell route={route} userName="Arif" counts={{ staff: 9, roles: 7, branches: 3 }} onSignOut={() => {}}>
+        <Shell route={route} userName="Arif" counts={{ branches: 3 }} onSignOut={() => {}}>
           <Page api={api} title="Staff">
             <p>body</p>
           </Page>
@@ -58,23 +61,25 @@ function stubPhone() {
 }
 
 describe('[01b §8] owner shell (design handoff README §9)', () => {
-  it('laptop: Menu, Floors and tables, Kitchen stations; People: Staff, Roles, Teams, Stock counting; Branches: Branches and settings; counts; foot', () => {
+  it('laptop: Menu: Items, Size groups, Choice groups, Deals, Stock items (01c); Restaurant: Floors and tables, Kitchen stations, People, Branches and settings (owner decision 2026-10-30, 01c CHANGES §1); counts; foot', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
-      'Menu',
+      '# Menu',
+      'Items',
+      'Size groups',
+      'Choice groups',
+      'Deals',
+      'Stock items',
+      '# Restaurant',
       'Floors and tables',
       'Kitchen stations',
-      '# People',
-      'Staff [9]',
-      'Roles [7]',
-      'Teams',
-      'Stock counting',
-      '# Branches',
+      'People',
       'Branches and settings [3]',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
-    expect(nav.querySelector('.pos-sidenav__item small .pos-ltr')?.textContent).toBe('9');
+    expect(nav.querySelector('a[aria-current="page"]')?.textContent).toBe('People');
+    expect(nav.querySelector('.pos-sidenav__item small .pos-ltr')?.textContent).toBe('3');
     const foot = nav.querySelector('.pos-sidenav__foot')!;
     expect(foot.querySelector('.pos-sidenav__who')?.textContent).toBe('Arif');
     expect(foot.querySelector('a.pos-sidenav__item')?.getAttribute('href')).toBe('#/account/password');
@@ -89,15 +94,16 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     renderShell();
     const nav = container.querySelector('nav.pos-sidenav')!;
     expect(navOutline(nav)).toEqual([
-      'مینیو',
+      '# مینیو',
+      'آئٹم',
+      'سائز گروپ',
+      'چوائس گروپ',
+      'ڈیل',
+      'اسٹاک آئٹم',
+      '# ریسٹورنٹ',
       'فلور اور میزیں',
       'کچن اسٹیشن',
-      '# لوگ',
-      'اسٹاف [9]',
-      'رولز [7]',
-      'ٹیمیں',
-      'اسٹاک کی گنتی',
-      '# برانچیں',
+      'لوگ',
       'برانچیں اور سیٹنگ [3]',
     ]);
     expect(nav.querySelector('.pos-sidenav__foot a')?.textContent).toBe('پاس ورڈ بدلیں');
@@ -127,12 +133,13 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
     const nav = dialog.querySelector('nav.pos-sidenav')!;
     expect([...nav.querySelectorAll(':scope > a.pos-sidenav__item')].map((a) => a.getAttribute('href'))).toEqual([
       '#/menu',
+      '#/size-groups',
+      '#/choice-groups',
+      '#/deals',
+      '#/stock-items',
       '#/floors',
       '#/stations',
       '#/staff',
-      '#/roles',
-      '#/teams',
-      '#/stock-counting',
       '#/branches',
     ]);
     expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/staff');
@@ -158,8 +165,157 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
 
     // A nav item closes the overlay and navigates.
     dialog = open();
-    await act(async () => dialog.querySelector<HTMLAnchorElement>('a[href="#/roles"]')!.click());
-    expect(window.location.hash).toBe('#/roles');
+    await act(async () => dialog.querySelector<HTMLAnchorElement>('a[href="#/branches"]')!.click());
+    expect(window.location.hash).toBe('#/branches');
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe('[owner decision 2026-10-30, 01c CHANGES §1] one People entry with tabs', () => {
+  it.each(['/staff', '/staff/new', '/staff/S1', '/roles', '/roles/R1', '/teams', '/stock-counting'])(
+    'People is the current nav entry on %s',
+    (route) => {
+      renderShell(route);
+      const nav = container.querySelector('nav.pos-sidenav')!;
+      const current = [...nav.querySelectorAll('a[aria-current="page"]')];
+      expect(current.map((a) => a.textContent)).toEqual(['People']);
+      expect(current[0]?.getAttribute('href')).toBe('#/staff');
+    },
+  );
+
+  it('People is not current on other routes', () => {
+    renderShell('/menu');
+    const nav = container.querySelector('nav.pos-sidenav')!;
+    expect(nav.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/menu');
+  });
+
+  it.each([
+    ['staff', '#/staff'],
+    ['roles', '#/roles'],
+    ['teams', '#/teams'],
+    ['counting', '#/stock-counting'],
+  ] as const)('tabs: Staff, Roles, Teams, Stock counting link to their routes; %s is current', (current, href) => {
+    act(() => root.render(<PeopleTabs current={current} />));
+    const tabs = container.querySelector('nav.pos-seg.pos-peopletabs[aria-label="People"]')!;
+    const links = [...tabs.querySelectorAll<HTMLAnchorElement>(':scope > a.pos-seg__opt')];
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Staff', '#/staff'],
+      ['Roles', '#/roles'],
+      ['Teams', '#/teams'],
+      ['Stock counting', '#/stock-counting'],
+    ]);
+    expect(links.filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.getAttribute('href'))).toEqual([href]);
+  });
+
+  it('tabs: choosing one goes through the discard guard and navigates', async () => {
+    act(() =>
+      root.render(
+        <GuardProvider>
+          <PeopleTabs current="staff" />
+        </GuardProvider>,
+      ),
+    );
+    await act(async () => container.querySelector<HTMLAnchorElement>('a[href="#/teams"]')!.click());
+    expect(window.location.hash).toBe('#/teams');
+  });
+});
+
+describe('[01a S50 a, Pulse 01a-A] owner shell, sign in and picker in the Pulse layout', () => {
+  it('laptop: the shell fits the screen and only the content region scrolls; brand avatar, name and "Restaurant setup"', () => {
+    renderShell();
+    const main = container.querySelector('.pos-page.pos-page--fit > .pos-shell > .pos-shell__main > main.pos-content');
+    expect(main).not.toBeNull();
+    expect(container.querySelector('.pos-shell > nav.pos-sidenav:not(.pos-sidenav--drawer)')).not.toBeNull();
+    const brand = container.querySelector('.pos-sidenav__brand')!;
+    expect(brand.querySelector('.pos-avatar')?.textContent).toBe('A');
+    expect(brand.querySelector('strong')?.textContent).toBe('Arif');
+    expect(brand.querySelector(':scope > div > span')?.textContent).toBe('Restaurant setup');
+    expect(container.querySelector('.pos-drawer__close')).toBeNull();
+  });
+
+  it('[01a §10 #180] phone: the Menu button reports the drawer; the close button and a scrim tap close it and focus returns to Menu', () => {
+    stubPhone();
+    renderShell();
+    expect(container.querySelector('.pos-page--fit')).toBeNull();
+    const menu = container.querySelector<HTMLButtonElement>('.pos-appbar.pos-appbar--phone > button.pos-more[aria-label="Menu"]')!;
+    expect(menu.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(menu.getAttribute('aria-expanded')).toBe('false');
+
+    for (const how of ['close', 'scrim'] as const) {
+      act(() => {
+        menu.focus();
+        menu.click();
+      });
+      expect(menu.getAttribute('aria-expanded')).toBe('true');
+      const layer = container.querySelector('.pos-drawer-layer')!;
+      const dialog = layer.querySelector('[role="dialog"]')!;
+      const nav = dialog.querySelector('nav.pos-sidenav.pos-sidenav--drawer')!;
+      const close = nav.querySelector<HTMLButtonElement>(':scope > button.pos-more.pos-drawer__close')!;
+      expect(close.getAttribute('aria-label')).toBe('Close the side menu');
+      expect(document.activeElement).toBe(close);
+      act(() => (how === 'close' ? close : layer.querySelector<HTMLElement>(':scope > .pos-scrim')!).click());
+      expect(container.querySelector('.pos-drawer-layer')).toBeNull();
+      expect(menu.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(menu);
+    }
+  });
+
+  it('picker: a note under the tiles while a branch has no name, gone once names load; one link line to the menu', () => {
+    const ids = ['01JBRANCHONE0000000000P0AB', '01JBRANCHTWO0000000000M6PQ'];
+    const picker = (names: ReadonlyMap<string, string>) =>
+      act(() =>
+        root.render(
+          <BranchNames.Provider value={names}>
+            <BranchPicker branchIds={ids} selectedId={ids[0]!} userName="Arif" onContinue={() => {}} onSignOut={() => {}} />
+          </BranchNames.Provider>,
+        ),
+      );
+    picker(new Map());
+    const note = container.querySelector('.pos-tiles--pick + .pos-note');
+    expect(note?.textContent).toBe(
+      'Branch names show once they are set in Branch settings. Until then the end of each branch’s ID shows.',
+    );
+    const line = container.querySelector('p.pos-linkline')!;
+    expect(line.querySelector('span')?.textContent).toBe('Menu is the same for every branch.');
+    expect(line.querySelector('a')?.getAttribute('href')).toBe('#/menu');
+    expect(line.querySelector('a')?.textContent).toBe('Open the menu');
+    expect(container.querySelector('.pos-callout')).toBeNull();
+    expect(container.querySelector('.pos-appbar .pos-sidenav__brand strong')?.textContent).toBe('Arif');
+    expect(container.querySelector('.pos-picker__go > button.pos-btn--primary')?.textContent).toBe('Continue with …P0AB');
+
+    picker(new Map([[ids[0]!, 'Gulberg'], [ids[1]!, 'Johar Town']]));
+    expect(container.querySelector('.pos-note')).toBeNull();
+    expect(container.querySelector('.pos-picker__go > button.pos-btn--primary')?.textContent).toBe('Continue with Gulberg');
+  });
+
+  it('sign in: brand aside with the second sentence marked; the Show button sits in the 56 px affix; a large block Sign in', () => {
+    act(() => root.render(<LoginView api={api} onLoggedIn={() => {}} />));
+    const aside = container.querySelector('.pos-login > aside.pos-login__aside')!;
+    expect(aside.querySelector('.pos-login__mark strong')?.textContent).toBe('POS');
+    expect(aside.querySelector('h1')?.textContent).toBe('Set up your restaurant once. Every branch follows.');
+    expect(aside.querySelector('h1 em')?.textContent).toBe('Every branch follows.');
+    const show = container.querySelector<HTMLButtonElement>('.pos-input-affix > span > button.pos-btn')!;
+    expect(show.textContent).toBe('Show');
+    act(() => show.click());
+    expect(container.querySelector<HTMLInputElement>('.pos-input-affix > input')?.type).toBe('text');
+    expect(container.querySelector('button[type="submit"]')?.className).toBe('pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
+  });
+
+  it('phone: a page with a back link shows back alone in its app bar (StaffFormPhone, RoleEditorPhone)', () => {
+    stubPhone();
+    act(() =>
+      root.render(
+        <GuardProvider>
+          <Shell route="/roles/R1" userName="Arif" counts={{}} onSignOut={() => {}}>
+            <Page api={api} title="Edit Shift lead" start={<a className="pos-btn" href="#/roles" aria-label="Back to Roles" />}>
+              <p>body</p>
+            </Page>
+          </Shell>
+        </GuardProvider>,
+      ),
+    );
+    const bar = container.querySelector('.pos-appbar.pos-appbar--phone')!;
+    expect(bar.querySelector('button[aria-label="Menu"]')).toBeNull();
+    expect(bar.querySelector('a[aria-label="Back to Roles"]')).not.toBeNull();
   });
 });

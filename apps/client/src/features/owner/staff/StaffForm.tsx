@@ -2,14 +2,18 @@ import { PERMISSIONS, type Permission } from '@pos/domain';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { StaffPatchRequest } from '@pos/events';
 import type { Branch, CloudAdmin, CloudError, Floor, Role, Staff } from '../../../api/cloud-admin';
+import { usePhone } from '../../../app/phone';
 import { navigate } from '../../../app/router';
+import { ActionBar } from '../../../components/ActionBar';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
-import { EmptyState } from '../../../components/EmptyState';
+import { Disclosure } from '../../../components/Disclosure';
 import { Icon } from '../../../components/Icon';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { fill } from '../../../i18n/en';
 import { t, typeClass, type MessageKey } from '../../../i18n';
 import { useCloudDown } from '../cloud';
@@ -23,7 +27,9 @@ import { noteSaved } from './StaffList';
 // 01b §8 #/staff/new and #/staff/:id (01b-S02, C02, D02): who, roles, branches, a lead per branch (B1),
 // floors per branch when a role uses "Their floors", the owner's "Never allow" list, PIN and status. C02
 // is computed here with the §3.3 rule. An edit sends `expected_version` and only the changed fields (each
-// list whole, §6.4); `409 CONFIG_STALE` shows Reload and keeps nothing of the stale form (B23).
+// list whole, §6.4); `409 CONFIG_STALE` shows "Changed elsewhere" and keeps the draft editable and copyable;
+// Reload discards it and reads the current version; nothing is retried (owner decision 2026-10-30, 01b
+// proposal P1; same as 01c §8).
 
 interface Loaded {
   staff: Staff[]; // active and left
@@ -132,12 +138,7 @@ export function StaffForm({ api, staffId, branchIds }: { api: CloudAdmin; staffI
     void load();
   }, [load]);
 
-  const back = (
-    <a className="pos-btn" href="#/staff" aria-label={t('staff.back')}>
-      <Icon name="back" flip />
-      {t('staff.title')}
-    </a>
-  );
+  const back = <BackLink />;
 
   if (loaded === null) {
     return (
@@ -150,11 +151,16 @@ export function StaffForm({ api, staffId, branchIds }: { api: CloudAdmin; staffI
   if (staffId !== null && person === null) {
     return (
       <Page api={api} title={t('staff.title')} start={back}>
-        <EmptyState title={t('staff.not_found')} body={t('staff.not_found_body')}>
-          <a className="pos-btn pos-btn--primary" href="#/staff">
+        <div className="pos-screen pos-screen--info pos-staff__gone">
+          <div className="pos-screen__icon">
+            <Icon name="search" />
+          </div>
+          <h2 className="pos-screen__title">{t('staff.not_found')}</h2>
+          <p className="pos-screen__body">{t('staff.not_found_body')}</p>
+          <a className="pos-btn pos-btn--primary pos-btn--lg" href="#/staff">
             {t('staff.back')}
           </a>
-        </EmptyState>
+        </div>
       </Page>
     );
   }
@@ -168,6 +174,27 @@ export function StaffForm({ api, staffId, branchIds }: { api: CloudAdmin; staffI
       back={back}
       onReload={() => void load()}
     />
+  );
+}
+
+// Phone (StaffFormPhone): the back arrow alone.
+// It goes through the unsaved-changes guard (S50 c) like Cancel does.
+function BackLink() {
+  const phone = usePhone();
+  const leave = useLeave();
+  return (
+    <a
+      className="pos-btn"
+      href="#/staff"
+      aria-label={t('staff.back')}
+      onClick={(e) => {
+        e.preventDefault();
+        leave(() => navigate('/staff'));
+      }}
+    >
+      <Icon name="back" flip />
+      {!phone && t('staff.title')}
+    </a>
   );
 }
 
@@ -195,11 +222,14 @@ function Editor({
   const [pinOpen, setPinOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // C02 (hand-off 01b-C02): a collapsed summary card until tapped.
+  const [canOpen, setCanOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [floorLists, setFloorLists] = useState<Record<string, Floor[]>>({});
   const { key, renew } = useIdempotencyKey();
   const down = useCloudDown(api);
   const leave = useLeave();
+  const phone = usePhone();
 
   const roles = useMemo(() => new Map(loaded.roles.map((r) => [r.role_id, r])), [loaded.roles]);
   const activeRoles = loaded.roles.filter((r) => r.archived_at === null);
@@ -231,7 +261,7 @@ function Editor({
         ? [t('staff.who')]
         : []
       : Object.keys(patch ?? {}).map((field) => t(FIELD_LABEL[field] ?? 'staff.who'));
-  useDirtyForm(changedFields.length === 0 || stale ? null : { name: draft.name.trim() || title, fields: changedFields });
+  useDirtyForm(changedFields.length === 0 ? null : { name: draft.name.trim() || title, fields: changedFields });
 
   function update(next: Partial<Draft>) {
     setDraft((prev) => ({ ...prev, ...next }));
@@ -322,12 +352,27 @@ function Editor({
     showError(result.error);
   }
 
-  const actions = (
+  const more = stored !== null && stored.is_active && (
+        <MoreMenu
+          label={t('staff.more')}
+          info={{ title: t('staff.working'), detail: t('staff.menu_info') }}
+          items={[
+            {
+              label: fill(t('staff.menu_left'), { name: stored.display_name }),
+              icon: 'logout',
+              danger: true,
+              disabled: down || stale,
+              onSelect: () => setLeaving(true),
+            },
+          ]}
+        />
+  );
+  const buttons = (
     <>
       <button type="button" className="pos-btn" onClick={() => leave(() => navigate('/staff'))}>
         {t('common.cancel')}
       </button>
-      <BusyButton primary busy={busy} disabled={down || stale} onClick={() => void save()}>
+      <BusyButton primary={!stale} busy={busy} disabled={down || stale} onClick={() => void save()}>
         {t('staff.save')}
       </BusyButton>
     </>
@@ -337,26 +382,33 @@ function Editor({
   const ordered = [...rows.filter((r) => r.changed), ...rows.filter((r) => !r.changed)];
   const visible = showAll ? ordered : ordered.slice(0, 6);
   const who = draft.name.trim() || t('staff.new_title');
+  const counts = {
+    allowed: rows.filter((r) => r.effective.grant === 'allowed').length,
+    approval: rows.filter((r) => r.effective.grant === 'requires_approval').length,
+    never: rows.filter((r) => r.effective.grant === 'denied').length,
+  };
   const bringBackNeedsRole = stored !== null && !stored.is_active && draft.active && draft.roleIds.length === 0;
 
   return (
-    <Page api={api} title={title} start={back} end={actions}>
-      {stale && (
-        <div className="pos-banner pos-banner--warn" role="status">
-          <p>
-            {t('errors.CONFIG_STALE')}
-            <small>{t('staff.stale_body')}</small>
-          </p>
-          <div className="pos-banner__action pos-row">
-            <button type="button" className="pos-btn pos-btn--primary" onClick={onReload}>
-              {t('staff.reload')}
-            </button>
-          </div>
-        </div>
-      )}
+    <Page
+      api={api}
+      title={title}
+      start={back}
+      end={
+        phone ? (
+          more || undefined
+        ) : (
+          <>
+            {more}
+            {buttons}
+          </>
+        )
+      }
+    >
+      {stale && <StaleBanner onReload={onReload} />}
       {banner !== null && <Banner tone={banner.tone} text={banner.text} detail={banner.detail} />}
-      <div className="pos-split">
-        <div className="pos-stack">
+      <div className="pos-split pos-staffform">
+        <div className="pos-stack pos-staffform__main">
           <section className="pos-section">
             <div className="pos-section__head">
               <h2>{t('staff.who')}</h2>
@@ -387,6 +439,7 @@ function Editor({
                     aria-pressed={draft.roleIds.includes(r.role_id)}
                     onClick={() => update({ roleIds: toggle(draft.roleIds, r.role_id) })}
                   >
+                    {draft.roleIds.includes(r.role_id) && <Icon name="check" />}
                     {r.name}
                   </button>
                 ))}
@@ -408,6 +461,7 @@ function Editor({
                     aria-pressed={draft.branchIds.includes(b)}
                     onClick={() => update({ branchIds: toggle(draft.branchIds, b) })}
                   >
+                    {draft.branchIds.includes(b) && <Icon name="check" />}
                     {branchById.get(b)?.status === 'pending_hub' ? fill(t('staff.not_open'), { name: name(b) }) : name(b)}
                   </button>
                 ))}
@@ -478,6 +532,7 @@ function Editor({
                               aria-pressed={(draft.floors[b] ?? []).includes(f.floor_id)}
                               onClick={() => update({ floors: { ...draft.floors, [b]: toggle(draft.floors[b] ?? [], f.floor_id) } })}
                             >
+                              {(draft.floors[b] ?? []).includes(f.floor_id) && <Icon name="check" />}
                               {f.name}
                             </button>
                           ))}
@@ -492,7 +547,7 @@ function Editor({
 
           {stored !== null && stored.is_active && (
             <section className="pos-section">
-              <div className="pos-row">
+              <div className="pos-row pos-row--apart">
                 <div className="pos-section__head">
                   <h2>{t('staff.pin')}</h2>
                   <p>
@@ -502,101 +557,139 @@ function Editor({
                   </p>
                 </div>
                 <button type="button" className="pos-btn" disabled={down} onClick={() => setPinOpen(true)}>
+                  <Icon name="lock" />
                   {stored.has_pin ? t('staff.reset_pin') : t('staff.set_pin')}
                 </button>
               </div>
             </section>
           )}
 
-          <section className="pos-section">
-            <div className="pos-row">
-              <div className="pos-section__head">
-                <h2>{t('staff.never')}</h2>
-                <p>{t('staff.never_help')}</p>
+          {/* Hand-off 01b-S02: RARE, owner-only — one disclosure row, open when the person has a block. */}
+          <Disclosure
+            icon="block"
+            inPlace
+            defaultOpen={draft.denied.length > 0}
+            title={t('staff.advanced_never')}
+            summary={draft.denied.length === 0 ? t('staff.never_none') : fill(t('staff.never_count'), { n: String(draft.denied.length) })}
+          >
+            <section className="pos-section">
+              <div className="pos-row pos-row--apart">
+                <div className="pos-section__head">
+                  <h2>{t('staff.never')}</h2>
+                  <p>{t('staff.never_help')}</p>
+                </div>
+                <button type="button" className="pos-btn" onClick={() => setAdding(true)}>
+                  <Icon name="plus" />
+                  {t('staff.never_add')}
+                </button>
               </div>
-              <button type="button" className="pos-btn" onClick={() => setAdding(true)}>
-                {t('staff.never_add')}
-              </button>
-            </div>
-            {adding && (
-              <select
-                className="pos-select"
-                aria-label={t('staff.never_pick')}
-                value=""
-                onChange={(e) => {
-                  update({ denied: [...draft.denied, e.target.value as Permission] });
-                  setAdding(false);
-                }}
-              >
-                <option value="" />
-                {PERMISSIONS.filter((p) => !draft.denied.includes(p)).map((p) => (
-                  <option key={p} value={p}>
-                    {t(`perm.${p}`)}
-                  </option>
-                ))}
-              </select>
-            )}
-            {draft.denied.length === 0 ? (
-              <p className={typeClass('body')}>{t('staff.never_none')}</p>
-            ) : (
-              <div className="pos-row">
-                {draft.denied.map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className="pos-chip pos-chip--danger"
-                    aria-label={fill(t('staff.never_remove'), { permission: t(`perm.${p}`) })}
-                    onClick={() => update({ denied: draft.denied.filter((d) => d !== p) })}
-                  >
-                    {t(`perm.${p}`)}
-                    <Icon name="x" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
+              {adding && (
+                <select
+                  className="pos-select"
+                  aria-label={t('staff.never_pick')}
+                  value=""
+                  onChange={(e) => {
+                    update({ denied: [...draft.denied, e.target.value as Permission] });
+                    setAdding(false);
+                  }}
+                >
+                  <option value="" />
+                  {PERMISSIONS.filter((p) => !draft.denied.includes(p)).map((p) => (
+                    <option key={p} value={p}>
+                      {t(`perm.${p}`)}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {draft.denied.length === 0 ? (
+                <p className={typeClass('body')}>{t('staff.never_none')}</p>
+              ) : (
+                <ul className="pos-list pos-list--rows pos-never">
+                  {draft.denied.map((p) => (
+                    <li key={p} className="pos-list__row">
+                      <div className="pos-list__name">
+                        <strong>{t(`perm.${p}`)}</strong>
+                        <span>{t('staff.never_row_help')}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="pos-btn"
+                        aria-label={fill(t('staff.never_remove'), { permission: t(`perm.${p}`) })}
+                        onClick={() => update({ denied: draft.denied.filter((d) => d !== p) })}
+                      >
+                        {t('staff.never_remove_short')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </Disclosure>
 
           {stored !== null && (
             <section className="pos-section">
-              <div className="pos-row">
+              <div className="pos-row pos-row--apart">
                 <div className="pos-section__head">
                   <h2>{t('staff.status')}</h2>
                   <p>{draft.active ? t('staff.status_working') : t('staff.status_left')}</p>
                 </div>
-                {stored.is_active ? (
-                  <button type="button" className="pos-btn pos-btn--danger" disabled={down || stale} onClick={() => setLeaving(true)}>
-                    {t('staff.mark_left')}
+                {/* Mark as left lives in the app bar's More menu (hand-off 01b-S02). */}
+                {!stored.is_active && !draft.active && (
+                  <button type="button" className="pos-btn" onClick={() => update({ active: true })}>
+                    {t('staff.bring_back')}
                   </button>
-                ) : (
-                  !draft.active && (
-                    <button type="button" className="pos-btn" onClick={() => update({ active: true })}>
-                      {t('staff.bring_back')}
-                    </button>
-                  )
                 )}
               </div>
             </section>
           )}
         </div>
 
-        <aside className="pos-card">
-          <span className="label">{fill(t('staff.can_title'), { name: who })}</span>
-          <p className={typeClass('caption')}>{t('staff.can_help')}</p>
-          <ul className="pos-can">
-            {visible.map((row) => (
-              <li key={row.permission} className={row.changed ? 'is-changed' : ''}>
-                <span>{t(`perm.${row.permission}`)}</span>
-                <GrantChip grant={row.effective.grant} />
-                <small>{canDetail(roles, row.effective)}</small>
-              </li>
-            ))}
-          </ul>
-          <button type="button" className="pos-btn pos-btn--block" onClick={() => setShowAll(!showAll)}>
-            {showAll ? t('staff.can_fewer') : fill(t('staff.can_all'), { n: String(rows.length) })}
+        <aside className="pos-card pos-cando">
+          <button
+            type="button"
+            className="pos-cando__toggle"
+            aria-expanded={canOpen}
+            aria-controls={canOpen ? 'staff-cando' : undefined}
+            onClick={() => setCanOpen(!canOpen)}
+          >
+            <span>{fill(t('staff.can_title'), { name: who })}</span>
+            <Icon name="chevron" />
           </button>
+          <div className="pos-cando__sum">
+            {counts.allowed + counts.approval + counts.never === 0 && <Chip>{t('cando.none')}</Chip>}
+            {counts.allowed > 0 && <Chip tone="ok">{fill(t('cando.count_allowed'), { n: String(counts.allowed) })}</Chip>}
+            {counts.approval > 0 && <Chip tone="warn">{fill(t('cando.count_approval'), { n: String(counts.approval) })}</Chip>}
+            {counts.never > 0 && (
+              <Chip tone="danger" icon="x">
+                {fill(t('cando.count_never'), { n: String(counts.never) })}
+              </Chip>
+            )}
+          </div>
+          {canOpen && (
+            <div id="staff-cando" className="pos-cando__body">
+              <p className={typeClass('caption')}>{t('staff.can_help')}</p>
+              <ul className="pos-can">
+                {visible.map((row) => (
+                  <li key={row.permission} className={row.changed ? 'is-changed' : ''}>
+                    <span>{t(`perm.${row.permission}`)}</span>
+                    <GrantChip grant={row.effective.grant} />
+                    <small>{canDetail(roles, row.effective)}</small>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" className="pos-btn pos-btn--block" onClick={() => setShowAll(!showAll)}>
+                {showAll ? t('staff.can_fewer') : fill(t('staff.can_all'), { n: String(rows.length) })}
+              </button>
+            </div>
+          )}
         </aside>
       </div>
 
+      {phone && (
+        <div className="pos-staffform__bar">
+          <ActionBar>{buttons}</ActionBar>
+        </div>
+      )}
       {pinOpen && stored !== null && (
         <PinDialog
           api={api}
@@ -629,7 +722,13 @@ function Editor({
 
 function GrantChip({ grant }: { grant: 'allowed' | 'requires_approval' | 'not_granted' | 'denied' }) {
   const tone = grant === 'allowed' ? 'ok' : grant === 'requires_approval' ? 'warn' : grant === 'denied' ? 'danger' : 'info';
-  return <Chip tone={tone}>{t(`staff.grant.${grant}`)}</Chip>;
+  // Frame StaffFormImran: Never carries a lock, Not allowed an ✕.
+  const icon = grant === 'denied' ? 'lock' : grant === 'not_granted' ? 'x' : undefined;
+  return (
+    <Chip tone={tone} icon={icon}>
+      {t(`staff.grant.${grant}`)}
+    </Chip>
+  );
 }
 
 // D02: who moves to which lead (B15), then one PATCH `{ expected_version, is_active: false }`.

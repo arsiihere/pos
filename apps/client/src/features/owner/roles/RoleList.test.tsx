@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { ROLES, role } from '../staff/fixtures';
 import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, type Mounted } from '../test-api';
 import { BranchNames } from '../branch';
 import { ownAdminText } from '../form';
-import { RoleList } from './RoleList';
+import { peopleText, RoleList } from './RoleList';
 
 let m: Mounted;
 
@@ -39,6 +39,12 @@ function idleInput(name: string): HTMLInputElement {
   return input;
 }
 
+// Archive moved into the row's More menu (Pulse RolesRowMenu).
+async function openArchive(row: HTMLElement, name: string): Promise<void> {
+  await click(row.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${fill(t('common.more_for'), { name })}"]`)!);
+  await click(button(row, fill(t('roles.menu_archive'), { role: name })));
+}
+
 async function blur(el: HTMLElement): Promise<void> {
   await act(async () => {
     el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
@@ -47,6 +53,20 @@ async function blur(el: HTMLElement): Promise<void> {
 }
 
 describe('[01b §8] roles list', () => {
+  it('[owner decision 2026-10-30] the People tab strip sits at the top of the content; roles is current', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(<RoleList api={api} />);
+    const tabs = m.container.querySelector('main.pos-content > nav.pos-seg.pos-peopletabs');
+    expect(tabs).not.toBeNull();
+    expect([...tabs!.querySelectorAll('a.pos-seg__opt')].map((a) => a.getAttribute('href'))).toEqual([
+      '#/staff',
+      '#/roles',
+      '#/teams',
+      '#/stock-counting',
+    ]);
+    expect(tabs!.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe('#/roles');
+  });
+
   it('[01b §8] inline idle edit sends { expected_version, idle_minutes }', async () => {
     const { api, calls } = fakeApi(
       handler(() => ok({ role: { ...ROLES[1], idle_minutes: 45, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } })),
@@ -70,13 +90,29 @@ describe('[01b §8] roles list', () => {
     expect(m.container.textContent).toContain(t('roles.idle_range'));
   });
 
-  it('[01b §8] a stale idle edit shows the reload message', async () => {
-    const { api } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+  it('[01b §8] a stale idle edit keeps the typed minutes until Reload [owner decision 2026-10-30, 01b P1]', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
     await m.render(<RoleList api={api} />);
     setValue(idleInput('Bera'), '45');
     await blur(idleInput('Bera'));
-    expect(m.container.textContent).toContain(t('errors.CONFIG_STALE'));
-    expect(button(m.container, t('staff.reload'))).toBeTruthy();
+    const banner = m.container.querySelector<HTMLElement>('[data-stale]');
+    expect(banner?.textContent).toContain(t('stale.title'));
+    expect(banner?.textContent).toContain(t('stale.body'));
+    // The typed value stays, can still be edited, and is never sent again with the old version.
+    expect(idleInput('Bera').value).toBe('45');
+    setValue(idleInput('Bera'), '50');
+    await blur(idleInput('Bera'));
+    expect(idleInput('Bera').value).toBe('50');
+    expect(m.container.querySelector('[data-stale]')).not.toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+
+    // Reload drops the typed minutes and reads the roles again.
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(idleInput('Bera').value).toBe(String(ROLES[1]!.idle_minutes));
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });
 
   it('[01b §8] archive in use shows the D03 blocked variant; archived roles can be restored', async () => {
@@ -90,7 +126,7 @@ describe('[01b §8] roles list', () => {
     );
     await m.render(<RoleList api={api} />);
     const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
-    await click(button(owner, t('roles.archive')));
+    await openArchive(owner, 'Malik');
     const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
     await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-R_OWNER', archived: true });
@@ -103,6 +139,60 @@ describe('[01b §8] roles list', () => {
     expect(calls.filter((c) => c.method === 'PATCH')[1]).toMatchObject({ url: '/v1/admin/roles/R_RUN', body: { expected_version: 'v-R_RUN', archived: false } });
   });
 
+  it('[owner decision 2026-10-30, 01b P1] a stale role cannot be archived until Reload', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+    await m.render(<RoleList api={api} />);
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
+    const bera = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')].find((r) => r.querySelector('strong')?.firstChild?.textContent === 'Bera')!;
+    await click(bera.querySelector<HTMLButtonElement>(`button.pos-more[aria-label="${fill(t('common.more_for'), { name: 'Bera' })}"]`)!);
+    const archive = button(bera, fill(t('roles.menu_archive'), { role: 'Bera' }));
+    expect(archive.disabled).toBe(true);
+    await click(archive);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+  });
+
+  it('[owner decision 2026-10-30, 01b P1] an Archive 409 CONFIG_STALE shows Changed elsewhere above the role', async () => {
+    const { api, calls } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_OWNER' })));
+    await m.render(<RoleList api={api} />);
+    const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
+    await openArchive(owner, 'Malik');
+    await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, fill(t('roles.archive_confirm'), { name: 'Malik' })));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('[owner decision 2026-10-30, 01b P1] a stale Restore shows Changed elsewhere and is not resent until Reload', async () => {
+    let stale = true;
+    const { api, calls } = fakeApi(
+      handler(() =>
+        stale
+          ? fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_RUN' })
+          : ok({ role: { ...RUNNER, archived_at: null, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } }),
+      ),
+    );
+    await m.render(<RoleList api={api} />);
+    await click(button(m.container, `${t('roles.archived')}1`));
+    await click(button(m.container, t('roles.restore')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect(m.container.querySelector('[data-stale]')?.textContent).toContain(t('stale.title'));
+    const restore = button(m.container, t('roles.restore'));
+    expect(restore.disabled).toBe(true);
+    await click(restore);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
+    expect([...m.container.querySelectorAll('.pos-btn--primary')].map((b) => b.textContent?.trim())).toEqual([t('stale.reload')]);
+
+    stale = false;
+    const gets = calls.filter((c) => c.method === 'GET').length;
+    await click(button(m.container, t('stale.reload')));
+    expect(calls.filter((c) => c.method === 'GET').length).toBeGreaterThan(gets);
+    expect(m.container.querySelector('[data-stale]')).toBeNull();
+    await click(button(m.container, t('roles.restore')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
+  });
+
   it('[01b §8] the archive blocked dialog names the branches on LAST_ADMIN_REQUIRED and maps OWN_ADMIN_ACCESS by reason', async () => {
     let answer = () => fail(409, 'LAST_ADMIN_REQUIRED', { branch_ids: ['B2'] });
     const { api } = fakeApi(handler(() => answer()));
@@ -113,16 +203,73 @@ describe('[01b §8] roles list', () => {
     );
     async function archiveOwner(): Promise<void> {
       const owner = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][0]!;
-      await click(button(owner, t('roles.archive')));
+      await openArchive(owner, 'Malik');
       const dialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
       await click(button(dialog, fill(t('roles.archive_confirm'), { name: 'Malik' })));
     }
     await archiveOwner();
     expect(m.container.textContent).toContain(fill(t('roles.last_admin_body'), { branches: 'Johar Town' }));
-    await click(button(m.container, t('common.close')));
+    const blockedDialog = m.container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(button(blockedDialog, t('roles.ok')).className).toContain('pos-btn--primary');
+    await click(button(blockedDialog, t('roles.ok')));
 
     answer = () => fail(409, 'OWN_ADMIN_ACCESS', { reason: 'owner_not_linked' });
     await archiveOwner();
     expect(m.container.textContent).toContain(ownAdminText({ reason: 'owner_not_linked' }));
+  });
+
+  it('[01b §8] Pulse: the row More menu names the role, people and idle time; Edit stays on the row', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await m.render(<RoleList api={api} />);
+    const row = [...m.container.querySelectorAll<HTMLElement>('.pos-list__row')][1]!;
+    expect(row.querySelector('button.pos-btn')?.textContent).toBe(t('roles.edit'));
+    expect(() => button(row, t('roles.archive'))).toThrow();
+    await click(row.querySelector<HTMLButtonElement>('button.pos-more')!);
+    const menu = row.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.querySelector('.pos-menu__info b')?.textContent).toBe(ROLES[1]!.name);
+    expect(menu.querySelector('.pos-menu__info span')?.textContent).toBe(
+      fill(t('roles.menu_info'), { people: peopleText(ROLES[1]!.staff_count), n: String(ROLES[1]!.idle_minutes) }),
+    );
+    expect(button(menu, fill(t('roles.menu_archive'), { role: ROLES[1]!.name })).className).toContain('pos-menu__item--danger');
+    expect(m.container.querySelector('.pos-note')?.textContent).toBe(t('roles.idle_explain'));
+  });
+
+  it('[01b §8] Pulse: while a row shows Reload it is the one primary; New role turns secondary', async () => {
+    const { api } = fakeApi(handler(() => fail(409, 'CONFIG_STALE', { entity: 'role', id: 'R_WAITER' })));
+    await m.render(<RoleList api={api} />);
+    expect(button(m.container, t('roles.new')).className).toContain('pos-btn--primary');
+    setValue(idleInput('Bera'), '45');
+    await blur(idleInput('Bera'));
+    expect(m.container.querySelectorAll('.pos-btn--primary')).toHaveLength(1);
+    expect(button(m.container, t('stale.reload')).className).toContain('pos-btn--primary');
+    expect(button(m.container, t('roles.new')).className).not.toContain('pos-btn--primary');
+  });
+
+  it('[01b §8] Pulse phone: each row shows people, Edit and the S08 idle box; Archive stays in the More menu', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      const { api, calls } = fakeApi(
+        handler(() => ok({ role: { ...ROLES[1], idle_minutes: 45, version: 'v2' }, changed_versions: { staff: [], roles: [], responsibilities: [] } })),
+      );
+      await m.render(<RoleList api={api} />);
+      const row = [...m.container.querySelectorAll<HTMLElement>('.pos-list--stack .pos-list__row')][1]!;
+      expect(row.querySelector('.pos-list__name > span')?.textContent).toBe(peopleText(ROLES[1]!.staff_count));
+      expect(button(row, t('roles.edit'))).toBeTruthy();
+      // The inline idle box saves on leaving it, as on a laptop.
+      setValue(idleInput('Bera'), '45');
+      await blur(idleInput('Bera'));
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ expected_version: 'v-R_WAITER', idle_minutes: 45 });
+      expect(row.textContent).toContain(t('common.saved'));
+      expect(button(m.container, t('roles.new_short'))).toBeTruthy();
+      await openArchive(row, ROLES[1]!.name);
+      expect(m.container.querySelector('[role="dialog"]')?.textContent).toContain(fill(t('roles.archive_title'), { name: ROLES[1]!.name }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

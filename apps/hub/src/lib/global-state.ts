@@ -104,8 +104,7 @@ ${reconnectDelayMs.toString()}
 const GLOBAL_ICON = ${scriptJson(ICON)};
 const GLOBAL_KIND = ${scriptJson(KIND)};
 function globalAction(iconName, text, onClick) {
-  const row = node('div', 'pos-row');
-  row.style.justifyContent = 'center';
+  const row = node('div', 'pos-row pos-row--center');
   const button = node('button', 'pos-btn pos-btn--primary pos-btn--lg');
   button.type = 'button';
   button.appendChild(icon(iconName));
@@ -128,7 +127,8 @@ function globalWifiBody(ssid) {
   body.appendChild(document.createTextNode(parts[1] || ''));
   return body;
 }
-// 00-F01 banner / 00-F05 banner; every other state is a full .pos-screen.
+// 00-F01 banner / 00-F05 banner; every other state is a full .pos-screen (wall size on a kitchen screen when
+// actions.wall, frame GlobalRepairKds).
 function renderGlobalState(state, actions) {
   const act = actions || {};
   if (state.id === 'F01' && state.mode === 'banner') {
@@ -143,17 +143,17 @@ function renderGlobalState(state, actions) {
   if (state.id === 'F05') {
     const box = banner('warn', t('global.busy'), t('global.busy_small'));
     if (act.retry) {
-      const again = node('button', 'pos-btn', t('global.try_again'));
+      const again = node('button', 'pos-btn pos-banner__action', t('global.try_again'));
       again.type = 'button';
-      again.style.marginInlineStart = 'auto';
       again.addEventListener('click', act.retry);
       box.appendChild(again);
     }
     return box;
   }
-  const screen = node('main', 'pos-screen pos-screen--' + GLOBAL_KIND[state.id]);
+  const screen = node('main', 'pos-screen pos-screen--' + GLOBAL_KIND[state.id] + (act.wall ? ' pos-screen--wall' : ''));
   screen.setAttribute('role', state.id === 'F02' || state.id === 'F08' ? 'alert' : 'status');
-  const badge = node('div', 'pos-screen__icon');
+  // 00-F06: the sync icon turns while setup runs (frame GlobalNotSetUp; stops under reduced motion).
+  const badge = node('div', state.id === 'F06' ? 'pos-screen__icon pos-screen__icon--spin' : 'pos-screen__icon');
   badge.appendChild(icon(state.id === 'F02' && state.variant === 'phone' ? 'phone' : GLOBAL_ICON[state.id]));
   screen.appendChild(badge);
   const title = {
@@ -180,7 +180,7 @@ function renderGlobalState(state, actions) {
   }[state.id];
   screen.appendChild(node('p', 'pos-screen__body', t(body)));
   if (state.id === 'F07' && state.address) {
-    screen.appendChild(node('p', 'pos-mono-wrap', 'http://' + state.address));
+    screen.appendChild(node('p', 'pos-mono-wrap pos-mono-wrap--lg', 'http://' + state.address));
   }
   if ((state.id === 'F02' || state.id === 'F08') && act.pairAgain) {
     screen.appendChild(globalAction('link', t('global.pair_again'), act.pairAgain));

@@ -1,44 +1,50 @@
 import { globalStateClient } from '../lib/global-state.js';
 import type { HostChoice } from '../lib/net.js';
-import { clientPrelude, fieldHtml, iconSvg, pageHead, scriptJson, tag } from '../lib/page.js';
+import { EN } from '../lib/strings.js';
+import { clientPrelude, esc, fieldHtml, iconSvg, pageHead, scriptJson, tag } from '../lib/page.js';
 
 // 00-S01 / 00-S02 (docs/design/handoff/00/00-design.md §1): setup form, then the first-admin link while the hub
 // restarts. M85: the host field is a pick-list of this machine's addresses with a typed fallback.
 export function setupPage(choices: HostChoice[] = []): string {
+  // Pulse (handoff 00 CHANGES §2): the "What happens next" aside became a vertical stepper inside the card.
   const steps = (['1', '2', '3'] as const)
     .map(
-      (n) => `<li class="pos-checklist__item"><span class="pos-checklist__num">${n}</span><div class="pos-list__name">${tag('strong', '', `setup.next_${n}`)}${tag('span', '', `setup.next_${n}_sub`)}</div><span></span></li>`,
+      (n) => `<li${n === '1' ? ' class="is-current"' : ''}><span class="pos-stepper__n"><span class="pos-ltr">${n}</span></span><div>${tag('b', '', `setup.next_${n}`)}${tag('span', '', `setup.next_${n}_sub`)}</div></li>`,
     )
     .join('');
   return `${pageHead({ title: 'setup.title', theme: 'light' })}
 <body class="pos-root">
-<div class="pos-page" id="screen">
+<div class="pos-page pos-page--fit" id="screen">
 <header class="pos-appbar">
-  <div class="pos-sidenav__brand">${tag('strong', '', 'app.brand')}${tag('span', '', 'setup.brand_sub')}</div>
+  <div class="pos-sidenav__brand"><div>${tag('strong', '', 'app.brand')}${tag('span', '', 'setup.brand_sub')}</div></div>
   <div class="pos-appbar__end"><span class="pos-chip">${iconSvg('screen')}<span class="pos-ltr" id="setup_host"></span></span></div>
 </header>
-<div id="setup_offline"></div>
-<main class="pos-content pos-content--narrow">
-<div class="pos-split">
-<form id="setup" class="pos-card pos-stack" novalidate>
-  <div class="pos-stack">${tag('h1', 'title', 'setup.title')}${tag('p', 'body', 'setup.intro')}</div>
+<div class="pos-setup__offline" id="setup_offline"></div>
+<main class="pos-content pos-setup">
+<form id="setup" class="pos-card pos-setup__card" novalidate>
+<div class="pos-setup__aside">
+  <div class="pos-setup__intro">${tag('h1', 'title', 'setup.title')}${tag('p', 'body', 'setup.intro')}</div>
+  <ol class="pos-stepper pos-stepper--v" id="setup_steps" aria-label="${esc(EN['setup.next_title'])}">${steps}</ol>
+</div>
+<div class="pos-setup__main">
+<div class="pos-setup__fields">
 ${fieldHtml({ id: 'registration_code', label: 'setup.code_label', help: 'setup.code_help', error: 'setup.err_code', code: true, attrs: 'autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="14"' })}
   <div class="pos-field" id="field_advertised_host">
-    ${tag('span', 'pos-field__label', 'setup.host_label')}
-    <div class="pos-tiles pos-tiles--pick" id="host_tiles" role="group"></div>
-    <input class="pos-input pos-input--mono" id="advertised_host" name="advertised_host" inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="advertised_host_help advertised_host_error">
-    ${tag('p', 'pos-field__help', 'setup.host_help', 'id="advertised_host_help"')}
+    ${tag('span', 'pos-field__label', 'setup.host_label', 'id="advertised_host_label"')}
+    <div class="pos-tiles pos-tiles--addr" id="host_tiles" role="group" aria-labelledby="advertised_host_label"></div>
+    <input class="pos-input pos-input--mono" id="advertised_host" name="advertised_host" inputmode="decimal" autocomplete="off" spellcheck="false" aria-labelledby="advertised_host_label" aria-describedby="advertised_host_help advertised_host_error">
     <p class="pos-field__error" id="advertised_host_error">${iconSvg('alert')}${tag('span', '', 'setup.err_host')}</p>
+    ${tag('p', 'pos-field__help', 'setup.host_help', 'id="advertised_host_help"')}
   </div>
 ${fieldHtml({ id: 'guest_network_cidrs', label: 'setup.cidr_label', help: 'setup.cidr_help', error: 'setup.err_cidr', mono: true, attrs: 'autocomplete="off" spellcheck="false"' })}
-  ${tag('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', 'setup.submit', 'id="setup_submit" type="submit"')}
-  <div id="setup_status" aria-live="polite"></div>
-</form>
-<aside class="pos-stack">${tag('h2', 'heading', 'setup.next_title')}<ol class="pos-checklist">${steps}</ol></aside>
 </div>
+  ${tag('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', 'setup.submit', 'id="setup_submit" type="submit"')}
+  <div class="pos-setup__status" id="setup_status" aria-live="polite"></div>
+</div>
+</form>
 </main>
 </div>
-<section id="setup_done" hidden></section>
+<section class="pos-page" id="setup_done" hidden></section>
 <script>
 ${clientPrelude()}
 ${globalStateClient()}
@@ -53,7 +59,8 @@ const done = document.getElementById('setup_done');
 const host = document.getElementById('advertised_host');
 const tilesBox = document.getElementById('host_tiles');
 document.getElementById('setup_host').textContent = location.host || '';
-// M85: one tile per address, "Other address" reveals the typed field; Ethernet is preselected.
+document.getElementById('setup_steps').setAttribute('aria-label', t('setup.next_title'));
+// M85: one tile per address (address big, kind small), "Other address" reveals the typed field; Ethernet is preselected.
 const tiles = [];
 function pickTile(tile, value) {
   for (const other of tiles) other.setAttribute('aria-pressed', other === tile ? 'true' : 'false');
@@ -61,24 +68,35 @@ function pickTile(tile, value) {
   host.value = value === null ? '' : value;
   if (value === null && host.focus) host.focus();
 }
-function addTile(label, sub, value) {
+function addTile(label, iconName, sub, value) {
   const tile = node('button', 'pos-tile');
   tile.type = 'button';
-  tile.appendChild(node('span', 'pos-ltr', label));
-  if (sub) tile.appendChild(node('small', '', sub));
+  tile.appendChild(node('b', value === null ? 'pos-setup__other' : 'pos-ltr', label));
+  const small = node('small');
+  small.appendChild(icon(iconName));
+  small.appendChild(node('span', '', sub));
+  tile.appendChild(small);
   tile.addEventListener('click', () => pickTile(tile, value));
   tiles.push(tile);
   tilesBox.appendChild(tile);
   return tile;
 }
 for (const choice of CHOICES) {
-  addTile(choice.address, choice.kind === 'cable' ? t('setup.host_cable') : choice.kind === 'wifi' ? t('setup.host_wifi') : choice.name, choice.address);
+  if (choice.kind === 'cable') addTile(choice.address, 'cable', t('setup.host_cable'), choice.address);
+  else if (choice.kind === 'wifi') addTile(choice.address, 'wifi', t('setup.host_wifi'), choice.address);
+  else addTile(choice.address, 'screen', choice.name, choice.address);
 }
-const other = addTile(t('setup.host_other'), '', null);
+const other = addTile(t('setup.host_other'), 'edit', t('setup.host_other_hint'), null);
 if (CHOICES.length > 0) pickTile(tiles[0], CHOICES[0].address);
 else {
   tilesBox.hidden = true;
   pickTile(other, null);
+}
+// The frames give some banners their own icon (cloud down: Wi-Fi; setup running: clock; replace code: alert).
+function iconBanner(kind, iconName, text, detail) {
+  const box = banner(kind, text, detail);
+  box.replaceChildren(icon(iconName), box.children[1]);
+  return box;
 }
 function cidrs() {
   return document.getElementById('guest_network_cidrs').value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -91,7 +109,7 @@ function showDone(data) {
   const qr = node('div', 'pos-code__qr');
   qr.innerHTML = data.first_admin_qr_svg;
   code.appendChild(qr);
-  code.appendChild(node('p', 'pos-mono-wrap', data.first_admin_url));
+  code.appendChild(node('p', 'pos-mono-wrap pos-setup__link', data.first_admin_url));
   const meta = node('p', 'pos-code__meta');
   const parts = T['setup.link_meta'].split('{time}');
   meta.appendChild(document.createTextNode(parts[0]));
@@ -118,7 +136,7 @@ function showDone(data) {
   const expire = () => {
     const box = node('div', 'pos-code');
     box.appendChild(node('div', 'pos-code__qr pos-code__qr--void', t('setup.qr_expired')));
-    box.appendChild(node('p', 'pos-mono-wrap', data.first_admin_url));
+    box.appendChild(node('p', 'pos-mono-wrap pos-setup__link', data.first_admin_url));
     const cli = node('p', 'pos-code__meta', t('setup.link_cli') + ' ');
     const command = node('span', 'pos-ltr');
     command.appendChild(node('code', 'value-mono', 'issue-admin-bootstrap'));
@@ -126,7 +144,7 @@ function showDone(data) {
     box.appendChild(cli);
     const row = node('div', 'pos-row');
     row.style.justifyContent = 'center';
-    row.appendChild(chip('danger', 'clock', t('setup.link_expired_title')));
+    row.appendChild(chip('danger', 'clock', t('setup.link_expired_chip')));
     done.replaceChildren(stateScreen('danger', 'alert', t('setup.link_expired_title'), t('setup.link_expired_body'), [row, box]));
   };
   const health = new URL(data.first_admin_url).origin + '/health';
@@ -157,7 +175,7 @@ function showDone(data) {
 function setOffline(on) {
   submit.disabled = on;
   if (!on) return offline.replaceChildren();
-  const box = banner('warn', t('global.hub_down_title'), t('setup.offline_body'));
+  const box = iconBanner('warn', 'sync', t('global.hub_down_title'), t('setup.offline_body'));
   box.classList.add('pos-banner--pulse');
   offline.replaceChildren(box);
   startReconnect(
@@ -221,13 +239,14 @@ form.addEventListener('submit', async (event) => {
   }
   if (error.code === 'SERVICE_UNAVAILABLE') {
     const wait = details.retry_after_ms > 0 ? details.retry_after_ms : 5000;
-    status.replaceChildren(banner('warn', t('errors.SERVICE_UNAVAILABLE_cloud'), t('errors.SERVICE_UNAVAILABLE_cloud_body', { s: Math.ceil(wait / 1000) })));
+    status.replaceChildren(iconBanner('warn', 'wifi', t('errors.SERVICE_UNAVAILABLE_cloud'), t('errors.SERVICE_UNAVAILABLE_cloud_body', { s: Math.ceil(wait / 1000) })));
     submit.disabled = true;
     setTimeout(() => { submit.disabled = false; }, wait);
     return;
   }
   const kind = error.code === 'REGISTRATION_CODE_KIND_UNSUPPORTED' || error.code === 'SETUP_IN_PROGRESS' ? 'info' : 'danger';
-  status.replaceChildren(banner(kind, errorText(error), errorBody(error)));
+  const bannerIcon = error.code === 'SETUP_IN_PROGRESS' ? 'clock' : 'alert';
+  status.replaceChildren(iconBanner(kind, bannerIcon, errorText(error), errorBody(error)));
   if (error.code === 'SETUP_IN_PROGRESS') {
     submit.disabled = true;
     setTimeout(() => { submit.disabled = false; }, 3000);

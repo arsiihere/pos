@@ -10,19 +10,25 @@ export function BusyButton({
   onClick,
   children,
   primary = false,
+  danger = false,
   disabled = false,
   type = 'button',
   form,
+  size,
 }: {
   busy: boolean;
   onClick?: () => void;
   children: ReactNode;
   primary?: boolean;
+  // Outlined destructive (pos-btn--danger), e.g. Close day in its confirm.
+  danger?: boolean;
   // S53: also disabled while the cloud is unreachable.
   disabled?: boolean;
   type?: 'button' | 'submit';
   // A submit button outside its form (the item form's app bar).
   form?: string;
+  // Kit size modifiers, e.g. 'lg block' → pos-btn--lg pos-btn--block (the owner sign-in button).
+  size?: 'lg' | 'lg block';
 }) {
   const [slow, setSlow] = useState(false);
 
@@ -40,7 +46,7 @@ export function BusyButton({
       <button
         type={type}
         form={form}
-        className={`pos-btn${primary ? ' pos-btn--primary' : ''}${busy ? ' is-busy' : ''}`}
+        className={`pos-btn${primary ? ' pos-btn--primary' : ''}${danger ? ' pos-btn--danger' : ''}${size === undefined ? '' : size.split(' ').map((m) => ` pos-btn--${m}`).join('')}${busy ? ' is-busy' : ''}`}
         disabled={busy || disabled}
         aria-busy={busy ? true : undefined}
         onClick={onClick}

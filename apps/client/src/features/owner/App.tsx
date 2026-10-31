@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react';
 import type { CloudAdmin, OwnerUser } from '../../api/cloud-admin';
 import { forcedRoute, matchOwnerRoute, navigate, useHashRoute } from '../../app/router';
-import { t } from '../../i18n';
 import { ChangePassword } from './account/ChangePassword';
+import { ChoiceGroupForm } from './choice-groups/ChoiceGroupForm';
+import { ChoiceGroupList } from './choice-groups/ChoiceGroupList';
 import { BranchPicker } from './BranchPicker';
 import { BranchesView } from './branches/BranchesView';
 import { BranchSettings } from './branches/BranchSettings';
 import { BranchNames, storeBranch, storedBranch } from './branch';
+import { DealForm } from './deals/DealForm';
+import { DealList } from './deals/DealList';
 import { FloorsView } from './floors/FloorsView';
 import { GuardProvider, useLeave } from './guard';
 import { LoginView } from './login/LoginView';
 import { MenuView } from './menu/MenuView';
 import { Shell } from './Shell';
+import { SizeGroupForm } from './size-groups/SizeGroupForm';
+import { SizeGroupList } from './size-groups/SizeGroupList';
+import { StockItemForm } from './stock-items/StockItemForm';
+import { StockItemList } from './stock-items/StockItemList';
 import { RoleEditor } from './roles/RoleEditor';
 import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
@@ -120,12 +127,8 @@ function Routes({
             setUser(api.currentUser());
             navigate('/');
           }}
+          onSignOut={signOut}
         />
-        <div className="pos-content pos-content--narrow">
-          <button type="button" className="pos-btn" onClick={signOut}>
-            {t('owner.sign_out')}
-          </button>
-        </div>
       </div>
     );
   }
@@ -154,13 +157,23 @@ function Routes({
         {owner.name === 'stock_counting' && branchId !== null && (
           <StockCountingView key={branchId} api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}
+        {owner.name === 'size_groups' && <SizeGroupList api={api} />}
+        {owner.name === 'size_group_edit' && <SizeGroupForm key={owner.id} api={api} groupId={owner.id} />}
+        {owner.name === 'stock_items' && <StockItemList api={api} branchIds={allowed} />}
+        {owner.name === 'stock_item_edit' && <StockItemForm key={owner.id} api={api} stockItemId={owner.id} branchIds={allowed} />}
+        {owner.name === 'choice_groups' && <ChoiceGroupList api={api} />}
+        {owner.name === 'choice_group_edit' && <ChoiceGroupForm key={owner.id} api={api} groupId={owner.id} />}
+        {owner.name === 'deals' && <DealList api={api} />}
+        {owner.name === 'deal_edit' && <DealForm key={owner.id} api={api} dealId={owner.id} />}
       </Shell>
     );
   }
-  if (route === '/menu' || (needsBranch && branchId !== null)) {
+  // 01c: #/menu?item=… and #/menu?new_size_of=… (size group and stock item Open links) are the menu view too.
+  const isMenu = route.split('?')[0] === '/menu';
+  if (isMenu || (needsBranch && branchId !== null)) {
     return (
       <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
-        {route === '/menu' && <MenuView api={api} />}
+        {isMenu && <MenuView api={api} />}
         {route === '/floors' && branchId !== null && (
           <FloorsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery, TaxClass } from '../../../api/cloud-admin';
+import { formatQuantity } from '@pos/domain';
+import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery, StockItem, TaxClass, VariantGroup } from '../../../api/cloud-admin';
+import { navigate, useHashRoute } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
@@ -8,12 +10,14 @@ import { EmptyState } from '../../../components/EmptyState';
 import { SavedChip, useFlash } from '../../../components/FlashChip';
 import { Icon } from '../../../components/Icon';
 import { List, ListRow } from '../../../components/List';
+import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
-import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
 import { useBranchName } from '../branch';
+import { sizeLabel } from '../c01';
+import { loadEveryItem } from '../menu-pages';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -26,11 +30,16 @@ import { windowText } from './WindowsField';
 
 // §8.1 #/menu (01a-S05): one page, three tabs (items, categories, tax rates); it needs no branch (S52).
 // Items come a page at a time (§6.11, S48): a search box sent 300 ms after typing stops, a category
-// filter, an Active / Archived switch and Load more while next_cursor is set; pages are appended and
+// filter, an Active / Archived switch (Pulse: "Show archived items" in the app-bar More menu, with an
+// "Archived shown" filter chip) and Load more while next_cursor is set; pages are appended and
 // de-duplicated by item_id (a rename across the cursor can repeat a row, review 2 nit 3).
 // can_edit_tenant false → read-only with one info line and View instead of Edit (S8, B01). An open item
-// form replaces the list (one primary button per screen); closing it reloads the list. Archive asks first
+// form replaces the list (one primary button per screen); closing it reloads the list. Category and tax
+// rows keep Edit and put Archive in the row's More menu (Pulse CHANGES §2). Archive asks first
 // and shows what blocks it (S50 b). The item total shows only once every page is loaded (S50 f).
+// 01c (Q12, MenuNested): a size group's row (Open → its page) with its loaded sizes nested under it, each with
+// "Draws {qty} from {stock}". #/menu?item=<id> opens that item's form and #/menu?new_size_of=<group> a new
+// size of that group (01c-S09 Open / Add a size); closing either goes back to #/menu.
 export const SEARCH_DELAY_MS = 300;
 
 type Status = NonNullable<MenuQuery['status']>;
@@ -88,12 +97,12 @@ function AddTaxClassForm({ api, onCreated, onCancel }: { api: CloudAdmin; onCrea
   }
 
   return (
-    <form className="pos-explain pos-row" data-form="add-tax-class" noValidate onSubmit={(e) => void submit(e)}>
-      <label className="pos-field">
+    <form className="pos-explain pos-taxadd" data-form="add-tax-class" noValidate onSubmit={(e) => void submit(e)}>
+      <label className="pos-field pos-taxadd__name">
         <span className="pos-field__label">{t('owner.menu.new_tax_class')}</span>
         <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      <label className="pos-field">
+      <label className="pos-field pos-taxadd__rate">
         <span className="pos-field__label">{t('owner.menu.rate_percent')}</span>
         <span className="pos-input-affix pos-ltr">
           <input
@@ -110,7 +119,7 @@ function AddTaxClassForm({ api, onCreated, onCancel }: { api: CloudAdmin; onCrea
       <button type="button" className="pos-btn" onClick={onCancel}>
         {t('common.cancel')}
       </button>
-      <BusyButton busy={busy} disabled={down} type="submit">
+      <BusyButton busy={busy} primary disabled={down} type="submit">
         {t('owner.menu.add_tax_class')}
       </BusyButton>
     </form>
@@ -204,6 +213,28 @@ function TaxDialog({
   );
 }
 
+type Entry = { kind: 'item'; row: MenuItem; size: boolean } | { kind: 'group'; group: VariantGroup; size: number };
+
+// Rows in list order; a size group sits where its first loaded size is, its loaded sizes right under it.
+function nest(items: readonly MenuItem[], groups: readonly VariantGroup[]): Entry[] {
+  const byId = new Map(groups.map((g) => [g.variant_group_id, g]));
+  const entries: Entry[] = [];
+  const done = new Set<string>();
+  for (const row of items) {
+    const group = row.variant_group_id === null ? undefined : byId.get(row.variant_group_id);
+    if (group === undefined) {
+      entries.push({ kind: 'item', row, size: false });
+      continue;
+    }
+    if (done.has(group.variant_group_id)) continue;
+    done.add(group.variant_group_id);
+    const sizes = items.filter((i) => i.variant_group_id === group.variant_group_id);
+    entries.push({ kind: 'group', group, size: sizes.length });
+    for (const size of sizes) entries.push({ kind: 'item', row: size, size: true });
+  }
+  return entries;
+}
+
 type Ask =
   | { kind: 'archive-category'; category: Category }
   | { kind: 'archive-tax'; taxClass: TaxClass }
@@ -230,8 +261,15 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const branchName = useBranchName();
   const down = useCloudDown(api);
   const [editing, setEditing] = useState<
-    { kind: 'item'; item: MenuItem | null } | { kind: 'category'; category: Category | null } | null
+    { kind: 'item'; item: MenuItem | null; newSizeOf?: string } | { kind: 'category'; category: Category | null } | null
   >(null);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const route = useHashRoute();
+  const linkQuery = route.startsWith('/menu?') ? new URLSearchParams(route.slice('/menu?'.length)) : null;
+  const linkItem = linkQuery?.get('item') ?? null;
+  const linkNewSize = linkQuery?.get('new_size_of') ?? null;
+  // The link already opened (so closing the form does not open it again before the hash changes).
+  const opened = useRef<string | null>(null);
   // The route picker's branches: the owner's allowed branches (§6.14 routes only for those).
   const branchIds = useMemo(() => api.currentUser()?.allowed_branch_ids ?? [], [api]);
   // Only the latest request's answer is shown, so a slow older search never replaces a newer one.
@@ -265,6 +303,44 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // "Draws {qty} from {stock}" on size rows (§6.6); without it the rows show their description.
+  useEffect(() => {
+    let live = true;
+    void api.listStockItems({}).then((result) => {
+      if (live && result.ok && Array.isArray(result.data.stock_items)) setStockItems(result.data.stock_items);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
+  // 01c-S09 links: open the asked item (read from every menu page when it is not on the first) or a new size.
+  useEffect(() => {
+    if (menu === null || (linkItem === null && linkNewSize === null)) {
+      opened.current = null;
+      return;
+    }
+    if (opened.current === route) return;
+    opened.current = route;
+    if (linkNewSize !== null) {
+      setEditing({ kind: 'item', item: null, newSizeOf: linkNewSize });
+      return;
+    }
+    const found = items.find((row) => row.item_id === linkItem);
+    if (found !== undefined) {
+      setEditing({ kind: 'item', item: found });
+      return;
+    }
+    void loadEveryItem(api).then((result) => {
+      const item = result.ok ? result.data.items.find((row) => row.item_id === linkItem) : undefined;
+      if (item !== undefined) setEditing({ kind: 'item', item });
+      else {
+        setError(result.ok ? t('menu.item_gone') : errorText(result.error));
+        navigate('/menu');
+      }
+    });
+  }, [api, menu, items, route, linkItem, linkNewSize]);
 
   const wasDown = useRef(down);
   useEffect(() => {
@@ -326,11 +402,18 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   function closeForm(notice?: string | null) {
     setEditing(null);
     setError(notice ?? null);
+    if (linkQuery !== null) navigate('/menu');
     void load();
   }
 
-  if (editing !== null && menu !== null) {
-    return editing.kind === 'item' ? (
+  function cancelForm() {
+    setEditing(null);
+    if (linkQuery !== null) navigate('/menu');
+  }
+
+  // The item form replaces the list; the category form is a dialog over the Categories tab (01a-S06).
+  if (editing?.kind === 'item' && menu !== null) {
+    return (
       <ItemForm
         api={api}
         item={editing.item}
@@ -338,10 +421,12 @@ export function MenuView({ api }: { api: CloudAdmin }) {
         categories={menu.categories}
         branchIds={branchIds}
         readOnly={!canEdit}
+        variantGroups={menu.variant_groups}
+        {...(editing.newSizeOf === undefined ? {} : { newSizeOf: editing.newSizeOf })}
         onSaved={closeForm}
-        onCancel={() => setEditing(null)}
+        onCancel={cancelForm}
       />
-    ) : null;
+    );
   }
 
   const activeCategories = menu?.categories.filter((c) => c.archived_at === null) ?? [];
@@ -354,6 +439,23 @@ export function MenuView({ api }: { api: CloudAdmin }) {
     categories: { label: 'owner.menu.new_category', run: () => setEditing({ kind: 'category', category: null }) },
     tax: { label: 'menu.new_tax', run: () => setAddingTax(true) },
   };
+  // One primary per screen: while the inline tax form is open its Add tax rate is the primary (CHANGES §2).
+  const showPrimary = canEdit && !firstRun && !(tab === 'tax' && addingTax);
+  const archivedShown = status === 'archived';
+  const groupName = (id: string | null) => (id === null ? undefined : menu?.variant_groups.find((g) => g.variant_group_id === id)?.name);
+  // Row sub line (brief 01a-S05): the item's size group, else its short description.
+  const subLine = (row: MenuItem) => {
+    const group = groupName(row.variant_group_id);
+    return group !== undefined ? fill(t('menu.group_n'), { name: group }) : (row.description ?? undefined);
+  };
+  const editLabel = t(canEdit ? 'owner.common.edit' : 'menu.view');
+  // A nested size's sub line (MenuNested): what it draws from its stock item, else its description.
+  const sizeSub = (row: MenuItem) => {
+    const draw = row.stock_draws[0];
+    const stock = draw === undefined ? undefined : stockItems.find((s) => s.stock_item_id === draw.stock_item_id);
+    if (draw === undefined || stock === undefined) return row.description ?? undefined;
+    return fill(t('size_group.draws'), { qty: formatQuantity(draw.quantity_per_sale_unit, stock.stock_unit), stock: stock.name });
+  };
 
   return (
     <Page
@@ -361,13 +463,32 @@ export function MenuView({ api }: { api: CloudAdmin }) {
       title={t('owner.menu.title')}
       after={!phone && <Chip tone="info">{t('menu.shared_chip')}</Chip>}
       end={
-        canEdit &&
-        !firstRun && (
-          <button type="button" className="pos-btn pos-btn--primary" onClick={primary[tab].run}>
-            <Icon name="plus" />
-            {t(primary[tab].label)}
-          </button>
-        )
+        <>
+          {!firstRun && menu !== null && tab === 'items' && (
+            <MoreMenu
+              label={t('owner.menu.more')}
+              items={[
+                {
+                  label: t(archivedShown ? 'menu.hide_archived_items' : 'menu.show_archived_items'),
+                  icon: 'archive',
+                  onSelect: () => setStatus(archivedShown ? 'active' : 'archived'),
+                },
+              ]}
+            />
+          )}
+          {showPrimary && (
+            // Phone (OwnerMenuPhone): the app bar says "New"; its accessible name stays the full label.
+            <button
+              type="button"
+              className="pos-btn pos-btn--primary"
+              aria-label={phone ? t(primary[tab].label) : undefined}
+              onClick={primary[tab].run}
+            >
+              <Icon name="plus" />
+              {phone ? t('menu.new_short') : t(primary[tab].label)}
+            </button>
+          )}
+        </>
       }
     >
       {menu !== null && !canEdit && <Banner tone="info" text={t('owner.menu.read_only')} detail={t('menu.read_only_body')} />}
@@ -377,70 +498,89 @@ export function MenuView({ api }: { api: CloudAdmin }) {
         <FirstRun onCategory={() => setEditing({ kind: 'category', category: null })} onTax={() => { setTab('tax'); setAddingTax(true); }} />
       ) : (
         <>
-          <Segmented
-            label={t('menu.section')}
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'items', label: t('owner.menu.items'), ...(total === undefined ? {} : { count: total }) },
-              { value: 'categories', label: t('owner.menu.categories'), count: activeCategories.length },
-              { value: 'tax', label: t('menu.tax_rates'), count: activeTaxes.length },
-            ]}
-          />
+          <div className="pos-menubar">
+            <Segmented
+              label={t('menu.section')}
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'items', label: t('owner.menu.items'), ...(total === undefined ? {} : { count: total }) },
+                { value: 'categories', label: t('owner.menu.categories'), count: activeCategories.length },
+                { value: 'tax', label: t('menu.tax_rates'), count: activeTaxes.length },
+              ]}
+            />
+            {tab === 'items' && (
+              <div className="pos-menubar__find">
+                {archivedShown && (
+                  <button
+                    type="button"
+                    className="pos-filterchip"
+                    aria-label={t('menu.hide_archived_items')}
+                    onClick={() => setStatus('active')}
+                  >
+                    <Icon name="archive" />
+                    {t('menu.archived_shown')}
+                    <Icon name="x" />
+                  </button>
+                )}
+                <label className="pos-input-affix pos-menubar__search">
+                  <span>
+                    <Icon name="search" />
+                  </span>
+                  <input
+                    className="pos-input"
+                    type="search"
+                    name="q"
+                    maxLength={60}
+                    placeholder={t('owner.menu.search')}
+                    aria-label={t('owner.menu.search')}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </label>
+                <select
+                  className="pos-select pos-menubar__category"
+                  name="category_id"
+                  aria-label={t('owner.menu.category_filter')}
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                >
+                  <option value="">{t('owner.menu.all_categories')}</option>
+                  {menu?.categories.map((category) => (
+                    <option key={category.category_id} value={category.category_id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
 
           {tab === 'items' && (
             <>
-              <div className="pos-row">
-                <label className="pos-field">
-                  <span className="pos-field__label">{t('owner.menu.search')}</span>
-                  <span className="pos-input-affix">
-                    <input
-                      className="pos-input"
-                      type="search"
-                      name="q"
-                      maxLength={60}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <span>
-                      <Icon name="search" />
-                    </span>
-                  </span>
-                </label>
-                <label className="pos-field">
-                  <span className="pos-field__label">{t('owner.menu.category_filter')}</span>
-                  <select className="pos-select" name="category_id" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                    <option value="">{t('owner.menu.all_categories')}</option>
-                    {menu?.categories.map((category) => (
-                      <option key={category.category_id} value={category.category_id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Segmented
-                  label={t('owner.menu.status')}
-                  value={status}
-                  onChange={setStatus}
-                  options={[
-                    { value: 'active', label: t('owner.menu.status_active') },
-                    { value: 'archived', label: t('owner.menu.status_archived') },
-                  ]}
-                />
-              </div>
               {!loaded && (
-                <List preset="menu" busy>
-                  <ListRow>
-                    <Skeleton lines={5} />
-                  </ListRow>
+                <List
+                  preset={phone ? 'menuphone' : 'menu'}
+                  busy
+                  head={phone ? undefined : [t('menu.col_item'), t('owner.item.category'), t('menu.col_price'), t('menu.col_notes'), '']}
+                >
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <ListRow key={i}>
+                      {Array.from({ length: phone ? 3 : 5 }, (_, j) => (
+                        <span key={j} className="pos-skeleton" />
+                      ))}
+                    </ListRow>
+                  ))}
                 </List>
               )}
               {loaded && items.length === 0 && (
                 <EmptyState
+                  card
+                  icon="search"
                   title={q === '' ? t('menu.no_items') : fill(t('menu.no_match'), { q })}
                   body={t('menu.no_match_body')}
                 >
-                  <div className="pos-row">
+                  <div className="pos-row pos-row--center">
                     {q !== '' && (
                       <button
                         type="button"
@@ -463,64 +603,136 @@ export function MenuView({ api }: { api: CloudAdmin }) {
               )}
               {items.length > 0 && (
                 <List
-                  preset={phone ? 'stack' : 'menu'}
+                  preset={phone ? 'menuphone' : 'menu'}
                   head={
                     phone
                       ? undefined
                       : [t('menu.col_item'), t('owner.item.category'), t('menu.col_price'), t('menu.col_notes'), '']
                   }
                 >
-                  {items.map((row) => {
+                  {nest(items, menu?.variant_groups ?? []).map((entry) => {
+                    if (entry.kind === 'group') {
+                      const { group } = entry;
+                      const open = (
+                        <span className="pos-rowact">
+                          <a
+                            className="pos-btn"
+                            href={`#/size-groups/${encodeURIComponent(group.variant_group_id)}`}
+                            aria-label={fill(t('menu.open_group'), { name: group.name })}
+                          >
+                            {t('in_use.open')}
+                          </a>
+                        </span>
+                      );
+                      const label = (
+                        <span className="pos-list__name" data-group-id={group.variant_group_id}>
+                          <strong className="pos-list__grouptitle">
+                            <Icon name="layers" />
+                            {group.name}
+                          </strong>
+                          <span>{fill(t('menu.size_group_sub'), { n: String(entry.size) })}</span>
+                        </span>
+                      );
+                      return phone ? (
+                        <ListRow key={`g-${group.variant_group_id}`} className="pos-list__row--group">
+                          {label}
+                          <span />
+                          {open}
+                        </ListRow>
+                      ) : (
+                        <ListRow key={`g-${group.variant_group_id}`} className="pos-list__row--group">
+                          {label}
+                          <span>{categoryName(group.category_id)}</span>
+                          <span />
+                          <span />
+                          {open}
+                        </ListRow>
+                      );
+                    }
+                    const { row } = entry;
+                    const rowClass = entry.size ? 'pos-list__row--size' : undefined;
                     const archived = row.archived_at !== null;
                     const sold = row.routes.filter((r) => branchIds.includes(r.branch_id)).length;
-                    return (
-                      <ListRow key={row.item_id} muted={archived}>
-                        <span className="pos-list__name" data-item-id={row.item_id}>
-                          <strong>{row.name}</strong>
-                          {phone && <span>{categoryName(row.category_id)}</span>}
-                        </span>
-                        {!phone && <span>{categoryName(row.category_id)}</span>}
-                        <span className="pos-list__num pos-ltr">
-                          {`${t('owner.menu.rupees')} ${shownRupees(row.price_minor)}`}
-                          <small>{` ${t(PER_UNIT[row.sale_unit])}`}</small>
-                        </span>
-                        <span className="pos-list__tags">
-                          <Chip tone={sold < branchIds.length ? 'warn' : undefined}>
-                            {fill(t('menu.branches_of'), { n: String(sold), m: String(branchIds.length) })}
+                    const soldText = fill(t('menu.branches_of'), { n: String(sold), m: String(branchIds.length) });
+                    const sub = entry.size ? sizeSub(row) : subLine(row);
+                    const rowName = entry.size ? sizeLabel(row) : row.name;
+                    // S57 e: "{branch} Rs {price}" for each allowed branch with its own price (spec §8.1).
+                    const overrides = row.routes
+                      .filter((r) => r.price_minor_override !== null && branchIds.includes(r.branch_id))
+                      .map((r) => (
+                        <Chip key={r.branch_id}>
+                          <bdi>{branchName(r.branch_id)}</bdi>{' '}
+                          <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(r.price_minor_override ?? 0)}`}</span>
+                        </Chip>
+                      ));
+                    const marks = (
+                      <>
+                        {archived && (
+                          <Chip tone="warn" icon="archive">
+                            {t('owner.common.archived')}
                           </Chip>
-                          {row.routes
-                            .filter((r) => r.price_minor_override !== null && branchIds.includes(r.branch_id))
-                            .map((r) => (
-                              // S57 e: "{branch} Rs {price}" for a branch with its own price.
-                              <Chip key={r.branch_id}>
-                                <bdi>{branchName(r.branch_id)}</bdi>{' '}
-                                <span className="pos-ltr">{`${t('owner.menu.rupees')} ${shownRupees(r.price_minor_override ?? 0)}`}</span>
-                              </Chip>
-                            ))}
-                          {row.availability_windows.length > 0 && (
-                            <Chip>
-                              <span className="pos-ltr">{row.availability_windows.map(windowText).join(', ')}</span>
-                            </Chip>
-                          )}
-                          {row.out_of_stock_behaviour === 'sold_out' && <Chip>{t('menu.sold_out_when_gone')}</Chip>}
-                          {archived && <Chip tone="warn">{t('owner.common.archived')}</Chip>}
-                          <SavedChip shown={saved.shown && savedId === row.item_id} />
-                        </span>
-                        <span className="pos-row">
-                          <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'item', item: row })}>
-                            {t(canEdit ? 'owner.common.edit' : 'menu.view')}
+                        )}
+                        <SavedChip shown={saved.shown && savedId === row.item_id} />
+                      </>
+                    );
+                    const price = (
+                      <span className="pos-list__num pos-ltr">
+                        {`${t('owner.menu.rupees')} ${shownRupees(row.price_minor)}`}
+                        {!phone && <small>{t(PER_UNIT[row.sale_unit])}</small>}
+                      </span>
+                    );
+                    const actions = (
+                      <span className="pos-rowact">
+                        <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'item', item: row })}>
+                          {editLabel}
+                        </button>
+                        {canEdit && archived && (
+                          <button
+                            type="button"
+                            className="pos-btn"
+                            disabled={down}
+                            onClick={() => void restore(row.item_id, () => api.patchMenuItem(row.item_id, { archived: false }))}
+                          >
+                            {t('owner.common.restore')}
                           </button>
-                          {canEdit && archived && (
-                            <button
-                              type="button"
-                              className="pos-btn"
-                              disabled={down}
-                              onClick={() => void restore(row.item_id, () => api.patchMenuItem(row.item_id, { archived: false }))}
-                            >
-                              {t('owner.common.restore')}
-                            </button>
+                        )}
+                      </span>
+                    );
+                    return phone ? (
+                      <ListRow key={row.item_id} muted={archived} className={rowClass}>
+                        <span className="pos-list__name" data-item-id={row.item_id}>
+                          <strong>{rowName}</strong>
+                          <span>{`${categoryName(row.category_id)} · ${soldText}`}</span>
+                          {(overrides.length > 0 || archived) && (
+                            <span className="pos-list__tags">
+                              {overrides}
+                              {marks}
+                            </span>
                           )}
                         </span>
+                        {price}
+                        {actions}
+                      </ListRow>
+                    ) : (
+                      <ListRow key={row.item_id} muted={archived} className={rowClass}>
+                        <span className="pos-list__name" data-item-id={row.item_id}>
+                          <strong>{rowName}</strong>
+                          {sub !== undefined && <span>{sub}</span>}
+                        </span>
+                        <span>{categoryName(row.category_id)}</span>
+                        {price}
+                        <span className="pos-list__tags">
+                          {sold < branchIds.length ? (
+                            <Chip tone="warn" icon="alert">
+                              {soldText}
+                            </Chip>
+                          ) : (
+                            <span className="pos-list__meta">{soldText}</span>
+                          )}
+                          {overrides}
+                          {marks}
+                        </span>
+                        {actions}
                       </ListRow>
                     );
                   })}
@@ -536,100 +748,138 @@ export function MenuView({ api }: { api: CloudAdmin }) {
 
           {tab === 'categories' && (
             <>
-              <List preset="stack">
+              <List preset={phone ? 'rows' : 'cats'} head={phone ? undefined : [t('menu.col_order'), t('owner.item.category'), t('item.section.hours'), '']}>
                 {menu?.categories.map((category) => {
                   const archived = category.archived_at !== null;
+                  const hours = category.availability_windows.map(windowText).join(', ');
                   return (
-                    <ListRow key={category.category_id} muted={archived}>
-                      <div className="pos-row" data-category-id={category.category_id}>
-                        <span className="pos-list__num pos-ltr">{category.sort_order}</span>
-                        <span className="pos-list__name">
-                          <strong>{category.name}</strong>
-                        </span>
-                        <Chip>
-                          <span className="pos-ltr">
-                            {category.availability_windows.length === 0
-                              ? t('owner.hours.all_day')
-                              : category.availability_windows.map(windowText).join(', ')}
-                          </span>
-                        </Chip>
-                        {archived && <Chip tone="warn">{t('owner.common.archived')}</Chip>}
-                        <SavedChip shown={saved.shown && savedId === category.category_id} />
-                        {canEdit && (
-                          <span className="pos-appbar__end">
-                            {!archived && (
-                              <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'category', category })}>
-                                {t('owner.common.edit')}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="pos-btn"
-                              disabled={down}
-                              onClick={() =>
-                                archived
-                                  ? void restore(category.category_id, () => api.patchCategory(category.category_id, { archived: false }))
-                                  : setAsk({ kind: 'archive-category', category })
-                              }
-                            >
-                              {t(archived ? 'owner.common.restore' : 'owner.common.archive')}
-                            </button>
-                          </span>
+                    <ListRow key={category.category_id} muted={archived} attrs={{ 'data-category-id': category.category_id }}>
+                      <span className="pos-list__num pos-ltr">{category.sort_order}</span>
+                      <span className="pos-list__name">
+                        <strong>{category.name}</strong>
+                      </span>
+                      <span className="pos-list__tags">
+                        {hours === '' ? (
+                          <span className="pos-list__meta">{t('owner.hours.all_day')}</span>
+                        ) : (
+                          <Chip tone="info" icon="clock">
+                            <span className="pos-ltr">{hours}</span>
+                          </Chip>
                         )}
-                      </div>
+                        {archived && (
+                          <Chip tone="warn" icon="archive">
+                            {t('owner.common.archived')}
+                          </Chip>
+                        )}
+                        <SavedChip shown={saved.shown && savedId === category.category_id} />
+                      </span>
+                      <span className="pos-rowact">
+                        {canEdit && archived && (
+                          <button
+                            type="button"
+                            className="pos-btn"
+                            disabled={down}
+                            onClick={() => void restore(category.category_id, () => api.patchCategory(category.category_id, { archived: false }))}
+                          >
+                            {t('owner.common.restore')}
+                          </button>
+                        )}
+                        {canEdit && !archived && (
+                          <>
+                            <button type="button" className="pos-btn" onClick={() => setEditing({ kind: 'category', category })}>
+                              {t('owner.common.edit')}
+                            </button>
+                            <MoreMenu
+                              label={fill(t('common.more_for'), { name: category.name })}
+                              info={{
+                                title: category.name,
+                                detail: hours === '' ? t('owner.hours.all_day') : fill(t('categories.menu_hours'), { hours }),
+                              }}
+                              items={[
+                                {
+                                  label: fill(t('categories.menu_archive'), { category: category.name }),
+                                  icon: 'archive',
+                                  danger: true,
+                                  disabled: down,
+                                  onSelect: () => setAsk({ kind: 'archive-category', category }),
+                                },
+                              ]}
+                            />
+                          </>
+                        )}
+                      </span>
                     </ListRow>
                   );
                 })}
               </List>
-              <p className="pos-field__help">{t('menu.cats_order_help')}</p>
+              <p className="pos-note">{t('menu.cats_order_help')}</p>
             </>
           )}
 
           {tab === 'tax' && (
             <>
-              <List preset="stack">
+              <List preset={phone ? 'rows' : 'tax'} head={phone ? undefined : [t('menu.col_tax'), t('tax.rate'), '']}>
                 <ListRow>
-                  <div className="pos-row">
-                    <span className="pos-list__name">
-                      <strong>{t('owner.item.no_tax')}</strong>
-                      <span>{t('menu.tax_default')}</span>
-                    </span>
-                    <span className="pos-list__num pos-ltr">0 %</span>
-                  </div>
+                  <span className="pos-list__name">
+                    <strong>{t('owner.item.no_tax')}</strong>
+                    <span>{t('menu.tax_default')}</span>
+                  </span>
+                  <span className="pos-list__num pos-ltr">
+                    0<small>%</small>
+                  </span>
+                  <span className="pos-rowact" />
                 </ListRow>
                 {menu?.tax_classes.map((taxClass) => {
                   const archived = taxClass.archived_at !== null;
                   return (
-                    <ListRow key={taxClass.tax_class_id} muted={archived}>
-                      <div className="pos-row" data-tax-class-id={taxClass.tax_class_id}>
-                        <span className="pos-list__name">
-                          <strong>{taxClass.name}</strong>
-                        </span>
-                        <span className="pos-list__num pos-ltr">{formatRate(taxClass.rate_bp)}</span>
-                        {archived && <Chip tone="warn">{t('owner.common.archived')}</Chip>}
-                        <SavedChip shown={saved.shown && savedId === taxClass.tax_class_id} />
-                        {canEdit && (
-                          <span className="pos-appbar__end">
-                            {!archived && (
-                              <button type="button" className="pos-btn" onClick={() => setAsk({ kind: 'tax', taxClass })}>
-                                {t('owner.common.edit')}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="pos-btn"
-                              disabled={down}
-                              onClick={() =>
-                                archived
-                                  ? void restore(taxClass.tax_class_id, () => api.patchTaxClass(taxClass.tax_class_id, { archived: false }))
-                                  : setAsk({ kind: 'archive-tax', taxClass })
-                              }
-                            >
-                              {t(archived ? 'owner.common.restore' : 'owner.common.archive')}
-                            </button>
+                    <ListRow key={taxClass.tax_class_id} muted={archived} attrs={{ 'data-tax-class-id': taxClass.tax_class_id }}>
+                      <span className="pos-list__name">
+                        <strong>{taxClass.name}</strong>
+                        {archived && (
+                          <span className="pos-list__tags">
+                            <Chip tone="warn" icon="archive">
+                              {t('owner.common.archived')}
+                            </Chip>
                           </span>
                         )}
-                      </div>
+                      </span>
+                      <span className="pos-list__num pos-ltr">
+                        {taxClass.rate_bp / 100}
+                        <small>%</small>
+                      </span>
+                      <span className="pos-rowact">
+                        <SavedChip shown={saved.shown && savedId === taxClass.tax_class_id} />
+                        {canEdit && archived && (
+                          <button
+                            type="button"
+                            className="pos-btn"
+                            disabled={down}
+                            onClick={() => void restore(taxClass.tax_class_id, () => api.patchTaxClass(taxClass.tax_class_id, { archived: false }))}
+                          >
+                            {t('owner.common.restore')}
+                          </button>
+                        )}
+                        {canEdit && !archived && (
+                          <>
+                            <button type="button" className="pos-btn" onClick={() => setAsk({ kind: 'tax', taxClass })}>
+                              {t('owner.common.edit')}
+                            </button>
+                            <MoreMenu
+                              label={fill(t('common.more_for'), { name: taxClass.name })}
+                              info={{ title: taxClass.name, detail: formatRate(taxClass.rate_bp) }}
+                              items={[
+                                {
+                                  label: fill(t('tax.menu_archive'), { rate: taxClass.name }),
+                                  icon: 'archive',
+                                  danger: true,
+                                  disabled: down,
+                                  onSelect: () => setAsk({ kind: 'archive-tax', taxClass }),
+                                },
+                              ]}
+                            />
+                          </>
+                        )}
+                      </span>
                     </ListRow>
                   );
                 })}
@@ -743,7 +993,7 @@ function FirstRun({ onCategory, onTax }: { onCategory: () => void; onTax: () => 
     },
   ];
   return (
-    <section className="pos-stack">
+    <section className="pos-stack pos-firstrun">
       <div className="pos-section__head">
         <h2>{t('menu.first.title')}</h2>
         <p>{t('menu.first.body')}</p>

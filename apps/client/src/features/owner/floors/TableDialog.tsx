@@ -101,34 +101,36 @@ export function TableDialog({
         </>
       }
     >
-      <label className={`pos-field${nameError === null ? '' : ' pos-field--error'}`}>
-        <span className="pos-field__label">{t('floors.table_name')}</span>
-        <input className="pos-input pos-input--mono" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <span className="pos-field__help">{t('floors.table_name_help')}</span>
-        {nameError !== null && <span className="pos-field__error">{nameError}</span>}
-      </label>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('floors.seats')}</span>
-        <input className="pos-input pos-input--mono" name="seats" inputMode="numeric" value={seats} onChange={(e) => setSeats(e.target.value)} />
-        <span className="pos-field__help">{t('floors.seats_help')}</span>
-      </label>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('floors.floor')}</span>
-        <select className="pos-select" name="floor_id" value={floor} onChange={(e) => setFloor(e.target.value)}>
-          {floors
-            .filter((f) => f.archived_at === null || f.floor_id === floorId)
-            .map((f) => (
-              <option key={f.floor_id} value={f.floor_id}>
-                {f.name}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label className="pos-field">
-        <span className="pos-field__label">{t('floors.position')}</span>
-        <input className="pos-input pos-input--mono" name="sort_order" inputMode="numeric" value={sort} onChange={(e) => setSort(e.target.value)} />
-        <span className="pos-field__help">{t('floors.position_help')}</span>
-      </label>
+      <div className="pos-grid">
+        <label className={`pos-field${nameError === null ? '' : ' pos-field--error'}`}>
+          <span className="pos-field__label">{t('floors.table_name')}</span>
+          <input className="pos-input pos-input--mono" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <span className="pos-field__help">{t('floors.table_name_help')}</span>
+          {nameError !== null && <span className="pos-field__error">{nameError}</span>}
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('floors.seats')}</span>
+          <input className="pos-input pos-input--mono" name="seats" inputMode="numeric" value={seats} onChange={(e) => setSeats(e.target.value)} />
+          <span className="pos-field__help">{t('floors.seats_help')}</span>
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('floors.floor')}</span>
+          <select className="pos-select" name="floor_id" value={floor} onChange={(e) => setFloor(e.target.value)}>
+            {floors
+              .filter((f) => f.archived_at === null || f.floor_id === floorId)
+              .map((f) => (
+                <option key={f.floor_id} value={f.floor_id}>
+                  {f.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('floors.position')}</span>
+          <input className="pos-input pos-input--mono" name="sort_order" inputMode="numeric" value={sort} onChange={(e) => setSort(e.target.value)} />
+          <span className="pos-field__help">{t('floors.position_help')}</span>
+        </label>
+      </div>
       {table.archived_at !== null && (
         <button type="button" className="pos-btn" disabled={down} onClick={onRestore}>
           {t('owner.common.restore')}
@@ -136,9 +138,9 @@ export function TableDialog({
       )}
       {table.archived_at === null && (
         <div className="pos-dialog__danger">
-          <div>
+          <div className="pos-section__head">
             <strong>{t('floors.archive_table')}</strong>
-            <p className="pos-field__help">{t('floors.archive_table_body')}</p>
+            <span>{t('floors.archive_table_body')}</span>
           </div>
           <button type="button" className="pos-btn pos-btn--danger" disabled={down} onClick={onArchive}>
             {t('owner.common.archive')}

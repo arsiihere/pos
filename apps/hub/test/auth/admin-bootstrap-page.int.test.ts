@@ -98,7 +98,7 @@ describe('bootstrap page', () => {
     expect(textOf(done)).toContain(EN['bootstrap.idle_note']);
     const approve = page.findAll((el) => el.tagName === 'a', done);
     expect(approve[0]!.href).toBe('/admin/approve');
-    expect(approve[0]!.textContent).toBe(EN['bootstrap.approve']);
+    expect(textOf(approve[0])).toBe(EN['bootstrap.approve']);
     expect(page.session.get('admin_session_token')).toBe('admin-tok');
     expect(page.session.get('admin_bootstrap')).toBe('1');
     expect(JSON.parse(page.session.get('admin_permissions')!)).toEqual({ 'manage-devices': true, 'manage-staff': false });
@@ -133,6 +133,14 @@ describe('bootstrap page', () => {
 
     const empty = await runPage(html, { hash: '#t=boot-token', fetch: () => Promise.resolve(jsonResponse(200, { data: { staff: [] } })) });
     expect(textOf(empty.byId('login'))).toContain(EN['bootstrap.no_admins']);
+    expect(empty.byId('login').hidden).toBe(false);
+    expect(empty.byId('bootstrap_sub').textContent).toBe('');
+
+    // Frame BootLoading: the line under the title says it is loading; the PIN card waits for the names.
+    const loading = await runPage(html, { hash: '#t=boot-token', fetch: () => new Promise(() => {}) });
+    expect(loading.byId('bootstrap_sub').textContent).toBe(EN['bootstrap.loading']);
+    expect(loading.byId('login').hidden).toBe(true);
+    expect(loading.findAll((el) => el.className.includes('pos-skeleton'), loading.byId('roster'))).toHaveLength(6);
 
     const dead = await runPage(html, { fetch: () => Promise.reject(new Error('no request expected')) });
     expect(dead.byId('bootstrap_expired').hidden).toBe(false);

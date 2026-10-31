@@ -11,5 +11,5 @@ export function useCloudDown(api: CloudAdmin): boolean {
 
 export function CloudDownBanner({ api }: { api: CloudAdmin }) {
   if (!useCloudDown(api)) return null;
-  return <Banner tone="warn" text={t('common.cloud_down')} detail={t('common.cloud_down_body')} />;
+  return <Banner tone="warn" icon="wifi" text={t('common.cloud_down')} detail={t('common.cloud_down_body')} />;
 }

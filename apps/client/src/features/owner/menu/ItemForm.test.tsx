@@ -309,4 +309,32 @@ describe('owner item and category forms', () => {
       availability_windows: [{ start_ms: 79_200_000, end_ms: 7_200_000 }],
     });
   });
+  it('[01a §8.1 Pulse 01a-S07] Kept ready off folds Ready-made stock to its head; on shows its fields', async () => {
+    const { api } = fakeApi();
+    await renderNewItem(api);
+    const section = () => container.querySelector('[data-section="stock"]');
+    expect(section()?.classList.contains('pos-section--folded')).toBe(true);
+    expect(field('stock_time_minutes')).toBeNull();
+    click(section()?.querySelector('[role="switch"]'));
+    expect(section()?.classList.contains('pos-section--folded')).toBe(false);
+    expect(field('stock_time_minutes')).not.toBeNull();
+    click(section()?.querySelector('[role="switch"]'));
+    expect(field('stock_time_minutes')).toBeNull();
+  });
+
+  it('[01a §8.1 Pulse 01a-S07] "How staff will see it" is a summary that folds; a new item has no More menu', async () => {
+    const { api } = fakeApi();
+    await renderNewItem(api);
+    const toggle = container.querySelector<HTMLButtonElement>('aside .pos-summary__toggle');
+    expect(toggle?.textContent).toBe(t('item.preview'));
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('aside')?.textContent).toContain('Chicken Karahi');
+    click(toggle);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('aside')?.textContent).toBe(t('item.preview'));
+    click(toggle);
+    expect(container.querySelector('aside')?.textContent).toContain('Chicken Karahi');
+    expect(container.querySelector('button.pos-more')).toBeNull();
+    expect(buttonWith(t('item.archive'))).toBeUndefined();
+  });
 });

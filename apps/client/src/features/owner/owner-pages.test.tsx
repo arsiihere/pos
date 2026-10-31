@@ -176,11 +176,12 @@ function itemForm(api: ReturnType<typeof fakeApi>['api'], onCancel = () => {}, o
 
 describe('owner pages (v1.1 design hand-off)', () => {
   it('[01a §10 #161 page part] archive asks first and names the thing; a table archives at once with an 8 s Undo; in-use shows what blocks it', async () => {
-    // Item: the form's Archive item asks first; Cancel sends nothing.
+    // Item: Archive {item} in the app-bar More menu asks first; Cancel sends nothing (Pulse CHANGES §2).
     const item = fakeApi(() => undefined);
     render(itemForm(item.api));
     await flush();
-    await click(button(t('item.archive')));
+    await click(container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Paye', container.querySelector('.pos-appbar [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Paye?');
     expect(button('Archive Paye', dialog())).toBeTruthy();
     await click(button(t('common.cancel'), dialog()));
@@ -195,11 +196,14 @@ describe('owner pages (v1.1 design hand-off)', () => {
     render(<MenuView api={cat.api} />);
     await flush();
     await click(button(t('owner.menu.categories'), container.querySelector('.pos-seg')));
-    await click(button(t('owner.common.archive'), container.querySelector('[data-category-id="C1"]')));
+    // Pulse: Archive {category} is in the row's More menu.
+    await click(container.querySelector<HTMLButtonElement>('[data-category-id="C1"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Breakfast', container.querySelector('[data-category-id="C1"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Breakfast?');
     await click(button(t('common.cancel'), dialog()));
     expect(cat.calls.filter((c) => c.method === 'PATCH')).toHaveLength(0);
-    await click(button(t('owner.common.archive'), container.querySelector('[data-category-id="C1"]')));
+    await click(container.querySelector<HTMLButtonElement>('[data-category-id="C1"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Breakfast', container.querySelector('[data-category-id="C1"] [role="menu"]')));
     await click(button('Archive Breakfast', dialog()));
     expect(cat.calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: '/v1/admin/categories/C1', body: { archived: true } });
     expect(dialog()?.querySelector('h2')?.textContent).toBe("Breakfast can't be archived yet");
@@ -209,7 +213,8 @@ describe('owner pages (v1.1 design hand-off)', () => {
 
     // Tax class: confirm names it.
     await click(button(t('menu.tax_rates'), container.querySelector('.pos-seg')));
-    await click(button(t('owner.common.archive'), container.querySelector('[data-tax-class-id="X1"]')));
+    await click(container.querySelector<HTMLButtonElement>('[data-tax-class-id="X1"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive PRA cash', container.querySelector('[data-tax-class-id="X1"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive PRA cash?');
     await click(button(t('common.cancel'), dialog()));
 
@@ -220,7 +225,9 @@ describe('owner pages (v1.1 design hand-off)', () => {
     render(<StationsView api={st.api} branchId={B1} />);
     await flush();
     await click(button(t('owner.common.edit'), container.querySelector('[data-station-id="S1"]')));
-    await click(button(t('owner.common.archive'), container.querySelector('[data-station-id="S1"]')));
+    // Pulse: Archive {station} is in the open station's More menu.
+    await click(container.querySelector<HTMLButtonElement>('[data-station-id="S1"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Tandoor', container.querySelector('[data-station-id="S1"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Tandoor?');
     await click(button(t('common.cancel'), dialog()));
     expect(st.calls.filter((c) => c.method === 'PATCH')).toHaveLength(0);
@@ -247,7 +254,9 @@ describe('owner pages (v1.1 design hand-off)', () => {
     });
     render(<FloorsView api={fl.api} branchId={B1} />);
     await flush();
-    await click(button(t('owner.common.archive'), container.querySelector('[data-floor-id="F2"]')));
+    // Pulse: Archive {floor} is in the floor's More menu.
+    await click(container.querySelector<HTMLButtonElement>('[data-floor-id="F2"] button.pos-more') as HTMLButtonElement);
+    await click(button('Archive Roof', container.querySelector('[data-floor-id="F2"] [role="menu"]')));
     expect(dialog()?.querySelector('h2')?.textContent).toBe('Archive Roof?');
     await click(button(t('common.cancel'), dialog()));
 
@@ -402,7 +411,8 @@ describe('owner pages (v1.1 design hand-off)', () => {
     );
     render(<FloorsView api={fl.api} branchId={B1} />);
     await flush();
-    await click(button(t('floors.rename')));
+    await click(container.querySelector<HTMLButtonElement>('[data-floor-id="F1"] button.pos-more') as HTMLButtonElement);
+    await click(button(t('floors.rename'), container.querySelector('[data-floor-id="F1"] [role="menu"]')));
     const name = container.querySelector<HTMLInputElement>('[data-floor-id="F1"] input[name="name"]');
     typeInto(name, 'Hall');
     act(() => name?.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));

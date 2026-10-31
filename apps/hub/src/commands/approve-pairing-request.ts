@@ -24,14 +24,14 @@ const Payload = z.object({
 function approvePage(ctx: { tenant_id: string; branch_id: string }): string {
   return `${pageHead({ title: 'approve.title', theme: 'light' })}
 <body class="pos-root">
-<div class="pos-page">
+<div class="pos-page pos-page--fit pos-approve">
 <header class="pos-appbar">
-  <a class="pos-btn" href="/admin" id="approve_back">${iconSvg('back', 'pos-icon--flip')}${tag('span', '', 'admin.title')}</a>
+  <a class="pos-btn pos-approve__back" href="/admin" id="approve_back">${iconSvg('back', 'pos-icon--flip')}${tag('span', '', 'admin.title')}</a>
   ${tag('h1', 'pos-appbar__title', 'approve.title')}
   <div class="pos-appbar__end" id="approve_end"></div>
 </header>
-<div id="approve_banner"></div>
-<main class="pos-content pos-content--narrow"><div id="screen"></div></main>
+<div id="approve_banner" class="pos-approve__banner"></div>
+<main class="pos-content pos-approve__main" id="screen"></main>
 </div>
 <script>
 ${encodeCrockford128.toString()}
@@ -43,6 +43,7 @@ const fromQr = new URLSearchParams(location.search).get('r');
 let requestId = fromQr;
 const screen = document.getElementById('screen');
 const end = document.getElementById('approve_end');
+const back = document.getElementById('approve_back');
 const topBanner = document.getElementById('approve_banner');
 // Crockford base32 without I L O U (M44 display codes).
 const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{6}$/;
@@ -96,8 +97,7 @@ function field(labelKey, control, helpKey) {
   return wrap;
 }
 function row(parts) {
-  const box = node('div', 'pos-row');
-  box.style.justifyContent = 'center';
+  const box = node('div', 'pos-row pos-row--center');
   for (const part of parts) box.appendChild(part);
   return box;
 }
@@ -109,21 +109,27 @@ function notHere() {
 // 00-S07: admin sign-in in this tab.
 function signIn(auth) {
   return new Promise((resolve) => {
+    // Frame ApproveSignIn: no way back to the hub admin before someone signs in.
+    back.hidden = true;
     end.replaceChildren(chip('', 'lock', t('approve.signin_chip')));
-    const left = node('section', 'pos-stack');
-    left.appendChild(node('h2', 'heading', t('approve.who')));
-    left.appendChild(node('p', 'body', t('approve.who_sub')));
+    const left = node('section', 'pos-signin__who');
+    const head = node('div', 'pos-signin__head');
+    head.appendChild(node('h2', 'title', t('approve.who')));
+    const sub = node('p', 'body', t('approve.who_sub'));
+    head.appendChild(sub);
+    left.appendChild(head);
     const roster = node('div', 'pos-staff');
     left.appendChild(roster);
-    const card = node('form', 'pos-card pos-stack');
+    const card = node('form', 'pos-card pos-signin__card');
     card.addEventListener('submit', (event) => event.preventDefault());
-    const split = node('div', 'pos-split');
+    const split = node('div', 'pos-signin pos-signin--approve');
     split.appendChild(left);
     split.appendChild(card);
     screen.replaceChildren(split);
     adminSignIn({
       roster,
       card,
+      sub,
       load: () => call('/admin/login-roster', { headers: auth }),
       login: (staffId, pin) =>
         call('/admin/auth', {
@@ -149,7 +155,14 @@ function adminHeaders(auth) {
 // 00-S08: the form. "values" refills it after Try again.
 async function approveForm(auth, deviceId, values) {
   const kept = values || {};
-  end.replaceChildren(node('span', 'body', sessionStorage.getItem('admin_name') || ''));
+  back.hidden = false;
+  const who = node('span', 'pos-row pos-approve__who');
+  const name = sessionStorage.getItem('admin_name') || '';
+  const avatar = node('span', 'pos-avatar', name.slice(0, 1).toUpperCase());
+  avatar.setAttribute('aria-hidden', 'true');
+  who.appendChild(avatar);
+  who.appendChild(node('span', 'body', name));
+  end.replaceChildren(who);
   topBanner.replaceChildren();
   let stations = [];
   try {
@@ -161,7 +174,7 @@ async function approveForm(auth, deviceId, values) {
   }
   let kind = kept.kind || null;
   let stationId = kept.stationId || null;
-  const form = node('form', 'pos-card pos-stack');
+  const form = node('form', 'pos-card pos-approve__card');
   if (requestId) form.appendChild(row([chip('ok', 'check', t('approve.from_qr'))]));
   const code = node('input', 'pos-input pos-input--code');
   code.name = 'display_code';
@@ -181,7 +194,7 @@ async function approveForm(auth, deviceId, values) {
   tiles.name = 'station_id';
   const stationField = field('approve.station_label', tiles);
   form.appendChild(stationField);
-  const status = node('div');
+  const status = node('div', 'pos-approve__status');
   status.name = 'approve_status';
   form.appendChild(status);
   const button = node('button', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
@@ -190,24 +203,22 @@ async function approveForm(auth, deviceId, values) {
   const buttonText = node('span', '', t('approve.submit'));
   button.appendChild(buttonText);
   form.appendChild(button);
-  const aside = node('aside', 'pos-card pos-stack');
-  const split = node('div', 'pos-split');
-  split.appendChild(form);
-  split.appendChild(aside);
-  screen.replaceChildren(split);
+  // The outcome line under Approve (Pulse CHANGES §2); the kit hides it on a phone and while a banner shows.
+  const outcome = node('p', 'pos-outcome');
+  form.appendChild(outcome);
+  screen.replaceChildren(form);
   const station = () => stations.find((item) => item.station_id === stationId);
   const preview = () => {
-    aside.hidden = kind === null;
-    if (kind === null) return aside.replaceChildren();
-    const explain = node('div', 'pos-explain');
-    explain.appendChild(icon(kind === 'kds' ? 'flame' : 'screen'));
-    explain.appendChild(node('span', 'heading', kind === 'kds' ? t('approve.preview_kds_name', { station: station() ? station().name : '…' }) : t('approve.kind_cashier')));
-    aside.replaceChildren(
-      node('p', 'label', t('approve.preview_title')),
-      explain,
-      node('p', 'body', t(kind === 'kds' ? 'approve.preview_kds' : 'approve.preview_cashier')),
-      node('p', 'caption', t('approve.audit_note')),
-    );
+    outcome.hidden = kind === null;
+    if (kind === null) return outcome.replaceChildren();
+    const what = kind === 'kds' ? t('approve.preview_kds_name', { station: station() ? station().name : '…' }) : t('approve.kind_cashier');
+    const next = t(kind === 'kds' ? 'approve.preview_kds' : 'approve.preview_cashier');
+    const [before, after] = T['approve.outcome'].split('{what}');
+    const words = node('span');
+    words.appendChild(document.createTextNode(before));
+    words.appendChild(node('b', '', what));
+    words.appendChild(document.createTextNode((after || '').split('{next}').join(next)));
+    outcome.replaceChildren(icon(kind === 'kds' ? 'flame' : 'screen'), words);
   };
   const opts = [];
   for (const [value, iconName, key] of [['cashier_kiosk', 'screen', 'approve.kind_cashier'], ['kds', 'flame', 'approve.kind_kitchen']]) {
@@ -249,7 +260,8 @@ async function approveForm(auth, deviceId, values) {
   preview();
   const readOnly = () => {
     for (const el of [code, button, ...opts, ...stationTiles]) el.disabled = true;
-    status.replaceChildren(banner('info', t('errors.PERMISSION_DENIED_devices'), t('errors.PERMISSION_DENIED_devices_body')));
+    button.replaceChildren(buttonText);
+    status.replaceChildren(banner('info', t('errors.PERMISSION_DENIED_devices'), t('errors.PERMISSION_DENIED_devices_body'), '', 'lock'));
   };
   if (permissions()['manage-devices'] === false) readOnly();
   let busyRetried = false;
@@ -316,8 +328,10 @@ async function approveForm(auth, deviceId, values) {
 }
 // 00-S09
 function done(auth, deviceId, approved) {
-  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('approve.another'));
+  const again = node('button', 'pos-btn pos-btn--primary pos-btn--lg');
   again.type = 'button';
+  again.appendChild(icon('plus'));
+  again.appendChild(node('span', '', t('approve.another')));
   again.addEventListener('click', () => {
     // A scanned ?r= names one screen; the next approval goes by code only.
     requestId = null;
@@ -326,7 +340,8 @@ function done(auth, deviceId, approved) {
   const home = node('a', 'pos-btn pos-btn--lg', t('admin.title'));
   home.href = '/admin';
   const body = approved ? t('approve.done_body_kds', { station: approved.name }) : t('approve.done_body_cashier');
-  screen.replaceChildren(stateScreen('ok', 'check', t('approve.done_title'), body, [row([again, home])]));
+  // 00-S09: the audit note moved here from the form (Pulse CHANGES §2).
+  screen.replaceChildren(stateScreen('ok', 'check', t('approve.done_title'), body, [node('p', 'caption', t('approve.audit_note')), row([again, home])]));
 }
 function failed(auth, deviceId, error, values) {
   const retry = node('button', 'pos-btn pos-btn--primary pos-btn--lg', t('approve.retry'));

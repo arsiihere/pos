@@ -30,7 +30,16 @@ export type OwnerRoute =
   | { name: 'stock_counting' }
   | { name: 'branches' }
   | { name: 'branch_settings'; id: string }
-  | { name: 'account_password' };
+  | { name: 'account_password' }
+  // 01c §8 "Views": the Menu section's views (Items stay #/menu, 01a)
+  | { name: 'size_groups' }
+  | { name: 'size_group_edit'; id: string }
+  | { name: 'stock_items' }
+  | { name: 'stock_item_edit'; id: string }
+  | { name: 'choice_groups' }
+  | { name: 'choice_group_edit'; id: string }
+  | { name: 'deals' }
+  | { name: 'deal_edit'; id: string };
 
 const FIXED: Record<string, OwnerRoute> = {
   '/staff': { name: 'staff' },
@@ -40,6 +49,10 @@ const FIXED: Record<string, OwnerRoute> = {
   '/stock-counting': { name: 'stock_counting' },
   '/branches': { name: 'branches' },
   '/account/password': { name: 'account_password' },
+  '/size-groups': { name: 'size_groups' },
+  '/stock-items': { name: 'stock_items' },
+  '/choice-groups': { name: 'choice_groups' },
+  '/deals': { name: 'deals' },
 };
 
 // 01b §8, B05: while the owner must change the password every view redirects to #/account/password.
@@ -56,6 +69,15 @@ export function matchOwnerRoute(path: string): OwnerRoute | null {
   if (staff !== null) return { name: 'staff_edit', id: decodeURIComponent(staff[1]!) };
   const role = /^\/roles\/([^/]+)$/.exec(path);
   if (role !== null) return { name: 'role_edit', id: decodeURIComponent(role[1]!) };
+  // `new` opens an empty form (as #/staff/new); any other segment is the entity's id.
+  const sizeGroup = /^\/size-groups\/([^/]+)$/.exec(path);
+  if (sizeGroup !== null) return { name: 'size_group_edit', id: decodeURIComponent(sizeGroup[1]!) };
+  const stockItem = /^\/stock-items\/([^/]+)$/.exec(path);
+  if (stockItem !== null) return { name: 'stock_item_edit', id: decodeURIComponent(stockItem[1]!) };
+  const choiceGroup = /^\/choice-groups\/([^/]+)$/.exec(path);
+  if (choiceGroup !== null) return { name: 'choice_group_edit', id: decodeURIComponent(choiceGroup[1]!) };
+  const deal = /^\/deals\/([^/]+)$/.exec(path);
+  if (deal !== null) return { name: 'deal_edit', id: decodeURIComponent(deal[1]!) };
   const settings = /^\/branches\/([^/]+)\/settings$/.exec(path);
   if (settings !== null) return { name: 'branch_settings', id: decodeURIComponent(settings[1]!) };
   return null;

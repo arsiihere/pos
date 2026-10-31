@@ -125,7 +125,10 @@ describe('/admin/stock login', () => {
 
     act(() => root.render(<StockApp api={api} />));
     await flush();
+    // 01a-S10 (brief §6, StockPinError): "Forgot your PIN?" shows only after a wrong PIN.
+    expect(container.textContent).not.toContain(t('admin_stock.login.forgot'));
     act(() => container.querySelectorAll<HTMLButtonElement>('.pos-staff__tile')[1]?.click());
+    expect(container.textContent).not.toContain(t('admin_stock.login.forgot'));
     pressPin('9999');
     await act(async () => {
       [...container.querySelectorAll<HTMLButtonElement>('.pos-pin__key')].find((k) => k.textContent === t('pin.submit'))?.click();
@@ -134,6 +137,7 @@ describe('/admin/stock login', () => {
 
     expect(container.textContent).toContain(t('errors.PIN_INVALID'));
     expect(container.querySelector('.pos-pin.is-error')).not.toBeNull();
+    expect(container.querySelector('.pos-banner--info')?.textContent).toBe(t('admin_stock.login.forgot'));
     expect(container.querySelector('.pos-staff')).not.toBeNull();
     expect(sessionStorage.getItem('admin_session_token')).toBeNull();
   });
@@ -158,5 +162,28 @@ describe('/admin/stock login', () => {
     const tile = container.querySelector<HTMLButtonElement>('.pos-staff__tile');
     expect(tile?.disabled).toBe(true);
     expect(tile?.classList.contains('is-locked')).toBe(true);
+  });
+
+  it('[01a-S10 StockPin] each name tile carries its roles under the name; a locked tile its lock line instead', async () => {
+    const { fetchFn } = routed({
+      'GET /admin/login-roster': () =>
+        json(200, {
+          data: {
+            staff: [
+              { staff_id: 'S1', display_name: 'Imran', role_names: ['Manager'], locked_until: null },
+              { staff_id: 'S2', display_name: 'Usman', role_names: ['Head cook', 'Counter'], locked_until: null },
+              { staff_id: 'S3', display_name: 'Bilal', role_names: ['Cashier'], locked_until: Date.now() + 12 * 60_000 },
+            ],
+          },
+        }),
+    });
+    const api = createHubAdmin({ fetch: fetchFn, readDeviceToken: async () => 'DT1', readDeviceId: async () => 'D1', onSignedOut: () => {} });
+    act(() => root.render(<StockApp api={api} />));
+    await flush();
+    const subs = [...container.querySelectorAll('.pos-staff__tile small')].map((el) => el.textContent);
+    expect(subs[0]).toBe('Manager');
+    expect(subs[1]).toBe('Head cook, Counter');
+    expect(subs[2]).not.toContain('Cashier');
+    expect(container.querySelector('.pos-appbar .pos-chip')?.textContent).toBe(t('admin_stock.login.title'));
   });
 });

@@ -16,21 +16,21 @@ import { signInClient } from './signin-client.js';
 function bootstrapPage(): string {
   return `${pageHead({ title: 'bootstrap.title', theme: 'light' })}
 <body class="pos-root">
-<div class="pos-page" id="bootstrap_main">
-<main class="pos-content pos-content--narrow">
-<div class="pos-split">
-  <section class="pos-stack">
-    ${tag('p', 'caption', 'app.brand_admin')}
-    ${tag('h1', 'title', 'bootstrap.title')}
-    ${tag('p', 'body-lg', 'bootstrap.sub')}
+<div class="pos-page pos-page--fit" id="bootstrap_main">
+<main class="pos-content pos-signin">
+  <section class="pos-signin__who">
+    <div class="pos-signin__head">
+      ${tag('p', 'caption', 'app.brand_admin')}
+      ${tag('h1', 'title', 'bootstrap.title')}
+      ${tag('p', 'body-lg', 'bootstrap.sub', 'id="bootstrap_sub"')}
+    </div>
     <div id="roster" class="pos-staff"></div>
   </section>
-  <form id="login" class="pos-card pos-stack" novalidate></form>
-</div>
+  <form id="login" class="pos-card pos-signin__card" novalidate></form>
 </main>
 </div>
-<section id="bootstrap_done" hidden></section>
-<section id="bootstrap_expired" hidden>
+<section id="bootstrap_done" class="pos-page" hidden></section>
+<section id="bootstrap_expired" class="pos-page" hidden>
   <main class="pos-screen pos-screen--danger">
     <div class="pos-screen__icon">${iconSvg('clock')}</div>
     ${tag('h1', 'pos-screen__title', 'bootstrap.expired_title')}
@@ -53,11 +53,15 @@ function showExpired() {
 }
 // 00-S05: same tab on purpose, the admin session lives in this tab's sessionStorage (M79).
 function showDone(data) {
-  const next = node('a', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block', t('bootstrap.approve'));
+  const next = node('a', 'pos-btn pos-btn--primary pos-btn--lg pos-btn--block');
   next.href = '/admin/approve';
-  const note = node('p', 'caption', t('bootstrap.idle_note') + ' ' + t('bootstrap.idle_note_2'));
+  next.appendChild(icon('screen'));
+  next.appendChild(node('span', '', t('bootstrap.approve')));
+  const row = node('div', 'pos-row pos-row--center pos-signin__next');
+  row.appendChild(next);
+  const note = node('p', 'caption', t('bootstrap.idle_note_2'));
   const done = document.getElementById('bootstrap_done');
-  done.replaceChildren(stateScreen('ok', 'check', t('bootstrap.signed_in', { name: data.display_name }), '', [next, note]));
+  done.replaceChildren(stateScreen('ok', 'check', t('bootstrap.signed_in', { name: data.display_name }), t('bootstrap.idle_note'), [note, row]));
   main.hidden = true;
   done.hidden = false;
 }
@@ -67,6 +71,7 @@ if (!token) {
   adminSignIn({
     roster: document.getElementById('roster'),
     card: form,
+    sub: document.getElementById('bootstrap_sub'),
     load: () => call('/admin/login-roster', { headers: { 'X-Admin-Bootstrap': token } }),
     login: (staffId, pin) =>
       call('/admin/auth/bootstrap', {

@@ -91,10 +91,27 @@ describe('[01b #78] B19 on the owner page', () => {
     );
     expect(rowOf('DHA').textContent).toContain(t('branches.no_hub'));
     expect(rowOf('DHA').textContent).toContain(t('branches.not_open'));
-    await click(button(rowOf('Gulberg'), t('branches.rename')));
+    // Pulse: Rename sits in the row's More menu.
+    await click(rowOf('Gulberg').querySelector<HTMLButtonElement>('button.pos-more')!);
+    await click(button(rowOf('Gulberg'), fill(t('branches.menu_rename'), { branch: 'Gulberg' })));
     setValue(m.container.querySelector<HTMLInputElement>('[role="dialog"] input'), 'Johar Town');
     await click(button(m.container.querySelector<HTMLElement>('[role="dialog"]')!, t('branches.rename')));
     expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({ url: '/v1/admin/branches/B1', body: { name: 'Johar Town' } });
     expect(m.container.textContent).toContain(fill(t('branches.name_taken'), { name: 'Johar Town' }));
+  });
+
+  it('[hand-off 01b-S06] the row keeps Settings; Rename and the branch ID tail are in the row More menu', async () => {
+    await render([branch('01JBRANCHONE0000000000P0AB', 'Gulberg', 0)], 180_000);
+    const row = rowOf('Gulberg');
+    expect(row.textContent).not.toContain('P0AB');
+    expect([...row.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['', t('branches.settings')]);
+    const more = row.querySelector<HTMLButtonElement>('button.pos-more')!;
+    expect(more.getAttribute('aria-label')).toBe(fill(t('common.more_for'), { name: 'Gulberg' }));
+    await click(more);
+    const menu = row.querySelector('[role="menu"]')!;
+    expect(menu.textContent).toContain('P0AB');
+    expect(menu.textContent).toContain(fill(t('branches.menu_rename'), { branch: 'Gulberg' }));
+    await click(button(row, fill(t('branches.menu_rename'), { branch: 'Gulberg' })));
+    expect(m.container.querySelector('[role="dialog"] input')).not.toBeNull();
   });
 });

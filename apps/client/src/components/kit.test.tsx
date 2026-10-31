@@ -11,7 +11,7 @@ import { SavedChip, UndoChip, useFlash } from './FlashChip';
 import { Icon } from './Icon';
 import { List, ListRow } from './List';
 import { Segmented } from './Segmented';
-import { SideNav, TabBar } from './SideNav';
+import { SideNav } from './SideNav';
 import { Skeleton } from './Skeleton';
 import { StaffTiles } from './StaffTiles';
 import { Switch } from './Switch';
@@ -110,21 +110,25 @@ describe('[01a S50] kit components', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it('TabBar is the phone form of the same items', () => {
+  it('SideNav brand: an initials avatar, a name and a line; the drawer form has a close button', () => {
+    const onClose = vi.fn();
     render(
-      <TabBar
-        label="Sections"
-        items={[
-          { href: '#/menu', icon: 'list', label: 'Menu', current: true },
-          { href: '#/floors', icon: 'grid', label: 'Floors' },
-        ]}
+      <SideNav
+        label="Restaurant setup"
+        brand={{ title: 'Arif Chatkhara', sub: 'Restaurant setup', avatar: 'arif  chatkhara khan' }}
+        items={[{ href: '#/menu', icon: 'list', label: 'Menu', current: true }]}
+        drawer={{ onClose, closeLabel: 'Close the side menu' }}
       />,
     );
-    const nav = $('nav.pos-actionbar.pos-actionbar--tabs');
-    expect(nav.getAttribute('aria-label')).toBe('Sections');
-    const links = [...nav.querySelectorAll('a')];
-    expect(links.map((a) => a.getAttribute('aria-current'))).toEqual(['page', null]);
-    expect(links.map((a) => a.textContent)).toEqual(['Menu', 'Floors']);
+    expect($('.pos-sidenav__brand > .pos-avatar').textContent).toBe('AC');
+    expect($('.pos-sidenav__brand > .pos-avatar').getAttribute('aria-hidden')).toBe('true');
+    expect($('.pos-sidenav__brand strong').textContent).toBe('Arif Chatkhara');
+    expect($('.pos-sidenav__brand div > span').textContent).toBe('Restaurant setup');
+    expect($('nav').className).toBe('pos-sidenav pos-sidenav--drawer');
+    const close = $('button.pos-more.pos-drawer__close');
+    expect(close.getAttribute('aria-label')).toBe('Close the side menu');
+    click(close);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('List with a column preset, a head and rows', () => {

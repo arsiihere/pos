@@ -28,7 +28,7 @@ describe('UI kit route', () => {
     }
     const tokens = await hub.app.inject({ method: 'GET', url: '/ui/tokens.css' });
     expect(tokens.body).toContain('--surface');
-    const font = await hub.app.inject({ method: 'GET', url: '/ui/fonts/AtkinsonHyperlegible-400.woff2' });
+    const font = await hub.app.inject({ method: 'GET', url: '/ui/fonts/Figtree-var.woff2' });
     expect(font.statusCode).toBe(200);
     expect(font.headers['content-type']).toBe('font/woff2');
     expect(font.headers['cache-control']).toBe(LONG_CACHE);
@@ -37,7 +37,7 @@ describe('UI kit route', () => {
     for (const url of [
       '/ui/README.md',
       '/ui/tokens.json',
-      '/ui/fonts/OFL-AtkinsonHyperlegible.txt',
+      '/ui/fonts/OFL-NotoNastaliqUrdu.txt',
       '/ui/../package.json',
       '/ui/%2e%2e/package.json',
       '/ui/fonts/../../package.json',

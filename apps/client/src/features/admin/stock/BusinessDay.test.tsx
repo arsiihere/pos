@@ -202,6 +202,13 @@ async function tap(target: HTMLButtonElement): Promise<void> {
   await flush();
 }
 
+// Pulse (01a hand-off CHANGES §2): the app bar's ⋯ More menu holds the menu status and Close day.
+async function openMore(): Promise<void> {
+  const more = container.querySelector<HTMLButtonElement>('.pos-appbar .pos-more');
+  if (more === null) throw new Error('More button missing');
+  await tap(more);
+}
+
 function commands(sent: Sent[]): Sent[] {
   return sent.filter((s) => s.url.startsWith('/admin/commands/'));
 }
@@ -230,7 +237,10 @@ describe('/admin/stock business day', () => {
     expect(start!.compareDocumentPosition(rowOf('I1')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.textContent).toContain('Day closed at 01:10');
     expect(rowOf('I1').textContent).toContain(t('admin_stock.badge.not_counted'));
+    // Pulse (01a hand-off StockMore): Close day is a More menu item; with no day open it is not there.
+    await openMore();
     expect(buttons(container, t('admin_stock.day.close'))).toHaveLength(0);
+    await openMore();
 
     // A save while no day is open → 409 → the action next to the save; the tap opens the day and
     // re-sends the save with the same command_id; the typed count is kept until it is saved.
@@ -253,7 +263,8 @@ describe('/admin/stock business day', () => {
 
     // Day open: the line and Close day; Close day asks first, then sends CloseBusinessDay.
     expect(container.textContent).toContain('Day open: Sun 25 Oct since 09:00 (15 h)');
-    await tap(button(container, t('admin_stock.day.close')));
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain(t('admin_stock.day.close_confirm'));
     expect(commands(sent)).toHaveLength(3);
     await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
@@ -284,7 +295,8 @@ describe('/admin/stock business day', () => {
       ['C2', 'Breads'],
     ]);
 
-    await tap(button(container, t('admin_stock.day.close')));
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
     await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
     expect(container.textContent).toContain('This day was started less than 2 h ago; nothing changed.');
   });
@@ -301,7 +313,8 @@ describe('/admin/stock business day', () => {
     expect(commands(sent).map((c) => [c.url, c.body?.['payload']])).toEqual([['/admin/commands/open-business-day', {}]]);
     expect(field('I2', 'on_hand')?.value).toBe('2.5');
 
-    await tap(button(container, t('admin_stock.day.close')));
+    await openMore();
+    await tap(button(container.querySelector('[role="menu"]')!, t('admin_stock.day.close')));
     await tap(button(container.querySelector('[role="dialog"]')!, t('admin_stock.day.close')));
     expect(container.textContent).toContain('This day was started less than 4 h ago; nothing changed.');
   });

@@ -82,6 +82,14 @@ const PATHS = {
       <path d="M9 12l2 2 4-4" />
     </>
   ),
+  // 01b staff form: Advanced · Never allow.
+  block: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+      <path d="M9.5 9.5l5 5" />
+      <path d="M14.5 9.5l-5 5" />
+    </>
+  ),
   team: (
     <>
       <circle cx="12" cy="5.5" r="2.5" />
@@ -113,6 +121,23 @@ const PATHS = {
     </>
   ),
   back: <path d="M15 5l-7 7 7 7" />,
+  forward: <path d="M9 5l7 7-7 7" />,
+  chevron: <path d="M6 9.5l6 6 6-6" />,
+  wifi: (
+    <>
+      <path d="M2.5 8.5a14 14 0 0 1 19 0" />
+      <path d="M5.5 12a9.5 9.5 0 0 1 13 0" />
+      <path d="M8.5 15.5a5 5 0 0 1 7 0" />
+      <path d="M12 19v.01" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5.5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="18.5" cy="12" r="1.6" />
+    </>
+  ),
   x: (
     <>
       <path d="M6 6l12 12" />
@@ -142,6 +167,71 @@ const PATHS = {
     <>
       <path d="M20 12a8 8 0 1 1-2.3-5.7" />
       <path d="M20 4v5h-5" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="M4 20h4L19 9l-4-4L4 16z" />
+      <path d="M13.5 6.5l4 4" />
+    </>
+  ),
+  // 01c side nav: Size groups, Choice groups, Deals, Stock items.
+  layers: (
+    <>
+      <path d="M12 3l9 5-9 5-9-5z" />
+      <path d="M3 13l9 5 9-5" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M5 6h14" />
+      <path d="M5 12h14" />
+      <path d="M5 18h14" />
+      <circle cx="9" cy="6" r="2" />
+      <circle cx="15" cy="12" r="2" />
+      <circle cx="8" cy="18" r="2" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M3 12V4h8l10 10-8 8z" />
+      <circle cx="7.5" cy="8.5" r="1.5" />
+    </>
+  ),
+  pot: (
+    <>
+      <path d="M4 10h16v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" />
+      <path d="M2 10h20" />
+      <path d="M9 6c0-1 1-1.5 1-2.5M14 6c0-1 1-1.5 1-2.5" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="4" rx="1" />
+      <path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5" />
+      <path d="M10 12.5h4" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5" />
+      <path d="M12 8v.01" />
+    </>
+  ),
+  // Start the business day (01a-B13 StockNoDay).
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" />
+    </>
+  ),
+  // Remove a deal part (01c DealForm).
+  trash: (
+    <>
+      <path d="M5 7h14" />
+      <path d="M9 7V4h6v3" />
+      <path d="M7 7l1 13h8l1-13" />
     </>
   ),
 } satisfies Record<string, ReactNode>;

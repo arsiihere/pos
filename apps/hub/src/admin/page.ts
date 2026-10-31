@@ -19,7 +19,7 @@ const ctx = ${scriptJson(ctx)};
 const screen = document.getElementById('screen');
 const KDS_SILENT_MS = 120000; // Q8: a kitchen screen unseen for 2 min gets a warning
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const state = { auth: null, deviceId: null, data: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, stopReconnect: null };
+const state = { auth: null, deviceId: null, data: {}, loadedAt: null, offline: false, notice: null, showRemoved: false, devicesWithRemoved: false, removedCount: null, lockoutsOpen: false, stopReconnect: null };
 function phone() {
   return typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
 }
@@ -29,6 +29,7 @@ function view() {
 }
 function go(name) {
   state.notice = null;
+  state.lockoutsOpen = false;
   location.hash = name === 'home' ? '' : '#' + name;
   render();
 }
@@ -139,6 +140,7 @@ async function load(names) {
     const res = results[i];
     if (res.status === 200) {
       state.data[names[i]] = res.body.data;
+      if (names[i] === 'devices') state.devicesWithRemoved = state.showRemoved;
       continue;
     }
     const error = res.body.error || {};
@@ -168,46 +170,70 @@ function setOffline(on) {
     },
   );
 }
-async function command(name, type, payload) {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  let res;
-  try {
-    res = await call('/admin/commands/' + name, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({
-        command_id: encodeCrockford128(bytes),
-        tenant_id: ctx.tenant_id,
-        branch_id: ctx.branch_id,
-        command_type: type,
-        payload,
-        occurred_at: Date.now(),
-        actor_id: sessionStorage.getItem('admin_staff_id'),
-        device_id: state.deviceId,
-      }),
-    });
-  } catch {
-    setOffline(true);
-    paint();
-    return null;
+// commandId: one per user action, so Try again after "Hub busy" (00-F05) repeats the same command.
+async function command(name, type, payload, commandId) {
+  const id = commandId || newCommandId();
+  // §8.4 / 00-F05: one silent retry after retry_after_ms (same command_id), then the caller shows "Hub busy".
+  for (let attempt = 0; ; attempt += 1) {
+    let res;
+    try {
+      res = await call('/admin/commands/' + name, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({
+          command_id: id,
+          tenant_id: ctx.tenant_id,
+          branch_id: ctx.branch_id,
+          command_type: type,
+          payload,
+          occurred_at: Date.now(),
+          actor_id: sessionStorage.getItem('admin_staff_id'),
+          device_id: state.deviceId,
+        }),
+      });
+    } catch {
+      setOffline(true);
+      paint();
+      return null;
+    }
+    if (res.status === 200) return { result: res.body.data.result };
+    const error = res.body.error || { code: 'INTERNAL_ERROR' };
+    if (error.code === 'ADMIN_SESSION_REQUIRED') {
+      await signIn();
+      return null;
+    }
+    if (error.code === 'SERVICE_UNAVAILABLE') {
+      const details = error.details || {};
+      const wait = Math.min(details.retry_after_ms > 0 ? details.retry_after_ms : 1000, 5000);
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        continue;
+      }
+      state.busyWait = wait;
+      return { error };
+    }
+    if (globalScreen(error, {}, { pairAgain: () => { location.href = '/pair'; } })) return null;
+    return { error };
   }
-  if (res.status === 200) return { result: res.body.data.result };
-  const error = res.body.error || { code: 'INTERNAL_ERROR' };
-  if (error.code === 'ADMIN_SESSION_REQUIRED') {
-    await signIn();
-    return null;
-  }
-  if (globalScreen(error, {}, { pairAgain: () => { location.href = '/pair'; } })) return null;
-  return { error };
 }
 // --- shell ---
+function initials(name) {
+  return String(name || '').split(' ').filter(Boolean).slice(0, 2).map((word) => word[0]).join('').toUpperCase();
+}
+function avatar(text) {
+  const mark = node('i', 'pos-avatar', text);
+  mark.setAttribute('aria-hidden', 'true');
+  return mark;
+}
 function nav(current) {
   const box = node('nav', 'pos-sidenav');
   box.setAttribute('aria-label', t('admin.title'));
   const brand = node('div', 'pos-sidenav__brand');
-  brand.appendChild(node('strong', '', ctx.branch_name));
-  brand.appendChild(node('span', '', t('admin.title')));
+  brand.appendChild(avatar(initials(ctx.branch_name)));
+  const names = node('div');
+  names.appendChild(node('strong', '', ctx.branch_name));
+  names.appendChild(node('span', '', t('admin.title')));
+  brand.appendChild(names);
   box.appendChild(brand);
   const counts = {
     devices: state.data.devices ? state.data.devices.devices.filter((d) => d.revoked_at === null).length : null,
@@ -217,7 +243,7 @@ function nav(current) {
   const item = (name, iconName, key) => {
     const a = node('a', 'pos-sidenav__item');
     a.href = name === 'home' ? '#' : '#' + name;
-    if (name === current) a.setAttribute('aria-current', 'page');
+    if (name === current || (name === 'devices' && current === 'add-phone')) a.setAttribute('aria-current', 'page');
     a.appendChild(icon(iconName));
     a.appendChild(document.createTextNode(t(key)));
     if (counts[name] !== null && counts[name] !== undefined) {
@@ -234,26 +260,47 @@ function nav(current) {
   item('lockouts', 'lock', 'admin.nav_lockouts');
   if (ctx.links.stock) {
     box.appendChild(node('span', 'caption', t('admin.nav_other')));
-    const stock = node('a', 'pos-sidenav__item');
-    stock.href = '/admin/stock/';
-    stock.appendChild(icon('box'));
-    stock.appendChild(document.createTextNode(t('admin.nav_stock')));
-    box.appendChild(stock);
+    box.appendChild(stockLink('pos-sidenav__item'));
   }
+  // 00-S20 (Pulse): the signed-in name and "Branch hub · {host}" sit in the side-nav foot.
   const foot = node('div', 'pos-sidenav__foot');
-  foot.appendChild(node('span', 'body', sessionStorage.getItem('admin_name') || ''));
+  const who = node('div', 'pos-sidenav__who');
+  const name = sessionStorage.getItem('admin_name') || '';
+  who.appendChild(avatar(initials(name)));
+  const lines = node('div');
+  lines.appendChild(node('b', '', name));
+  lines.appendChild(mixed('span', '', 'admin.branch_line', { host: location.host || '' }, 'host'));
+  who.appendChild(lines);
+  foot.appendChild(who);
   foot.appendChild(button(t('admin.sign_out'), '', 'logout', signOut));
   box.appendChild(foot);
   return box;
+}
+function stockLink(className) {
+  const stock = node('a', className);
+  stock.href = '/admin/stock/';
+  stock.appendChild(icon('box'));
+  stock.appendChild(document.createTextNode(t('admin.nav_stock')));
+  return stock;
 }
 function lockoutCount() {
   const l = state.data.lockouts;
   return l ? l.staff.length + l.devices.length + l.ips.length : null;
 }
-// One page frame: side menu on tablets and laptops; a phone app bar with a back link inside pages (00-S20).
-function frame(current, titleKey, endParts, parts) {
-  const bar = node('header', 'pos-appbar' + (phone() ? ' pos-appbar--phone' : ''));
-  if (phone() && current !== 'home') {
+// 00-F01 banner (pulsing; the list stays, hub actions are off).
+function offlineBanner() {
+  const notice = banner('warn', t('admin.offline'), state.loadedAt ? t('admin.offline_body', { time: hhmm(state.loadedAt) }) : '', '', 'sync');
+  notice.classList.add('pos-banner--pulse');
+  return notice;
+}
+// One page frame. Tablets and laptops: side nav + a column that fits the screen; only the content region scrolls,
+// an action bar (footer) stays under it. Phones: a phone app bar with a back link, the page scrolls as one.
+function frame(current, titleKey, endParts, parts, footer) {
+  closeMenu(false);
+  const small = phone();
+  screen.className = small ? 'pos-page' : 'pos-page pos-page--fit';
+  const bar = node('header', 'pos-appbar' + (small ? ' pos-appbar--phone' : ''));
+  if (small && current !== 'home') {
     const back = link('', '', 'back', 'home');
     back.firstChild.classList.add('pos-icon--flip');
     back.setAttribute('aria-label', t('admin.back'));
@@ -263,25 +310,32 @@ function frame(current, titleKey, endParts, parts) {
   const end = node('div', 'pos-appbar__end');
   for (const part of endParts) end.appendChild(part);
   bar.appendChild(end);
-  const main = node('main', 'pos-content');
-  if (state.offline) {
-    const notice = banner('warn', t('admin.offline'), state.loadedAt ? t('admin.offline_body', { time: hhmm(state.loadedAt) }) : '');
-    notice.classList.add('pos-banner--pulse');
-    main.appendChild(notice);
-  }
+  const main = node('main', 'pos-content pos-admin__content');
+  // 00-F01: nothing loaded yet → the full hub-down state; otherwise the banner over the kept list.
+  const down = state.offline && state.loadedAt === null;
+  const hubDown = state.offline && !down ? offlineBanner() : null;
+  if (hubDown && small) main.appendChild(hubDown);
   if (state.notice) main.appendChild(state.notice);
-  for (const part of parts) main.appendChild(part);
-  if (phone()) return screen.replaceChildren(bar, main);
-  const column = node('div');
-  column.appendChild(bar);
-  column.appendChild(main);
+  if (down) main.appendChild(renderGlobalState({ id: 'F01', mode: 'screen' }, {}));
+  else for (const part of parts) main.appendChild(part);
+  const column = [bar];
+  if (hubDown && !small) {
+    const notice = node('div', 'pos-admin__notice');
+    notice.appendChild(hubDown);
+    column.push(notice);
+  }
+  column.push(main);
+  if (footer && !down) column.push(footer);
+  if (small) return screen.replaceChildren(...column);
+  const box = node('div', 'pos-shell__main');
+  for (const part of column) box.appendChild(part);
   const shell = node('div', 'pos-shell');
   shell.appendChild(nav(current));
-  shell.appendChild(column);
+  shell.appendChild(box);
   screen.replaceChildren(shell);
 }
 function refreshed() {
-  const p = mixed('p', 'caption', 'admin.refreshed', { time: hhmm(state.loadedAt || Date.now()) }, 'time');
+  const p = mixed('p', 'caption pos-admin__refreshed', 'admin.refreshed', { time: hhmm(state.loadedAt || Date.now()) }, 'time');
   return [p, button(t('admin.refresh'), '', 'reload', () => render())];
 }
 function list(className, heads) {
@@ -315,11 +369,13 @@ function meta(text, sub) {
   if (sub) box.appendChild(node('span', '', sub));
   return box;
 }
-function skeleton(rows) {
-  const ul = node('ul', 'pos-list pos-list--stack');
+// Loading: skeleton rows under the column heads (frame DevicesLoading); one bar per row on a phone.
+function skeleton(rows, className, heads) {
+  const ul = heads ? list(className, heads) : node('ul', 'pos-list pos-list--stack');
+  ul.setAttribute('aria-busy', 'true');
   for (let i = 0; i < rows; i += 1) {
     const li = node('li', 'pos-list__row');
-    li.appendChild(node('span', 'pos-skeleton'));
+    for (let c = 0; c < (phone() || !heads ? 1 : heads.length); c += 1) li.appendChild(node('span', 'pos-skeleton'));
     ul.appendChild(li);
   }
   return ul;
@@ -327,18 +383,141 @@ function skeleton(rows) {
 function notice(kind, text, detail) {
   state.notice = banner(kind, text, detail);
 }
+// 00-F05: "Hub busy, try again." with an inline Try again that repeats the same command (same command_id).
+// Try again stays off until retry_after_ms has passed again (the hub asked for that pause).
+function busyNotice(retry) {
+  const box = renderGlobalState({ id: 'F05', mode: 'banner' }, {
+    retry: async () => {
+      state.notice = null;
+      paint();
+      await retry();
+    },
+  });
+  for (const child of Array.from(box.children)) {
+    if (!child.classList.contains('pos-banner__action')) continue;
+    child.disabled = true;
+    setTimeout(() => { child.disabled = false; }, state.busyWait || 1000);
+  }
+  state.notice = box;
+}
+function newCommandId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return encodeCrockford128(bytes);
+}
+// --- row "more" menu (00-S16): kit .pos-more + .pos-menu. Escape, a tap outside and a pick close it; Escape and a
+// pick give focus back to the ⋯ button; arrow keys move between the menu items.
+let openMenu = null;
+function closeMenu(focusBack) {
+  if (!openMenu) return;
+  const open = openMenu;
+  openMenu = null;
+  open.row.classList.remove('has-menu');
+  open.row.removeChild(open.menu);
+  open.button.setAttribute('aria-expanded', 'false');
+  if (focusBack) open.button.focus();
+}
+function menuKeys(event) {
+  if (!openMenu) return;
+  const items = openMenu.items.filter((item) => !item.disabled);
+  const at = items.indexOf(document.activeElement);
+  const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeMenu(true);
+  } else if (event.key === 'Tab') {
+    closeMenu(false);
+  } else if (move !== undefined && items.length > 0) {
+    event.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  }
+}
+function moreMenu(row, o) {
+  const more = node('button', 'pos-more');
+  more.type = 'button';
+  more.name = o.name;
+  more.setAttribute('aria-label', o.label);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.appendChild(icon('more'));
+  more.addEventListener('keydown', menuKeys);
+  more.addEventListener('click', () => {
+    const wasOpen = openMenu && openMenu.button === more;
+    closeMenu(wasOpen);
+    if (wasOpen) return;
+    const menu = node('div', 'pos-menu');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', o.title);
+    if (o.info) {
+      const info = node('div', 'pos-menu__info');
+      info.appendChild(node('b', '', o.info.title));
+      if (o.info.detail) info.appendChild(node('span', '', o.info.detail));
+      menu.appendChild(info);
+    }
+    const items = [];
+    for (const entry of o.items) {
+      const item = node('button', 'pos-menu__item' + (entry.danger ? ' pos-menu__item--danger' : ''));
+      item.type = 'button';
+      item.name = entry.name || '';
+      item.setAttribute('role', 'menuitem');
+      item.setAttribute('tabindex', '-1');
+      if (entry.icon) item.appendChild(icon(entry.icon));
+      item.appendChild(document.createTextNode(entry.label));
+      item.disabled = Boolean(entry.disabled);
+      item.addEventListener('click', () => {
+        if (item.disabled) return;
+        closeMenu(true);
+        entry.onSelect();
+      });
+      items.push(item);
+      menu.appendChild(item);
+    }
+    menu.addEventListener('keydown', menuKeys);
+    // Opens upwards when there is no room under the row in the scrolling region (frame DevicesRowMenu).
+    const region = more.closest ? more.closest('.pos-content') : null;
+    if (region && more.getBoundingClientRect) {
+      const at = more.getBoundingClientRect();
+      const box = region.getBoundingClientRect();
+      const bottom = Math.min(box.bottom, window.innerHeight || box.bottom);
+      const top = Math.max(box.top, 0);
+      if (at.bottom + 200 > bottom && at.top - 200 > top) menu.classList.add('pos-menu--up');
+    }
+    row.classList.add('has-menu');
+    row.appendChild(menu);
+    more.setAttribute('aria-expanded', 'true');
+    openMenu = { row, menu, button: more, items };
+    const first = items.find((item) => !item.disabled);
+    if (first) first.focus();
+  });
+  return more;
+}
+if (document.addEventListener) {
+  document.addEventListener('pointerdown', (event) => {
+    if (openMenu && !openMenu.menu.contains(event.target) && !openMenu.button.contains(event.target)) closeMenu(false);
+  });
+}
 // --- dialogs (00-D01 … D03) ---
 function dialog(o) {
+  closeMenu(false);
+  const opener = document.activeElement;
   const scrim = node('div', 'pos-scrim');
-  const box = node('div', 'pos-dialog pos-dialog--form');
+  const box = node('div', 'pos-dialog pos-dialog--form pos-dialog--confirm');
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-modal', 'true');
-  box.appendChild(node('h2', 'pos-dialog__title', o.title));
+  box.setAttribute('aria-labelledby', 'admin_dialog_title');
+  const title = typeof o.title === 'string' ? node('h2', 'pos-dialog__title', o.title) : o.title;
+  title.id = 'admin_dialog_title';
+  box.appendChild(title);
   box.appendChild(node('p', 'pos-dialog__body', o.body));
   for (const part of o.parts || []) box.appendChild(part);
   const footer = node('div', 'pos-dialog__footer');
-  const close = () => document.body.removeChild(scrim);
-  footer.appendChild(button(t('common.cancel'), '', '', close));
+  const close = () => {
+    if (!scrim.isConnected) return;
+    document.body.removeChild(scrim);
+    if (opener && opener.isConnected && opener.focus) opener.focus();
+  };
+  const cancel = button(t('common.cancel'), '', '', close);
+  footer.appendChild(cancel);
   const ok = button(o.confirm, o.danger ? 'pos-btn--danger' : 'pos-btn--primary', o.icon, async () => {
     setBusy(ok, true);
     await o.onConfirm();
@@ -349,107 +528,135 @@ function dialog(o) {
   if (state.offline) ok.disabled = true;
   footer.appendChild(ok);
   box.appendChild(footer);
+  box.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !ok.disabled) close();
+  });
   scrim.appendChild(box);
   document.body.appendChild(scrim);
+  (o.focus || cancel).focus();
   return close;
 }
 // --- 00-S20 home ---
+// Number + the rest of a "{n} …" string (tile: big number, small words).
+function countWords(key, n) {
+  return { num: String(n), words: fill(T[key].replace('{n}', ''), {}).trim() };
+}
 function home() {
-  const tiles = node('div', 'pos-tiles pos-tiles--menu');
-  const tile = (target, iconName, titleKey, small, chipNode) => {
+  const tiles = node('div', 'pos-tiles--home');
+  const tile = (target, iconName, titleKey, num, small, chipNode) => {
     const a = node('a', 'pos-tile');
     a.href = target.startsWith('/') ? target : '#' + target;
     const head = node('span', 'pos-tile__head');
     head.appendChild(icon(iconName));
     head.appendChild(document.createTextNode(t(titleKey)));
     a.appendChild(head);
+    if (num !== null) a.appendChild(node('span', 'pos-tile__num', num));
     if (small) a.appendChild(node('small', '', small));
-    if (chipNode) a.appendChild(chipNode);
+    if (chipNode) {
+      const foot = node('div', 'pos-tile__foot');
+      foot.appendChild(chipNode);
+      a.appendChild(foot);
+    }
     if (!target.startsWith('/')) a.addEventListener('click', (event) => { event.preventDefault(); go(target); });
     tiles.appendChild(a);
   };
   const devices = state.data.devices ? state.data.devices.devices.filter((d) => d.revoked_at === null) : [];
   const silent = devices.find(silentKds);
-  tile('devices', 'screen', 'admin.nav_devices', t('admin.tile_devices', { n: devices.length }),
+  const paired = countWords('admin.tile_devices', devices.length);
+  tile('devices', 'screen', 'admin.nav_devices', paired.num, paired.words,
     silent ? chip('warn', 'clock', t('admin.not_seen_chip', { name: silent.device_name, n: silent.last_seen_at === null ? '—' : Math.floor((Date.now() - silent.last_seen_at) / 60000) })) : null);
-  if (can('manage-devices')) tile('add-phone', 'qr', 'admin.tile_add_phone_title', t('admin.tile_add_phone'));
-  tile('sessions', 'user', 'admin.nav_sessions', t('admin.tile_sessions', { n: state.data.sessions ? state.data.sessions.sessions.length : 0 }));
   const l = state.data.lockouts;
   const count = lockoutCount() || 0;
   const first = l && l.staff[0];
-  tile('lockouts', 'lock', 'admin.nav_lockouts', t('admin.tile_lockouts'),
+  tile('lockouts', 'lock', 'admin.nav_lockouts', String(count), t('admin.tile_lockouts'),
     count === 0 ? null : chip('danger', 'lock', first && count === 1 ? t('admin.locked_chip', { name: first.display_name, min: minutesLeft(first.locked_until) }) : t('admin.locked_many', { n: count })));
-  const parts = [mixed('p', 'body', 'admin.branch_line', { host: location.host || '' }, 'host'), tiles];
-  if (ctx.links.stock) {
-    parts.push(node('h2', 'heading', t('admin.nav_other')));
-    const other = node('div', 'pos-tiles pos-tiles--menu');
-    const stock = node('a', 'pos-tile');
-    stock.href = '/admin/stock/';
-    const head = node('span', 'pos-tile__head');
-    head.appendChild(icon('box'));
-    head.appendChild(document.createTextNode(t('admin.nav_stock')));
-    stock.appendChild(head);
-    stock.appendChild(node('small', '', t('admin.tile_stock')));
-    other.appendChild(stock);
-    parts.push(other);
+  const signed = countWords('admin.tile_sessions', state.data.sessions ? state.data.sessions.sessions.length : 0);
+  tile('sessions', 'user', 'admin.nav_sessions', signed.num, signed.words);
+  if (can('manage-devices')) tile('add-phone', 'qr', 'admin.tile_add_phone_title', null, t('admin.tile_add_phone'));
+  const parts = [tiles];
+  // A phone has no side nav: the other jobs, the hub line and Sign out stay under the tiles.
+  if (phone()) {
+    if (ctx.links.stock) {
+      const other = node('section', 'pos-admin__section');
+      other.appendChild(node('h2', 'heading', t('admin.nav_other')));
+      other.appendChild(stockLink('pos-btn pos-btn--block'));
+      parts.push(other);
+    }
+    parts.push(mixed('p', 'caption pos-admin__host', 'admin.branch_line', { host: location.host || '' }, 'host'));
+    parts.push(button(t('admin.sign_out'), 'pos-btn--block', 'logout', signOut));
   }
-  if (phone()) parts.push(button(t('admin.sign_out'), 'pos-btn--block', 'logout', signOut));
-  const end = can('manage-devices') ? [link(t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve')] : [];
+  const end = can('manage-devices') ? [link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve')] : [];
   frame('home', 'admin.title', end, parts);
 }
 // --- 00-S16 devices ---
 const GROUPS = [['cashier_kiosk', 'devices.group_cashier'], ['kds', 'devices.group_kitchen'], ['tablet', 'devices.group_tablet'], ['phone', 'devices.group_phone']];
 const TYPE_ICON = { cashier_kiosk: 'screen', kds: 'flame', tablet: 'tablet', phone: 'phone' };
+const DEVICE_HEADS = ['devices.col_name', 'devices.col_seen', 'devices.col_session', ''];
 function deviceType(d) {
   if (d.device_type === 'kds') return t('devices.type_kds', { station: stationName(d.station_id) });
   if (d.device_type === 'phone') return t('devices.type_phone', { owner: d.owner_name || '—' });
   return t(d.device_type === 'tablet' ? 'devices.type_tablet' : 'devices.type_cashier');
 }
+// In use (n) · Removed (n): the filter that replaced the Show removed switch; Removed refetches with include_revoked.
+function deviceTabs(all) {
+  const seg = node('div', 'pos-seg' + (phone() ? ' pos-seg--block' : ''));
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', t('devices.tabs'));
+  const live = all ? all.filter((d) => d.revoked_at === null).length : null;
+  if (all && state.devicesWithRemoved) state.removedCount = all.length - live;
+  const opt = (key, removed, n) => {
+    const b = node('button', 'pos-seg__opt', t(key));
+    b.type = 'button';
+    b.name = removed ? 'tab_removed' : 'tab_in_use';
+    b.setAttribute('aria-pressed', String(state.showRemoved === removed));
+    if (n !== null && n !== undefined) {
+      b.appendChild(document.createTextNode(' '));
+      b.appendChild(node('span', 'pos-seg__count pos-ltr', String(n)));
+    }
+    b.addEventListener('click', () => {
+      if (state.showRemoved === removed) return;
+      state.showRemoved = removed;
+      render();
+    });
+    seg.appendChild(b);
+  };
+  opt('devices.tab_in_use', false, live);
+  opt('devices.tab_removed', true, state.removedCount);
+  return seg;
+}
 function devicesView() {
   const manage = can('manage-devices') && !state.offline;
   const all = state.data.devices ? state.data.devices.devices : null;
-  const toggle = node('button', 'pos-switch');
-  toggle.type = 'button';
-  toggle.setAttribute('role', 'switch');
-  toggle.setAttribute('aria-checked', String(state.showRemoved));
-  toggle.appendChild(node('span', 'pos-switch__track'));
-  toggle.appendChild(document.createTextNode(t('devices.show_removed')));
-  toggle.addEventListener('click', () => {
-    state.showRemoved = !state.showRemoved;
-    render();
-  });
-  const actions = [toggle];
+  const tabs = deviceTabs(all);
+  const addPhone = () => link(t('devices.add_phone'), '', 'qr', 'add-phone');
+  const actions = [];
   if (can('manage-devices')) {
-    actions.push(link(t('devices.add_phone'), '', 'qr', 'add-phone'));
+    actions.push(addPhone());
     actions.push(link(phone() ? t('devices.approve_short') : t('devices.approve'), 'pos-btn--primary', 'plus', '/admin/approve'));
   }
   const parts = [];
   if (phone()) {
-    const row = node('div', 'pos-row');
-    for (const action of actions) row.appendChild(action);
-    parts.push(row);
+    if (actions.length > 0) {
+      const row = node('div', 'pos-row pos-admin__actions');
+      for (const action of actions) row.appendChild(action);
+      parts.push(row);
+    }
+    parts.push(tabs);
   }
   if (!can('manage-devices')) parts.push(banner('info', t('devices.read_only'), t('devices.read_only_body')));
+  const end = phone() ? [] : [tabs].concat(actions);
   if (all === null) {
-    parts.push(skeleton(4));
-    return frame('devices', 'devices.title', phone() ? [] : actions, parts);
+    parts.push(skeleton(4, 'pos-list--devices', DEVICE_HEADS));
+    return frame('devices', 'devices.title', end, parts);
+  }
+  const ul = list('pos-list--devices', DEVICE_HEADS);
+  if (state.showRemoved) {
+    for (const d of all.filter((item) => item.revoked_at !== null)) ul.appendChild(deviceRow(d, manage));
+    parts.push(ul);
+    return frame('devices', 'devices.title', end, parts);
   }
   const live = all.filter((d) => d.revoked_at === null);
-  if (live.length <= 1) {
-    const callout = node('div', 'pos-callout pos-callout--accent');
-    const mark = node('span', 'pos-callout__icon');
-    mark.appendChild(icon('plus'));
-    callout.appendChild(mark);
-    const text = node('div', 'pos-callout__text');
-    text.appendChild(node('h2', '', t('devices.first_run_title')));
-    text.appendChild(node('p', '', t('devices.first_run_body')));
-    callout.appendChild(text);
-    parts.push(callout);
-  }
-  const ul = list('pos-list--devices', ['devices.col_name', 'devices.col_paired', 'devices.col_seen', 'devices.col_session', '']);
-  const groups = GROUPS.map(([type, key]) => [key, live.filter((d) => d.device_type === type)]);
-  if (state.showRemoved) groups.push(['devices.group_removed', all.filter((d) => d.revoked_at !== null)]);
-  for (const [key, devices] of groups) {
+  for (const [key, devices] of GROUPS.map(([type, groupKey]) => [groupKey, live.filter((d) => d.device_type === type)])) {
     if (devices.length === 0) continue;
     const group = node('li', 'pos-list__group', t(key));
     const count = node('small');
@@ -459,7 +666,24 @@ function devicesView() {
     for (const d of devices) ul.appendChild(deviceRow(d, manage));
   }
   parts.push(ul);
-  frame('devices', 'devices.title', phone() ? [] : actions, parts);
+  // First run (only this screen): accent callout under the list (frame DevicesEmpty).
+  if (live.length <= 1) {
+    const callout = node('div', 'pos-callout pos-callout--accent');
+    const mark = node('span', 'pos-callout__icon');
+    mark.appendChild(icon('plus'));
+    callout.appendChild(mark);
+    const text = node('div', 'pos-callout__text');
+    text.appendChild(node('h2', '', t('devices.first_run_title')));
+    text.appendChild(node('p', '', t('devices.first_run_body')));
+    callout.appendChild(text);
+    if (can('manage-devices') && !phone()) {
+      const act = node('div', 'pos-callout__actions');
+      act.appendChild(addPhone());
+      callout.appendChild(act);
+    }
+    parts.push(callout);
+  }
+  frame('devices', 'devices.title', end, parts);
 }
 function deviceRow(d, manage) {
   const removed = d.revoked_at !== null;
@@ -467,32 +691,46 @@ function deviceRow(d, manage) {
   li.name = 'device_' + d.device_id;
   const tags = [];
   if (d.device_id === state.deviceId) tags.push(chip('accent', '', t('devices.this_screen')));
-  if (removed) tags.push(chip('danger', 'x', t('devices.removed_on', { date: day(d.revoked_at) }) + (d.revoked_reason ? ' · ' + d.revoked_reason : '')));
+  const removedChip = removed ? chip('danger', 'x', t('devices.removed_on', { date: day(d.revoked_at) }) + (d.revoked_reason ? ' · ' + d.revoked_reason : '')) : null;
   const silent = silentKds(d);
   const seenText = ago(d.last_seen_at);
   const notSeen = silent ? chip('warn', 'clock', t('devices.not_seen', { n: d.last_seen_at === null ? '—' : Math.floor((Date.now() - d.last_seen_at) / 60000) })) : null;
   const who = d.active_session ? (d.active_session.kind === 'station' ? t('devices.kitchen_session') : d.active_session.display_name || '—') : t('devices.nobody');
-  const removeButton = !removed && manage ? button(t('devices.remove'), 'pos-btn--danger', '', () => removeDialog(d)) : node('span');
+  // ⋯ holds the rare facts (paired, how) and Remove; read-only admins get no menu (frame DevicesReadOnly).
+  const more = removed || !can('manage-devices') ? null : moreMenu(li, {
+    name: 'more_' + d.device_id,
+    label: t('devices.more', { name: d.device_name }),
+    title: d.device_name,
+    info: { title: t('devices.menu_paired', { date: day(d.paired_at), name: d.paired_by_name || '—' }), detail: t(d.pairing_source === 'request' ? 'devices.source_request' : 'devices.source_token') },
+    items: [{ name: 'remove_' + d.device_id, label: t('devices.menu_remove', { name: d.device_name }), icon: 'x', danger: true, disabled: !manage, onSelect: () => removeDialog(d) }],
+  });
   if (phone()) {
     const lines = [deviceType(d)];
     if (!removed && !notSeen) lines.push(seenText + ' · ' + who);
     if (notSeen) tags.push(notSeen);
-    const row = node('div', 'pos-row');
+    if (removedChip) tags.push(removedChip);
+    const row = node('div', 'pos-row pos-admin__phonerow');
     row.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, lines, tags));
-    row.appendChild(removeButton);
+    if (more) row.appendChild(more);
     li.appendChild(row);
     return li;
   }
   li.appendChild(nameBlock(TYPE_ICON[d.device_type], d.device_name, [deviceType(d)], tags));
-  li.appendChild(meta(t('devices.paired_by', { date: day(d.paired_at), name: d.paired_by_name || '—' }), t(d.pairing_source === 'request' ? 'devices.source_request' : 'devices.source_token')));
-  li.appendChild(notSeen || meta(removed ? '—' : seenText));
-  li.appendChild(meta(removed ? '—' : who));
-  li.appendChild(removeButton);
+  if (removed) {
+    const box = node('div', 'pos-list__tags pos-admin__span3');
+    box.appendChild(removedChip);
+    li.appendChild(box);
+    return li;
+  }
+  li.appendChild(notSeen || meta(seenText));
+  li.appendChild(meta(who));
+  li.appendChild(more || node('span'));
   return li;
 }
 function removeDialog(d) {
   const reason = node('input', 'pos-input');
   reason.name = 'remove_reason';
+  reason.id = 'remove_reason';
   reason.setAttribute('maxlength', '200');
   const help = node('p', 'pos-field__help');
   const counter = ltr('0 / 200');
@@ -500,13 +738,44 @@ function removeDialog(d) {
   help.appendChild(counter);
   reason.addEventListener('input', () => { counter.textContent = reason.value.length + ' / 200'; });
   const field = node('div', 'pos-field');
-  field.appendChild(node('label', 'pos-field__label', t('devices.remove_reason')));
+  const label = node('label', 'pos-field__label', t('devices.remove_reason'));
+  label.setAttribute('for', 'remove_reason');
+  field.appendChild(label);
   field.appendChild(reason);
   field.appendChild(help);
   const parts = [];
   const self = d.device_id === state.deviceId;
-  if (self) parts.push(banner('warn', t('devices.remove_self')));
+  if (self) {
+    // Frame DevicesRemoveSelf: first sentence as the banner title, the rest under it.
+    const text = t('devices.remove_self');
+    const cut = text.indexOf('. ');
+    parts.push(cut === -1 ? banner('warn', text, '', '', 'alert') : banner('warn', text.slice(0, cut + 1), text.slice(cut + 2), '', 'alert'));
+  }
   parts.push(field);
+  const id = newCommandId();
+  const run = async () => {
+    const text = reason.value.trim();
+    const outcome = await command('revoke-device', 'RevokeDevice', text === '' ? { device_id: d.device_id } : { device_id: d.device_id, reason: text }, id);
+    if (outcome === null) return;
+    if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
+      busyNotice(run);
+      return paint();
+    }
+    if (outcome.error) {
+      notice(outcome.error.code === 'DEVICE_NOT_FOUND' ? 'info' : 'danger', errorText(outcome.error));
+    } else if (self) {
+      document.body.replaceChildren(renderGlobalState({ id: 'F02', mode: 'screen', variant: 'screen' }, { pairAgain: () => { location.href = '/pair'; } }));
+      return;
+    } else if (outcome.result.already_revoked) {
+      notice('ok', t('devices.already_removed', { name: d.device_name }));
+    } else {
+      notice('ok', t('devices.removed', { name: d.device_name }), t('devices.removed_body'));
+    }
+    const kept = state.notice;
+    await load(NEEDS.devices);
+    state.notice = kept;
+    paint();
+  };
   dialog({
     title: t('devices.remove_title', { name: d.device_name }),
     body: t('devices.remove_body'),
@@ -514,25 +783,8 @@ function removeDialog(d) {
     confirm: t('devices.remove'),
     danger: true,
     icon: 'x',
-    onConfirm: async () => {
-      const text = reason.value.trim();
-      const outcome = await command('revoke-device', 'RevokeDevice', text === '' ? { device_id: d.device_id } : { device_id: d.device_id, reason: text });
-      if (outcome === null) return;
-      if (outcome.error) {
-        notice(outcome.error.code === 'DEVICE_NOT_FOUND' ? 'info' : 'danger', errorText(outcome.error));
-      } else if (self) {
-        document.body.replaceChildren(renderGlobalState({ id: 'F02', mode: 'screen', variant: 'screen' }, { pairAgain: () => { location.href = '/pair'; } }));
-        return;
-      } else if (outcome.result.already_revoked) {
-        notice('ok', t('devices.already_removed', { name: d.device_name }));
-      } else {
-        notice('ok', t('devices.removed', { name: d.device_name }), t('devices.removed_body'));
-      }
-      const kept = state.notice;
-      await load(NEEDS.devices);
-      state.notice = kept;
-      paint();
-    },
+    focus: reason,
+    onConfirm: run,
   });
 }
 // --- 00-S17 add a phone ---
@@ -541,12 +793,12 @@ let qr = null;
 function addPhoneView() {
   const back = link(t('admin.nav_devices'), '', '', 'devices');
   if (qr) return qrView(back);
-  const section = node('section', 'pos-stack');
+  const section = node('section', 'pos-admin__section pos-admin__pick');
   const head = node('div', 'pos-section__head');
   head.appendChild(node('h2', '', t('addphone.who')));
   head.appendChild(node('p', '', t('addphone.who_sub')));
   section.appendChild(head);
-  const search = node('label', 'pos-input-affix');
+  const search = node('label', 'pos-input-affix pos-admin__find');
   const lens = node('span');
   lens.appendChild(icon('search'));
   search.appendChild(lens);
@@ -557,7 +809,7 @@ function addPhoneView() {
   find.setAttribute('placeholder', t('addphone.find'));
   search.appendChild(find);
   section.appendChild(search);
-  const grid = node('div', 'pos-staff');
+  const grid = node('div', 'pos-staff pos-admin__staff');
   section.appendChild(grid);
   const staff = state.data.staff ? state.data.staff.staff : null;
   const bar = node('footer', 'pos-actionbar');
@@ -594,11 +846,20 @@ function addPhoneView() {
   const end = node('div', 'pos-actionbar__end');
   end.appendChild(make);
   bar.appendChild(end);
-  frame('add-phone', 'admin.tile_add_phone_title', phone() ? [] : [back], [section, bar]);
+  frame('add-phone', 'admin.tile_add_phone_title', phone() ? [] : [back], [section], bar);
 }
+let qrCommand = null;
 async function makeQr() {
-  const outcome = await command('generate-device-pairing-token', 'GenerateDevicePairingToken', { device_type: 'phone', owner_staff_id: picked.staff_id });
+  // One command_id per tap; Try again after "Hub busy" repeats it.
+  const id = qrCommand && qrCommand.staff_id === picked.staff_id && qrCommand.pending ? qrCommand.id : newCommandId();
+  qrCommand = { id, staff_id: picked.staff_id, pending: true };
+  const outcome = await command('generate-device-pairing-token', 'GenerateDevicePairingToken', { device_type: 'phone', owner_staff_id: picked.staff_id }, id);
   if (outcome === null) return;
+  if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
+    busyNotice(makeQr);
+    return paint();
+  }
+  qrCommand = null;
   if (outcome.error) {
     notice('danger', errorText(outcome.error));
     return paint();
@@ -607,10 +868,10 @@ async function makeQr() {
   paint();
 }
 function qrView(back) {
-  const card = node('section', 'pos-card');
-  const code = node('div', 'pos-code');
-  code.appendChild(node('h2', 'title', t('addphone.scan_title', { name: qr.name })));
-  code.appendChild(node('p', 'body', t('addphone.scan_body')));
+  const small = phone();
+  const code = node('div', 'pos-code pos-admin__qr');
+  code.appendChild(node('h2', small ? 'heading' : 'title', t('addphone.scan_title', { name: qr.name })));
+  code.appendChild(node('p', 'body pos-admin__muted', t('addphone.scan_body')));
   const expired = Date.now() >= qr.expires_at;
   if (expired) {
     code.appendChild(node('div', 'pos-code__qr pos-code__qr--void', t('addphone.expired_qr')));
@@ -630,11 +891,20 @@ function qrView(back) {
     };
     tick();
     code.appendChild(valid);
-    code.appendChild(node('p', 'pos-mono-wrap', qr.url));
+    // pair_url is RARE: one quiet "Show link" button reveals it (no Copy: insecure origin).
+    const linkBox = node('div', 'pos-admin__link');
+    const show = button(t('addphone.show_link'), 'pos-btn--quiet', 'link', () => {
+      const url = node('p', 'pos-mono-wrap', qr.url);
+      url.name = 'pair_url';
+      linkBox.replaceChildren(url);
+    });
+    show.name = 'show_link';
+    linkBox.appendChild(show);
+    code.appendChild(linkBox);
   }
   const again = button(t('addphone.new_qr'), expired ? 'pos-btn--primary pos-btn--lg pos-btn--block' : 'pos-btn--lg pos-btn--block', 'reload', makeQr);
   if (state.offline) again.disabled = true;
-  const actions = node('div', 'pos-stack');
+  const actions = node('div', 'pos-admin__qracts');
   actions.appendChild(again);
   if (!expired) {
     actions.appendChild(button(t('addphone.done'), 'pos-btn--primary pos-btn--lg pos-btn--block', 'check', () => {
@@ -644,20 +914,23 @@ function qrView(back) {
     }));
   }
   code.appendChild(actions);
+  if (small) return frame('add-phone', 'devices.add_phone', [], [code]);
+  const card = node('section', 'pos-card pos-admin__qrcard');
   card.appendChild(code);
-  frame('add-phone', 'admin.tile_add_phone_title', phone() ? [] : [back], [card]);
+  frame('add-phone', 'admin.tile_add_phone_title', [back], [card]);
 }
 // --- 00-S18 sessions ---
+const SESSION_HEADS = ['sessions.col_who', 'sessions.col_on', 'sessions.col_activity', ''];
 function sessionsView() {
   const parts = [];
   const manage = can('manage-staff');
   if (!manage) parts.push(banner('info', t('sessions.read_only'), t('devices.read_only_body')));
   const data = state.data.sessions;
   if (!data) {
-    parts.push(skeleton(4));
+    parts.push(skeleton(4, 'pos-list--sessions', SESSION_HEADS));
     return frame('sessions', 'sessions.title', refreshed(), parts);
   }
-  const ul = list('pos-list--sessions', ['sessions.col_who', 'sessions.col_on', 'sessions.col_activity', '']);
+  const ul = list('pos-list--sessions', SESSION_HEADS);
   if (data.sessions.length === 0) parts.push(node('p', 'body', t('sessions.none')));
   const mine = sessionStorage.getItem('admin_staff_id');
   for (const s of data.sessions) {
@@ -667,17 +940,22 @@ function sessionsView() {
     const you = s.kind === 'admin' && s.staff_id === mine;
     const li = node('li', 'pos-list__row');
     li.name = 'session_' + s.session_id;
-    li.appendChild(nameBlock(station ? 'flame' : 'user', name, [mixed('span', '', 'sessions.since', { kind, time: hhmm(s.started_at) }, 'time')], you ? [chip('accent', '', t('sessions.you'))] : []));
+    // Pulse: the row's sub-line is the kind only; "since" and the idle rule left the row, the warn stays.
+    li.appendChild(nameBlock(station ? 'flame' : 'user', name, [kind], you ? [chip('accent', '', t('sessions.you'))] : []));
     li.appendChild(meta(s.device_name || t('sessions.hub_admin_device')));
-    let rule = t('sessions.stays_on');
-    let soon = false;
+    let soon = null;
     if (s.idle_ttl_ms !== null) {
       const left = s.last_activity_at + s.idle_ttl_ms - Date.now();
-      soon = left < 120000;
-      rule = soon ? t('sessions.idle_soon', { n: Math.max(0, Math.ceil(left / 60000)) }) : s.idle_ttl_ms >= 3600000 ? t('sessions.idle_rule_h', { n: Math.round(s.idle_ttl_ms / 3600000) }) : t('sessions.idle_rule', { n: Math.round(s.idle_ttl_ms / 60000) });
+      if (left < 120000) soon = t('sessions.idle_soon', { n: Math.max(0, Math.ceil(left / 60000)) });
     }
-    li.appendChild(meta(soon ? chip('warn', 'clock', ago(s.last_activity_at)) : ago(s.last_activity_at), rule));
-    li.appendChild(manage && !you && !state.offline ? button(t('sessions.log_out'), phone() ? 'pos-btn--block' : '', 'logout', () => logoutDialog(s, name)) : node('span'));
+    let activity = ago(s.last_activity_at);
+    if (soon) {
+      activity = node('span', 'pos-admin__warn');
+      activity.appendChild(icon('clock'));
+      activity.appendChild(document.createTextNode(ago(s.last_activity_at)));
+    }
+    li.appendChild(meta(activity, soon));
+    li.appendChild(manage && !you && !state.offline ? button(t('sessions.log_out'), 'pos-btn--danger' + (phone() ? ' pos-btn--block' : ''), 'logout', () => logoutDialog(s, name)) : node('span'));
     ul.appendChild(li);
   }
   if (data.sessions.length > 0) parts.push(ul);
@@ -686,99 +964,163 @@ function sessionsView() {
 function logoutDialog(s, name) {
   const station = s.kind === 'station';
   const device = s.device_name || t('sessions.hub_admin_device');
+  const id = newCommandId();
+  const run = async () => {
+    const outcome = await command('force-logout-session', 'ForceLogoutSession', { session_id: s.session_id }, id);
+    if (outcome === null) return;
+    if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
+      busyNotice(run);
+      return paint();
+    }
+    if (outcome.error) notice('info', errorText(outcome.error));
+    else if (outcome.result.already_ended) notice('ok', t('sessions.already_ended'));
+    else notice('ok', t('sessions.logged_out', { name, device }));
+    const kept = state.notice;
+    await load(NEEDS.sessions);
+    state.notice = kept;
+    paint();
+  };
   dialog({
     title: station ? t('sessions.end_kds_title', { station: name }) : t('sessions.logout_title', { name, device }),
     body: station ? t('sessions.end_kds_body', { station: name }) : t('sessions.logout_body', { device }),
     confirm: station ? t('sessions.end_kds') : t('sessions.log_out'),
     danger: true,
     icon: 'logout',
-    onConfirm: async () => {
-      const outcome = await command('force-logout-session', 'ForceLogoutSession', { session_id: s.session_id });
-      if (outcome === null) return;
-      if (outcome.error) notice('info', errorText(outcome.error));
-      else if (outcome.result.already_ended) notice('ok', t('sessions.already_ended'));
-      else notice('ok', t('sessions.logged_out', { name, device }));
-      const kept = state.notice;
-      await load(NEEDS.sessions);
-      state.notice = kept;
-      paint();
-    },
+    onConfirm: run,
   });
 }
 // --- 00-S19 lockouts ---
+const LOCKOUT_HEADS = ['lockouts.col_what', 'lockouts.col_locked', ''];
 function lockoutsView() {
   const parts = [];
+  const small = phone();
   const manage = can('manage-staff') && !state.offline;
   if (!can('manage-staff')) parts.push(banner('info', t('lockouts.read_only'), t('devices.read_only_body')));
   const data = state.data.lockouts;
   if (!data) {
-    parts.push(skeleton(3));
-    return frame('lockouts', 'lockouts.title', refreshed(), parts);
+    parts.push(skeleton(3, 'pos-list--lockouts', LOCKOUT_HEADS));
+    return frame('lockouts', 'lockouts.title', small ? [] : refreshed(), parts);
   }
   const roles = new Map(((state.data.staff && state.data.staff.staff) || []).map((m) => [m.staff_id, m.role_names[0] || '']));
-  const rows = [
+  const sections = [
     ['lockouts.people', 'lockouts.none_people', data.staff.map((s) => ({ type: 'staff', id: s.staff_id, name: s.display_name, until: s.locked_until, why: 'lockouts.why_person', icon: 'user', role: roles.get(s.staff_id) }))],
-    ['lockouts.screens', 'lockouts.none_screens', data.devices.map((d) => ({ type: 'device', id: d.device_id, name: d.device_name || d.device_id, until: d.locked_until, why: 'lockouts.why_screen', icon: 'screen' }))],
-    ['lockouts.addresses', 'lockouts.none_ip', data.ips.map((ip) => ({ type: 'ip', id: ip.ip, name: ip.ip, until: ip.locked_until, why: 'lockouts.why_ip', icon: 'link' }))],
+    ['lockouts.screens', 'lockouts.none_screens', data.devices.map((d) => ({ type: 'device', id: d.device_id, name: d.device_name || d.device_id, until: d.locked_until, why: 'lockouts.why_screen', icon: 'screen', role: t('lockouts.kind_screen') }))],
+    ['lockouts.addresses', 'lockouts.none_ip', data.ips.map((ip) => ({ type: 'ip', id: ip.ip, name: ip.ip, until: ip.locked_until, why: 'lockouts.why_ip', icon: 'link', role: t('lockouts.kind_address') }))],
   ];
-  const newest = phone() && data.staff[0];
-  if (newest) parts.push(banner('danger', t('lockouts.banner_person', { name: newest.display_name }), t('lockouts.banner_person_small')));
-  for (const [titleKey, noneKey, items] of rows) {
-    if (phone() && items.length === 0) continue;
-    const section = node('section', 'pos-stack');
+  const newest = small && data.staff[0];
+  const row = (item) => {
+    const li = node('li', 'pos-list__row');
+    li.name = 'lockout_' + item.type + '_' + item.id;
+    const title = item.type === 'ip' ? ltr(item.name) : item.name;
+    const locked = chip('danger', 'lock', '');
+    const minParts = T['staff.locked_min'].split('{min}');
+    locked.appendChild(document.createTextNode(minParts[0]));
+    locked.appendChild(ltr(String(minutesLeft(item.until))));
+    locked.appendChild(document.createTextNode(minParts[1] || ''));
+    const primary = newest && item.type === 'staff' && item.id === newest.staff_id;
+    const label = primary ? t('lockouts.unlock_name', { name: item.name }) : t('lockouts.unlock');
+    const action = manage ? button(label, (primary ? 'pos-btn--primary pos-btn--lg ' : '') + (small ? 'pos-btn--block' : ''), 'unlock', () => unlockDialog(item)) : node('span');
+    if (small) {
+      // Phone (frame LockoutsPhone): "{role} · until {time}" and the chip under the name; block Unlock.
+      const why = item.role ? mixed('span', '', 'lockouts.until', { what: item.role, time: hhmm(item.until) }, 'time') : mixed('span', '', item.why, { time: hhmm(item.until) }, 'time');
+      li.appendChild(nameBlock(item.icon, title, [why], item.type === 'staff' ? [locked] : []));
+    } else {
+      li.appendChild(nameBlock(item.icon, title, [mixed('span', '', item.why, { time: hhmm(item.until) }, 'time')]));
+      li.appendChild(locked);
+    }
+    li.appendChild(action);
+    return li;
+  };
+  const none = (key) => {
+    const p = node('p', 'body pos-admin__none');
+    p.appendChild(icon('check'));
+    p.appendChild(document.createTextNode(t(key)));
+    return p;
+  };
+  const section = (titleKey, noneKey, items) => {
+    const box = node('section', 'pos-admin__section');
     const head = node('div', 'pos-section__head');
     head.appendChild(node('h2', '', t(titleKey)));
-    section.appendChild(head);
+    box.appendChild(head);
     if (items.length === 0) {
-      const none = node('p', 'body');
-      none.appendChild(icon('check'));
-      none.appendChild(document.createTextNode(t(noneKey)));
-      section.appendChild(none);
-      parts.push(section);
-      continue;
+      box.appendChild(none(noneKey));
+      return box;
     }
-    const ul = list('pos-list--lockouts', ['lockouts.col_what', 'lockouts.col_locked', '']);
-    for (const item of items) {
-      const li = node('li', 'pos-list__row');
-      li.name = 'lockout_' + item.type + '_' + item.id;
-      const title = item.type === 'ip' ? ltr(item.name) : item.name;
-      const locked = chip('danger', 'lock', t('staff.locked_min', { min: minutesLeft(item.until) }));
-      const why = mixed('span', '', item.why, { time: hhmm(item.until) }, 'time');
-      const primary = phone() && newest && item.type === 'staff' && item.id === newest.staff_id;
-      const label = primary ? t('lockouts.unlock_name', { name: item.name }) : t('lockouts.unlock');
-      const action = manage ? button(label, (primary ? 'pos-btn--primary pos-btn--lg ' : '') + (phone() ? 'pos-btn--block' : ''), 'unlock', () => unlockDialog(item)) : node('span');
-      if (phone()) {
-        li.appendChild(nameBlock(item.icon, title, [why], [locked]));
-      } else {
-        li.appendChild(nameBlock(item.icon, title, [why]));
-        li.appendChild(locked);
-      }
-      li.appendChild(action);
-      ul.appendChild(li);
+    const ul = list('pos-list--lockouts', LOCKOUT_HEADS);
+    for (const item of items) ul.appendChild(row(item));
+    box.appendChild(ul);
+    return box;
+  };
+  const items = sections.flatMap((entry) => entry[2]);
+  if (small) {
+    if (newest) parts.push(banner('danger', t('lockouts.banner_person', { name: newest.display_name }), t('lockouts.banner_person_small'), '', 'lock'));
+    if (items.length === 0) for (const [titleKey, noneKey, list_] of sections) parts.push(section(titleKey, noneKey, list_));
+    else {
+      const ul = list('pos-list--lockouts', LOCKOUT_HEADS);
+      for (const item of items) ul.appendChild(row(item));
+      parts.push(ul);
     }
-    section.appendChild(ul);
-    parts.push(section);
+    return frame('lockouts', 'lockouts.title', [], parts);
   }
-  frame('lockouts', 'lockouts.title', phone() ? [] : refreshed(), parts);
+  parts.push(section(sections[0][0], sections[0][1], sections[0][2]));
+  // People first; screens and addresses (rare) behind one disclosure row with their count (frames Lockouts, LockoutsAll).
+  const rare = sections[1][2].length + sections[2][2].length;
+  if (rare > 0 && !state.lockoutsOpen) {
+    const more = node('button', 'pos-disclosure');
+    more.type = 'button';
+    more.name = 'lockouts_more';
+    more.setAttribute('aria-expanded', 'false');
+    more.appendChild(icon('screen'));
+    const words = T['lockouts.more_toggle'].split(' · ');
+    const label = node('span', '', words[0] + ' ');
+    if (words.length > 1) {
+      const count = node('small', '', '· ');
+      const around = words.slice(1).join(' · ').split('{n}');
+      count.appendChild(document.createTextNode(around[0]));
+      count.appendChild(ltr(String(rare)));
+      count.appendChild(document.createTextNode(around[1] || ''));
+      label.appendChild(count);
+    }
+    more.appendChild(label);
+    more.appendChild(icon('chevron'));
+    more.addEventListener('click', () => {
+      state.lockoutsOpen = true;
+      paint();
+    });
+    parts.push(more);
+  } else {
+    for (const [titleKey, noneKey, list_] of sections.slice(1)) parts.push(section(titleKey, noneKey, list_));
+  }
+  frame('lockouts', 'lockouts.title', refreshed(), parts);
 }
 function unlockDialog(item) {
+  let title = t('lockouts.confirm_title', { name: item.name });
+  if (item.type === 'ip') {
+    title = mixed('h2', 'pos-dialog__title', 'lockouts.confirm_title', { name: item.name }, 'name');
+  }
+  const id = newCommandId();
+  const run = async () => {
+    const outcome = await command('clear-pin-lockout', 'ClearPinLockout', { subject_type: item.type, subject_id: item.id }, id);
+    if (outcome === null) return;
+    if (outcome.error && outcome.error.code === 'SERVICE_UNAVAILABLE') {
+      busyNotice(run);
+      return paint();
+    }
+    if (outcome.error) notice('danger', errorText(outcome.error));
+    else if (!outcome.result.cleared) notice('ok', t('lockouts.already_unlocked'));
+    else notice('ok', t('lockouts.unlocked', { name: item.name }), t('lockouts.unlocked_body'));
+    const kept = state.notice;
+    await load(NEEDS.lockouts);
+    state.notice = kept;
+    paint();
+  };
   dialog({
-    title: t('lockouts.confirm_title', { name: item.name }),
+    title,
     body: t(item.type === 'ip' ? 'lockouts.confirm_ip_body' : 'lockouts.confirm_body'),
     confirm: t('lockouts.unlock'),
     danger: false,
     icon: 'unlock',
-    onConfirm: async () => {
-      const outcome = await command('clear-pin-lockout', 'ClearPinLockout', { subject_type: item.type, subject_id: item.id });
-      if (outcome === null) return;
-      if (outcome.error) notice('danger', errorText(outcome.error));
-      else if (!outcome.result.cleared) notice('ok', t('lockouts.already_unlocked'));
-      else notice('ok', t('lockouts.unlocked', { name: item.name }), t('lockouts.unlocked_body'));
-      const kept = state.notice;
-      await load(NEEDS.lockouts);
-      state.notice = kept;
-      paint();
-    },
+    onConfirm: run,
   });
 }
 // --- sign-in, sign-out, routing ---
@@ -806,6 +1148,7 @@ function signIn() {
     split.appendChild(card);
     const main = node('main', 'pos-content pos-content--narrow');
     main.appendChild(split);
+    screen.className = 'pos-page';
     screen.replaceChildren(main);
     adminSignIn({
       roster,

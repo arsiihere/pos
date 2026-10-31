@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AvailabilityWindow } from '../../../api/cloud-admin';
 import { Chip } from '../../../components/Chip';
+import { Icon } from '../../../components/Icon';
 import { Segmented } from '../../../components/Segmented';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
@@ -165,6 +166,7 @@ export function WindowsField({
                   />
                 </label>
                 <button type="button" className="pos-btn" onClick={() => update(rows.filter((r) => r.id !== row.id))}>
+                  <Icon name="x" />
                   {t('owner.hours.remove')}
                 </button>
               </div>
@@ -178,7 +180,8 @@ export function WindowsField({
           );
         })}
       {setHours && rows.length < MAX_WINDOWS && (
-        <button type="button" className="pos-btn" onClick={() => addRow(rows)}>
+        <button type="button" className="pos-btn pos-btn--start" onClick={() => addRow(rows)}>
+          <Icon name="plus" />
           {fill(t('owner.hours.add_n'), { n: String(MAX_WINDOWS - rows.length) })}
         </button>
       )}

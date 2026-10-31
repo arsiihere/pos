@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { hubDayText, hubTimeText, type HubClock } from '../../../app/hub-clock';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
@@ -34,73 +33,56 @@ export function DayChip({ day, clock, staleAfterHours }: { day: BusinessDay | nu
 }
 
 // 01a-D10: Close day asks first, with what the close means for the counts (§8.2's text) and a summary.
-export function CloseDayButton({
+// Opened from the app bar's More menu (01a hand-off CHANGES §2, StockMore).
+export function CloseDayDialog({
   day,
   clock,
-  busy,
   keepsOvernight,
   switchedOff,
+  busy = false,
   onClose,
+  onCancel,
 }: {
   day: BusinessDay;
   clock: HubClock;
-  busy: boolean;
   keepsOvernight: readonly string[];
   switchedOff: readonly string[];
+  // CloseBusinessDay is running: the dialog stays with a busy Close day (and the slow-call line after 3 s).
+  busy?: boolean;
   onClose: () => void;
+  onCancel: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
   const offset = clock.utcOffsetMs;
   return (
-    <>
-      <BusyButton busy={busy} onClick={() => setConfirming(true)}>
-        {t('admin_stock.day.close')}
-      </BusyButton>
-      {confirming && (
-        <Dialog
-          title={t('admin_stock.day.close_title')}
-          onClose={() => setConfirming(false)}
-          footer={
-            <>
-              <button type="button" className="pos-btn" onClick={() => setConfirming(false)}>
-                {t('admin_stock.day.cancel')}
-              </button>
-              <button
-                type="button"
-                className="pos-btn pos-btn--danger"
-                onClick={() => {
-                  setConfirming(false);
-                  onClose();
-                }}
-              >
-                {t('admin_stock.day.close')}
-              </button>
-            </>
-          }
-        >
-          <p className="pos-dialog__body">{t('admin_stock.day.close_confirm')}</p>
-          <ul className="pos-list pos-list--stack">
-            <li className="pos-list__row">
-              <span className="pos-list__name">
-                <strong>{t('admin_stock.day.started')}</strong>
-                <span className="pos-ltr">{`${hubDayText(day.opened_at, offset)}, ${hubTimeText(day.opened_at, offset)}`}</span>
-              </span>
-            </li>
-            <li className="pos-list__row">
-              <span className="pos-list__name">
-                <strong>{t('admin_stock.day.keeps_overnight')}</strong>
-                <span>{keepsOvernight.length === 0 ? '–' : keepsOvernight.join(', ')}</span>
-              </span>
-            </li>
-            <li className="pos-list__row">
-              <span className="pos-list__name">
-                <strong>{t('admin_stock.day.switched_off')}</strong>
-                <span>{switchedOff.length === 0 ? '–' : switchedOff.join(', ')}</span>
-              </span>
-            </li>
-          </ul>
-        </Dialog>
-      )}
-    </>
+    <Dialog
+      title={t('admin_stock.day.close_title')}
+      onClose={busy ? () => {} : onCancel}
+      footer={
+        <>
+          <button type="button" className="pos-btn" disabled={busy} onClick={onCancel}>
+            {t('admin_stock.day.cancel')}
+          </button>
+          <BusyButton danger busy={busy} onClick={onClose}>
+            {t('admin_stock.day.close')}
+          </BusyButton>
+        </>
+      }
+    >
+      <p className="pos-dialog__body">{t('admin_stock.day.close_confirm')}</p>
+      <ul className="pos-list pos-list--pairs">
+        <li className="pos-list__row">
+          <span>{t('admin_stock.day.started')}</span>
+          <strong className="pos-ltr">{`${hubDayText(day.opened_at, offset)}, ${hubTimeText(day.opened_at, offset)}`}</strong>
+        </li>
+        <li className="pos-list__row">
+          <span>{t('admin_stock.day.keeps_overnight')}</span>
+          <strong>{keepsOvernight.length === 0 ? '–' : keepsOvernight.join(', ')}</strong>
+        </li>
+        <li className="pos-list__row">
+          <span>{t('admin_stock.day.switched_off')}</span>
+          <strong>{switchedOff.length === 0 ? '–' : switchedOff.join(', ')}</strong>
+        </li>
+      </ul>
+    </Dialog>
   );
 }

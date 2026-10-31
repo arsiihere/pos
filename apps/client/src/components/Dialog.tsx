@@ -1,37 +1,22 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { t } from '../i18n';
 
 // Kit .pos-dialog in a .pos-scrim. Focus moves in on open, Tab stays inside, Escape closes, and focus
 // returns to whatever had it before (the trigger) when the dialog goes away.
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-// `variant: 'nav'` is the phone owner nav (01b P-4 B): the same focus rules, laid out as a drawer.
-export function Dialog({
-  title,
-  onClose,
-  form = true,
-  variant,
-  footer,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  form?: boolean;
-  variant?: 'nav';
-  footer?: ReactNode;
-  children?: ReactNode;
-}) {
-  const box = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-
+// The modal focus rules shared by Dialog and Drawer: focus moves into `box` on mount (its first focusable,
+// else the box), Tab and Shift+Tab wrap inside it, Escape calls onClose, and focus goes back to whatever had
+// it before (the trigger) on unmount. Put the returned handler on the box's onKeyDown.
+export function useModalFocus(box: RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const first = box.current?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? box.current)?.focus();
     return () => before?.focus();
-  }, []);
+  }, [box]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  return (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       onClose();
@@ -50,12 +35,30 @@ export function Dialog({
       first.focus();
     }
   };
+}
+
+export function Dialog({
+  title,
+  onClose,
+  form = true,
+  footer,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  form?: boolean;
+  footer?: ReactNode;
+  children?: ReactNode;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const onKeyDown = useModalFocus(box, onClose);
 
   return (
-    <div className={`pos-scrim${variant === 'nav' ? ' pos-overlay--nav' : ''}`}>
+    <div className="pos-scrim">
       <div
         ref={box}
-        className={`pos-dialog${form ? ' pos-dialog--form' : ''}${variant === 'nav' ? ' pos-dialog--nav' : ''}`}
+        className={`pos-dialog${form ? ' pos-dialog--form' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

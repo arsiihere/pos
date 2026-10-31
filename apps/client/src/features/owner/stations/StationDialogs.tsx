@@ -94,44 +94,48 @@ export function AddStationDialog({
   }
 
   return (
-    <Dialog title={t('owner.stations.new_station_title')} onClose={() => leave(onClose)}>
+    <Dialog title={t('owner.stations.new_station_title')} onClose={() => leave(onClose)} form>
       <form className="pos-stack" data-form="add-station" noValidate onSubmit={(e) => void submit(e)}>
         <p className="pos-dialog__body">{t('owner.stations.new_station_body')}</p>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.stations.station_name')}</span>
-          <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.stations.location_label')}</span>
-          <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </label>
+        <div className="pos-grid">
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.stations.station_name')}</span>
+            <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.stations.location_label')}</span>
+            <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+        </div>
         <div className="pos-field">
           <span className="pos-field__label">{t('owner.stations.type')}</span>
           <Segmented label={t('owner.stations.type')} options={typeOptions()} value={type} onChange={setType} block />
         </div>
-        <label className="pos-field">
-          <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
-          <input
-            className="pos-input pos-input--mono"
-            name="capacity"
-            inputMode="numeric"
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-          />
-        </label>
-        {type === 'batch' && (
+        <div className="pos-grid">
           <label className="pos-field">
-            <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
+            <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
             <input
               className="pos-input pos-input--mono"
-              name="freshness_minutes"
-              inputMode="decimal"
-              value={freshness}
-              onChange={(e) => setFreshness(e.target.value)}
+              name="capacity"
+              inputMode="numeric"
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
             />
-            <span className="pos-field__help">{t('owner.stations.freshness_help')}</span>
           </label>
-        )}
+          {type === 'batch' && (
+            <label className="pos-field">
+              <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
+              <input
+                className="pos-input pos-input--mono"
+                name="freshness_minutes"
+                inputMode="decimal"
+                value={freshness}
+                onChange={(e) => setFreshness(e.target.value)}
+              />
+              <span className="pos-field__help">{t('owner.stations.freshness_help')}</span>
+            </label>
+          )}
+        </div>
         <label className="pos-field">
           <span className="pos-field__label">{t('owner.stations.completion_mode')}</span>
           <select
@@ -227,24 +231,27 @@ export function RecipeDialog({
     <Dialog
       title={program === null ? fill(t('owner.stations.new_program_for'), { name: stationName }) : program.name}
       onClose={() => leave(onClose)}
+      form
     >
       <form className="pos-stack" data-form="add-program" noValidate onSubmit={(e) => void submit(e)}>
         <p className="pos-dialog__body">{t('owner.stations.program_body')}</p>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.stations.program_name')}</span>
-          <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label className="pos-field">
-          <span className="pos-field__label">{t('owner.stations.cook_minutes')}</span>
-          <input
-            className="pos-input pos-input--mono"
-            name="cook_minutes"
-            inputMode="decimal"
-            value={cook}
-            onChange={(e) => setCook(e.target.value)}
-          />
-          <span className="pos-field__help">{t('owner.stations.cook_help')}</span>
-        </label>
+        <div className="pos-grid">
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.stations.program_name')}</span>
+            <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="pos-field">
+            <span className="pos-field__label">{t('owner.stations.cook_minutes')}</span>
+            <input
+              className="pos-input pos-input--mono"
+              name="cook_minutes"
+              inputMode="decimal"
+              value={cook}
+              onChange={(e) => setCook(e.target.value)}
+            />
+            <span className="pos-field__help">{t('owner.stations.cook_help')}</span>
+          </label>
+        </div>
         {program !== null && program.archived_at === null && (
           <div className="pos-dialog__danger">
             <strong>{t('owner.stations.archive_program')}</strong>
