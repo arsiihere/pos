@@ -10,6 +10,7 @@ import { createPool, migrate } from '../../src/db/migrate';
 import { fixedClock } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { legacyToken } from '../helpers/legacy-token';
 import { createTestCloud, truncateAll } from '../helpers/test-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -372,7 +373,7 @@ describe('issue-registration-code', () => {
       const allowed = (
         await pool.query<{ allowed_branch_ids: string[] }>(`SELECT allowed_branch_ids FROM owner_users WHERE tenant_id = $1`, [t.tenant])
       ).rows[0]!.allowed_branch_ids;
-      const token = cloud.app.jwt.sign({ sub: t.ownerUserId, tenant_id: t.tenant, allowed_branch_ids: allowed });
+      const token = legacyToken(cloud, { sub: t.ownerUserId, tenant_id: t.tenant, allowed_branch_ids: allowed });
       const listed = await cloud.app.inject({
         method: 'GET',
         url: `/v1/admin/staff?branch_id=${issued.branch_id}`,

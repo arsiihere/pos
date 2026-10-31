@@ -244,7 +244,7 @@ describe('applyStaffDirectory', () => {
     });
     const replay = dir(2, hash, [], ['S1']);
     replay.staff[0]!.display_name = 'Changed';
-    replay.staff.push({ staff_id: 'S_EXTRA', display_name: 'Extra', pin_hash: hash, role_ids: ['R1'], denied_permissions: [] });
+    replay.staff.push({ staff_id: 'S_EXTRA', display_name: 'Extra', pin_hash: hash, role_ids: ['R1'], denied_permissions: [], lead_staff_id: null, floor_ids: [] });
     expect(writer.run((tx) => applyStaffDirectory(tx, replay, () => undefined)).result).toEqual({ applied: false });
     const older = dir(1, hash, [], ['S_OTHER']);
     older.staff[0]!.display_name = 'Older';

@@ -77,7 +77,7 @@ async function open(): Promise<TestHub> {
 }
 
 function withConfig(config: BranchConfig): void {
-  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 type Who = { deviceToken: string; sessionToken: string };

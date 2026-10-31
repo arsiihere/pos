@@ -38,7 +38,7 @@ describe('POST /v1/hubs/register', () => {
     const seeded = await seedTenant(
       sys(),
       { name: 'Pilot', currency: 'PKR', ownerEmail: email, ownerName: 'Ada', password: 'password-1', pin: '1234' },
-      { clock: cloud.clock, ids, secrets },
+      { clock: cloud.clock, ids },
     );
     const issued = await issueRegistrationCode(sys(), { tenantId: seeded.tenant_id, branchName: name }, { clock: cloud.clock, ids, secrets });
     await cloud.pool.query(

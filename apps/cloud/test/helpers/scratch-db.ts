@@ -18,6 +18,7 @@ const created: string[] = [];
 const pools: pg.Pool[] = [];
 const dirs: string[] = [];
 let counter = 0;
+let swept = false;
 
 function adminPool(): pg.Pool {
   admin ??= new pg.Pool({ connectionString: baseUrl, max: 1 });
@@ -34,7 +35,32 @@ function migrationsUpTo(lastVersion: number): string {
   return dir;
 }
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// 01b R-3: once per process, drop scratch databases left by a run whose pid is no longer running.
+// Assumes every run shares this host's pid namespace (tests do not run in a container).
+async function sweepDeadRuns(): Promise<void> {
+  const { rows } = await adminPool().query<{ datname: string }>(
+    `SELECT datname FROM pg_database WHERE datname LIKE 'pos\\_test\\_0005\\_%'`,
+  );
+  for (const { datname } of rows) {
+    const match = /^pos_test_0005_(\d+)_\d+$/.exec(datname);
+    if (match !== null && !pidAlive(Number(match[1]))) await adminPool().query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`);
+  }
+}
+
 export async function scratchDatabaseAt(lastVersion: number): Promise<{ url: string; pool: pg.Pool }> {
+  if (!swept) {
+    swept = true;
+    await sweepDeadRuns();
+  }
   counter += 1;
   const name = `pos_test_0005_${process.pid}_${counter}`;
   await adminPool().query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);

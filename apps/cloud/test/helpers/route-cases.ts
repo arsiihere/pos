@@ -11,6 +11,10 @@ export interface BIds {
   taxClassId: string;
   categoryId: string;
   itemId: string;
+  variantGroupId: string;
+  stockItemId: string;
+  modifierGroupId: string;
+  dealId: string;
   roleId: string;
   staffId: string;
   refreshToken: string;
@@ -91,6 +95,62 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PUT /v1/admin/menu-items/:item_id/routes/:branch_id': (ids) => ({
     url: `/v1/admin/menu-items/${ids.itemId}/routes/${ids.branchId}`,
     payload: { station_id: ids.stationId, program_id: ids.programId },
+  }),
+  'POST /v1/admin/variant-groups': (ids) => ({
+    url: '/v1/admin/variant-groups',
+    payload: { name: 'Karahi', category_id: ids.categoryId },
+  }),
+  'PATCH /v1/admin/variant-groups/:variant_group_id': (ids) => ({
+    url: `/v1/admin/variant-groups/${ids.variantGroupId}`,
+    payload: { expected_version: 'stale', name: 'Karahi' },
+  }),
+  'GET /v1/admin/stock-items': () => ({ url: '/v1/admin/stock-items' }),
+  'POST /v1/admin/stock-items': () => ({ url: '/v1/admin/stock-items', payload: { name: 'Karahi pot', stock_unit: 'g' } }),
+  'PATCH /v1/admin/stock-items/:stock_item_id': (ids) => ({
+    url: `/v1/admin/stock-items/${ids.stockItemId}`,
+    payload: { expected_version: 'stale', name: 'Karahi pot' },
+  }),
+  'PUT /v1/admin/stock-items/:stock_item_id/branches/:branch_id': (ids) => ({
+    url: `/v1/admin/stock-items/${ids.stockItemId}/branches/${ids.branchId}`,
+    payload: { expected_version: 'stale', station_id: ids.stationId },
+  }),
+  'GET /v1/admin/modifier-groups': () => ({ url: '/v1/admin/modifier-groups' }),
+  'POST /v1/admin/modifier-groups': (ids) => ({
+    url: '/v1/admin/modifier-groups',
+    payload: {
+      name: 'Spice level',
+      min_choices: 0,
+      max_choices: 1,
+      options: [{ name: 'Normal', price_minor: 0 }],
+      links: [{ target_kind: 'category', target_id: ids.categoryId, mode: 'attach' }],
+    },
+  }),
+  'PATCH /v1/admin/modifier-groups/:modifier_group_id': (ids) => ({
+    url: `/v1/admin/modifier-groups/${ids.modifierGroupId}`,
+    payload: { expected_version: 'stale', name: 'Spice level' },
+  }),
+  'PUT /v1/admin/modifier-groups/:modifier_group_id/branches/:branch_id': (ids) => ({
+    url: `/v1/admin/modifier-groups/${ids.modifierGroupId}/branches/${ids.branchId}`,
+    payload: { expected_version: 'stale', options: [] },
+  }),
+  'GET /v1/admin/deals': () => ({ url: '/v1/admin/deals' }),
+  'POST /v1/admin/deals': (ids) => ({
+    url: '/v1/admin/deals',
+    payload: {
+      name: 'Family karahi',
+      category_id: ids.categoryId,
+      tax_class_id: ids.taxClassId,
+      price_minor: 250000,
+      parts: [{ quantity: 1, choices: [{ item_id: ids.itemId }] }],
+    },
+  }),
+  'PATCH /v1/admin/deals/:deal_id': (ids) => ({
+    url: `/v1/admin/deals/${ids.dealId}`,
+    payload: { expected_version: 'stale', name: 'Family karahi' },
+  }),
+  'PUT /v1/admin/deals/:deal_id/branches/:branch_id': (ids) => ({
+    url: `/v1/admin/deals/${ids.dealId}/branches/${ids.branchId}`,
+    payload: { expected_version: 'stale', is_sold: true },
   }),
   'GET /v1/admin/staff': (ids) => ({ url: `/v1/admin/staff?branch_id=${ids.branchId}` }),
   'POST /v1/admin/staff': (ids) => ({

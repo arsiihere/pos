@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { seedTenant } from '../src/cli/seed-tenant';
 import { SystemContext } from '../src/cli/system-context';
 import { testIdGen } from '../src/lib/ids';
-import { testSecrets } from '../src/lib/secrets';
 import { createTestCloud, truncateAll } from './helpers/test-cloud';
 
 describe('cloud log redaction', () => {
@@ -16,7 +15,6 @@ describe('cloud log redaction', () => {
     cleanups.push(() => cloud.close());
     await truncateAll(cloud.pool);
     const ids = testIdGen();
-    const secrets = testSecrets();
     await seedTenant(
       new SystemContext(cloud.pool),
       {
@@ -27,7 +25,7 @@ describe('cloud log redaction', () => {
         password: 'password-1',
         pin: '1234',
       },
-      { clock: cloud.clock, ids, secrets },
+      { clock: cloud.clock, ids },
     );
     const login = await cloud.app.inject({
       method: 'POST',

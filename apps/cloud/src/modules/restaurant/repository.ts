@@ -3,6 +3,7 @@ import type { TenantScopedRepository } from '../../db/tenant-scoped-repository.j
 import type { AuditEntry } from '../../lib/config-audit.js';
 import type { Clock } from '../../lib/clock.js';
 import type { IdGen } from '../../lib/ids.js';
+import type { VariantGroupRow } from '../menu-variants/versions.js';
 
 export interface FloorRow {
   floor_id: string;
@@ -323,6 +324,19 @@ export async function activeRouteItemIds(
   return rows.map((row) => row.item_id);
 }
 
+// 01c V16 (P-10): the active stock items counted at the station (index stock_item_branches_station); a row of an
+// archived stock item does not block. A plain read after the station lock.
+export async function activeStockItemIdsAt(repo: TenantScopedRepository, branchId: string, stationId: string): Promise<string[]> {
+  const rows = await repo.query<{ stock_item_id: string }>(
+    `SELECT sb.stock_item_id FROM stock_item_branches sb
+       JOIN stock_items s ON s.tenant_id = sb.tenant_id AND s.stock_item_id = sb.stock_item_id AND s.archived_at IS NULL
+      WHERE sb.tenant_id = $1 AND sb.branch_id = ANY($2) AND sb.branch_id = $3 AND sb.station_id = $4
+      ORDER BY sb.stock_item_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.stock_item_id);
+}
+
 // §6.9: a station that becomes slot archives its active programs; returns them archived, by id.
 export async function archiveStationPrograms(
   repo: TenantScopedRepository,
@@ -499,12 +513,57 @@ export async function activeItemIdsWith(
 
 export type Unit = 'piece' | 'g' | 'ml';
 
+// 01c §6.5 R4, R10 (V16, m15, P1): the active groups with an active option linking the item. One plain read, no lock.
+export async function linkingGroupIds(repo: TenantLevelRepository, itemId: string): Promise<string[]> {
+  const rows = await repo.query<{ modifier_group_id: string }>(
+    `SELECT DISTINCT o.modifier_group_id FROM modifier_options o
+       JOIN modifier_groups g ON g.tenant_id = o.tenant_id AND g.modifier_group_id = o.modifier_group_id
+      WHERE o.tenant_id = $1 AND o.linked_item_id = $2 AND o.archived_at IS NULL AND g.archived_at IS NULL
+      ORDER BY o.modifier_group_id`,
+    [itemId],
+  );
+  return rows.map((row) => row.modifier_group_id);
+}
+
+// 01c §6.5 R4 (V16): the active deals with an active part offering the item (AD-11: parts of archived deals do not
+// count; R8, task 30, reuses this read). One plain read, no lock.
+export async function offeringDealIds(repo: TenantLevelRepository, itemId: string): Promise<string[]> {
+  const rows = await repo.query<{ deal_id: string }>(
+    `SELECT DISTINCT p.deal_id FROM deal_part_choices c
+       JOIN deal_parts p ON p.tenant_id = c.tenant_id AND p.deal_part_id = c.deal_part_id
+       JOIN deals d ON d.tenant_id = p.tenant_id AND d.deal_id = p.deal_id AND d.archived_at IS NULL
+      WHERE c.tenant_id = $1 AND c.item_id = $2 AND p.archived_at IS NULL
+      ORDER BY p.deal_id`,
+    [itemId],
+  );
+  return rows.map((row) => row.deal_id);
+}
+
+// 01c §6.5 R6 (D-3): the active deals (AD-11) with an active part offering the item whose other choices would not
+// share the new sale_unit (the part would then mix units). One plain read over deal_part_choices_item, no lock.
+export async function dealsBrokenBySaleUnit(repo: TenantLevelRepository, itemId: string, saleUnit: Unit): Promise<string[]> {
+  const rows = await repo.query<{ deal_id: string }>(
+    `SELECT DISTINCT p.deal_id FROM deal_part_choices c
+       JOIN deal_parts p ON p.tenant_id = c.tenant_id AND p.deal_part_id = c.deal_part_id
+       JOIN deals d ON d.tenant_id = p.tenant_id AND d.deal_id = p.deal_id AND d.archived_at IS NULL
+       JOIN deal_part_choices other ON other.tenant_id = c.tenant_id AND other.deal_part_id = c.deal_part_id
+        AND other.item_id <> c.item_id
+       JOIN menu_items m ON m.tenant_id = other.tenant_id AND m.item_id = other.item_id
+      WHERE c.tenant_id = $1 AND c.item_id = $2 AND p.archived_at IS NULL AND m.sale_unit <> $3
+      ORDER BY p.deal_id`,
+    [itemId, saleUnit],
+  );
+  return rows.map((row) => row.deal_id);
+}
+
 export interface MenuItemRow {
   item_id: string;
   category_id: string;
   tax_class_id: string | null;
   name: string;
   group_label: string | null;
+  variant_group_id: string | null;
+  variant_name: string | null;
   description: string | null;
   sort_order: number;
   price_minor: number;
@@ -518,7 +577,14 @@ export interface MenuItemRow {
   stock_per_sale_unit: number;
   low_stock_threshold: number | null;
   carries_over: boolean;
+  requires_weighing: boolean;
   archived_at: number | null;
+}
+
+// 01c V4: how many stock units one sale unit of the item uses.
+export interface DrawRow {
+  stock_item_id: string;
+  quantity_per_sale_unit: number;
 }
 
 export interface RouteRow {
@@ -532,9 +598,80 @@ export interface RouteRow {
 const ROUTE_COLUMNS = 'branch_id, station_id, program_id, stock_program_id, price_minor_override';
 
 const MENU_ITEM_COLUMNS =
-  'item_id, category_id, tax_class_id, name, group_label, description, sort_order, price_minor, serve_mode, ' +
-  'prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, ' +
-  'low_stock_threshold, carries_over, archived_at';
+  'item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name, description, sort_order, ' +
+  'price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, ' +
+  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, archived_at';
+
+// 01c §6 lock order 3: an item's variant group FOR SHARE (§6.4 reference), with what §3.3 checks against.
+export async function shareVariantGroup(
+  repo: TenantLevelRepository,
+  variantGroupId: string,
+): Promise<{ category_id: string; archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ category_id: string; archived_at: string | null }>(
+    `SELECT category_id, archived_at FROM variant_groups WHERE tenant_id = $1 AND variant_group_id = $2 FOR SHARE`,
+    [variantGroupId],
+  );
+  return rows[0] === undefined ? undefined : { category_id: rows[0].category_id, archived_at: msOrNull(rows[0].archived_at) };
+}
+
+// 01c §6 lock order 3 (§6.5, M3): the item's stored and merged variant groups FOR SHARE in one statement, ids
+// ascending, before the item lock. An unknown id is simply not returned.
+export async function shareVariantGroups(
+  repo: TenantLevelRepository,
+  variantGroupIds: readonly string[],
+): Promise<Array<{ variant_group_id: string; category_id: string; archived_at: number | null }>> {
+  const rows = await repo.query<{ variant_group_id: string; category_id: string; archived_at: string | null }>(
+    `SELECT variant_group_id, category_id, archived_at FROM variant_groups
+      WHERE tenant_id = $1 AND variant_group_id = ANY($2)
+      ORDER BY variant_group_id
+      FOR SHARE`,
+    [variantGroupIds],
+  );
+  return rows.map((row) => ({ variant_group_id: row.variant_group_id, category_id: row.category_id, archived_at: msOrNull(row.archived_at) }));
+}
+
+// 01c §6 lock order 5: a draw's stock item FOR SHARE (§6.4 reference), with its unit for the V4 rule.
+export async function shareStockItem(
+  repo: TenantLevelRepository,
+  stockItemId: string,
+): Promise<{ stock_unit: Unit; archived_at: number | null } | undefined> {
+  const rows = await repo.query<{ stock_unit: Unit; archived_at: string | null }>(
+    `SELECT stock_unit, archived_at FROM stock_items WHERE tenant_id = $1 AND stock_item_id = $2 FOR SHARE`,
+    [stockItemId],
+  );
+  return rows[0] === undefined ? undefined : { stock_unit: rows[0].stock_unit, archived_at: msOrNull(rows[0].archived_at) };
+}
+
+// 01c §6.3 statement 8 (and the item write's response): the items' draws, = ANY($ids), by item, then stock item.
+export async function selectDrawsOf(
+  repo: TenantLevelRepository,
+  itemIds: string[],
+): Promise<Array<DrawRow & { item_id: string }>> {
+  return repo.query<DrawRow & { item_id: string }>(
+    `SELECT item_id, stock_item_id, quantity_per_sale_unit FROM stock_draws
+      WHERE tenant_id = $1 AND item_id = ANY($2)
+      ORDER BY item_id, stock_item_id`,
+    [itemIds],
+  );
+}
+
+// 01c §6.4: an item's draws in one multi-row INSERT (pilot: at most one), returned by stock item.
+export async function insertDraws(repo: TenantLevelRepository, itemId: string, draws: DrawRow[]): Promise<DrawRow[]> {
+  const rows = await repo.query<DrawRow>(
+    `INSERT INTO stock_draws (tenant_id, item_id, stock_item_id, quantity_per_sale_unit)
+     SELECT t.tenant_id, $2, u.stock_item_id, u.quantity_per_sale_unit
+       FROM tenants t, unnest($3::text[], $4::int[]) AS u (stock_item_id, quantity_per_sale_unit)
+      WHERE t.tenant_id = $1
+     RETURNING stock_item_id, quantity_per_sale_unit`,
+    [itemId, draws.map((d) => d.stock_item_id), draws.map((d) => d.quantity_per_sale_unit)],
+  );
+  return rows.sort((a, b) => (a.stock_item_id < b.stock_item_id ? -1 : a.stock_item_id > b.stock_item_id ? 1 : 0));
+}
+
+// 01c §6.5: stock_draws replaces the item's draws (delete + insert; the item is locked FOR UPDATE).
+export async function deleteDrawsOf(repo: TenantLevelRepository, itemId: string): Promise<void> {
+  await repo.query(`DELETE FROM stock_draws WHERE tenant_id = $1 AND item_id = $2`, [itemId]);
+}
 
 // Reference checks (§6.14): FOR SHARE against a concurrent archive.
 export async function shareCategory(repo: TenantLevelRepository, categoryId: string): Promise<{ archived_at: number | null } | undefined> {
@@ -591,11 +728,11 @@ export async function insertMenuItem(
   now: number,
 ): Promise<MenuItemRow> {
   const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
-    `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, description, sort_order,
-                             price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour,
-                             stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold, carries_over,
-                             created_at, updated_at)
-     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+    `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name,
+                             description, sort_order, price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms,
+                             out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold,
+                             carries_over, requires_weighing, created_at, updated_at)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23
        FROM tenants WHERE tenant_id = $1
      RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -604,6 +741,8 @@ export async function insertMenuItem(
       item.tax_class_id,
       item.name,
       item.group_label,
+      item.variant_group_id,
+      item.variant_name,
       item.description,
       item.sort_order,
       item.price_minor,
@@ -617,10 +756,20 @@ export async function insertMenuItem(
       item.stock_per_sale_unit,
       item.low_stock_threshold,
       item.carries_over,
+      item.requires_weighing,
       now,
     ],
   );
   return menuItemRow(rows[0]!);
+}
+
+// 01c §6.5 restart rule (N2): the item read without a lock, so its variant group(s) can be locked before it.
+export async function readMenuItem(repo: TenantLevelRepository, itemId: string): Promise<MenuItemRow | undefined> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string }>(
+    `SELECT ${MENU_ITEM_COLUMNS} FROM menu_items WHERE tenant_id = $1 AND item_id = $2`,
+    [itemId],
+  );
+  return rows[0] === undefined ? undefined : menuItemRow(rows[0]);
 }
 
 export async function lockMenuItem(repo: TenantLevelRepository, itemId: string): Promise<MenuItemRow | undefined> {
@@ -637,7 +786,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            sort_order = $8, price_minor = $9, serve_mode = $10, prep_buffer_ms = $11, cook_time_ms = $12,
                            stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
-                           updated_at = $21
+                           updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -661,6 +810,9 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       item.carries_over,
       item.archived_at,
       now,
+      item.variant_group_id,
+      item.variant_name,
+      item.requires_weighing,
     ],
   );
   return menuItemRow(rows[0]!);
@@ -803,7 +955,22 @@ export async function selectAllCategories(
   return out;
 }
 
-// §6.11 statement 4: one keyset page by (lower(name), item_id) (index menu_items_name_order), limit + 1 rows.
+// 01c §6.3: every variant group, archived included, with every member's id (archived members included, AD-8),
+// in one statement, by sort_order, then id.
+export async function selectAllVariantGroups(repo: TenantLevelRepository): Promise<VariantGroupRow[]> {
+  return repo.query<VariantGroupRow>(
+    `SELECT g.variant_group_id, g.name, g.category_id, g.description, g.sort_order, g.archived_at,
+            COALESCE(array_agg(m.item_id ORDER BY m.item_id) FILTER (WHERE m.item_id IS NOT NULL), '{}') AS member_ids
+       FROM variant_groups g
+       LEFT JOIN menu_items m ON m.tenant_id = g.tenant_id AND m.variant_group_id = g.variant_group_id
+      WHERE g.tenant_id = $1
+      GROUP BY g.tenant_id, g.variant_group_id
+      ORDER BY g.sort_order, g.variant_group_id`,
+  );
+}
+
+// §6.11 statement 4: one keyset page by (lower(name), item_id) (index menu_items_name_order), limit + 1 rows;
+// q matches the item's name or its variant group's name (01c §6.3).
 export async function selectMenuPage(
   repo: TenantLevelRepository,
   o: { archived: boolean; categoryId: string | null; pattern: string | null; after: { n: string; id: string } | null; limit: number },
@@ -813,7 +980,8 @@ export async function selectMenuPage(
       WHERE tenant_id = $1
         AND (archived_at IS NOT NULL) = $2
         AND ($3::text IS NULL OR category_id = $3)
-        AND ($4::text IS NULL OR name ILIKE $4 ESCAPE '\\' OR group_label ILIKE $4 ESCAPE '\\')
+        AND ($4::text IS NULL OR name ILIKE $4 ESCAPE '\\' OR variant_group_id IN (
+              SELECT variant_group_id FROM variant_groups WHERE tenant_id = $1 AND name ILIKE $4 ESCAPE '\\'))
         AND ($5::text IS NULL OR (lower(name), item_id) > ($5, $6::text))
       ORDER BY lower(name), item_id
       LIMIT $7`,
@@ -849,11 +1017,18 @@ export async function selectItemRoutes(
   return rows.map((row) => ({ ...routeRow(row), item_id: row.item_id }));
 }
 
-export type WindowTarget = { item_id: string } | { category_id: string };
+// 01c §6.14: a deal's windows live in availability_windows.deal_id (§5.1).
+export type WindowTarget = { item_id: string } | { category_id: string } | { deal_id: string };
+
+function windowColumn(target: WindowTarget): ['item_id' | 'category_id' | 'deal_id', string] {
+  if ('item_id' in target) return ['item_id', target.item_id];
+  if ('category_id' in target) return ['category_id', target.category_id];
+  return ['deal_id', target.deal_id];
+}
 
 // S47: a target's windows, by start_ms, end_ms, window_id.
 export async function selectWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<WindowRow[]> {
-  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  const [column, id] = windowColumn(target);
   return repo.query<WindowRow>(
     `SELECT start_ms, end_ms FROM availability_windows
       WHERE tenant_id = $1 AND ${column} = $2
@@ -864,7 +1039,7 @@ export async function selectWindowsOf(repo: TenantLevelRepository, target: Windo
 
 // §6.13–6.15: a PATCH with availability_windows deletes the target's rows ...
 export async function deleteWindowsOf(repo: TenantLevelRepository, target: WindowTarget): Promise<void> {
-  const [column, id] = 'item_id' in target ? ['item_id', target.item_id] : ['category_id', target.category_id];
+  const [column, id] = windowColumn(target);
   await repo.query(`DELETE FROM availability_windows WHERE tenant_id = $1 AND ${column} = $2`, [id]);
 }
 
@@ -876,14 +1051,15 @@ export async function insertWindows(
   ids: IdGen,
 ): Promise<WindowRow[]> {
   const rows = await repo.query<WindowRow & { window_id: string }>(
-    `INSERT INTO availability_windows (tenant_id, window_id, item_id, category_id, start_ms, end_ms)
-     SELECT t.tenant_id, u.window_id, $2, $3, u.start_ms, u.end_ms
-       FROM tenants t, unnest($4::text[], $5::int[], $6::int[]) AS u (window_id, start_ms, end_ms)
+    `INSERT INTO availability_windows (tenant_id, window_id, item_id, category_id, deal_id, start_ms, end_ms)
+     SELECT t.tenant_id, u.window_id, $2, $3, $4, u.start_ms, u.end_ms
+       FROM tenants t, unnest($5::text[], $6::int[], $7::int[]) AS u (window_id, start_ms, end_ms)
       WHERE t.tenant_id = $1
      RETURNING window_id, start_ms, end_ms`,
     [
       'item_id' in target ? target.item_id : null,
       'category_id' in target ? target.category_id : null,
+      'deal_id' in target ? target.deal_id : null,
       windows.map(() => ids.next()),
       windows.map((w) => w.start_ms),
       windows.map((w) => w.end_ms),

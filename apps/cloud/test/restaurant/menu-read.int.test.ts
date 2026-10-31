@@ -56,11 +56,13 @@ describe('owner menu read', () => {
     return response.json().data as MenuPage;
   };
   // n items in CT-1 named name(i), ids chosen so that id order differs from name order.
+  // group: the id of a variant group (01c §6.3: q matches its name); the member's variant_name is its name.
   const addItems = async (rows: Array<{ id: string; name: string; group?: string; category?: string; archived?: boolean }>) => {
     await cloud.pool.query(
-      `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, price_minor, serve_mode,
-                               cook_time_ms, archived_at, created_at, updated_at)
-       SELECT $1, u.id, u.category, 'TX-1', u.name, u.grp, 100, 'immediate', 60000, u.archived, 0, 0
+      `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, variant_group_id, variant_name,
+                               price_minor, serve_mode, cook_time_ms, archived_at, created_at, updated_at)
+       SELECT $1, u.id, u.category, 'TX-1', u.name, u.grp, CASE WHEN u.grp IS NOT NULL THEN u.name END, 100, 'immediate',
+              60000, u.archived, 0, 0
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::bigint[]) AS u (id, name, grp, category, archived)`,
       [
         f.tenantId,
@@ -85,17 +87,17 @@ describe('owner menu read', () => {
     return a < b ? -1 : a > b ? 1 : x.item_id < y.item_id ? -1 : 1;
   };
 
-  it('[01a §10 #40] menu list: 6 statements for 1 and 50 items on the page; routes only for allowed branches', async () => {
+  it('[01a §10 #40] menu list: 8 statements for 1 and 50 items on the page; routes only for allowed branches', async () => {
     const [a, b] = f.branches;
     await addItems(Array.from({ length: 60 }, (_, i) => ({ id: `MI-${pad(i)}`, name: nameOf(i) })));
     await route(a, 'MI-000', 'ST-A');
     await route(b, 'MI-000', 'ST-B');
 
     const one = await page('?limit=1');
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(8);
     expect(one.items).toHaveLength(1);
     const fifty = await page('?limit=50');
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(8);
     expect(fifty.items).toHaveLength(50);
 
     const all = await page('?limit=200');
@@ -122,7 +124,8 @@ describe('owner menu read', () => {
         category_id: 'CT-1',
         tax_class_id: 'TX-1',
         name: 'zinger000',
-        group_label: null,
+        variant_group_id: null,
+        variant_name: null,
         description: null,
         sort_order: 0,
         price_minor: 100,
@@ -131,11 +134,9 @@ describe('owner menu read', () => {
         cook_time_ms: 60000,
         stock_time_ms: null,
         out_of_stock_behaviour: 'cook_fresh',
-        stock_unit: 'piece',
         sale_unit: 'piece',
-        stock_per_sale_unit: 1,
-        low_stock_threshold: null,
-        carries_over: false,
+        requires_weighing: false,
+        stock_draws: [],
         availability_windows: [
           { start_ms: 3600000, end_ms: 5400000 },
           { start_ms: 3600000, end_ms: 7200000 },
@@ -164,7 +165,7 @@ describe('owner menu read', () => {
     ]);
   });
 
-  it('[01a §10 #138] menu pages: keyset order, inserts and renames between pages, search, filters, 400s, 6 statements', async () => {
+  it('[01a §10 #138] menu pages: keyset order, inserts and renames between pages, search, filters, 400s, 8 statements', async () => {
     const rows = Array.from({ length: 120 }, (_, i) => ({ id: `MI-${pad(119 - i)}`, name: nameOf(i) }));
     await addItems(rows);
     const expected = rows.map((r) => ({ item_id: r.id, name: r.name })).sort(byKey);
@@ -175,7 +176,7 @@ describe('owner menu read', () => {
     const sizes: number[] = [];
     do {
       const p: MenuPage = await page(`?limit=50${cursor !== null ? `&cursor=${cursor}` : ''}`);
-      expect(counter.count).toBe(6);
+      expect(counter.count).toBe(8);
       sizes.push(p.items.length);
       seen.push(...p.items);
       cursor = p.next_cursor;
@@ -209,10 +210,15 @@ describe('owner menu read', () => {
     expect(ids.filter((id) => id === moved)).toHaveLength(2);
     expect(new Set(ids).size).toBe(120);
 
-    // search: name and group_label, case-insensitive; %, _ and \ match themselves
+    // search: name and the variant group's name (01c §6.3), case-insensitive; %, _ and \ match themselves
+    await cloud.pool.query(
+      `INSERT INTO variant_groups (tenant_id, variant_group_id, category_id, name, created_at, updated_at)
+       VALUES ($1, 'VG-K', 'CT-2', 'KARAHI', 0, 0)`,
+      [f.tenantId],
+    );
     await addItems([
       { id: 'K-1', name: 'Chicken Karahi Half', category: 'CT-2' },
-      { id: 'K-2', name: 'Mutton Full', group: 'KARAHI', category: 'CT-2' },
+      { id: 'K-2', name: 'Mutton Full', group: 'VG-K', category: 'CT-2' },
       { id: 'P-1', name: 'Deal 50% off' },
       { id: 'P-2', name: 'Deal 500 off' },
       { id: 'U-1', name: 'a_b' },
@@ -222,7 +228,7 @@ describe('owner menu read', () => {
     ]);
     const search = async (query: string) => (await page(query)).items.map((i) => i.item_id).sort();
     expect(await search('?q=karahi')).toEqual(['K-1', 'K-2']);
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(8);
     expect(await search(`?q=${encodeURIComponent('50%')}`)).toEqual(['P-1']);
     expect(await search(`?q=${encodeURIComponent('a_b')}`)).toEqual(['U-1']);
     expect(await search(`?q=${encodeURIComponent('k\\s')}`)).toEqual(['S-1']);

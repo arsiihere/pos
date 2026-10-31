@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type EventDraft } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2, type EventDraft } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
@@ -12,6 +12,7 @@ import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigFetch } from '../../src/sync/config-client';
 import { configPoller } from '../../src/sync/config-poller';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
 
@@ -47,7 +48,7 @@ function snapshot(version: number, o: Record<string, unknown> = {}): Record<stri
   return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
-function appliedDraft(version: number, hash: string, schema = 1): EventDraft {
+function appliedDraft(version: number, hash: string, schema = 2): EventDraft {
   return {
     stream_type: 'hub',
     stream_id: BRANCH,
@@ -138,7 +139,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     expect((await configPoller(second.app).pollOnce()).outcome).toBe('applied');
     expect(cloud.calls.at(-1)).toEqual({ config_version: 0, directory_version: 0 });
     expect(loadBranchConfig(second.deps.db, BRANCH).state).toBe('APPLIED');
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV1.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
     await second.stop();
 
     // a stored body whose snapshot_schema_version is not ours (after a breaking release)
@@ -146,12 +147,12 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     cleanups.push(cfg2.cleanup);
     const cloud2 = stubConfigCloud();
     const third = await start(cfg2.path, WALL, cloud2);
-    const old = snapshot(9, { snapshot_schema_version: 2 });
+    const old = snapshot(9, { snapshot_schema_version: 1 });
     const oldHash = sha256hex(canonicalJson(old));
     third.deps.db
       .prepare('INSERT INTO config_snapshots (snapshot_hash, config_version, body, received_at) VALUES (?, ?, ?, ?)')
       .run(oldHash, 9, canonicalJson(old), WALL);
-    third.deps.writer.run((tx) => tx.append([appliedDraft(9, oldHash, 2)]));
+    third.deps.writer.run((tx) => tx.append([appliedDraft(9, oldHash, 1)]));
     await third.stop();
 
     const fourth = await start(cfg2.path, WALL + 60_000, cloud2);
@@ -215,10 +216,10 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     const cloud = stubConfigCloud();
     const booted = await start(cfg.path, WALL, cloud);
     cloud.respondWithSnapshot(snapshot(3));
-    // step 6 started the 60 s timer
-    expect(cloud.calls).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(60_000);
+    // step 6 polled once at boot (no config yet, 01c AD-19) and started the 60 s timer
     expect(cloud.calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(cloud.calls).toHaveLength(2);
     expect(branchConfig()?.config_version).toBe(3);
 
     // an in-flight poll that resolves after stop() does not swap and writes nothing
@@ -258,6 +259,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     await booted.stop();
     await vi.advanceTimersByTimeAsync(120_000);
     await poller.pollOnce();
-    expect(cloud.calls).toHaveLength(0);
+    // only step 6's boot poll (no config yet, 01c AD-19)
+    expect(cloud.calls).toHaveLength(1);
   });
 });

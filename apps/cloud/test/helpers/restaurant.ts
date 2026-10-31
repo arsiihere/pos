@@ -4,6 +4,7 @@ import { seedTenant } from '../../src/cli/seed-tenant';
 import { SystemContext } from '../../src/cli/system-context';
 import { testIdGen, type IdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { legacyToken } from './legacy-token';
 import { truncateAll, type TestCloud } from './test-cloud';
 
 export const OWNER_PASSWORD = 'password-1';
@@ -58,7 +59,7 @@ export async function restaurantFixture(cloud: TestCloud): Promise<RestaurantFix
 
   const branches = issued.map((row) => row.branch_id) as [string, string, string];
   const tokenFor = (branchIds: string[]) =>
-    cloud.app.jwt.sign({ sub: a.user_id, tenant_id: a.tenant_id, allowed_branch_ids: branchIds });
+    legacyToken(cloud, { sub: a.user_id, tenant_id: a.tenant_id, allowed_branch_ids: branchIds });
   return {
     tenantId: a.tenant_id,
     userId: a.user_id,
@@ -70,7 +71,7 @@ export async function restaurantFixture(cloud: TestCloud): Promise<RestaurantFix
       tenantId: b.tenant_id,
       userId: b.user_id,
       branchId: issuedB.branch_id,
-      token: cloud.app.jwt.sign({ sub: b.user_id, tenant_id: b.tenant_id, allowed_branch_ids: [issuedB.branch_id] }),
+      token: legacyToken(cloud, { sub: b.user_id, tenant_id: b.tenant_id, allowed_branch_ids: [issuedB.branch_id] }),
     },
   };
 }

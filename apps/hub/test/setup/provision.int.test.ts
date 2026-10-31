@@ -342,7 +342,7 @@ async function openSetup(o?: { writeConfig?: SetupDeps['writeConfig'] }): Promis
   };
 }
 
-function post(hub: TestHub, body: unknown = BODY) {
+function post(hub: TestHub, body: object = BODY) {
   return hub.app.inject({ method: 'POST', url: '/setup/provision', payload: body });
 }
 

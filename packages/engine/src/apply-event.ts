@@ -1,35 +1,37 @@
 import type { Unit } from '@pos/domain';
 import type { PosEvent } from '@pos/events';
-import type { DayUnits, EngineState } from './state.js';
+import type { DayDraws, EngineState } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
 // Payloads as validated by the @pos/events schemas (§4.2).
-interface StockSet { item_id: string; on_hand: number; unit: Unit }
-interface StockAdded { item_id: string; quantity: number; unit: Unit }
-interface BusinessDayOpened { business_date: string; units: Record<string, DayUnits> }
+// StockSet / StockAdded v2 (01c V5): keyed by stock_item_id; parseEvent upcasts v1.
+interface StockSet { stock_item_id: string; on_hand: number; unit: Unit }
+interface StockAdded { stock_item_id: string; quantity: number; unit: Unit }
+// BusinessDayOpened v2 (01c §5.3 row 3): parseEvent upcasts v1.
+interface BusinessDayOpened { business_date: string; stock_units: Record<string, Unit>; draws: Record<string, DayDraws> }
 
 // Pure fold. Copies only the touched entry; unknown events return `state` itself (S15).
 export function applyEvent(state: EngineState, event: PosEvent): EngineState {
   switch (event.event_type) {
     case 'StockSet': {
       const p = event.payload as unknown as StockSet;
-      const prev = stockOf(state, p.item_id);
+      const prev = stockOf(state, p.stock_item_id);
       return {
         ...state,
         stock: {
           ...state.stock,
-          [p.item_id]: { on_hand: p.on_hand, reserved: prev.reserved, set_at: event.recorded_at, unit: p.unit },
+          [p.stock_item_id]: { on_hand: p.on_hand, reserved: prev.reserved, set_at: event.recorded_at, unit: p.unit },
         },
       };
     }
     case 'StockAdded': {
       const p = event.payload as unknown as StockAdded;
-      const prev = stockOf(state, p.item_id);
+      const prev = stockOf(state, p.stock_item_id);
       if (prev.unit !== p.unit) throw new Error('StockAdded unit mismatch');
       return {
         ...state,
-        stock: { ...state.stock, [p.item_id]: { ...prev, on_hand: prev.on_hand + p.quantity } },
+        stock: { ...state.stock, [p.stock_item_id]: { ...prev, on_hand: prev.on_hand + p.quantity } },
       };
     }
     // 01a S33: recorded_at is the day's start and end.
@@ -37,7 +39,13 @@ export function applyEvent(state: EngineState, event: PosEvent): EngineState {
       const p = event.payload as unknown as BusinessDayOpened;
       return {
         ...state,
-        business_day: { business_date: p.business_date, opened_at: event.recorded_at, closed_at: null, units: p.units },
+        business_day: {
+          business_date: p.business_date,
+          opened_at: event.recorded_at,
+          closed_at: null,
+          stock_units: p.stock_units,
+          draws: p.draws,
+        },
       };
     }
     case 'BusinessDayClosed': {

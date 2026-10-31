@@ -20,7 +20,7 @@ describe('pairing requests', () => {
   it('[00 §10 #149] M92: the approved poll carries station_name from the branch config for a kds and null for a cashier screen', async () => {
     const hub = await open();
     const config = aBranchConfig();
-    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
     const approve = async (type: string, stationId: string | null) => {
       const data = (await create(hub, 'Screen', '10.1.0.9')).json().data;
       const deviceId = hub.deps.ids.next();
@@ -212,7 +212,6 @@ async function provision(): Promise<{ first_admin_url: string; first_admin_qr_sv
       branch_name: 'Main',
       currency_code: 'PKR',
       kind: 'new_branch',
-      branch_name: 'Main',
       branch_api_key: 'branch-key-plain',
       directory: await aDirectory(),
     },

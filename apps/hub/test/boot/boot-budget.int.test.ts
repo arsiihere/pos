@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../src/db/connection';
 import { boot } from '../../src/lib/boot';
 import { buildBigFixture, PROJECTIONS } from '../helpers/big-fixture';
+import { offlineCloud } from '../helpers/stub-cloud';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const N = 1_000_000;
 const BRANCH = 'branch-1';
@@ -55,7 +57,7 @@ describe('boot budget', () => {
         }),
       );
       const started = performance.now();
-      const booted = await boot({ configPath, wallNow: () => DECOY_AT, monoNow: () => 0 });
+      const booted = await boot({ configPath, wallNow: () => DECOY_AT, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
       const elapsed = performance.now() - started;
       cleanups.push(() => booted.stop());
       const alarm = booted.deps.db

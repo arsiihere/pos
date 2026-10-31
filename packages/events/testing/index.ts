@@ -247,22 +247,33 @@ export function aBranchConfigApplied(overrides?: Overrides): PosEvent {
 }
 
 export function aStockSet(overrides?: Overrides): PosEvent {
-  return build(stock('StockSet', 'I1', { item_id: 'I1', on_hand: 10, unit: 'piece' }), overrides);
+  return build(
+    { ...stock('StockSet', 'I1', { stock_item_id: 'I1', on_hand: 10, unit: 'piece' }), schema_version: 2 },
+    overrides,
+  );
 }
 
 export function aStockAdded(overrides?: Overrides): PosEvent {
-  return build(stock('StockAdded', 'I1', { item_id: 'I1', quantity: 5, unit: 'piece' }), overrides);
+  return build(
+    { ...stock('StockAdded', 'I1', { stock_item_id: 'I1', quantity: 5, unit: 'piece' }), schema_version: 2 },
+    overrides,
+  );
 }
 
 export function aBusinessDayOpened(overrides?: Overrides): PosEvent {
   return build(
-    hub('BusinessDayOpened', envelope.branch_id, {
-      business_date: '2025-10-20',
-      units: {
-        I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-        I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
-      },
-    }),
+    {
+      // 01c §5.3 row 3: 01a's I1 (pieces) and I3 (250 g per piece), each its own stock item (V5).
+      ...hub('BusinessDayOpened', envelope.branch_id, {
+        business_date: '2025-10-20',
+        stock_units: { I1: 'piece', I3: 'g' },
+        draws: {
+          I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
+          I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
+        },
+      }),
+      schema_version: 2,
+    },
     overrides,
   );
 }
@@ -283,8 +294,9 @@ function configItem(itemId: string, name: string, sortOrder: number, o: Partial<
   return {
     item_id: itemId,
     category_id: 'C1',
+    variant_group_id: null,
+    variant_name: null,
     name,
-    group_label: null,
     description: null,
     sort_order: sortOrder,
     price_minor: 120_000,
@@ -294,24 +306,24 @@ function configItem(itemId: string, name: string, sortOrder: number, o: Partial<
     cook_time_ms: 1_200_000,
     stock_time_ms: null,
     out_of_stock_behaviour: 'cook_fresh',
-    stock_unit: 'piece',
     sale_unit: 'piece',
-    stock_per_sale_unit: 1,
-    low_stock_threshold: null,
-    carries_over: false,
+    requires_weighing: false,
+    stock_draws: [],
     availability_windows: [],
     station_id: 'S1',
     program_id: null,
     stock_program_id: null,
+    modifier_group_ids: [],
     ...o,
   };
 }
 
-// 01a §4.3: slot station "Karahi"; I1 (pieces) and I3 (g, sold per 250 g piece)
-// are stock-tracked; I2 is not.
+// 01c §4.6: slot station "Karahi"; stock item K1 "Karahi pot" counted in g
+// there; Half I1 draws 500 g, Full I3 draws 1 000 g (variant group V1);
+// I2 is not stock-tracked.
 export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
   return {
-    snapshot_schema_version: 1,
+    snapshot_schema_version: 2,
     config_version: 1,
     branch_id: envelope.branch_id,
     currency_code: 'PKR',
@@ -334,14 +346,61 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
     ],
     tax_classes: [],
     categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 1, availability_windows: [] }],
+    variant_groups: [
+      { variant_group_id: 'V1', category_id: 'C1', name: 'Chicken Karahi', description: null, sort_order: 1 },
+    ],
+    stock_items: [
+      {
+        stock_item_id: 'K1',
+        name: 'Karahi pot',
+        stock_unit: 'g',
+        carries_over: false,
+        station_id: 'S1',
+        low_stock_threshold: null,
+      },
+    ],
+    modifier_groups: [],
     items: [
-      configItem('I1', 'Chicken Karahi', 1, { stock_time_ms: 300_000 }),
+      configItem('I1', 'Chicken Karahi — Half', 1, {
+        variant_group_id: 'V1',
+        variant_name: 'Half',
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }],
+      }),
+      configItem('I2', 'Mutton Karahi', 2, {}),
+      configItem('I3', 'Chicken Karahi — Full', 3, {
+        variant_group_id: 'V1',
+        variant_name: 'Full',
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 1_000 }],
+      }),
+    ],
+    deals: [],
+    ...overrides,
+  };
+}
+
+// 01a's per-item stock fixture in schema 2 (01c §5.1 backfill rule: a tracked item becomes a stock item with
+// the same id, counted at its route station, with one draw): slot station "Karahi"; I1 (pieces, 1 per sale)
+// and I3 (g, 250 g per piece) are stock items; I2 is not stock-tracked. No variant groups.
+export function aBranchConfigItemStock(overrides?: Partial<BranchConfig>): BranchConfig {
+  const base = aBranchConfig();
+  return {
+    ...base,
+    variant_groups: [],
+    stock_items: [
+      { stock_item_id: 'I1', name: 'Chicken Karahi', stock_unit: 'piece', carries_over: false, station_id: 'S1', low_stock_threshold: null },
+      { stock_item_id: 'I3', name: 'Chicken Karahi — Half', stock_unit: 'g', carries_over: false, station_id: 'S1', low_stock_threshold: null },
+    ],
+    items: [
+      configItem('I1', 'Chicken Karahi', 1, {
+        stock_time_ms: 300_000,
+        stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }],
+      }),
       configItem('I2', 'Mutton Karahi', 2, {}),
       configItem('I3', 'Chicken Karahi — Half', 3, {
         stock_time_ms: 300_000,
-        stock_unit: 'g',
-        sale_unit: 'piece',
-        stock_per_sale_unit: 250,
+        stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }],
       }),
     ],
     ...overrides,

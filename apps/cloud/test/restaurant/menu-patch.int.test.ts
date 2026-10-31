@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createStockItem } from '../helpers/menu-variants';
 import { owner, restaurantFixture, seedMenu, type RestaurantFixture, type SeededMenu } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -115,6 +116,7 @@ describe('menu item patch', () => {
     const item = await create({ price_minor: 120000 });
     const response = await patch(item.item_id, { price_minor: 130000 });
     expect(response.statusCode).toBe(200);
+    // the item as created (01c §6.5: the audit holds the item wire, its draws included, as the create row does)
     const row: Record<string, unknown> = { ...item };
     delete row.routes;
     const rows = await itemAudit(item.item_id);
@@ -186,48 +188,43 @@ describe('menu item patch', () => {
     });
   });
 
-  it('[01a §10 #128] units: g / piece / 250 and the defaults in the snapshot; threshold and carries_over; the 400s; merged-row sale_unit; a unit change is audited', async () => {
-    const grams = await create({ name: 'Karahi by weight', stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
-    expect(await snapshotItem(grams.item_id)).toMatchObject({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 });
-
-    const plain = await create({ name: 'Plain' });
-    expect(await snapshotItem(plain.item_id)).toMatchObject({
-      stock_unit: 'piece',
-      sale_unit: 'piece',
-      stock_per_sale_unit: 1,
-      low_stock_threshold: null,
-      carries_over: false,
-    });
-    const flagged = await create({ name: 'Flagged', low_stock_threshold: 1000, carries_over: true });
-    expect(await snapshotItem(flagged.item_id)).toMatchObject({ low_stock_threshold: 1000, carries_over: true });
-
-    for (const units of [
-      { stock_unit: 'g', sale_unit: 'g', stock_per_sale_unit: 2 },
-      { stock_unit: 'piece', sale_unit: 'g' },
-    ]) {
-      const bad = await inject('POST', '/v1/admin/menu-items', {
-        category_id: menu.categoryIds[0],
-        tax_class_id: null,
-        name: 'Bad units',
-        price_minor: 100,
-        serve_mode: 'immediate',
-        cook_time_ms: 60000,
-        ...units,
-      });
-      expect(bad.statusCode, JSON.stringify(units)).toBe(400);
-    }
-
-    const body = await expectNothingWritten(plain.item_id, () => patch(plain.item_id, { sale_unit: 'g' }), 400);
-    expect(body.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'sale_unit' }] } });
-
-    const changed = await patch(plain.item_id, { stock_unit: 'ml', stock_per_sale_unit: 330 });
-    expect(changed.statusCode).toBe(200);
+  it('[01a §10 #128] units (01c V4: on the draw): g stock item / piece item / 250 in the response and the menu read; R2 422 and R7 400; a draw change is audited', async () => {
+    const pot = (await createStockItem(cloud, f, { name: 'Karahi pot', stock_unit: 'g' })).stock_item_id;
+    const plain = await create({ name: 'Karahi by weight' });
+    expect(plain.stock_draws).toEqual([]);
+    const drawn = await patch(plain.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] });
+    expect(drawn.statusCode, drawn.body).toBe(200);
+    expect(drawn.json().data.item).toMatchObject({ sale_unit: 'piece', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] });
+    const read = await cloud.app.inject({ method: 'GET', url: '/v1/admin/menu', ...owner(f) });
+    expect(read.statusCode).toBe(200);
+    const listed = (read.json().data.items as Array<Record<string, unknown>>).find((i) => i.item_id === plain.item_id);
+    expect(listed).toMatchObject({ sale_unit: 'piece', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] });
     expect((await itemAudit(plain.item_id)).at(-1)).toMatchObject({
       action: 'update',
-      before: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-      after: { stock_unit: 'ml', sale_unit: 'piece', stock_per_sale_unit: 330 },
+      before: { sale_unit: 'piece', stock_draws: [] },
+      after: { sale_unit: 'piece', stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] },
     });
-    expect(await snapshotItem(plain.item_id)).toMatchObject({ stock_unit: 'ml', sale_unit: 'piece', stock_per_sale_unit: 330 });
+    // §6.15 stores the deprecated columns as 01c §5.1 says (P-11)
+    expect(await stored(plain.item_id)).toMatchObject({ stock_unit: 'piece', stock_per_sale_unit: 1, low_stock_threshold: null, carries_over: false });
+
+    // the 400s of 01a: units on the merged row are now R2 (422 unit_mismatch) and R7 (400)
+    const mismatch = await expectNothingWritten(plain.item_id, () => patch(plain.item_id, { sale_unit: 'ml' }), 422);
+    expect(mismatch.error).toMatchObject({
+      code: 'CONFIG_REFERENCE_INVALID',
+      details: { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' },
+    });
+    const equalUnits = await expectNothingWritten(plain.item_id, () => patch(plain.item_id, { sale_unit: 'g' }), 422);
+    expect(equalUnits.error).toMatchObject({ details: { field: 'stock_draws.0.stock_item_id', reason: 'unit_mismatch' } });
+    const weighed = await expectNothingWritten(plain.item_id, () => patch(plain.item_id, { requires_weighing: true }), 400);
+    expect(weighed.error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'requires_weighing' }] } });
+
+    const changed = await patch(plain.item_id, { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 330 }] });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect((await itemAudit(plain.item_id)).at(-1)).toMatchObject({
+      action: 'update',
+      before: { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 250 }] },
+      after: { stock_draws: [{ stock_item_id: pot, quantity_per_sale_unit: 330 }] },
+    });
   });
 
   it('[01a §6.15] restore re-checks the merged row: a taken name → 409; a route to a station archived meanwhile → 422; archived category → 422', async () => {

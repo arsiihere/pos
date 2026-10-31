@@ -1,6 +1,5 @@
-import type { DirectoryInput } from '@pos/events';
-import type { BranchConfig } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import type { BranchConfig, DirectoryInput } from '@pos/events';
+import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -16,49 +15,81 @@ describe('manage-stock scope my_stations on the stock page and its item commands
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[01b #34] my_stations: the stock query lists only the counter\'s stations\' items; SetPrecookedStock, AddPrecookedStock, SetItemAvailability with an outside item → 403 outside_scope, nothing appended; scope branch unchanged', async () => {
+  // 01b v1.2 B3 marker (01c B1): stock rows by the stock item's station, item rows by the item's route station.
+  it('[01b #34] my_stations: the stock query lists only the stock items counted at the counter\'s stations, with their menu items; SetPrecookedStock, AddPrecookedStock with an outside stock item and SetItemAvailability with an outside item → 403 outside_scope, nothing appended; scope branch unchanged', async () => {
     const hub = await open();
     const manager = adminOn(hub, 'S_MGR');
     const counter = adminOn(hub, 'S_CNT');
     expect((await command(hub, manager, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open')).statusCode).toBe(200);
 
-    // The stock query: only S1's items (I1, I2) for the counter, every item for the manager; 1 statement each.
+    // The stock query: only the stock items counted at S1 (I1, I2, by name) with their menu
+    // items for the counter, every stock item for the manager; 1 statement each.
     const mine = statementCounter(hub.deps.readDb);
     const scoped = await query(hub, counter);
     expect(scoped.statusCode, scoped.body).toBe(200);
     expect(mine.count).toBe(1);
-    expect(scoped.json().data.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
-    expect(scoped.json().data.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    const scopedData = scoped.json().data;
+    expect(stockMetaIds(scopedData)).toEqual([['I1', ['I1']], ['I2', ['I2']]]);
+    expect(scopedData.stock.map((row: { stock_item_id: string }) => row.stock_item_id)).toEqual(['I1', 'I2']);
+    expect(scopedData.items_meta.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    expect(scopedData.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
     const all = statementCounter(hub.deps.readDb);
     const branch = await query(hub, manager);
     expect(all.count).toBe(1);
+    expect(branch.json().data.stock.map((row: { stock_item_id: string }) => row.stock_item_id)).toEqual(['I1', 'I3', 'I2']);
     expect(branch.json().data.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2', 'I3']);
 
     // Item commands with an item routed to S2 → 403, nothing appended, no processed row.
     const before = stockEvents(hub);
     const refused = [
-      await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }, { item_id: 'I3', on_hand: 500 }] }, 'cmd-set-out'),
-      await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I3', quantity: 250 }, { item_id: 'I1', quantity: 1 }] }, 'cmd-add-out'),
+      await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }, { stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-out'),
+      await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I3', quantity: 250 }, { stock_item_id: 'I1', quantity: 1 }] }, 'cmd-add-out'),
       await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-out'),
     ];
-    for (const response of refused) {
+    // 01c §6.18: the stock commands name stock items (I3 through the V2 view); SetItemAvailability names items.
+    for (const [response, key] of [[refused[0]!, 'stock_item_ids'], [refused[1]!, 'stock_item_ids'], [refused[2]!, 'item_ids']] as const) {
       expect(response.statusCode, response.body).toBe(403);
       expect(response.json().error).toMatchObject({
         code: 'PERMISSION_DENIED',
-        details: { permission: 'manage-stock', reason: 'outside_scope', item_ids: ['I3'] },
+        details: { permission: 'manage-stock', reason: 'outside_scope', [key]: ['I3'] },
       });
     }
     expect(stockEvents(hub)).toBe(before);
     expect(processed(hub, ['cmd-set-out', 'cmd-add-out', 'cmd-off-out'])).toBe(0);
 
     // Inside the counter's stations → 200.
-    expect((await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }] }, 'cmd-set-in')).statusCode).toBe(200);
-    expect((await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-add-in')).statusCode).toBe(200);
+    expect((await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }] }, 'cmd-set-in')).statusCode).toBe(200);
+    expect((await command(hub, counter, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I1', quantity: 2 }] }, 'cmd-add-in')).statusCode).toBe(200);
     expect((await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off-in')).statusCode).toBe(200);
 
     // Scope branch: every item, as in 01a.
-    expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
+    expect((await command(hub, manager, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I3', on_hand: 500 }] }, 'cmd-set-mgr')).statusCode).toBe(200);
     expect((await command(hub, manager, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-mgr')).statusCode).toBe(200);
+
+    // 01b B1: the stock item's own station decides, not its drawers' route. A new snapshot: K1 is counted at S2
+    // while its drawer I1 is routed to S1: the counter (S1) sees no stock row and cannot count K1, but keeps
+    // the S1 item rows and may still switch I1 (route station).
+    const held = twoStations();
+    withConfig({
+      ...held,
+      config_version: 2,
+      stock_items: aBranchConfig().stock_items.map((s) => ({ ...s, station_id: 'S2' })),
+      items: held.items.map((item) =>
+        item.item_id === 'I2'
+          ? { ...item, stock_draws: [] }
+          : { ...item, stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: item.item_id === 'I1' ? 500 : 1_000 }] },
+      ),
+    });
+    const elsewhere = (await query(hub, counter)).json().data;
+    expect(elsewhere.stock_items_meta).toEqual([]);
+    expect(elsewhere.stock).toEqual([]);
+    expect(elsewhere.items.map((row: { item_id: string }) => row.item_id)).toEqual(['I1', 'I2']);
+    const pot = await command(hub, counter, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'K1', on_hand: 6_000 }] }, 'cmd-set-k1');
+    expect(pot.statusCode, pot.body).toBe(403);
+    expect(pot.json().error.details).toMatchObject({ reason: 'outside_scope', stock_item_ids: ['K1'] });
+    expect((await command(hub, counter, 'set-item-availability', 'SetItemAvailability', { item_id: 'I1', is_available: false }, 'cmd-off-i1')).statusCode).toBe(200);
+    // The day was opened under the first snapshot, so today's frozen draws still name I1 / I3 (V20): K1 has no drawer yet.
+    expect(stockMetaIds((await query(hub, manager)).json().data)).toEqual([['K1', []]]);
   });
 
   it('[01b B20] a my_stations holder with no stations sees no items and may change none', async () => {
@@ -158,20 +189,34 @@ describe('manage-stock scope my_stations on the stock page and its item commands
   });
 });
 
+function stockMetaIds(data: { stock_items_meta: Array<{ stock_item_id: string; drawers: Array<{ item_id: string }> }> }): Array<[string, string[]]> {
+  return data.stock_items_meta.map((row) => [row.stock_item_id, row.drawers.map((drawer) => drawer.item_id)]);
+}
+
 function hubEvents(hub: TestHub): number {
   return hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE stream_type = 'hub'").pluck().get() as number;
 }
 
-// S1 (I1, I2) and S2 (I3); every item stock-tracked.
+// S1 (I1, I2) and S2 (I3); every item stock-tracked, each its own stock item counted at its route station.
 function twoStations(): BranchConfig {
-  const base = aBranchConfig();
+  const base = aBranchConfigItemStock();
+  const [k1, k3] = base.stock_items;
   return {
     ...base,
     stations: [...base.stations, { ...base.stations[0]!, station_id: 'S2', name: 'Grill' }],
+    stock_items: [k1!, { ...k3!, station_id: 'S2' }, { ...k1!, stock_item_id: 'I2', name: 'Mutton Karahi' }],
     items: base.items.map((item) =>
-      item.item_id === 'I2' ? { ...item, stock_time_ms: 300_000 } : item.item_id === 'I3' ? { ...item, station_id: 'S2' } : item,
+      item.item_id === 'I2'
+        ? { ...item, stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'I2', quantity_per_sale_unit: 1 }] }
+        : item.item_id === 'I3'
+          ? { ...item, station_id: 'S2' }
+          : item,
     ),
   };
+}
+
+function withConfig(config: BranchConfig): void {
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 // S_CNT: a stock counter (access-hub-admin, manage-stock with my_stations) counting stock at S1.
@@ -192,7 +237,7 @@ async function open(o: { responsibilities?: DirectoryInput['responsibilities'] }
   directory.staff.push({ ...cashier, staff_id: 'S_CNT', display_name: 'Counter', role_ids: ['R_CNT'] });
   directory.responsibilities = o.responsibilities ?? [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }];
   await seedDirectory(hub, directory);
-  swapBranchConfig({ config: twoStations(), snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 1, appliedAt: 0 });
+  withConfig(twoStations());
   return hub;
 }
 

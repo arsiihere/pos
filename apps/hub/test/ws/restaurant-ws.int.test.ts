@@ -1,6 +1,6 @@
 import { availableStock, openDayStartMs, type EngineState } from '@pos/engine';
 import type { BranchConfig, EventDraft } from '@pos/events';
-import { aBranchConfig } from '@pos/events/testing';
+import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
@@ -21,14 +21,14 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a §10 #73] StockSet, StockAdded, BusinessDayOpened and ItemMade* reach staff sockets, not station sockets; BranchConfigApplied reaches both', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     const staff = await staffSocket(hub);
     const station = await stationSocket(hub);
 
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set');
-    await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ item_id: 'I1', quantity: 2 }] }, 'cmd-add');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set');
+    await command(hub, admin, 'add-precooked-stock', 'AddPrecookedStock', { entries: [{ stock_item_id: 'I1', quantity: 2 }] }, 'cmd-add');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: true }, 'cmd-on');
     hub.deps.writer.run((tx) => tx.append([configApplied(2)]));
@@ -40,11 +40,17 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(eventTypes(staff)).toEqual(staffTypes);
     expect(eventTypes(station)).toEqual(['BranchConfigApplied']);
     expect(eventFrames(station)[0]).toMatchObject({ event: { payload: { config_version: 2, snapshot_hash: HASH } } });
+    // 01c §6.18 (A7): the stock frames name the stock item.
+    const stockFrames = eventFrames(staff).filter((frame) => frame.event.event_type === 'StockSet' || frame.event.event_type === 'StockAdded');
+    expect(stockFrames.map((frame) => frame.event.payload)).toEqual([
+      { stock_item_id: 'I1', on_hand: 4, unit: 'piece' },
+      { stock_item_id: 'I1', quantity: 2, unit: 'piece' },
+    ]);
   });
 
   it('[01a §4.5] BusinessDayClosed reaches staff sockets, not station sockets (#145 push clause)', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
     const staff = await staffSocket(hub);
@@ -60,9 +66,14 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
   });
 
   it('[01a §10 #89] a new stock-tracked item with no StockSet reads 0 in the stock query, availableStock and the catch-up stock part', async () => {
-    const base = aBranchConfig();
+    const base = aBranchConfigItemStock();
     const i3 = base.items.find((i) => i.item_id === 'I3')!;
-    const config: BranchConfig = { ...base, items: [...base.items, { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4 }] };
+    const k3 = base.stock_items.find((s) => s.stock_item_id === 'I3')!;
+    const config: BranchConfig = {
+      ...base,
+      stock_items: [...base.stock_items, { ...k3, stock_item_id: 'I4', name: 'Seekh Kebab' }],
+      items: [...base.items, { ...i3, item_id: 'I4', name: 'Seekh Kebab', sort_order: 4, stock_draws: [{ stock_item_id: 'I4', quantity_per_sale_unit: 250 }] }],
+    };
     const hub = await open(at(25, 6));
     withConfig(config);
     const admin = adminOn(hub);
@@ -74,10 +85,10 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
       headers: { authorization: `Bearer ${admin.device.token}`, 'x-admin-session': admin.session.token },
     });
     expect(res.statusCode).toBe(200);
-    const row = (res.json().data.items as Array<{ item_id: string }>).find((r) => r.item_id === 'I4');
-    expect(row).toMatchObject({ on_hand: 0, reserved: 0, available: 0, set_at: null, level: 'not_counted' });
+    const row = (res.json().data.stock as Array<{ stock_item_id: string }>).find((r) => r.stock_item_id === 'I4');
+    expect(row).toEqual({ stock_item_id: 'I4', on_hand: 0, reserved: 0, unit: 'g', available: 0, set_at: null, level: 'not_counted' });
     const state = engine(hub);
-    expect(availableStock(state, 'I4', openDayStartMs(state), config.items.find((i) => i.item_id === 'I4')!)).toBe(0);
+    expect(availableStock(state, 'I4', openDayStartMs(state), config.stock_items.find((s) => s.stock_item_id === 'I4')!)).toBe(0);
 
     const stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I4).toEqual({ on_hand: 0, reserved: 0, set_at: null, unit: 'g', available: 0, level: 'not_counted' });
@@ -85,7 +96,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a §10 #90] under fake timers the ItemMadeUnavailable frame arrives with the clock advanced < 5 000 ms; a later reconnect has the item in availability', async () => {
     const hub = await open(at(25, 6));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     const staff = await staffSocket(hub);
 
@@ -113,24 +124,28 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(early.stock).toEqual({ business_day: null, business_day_started_at: null, items: {} });
     expect(catchUpOf(await stationSocket(hub)).branch_config).toBeNull();
 
-    const config = aBranchConfig({ config_version: 7 });
+    const config = aBranchConfigItemStock({ config_version: 7 });
     withConfig(config);
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open');
     hub.clock.set(at(25, 7));
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 3 }, { item_id: 'I3', on_hand: 1_000 }] }, 'cmd-set');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 3 }, { stock_item_id: 'I3', on_hand: 1_000 }] }, 'cmd-set');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I3', is_available: false }, 'cmd-off-3');
     await command(hub, admin, 'set-item-availability', 'SetItemAvailability', { item_id: 'I2', is_available: false }, 'cmd-off-2');
 
     const state = catchUpOf(await staffSocket(hub));
     expect(state.branch_config).toEqual({ config_version: 7, snapshot_hash: HASH, hub_time: { now_ms: at(25, 7), utc_offset_ms: offset(at(25, 7)) } });
     expect(state.availability).toEqual({ unavailable_item_ids: ['I2', 'I3'] });
-    const units = {
-      I1: { stock_unit: 'piece', sale_unit: 'piece', stock_per_sale_unit: 1 },
-      I3: { stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250 },
+    // 01c §6.20: the open day's frozen stock units and draws (aBranchConfigItemStock).
+    const frozen = {
+      stock_units: { I1: 'piece', I3: 'g' },
+      draws: {
+        I1: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I1', quantity_per_sale_unit: 1 }] },
+        I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] },
+      },
     };
     expect(state.stock).toEqual({
-      business_day: { business_date: '2026-10-25', opened_at: at(25, 6), closed_at: null, units },
+      business_day: { business_date: '2026-10-25', opened_at: at(25, 6), closed_at: null, ...frozen },
       business_day_started_at: at(25, 6),
       items: {
         I1: { on_hand: 3, reserved: 0, set_at: at(25, 7), unit: 'piece', available: 3, level: 'ok' },
@@ -142,11 +157,16 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
     expect(station.branch_config).toEqual(state.branch_config);
     expect(station).not.toHaveProperty('availability');
     expect(station).not.toHaveProperty('stock');
+
+    // 01c A7: `stock.items` is keyed by stock_item_id (one stock item K1 drawn by I1 and I3), not by item.
+    withConfig(aBranchConfig({ config_version: 7 }));
+    const pot = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
+    expect(pot.items).toEqual({ K1: { on_hand: 0, reserved: 0, set_at: null, unit: 'g', available: 0, level: 'not_counted' } });
   });
 
   it('[01a S47] the catch-up branch_config part carries hub_time', async () => {
     const hub = await open(at(25, 12, 34));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigItemStock());
     const part = catchUpOf(await staffSocket(hub)).branch_config as { hub_time: { now_ms: number; utc_offset_ms: number } };
     expect(part.hub_time).toEqual({ now_ms: at(25, 12, 34), utc_offset_ms: offset(at(25, 12, 34)) });
     hub.clock.advance(90_000);
@@ -156,11 +176,11 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
   it('[01a S41] the catch-up stock part reads available 0 for yesterday’s non-carrying count after the next open (#116 catch-up clause)', async () => {
     const hub = await open(at(24, 10));
-    withConfig(aBranchConfig());
+    withConfig(aBranchConfigItemStock());
     const admin = adminOn(hub);
     await command(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-24');
     hub.clock.set(at(24, 23));
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set-24');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set-24');
     hub.clock.set(at(24, 23, 30));
     await command(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close-24');
     hub.clock.set(at(25, 9));
@@ -168,7 +188,7 @@ describe('restaurant ws pushes and catch-up (§4.5)', () => {
 
     let stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I1).toMatchObject({ on_hand: 4, available: 0, level: 'not_counted' });
-    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ item_id: 'I1', on_hand: 4 }] }, 'cmd-set-25');
+    await command(hub, admin, 'set-precooked-stock', 'SetPrecookedStock', { entries: [{ stock_item_id: 'I1', on_hand: 4 }] }, 'cmd-set-25');
     stock = catchUpOf(await staffSocket(hub)).stock as { items: Record<string, unknown> };
     expect(stock.items.I1).toMatchObject({ on_hand: 4, available: 4, level: 'ok' });
   });
@@ -195,7 +215,7 @@ async function open(start: number): Promise<TestHub> {
 }
 
 function withConfig(config: BranchConfig): void {
-  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+  swapBranchConfig({ config, snapshotHash: HASH, configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 function adminOn(hub: TestHub): Admin {

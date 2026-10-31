@@ -115,7 +115,7 @@ async function open(denied: Record<string, string[]> = {}): Promise<TestHub> {
 }
 
 function withConfig(c: BranchConfig): void {
-  swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+  swapBranchConfig({ config: c, snapshotHash: 'h'.repeat(64), configVersion: c.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 function adminOn(hub: TestHub, staffId: string): Admin {

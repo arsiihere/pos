@@ -1,9 +1,10 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV1, type ConfigFetch, type DirectoryInput } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { branchConfig } from '../../src/sync/branch-config-holder';
+import type { ConfigFetch } from '../../src/sync/config-client';
 import { configPoller } from '../../src/sync/config-poller';
 import { aDirectory } from '../helpers/fixtures';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
@@ -65,7 +66,7 @@ describe('config poller', () => {
     expect(applied).toHaveLength(1);
     expect(JSON.parse(applied[0]!.payload)).toEqual({
       config_version: 3,
-      snapshot_schema_version: 1,
+      snapshot_schema_version: 2,
       snapshot_hash: hash,
       previous_config_version: null,
     });
@@ -74,9 +75,9 @@ describe('config poller', () => {
       { snapshot_hash: hash, config_version: 3, body: canonicalJson(raw) },
     ]);
     expect(h.deps.db.prepare('SELECT * FROM branch_config').all()).toEqual([
-      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 1, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
+      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 2, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
     ]);
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV1.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
     // the directory part rides the same transaction (S6): one published batch holds both events
     const batch = h.published.find((events) => events.some((e) => e.event_type === 'BranchConfigApplied'));
     expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'StaffDirectoryApplied']);
@@ -181,7 +182,7 @@ describe('config poller', () => {
   it('[01a §10 #95] hash before parse: a raw hash mismatch whose Zod-stripped form would match is rejected (hash_mismatch)', async () => {
     const { h, cloud } = await hub();
     const raw = snapshot(3, { promo: {} });
-    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV1.parse(raw)));
+    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(raw)));
     expect(strippedHash).not.toBe(sha256hex(canonicalJson(raw)));
     cloud.next = okText({ snapshot_hash: strippedHash, snapshot: raw });
     const before = writes(h);
@@ -193,7 +194,9 @@ describe('config poller', () => {
 
   it('[01a §10 #126] a 200 whose envelope fails Zod → last_problem { rejected, malformed }; logs carry the issue path, no pin_hash value, no $argon2id$', async () => {
     const { h, cloud } = await hub();
-    const directory = (await aDirectory({ directory_version: 2 })) as DirectoryInput & { staff: Array<Record<string, unknown>> };
+    const valid = await aDirectory({ directory_version: 2 });
+    // A deliberately invalid directory (pin_hash a number): plain records, passed where okText takes unknown.
+    const directory = { ...valid, staff: valid.staff.map((staff): Record<string, unknown> => ({ ...staff })) };
     directory.staff[0]!.pin_hash = 918273645;
     expect(String(directory.staff[1]!.pin_hash)).toContain('$argon2id$');
     const raw = snapshot(3);

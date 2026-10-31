@@ -34,9 +34,9 @@ describe('envelope', () => {
   });
 
   it('[F §4.1] PosCommandSchema requires command_id and device_id', () => {
-    const withoutCommand = { ...validCommand };
+    const withoutCommand: Record<string, unknown> = { ...validCommand };
     delete withoutCommand.command_id;
-    const withoutDevice = { ...validCommand };
+    const withoutDevice: Record<string, unknown> = { ...validCommand };
     delete withoutDevice.device_id;
     expect(PosCommandSchema.safeParse(withoutCommand).success).toBe(false);
     expect(PosCommandSchema.safeParse(withoutDevice).success).toBe(false);

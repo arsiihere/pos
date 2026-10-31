@@ -5,13 +5,15 @@ export function statementCounter(db: Database.Database): { readonly count: numbe
   const prepare = db.prepare.bind(db);
   db.prepare = ((sql: string) => {
     const statement = prepare(sql);
-    for (const method of ['get', 'all', 'run'] as const) {
-      const original = statement[method].bind(statement);
-      statement[method] = ((...args: unknown[]) => {
+    const counted =
+      <A extends unknown[], R>(original: (...args: A) => R) =>
+      (...args: A): R => {
         count += 1;
         return original(...args);
-      }) as typeof statement.get;
-    }
+      };
+    statement.get = counted(statement.get.bind(statement));
+    statement.all = counted(statement.all.bind(statement));
+    statement.run = counted(statement.run.bind(statement));
     return statement;
   }) as typeof db.prepare;
   return {

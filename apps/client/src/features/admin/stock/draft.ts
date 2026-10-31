@@ -1,14 +1,14 @@
 import type { Unit } from '@pos/domain';
 import type { StockRow } from './badges';
 
-// S55 (Q4): typed counts survive an idle sign-out on this tablet, for the same staff member and the same
+// S55 (Q4), 01c §8: typed counts (per stock item) survive an idle sign-out on this tablet, for the same staff member and the same
 // open day (keyed by its opened_at: business_date is only a label, S33). Each entry keeps the row's set_at
 // from when it was typed, so a count saved or added since is never overwritten. Storage errors are
 // ignored: the page works without it.
 const PREFIX = 'stock-draft:';
 
 export interface DraftEntry {
-  item_id: string;
+  stock_item_id: string;
   on_hand: number;
   unit: Unit;
   base_set_at: number | null;
@@ -59,19 +59,19 @@ export function loadDraft(storage: Storage | null, branchId: string, openedAt: n
   }
 }
 
-// Entries come back as touched unless the item left the count, its unit changed, or someone saved or
-// added to it since (listed so the person decides).
+// Entries come back as touched unless the stock item left the count, its unit changed, or someone saved or
+// added to it since (listed so the person decides). An entry kept before 01c (keyed by item_id) matches no row.
 export function restoreDraft(
   draft: Draft,
   rows: readonly StockRow[],
-): { touched: Map<string, number>; changed: { item_id: string; name: string; now: number }[] } {
+): { touched: Map<string, number>; changed: { stock_item_id: string; name: string; now: number }[] } {
   const touched = new Map<string, number>();
-  const changed: { item_id: string; name: string; now: number }[] = [];
+  const changed: { stock_item_id: string; name: string; now: number }[] = [];
   for (const entry of draft.entries) {
-    const row = rows.find((r) => r.meta.item_id === entry.item_id);
-    if (row === undefined || !row.meta.is_stock_tracked || row.meta.stock_unit !== entry.unit) continue;
-    if (row.item.set_at !== entry.base_set_at) changed.push({ item_id: entry.item_id, name: row.meta.name, now: row.item.on_hand });
-    else touched.set(entry.item_id, entry.on_hand);
+    const row = rows.find((r) => r.meta.stock_item_id === entry.stock_item_id);
+    if (row === undefined || row.meta.stock_unit !== entry.unit) continue;
+    if (row.stock.set_at !== entry.base_set_at) changed.push({ stock_item_id: entry.stock_item_id, name: row.meta.name, now: row.stock.on_hand });
+    else touched.set(entry.stock_item_id, entry.on_hand);
   }
   return { touched, changed };
 }

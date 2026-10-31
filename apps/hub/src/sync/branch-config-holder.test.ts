@@ -14,7 +14,7 @@ describe('branch config holder', () => {
       config: aBranchConfig({ config_version: 7 }),
       snapshotHash: 'a'.repeat(64),
       configVersion: 7,
-      snapshotSchemaVersion: 1,
+      snapshotSchemaVersion: 2,
       appliedAt: 1_761_000_000_000,
     };
     swapBranchConfig(entry);

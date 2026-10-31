@@ -244,12 +244,13 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     expect(compares.find((c) => c.entity === 'responsibility' && c.id === f.branches[0])!.version).toBe(set.version);
     expect(put.json().data.version).toBe((await getResponsibilities()).version);
 
-    // Source check: the only hashing of these entities is in versions.ts (config-sync hashes the menu snapshot).
+    // Source check: the only hashing of these entities is in versions.ts (config-sync hashes the menu snapshot;
+    // menu-variants/versions.ts is 01c's one builder, V13).
     const src = join(__dirname, '../../src');
     const hits = walk(src)
       .filter((file) => !file.endsWith('.test.ts') && readFileSync(file, 'utf8').includes('sha256hex(canonicalJson('))
       .map((file) => relative(src, file));
-    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/staff-roles/versions.ts']);
+    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/staff-roles/versions.ts']);
   });
 });
 

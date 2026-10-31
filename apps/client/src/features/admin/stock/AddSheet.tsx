@@ -6,11 +6,11 @@ import { fill } from '../../../i18n/en';
 import type { StockRow } from './badges';
 
 // 01a-S11 StockAddSheet (S54 c): on a phone, Add opens a bottom sheet with quick chips in the display
-// unit (pieces, kg or L); the quantity is sent in the stock unit (S44).
+// unit (pieces, kg or L); the quantity is sent in the stock unit (S44), for the row's stock item (01c §8).
 const QUICK = ['5', '10', '20', '50'];
 
 export function AddSheet({ row, onAdd, onClose }: { row: StockRow; onAdd: (quantity: number) => void; onClose: () => void }) {
-  const { meta, item } = row;
+  const { meta, stock } = row;
   const [quantity, setQuantity] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const before = useRef<Element | null>(null);
@@ -43,7 +43,7 @@ export function AddSheet({ row, onAdd, onClose }: { row: StockRow; onAdd: (quant
         <span className="pos-sheet__grip" aria-hidden="true" />
         <h2 className="pos-dialog__title">{t('admin_stock.sheet.title')}</h2>
         <p className="pos-dialog__body">
-          {fill(t('admin_stock.sheet.now'), { name: meta.name, left: formatQuantity(item.available, meta.stock_unit) })}
+          {fill(t('admin_stock.sheet.now'), { name: meta.name, left: formatQuantity(stock.available, meta.stock_unit) })}
         </p>
         <div className="pos-field" data-field="sheet-add">
           <span className="pos-field__label">{t('admin_stock.sheet.how_many')}</span>
@@ -60,7 +60,7 @@ export function AddSheet({ row, onAdd, onClose }: { row: StockRow; onAdd: (quant
         </div>
         {quantity !== null && quantity > 0 && (
           <p className="body pos-ltr">
-            {fill(t('admin_stock.sheet.after'), { left: formatQuantity(item.available + quantity, meta.stock_unit) })}
+            {fill(t('admin_stock.sheet.after'), { left: formatQuantity(stock.available + quantity, meta.stock_unit) })}
           </p>
         )}
         <button

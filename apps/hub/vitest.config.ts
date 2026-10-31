@@ -3,5 +3,6 @@ import { defineProject } from 'vitest/config';
 export default defineProject({
   test: {
     passWithNoTests: true,
+    setupFiles: ['./test/helpers/no-cloud-network.ts'],
   },
 });

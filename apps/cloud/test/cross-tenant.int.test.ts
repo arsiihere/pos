@@ -71,6 +71,28 @@ describe('cross-tenant', () => {
       `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, program_id, updated_at) VALUES ($1, $2, $3, $4, $5, 0)`,
       [f.other.tenantId, f.other.branchId, itemId, stationId, programId],
     );
+    const variantGroupId = 'B-VARIANT-GROUP-0000000001';
+    await cloud.pool.query(
+      `INSERT INTO variant_groups (tenant_id, variant_group_id, category_id, name, created_at, updated_at)
+       VALUES ($1, $2, $3, 'B group', 0, 0)`,
+      [f.other.tenantId, variantGroupId, categoryId],
+    );
+    const stockItemId = 'B-STOCK-ITEM-0000000000001';
+    await cloud.pool.query(
+      `INSERT INTO stock_items (tenant_id, stock_item_id, name, stock_unit, created_at, updated_at) VALUES ($1, $2, 'B pot', 'g', 0, 0)`,
+      [f.other.tenantId, stockItemId],
+    );
+    const modifierGroupId = 'B-MODIFIER-GROUP-000000001';
+    await cloud.pool.query(
+      `INSERT INTO modifier_groups (tenant_id, modifier_group_id, name, min_choices, max_choices, created_at, updated_at)
+       VALUES ($1, $2, 'B spice', 0, 1, 0, 0)`,
+      [f.other.tenantId, modifierGroupId],
+    );
+    const dealId = 'B-DEAL-00000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO deals (tenant_id, deal_id, category_id, name, price_minor, created_at, updated_at) VALUES ($1, $2, $3, 'B deal', 0, 0, 0)`,
+      [f.other.tenantId, dealId, categoryId],
+    );
     const staff = await cloud.pool.query<{ staff_id: string }>(`SELECT staff_id FROM staff WHERE tenant_id = $1 ORDER BY staff_id`, [
       f.other.tenantId,
     ]);
@@ -89,6 +111,10 @@ describe('cross-tenant', () => {
       taxClassId,
       categoryId,
       itemId,
+      variantGroupId,
+      stockItemId,
+      modifierGroupId,
+      dealId,
       roleId: roles.rows[0]!.role_id,
       staffId: staff.rows[0]!.staff_id,
       refreshToken: loginB.json().data.refresh_token as string,
@@ -105,6 +131,10 @@ describe('cross-tenant', () => {
       ids.taxClassId,
       ids.categoryId,
       ids.itemId,
+      ids.variantGroupId,
+      ids.stockItemId,
+      ids.modifierGroupId,
+      ids.dealId,
       ...staff.rows.map((row) => row.staff_id),
       ...roles.rows.map((row) => row.role_id),
     ];
@@ -136,7 +166,11 @@ describe('cross-tenant', () => {
       if (
         route.url === '/v1/admin/tax-classes/:tax_class_id' ||
         route.url === '/v1/admin/categories/:category_id' ||
-        route.url === '/v1/admin/menu-items/:item_id'
+        route.url === '/v1/admin/menu-items/:item_id' ||
+        route.url === '/v1/admin/variant-groups/:variant_group_id' ||
+        route.url === '/v1/admin/stock-items/:stock_item_id' ||
+        route.url === '/v1/admin/modifier-groups/:modifier_group_id' ||
+        route.url === '/v1/admin/deals/:deal_id'
       ) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
@@ -145,7 +179,42 @@ describe('cross-tenant', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json().data.branch_id).toBe(f.branches[0]);
       }
-      if (route.url.includes(':branch_id')) {
+      if (route.url === '/v1/admin/modifier-groups/:modifier_group_id/branches/:branch_id') {
+        // 01c §6.12a / C2 (AD-24, as AD-12): the group is locked first, so B's group answers 404
+        // MODIFIER_GROUP_NOT_FOUND before the branch check (nothing written). The foreign branch with tenant A's own
+        // group is [01c #90].
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(response.json().error.code).toBe('MODIFIER_GROUP_NOT_FOUND');
+        expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
+        const written = await cloud.pool.query(
+          `SELECT (SELECT count(*)::int FROM modifier_option_branches) AS rows,
+                  (SELECT count(*)::int FROM config_audit WHERE entity = 'modifier_group') AS audit`,
+        );
+        expect(written.rows[0]).toEqual({ rows: 0, audit: 0 });
+      } else if (route.url === '/v1/admin/deals/:deal_id/branches/:branch_id') {
+        // 01c §6.16 / C2 (AD-32, as AD-24): the deal is locked first, so B's deal answers 404 DEAL_NOT_FOUND before
+        // the branch check (nothing written). The foreign branch with tenant A's own deal is [01c §6.16] edges.
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(response.json().error.code).toBe('DEAL_NOT_FOUND');
+        expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
+        const written = await cloud.pool.query(
+          `SELECT (SELECT count(*)::int FROM deal_branches) AS rows,
+                  (SELECT count(*)::int FROM config_audit WHERE entity = 'deal_branch') AS audit`,
+        );
+        expect(written.rows[0]).toEqual({ rows: 0, audit: 0 });
+      } else if (route.url === '/v1/admin/stock-items/:stock_item_id/branches/:branch_id') {
+        // 01c §6.9 / C2 (AD-12): the stock item is locked first and the branch is checked inside the transaction,
+        // so B's stock item answers 404 STOCK_ITEM_NOT_FOUND before the branch check (nothing written: the
+        // transaction rolls back). Tenant A's own stock item at a disallowed branch is [01c #32].
+        expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
+        expect(['STOCK_ITEM_NOT_FOUND', 'BRANCH_NOT_FOUND']).toContain(response.json().error.code);
+        expect(returned.filter((s) => bIds.includes(s))).toEqual(echoed);
+        const written = await cloud.pool.query(
+          `SELECT (SELECT count(*)::int FROM stock_item_branches) AS rows,
+                  (SELECT count(*)::int FROM config_audit WHERE entity = 'stock_item_branch') AS audit`,
+        );
+        expect(written.rows[0]).toEqual({ rows: 0, audit: 0 });
+      } else if (route.url.includes(':branch_id')) {
         expect(response.statusCode, `${route.method} ${route.url}`).toBe(404);
         expect(response.json().error.code).toBe('BRANCH_NOT_FOUND');
       }

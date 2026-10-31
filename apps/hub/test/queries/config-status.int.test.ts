@@ -64,7 +64,7 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
       tenant_id: 'tenant-a',
       branch_id: BRANCH,
       config_version: 3,
-      snapshot_schema_version: 1,
+      snapshot_schema_version: 2,
       applied_at: appliedAt,
       directory_version: 2,
       last_poll: { outcome: 'applied', at: polledAt },

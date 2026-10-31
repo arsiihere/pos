@@ -1,7 +1,8 @@
-import { BranchConfigSnapshotSchemaV1, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
+import { effectiveGroupIds, type LinkRow } from '../menu-variants/effective-set.js';
 
 export interface SnapshotHeader {
   config_version: number;
@@ -18,9 +19,76 @@ interface WindowRow {
   end_ms: number;
 }
 
-// §6.1 step 3, §4.3: 7 fixed statements, one builder (S28). Active rows only, except stations, programs and
-// tax classes (S22). Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes)
-// by name, then id; windows by start_ms, end_ms, window_id (S47). Returns the wire object (S27).
+interface StockItemRow {
+  stock_item_id: string;
+  name: string;
+  stock_unit: string;
+  carries_over: boolean;
+  station_id: string;
+  low_stock_threshold: number | null;
+}
+
+interface GroupOptionRow {
+  modifier_group_id: string;
+  name: string;
+  min_choices: number;
+  max_choices: number;
+  sort_order: number;
+  option_id: string | null;
+  option_name: string | null;
+  price_minor: string | null;
+  max_quantity: number | null;
+  is_default: boolean | null;
+  linked_item_id: string | null;
+  option_sort_order: number | null;
+}
+
+interface SnapshotOption {
+  option_id: string;
+  name: string;
+  price_minor: number;
+  max_quantity: number;
+  is_default: boolean;
+  linked_item_id: string | null;
+  sort_order: number;
+}
+
+interface DealChoiceRow {
+  deal_id: string;
+  category_id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  price_minor: string;
+  tax_class_id: string | null;
+  deal_part_id: string;
+  quantity: number;
+  part_sort_order: number;
+  item_id: string | null;
+  extra_price_minor: string | null;
+  choice_sort_order: number | null;
+}
+
+interface SnapshotDealPart {
+  deal_part_id: string;
+  quantity: number;
+  sort_order: number;
+  choices: Array<{ item_id: string; extra_price_minor: number; sort_order: number }>;
+}
+
+interface DrawRow {
+  item_id: string;
+  stock_item_id: string;
+  quantity_per_sale_unit: number;
+}
+
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 16 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
+// branch's deal rows, the deals sold here with their active parts and choices, deal windows. Active rows only, except
+// stations, programs and tax classes (S22).
+// Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
+// stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47); deal choices by
+// sort_order, then item_id (m5). Returns the wire object (S27).
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
@@ -72,12 +140,23 @@ export async function buildSnapshot(
     `SELECT category_id, name, sort_order FROM categories
       WHERE tenant_id = $1 AND archived_at IS NULL ORDER BY sort_order, category_id`,
   );
-  const items = await scoped.query<Record<string, unknown> & { item_id: string; price_minor: string }>(
-    `SELECT m.item_id, m.category_id, m.name, m.group_label, m.description, m.sort_order,
+  const items = await scoped.query<
+    Record<string, unknown> & {
+      item_id: string;
+      category_id: string;
+      price_minor: string;
+      variant_group_id: string | null;
+      sale_unit: string;
+      requires_weighing: boolean;
+      station_id: string;
+      stock_time_ms: number | null;
+      stock_program_id: string | null;
+    }
+  >(
+    `SELECT m.item_id, m.category_id, m.variant_group_id, m.variant_name, m.name, m.description, m.sort_order,
             COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
-            m.stock_unit, m.sale_unit, m.stock_per_sale_unit, m.low_stock_threshold, m.carries_over,
-            r.station_id, r.program_id, r.stock_program_id
+            m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id
        FROM item_routes r
        JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id
       WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND m.archived_at IS NULL
@@ -92,6 +171,206 @@ export async function buildSnapshot(
       ORDER BY w.start_ms, w.end_ms, w.window_id`,
     [branchId],
   );
+
+  // 01c §3.2.1, §4.6 rule 5: only groups with an active member routed here.
+  const variantGroups = await level.query<{
+    variant_group_id: string;
+    category_id: string;
+    name: string;
+    description: string | null;
+    sort_order: number;
+  }>(
+    `SELECT variant_group_id, category_id, name, description, sort_order FROM variant_groups
+      WHERE tenant_id = $1 AND archived_at IS NULL AND variant_group_id = ANY($2)
+      ORDER BY sort_order, variant_group_id`,
+    [[...new Set(items.flatMap((item) => (item.variant_group_id === null ? [] : [item.variant_group_id])))]],
+  );
+  // 01c §4.6 rule 4: the active stock items counted at this branch.
+  const stockItems = await scoped.query<StockItemRow>(
+    `SELECT s.stock_item_id, s.name, s.stock_unit, s.carries_over, b.station_id, b.low_stock_threshold
+       FROM stock_item_branches b
+       JOIN stock_items s ON s.tenant_id = b.tenant_id AND s.stock_item_id = b.stock_item_id
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3 AND s.archived_at IS NULL`,
+    [branchId],
+  );
+  // 01c V12: the draws of this snapshot's items (the deprecated item unit columns are never read).
+  const draws = await level.query<DrawRow>(
+    `SELECT item_id, stock_item_id, quantity_per_sale_unit FROM stock_draws
+      WHERE tenant_id = $1 AND item_id = ANY($2) ORDER BY item_id, stock_item_id`,
+    [items.map((item) => item.item_id)],
+  );
+
+  // 01c §4.6 rule 3: the active groups with their active options, by group sort_order, id, then option sort_order, id.
+  const groupRows = await level.query<GroupOptionRow>(
+    `SELECT g.modifier_group_id, g.name, g.min_choices, g.max_choices, g.sort_order,
+            o.option_id, o.name AS option_name, o.price_minor, o.max_quantity, o.is_default, o.linked_item_id,
+            o.sort_order AS option_sort_order
+       FROM modifier_groups g
+       LEFT JOIN modifier_options o
+         ON o.tenant_id = g.tenant_id AND o.modifier_group_id = g.modifier_group_id AND o.archived_at IS NULL
+      WHERE g.tenant_id = $1 AND g.archived_at IS NULL
+      ORDER BY g.sort_order, g.modifier_group_id, o.sort_order, o.option_id`,
+  );
+  const activeGroupIds = [...new Set(groupRows.map((row) => row.modifier_group_id))];
+  // 01c V19: this branch's option differences (rows of archived options are never matched, m4).
+  const optionBranches = await scoped.query<{ option_id: string; is_offered: boolean; price_minor_override: string | null }>(
+    `SELECT option_id, is_offered, price_minor_override FROM modifier_option_branches WHERE ${branch}`,
+    [branchId],
+  );
+  // 01c V8: the links of the active groups; resolved per item in memory (effectiveGroupIds).
+  const links = await level.query<LinkRow>(
+    `SELECT modifier_group_id, target_kind, target_id, mode FROM modifier_group_links
+      WHERE tenant_id = $1 AND modifier_group_id = ANY($2)`,
+    [activeGroupIds],
+  );
+
+  // 01c §6.16, V11 e: this branch's deal rows (branch-scoped by the primary key); a deal with no row here is not sold.
+  const dealBranches = await scoped.query<{ deal_id: string; price_minor_override: string | null }>(
+    `SELECT deal_id, price_minor_override FROM deal_branches WHERE ${branch}`,
+    [branchId],
+  );
+  const soldDealIds = dealBranches.map((row) => row.deal_id);
+  // 01c §4.6 rule 5: the active deals sold here, their active parts and each part's choices (a part with no choice
+  // row still returns one row), by deal sort_order, id, part sort_order, id, then choice sort_order, item_id (m5).
+  const dealRows = await level.query<DealChoiceRow>(
+    `SELECT d.deal_id, d.category_id, d.name, d.description, d.sort_order, d.price_minor, d.tax_class_id,
+            p.deal_part_id, p.quantity, p.sort_order AS part_sort_order,
+            c.item_id, c.extra_price_minor, c.sort_order AS choice_sort_order
+       FROM deals d
+       JOIN deal_parts p ON p.tenant_id = d.tenant_id AND p.deal_id = d.deal_id AND p.archived_at IS NULL
+       LEFT JOIN deal_part_choices c ON c.tenant_id = p.tenant_id AND c.deal_part_id = p.deal_part_id
+      WHERE d.tenant_id = $1 AND d.archived_at IS NULL AND d.deal_id = ANY($2)
+      ORDER BY d.sort_order, d.deal_id, p.sort_order, p.deal_part_id, c.sort_order, c.item_id`,
+    [soldDealIds],
+  );
+  // 01c §4.6: the windows of the deals sold here (S47 window order).
+  const dealWindows = await level.query<{ deal_id: string; start_ms: number; end_ms: number }>(
+    `SELECT deal_id, start_ms, end_ms FROM availability_windows
+      WHERE tenant_id = $1 AND deal_id = ANY($2)
+      ORDER BY start_ms, end_ms, window_id`,
+    [soldDealIds],
+  );
+
+  // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
+  stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
+  const counted = new Set(stockItems.map((stockItem) => stockItem.stock_item_id));
+  const stationTypes = new Map(stations.map((row) => [row.station_id, row.station_type]));
+  // 01c V12 (§4.6 rule 4): a draw is listed only when its stock item is counted here and the route tracks
+  // (slot: stock_time_ms set; batch: stock_program_id set).
+  const routeTracks = (item: (typeof items)[number]) =>
+    stationTypes.get(item.station_id) === 'slot' ? item.stock_time_ms !== null : item.stock_program_id !== null;
+  const drawsByItem = new Map<string, Array<{ stock_item_id: string; quantity_per_sale_unit: number }>>();
+  for (const draw of draws) {
+    if (!counted.has(draw.stock_item_id)) continue;
+    const list = drawsByItem.get(draw.item_id) ?? [];
+    list.push({ stock_item_id: draw.stock_item_id, quantity_per_sale_unit: draw.quantity_per_sale_unit });
+    drawsByItem.set(draw.item_id, list);
+  }
+
+  // 01c §4.6 rules 2, 3 (V19, F1, M1): each active group's options at this branch. Left out: an option not offered
+  // here; a linked option whose item is not in this snapshot (not routed here, or archived); backstop (Q1): a linked
+  // option whose item is not sale_unit 'piece' or is weighed. Price (AU-4): branch override, else the option's
+  // price_minor, else the linked item's effective branch price.
+  const branchRows = new Map(optionBranches.map((row) => [row.option_id, row]));
+  const itemsById = new Map(items.map((item) => [item.item_id, item]));
+  const groups: Array<{
+    modifier_group_id: string;
+    name: string;
+    min_choices: number;
+    max_choices: number;
+    sort_order: number;
+    has_plain_options: boolean;
+    options: SnapshotOption[];
+  }> = [];
+  for (const row of groupRows) {
+    let group = groups.at(-1);
+    if (group === undefined || group.modifier_group_id !== row.modifier_group_id) {
+      group = {
+        modifier_group_id: row.modifier_group_id,
+        name: row.name,
+        min_choices: row.min_choices,
+        max_choices: row.max_choices,
+        sort_order: row.sort_order,
+        has_plain_options: false,
+        options: [],
+      };
+      groups.push(group);
+    }
+    if (row.option_id === null) continue;
+    if (row.linked_item_id === null) group.has_plain_options = true; // M1: configured, offered here or not
+    const atBranch = branchRows.get(row.option_id);
+    if (atBranch?.is_offered === false) continue;
+    const linked = row.linked_item_id === null ? undefined : itemsById.get(row.linked_item_id);
+    if (row.linked_item_id !== null && (linked === undefined || linked.sale_unit !== 'piece' || linked.requires_weighing)) continue;
+    const price = atBranch?.price_minor_override ?? row.price_minor ?? linked?.price_minor;
+    group.options.push({
+      option_id: row.option_id,
+      name: row.option_name!,
+      price_minor: Number(price), // BIGINT arrives as a string (S27)
+      max_quantity: row.max_quantity!,
+      is_default: row.is_default!,
+      linked_item_id: row.linked_item_id,
+      sort_order: row.option_sort_order!,
+    });
+  }
+  // F1: an optional group left with no options here is left out everywhere; a required one is kept with options: [].
+  const offeredGroups = groups.filter((group) => group.options.length > 0 || group.min_choices >= 1);
+  // m15 (§4.6 rule 6): only active targets count — this snapshot's items, active categories, active variant groups.
+  const activeTargets = new Set<string>([
+    ...items.map((item) => item.item_id),
+    ...categories.map((category) => category.category_id),
+    ...variantGroups.map((group) => group.variant_group_id),
+  ]);
+  const groupIdsByItem = new Map(
+    items.map((item) => [
+      item.item_id,
+      // V8 resolution, no maximum (M5)
+      effectiveGroupIds(
+        { item_id: item.item_id, category_id: item.category_id, variant_group_id: item.variant_group_id },
+        links,
+        offeredGroups,
+        activeTargets,
+      ),
+    ]),
+  );
+  // m5: only groups some item references.
+  const referenced = new Set([...groupIdsByItem.values()].flat());
+
+  // 01c §4.6 rules 1, 5 (V11 e, S57): a choice is listed only when its item is in this snapshot (routed here and
+  // active, m15); a deal is left out when a part keeps no choice. The first listed choice is the part's reference
+  // choice at this branch (V11 c, AU-11). Price: this branch's override, else the deal's price_minor.
+  const overrides = new Map(dealBranches.map((row) => [row.deal_id, row.price_minor_override]));
+  const dealWindowsById = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
+  for (const w of dealWindows) {
+    const list = dealWindowsById.get(w.deal_id) ?? [];
+    list.push({ start_ms: w.start_ms, end_ms: w.end_ms });
+    dealWindowsById.set(w.deal_id, list);
+  }
+  const deals: Array<Record<string, unknown> & { deal_id: string; parts: SnapshotDealPart[] }> = [];
+  for (const row of dealRows) {
+    let deal = deals.at(-1);
+    if (deal === undefined || deal.deal_id !== row.deal_id) {
+      deal = {
+        deal_id: row.deal_id,
+        category_id: row.category_id,
+        name: row.name,
+        description: row.description,
+        sort_order: row.sort_order,
+        price_minor: Number(overrides.get(row.deal_id) ?? row.price_minor), // BIGINT arrives as a string (S27)
+        tax_class_id: row.tax_class_id,
+        availability_windows: dealWindowsById.get(row.deal_id) ?? [],
+        parts: [],
+      };
+      deals.push(deal);
+    }
+    let part = deal.parts.at(-1);
+    if (part === undefined || part.deal_part_id !== row.deal_part_id) {
+      part = { deal_part_id: row.deal_part_id, quantity: row.quantity, sort_order: row.part_sort_order, choices: [] };
+      deal.parts.push(part);
+    }
+    if (row.item_id === null || !itemsById.has(row.item_id)) continue;
+    part.choices.push({ item_id: row.item_id, extra_price_minor: Number(row.extra_price_minor), sort_order: row.choice_sort_order! });
+  }
 
   const windowsByTarget = new Map<string, Array<{ start_ms: number; end_ms: number }>>();
   for (const w of windows) {
@@ -150,11 +429,21 @@ export async function buildSnapshot(
       ...category,
       availability_windows: windowsOf('category', category.category_id),
     })),
+    variant_groups: variantGroups,
+    stock_items: stockItems,
+    modifier_groups: offeredGroups.filter((group) => referenced.has(group.modifier_group_id)),
     items: items.map((item) => ({
       ...item,
       price_minor: Number(item.price_minor), // BIGINT arrives as a string (S27)
+      stock_draws: routeTracks(item) ? (drawsByItem.get(item.item_id) ?? []) : [],
       availability_windows: windowsOf('item', item.item_id),
+      modifier_group_ids: groupIdsByItem.get(item.item_id) ?? [],
     })),
+    deals: deals.filter((deal) => deal.parts.every((part) => part.choices.length > 0)),
   };
-  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV1.parse(built))) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(built))) as Record<string, unknown>;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }

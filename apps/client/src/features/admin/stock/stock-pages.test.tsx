@@ -1,4 +1,4 @@
-import type { HubConfigStatus, HubStockAnswer, HubStockItem, HubStockItemMeta } from '@pos/events';
+import type { HubConfigStatus, HubStockAnswer, HubStockDrawer, HubStockItem, HubStockItemMeta, HubStockRow, HubStockRowMeta } from '@pos/events';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -43,11 +43,7 @@ function meta(itemId: string, o: Partial<HubStockItemMeta> = {}): HubStockItemMe
     category_name: 'Mains',
     is_stock_tracked: true,
     out_of_stock_behaviour: 'cook_fresh',
-    stock_unit: 'piece',
-    sale_unit: 'piece',
-    stock_per_sale_unit: 1,
-    low_stock_threshold: null,
-    carries_over: false,
+    stock_item_ids: [itemId],
     item_windows: [],
     category_windows: [],
     ...o,
@@ -55,18 +51,30 @@ function meta(itemId: string, o: Partial<HubStockItemMeta> = {}): HubStockItemMe
 }
 
 function item(itemId: string, o: Partial<HubStockItem> = {}): HubStockItem {
+  return { item_id: itemId, stock_item_ids: [itemId], is_available: true, unavailable_since: null, ...o };
+}
+
+// 01c §6.21: a stock item with the item's id, drawn by that item (the V1 view's shape).
+function drawer(itemId: string, o: Partial<HubStockDrawer> = {}): HubStockDrawer {
+  return { item_id: itemId, name: `Item ${itemId}`, variant_name: null, sale_unit: 'piece', quantity_per_sale_unit: 1, ...o };
+}
+
+function stockMeta(stockItemId: string, o: Partial<HubStockRowMeta> = {}): HubStockRowMeta {
   return {
-    item_id: itemId,
-    on_hand: 5,
-    reserved: 0,
-    unit: 'piece',
-    available: 5,
-    level: 'ok',
-    set_at: hubAt(9, 5),
-    is_available: true,
-    unavailable_since: null,
+    stock_item_id: stockItemId,
+    name: `Item ${stockItemId}`,
+    stock_unit: 'piece',
+    carries_over: false,
+    station_id: 'ST1',
+    low_stock_threshold: null,
+    has_tracked_drawers: true,
+    drawers: [drawer(stockItemId)],
     ...o,
   };
+}
+
+function stockNumbers(stockItemId: string, o: Partial<HubStockRow> = {}): HubStockRow {
+  return { stock_item_id: stockItemId, on_hand: 5, reserved: 0, unit: 'piece', available: 5, level: 'ok', set_at: hubAt(9, 5), ...o };
 }
 
 function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
@@ -83,6 +91,8 @@ function answer(o: Partial<HubStockAnswer> = {}): HubStockAnswer {
     day_stale: false,
     day_stale_after_hours: 16,
     day_min_gap_hours: 4,
+    stock_items_meta: [stockMeta('I1'), stockMeta('I2')],
+    stock: [stockNumbers('I1'), stockNumbers('I2')],
     items_meta: [meta('I1'), meta('I2')],
     items: [item('I1'), item('I2')],
     ...o,
@@ -164,7 +174,13 @@ const rowOf = (id: string) => {
   if (row === null) throw new Error(`row ${id} missing`);
   return row;
 };
-const count = (id: string) => rowOf(id).querySelector<HTMLInputElement>('[data-field="on_hand"] input');
+// 01c §8: one row per stock item (count, add, level); the menu item rows carry the Selling switch.
+const stockRowOf = (id: string) => {
+  const row = container.querySelector<HTMLElement>(`[data-stock-item-id="${id}"]`);
+  if (row === null) throw new Error(`stock row ${id} missing`);
+  return row;
+};
+const count = (id: string) => stockRowOf(id).querySelector<HTMLInputElement>('[data-field="on_hand"] input');
 
 function typeInto(input: HTMLInputElement | null, text: string): void {
   if (!input) throw new Error('input missing');
@@ -211,13 +227,13 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
 
     typeInto(count('I1'), '7');
     const kept = JSON.parse(localStorage.getItem(keyFor()) ?? 'null') as { entries: unknown[] };
-    expect(kept.entries).toEqual([{ item_id: 'I1', on_hand: 7, unit: 'piece', base_set_at: hubAt(9, 5) }]);
+    expect(kept.entries).toEqual([{ stock_item_id: 'I1', on_hand: 7, unit: 'piece', base_set_at: hubAt(9, 5) }]);
 
     // Same person, same day: back as touched with the banner.
     await remount(api);
     expect(count('I1')?.value).toBe('7');
     expect(container.querySelector('[data-kept]')?.textContent).toContain(fill(t('admin_stock.kept.title'), { n: '1', time: '11:00' }));
-    expect(rowOf('I1').textContent).toContain(t('admin_stock.kept.not_saved_yet'));
+    expect(stockRowOf('I1').textContent).toContain(t('admin_stock.kept.not_saved_yet'));
 
     // Another person: nothing comes back, the draft stays.
     signIn('S_OTHER', 'Bilal');
@@ -227,15 +243,15 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
 
     // Someone added to I1 since: not restored, listed as changed.
     signIn();
-    stock = answer({ items: [item('I1', { set_at: hubAt(10), on_hand: 9 }), item('I2')] });
+    stock = answer({ stock: [stockNumbers('I1', { set_at: hubAt(10), on_hand: 9 }), stockNumbers('I2')] });
     await remount(api);
     expect(count('I1')?.value).toBe('9');
     expect(container.querySelector('[data-kept]')?.textContent).toContain('Item I1 (9)');
 
-    // An entry for an item no longer in the menu is dropped.
+    // An entry for a stock item no longer counted here is dropped.
     localStorage.setItem(
       keyFor(),
-      JSON.stringify({ saved_at: hubAt(10), entries: [{ item_id: 'I9', on_hand: 3, unit: 'piece', base_set_at: null }] }),
+      JSON.stringify({ saved_at: hubAt(10), entries: [{ stock_item_id: 'I9', on_hand: 3, unit: 'piece', base_set_at: null }] }),
     );
     stock = answer();
     await remount(api);
@@ -244,7 +260,7 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     // A new day on the same date: nothing restored, the old draft deleted.
     localStorage.setItem(
       keyFor(),
-      JSON.stringify({ saved_at: hubAt(10), entries: [{ item_id: 'I1', on_hand: 3, unit: 'piece', base_set_at: hubAt(9, 5) }] }),
+      JSON.stringify({ saved_at: hubAt(10), entries: [{ stock_item_id: 'I1', on_hand: 3, unit: 'piece', base_set_at: hubAt(9, 5) }] }),
     );
     stock = answer({ business_day: { business_date: '2026-10-25', opened_at: hubAt(15), closed_at: null }, business_day_started_at: hubAt(15) });
     await remount(api);
@@ -281,9 +297,12 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
 
   it('[01a §10 #167] All N are still right: one save with the shown carried-over counts and the typed one; over 200 rows in parts', { timeout: 30_000 }, async () => {
     signIn();
-    const carried = (id: string, onHand: number) => ({ m: meta(id, { carries_over: true }), i: item(id, { set_at: hubAt(1), on_hand: onHand }) });
-    const rows = [carried('I1', 8), carried('I2', 12), carried('I3', 20), { m: meta('I4'), i: item('I4', { set_at: null, level: 'not_counted' }) }];
-    const { api, sent } = fakeHub(() => answer({ items_meta: rows.map((r) => r.m), items: rows.map((r) => r.i) }));
+    const carried = (id: string, onHand: number) => ({ m: stockMeta(id, { carries_over: true }), s: stockNumbers(id, { set_at: hubAt(1), on_hand: onHand }) });
+    const rows = [carried('I1', 8), carried('I2', 12), carried('I3', 20), { m: stockMeta('I4'), s: stockNumbers('I4', { set_at: null, level: 'not_counted' }) }];
+    const ids = ['I1', 'I2', 'I3', 'I4'];
+    const { api, sent } = fakeHub(() =>
+      answer({ stock_items_meta: rows.map((r) => r.m), stock: rows.map((r) => r.s), items_meta: ids.map((id) => meta(id)), items: ids.map((id) => item(id)) }),
+    );
     await mount(api);
 
     expect(container.querySelector('[data-carry]')?.textContent).toContain(fill(t('admin_stock.carry.title'), { n: '3' }));
@@ -294,9 +313,9 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     expect(saves).toHaveLength(1);
     expect(saves[0]?.body?.['payload']).toEqual({
       entries: [
-        { item_id: 'I1', on_hand: 8 },
-        { item_id: 'I2', on_hand: 9 },
-        { item_id: 'I3', on_hand: 20 },
+        { stock_item_id: 'I1', on_hand: 8 },
+        { stock_item_id: 'I2', on_hand: 9 },
+        { stock_item_id: 'I3', on_hand: 20 },
       ],
     });
     // The callout hides once every carried-over row is touched (the fake hub still answers the old counts).
@@ -313,8 +332,10 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     const big = fakeHub(
       () =>
         answer({
-          items_meta: many.map((id) => meta(id, { carries_over: true })),
-          items: many.map((id) => item(id, { set_at: hubAt(1) })),
+          stock_items_meta: many.map((id) => stockMeta(id, { carries_over: true })),
+          stock: many.map((id) => stockNumbers(id, { set_at: hubAt(1) })),
+          items_meta: many.map((id) => meta(id)),
+          items: many.map((id) => item(id)),
         }),
       (s) => {
         if (s.url !== '/admin/commands/set-precooked-stock') return undefined;
@@ -331,8 +352,8 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     const parts = commandsTo(big.sent, 'set-precooked-stock');
     expect(parts.map((p) => (p.body?.['payload'] as { entries: unknown[] }).entries.length)).toEqual([200, 1]);
     expect(parts[0]?.body?.['command_id']).not.toBe(parts[1]?.body?.['command_id']);
-    expect(rowOf('M200').className).toContain('is-touched');
-    expect(rowOf('M000').className).not.toContain('is-touched');
+    expect(stockRowOf('M200').className).toContain('is-touched');
+    expect(stockRowOf('M000').className).not.toContain('is-touched');
     await tap(saveButton());
     const again = commandsTo(big.sent, 'set-precooked-stock');
     expect(again).toHaveLength(3);
@@ -344,19 +365,20 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     const items_meta = [
       meta('I1', { name: 'Karahi' }),
       meta('I2', { name: 'Paye', category_id: 'C2', category_name: 'Breakfast' }),
-      meta('I3', { name: 'Raita', is_stock_tracked: false }),
+      meta('I3', { name: 'Raita', is_stock_tracked: false, stock_item_ids: [] }),
     ];
-    const items = [
-      item('I1', { level: 'low', available: 2, reserved: 1 }),
-      item('I2', { set_at: null, level: 'not_counted', available: 0 }),
-      item('I3', { is_available: false }),
+    const items = [item('I1'), item('I2'), item('I3', { stock_item_ids: [], is_available: false })];
+    const stock_items_meta = [
+      stockMeta('I1', { name: 'Karahi', drawers: [drawer('I1', { name: 'Karahi' })] }),
+      stockMeta('I2', { name: 'Paye', drawers: [drawer('I2', { name: 'Paye' })] }),
     ];
-    const { api } = fakeHub(() => answer({ items_meta, items, day_stale: true }));
+    const numbers = [stockNumbers('I1', { level: 'low', available: 2, reserved: 1 }), stockNumbers('I2', { set_at: null, level: 'not_counted', available: 0 })];
+    const { api } = fakeHub(() => answer({ stock_items_meta, stock: numbers, items_meta, items, day_stale: true }));
     await mount(api);
 
-    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('2');
-    expect(rowOf('I1').textContent).toContain(fill(t('admin_stock.on_orders'), { n: '1' }));
-    expect(button(t('admin_stock.confirm'), rowOf('I1'))).toBeTruthy();
+    expect(stockRowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('2');
+    expect(stockRowOf('I1').textContent).toContain(fill(t('admin_stock.on_orders'), { n: '1' }));
+    expect(button(t('admin_stock.confirm'), stockRowOf('I1'))).toBeTruthy();
     expect(container.textContent).not.toContain('Available');
     const sw = rowOf('I3').querySelector('[role="switch"]');
     expect(sw?.getAttribute('aria-checked')).toBe('false');
@@ -398,16 +420,23 @@ describe('/admin/stock (v1.1 design hand-off)', () => {
     stubPhone(true);
     signIn();
     const { api, sent } = fakeHub(() =>
-      answer({ items_meta: [meta('I1', { name: 'Karahi', stock_unit: 'g' })], items: [item('I1', { unit: 'g', on_hand: 3000, available: 3000 })] }),
+      answer({
+        stock_items_meta: [stockMeta('I1', { name: 'Karahi', stock_unit: 'g', drawers: [drawer('I1', { name: 'Karahi', quantity_per_sale_unit: 250 })] })],
+        stock: [stockNumbers('I1', { unit: 'g', on_hand: 3000, available: 3000 })],
+        items_meta: [meta('I1', { name: 'Karahi' })],
+        items: [item('I1')],
+      }),
     );
     await mount(api);
-    await tap(button(t('admin_stock.add'), rowOf('I1')));
+    // 01c §8: the drawer under the stock row, with its sale units available (3 000 g at 250 g a piece).
+    expect(rowOf('I1').querySelector('.pos-list__num')?.textContent).toBe('12');
+    await tap(button(t('admin_stock.add'), stockRowOf('I1')));
     const sheet = container.querySelector('.pos-sheet');
     expect(sheet?.getAttribute('role')).toBe('dialog');
     await tap(button('+5', sheet));
     expect(sheet?.textContent).toContain(fill(t('admin_stock.sheet.after'), { left: '8 kg' }));
     await tap(button(fill(t('admin_stock.sheet.add_n'), { n: '5 kg' }), sheet));
-    expect(commandsTo(sent, 'add-precooked-stock')[0]?.body?.['payload']).toEqual({ entries: [{ item_id: 'I1', quantity: 5000 }] });
+    expect(commandsTo(sent, 'add-precooked-stock')[0]?.body?.['payload']).toEqual({ entries: [{ stock_item_id: 'I1', quantity: 5000 }] });
     vi.unstubAllGlobals();
 
     // Sign-in states.
@@ -646,7 +675,7 @@ describe('[01b §4.4 row 13] stock page day actions under my_stations', () => {
     expect(count('I1')?.value).toBe('6');
 
     (document.activeElement as HTMLElement | null)?.blur();
-    await tap(button(t('admin_stock.add'), rowOf('I1')));
+    await tap(button(t('admin_stock.add'), stockRowOf('I1')));
     const sheet = container.querySelector('.pos-sheet');
     await tap(button('+5', sheet));
     await tap(button(fill(t('admin_stock.sheet.add_n'), { n: '5' }), sheet));

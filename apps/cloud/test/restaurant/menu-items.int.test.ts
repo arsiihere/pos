@@ -90,7 +90,8 @@ describe('menu item create', () => {
       category_id: menu.categoryIds[0],
       tax_class_id: menu.taxClassId,
       name: 'Chicken Karahi — Full',
-      group_label: null,
+      variant_group_id: null,
+      variant_name: null,
       description: null,
       sort_order: 0,
       price_minor: 123_456,
@@ -99,11 +100,9 @@ describe('menu item create', () => {
       cook_time_ms: 1_200_000,
       stock_time_ms: 300_000,
       out_of_stock_behaviour: 'cook_fresh',
-      stock_unit: 'piece',
       sale_unit: 'piece',
-      stock_per_sale_unit: 1,
-      low_stock_threshold: null,
-      carries_over: false,
+      requires_weighing: false,
+      stock_draws: [],
       availability_windows: [],
       archived_at: null,
       routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null, price_minor_override: null }],
@@ -222,21 +221,6 @@ describe('menu item create', () => {
     expect(audit.rows[0].n).toBe(4);
   });
 
-  it('[01a §10 #41] two items sharing group_label "Chicken Karahi" with different prices and stock times → both in the snapshot', async () => {
-    const half = await post(item({ name: 'Karahi Half', group_label: 'Chicken Karahi', price_minor: 120000, stock_time_ms: 300_000 }));
-    const full = await post(item({ name: 'Karahi Full', group_label: 'Chicken Karahi', price_minor: 240000, stock_time_ms: 600_000 }));
-    expect(half.statusCode).toBe(201);
-    expect(full.statusCode).toBe(201);
-    const items = await snapshotItems();
-    expect(items.map(({ item_id, group_label, price_minor, stock_time_ms }) => ({ item_id, group_label, price_minor, stock_time_ms })))
-      .toEqual(
-        [
-          { item_id: half.json().data.item.item_id, group_label: 'Chicken Karahi', price_minor: 120000, stock_time_ms: 300_000 },
-          { item_id: full.json().data.item.item_id, group_label: 'Chicken Karahi', price_minor: 240000, stock_time_ms: 600_000 },
-        ].sort((x, y) => (x.item_id < y.item_id ? -1 : 1)),
-      );
-  });
-
   it('[01a §10 #88] zero-price item (price_minor: 0) → 201; in the snapshot with price_minor: 0', async () => {
     const created = await post(item({ name: 'Free water', price_minor: 0 }));
     expect(created.statusCode).toBe(201);
@@ -257,29 +241,5 @@ describe('menu item create', () => {
     const untaxed = await post(item({ tax_class_id: null }));
     expect(untaxed.statusCode).toBe(201);
     expect(untaxed.json().data.item.tax_class_id).toBeNull();
-  });
-
-  it('[01a S44] g / piece / 250 → 201 and the three fields in the response', async () => {
-    const created = await post(item({ stock_unit: 'g', sale_unit: 'piece', stock_per_sale_unit: 250, low_stock_threshold: 1000, carries_over: true }));
-    expect(created.statusCode).toBe(201);
-    expect(created.json().data.item).toMatchObject({
-      stock_unit: 'g',
-      sale_unit: 'piece',
-      stock_per_sale_unit: 250,
-      low_stock_threshold: 1000,
-      carries_over: true,
-    });
-
-    for (const [units, path] of [
-      [{ stock_unit: 'g', sale_unit: 'g', stock_per_sale_unit: 250 }, 'stock_per_sale_unit'],
-      [{ stock_unit: 'piece', sale_unit: 'g' }, 'sale_unit'],
-      [{ stock_unit: 'g', sale_unit: 'ml', stock_per_sale_unit: 2 }, 'sale_unit'],
-    ] as const) {
-      const before = await counts();
-      const bad = await post(item({ name: 'Bad units', ...units }));
-      expect(bad.statusCode, JSON.stringify(units)).toBe(400);
-      expect(bad.json().error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path }] } });
-      expect(await counts()).toEqual(before);
-    }
   });
 });

@@ -2,12 +2,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
-import { boot, registerBootStep } from '../../src/lib/boot';
+import { boot, registerBootStep, type BootOptions } from '../../src/lib/boot';
 import { fixedClock } from '../../src/lib/clock';
+import { offlineCloud } from '../helpers/stub-cloud';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const WALL = 1_761_000_000_000;
@@ -125,6 +128,8 @@ describe('health, heartbeat, HubStarted', () => {
       configPath: cfg.path,
       wallNow: () => WALL,
       monoNow: () => mono,
+      configClient: stubConfigCloud(),
+      cloudClient: offlineCloud(),
     });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(beat(booted.deps.db)).toBeUndefined();
@@ -138,7 +143,7 @@ describe('health, heartbeat, HubStarted', () => {
   });
 });
 
-function hubStarted(db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } }): {
+function hubStarted(db: Database.Database): {
   hub_down_at: number | null;
   hub_up_at: number;
   events_replayed: number;
@@ -157,8 +162,8 @@ function beat(db: { prepare: (sql: string) => { get: () => unknown } }): number 
   return row?.last_beat;
 }
 
-function bootOpts(cfg: { path: string }): { configPath: string; wallNow: () => number; monoNow: () => number } {
-  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0 };
+function bootOpts(cfg: { path: string }): BootOptions {
+  return { configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() };
 }
 
 function writeConfig(provisioned: boolean): { path: string; dataDir: string; cleanup: () => void } {

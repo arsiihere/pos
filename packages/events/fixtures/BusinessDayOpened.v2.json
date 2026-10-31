@@ -1,0 +1,26 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 2,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "hub",
+  "stream_id": "01J00000000000000000000003",
+  "event_type": "BusinessDayOpened",
+  "payload": {
+    "business_date": "2025-10-20",
+    "stock_units": {
+      "01J00000000000000000000010": "g"
+    },
+    "draws": {
+      "01J00000000000000000000010": {
+        "sale_unit": "piece",
+        "stock_draws": [{ "stock_item_id": "01J00000000000000000000010", "quantity_per_sale_unit": 250 }]
+      }
+    }
+  }
+}

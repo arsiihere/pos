@@ -62,7 +62,7 @@ function lock(hub: TestHub, subjectType: string, subjectId: string, lockedUntil:
 }
 
 function withConfig(config: BranchConfig): void {
-  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 1, appliedAt: 0 });
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: config.config_version, snapshotSchemaVersion: 2, appliedAt: 0 });
 }
 
 describe('admin list queries (§6.18a–c, M88)', () => {

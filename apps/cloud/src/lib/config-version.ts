@@ -62,3 +62,17 @@ export async function coversEveryBranch(db: TenantSql, ownerUserId: string): Pro
   );
   return rows[0]?.covers === true;
 }
+
+// §6 C4 (S8): the tenant-wide 403 before all, for a write that then bumps with bumpEveryBranch. The owner's
+// row decides (coversEveryBranch), never the JWT claim.
+export async function assertTenantWide(db: TenantSql, ownerUserId: string): Promise<void> {
+  if (!(await coversEveryBranch(db, ownerUserId))) {
+    throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
+  }
+}
+
+// 01c §6 (C4: the tenant-wide 403 before all): for a write that ran coversEveryBranch first, in its own
+// transaction. Bumps every branch, locked in branch_id order, without a second owner-row read (2 statements).
+export async function bumpEveryBranch(db: TenantSql): Promise<Array<{ branch_id: string; config_version: number }>> {
+  return bumpConfigVersion(db, { kind: 'tenant', ownerUserId: null });
+}

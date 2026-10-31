@@ -1,5 +1,5 @@
 import { formatQuantity } from '@pos/domain';
-import type { HubConfigStatus, HubStockItem, HubStockItemMeta } from '@pos/events';
+import type { HubConfigStatus, HubStockItem, HubStockItemMeta, HubStockRow, HubStockRowMeta } from '@pos/events';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { HubAdmin, HubError, StockVersions } from '../../../api/hub-admin';
 import { createHubClock, hubTimeText, type HubClock } from '../../../app/hub-clock';
@@ -15,7 +15,7 @@ import { SideNav } from '../../../components/SideNav';
 import { t, typeClass } from '../../../i18n';
 import { adminErrorKey, fill } from '../../../i18n/en';
 import { AdminLogin } from './AdminLogin';
-import type { StockRow } from './badges';
+import { pageRows } from './badges';
 import { AlertBar } from './AlertBar';
 import { CloseDayButton, DayChip, type BusinessDay } from './BusinessDayBar';
 import { ConfigChip, ConfigProblem } from './ConfigStatus';
@@ -42,7 +42,7 @@ export function StockApp({ api }: { api: HubAdmin }) {
 type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string; detail?: string };
 
 // A save or Add refused with 409 BUSINESS_DAY_NOT_OPEN, re-sent with the same command_id after Start day.
-type Blocked = { kind: 'save' } | { kind: 'add'; itemId: string; quantity: number };
+type Blocked = { kind: 'save' } | { kind: 'add'; stockItemId: string; quantity: number };
 
 function dayNotOpen(error: HubError): boolean {
   return error.kind === 'api' && error.code === 'BUSINESS_DAY_NOT_OPEN';
@@ -105,6 +105,9 @@ function Shell({ branchId, children }: { branchId: string | null; children: Reac
 
 function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => void }) {
   const [status, setStatus] = useState<HubConfigStatus | null>(null);
+  // 01c §6.21: the stock item rows and the availability rows per menu item.
+  const [stockMeta, setStockMeta] = useState<readonly HubStockRowMeta[]>([]);
+  const [stock, setStock] = useState<readonly HubStockRow[]>([]);
   const [meta, setMeta] = useState<readonly HubStockItemMeta[]>([]);
   const [items, setItems] = useState<readonly HubStockItem[]>([]);
   const [clock, setClock] = useState<HubClock | null>(null);
@@ -119,15 +122,16 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const [keepOpen, setKeepOpen] = useState(false);
   const [dayBusy, setDayBusy] = useState(false);
   const [blocked, setBlocked] = useState<Blocked | null>(null);
-  // S45: the per-row Add field values, kept across refreshes like the counts.
+  // S45: the per-row Add field values (per stock item), kept across refreshes like the counts.
   const [adds, setAdds] = useState<ReadonlyMap<string, number | null>>(new Map());
   const [offline, setOffline] = useState(false);
-  // Every row whose Count the user touched (edited, even back to the same number, or confirmed).
+  // Every stock row whose Count the user touched (edited, even back to the same number, or confirmed).
   const [drafts, setDrafts] = useState<ReadonlyMap<string, number | null>>(new Map());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  // B17: per-row feedback (added, a switch that failed).
+  // B17: per-row feedback: added (per stock item), a switch that failed (per menu item).
   const [notes, setNotes] = useState<ReadonlyMap<string, RowNote>>(new Map());
+  const [itemNotes, setItemNotes] = useState<ReadonlyMap<string, RowNote>>(new Map());
   const [savedLine, setSavedLine] = useState<string | null>(null);
   // The stock query refused (403, 409, 500): shown until the next good answer.
   const [queryError, setQueryError] = useState<Message | null>(null);
@@ -176,6 +180,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     setCounter(answer.manage_stock_scope === 'my_stations');
     versions.current = { meta_version: answer.meta_version, stock_version: answer.stock_version };
     // §6.19: an unchanged answer carries no item data; the rows stay.
+    if (answer.stock_items_meta !== null) setStockMeta(answer.stock_items_meta);
+    if (answer.stock !== null) setStock(answer.stock);
     if (answer.items_meta !== null) setMeta(answer.items_meta);
     if (answer.items !== null) setItems(answer.items);
   }, [api, onSignedOut]);
@@ -190,11 +196,10 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
 
   // S33: no day open (none yet, or the last one closed).
   const noDay = clock !== null && startedAt === null;
-  const byId = new Map(items.map((i) => [i.item_id, i]));
-  const rows: StockRow[] = meta.flatMap((m) => {
-    const item = byId.get(m.item_id);
-    return item === undefined ? [] : [{ meta: m, item }];
-  });
+  // 01c §3.5.4, §8: one row per stock item, its drawers under it; the other menu items as Selling rows.
+  const page = pageRows(stockMeta, stock, meta, items);
+  const rows = page.stock;
+  const rowOf = (stockItemId: string) => rows.find((r) => r.meta.stock_item_id === stockItemId);
   const openDay = day !== null && day.closed_at === null ? day.opened_at : null;
   const branchId = status?.branch_id ?? null;
   const staffId = api.staffId();
@@ -218,7 +223,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     const draft = loadDraft(localStore(), branchId, openDay, staffId);
     if (draft === null) return;
     const { touched, changed } = restoreDraft(draft, rows);
-    for (const entry of draft.entries) if (touched.has(entry.item_id)) bases.current.set(entry.item_id, entry.base_set_at);
+    for (const entry of draft.entries) if (touched.has(entry.stock_item_id)) bases.current.set(entry.stock_item_id, entry.base_set_at);
     if (touched.size > 0) {
       setDrafts((d) => new Map([...touched, ...d]));
       setRestored(new Set(touched.keys()));
@@ -227,7 +232,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       setKept({
         n: touched.size,
         time: hubTimeText(draft.saved_at, clock.utcOffsetMs),
-        changed: changed.map((c) => `${c.name} (${formatQuantity(c.now, rows.find((r) => r.meta.item_id === c.item_id)?.meta.stock_unit ?? 'piece')})`),
+        changed: changed.map((c) => `${c.name} (${formatQuantity(c.now, rowOf(c.stock_item_id)?.meta.stock_unit ?? 'piece')})`),
       });
     }
   });
@@ -236,43 +241,37 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   useEffect(() => {
     if (key === null || clock === null) return;
     const entries = [...drafts].flatMap(([id, value]) => {
-      const row = rows.find((r) => r.meta.item_id === id);
+      const row = rowOf(id);
       return value === null || row === undefined
         ? []
-        : [{ item_id: id, on_hand: value, unit: row.meta.stock_unit, base_set_at: bases.current.get(id) ?? row.item.set_at }];
+        : [{ stock_item_id: id, on_hand: value, unit: row.meta.stock_unit, base_set_at: bases.current.get(id) ?? row.stock.set_at }];
     });
     saveDraft(localStore(), key, { saved_at: clock.nowMs(), entries });
     // rows and clock are read, not watched: only an edit (or a new day or person) writes.
   }, [drafts, key]);
 
-  const edit = (itemId: string, value: number | null) => {
-    if (!bases.current.has(itemId)) bases.current.set(itemId, byId.get(itemId)?.set_at ?? null);
+  const edit = (stockItemId: string, value: number | null) => {
+    if (!bases.current.has(stockItemId)) bases.current.set(stockItemId, rowOf(stockItemId)?.stock.set_at ?? null);
     setSavedLine(null);
-    setDrafts((d) => new Map(d).set(itemId, value));
+    setDrafts((d) => new Map(d).set(stockItemId, value));
   };
-  const confirm = (itemId: string) => {
-    const row = rows.find((r) => r.meta.item_id === itemId);
-    if (row !== undefined) edit(itemId, shownOnHand(row));
+  const confirm = (stockItemId: string) => {
+    const row = rowOf(stockItemId);
+    if (row !== undefined) edit(stockItemId, shownOnHand(row));
   };
 
   // S56: rows carried over from the last day, still unconfirmed.
   const carried = rows.filter(
-    (r) =>
-      r.meta.is_stock_tracked &&
-      r.meta.carries_over &&
-      startedAt !== null &&
-      shownOnHand(r) !== null &&
-      r.item.set_at !== null &&
-      r.item.set_at < startedAt,
+    (r) => r.meta.carries_over && startedAt !== null && shownOnHand(r) !== null && r.stock.set_at !== null && r.stock.set_at < startedAt,
   );
-  const carriedOpen = carried.filter((r) => !drafts.has(r.meta.item_id));
+  const carriedOpen = carried.filter((r) => !drafts.has(r.meta.stock_item_id));
 
   const save = async (override?: ReadonlyMap<string, number | null>) => {
     const current = override ?? drafts;
-    // Config order; a cleared input has no number to send.
+    // Row order; a cleared input has no number to send (01c §6.18: by stock item).
     const entries = rows.flatMap(({ meta: m }) => {
-      const value = current.get(m.item_id);
-      return m.is_stock_tracked && value !== undefined && value !== null ? [{ item_id: m.item_id, on_hand: value }] : [];
+      const value = current.get(m.stock_item_id);
+      return value !== undefined && value !== null ? [{ stock_item_id: m.stock_item_id, on_hand: value }] : [];
     });
     if (entries.length === 0) {
       setMessage({ tone: 'info', text: t('admin_stock.nothing_to_save') });
@@ -300,14 +299,14 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       setDrafts((d) => {
         const next = new Map(d);
         for (const e of saved) {
-          if (next.get(e.item_id) === e.on_hand) {
-            next.delete(e.item_id);
-            bases.current.delete(e.item_id);
+          if (next.get(e.stock_item_id) === e.on_hand) {
+            next.delete(e.stock_item_id);
+            bases.current.delete(e.stock_item_id);
           }
         }
         return next;
       });
-      setRestored((r) => new Set([...r].filter((id) => !saved.some((e) => e.item_id === id))));
+      setRestored((r) => new Set([...r].filter((id) => !saved.some((e) => e.stock_item_id === id))));
     }
     if (failure !== null) {
       if (failure.kind === 'signed_out') onSignedOut();
@@ -317,8 +316,9 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
       } else if (outsideScope(failure)) {
         setMessage(errorMessage(failure));
         await refresh();
-      } else if (failure.kind === 'api' && (failure.code === 'STOCK_NOT_TRACKED' || failure.code === 'MENU_ITEM_NOT_FOUND')) {
-        const gone = rows.find((r) => r.meta.item_id === failure?.details['item_id'])?.meta.name ?? '';
+      } else if (failure.kind === 'api' && failure.code === 'STOCK_ITEM_NOT_FOUND') {
+        // 01c §6.18: the stock item is no longer counted here.
+        const gone = rows.find((r) => r.meta.stock_item_id === failure?.details['stock_item_id'])?.meta.name ?? '';
         setMessage({ tone: 'info', text: fill(t('admin_stock.not_counted_now'), { name: gone }) });
         await refresh();
       } else setMessage(errorMessage(failure));
@@ -335,44 +335,44 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   const confirmAll = async () => {
     const next = new Map(drafts);
     for (const row of carriedOpen) {
-      if (!bases.current.has(row.meta.item_id)) bases.current.set(row.meta.item_id, row.item.set_at);
-      next.set(row.meta.item_id, shownOnHand(row));
+      if (!bases.current.has(row.meta.stock_item_id)) bases.current.set(row.meta.stock_item_id, row.stock.set_at);
+      next.set(row.meta.stock_item_id, shownOnHand(row));
     }
     setDrafts(next);
     await save(next);
   };
 
-  const add = async (itemId: string, given?: number) => {
-    const quantity = given ?? adds.get(itemId);
+  const add = async (stockItemId: string, given?: number) => {
+    const quantity = given ?? adds.get(stockItemId);
     if (quantity === undefined || quantity === null || quantity === 0) return;
-    const pending = pendingAdds.current.get(itemId);
+    const pending = pendingAdds.current.get(stockItemId);
     const commandId = pending?.quantity === quantity ? pending.commandId : newUlid();
-    pendingAdds.current.set(itemId, { commandId, quantity });
+    pendingAdds.current.set(stockItemId, { commandId, quantity });
     setMessage(null);
-    setNotes((n) => new Map(n).set(itemId, { tone: 'info', text: t('admin_stock.adding') }));
-    const answer = await api.addPrecookedStock({ entries: [{ item_id: itemId, quantity }] }, commandId);
+    setNotes((n) => new Map(n).set(stockItemId, { tone: 'info', text: t('admin_stock.adding') }));
+    const answer = await api.addPrecookedStock({ entries: [{ stock_item_id: stockItemId, quantity }] }, commandId);
     setNotes((n) => {
       const next = new Map(n);
-      next.delete(itemId);
+      next.delete(stockItemId);
       return next;
     });
     if (!answer.ok) {
       if (answer.error.kind === 'signed_out') onSignedOut();
       else if (dayNotOpen(answer.error)) {
         if (counter) askForStarter();
-        else setBlocked({ kind: 'add', itemId, quantity });
+        else setBlocked({ kind: 'add', stockItemId, quantity });
       } else {
         setMessage(errorMessage(answer.error));
         if (outsideScope(answer.error)) await refresh();
       }
       return;
     }
-    pendingAdds.current.delete(itemId);
-    const unit = rows.find((r) => r.meta.item_id === itemId)?.meta.stock_unit ?? 'piece';
-    setNotes((n) => new Map(n).set(itemId, { tone: 'ok', text: fill(t('admin_stock.added'), { n: formatQuantity(quantity, unit) }) }));
+    pendingAdds.current.delete(stockItemId);
+    const unit = rowOf(stockItemId)?.meta.stock_unit ?? 'piece';
+    setNotes((n) => new Map(n).set(stockItemId, { tone: 'ok', text: fill(t('admin_stock.added'), { n: formatQuantity(quantity, unit) }) }));
     setAdds((a) => {
       const next = new Map(a);
-      if (next.get(itemId) === quantity) next.delete(itemId);
+      if (next.get(stockItemId) === quantity) next.delete(stockItemId);
       return next;
     });
     await refresh();
@@ -392,7 +392,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     const retry = blocked;
     setBlocked(null);
     if (retry?.kind === 'save') await save();
-    else if (retry?.kind === 'add') await add(retry.itemId, retry.quantity);
+    else if (retry?.kind === 'add') await add(retry.stockItemId, retry.quantity);
     else await refresh();
   };
 
@@ -432,14 +432,14 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
     if (!answer.ok) {
       if (answer.error.kind === 'signed_out') onSignedOut();
       else {
-        setNotes((n) =>
+        setItemNotes((n) =>
           new Map(n).set(itemId, { tone: 'danger', text: t(isAvailable ? 'admin_stock.switch_on_failed' : 'admin_stock.switch_off_failed') }),
         );
         if (answer.error.kind !== 'network') setMessage(errorMessage(answer.error));
       }
       return;
     }
-    setNotes((n) => {
+    setItemNotes((n) => {
       const next = new Map(n);
       next.delete(itemId);
       return next;
@@ -465,8 +465,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   };
 
   const touched = [...drafts.values()].filter((v) => v !== null).length;
-  const tracked = rows.filter((r) => r.meta.is_stock_tracked);
-  const countedToday = tracked.filter((r) => !toCount(r, startedAt)).length;
+  const countedToday = rows.filter((r) => !toCount(r, startedAt)).length;
   const name = api.adminName();
 
   const info = offline ? (
@@ -482,11 +481,11 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
   ) : savedLine !== null ? (
     <>
       <strong>{savedLine}</strong>
-      {countedToday === tracked.length && tracked.length > 0 && <span>{t('admin_stock.all_counted')}</span>}
+      {countedToday === rows.length && rows.length > 0 && <span>{t('admin_stock.all_counted')}</span>}
     </>
   ) : (
     <>
-      <strong>{fill(t('admin_stock.counted_n'), { n: String(countedToday), m: String(tracked.length) })}</strong>
+      <strong>{fill(t('admin_stock.counted_n'), { n: String(countedToday), m: String(rows.length) })}</strong>
       <span>{t('admin_stock.save_help')}</span>
     </>
   );
@@ -511,8 +510,8 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
             day={day}
             clock={clock}
             busy={dayBusy}
-            keepsOvernight={tracked.filter((r) => r.meta.carries_over).map((r) => r.meta.name)}
-            switchedOff={rows.filter((r) => !r.item.is_available).map((r) => r.meta.name)}
+            keepsOvernight={rows.filter((r) => r.meta.carries_over).map((r) => r.meta.name)}
+            switchedOff={page.all.filter((r) => !r.item.is_available).map((r) => r.meta.name)}
             onClose={() => void closeDay()}
           />
         )}
@@ -580,6 +579,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
         {clock !== null && (
           <StockTable
             rows={rows}
+            items={page.items}
             startedAt={startedAt}
             clock={clock}
             drafts={drafts}
@@ -590,6 +590,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
             onAddEdit={(id, v) => setAdds((a) => new Map(a).set(id, v))}
             onAdd={(id, quantity) => void add(id, quantity)}
             notes={notes}
+            itemNotes={itemNotes}
             restored={restored}
             focusId={focus}
           />
