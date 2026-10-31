@@ -1,6 +1,6 @@
 # 01c status board
 
-Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.md`.
+Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.1.md` (as built; tasks 1–39 were built against v1.0.1).
 
 ## Deviations (AD-n)
 
@@ -102,6 +102,8 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 | 37 | DEFERRED | — | #115 (deferred) | AD-35: deferred to the UI module ("Pulse" design pass); requirements in `docs/plans/01c-ui-contract.md` |
 | 38 | DONE | `c051a4e` | [01c §7] (`test/cli/seed-demo.int.test.ts`) | `seed-demo` seeds the §7 data through the owner API (AD-36): variant group, Karahi pot and 6 converted stock items with §6.9 rows and draws, Spice level, Bread, Family karahi deal sold at every branch; m-7 fixed (no 01a stock fields sent); a second run writes nothing |
 | 39 | IN PROGRESS (manual checks pending) | — | §12.1 steps 1–3 done (see the batch 12 notes); steps 4–5 in `docs/plans/01c-manual-checks.md`, waiting for the developer's results | Not done until the manual results are in |
+| 40 | DONE | `45b6cc8`, `a9b9a14`, `11bba40`, `6cb48ad` | [01b R-3] (`scratch-db.int.test.ts`), [01c §7] AD-36 b partial seed | Final-review fixes (developer brief 2026-10-30): qrcode casts dropped; scratch databases of dead pids swept on first use; seed-demo detects a half-finished seed (last staff PIN missing → `partially seeded`, exit 1, nothing written); dead exports `parseStoredSnapshot` (hub) deleted, `withItemRestart` unexported |
+| 41 | DONE | `00e7783` (spec), `515c045` (plan), `45594c8` | #129 | Spec 01c v1.1 P2 (approved): `archived_parts: [{ deal_part_id, quantity, choices: [{ item_id }] }]`, choices in `sort_order` then `item_id`, not hashed into the deal `version`; no new statement (§6.13 list still 5); audit `after` still leaves it out (AD-30 d). Coverage now 125 distinct numbers (1–129 without 71, 72, 115, 124) |
 
 ## Checkpoints
 
@@ -212,10 +214,36 @@ Plan: `docs/plans/01c-plan.md`. Spec: `docs/specs/01c_Menu_Variants_Spec_v1.0.1.
 - Open seams: none.
 - Next: batch 12 (tasks 38–39) per AD-35; batch 11 deferred.
 
-### Batch 12 (§11 step 16, DoD) — 2026-10-30, in progress
+### Batch 12 (§11 step 16, DoD) — 2026-10-30, in progress (manual checks pending)
 
 - Task 38 done (`c051a4e`, full per-task cycle, review clean): `seed-demo` seeds §7 through the owner API (variant group Chicken Karahi, Half 500 g / Full 1 000 g of one Karahi pot counted at Karahi at all three branches; Spice level on category Karahi; Bread with linked Naan; Family karahi deal sold at every branch); m-7 fixed (no dropped 01a stock fields; the 01a per-item stock became stock items with §6.9 rows and draws); a second run prints "already seeded" and exits 0 (AD-36 b); every branch snapshot parses with schema 2 (`[01c §7]`).
 - Task 39 step 1 (clean checkout + fresh Postgres): a new git worktree at `c051a4e` and a throwaway `postgres:16` on port 5434 (`pos-pg-test` holds `pos_manual`, so it was not recreated); `pnpm -w typecheck && pnpm -w lint && pnpm -w test` green: 242 files, 1157 tests, 645 s wall (vitest 605 s), no 57P01, no 40P01. Turbo in a worktree reads the main repo's `.turbo/cache` (5 typecheck tasks replayed), so typecheck was rerun with `--force`: 12 tasks, 0 cached, green. Worktree and container removed.
 - Task 39 step 2 (coverage): 124 distinct `[01c #N]` numbers, none missing or extra (1–128 without 71, 72 retired and 115, 124 deferred, AD-35). Each sits in exactly one `it()` / `it.each()` except **#99** (two tests: the §6.9 and the §6.16 halves of the row) and **#116** (two tests: POST and PATCH, as plan task 25 lists it). 01a §4.5 re-keys all present except #41 (retired by plan P-12, replaced by 01c #21); 01a #140 on two tests (developer-approved); 01b #34 present.
 - Task 39 step 3 (§12.2): all 17 cloud admin routes are in `ROUTE_CASES` (auth, cross-tenant and guard suites), as is `GET /v1/sync/config`; the four new POSTs answer through `sendIdempotent` (the item POST in the restaurant routes, 01a); 11 write functions, 11 audit writes; every test the table lists is present (step 2) and green (step 1).
 - Task 39 steps 4–5: runbook `docs/plans/01c-manual-checks.md` (Part A stock page on the 01c seed; Part B a real upgrade on one database: pre-01c cloud and hub, then the 01c cloud, then the 01c hub). Waiting for the developer's results; task 39 is not done until they are in.
+
+### Final whole-branch review and as-built pass — 2026-10-31
+
+- Fresh opus reviewer on `9b49b58..dc7ecc2` (whole branch, against the spec, plan and every AD-n): **0 BLOCKER**, 1 IMPORTANT, 5 MINOR. The IMPORTANT is not a code defect: task 39 steps 4–5 (manual checks, Part B real upgrade) have no results yet, so the DoD is still open. Sampled ADs match the code; seams gone; races evidenced.
+- Fixes, each implementer + fresh opus reviewer (all APPROVE), one commit each: `45b6cc8` qrcode casts; `a9b9a14` scratch-database sweep (01b R-3); `11bba40` seed-demo half-finished seed; `6cb48ad` dead exports; `45594c8` P2 (task 41, test #129).
+- As-built docs (fresh reviewer, 0 BLOCKER; its IMPORTANT and MINOR items applied): `00e7783` 01c spec v1.1 (AD-1, 6, 7, 8, 9, 11, 13, 16, 17, 19, 21, 23, 25, 26, 27, 28, 30, 31, 33, 34, 37; P1, P2; sync bound; deferred UI AD-35, now built on `ui-pulse`) and 01b spec v1.3 (P1 stale save keeps the draft), README module map (01b → v1.3, 01c → v1.1) and carried rows (R32); `515c045` plan (spec v1.1, AD-4 gate, task 41); `5b057db` `docs/manual-test-e2e.md` (14 items — the seed has 14, not 13; cloud migrations to 0006, hub to 0005; second-run / partial-seed messages; stock rows keyed by stock item). v1.0.1 and v1.2 unchanged; their "Proposed — needs approval" sections kept as history.
+- Gate (controller only, one at a time, never while a subagent tested): after `45b6cc8` 1 failed / 1157 passed — the failure is 00 #53 (`login.int.test.ts`, untouched by 01c) timing assertion under load (186 ms vs 2 × 33 ms); the file alone passed 3/3. After `a9b9a14` green: 243 files, 1158 tests, 0 leftover scratch databases. After `11bba40`, `6cb48ad` and the P2 tree: 1 failed / 1159 passed, the same 00 #53 timing check (50 ms vs 48 ms). Final run on `45594c8` + this board: **green**, 243 files, 1160 tests, typecheck (src and tests) and lint clean, 639 s wall (vitest 613 s); no 57P01, no 40P01; 0 leftover scratch databases.
+- Coverage: 125 distinct `[01c #N]` numbers (1–129 without 71, 72 retired and 115, 124 deferred); #129 only in `deals.int.test.ts`.
+
+#### Left for later
+
+| Item | Reason |
+|---|---|
+| Task 39 steps 4–5 (manual checks, `docs/plans/01c-manual-checks.md`) | Needs the developer on real hardware/data; task 39 and the DoD stay open until the results are recorded. Do not merge before |
+| 00 #53 login timing flake (`apps/cloud/test/owner-auth/login.int.test.ts:69`, one sample each side, ≤ 2×) | Pre-01c test outside this module's files; fails under machine load (2 of 4 gate runs today), passes alone. Fix belongs to a 00 follow-up (e.g. median of several samples or an absolute floor) |
+| Hub stock query `is_stock_tracked` (from config draws) can disagree with `stock_item_ids` (frozen day draws) after a mid-day change (`apps/hub/src/queries/stock.ts:146`, `:149`) | Display only, the client no longer reads it for stock rows; changing an 01a field's meaning is a behaviour change, so it goes spec-first |
+| Scratch database prefix `pos_test_0005_` is stale (0006 tests use it too) | Cosmetic; renaming would orphan databases from older checkouts that the new sweep matches by prefix |
+| Sweep test: silent early `return` when the dead pid is reused (`scratch-db.int.test.ts:37`, could be `ctx.skip()`); quoted vs unquoted identifiers; `pidAlive` duplicated in the test | Cosmetic |
+| `apps/hub/src/lib/qr.test.ts:14` `loaded.create ?? loaded.default.create` | Cosmetic; both resolve |
+| Seed test 2 depends on test 1's seeded database (`seed-demo.int.test.ts:153`) | Matches the file's existing pattern; vitest runs a file's tests in order |
+| Unused event schema exports `StockSetV2`, `StockAddedV2`, `BusinessDayOpenedV2` (+ payloads) | Behind the `@pos/events` barrel; the `defineEvent` call registers the event — not dead |
+| Urdu "Not used by any dish here" (batch 6) | Needs a native-speaker check |
+| Batch 2 minors "listed in the build ledger" | No 01c build ledger is in the repo, so they could not be checked one by one; the whole-branch review covered the full diff |
+| `docs/plans/01a-plan.md:282` and `docs/reviews/01a-auto/fix-09.md:22` still name `parseStoredSnapshot` | Historical 01a docs; the removal and its reason are in `6cb48ad`'s message |
+
+**Closing summary.** Module 01c is code-complete on `module-01c` (tasks 1–33, 38, 40, 41 done; 34–37 built on `ui-pulse`, AD-35). Specs as built: 01c v1.1, 01b v1.3. The final review found no blocker. The one open DoD item is task 39 steps 4–5, the developer's manual checks. Not merged, not pushed.
