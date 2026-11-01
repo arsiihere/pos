@@ -478,7 +478,7 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
   });
 
-  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 9 statements', async () => {
+  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 10 statements (01b v1.4 B-1)', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
     const input: DirectoryInput = {
@@ -539,7 +539,7 @@ describe('applyStaffDirectory', () => {
     // restart: the cache read back equals what the apply handed over
     const counter = statementCounter(db);
     const loaded = Directory.load(db);
-    expect(counter.count).toBe(9);
+    expect(counter.count).toBe(10);
     expect(loaded).toEqual(applied);
     expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'], scope: 'branch' });
   });
@@ -601,6 +601,118 @@ describe('applyStaffDirectory', () => {
       { kind: 'responsibility', id: 'count_stock:ST_GRILL:S_NO_PIN', reason: 'unknown staff' },
     ]);
     expect(db.prepare('SELECT permission FROM role_permissions').pluck().all()).toEqual(['reprint-ticket']);
+  });
+
+  it('[01d #31] no_pin_staff applied: in teamOf({ includeNoPin }), not in the roster; a PIN set moves lists in one version; an older cloud (no field) applies', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    let current: StaffDirectory | undefined;
+    const v1 = dir(1, hash, ['reprint-ticket'], ['S_ALI']);
+    v1.no_pin_staff = [{ staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' }];
+    writer.run((tx) => applyStaffDirectory(tx, v1, (next) => (current = next)));
+    for (const directory of [current!, Directory.load(db)]) {
+      expect(directory.teamOf('S_ALI')).toEqual([]);
+      expect(directory.teamOf('S_ALI', { includeNoPin: true })).toEqual(['S_SANA']);
+      expect(directory.list().map((row) => row.staff_id)).toEqual(['S_ALI']);
+      expect(directory.noPinStaff()).toEqual([{ staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' }]);
+    }
+    expect(db.prepare('SELECT staff_id, display_name, lead_staff_id FROM no_pin_staff').all()).toEqual([
+      { staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' },
+    ]);
+
+    // v2: Sana's PIN is set; the cloud moves her from no_pin_staff to staff in the same version
+    const applied = () => events(db).filter((event) => event.event_type === 'StaffDirectoryApplied');
+    const before = applied().length;
+    const v2 = dir(2, hash, ['reprint-ticket'], ['S_ALI', 'S_SANA']);
+    v2.staff[1]!.lead_staff_id = 'S_ALI';
+    v2.no_pin_staff = [];
+    writer.run((tx) => applyStaffDirectory(tx, v2, (next) => (current = next)));
+    expect(applied().length).toBe(before + 1);
+    expect(applied().at(-1)?.payload).toMatchObject({ directory_version: 2, staff_count: 2, removed_staff_ids: [], skipped: [] });
+    expect(db.prepare('SELECT staff_id FROM staff ORDER BY staff_id').pluck().all()).toEqual(['S_ALI', 'S_SANA']);
+    expect(db.prepare('SELECT COUNT(*) FROM no_pin_staff').pluck().get()).toBe(0);
+    for (const directory of [current!, Directory.load(db)]) {
+      expect(directory.teamOf('S_ALI')).toEqual(['S_SANA']);
+      expect(directory.list().map((row) => row.staff_id)).toEqual(['S_ALI', 'S_SANA']);
+      expect(directory.noPinStaff()).toEqual([]);
+      expect(directory.isNoPin('S_SANA')).toBe(false);
+    }
+
+    // v3 from an older cloud: no no_pin_staff key at all
+    const v3 = dir(3, hash, ['reprint-ticket'], ['S_ALI']);
+    expect('no_pin_staff' in v3).toBe(false);
+    expect(writer.run((tx) => applyStaffDirectory(tx, v3, (next) => (current = next))).result).toEqual({ applied: true });
+    expect(current!.version).toBe(3);
+    expect(current!.noPinStaff()).toEqual([]);
+    expect(Directory.load(db).noPinStaff()).toEqual([]);
+  });
+
+  it('[01b B-1] the no_pin_staff cache is replaced whole and StaffDirectory.load issues 10 statements', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const v1 = dir(1, hash, ['reprint-ticket'], ['S_ALI']);
+    v1.no_pin_staff = [
+      { staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' },
+      { staff_id: 'S_ADIL', display_name: 'Adil', lead_staff_id: null },
+    ];
+    writer.run((tx) => applyStaffDirectory(tx, v1, () => undefined));
+    const v2 = dir(2, hash, ['reprint-ticket'], ['S_ALI']);
+    v2.no_pin_staff = [{ staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: 'S_ALI' }];
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, v2, (next) => (applied = next)));
+    expect(db.prepare('SELECT staff_id, display_name, lead_staff_id FROM no_pin_staff ORDER BY staff_id').all()).toEqual([
+      { staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: 'S_ALI' },
+    ]);
+    const counter = statementCounter(db);
+    const loaded = Directory.load(db);
+    expect(counter.count).toBe(10);
+    expect(loaded).toEqual(applied);
+    expect(loaded.noPinStaff()).toEqual([{ staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: 'S_ALI' }]);
+
+    // a staff_id is in exactly one list: a no_pin_staff entry repeating a kept one is skipped, the rest applies
+    const v3 = dir(3, hash, ['reprint-ticket'], ['S_ALI']);
+    v3.no_pin_staff = [
+      { staff_id: 'S_ALI', display_name: 'Ali again', lead_staff_id: null },
+      { staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: null },
+      { staff_id: 'S_ZAIN', display_name: 'Zain twice', lead_staff_id: null },
+    ];
+    writer.run((tx) => applyStaffDirectory(tx, v3, () => undefined));
+    expect(db.prepare('SELECT staff_id, display_name FROM no_pin_staff').all()).toEqual([{ staff_id: 'S_ZAIN', display_name: 'Zain' }]);
+    expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
+      { kind: 'staff', id: 'S_ALI', reason: 'duplicate staff' },
+      { kind: 'staff', id: 'S_ZAIN', reason: 'duplicate staff' },
+    ]);
+  });
+
+  it('[01b B-6] a lead naming a no_pin_staff person is kept; a lead naming someone in neither list is skipped', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const input = dir(1, hash, ['reprint-ticket'], ['S_ALI', 'S_BILAL']);
+    input.staff[0]!.lead_staff_id = 'S_SANA';
+    input.staff[1]!.lead_staff_id = 'S_GHOST';
+    input.no_pin_staff = [
+      { staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' },
+      { staff_id: 'S_ADIL', display_name: 'Adil', lead_staff_id: 'S_NOBODY' },
+    ];
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, input, (next) => (applied = next)));
+    expect(db.prepare('SELECT staff_id, lead_staff_id FROM staff ORDER BY staff_id').all()).toEqual([
+      { staff_id: 'S_ALI', lead_staff_id: 'S_SANA' },
+      { staff_id: 'S_BILAL', lead_staff_id: null },
+    ]);
+    expect(db.prepare('SELECT staff_id, lead_staff_id FROM no_pin_staff ORDER BY staff_id').all()).toEqual([
+      { staff_id: 'S_ADIL', lead_staff_id: null },
+      { staff_id: 'S_SANA', lead_staff_id: 'S_ALI' },
+    ]);
+    for (const directory of [applied!, Directory.load(db)]) {
+      expect(directory.leadOf('S_ALI')).toBe('S_SANA');
+      expect(directory.leadOf('S_BILAL')).toBeNull();
+      expect(directory.teamOf('S_SANA')).toEqual(['S_ALI']);
+    }
+    expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
+      { kind: 'lead', id: 'S_BILAL:S_GHOST', reason: 'unknown staff' },
+      { kind: 'lead', id: 'S_ADIL:S_NOBODY', reason: 'unknown staff' },
+    ]);
   });
 
   it('[01b #84] unknown approvers are dropped; a grant left with none is skipped; the rest applies', async () => {

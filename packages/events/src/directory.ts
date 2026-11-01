@@ -43,6 +43,17 @@ export const DirectorySchema = z.object({
       role_ids: z.array(z.string()),
     }),
   ),
+  // 01b v1.4 B-1: active staff at the branch without a PIN, for alert targeting only. Optional: an older
+  // cloud omits it (B18 a).
+  no_pin_staff: z
+    .array(
+      z.object({
+        staff_id: z.string(),
+        display_name: z.string(),
+        lead_staff_id: z.string().nullable(),
+      }),
+    )
+    .optional(),
 });
 
 export type DirectoryInput = z.infer<typeof DirectorySchema>;
