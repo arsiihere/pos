@@ -38,7 +38,30 @@
 | OVERRIDDEN | `closed`, reason `overridden` | **04.** It is not an answer from an approver: 04 owns the rule (must be ON, default OFF), the manager's permission and the reason, writes its own override event, then closes the 01d request through the same call as G1-7b. 01d only stops attempts and tells the requester and targets. |
 | — (not in §4.5) | `withdrawn` | 01d; **04 must define** what a withdrawn void means for the item (proposed: the void never happened, item stays at full price) |
 
+G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void meaning.
+
+## 1b. Receipts
+
+| ID | Decision |
+|---|---|
+| G1-8 | **Delivery receipts are synced events**: **delivered** and **seen** only. "Sent" is taken from the attempt event (it lists targets and routes); "answered" is the request's answer event. |
+| G1-8a | **Stream:** receipt events go on the existing **`audit`** stream_type, not the subject's stream: ~5,000 receipts per rush would load the order stream 03a replays (R6, 90 s boot budget), and the engine never needs them. They still sync to the cloud and show on the owner's remote view. Payload carries the notification id and the subject (`stream_type` + `stream_id`) to join back. |
+| G1-8b | Only the **first** delivered and the **first** seen per person per device per notification are recorded; repeats are dropped on the hub. |
+| G1-8c | **Batched writes:** receipts are appended in batches (flush every 1–2 s or N receipts, whichever first), one transaction per batch, since each commit is an fsync under `synchronous=FULL`. A hub crash may lose the last batch; **acceptable for receipts only** (no other 01d write is batched). |
+| G1-8d | **Pager route:** sent only (from the attempt event); no receipts (01e). |
+| G1-8e | **Sizing re-check** (below). |
+
+**Sizing re-check (R6).** R6 assumes 2,000 orders/day ≈ 40,000 events/day (≈ 20 per order). 01d adds per order, at design size: Ready to serve per point (~1.5 points) × ~1.3 attempts ≈ 2 attempt events; receipts ≈ 2 attempts × ~3 people × 1 device × 2 (delivered, seen) ≈ 12; plus Served card, slip and request traffic ≈ 2–4. So **≈ 16–18 extra events per order, ≈ 32–36k per day: total ≈ 75k events/day, of which ≈ 45k are on replayed streams** (order, table, station, stock) and ≈ 30k on `audit`.
+
+Finding: foundation §5.8 step 3 replays `SELECT * FROM events WHERE branch_id = ? AND seq > snapshot.last_seq`, **all stream types**. Putting receipts on `audit` keeps them out of the replay **only if 03a filters replay by `stream_type`** (with an index that serves it). Without that, G1-8a saves nothing at boot.
+
 ## 2. Carried rows
+
+### To 03a
+
+| Row | Item |
+|---|---|
+| G1-8e | Size snapshots and replay against **≈ 75k events/day** (≈ 45k on replayed streams, ≈ 30k `audit`) instead of R6's 40k. Engine replay reads only the stream types its reducers use (skip `audit`), with an index serving `(branch_id, stream_type, seq)` or equivalent; this changes the foundation §5.8 step 3 query text, so it lands through the foundation v1.8 bump (R34). Cloud sync volume roughly doubles; note for 06 sizing. |
 
 ### To 01e (pilot, mandatory)
 
