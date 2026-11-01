@@ -171,3 +171,39 @@
 - **AD-46:** BF-3 is correct. Align the §3.7 / §5.2 wording at the as-built review.
 - **AD-49:** reword #27 to "no active binding is left".
 - **00 #53** (cloud `login.int` timing ratio): a known flaky 00 test and a 00 open item, not caused by 01d. When it fails under full-suite load, re-running it alone is acceptable for the gate. It is not fixed.
+
+## Batch 5 — Receipts and the request commands (2026-11-02)
+
+- **Tasks:**
+  - 21: receipt buffer and `receipt` frames (§3.6, A11).
+  - 22: `AnswerRequest` rules, session answers, first answer wins.
+  - 23: `AnswerRequest` with PIN and in person, counted failures, `pin_use_failed` (BF-1, BF-2).
+  - 24: `approval_receipt`, `answered_on_requester_device`, hidden from the answering seat.
+  - 25: `WithdrawRequest`.
+- **Commits:** `d83360a` (21), `3a0687a` (22), `bf56a68` + `f2b04ee` ruling fix (23), `229635e` (24), `ff632b1` (25).
+- **Reviews:**
+  - HIGH tasks 22, 23 and 24 were each reviewed alone; NORMAL tasks 21 and 25 were reviewed as a pair. All reviews were by opus and all approved with 0 Critical and 0 Important.
+  - Task 22: no PIN-free path.
+  - Task 23: no PIN leak and no reachable counter bypass. One spec gap, ruled by the controller (AD-99): the `pin_use_failed` raise inside `onPrepareFailed` is caught, so a matched PIN keeps its count (rule 4 (d)). Fixed in `f2b04ee`, and the re-review found it addressed.
+  - Task 24: no details leak.
+- **Temporary guard:** task 22's temporary `in_person` guard was removed in task 23, as planned.
+- **Gate:** green on the first run, 272 files and 1680 tests.
+- **Tests closed:**
+  - task 21: #23, #30
+  - task 22: #6, #7, #8, #9, #18
+  - task 23: #11, #44, #54, #56 (hub), #60, #66
+  - task 24: #12
+  - task 25: #13
+- **AD rows (proposed):** AD-83 to AD-105.
+- **For the developer to confirm:** AD-88. Receipts for closed alerts are accepted; a duplicate `AlertDelivered` after a restart is harmless, and task 38 prunes per alert.
+- **Carried to later tasks:**
+  - Task 26: re-assert #23 ("a rolled-back `MarkAlertsSeen` buffers no `AlertSeen`") with the real command. A seen from the hidden seat closes nothing.
+  - Tasks 32 / 34 / 35: hiding in the inbox, catch-up and `alerts_open`.
+  - Task 38: prune the receipt recorded and `sentVia` sets per alert.
+  - 00 (not 01d): `@fastify/websocket` is registered with no `maxPayload`, so the 100 MiB default applies before auth.
+- **Deferred minors (for the final review):**
+  - (21) The `active` singleton.
+  - (22) A test assertion `>= 1` that should be `=== 2`; `recheckAuth` duplicated; a likely flake source in the ws-client 1 s window under argon2 load.
+  - (23) RF-2 lacks the cases with no PIN; WS hiding is asserted only through DB columns.
+  - (24) The `{}` details fallback is untested; an accept kind answered by PIN on the raising device is untested.
+  - (25) A 2-line station guard is duplicated.
