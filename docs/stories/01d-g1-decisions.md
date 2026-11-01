@@ -143,6 +143,9 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-18b | The shift-start pager screen (G1-17a) shows people with no route at all ("Ali: no pager, no device"), so it is fixed before service. A hint, not a block. *Spec note: there is no "on shift" record for waiters (only the cashier shift, D21); the hint lists the active branch staff in the assigner's team tree, or all active branch staff for a manager, unless 01b / 02 adds a shift.* |
 | G1-18c | **G0 D2 / H0 wording, as amended:** the product works without hardware because a person with no pager and no bound device is covered by their lead's tablet; pagers and button devices only add speed. |
 
+| G1-19 | **The personal-phone alert app waits until after the pilot (§12.4).** Personal phones stay browser-only (00 M38), covered by the G1-13 device binding while the page is open; no APK for personal phones; R14 narrowed as G0 D6. Reason: a sideloaded app is not device owner, so no silent update (G1-15), per-brand battery steps, and maker-killed background services, for no pilot flow. **Post-pilot product item:** customers without hardware may want it. |
+| G1-20 | *Proposed — owner may prefer to skip it.* **"Present today" presence record** instead of a shift system. The shift-start screen (pager and lane assignment, G1-17a / G0-3) has a tick list; ticking writes an event on the `staff` stream (who, set by whom, when); it clears when the business day closes. Used for: the no-route hint (present people only, G1-18b), skipping absent people in fallbacks and team targeting, and the load denominator in K12. Not a clock-in (payroll clock-in stays its own story). *Safety rule added: if no one has ticked the list today, everyone counts as present, and a person signed in anywhere counts as present; otherwise a forgotten list would make every team "absent" and send alerts nowhere.* |
+
 ## 1b. Receipts
 
 | ID | Decision |
