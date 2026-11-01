@@ -15,7 +15,7 @@ import { FAKE_EFFECT_EVENT, fakeApply, registerFakes, resetFakes } from './fakes
 
 // 01d task 22: AnswerRequest — the answer rules (§3.3 rules 1, 3, 5, 6, 7), the session method and first
 // answer wins (§6.2 Processing (0)–(10), Race), A4, A5, the §3.5 read-only contract and alert_id check;
-// tests #6, #7, #8, #9, #18. PIN and in-person answers are task 23.
+// tests #6, #7, #8, #9, #18. PIN and in-person answers: answer-pin.int.test.ts (task 23).
 
 // The argon2 verify the pipeline calls, counted (the real verify still runs).
 vi.mock('@node-rs/argon2', async (importOriginal) => {
@@ -518,17 +518,6 @@ describe('01d AnswerRequest: rules, session answers, first answer wins (task 22)
     expect(alertRow(w, id).state).toBe('open');
     // the session method on a pin kind can never skip the PIN (rule 3)
     expect((await answer(w, mgr, { alert_id: id, decision: 'approve', method: 'session' })).statusCode).toBe(422);
-  });
-
-  it('[01d §6.2] temporary guard (task 23 removes it): method in_person → 400 VALIDATION_FAILED { issues: [{ path: method }] }, no PIN verified', async () => {
-    const w = await world(cleanups);
-    const wait = seat(w, WAIT);
-    const id = raiseAs(w, wait, voidInput());
-    const response = await answer(w, wait, { alert_id: id, decision: 'approve', method: 'in_person', answerer_staff_id: MGR, pin: PIN.b });
-    expect(response.statusCode).toBe(400);
-    expect(response.json().error).toMatchObject({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'method' }] } });
-    expect(verifySpy).not.toHaveBeenCalled();
-    expect(eventsOf(w, 'RequestAnswered')).toHaveLength(0);
   });
 
   it('[01d §6.2] a station session → 403 PERMISSION_DENIED { session_kind: station }', async () => {

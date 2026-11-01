@@ -50,6 +50,12 @@ export interface RaiseInput {
   dedupe_key: string;
   requester_staff_id?: string | null;
   request?: { approver_role_ids?: string[]; receiver_staff_id?: string };
+  /**
+   * 01d §3.10 (v1.0 #2, R2): the seat a personal notice is hidden from (`AlertRaised.hidden_from`): the
+   * session and device that sent the answer or the PIN. Omitted or null → not hidden. Internal to 01d's
+   * personal notices (pin_use_failed, approval_receipt, answered_on_requester_device).
+   */
+  hidden_from?: { session_id: string; device_id: string } | null;
 }
 
 export interface RaiseResult {
@@ -200,7 +206,7 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
       values: valuesOut,
       display: input.display,
       details,
-      hidden_from: null,
+      hidden_from: input.hidden_from == null ? null : { session_id: input.hidden_from.session_id, device_id: input.hidden_from.device_id },
       request,
     };
     const row: AlertRow = { alert_id, kind: kind.kind, requester_staff_id: requester, target: input.target, values: valuesOut, request, step: -1, raised_at: env.now };

@@ -198,8 +198,8 @@ async function runCommand(
         (tx, prepared) => record(tx, prepared),
         {
           prepare,
-          onMismatch: (tx) => hooks?.onMismatch(tx, payload.data, hookCtx(tx)) ?? [],
-          onPrepareFailed: (tx, error, matched) => hooks?.onPrepareFailed(tx, error, matched, payload.data, hookCtx(tx)) ?? [],
+          onMismatch: (tx) => hooks?.onMismatch(tx, payload.data, hookCtx(tx), command) ?? [],
+          onPrepareFailed: (tx, error, matched) => hooks?.onPrepareFailed(tx, error, matched, payload.data, hookCtx(tx), command) ?? [],
         },
       );
     }

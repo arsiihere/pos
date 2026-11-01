@@ -209,3 +209,32 @@ export const REQUEST_RESULT = defineAlertKind<RequestResultValues, RequestResult
   labels: { card: 'alert.request_result.card', lock: 'alert.request_result.lock' },
   request: null,
 });
+
+/** §3.10 `pin_use_failed` values: which request, why the answer failed, from which device (no PIN, never). */
+export const PinUseFailedValues = z.object({
+  request_alert_id: z.string().min(1),
+  request_kind: z.string().min(1),
+  error_code: z.string().min(1),
+  device_id: z.string().min(1),
+});
+export type PinUseFailedValues = z.infer<typeof PinUseFailedValues>;
+
+/**
+ * §3.10 `pin_use_failed` (personal notice): to the PIN owner when their PIN matched and the answer then
+ * failed (§3.3 rule 4 (d)), raised in the counting transaction. Personal: own routes only, kept over day
+ * close, closed only by the owner's own seen; hidden from the seat that sent the PIN (`hidden_from`).
+ */
+export const PIN_USE_FAILED = defineAlertKind<PinUseFailedValues>({
+  kind: 'pin_use_failed',
+  family: 'info',
+  subject: 'request',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }], // { person: PIN owner }
+  closes_on: 'seen',
+  values_schema: PinUseFailedValues,
+  details_schema: null,
+  lead_fallback: false,
+  expires_at_day_close: false,
+  silent: false,
+  labels: { card: 'alert.pin_use_failed.card', lock: 'alert.pin_use_failed.lock' },
+  request: null,
+});

@@ -59,8 +59,9 @@ export interface CommandDef<P extends z.ZodType = z.ZodType> {
   pinCheck?(payload: z.infer<P>, ctx: PreReadCtx): { staff_id: string; pin: string; field: string } | null;
   /** 00 v1.6 §3.5 H-3: drafts appended on a PIN mismatch / a failed `prepare`. */
   pinHooks?: {
-    onMismatch(tx: WriterTx, payload: z.infer<P>, ctx: CommandCtx): EventDraft[];
-    onPrepareFailed(tx: WriterTx, error: unknown, matched: boolean, payload: z.infer<P>, ctx: CommandCtx): EventDraft[];
+    // `cmd` (01d task 23): the command envelope, e.g. its command_id for a notice's dedupe_key (01d §3.10).
+    onMismatch(tx: WriterTx, payload: z.infer<P>, ctx: CommandCtx, cmd: PosCommand): EventDraft[];
+    onPrepareFailed(tx: WriterTx, error: unknown, matched: boolean, payload: z.infer<P>, ctx: CommandCtx, cmd: PosCommand): EventDraft[];
   };
   handle(ctx: CommandCtx, payload: z.infer<P>, cmd: PosCommand): { events: EventDraft[]; result: unknown };
 }
