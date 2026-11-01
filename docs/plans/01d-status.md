@@ -165,3 +165,9 @@
   - (19) The 200-character slice can split a surrogate pair.
   - (19) The positive-control test is structurally trivial.
   - (20) A kiosk alert-mode socket may get an `alert_closed` it never showed.
+
+### Developer rulings after batch 4 (2026-11-02)
+- **`request_result` outcome, option (b), AD-82:** an additive `outcome` view field (`approved | rejected | withdrawn | obsolete | overridden`). It never carries amounts, items or reasons, and it may go on alert-mode frames for `request_result`, which is consistent with G1-13 e. Applied in task 34.
+- **AD-46:** BF-3 is correct. Align the §3.7 / §5.2 wording at the as-built review.
+- **AD-49:** reword #27 to "no active binding is left".
+- **00 #53** (cloud `login.int` timing ratio): a known flaky 00 test and a 00 open item, not caused by 01d. When it fails under full-suite load, re-running it alone is acceptable for the gate. It is not fixed.
