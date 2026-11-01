@@ -120,7 +120,7 @@ Stories already have a cashier comp on the bill (`stories-refined.md` E-bills: p
 
 The developer allows changes to any approved file, the foundation included, through a version bump. Proposed README row:
 
-> **R30 Proposed — needs approval.** The foundation (D64 frozen) may change through a version bump with a changelog and "Changed by" markers, approved by the owner, like any module spec (R26). First use: 01d.
+> **R34 Proposed — needs approval.** The foundation (D64 frozen) may change through a version bump with a changelog and "Changed by" markers, approved by the owner, like any module spec (R26). First use: 01d. Needs its own approval and a matching CLAUDE.md edit ("The foundation is frozen (D64)").
 
 | Spec | Change |
 |---|---|
@@ -128,7 +128,7 @@ The developer allows changes to any approved file, the foundation included, thro
 | 00 v1.5 → v1.6 | `pager_bridge` type (D5); compact device protocol and headless pairing (G1–G7); R14 / M38 phones optional (D6); M54 phone SSID only where the phone route is used. |
 | 01a v2.0 → v2.1 | Assembler points, `station.pickup_point_id`, point pager code (K1); table `pager_code` (1–3 digits) for the watch; item `short_name` (≤ 16 characters) for small displays; zones (Z1), zone routes (Z3), walk times (K10), zone-stock flag, par and threshold per zone (Z4, Z7). Stock gains a location (branch or zone). |
 | 01b v1.3 → v1.4 | P1–P5. |
-| README | Module map row 01d renamed (S1); R22 routes add the pager route; R28 device policy (D1–D7); R30 (above). |
+| README | Module map row 01d renamed (S1); R22 routes add the pager route; R33 device policy (D1–D7); R34 (above). R28–R32 are already taken. |
 
 ## 9. Hardware spike (before the 01d spec's G2)
 
