@@ -1,0 +1,32 @@
+# 01d auto-decisions
+
+Every row is **proposed**. They are folded into the spec only at the as-built review (plan task 44). Format: `AD-n | task | problem | options | choice | why | files`.
+
+# Module 01d
+
+## Developer decisions on the planning gaps (2026-11-01, from `docs/plans/01d-plan.md`)
+
+AD-1 | plan (batch 9) | G1: the repo has no staff client, kiosk page or Capacitor app, but §8 and §11 step 16 assume them | (a) build all of §8 in 01d; (b) split batch 9 | (b). **9a** is a hub-served `staff` entry in `apps/client`: ui-kit only, no new dependency, only 01d's screens, shipped by `ship-client.sh`. **9b** is `docs/plans/01d-tablet-plan.md`: blocked on the tablet model (OQ2) and required before the pilot. 01d merges after 9a. The requester's waiting card is built by 02 / 04. Confirmed by the developer on 2026-11-01: there is no waiting card in 9a, and the `test_alert` sender includes the receipts view. Tablet plan: TQ1 is OkHttp (Gradle, 9b only), TQ2 is Kotlin | developer decision | `docs/plans/01d-plan.md`, `docs/plans/01d-tablet-plan.md`
+AD-2 | plan | G2: there is no device command queue yet | — | the answer sender is online-only by construction; the #56 client test asserts no storage write and no request while offline | developer decision | task 40
+AD-3 | plan | G3: what triggers BF-7 | — | reuse the `no_approver` flag. The tick's flag pass also closes `obsolete` the open personal notices of people no longer in `staff`. No schema change (P-7) | developer decision | task 31
+AD-4 | 3 | G4: BF-5 needs a frame | — | add `alerts_open.binding_route_until: number \| null` and a new server frame `{ type: 'binding_route', until }`. This extends H-2's frame list and makes the frame count in §6.11 6, not 5. The §6 batch 3 `alerts_open` example needs `binding_route_until` added (P-6) | developer decision | `packages/events/src/ws.ts`
+AD-5 | plan | G5: BF-4 needs a fact | — | add `from_business_day` to catch-up rows and `requests-to-answer` rows (additive) | developer decision | task 35
+AD-6 | plan | G6: an unknown kind on replay | — | keep the row with `next_due_at NULL`, log `unknown_kind`, and let boot continue (P-8) | developer decision | task 14
+AD-7 | plan | G7: there is no `SetPresence` UI | — | 01d ships only the command and the projection; the screen comes with 01e | developer decision | task 37
+AD-8 | plan | G8: the §11 order conflicts with doing 00 / 01b first | — | move the 01b rows and H-5 up to batches 2–3 (P-1) | developer decision | —
+AD-9 | plan | G9: test #58 needs the pilot mini PC | — | write it in task 30, skip it off that hardware; it stays open until the pilot mini PC, with 00 #79 | developer decision | task 30
+
+## Batch 1 (build)
+
+AD-10 | 4 / 6 | 00 §4.2 writes `preRead(db, payload, ctx)`; the plan Interfaces write `preRead(ctx: PreReadCtx, payload)` with `db` inside ctx | (a) plan form; (b) spec form | (b) the spec form, applied in task 6. Task 4 typed the plan form; task 6 changes it | the spec wins (CLAUDE.md), and nothing calls `preRead` yet | `apps/hub/src/commands/registry.ts`
+AD-11 | 2 | §6.2–§6.6 say ids are `ulid`, but directory staff ids in hub fixtures are not ULIDs (e.g. `S_OWNER`) | (a) validate ULID; (b) `z.string().min(1)` | (b) | this is the convention already used (`packages/events/src/admin/staff.ts:13`) | `packages/events/src/alerts.ts`
+AD-12 | 2 | §5.4 writes `table_code?`, but the §6 batch 3 example sends `table_code: null` | (a) optional; (b) nullable; (c) both | (c) `nullable().optional()` on the display and lock fields | it accepts both spec forms | `packages/events/src/alerts.ts`
+AD-13 | 2 | the spec only sketches the query response field names (§6.7–§6.10) | — | containers are `data.alerts` / `data.requests` with `meta.next_cursor` (inbox). `MyRequestRow` adds `raised_at`, `waiting_ms`, `close_reason` and `lock`. `RequestToAnswerRow` = view + `can_answer` + `seen_by_me`. `AlertReceiptsResponse` has `steps[{ step, recipients[], routes[] }]` and `receipts[]`. Re-checked by the query tasks 34–36; the review suggests dropping either `waiting_ms` or `raised_at` | a provisional reading of loose text; the owner confirms | `packages/events/src/alerts.ts`
+AD-14 | 2 | the step "kinds" in `AlertStepTargetSchema` | — | `answerers`, `holders_informed`, `always_on`, `managers` and `requester_lead` as `{ kind }` objects; targets that carry an id are refused as step targets | this is the §3.5 "Step `to`" list | `packages/events/src/alerts.ts`
+AD-15 | 2 | `RequestPinFailed.error_code` and `AlertDelivered` / `AlertSeen` `route` | — | free strings | §4.2 types `route` as `… \| string`, and a `prepare` failure can carry any `apply` error code | event files
+AD-16 | 2 | bounds on the `PresenceSet` event | — | the event's `staff_ids` has no bound; the command payload is bounded to 1..100 | a bound on stored events would make replays fragile | `PresenceSet.v1.ts`
+AD-17 | 3 | the `alerts_open` example row leaves out `escalation`, `set` and `for_staff_id` | (a) exactly the example fields; (b) the view minus `card`, with those three optional, `.strict()` | (b) | it refuses `card` / `details` and any unknown key, and lets task 32 send the three fields | `packages/events/src/ws.ts`
+AD-18 | 3 | `alert_closed.decision` and `by_name` for a close that is not an answer | — | nullable; null unless `reason = answered` | the spec's only example is an answered close | `packages/events/src/ws.ts`
+AD-19 | 3 | `session_token` is now optional, but the hub's `authenticate` needs one | — | the pre-auth check closes `4401` when `session_token` is missing (the same code and timing as the old parse failure). It is a placeholder that task 8 replaces with alert mode | type-forced and behaviour-neutral | `apps/hub/src/ws/server.ts`
+AD-20 | 5 | the brief's BF-2 log line is `{ error, phase }` | — | `{ err: error, phase: 'onPrepareFailed' }` | `err` is pino's error-serializer key, as used elsewhere in the hub (`server.ts`); under `error`, an Error serializes to `{}` | `apps/hub/src/auth/pin.ts`
+AD-21 | 5 (review) | `Statement.readonly` alone lets COMMIT / ROLLBACK / BEGIN / SAVEPOINT / RELEASE / ATTACH / DETACH through the read-only view, and `exec` / `pragma` / `transaction` would bypass `prepare` | — | `readOnlyDb` blocks `exec`, `pragma`, `transaction` and the other write methods, and `prepare` requires `readonly && reader` | this enforces the §3.5 read-only contract and R1 (one counting transaction) | `apps/hub/src/engine-host/read-only-tx.ts`
