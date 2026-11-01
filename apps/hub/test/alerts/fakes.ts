@@ -11,12 +11,13 @@ import {
   type AnswerFacts,
 } from '../../src/alerts/kinds';
 import { registerRoute, unregisterRoute } from '../../src/alerts/routes';
+import { registerTick, unregisterTick } from '../../src/alerts/tick';
 import { registerTargetResolver, targetKey, unregisterTargetResolver, type ResolvedTarget } from '../../src/alerts/targets';
 
 // 01d §4.4 test fakes (plan "Test fakes"): kinds of later modules exist here only. Never imported by src/.
 // Each test file calls registerFakes() (beforeAll / beforeEach) and resetFakes() (afterAll / afterEach).
 // Resolvers fakeTableOwner / fakePoint (task 16), fakeZoneOrderTaker and route fakePager (task 17);
-// deferred to the task that builds its registry: tick fakeFires (task 30).
+// tick fakeFires (task 27): registered only by registerFakeFires(), unregistered by resetFakes().
 
 export type FakeApplyMode = 'ok' | 'throw' | 'append' | 'onCommit' | 'write' | 'no_alert_id' | 'other_alert_id';
 
@@ -320,7 +321,55 @@ export function registerFakes(): void {
   });
 }
 
+/**
+ * 03a-like fire scheduler tick (§3.5, §4.2 "To 03a", test 37): `due` is pure over the fields below (no
+ * statement); `intents` appends one effect draft itself (so a rollback is visible) and returns another,
+ * or throws. Every call records the `now` it was given.
+ */
+export const fakeFires: {
+  due: boolean;
+  mode: 'ok' | 'throw' | 'throw_due';
+  calls: Array<{ fn: 'due' | 'intents'; now: number }>;
+} = { due: false, mode: 'ok', calls: [] };
+
+/** The effect draft fakeFires writes; `marker` tells its two drafts apart. */
+export function fakeFiresDraft(now: number, marker: string): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: 'fires',
+    event_type: FAKE_EFFECT_EVENT,
+    schema_version: 1,
+    payload: { alert_id: marker },
+    occurred_at: now,
+    actor_id: null,
+    device_id: 'hub',
+  };
+}
+
+/** Registers fakeFires after the ticks already registered (01d's `alerts` is first). */
+export function registerFakeFires(): void {
+  ensureEffectEvent();
+  registerTick({
+    name: 'fires',
+    due: (_db, _state, now) => {
+      fakeFires.calls.push({ fn: 'due', now });
+      if (fakeFires.mode === 'throw_due') throw new Error('fake fires due failed');
+      return fakeFires.due;
+    },
+    intents: (tx, _state, now) => {
+      fakeFires.calls.push({ fn: 'intents', now });
+      tx.append([fakeFiresDraft(now, 'fires_appended')]);
+      if (fakeFires.mode === 'throw') throw new Error('fake fires intents failed');
+      return [fakeFiresDraft(now, 'fires_returned')];
+    },
+  });
+}
+
 export function resetFakes(): void {
+  unregisterTick('fires');
+  fakeFires.due = false;
+  fakeFires.mode = 'ok';
+  fakeFires.calls.length = 0;
   for (const kind of FAKE_KINDS) unregisterAlertKind(kind);
   unregisterTargetResolver('table_team');
   unregisterTargetResolver('point');

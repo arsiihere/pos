@@ -102,7 +102,12 @@ export interface HubDeps {
   ownIPv4: string[];
   logStream?: NodeJS.WritableStream;
   configClient?: ConfigClient;
-  testHooks?: { betweenGuardAndWriter?: () => Promise<void>; betweenVerifyAndWriter?: () => Promise<void> };
+  testHooks?: {
+    betweenGuardAndWriter?: () => Promise<void>;
+    betweenVerifyAndWriter?: () => Promise<void>;
+    // 01d §3.5 (m11): between a tick's `due` and its writer.run (alerts/tick.ts)
+    betweenDueAndRun?: (name: string) => Promise<void>;
+  };
 }
 
 export interface BuildHubOptions {

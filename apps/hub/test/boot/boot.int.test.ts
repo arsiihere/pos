@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { registerTick, TICK_MS, unregisterTick } from '../../src/alerts/tick';
 import { ConfigError } from '../../src/config/schema';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
@@ -102,6 +103,38 @@ describe('boot', () => {
     const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
     cleanups.push(() => booted.stop(), cfg.cleanup);
     expect(seen).toEqual(['2', '3', '5', '6']);
+  });
+
+  it('[01d §3.5] the tick loop starts after boot step 7 (F §5.8: HubStarted written) and stops on close', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let active = true;
+    const passes: number[] = [];
+    registerTick({
+      name: 'boot_probe',
+      due: (db) => {
+        passes.push((db.prepare("SELECT COUNT(*) AS n FROM events WHERE event_type = 'HubStarted'").get() as { n: number }).n);
+        return false;
+      },
+      intents: () => [],
+    });
+    cleanups.push(() => {
+      active = false;
+      unregisterTick('boot_probe');
+      vi.useRealTimers();
+    });
+    // a loop started at or before step 6 would run its passes here
+    registerBootStep('6', () => {
+      if (active) vi.advanceTimersByTime(TICK_MS * 4);
+    });
+    const cfg = writeConfig({ provisioned: true });
+    const booted = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
+    cleanups.push(cfg.cleanup);
+    expect(passes).toEqual([]);
+    vi.advanceTimersByTime(TICK_MS);
+    expect(passes).toEqual([1]); // the first pass sees step 7's HubStarted
+    await booted.stop();
+    vi.advanceTimersByTime(TICK_MS * 4);
+    expect(passes).toEqual([1]);
   });
 
   it('[00 §3.8] unprovisioned → setup mode routes only', async () => {

@@ -11,6 +11,8 @@ import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './r
 import { createAlertFrames } from './ws-frames.js';
 
 export { alerts, type AlertCtx, type RaiseInput, type RaiseResult } from './raise.js';
+// §4.2 (task 27): the tick registry; the loop itself starts in boot after step 7 (lib/boot.ts)
+export { registerTick, type TickDef } from './tick.js';
 
 // 01d wiring entry (plan "Wiring"): each 01d task registers what it builds (commands, queries,
 // projections, catch-up parts, ticks, timers) here. Called once from buildHubServer.

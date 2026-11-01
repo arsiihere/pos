@@ -9,6 +9,7 @@ import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { attachRouteGuards } from '../auth/guards.js';
+import { startTickLoop } from '../alerts/tick.js';
 import { startSweeper } from '../auth/session-sweeper.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
@@ -220,10 +221,13 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     phase = 'ready';
     const stopHeart = startHeartbeat(db, deps.clock, provisioned.branch_id);
     const stopSweep = startSweeper(deps, app.log);
+    // 01d §3.5: the hub tick loop starts after step 7 (F §5.8: the server is open, projections are current)
+    const stopTick = startTickLoop(deps, app.log);
     beat.stop = () => {
       stopConfirm();
       stopHeart();
       stopSweep();
+      stopTick();
     };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
