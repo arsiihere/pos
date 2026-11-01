@@ -39,3 +39,34 @@
      - (4) test-only `MarkAlertsSeen` stand-in (note for task 26);
      - (2) `MyRequestRow` has both `raised_at` and `waiting_ms`;
      - (2) the lock schema strips `details` instead of refusing it.
+
+## Batch 2 — Pipeline, WS, migration, hub directory (2026-11-01)
+
+- **Tasks:** 6 pipeline `preRead` / `pinCheck` through `checkPin` (H-3); 7 `sendToDevices` / `sendToStaff` / `connectedSessions`, catch-up socket context, sweeper guard (H-4, H-7, H-8); 8 alert-mode WS (H-1, H-13); 9 migration `0006_alerts.sql` (§5.1, H-5, H-12, H-14); 10 hub directory `no_pin_staff`, `teamOf({ includeNoPin })` (B-1, B-3, B-6).
+- **Order:** 6, 7, 9, 8, 10. Task 9 ran while task 7 was in review, because it does not depend on the WS work.
+- **Commits:** `b9818c1` (6), `dbb1805` (7), `6ff7037` (9), `6f1fb71` + `2d79ff7` review fix (8), `19a9691` (10). The AD-22 / AD-23 rulings are in `921efec`.
+- **Reviews:**
+  - Every HIGH task (6, 8, 9, 10) had a full opus review; NORMAL task 7 had its own review. All approved.
+  - Task 8, fix round 1: a throwing `alerts_open` or catch-up builder inside the ws message handler crashed the hub (an uncaught exception, confirmed by a probe). Both builders are now guarded: log `{ err, device_id }` and close that socket `1011`. The built `alerts_open` is validated with `WsAlertsOpen.parse`, and `sendToAlertMode` accepts only alert frames. The re-review found it addressed.
+  - Task 9: the SQL is byte-identical to §5.1.
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` passed: 257 files, 1449 tests.
+- **Tests closed:** 01d #31 (task 10). Batch 2 also adds section-cited tests: `[00 H-1]`, `[00 H-3]`, `[00 H-4]`, `[00 H-7]`, `[00 H-8]`, `[00 H-9]`, `[00 H-12]`, `[00 H-13]`, `[00 H-14]`, `[01d §5.1]`, `[01b B-1]`, `[01b B-3]`, `[01b B-6]`.
+- **AD rows (proposed):**
+  - AD-22, AD-23: developer rulings, applied in task 34.
+  - AD-24–AD-27 (task 6): the fast-path peek (a replay without a valid token gets `401` instead of the stored `200`); `authGen` captured earlier; the hooks ctx has `permission: null`; a shared argon2 semaphore.
+  - AD-28, AD-29 (task 7): the sweeper logs under the `err` key; `startSweeper(deps, log)`.
+  - AD-30, AD-31 (task 8): `4409` / `1011` as local constants; the builder and listener guards.
+  - AD-32, AD-33 (task 10): a duplicate `no_pin_staff` entry is skipped; `leadOf` applies to `staff` entries only.
+- **Carried to later tasks:**
+  - a Zod parse test for a directory with `no_pin_staff` (task 11);
+  - `handle` must not append when `pinCheck` is set (tasks 22–23);
+  - the big-fixture cache is not keyed on the schema version (task 14);
+  - add `WS_CLOSE.REPLACED` (`4409`) to `packages/events` when the client needs it (tasks 40 / 9b).
+- **Deferred minors (for the final review):**
+  - (6) no test pins replay of a PIN command with an ended session or no token;
+  - (6) `preCtxFor` is always built;
+  - (7) a dead check and a fixed sleep in the H-4 test;
+  - (7) a socket closed by `deliver` stays listed until its `close` event;
+  - (8) a pong during a revoke close refreshes `deviceSeen`;
+  - (10) the duplicate-entry test was not RED first;
+  - (10) a `staff` entry with a bad hash is accepted via `no_pin_staff`.
