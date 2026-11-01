@@ -26,6 +26,11 @@ const builderNames = [
   'aBusinessDayClosed',
   'anItemMadeUnavailable',
   'anItemMadeAvailable',
+  'anAlertRaised',
+  'anAttemptSent',
+  'aRequestAnswered',
+  'anAlertClosed',
+  'aPresenceSet',
 ] as const;
 
 describe('builders', () => {

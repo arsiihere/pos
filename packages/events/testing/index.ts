@@ -290,6 +290,87 @@ export function anItemMadeAvailable(overrides?: Overrides): PosEvent {
   return build(stock('ItemMadeAvailable', 'I1', { item_id: 'I1' }), overrides);
 }
 
+// 01d §4.2: a test_alert on the hub subject (hub / branch_id) to one person; request events use the same alert.
+const ALERT_ID = '01J00000000000000000000010';
+const ALERT_STAFF_ID = '01J00000000000000000000004';
+
+export function anAlertRaised(overrides?: Overrides): PosEvent {
+  return build(
+    hub('AlertRaised', envelope.branch_id, {
+      alert_id: ALERT_ID,
+      kind: 'test_alert',
+      family: 'info',
+      subject_stream_type: 'hub',
+      subject_stream_id: envelope.branch_id,
+      dedupe_key: 'test:01J00000000000000000000011',
+      requester_staff_id: null,
+      target: { kind: 'person', staff_id: ALERT_STAFF_ID },
+      values: {},
+      display: { kind_label_key: 'alert.test_alert.lock' },
+      details: null,
+      hidden_from: null,
+      request: null,
+    }),
+    overrides,
+  );
+}
+
+export function anAttemptSent(overrides?: Overrides): PosEvent {
+  return build(
+    hub('AttemptSent', envelope.branch_id, {
+      alert_id: ALERT_ID,
+      step: 0,
+      recipients: [{ staff_id: ALERT_STAFF_ID, device_id: null, for_staff_id: null, set: 'recipient' }],
+      routes: [{ staff_id: ALERT_STAFF_ID, route: 'screen', ref: '01J00000000000000000000006' }],
+    }),
+    overrides,
+  );
+}
+
+export function aRequestAnswered(overrides?: Overrides): PosEvent {
+  return build(
+    hub('RequestAnswered', envelope.branch_id, {
+      alert_id: ALERT_ID,
+      decision: 'approve',
+      answerer_staff_id: ALERT_STAFF_ID,
+      method: 'pin',
+      device_id: '01J00000000000000000000005',
+      on_requester_device: false,
+    }),
+    overrides,
+  );
+}
+
+export function anAlertClosed(overrides?: Overrides): PosEvent {
+  return build(
+    hub('AlertClosed', envelope.branch_id, {
+      alert_id: ALERT_ID,
+      reason: 'done',
+      by_staff_id: null,
+      note: null,
+    }),
+    overrides,
+  );
+}
+
+export function aPresenceSet(overrides?: Overrides): PosEvent {
+  return build(
+    {
+      ...envelope,
+      stream_type: 'staff',
+      stream_id: envelope.branch_id,
+      event_type: 'PresenceSet',
+      payload: {
+        business_day_id: '01J00000000000000000000012',
+        staff_ids: [ALERT_STAFF_ID],
+        present: true,
+        set_by: ALERT_STAFF_ID,
+      },
+    },
+    overrides,
+  );
+}
+
 function configItem(itemId: string, name: string, sortOrder: number, o: Partial<ConfigItem>): ConfigItem {
   return {
     item_id: itemId,
