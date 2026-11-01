@@ -119,7 +119,16 @@ function nextDueAt(kind: AlertKind | undefined, raisedAt: number, values: Record
   if (kind === undefined) return null; // P-8: the tick never selects an alert of an unknown kind
   const times: number[] = [];
   const next = kind.steps[step + 1];
-  if (next !== undefined) times.push(stepAt(next, { raised_at: raisedAt, values }));
+  if (next !== undefined) {
+    // task 28 fix (proposed AD): a step whose time cannot be computed from the stored values is never due.
+    // A throw here would roll back the tick's whole transaction on every pass (and fail boot replay); the
+    // tick logs the bad step when it meets it (tick.ts per-alert guard).
+    try {
+      times.push(stepAt(next, { raised_at: raisedAt, values }));
+    } catch {
+      // not due
+    }
+  }
   if (typeof kind.closes_on === 'object') times.push(raisedAt + kind.closes_on.after_ms);
   return times.length === 0 ? null : Math.min(...times);
 }

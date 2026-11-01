@@ -106,14 +106,24 @@ export function defineAlertKind<V extends Record<string, unknown>, D extends Ale
   };
   if (kinds.has(def.kind)) fail('duplicate kind');
   if (def.family === 'urgent' && def.request === null) fail("family 'urgent' needs a request part");
-  const valueKeys = new Set(Object.keys(def.values_schema.shape));
+  const shape = def.values_schema.shape as Record<string, z.ZodType | undefined>;
+  const valueKeys = new Set(Object.keys(shape));
   def.steps.forEach((step, index) => {
-    if ('value' in step.at && !valueKeys.has(step.at.value)) {
-      fail(`step ${index} at.value '${step.at.value}' is not in values_schema`);
+    if ('value' in step.at) {
+      if (!valueKeys.has(step.at.value)) fail(`step ${index} at.value '${step.at.value}' is not in values_schema`);
+      // AD-36 extended (task 28 fix): a required number, so stepAt never meets a missing or null value
+      if (!(shape[step.at.value] instanceof z.ZodNumber)) {
+        fail(`step ${index} at.value '${step.at.value}' must be a required number (not optional, not nullable) in values_schema`);
+      }
     }
     for (const { target, set } of step.to) {
-      if (typeof target === 'object' && 'from_value' in target && !valueKeys.has(target.from_value)) {
-        fail(`step ${index} from_value '${target.from_value}' is not in values_schema`);
+      if (typeof target === 'object' && 'from_value' in target) {
+        if (!valueKeys.has(target.from_value)) fail(`step ${index} from_value '${target.from_value}' is not in values_schema`);
+        // AD-36 extended (task 28 fix): a required non-empty string, as stepTargets needs
+        const field = shape[target.from_value];
+        if (!(field instanceof z.ZodString) || (field.minLength ?? 0) < 1) {
+          fail(`step ${index} from_value '${target.from_value}' must be a required string with min length 1 in values_schema`);
+        }
       }
       if (set !== 'recipient' && def.request === null) fail(`step ${index} set '${set}' needs a request part`);
     }

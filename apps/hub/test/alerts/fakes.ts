@@ -286,7 +286,7 @@ export function registerFakes(): void {
       },
     ],
     closes_on: 'owner',
-    values_schema: z.object({ point_id: z.string(), table_id: z.string() }),
+    values_schema: z.object({ point_id: z.string().min(1), table_id: z.string() }),
     details_schema: null,
     lead_fallback: true,
     expires_at_day_close: true,

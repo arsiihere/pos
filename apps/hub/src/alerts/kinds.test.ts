@@ -29,7 +29,7 @@ function infoDef(over: Partial<Def> = {}): Def {
     subject: 'hub',
     steps: [toRaised],
     closes_on: 'owner',
-    values_schema: z.object({ table_id: z.string(), window_ms: z.number() }),
+    values_schema: z.object({ table_id: z.string().min(1), window_ms: z.number() }),
     details_schema: null,
     lead_fallback: true,
     expires_at_day_close: true,
@@ -135,6 +135,22 @@ describe('defineAlertKind', () => {
   it('[01d §3.5] a step at { value } naming a key not in values_schema throws (proposed AD)', () => {
     const steps: StepDef[] = [toRaised, { at: { value: 'walk_ms', times: 2 }, to: toRaised.to }];
     expect(() => define(infoDef({ steps }))).toThrow(/at.value 'walk_ms'/);
+  });
+
+  it('[01d §3.5] an at.value key must be a required number in values_schema (AD-36 extended)', () => {
+    const steps: StepDef[] = [toRaised, { at: { value: 'walk_ms', times: 2 }, to: toRaised.to }];
+    for (const walk_ms of [z.number().optional(), z.number().nullable(), z.string(), z.number().default(1)]) {
+      expect(() => define(infoDef({ steps, values_schema: z.object({ walk_ms }) }))).toThrow(/at.value 'walk_ms' must be a required number/);
+    }
+    expect(() => define(infoDef({ steps, values_schema: z.object({ walk_ms: z.number() }) }))).not.toThrow();
+  });
+
+  it('[01d §3.5] a from_value key must be a required string with min length 1 in values_schema (AD-36 extended)', () => {
+    const steps: StepDef[] = [toRaised, { at: { ms: 1000 }, to: [{ target: { kind: 'point', from_value: 'point_id' }, set: 'recipient' }] }];
+    for (const point_id of [z.string(), z.string().min(1).optional(), z.string().min(1).nullable(), z.number()]) {
+      expect(() => define(infoDef({ steps, values_schema: z.object({ point_id }) }))).toThrow(/from_value 'point_id' must be a required string with min length 1/);
+    }
+    expect(() => define(infoDef({ steps, values_schema: z.object({ point_id: z.string().min(1) }) }))).not.toThrow();
   });
 
   it('[01d §3.5] a failed check leaves nothing registered', () => {

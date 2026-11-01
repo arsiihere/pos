@@ -4,9 +4,9 @@ import type Database from 'better-sqlite3';
 import { readOnlyDb } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { HubDeps } from '../server.js';
-import { kindOf, stepAt } from './kinds.js';
+import { kindOf, stepAt, type AlertKind } from './kinds.js';
 import { draftOn, routeSteps, stepPayload, type StepItem } from './raise.js';
-import type { AlertRequestPart, AlertRow } from './targets.js';
+import { stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
 
 // 01d §3.5 "The tick" (A8, G1-16) and §4.2 `registerTick`: the hub's one tick loop (00 H-8 timers row).
 // - Every TICK_MS a pass reads `now = clock.branchNow()` ONCE and gives it to every registered tick, in
@@ -70,6 +70,63 @@ interface DueRow {
 /** The tick's envelope (§4.2 tickCtx): no actor, device 'hub', occurred at the pass's `now`. */
 const tickEnvelope = (now: number) => ({ now, actor_id: null, device_id: 'hub' });
 
+/** Where the alerts tick logs a skipped alert; set by startTickLoop (the loop's own log). */
+let alertsLog: TickLog | null = null;
+
+/**
+ * Task 28 fix (G1-16): one line per skipped alert, with no values, no details and no message text (a
+ * JSON.parse message can echo its input, §7): the error's name and code only.
+ */
+function logSkipped(alertId: string, kind: string, err: unknown): void {
+  const e = err as { name?: unknown; code?: unknown } | null;
+  alertsLog?.error(
+    {
+      tick: 'alerts',
+      alert_id: alertId,
+      kind,
+      err: { name: typeof e?.name === 'string' ? e.name : 'unknown', code: typeof e?.code === 'string' ? e.code : null },
+    },
+    'alerts tick: alert skipped',
+  );
+}
+
+type Plan = { subject: { stream_type: PosEvent['stream_type']; stream_id: string }; skipped: number[]; item: StepItem };
+
+/**
+ * The per-alert work of the step pass: parse the row, find the due steps, and pre-check the latest step's
+ * targets. Steps are ordered, so the scan stops at the first step that is not due yet; a step whose time
+ * cannot be computed counts as not due (a bad step 2 never blocks step 1). Throws only for this alert.
+ */
+function planOf(r: DueRow, kind: AlertKind, now: number): Plan | null {
+  const row: AlertRow = {
+    alert_id: r.alert_id,
+    kind: r.kind,
+    requester_staff_id: r.requester_staff_id,
+    target: JSON.parse(r.target_json) as AlertTarget,
+    values: JSON.parse(r.values_json) as Record<string, unknown>,
+    request: r.request_json === null ? null : (JSON.parse(r.request_json) as AlertRequestPart),
+    step: r.step,
+    raised_at: r.raised_at,
+  };
+  const stepsDue: number[] = [];
+  for (let index = row.step + 1; index < kind.steps.length; index += 1) {
+    let at: number;
+    try {
+      at = stepAt(kind.steps[index] as AlertKind['steps'][number], row);
+    } catch (err) {
+      if (stepsDue.length === 0) throw err; // nothing due before it: the alert is skipped
+      logSkipped(r.alert_id, r.kind, err); // the due steps before it still go
+      break;
+    }
+    if (at > now) break;
+    stepsDue.push(index);
+  }
+  const latest = stepsDue.pop();
+  if (latest === undefined) return null;
+  stepTargets(kind.steps[latest] as AlertKind['steps'][number], row); // from_value pre-check (throws for this alert)
+  return { subject: { stream_type: r.subject_stream_type, stream_id: r.subject_stream_id }, skipped: stepsDue, item: { row, kind, step: latest } };
+}
+
 /**
  * §3.5 step pass (task 28; expiry is task 29, the flag pass task 31). For each due alert, the steps whose
  * `at` has passed beyond the alert's current step: the latest is sent (`AttemptSent`, or `EscalationStepped`
@@ -82,31 +139,19 @@ const tickEnvelope = (now: number) => ({ now, actor_id: null, device_id: 'hub' }
 function stepIntents(tx: WriterTx, now: number): EventDraft[] {
   const due = tx.db.prepare(DUE_ALERTS_SQL).all(now) as DueRow[];
   if (due.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
-  const plans: Array<{ subject: { stream_type: PosEvent['stream_type']; stream_id: string }; skipped: number[]; item: StepItem }> = [];
+  const plans: Plan[] = [];
   for (const r of due) {
     const kind = kindOf(r.kind);
     if (kind === undefined) continue; // P-8: never due (next_due_at NULL); kept for a row written before a rollback
-    const row: AlertRow = {
-      alert_id: r.alert_id,
-      kind: r.kind,
-      requester_staff_id: r.requester_staff_id,
-      target: JSON.parse(r.target_json) as AlertTarget,
-      values: JSON.parse(r.values_json) as Record<string, unknown>,
-      request: r.request_json === null ? null : (JSON.parse(r.request_json) as AlertRequestPart),
-      step: r.step,
-      raised_at: r.raised_at,
-    };
-    const stepsDue: number[] = [];
-    kind.steps.forEach((step, index) => {
-      if (index > row.step && stepAt(step, row) <= now) stepsDue.push(index);
-    });
-    const latest = stepsDue.pop();
-    if (latest === undefined) continue;
-    plans.push({
-      subject: { stream_type: r.subject_stream_type, stream_id: r.subject_stream_id },
-      skipped: stepsDue,
-      item: { row, kind, step: latest },
-    });
+    // Per-alert guard (task 28 fix, G1-16): an alert whose stored values break the step pass is skipped and
+    // logged; it is not closed and its next_due_at is not changed, so it is selected (and logged) again on
+    // the next pass. The other alerts step normally in this same transaction.
+    try {
+      const plan = planOf(r, kind, now);
+      if (plan !== null) plans.push(plan);
+    } catch (err) {
+      logSkipped(r.alert_id, r.kind, err);
+    }
   }
   if (plans.length === 0) return [];
   const routed = routeSteps(
@@ -178,6 +223,7 @@ async function tickPass(deps: HubDeps, db: Database.Database, log: TickLog): Pro
 /** Starts the loop (boot, after step 7); returns its stop. The interval does not keep the process alive. */
 export function startTickLoop(deps: HubDeps, log: TickLog): () => void {
   const db = readOnlyDb(deps.db);
+  alertsLog = log;
   const timer = setInterval(() => {
     void tickPass(deps, db, log);
   }, TICK_MS);

@@ -10,8 +10,8 @@ import { FAKE_EFFECT_EVENT, fakeFires, fakeFiresDraft, registerFakeFires, regist
 // read-only pre-check outside any transaction; only when it is true does that tick get its OWN writer.run, with
 // testHooks.betweenDueAndRun(name) in between (m11). A throw in `due` or `intents` is logged
 // { tick, err } (AD: pino's err key, as AD-28) and the other ticks still run. "Idle cost": nothing due → one
-// indexed SELECT per registered tick, no transaction, no after-commit hook. The `alerts` tick's `intents` is a
-// stub until task 28, so #37's "alerts step" is played by a spy on alertsTick.intents.
+// indexed SELECT per registered tick, no transaction, no after-commit hook. #37's "alerts step" is played by a
+// spy on alertsTick.intents (its real step pass is tested in tick-steps.int, task 28).
 
 interface Log {
   error: ReturnType<typeof vi.fn<(obj: Record<string, unknown>, msg?: string) => void>>;
@@ -133,7 +133,7 @@ describe('tick loop (01d §3.5, §4.2 registerTick)', () => {
     expect(due()).toBe(false);
     setFlagDirty();
     expect(due()).toBe(true);
-    // due → its own writer.run; the stub intents (until task 28) appends nothing
+    // due → its own writer.run; with no due alert (only the flag, whose pass is task 31) intents appends nothing
     const run = vi.spyOn(hub.deps.writer, 'run');
     start();
     await pass();
@@ -305,7 +305,7 @@ describe('tick loop (01d §3.5, §4.2 registerTick)', () => {
     expect((hub.deps.db.prepare('SELECT dirty FROM alert_flags').get() as { dirty: number }).dirty).toBe(0);
   });
 
-  it('[01d §3.5] the alerts tick until task 28: its intents stub appends nothing', async () => {
+  it('[01d §3.5] a dirty flag with no due alert: the alerts tick opens its transaction and appends nothing', async () => {
     setFlagDirty();
     const appended: PosEvent[][] = [];
     hub.deps.writer.addAfterCommit((events) => appended.push(events));

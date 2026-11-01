@@ -138,6 +138,7 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
     unregisterTick('fires_raise');
     unregisterRoute('text_pager');
     unregisterAlertKind(WINDOW_KIND);
+    unregisterAlertKind('t_bad_window');
     resetFakes();
     activity.drain();
     activity.drainDevices();
@@ -729,6 +730,106 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
       { staff_id: OWNER, moved_to: WAIT },
       { staff_id: WAIT, moved_to: null },
     ]);
+  });
+
+  /** An alert whose stored values bypass the kind's schema (a raw event, as from an older build): AlertRaised (+ step 0). */
+  function rawAlert(o: { alert_id: string; kind: string; values: Record<string, unknown>; target: RaiseInput['target']; step0: boolean }): void {
+    const now = hub.clock.branchNow();
+    const draft = (event_type: string, payload: Record<string, unknown>) => ({
+      stream_type: 'hub' as const,
+      stream_id: BRANCH,
+      event_type,
+      schema_version: 1,
+      payload,
+      occurred_at: now,
+      actor_id: null,
+      device_id: 'hub',
+    });
+    hub.deps.writer.run((tx) => {
+      const drafts = [
+        draft('AlertRaised', {
+          alert_id: o.alert_id,
+          kind: o.kind,
+          family: kindFamily(o.kind),
+          subject_stream_type: 'hub',
+          subject_stream_id: BRANCH,
+          dedupe_key: `raw:${o.alert_id}`,
+          requester_staff_id: null,
+          target: o.target,
+          values: o.values,
+          display,
+          details: null,
+          hidden_from: null,
+          request: null,
+        }),
+      ];
+      if (o.step0) drafts.push(draft('AttemptSent', { alert_id: o.alert_id, step: 0, recipients: [], routes: [] }));
+      tx.append(drafts);
+    });
+  }
+  const kindFamily = (kind: string): string => (kind === 't_point_like' ? 'action' : 'info');
+
+  const skippedLines = (): Array<Record<string, unknown>> =>
+    log.error.mock.calls.map((c) => c[0]).filter((line) => line.alert_id !== undefined);
+
+  it('[01d §3.5 G1-16] per-alert guard: a poisoned alert next to a healthy due one → the healthy one steps, the poisoned one is skipped with one safe log line per pass, nothing rolls back', async () => {
+    const poisoned = '01J0000000000000000000POIS';
+    rawAlert({ alert_id: poisoned, kind: 't_point_like', values: { point_id: '', table_id: 'T-SECRET' }, target: { kind: 'person', staff_id: WAIT }, step0: true });
+    const [healthy] = raiseHub(twoStep(1)) as [string];
+    const dueBefore = alertRow(poisoned).next_due_at;
+    start();
+    const run = vi.spyOn(hub.deps.writer, 'run');
+    hub.clock.advance(FAKE_STEP_1_MS);
+    await pass();
+    expect(steps(healthy)).toEqual(['AttemptSent:0', 'AttemptSent:1']); // committed in the same pass
+    expect(steps(poisoned)).toEqual(['AttemptSent:0']);
+    expect(run.mock.results[0]?.value.appended.map((e: PosEvent) => e.event_type)).toEqual(['AttemptSent']);
+    expect(skippedLines()).toEqual([{ tick: 'alerts', alert_id: poisoned, kind: 't_point_like', err: { name: 'Error', code: null } }]);
+    expect(log.error.mock.calls.some((c) => c[1] === 'tick failed')).toBe(false); // no rollback
+    expect(JSON.stringify(log.error.mock.calls)).not.toMatch(/T-SECRET|point_id|from_value/);
+    // not closed and next_due_at unchanged: selected and logged again on the next pass
+    expect(alertRow(poisoned)).toEqual({ state: 'open', step: 0, next_due_at: dueBefore });
+    await pass();
+    expect(skippedLines()).toHaveLength(2);
+    expect(steps(poisoned)).toEqual(['AttemptSent:0']);
+    expect(steps(healthy)).toHaveLength(2);
+  });
+
+  it('[01d §3.5 G1-16] a bad step 2 does not stop step 1: the scan stops at the first step not yet due; step 1 is sent, step 2 is logged and never due', async () => {
+    defineAlertKind({
+      kind: 't_bad_window',
+      family: 'info',
+      subject: 'hub',
+      steps: [
+        { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] },
+        { at: { ms: 10_000 }, to: [{ target: 'raised_target', set: 'recipient' }] },
+        { at: { value: 'window_ms', times: 2 }, to: [{ target: 'raised_target', set: 'recipient' }] },
+      ],
+      closes_on: 'owner',
+      values_schema: z.object({ window_ms: z.number() }),
+      details_schema: null,
+      lead_fallback: true,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'c', lock: 'l' },
+      request: null,
+    });
+    const id = '01J0000000000000000000BADW';
+    rawAlert({ alert_id: id, kind: 't_bad_window', values: { window_ms: 'soon' }, target: { kind: 'person', staff_id: CASH }, step0: false });
+    start();
+    await pass(); // step 0 due, step 1 not yet: the scan stops there and never evaluates step 2
+    expect(steps(id)).toEqual(['AttemptSent:0']);
+    expect(skippedLines()).toEqual([]);
+    hub.clock.advance(10_000);
+    await pass(); // step 1 due; step 2's time cannot be computed → not due, logged once; step 1 still goes
+    expect(steps(id)).toEqual(['AttemptSent:0', 'AttemptSent:1']);
+    expect(skippedLines()).toEqual([{ tick: 'alerts', alert_id: id, kind: 't_bad_window', err: { name: 'Error', code: null } }]);
+    expect(alertRow(id)).toEqual({ state: 'open', step: 1, next_due_at: null });
+    const run = vi.spyOn(hub.deps.writer, 'run');
+    hub.clock.advance(60_000);
+    await pass();
+    expect(run).not.toHaveBeenCalled();
+    expect(log.error.mock.calls.some((c) => c[1] === 'tick failed')).toBe(false);
   });
 
   it('[01d §3.5] an alert of a kind this build does not register is never selected (next_due_at NULL)', async () => {
