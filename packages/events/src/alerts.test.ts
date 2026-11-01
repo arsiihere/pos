@@ -93,7 +93,8 @@ describe('01d alert events', () => {
     };
     expect(schema.safeParse({ ...base, request }).success).toBe(true);
     expect(schema.safeParse({ ...base, request: { ...request, approver_role_ids: 'R1' } }).success).toBe(false);
-    const { approver_role_ids: _omit, ...withoutRoles } = request;
+    const withoutRoles = Object.fromEntries(Object.entries(request).filter(([key]) => key !== 'approver_role_ids'));
+    expect(withoutRoles).not.toHaveProperty('approver_role_ids');
     expect(schema.safeParse({ ...base, request: withoutRoles }).success).toBe(false);
     expect(schema.safeParse({ ...base, request: { ...request, needs_pin: 'sometimes' } }).success).toBe(false);
     expect(schema.safeParse({ ...base, hidden_from: { session_id: 'SE', device_id: 'D' } }).success).toBe(true);
