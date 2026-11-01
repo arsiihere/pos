@@ -9,7 +9,11 @@ const READ_ONLY_PROPS = new Set<PropertyKey>(['name', 'open', 'inTransaction', '
 export function readOnlyDb(db: Database.Database): Database.Database {
   const prepare = (sql: string): Database.Statement => {
     const statement = db.prepare(sql);
-    if (!statement.readonly) throw new Error('read-only view: a statement that writes is not allowed');
+    // `readonly` alone lets COMMIT / ROLLBACK / SAVEPOINT / ATTACH through (they do not write the file
+    // themselves but end or widen the writer's transaction); `reader` (returns rows) excludes them.
+    if (!statement.readonly || !statement.reader) {
+      throw new Error('read-only view: only a statement that reads and returns rows is allowed');
+    }
     return statement;
   };
   return new Proxy(db, {
