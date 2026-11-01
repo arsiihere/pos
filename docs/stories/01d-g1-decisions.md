@@ -69,6 +69,13 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-11d | Fallbacks: owner has no reports → owner only. Owner not signed in anywhere → the zone's assigned order taker; none signed in → branch-scope holders (manager). *Open for the spec: which permission defines "manager" for non-approval fallbacks (proposed: a branch-scope holder of `force-release-table-lock`).* |
 | G1-11e | Zone stock stays with the zone, not the owner: a moved table still draws from the zone it sits in (Z4, Z6 unchanged). |
 
+| G1-12 | **The point's assembler is a device target, not a person.** |
+| G1-12a | A tablet can be bound to a point: nullable `point_id` on the device row (new forward migration, 00 bump; points from 01a). Several tablets may be bound to one point; all receive the point's alerts. |
+| G1-12b | 01d delivers to the bound devices whoever is signed in. Alerts show even with no one signed in; Ready to serve, Handover and state taps need a signed-in staff session and record that person. *Note: G0 P3 `tap-for-station` covers Start / Done; the spec must name the permission for Ready to serve and Handover (proposed: the same `tap-for-station` on the point's stations, or a new one, 01b bump).* |
+| G1-12c | The same device target covers escalation to always-on screens (cashier kiosk, KDS, point tablets). |
+| G1-12d | A point with no bound device online → the manager is told (same rule as 01e device health, G0 G7). |
+| G1-12e | G1-11d's open point stays for the spec; candidate: branch-scope holder of `force-release-table-lock`. |
+
 ## 1b. Receipts
 
 | ID | Decision |
