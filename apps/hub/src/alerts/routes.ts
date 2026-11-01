@@ -164,7 +164,8 @@ function deviceRoutes(deviceId: string, ws: WsHub): RouteRow[] {
 }
 
 /**
- * §3.4.3 for one step of one alert: every recipient row (a person with no route included, v0.5 N5), the
+ * §3.4.3 for one step of one alert: every recipient row (a person with no route included, v0.5 N5, unless a
+ * "for" row on a lead stands in for them), the
  * routes of each, and, for a `lead_fallback` kind, the "for" rows of the people with no route:
  * lead → (a table owner not signed in anywhere, §3.4.2) the zone's order taker → present managers. At each
  * level only people with a route are used; a level that would reach the person themself or anyone already
@@ -221,6 +222,10 @@ export function routeRecipients(
     }
   }
 
+  // §3.4.3 "For" rows (G2 #18): the recipient row is the lead; the person it is for has no row (so no
+  // alert_inbox row) for this step until a later step reaches them directly. Only when no fallback reached
+  // anyone is the person written with no route (v0.5 N5).
+  const coveredFor = new Set<string>();
   if (kind.lead_fallback) {
     const forSeen = new Set<string>();
     for (const r of noRoute) {
@@ -231,12 +236,14 @@ export function routeRecipients(
         forSeen.add(key);
         rows.push({ staff_id: leadId, device_id: null, for_staff_id: subject, set: r.set });
         addRoutes(routesOf(leadId));
+        coveredFor.add(subject);
       }
     }
   }
+  const recipientRows = coveredFor.size === 0 ? rows : rows.filter((row) => row.for_staff_id !== null || row.staff_id === null || !coveredFor.has(row.staff_id));
 
   const no_route = [...new Set(noRoute.flatMap((r) => (r.staff_id === null ? [] : [r.staff_id])))];
-  return { recipients: rows, routes: routeRows, no_route };
+  return { recipients: recipientRows, routes: routeRows, no_route };
 }
 
 /** The people who take a "for" row for `subject`, or none (§3.4.3 chain, §3.4.2 table-team level). */

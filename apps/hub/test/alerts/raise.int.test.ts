@@ -563,3 +563,87 @@ describe('01d alerts.raise / raiseMany', () => {
     expect(h.db.prepare('SELECT COUNT(*) AS n FROM alerts').get()).toEqual({ n: 0 });
   });
 });
+
+describe('01d §3.4.3 "for" rows and alert_inbox (task 17 fix)', () => {
+  const cleanups: Array<() => void> = [];
+  beforeEach(() => registerFakes());
+  afterEach(() => {
+    resetFakes();
+    for (const cleanup of cleanups.splice(0)) cleanup();
+  });
+  const toAli = infoInput({ target: { kind: 'person', staff_id: ALI }, dedupe_key: 'info:ali' });
+  const inbox = (db: Database.Database, alertId: string): string[] =>
+    (db.prepare('SELECT staff_id FROM alert_inbox WHERE alert_id = ? ORDER BY staff_id').all(alertId) as Array<{ staff_id: string }>).map(
+      (r) => r.staff_id,
+    );
+  const recipientRows = (db: Database.Database, alertId: string) =>
+    db
+      .prepare('SELECT step, staff_id, for_staff_id FROM alert_recipients WHERE alert_id = ? ORDER BY step, rowid')
+      .all(alertId);
+
+  it('[01d §3.4.3] a "for Ali" step: the lead has the inbox row, Ali has none; a later step reaching Ali gives him his', async () => {
+    const h = await harness(cleanups);
+    h.ws.sessions = [{ staffId: KAMRAN, deviceId: 'D_K', sessionId: 'SK', kind: 'staff' }];
+    const { result: r } = h.writer.run((tx) => {
+      const out = alerts.raise(cmdCtx(tx, IMRAN), toAli);
+      tx.append(out.events);
+      return out;
+    });
+    expect(r.events[1]?.payload).toMatchObject({
+      step: 0,
+      recipients: [{ staff_id: KAMRAN, device_id: null, for_staff_id: ALI, set: 'recipient' }],
+      routes: [{ staff_id: KAMRAN, route: 'screen', ref: 'D_K' }],
+    });
+    expect(recipientRows(h.db, r.alert_id)).toEqual([{ step: 0, staff_id: KAMRAN, for_staff_id: ALI }]);
+    expect(inbox(h.db, r.alert_id)).toEqual([KAMRAN]);
+
+    // a later step (the tick's AttemptSent) reaching Ali directly: Ali signed in now
+    h.ws.sessions = [{ staffId: ALI, deviceId: ALI_DEV, sessionId: 'SA', kind: 'staff' }];
+    const step0 = r.events[1] as EventDraft;
+    h.writer.run((tx) => {
+      const later = alerts.raise(cmdCtx(tx, IMRAN), { ...toAli, dedupe_key: 'info:ali:probe' });
+      const routed = later.events[1]?.payload as { recipients: unknown[]; routes: unknown[] };
+      tx.append([{ ...step0, payload: { alert_id: r.alert_id, step: 1, recipients: routed.recipients, routes: routed.routes } }]);
+    });
+    expect(recipientRows(h.db, r.alert_id)).toEqual([
+      { step: 0, staff_id: KAMRAN, for_staff_id: ALI },
+      { step: 1, staff_id: ALI, for_staff_id: null },
+    ]);
+    expect(inbox(h.db, r.alert_id)).toEqual([ALI, KAMRAN]);
+  });
+
+  it('[01d §3.4.3] the fallback chain finds nobody: Ali is a no-route row and keeps his inbox row', async () => {
+    const h = await harness(cleanups);
+    const { result: r } = h.writer.run((tx) => {
+      const out = alerts.raise(cmdCtx(tx, IMRAN), toAli);
+      tx.append(out.events);
+      return out;
+    });
+    expect(r.events[1]?.payload).toMatchObject({
+      recipients: [{ staff_id: ALI, device_id: null, for_staff_id: null, set: 'recipient' }],
+      routes: [],
+    });
+    expect(recipientRows(h.db, r.alert_id)).toEqual([{ step: 0, staff_id: ALI, for_staff_id: null }]);
+    expect(inbox(h.db, r.alert_id)).toEqual([ALI]);
+  });
+
+  it('[01d §3.4.3] a request kind with no route: no fallback, the person keeps the row and the inbox row', async () => {
+    const h = await harness(cleanups);
+    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_I', sessionId: 'SI', kind: 'staff' }];
+    const { result: r } = h.writer.run((tx) => {
+      const out = alerts.raise(cmdCtx(tx, IMRAN), {
+        kind: 't_accept',
+        subject: { stream_type: 'table', stream_id: 'T1' },
+        target: { kind: 'person', staff_id: ALI },
+        display,
+        dedupe_key: 'accept:ali',
+        requester_staff_id: IMRAN,
+        request: { receiver_staff_id: ALI },
+      });
+      tx.append(out.events);
+      return out;
+    });
+    expect(recipientRows(h.db, r.alert_id)).toEqual([{ step: 0, staff_id: ALI, for_staff_id: null }]);
+    expect(inbox(h.db, r.alert_id)).toEqual([ALI]);
+  });
+});

@@ -127,14 +127,13 @@ describe('01d §3.4.3 routes of a person (test #3)', () => {
     expect(out.no_route).toEqual([]);
   });
 
-  it('[01d #3] no route on an action or info kind → the lead with for_staff_id', () => {
+  it('[01d #3] no route on an action or info kind → the lead with for_staff_id; the person has no row of their own (§3.4.3 "For" rows)', () => {
     const kamran = signedIn(KAMRAN, 'D_K');
     const r = reads({ sessions: [kamran.session] });
     const ws = wsWith({ sessions: [kamran.socket] });
     for (const k of ['t_action', 't_info']) {
       const out = routeRecipients([P(ALI)], kind(k), r, dir, ws, NOW);
       expect(out.recipients).toEqual([
-        { staff_id: ALI, device_id: null, for_staff_id: null, set: 'recipient' },
         { staff_id: KAMRAN, device_id: null, for_staff_id: ALI, set: 'recipient' },
       ]);
       expect(out.routes).toEqual([{ staff_id: KAMRAN, route: 'screen', ref: 'D_K' }]);
@@ -148,12 +147,10 @@ describe('01d §3.4.3 routes of a person (test #3)', () => {
     const ws = wsWith({ sessions: [imran.socket] });
     // ALI → KAMRAN (no route) → managers: IMRAN has a route, OWNER does not.
     expect(routeRecipients([P(ALI)], kind('t_action'), r, dir, ws, NOW).recipients).toEqual([
-      { staff_id: ALI, device_id: null, for_staff_id: null, set: 'recipient' },
       { staff_id: IMRAN, device_id: null, for_staff_id: ALI, set: 'recipient' },
     ]);
     // CASH has no lead → managers.
     expect(routeRecipients([P(CASH)], kind('t_info'), r, dir, ws, NOW).recipients).toEqual([
-      { staff_id: CASH, device_id: null, for_staff_id: null, set: 'recipient' },
       { staff_id: IMRAN, device_id: null, for_staff_id: CASH, set: 'recipient' },
     ]);
   });
@@ -257,7 +254,6 @@ describe('01d §3.4.3 binding route rule (a)(b)(c)', () => {
     const r = tabletReads({ sessions: [kamran.session], bindings: [tablet()] });
     const out = routeRecipients([P(ALI)], kind('t_action'), r, dir, wsWith({ sessions: [kamran.socket] }), NOW);
     expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-      [ALI, null],
       [KAMRAN, ALI],
     ]);
   });
@@ -287,7 +283,6 @@ describe('01d §3.4.3 / §3.8 fallbacks, registered routes, devices', () => {
     // with OWNER reachable, the lead takes it
     const reached = routeRecipients([P(IMRAN)], kind('t_action'), reads({ sessions: [owner.session] }), dir, wsWith({ sessions: [owner.socket] }), NOW);
     expect(reached.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-      [IMRAN, null],
       [OWNER, IMRAN],
     ]);
   });
@@ -296,7 +291,6 @@ describe('01d §3.4.3 / §3.8 fallbacks, registered routes, devices', () => {
     const kamran = signedIn(KAMRAN, 'D_K');
     const out = routeRecipients([P(RUNNER)], kind('t_action'), reads({ sessions: [kamran.session] }), dir, wsWith({ sessions: [kamran.socket] }), NOW);
     expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-      [RUNNER, null],
       [KAMRAN, RUNNER],
     ]);
   });
@@ -423,7 +417,6 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
     const r = reads({ sessions: [zone.session], resolved: resolvedWith([ZONE]) });
     const out = run(r, wsWith({ sessions: [zone.socket] }));
     expect(out.recipients).toEqual([
-      { staff_id: HAMZA, device_id: null, for_staff_id: null, set: 'recipient' },
       { staff_id: ZONE, device_id: null, for_staff_id: HAMZA, set: 'recipient' },
     ]);
     expect(out.routes).toEqual([{ staff_id: ZONE, route: 'screen', ref: 'D_Z' }]);
@@ -445,7 +438,6 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
       const r = reads({ sessions: [imran.session], resolved: resolvedWith(zone) });
       const out = run(r, wsWith({ sessions: [imran.socket] }));
       expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-        [HAMZA, null],
         [IMRAN, HAMZA],
       ]);
     }
@@ -476,7 +468,6 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
     const r = reads({ sessions: [ali.session, zone.session], resolved: resolvedWith([ZONE]) });
     const out = run(r, wsWith({ sessions: [ali.socket, zone.socket] }));
     expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-      [HAMZA, null],
       [ALI, HAMZA],
     ]);
   });
@@ -488,7 +479,6 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
     const r = reads({ sessions: [hamzaRow, zone.session, imran.session], resolved: resolvedWith([ZONE]) });
     const out = run(r, wsWith({ sessions: [zone.socket, imran.socket] }));
     expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([
-      [HAMZA, null],
       [IMRAN, HAMZA],
     ]);
   });
