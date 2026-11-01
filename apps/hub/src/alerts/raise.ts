@@ -216,45 +216,34 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
   });
 
   if (pending.length > 0) {
-    const { directory: directoryOf, ws: wsOf } = envOf(tx);
-    const directory = 'actor' in ctx ? ctx.directory : directoryOf();
-    const ws = wsOf();
-    // §6.1 (6): reads for step 0 and, for approval kinds, the escalation step (one batch)
-    const steps = new Map(pending.map((p) => [p.row.alert_id, p.escalation === null ? [0] : [0, p.escalation]]));
-    const reads = batchReads(
-      tx,
-      pending.map((p) => p.row),
-      { previousStep: false, steps },
-    );
-    const resolved = pending.map((p) => ({
-      step0: resolveStep(p.kind.steps[0] as NonNullable<AlertKind['steps'][number]>, p.row, reads, directory, ws),
-      escalation: p.escalation === null ? null : resolveStep(p.kind.steps[p.escalation] as AlertKind['steps'][number], p.row, reads, directory, ws),
-    }));
-    // §3.5 read (10): one routesFor call per registered route over every person of every step
-    const asked: Array<{ recipients: readonly Recipient[]; kind: AlertKind }> = [];
-    pending.forEach((p, i) => {
-      const r = resolved[i] as (typeof resolved)[number];
-      asked.push({ recipients: r.step0, kind: p.kind });
-      if (r.escalation !== null) asked.push({ recipients: r.escalation, kind: p.kind });
+    const directory = 'actor' in ctx ? ctx.directory : envOf(tx).directory();
+    // §6.1 (6): step 0 and, for approval kinds, the escalation step, resolved and routed in one batch
+    const items: StepItem[] = [];
+    for (const p of pending) {
+      items.push({ row: p.row, kind: p.kind, step: 0 });
+      if (p.escalation !== null) items.push({ row: p.row, kind: p.kind, step: p.escalation });
+    }
+    const routed = routeSteps(tx, items, { previousStep: false, now: env.now, directory });
+    let next = 0;
+    const resolved = pending.map((p) => {
+      const step0 = routed[next++] as RoutedStep;
+      return { step0, escalation: p.escalation === null ? null : (routed[next++] as RoutedStep) };
     });
-    reads.routes = askRoutes(tx, routeAsk(asked, reads, directory));
 
     pending.forEach((p, i) => {
       const r = resolved[i] as (typeof resolved)[number];
       const raised = draftOf(p.input, env, 'AlertRaised', p.payload);
-      const step0 = routeRecipients(r.step0, p.kind, reads, directory, ws, env.now);
       let events: EventDraft[];
-      if (p.escalation !== null && r.escalation !== null && !answererHasRoute(step0)) {
+      if (p.escalation !== null && r.escalation !== null && !answererHasRoute(r.step0)) {
         // G1-9d shortcut (§3.5, v1.0 #4): skip every step before the first escalation step, send it now
-        const esc = routeRecipients(r.escalation, p.kind, reads, directory, ws, env.now);
         events = [raised];
         for (let step = 0; step < p.escalation; step += 1) {
           events.push(draftOf(p.input, env, 'StepSkipped', { alert_id: p.row.alert_id, step, reason: 'shortcut' }));
         }
-        events.push(draftOf(p.input, env, 'EscalationStepped', stepPayload(p.row.alert_id, p.escalation, esc)));
+        events.push(draftOf(p.input, env, 'EscalationStepped', stepPayload(p.row.alert_id, p.escalation, r.escalation)));
       } else {
         const type = p.kind.steps[0]?.escalation === true ? 'EscalationStepped' : 'AttemptSent';
-        events = [raised, draftOf(p.input, env, type, stepPayload(p.row.alert_id, 0, step0))];
+        events = [raised, draftOf(p.input, env, type, stepPayload(p.row.alert_id, 0, r.step0))];
       }
       results[p.index] = { alert_id: p.row.alert_id, events, deduped: false, requester_staff_id: p.row.requester_staff_id };
     });
@@ -269,7 +258,56 @@ function answererHasRoute(step: { recipients: RecipientRow[]; no_route: string[]
   return step.recipients.some((r) => r.set === 'answerer' && r.staff_id !== null && r.for_staff_id === null && !none.has(r.staff_id));
 }
 
-function stepPayload(alertId: string, step: number, routed: { recipients: RecipientRow[]; routes: RouteRow[] }): Record<string, unknown> {
+/** One step of one alert to resolve and route (raise: step 0 / the G1-9d escalation step; the tick: the latest due step). */
+export interface StepItem {
+  row: AlertRow;
+  kind: AlertKind;
+  step: number;
+}
+
+/** A routed step: its recipient rows, route rows and the person recipients with no route (§3.4.3). */
+export type RoutedStep = ReturnType<typeof routeRecipients>;
+
+/**
+ * §3.4 / §3.5 "Reads per tick", shared by raise and the tick: every item's step resolved and routed in ONE
+ * batch — `batchReads` (the cached fixed reads, (7) when `previousStep`, one call per resolver kind), then
+ * one `routesFor` per registered route over every person of every item (read 10). The rest is in memory.
+ * Results are in `items` order. `directory` defaults to the hub's (a command passes its own ctx.directory).
+ */
+export function routeSteps(
+  tx: WriterTx,
+  items: readonly StepItem[],
+  o: { previousStep: boolean; now: number; directory?: StaffDirectory },
+): RoutedStep[] {
+  if (items.length === 0) return [];
+  const env = envOf(tx);
+  const directory = o.directory ?? env.directory();
+  const ws = env.ws();
+  const rows = new Map<string, AlertRow>();
+  const steps = new Map<string, number[]>();
+  for (const item of items) {
+    rows.set(item.row.alert_id, item.row);
+    steps.set(item.row.alert_id, [...(steps.get(item.row.alert_id) ?? []), item.step]);
+  }
+  const reads = batchReads(tx, [...rows.values()], { previousStep: o.previousStep, steps });
+  const resolved = items.map((item) => {
+    const step = item.kind.steps[item.step];
+    if (step === undefined) throw new Error(`alerts: kind '${item.kind.kind}' has no step ${item.step}`);
+    return resolveStep(step, item.row, reads, directory, ws);
+  });
+  reads.routes = askRoutes(
+    tx,
+    routeAsk(
+      items.map((item, i) => ({ recipients: resolved[i] as Recipient[], kind: item.kind })),
+      reads,
+      directory,
+    ),
+  );
+  return items.map((item, i) => routeRecipients(resolved[i] as Recipient[], item.kind, reads, directory, ws, o.now));
+}
+
+/** A step event payload (AttemptSent / EscalationStepped, §4.2). */
+export function stepPayload(alertId: string, step: number, routed: { recipients: RecipientRow[]; routes: RouteRow[] }): Record<string, unknown> {
   return { alert_id: alertId, step, recipients: routed.recipients, routes: routed.routes };
 }
 
@@ -282,7 +320,8 @@ function draftOf(
   return draftOn(input.subject, env, eventType, payload);
 }
 
-function draftOn(
+/** An event draft on the alert's subject with the raise / tick envelope (tick: actor_id null, device_id 'hub'). */
+export function draftOn(
   subject: RaiseInput['subject'],
   env: { now: number; actor_id: string | null; device_id: string },
   eventType: string,

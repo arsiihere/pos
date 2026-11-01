@@ -1,9 +1,12 @@
 import type { EngineState } from '@pos/engine';
-import type { EventDraft } from '@pos/events';
+import type { AlertTarget, EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { readOnlyDb } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { HubDeps } from '../server.js';
+import { kindOf, stepAt } from './kinds.js';
+import { draftOn, routeSteps, stepPayload, type StepItem } from './raise.js';
+import type { AlertRequestPart, AlertRow } from './targets.js';
 
 // 01d §3.5 "The tick" (A8, G1-16) and §4.2 `registerTick`: the hub's one tick loop (00 H-8 timers row).
 // - Every TICK_MS a pass reads `now = clock.branchNow()` ONCE and gives it to every registered tick, in
@@ -38,14 +41,100 @@ export interface TickLog {
 const ALERTS_DUE_SQL = `SELECT EXISTS (SELECT 1 FROM alerts WHERE state = 'open' AND next_due_at IS NOT NULL AND next_due_at <= ?)
     OR EXISTS (SELECT 1 FROM alert_flags WHERE dirty = 1) AS due`;
 
+/** §3.5: at most this many due alerts per pass; the rest are due again on the next pass. */
+export const TICK_DUE_LIMIT = 200;
+
+/**
+ * §3.5 `alerts.intents` read (1): the due alerts, INSIDE writer.run (after BEGIN IMMEDIATE), so it is
+ * authoritative (race rule): an alert answered or closed since the pre-check is not selected.
+ */
+const DUE_ALERTS_SQL = `SELECT alert_id, kind, subject_stream_type, subject_stream_id, requester_staff_id, target_json, values_json,
+         request_json, step, raised_at
+    FROM alerts
+    WHERE state = 'open' AND next_due_at <= ?
+    ORDER BY next_due_at LIMIT ${TICK_DUE_LIMIT}`;
+
+interface DueRow {
+  alert_id: string;
+  kind: string;
+  subject_stream_type: PosEvent['stream_type'];
+  subject_stream_id: string;
+  requester_staff_id: string | null;
+  target_json: string;
+  values_json: string;
+  request_json: string | null;
+  step: number;
+  raised_at: number;
+}
+
+/** The tick's envelope (§4.2 tickCtx): no actor, device 'hub', occurred at the pass's `now`. */
+const tickEnvelope = (now: number) => ({ now, actor_id: null, device_id: 'hub' });
+
+/**
+ * §3.5 step pass (task 28; expiry is task 29, the flag pass task 31). For each due alert, the steps whose
+ * `at` has passed beyond the alert's current step: the latest is sent (`AttemptSent`, or `EscalationStepped`
+ * for an `escalation: true` step) and each earlier one is `StepSkipped 'superseded'` (restart / tick lag,
+ * G1-16b); none → nothing (next_due_at was the expiry time). All due alerts are resolved and routed in one
+ * batch (routeSteps: the fixed reads, the previous step's recipients (7), one call per resolver kind and per
+ * registered route), so the statement count does not grow with the number of due alerts. A failed send is
+ * not retried: the frames and route sends run once, after commit (ws-frames' hook), per step event.
+ */
+function stepIntents(tx: WriterTx, now: number): EventDraft[] {
+  const due = tx.db.prepare(DUE_ALERTS_SQL).all(now) as DueRow[];
+  if (due.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
+  const plans: Array<{ subject: { stream_type: PosEvent['stream_type']; stream_id: string }; skipped: number[]; item: StepItem }> = [];
+  for (const r of due) {
+    const kind = kindOf(r.kind);
+    if (kind === undefined) continue; // P-8: never due (next_due_at NULL); kept for a row written before a rollback
+    const row: AlertRow = {
+      alert_id: r.alert_id,
+      kind: r.kind,
+      requester_staff_id: r.requester_staff_id,
+      target: JSON.parse(r.target_json) as AlertTarget,
+      values: JSON.parse(r.values_json) as Record<string, unknown>,
+      request: r.request_json === null ? null : (JSON.parse(r.request_json) as AlertRequestPart),
+      step: r.step,
+      raised_at: r.raised_at,
+    };
+    const stepsDue: number[] = [];
+    kind.steps.forEach((step, index) => {
+      if (index > row.step && stepAt(step, row) <= now) stepsDue.push(index);
+    });
+    const latest = stepsDue.pop();
+    if (latest === undefined) continue;
+    plans.push({
+      subject: { stream_type: r.subject_stream_type, stream_id: r.subject_stream_id },
+      skipped: stepsDue,
+      item: { row, kind, step: latest },
+    });
+  }
+  if (plans.length === 0) return [];
+  const routed = routeSteps(
+    tx,
+    plans.map((p) => p.item),
+    { previousStep: true, now },
+  );
+  const env = tickEnvelope(now);
+  const drafts: EventDraft[] = [];
+  plans.forEach((p, i) => {
+    const { row, kind, step } = p.item;
+    for (const skipped of p.skipped) {
+      drafts.push(draftOn(p.subject, env, 'StepSkipped', { alert_id: row.alert_id, step: skipped, reason: 'superseded' }));
+    }
+    const type = kind.steps[step]?.escalation === true ? 'EscalationStepped' : 'AttemptSent';
+    drafts.push(draftOn(p.subject, env, type, stepPayload(row.alert_id, step, routed[i] as (typeof routed)[number])));
+  });
+  return drafts;
+}
+
 /** 01d's own tick (name `alerts`, first). `intents` is the §3.5 step / expiry / flag pass (tasks 28–31). */
 export const alertsTick: TickDef = {
   name: 'alerts',
   due(db, _state, now) {
     return (db.prepare(ALERTS_DUE_SQL).get(now) as { due: number }).due === 1;
   },
-  intents() {
-    return [];
+  intents(tx, _state, now) {
+    return stepIntents(tx, now);
   },
 };
 
