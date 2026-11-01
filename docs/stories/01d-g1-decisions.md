@@ -50,6 +50,14 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-9e | **No approver warning (pilot form of Q-N5, approvals only):** while the business day is open and no branch-scope approver for a permission is signed in anywhere, the always-on screens and the manager / owner views show "No one can approve voids right now". The general "no route reaches this person" warning stays deferred. |
 | G1-9f | **G0-1 wording, approval requests, as amended:** t0 in-range approvers (G0-7); 45 s repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min branch-scope approvers; other holders told read-only**; requester's screen says "Waiting 2 min — ask in person". |
 
+| G1-10 | **Each request kind declares whether its answer needs a PIN.** |
+| G1-10a | Money kinds (void, discount, comp): PIN on every answer, on any device. |
+| G1-10b | Accept kinds (table handover, zone-stock transfer): one tap on the answerer's own signed-in session. |
+| G1-10c | In-person fallback (answer from someone else's device): always PIN. |
+| G1-10d | The answer event records the method `pin` \| `session` \| `in_person`, plus the device id. |
+| G1-10e | These are defaults; the PIN requirement per kind is a branch setting (data, R18). A branch may **add** a PIN to accept kinds; it may **not** remove the PIN from money kinds (fixed in the spec). |
+| G1-10f | No PIN-free window after a PIN answer; each money answer needs its own PIN. |
+
 ## 1b. Receipts
 
 | ID | Decision |
