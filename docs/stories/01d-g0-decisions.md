@@ -21,6 +21,8 @@ Words used here: **station** = where food is cooked (01a); **assembler point** (
 
 ## 2. Devices
 
+**H0 Tablet first, hardware optional (developer, 2026-11-01).** The POS is a product for sale. Every flow in this file works with tablets alone: the assembler tablet changes every state, the order taker's tablet shows every waiter alert. The pager watch, pager bridge and station button devices are **optional add-ons per branch** for a restaurant that wants more speed. No flow may depend on them, and the build delivers the tablet path first.
+
 | ID | Decision |
 |---|---|
 | D1 | **Order takers, managers, assemblers** use restaurant-owned Android tablets running the Capacitor app in **lock-task (kiosk) mode** as device owner: no other apps, no settings, no safe mode, no factory reset from the device. Reason: use of devices for anything else can't be enforced verbally. The app keeps a background service so alerts arrive with the screen off. |
@@ -75,6 +77,17 @@ The ESP32 has about 300 KB of RAM, no clock and no durable storage. It cannot ru
 | Z7 | **Threshold:** a zone count at or below its threshold notifies the manager. |
 | Z8 | **Day-end count per zone** (and per shift if the branch wants): the counted value replaces the zone's count; the difference is shown to the manager as missing or extra. Without it the counts drift in days. |
 
+## 5a. Complimentary items
+
+Stories already have a cashier comp on the bill (`stories-refined.md` E-bills: price 0, "COMP" label, reason, logged; `apply-comp` in the catalogue; comps in the Z report). Two cases are missing.
+
+| ID | Decision |
+|---|---|
+| C1 | **Standing complimentary:** an item the restaurant always gives (e.g. salad or raita per table, per guest, or with a chosen item). Config, per branch (data, R18): what, how many, per table / per guest / per item. Added to the order automatically at price 0, labelled COMP, cooked and served through the normal flow (or taken from zone stock, Z4), and counted in stock and in the Z report as comp. |
+| C2 | **Goodwill comp at order time:** an order taker (or anyone) marks a line complimentary to please a customer, with a reason. Needs `apply-comp`; where the role says *requires approval*, it is an 01d request (N7) to an approver, recorded with requester, approver, item, value, reason, table and time. The kitchen cooks it as usual. |
+| C3 | **Comp on the bill** (cashier, existing story) stays, through the same permission and request. |
+| C4 | Comps never change the item's price in config; the bill shows the item at its price and the comp as a deduction, so reports show the value given away. [05 to confirm against its bill model.] |
+
 ## 6. Notifications and requests (01d core)
 
 | ID | Decision |
@@ -85,7 +98,7 @@ The ESP32 has about 300 KB of RAM, no clock and no durable storage. It cannot ru
 | N4 | **Inbox:** each person sees the day's notifications; pickups stay open until handed over, so a waiter who forgot what was waiting can look. |
 | N5 | **Delivery receipts:** per notification and route, sent / delivered / seen / answered with hub times, kept in the audit. The pager route records **sent** only (the watch is receive-only). This answers "it never came to me". |
 | N6 | **Requests:** Approve / Reject or Accept / Decline; answered on the answerer's **signed-in tablet** with their own PIN; the right is checked when the answer arrives; first answer wins ("Already approved by Imran"); no expiry; the in-person PIN fallback always works. |
-| N7 | **Request kinds in the pilot:** void approval (04), discount approval (05: every request records requester, approver, amount, reason, time), table handover accept (02), zone stock transfer (§5 Z6). |
+| N7 | **Request kinds in the pilot:** void approval (04), discount approval (05: every request records requester, approver, amount, reason, time), comp approval (§5a C2, C3), table handover accept (02), zone stock transfer (§5 Z6). |
 | N8 | **Watch kinds** (only "go and do something"): **Ready to serve** `<table code> <point code>` e.g. `12 P`; **Call** `<table code> C` from the order taker's Call waiter button. Ready to serve goes to the table's team; on route "none" it shows on the order taker's tablet. |
 | N9 | **Slip warning (D3) and rejected void** go to the **table's order taker** (tablet), not to waiters: they need a person who can talk to the customer [foundation wording, §8]. |
 | N10 | **Table handover (02):** the receiver must accept; a holder of the force-move permission (normally the manager) moves without acceptance. |
@@ -133,6 +146,7 @@ Outcome feeds D3, D4, G1 and the watch code format (letters vs number suffix).
 | 02 | Served by the order taker (K3); Call waiter button (N8); handover accept and force move (N10); zone stock punch and sibling request (Z4, Z6); table owner = zone's order taker (Z2). |
 | 03a | Ready to serve / Handover events; lanes and claims; live capacity and re-plan on lane Off (K7, K8); stock by location (Z4); capture for K11. |
 | 03b | Kitchen-screen app with station and assembler views; button-device lines and press handling; lane Off and reassign; auto-print fallback for button stations (K6–K8, G4). |
+| 02, 05 | Standing complimentary config and auto-add (C1); goodwill comp at order time (C2); comp shown as a deduction (C4). |
 | 05 | Discount approval through 01d requests with full record (N7); zone refill and day-end count with variance (Z5, Z8) if 05 owns counts. |
 | 07 (P2) | Reports for K11 (expected / actual / extra per stage, per point, per zone, per person, with load). |
 
