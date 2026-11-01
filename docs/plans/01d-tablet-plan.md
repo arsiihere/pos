@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - Everything in `docs/plans/01d-plan.md` Global Constraints applies (opus agents, controller-only gate, TDD, one task per commit citing the spec, AD rows proposed, push after each batch).
-- **Dependencies:** `@capacitor/core`, `@capacitor/android`, `@capacitor/cli` are approved for this plan only (developer, 2026-11-01), exact versions pinned. Any other npm or Gradle dependency (e.g. a WebSocket client for the native service) is a question for the developer first.
+- **Dependencies:** `@capacitor/core`, `@capacitor/android`, `@capacitor/cli` are approved for this plan only (developer, 2026-11-01), exact versions pinned. OkHttp (Gradle, exact version pinned) is approved for the native service's WebSocket, 9b only (TQ1, developer, 2026-11-01). Any other npm or Gradle dependency is a question for the developer first.
+- **Language:** the native plugin and service are Kotlin (TQ2, developer, 2026-11-01).
 - **Layout:** `apps/tablet/` (Capacitor project; `webDir` = the built `apps/client/dist/staff/`; bundled assets, no live-reload URL in release builds). The native plugin lives in `apps/tablet/android/…/alertservice/`; its JS bridge in `apps/client/src/features/alerts/service-bridge.ts` (no Capacitor import in `apps/client`: the bridge takes the plugin as an injected interface, so the gate builds without Capacitor).
 - **Tests:** JS parts (bridge, update decision) in the Vitest gate; native code in Gradle unit / instrumented tests, outside the gate, run by the controller on the real tablet with the command and result recorded in `docs/plans/01d-status.md`.
 - **Secrets:** the service holds the device token only (Keystore-backed, 00 §8.1), never the session token, never a PIN.
@@ -41,5 +42,9 @@
 | # | Question |
 |---|---|
 | OQ2 | Tablet model and Android version; can it be provisioned as device owner (factory reset + QR / `adb dpm set-device-owner`)? |
-| TQ1 | WebSocket client for the native service: the Android platform has none built in; OkHttp is the usual choice (a Gradle dependency). Approve OkHttp, or keep the socket in a WebView-free JS runtime? |
-| TQ2 | Kotlin or Java for the plugin (no preference in the spec) |
+| TQ1 | ~~WebSocket client for the native service~~ **Answered 2026-11-01: OkHttp approved** (Gradle dependency, exact version pinned, 9b only) |
+| TQ2 | ~~Kotlin or Java for the plugin~~ **Answered 2026-11-01: Kotlin** |
+
+## Developer confirmations (2026-11-01)
+
+- **AD-1's two extra calls confirmed:** (1) no requester waiting card in 9a — 02 / 04 build it with their first request kind (§8.1); (2) the manager's `test_alert` sender in 9a includes the receipts view (`alert-receipts`).
