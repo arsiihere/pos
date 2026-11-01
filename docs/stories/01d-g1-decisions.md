@@ -134,6 +134,15 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-17c | A pager with no person assigned receives nothing. |
 | G1-17d | `no_pin_staff` carries **no roles or permissions** (these people cannot act); targeting them is only through teams and pager assignment. |
 
+## 1i. Routes (replaces G0 D2)
+
+| ID | Decision |
+|---|---|
+| G1-18 | **G0 D2 dropped as a setting; routes come from what each person has:** pager worn today (G1-17a), devices bound to them (G1-13b), signed-in sessions. Every route at once (N2). **No route at all** → alerts show on their **lead's devices** ("for Ali"); lead has none → G1-11d fallback (zone order taker, then manager). No per-branch or per-person route setting in 01d. |
+| G1-18a | On the lead's device, alerts "for" others are **grouped per person**, not one card each. |
+| G1-18b | The shift-start pager screen (G1-17a) shows people with no route at all ("Ali: no pager, no device"), so it is fixed before service. A hint, not a block. *Spec note: there is no "on shift" record for waiters (only the cashier shift, D21); the hint lists the active branch staff in the assigner's team tree, or all active branch staff for a manager, unless 01b / 02 adds a shift.* |
+| G1-18c | **G0 D2 / H0 wording, as amended:** the product works without hardware because a person with no pager and no bound device is covered by their lead's tablet; pagers and button devices only add speed. |
+
 ## 1b. Receipts
 
 | ID | Decision |
