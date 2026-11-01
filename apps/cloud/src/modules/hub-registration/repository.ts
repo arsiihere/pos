@@ -124,6 +124,16 @@ export async function loadDirectory(
     [tenantId, branchId],
   );
   const staffIds = staff.rows.map((member) => member.staff_id);
+  // 01b v1.4 B-1, B-5 (§4.4 row 6): active staff at the branch without a PIN, with their lead, in one statement.
+  const noPin = await client.query<{ staff_id: string; display_name: string; lead_staff_id: string | null }>(
+    `SELECT s.staff_id, s.display_name, sl.lead_staff_id
+       FROM staff s
+       JOIN staff_branches sb ON sb.tenant_id = s.tenant_id AND sb.staff_id = s.staff_id
+       LEFT JOIN staff_leads sl ON sl.tenant_id = sb.tenant_id AND sl.branch_id = sb.branch_id AND sl.staff_id = s.staff_id
+      WHERE s.tenant_id = $1 AND sb.branch_id = $2 AND s.is_active AND s.pin_hash IS NULL
+      ORDER BY s.staff_id`,
+    [tenantId, branchId],
+  );
   const roles = await client.query<{ role_id: string; name: string; session_idle_ttl_ms: number }>(
     `WITH branch_roles AS (
        SELECT DISTINCT role_id FROM staff_roles WHERE tenant_id = $1 AND staff_id = ANY($2::text[])
@@ -244,6 +254,11 @@ export async function loadDirectory(
       responsibilities: [...sets.values()]
         .map((set) => ({ ...set, staff_ids: sorted(set.staff_ids), role_ids: sorted(set.role_ids) }))
         .sort((a, b) => compare(a.station_id, b.station_id) || compare(a.responsibility, b.responsibility)),
+      no_pin_staff: noPin.rows.map((member) => ({
+        staff_id: member.staff_id,
+        display_name: member.display_name,
+        lead_staff_id: member.lead_staff_id,
+      })),
     },
   };
 }
