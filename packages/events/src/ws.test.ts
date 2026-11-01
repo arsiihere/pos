@@ -11,27 +11,25 @@ const lockOnlyRow = {
 };
 
 // §6 batch 3 example JSON; its `"card": { … }` placeholder is filled with a valid card (§3.12).
-const alertFrame = {
-  type: 'alert',
-  alert: {
-    alert_id: '01JD…',
-    kind: 'void_approval',
-    family: 'urgent',
-    step: 1,
-    escalation: false,
-    set: 'answerer',
-    for_staff_id: null,
-    lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', point_code: null, requester_name: 'Hamza' },
-    card: {
-      kind_label_key: 'alert.void_approval.card',
-      table_code: '12',
-      point_code: null,
-      requester_name: 'Hamza',
-      details: { item: 'Mutton platter', quantity: 1, amount: 480000, reason: 'customer changed mind' },
-    },
-    raised_at: 1761900000000,
-  },
+const alertLockOnly = {
+  alert_id: '01JD…',
+  kind: 'void_approval',
+  family: 'urgent',
+  step: 1,
+  escalation: false,
+  set: 'answerer',
+  for_staff_id: null,
+  lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', point_code: null, requester_name: 'Hamza' },
+  raised_at: 1761900000000,
 };
+const card = {
+  kind_label_key: 'alert.void_approval.card',
+  table_code: '12',
+  point_code: null,
+  requester_name: 'Hamza',
+  details: { item: 'Mutton platter', quantity: 1, amount: 480000, reason: 'customer changed mind' },
+};
+const alertFrame = { type: 'alert', alert: { ...alertLockOnly, card } };
 
 describe('ws', () => {
   it('[00 §6.21, M12] WsClientMessage accepts auth and ack only', () => {
@@ -81,8 +79,7 @@ describe('ws', () => {
   });
 
   it('[01d §6] an alert frame without card (lock only) parses; alert_closed outside a request has null decision', () => {
-    const { card: _card, ...lockOnly } = alertFrame.alert;
-    expect(WsServerMessage.safeParse({ type: 'alert', alert: lockOnly }).success).toBe(true);
+    expect(WsServerMessage.safeParse({ type: 'alert', alert: alertLockOnly }).success).toBe(true);
     expect(
       WsServerMessage.safeParse({ type: 'alert_closed', alert_id: '01JD…', reason: 'expired', decision: null, by_name: null })
         .success,
@@ -94,7 +91,7 @@ describe('ws', () => {
   });
 
   it('[01d §6] alerts_open rows refuse a card key', () => {
-    const withCard = { ...lockOnlyRow, card: alertFrame.alert.card };
+    const withCard = { ...lockOnlyRow, card };
     expect(WsServerMessage.safeParse({ type: 'alerts_open', alerts: [withCard], binding_route_until: null }).success).toBe(
       false,
     );
