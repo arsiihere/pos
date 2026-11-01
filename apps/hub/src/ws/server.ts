@@ -3,9 +3,13 @@ import type { DeviceType } from '@pos/domain';
 import {
   WS_CLOSE,
   WsClientMessage,
+  WsAlertsOpen,
   WsReceipt,
   type PosEvent,
-  type WsAlertsOpen,
+  type WsAlert,
+  type WsAlertClosed,
+  type WsAlertSeen,
+  type WsBindingRoute,
   type WsServerMessage,
 } from '@pos/events';
 import websocket from '@fastify/websocket';
@@ -23,6 +27,11 @@ const PING_MS = 15_000;
 const PONG_MS = 30_000;
 // 00 v1.6 H-1: a newer alert-mode auth for the same device replaces this socket.
 const ALERT_REPLACED = 4409;
+// A builder (alerts_open, catch-up) failed: RFC 6455 "internal error"; no WS_CLOSE code fits.
+const INTERNAL_ERROR = 1011;
+
+// §6.21: after alerts_open an alert-mode socket gets alert frames only (binding_route: 01d P-6 / AD-4).
+export type AlertModeFrame = WsAlert | WsAlertSeen | WsAlertClosed | WsBindingRoute;
 
 export interface ConnectedSession {
   staffId: string | null;
@@ -34,6 +43,7 @@ export interface ConnectedSession {
 export interface WsHub {
   publish(events: PosEvent[]): void;
   // H-4: after commit only. Every socket of the device: staff, station and (01d) alert mode.
+  // Callers send only frames that are valid on all of them (alert frames); the type stays wide for 00's use.
   sendToDevices(deviceIds: string[], frame: WsServerMessage): void;
   // H-4: staff-session sockets only.
   sendToStaff(staffIds: string[], frame: WsServerMessage): void;
@@ -42,7 +52,7 @@ export interface WsHub {
   // H-1: the alert-mode list, never part of connectedSessions() or deliver().
   alertSockets(): Array<{ deviceId: string; deviceType: DeviceType }>;
   // H-1: alert-mode sockets of these devices only.
-  sendToAlertMode(deviceIds: string[], frame: WsServerMessage): void;
+  sendToAlertMode(deviceIds: string[], frame: AlertModeFrame): void;
   // H-1: a valid `receipt` frame from a session socket or an alert-mode socket.
   onReceipt(fn: ReceiptListener): void;
   // H-1: the first frame of an alert-mode socket; default { alerts: [], binding_route_until: null }.
@@ -322,7 +332,10 @@ function accept(
     }
     const asOfSeq = deps.writer.lastSeq();
     const ctx: SocketCtx = { ...auth, asOfSeq };
-    const state = buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, provisionedOf(deps.config).branch_name);
+    const state = buildOrClose(socket, request.log, auth.deviceId, 'ws catch-up build failed', () =>
+      buildCatchUpState(deps.db, deps.state.get(), ctx, branchId, provisionedOf(deps.config).branch_name),
+    );
+    if (state === undefined) return;
     live = { socket, ctx };
     open.push(live);
     // Q8 (§6.17): a pong is a sign of life, so a kitchen screen that only holds its socket stays "seen" (15 s).
@@ -348,7 +361,11 @@ function acceptAlertMode(
     socket.close(WS_CLOSE.FORBIDDEN);
     return undefined;
   }
-  const frame = alerts.buildOpen(device.device_id);
+  // Built and checked before the device's current alert socket is touched, so a failure here replaces nothing.
+  const frame = buildOrClose(socket, request.log, device.device_id, 'ws alerts_open build failed', () =>
+    WsAlertsOpen.parse(alerts.buildOpen(device.device_id)),
+  );
+  if (frame === undefined) return undefined;
   const alert: AlertSocket = {
     socket,
     deviceId: device.device_id,
@@ -366,6 +383,24 @@ function acceptAlertMode(
   }
   socket.send(JSON.stringify(frame));
   return alert;
+}
+
+// A throw inside a ws 'message' listener would be an uncaughtException and stop the hub.
+// The strict WsAlertsOpen parse refuses `card` / `details` rows (01d §7); the log carries no frame body.
+function buildOrClose<T>(
+  socket: HubSocket,
+  log: FastifyBaseLogger,
+  deviceId: string,
+  msg: string,
+  build: () => T,
+): T | undefined {
+  try {
+    return build();
+  } catch (err) {
+    log.error({ err, device_id: deviceId }, msg);
+    socket.close(INTERNAL_ERROR);
+    return undefined;
+  }
 }
 
 // H-1: an alert-mode socket sends only `receipt`; a malformed receipt is ignored, anything else closes 4401.

@@ -1,12 +1,23 @@
 import type { DeviceType } from '@pos/domain';
-import type { EventDraft, WsReceipt } from '@pos/events';
+import type { EventDraft, WsAlertsOpen, WsReceipt } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activity, revokeDevice } from '../../src/auth/session-store';
+import { registerCatchUp } from '../../src/ws/catch-up';
 import { wsHubFor } from '../../src/ws/server';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 
 type ReceiptFrom = { deviceId: string; sessionId: string | null; staffId: string | null; mode: 'session' | 'alert' };
+
+const LOCK_ROW = {
+  alert_id: 'A_ROW',
+  kind: 'test_alert',
+  family: 'info',
+  step: 0,
+  lock: { kind_label_key: 'alert.test_alert.lock', table_code: null, point_code: null, requester_name: 'Imran' },
+  raised_at: 1_761_000_000_000,
+};
+const CARD = { kind_label_key: 'alert.test_alert.card', table_code: null, point_code: null, requester_name: 'Imran' };
 
 const RECEIPT: WsReceipt = { type: 'receipt', alert_id: 'A_1', kind: 'delivered', step: 0 };
 
@@ -267,6 +278,114 @@ describe('websocket alert mode', () => {
     });
     await ws.untilCount(2);
     expect(ws.messages[1]).toMatchObject({ type: 'event' });
+  });
+
+  it('[00 H-1, §6.21] a throwing alerts_open builder closes only that socket 1011 with one { err, device_id } log line; the hub stays up', async () => {
+    const hub = await open(cleanups);
+    const bystander = pairDevice(hub, { type: 'cashier_kiosk' });
+    const other = await authAlert(hub, bystander.token);
+    const broken = pairDevice(hub, { type: 'tablet' });
+    wsHubFor(hub.app).setAlertsOpen((deviceId) => {
+      if (deviceId === broken.deviceId) throw new Error('alerts_open probe failure');
+      return { type: 'alerts_open', alerts: [], binding_route_until: null };
+    });
+    const ws = await connectWs(hub.app);
+    ws.send({ type: 'auth', device_token: broken.token });
+    expect((await ws.untilClose()).code).toBe(1011);
+    expect(ws.messages).toEqual([]);
+    const lines = logLines(hub).filter((entry) => entry.device_id === broken.deviceId && entry.err !== undefined);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ err: { message: 'alerts_open probe failure' } });
+    expect(wsHubFor(hub.app).alertSockets()).toEqual([{ deviceId: bystander.deviceId, deviceType: 'cashier_kiosk' }]);
+    wsHubFor(hub.app).sendToAlertMode([bystander.deviceId], { type: 'alert_seen', alert_id: 'A_6' });
+    await other.untilCount(2);
+    expect(other.messages[1]).toEqual({ type: 'alert_seen', alert_id: 'A_6' });
+  });
+
+  it('[00 H-1, §6.21] a failing alerts_open builder keeps the device existing alert socket (no 4409)', async () => {
+    const hub = await open(cleanups);
+    const device = pairDevice(hub, { type: 'tablet' });
+    const first = await authAlert(hub, device.token);
+    wsHubFor(hub.app).setAlertsOpen(() => {
+      throw new Error('alerts_open probe failure');
+    });
+    const second = await connectWs(hub.app);
+    second.send({ type: 'auth', device_token: device.token });
+    expect((await second.untilClose()).code).toBe(1011);
+    expect(wsHubFor(hub.app).alertSockets()).toEqual([{ deviceId: device.deviceId, deviceType: 'tablet' }]);
+    wsHubFor(hub.app).sendToAlertMode([device.deviceId], { type: 'alert_seen', alert_id: 'A_7' });
+    await first.untilCount(2);
+    expect(first.messages[1]).toEqual({ type: 'alert_seen', alert_id: 'A_7' });
+  });
+
+  it('[00 H-1, §6.21; 01d §7] a built alerts_open row with card (or details) closes the socket 1011 and sends nothing; a lock-only row is sent', async () => {
+    const hub = await open(cleanups);
+    const leaky = pairDevice(hub, { type: 'tablet' });
+    const detailed = pairDevice(hub, { type: 'tablet' });
+    const clean = pairDevice(hub, { type: 'tablet' });
+    wsHubFor(hub.app).setAlertsOpen((deviceId) => {
+      if (deviceId === leaky.deviceId) {
+        return { type: 'alerts_open', alerts: [{ ...LOCK_ROW, card: CARD }], binding_route_until: null } as unknown as WsAlertsOpen;
+      }
+      if (deviceId === detailed.deviceId) {
+        return {
+          type: 'alerts_open',
+          alerts: [{ ...LOCK_ROW, details: { amount: 480_000 } }],
+          binding_route_until: null,
+        } as unknown as WsAlertsOpen;
+      }
+      return { type: 'alerts_open', alerts: [LOCK_ROW], binding_route_until: null } as WsAlertsOpen;
+    });
+    for (const device of [leaky, detailed]) {
+      const ws = await connectWs(hub.app);
+      ws.send({ type: 'auth', device_token: device.token });
+      expect((await ws.untilClose()).code).toBe(1011);
+      expect(ws.messages).toEqual([]);
+      expect(logLines(hub).filter((entry) => entry.device_id === device.deviceId && entry.err !== undefined)).toHaveLength(1);
+    }
+    expect(hub.logs()).not.toContain('alert.test_alert.card');
+    expect(hub.logs()).not.toContain('480000');
+    const ok = await authAlert(hub, clean.token);
+    expect(ok.messages[0]).toEqual({ type: 'alerts_open', alerts: [LOCK_ROW], binding_route_until: null });
+    expect(wsHubFor(hub.app).alertSockets()).toEqual([{ deviceId: clean.deviceId, deviceType: 'tablet' }]);
+  });
+
+  it('[00 §6.21] a throwing catch-up part closes only that session socket 1011 with one { err, device_id } log line; the hub stays up', async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    const stop = registerCatchUp({
+      part: 'probe_throw',
+      appliesTo: (ctx) => ctx.staffId === 'S_PROBE',
+      build: () => {
+        throw new Error('catch-up probe failure');
+      },
+    });
+    try {
+      const good = pairDevice(hub, { type: 'tablet' });
+      const goodStaff = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: good.deviceId });
+      const healthy = await connectWs(hub.app);
+      healthy.send({ type: 'auth', device_token: good.token, session_token: goodStaff.token });
+      await healthy.untilCount(1);
+
+      const bad = pairDevice(hub, { type: 'tablet' });
+      const badStaff = openSession(hub, { kind: 'staff', staffId: 'S_PROBE', deviceId: bad.deviceId });
+      const ws = await connectWs(hub.app);
+      ws.send({ type: 'auth', device_token: bad.token, session_token: badStaff.token });
+      expect((await ws.untilClose()).code).toBe(1011);
+      expect(ws.messages).toEqual([]);
+      const lines = logLines(hub).filter((entry) => entry.device_id === bad.deviceId && entry.err !== undefined);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ err: { message: 'catch-up probe failure' } });
+      expect(wsHubFor(hub.app).connectedSessions().map((s) => s.deviceId)).toEqual([good.deviceId]);
+
+      hub.deps.writer.run((tx) => {
+        tx.append([clockAlarm(10, 20)]);
+      });
+      await healthy.untilCount(2);
+      expect(healthy.messages[1]).toMatchObject({ type: 'event' });
+    } finally {
+      stop();
+    }
   });
 });
 
