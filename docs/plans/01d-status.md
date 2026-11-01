@@ -70,3 +70,43 @@
   - (8) a pong during a revoke close refreshes `deviceSeen`;
   - (10) the duplicate-entry test was not RED first;
   - (10) a `staff` entry with a bad hash is accepted via `no_pin_staff`.
+
+## Batch 3 — Cloud directory, app update, kinds, projections (2026-11-02)
+
+- **Tasks:**
+  - 11: cloud `no_pin_staff` in `GET /v1/sync/config` (B-5)
+  - 12: tablet app update endpoints and the `app-release` CLI (H-5)
+  - 13: `defineAlertKind`, `APPROVAL_TIER_STEPS` and the test fakes
+  - 14: `alerts` / `alert_flags` / `alert_receipts` / `presence_today` projections
+  - 15: `device_bindings` projection (BF-3)
+- **Commits:** `e564009` (11), `0de1d08` (12), `f3531fa` (13), `87d124d` (14), `fc2c1b7` (15).
+- **Reviews:**
+  - Every review was by opus.
+  - HIGH tasks 11 and 15 were each reviewed alone, and the reviewer ran each task's tests.
+  - NORMAL tasks 12 and 13 were reviewed as a pair; task 14 was reviewed alone.
+  - All approved with 0 Critical / 0 Important findings, so no fix rounds.
+- **Gate:** passed, 261 files / 1504 tests.
+- **Tests closed:** 01d #48 (11), #40 (12), #27 (15). Section-cited tests were added for `[01b B-5]`, `[00 §6.36]`, `[01d §3.5]`, `[01d §5.2]`, `[01d P-8]`, `[01d BF-3]` and `[01d §3.7]`.
+- **Sync bound:** `GET /v1/sync/config` with the directory is now 27 statements, exactly at its bound of 27 (R32 c). Any further directory read needs a spec bump.
+- **AD rows (proposed):** AD-34 to AD-50.
+  - AD-46: BF-3 governs over the §3.7 / §5.2 kiosk wording.
+  - AD-49: the owner should confirm the wording of #27.
+- **Carried to later tasks:**
+  - Fakes: `fakeTableOwner` / `fakePoint` go to task 16, `fakePager` to task 17, `fakeFires` to task 30.
+  - Production kinds must be defined at the top level of a module statically imported from boot.
+  - Add a positive-control replay test for a registered kind (tasks 19 / 30).
+- **Deferred minors (for the final review):**
+  - (11) Stale comments: `repository.ts:102-104` and the sync test.
+  - (11) No test shows an admin no-PIN change turning a 304 into a 200.
+  - (12) The CLI reads the source twice to hash and copy it, and does not fsync. The app checks `sha256` anyway.
+  - (12) A failed `rmSync` after commit exits 1 with no log.
+  - (12) No test that an old client version gets 200 on `/app/*`.
+  - (12) The spawn test is slow.
+  - (13) `unregisterAlertKind` is exported from `src`.
+  - (13) The freeze test is partial.
+  - (14) The P-8 buffer is unbounded.
+  - (14) Old big-fixture caches (about 180 MB each) pile up in /tmp.
+  - (14) `AttemptSent` on a closed alert still writes recipient rows.
+  - (15) The counting registry is duplicated in two tests.
+  - (15) `taken_over` sits in the test's "keep" list.
+  - (15) A comment is needed on why the in-memory type map is safe.
