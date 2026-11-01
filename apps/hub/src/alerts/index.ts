@@ -4,6 +4,7 @@ import type { HubDeps } from '../server.js';
 import { currentDirectory } from '../auth/guards.js';
 import { wsHubFor } from '../ws/server.js';
 import { bindAlertEnv } from './raise.js';
+import { createAlertFrames } from './ws-frames.js';
 
 export { alerts, type AlertCtx, type RaiseInput, type RaiseResult } from './raise.js';
 
@@ -18,4 +19,7 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   bindAlertProjectionLog(deps.projections, (line) => {
     app.log.warn(line, 'alerts projection: unknown alert kind');
   });
+  // §6 batch 3 / §3.6 (task 20): alert, alert_closed and alert_seen frames, after commit only
+  const frames = createAlertFrames({ db: deps.db, ws: () => wsHubFor(app), directory: () => currentDirectory(app), log: app.log });
+  deps.writer.addAfterCommit((appended) => frames.afterCommit(appended));
 }

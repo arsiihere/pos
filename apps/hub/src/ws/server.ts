@@ -47,6 +47,9 @@ export interface WsHub {
   sendToDevices(deviceIds: string[], frame: WsServerMessage): void;
   // H-4: staff-session sockets only.
   sendToStaff(staffIds: string[], frame: WsServerMessage): void;
+  // 01d §6 batch 3 (task 20): the session sockets (staff or station) of these session ids only; alert
+  // frames carry a per-recipient `set` / `for_staff_id` and hiding works per session.
+  sendToSessions(sessionIds: string[], frame: WsServerMessage): void;
   // H-4: from the in-memory socket list, no statement.
   connectedSessions(): ConnectedSession[];
   // H-1: the alert-mode list, never part of connectedSessions() or deliver().
@@ -142,6 +145,11 @@ export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
           live.socket.send(body);
         }
       }
+    },
+    sendToSessions(sessionIds, frame) {
+      const wanted = new Set(sessionIds);
+      const body = JSON.stringify(frame);
+      for (const live of open) if (wanted.has(live.ctx.sessionId)) live.socket.send(body);
     },
     connectedSessions() {
       return open.map(({ ctx }) => ({

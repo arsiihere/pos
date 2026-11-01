@@ -259,6 +259,40 @@ describe('websocket publish', () => {
     expect(ws.connectedSessions().map((s) => s.sessionId).sort()).toEqual([cash.sessionId, stationLogin.session_id].sort());
   });
 
+  it('[01d §6 batch 3] sendToSessions reaches only the sockets of those session ids (staff or station), never another session of the same person or device', async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const other = pairDevice(hub, { type: 'tablet' });
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+    const first = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    const second = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: other.deviceId });
+    const stationLogin = await station(hub, kds.token);
+    const firstWs = await connect(hub);
+    firstWs.send({ type: 'auth', device_token: tablet.token, session_token: first.token });
+    await firstWs.untilCount(1);
+    const secondWs = await connect(hub);
+    secondWs.send({ type: 'auth', device_token: other.token, session_token: second.token });
+    await secondWs.untilCount(1);
+    const kdsWs = await connect(hub);
+    kdsWs.send({ type: 'auth', device_token: kds.token, session_token: stationLogin.session_token });
+    await kdsWs.untilCount(1);
+
+    const ws = wsHubFor(hub.app);
+    const counter = statementCounter(hub.deps.db);
+    const frame = { type: 'alert_seen', alert_id: '01JD0000000000000000000001' } as const;
+    ws.sendToSessions([first.sessionId, stationLogin.session_id, 'missing'], frame);
+    await firstWs.untilCount(2);
+    await kdsWs.untilCount(2);
+    expect(firstWs.messages.at(-1)).toEqual(frame);
+    expect(kdsWs.messages.at(-1)).toEqual(frame);
+    const fence = { type: 'alert_seen', alert_id: 'FENCE' } as const;
+    ws.sendToSessions([second.sessionId], fence);
+    await secondWs.untilCount(2);
+    expect(secondWs.messages.at(-1)).toEqual(fence);
+    expect(counter.count).toBe(0);
+  });
+
   it('[00 H-7] a catch-up part build receives the same socket context as appliesTo', async () => {
     const hub = await open(cleanups);
     await seedDirectory(hub);
