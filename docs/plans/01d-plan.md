@@ -6,7 +6,7 @@
 
 **Architecture:** 00's pipeline gains `preRead`, `pinCheck` and a `checkPin` with `prepare` / `onMatch` / `onMismatch` / `onPrepareFailed`, so every PIN-bearing answer is decided in one counting transaction (R1). 01d's state is projections over its own events (`0006_alerts.sql`); events that need a delay (steps, expiry, `no_approver`) are written by registered ticks, each in its own `writer.run`, opened only after a one-statement `due` pre-check. Frames go out after commit through `ws-frames.ts`; alert-mode sockets live in their own list outside 00's `deliver()`.
 
-**Tech Stack:** the existing stack (CLAUDE.md): Node 22, Fastify 5, better-sqlite3 (hub), PostgreSQL 16 (cloud, B-5 only), React (client), Zod, Vitest. No new dependency until the developer answers gap G1 (Capacitor).
+**Tech Stack:** the existing stack (CLAUDE.md): Node 22, Fastify 5, better-sqlite3 (hub), PostgreSQL 16 (cloud, B-5 only), React (client), Zod, Vitest. No new dependency in this plan; `@capacitor/*` is approved only for the tablet plan `docs/plans/01d-tablet-plan.md` (batch 9b, AD-1).
 
 **Spec:** `docs/specs/01d_Notifications_Requests_Spec_v1.0.md` (cited "§x", tests "#n", build-time fixes "BF-n"), with the bumps it made: foundation `docs/specs/00_Foundation_Spec_v1.8.md` ("F §x"), `docs/specs/00_Hub_Platform_Access_Spec_v1.6.md` ("00 §x", rows H-1–H-14), `docs/specs/01b_Staff_Roles_Spec_v1.4.md` ("01b §x", rows B-1–B-6). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text.
 
@@ -22,7 +22,6 @@
 | **00** / **01b** | Implements a C-00 / C-01b row (spec §4.5). Changes another module's code: only the rows named. |
 | **UI** | Client only; the implementer may be sonnet, the reviewer is opus. |
 | **needs Docker Postgres** | The task's own command needs the cloud test database (port 5433). |
-| **BLOCKED-G1** | Waits for the developer's answer to gap G1 (Capacitor tablet app, staff client). |
 | **Manual** | Needs a person and pilot hardware. |
 
 ## Global Constraints
@@ -34,7 +33,7 @@ Every task implicitly includes these. Values copied from the spec.
 - **TDD:** each task writes its failing tests first, runs them and records the failure, then implements. Test names: `it('[01d #N] …')` for a §10 test (each N in exactly one task, Coverage table; a test split across hub and client is tagged `[01d #N hub]` / `[01d #N client]`); supporting tests cite a section: `it('[01d §3.3 rule 4] …')`, `it('[01d BF-3] …')`, `it('[00 H-3] …')`, `it('[01b B-1] …')`.
 - **Commit:** one task per commit, only the task's files: `<type>(01d): task N <title> [spec §x; tests #a, #b]` (00 rows: `feat(00): task N … [00 v1.6 H-n; 01d §4.5]`; 01b rows: `feat(01b): task N … [01b v1.4 B-n; 01d §4.5]`).
 - **Batch checkpoint:** after a batch's last task and its reviews, the controller runs the gate, appends a summary (tasks, commits, tests closed, AD-n rows, open items) to `docs/plans/01d-status.md`, commits it alone (`docs(01d): checkpoint batch N`) and runs `git push origin module-01d` (backup; task 0 allows it). Never push `main`.
-- **Spec-first:** if code and spec disagree, stop and ask (CLAUDE.md). A deviation found while building is written as a **proposed** `AD-n` row in `docs/reviews/01d-auto-decisions.md` (`AD-n | task | problem | options | choice | why | files`) and in the checkpoint; it is folded into the spec only at the as-built review (task 45). No silent change of an API shape, error code, event payload or migration.
+- **Spec-first:** if code and spec disagree, stop and ask (CLAUDE.md). A deviation found while building is written as a **proposed** `AD-n` row in `docs/reviews/01d-auto-decisions.md` (`AD-n | task | problem | options | choice | why | files`) and in the checkpoint; it is folded into the spec only at the as-built review (task 44). No silent change of an API shape, error code, event payload or migration.
 - **Migrations:** merged migrations `0001`–`0005` are never edited. 01d adds exactly one hub migration, `0006_alerts.sql` (task 9). If a later task needs a schema change, `0006` may change only while it is unmerged and the change is an AD row; after merge, a new `0007`.
 - **Determinism (F §6.7):** no `Date.now()`, `Math.random()`, `ulid()` in hub or package `src/`; `clock.branchNow()`, `ids.next()`. Timers use the injected clock in tests (`vi.useFakeTimers` + the test clock).
 - **Errors (§9, F §6.2):** only catalogue codes through `DomainError`. New: `ALERT_NOT_FOUND` 404, `REQUEST_NOT_PENDING` 409, `REQUEST_PIN_REQUIRED` 422. `PERMISSION_DENIED.details.reason ∈ self, not_approver, out_of_range, not_receiver, not_requester, in_person_elsewhere`. `VALIDATION_FAILED.details.issue ∈ target_unavailable, values_invalid, details_invalid` from `raise`.
@@ -58,7 +57,7 @@ Every task implicitly includes these. Values copied from the spec.
 | P-6 | **BF-5 frame (gap G4):** `alerts_open` gains `binding_route_until: number \| null`; a new server frame `{ type: 'binding_route', until: number \| null }` is sent to the device's alert-mode and session sockets when the value changes. Proposed AD row (it extends H-2's frame list) | tasks 3, 32, 42 |
 | P-7 | **BF-7 flag (gap G3):** `alert_flags` keeps only `'no_approver'` (§5.1 CHECK); `StaffDirectoryApplied` already sets it, and the tick's flag pass also closes `obsolete` the open personal notices of people no longer in `staff`. No schema change. Proposed AD row | task 31 |
 | P-8 | **Unknown kind on replay (Review Focus 3):** the `alerts` projection keeps an `AlertRaised` of a kind not registered in this build with `next_due_at = NULL` and logs `{ alert_id, kind, error: 'unknown_kind' }`; boot continues; the tick never selects it; `listOpen` still returns it. Proposed AD row | task 14 |
-| P-9 | **Client home (gap G1, until answered):** the alert UI is a new hub-served entry `apps/client/staff/` (vite mode `staff`, same pattern as `admin-stock`), reusing `AdminLogin`'s staff PIN sign-in; the kiosk and phone pages are this entry. The Capacitor tablet shell and its native background service are task 43 and wait for G1 | tasks 39–43 |
+| P-9 | **Client home (G1, decided: AD-1):** a new hub-served `staff` entry in `apps/client` (`apps/client/staff/`, vite mode `staff`, base `/staff/`, same rules as `owner` / `admin-stock`: ui-kit only, no new dependency, shipped by `ship-client.sh`) with only 01d's screens; it runs in the browser on kiosk and tablet and is tested in the gate. The Capacitor shell, native service, provisioning and update client are batch 9b, a separate plan | tasks 39–42; `01d-tablet-plan.md` |
 
 ## Changes to today's code (read before the named task)
 
@@ -172,7 +171,7 @@ Test fakes (`apps/hub/test/alerts/fakes.ts`, task 13 and on): kinds `t_approval`
 
 ## Coverage table (§10 → task)
 
-66 tests; each number in exactly one task (hub), plus the client halves of #56, #57, #59, #61 and the hardware run of #58.
+66 tests; 65 in this plan, each number in exactly one task (hub), plus the client halves of #56, #57, #59, #61. #63 is in the tablet plan (batch 9b); #58 is written in task 30 and stays open until the pilot mini PC (AD-9).
 
 | Task | 01d tests |
 |---|---|
@@ -194,7 +193,7 @@ Test fakes (`apps/hub/test/alerts/fakes.ts`, task 13 and on): kinds `t_approval`
 | 27 | 22, 37 |
 | 28 | 4, 19, 21, 25, 34, 50 |
 | 29 | 24, 36, 51 |
-| 30 | 35, 58 (skipped off the pilot hardware; run in task 44) |
+| 30 | 35, 58 (skipped off the pilot hardware; open until the pilot mini PC, with 00 #79; AD-9) |
 | 31 | 32, 59 hub |
 | 32 | 26, 28, 64, 65 |
 | 33 | 17, 52 |
@@ -206,7 +205,7 @@ Test fakes (`apps/hub/test/alerts/fakes.ts`, task 13 and on): kinds `t_approval`
 | 39 | 59 client (m6), 61 client (BF-4) |
 | 40 | 56 client |
 | 42 | 57 client (vi) |
-| 43 | 63 |
+| 9b (`01d-tablet-plan.md`) | 63 |
 
 **Moved from §11's step (P-1, P-2):** 31, 48 (step 12 → tasks 10–11); 40 (step 14 → task 12); 14 (step 6, needs `request_result` → task 19); 20 (step 8 → task 18: the shortcut is a raise decision); 50 (step 5 → task 28, needs `registerTick`); 24 (step 8 → task 29); 51 (step 6 → task 29, needs the tick and the answer); 52, 17 (step 8 / 11 → task 33, with `SendTestAlert`); 39 (step 9 → task 34, needs `alerts_open` and catch-up); 55 (step 7 → task 34, needs inbox and catch-up); 10 (step 7 → task 35, needs `my-requests`); 53 (step 8 → task 35, needs `requests-to-answer`); 57, 62 (step 5 → task 36, need `alert-receipts`); 65 (step 5 → task 32); 5 (presence via `PresenceSet` events, P-2); 32, 59 (step 11 → task 31).
 
@@ -268,15 +267,15 @@ Test fakes (`apps/hub/test/alerts/fakes.ts`, task 13 and on): kinds `t_approval`
 | 8 | 36 | `alert-receipts` | NORMAL | — |
 | 8 | 37 | `SetPresence` | NORMAL | — |
 | 8 | 38 | Retention | HIGH | — |
-| 9 | 39 | Client alert store, re-notify, sounds, labels | NORMAL | UI, BLOCKED-G1 |
-| 9 | 40 | Client alert transport, online-only PIN commands | NORMAL | UI, BLOCKED-G1 |
-| 9 | 41 | Client alert pages | NORMAL | UI, BLOCKED-G1 |
-| 9 | 42 | Tablet header | NORMAL | UI, BLOCKED-G1 |
-| 9 | 43 | Tablet app shell, background service, app update client | NORMAL | UI, BLOCKED-G1 |
-| 10 | 44 | Full gate, coverage, manual checks | — | Manual |
-| 10 | 45 | Final review and as-built spec | — | — |
+| 9a | 39 | Client alert store, re-notify, sounds, labels | NORMAL | UI |
+| 9a | 40 | Client WS client, alert mode, online-only PIN answers | NORMAL | UI |
+| 9a | 41 | Staff entry: inbox, requests to answer, answer sheet, test alert | NORMAL | UI |
+| 9a | 42 | Tablet header | NORMAL | UI |
+| 10 | 43 | Full gate, coverage, manual checks | — | Manual |
+| 10 | 44 | Final review and as-built spec | — | — |
+| 9b | — | Tablet app: separate plan `docs/plans/01d-tablet-plan.md`, blocked on the tablet model (OQ2); open item after the merge, required before the pilot | — | — |
 
-46 tasks (0–45). HIGH: 4, 5, 6, 8, 9, 10, 11, 15, 16, 17, 20, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 38 (23 tasks).
+45 tasks (0–44) in this plan. HIGH: 4, 5, 6, 8, 9, 10, 11, 15, 16, 17, 20, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 38 (23 tasks).
 
 ---
 
@@ -737,39 +736,41 @@ Test fakes (`apps/hub/test/alerts/fakes.ts`, task 13 and on): kinds `t_approval`
 
 ---
 
-## Batch 9 — Client (§11 step 16) — BLOCKED-G1 until the developer answers gap G1
+## Batch 9a — Staff entry (§11 step 16, browser part; AD-1)
 
-Tasks 39–42 can start once G1 confirms (or replaces) P-9; task 43 needs G1's Capacitor answer. All **UI**: implementer may be sonnet; reviewer opus.
+The developer's G1 decision (AD-1): 01d builds a new hub-served **staff** entry in `apps/client` with only 01d's screens; it runs in the browser on kiosk and tablet, inside the gate. 02 later adds its ordering screens to the same entry, and the Capacitor app of `docs/plans/01d-tablet-plan.md` (batch 9b) bundles this code later (G1-15 unchanged). Same rules as the existing entries: **ui-kit only** (`apps/client/src/app/ui-kit.ts`), **no new dependency**, shipped by `apps/hub/deploy/ship-client.sh`. All four tasks are **UI**: implementer may be sonnet; reviewer opus.
+
+Not in 9a (AD-1): the requester's waiting card and `my-requests` screen (§8.1 "Requester") — no 01d kind is raised by staff in production, so 02 / 04 build it with their first request kind on top of task 35's query; the Android service, notifications with the screen off, lock-task and the app update client (§8.2, §8.4) — batch 9b.
 
 ### Task 39: Client alert store, re-notify, sounds, labels — RISK: NORMAL — UI
 
 **Spec:** §8.1 (silent kind, re-notify once, BF-4), §8.3, §3.12, §9 client messages.
 
-**Files:** Create `apps/client/src/features/alerts/{store.ts,sounds.ts,labels.ts}` and tests; Modify `apps/client/src/i18n/{en,ur}.ts` (keys `alert.<kind>.card|lock` for the six kinds, the §8.1 error texts, header texts).
+**Files:** Create `apps/client/src/features/alerts/{store.ts,sounds.ts,labels.ts}` and tests; Modify `apps/client/src/i18n/{en,ur}.ts` (keys `alert.<kind>.card|lock` for the six kinds, the §8.1 error texts, the header texts).
 
-- [ ] **Step 1: Tests:** `[01d #59 client]` (m6) a lost `alert` frame then a reconnect row not in the shown set and not `seen_by_me` → re-notified once; `[01d #61 client]` (BF-4) a row with `from_business_day` → listed, no sound, label "from <date>"; `[01d §8.3]` urgent: repeat every 10 s until `alert_seen`, then one reminder per 2 min; not seen by the escalation step → 2-min reminder with one volume step-up; always-on screens one sound per step; at most five sounds; `[01d §8.1]` `approval_receipt` (silent) → no sound, no banner, badge only, never re-notified; every key exists in EN and UR (existing i18n test).
-- [ ] **Step 2–4:** FAIL → implement (pure; timers injected) → PASS.
+- [ ] **Step 1: Tests:** `[01d #59 client]` (m6) a lost `alert` frame then a reconnect row not in the shown set and not `seen_by_me` → re-notified once; `[01d #61 client]` (BF-4) a row with `from_business_day` → listed, no sound, label "from <date>"; `[01d §8.3]` per family: urgent two-tone repeat every 10 s until `alert_seen`, then one reminder per 2 min; not seen by the escalation step → 2-min reminder with one volume step-up; action one double ding; info one chime; always-on screens one sound per step, then badge only; at most five sounds; `[01d §8.1]` `approval_receipt` (silent) → no sound, no banner, badge only, never re-notified; every key exists in EN and UR (existing i18n test).
+- [ ] **Step 2–4:** FAIL → implement (pure; timers and the audio sink injected; sounds are Web Audio tones, no audio files, no dependency) → PASS.
 - [ ] **Commit:** `feat(01d): task 39 client alert store, sounds, labels [spec §8.1, §8.3, §3.12; tests #59, #61]`
 
-### Task 40: Client alert transport, online-only PIN commands — RISK: NORMAL — UI
+### Task 40: Client WS client and online-only PIN answers — RISK: NORMAL — UI
 
-**Spec:** §8.1 (alert mode on kiosk / phone pages, never on the tablet page), H-10, §3.7.
+**Spec:** §8.1 (session socket, alert mode on kiosk and phone pages, never on the tablet page), §3.7, §6 batch 3, H-10.
 
 **Files:** Create `apps/client/src/features/alerts/{socket.ts,answer.ts}` and tests.
 
-- [ ] **Step 1: Tests:** `[01d #56 client]` with the socket down the PIN pad is disabled and `answer()` writes nothing to IndexedDB / `localStorage` and sends no request; on a network error the PIN is dropped from memory; `[01d §8.1]` device type `tablet` never sends an alert-mode `auth`; `cashier_kiosk` / `phone` open alert mode with no session and close it on sign-in; `receipt delivered` sent once per `(alert_id, step)` shown.
+- [ ] **Step 1: Tests:** `[01d #56 client]` with the socket down the PIN pad is disabled and `answer()` writes nothing to IndexedDB / `localStorage` and sends no request; on a network error the PIN is dropped from memory ("No connection to the hub — try again"); `[01d §8.1]` signed in → staff-session socket (`auth` with `session_token`), frames `alert` / `alert_seen` / `alert_closed` / `catch_up.alerts` fed to the store; device type `tablet` never sends an alert-mode `auth` (the page, §3.7; only the 9b service does); `cashier_kiosk` / `phone` with no session open alert mode and close it on sign-in; reconnect with backoff ≤ 5 s; `receipt delivered` sent once per `(alert_id, step)` shown; `binding_route` frames passed to the header (task 42).
+- [ ] **Step 2–4:** FAIL → implement (browser `WebSocket`, no library) → PASS.
+- [ ] **Commit:** `feat(01d): task 40 client WS client, alert mode, online-only PIN answers [spec §8.1, §3.7, H-10; tests #56]`
+
+### Task 41: Staff entry and its screens — RISK: NORMAL — UI
+
+**Spec:** §8.1 (banner, inbox, request detail, informed read-only, in-person only on the raising device, errors), §3.12 `card` with `details`, §6.7, §6.9, §6.5 / §6.10 (the manager's test alert and its receipts, DoD).
+
+**Files:** Create the entry `apps/client/staff/index.html` and `apps/client/src/features/staff/main.tsx` (sign-in reusing the admin-stock `AdminLogin` staff PIN flow), `apps/client/src/features/alerts/{Banner,Inbox,RequestsToAnswer,AnswerSheet,InPerson,TestAlert,Receipts}.tsx` and tests; Modify `apps/client/vite.config.ts` (`ENTRIES.staff = '/staff/'`), `apps/client/package.json` (`build` adds `vite build --mode staff`), `apps/client/test/build-output.test.ts`, `apps/hub/src/lib/client-dist.ts` and the hub route that serves `/admin/stock/` (serve `/staff/` the same way), `apps/hub/deploy/ship-client.sh` (ship `admin-stock` and `staff`, each with the existing build-output check and atomic swap), the hub test that covers the admin-stock page route.
+
+- [ ] **Step 1: Tests:** inbox lists `alerts-inbox` rows, open action alerts first, "for <name>" cards; `RequestsToAnswer` lists `can_answer` rows and read-only rows ("Find <approver> or a manager" for `informed`); `AnswerSheet`: Approve / Reject with the PIN pad on a money kind, one tap on an accept kind; "Approve here" (in person: pick the approver from the roster, then their PIN) shown only when this device is the request's `raised_device_id`; each §8.1 error maps to its text (`REQUEST_NOT_PENDING` closes the card with "Already approved by <name>"); `card` with `details` shown only signed in; `TestAlert` (only with `manage-devices`) sends to a person / team / device and opens `Receipts` (delivered / seen per person and device, "no route", "bound to Ali (not signed in)"); the build output contains `staff/index.html`; the hub serves `/staff/` with the same headers as `/admin/stock/`; `ship-client.sh` refuses when `dist/staff/index.html` is missing (existing script test pattern, or a `bash -n` + dry-run check if the script has no test).
 - [ ] **Step 2–4:** FAIL → implement → PASS.
-- [ ] **Commit:** `feat(01d): task 40 client alert transport, online-only PIN answers [spec §8.1, H-10; tests #56]`
-
-### Task 41: Client alert pages — RISK: NORMAL — UI
-
-**Spec:** §8.1 (banner, inbox, request detail, informed read-only, in-person only on the raising device, requester waiting card, errors), §3.12 `card` with `details`, §6.5 / §6.10 (manager's test alert and receipt view, DoD).
-
-**Files:** Create the entry `apps/client/staff/index.html` (vite mode `staff`, P-9) and `apps/client/src/features/alerts/{Banner,Inbox,RequestDetail,InPerson,MyRequests,TestAlert,Receipts}.tsx` and tests; Modify `apps/client/vite.config.ts`, `package.json` `build` script (add `--mode staff`), `apps/client/test/build-output.test.ts`.
-
-- [ ] **Step 1: Tests:** Approve / Reject with PIN pad on a money kind, one tap on accept; informed → read-only "Find <approver> or a manager"; "Approve here" shown only when this device is `raised_device_id`; each §8.1 error maps to its text; "Waiting 2 min — ask in person" when `ask_in_person`, "No approver reachable — ask in person" after the shortcut; `TestAlert` sends person / team / device and opens the receipt view; build output contains `staff/index.html`.
-- [ ] **Step 2–4:** FAIL → implement → PASS.
-- [ ] **Commit:** `feat(01d): task 41 client alert pages [spec §8.1, §3.12, §6.5, §6.10]`
+- [ ] **Commit:** `feat(01d): task 41 staff entry with inbox, requests, answer sheet, test alert [spec §8.1, §3.12, §6.5, §6.7, §6.9, §6.10]`
 
 ### Task 42: Tablet header — RISK: NORMAL — UI
 
@@ -777,65 +778,61 @@ Tasks 39–42 can start once G1 confirms (or replaces) P-9; task 43 needs G1's C
 
 **Files:** Create `apps/client/src/features/alerts/BindingHeader.tsx` and test.
 
-- [ ] **Step 1: Tests:** `[01d #57 client]` (vi) "Alerts: Ali — pauses at 14:05" from `binding_route_until`, then "Alerts paused" with one `info` chime when it passes, "Alerts: none" with no binding; a `binding_route` frame with a later `until` moves the time (BF-5); a sign-in refreshes it.
+- [ ] **Step 1: Tests:** `[01d #57 client]` (vi) "Alerts: Ali — pauses at 14:05" from `binding_route_until`, then "Alerts paused" with one `info` chime when it passes, "Alerts: none" with no binding; a `binding_route` frame with a later `until` moves the time (BF-5); a sign-in refreshes it. Shown on `tablet` devices only.
 - [ ] **Step 2–4:** FAIL → implement → PASS.
 - [ ] **Commit:** `feat(01d): task 42 tablet alert header [spec §3.7, BF-5; tests #57]`
 
-### Task 43: Tablet app shell, background service, app update client — RISK: NORMAL — UI
+## Batch 9b — Tablet app (separate plan, blocked)
 
-**Spec:** §8.2, §8.4, F-3, README R33.
-
-**Files (per G1's answer; proposed):** Create `apps/tablet/` (Capacitor Android project over the bundled `staff` entry), a native plugin `AlertService` (Android foreground service holding the alert-mode WS, notifications with `lock` text, `receipt delivered`, backoff ≤ 5 s), `apps/client/src/features/alerts/service-bridge.ts` (page ↔ service `(alert_id, step)` handshake, 1 s hold) and its test, `apps/client/src/features/alerts/app-update.ts` and test.
-
-- [ ] **Step 1: Tests:** `[01d #63]` exactly §10, on `service-bridge.ts` with a fake plugin; `[01d §8.4]` `latest` checked after reconnect and hourly, install only when no session / day closed / maintenance hour, `sha256` checked before install, never when `version_code` ≤ own.
-- [ ] **Step 2–4:** FAIL → implement → PASS. The native service is built with Gradle outside the gate; the controller records the build command and APK hash in the checkpoint.
-- [ ] **Commit:** `feat(01d): task 43 tablet app shell, alert service, app update client [spec §8.2, §8.4; tests #63]`
+`docs/plans/01d-tablet-plan.md`: Capacitor shell, native background service, lock-task / device-owner provisioning, hub-hosted silent update client (§8.2, §8.4, H-5 client side), test #63. **Blocked: tablet model (OQ2)**; runs alongside 01e; `@capacitor/*` approved for 9b only. **Not required for the 01d merge; required before the pilot** (AD-1, like 01b T59–T62).
 
 ---
 
 ## Batch 10 — Gate, manual checks, review, as-built (§12)
 
-### Task 44: Full gate, coverage, manual checks — Manual
+### Task 43: Full gate, coverage, manual checks — Manual
 
 **Spec:** §12.1, §12.2, §10.10.
 
 - [ ] **Step 1:** Controller: the gate on a clean checkout of `module-01d` (fresh `pnpm install`, Postgres up), recorded in `01d-status.md` (files, tests, wall time).
 - [ ] **Step 2:** Coverage script: every `[01d #N]` for N in 1–66 appears in exactly one `it()` (#56, #57, #59, #61 as `hub` + `client`), none missing; every §12.2 checklist row's tests present and green; `grep -rn "Date.now\|Math.random" apps/hub/src/alerts` empty; no role name in `apps/hub/src/alerts` (R5).
 - [ ] **Step 3:** Write `docs/plans/01d-manual-checks.md` and run it with the developer on pilot hardware (results recorded there; the task is not done until they are in):
-  1. **Tablet alert with the screen off:** a session-less tablet bound to Ali, screen off → a `test_alert` to Ali from a manager's tablet gives an Android notification with the `lock` text and sound; `alert-receipts` shows delivered, then seen after Ali opens it (DoD §12.1).
-  2. **Alert mode after the session idles out:** Waiter signed in on a tablet, idle past 5 min (session ends `idle_timeout`) → an `action` alert to the waiter still rings on that tablet; 2 h after the last activity it goes "for" the lead and the header says "Alerts paused".
+  1. **Staff entry on a tablet browser and the kiosk:** a manager signed in on a tablet (`/staff/`) gets an urgent `t_approval` (test build) with sound and banner, the 10 s repeat stops when it is opened on another device; the kiosk with no session shows device-target alerts through alert mode. **Tablet with the screen off** (Android notification, DoD §12.1 first half) is checked in the tablet plan (9b, AD-1).
+  2. **Alert mode after the session idles out:** a waiter's phone page (owner binding) signed in, idle past 5 min (session ends `idle_timeout`) → the page falls back to alert mode and an `action` alert to the waiter still rings; on a tablet browser the header shows "Alerts: <name> — pauses at HH:MM" and, after 2 h without activity, the alert goes "for" the lead. (The tablet's own alert mode is the 9b service.)
   3. **`test_alert` to a person, a team and a device:** each reaches the expected devices; receipts list per person and device; an offline device shows no delivery.
   4. **PIN lockout on answers:** five wrong in-person PINs for one approver on a `t_approval` request (test build) → `429 PIN_LOCKED_OUT`; ten wrong from one device in 5 min → `429 DEVICE_LOCKED_OUT`; the lockout shows in the hub admin lockouts page; a correct PIN whose answer races (another manager approves first) leaves a `pin_use_failed` card for the PIN owner on another device.
-  5. **#58 timed tick** on the pilot mini PC: `POS_PILOT_HW=1 pnpm vitest run apps/hub/test/alerts/timed-tick.int.test.ts` → pass (≤ 50 ms tick, ≤ 5 ms raise).
-  6. **APK staged update:** `app-release add --stage T1`, T1 installs, T2 does not; `mark-good`, T2 installs in a window of §8.4.
-- [ ] **Commit:** `docs(01d): task 44 gate, coverage and manual checks [spec §12.1, §12.2]`
+  5. **#58 timed tick:** stays open until the pilot mini PC is available (`POS_PILOT_HW=1 pnpm vitest run apps/hub/test/alerts/timed-tick.int.test.ts`, ≤ 50 ms tick, ≤ 5 ms raise), with 00 #79 (AD-9); recorded as an open item, not a merge blocker.
+  6. **APK endpoints by hand:** `app-release add --stage T1` / `mark-good` with a dummy APK; `curl` with T1's and T2's device tokens shows the staged rule (§6.36). The install on a real tablet is in the tablet plan (9b).
+- [ ] **Commit:** `docs(01d): task 43 gate, coverage and manual checks [spec §12.1, §12.2]`
 
-### Task 45: Final review and as-built spec
+### Task 44: Final review and as-built spec
 
 **Spec:** §12.1 DoD, §12.6, CLAUDE.md pipeline step 8.
 
 - [ ] **Step 1:** Fresh opus reviewer on the whole branch (`main..module-01d`) against the spec, this plan, the C-00 / C-01b rows and every AD-n: checks the §12.2 checklist, each BF-1–BF-8 with its test, each HIGH task's invariants (R1 counter delta and transaction count, R2 hiding, inside-lock select, statement bounds). Findings fixed one commit each, each with implementer + fresh reviewer.
-- [ ] **Step 2:** As-built spec `docs/specs/01d_Notifications_Requests_Spec_v1.1.md`: AD rows for BF-1–BF-8 (as built), P-6, P-7, P-8, BF-4's `from_business_day`, every other AD-n; README module map row 01d → v1.1 "Implemented"; reviewed by a fresh opus reviewer. Any AD that changes a contract another module reads needs the developer's approval before the bump.
-- [ ] **Step 3:** Stop for the developer: merge `module-01d` to `main` only after the developer approves the as-built spec and the manual checks of task 44 are recorded.
+- [ ] **Step 2:** As-built spec `docs/specs/01d_Notifications_Requests_Spec_v1.1.md`: AD rows for BF-1–BF-8 (as built), AD-1–AD-9 (developer decisions below), every later AD-n; §12 lists 9b (tablet app, `01d-tablet-plan.md`) and #58 as open items required before the pilot; README module map row 01d → v1.1 "Implemented"; reviewed by a fresh opus reviewer. Any AD that changes a contract another module reads needs the developer's approval before the bump.
+- [ ] **Step 3:** Stop for the developer: merge `module-01d` to `main` only after the developer approves the as-built spec and the manual checks of task 43 are recorded. 9b and #58 stay open after the merge (AD-1, AD-9), like 01b T59–T62.
 - [ ] **Commit:** `docs(01d): v1.0 → v1.1 as built, AD rows, BF-1–BF-8 [spec §12.6]`
 
 ---
 
-## Spec gaps found while planning
+## Developer decisions on the planning gaps (2026-11-01) — proposed AD rows
 
-| # | Gap | Plan's choice (to confirm before the named task) |
+The first checkpoint (batch 1) writes these rows into `docs/reviews/01d-auto-decisions.md` as **proposed**; they are folded into the spec at the as-built review (task 44). Later ADs continue from AD-10.
+
+| AD | Gap | Decision |
 |---|---|---|
-| G1 | **No staff client, kiosk page or Capacitor tablet app exists in the repo** (`apps/client` has only the `owner` and `admin-stock` entries; no WS client; no `@capacitor/*` dependency, no Android project). §8.1–§8.4 and §11 step 16 assume "the bundled Capacitor tablet app" with a native background service; adding it is new dependencies and native Android code outside the Vitest gate | P-9: a hub-served `staff` entry for pages (tasks 39–42); Capacitor + a native `AlertService` plugin in `apps/tablet/` (task 43). Batch 9 waits for the developer's go-ahead on dependencies and on where the staff pages live |
-| G2 | **No device command queue exists yet** (Android SQLite / IndexedDB queue is E5, 02). H-10 "never queued" has nothing to guard today | The answer sender is online-only by construction; #56 client asserts no storage write and no request while offline. 02 must keep it when it builds the queue (carried note in the checkpoint) |
-| G3 | **BF-7 needs a trigger, `alert_flags` allows only `'no_approver'`** (§5.1 CHECK) | P-7: reuse the `no_approver` flag (already set by `StaffDirectoryApplied`); no schema change; proposed AD |
-| G4 | **BF-5 names no frame** ("a small frame") | P-6: `alerts_open.binding_route_until` + `{ type: 'binding_route', until }`; proposed AD (extends H-2) |
-| G5 | **BF-4 needs a "raised in an earlier business day" fact the rows do not carry** | Task 35: additive `from_business_day` on catch-up and `requests-to-answer` rows; proposed AD |
-| G6 | **Unknown kind on replay** (a kind removed after a rollback) is not covered | P-8: keep the row, `next_due_at NULL`, log, boot continues; proposed AD |
-| G7 | **No UI for `SetPresence`** is specified (§3.11: the shift-start screen is 01e's) | Command and projection only in 01d; no page |
-| G8 | **§11 order vs. "00 / 01b first"**: §11 puts 01b (step 12) and H-5 (step 14) after 01d code, but targets need `noPinStaff` (test 1) | P-1: moved to batches 2–3 |
-| G9 | **Test 58 needs the pilot mini PC** (as 00 #79, still open) | Skipped off hardware; run in task 44 |
+| AD-1 | G1 — no staff client, kiosk page or Capacitor app in the repo; §8 and §11 step 16 assume them | **Split batch 9.** 9a in 01d: a hub-served `staff` entry in `apps/client` (ui-kit only, no new dependency, shipped by `ship-client.sh`) with only 01d's screens — inbox, requests to answer, answer sheet (PIN, in person), sounds per family (§8.3), the tablet header, the WS client (session sockets and alert mode), the manager's `test_alert` sender with its receipts; runs in the browser on kiosk and tablet, tested in the gate; 02 adds ordering screens to the same entry; the Capacitor app bundles this code later (G1-15 unchanged). 9b: `docs/plans/01d-tablet-plan.md` (Capacitor shell, native background service, lock-task / device-owner provisioning, silent update client; §8.2, §8.4, H-5 client side; test #63), blocked on the tablet model (OQ2), runs alongside 01e, `@capacitor/*` approved for 9b only. **01d merges after 9a and the final review; 9b stays open, required before the pilot.** The requester's waiting card (§8.1) is built by 02 / 04 with their first request kind |
+| AD-2 | G2 — no device command queue yet | The answer sender is online-only by construction; #56 client asserts no storage write and no request offline; 02 keeps the rule when it builds the queue (H-10) |
+| AD-3 | G3 — BF-7 trigger | Reuse the `no_approver` flag (set by `StaffDirectoryApplied`); the tick's flag pass also closes `obsolete` the open personal notices of people no longer in `staff`; no schema change (P-7) |
+| AD-4 | G4 — BF-5 frame | `alerts_open.binding_route_until` and the frame `{ type: 'binding_route', until }` (P-6; extends H-2) |
+| AD-5 | G5 — BF-4 fact | Additive `from_business_day` on catch-up and `requests-to-answer` rows (task 35) |
+| AD-6 | G6 — unknown kind on replay | Keep the row, `next_due_at NULL`, log `unknown_kind`, boot continues (P-8) |
+| AD-7 | G7 — no `SetPresence` UI | Command and projection only in 01d; the screen is 01e's shift-start screen |
+| AD-8 | G8 — §11 order vs. 00 / 01b first | 01b rows and H-5 moved to batches 2–3 (P-1) |
+| AD-9 | G9 — test #58 needs the pilot mini PC | Written in task 30, skipped off hardware; open until the pilot mini PC, with 00 #79 |
 
 ## Self-review notes
 
-- Spec coverage: every §6 endpoint, frame, export (§6.11: 5 commands, 4 queries, 5 frames, 1 catch-up part, 13 exports) and §12.2 row maps to a task; C-00 H-1–H-5, H-7–H-9, H-12–H-14 to tasks 3–9, 12 (H-6, H-10, H-11 are text-only / client: H-10 in task 40); C-01b B-1, B-3, B-5, B-6 to tasks 10–11 (B-2 moved to 01e, B-4 text only).
+- Spec coverage: every §6 endpoint, frame, export (§6.11: 5 commands, 4 queries, 5 frames, 1 catch-up part, 13 exports) and §12.2 row maps to a task; C-00 H-1–H-5, H-7–H-9, H-12–H-14 to tasks 3–9, 12 (H-6, H-11 are text-only; H-10 client side in task 40; H-5 client side in 9b); C-01b B-1, B-3, B-5, B-6 to tasks 10–11 (B-2 moved to 01e, B-4 text only).
 - Every §10 test 1–66 is in the Coverage table once; BF-1–BF-8 each have a task and a test.
