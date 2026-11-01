@@ -6,15 +6,36 @@ import { fileURLToPath } from 'node:url';
 import { openDb, openReadOnly } from '../../src/db/connection';
 import { sha256hex } from '../../src/lib/hash';
 
-const CACHE = join(tmpdir(), 'pos-big-fixture-v1.sqlite');
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const BRANCH = 'branch-1';
 const TENANT = 'tenant-a';
 const BASE = 1_700_000_000_000;
 const CHUNK = 50_000;
 // R4: every projection boot registers, checkpointed at n so the budget boot replays nothing.
-export const PROJECTIONS = ['access_reconcile', 'branch_config', 'item_availability'] as const;
+export const PROJECTIONS = [
+  'access_reconcile',
+  'branch_config',
+  'item_availability',
+  'alerts',
+  'alert_flags',
+  'alert_receipts',
+  'presence_today',
+] as const;
 const PROJECTIONS_SQL = PROJECTIONS.map((name) => `'${name}'`).join(', ');
+// The cache is keyed on the migration files and the projection list, so a new migration or projection
+// builds a fresh fixture instead of reusing one with an older schema.
+const CACHE_KEY = sha256hex(
+  Buffer.from(
+    JSON.stringify({
+      migrations: readdirSync(migrationsDir)
+        .filter((name) => name.endsWith('.sql'))
+        .sort()
+        .map((name) => [name, sha256hex(readFileSync(join(migrationsDir, name)))]),
+      projections: PROJECTIONS,
+    }),
+  ),
+).slice(0, 16);
+const CACHE = join(tmpdir(), `pos-big-fixture-v1-${CACHE_KEY}.sqlite`);
 
 export function buildBigFixture(path: string, n = 1_000_000): void {
   if (!complete(CACHE, n)) {

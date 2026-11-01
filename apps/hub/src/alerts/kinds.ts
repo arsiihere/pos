@@ -137,6 +137,11 @@ export function kindOf(kind: string): AlertKind | undefined {
   return kinds.get(kind);
 }
 
+/** Every registered kind (the `alerts` projection's day close, §3.5). */
+export function registeredAlertKinds(): AlertKind[] {
+  return [...kinds.values()];
+}
+
 /** Tests only (fakes' `resetFakes`): removes one registered kind. Production never unregisters. */
 export function unregisterAlertKind(kind: string): void {
   kinds.delete(kind);
