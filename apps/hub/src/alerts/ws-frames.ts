@@ -35,8 +35,24 @@ import { mayAnswer, type AlertRequestPart } from './targets.js';
 
 const StrictLock = AlertLockSchema.strict();
 const StrictCard = AlertCardSchema.extend({ details: AlertDetailsBase.strict().nullable() }).strict();
+// Built from the named lock-safe view fields (pick, not omit): a field later added to the signed-in view
+// (AD-23's answers / needs_pin / silent, task 34) stays refused here.
 const LockAlertFrame = z
-  .object({ type: z.literal('alert'), alert: AlertViewSchema.omit({ card: true }).extend({ lock: StrictLock }).strict() })
+  .object({
+    type: z.literal('alert'),
+    alert: AlertViewSchema.pick({
+      alert_id: true,
+      kind: true,
+      family: true,
+      step: true,
+      escalation: true,
+      set: true,
+      for_staff_id: true,
+      raised_at: true,
+    })
+      .extend({ lock: StrictLock })
+      .strict(),
+  })
   .strict();
 const CardAlertFrame = z
   .object({ type: z.literal('alert'), alert: AlertViewSchema.extend({ lock: StrictLock, card: StrictCard }).strict() })
@@ -105,11 +121,11 @@ interface Batch {
 }
 
 export function createAlertFrames(env: FramesEnv): AlertFrames {
-  const guarded = (what: string, fn: () => void): void => {
+  const guarded = (what: string, fn: () => void, at: Record<string, unknown> = {}): void => {
     try {
       fn();
     } catch (err) {
-      env.log.error({ ...safeError(err), frames: what }, 'alert frames failed');
+      env.log.error({ ...safeError(err), ...at, frames: what }, 'alert frames failed');
     }
   };
 
@@ -136,7 +152,7 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
         const views = stepViews(row, kind, payload.step, event.event_type === 'EscalationStepped');
         send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices));
         sendRoutes(row, kind, payload, views);
-      });
+      }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
   }
 
@@ -152,7 +168,8 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
       try {
         def.send(view, payload.step, r.ref);
       } catch (err) {
-        env.log.error({ ...safeError(err), alert_id: row.alert_id, kind: row.kind, step: payload.step, route: r.route }, 'alert route send failed');
+        // the route's own error (§3.8: failures are the route's to log); it was handed the lock view only
+        env.log.error({ err, alert_id: row.alert_id, kind: row.kind, step: payload.step, route: r.route }, 'alert route send failed');
       }
     }
   }
@@ -201,13 +218,15 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
             (s) =>
               devices.has(s.deviceId) ||
               (s.kind === 'staff' && s.staffId !== null && people.has(s.staffId)) ||
+              // §6.2 step (10): the requester's sockets (every request close: AD row, a close frame has no secret)
+              (request !== null && s.kind === 'staff' && s.staffId !== null && s.staffId === row.requester_staff_id) ||
               // §3.3 rules 5–6, now, in memory: a late approver who saw it only in requests-to-answer
               (request !== null && s.kind === 'staff' && s.staffId !== null && mayAnswer(dir(), request, row.requester_staff_id, s.staffId).ok),
           )
           .map((s) => s.sessionId);
         const toAlert = alertDevices.filter((d) => !hidden.device(d) && (devices.has(d) || bound.has(d)));
         send(ws, [{ frame, sessions: toSessions, alertDevices: toAlert }]);
-      });
+      }, { alert_id: row.alert_id });
     }
   }
 
@@ -231,7 +250,7 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
           rows.filter((r) => r.staff_id === p.staff_id).map((r) => r.device_id),
           frame,
         );
-      });
+      }, { alert_id: p.alert_id });
     }
   }
 
@@ -378,5 +397,8 @@ function safeError(err: unknown): Record<string, unknown> {
   if (err instanceof ZodError) {
     return { error: 'frame_invalid', issues: err.issues.map((i) => ({ code: i.code, path: i.path.map(String).join('.') })) };
   }
-  return { err };
+  // §7: never the message or stack. A JSON.parse failure on a corrupt display_json / details_json echoes
+  // the input in its message, which would put details in a log line.
+  const e = err as { name?: unknown; code?: unknown } | null;
+  return { err: { name: typeof e?.name === 'string' ? e.name : 'unknown', code: typeof e?.code === 'string' ? e.code : null } };
 }

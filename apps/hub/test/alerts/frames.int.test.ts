@@ -1,6 +1,6 @@
 import { DomainError } from '@pos/domain';
 import type { AlertView, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
-import { anAlertRaised, anAttemptSent, aPresenceSet, aRequestAnswered } from '@pos/events/testing';
+import { anAlertClosed, anAlertRaised, anAttemptSent, aPresenceSet, aRequestAnswered } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { registerRoute, unregisterRoute } from '../../src/alerts/routes';
@@ -399,6 +399,8 @@ describe('01d ws-frames (task 20)', () => {
     const kioskAlert = await alertSocket(w, kiosk);
     const owner = await staffSocket(w, OWNER, ownerDev);
     const cash = await staffSocket(w, CASH, cashDev);
+    const waitDev = device(w, 'wait', 'tablet');
+    const wait = await staffSocket(w, WAIT, waitDev); // the requester
 
     const request = raise(w, voidInput()); // step 0: MGR (MGR2 absent)
     // A: step 0 the KDS, step 1 the kiosk only (the KDS dropped); B: CASH at step 0, dropped by step 1
@@ -428,9 +430,26 @@ describe('01d ws-frames (task 20)', () => {
     expect(ids(mgr.ws)).toEqual([request]);
     expect(ids(tabAlert)).toEqual([request]); // bound to MGR
     expect(ids(mgr2.ws)).toEqual([request]); // may answer now
+    expect(ids(wait.ws)).toEqual([request]); // §6.2 step (10): the requester's sockets
     expect(closedOf(mgr.ws)[0]).toEqual({ type: 'alert_closed', alert_id: request, reason: 'answered', decision: 'approve', by_name: 'Manager' });
     expect(closedOf(kdsWs)[0]).toEqual({ type: 'alert_closed', alert_id: 'A_ONE', reason: 'done', decision: null, by_name: null });
     expect(closedOf(cash.ws)[0]).toEqual({ type: 'alert_closed', alert_id: 'A_TWO', reason: 'obsolete', decision: null, by_name: null });
+
+    // every request close reaches the requester (proposed AD row): a withdrawn request
+    const second = raise(w, voidInput({ dedupe_key: 'void:O1:L3' }));
+    await fence(w);
+    const mark = framesOf(wait.ws).length;
+    append(w, [
+      {
+        ...anAlertClosed({ payload: { alert_id: second, reason: 'withdrawn', by_staff_id: WAIT } }),
+        event_type: 'RequestWithdrawn',
+        stream_type: 'order',
+        stream_id: 'O1',
+        payload: { alert_id: second, by_staff_id: WAIT },
+      },
+    ]);
+    await fence(w);
+    expect(framesOf(wait.ws).slice(mark)).toEqual([{ type: 'alert_closed', alert_id: second, reason: 'withdrawn', decision: null, by_name: null }]);
   });
 
   it('[01d §3.6] alert_seen reaches the person staff sockets and the alert-mode sockets of devices bound to them, nobody else', async () => {
@@ -470,6 +489,21 @@ describe('01d ws-frames (task 20)', () => {
     expect(seen(tabAlert)).toEqual([{ type: 'alert_seen', alert_id: id }]);
     expect(seen(owner.ws)).toEqual([]);
     expect(seen(otherAlert)).toEqual([]);
+  });
+
+  it('[01d §7] a corrupt details_json fails that frame only: logged with alert id and error name, never the details text', async () => {
+    const w = await world(cleanups);
+    const mgrDev = device(w, 'mgr', 'tablet');
+    const mgr = await staffSocket(w, MGR, mgrDev);
+    const id = raise(w, voidInput());
+    w.hub.deps.db.prepare('UPDATE alerts SET details_json = ? WHERE alert_id = ?').run('{"item":"Mutton platter","reason":"customer changed mind" broken', id);
+    append(w, [{ ...stepEvent(id, 1, [personRow(MGR, 'answerer')]), stream_type: 'order', stream_id: 'O1' }]);
+    await fence(w);
+    expect(alertFrames(mgr.ws).map((f) => f.step)).toEqual([0]);
+    const lines = w.hub.logs().split('\n').filter((l) => l.includes('alert frames failed'));
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] as string)).toMatchObject({ alert_id: id, kind: 't_approval', step: 1, frames: 'step', err: { name: 'SyntaxError' } });
+    expectNoSecret(w.hub.logs());
   });
 
   it('[01d §6 batch 3] frames go only after commit: none on rollback, none before the commit', async () => {
