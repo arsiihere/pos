@@ -159,17 +159,19 @@ Outcome feeds D3, D4, G1 and the watch code format (letters vs number suffix).
 - Analysis reports and dashboards (07, P2); the pilot captures the data (K11) and shows a basic live view per point.
 - Main / secondary roles and capacity fields (R25, already deferred by 01b B1).
 
-## 12. Open questions
+## 12. Answers to the G0 questions (developer, 2026-11-01)
 
-| # | Question | For |
-|---|---|---|
-| G0-1 | Escalation delay N (30 s / 60 s / 120 s)? | owner |
-| G0-2 | The sound / vibration set per kind. | owner, staff |
-| G0-3 | Does a lane belong to a chef by name (chef picks or assembler sets per shift) or only to the device? | owner |
-| G0-4 | Who refills zone stock and who does the day-end count? Per shift or per day? | owner |
-| G0-5 | Walk times per zone and point (measure at the branch). | field |
-| G0-6 | Confirm Served is tapped by the order taker. | owner |
-| G0-7 | Confirm "My team" approval scope (01b Q19). | owner |
-| G0-8 | Live manager view in the pilot: which numbers matter during service? | owner |
-| G0-9 | Tablet model and Android version (OQ2); hub PC (OQ1). | installation |
-| G0-10 | Watch model and code format (after §9). | spike |
+Answered by the developer for the owner (Q3, Q4, Q5, Q7 stated; Q1, Q2, Q6, Q8 delegated to the developer's judgement). All defaults below are branch settings (data, R18).
+
+| # | Answer |
+|---|---|
+| G0-1 Escalation | **Tiered by kind, never a single timer; nothing expires.** *Approval requests* (void, discount, comp): t0 approvers in range (G0-7); **45 s** repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min** every approver at the branch (out of range too) and the requester's screen says "Waiting 2 min — ask in person". *Ready to serve*: t0 the table's team; not handed over by **walk-to time + 30 s** → buzz again and the order taker's tablet; **+60 s** more → the point turns red on the assembler view and the manager is told. *Table handover accept*: **60 s** remind the receiver; **2 min** the sender's lead. *Zone stock transfer*: **60 s** to the manager. |
+| G0-2 Sounds | **Three families told apart by rhythm, not pitch** (kitchens are loud): **Urgent** (approval requests) two-tone rising, repeats every 10 s until answered, vibration long-long; **Action** (Ready to serve, Call) bright double ding, once, re-sent by escalation; **Info** (slip warning, low zone stock, a request answered) single soft chime, no repeat. Answer to the requester: rising chime approved, falling tone rejected. Watch patterns: Ready to serve 3 long, Call 2 short (if the watch supports patterns, §9). Escalation raises the volume. At most five sounds in total. |
+| G0-3 Chef by name | **By name.** At shift start the assembler sets "Karahi lane 2 → Imran" on the tablet; the device shows the name; it stays until changed. Chefs without a PIN are in `no_pin_staff` (P1). With no name set, work is recorded under the device only. |
+| G0-4 Zone stock | Whoever holds a new permission **`manage-zone-stock`** (scope `my_zones`, new scope) refills and counts. |
+| G0-5 Walk times | Config, editable at any time (K10). Measured at the branch with a stopwatch for the first values. |
+| G0-6 Served | **Order taker taps, made almost free, with a safe fallback.** At Handover the order taker's tablet shows a card "T12 coming — Ali"; one tap when the food lands. Not tapped within **3 × walk-back time** → Served is set automatically as *estimated* (flagged). Table state uses both; the return-time measure (K11) uses only tapped ones, and reports show the tap rate per order taker. |
+| G0-7 Approval range | **An approver approves only within their range** (their team, their zones, or the branch, by role scope; 01b "My team"). If no one in range answers, escalation (G0-1) reaches branch-wide approvers. |
+| G0-8 Live manager view | **Exceptions first, numbers second.** (1) *Needs attention now*, oldest first: requests waiting; food Ready to serve and not picked up past walk time; tables past their promised time (slip); stations behind plan; lanes Off or devices offline; zone stock low. (2) *Points and stations strip*: per point cooking / ready / waiting pickup with the oldest age in colour; per station queue, late count, lanes on. (3) *People*: per order taker and team, open tables and pending pickups (who is overloaded). (4) *Today's money*: sales, covers, and voids, discounts, comps with count, value and who. Pilot builds (1) and (4) first; (2) and (3) next. Same numbers read-only on the owner's remote view (D22). |
+| G0-9 | Tablet model and Android version (OQ2); hub PC (OQ1). **Open, installation.** |
+| G0-10 | Watch model and code format. **Open, after the spike (§9).** |
