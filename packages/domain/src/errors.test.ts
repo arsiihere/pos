@@ -83,6 +83,15 @@ describe('errors', () => {
     expect(statusOf('DEAL_NOT_FOUND')).toBe(404);
   });
 
+  it('[01d §9] 01d codes are in the catalogue with their statuses', () => {
+    expect(ErrorCatalogue).toHaveProperty('ALERT_NOT_FOUND');
+    expect(ErrorCatalogue).toHaveProperty('REQUEST_NOT_PENDING');
+    expect(ErrorCatalogue).toHaveProperty('REQUEST_PIN_REQUIRED');
+    expect(statusOf('ALERT_NOT_FOUND')).toBe(404);
+    expect(statusOf('REQUEST_NOT_PENDING')).toBe(409);
+    expect(statusOf('REQUEST_PIN_REQUIRED')).toBe(422);
+  });
+
   it('[F §6.2] DomainError carries code and details', () => {
     const e = new DomainError('STAFF_NOT_FOUND', { staff_id: 'x' });
     expect(e.code).toBe('STAFF_NOT_FOUND');
