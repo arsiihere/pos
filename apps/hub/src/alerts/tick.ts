@@ -1,5 +1,5 @@
 import type { EngineState } from '@pos/engine';
-import type { AlertTarget, EventDraft, PosEvent } from '@pos/events';
+import type { AlertClosedPayload, AlertTarget, EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { readOnlyDb } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
@@ -49,7 +49,7 @@ export const TICK_DUE_LIMIT = 200;
  * authoritative (race rule): an alert answered or closed since the pre-check is not selected.
  */
 const DUE_ALERTS_SQL = `SELECT alert_id, kind, subject_stream_type, subject_stream_id, requester_staff_id, target_json, values_json,
-         request_json, step, raised_at
+         request_json, step, raised_at, expire_due
     FROM alerts
     WHERE state = 'open' AND next_due_at <= ?
     ORDER BY next_due_at LIMIT ${TICK_DUE_LIMIT}`;
@@ -65,6 +65,7 @@ interface DueRow {
   request_json: string | null;
   step: number;
   raised_at: number;
+  expire_due: 0 | 1;
 }
 
 /** The tick's envelope (§4.2 tickCtx): no actor, device 'hub', occurred at the pass's `now`. */
@@ -128,20 +129,46 @@ function planOf(r: DueRow, kind: AlertKind, now: number): Plan | null {
 }
 
 /**
- * §3.5 step pass (task 28; expiry is task 29, the flag pass task 31). For each due alert, the steps whose
+ * §3.5 expiry (task 29): is this due alert closed `expired` in this pass, instead of stepped?
+ * - `expire_due` (day close, set by the projection on BusinessDayClosed for open non-request alerts of
+ *   `expires_at_day_close` kinds) → yes.
+ * - `closes_on.after_ms` reached (`now >= raised_at + after_ms`, M1) → yes, unless the alert is a request:
+ *   requests never expire (§3.3 "No expiry for requests").
+ * Reads only plain columns of the due row (no JSON, no step times), so a poisoned alert (task 28 guard)
+ * still expires and is not skipped and logged on every pass forever.
+ */
+function expires(r: DueRow, kind: AlertKind | undefined, now: number): boolean {
+  if (r.expire_due === 1) return true;
+  if (kind === undefined || r.request_json !== null || typeof kind.closes_on !== 'object') return false;
+  return now >= r.raised_at + kind.closes_on.after_ms;
+}
+
+/**
+ * §3.5 step and expiry pass (tasks 28–29; the flag pass is task 31). For each due alert, the steps whose
  * `at` has passed beyond the alert's current step: the latest is sent (`AttemptSent`, or `EscalationStepped`
  * for an `escalation: true` step) and each earlier one is `StepSkipped 'superseded'` (restart / tick lag,
- * G1-16b); none → nothing (next_due_at was the expiry time). All due alerts are resolved and routed in one
- * batch (routeSteps: the fixed reads, the previous step's recipients (7), one call per resolver kind and per
- * registered route), so the statement count does not grow with the number of due alerts. A failed send is
+ * G1-16b); none → nothing (clock rounding). An expiring alert is closed instead (`expires`, checked before
+ * any step, so a step due at or after the expiry time is never sent). All due alerts are resolved and routed
+ * in one batch (routeSteps: the fixed reads, the previous step's recipients (7), one call per resolver kind and
+ * per registered route), so the statement count does not grow with the number of due alerts. A failed send is
  * not retried: the frames and route sends run once, after commit (ws-frames' hook), per step event.
  */
 function stepIntents(tx: WriterTx, now: number): EventDraft[] {
   const due = tx.db.prepare(DUE_ALERTS_SQL).all(now) as DueRow[];
   if (due.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
+  const env = tickEnvelope(now);
+  // §3.5 expiry closes of this pass (the pseudocode's `closed` ids are theirs; the flag pass, task 31, skips
+  // them). Each due row is one distinct alert, so each is closed at most once here. Written directly, not
+  // through closeMany: 'expired' is not an owner reason, and the due row already holds what the draft needs.
+  const closes: EventDraft[] = [];
   const plans: Plan[] = [];
   for (const r of due) {
     const kind = kindOf(r.kind);
+    if (expires(r, kind, now)) {
+      const p: AlertClosedPayload = { alert_id: r.alert_id, reason: 'expired', by_staff_id: null, note: null };
+      closes.push(draftOn({ stream_type: r.subject_stream_type, stream_id: r.subject_stream_id }, env, 'AlertClosed', p));
+      continue; // expiry, not a step: a step due at or after the expiry time is never sent
+    }
     if (kind === undefined) continue; // P-8: never due (next_due_at NULL); kept for a row written before a rollback
     // Per-alert guard (task 28 fix, G1-16): an alert whose stored values break the step pass is skipped and
     // logged; it is not closed and its next_due_at is not changed, so it is selected (and logged) again on
@@ -153,14 +180,13 @@ function stepIntents(tx: WriterTx, now: number): EventDraft[] {
       logSkipped(r.alert_id, r.kind, err);
     }
   }
-  if (plans.length === 0) return [];
+  if (plans.length === 0) return closes;
   const routed = routeSteps(
     tx,
     plans.map((p) => p.item),
     { previousStep: true, now },
   );
-  const env = tickEnvelope(now);
-  const drafts: EventDraft[] = [];
+  const drafts: EventDraft[] = [...closes];
   plans.forEach((p, i) => {
     const { row, kind, step } = p.item;
     for (const skipped of p.skipped) {
