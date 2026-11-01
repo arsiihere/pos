@@ -11,6 +11,7 @@ import type {
 import type Database from 'better-sqlite3';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CommandCtx } from '../commands/registry.js';
+import { rawDbOf } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
 import { kindOf, type AlertKind, type AlertRecord, type RequestResultValues } from './kinds.js';
@@ -71,7 +72,8 @@ export function bindAlertEnv(db: Database.Database, env: AlertEnv): void {
 }
 
 function envOf(tx: WriterTx): AlertEnv {
-  const env = envs.get(tx.db);
+  // keyed by the connection, also through a readOnlyTx view (prepare / preRead); reads still use tx.db
+  const env = envs.get(rawDbOf(tx.db));
   if (env === undefined) throw new Error('alerts: env is not bound (registerAlerts)');
   return env;
 }
@@ -135,15 +137,19 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
   const env = envelopeOf(ctx);
 
   // §6.1 (2): open (kind, key) in one statement, unless this transaction returned the key already
-  const ask = [...new Set(inputs.map((i) => dedupeKey(i.kind, i.dedupe_key)).filter((k) => !cache.keys.has(k)))];
+  const ask = new Map<string, [string, string]>();
+  for (const i of inputs) {
+    const k = dedupeKey(i.kind, i.dedupe_key);
+    if (!cache.keys.has(k)) ask.set(k, [i.kind, i.dedupe_key]);
+  }
   const open = new Map<string, { alert_id: string; requester_staff_id: string | null }>();
-  if (ask.length > 0) {
+  if (ask.size > 0) {
     const rows = tx.db
       .prepare(
         `SELECT alert_id, kind, dedupe_key, requester_staff_id FROM alerts
          WHERE state = 'open' AND (kind, dedupe_key) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))`,
       )
-      .all(JSON.stringify(ask.map((k) => k.split('\u0000')))) as Array<{
+      .all(JSON.stringify([...ask.values()])) as Array<{
       alert_id: string;
       kind: string;
       dedupe_key: string;

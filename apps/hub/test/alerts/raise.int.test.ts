@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
 import type { EventDraft, PosEvent } from '@pos/events';
-import { aDeviceRevoked, anAlertClosed, aPresenceSet, aSessionEnded, aSessionStarted } from '@pos/events/testing';
+import { aBusinessDayClosed, aDevicePaired, aDeviceRevoked, anAlertClosed, aPresenceSet, aSessionEnded, aSessionStarted } from '@pos/events/testing';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { alerts, bindAlertEnv, type AlertCtx, type RaiseInput } from '../../src/alerts/raise';
@@ -10,6 +10,7 @@ import { StaffDirectory, type DirectoryCore } from '../../src/auth/staff-directo
 import type { CommandCtx } from '../../src/commands/registry';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
+import { readOnlyTx } from '../../src/engine-host/read-only-tx';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter, type Writer, type WriterTx } from '../../src/engine-host/writer';
 import { fixedClock, T } from '../../src/lib/clock';
@@ -505,6 +506,8 @@ describe('01d alerts.raise / raiseMany', () => {
     ['SessionEnded', () => aSessionEnded({ payload: { session_id: 'S9', staff_id: KAMRAN } })],
     ['DeviceRevoked', () => aDeviceRevoked({ stream_id: 'D_X', payload: { device_id: 'D_X' } })],
     ['PresenceSet', () => aPresenceSet({ payload: { staff_ids: [KAMRAN], present: false, set_by: IMRAN } })],
+    ['DevicePaired', () => aDevicePaired({ stream_id: 'D_NEW', payload: { device_id: 'D_NEW', device_type: 'tablet' } })],
+    ['BusinessDayClosed', () => aBusinessDayClosed()],
   ])('[01d BF-6] appending %s in the transaction drops the cached fixed reads; other events keep them', async (_type, event) => {
     const h = await harness(cleanups);
     const counter = statementCounter(h.db);
@@ -523,5 +526,40 @@ describe('01d alerts.raise / raiseMany', () => {
     }).result;
     expect(counts.warm).toBe(counts.cold - 5);
     expect(counts.dropped).toBe(counts.cold);
+  });
+  it('[01d BF-6] a day-close transaction: BusinessDayClosed appended, then a raise routes on fresh reads', async () => {
+    const h = await harness(cleanups);
+    insertDevice(h.db, TAB, 'tablet');
+    insertSession(h.db, { id: 'S_IM', staff: IMRAN, device: TAB, last: T });
+    h.db.prepare('INSERT INTO device_bindings (device_id, staff_id, session_id, since) VALUES (?, ?, ?, ?)').run(TAB, IMRAN, 'S_IM', T);
+    h.ws.alert = [{ deviceId: TAB, deviceType: 'tablet' }];
+    const { result } = h.writer.run((tx) => {
+      const before = alerts.raise(cmdCtx(tx), infoInput({ dedupe_key: 'before' }));
+      // the day close ends session-set tablet bindings (§3.7)
+      tx.append([draft(aBusinessDayClosed())]);
+      const after = alerts.raise(cmdCtx(tx), infoInput({ dedupe_key: 'after' }));
+      return { before, after };
+    });
+    expect(result.before.events[1]?.payload).toMatchObject({ routes: [{ staff_id: IMRAN, route: 'alert_connection', ref: TAB }] });
+    expect(result.after.events[1]?.payload).toMatchObject({ routes: [] });
+  });
+
+  it('[01d §3.3 rule 4(d)] a raise through readOnlyTx(tx) (the PIN prepare view) returns drafts and writes nothing', async () => {
+    const h = await harness(cleanups);
+    h.ws.sessions = [{ staffId: IMRAN, deviceId: 'D_IMRAN', sessionId: 'S1', kind: 'staff' }];
+    const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+    const { result, appended } = h.writer.run((tx) => {
+      const before = changes();
+      const view = readOnlyTx(tx);
+      const approval = alerts.raise(cmdCtx(view), voidInput());
+      const many = alerts.raiseMany(cmdCtx(view), [infoInput({ dedupe_key: 'ro1' }), infoInput({ dedupe_key: 'ro1' })]);
+      return { approval, many, written: changes() - before };
+    });
+    expect(types(result.approval.events)).toEqual(['AlertRaised', 'AttemptSent']);
+    expect(result.many[0]?.deduped).toBe(false);
+    expect(result.many[1]).toMatchObject({ alert_id: result.many[0]?.alert_id, deduped: true });
+    expect(result.written).toBe(0);
+    expect(appended).toEqual([]);
+    expect(h.db.prepare('SELECT COUNT(*) AS n FROM alerts').get()).toEqual({ n: 0 });
   });
 });

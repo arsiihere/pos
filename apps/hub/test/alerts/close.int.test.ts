@@ -13,6 +13,7 @@ import type { CommandCtx } from '../../src/commands/registry';
 import { openDb } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
+import { readOnlyTx } from '../../src/engine-host/read-only-tx';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter, type Writer, type WriterTx } from '../../src/engine-host/writer';
 import { boot } from '../../src/lib/boot';
@@ -493,5 +494,23 @@ describe('01d alerts.close / closeMany / listOpen / byDedupeKey / tickCtx, reque
     } finally {
       await booted.stop();
     }
+  });
+  it('[01d §3.3 rule 4(d)] closeMany through readOnlyTx(tx) returns AlertClosed + the request_result raise drafts, writing nothing', async () => {
+    const h = await harness(cleanups);
+    const [a, b] = raiseAll(h, [voidInput('ro1'), voidInput('ro2')]) as [string, string];
+    const changes = (): number => (h.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+    const { result, appended } = h.writer.run((tx) => {
+      const before = changes();
+      const events = alerts.closeMany(cmdCtx(readOnlyTx(tx)), [
+        { alert_id: a, reason: 'obsolete', note: 'stale' },
+        { alert_id: b, reason: 'overridden' },
+      ]);
+      return { events, written: changes() - before };
+    });
+    expect(types(result.events)).toEqual(['AlertClosed', 'AlertRaised', 'AttemptSent', 'AlertClosed', 'AlertRaised', 'AttemptSent']);
+    expect(result.events[1]?.payload).toMatchObject({ kind: 'request_result', values: { request_alert_id: a, close_reason: 'obsolete' } });
+    expect(result.written).toBe(0);
+    expect(appended).toEqual([]);
+    expect(row(h.db, a)).toMatchObject({ state: 'open' });
   });
 });

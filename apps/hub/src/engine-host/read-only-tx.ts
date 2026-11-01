@@ -5,6 +5,15 @@ import type { WriterTx } from './writer.js';
 // write there throws instead of landing before the PIN outcome is known. Enforced, not trusted.
 
 const READ_ONLY_PROPS = new Set<PropertyKey>(['name', 'open', 'inTransaction', 'readonly', 'memory']);
+const views = new WeakMap<Database.Database, Database.Database>();
+
+/**
+ * The connection a read-only view wraps (the view itself for any other db). Only an identity key for
+ * per-hub lookups (01d's alert env); never hand the result to code that runs on the view.
+ */
+export function rawDbOf(db: Database.Database): Database.Database {
+  return views.get(db) ?? db;
+}
 
 export function readOnlyDb(db: Database.Database): Database.Database {
   const prepare = (sql: string): Database.Statement => {
@@ -16,7 +25,7 @@ export function readOnlyDb(db: Database.Database): Database.Database {
     }
     return statement;
   };
-  return new Proxy(db, {
+  const view = new Proxy(db, {
     get(target, prop) {
       if (prop === 'prepare') return prepare;
       if (READ_ONLY_PROPS.has(prop)) return Reflect.get(target, prop, target) as unknown;
@@ -32,6 +41,8 @@ export function readOnlyDb(db: Database.Database): Database.Database {
       throw new Error('read-only view: db is not writable');
     },
   });
+  views.set(view, rawDbOf(db));
+  return view;
 }
 
 export function readOnlyTx(tx: WriterTx): WriterTx {
