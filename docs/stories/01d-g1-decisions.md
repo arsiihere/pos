@@ -58,6 +58,17 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-10e | These are defaults; the PIN requirement per kind is a branch setting (data, R18). A branch may **add** a PIN to accept kinds; it may **not** remove the PIN from money kinds (fixed in the spec). |
 | G1-10f | No PIN-free window after a PIN answer; each money answer needs its own PIN. |
 
+## 1c. Targets
+
+| ID | Decision |
+|---|---|
+| G1-11 | **Alerts follow the table's current owner.** |
+| G1-11a | Table's team = current owner (from 02, **read at send time**, i.e. per attempt) + direct reports (`teamOf` for PIN holders, `no_pin_staff` by `lead_staff_id` for the rest). |
+| G1-11b | Zone assignment (Z2) only sets the default owner when a table opens (02's rule). |
+| G1-11c | Pending pickups at handover: the next attempt goes to the new team; the item leaves the old team's inboxes and shows "Moved to Bilal" there. |
+| G1-11d | Fallbacks: owner has no reports → owner only. Owner not signed in anywhere → the zone's assigned order taker; none signed in → branch-scope holders (manager). *Open for the spec: which permission defines "manager" for non-approval fallbacks (proposed: a branch-scope holder of `force-release-table-lock`).* |
+| G1-11e | Zone stock stays with the zone, not the owner: a moved table still draws from the zone it sits in (Z4, Z6 unchanged). |
+
 ## 1b. Receipts
 
 | ID | Decision |
