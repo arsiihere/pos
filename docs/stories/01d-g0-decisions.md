@@ -164,7 +164,7 @@ Outcome feeds D3, D4, G1 and the watch code format (letters vs number suffix).
 
 ## 12. Answers to the G0 questions (developer, 2026-11-01)
 
-Answered by the developer for the owner (Q3, Q4, Q5, Q7 stated; Q1, Q2, Q6, Q8 delegated to the developer's judgement). All defaults below are branch settings (data, R18).
+Answered by the developer for the owner (Q3, Q4, Q5, Q7 stated; Q1, Q2, Q6, Q8 delegated to the developer's judgement). Pilot: these values are constants in 01d (spec v0.2+); configurable settings are post-pilot (01d §12.4).
 
 | # | Answer |
 |---|---|
