@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { activity } from '../../src/auth/session-store';
 import { commandRegistry } from '../../src/commands/route';
-import { defineCommand } from '../../src/commands/registry';
+import { createCommandRegistry, defineCommand, HANDLER_CHECKED_COMMANDS } from '../../src/commands/registry';
 import { payloadHash } from '../../src/lib/hash';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -235,7 +235,92 @@ describe('command route', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.result).toEqual({ command_id: 'cmd-test-late' });
   });
+
+  it('[00 H-3] the registry rejects checked-in-handler on a command not in HANDLER_CHECKED_COMMANDS', () => {
+    expect(HANDLER_CHECKED_COMMANDS).toEqual(['AnswerRequest', 'WithdrawRequest', 'MarkAlertsSeen']);
+    const registry = createCommandRegistry();
+    expect(() => registry.register(handlerChecked('TestNoop2'))).toThrow(/HANDLER_CHECKED_COMMANDS/);
+    expect(registry.byPath('test-noop2')).toBeUndefined();
+  });
+
+  it('[00 H-3] a listed command with checked-in-handler registers in a fresh registry', () => {
+    const registry = createCommandRegistry();
+    expect(() => registry.register(handlerChecked('MarkAlertsSeen'))).not.toThrow();
+    expect(registry.byPath('mark-alerts-seen')?.permission).toBe('checked-in-handler');
+  });
+
+  it('[00 H-3] a station session is 403 on a handler-checked command and a staff session gets ctx.permission null', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await seedDirectory(hub);
+    // Test-only stand-in; the real MarkAlertsSeen is 01d task 26.
+    commandRegistry(hub.app).register(handlerChecked('MarkAlertsSeen'));
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'ST1' });
+    const station = openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: 'ST1' });
+    const before = counts(hub);
+    const blocked = await post(hub, {
+      name: 'mark-alerts-seen',
+      commandType: 'MarkAlertsSeen',
+      device: kds,
+      session: station,
+      actorId: null,
+      commandId: 'cmd-seen-station',
+    });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().error.code).toBe('PERMISSION_DENIED');
+    expect(blocked.json().error.details).toEqual({ session_kind: 'station' });
+    expect(counts(hub)).toEqual(before);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    const allowed = await post(hub, {
+      name: 'mark-alerts-seen',
+      commandType: 'MarkAlertsSeen',
+      device: tablet,
+      session,
+      actorId: 'S_CASH',
+      commandId: 'cmd-seen-staff',
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.json().data.result).toEqual({ permission: null, staff_id: 'S_CASH' });
+  });
+
+  it('[00 H-9] a command without pinCheck stores payload_hash over the whole payload', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const { device, session } = await staff(hub, 'S_CASH');
+    const payload = { pin: '4711' };
+    commandRegistry(hub.app).register(
+      defineCommand({
+        commandType: 'TestPinLike',
+        payloadSchema: z.object({ pin: z.string() }),
+        sessionKind: 'device',
+        permission: 'reprint-ticket',
+        handle() {
+          return { events: [], result: { ok: true } };
+        },
+      }),
+    );
+    const response = await post(hub, { name: 'test-pin-like', commandType: 'TestPinLike', device, session, actorId: 'S_CASH', payload });
+    expect(response.statusCode).toBe(200);
+    const stored = hub.deps.db
+      .prepare("SELECT payload_hash FROM processed_commands WHERE command_id = 'cmd-test-pin-like'")
+      .pluck()
+      .get();
+    expect(stored).toBe(payloadHash(payload));
+  });
 });
+
+function handlerChecked(commandType: string) {
+  return defineCommand({
+    commandType,
+    payloadSchema: z.object({}),
+    sessionKind: 'device',
+    permission: 'checked-in-handler',
+    handle(ctx) {
+      return { events: [], result: { permission: ctx.permission, staff_id: ctx.actor.staffId } };
+    },
+  });
+}
 
 async function staff(
   hub: TestHub,

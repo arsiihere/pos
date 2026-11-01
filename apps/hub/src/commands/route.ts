@@ -78,7 +78,10 @@ async function runCommand(
   if (command.tenant_id !== provisioned.tenant_id || command.branch_id !== provisioned.branch_id) {
     throw new DomainError('BRANCH_MISMATCH');
   }
-  const early = decide(readStored(deps.db, command.command_id), command, deviceId, request.session, routeKind);
+  // 00 v1.6 H-9: the command's pinCheck field, left out of payload_hash. Filled by 01d task 6
+  // (`commandDef.pinCheck?.(payload, preCtx)?.field`); no command declares pinCheck before then.
+  const pinField: string | undefined = undefined;
+  const early = decide(readStored(deps.db, command.command_id), command, deviceId, request.session, routeKind, pinField);
   if (early?.kind === 'replay') return sendReplay(reply, early.stored);
   if (early?.kind === 'conflict') throw commandIdUsed();
   const session = routeKind === 'device' ? requireCommandSession(request, deps) : request.session;
@@ -92,7 +95,7 @@ async function runCommand(
   await deps.testHooks?.betweenGuardAndWriter?.();
   try {
     const body = deps.writer.run((tx) => {
-      const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind);
+      const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind, pinField);
       if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
       if (again?.kind === 'conflict') throw commandIdUsed();
       if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
@@ -144,7 +147,7 @@ async function runCommand(
         deviceId,
         session.session_id,
         command.command_type,
-        payloadHash(command.payload),
+        payloadHash(command.payload, pinField),
         JSON.stringify({ status: 200, body: response }),
         deps.clock.branchNow(),
       );
@@ -190,10 +193,11 @@ function decide(
   deviceId: string,
   session: SessionRow | undefined,
   routeKind: 'device' | 'admin',
+  pinField: string | undefined,
 ): { kind: 'replay'; stored: { status: number; body: unknown } } | { kind: 'conflict' } | undefined {
   if (row === undefined) return undefined;
   const identity = routeKind === 'admin' ? session !== undefined && row.session_id === session.session_id : row.device_id === deviceId;
-  if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload)) {
+  if (identity && row.command_type === command.command_type && row.payload_hash === payloadHash(command.payload, pinField)) {
     return { kind: 'replay', stored: JSON.parse(row.response_json) as { status: number; body: unknown } };
   }
   return { kind: 'conflict' };
@@ -242,6 +246,12 @@ interface StoredCommand {
 }
 
 function authorize(def: CommandDef, session: SessionRow, directory: StaffDirectory): Resolution | null {
+  if (def.permission === 'checked-in-handler') {
+    // 00 v1.6 §3.7 H-3: staff session only; the handler runs its own right check.
+    if (session.kind === 'station') throw new DomainError('PERMISSION_DENIED', { session_kind: 'station' });
+    if (session.staff_id === null) throw new DomainError('PERMISSION_DENIED', { grant: 'not_granted' });
+    return null;
+  }
   if (session.kind === 'station') {
     if (def.stationScoped !== true) {
       throw new DomainError('PERMISSION_DENIED', { permission: def.permission, session_kind: 'station' });
