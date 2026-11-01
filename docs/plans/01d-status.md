@@ -110,3 +110,58 @@
   - (15) The counting registry is duplicated in two tests.
   - (15) `taken_over` sits in the test's "keep" list.
   - (15) A comment is needed on why the in-memory type map is safe.
+
+## Batch 4 — Targets, routes, raise, close, frames (2026-11-02)
+
+- **Tasks:**
+  - 16: targets, team walk, presence filter, `mayAnswer` (§3.4, rules 5–6, BF-8)
+  - 17: routes and `registerRoute`, plus the §3.4.2 table-owner fallback (§3.4.3, §3.8, §3.4.2)
+  - 18: `raise`, `raiseMany`, `batchReads`, G1-9d shortcut, BF-6
+  - 19: `close`, `closeMany`, `listOpen`, `byDedupeKey`, `tickCtx`, `request_result`
+  - 20: `ws-frames.ts`
+- **Commits:**
+  - `c44ebec` (16)
+  - `409726e` (17)
+  - `c6cb85f` + `f55cf7d` review fix (18)
+  - `262bdfc` (19)
+  - `7b1e68a` + `761d34a` review fix (20)
+- **Reviews** (all opus):
+  - HIGH tasks 16, 17 and 20 were each reviewed alone; NORMAL tasks 18 and 19 were reviewed as a pair.
+  - Task 16, Important: the §3.4.2 fallback ("owner not signed in and has no route → zone order taker → managers") had no owner. Ruling: moved to task 17, which builds routes (AD-57). Built and reviewed there.
+  - Task 18, Important: a raise inside the read-only PIN `prepare` view threw `env is not bound`, and tasks 23/24 need that path. Fixed with `rawDbOf` (AD-67). The BF-6 cache drop now also covers `DevicePaired` and `BusinessDayClosed` (AD-70). Re-review: addressed.
+  - Task 20, Important: `alert_closed` did not reach the requester's sockets (§6.2 step 10). Fixed (AD-79). In the same round:
+    - the frame error log no longer echoes the `JSON.parse` input, which could contain details (AD-80);
+    - the lock frame schema now refuses the AD-23 fields (AD-81).
+
+    Re-review: addressed. No `card` / `details` leak was found on any frame path.
+- **Gate:**
+  - Run 1: 1 failure, the cloud `login.int` #53 timing ratio under full-suite load. Batch 4 changed no cloud code, and the test passes when run alone (3/3).
+  - Run 2: green, 267 files / 1623 tests.
+- **Statement bounds measured:**
+  - `raise`: 9 at R=1, T=2, which is exactly 6+R+T. `raiseMany(20)`: 9.
+  - `closeMany`: 8 for both 1 and 10 requests.
+  - `listOpen` / `byDedupeKey`: 1 each.
+  - `alert_closed`: 1 for 3 alerts closed in one transaction.
+- **Tests closed:** 01d #1, #2, #5 (16); #3 (17); #15, #20, #47 (18); #14 (19); #29, #49 (20).
+- **AD rows (proposed):** AD-51 to AD-81.
+- **Open question for the developer (needed before tasks 34 / 41):** the outcome of a `request_result` cannot be shown to clients. `AlertViewSchema` (§5.4) has no `values` or outcome field, but §3.10 promises "decision and answerer (or closer and reason)" and §6.12 asks for a rising or falling chime depending on the outcome. The options:
+  - (a) a `display.kind_label_key` per outcome, which fits today's shapes;
+  - (b) an additive view field `outcome`.
+- **Carried to later tasks:**
+  - Task 23: `onMatch` only appends the prepared drafts and never raises again. Task 23 must not resend `alert_closed`; ws-frames already sends it to the requester and to the may-answer sockets. Confirm whether "the requester's sockets" also covers alert-mode sockets on the requester's bound devices.
+  - Task 24: `raise` has no `hidden_from` option yet.
+  - Task 30: `fakeFires`.
+  - Task 32:
+    - re-assert #49 `alerts_open` with real rows;
+    - the header must also check `route`, because `bindingIsRoute.until` is non-null even when (a)/(b) fail.
+- **Deferred minors (for the final review):**
+  - (16) `stepTargets` throws a plain Error on a non-string `from_value`.
+  - (16) A dead depth cap in `walkTeam`.
+  - (16) Fake reset without try/finally.
+  - (17) No test for an absent person's phone binding, or for the `table_team` `from_value` marker path.
+  - (18) `rawDbOf` is a public export.
+  - (18) An O(keys) scan on each close.
+  - (19) A test comment swaps R and T.
+  - (19) The 200-character slice can split a surrogate pair.
+  - (19) The positive-control test is structurally trivial.
+  - (20) A kiosk alert-mode socket may get an `alert_closed` it never showed.
