@@ -4,7 +4,7 @@ You are running UNATTENDED inside an automated loop for module {{MOD}}. Nobody w
 Never ask the user anything. Never wait for confirmation. Decide using the policy below, record the decision, and keep going.
 
 ## Sources of truth (in this order; code wins over prose when they disagree on what EXISTS)
-1. docs/specs/00_Foundation_Spec_v1.7.md §6 (Shared Standards) — frozen
+1. docs/specs/00_Foundation_Spec_v1.8.md §6 (Shared Standards) — changes only by an approved version bump (README R34)
 2. The approved spec for {{MOD}} (latest docs/specs/{{MOD}}_*_Spec_v1.*.md)
 3. docs/plans/{{MOD}}-plan.md (tasks, Interfaces block, coverage table, Global Constraints)
 4. docs/specs/README.md (owner answers, carried requirements)
@@ -47,9 +47,9 @@ with a diagnosis in the note and in build-log ("tried X, Y, Z; root cause guess;
 ## Hard rules
 - TDD: failing test first (named with the spec test number), then implementation.
 - One commit per task: `<type>({{MOD}}): task <id> <short desc> [spec §x.y]`. Commit only files you meant to change.
-- Never `git push`, never touch branch `main`, never `git reset --hard`, never delete tests to make things pass,
+- Never `git push`, except the controller's `git push origin module-<MOD>` at a batch checkpoint; never push `main`; never touch branch `main`, never `git reset --hard`, never delete tests to make things pass,
   never `.skip` a test unless the spec says so (log it if you do).
-- Never edit docs/specs/00_Foundation_Spec_v1.7.md. Never edit approved specs of OTHER modules.
+- The foundation and every approved spec change only through a version bump approved by the owner, with a changelog and 'Changed by' markers (README R34); never edit them in a build step. Appending an error code that a module spec defines (F §6.2) needs no bump.
 - Read only what the task needs (plan task text, files it touches, their tests, cited spec sections). Use Grep before
   opening big files. No repo-wide scans. No subagents.
 - Postgres for cloud tests: postgres://pos:pos@localhost:5433/pos_test (the loop starts it before every step).
