@@ -10,12 +10,13 @@ import {
   type AlertRequestDef,
   type AnswerFacts,
 } from '../../src/alerts/kinds';
+import { registerRoute, unregisterRoute } from '../../src/alerts/routes';
 import { registerTargetResolver, targetKey, unregisterTargetResolver, type ResolvedTarget } from '../../src/alerts/targets';
 
 // 01d §4.4 test fakes (plan "Test fakes"): kinds of later modules exist here only. Never imported by src/.
 // Each test file calls registerFakes() (beforeAll / beforeEach) and resetFakes() (afterAll / afterEach).
-// Resolvers fakeTableOwner / fakePoint (task 16); deferred to the tasks that build their registries:
-// route fakePager (task 17), tick fakeFires (task 30).
+// Resolvers fakeTableOwner / fakePoint (task 16), fakeZoneOrderTaker and route fakePager (task 17);
+// deferred to the task that builds its registry: tick fakeFires (task 30).
 
 export type FakeApplyMode = 'ok' | 'throw' | 'append' | 'onCommit' | 'write' | 'no_alert_id' | 'other_alert_id';
 
@@ -88,12 +89,44 @@ function fakeRequest<V, D>(
 
 type TableTeamTarget = Extract<AlertTarget, { kind: 'table_team' }>;
 type PointTarget = Extract<AlertTarget, { kind: 'point' }>;
+type ZoneTarget = Extract<AlertTarget, { kind: 'zone_order_taker' }>;
 
 /** 02-like `tableOwner` (§3.4, §4.4): table_id → owner, set by the test; one statement per call. */
 export const fakeTableOwner: { owners: Map<string, string>; calls: TableTeamTarget[][] } = { owners: new Map(), calls: [] };
 
 /** 01a-like point tablets (§3.4, §4.4): point_id → bound tablet ids, set by the test; one statement per call. */
 export const fakePoint: { devices: Map<string, string[]>; calls: PointTarget[][] } = { devices: new Map(), calls: [] };
+
+/** 01a/01b/02-like zone order taker (§3.4.2, §4.4): table_id → taker, set by the test; one statement per call. */
+export const fakeZoneOrderTaker: { takers: Map<string, string>; calls: ZoneTarget[][] } = { takers: new Map(), calls: [] };
+
+/** 01e-like pager route (§3.8): staff_id → pager refs, set by the test; one statement per `routesFor` call. */
+export const fakePager: {
+  refs: Map<string, string[]>;
+  calls: string[][];
+  sent: Array<{ alert_id: string; step: number; route_ref: string }>;
+} = { refs: new Map(), calls: [], sent: [] };
+
+function fakeZoneOrderTakerResolver(tx: WriterTx, targets: ZoneTarget[]): Map<string, ResolvedTarget> {
+  fakeZoneOrderTaker.calls.push(targets);
+  const rows = tx.db
+    .prepare('SELECT t.value AS table_id, z.value AS staff_id FROM json_each(?) t JOIN json_each(?) z ON z.key = t.value')
+    .all(JSON.stringify(targets.map((t) => t.table_id)), JSON.stringify(Object.fromEntries(fakeZoneOrderTaker.takers))) as Array<{
+    table_id: string;
+    staff_id: string;
+  }>;
+  return new Map(
+    rows.map((row) => [targetKey({ kind: 'zone_order_taker', table_id: row.table_id }), { staff_ids: [row.staff_id], device_ids: [] }]),
+  );
+}
+
+function fakePagerRoutesFor(tx: WriterTx, staffIds: string[]): Map<string, Array<{ route_ref: string }>> {
+  fakePager.calls.push([...staffIds]);
+  const rows = tx.db
+    .prepare('SELECT s.value AS staff_id, r.value AS refs FROM json_each(?) s JOIN json_each(?) r ON r.key = s.value')
+    .all(JSON.stringify(staffIds), JSON.stringify(Object.fromEntries(fakePager.refs))) as Array<{ staff_id: string; refs: string }>;
+  return new Map(rows.map((row) => [row.staff_id, (JSON.parse(row.refs) as string[]).map((route_ref) => ({ route_ref }))]));
+}
 
 function fakeTableOwnerResolver(tx: WriterTx, targets: TableTeamTarget[]): Map<string, ResolvedTarget> {
   fakeTableOwner.calls.push(targets);
@@ -139,6 +172,17 @@ export function registerFakes(): void {
   ensureEffectEvent();
   registerTargetResolver('table_team', fakeTableOwnerResolver);
   registerTargetResolver('point', fakePointResolver);
+  registerTargetResolver('zone_order_taker', fakeZoneOrderTakerResolver);
+  registerRoute({
+    route: 'pager',
+    format: 'short_code',
+    ack: false,
+    receipts: [],
+    routesFor: fakePagerRoutesFor,
+    send: (alert, step, route_ref) => {
+      fakePager.sent.push({ alert_id: alert.alert_id, step, route_ref });
+    },
+  });
 
   // 04-like void approval: approval tier, money PIN, details for the approver.
   defineAlertKind({
@@ -280,6 +324,13 @@ export function resetFakes(): void {
   for (const kind of FAKE_KINDS) unregisterAlertKind(kind);
   unregisterTargetResolver('table_team');
   unregisterTargetResolver('point');
+  unregisterTargetResolver('zone_order_taker');
+  unregisterRoute('pager');
+  fakeZoneOrderTaker.takers.clear();
+  fakeZoneOrderTaker.calls.length = 0;
+  fakePager.refs.clear();
+  fakePager.calls.length = 0;
+  fakePager.sent.length = 0;
   fakeTableOwner.owners.clear();
   fakeTableOwner.calls.length = 0;
   fakePoint.devices.clear();

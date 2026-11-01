@@ -25,16 +25,31 @@ export interface AlertRow {
   raised_at: number;
 }
 
-/** A resolved recipient before routes (§3.4): a person or a device, with its set. */
+/** §3.4.2: where a table-team recipient came from, captured before the presence filter. */
+export interface TableTeamOrigin {
+  table_id: string;
+  owner_staff_id: string;
+}
+
+/**
+ * A resolved recipient before routes (§3.4): a person or a device, with its set. `table_team` marks a
+ * table's owner (§3.4.2 fallback, routes.ts). An owner dropped by the presence filter is kept as a marker
+ * `{ staff_id: null, device_id: null, table_team }`: not a recipient, only the fallback's origin;
+ * `routeRecipients` never writes it as a row.
+ */
 export interface Recipient {
   staff_id: string | null;
   device_id: string | null;
   set: RecipientSet;
+  table_team?: TableTeamOrigin;
 }
 
 /** A stored recipient row (AttemptSent / EscalationStepped `recipients[]`, `alert_recipients`). */
-export interface RecipientRow extends Recipient {
+export interface RecipientRow {
+  staff_id: string | null;
+  device_id: string | null;
   for_staff_id: string | null;
+  set: RecipientSet;
 }
 
 /** §4.2 resolver result per target key. */
@@ -76,8 +91,14 @@ export interface BatchReads {
   activity: Map<string, number>;
   /** (7) the previous step's recipients, by alert_id */
   prevRecipients: Map<string, RecipientRow[]>;
-  /** (8) resolver results by targetKey */
+  /** (8) resolver results by targetKey (incl. `zone_order_taker:<table_id>` for §3.4.2 fallbacks) */
   resolved: Map<string, ResolvedTarget>;
+  /**
+   * (10) registered route results by staff_id (§3.8), from routes.ts `askRoutes(tx, routeAsk(…))` after
+   * resolveStep. Optional only so hand-built reads without routes stay valid; `routeRecipients` throws when
+   * a route is registered and this is missing.
+   */
+  routes?: Map<string, Array<{ route: string; ref: string }>>;
 }
 
 /**
@@ -200,6 +221,7 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
       out.push(recipient);
     } else if (SET_RANK[recipient.set] > SET_RANK[seen.set]) seen.set = recipient.set;
   };
+  const markers = new Set<string>();
   for (const { target, set } of stepTargets(step, alert)) {
     const found = resolveTarget(target, alert, reads, directory);
     for (const staffId of found.staff_ids) {
@@ -207,6 +229,17 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
       add(people, staffId, { staff_id: staffId, device_id: null, set });
     }
     for (const deviceId of found.device_ids) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });
+    // §3.4.2: keep each table owner's origin, read before the presence filter.
+    if (target.kind !== 'table_team') continue;
+    for (const owner of resolved(target, reads).staff_ids) {
+      const origin: TableTeamOrigin = { table_id: target.table_id, owner_staff_id: owner };
+      const recipient = people.get(owner);
+      if (recipient !== undefined) recipient.table_team ??= origin;
+      else if (!isPresent(reads, owner) && !markers.has(`${origin.table_id}\u0000${owner}`)) {
+        markers.add(`${origin.table_id}\u0000${owner}`);
+        out.push({ staff_id: null, device_id: null, set, table_team: origin });
+      }
+    }
   }
   return out;
 }
@@ -262,8 +295,8 @@ function resolved(target: ResolverTarget<ResolverKind>, reads: BatchReads): Reso
   return reads.resolved.get(targetKey(target)) ?? { staff_ids: [], device_ids: [] };
 }
 
-/** §3.4 `managers`: branch-scope holders of `force-release-table-lock` (G1-11d, Q1). */
-function managers(directory: StaffDirectory): string[] {
+/** §3.4 `managers`: branch-scope holders of `force-release-table-lock` (G1-11d, Q1). Not presence-filtered. */
+export function managers(directory: StaffDirectory): string[] {
   return directory.list().flatMap(({ staff_id }) => {
     const r = directory.resolve(staff_id, 'force-release-table-lock');
     return r.grant === 'allowed' && r.scope === 'branch' ? [staff_id] : [];
