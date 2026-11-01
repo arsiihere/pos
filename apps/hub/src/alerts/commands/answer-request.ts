@@ -1,7 +1,6 @@
 import { DomainError } from '@pos/domain';
 import {
   AnswerRequestPayload,
-  type AlertDetails,
   type AlertDisplay,
   type EventDraft,
   type PosCommand,
@@ -20,7 +19,6 @@ import type { WriterTx } from '../../engine-host/writer.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
 import {
-  kindOf,
   type AlertKind,
   type AlertRecord,
   type AnsweredOnRequesterDeviceValues,
@@ -29,7 +27,8 @@ import {
   type PinUseFailedValues,
 } from '../kinds.js';
 import { alerts, requestResultInput, type RaiseInput } from '../raise.js';
-import { mayAnswer, type AlertRequestPart } from '../targets.js';
+import { mayAnswer } from '../targets.js';
+import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, type RequestRow } from './request-row.js';
 
 // 01d §6.2 `AnswerRequest`, §3.3 answer rules 1–7, A4, A5, §3.5 read-only contract.
 // `preRead` (read-only, before any PIN): 1 alert statement, directory and session in memory, then the kind's
@@ -47,39 +46,8 @@ import { mayAnswer, type AlertRequestPart } from '../targets.js';
 
 type Payload = AnswerRequestPayload;
 
-interface AnswerRow {
-  alert_id: string;
-  kind: string;
-  family: AlertRecord['family'];
-  subject_stream_type: PosEvent['stream_type'];
-  subject_stream_id: string;
-  dedupe_key: string;
-  requester_staff_id: string | null;
-  raised_device_id: string;
-  values_json: string;
-  display_json: string;
-  details_json: string | null;
-  request_json: string | null;
-  step: number;
-  raised_at: number;
-  state: 'open' | 'closed';
-  close_reason: string | null;
-  decision: string | null;
-  closed_by_staff_id: string | null;
-}
-
-const READ_ALERT = `SELECT alert_id, kind, family, subject_stream_type, subject_stream_id, dedupe_key, requester_staff_id,
-       raised_device_id, values_json, display_json, details_json, request_json, step, raised_at,
-       state, close_reason, decision, closed_by_staff_id
-  FROM alerts WHERE alert_id = ?`;
-
-/** The one alert statement (§6.2 Queries). */
-function readAlert(db: Database.Database, alertId: string): AnswerRow | undefined {
-  return db.prepare(READ_ALERT).get(alertId) as AnswerRow | undefined;
-}
-
 interface Checked {
-  row: AnswerRow;
+  row: RequestRow;
   kind: AlertKind;
   request: NonNullable<AlertKind['request']>;
   record: AlertRecord;
@@ -105,28 +73,15 @@ function answererOf(actor: CommandCtx['actor'], payload: Payload): string {
  * not_receiver). Directory in memory; no statement.
  */
 function check(
-  row: AnswerRow | undefined,
+  found: RequestRow | undefined,
   payload: Payload,
   answerer: string,
   directory: StaffDirectory,
   alertId: string,
   deviceId: string,
 ): Checked {
-  // (1) rule 1: exists, has a request part
-  if (row === undefined || row.request_json === null) throw new DomainError('ALERT_NOT_FOUND', { alert_id: alertId });
-  // (2) rule 1: pending (§9 details)
-  if (row.state !== 'open') {
-    const answeredBy = row.close_reason === 'answered' ? row.closed_by_staff_id : null;
-    throw new DomainError('REQUEST_NOT_PENDING', {
-      alert_id: row.alert_id,
-      state: 'closed',
-      close_reason: row.close_reason,
-      decision: row.decision,
-      answered_by_staff_id: answeredBy,
-      answered_by_name: answeredBy === null ? null : (directory.get(answeredBy)?.display_name ?? null),
-    });
-  }
-  const part = JSON.parse(row.request_json) as AlertRequestPart;
+  // (1)–(2) rule 1: exists, has a request part (404); pending (409, §9 details)
+  const { row, part } = pendingRequest(found, alertId, directory);
   // (3) the decision is one of the kind's answers (v0.5 #1)
   if (!(part.answers as readonly string[]).includes(payload.decision)) {
     throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'decision', message: 'decision is not an answer of this request' }] });
@@ -145,37 +100,14 @@ function check(
   const verdict = mayAnswer(directory, part, row.requester_staff_id, answerer);
   if (!verdict.ok) throw new DomainError('PERMISSION_DENIED', { reason: verdict.reason });
 
-  const kind = kindOf(row.kind);
-  // P-8: an open request of a kind this build does not register cannot run its effect (a bug / rollback)
-  if (kind === undefined || kind.request === null) throw new Error(`AnswerRequest: kind '${row.kind}' has no registered request part`);
-  const record: AlertRecord = {
-    alert_id: row.alert_id,
-    kind: row.kind,
-    family: row.family,
-    subject: { stream_type: row.subject_stream_type, stream_id: row.subject_stream_id },
-    dedupe_key: row.dedupe_key,
-    requester_staff_id: row.requester_staff_id,
-    receiver_staff_id: part.receiver_staff_id,
-    raised_device_id: row.raised_device_id,
-    values: JSON.parse(row.values_json) as Record<string, unknown>,
-    display: JSON.parse(row.display_json) as AlertDisplay,
-    details: row.details_json === null ? null : (JSON.parse(row.details_json) as AlertDetails),
-    step: row.step,
-    raised_at: row.raised_at,
-  };
-  return { row, kind, request: kind.request, record, answerer };
+  const { kind, request } = requestKindOf(row, 'AnswerRequest');
+  const record = recordOf(row, part);
+  return { row, kind, request, record, answerer };
 }
 
 /** §3.5: `apply` on a read-only view; every draft must carry this alert's id (else a bug → 500). */
 function runApply(ctx: CommandCtx, c: Checked, answer: AnswerFacts): EventDraft[] {
-  const drafts = c.request.apply({ ...ctx, tx: readOnlyTx(ctx.tx), alert: c.record }, answer);
-  for (const draft of drafts) {
-    if (draft.payload.alert_id !== c.record.alert_id) {
-      // kind and event type only: never the payload (§7)
-      throw new Error(`AnswerRequest: kind '${c.record.kind}' apply returned ${draft.event_type} without this alert's alert_id`);
-    }
-  }
-  return drafts;
+  return checkAlertIds('AnswerRequest', 'apply', c.record, c.request.apply({ ...ctx, tx: readOnlyTx(ctx.tx), alert: c.record }, answer));
 }
 
 function factsOf(payload: Payload, c: Checked, deviceId: string, now: number): AnswerFacts {
@@ -340,7 +272,7 @@ function pinFailed(
   ctx: CommandCtx,
   outcome: RequestPinFailedPayload['outcome'],
   errorCode: string,
-): { row: AnswerRow; draft: EventDraft } | null {
+): { row: RequestRow; draft: EventDraft } | null {
   if (payload.method === 'session') return null; // no PIN, never reached (pinCheck returns null)
   const row = readAlert(tx.db, payload.alert_id);
   if (row === undefined) return null;
@@ -369,7 +301,7 @@ function pinFailed(
 }
 
 /** §3.10 `pin_use_failed` input: to the PIN owner, on the request's subject, hidden from the sending seat. */
-function pinUseFailedInput(row: AnswerRow, pinOwner: string, errorCode: string, ctx: CommandCtx, cmd: PosCommand): RaiseInput {
+function pinUseFailedInput(row: RequestRow, pinOwner: string, errorCode: string, ctx: CommandCtx, cmd: PosCommand): RaiseInput {
   const values: PinUseFailedValues = {
     request_alert_id: row.alert_id,
     request_kind: row.kind,

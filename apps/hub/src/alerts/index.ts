@@ -4,6 +4,7 @@ import type { HubDeps } from '../server.js';
 import { currentDirectory } from '../auth/guards.js';
 import { wsHubFor } from '../ws/server.js';
 import { registerAnswerRequest } from './commands/answer-request.js';
+import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { bindAlertEnv } from './raise.js';
 import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
 import { createAlertFrames } from './ws-frames.js';
@@ -33,6 +34,8 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   wsHubFor(app).onReceipt((from, msg) => receipts.fromSocket(from, msg));
   // §6.2 (task 22): AnswerRequest through the hub's command registry (registerCommandRoutes ran before)
   registerAnswerRequest(app);
+  // §6.3 (task 25): WithdrawRequest
+  registerWithdrawRequest(app);
   app.addHook('onClose', async () => {
     receipts.stop();
     unbindReceiptBuffer(receipts);

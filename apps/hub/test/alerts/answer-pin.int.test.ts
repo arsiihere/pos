@@ -111,22 +111,24 @@ function raiseAs(hub: TestHub, s: Seat, input: RaiseInput): string {
   }).result;
 }
 
-/** The requester withdraws (WithdrawRequest is a later task: its event, as the command will write it). */
-function withdraw(hub: TestHub, alertId: string, n: number): void {
-  hub.deps.writer.run((tx) => {
-    tx.append([
-      {
-        stream_type: 'order',
-        stream_id: `O${n}`,
-        event_type: 'RequestWithdrawn',
-        schema_version: 1,
-        payload: { alert_id: alertId, by_staff_id: WAIT },
-        occurred_at: hub.clock.branchNow(),
-        actor_id: WAIT,
-        device_id: 'test',
-      },
-    ]);
+/** The requester withdraws through the real WithdrawRequest command (§6.3, task 25). */
+async function withdraw(hub: TestHub, s: Seat, alertId: string): Promise<void> {
+  const response = await hub.app.inject({
+    method: 'POST',
+    url: '/commands/withdraw-request',
+    headers: { authorization: `Bearer ${s.deviceToken}`, 'x-session-token': s.sessionToken },
+    payload: {
+      command_id: `auto-wd-${(commandNo += 1)}`,
+      tenant_id: TENANT,
+      branch_id: BRANCH,
+      command_type: 'WithdrawRequest',
+      payload: { alert_id: alertId },
+      occurred_at: hub.clock.branchNow(),
+      actor_id: s.staffId,
+      device_id: s.deviceId,
+    },
   });
+  expect(response.statusCode, 'withdraw').toBe(200);
 }
 
 const display = { kind_label_key: 'alert.t.lock', table_code: '12', requester_name: 'Order taker' };
@@ -528,7 +530,7 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
     const wait = seat(hub, WAIT, 'wait-tab');
     for (let n = 1; n <= 5; n += 1) {
       const id = raiseAs(hub, wait, voidInput(n));
-      duringArgon2(hub, () => withdraw(hub, id, n));
+      duringArgon2(hub, () => withdraw(hub, wait, id));
       const response = await answer(hub, wait, inPerson(id, MGR, n % 2 === 0 ? PIN.b : WRONG));
       expect(response.statusCode, `attempt ${n}`).toBe(409);
       expect(lockouts(hub, MGR, wait.deviceId)).toEqual({ staff: n, device: n });
