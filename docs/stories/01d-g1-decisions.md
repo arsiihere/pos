@@ -40,6 +40,14 @@
 
 G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void meaning.
 
+| G1-9 | **Escalation widens only who is told, never who may answer.** |
+| G1-9a | The grant's scope (`my_team`, `my_zones`, `branch`) is a permission rule; no timer loosens it. |
+| G1-9b | Out-of-range people who receive an escalation see the request **read-only** with "Find <approver> or a manager"; the requester's "ask in person" line stays. |
+| G1-9c | Branch-scope holders (normally the manager) are in range for every request, so they are the real escalation target. |
+| G1-9d | **Shortcut:** if no in-range approver is signed in anywhere when the request is raised, skip the waiting steps and go to branch-scope holders at once. |
+| G1-9e | **No approver warning (pilot form of Q-N5, approvals only):** while the business day is open and no branch-scope approver for a permission is signed in anywhere, the always-on screens and the manager / owner views show "No one can approve voids right now". The general "no route reaches this person" warning stays deferred. |
+| G1-9f | **G0-1 wording, approval requests, as amended:** t0 in-range approvers (G0-7); 45 s repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min branch-scope approvers; other holders told read-only**; requester's screen says "Waiting 2 min — ask in person". |
+
 ## 1b. Receipts
 
 | ID | Decision |
