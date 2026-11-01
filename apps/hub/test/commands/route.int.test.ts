@@ -1,3 +1,4 @@
+import { DomainError } from '@pos/domain';
 import type { DirectoryInput } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -307,6 +308,46 @@ describe('command route', () => {
       .pluck()
       .get();
     expect(stored).toBe(payloadHash(payload));
+  });
+
+  it('[00 H-3] preRead gets a read-only db after payload Zod; its DomainError writes nothing; pinCheck null runs today\'s path', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const { device, session } = await staff(hub, 'S_CASH');
+    const seen: string[] = [];
+    commandRegistry(hub.app).register(
+      defineCommand({
+        commandType: 'TestPreRead',
+        payloadSchema: z.object({ refuse: z.boolean() }),
+        sessionKind: 'device',
+        permission: 'reprint-ticket',
+        preRead(db, payload, ctx) {
+          seen.push(`staff:${ctx.actor.staffId}`);
+          expect(ctx.db).toBe(db);
+          expect(db.prepare('SELECT COUNT(*) AS n FROM events').get()).toBeDefined();
+          expect(() => db.prepare("DELETE FROM processed_commands WHERE command_id = 'x'")).toThrow(/read-only/);
+          if (payload.refuse) throw new DomainError('STAFF_NOT_FOUND');
+        },
+        pinCheck() {
+          return null;
+        },
+        handle() {
+          return { events: [], result: { ok: true } };
+        },
+      }),
+    );
+    const before = counts(hub);
+    const invalidPayload = await post(hub, { name: 'test-pre-read', commandType: 'TestPreRead', device, session, actorId: 'S_CASH', commandId: 'cmd-pr-0', payload: {} });
+    expect(invalidPayload.statusCode).toBe(400);
+    expect(seen).toEqual([]);
+    const refused = await post(hub, { name: 'test-pre-read', commandType: 'TestPreRead', device, session, actorId: 'S_CASH', commandId: 'cmd-pr-1', payload: { refuse: true } });
+    expect(refused.statusCode).toBe(404);
+    expect(refused.json().error.code).toBe('STAFF_NOT_FOUND');
+    expect(counts(hub)).toEqual(before);
+    const ok = await post(hub, { name: 'test-pre-read', commandType: 'TestPreRead', device, session, actorId: 'S_CASH', commandId: 'cmd-pr-2', payload: { refuse: false } });
+    expect(ok.statusCode).toBe(200);
+    expect(seen).toEqual(['staff:S_CASH', 'staff:S_CASH']);
+    expect(hub.deps.db.prepare('SELECT COUNT(*) FROM auth_lockouts').pluck().get()).toBe(0);
   });
 });
 

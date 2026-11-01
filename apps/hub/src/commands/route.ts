@@ -1,3 +1,4 @@
+import { verify } from '@node-rs/argon2';
 import { DomainError } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import { defineEvent, latestVersion, PosCommandSchema, type EventDraft, type PosCommand } from '@pos/events';
@@ -6,16 +7,20 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z, type ZodError } from 'zod';
 import type { HubConfig } from '../config/schema.js';
 import type { AuthGeneration } from '../engine-host/auth-generation.js';
+import { authSemaphores } from '../auth/admin-session.js';
 import { currentDirectory } from '../auth/guards.js';
+import { checkPin } from '../auth/pin.js';
 import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from '../auth/session-store.js';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
+import { readOnlyDb } from '../engine-host/read-only-tx.js';
+import type { StateHolder } from '../engine-host/state-holder.js';
 import type { Writer, WriterTx } from '../engine-host/writer.js';
 import type { Clock } from '../lib/clock.js';
 import { payloadHash } from '../lib/hash.js';
 import type { IdGen } from '../lib/ids.js';
 import type { SecretGen } from '../lib/secrets.js';
 import { IdempotentReplay } from './replay.js';
-import { createCommandRegistry, defineCommand, toKebab, type CommandCtx, type CommandDef } from './registry.js';
+import { createCommandRegistry, defineCommand, toKebab, type CommandCtx, type CommandDef, type PreReadCtx } from './registry.js';
 
 interface CommandRouteDeps {
   config: HubConfig;
@@ -25,7 +30,8 @@ interface CommandRouteDeps {
   secrets: SecretGen;
   writer: Writer;
   authGeneration: AuthGeneration;
-  testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
+  state: StateHolder<EngineState>;
+  testHooks?: { betweenGuardAndWriter?: () => Promise<void>; betweenVerifyAndWriter?: () => Promise<void> };
 }
 
 const commandRegistries = new WeakMap<FastifyInstance, ReturnType<typeof createCommandRegistry>>();
@@ -70,10 +76,27 @@ async function runCommand(
   if (command.tenant_id !== provisioned.tenant_id || command.branch_id !== provisioned.branch_id) {
     throw new DomainError('BRANCH_MISMATCH');
   }
-  // 00 v1.6 H-9: the command's pinCheck field, left out of payload_hash. Filled by 01d task 6
-  // (`commandDef.pinCheck?.(payload, preCtx)?.field`); no command declares pinCheck before then.
-  const pinField: string | undefined = undefined;
-  const early = decide(readStored(deps.db, command.command_id), command, deviceId, request.session, routeKind, pinField);
+  const authGen = request.authGen ?? deps.authGeneration.current();
+  const preCtxFor = (session: SessionRow): PreReadCtx => ({
+    db: readOnlyDb(deps.db),
+    state: deps.state.get(),
+    clock: deps.clock,
+    actor: actorOf(session, deviceId),
+    directory: currentDirectory(app),
+    branch: { tenantId: provisioned.tenant_id, branchId: provisioned.branch_id },
+    config: deps.config,
+    authChanged: deps.authGeneration.current() !== authGen,
+  });
+  // Idempotency fast path (00 §3.7; 01d §3.3 rule 4 (a)), before the session check and argon2. For a
+  // pinCheck command the stored hash leaves out the pinCheck field (00 v1.6 H-9), which needs the parsed
+  // payload and the session's actor: when either is missing the fast path stays undecided and the
+  // session check / payload Zod below answer (they fail on exactly those inputs).
+  const stored = readStored(deps.db, command.command_id);
+  const earlyField =
+    stored === undefined || commandDef.pinCheck === undefined
+      ? undefined
+      : peekPinField(commandDef, command, peekSession(request, deps, routeKind), preCtxFor);
+  const early = earlyField === UNDECIDED ? undefined : decide(stored, command, deviceId, request.session, routeKind, earlyField);
   if (early?.kind === 'replay') return sendReplay(reply, early.stored);
   if (early?.kind === 'conflict') throw commandIdUsed();
   const session = routeKind === 'device' ? requireCommandSession(request, deps) : request.session;
@@ -83,41 +106,46 @@ async function runCommand(
   if (command.actor_id !== actorId) invalid('actor_id', 'actor_id does not match the session');
   const payload = commandDef.payloadSchema.safeParse(command.payload);
   if (!payload.success) throw new DomainError('VALIDATION_FAILED', { issues: zodIssues(payload.error) });
-  const authGen = request.authGen ?? deps.authGeneration.current();
+  // 00 v1.6 §3.5 "Commands with a PIN" (a), §3.7 H-3: read-only, before any PIN is verified.
+  const preCtx = preCtxFor(session);
+  commandDef.preRead?.(preCtx.db, payload.data, preCtx);
+  const pin = commandDef.pinCheck?.(payload.data, preCtx) ?? null;
+  // 00 v1.6 H-9: the command's pinCheck field, left out of payload_hash.
+  const pinField = pin?.field;
   await deps.testHooks?.betweenGuardAndWriter?.();
-  try {
-    const body = deps.writer.run((tx) => {
-      const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind, pinField);
-      if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
-      if (again?.kind === 'conflict') throw commandIdUsed();
-      if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
-      const directory = currentDirectory(app);
-      const permission = authorize(commandDef, session, directory);
-    const ctx: CommandCtx = {
-      tx,
-      // R8: the writer's tx.state is the hub's EngineState (HubDeps.state).
-      state: tx.state as Readonly<EngineState>,
-      clock: deps.clock,
-      ids: deps.ids,
-      secrets: deps.secrets,
-      actor: {
-        kind: session.kind,
-        staffId: session.staff_id,
-        stationId: session.station_id,
-        sessionId: session.session_id,
-        deviceId,
-      },
-      permission,
-      branch: { tenantId: provisioned.tenant_id, branchId: provisioned.branch_id },
-      directory,
-      config: deps.config,
-    };
+
+  const commandCtx = (tx: WriterTx, permission: Resolution | null, directory: StaffDirectory): CommandCtx => ({
+    tx,
+    // R8: the writer's tx.state is the hub's EngineState (HubDeps.state).
+    state: tx.state as Readonly<EngineState>,
+    clock: deps.clock,
+    ids: deps.ids,
+    secrets: deps.secrets,
+    actor: actorOf(session, deviceId),
+    permission,
+    branch: { tenantId: provisioned.tenant_id, branchId: provisioned.branch_id },
+    directory,
+    config: deps.config,
+  });
+  // Idempotency re-check, M39 re-check, permission, `handle`: drafts only (00 §3.7).
+  type Prepared = { beforeSeq: number; handled: { events: EventDraft[]; result: unknown } };
+  const prepare = (tx: WriterTx): Prepared => {
+    const again = decide(readStored(tx.db, command.command_id), command, deviceId, session, routeKind, pinField);
+    if (again?.kind === 'replay') throw new IdempotentReplay(again.stored);
+    if (again?.kind === 'conflict') throw commandIdUsed();
+    if (deps.authGeneration.current() !== authGen) recheckAuth(tx, deviceId, session.session_id);
+    const directory = currentDirectory(app);
+    const ctx = commandCtx(tx, authorize(commandDef, session, directory), directory);
+    // Read before `handle`: a handler on today's path may append in `handle` itself.
     const beforeSeq = (
       tx.db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE branch_id = ?').get(tx.branchId) as {
         seq: number;
       }
     ).seq;
-    const handled = commandDef.handle(ctx, payload.data, command);
+    return { beforeSeq, handled: commandDef.handle(ctx, payload.data, command) };
+  };
+  // Append and processed_commands (00 §3.7).
+  const record = (tx: WriterTx, { beforeSeq, handled }: Prepared): { data: unknown } => {
     tx.append(handled.events);
     const eventIds = (
       tx.db
@@ -143,14 +171,76 @@ async function runCommand(
         JSON.stringify({ status: 200, body: response }),
         deps.clock.branchNow(),
       );
-      return response;
-    }).result;
+    return response;
+  };
+
+  try {
+    let body: { data: unknown };
+    if (pin === null) {
+      body = deps.writer.run((tx) => record(tx, prepare(tx))).result;
+    } else {
+      // 00 v1.6 §3.5 / §3.7 H-3: one counting transaction for both PINs (01d §3.3 rule 4 (c)–(d)).
+      const hooks = commandDef.pinHooks;
+      const hookCtx = (tx: WriterTx): CommandCtx => commandCtx(tx, null, currentDirectory(app));
+      body = await checkPin(
+        {
+          db: deps.db,
+          writer: deps.writer,
+          directory: () => currentDirectory(app),
+          clock: deps.clock,
+          config: deps.config,
+          semaphore: authSemaphores(app).pin,
+          verify: (pinHash, plain) => verify(pinHash, plain),
+          log: request.log,
+          testHooks: deps.testHooks,
+        },
+        { staffId: pin.staff_id, pin: pin.pin, subject: { type: 'device', id: deviceId }, eventDeviceId: deviceId },
+        (tx, prepared) => record(tx, prepared),
+        {
+          prepare,
+          onMismatch: (tx) => hooks?.onMismatch(tx, payload.data, hookCtx(tx)) ?? [],
+          onPrepareFailed: (tx, error, matched) => hooks?.onPrepareFailed(tx, error, matched, payload.data, hookCtx(tx)) ?? [],
+        },
+      );
+    }
     activity.touch(session.session_id, deps.clock.branchNow());
     return body;
   } catch (error) {
     if (error instanceof IdempotentReplay) return sendReplay(reply, error.stored);
     throw error;
   }
+}
+
+const UNDECIDED = Symbol('undecided');
+
+function peekPinField(
+  def: CommandDef,
+  command: PosCommand,
+  session: SessionRow | undefined,
+  preCtxFor: (session: SessionRow) => PreReadCtx,
+): string | undefined | typeof UNDECIDED {
+  if (session === undefined || def.pinCheck === undefined) return UNDECIDED;
+  const payload = def.payloadSchema.safeParse(command.payload);
+  if (!payload.success) return UNDECIDED;
+  return def.pinCheck(payload.data, preCtxFor(session))?.field;
+}
+
+// The request's session for the fast path only: no ended / idle check (those answer after it, §3.7).
+function peekSession(request: FastifyRequest, deps: CommandRouteDeps, routeKind: 'device' | 'admin'): SessionRow | undefined {
+  if (routeKind === 'admin') return request.session;
+  const token = headerValue(request, 'x-session-token');
+  const session = token === undefined ? undefined : findSessionByToken(deps.db, token);
+  return session?.device_id === request.device?.device_id ? session : undefined;
+}
+
+function actorOf(session: SessionRow, deviceId: string): CommandCtx['actor'] {
+  return {
+    kind: session.kind,
+    staffId: session.staff_id,
+    stationId: session.station_id,
+    sessionId: session.session_id,
+    deviceId,
+  };
 }
 
 function commandDeviceId(request: FastifyRequest, routeKind: 'device' | 'admin'): string | undefined {
@@ -321,6 +411,46 @@ function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>
       },
     }),
   );
+  // 00 v1.6 H-3 / 01d task 6: a PIN-bearing command through checkPin (test harness only).
+  registry.register(
+    defineCommand({
+      commandType: 'TestPinChecked',
+      payloadSchema: z.object({ staff_id: z.string(), pin: z.string(), refuse: z.enum(['pre', 'prepare']).optional() }),
+      sessionKind: 'device',
+      permission: 'reprint-ticket',
+      preRead(_db, payload) {
+        if (payload.refuse === 'pre') throw new DomainError('STAFF_NOT_FOUND');
+      },
+      pinCheck(payload) {
+        return { staff_id: payload.staff_id, pin: payload.pin, field: 'pin' };
+      },
+      pinHooks: {
+        onMismatch(_tx, _payload, ctx) {
+          return [hookEvent(ctx, 'mismatch')];
+        },
+        onPrepareFailed(_tx, _error, matched, _payload, ctx) {
+          return [hookEvent(ctx, matched ? 'prepare_failed:matched' : 'prepare_failed:mismatched')];
+        },
+      },
+      handle(ctx, payload, cmd) {
+        if (payload.refuse === 'prepare') throw new DomainError('REQUEST_NOT_PENDING');
+        return { events: [testEvent(ctx, cmd)], result: { ok: true, staff_id: payload.staff_id } };
+      },
+    }),
+  );
+}
+
+function hookEvent(ctx: CommandCtx, marker: string): EventDraft {
+  return {
+    stream_type: 'hub',
+    stream_id: ctx.branch.branchId,
+    event_type: 'TestNooped',
+    schema_version: 1,
+    payload: { command_id: marker },
+    occurred_at: ctx.clock.branchNow(),
+    actor_id: ctx.actor.staffId,
+    device_id: ctx.actor.deviceId,
+  };
 }
 
 function testEvent(

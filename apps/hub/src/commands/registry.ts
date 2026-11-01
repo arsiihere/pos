@@ -53,8 +53,8 @@ export interface CommandDef<P extends z.ZodType = z.ZodType> {
   permission: Permission | null | 'checked-in-handler';
   approvable?: boolean;
   stationScoped?: boolean;
-  /** 00 v1.6 §3.5 H-3: read-only check before the PIN step. */
-  preRead?(ctx: PreReadCtx, payload: z.infer<P>): void;
+  /** 00 v1.6 §3.5 / §4.2 H-3: read-only check after payload Zod, before the PIN step; `db` is the read-only view. */
+  preRead?(db: Database.Database, payload: z.infer<P>, ctx: PreReadCtx): void;
   /** 00 v1.6 §3.5 H-3: the PIN to verify; `field` is also omitted from `payload_hash` (H-9). */
   pinCheck?(payload: z.infer<P>, ctx: PreReadCtx): { staff_id: string; pin: string; field: string } | null;
   /** 00 v1.6 §3.5 H-3: drafts appended on a PIN mismatch / a failed `prepare`. */
