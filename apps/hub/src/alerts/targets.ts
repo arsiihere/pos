@@ -3,7 +3,7 @@ import type { AlertRaisedPayload, AlertTarget } from '@pos/events';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
-import type { RecipientSet, StepDef } from './kinds.js';
+import { kindOf, type RecipientSet, type StepDef } from './kinds.js';
 
 // 01d §3.4: who a step reaches. A target is resolved at each step from the batch reads (§3.5 "Reads per
 // tick") and the in-memory directory, never frozen at raise. §3.4.1 presence filter (BF-8), §3.3 rules 5–6
@@ -101,15 +101,130 @@ export interface BatchReads {
   routes?: Map<string, Array<{ route: string; ref: string }>>;
 }
 
+/** The fixed reads (3), (4), (5), (6), (9), cached per transaction (§3.5 "Several raises"). */
+type FixedReads = Pick<BatchReads, 'sessions' | 'bindings' | 'devices' | 'presence' | 'activity'>;
+
+/** Per-transaction state shared by batchReads and raise: the fixed reads and raise's returned dedupe keys. */
+export interface AlertTxCache {
+  fixed: FixedReads | null;
+  /** `kind \0 dedupe_key` → the alert raise returned drafts for in this transaction (§4.2) */
+  keys: Map<string, { alert_id: string; requester_staff_id: string | null }>;
+}
+
+/** BF-6: an append of one of these drops the cached fixed reads (the projections changed what they read). */
+const STALE_ON: ReadonlySet<string> = new Set(['SessionStarted', 'SessionEnded', 'DeviceRevoked', 'PresenceSet']);
+/** A close of an alert in the transaction frees its key (a later raise with the key is a new alert). */
+const CLOSES: ReadonlySet<string> = new Set(['AlertClosed', 'RequestAnswered', 'RequestWithdrawn']);
+const txCaches = new WeakMap<WriterTx, AlertTxCache>();
+
 /**
- * §3.5 / §4.2: the fixed reads of a tick or raise, cached per transaction (BF-6). Signature only in task 16;
- * the body is task 18.
+ * The per-transaction map keyed by `tx` (§3.5, §4.2). Created on first use; `tx.append` is wrapped once per
+ * transaction so the appended events invalidate it (BF-6).
  */
-export function batchReads(tx: WriterTx, alerts: AlertRow[], o: { previousStep: boolean }): BatchReads {
-  void tx;
-  void alerts;
-  void o;
-  throw new Error('batchReads: not built yet (01d plan task 18)');
+export function alertTxCache(tx: WriterTx): AlertTxCache {
+  let cache = txCaches.get(tx);
+  if (cache !== undefined) return cache;
+  const created: AlertTxCache = { fixed: null, keys: new Map() };
+  const append = tx.append.bind(tx);
+  tx.append = (drafts) => {
+    const events = append(drafts);
+    for (const event of events) {
+      if (STALE_ON.has(event.event_type)) created.fixed = null;
+      if (CLOSES.has(event.event_type)) {
+        const closed = (event.payload as { alert_id?: unknown }).alert_id;
+        for (const [key, value] of created.keys) if (value.alert_id === closed) created.keys.delete(key);
+      }
+    }
+    return events;
+  };
+  txCaches.set(tx, created);
+  cache = created;
+  return cache;
+}
+
+function readFixed(tx: WriterTx): FixedReads {
+  const cache = alertTxCache(tx);
+  if (cache.fixed !== null) return cache.fixed;
+  // (3) active staff sessions with their device ids
+  const sessions = tx.db
+    .prepare(
+      `SELECT session_id, staff_id, device_id, last_activity_at FROM staff_sessions
+       WHERE branch_id = ? AND ended_at IS NULL AND kind = 'staff' ORDER BY session_id`,
+    )
+    .all(tx.branchId) as SessionRead[];
+  // (4) device_bindings, whole table
+  const bindings = tx.db.prepare('SELECT device_id, staff_id, session_id, since FROM device_bindings ORDER BY device_id').all() as BindingRead[];
+  // (5) devices not revoked
+  const devices = tx.db
+    .prepare('SELECT device_id, device_type FROM devices WHERE branch_id = ? AND revoked_at IS NULL ORDER BY device_id')
+    .all(tx.branchId) as DeviceRead[];
+  // (6) presence_today
+  const presence = tx.db.prepare('SELECT staff_id, present FROM presence_today').all() as Array<{ staff_id: string; present: number }>;
+  // (9) last session activity (active or ended) of every bound staff id (§3.4.3 (c), index staff_sessions_staff_activity)
+  const activity = tx.db
+    .prepare(
+      `SELECT staff_id, MAX(last_activity_at) AS last FROM staff_sessions
+       WHERE staff_id IN (SELECT staff_id FROM device_bindings) GROUP BY staff_id`,
+    )
+    .all() as Array<{ staff_id: string; last: number }>;
+  cache.fixed = {
+    sessions,
+    bindings,
+    devices,
+    presence: new Map(presence.map((row) => [row.staff_id, row.present === 1])),
+    activity: new Map(activity.map((row) => [row.staff_id, row.last])),
+  };
+  return cache.fixed;
+}
+
+/**
+ * §3.5 / §4.2: the reads of a tick or raise. (3)–(6), (9) are cached per transaction (BF-6); (7) when
+ * `previousStep`; (8) one call per resolver kind over the targets of the steps to resolve (`o.steps`:
+ * alert_id → step indexes; default the alert's next step), plus, for `lead_fallback` kinds, the zone order
+ * taker of each `table_team` table when that resolver is registered (§3.4.2). Read (10) (`routes`) needs the
+ * resolved recipients, so the caller fills it with `askRoutes(tx, routeAsk(…))` (routes.ts).
+ */
+export function batchReads(
+  tx: WriterTx,
+  alerts: AlertRow[],
+  o: { previousStep: boolean; steps?: ReadonlyMap<string, readonly number[]> },
+): BatchReads {
+  const fixed = readFixed(tx);
+  const prevRecipients = new Map<string, RecipientRow[]>();
+  const sent = alerts.filter((a) => a.step >= 0);
+  if (o.previousStep && sent.length > 0) {
+    // (7) the previous step's recipients of these alerts
+    const rows = tx.db
+      .prepare(
+        `SELECT r.alert_id, r.staff_id, r.device_id, r.for_staff_id, r.recipient_set AS "set"
+         FROM json_each(?) j JOIN alert_recipients r
+           ON r.alert_id = json_extract(j.value, '$[0]') AND r.step = json_extract(j.value, '$[1]')
+         ORDER BY r.rowid`,
+      )
+      .all(JSON.stringify(sent.map((a) => [a.alert_id, a.step]))) as Array<RecipientRow & { alert_id: string }>;
+    for (const { alert_id, ...row } of rows) {
+      const list = prevRecipients.get(alert_id) ?? [];
+      list.push(row);
+      prevRecipients.set(alert_id, list);
+    }
+  }
+  const targets: AlertTarget[] = [];
+  const zone = resolvers.has('zone_order_taker'); // §3.4.2 zone read only when that resolver is registered
+  for (const alert of alerts) {
+    const kind = kindOf(alert.kind);
+    if (kind === undefined) continue;
+    for (const index of o.steps?.get(alert.alert_id) ?? [alert.step + 1]) {
+      const step = kind.steps[index];
+      if (step === undefined) continue;
+      for (const { target } of stepTargets(step, alert)) {
+        targets.push(target);
+        if (kind.lead_fallback && zone && target.kind === 'table_team') targets.push({ kind: 'zone_order_taker', table_id: target.table_id });
+      }
+    }
+  }
+  // (8) one call per resolver kind
+  const resolved = resolveTargets(tx, targets);
+  return { ...fixed, prevRecipients, resolved };
 }
 
 // ------------------------------------------------------------------------------------------- resolvers

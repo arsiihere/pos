@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { bindAlertProjectionLog } from '../projections/alerts.js';
 import type { HubDeps } from '../server.js';
+import { currentDirectory } from '../auth/guards.js';
+import { wsHubFor } from '../ws/server.js';
+import { bindAlertEnv } from './raise.js';
+
+export { alerts, type AlertCtx, type RaiseInput, type RaiseResult } from './raise.js';
 
 // 01d wiring entry (plan "Wiring"): each 01d task registers what it builds (commands, queries,
 // projections, catch-up parts, ticks, timers) here. Called once from buildHubServer.
@@ -8,6 +13,8 @@ import type { HubDeps } from '../server.js';
 // with the hub's projection registry where it is created (registerAlertProjections, task 14); here the
 // `alerts` projection gets the server log for its P-8 unknown-kind line.
 export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
+  // raise / raiseMany (task 18): the hub's directory and socket lists, read in memory at each raise
+  bindAlertEnv(deps.db, { directory: () => currentDirectory(app), ws: () => wsHubFor(app) });
   bindAlertProjectionLog(deps.projections, (line) => {
     app.log.warn(line, 'alerts projection: unknown alert kind');
   });
