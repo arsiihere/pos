@@ -146,6 +146,23 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-19 | **The personal-phone alert app waits until after the pilot (§12.4).** Personal phones stay browser-only (00 M38), covered by the G1-13 device binding while the page is open; no APK for personal phones; R14 narrowed as G0 D6. Reason: a sideloaded app is not device owner, so no silent update (G1-15), per-brand battery steps, and maker-killed background services, for no pilot flow. **Post-pilot product item:** customers without hardware may want it. |
 | G1-20 | *Proposed — owner may prefer to skip it.* **"Present today" presence record** instead of a shift system. The shift-start screen (pager and lane assignment, G1-17a / G0-3) has a tick list; ticking writes an event on the `staff` stream (who, set by whom, when); it clears when the business day closes. Used for: the no-route hint (present people only, G1-18b), skipping absent people in fallbacks and team targeting, and the load denominator in K12. Not a clock-in (payroll clock-in stays its own story). *Safety rule added: if no one has ticked the list today, everyone counts as present, and a person signed in anywhere counts as present; otherwise a forgotten list would make every team "absent" and send alerts nowhere.* |
 
+## 1j. Model and interfaces (G1-21)
+
+| ID | Decision |
+|---|---|
+| G1-21 | **Model.** One record, the **alert**: kind, subject (`stream_type` + `stream_id`), target, raiser values (e.g. walk-to window), open / closed. A **request** is an alert with an answer part (requester, permission, range, decision). **Subject stream** (order, table, stock): `AlertRaised`, `AttemptSent` (step, resolved people and devices, routes), `EscalationStepped`, `StepSkipped`, `RequestAnswered` (decision, answerer, method, device), `RequestWithdrawn`, `AlertClosed` (reason), `RequestSeen` (below). **`audit`** (batched): `AlertDelivered`, `AlertSeen`. **`staff`**: pager assignment (G1-17a), presence (G1-20). Device binding derived from session events (G1-13b). `stream_type` enum unchanged. **Interfaces:** `registerKind({ kind, family, steps, labels, request?: { rightOf, rangeOf(subject), needsPin, answerLabels, apply(tx, answer) } })`; `raise(tx, { kind, subject, target, values, dedupeKey })`; `close(tx, alertId, reason)`, both in the caller's transaction; client commands `AnswerRequest`, `WithdrawRequest`; receipts over WS. **Target kinds:** person, permission + range, team of a person, table's team, point devices, always-on screens. **Route interface:** `{ format: 'text' \| 'short_code', ack: boolean, receipts: ('delivered' \| 'seen')[], send }`; 01e plugs the pager route in. |
+| G1-21.1 | **Seen survives boot.** The **first seen per person on a request** is written **on the subject stream** as `RequestSeen`, unbatched, so the open-request projection rebuilds it at boot and G1-14's repeat stays stopped. Chosen over reading `audit` at boot: requests are few per day (void, discount, comp, handover, zone transfer), so the subject-stream cost is negligible, and it needs no payload index on `audit` and no boot read outside the replayed streams. `AlertSeen` on `audit` stays for every other alert (none of them repeats on seen: Action is re-sent only by attempts, Info never repeats). |
+| G1-21.2 | **Request result alert:** kind `request_result`, Info family, to the requester's routes, carrying decision and answerer (or closer and reason), raised **in the same transaction** as `RequestAnswered` or `AlertClosed` (`overridden`, `obsolete`). |
+| G1-21.3 | The record keeps **two target sets**: **answerers** (right + range) and **informed** (read-only, from escalation, G1-9b). |
+| G1-21.4 | **Idempotent raise:** `dedupeKey` = kind + subject + discriminator (e.g. point); a second raise while an alert with that key is open is a no-op (returns the open alert's id). New close reason **`undone`** (e.g. Ready to serve tapped by mistake and reverted by 03b). Close reasons: `done`, `answered`, `withdrawn`, `obsolete`, `overridden`, `undone`. |
+| G1-21.5 | **Client queries and frames:** inbox for the signed-in person (today, open pickups first, N4); "my pending requests"; "requests I may answer"; alert frames also on the **normal staff-session WebSocket**, not only the alert-only mode (G1-13). |
+| G1-21.6 | **i18n:** each kind registers label keys (English / Urdu) for card text and for the session-less lock text (G1-13e). Pager text is Latin only (01e). |
+| G1-21.7 | **Real producer at ship: kind `test_alert`.** A manager sends a test alert to a person, a team or a point and sees the receipts. Proves the whole path at the pilot; the installation tool for watches and the bridge (01e). *Spec note: proposed right `manage-devices` (no new permission).* |
+| G1-21.8 | **Raise-side permission** is the owning module's: it checks the requester's base permission (e.g. `void-item` with `requires_approval`) before calling `raise`. 01d checks only the answer side. |
+| G1-21.9 | **Subject-less alerts** (device offline, "no approver signed in" G1-9e, zone threshold with no table) live on the `hub` or `stock` stream as fits. |
+| G1-21.10 | **Resolvers for later modules** (02, 01a, 01b) are registered interfaces; targets that cannot run until another module lands are listed in §4 "Stubbed until". |
+| G1-21.11 | **Finding for the spec — what "the right to answer" is.** 01b models approval as the **requester's** grant: `requires_approval` + `approver_role_ids` (01b §3.3; e.g. Cashier `apply-discount` approved by Manager). Only voids also have an answerer permission, `approve-void` (scopes `branch`, `my_team`), and foundation §4.5 uses it. So `rightOf` for money kinds is: **the answerer holds a role in the requester's resolved `approver_role_ids`, read at answer time**; range comes from `approve-void`'s scope for voids and is `branch` for discount and comp (no scope exists for them). The spec must state how `approver_role_ids` and `approve-void` combine for voids (both required, or either), with 04. |
+
 ## 1b. Receipts
 
 | ID | Decision |
@@ -187,9 +204,76 @@ Finding: foundation §5.8 step 3 replays `SELECT * FROM events WHERE branch_id =
 | N2 (pager part), N5 (pager receipt = sent only), N8 watch kinds, G0-2 watch patterns | The pager route, plugged into the 01d route interface |
 | G0-10 | Watch model and code format (after the spike) |
 
-## 3. Open (next questions)
+## 3. Fold into the G0 file
 
-- Confirm / challenge remaining 01d rows (N1–N10, G0-1, G0-2, G0-7, S1–S3, D1, D2, D6–D8).
-- Data model and event streams.
-- Interfaces for other modules.
-- Q-A2 (D8).
+| G0 row | Result |
+|---|---|
+| S1 | Confirmed, narrowed: device gateway and pager route move to **01e** (G1-5). |
+| S3 | **Amended:** order per G1-6 (spike now ∥ 01d spec → 01d build → 01e spec → 01e build → 03a → 02 → 04 → 03b → 05). |
+| H0 | **Amended** (G1-4, G1-18c): product rule, not a pilot cut; the pilot ships hardware; without hardware a person with no route is covered by their lead's tablet. |
+| D1 | Confirmed; plus hub-hosted silent APK update relying on device owner (G1-15). |
+| D2 | **Reversed:** no route setting; routes derived per person (G1-18). |
+| D3–D5 | Moved to 01e (§2). |
+| D6 | Confirmed; personal-phone alert app after the pilot (G1-19). |
+| D7 | Confirmed. |
+| D8 | **Closed:** bundled assets (G1-15). |
+| G1–G7 | Moved to 01e (§2). |
+| N1 | Confirmed; table's team = current owner + reports (G1-11); point = device target (G1-12); target kinds G1-21. |
+| N2 | Confirmed; device-level alert connection (G1-13); pager route via 01e. |
+| N3 | Confirmed (set in G0-2, G1-14). |
+| N4 | Confirmed; queries in G1-21.5. |
+| N5 | **Amended:** delivered / seen only, sent from attempts (G1-8); request seen on subject stream (G1-21.1). |
+| N6 | **Amended:** 01d owns the request (G1-7); PIN per kind (G1-10); right per G1-21.11. |
+| N7 | Confirmed; kinds registered by owners; 01d ships `test_alert` and `request_result` (G1-21.2, .7). |
+| N8 | Confirmed; watch part to 01e. |
+| N9 | Confirmed; "table's order taker" = current owner (G1-11). |
+| N10 | Confirmed (02's rule; 01d supplies the accept request). |
+| P1, P2 | **Amended:** `no_pin_staff` for every PIN-less active person; `pager_ids` separate map with hub shift override (G1-17). |
+| G0-1 | **Amended:** approval tier wording (G1-9f); timers on the D44 tick (G1-16). |
+| G0-2 | **Amended:** repeat stops once seen (G1-14). |
+| G0-7 | **Amended:** escalation widens who is told, never who may answer (G1-9). |
+| §8 R30 / R28 | Renumbered **R34 / R33** (G1-1). |
+| New | Presence record (G1-20, proposed). |
+
+## 4. 01d §12.4 deferred list
+
+- Personal-phone alert app (APK on staff-owned phones) — post-pilot product item (G1-19).
+- General "no route reaches this person" warning (Q-N5 beyond approvals, G1-9e).
+- Free-text and cross-team task messages beyond zone-stock transfers (README "cross-team requests").
+- Customer table call buttons.
+- Inbox history beyond the current day.
+- Reports and dashboards over receipts and attempts (07, P2); 01d captures the events.
+- Main / secondary roles and capacity fields (R25, 01b B1).
+- iPhone locked-screen alerts (R22).
+- Shift system / clock-in (G1-20 is presence only).
+- Pager delivery receipts (watch is receive-only; 01e).
+
+**Stubbed until another module lands (deferred integration, built against registered resolvers and test producers):**
+
+| Target / kind | Stubbed until |
+|---|---|
+| Table's team (G1-11) | 02: `tableOwner(table)` |
+| Zone order-taker fallback (G1-11d) | 01a zones (Z1) + 01b zone assignment (P5) + 02 `zoneOf(table)` |
+| Point devices (G1-12) | 01a points (K1) + the 00 `point_id` device column, which lands with them |
+| Pager route | 01e |
+| Void approval | 04 |
+| Discount / comp approval | 05 (discount), 02 / 05 (comp, C2, C3) |
+| Table handover accept | 02 |
+| Zone-stock transfer | 01a zone stock + 02 (Z6) |
+| Ready to serve / Call / Served card | 03a / 03b (Ready to serve, Handover), 02 (Call, Served) |
+| Slip warning | 03a |
+
+Live at 01d ship: `test_alert`, `request_result`, "no approver signed in" (G1-9e).
+
+## 5. Spec version bumps 01d carries
+
+| Target | Change (01d only) | Needs first |
+|---|---|---|
+| **README** | Module map: 01d renamed **Notifications, requests and devices** → narrowed to "Notifications and requests" with **01e Device gateway** as a new row (G1-5); R21 / R27 build order and milestone A list (G1-6); **R22** routes add the pager route, "Capacitor shell over the hub's pages" → bundled app updated from the hub (G1-15), personal-phone app after pilot (G1-19); **R33** device policy (D1, D6, D7, G1-15, G1-19); **R34** foundation by version bump (G1-2); carried rows To 01e, To 03a (G1-8e, G1-16a), To 02, To 04, To 05 from §2 / §4. All *Proposed — needs approval.* | — |
+| **CLAUDE.md** | "The foundation is frozen (D64)…" line edited to match R34, same change as R34. | developer approval at the gate |
+| **Foundation v1.7 → v1.8** | §4.5: void states mapped to 01d requests (OVERRIDDEN by 04 through close; withdrawn = never happened, 04 to confirm); "urgent push to all approve-void holders" → in-range approvers, then escalation (G1-9); REJECTED "waiter notified" → table's order taker (N9). D3 / §4.7 slip warning to the table's order taker (N9). Stack table: Android tablets in kiosk mode (device owner), bundled app updated from the hub (G1-15). | R34 + CLAUDE.md |
+| **00 v1.5 → v1.6** | M12: `device_token`-only alert WS mode, alert frames, receipts in (G1-13a); alert frames on staff-session WS (G1-21.5); revoke / rotation closes alert sockets (G1-13f); APK hosting and update endpoints (G1-15e, unless the spec places them in 01e); R14 / M38 narrowed text (G1-19). *Not in this bump:* `point_id` (with 01a points), `pager_bridge` and headless pairing (01e → 00 v1.7). | — |
+| **01b v1.3 → v1.4** | `no_pin_staff` directory array, `pager_ids` map, `teamOf` variant including no-PIN people (G1-17); answer-right rule for `requires_approval` kinds stated against §3.3 (G1-21.11, with 04). *Not in this bump:* `tap-for-station`, `mark-served`, zone assignment, `manage-zone-stock` (carried to 01b by 02 / 03a / 03b). | — |
+| **01a** | None from 01d. | — |
+
+Bumps 01d does **not** carry (listed for the order): 01a v2.1 (points, zones, walk times, short names, pager codes; first needed by 01e / 03a), 00 v1.7 (`pager_bridge`, compact protocol, headless pairing, `point_id`; by 01e), foundation §4.2 / §4.4 / §4.7 / §5.8 step 3 (Ready to serve, Handover, lanes, replay filter; by 03a under R34).
