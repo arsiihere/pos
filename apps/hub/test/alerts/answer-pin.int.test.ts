@@ -1,4 +1,5 @@
 import { verify } from '@node-rs/argon2';
+import { DomainError } from '@pos/domain';
 import type { DirectoryInput, PosEvent } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -151,7 +152,7 @@ const voidInput = (n = 1): RaiseInput => ({
 });
 
 let commandNo = 0;
-function answer(hub: TestHub, s: Seat, payload: Record<string, unknown>, commandId = `cmd-${(commandNo += 1)}`) {
+function answer(hub: TestHub, s: Seat, payload: Record<string, unknown>, commandId = `auto-${(commandNo += 1)}`) {
   return hub.app.inject({
     method: 'POST',
     url: '/commands/answer-request',
@@ -706,6 +707,52 @@ describe('01d AnswerRequest: PIN and in person, counted failures, pin_use_failed
       expect(pinUseFailed(hub)).toHaveLength(0);
     } finally {
       def.pinHooks.onPrepareFailed = original;
+    }
+  });
+
+  it('[01d §3.3 rule 4(d)] the pin_use_failed raise throws → still counted and recorded for both PINs: same status, body and counter delta; no notice; a safe log line', async () => {
+    const hub = await world(cleanups, { mgrPin: '4711' });
+    const wait = seat(hub, WAIT, 'wait-tab');
+    const owner = seat(hub, OWNER, 'owner-tab');
+    const original = alerts.raise.bind(alerts);
+    const spy = vi.spyOn(alerts, 'raise').mockImplementation((ctx, input) => {
+      if (input.kind === 'pin_use_failed') throw new DomainError('VALIDATION_FAILED', { issue: 'target_unavailable', secret: 'forced' });
+      return original(ctx, input);
+    });
+    try {
+      const results: Array<{ status: number; body: unknown; delta: { staff: number; device: number } }> = [];
+      for (const [n, pin] of [
+        [1, '4711'],
+        [2, '4712'],
+      ] as const) {
+        const id = raiseAs(hub, wait, voidInput(n));
+        const before = lockouts(hub, MGR, wait.deviceId);
+        duringArgon2(hub, async () => {
+          expect((await answer(hub, owner, byPin(id, PIN.a))).statusCode).toBe(200);
+        });
+        const response = await answer(hub, wait, inPerson(id, MGR, pin));
+        const after = lockouts(hub, MGR, wait.deviceId);
+        results.push({ status: response.statusCode, body: bodyOf(response, id), delta: { staff: after.staff - before.staff, device: after.device - before.device } });
+        const failed = eventsOf(hub, 'RequestPinFailed').filter((e) => e.payload.alert_id === id);
+        expect(failed.map((e) => [e.payload.outcome, e.payload.error_code])).toEqual([['answer_failed', 'REQUEST_NOT_PENDING']]);
+      }
+      expect(results[0]?.status).toBe(409);
+      expect(results[1]).toEqual(results[0]);
+      expect(results[0]?.delta).toEqual({ staff: 1, device: 1 });
+      // the raise was tried for the matched PIN only, and threw
+      expect(spy.mock.calls.filter(([, input]) => input.kind === 'pin_use_failed')).toHaveLength(1);
+      expect(pinUseFailed(hub)).toHaveLength(0);
+      const line = hub
+        .logs()
+        .split('\n')
+        .find((l) => l.includes('"phase":"pin_use_failed"'));
+      expect(line).toBeDefined();
+      expect(JSON.parse(line as string)).toMatchObject({ err: { name: 'DomainError', code: 'VALIDATION_FAILED' }, command: 'AnswerRequest', phase: 'pin_use_failed' });
+      expect(line).not.toContain('forced');
+      expect(line).not.toContain('target_unavailable');
+      expect(hub.logs()).not.toMatch(/(?<![\d.])471[12](?!\d)/);
+    } finally {
+      spy.mockRestore();
     }
   });
 

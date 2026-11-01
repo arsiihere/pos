@@ -320,6 +320,15 @@ function pinUseFailedInput(row: AnswerRow, pinOwner: string, errorCode: string, 
   };
 }
 
+interface SafeLog {
+  error(obj: object, msg: string): void;
+}
+
+/** §7: the error's name and catalogue code only; never its message or details. */
+function safeErr(error: unknown): { name: string; code: string | null } {
+  return { name: error instanceof Error ? error.name : typeof error, code: error instanceof DomainError ? error.code : null };
+}
+
 /** §6.2 `onMismatch(tx)`: prepare succeeded, the PIN did not match (checkPin has counted it). */
 function onMismatch(tx: WriterTx, payload: Payload, ctx: CommandCtx): EventDraft[] {
   const failed = pinFailed(tx, payload, ctx, 'pin_invalid', 'PIN_INVALID');
@@ -330,17 +339,34 @@ function onMismatch(tx: WriterTx, payload: Payload, ctx: CommandCtx): EventDraft
  * §6.2 `onPrepareFailed(tx, error, matched)`: prepare threw, whatever the PIN (checkPin has counted one
  * failure). `RequestPinFailed { answer_failed, <code> }`, and only when the PIN matched the `pin_use_failed`
  * raise to its owner, in this same transaction (v1.0 #1, R1). BF-1: not for `method: 'pin'` (the owner's
- * own session) losing an honest race (`REQUEST_NOT_PENDING`). A throw here rolls the transaction back and
- * checkPin returns the original prepare error (BF-2).
+ * own session) losing an honest race (`REQUEST_NOT_PENDING`). A throw of the notice raise is caught and
+ * logged (no message, no PIN, no details) and the record is still returned: otherwise BF-2 would roll back
+ * the count on a matched PIN only, a skipped count and an oracle (§3.3 rule 4 (d); controller ruling).
  */
-function onPrepareFailed(tx: WriterTx, error: unknown, matched: boolean, payload: Payload, ctx: CommandCtx, cmd: PosCommand): EventDraft[] {
+function onPrepareFailed(
+  tx: WriterTx,
+  error: unknown,
+  matched: boolean,
+  payload: Payload,
+  ctx: CommandCtx,
+  cmd: PosCommand,
+  log: SafeLog,
+): EventDraft[] {
   const code = codeOf(error);
   const failed = pinFailed(tx, payload, ctx, 'answer_failed', code);
   if (failed === null) return [];
   const events: EventDraft[] = [failed.draft];
   const honestRace = payload.method === 'pin' && code === 'REQUEST_NOT_PENDING';
   if (matched && !honestRace) {
-    events.push(...alerts.raise(ctx, pinUseFailedInput(failed.row, pinOwnerOf(payload, ctx.actor), code, ctx, cmd)).events);
+    try {
+      // raise only reads and returns drafts, so a throw leaves nothing to undo
+      events.push(...alerts.raise(ctx, pinUseFailedInput(failed.row, pinOwnerOf(payload, ctx.actor), code, ctx, cmd)).events);
+    } catch (raiseError) {
+      log.error(
+        { err: safeErr(raiseError), alert_id: failed.row.alert_id, command: 'AnswerRequest', phase: 'pin_use_failed' },
+        'AnswerRequest pin_use_failed raise failed; the failure is still counted and recorded',
+      );
+    }
   }
   return events;
 }
@@ -362,7 +388,7 @@ export function registerAnswerRequest(app: FastifyInstance): void {
       },
       pinHooks: {
         onMismatch: (tx, payload, ctx) => onMismatch(tx, payload, ctx),
-        onPrepareFailed: (tx, error, matched, payload, ctx, cmd) => onPrepareFailed(tx, error, matched, payload, ctx, cmd),
+        onPrepareFailed: (tx, error, matched, payload, ctx, cmd) => onPrepareFailed(tx, error, matched, payload, ctx, cmd, app.log),
       },
       handle: (ctx, payload) => handle(ctx, payload),
     }),
