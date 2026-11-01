@@ -144,7 +144,8 @@ function accept(
     if (decided) return;
     decided = true;
     clearTimeout(timer);
-    if (!parsed.success || parsed.data.type !== 'auth') {
+    // 00 H-2 made session_token optional; until alert mode (H-1) lands, an auth without it is refused as before.
+    if (!parsed.success || parsed.data.type !== 'auth' || parsed.data.session_token === undefined) {
       socket.close(WS_CLOSE.CREDENTIALS);
       return;
     }
