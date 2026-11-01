@@ -257,6 +257,7 @@ Finding: foundation §5.8 step 3 replays `SELECT * FROM events WHERE branch_id =
 - iPhone locked-screen alerts (R22).
 - Shift system / clock-in (G1-20 is presence only).
 - Pager delivery receipts (watch is receive-only; 01e).
+- Scoped `approve-discount` / `approve-comp` permissions (range for discount and comp; post-pilot, 01b), G1-23.
 
 **Stubbed until another module lands (deferred integration, built against registered resolvers and test producers):**
 
