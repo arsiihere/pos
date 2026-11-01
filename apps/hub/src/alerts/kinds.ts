@@ -238,3 +238,68 @@ export const PIN_USE_FAILED = defineAlertKind<PinUseFailedValues>({
   labels: { card: 'alert.pin_use_failed.card', lock: 'alert.pin_use_failed.lock' },
   request: null,
 });
+
+/**
+ * §3.10 `approval_receipt` values: which request, the decision, the answering device, and whether that was
+ * the requester's device (the card's "at the requester's device" mark). The time is the alert's raised_at.
+ */
+export const ApprovalReceiptValues = z.object({
+  request_alert_id: z.string().min(1),
+  request_kind: z.string().min(1),
+  decision: z.enum(REQUEST_DECISIONS),
+  device_id: z.string().min(1),
+  on_requester_device: z.boolean(),
+});
+export type ApprovalReceiptValues = z.infer<typeof ApprovalReceiptValues>;
+
+/**
+ * §3.10 `approval_receipt` (personal notice, v1.0 #2, R2): to the answerer of every money answer
+ * (`needs_pin: 'always'`), any method, any device, raised in the answer transaction. Silent: an inbox row and
+ * a badge only (§8.1). Its `details` are the request's, copied: signed-in `card` only, never `lock` (§3.12).
+ * Personal: own routes only, kept over day close, closed only by the answerer's own seen; hidden from the
+ * answering seat (`hidden_from`).
+ */
+export const APPROVAL_RECEIPT = defineAlertKind<ApprovalReceiptValues, AlertDetails>({
+  kind: 'approval_receipt',
+  family: 'info',
+  subject: 'request',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }], // { person: answerer }
+  closes_on: 'seen',
+  values_schema: ApprovalReceiptValues,
+  details_schema: AlertDetailsBase, // any of the request kind's details fields, as stored on the request
+  lead_fallback: false,
+  expires_at_day_close: false,
+  silent: true,
+  labels: { card: 'alert.approval_receipt.card', lock: 'alert.approval_receipt.lock' },
+  request: null,
+});
+
+/** §3.10 `answered_on_requester_device` values: which request, the decision, the requester's device. */
+export const AnsweredOnRequesterDeviceValues = z.object({
+  request_alert_id: z.string().min(1),
+  request_kind: z.string().min(1),
+  decision: z.enum(REQUEST_DECISIONS),
+  device_id: z.string().min(1),
+});
+export type AnsweredOnRequesterDeviceValues = z.infer<typeof AnsweredOnRequesterDeviceValues>;
+
+/**
+ * §3.10 `answered_on_requester_device` (personal notice, v0.5 #2, N2): to the answerer when the answer came
+ * from the device the request was raised on, any method (every `in_person` answer). Info chime (audible).
+ * Personal: own routes only, kept over day close, closed only by the answerer's own seen; hidden from the
+ * answering seat (`hidden_from`).
+ */
+export const ANSWERED_ON_REQUESTER_DEVICE = defineAlertKind<AnsweredOnRequesterDeviceValues>({
+  kind: 'answered_on_requester_device',
+  family: 'info',
+  subject: 'request',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }], // { person: answerer }
+  closes_on: 'seen',
+  values_schema: AnsweredOnRequesterDeviceValues,
+  details_schema: null,
+  lead_fallback: false,
+  expires_at_day_close: false,
+  silent: false,
+  labels: { card: 'alert.answered_on_requester_device.card', lock: 'alert.answered_on_requester_device.lock' },
+  request: null,
+});

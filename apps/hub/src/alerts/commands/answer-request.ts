@@ -19,7 +19,15 @@ import { readOnlyTx } from '../../engine-host/read-only-tx.js';
 import type { WriterTx } from '../../engine-host/writer.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { SecretGen } from '../../lib/secrets.js';
-import { kindOf, type AlertKind, type AlertRecord, type AnswerFacts, type PinUseFailedValues } from '../kinds.js';
+import {
+  kindOf,
+  type AlertKind,
+  type AlertRecord,
+  type AnsweredOnRequesterDeviceValues,
+  type AnswerFacts,
+  type ApprovalReceiptValues,
+  type PinUseFailedValues,
+} from '../kinds.js';
 import { alerts, requestResultInput, type RaiseInput } from '../raise.js';
 import { mayAnswer, type AlertRequestPart } from '../targets.js';
 
@@ -33,6 +41,9 @@ import { mayAnswer, type AlertRequestPart } from '../targets.js';
 // named answerer for `in_person`); `pinHooks` record every counted failure as `RequestPinFailed` and, when
 // a matched PIN's answer failed, raise `pin_use_failed` to its owner in the same transaction (§3.3 rule 4
 // (d), BF-1). The PIN itself never leaves `pinCheck` → `checkPin` (§3.3 "PIN never stored", §7).
+// Personal notices (task 24, §3.3 rule 7, §3.10): `handle` adds `approval_receipt` (money kinds, any method)
+// and `answered_on_requester_device` (answer on the raising device) to the answerer, hidden from the answering
+// seat, in one `raiseMany` with `request_result` (the fixed reads once; §3.5 "Several raises").
 
 type Payload = AnswerRequestPayload;
 
@@ -208,6 +219,57 @@ function preRead(db: Database.Database, payload: Payload, ctx: PreReadCtx): void
   runApply(applyCtx, c, factsOf(payload, c, ctx.actor.deviceId, ctx.clock.branchNow()));
 }
 
+/**
+ * §6.2 (8a) / (9), §3.3 rule 7, §3.10: `approval_receipt` for a money kind (`needs_pin: 'always'`, any
+ * method, any device) and `answered_on_requester_device` when the answer came from the raising device (any
+ * method). Both to the answerer (own routes only), on the request's subject, with its lock-safe `display`;
+ * the receipt copies the request's `details` (signed-in card only, §3.12). `hidden_from` = the answering
+ * session and device.
+ */
+function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPayload, actor: CommandCtx['actor']): RaiseInput[] {
+  const subject = c.record.subject as RaiseInput['subject'];
+  const hidden_from = { session_id: actor.sessionId, device_id: actor.deviceId };
+  const target = { kind: 'person', staff_id: c.answerer } as const;
+  const inputs: RaiseInput[] = [];
+  if (c.request.needs_pin === 'always') {
+    const values: ApprovalReceiptValues = {
+      request_alert_id: c.record.alert_id,
+      request_kind: c.record.kind,
+      decision: payload.decision,
+      device_id: answered.device_id,
+      on_requester_device: answered.on_requester_device,
+    };
+    inputs.push({
+      kind: 'approval_receipt',
+      subject,
+      target,
+      values,
+      display: c.record.display,
+      details: c.record.details ?? {},
+      dedupe_key: `approval_receipt:${c.record.alert_id}`,
+      hidden_from,
+    });
+  }
+  if (answered.on_requester_device) {
+    const values: AnsweredOnRequesterDeviceValues = {
+      request_alert_id: c.record.alert_id,
+      request_kind: c.record.kind,
+      decision: payload.decision,
+      device_id: answered.device_id,
+    };
+    inputs.push({
+      kind: 'answered_on_requester_device',
+      subject,
+      target,
+      values,
+      display: c.record.display,
+      dedupe_key: `on_requester_device:${c.record.alert_id}`,
+      hidden_from,
+    });
+  }
+  return inputs;
+}
+
 /** §6.2 Processing (1)–(9): authoritative, drafts only (the pipeline appends them: (10)). */
 function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { alert_id: string; decision: Payload['decision']; answered_at: number } } {
   const answerer = answererOf(ctx.actor, payload);
@@ -237,18 +299,23 @@ function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; resu
   ];
   // (7) A4: in the answer's transaction; a DomainError reaches the answerer, nothing is written
   events.push(...runApply(ctx, c, factsOf(payload, c, ctx.actor.deviceId, now)));
+  // (8)–(9): one raiseMany (dedupe 1, the fixed reads once, one call per resolver / route over the three),
+  // drafts in this order: request_result, approval_receipt, the notice
+  const raises: RaiseInput[] = [];
   // (8) request_result to the requester (§3.10)
   if (c.record.requester_staff_id !== null) {
-    const result = alerts.raise(
-      ctx,
+    raises.push(
       requestResultInput(
         { alert_id: c.record.alert_id, kind: c.record.kind, subject, requester_staff_id: c.record.requester_staff_id, display: c.record.display },
         { close_reason: 'answered', decision: payload.decision, by_staff_id: c.answerer },
       ),
     );
-    events.push(...result.events);
   }
-  // (8a) approval_receipt and (9) answered_on_requester_device: task 24
+  // (8a), (9): the personal notices to the answerer, hidden from this session and device (§3.10, v1.0 #2)
+  raises.push(...noticeInputs(c, payload, answered, ctx.actor));
+  if (raises.length > 0) {
+    for (const raised of alerts.raiseMany(ctx, raises)) events.push(...raised.events);
+  }
   return { events, result: { alert_id: c.record.alert_id, decision: payload.decision, answered_at: now } };
 }
 
