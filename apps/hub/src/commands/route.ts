@@ -14,6 +14,7 @@ import type { Clock } from '../lib/clock.js';
 import { payloadHash } from '../lib/hash.js';
 import type { IdGen } from '../lib/ids.js';
 import type { SecretGen } from '../lib/secrets.js';
+import { IdempotentReplay } from './replay.js';
 import { createCommandRegistry, defineCommand, toKebab, type CommandCtx, type CommandDef } from './registry.js';
 
 interface CommandRouteDeps {
@@ -25,15 +26,6 @@ interface CommandRouteDeps {
   writer: Writer;
   authGeneration: AuthGeneration;
   testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
-}
-
-class IdempotentReplay extends Error {
-  readonly stored: { status: number; body: unknown };
-
-  constructor(stored: { status: number; body: unknown }) {
-    super('idempotent replay');
-    this.stored = stored;
-  }
 }
 
 const commandRegistries = new WeakMap<FastifyInstance, ReturnType<typeof createCommandRegistry>>();

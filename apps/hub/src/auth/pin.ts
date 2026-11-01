@@ -1,5 +1,8 @@
 import { DomainError } from '@pos/domain';
+import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
+import { IdempotentReplay } from '../commands/replay.js';
+import { readOnlyTx } from '../engine-host/read-only-tx.js';
 import type { Writer, WriterTx } from '../engine-host/writer.js';
 import type { HubConfig } from '../config/schema.js';
 import type { Clock } from '../lib/clock.js';
@@ -26,7 +29,22 @@ interface LockView {
 
 const WAIT_MS = 2_000;
 
-export async function checkPin<T>(
+// 00 v1.6 H-3: a PIN-bearing command decides its answer in ONE counting transaction for both PINs.
+export interface CheckPinHooks<P> {
+  // Runs inside the transaction, after the lock re-read and before the match / mismatch branch, on a
+  // read-only view (`readOnlyTx`). Its value goes to `onMatch`.
+  prepare?(tx: WriterTx): P;
+  // prepare ok + mismatch: drafts appended after the counters, then 401.
+  onMismatch?(tx: WriterTx): EventDraft[];
+  // prepare threw (any PIN): drafts appended after one failure is counted, then the prepare error.
+  onPrepareFailed?(tx: WriterTx, error: unknown, matched: boolean): EventDraft[];
+}
+
+interface PinLog {
+  error(obj: object, msg: string): void;
+}
+
+export async function checkPin<T, P = undefined>(
   deps: {
     db: Database.Database;
     writer: Writer;
@@ -35,9 +53,12 @@ export async function checkPin<T>(
     config: HubConfig;
     semaphore: Semaphore;
     verify: (pinHash: string, pin: string) => Promise<boolean>;
+    log?: PinLog;
+    testHooks?: { betweenVerifyAndWriter?: () => Promise<void> };
   },
   o: { staffId: string; pin: string; subject: RateSubject; eventDeviceId: string },
-  onMatch: (tx: WriterTx) => T,
+  onMatch: (tx: WriterTx, prepared: P) => T,
+  hooks?: CheckPinHooks<P>,
 ): Promise<T> {
   const branchId = deps.config.provisioned?.branch_id;
   if (branchId === undefined) throw new DomainError('HUB_NOT_PROVISIONED');
@@ -68,9 +89,16 @@ export async function checkPin<T>(
   } finally {
     release();
   }
+  await deps.testHooks?.betweenVerifyAndWriter?.();
 
   let staffReset = false;
-  let outcome: { result: { kind: 'mismatch'; attemptsRemaining: number } | { kind: 'match'; value: T } };
+  let prepareFailure: { error: unknown } | null = null;
+  let outcome: {
+    result:
+      | { kind: 'mismatch'; attemptsRemaining: number }
+      | { kind: 'match'; value: T }
+      | { kind: 'prepare_failed'; error: unknown };
+  };
   try {
     outcome = deps.writer.run((tx) => {
       const now = deps.clock.branchNow();
@@ -82,7 +110,7 @@ export async function checkPin<T>(
       if (staffLock.locked && staffLock.lockedUntil !== null) {
         throw new DomainError('PIN_LOCKED_OUT', { retry_after_ms: staffLock.lockedUntil - now });
       }
-      if (!matched) {
+      const countFailure = (): number => {
         const staffCount = recordFailure(tx, 'staff', o.staffId, now, null, deps.config.auth.pin_max_failures, deps.config.auth.pin_lockout_ms, (count, lockedUntil) => ({
           stream_type: 'staff',
           stream_id: o.staffId,
@@ -103,16 +131,50 @@ export async function checkPin<T>(
           actor_id: null,
           device_id: o.eventDeviceId,
         }));
+        return staffCount;
+      };
+      let prepared = undefined as P;
+      if (hooks?.prepare !== undefined) {
+        try {
+          prepared = hooks.prepare(readOnlyTx(tx));
+        } catch (error) {
+          if (error instanceof IdempotentReplay) throw error;
+          // Same counter delta for both PINs (01d §3.3 rule 4 (d)); the staff counter is never reset here.
+          prepareFailure = { error };
+          countFailure();
+          const drafts = hooks.onPrepareFailed?.(tx, error, matched) ?? [];
+          if (drafts.length > 0) tx.append(drafts);
+          return { kind: 'prepare_failed' as const, error };
+        }
+      }
+      if (!matched) {
+        const staffCount = countFailure();
+        const drafts = hooks?.onMismatch?.(tx) ?? [];
+        if (drafts.length > 0) tx.append(drafts);
         return { kind: 'mismatch' as const, attemptsRemaining: Math.max(0, deps.config.auth.pin_max_failures - staffCount) };
       }
       resetStaffCounter(tx, o.staffId);
       staffReset = true;
-      return { kind: 'match' as const, value: onMatch(tx) };
+      return { kind: 'match' as const, value: onMatch(tx, prepared) };
     });
   } catch (error) {
-    if (staffReset) deps.writer.run((tx) => resetStaffCounter(tx, o.staffId));
+    if (prepareFailure !== null) {
+      // BF-2: the counting transaction failed; the answer must not differ by PIN, so the original
+      // prepare error is returned (never a 500).
+      deps.log?.error({ err: error, phase: 'onPrepareFailed' }, 'checkPin counting transaction failed');
+      throw (prepareFailure as { error: unknown }).error;
+    }
+    if (staffReset) {
+      deps.log?.error({ err: error, phase: 'onMatch' }, 'checkPin onMatch failed after the reset');
+      try {
+        deps.writer.run((tx) => resetStaffCounter(tx, o.staffId));
+      } catch (resetError) {
+        deps.log?.error({ err: resetError, phase: 'reset' }, 'checkPin counter reset failed');
+      }
+    }
     throw error;
   }
+  if (outcome.result.kind === 'prepare_failed') throw outcome.result.error;
   if (outcome.result.kind === 'mismatch') {
     throw new DomainError('PIN_INVALID', { attempts_remaining: outcome.result.attemptsRemaining });
   }

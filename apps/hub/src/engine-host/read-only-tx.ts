@@ -1,0 +1,47 @@
+import type Database from 'better-sqlite3';
+import type { WriterTx } from './writer.js';
+
+// 00 v1.6 H-3 / 01d §3.5 "Read-only contract": `prepare` (and 01d's `preRead`) run on this view, so a
+// write there throws instead of landing before the PIN outcome is known. Enforced, not trusted.
+
+const READ_ONLY_PROPS = new Set<PropertyKey>(['name', 'open', 'inTransaction', 'readonly', 'memory']);
+
+export function readOnlyDb(db: Database.Database): Database.Database {
+  const prepare = (sql: string): Database.Statement => {
+    const statement = db.prepare(sql);
+    if (!statement.readonly) throw new Error('read-only view: a statement that writes is not allowed');
+    return statement;
+  };
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare') return prepare;
+      if (READ_ONLY_PROPS.has(prop)) return Reflect.get(target, prop, target) as unknown;
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value === 'function') {
+        return () => {
+          throw new Error(`read-only view: db.${String(prop)} is not allowed`);
+        };
+      }
+      return value;
+    },
+    set() {
+      throw new Error('read-only view: db is not writable');
+    },
+  });
+}
+
+export function readOnlyTx(tx: WriterTx): WriterTx {
+  return {
+    db: readOnlyDb(tx.db),
+    state: tx.state,
+    clock: tx.clock,
+    ids: tx.ids,
+    branchId: tx.branchId,
+    append() {
+      throw new Error('read-only view: tx.append is not allowed');
+    },
+    onCommit() {
+      throw new Error('read-only view: tx.onCommit is not allowed');
+    },
+  };
+}

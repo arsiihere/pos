@@ -100,7 +100,7 @@ export interface HubDeps {
   ownIPv4: string[];
   logStream?: NodeJS.WritableStream;
   configClient?: ConfigClient;
-  testHooks?: { betweenGuardAndWriter?: () => Promise<void> };
+  testHooks?: { betweenGuardAndWriter?: () => Promise<void>; betweenVerifyAndWriter?: () => Promise<void> };
 }
 
 export interface BuildHubOptions {
