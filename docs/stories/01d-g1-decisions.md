@@ -55,7 +55,7 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-10b | Accept kinds (table handover, zone-stock transfer): one tap on the answerer's own signed-in session. |
 | G1-10c | In-person fallback (answer from someone else's device): always PIN. |
 | G1-10d | The answer event records the method `pin` \| `session` \| `in_person`, plus the device id. |
-| G1-10e | These are defaults; the PIN requirement per kind is a branch setting (data, R18). A branch may **add** a PIN to accept kinds; it may **not** remove the PIN from money kinds (fixed in the spec). |
+| G1-10e | These are defaults; the PIN requirement per kind is a branch setting (data, R18). A branch may **add** a PIN to accept kinds; it may **not** remove the PIN from money kinds (fixed in the spec). **Pilot: constants (spec v0.2 changelog); setting post-pilot.** |
 | G1-10f | No PIN-free window after a PIN answer; each money answer needs its own PIN. |
 
 ## 1c. Targets
