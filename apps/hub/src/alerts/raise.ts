@@ -1,11 +1,19 @@
-import { DomainError } from '@pos/domain';
-import type { AlertDetails, AlertDisplay, AlertRaisedPayload, AlertTarget, EventDraft, PosEvent } from '@pos/events';
+import { DomainError, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
+import type {
+  AlertClosedPayload,
+  AlertDetails,
+  AlertDisplay,
+  AlertRaisedPayload,
+  AlertTarget,
+  EventDraft,
+  PosEvent,
+} from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CommandCtx } from '../commands/registry.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
-import { kindOf, type AlertKind } from './kinds.js';
+import { kindOf, type AlertKind, type AlertRecord, type RequestResultValues } from './kinds.js';
 import { askRoutes, routeAsk, routeRecipients, type RouteRow } from './routes.js';
 import { alertTxCache, batchReads, resolveStep, type AlertRequestPart, type AlertRow, type Recipient, type RecipientRow } from './targets.js';
 
@@ -16,7 +24,7 @@ import { alertTxCache, batchReads, resolveStep, type AlertRequestPart, type Aler
 // (dedupe 1, the cached fixed reads 5, one call per resolver kind and per registered route); raiseMany
 // costs the same as one raise. `ctx.permission` is never read (v0.4 m7). `details` is never logged (§7).
 
-/** §4.2 `tickCtx(tx, now)` shape (built by task 19): a tick-raised alert has `raised_device_id = 'hub'`. */
+/** §4.2 `tickCtx(tx, now)` shape: a tick-raised alert has `raised_device_id = 'hub'`. */
 export interface TickCtx {
   tx: WriterTx;
   now: number;
@@ -258,9 +266,18 @@ function draftOf(
   eventType: string,
   payload: Record<string, unknown>,
 ): EventDraft {
+  return draftOn(input.subject, env, eventType, payload);
+}
+
+function draftOn(
+  subject: RaiseInput['subject'],
+  env: { now: number; actor_id: string | null; device_id: string },
+  eventType: string,
+  payload: Record<string, unknown>,
+): EventDraft {
   return {
-    stream_type: input.subject.stream_type,
-    stream_id: input.subject.stream_id,
+    stream_type: subject.stream_type,
+    stream_id: subject.stream_id,
     event_type: eventType,
     schema_version: 1,
     payload,
@@ -275,5 +292,208 @@ function raise(ctx: AlertCtx, input: RaiseInput): RaiseResult {
   return raiseMany(ctx, [input])[0] as RaiseResult;
 }
 
-/** §4.2: the 01d internal API for other modules (close, listOpen, … join in task 19). */
-export const alerts = { raise, raiseMany };
+// ----------------------------------------------------------------------------------------------- close
+
+export type OwnerCloseReason = (typeof OWNER_CLOSE_REASONS)[number];
+type RequestDecision = (typeof REQUEST_DECISIONS)[number];
+
+/** §4.2 `closeMany` item. */
+export interface CloseItem {
+  alert_id: string;
+  reason: OwnerCloseReason;
+  note?: string;
+}
+
+/** Alert ids `close` / `closeMany` returned an AlertClosed draft for in this transaction (appended or not). */
+const closedInTx = new WeakMap<WriterTx, Set<string>>();
+
+/** The facts of the request a `request_result` is about (§3.10). */
+export interface ResultOf {
+  alert_id: string;
+  kind: string;
+  subject: RaiseInput['subject'];
+  requester_staff_id: string;
+  display: AlertDisplay;
+}
+
+/**
+ * §3.10 `request_result` input: to the requester, on the request's subject, with the request's lock-safe
+ * display; the decision and answerer (answer) or the closer and reason (close) as values, the closer's note
+ * as signed-in-only `details.reason` (§3.12, at most 200 characters; the full note stays on AlertClosed).
+ */
+export function requestResultInput(
+  request: ResultOf,
+  outcome: { close_reason: RequestResultValues['close_reason']; decision: RequestDecision | null; by_staff_id: string | null; note?: string | null },
+): RaiseInput {
+  const values: RequestResultValues = {
+    request_alert_id: request.alert_id,
+    request_kind: request.kind,
+    close_reason: outcome.close_reason,
+    decision: outcome.decision,
+    by_staff_id: outcome.by_staff_id,
+  };
+  const note = outcome.note ?? null;
+  return {
+    kind: 'request_result',
+    subject: request.subject,
+    target: { kind: 'person', staff_id: request.requester_staff_id },
+    values,
+    display: request.display,
+    details: note === null || note === '' ? {} : { reason: note.slice(0, 200) },
+    dedupe_key: `request_result:${request.alert_id}`,
+  };
+}
+
+interface CloseRow {
+  alert_id: string;
+  kind: string;
+  state: 'open' | 'closed';
+  subject_stream_type: PosEvent['stream_type'];
+  subject_stream_id: string;
+  requester_staff_id: string | null;
+  display_json: string;
+  is_request: 0 | 1;
+}
+
+/** §6.1 close / §4.2 `closeMany`: one alert read for every id and one `raiseMany` for the request_result raises. */
+function closeMany(ctx: AlertCtx, items: readonly CloseItem[]): EventDraft[] {
+  for (const item of items) {
+    if (!(OWNER_CLOSE_REASONS as readonly string[]).includes(item.reason)) {
+      throw new Error(`alerts.close: reason '${String(item.reason)}' is not an owner close reason`);
+    }
+  }
+  const tx = ctx.tx;
+  const done = closedInTx.get(tx) ?? new Set<string>();
+  // a closed alert, one closed earlier in this transaction, or a repeated id → no events (§3.3)
+  const wanted: CloseItem[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (done.has(item.alert_id) || seen.has(item.alert_id)) continue;
+    seen.add(item.alert_id);
+    wanted.push(item);
+  }
+  if (wanted.length === 0) return [];
+
+  const rows = tx.db
+    .prepare(
+      `SELECT alert_id, kind, state, subject_stream_type, subject_stream_id, requester_staff_id, display_json,
+              request_json IS NOT NULL AS is_request
+       FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
+    )
+    .all(JSON.stringify(wanted.map((i) => i.alert_id))) as CloseRow[];
+  const byId = new Map(rows.map((r) => [r.alert_id, r]));
+
+  const env = envelopeOf(ctx);
+  const by = env.actor_id;
+  const closes: Array<{ id: string; closed: EventDraft; result: number | null }> = [];
+  const results: RaiseInput[] = [];
+  for (const item of wanted) {
+    const row = byId.get(item.alert_id);
+    // gone (retention deletes closed alerts only) or closed already: whoever committed first won (§3.3)
+    if (row === undefined || row.state !== 'open') continue;
+    const subject = { stream_type: row.subject_stream_type, stream_id: row.subject_stream_id };
+    const payload: AlertClosedPayload = { alert_id: row.alert_id, reason: item.reason, by_staff_id: by, note: item.note ?? null };
+    const closed = draftOn(subject, env, 'AlertClosed', payload);
+    let result: number | null = null;
+    if (row.is_request === 1 && row.requester_staff_id !== null && (item.reason === 'obsolete' || item.reason === 'overridden')) {
+      result = results.length;
+      results.push(
+        requestResultInput(
+          { alert_id: row.alert_id, kind: row.kind, subject, requester_staff_id: row.requester_staff_id, display: JSON.parse(row.display_json) as AlertDisplay },
+          { close_reason: item.reason, decision: null, by_staff_id: by, note: item.note ?? null },
+        ),
+      );
+    }
+    closes.push({ id: row.alert_id, closed, result });
+  }
+  // through the exported object, so callers (and tests) see the one batched raise
+  const raised = results.length === 0 ? [] : alerts.raiseMany(ctx, results);
+  const events: EventDraft[] = [];
+  for (const c of closes) {
+    events.push(c.closed);
+    if (c.result !== null) events.push(...(raised[c.result] as RaiseResult).events);
+  }
+  for (const c of closes) done.add(c.id);
+  closedInTx.set(tx, done);
+  return events;
+}
+
+/** §4.2 `alerts.close`: `[AlertClosed]` (+ request_result for a request closed obsolete / overridden); closed → []. */
+function close(ctx: AlertCtx, alertId: string, reason: OwnerCloseReason, note?: string): EventDraft[] {
+  return closeMany(ctx, [note === undefined ? { alert_id: alertId, reason } : { alert_id: alertId, reason, note }]);
+}
+
+// ------------------------------------------------------------------------------------------------ reads
+
+interface RecordRow {
+  alert_id: string;
+  kind: string;
+  family: AlertRecord['family'];
+  subject_stream_type: string;
+  subject_stream_id: string;
+  dedupe_key: string;
+  requester_staff_id: string | null;
+  receiver_staff_id: string | null;
+  raised_device_id: string;
+  values_json: string;
+  display_json: string;
+  details_json: string | null;
+  step: number;
+  raised_at: number;
+}
+
+/**
+ * §4.2 `alerts.listOpen`: open alerts as AlertRecord, oldest first (raised_at, then log order), 1 statement
+ * (`alerts_open_kind` when `kind` is given). For requests 01d never auto-closes (§3.3, M8).
+ */
+function listOpen(db: Database.Database, o: { kind?: string; subject?: { stream_type: string; stream_id: string } }): AlertRecord[] {
+  const where = [`state = 'open'`];
+  const args: string[] = [];
+  if (o.kind !== undefined) {
+    where.push('kind = ?');
+    args.push(o.kind);
+  }
+  if (o.subject !== undefined) {
+    where.push('subject_stream_type = ? AND subject_stream_id = ?');
+    args.push(o.subject.stream_type, o.subject.stream_id);
+  }
+  const rows = db
+    .prepare(
+      `SELECT alert_id, kind, family, subject_stream_type, subject_stream_id, dedupe_key, requester_staff_id,
+              json_extract(request_json, '$.receiver_staff_id') AS receiver_staff_id, raised_device_id,
+              values_json, display_json, details_json, step, raised_at
+       FROM alerts WHERE ${where.join(' AND ')} ORDER BY raised_at, raised_seq`,
+    )
+    .all(...args) as RecordRow[];
+  return rows.map((r) => ({
+    alert_id: r.alert_id,
+    kind: r.kind,
+    family: r.family,
+    subject: { stream_type: r.subject_stream_type, stream_id: r.subject_stream_id },
+    dedupe_key: r.dedupe_key,
+    requester_staff_id: r.requester_staff_id,
+    receiver_staff_id: r.receiver_staff_id,
+    raised_device_id: r.raised_device_id,
+    values: JSON.parse(r.values_json) as Record<string, unknown>,
+    display: JSON.parse(r.display_json) as AlertDisplay,
+    details: r.details_json === null ? null : (JSON.parse(r.details_json) as AlertDetails),
+    step: r.step,
+    raised_at: r.raised_at,
+  }));
+}
+
+/** §4.2 `alerts.byDedupeKey`: the open alert's id for (kind, key), or null; 1 statement (`alerts_open_dedupe`). */
+function byDedupeKey(db: Database.Database, kind: string, key: string): string | null {
+  const hit = db.prepare(`SELECT alert_id FROM alerts WHERE state = 'open' AND kind = ? AND dedupe_key = ?`).get(kind, key) as
+    | { alert_id: string }
+    | undefined;
+  return hit?.alert_id ?? null;
+}
+
+/** §4.2 `alerts.tickCtx`: the ctx a registered tick passes to raise / raiseMany / close / closeMany (v1.0 #5). */
+function tickCtx(tx: WriterTx, now: number): TickCtx {
+  return { tx, now, actor_id: null, device_id: 'hub', session: null, permission: null };
+}
+
+/** §4.2: the 01d internal API for other modules. */
+export const alerts = { raise, raiseMany, close, closeMany, listOpen, byDedupeKey, tickCtx };

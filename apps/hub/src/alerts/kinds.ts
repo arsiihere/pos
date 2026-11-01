@@ -1,6 +1,6 @@
-import { ALERT_CONSTANTS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
-import type { AlertDetails, AlertDisplay, AlertStepTarget, EventDraft, PosEvent } from '@pos/events';
-import type { z } from 'zod';
+import { ALERT_CONSTANTS, REQUEST_DECISIONS, type AlertFamily, type Permission, type RECIPIENT_SETS } from '@pos/domain';
+import { AlertDetailsBase, type AlertDetails, type AlertDisplay, type AlertStepTarget, type EventDraft, type PosEvent } from '@pos/events';
+import { z } from 'zod';
 import type { CommandCtx } from '../commands/registry.js';
 
 // 01d §3.5 / §4.2: alert kinds, their steps and the startup checks. Kinds register at module load
@@ -78,8 +78,8 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
   /** lower_snake, unique */
   kind: string;
   family: AlertFamily;
-  /** stream_type of the subject */
-  subject: PosEvent['stream_type'];
+  /** stream_type of the subject; 'request' = the subject of the request the alert is about (§3.10) */
+  subject: PosEvent['stream_type'] | 'request';
   /** ordered; step 0 is sent at raise */
   steps: readonly StepDef[];
   closes_on: ClosesOn;
@@ -174,3 +174,38 @@ export const APPROVAL_TIER_STEPS: readonly StepDef[] = Object.freeze([
   frozenStep({ at: { ms: ALERT_CONSTANTS.approval_repeat_ms }, to: [answerers, alwaysOn] }),
   frozenStep({ at: { ms: ALERT_CONSTANTS.approval_branch_ms }, escalation: true, to: [answerers, holdersInformed, alwaysOn] }),
 ]);
+
+// ------------------------------------------------------------------------------------ kinds 01d ships (§3.10)
+// Defined at the top level of this module, which boot reaches statically (boot → projections/alerts →
+// alerts/kinds), so the kind exists before boot replays projections (step 4); otherwise a replayed alert
+// of the kind would take the P-8 unknown-kind path (next_due_at NULL, an `unknown_kind` line).
+
+/** §3.10 `request_result` values: decision and answerer, or closer and reason (G1-21.2). */
+export const RequestResultValues = z.object({
+  request_alert_id: z.string().min(1),
+  request_kind: z.string().min(1),
+  close_reason: z.enum(['answered', 'obsolete', 'overridden']),
+  decision: z.enum(REQUEST_DECISIONS).nullable(),
+  by_staff_id: z.string().min(1).nullable(),
+});
+export type RequestResultValues = z.infer<typeof RequestResultValues>;
+
+/** §3.12: the closer's note is signed-in-only context, never lock text; nothing else of the request's details. */
+export const RequestResultDetails = z.object({ reason: AlertDetailsBase.shape.reason }).strict();
+export type RequestResultDetails = z.infer<typeof RequestResultDetails>;
+
+/** §3.10 `request_result`: to the requester, raised in the answer / close transaction; closes on their seen. */
+export const REQUEST_RESULT = defineAlertKind<RequestResultValues, RequestResultDetails>({
+  kind: 'request_result',
+  family: 'info',
+  subject: 'request',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+  closes_on: 'seen',
+  values_schema: RequestResultValues,
+  details_schema: RequestResultDetails,
+  lead_fallback: false, // N5: answer notices never fall back to a lead
+  expires_at_day_close: true, // not a personal notice (§3.10): day close expires it like any info alert
+  silent: false,
+  labels: { card: 'alert.request_result.card', lock: 'alert.request_result.lock' },
+  request: null,
+});
