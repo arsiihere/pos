@@ -2,10 +2,11 @@ import { DomainError } from '@pos/domain';
 import type { AlertDetails, AlertDisplay, EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
+import type { CommandCtx } from '../../commands/registry.js';
 import { kindOf, type AlertKind, type AlertRecord } from '../kinds.js';
 import type { AlertRequestPart } from '../targets.js';
 
-// 01d §6.2 / §6.3 shared by AnswerRequest and WithdrawRequest: the one alert statement, §3.3 rule 1
+// 01d §6.2 / §6.3 shared by AnswerRequest and WithdrawRequest (the session guard also by MarkAlertsSeen): the one alert statement, §3.3 rule 1
 // (404 / 409 with the §9 details), the typed `AlertRecord` and the §3.5 `alert_id` check on a kind's drafts.
 
 export interface RequestRow {
@@ -33,6 +34,16 @@ const READ_ALERT = `SELECT alert_id, kind, family, subject_stream_type, subject_
        raised_device_id, values_json, display_json, details_json, request_json, step, raised_at,
        state, close_reason, decision, closed_by_staff_id
   FROM alerts WHERE alert_id = ?`;
+
+/**
+ * 00 v1.6 §3.7 H-3: a handler-checked command runs for a staff session only (the pipeline's `authorize`
+ * refuses a station session first; this repeats it where the handler reads the staff). The session's staff id.
+ */
+export function sessionStaff(actor: CommandCtx['actor']): string {
+  if (actor.kind === 'station') throw new DomainError('PERMISSION_DENIED', { session_kind: 'station' });
+  if (actor.staffId === null) throw new DomainError('PERMISSION_DENIED', { grant: 'not_granted' });
+  return actor.staffId;
+}
 
 /** The one alert statement (§6.2 / §6.3 Queries). */
 export function readAlert(db: Database.Database, alertId: string): RequestRow | undefined {

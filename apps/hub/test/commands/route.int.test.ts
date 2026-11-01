@@ -254,7 +254,8 @@ describe('command route', () => {
     const hub = await createTestHub();
     cleanups.push(() => hub.close());
     await seedDirectory(hub);
-    // Test-only stand-in; the real MarkAlertsSeen is 01d task 26.
+    // Test-only stand-in that replaces the real MarkAlertsSeen (01d task 26) in this hub's registry, so the
+    // handler's ctx.permission is observable; the real command's checks are in test/alerts/mark-alerts-seen.
     commandRegistry(hub.app).register(handlerChecked('MarkAlertsSeen'));
     const kds = pairDevice(hub, { type: 'kds', stationId: 'ST1' });
     const station = openSession(hub, { kind: 'station', deviceId: kds.deviceId, stationId: 'ST1' });

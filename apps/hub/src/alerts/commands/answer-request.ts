@@ -28,7 +28,7 @@ import {
 } from '../kinds.js';
 import { alerts, requestResultInput, type RaiseInput } from '../raise.js';
 import { mayAnswer } from '../targets.js';
-import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, type RequestRow } from './request-row.js';
+import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, sessionStaff, type RequestRow } from './request-row.js';
 
 // 01d §6.2 `AnswerRequest`, §3.3 answer rules 1–7, A4, A5, §3.5 read-only contract.
 // `preRead` (read-only, before any PIN): 1 alert statement, directory and session in memory, then the kind's
@@ -59,11 +59,10 @@ interface Checked {
  * answerer is the session's staff, or for `in_person` the named `answerer_staff_id` (§3.3 rule 2).
  */
 function answererOf(actor: CommandCtx['actor'], payload: Payload): string {
-  if (actor.kind === 'station') throw new DomainError('PERMISSION_DENIED', { session_kind: 'station' });
-  if (actor.staffId === null) throw new DomainError('PERMISSION_DENIED', { grant: 'not_granted' });
+  const staffId = sessionStaff(actor);
   // payload Zod: answerer_staff_id is present iff in_person
   if (payload.method === 'in_person') return payload.answerer_staff_id ?? '';
-  return actor.staffId;
+  return staffId;
 }
 
 /**

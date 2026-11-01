@@ -5,7 +5,7 @@ import type { CommandCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { readOnlyTx } from '../../engine-host/read-only-tx.js';
-import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf } from './request-row.js';
+import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf, sessionStaff } from './request-row.js';
 
 // 01d §6.3 `WithdrawRequest`, §3.3 "Withdraw", §3.5 read-only contract (`onWithdraw`).
 // Processing: alert → 404; open → else 409; session staff = requester → else 403 not_requester (a deduped
@@ -19,10 +19,7 @@ import { checkAlertIds, pendingRequest, readAlert, recordOf, requestKindOf } fro
 type Payload = WithdrawRequestPayload;
 
 function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { alert_id: string } } {
-  // 00 v1.6 §3.7 H-3: the pipeline's `authorize` has refused a station session or one without staff
-  const staffId = ctx.actor.staffId;
-  if (ctx.actor.kind === 'station') throw new DomainError('PERMISSION_DENIED', { session_kind: 'station' });
-  if (staffId === null) throw new DomainError('PERMISSION_DENIED', { grant: 'not_granted' });
+  const staffId = sessionStaff(ctx.actor);
   const { row, part } = pendingRequest(readAlert(ctx.tx.db, payload.alert_id), payload.alert_id, ctx.directory);
   if (row.requester_staff_id !== staffId) throw new DomainError('PERMISSION_DENIED', { reason: 'not_requester' });
   const { request } = requestKindOf(row, 'WithdrawRequest');
