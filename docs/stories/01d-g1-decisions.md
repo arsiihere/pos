@@ -89,6 +89,20 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-13f | Device revoke or token rotation closes the alert connection at once, as for session connections today (00 M39 `authGeneration`, M40, M60). |
 | G1-13g | Point-bound and always-on devices get their device-target alerts as usual (G1-12). |
 
+*G1-13b checked against 00 §3.4:* `SessionEnded.reason` already separates `'logout'` from `'idle_timeout'`, so **no 00 bump is needed for this**. Binding rule by reason: **ends** on `logout`, `forced`, `staff_removed`, `credentials_changed`, `device_revoked`, `hub_restored`; **kept** on `idle_timeout`, `replaced` (same person); `taken_over` moves the binding to the new person (they sign in there).
+
+## 1e. Sounds
+
+| ID | Decision |
+|---|---|
+| G1-14 | **Urgent repeat stops once the person has seen the request.** |
+| G1-14a | The 10 s urgent repeat stops for a person once they have seen the request (opened it while signed in on any of their devices; session-less devices cannot open details, G1-13e, so "seen" is always that person). |
+| G1-14b | After seen: one reminder every 2 minutes until answered or closed. |
+| G1-14c | Not seen: 10 s repeat until the branch-scope step (2 min, G1-9), then everyone drops to the 2-minute reminder. The G0-2 volume step-up happens once, at the branch-scope step. |
+| G1-14d | Always-on screens (cashier, KDS, point tablets) get one sound per escalation step, then a visual badge only; no repeating sound. |
+| G1-14e | No snooze. |
+| G1-14f | The requester's device never repeats a sound; it shows the waiting state and the "ask in person" line (G1-9b). |
+
 ## 1b. Receipts
 
 | ID | Decision |
