@@ -17,6 +17,7 @@ import type { WsHub } from '../ws/server.js';
 import { kindOf, type AlertKind, type AlertRecord, type RequestResultValues } from './kinds.js';
 import { askRoutes, routeAsk, routeRecipients, type RouteRow } from './routes.js';
 import { alertTxCache, batchReads, resolveStep, type AlertRequestPart, type AlertRow, type Recipient, type RecipientRow } from './targets.js';
+import { recordReceipt } from './receipts.js';
 
 // 01d §6.1 / §4.2 `alerts.raise` / `alerts.raiseMany`: pure on the transaction (the caller appends the
 // drafts). Dedupe on (kind, dedupe_key) (open alert or a key returned earlier in this transaction), schema
@@ -502,4 +503,4 @@ function tickCtx(tx: WriterTx, now: number): TickCtx {
 }
 
 /** §4.2: the 01d internal API for other modules. */
-export const alerts = { raise, raiseMany, close, closeMany, listOpen, byDedupeKey, tickCtx };
+export const alerts = { raise, raiseMany, close, closeMany, listOpen, byDedupeKey, tickCtx, recordReceipt };

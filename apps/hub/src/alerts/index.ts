@@ -4,6 +4,7 @@ import type { HubDeps } from '../server.js';
 import { currentDirectory } from '../auth/guards.js';
 import { wsHubFor } from '../ws/server.js';
 import { bindAlertEnv } from './raise.js';
+import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
 import { createAlertFrames } from './ws-frames.js';
 
 export { alerts, type AlertCtx, type RaiseInput, type RaiseResult } from './raise.js';
@@ -22,4 +23,15 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // §6 batch 3 / §3.6 (task 20): alert, alert_closed and alert_seen frames, after commit only
   const frames = createAlertFrames({ db: deps.db, ws: () => wsHubFor(app), directory: () => currentDirectory(app), log: app.log });
   deps.writer.addAfterCommit((appended) => frames.afterCommit(appended));
+  // §3.6 / A11 (task 21): the receipt buffer. The recorded set is seeded here, in buildHubServer (boot step 5),
+  // before the WS server accepts sockets (listen is boot step 7). Its flush timer is armed only by a buffered
+  // receipt, so nothing runs before sockets do; on close it stops and flushes what is buffered.
+  const receipts = createReceiptBuffer({ db: deps.db, writer: deps.writer, clock: deps.clock, log: app.log });
+  receipts.seed();
+  bindReceiptBuffer(app, receipts);
+  wsHubFor(app).onReceipt((from, msg) => receipts.fromSocket(from, msg));
+  app.addHook('onClose', async () => {
+    receipts.stop();
+    unbindReceiptBuffer(receipts);
+  });
 }
