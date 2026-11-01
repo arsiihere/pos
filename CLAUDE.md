@@ -29,7 +29,7 @@ T2 Production. Justification: real concurrency races exist in P1 (stock reservat
 
 ## Source of truth
 - The only source of truth is **docs/specs/00_Foundation_Spec_v1.7.md** (APPROVED — FINAL), extended by the module specs listed in docs/specs/README.md. This file, the stories and the plans summarise it; if anything here disagrees with the spec, the spec wins.
-- The foundation is frozen (D64): later issues go into module specs or unit tests, not foundation edits. The one allowed foundation edit is appending a new error code that a module spec defines (§6.2).
+- The foundation changes only through a version bump approved by the owner, with a changelog and 'Changed by' markers (README R34). Appending an error code that a module spec defines (§6.2) needs no bump.
 - Every module spec follows the Shared Standards in foundation §6 and does not redefine them.
 - If code and spec disagree, STOP and ask; never silently diverge.
 - Any behaviour change goes spec-first: update the spec version, then the plan, then the code.
