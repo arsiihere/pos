@@ -48,7 +48,7 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-9c | Branch-scope holders (normally the manager) are in range for every request, so they are the real escalation target. |
 | G1-9d | **Shortcut:** if no in-range approver is signed in anywhere when the request is raised, skip the waiting steps and go to branch-scope holders at once. |
 | G1-9e | **No approver warning (pilot form of Q-N5, approvals only):** while the business day is open and no branch-scope approver for a permission is signed in anywhere, the always-on screens and the manager / owner views show "No one can approve voids right now". The general "no route reaches this person" warning stays deferred. |
-| G1-9f | **G0-1 wording, approval requests, as amended:** t0 in-range approvers (G0-7); 45 s repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min branch-scope approvers; other holders told read-only**; requester's screen says "Waiting 2 min — ask in person". |
+| G1-9f | **G0-1 wording, approval requests, as amended:** t0 in-range approvers (G0-7); 45 s repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min branch-scope approvers; other holders told read-only**; requester's screen says "Waiting 2 min — ask in person". [01d v0.5 N4: branch scope is in range from t0 (G1-9c); 2 min adds the informed holders and the volume step-up] |
 
 | G1-10 | **Each request kind declares whether its answer needs a PIN.** |
 | G1-10a | Money kinds (void, discount, comp): PIN on every answer, on any device. |
