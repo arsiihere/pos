@@ -114,6 +114,16 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-15d | **Rollback:** Android forbids downgrades (without an uninstall, which would wipe the local command queue), so a rollback is a rebuild of the previous code with a higher `versionCode`. The hub keeps the previous APK and serves the last N (≥ 2) app versions it supports. |
 | G1-15e | **Ownership:** APK hosting and update endpoints are a 00 bump, or 01e if it fits better (decided in the spec); silent install relies on device-owner mode (D1). |
 
+## 1g. Attempt timers
+
+| ID | Decision |
+|---|---|
+| G1-16 | **01d's attempt and escalation timers run on a D44-style tick from events.** Each kind declares its steps (delay, targets resolved at send time, sound family); the raiser passes per-alert values (e.g. the walk-to window for Ready to serve). The tick reads 01d's projection of open alerts and requests and writes `AttemptSent` / `EscalationStepped` events for what is due, in one transaction; sends go out after commit; replay never re-sends. Open alerts and requests are rebuilt at boot from the subject streams (order, table, stock), so 03a's `audit`-skipping replay (G1-8e) loses nothing 01d needs. **After a restart, only the latest step that came due while the hub was down is sent, once; skipped steps are recorded as skipped.** |
+| G1-16a | **One clock:** 01d's due check runs on the same tick and `branchNow` as the fire scheduler (D44), not a second timer. If 03a's scheduler is not built when 01d ships, 01d owns the tick and 03a joins it (see "To 03a"). |
+| G1-16b | **Clock jumps** follow the restart rule. *Note: `branchNow` is monotonic within a process (foundation §4.7 branch clock, D48), so a jump can only appear across a restart (boot `ClockAlarm`, or a forward-set OS clock at boot); the restart rule already covers it.* |
+| G1-16c | **A failed send** (device offline, socket closed) is not retried within the step; the missing receipt shows it, and the next attempt or escalation follows on schedule. Device-offline handling is 01e / G0 G7. |
+| G1-16d | **Size:** attempt events (≈ 2 per order) were already in the G1-8e estimate; escalation and skipped-step events are rare (≈ 0.1–0.3 per order). The ≈ 75k / day estimate stands; attempts sit on replayed (subject) streams and are counted in the ≈ 45k. |
+
 ## 1b. Receipts
 
 | ID | Decision |
@@ -136,6 +146,7 @@ Finding: foundation §5.8 step 3 replays `SELECT * FROM events WHERE branch_id =
 | Row | Item |
 |---|---|
 | G1-8e | Size snapshots and replay against **≈ 75k events/day** (≈ 45k on replayed streams, ≈ 30k `audit`) instead of R6's 40k. Engine replay reads only the stream types its reducers use (skip `audit`), with an index serving `(branch_id, stream_type, seq)` or equivalent; this changes the foundation §5.8 step 3 query text, so it lands through the foundation v1.8 bump (R34). Cloud sync volume roughly doubles; note for 06 sizing. |
+| G1-16a | **One tick:** 01d's due check shares the fire-scheduler tick and `branchNow` (D44). 01d ships first, so 01d owns the hub tick loop as built; 03a's fire scheduler joins it (registers its intents query) rather than starting a second timer. |
 
 ### To 01e (pilot, mandatory)
 
