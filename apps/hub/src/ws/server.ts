@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import type { DeviceType } from '@pos/domain';
-import { WS_CLOSE, WsClientMessage, type PosEvent } from '@pos/events';
+import { WS_CLOSE, WsClientMessage, type PosEvent, type WsServerMessage } from '@pos/events';
 import websocket from '@fastify/websocket';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -15,8 +15,21 @@ const AUTH_MS = 5_000;
 const PING_MS = 15_000;
 const PONG_MS = 30_000;
 
+export interface ConnectedSession {
+  staffId: string | null;
+  deviceId: string;
+  sessionId: string;
+  kind: 'staff' | 'station';
+}
+
 export interface WsHub {
   publish(events: PosEvent[]): void;
+  // H-4: after commit only. Every socket of the device: staff, station and (01d) alert mode.
+  sendToDevices(deviceIds: string[], frame: WsServerMessage): void;
+  // H-4: staff-session sockets only.
+  sendToStaff(staffIds: string[], frame: WsServerMessage): void;
+  // H-4: from the in-memory socket list, no statement.
+  connectedSessions(): ConnectedSession[];
 }
 
 interface HubSocket {
@@ -41,9 +54,17 @@ interface SocketClose {
 }
 
 const publishers = new WeakMap<FastifyInstance, (events: PosEvent[]) => void>();
+const hubs = new WeakMap<FastifyInstance, WsHub>();
 
 export function publisherFor(app: FastifyInstance): ((events: PosEvent[]) => void) | undefined {
   return publishers.get(app);
+}
+
+// P-5: modules reach 00's socket hub through this, like publisherFor.
+export function wsHubFor(app: FastifyInstance): WsHub {
+  const hub = hubs.get(app);
+  if (hub === undefined) throw new Error('registerWs has not run on this app');
+  return hub;
 }
 
 export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
@@ -53,8 +74,31 @@ export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
     publish(events) {
       deliver(open, events);
     },
+    sendToDevices(deviceIds, frame) {
+      const wanted = new Set(deviceIds);
+      const body = JSON.stringify(frame);
+      for (const socket of socketsOfDevices(open, wanted)) socket.send(body);
+    },
+    sendToStaff(staffIds, frame) {
+      const wanted = new Set(staffIds);
+      const body = JSON.stringify(frame);
+      for (const live of open) {
+        if (live.ctx.kind === 'staff' && live.ctx.staffId !== null && wanted.has(live.ctx.staffId)) {
+          live.socket.send(body);
+        }
+      }
+    },
+    connectedSessions() {
+      return open.map(({ ctx }) => ({
+        staffId: ctx.staffId,
+        deviceId: ctx.deviceId,
+        sessionId: ctx.sessionId,
+        kind: ctx.kind,
+      }));
+    },
   };
   publishers.set(app, hub.publish);
+  hubs.set(app, hub);
   app.register(websocket, {
     preClose(done) {
       const server = app.websocketServer;
@@ -69,6 +113,13 @@ export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
     });
   });
   return hub;
+}
+
+// The one place that resolves "every socket of a device" (H-4). 01d alert-mode sockets (H-1) join here.
+function socketsOfDevices(open: OpenSocket[], deviceIds: Set<string>): HubSocket[] {
+  const sockets: HubSocket[] = [];
+  for (const live of open) if (deviceIds.has(live.ctx.deviceId)) sockets.push(live.socket);
+  return sockets;
 }
 
 function deliver(open: OpenSocket[], events: PosEvent[]): void {

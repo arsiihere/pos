@@ -218,7 +218,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '8';
     phase = 'ready';
     const stopHeart = startHeartbeat(db, deps.clock, provisioned.branch_id);
-    const stopSweep = startSweeper(deps);
+    const stopSweep = startSweeper(deps, app.log);
     beat.stop = () => {
       stopConfirm();
       stopHeart();

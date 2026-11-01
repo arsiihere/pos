@@ -79,13 +79,49 @@ describe('session sweeper and retention', () => {
     hub.clock.advance(lateTtl + 1);
     expect(endReason(hub, late.sessionId)).toBeNull();
     vi.useFakeTimers();
-    const stop = startSweeper(hub.deps);
+    const stop = startSweeper(hub.deps, { error: () => undefined });
     cleanups.push(stop);
     vi.advanceTimersByTime(14_999);
     expect(endReason(hub, late.sessionId)).toBeNull();
     vi.advanceTimersByTime(1);
     expect(endReason(hub, late.sessionId)).toBe('idle_timeout');
     expect(endReason(hub, station.sessionId)).toBeNull();
+  });
+
+  it('[00 H-8] a throwing retention run is caught and logged { timer: sweeper } and the next interval runs', async () => {
+    const hub = await open();
+    await seedDirectory(hub);
+    setMaintenanceHour(new Date(hub.clock.branchNow()).getHours());
+    const boom = new Error('retention failed');
+    let reads = 0;
+    const config = Object.create(hub.deps.config) as typeof hub.deps.config;
+    Object.defineProperty(config, 'provisioned', {
+      get() {
+        reads += 1;
+        if (reads === 1) throw boom;
+        return hub.deps.config.provisioned;
+      },
+    });
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const waiter = openSession(hub, { kind: 'staff', staffId: 'S_WAIT', deviceId: tablet.deviceId });
+    const errors: Array<{ obj: unknown; msg?: string }> = [];
+    vi.useFakeTimers();
+    const stop = startSweeper({ ...hub.deps, config }, {
+      error(obj, msg) {
+        errors.push({ obj, msg });
+      },
+    });
+    cleanups.push(stop);
+    vi.advanceTimersByTime(15_000);
+    expect(reads).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.obj).toEqual({ timer: 'sweeper', err: boom });
+    hub.clock.advance(idleTtl(hub, waiter.sessionId) + 1);
+    setMaintenanceHour(new Date(hub.clock.branchNow()).getHours());
+    vi.advanceTimersByTime(15_000);
+    expect(reads).toBe(2);
+    expect(errors).toHaveLength(1);
+    expect(endReason(hub, waiter.sessionId)).toBe('idle_timeout');
   });
 
   it('[00 §10 #121] retention runs in the maintenance hour, in batches of 500, once per local day', async () => {

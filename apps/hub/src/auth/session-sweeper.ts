@@ -54,10 +54,19 @@ export function sweepOnce(deps: HubDeps): { ended: string[] } {
   return { ended };
 }
 
-export function startSweeper(deps: HubDeps): () => void {
+export interface SweeperLog {
+  error(obj: Record<string, unknown>, msg?: string): void;
+}
+
+export function startSweeper(deps: HubDeps, log: SweeperLog): () => void {
   const timer = setInterval(() => {
-    sweepOnce(deps);
-    retentionOnce(deps, deps.clock.branchNow());
+    // H-8 (§7.3): an error in a run is logged and the next run continues. `err` is pino's Error key (AD-20).
+    try {
+      sweepOnce(deps);
+      retentionOnce(deps, deps.clock.branchNow());
+    } catch (error) {
+      log.error({ timer: 'sweeper', err: error }, 'sweeper run failed');
+    }
   }, SWEEP_MS);
   if (typeof timer.unref === 'function') timer.unref();
   return () => clearInterval(timer);
