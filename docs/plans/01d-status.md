@@ -9,5 +9,7 @@
 - **Tests closed:** none.
 - **AD rows:** none new. AD-1–AD-9 are written to `docs/reviews/01d-auto-decisions.md` at the batch 1 checkpoint.
 - **Open items:**
-  1. The checkpoint push is still blocked on this machine. The git-ignored `.claude/settings.local.json:47` keeps deny `Bash(git push:*)`, and a deny in any scope beats the new allow. It needs the developer's change.
-  2. Review finding: the allow `Bash(git push origin module-*)` also matches `git push origin module-01d:main` and `… --force`. Proposed tightening (developer's call): allow the exact command `Bash(git push origin module-01d)`, and deny `Bash(git push *:main*)`, `Bash(git push * main*)`, `Bash(git push * --force*)`, `Bash(git push * -f*)`, `Bash(git push * --delete*)`, `Bash(git push * +*)`.
+  1. ~~Checkpoint push blocked by `.claude/settings.local.json:47` deny `Bash(git push:*)`~~ — removed by the developer (2026-11-01).
+  2. ~~Allow `Bash(git push origin module-*)` too broad~~ — tightened (developer approved, 2026-11-01): allow only the exact command `Bash(git push origin module-01d)`; deny `Bash(git push *:main*)`, `Bash(git push * main*)`, `Bash(git push * --force*)`, `Bash(git push * -f*)`, `Bash(git push * --delete*)`, `Bash(git push * +*)`.
+
+**Note:** the allow line `Bash(git push origin module-01d)` in `.claude/settings.json` must be updated to the new branch name for each module branch (e.g. `module-01e`).

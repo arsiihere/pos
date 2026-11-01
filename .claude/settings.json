@@ -30,7 +30,7 @@
       "Bash(mkdir:*)",
       "Bash(sqlite3:*)",
       "Bash(psql:*)",
-      "Bash(git push origin module-*)"
+      "Bash(git push origin module-01d)"
     ],
     "deny": [
       "Bash(git reset:*)",
@@ -56,7 +56,13 @@
       "Edit(docs/specs/01c_Menu_Variants_Spec_v1.1.md)",
       "Write(docs/specs/01c_Menu_Variants_Spec_v1.1.md)",
       "Edit(docs/specs/01d_Notifications_Requests_Spec_v1.0.md)",
-      "Write(docs/specs/01d_Notifications_Requests_Spec_v1.0.md)"
+      "Write(docs/specs/01d_Notifications_Requests_Spec_v1.0.md)",
+      "Bash(git push *:main*)",
+      "Bash(git push * main*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push * +*)"
     ]
   }
 }
