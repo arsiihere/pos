@@ -76,6 +76,19 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-12d | A point with no bound device online → the manager is told (same rule as 01e device health, G0 G7). |
 | G1-12e | G1-11d's open point stays for the spec; candidate: branch-scope holder of `force-release-table-lock`. |
 
+## 1d. Alert connection
+
+| ID | Decision |
+|---|---|
+| G1-13 | **Alerts go over a device-level connection that outlives the staff session.** Reason: 00 M12 opens `/ws` only with `{ device_token, session_token }`, tablet session tokens live in memory (00 §8.1), and Waiter / Order taker sessions idle out after 5 / 15 min, so without this a pocketed phone goes silent minutes after the last tap. |
+| G1-13a | **Second WS auth mode, `device_token` only:** receives only 01d alert frames for that device (no events, no catch-up), sends only delivered / seen receipts, no commands. Acting needs a sign-in (G1-10). 00 bump: M12 gains the mode; the WS contract changes. |
+| G1-13b | **Person bound to a session-less device:** a phone's owner (00 M38); a tablet's **last signed-in person** until someone else signs in there, the person signs out explicitly, or the business day closes. Idle timeout and takeover do **not** end the binding; an explicit sign-out does. *Spec note: the binding is derived from session events (`SessionStarted`, `SessionEnded` with its cause) and the day close, so it needs no new event if `SessionEnded`'s cause tells sign-out from idle; to verify in 00.* |
+| G1-13c | The tablet always shows **"Alerts: <name>"** in its header (signed in or not), so a wrong binding is visible. |
+| G1-13d | A person bound to several devices gets alerts on all of them. |
+| G1-13e | **Lock screen / session-less display:** table, kind, point and requester only ("T12 · Void request · Hamza", "T12 Ready — Pass"); never amounts, items or reasons. Details after sign-in. |
+| G1-13f | Device revoke or token rotation closes the alert connection at once, as for session connections today (00 M39 `authGeneration`, M40, M60). |
+| G1-13g | Point-bound and always-on devices get their device-target alerts as usual (G1-12). |
+
 ## 1b. Receipts
 
 | ID | Decision |
