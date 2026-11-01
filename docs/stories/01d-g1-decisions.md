@@ -40,6 +40,8 @@
 
 G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void meaning.
 
+| ID | Decision |
+|---|---|
 | G1-9 | **Escalation widens only who is told, never who may answer.** |
 | G1-9a | The grant's scope (`my_team`, `my_zones`, `branch`) is a permission rule; no timer loosens it. |
 | G1-9b | Out-of-range people who receive an escalation see the request **read-only** with "Find <approver> or a manager"; the requester's "ask in person" line stays. |
