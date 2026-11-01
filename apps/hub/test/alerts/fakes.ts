@@ -1,6 +1,7 @@
 import { ALERT_CONSTANTS, DomainError, type ErrorCode } from '@pos/domain';
-import { AlertDetailsBase, defineEvent, latestVersion, type EventDraft } from '@pos/events';
+import { AlertDetailsBase, defineEvent, latestVersion, type AlertTarget, type EventDraft } from '@pos/events';
 import { z } from 'zod';
+import type { WriterTx } from '../../src/engine-host/writer';
 import {
   APPROVAL_TIER_STEPS,
   defineAlertKind,
@@ -9,10 +10,11 @@ import {
   type AlertRequestDef,
   type AnswerFacts,
 } from '../../src/alerts/kinds';
+import { registerTargetResolver, targetKey, unregisterTargetResolver, type ResolvedTarget } from '../../src/alerts/targets';
 
 // 01d §4.4 test fakes (plan "Test fakes"): kinds of later modules exist here only. Never imported by src/.
 // Each test file calls registerFakes() (beforeAll / beforeEach) and resetFakes() (afterAll / afterEach).
-// Deferred to the tasks that build their registries: resolvers fakeTableOwner / fakePoint (task 16),
+// Resolvers fakeTableOwner / fakePoint (task 16); deferred to the tasks that build their registries:
 // route fakePager (task 17), tick fakeFires (task 30).
 
 export type FakeApplyMode = 'ok' | 'throw' | 'append' | 'onCommit' | 'write' | 'no_alert_id' | 'other_alert_id';
@@ -84,6 +86,39 @@ function fakeRequest<V, D>(
   };
 }
 
+type TableTeamTarget = Extract<AlertTarget, { kind: 'table_team' }>;
+type PointTarget = Extract<AlertTarget, { kind: 'point' }>;
+
+/** 02-like `tableOwner` (§3.4, §4.4): table_id → owner, set by the test; one statement per call. */
+export const fakeTableOwner: { owners: Map<string, string>; calls: TableTeamTarget[][] } = { owners: new Map(), calls: [] };
+
+/** 01a-like point tablets (§3.4, §4.4): point_id → bound tablet ids, set by the test; one statement per call. */
+export const fakePoint: { devices: Map<string, string[]>; calls: PointTarget[][] } = { devices: new Map(), calls: [] };
+
+function fakeTableOwnerResolver(tx: WriterTx, targets: TableTeamTarget[]): Map<string, ResolvedTarget> {
+  fakeTableOwner.calls.push(targets);
+  const rows = tx.db
+    .prepare('SELECT t.value AS table_id, o.value AS staff_id FROM json_each(?) t JOIN json_each(?) o ON o.key = t.value')
+    .all(JSON.stringify(targets.map((t) => t.table_id)), JSON.stringify(Object.fromEntries(fakeTableOwner.owners))) as Array<{
+    table_id: string;
+    staff_id: string;
+  }>;
+  return new Map(rows.map((row) => [targetKey({ kind: 'table_team', table_id: row.table_id }), { staff_ids: [row.staff_id], device_ids: [] }]));
+}
+
+function fakePointResolver(tx: WriterTx, targets: PointTarget[]): Map<string, ResolvedTarget> {
+  fakePoint.calls.push(targets);
+  const rows = tx.db
+    .prepare('SELECT t.value AS point_id, d.value AS devices FROM json_each(?) t JOIN json_each(?) d ON d.key = t.value')
+    .all(JSON.stringify(targets.map((t) => t.point_id)), JSON.stringify(Object.fromEntries(fakePoint.devices))) as Array<{
+    point_id: string;
+    devices: string;
+  }>;
+  return new Map(
+    rows.map((row) => [targetKey({ kind: 'point', point_id: row.point_id }), { staff_ids: [], device_ids: JSON.parse(row.devices) as string[] }]),
+  );
+}
+
 const labels = (kind: string) => ({ card: `alert.${kind}.card`, lock: `alert.${kind}.lock` });
 
 const FAKE_KINDS = [
@@ -102,6 +137,8 @@ export const FAKE_STEP_1_MS = 60_000;
 
 export function registerFakes(): void {
   ensureEffectEvent();
+  registerTargetResolver('table_team', fakeTableOwnerResolver);
+  registerTargetResolver('point', fakePointResolver);
 
   // 04-like void approval: approval tier, money PIN, details for the approver.
   defineAlertKind({
@@ -241,6 +278,12 @@ export function registerFakes(): void {
 
 export function resetFakes(): void {
   for (const kind of FAKE_KINDS) unregisterAlertKind(kind);
+  unregisterTargetResolver('table_team');
+  unregisterTargetResolver('point');
+  fakeTableOwner.owners.clear();
+  fakeTableOwner.calls.length = 0;
+  fakePoint.devices.clear();
+  fakePoint.calls.length = 0;
   fakeApply.mode = 'ok';
   fakeApply.throwCode = 'ITEM_WRONG_STAGE';
   fakeApply.calls.length = 0;
