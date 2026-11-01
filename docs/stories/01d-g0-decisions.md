@@ -4,6 +4,7 @@
 |---|---|
 | Status | **Proposed — needs approval.** Every row is a developer decision from the 2026-10-31 / 2026-11-01 design session unless marked otherwise. Rows marked **[owner]** must be confirmed by the owner (or the restaurant) before G1. Nothing here changes an approved spec yet: each change lands through a version bump (R26). |
 | Sources | Developer design session 2026-10-31 and 2026-11-01; restaurant manager input on pre-placed items (zone stock, §5); repo research of 2026-10-31 and 2026-11-01 (facts cited by file in the session notes). |
+| G1 | **G1 brainstorming accepted (developer, 2026-11-01).** Each 01d row carries a **[G1: …]** marker (confirmed / amended / reversed / closed / moved to 01e / carried) with the G1 id; the session record and the new rows G1-1…G1-24 are in `01d-g1-decisions.md`. Rows for 00, 01a, 01b, 02, 03a, 03b, 05 (§4, §5, §5a, P3–P5) stay carried rows; G1 did not settle them. |
 | Supersedes | The 01d parts of `01d-notifications-teams-refined.md` where they disagree (that file stays as the 2026-10-27 owner record). |
 | Pilot | One branch, named only in installation, never in a spec. Every feature below is used at the pilot branch, so all are pilot scope unless §11 defers them. |
 
@@ -15,9 +16,9 @@ Words used here: **station** = where food is cooked (01a); **assembler point** (
 
 | ID | Decision |
 |---|---|
-| S1 | 01d is renamed **Notifications, requests and devices**. It owns: notification targets and routes, requests (approve / accept), delivery receipts and audit, the **device gateway** for headless devices (§3), and the pager route. |
-| S2 | 01d does **not** own the kitchen and serving model (§4), zones and zone stock (§5) or the screens that drive them. Those are carried rows to 00, 01a, 01b, 02, 03a, 03b and 05 (§10). 01d delivers what those modules raise. |
-| S3 | Build order stays 01d → 03a → 02 → 04 → 03b → 05 (R21 as amended by R27). A hardware spike (§9) runs **before** the 01d spec reaches G2. |
+| S1 | 01d is renamed **Notifications, requests and devices**. It owns: notification targets and routes, requests (approve / accept), delivery receipts and audit, the **device gateway** for headless devices (§3), and the pager route. **[G1: amended, G1-5, G1-22: 01d is "Notifications and requests"; device gateway and pager route move to 01e "Device gateway"]** |
+| S2 | 01d does **not** own the kitchen and serving model (§4), zones and zone stock (§5) or the screens that drive them. Those are carried rows to 00, 01a, 01b, 02, 03a, 03b and 05 (§10). 01d delivers what those modules raise. **[G1: confirmed]** |
+| S3 | Build order stays 01d → 03a → 02 → 04 → 03b → 05 (R21 as amended by R27). A hardware spike (§9) runs **before** the 01d spec reaches G2. **[G1: amended, G1-6: spike now ∥ 01d spec → 01d build → 01e spec → 01e build → 03a → 02 → 04 → 03b → 05]** |
 
 ## 2. Devices
 
@@ -25,14 +26,14 @@ Words used here: **station** = where food is cooked (01a); **assembler point** (
 
 | ID | Decision |
 |---|---|
-| D1 | **Order takers, managers, assemblers** use restaurant-owned Android tablets running the Capacitor app in **lock-task (kiosk) mode** as device owner: no other apps, no settings, no safe mode, no factory reset from the device. Reason: use of devices for anything else can't be enforced verbally. The app keeps a background service so alerts arrive with the screen off. |
-| D2 | **Waiter route is a per-branch setting** (data, R18): **watch** (pager watch, §2 D3), **app** (the Android app on a phone, restaurant-owned and locked or the waiter's own), or **none** (the waiter's alerts show on their order taker's tablet). A branch can mix: a waiter with a watch gets the watch, others follow the branch default. |
-| D3 | **Pager watch:** receive-only 433 MHz watch from a restaurant waiter-calling set. The hub drives it through an **ESP32 pager bridge** (hub → Wi-Fi → ESP32 → 433 MHz). The watch shows the table's pager code and a 1-letter kind or point code, e.g. `12 P`. It sends nothing back. One bridge per branch; more if the radio does not reach every floor. |
-| D4 | **Station button device:** an ESP32 with a small display and two buttons at a station, one per chef (lane). Button 1 = **Being cooked** (Start), button 2 = **Cooked** (Done). Wall powered, on the staff Wi-Fi. It is paired as device type **`kds`** (it already requires a `station_id`; station sessions have no idle timeout, 00 M30), so it needs no new type. A station may have several. |
-| D5 | **Pager bridge** gets a new device type **`pager_bridge`** (no station, no staff session): forward migration widening the device-type CHECK, `DevicePaired` v2 with upcaster, approval payload accepts it, 00 version bump. |
-| D6 | **Personal phones stay possible, not required.** The `phone` type (R14, 00 M38) is kept; a branch may use it for the waiter "app" route. Nothing is removed from merged migrations. R14 is narrowed, not dropped. |
-| D7 | **iPhones:** unchanged from R22 (no locked-screen alert). They matter only for the optional "app" route. |
-| D8 | **Android client form (Q-A2):** a native Capacitor app is needed anyway for kiosk mode and the background service, so the foundation's bundled-assets client stays (foundation stack, 00 §8.1). Pages are not loaded from the hub. Final choice in G1. |
+| D1 | **Order takers, managers, assemblers** use restaurant-owned Android tablets running the Capacitor app in **lock-task (kiosk) mode** as device owner: no other apps, no settings, no safe mode, no factory reset from the device. Reason: use of devices for anything else can't be enforced verbally. The app keeps a background service so alerts arrive with the screen off. **[G1: confirmed; hub-hosted silent APK update relies on device owner, G1-15]** |
+| D2 | **Waiter route is a per-branch setting** (data, R18): **watch** (pager watch, §2 D3), **app** (the Android app on a phone, restaurant-owned and locked or the waiter's own), or **none** (the waiter's alerts show on their order taker's tablet). A branch can mix: a waiter with a watch gets the watch, others follow the branch default. **[G1: reversed, G1-18: no route setting; routes derived from what each person has; no route → lead's devices]** |
+| D3 | **Pager watch:** receive-only 433 MHz watch from a restaurant waiter-calling set. The hub drives it through an **ESP32 pager bridge** (hub → Wi-Fi → ESP32 → 433 MHz). The watch shows the table's pager code and a 1-letter kind or point code, e.g. `12 P`. It sends nothing back. One bridge per branch; more if the radio does not reach every floor. **[G1: moved to 01e, G1-5]** |
+| D4 | **Station button device:** an ESP32 with a small display and two buttons at a station, one per chef (lane). Button 1 = **Being cooked** (Start), button 2 = **Cooked** (Done). Wall powered, on the staff Wi-Fi. It is paired as device type **`kds`** (it already requires a `station_id`; station sessions have no idle timeout, 00 M30), so it needs no new type. A station may have several. **[G1: moved to 01e, G1-5]** |
+| D5 | **Pager bridge** gets a new device type **`pager_bridge`** (no station, no staff session): forward migration widening the device-type CHECK, `DevicePaired` v2 with upcaster, approval payload accepts it, 00 version bump. **[G1: moved to 01e, G1-5]** |
+| D6 | **Personal phones stay possible, not required.** The `phone` type (R14, 00 M38) is kept; a branch may use it for the waiter "app" route. Nothing is removed from merged migrations. R14 is narrowed, not dropped. **[G1: confirmed; personal-phone alert app after the pilot (§12.4), G1-19]** |
+| D7 | **iPhones:** unchanged from R22 (no locked-screen alert). They matter only for the optional "app" route. **[G1: confirmed]** |
+| D8 | **Android client form (Q-A2):** a native Capacitor app is needed anyway for kiosk mode and the background service, so the foundation's bundled-assets client stays (foundation stack, 00 §8.1). Pages are not loaded from the hub. Final choice in G1. **[G1: closed, G1-15: bundled assets with hub-hosted silent APK update]** |
 
 ## 3. Device gateway (headless devices)
 
@@ -40,13 +41,13 @@ The ESP32 has about 300 KB of RAM, no clock and no durable storage. It cannot ru
 
 | ID | Decision |
 |---|---|
-| G1 | The hub exposes a **compact device protocol** over the LAN WebSocket for `kds` button devices and `pager_bridge`. The hub sends ready-to-show lines; the device sends only button presses. Example: hub → device `{"line1":"T12 Karahi Full x2","line2":"Next: T7 Tikka","ref":"a1"}`; device → hub `{"button":1,"ref":"a1"}`; hub → bridge `{"pager":5,"text":"12 P","pattern":"long3"}`. |
-| G2 | **The `ref` names the item.** The device echoes the `ref` it was showing; the hub maps it to the `order_item_id` and sends the normal `StartItem` / `DoneItem`. If the item's stage has moved (`ITEM_WRONG_STAGE`), the hub sends fresh lines. No FIFO assumption: tickets stay ordered by latest start (D27). |
-| G3 | **Time of a button press = hub receive time** (`recorded_at`, branch clock). The fact's `source` is `button`. A device sends no timestamp. |
-| G4 | **No queue on the device.** If the device loses the hub it shows `OFFLINE` and ignores presses; the assembler tablet (§4 K6) is the fallback, and 03b's KDS auto-print fallback applies to button stations too. |
-| G5 | **The hub never sends a snapshot or catch-up state to these devices**, only their lines. |
-| G6 | **Pairing:** the M44 request flow (`POST /pair/requests`, display code, manager approval). A button device shows the 6-character code on its display. The bridge has no display: it starts in setup mode (its own Wi-Fi access point with a small page showing the code and taking the staff Wi-Fi and hub address). Firmware sends the hub's advertised Host header (00 M45). |
-| G7 | **Device health:** the hub tracks each device's keepalive. A device that disappears is shown to the assembler of its point and to the manager. |
+| G1 | The hub exposes a **compact device protocol** over the LAN WebSocket for `kds` button devices and `pager_bridge`. The hub sends ready-to-show lines; the device sends only button presses. Example: hub → device `{"line1":"T12 Karahi Full x2","line2":"Next: T7 Tikka","ref":"a1"}`; device → hub `{"button":1,"ref":"a1"}`; hub → bridge `{"pager":5,"text":"12 P","pattern":"long3"}`. **[G1: moved to 01e, G1-5]** |
+| G2 | **The `ref` names the item.** The device echoes the `ref` it was showing; the hub maps it to the `order_item_id` and sends the normal `StartItem` / `DoneItem`. If the item's stage has moved (`ITEM_WRONG_STAGE`), the hub sends fresh lines. No FIFO assumption: tickets stay ordered by latest start (D27). **[G1: moved to 01e, G1-5]** |
+| G3 | **Time of a button press = hub receive time** (`recorded_at`, branch clock). The fact's `source` is `button`. A device sends no timestamp. **[G1: moved to 01e, G1-5]** |
+| G4 | **No queue on the device.** If the device loses the hub it shows `OFFLINE` and ignores presses; the assembler tablet (§4 K6) is the fallback, and 03b's KDS auto-print fallback applies to button stations too. **[G1: moved to 01e, G1-5]** |
+| G5 | **The hub never sends a snapshot or catch-up state to these devices**, only their lines. **[G1: moved to 01e, G1-5]** |
+| G6 | **Pairing:** the M44 request flow (`POST /pair/requests`, display code, manager approval). A button device shows the 6-character code on its display. The bridge has no display: it starts in setup mode (its own Wi-Fi access point with a small page showing the code and taking the staff Wi-Fi and hub address). Firmware sends the hub's advertised Host header (00 M45). **[G1: moved to 01e, G1-5]** |
+| G7 | **Device health:** the hub tracks each device's keepalive. A device that disappears is shown to the assembler of its point and to the manager. **[G1: moved to 01e, G1-5 (01d tells the manager of a point with no bound device online, G1-12d)]** |
 
 ## 4. Kitchen and serving model
 
@@ -94,27 +95,27 @@ Stories already have a cashier comp on the bill (`stories-refined.md` E-bills: p
 
 | ID | Decision |
 |---|---|
-| N1 | **Targets:** one person; everyone at the branch holding a permission; a person's team (`teamOf`, built in 01b, not yet used); the **table's team** (the zone's order taker and the waiters reporting to them); a **point's assembler**. |
-| N2 | **Routes, all at once:** screen banner and sound on every signed-in screen (WebSocket); the tablet app's background service; the pager bridge (watch); **escalation** to always-on screens (assembler, cashier, KDS screens) when not answered in N seconds (branch setting) [owner: N]. |
-| N3 | **A different sound / vibration per kind**, so staff learn them by habit [owner: the set]. |
-| N4 | **Inbox:** each person sees the day's notifications; pickups stay open until handed over, so a waiter who forgot what was waiting can look. |
-| N5 | **Delivery receipts:** per notification and route, sent / delivered / seen / answered with hub times, kept in the audit. The pager route records **sent** only (the watch is receive-only). This answers "it never came to me". |
-| N6 | **Requests:** Approve / Reject or Accept / Decline; answered on the answerer's **signed-in tablet** with their own PIN; the right is checked when the answer arrives; first answer wins ("Already approved by Imran"); no expiry; the in-person PIN fallback always works. |
-| N7 | **Request kinds in the pilot:** void approval (04), discount approval (05: every request records requester, approver, amount, reason, time), comp approval (§5a C2, C3), table handover accept (02), zone stock transfer (§5 Z6). |
-| N8 | **Watch kinds** (only "go and do something"): **Ready to serve** `<table code> <point code>` e.g. `12 P`; **Call** `<table code> C` from the order taker's Call waiter button. Ready to serve goes to the table's team; on route "none" it shows on the order taker's tablet. |
-| N9 | **Slip warning (D3) and rejected void** go to the **table's order taker** (tablet), not to waiters: they need a person who can talk to the customer [foundation wording, §8]. |
-| N10 | **Table handover (02):** the receiver must accept; a holder of the force-move permission (normally the manager) moves without acceptance. |
+| N1 | **Targets:** one person; everyone at the branch holding a permission; a person's team (`teamOf`, built in 01b, not yet used); the **table's team** (the zone's order taker and the waiters reporting to them); a **point's assembler**. **[G1: amended, G1-11, G1-12, G1-21: table's team = current owner + reports; point = device target]** |
+| N2 | **Routes, all at once:** screen banner and sound on every signed-in screen (WebSocket); the tablet app's background service; the pager bridge (watch); **escalation** to always-on screens (assembler, cashier, KDS screens) when not answered in N seconds (branch setting) [owner: N]. **[G1: amended, G1-13, G1-14, G1-18: device-level alert connection; pager route via 01e]** |
+| N3 | **A different sound / vibration per kind**, so staff learn them by habit [owner: the set]. **[G1: confirmed (G0-2, G1-14)]** |
+| N4 | **Inbox:** each person sees the day's notifications; pickups stay open until handed over, so a waiter who forgot what was waiting can look. **[G1: confirmed; queries G1-21.5]** |
+| N5 | **Delivery receipts:** per notification and route, sent / delivered / seen / answered with hub times, kept in the audit. The pager route records **sent** only (the watch is receive-only). This answers "it never came to me". **[G1: amended, G1-8, G1-21.1: delivered / seen only; sent from attempts; request seen on the subject stream]** |
+| N6 | **Requests:** Approve / Reject or Accept / Decline; answered on the answerer's **signed-in tablet** with their own PIN; the right is checked when the answer arrives; first answer wins ("Already approved by Imran"); no expiry; the in-person PIN fallback always works. **[G1: amended, G1-7, G1-10, G1-23: 01d owns the request; PIN per kind; answer right per G1-23]** |
+| N7 | **Request kinds in the pilot:** void approval (04), discount approval (05: every request records requester, approver, amount, reason, time), comp approval (§5a C2, C3), table handover accept (02), zone stock transfer (§5 Z6). **[G1: confirmed; kinds registered by owning modules; 01d ships test_alert and request_result, G1-21]** |
+| N8 | **Watch kinds** (only "go and do something"): **Ready to serve** `<table code> <point code>` e.g. `12 P`; **Call** `<table code> C` from the order taker's Call waiter button. Ready to serve goes to the table's team; on route "none" it shows on the order taker's tablet. **[G1: confirmed; watch part moved to 01e]** |
+| N9 | **Slip warning (D3) and rejected void** go to the **table's order taker** (tablet), not to waiters: they need a person who can talk to the customer [foundation wording, §8]. **[G1: confirmed; table's order taker = current owner, G1-11]** |
+| N10 | **Table handover (02):** the receiver must accept; a holder of the force-move permission (normally the manager) moves without acceptance. **[G1: confirmed (02 owns the rule; 01d supplies the accept request)]** |
 
 ## 7. People and permissions (01b)
 
 | ID | Decision |
 |---|---|
-| P1 | **Watch-only waiters need no PIN.** The directory gains a separate additive array `no_pin_staff: [{ staff_id, display_name, lead_staff_id, pager_id }]` (older hubs ignore it; `pin_hash` stays required for signed-in staff, README additive-directory row). These people are never on sign-in screens. |
-| P2 | **`pager_id`** per staff member (which watch). |
-| P3 | **New permission `tap-for-station`**, scope `my_stations` (scope already exists): a staff session may send Start / Done for those stations, with `actor_id` set. Changes the "station-scoped, actor null" rule for this path only. |
-| P4 | **`mark-served`** is a permission (not in the catalogue today); default grant to `order_taker`. |
-| P5 | **Zone assignment** per order taker (with Z2). |
-| P6 | "My team" approval scope (01b Q19, built in the catalogue, enforced by 04) [owner: confirm]. |
+| P1 | **Watch-only waiters need no PIN.** The directory gains a separate additive array `no_pin_staff: [{ staff_id, display_name, lead_staff_id, pager_id }]` (older hubs ignore it; `pin_hash` stays required for signed-in staff, README additive-directory row). These people are never on sign-in screens. **[G1: amended, G1-3, G1-17: every PIN-less active person; no roles or permissions]** |
+| P2 | **`pager_id`** per staff member (which watch). **[G1: amended, G1-17: separate pager_ids map for everyone; hub shift override]** |
+| P3 | **New permission `tap-for-station`**, scope `my_stations` (scope already exists): a staff session may send Start / Done for those stations, with `actor_id` set. Changes the "station-scoped, actor null" rule for this path only. **[G1: carried to 01b (not 01d)]** |
+| P4 | **`mark-served`** is a permission (not in the catalogue today); default grant to `order_taker`. **[G1: carried to 01b (not 01d)]** |
+| P5 | **Zone assignment** per order taker (with Z2). **[G1: carried to 01b (not 01d)]** |
+| P6 | "My team" approval scope (01b Q19, built in the catalogue, enforced by 04) [owner: confirm]. **[G1: amended, G1-23: range rule applies to voids only in the pilot]** |
 
 ## 8. Changes to approved specs (to apply by version bump, R26)
 
@@ -167,13 +168,17 @@ Answered by the developer for the owner (Q3, Q4, Q5, Q7 stated; Q1, Q2, Q6, Q8 d
 
 | # | Answer |
 |---|---|
-| G0-1 Escalation | **Tiered by kind, never a single timer; nothing expires.** *Approval requests* (void, discount, comp): t0 approvers in range (G0-7); **45 s** repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min** every approver at the branch (out of range too) and the requester's screen says "Waiting 2 min — ask in person". *Ready to serve*: **counted in attempts, not fixed seconds.** Attempt 1 to the table's team at Ready to serve; each attempt's window is the **walk-to time** for that table's zone and point. Not handed over in the window → the next attempt at once (also on the order taker's tablet). After the **last attempt (default 2, a branch setting)** fails → escalation: the point turns red on the assembler view and the manager is notified. **Every attempt and escalation is logged** (event with attempt number, targets, hub time). *Table handover accept*: **60 s** remind the receiver; **2 min** the sender's lead. *Zone stock transfer*: **60 s** to the manager. |
-| G0-2 Sounds | **Three families told apart by rhythm, not pitch** (kitchens are loud): **Urgent** (approval requests) two-tone rising, repeats every 10 s until answered, vibration long-long; **Action** (Ready to serve, Call) bright double ding, once, re-sent by escalation; **Info** (slip warning, low zone stock, a request answered) single soft chime, no repeat. Answer to the requester: rising chime approved, falling tone rejected. Watch patterns: Ready to serve 3 long, Call 2 short (if the watch supports patterns, §9). Escalation raises the volume. At most five sounds in total. |
-| G0-3 Chef by name | **By name.** At shift start the assembler sets "Karahi lane 2 → Imran" on the tablet; the device shows the name; it stays until changed. Chefs without a PIN are in `no_pin_staff` (P1). With no name set, work is recorded under the device only. |
+| G0-1 Escalation | **Tiered by kind, never a single timer; nothing expires.** *Approval requests* (void, discount, comp): t0 approvers in range (G0-7); **45 s** repeat sound on their tablets and show on the always-on screens (assembler, cashier); **2 min** every approver at the branch (out of range too) and the requester's screen says "Waiting 2 min — ask in person". *Ready to serve*: **counted in attempts, not fixed seconds.** Attempt 1 to the table's team at Ready to serve; each attempt's window is the **walk-to time** for that table's zone and point. Not handed over in the window → the next attempt at once (also on the order taker's tablet). After the **last attempt (default 2, a branch setting)** fails → escalation: the point turns red on the assembler view and the manager is notified. **Every attempt and escalation is logged** (event with attempt number, targets, hub time). *Table handover accept*: **60 s** remind the receiver; **2 min** the sender's lead. *Zone stock transfer*: **60 s** to the manager. **[G1: amended, G1-9f, G1-16: approval tier wording; timers on the D44 tick]** |
+| G0-2 Sounds | **Three families told apart by rhythm, not pitch** (kitchens are loud): **Urgent** (approval requests) two-tone rising, repeats every 10 s until answered, vibration long-long; **Action** (Ready to serve, Call) bright double ding, once, re-sent by escalation; **Info** (slip warning, low zone stock, a request answered) single soft chime, no repeat. Answer to the requester: rising chime approved, falling tone rejected. Watch patterns: Ready to serve 3 long, Call 2 short (if the watch supports patterns, §9). Escalation raises the volume. At most five sounds in total. **[G1: amended, G1-14: urgent repeat stops once seen]** |
+| G0-3 Chef by name | **By name.** At shift start the assembler sets "Karahi lane 2 → Imran" on the tablet; the device shows the name; it stays until changed. Chefs without a PIN are in `no_pin_staff` (P1). With no name set, work is recorded under the device only. **[G1: carried (01e / 03b lane screen); presence tick list G1-20 proposed on the same screen]** |
 | G0-4 Zone stock | Whoever holds a new permission **`manage-zone-stock`** (scope `my_zones`, new scope) refills and counts. |
 | G0-5 Walk times | Config, editable at any time (K10). Measured at the branch with a stopwatch for the first values. |
 | G0-6 Served | **Order taker taps, made almost free, with a safe fallback.** At Handover the order taker's tablet shows a card "T12 coming — Ali"; one tap when the food lands. Not tapped within **3 × walk-back time** → Served is set automatically as *estimated* (flagged). Table state uses both; the return-time measure (K11) uses only tapped ones, and reports show the tap rate per order taker. |
-| G0-7 Approval range | **An approver approves only within their range** (their team, their zones, or the branch, by role scope; 01b "My team"). If no one in range answers, escalation (G0-1) reaches branch-wide approvers. |
+| G0-7 Approval range | **An approver approves only within their range** (their team, their zones, or the branch, by role scope; 01b "My team"). If no one in range answers, escalation (G0-1) reaches branch-wide approvers. **[G1: amended, G1-9, G1-23: escalation widens who is told, never who may answer; voids only in the pilot]** |
 | G0-8 Live manager view | **Exceptions first, numbers second.** (1) *Needs attention now*, oldest first: requests waiting; food Ready to serve and not picked up past walk time; tables past their promised time (slip); stations behind plan; lanes Off or devices offline; zone stock low. (2) *Points and stations strip*: per point cooking / ready / waiting pickup with the oldest age in colour; per station queue, late count, lanes on. (3) *People*: per order taker and team, open tables and pending pickups (who is overloaded). (4) *Today's money*: sales, covers, and voids, discounts, comps with count, value and who. Pilot builds (1) and (4) first; (2) and (3) next. Same numbers read-only on the owner's remote view (D22). |
 | G0-9 | Tablet model and Android version (OQ2); hub PC (OQ1). **Open, installation.** |
-| G0-10 | Watch model and code format. **Open, after the spike (§9).** |
+| G0-10 | Watch model and code format. **Open, after the spike (§9).** **[G1: moved to 01e]** |
+
+## 13. After G1
+
+G1 (2026-11-01) results: `01d-g1-decisions.md` §3 (row-by-row result), §4 (01d §12.4 deferred list and the "stubbed until" table), §5 (spec version bumps 01d carries). Hardware rows (D3–D5, G1–G7, G0-10, the pager route) are now **01e Device gateway (pilot, mandatory)**, specified after the hardware spike (§9).

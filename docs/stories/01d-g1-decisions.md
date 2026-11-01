@@ -163,6 +163,16 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-21.10 | **Resolvers for later modules** (02, 01a, 01b) are registered interfaces; targets that cannot run until another module lands are listed in §4 "Stubbed until". |
 | G1-21.11 | **Finding for the spec — what "the right to answer" is.** 01b models approval as the **requester's** grant: `requires_approval` + `approver_role_ids` (01b §3.3; e.g. Cashier `apply-discount` approved by Manager). Only voids also have an answerer permission, `approve-void` (scopes `branch`, `my_team`), and foundation §4.5 uses it. So `rightOf` for money kinds is: **the answerer holds a role in the requester's resolved `approver_role_ids`, read at answer time**; range comes from `approve-void`'s scope for voids and is `branch` for discount and comp (no scope exists for them). The spec must state how `approver_role_ids` and `approve-void` combine for voids (both required, or either), with 04. |
 
+## 1k. G1 acceptance answers (developer, 2026-11-01)
+
+| ID | Decision |
+|---|---|
+| G1-22 | **Names:** 01d keeps **"Notifications and requests"**; **01e "Device gateway"** gets its own module-map row. |
+| G1-23 | **Answer right (closes G1-21.11).** **Voids:** the answerer must hold one of the requester's resolved `approver_role_ids` **and** `approve-void`, whose scope sets the range (`my_team` narrows it); both pass at answer time. **Discount and comp:** holding one of the approver roles is enough, branch-wide, in the pilot. **G0-7's range rule applies to voids only in the pilot**; scoped `approve-discount` / `approve-comp` permissions are §12.4 (post-pilot, 01b). |
+| G1-24 | `RequestSeen` on the subject stream (G1-21.1) and `test_alert` with `manage-devices` (G1-21.7): agreed. |
+
+G1 accepted by the developer, 2026-11-01.
+
 ## 1b. Receipts
 
 | ID | Decision |
