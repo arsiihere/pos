@@ -12,6 +12,7 @@ import type {
   StepSkippedPayload,
 } from '@pos/events';
 import type Database from 'better-sqlite3';
+import { deviceBindingsProjection } from '../alerts/bindings.js';
 import { kindOf, registeredAlertKinds, stepAt, type AlertKind } from '../alerts/kinds.js';
 import type { Projection, ProjectionRegistry } from './registry.js';
 
@@ -43,6 +44,7 @@ export function registerAlertProjections(projections: ProjectionRegistry): void 
   projections.register(alertFlagsProjection);
   projections.register(alertReceiptsProjection);
   projections.register(presenceTodayProjection);
+  projections.register(deviceBindingsProjection()); // §5.2 row 4 (task 15), its own file per P-3
 }
 
 /** Binds the hub log for the `alerts` projection's unknown-kind line; flushes lines written before. */

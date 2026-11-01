@@ -20,6 +20,7 @@ export const PROJECTIONS = [
   'alert_flags',
   'alert_receipts',
   'presence_today',
+  'device_bindings',
 ] as const;
 const PROJECTIONS_SQL = PROJECTIONS.map((name) => `'${name}'`).join(', ');
 // The cache is keyed on the migration files and the projection list, so a new migration or projection
