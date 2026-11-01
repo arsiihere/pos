@@ -124,6 +124,16 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-16c | **A failed send** (device offline, socket closed) is not retried within the step; the missing receipt shows it, and the next attempt or escalation follows on schedule. Device-offline handling is 01e / G0 G7. |
 | G1-16d | **Size:** attempt events (≈ 2 per order) were already in the G1-8e estimate; escalation and skipped-step events are rare (≈ 0.1–0.3 per order). The ≈ 75k / day estimate stands; attempts sit on replayed (subject) streams and are counted in the ≈ 45k. |
 
+## 1h. People without a PIN and pagers (01b v1.3 → v1.4)
+
+| ID | Decision |
+|---|---|
+| G1-17 | **`no_pin_staff` lists every active staff member at the branch without a PIN** (no flag): `{ staff_id, display_name, lead_staff_id }`. **Pager ids are a separate additive map `pager_ids: { staff_id → pager_id }` covering everyone** (PIN holders can wear a watch too). Spec rules: a `staff_id` is in exactly one of `staff` / `no_pin_staff`; setting a PIN moves the person in the same directory version; older hubs ignore both fields (01b B18 a); these people are never on sign-in rosters; `teamOf` gains a variant that includes no-PIN people. Corrects G0 P1 / P2. |
+| G1-17a | **Watches move between people by shift.** The directory's `pager_ids` is only the **default**. A manager or the point's assembler can change "who wears pager 5" on the hub at shift start (same screen as lane names, G0-3); the hub assignment overrides the default until changed or the business day closes, then the default returns. The hub assignment is an event (who set it, when). *Spec note: proposed on the `staff` stream; the assignment screen and pager route are 01e, 01d only reads "the person's routes".* |
+| G1-17b | **One pager, one person at a time:** assigning a pager already in use takes it from the previous person (shown on screen). |
+| G1-17c | A pager with no person assigned receives nothing. |
+| G1-17d | `no_pin_staff` carries **no roles or permissions** (these people cannot act); targeting them is only through teams and pager assignment. |
+
 ## 1b. Receipts
 
 | ID | Decision |
