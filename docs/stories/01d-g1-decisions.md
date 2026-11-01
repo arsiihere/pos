@@ -103,6 +103,17 @@ G1-7f confirmed by the developer as written; 04 to confirm the withdrawn-void me
 | G1-14e | No snooze. |
 | G1-14f | The requester's device never repeats a sound; it shows the waiting state and the "ask in person" line (G1-9b). |
 
+## 1f. Android app form (closes G0 D8 / Q-A2)
+
+| ID | Decision |
+|---|---|
+| G1-15 | **Bundled assets with a hub-hosted silent APK update.** The foundation stack (bundled assets + local SQLite command queue) stays: hub-loaded pages would leave a tablet that restarts during a Wi-Fi or hub outage with a blank screen and no offline ordering. **D8 and Q-A2 closed.** README R22's "Capacitor shell over the hub's pages" is corrected to "bundled Capacitor app updated from the hub" — *Proposed — needs approval.* |
+| G1-15a | **Signing key:** one release key for all builds, backed up in two places (installation runbook). Losing it means reinstalling every tablet. |
+| G1-15b | **Update timing:** install only when the tablet has no signed-in session, or the business day is closed, or in the 00 M66 maintenance hour; never mid-service. `426 CLIENT_UPGRADE_REQUIRED` / `min_client_version` stay the hard trigger. *Spec note: the install restarts the app, so the device's alert connection (G1-13) drops for its duration; a "no signed-in session" tablet can still be a bound alert device, so the spec states the gap or prefers the day-closed / maintenance-hour windows for bound devices.* |
+| G1-15c | **Staged:** a new APK goes to one chosen tablet first; the rest follow after the owner / developer marks it good. |
+| G1-15d | **Rollback:** Android forbids downgrades (without an uninstall, which would wipe the local command queue), so a rollback is a rebuild of the previous code with a higher `versionCode`. The hub keeps the previous APK and serves the last N (≥ 2) app versions it supports. |
+| G1-15e | **Ownership:** APK hosting and update endpoints are a 00 bump, or 01e if it fits better (decided in the spec); silent install relies on device-owner mode (D1). |
+
 ## 1b. Receipts
 
 | ID | Decision |
