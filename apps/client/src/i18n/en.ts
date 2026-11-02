@@ -13,6 +13,8 @@ export const en = {
   'admin_stock.status.checked_now': ' · checked just now',
   'admin_stock.status.offline': ' · offline',
   'admin_stock.status.waiting': 'Waiting for hub confirmation',
+  // 01d AD-123: open alerts the hub retired because a step cannot be computed
+  'admin_stock.status.stuck_alerts': 'Stuck alerts: {n}',
   'admin_stock.problem.rejected': 'Menu update refused ({reason}).',
   'admin_stock.problem.apply_failed': 'Menu update could not be applied.',
   'admin_stock.problem.still_using': ' The hub is still using version {version}.',

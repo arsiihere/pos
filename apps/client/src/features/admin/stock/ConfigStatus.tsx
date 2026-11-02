@@ -55,7 +55,7 @@ export function ConfigProblem({ status }: { status: HubConfigStatus }) {
 
 // 01a hand-off StockMore: the status line also heads the app bar's More menu (the header chip stays, S54 e); "Menu up to date" over the line
 // while the hub runs a menu version and its last poll went through, otherwise the line alone (warn while
-// last_problem is set, info while offline or waiting).
+// last_problem is set, info while offline or waiting). 01d AD-123: "Stuck alerts: N" under it while N > 0.
 export function MenuStatus({ status, clock }: { status: HubConfigStatus; clock: HubClock | null }) {
   const problem = status.last_problem !== null;
   const outcome = status.last_poll?.outcome;
@@ -74,6 +74,7 @@ export function MenuStatus({ status, clock }: { status: HubConfigStatus; clock: 
         ) : (
           <b>{line}</b>
         )}
+        {status.stuck_alerts > 0 ? <span data-stuck-alerts="">{fill(t('admin_stock.status.stuck_alerts'), { n: String(status.stuck_alerts) })}</span> : null}
       </div>
     </div>
   );

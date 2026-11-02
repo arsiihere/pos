@@ -118,6 +118,7 @@ const STATUS: HubConfigStatus = {
   directory_version: 2,
   last_poll: { outcome: 'applied', at: hubAt(26, 0) },
   last_problem: null,
+  stuck_alerts: 0,
 };
 
 function json(status: number, body: unknown): Response {

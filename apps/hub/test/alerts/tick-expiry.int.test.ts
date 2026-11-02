@@ -583,39 +583,49 @@ describe('01d alerts tick: expiry and day close (task 29)', () => {
 
   // ------------------------------------------------------------------------- poisoned alerts still expire
 
-  it('[01d §3.5 G1-16] expiry does not depend on the step plan: a poisoned alert with after_ms is closed expired, not skipped and logged forever', async () => {
+  /** AD-123: the `alerts` projection's one line for an alert retired because a step cannot be computed. */
+  const stuckLines = (): string[] => hub.logs().split('\n').filter((line) => line.includes('alert_stuck'));
+
+  it('[01d §3.5 G1-16 AD-123] expiry does not depend on the step plan: a poisoned alert with after_ms keeps its expiry time and is closed expired; one stuck line, no tick line', async () => {
     const id = '01J0000000000000000000PEXP';
     rawAlert({ alert_id: id, kind: POISON_EXPIRING, family: 'info', values: { window_ms: 'soon' } });
-    // the projection treats the uncomputable step as never due: next_due_at is the expiry time
+    // the projection retires the uncomputable step (one line); next_due_at is the expiry time (AD-121)
     expect(alertRow(id)).toMatchObject({ state: 'open', step: 0, next_due_at: hub.clock.branchNow() + EXPIRY_MS });
-    // and with the bad step forced due as well, the expiry still comes first
+    expect(stuckLines()).toHaveLength(1);
+    // and with the bad step forced due as well, the tick finds nothing to send and logs nothing
     hub.deps.db.prepare('UPDATE alerts SET next_due_at = ? WHERE alert_id = ?').run(hub.clock.branchNow(), id);
     cleanFlags();
     start();
     const run = vi.spyOn(hub.deps.writer, 'run');
-    await pass(); // not yet expired: the step plan is tried and the alert skipped (task 28 guard)
-    expect(skippedLines()).toHaveLength(1);
+    await pass();
+    expect(facts(id)).toEqual(['AttemptSent:0']);
     hub.clock.advance(EXPIRY_MS);
     await pass();
     expect(facts(id)).toEqual(['AttemptSent:0', 'AlertClosed:expired']);
-    expect(skippedLines()).toHaveLength(1); // the expiring pass did not try the plan
     await pass();
-    expect(skippedLines()).toHaveLength(1);
     expect(run).toHaveBeenCalledTimes(2);
+    expect(skippedLines()).toHaveLength(0);
+    expect(stuckLines()).toHaveLength(1);
   });
 
-  it('[01d §3.5 G1-16] expiry does not depend on the step plan: a poisoned alert at day close (expire_due) is closed expired', async () => {
+  it('[01d §3.5 G1-16 AD-123] expiry does not depend on the step plan: a poisoned alert at day close (expire_due) is closed expired', async () => {
     const id = '01J0000000000000000000PDAY';
     rawAlert({ alert_id: id, kind: 't_point_like', family: 'action', values: { point_id: '', table_id: 'T1' } });
+    // step 1 (from_value '') cannot be routed: retired at once, never due
+    expect(alertRow(id)).toMatchObject({ state: 'open', step: 0, next_due_at: null });
+    expect(stuckLines()).toHaveLength(1);
     cleanFlags();
     start();
-    hub.clock.advance(FAKE_STEP_1_MS); // its step 1 (from_value '') is due and poisoned
+    hub.clock.advance(FAKE_STEP_1_MS);
+    const before = vi.spyOn(hub.deps.writer, 'run');
     await pass();
-    expect(skippedLines()).toHaveLength(1);
+    expect(before).not.toHaveBeenCalled();
+    before.mockRestore();
     closeDay();
     await pass();
     expect(facts(id)).toEqual(['AttemptSent:0', 'AlertClosed:expired']);
-    expect(skippedLines()).toHaveLength(1);
+    expect(skippedLines()).toHaveLength(0);
+    expect(stuckLines()).toHaveLength(1);
     const run = vi.spyOn(hub.deps.writer, 'run');
     await pass();
     expect(run).not.toHaveBeenCalled();

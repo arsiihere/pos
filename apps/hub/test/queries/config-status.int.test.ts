@@ -1,12 +1,14 @@
 import { ConfigStatusResponse } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
+import { alerts } from '../../src/alerts/raise';
 import { onBranchConfigApplied } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { registerFakes, resetFakes } from '../alerts/fakes';
 
 const BRANCH = 'branch-1';
 const CONFIRMED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
@@ -58,7 +60,7 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
     const counter = statementCounter(h.deps.readDb);
     const res = await status(h, admin);
     expect(res.statusCode).toBe(200);
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(3); // 2 version reads + the 01d stuck alerts count (AD-123)
     const data = res.json().data;
     expect(data).toEqual({
       tenant_id: 'tenant-a',
@@ -69,6 +71,7 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
       directory_version: 2,
       last_poll: { outcome: 'applied', at: polledAt },
       last_problem: null,
+      stuck_alerts: 0,
     });
     expect(data).not.toHaveProperty('config_epoch');
     expect(data).not.toHaveProperty('epoch_changed_at');
@@ -121,6 +124,7 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
       directory_version: 1,
       last_poll: null,
       last_problem: null,
+      stuck_alerts: 0,
     });
     expect((await configPoller(h.app).pollOnce()).outcome).toBe('not_ready');
     expect(cloud.calls).toHaveLength(0);
@@ -173,5 +177,48 @@ describe('GET /admin/queries/config-status (§6.21)', () => {
     });
     expect(command.statusCode).toBe(200);
     expect(command.json().data.result).toMatchObject({ changed: true, reason: 'opened' });
+  });
+
+  it('[01d §3.5 AD-123] Stuck alerts: N: an alert whose next step cannot be computed counts 1; 0 after it is closed', async () => {
+    registerFakes();
+    cleanups.push(() => resetFakes());
+    const { h, admin } = await hub();
+    const now = h.clock.branchNow();
+    const draft = (event_type: string, payload: Record<string, unknown>) => ({
+      stream_type: 'hub' as const,
+      stream_id: BRANCH,
+      event_type,
+      schema_version: 1,
+      payload,
+      occurred_at: now,
+      actor_id: null,
+      device_id: 'hub',
+    });
+    const id = '01J0000000000000000000STCK';
+    // raw events with values the kind's schema refuses (as from an older build): step 1's from_value is ''
+    h.deps.writer.run((tx) =>
+      tx.append([
+        draft('AlertRaised', {
+          alert_id: id,
+          kind: 't_point_like',
+          family: 'action',
+          subject_stream_type: 'hub',
+          subject_stream_id: BRANCH,
+          dedupe_key: `raw:${id}`,
+          requester_staff_id: null,
+          target: { kind: 'person', staff_id: 'S_MGR' },
+          values: { point_id: '', table_id: 'T1' },
+          display: { kind_label_key: 'alert.t.lock' },
+          details: null,
+          hidden_from: null,
+          request: null,
+        }),
+        draft('AttemptSent', { alert_id: id, step: 0, recipients: [], routes: [] }),
+      ]),
+    );
+    const res = await status(h, admin);
+    expect(ConfigStatusResponse.parse(res.json()).data.stuck_alerts).toBe(1);
+    h.deps.writer.run((tx) => tx.append(alerts.close(alerts.tickCtx(tx, h.clock.branchNow()), id, 'done')));
+    expect((await status(h, admin)).json().data.stuck_alerts).toBe(0);
   });
 });

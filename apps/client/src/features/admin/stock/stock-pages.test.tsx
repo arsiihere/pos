@@ -108,6 +108,7 @@ const STATUS: HubConfigStatus = {
   directory_version: 2,
   last_poll: { outcome: 'applied', at: hubAt(11) },
   last_problem: null,
+  stuck_alerts: 0,
 };
 const BRANCH = STATUS.branch_id as string;
 

@@ -27,7 +27,7 @@ import { createWriter, type Writer } from '../../src/engine-host/writer';
 import { boot } from '../../src/lib/boot';
 import { fixedClock, T } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
-import { bindAlertProjectionLog, registerAlertProjections } from '../../src/projections/alerts';
+import { bindAlertProjectionLog, countStuckAlerts, registerAlertProjections } from '../../src/projections/alerts';
 import { createProjectionRegistry, type Projection, type ProjectionRegistry } from '../../src/projections/registry';
 import { freshDb } from '../helpers/db';
 import { createLogCapture } from '../helpers/log-capture';
@@ -616,6 +616,40 @@ describe('01d alerts projections', () => {
     const replayed = fresh.catchUp(h.db, BRANCH).replayed;
     expect(replayed.alerts).toBeGreaterThan(0);
     expect(dump(h.db)).toEqual(live);
+  });
+
+  it('[01d §3.5 AD-123] a step whose targets cannot be computed retires the alert: next_due_at NULL, one live error line (no values); replay gives the same rows and logs nothing', async () => {
+    const h = await harness(cleanups);
+    h.append(
+      raised('P1', 't_point_like', { family: 'action', values: { point_id: '', table_id: 'T-SECRET' } }),
+      step('AttemptSent', 'P1', 0, [person(ALI)]),
+      raised('D1', 't_info'), // one step, sent: next_due_at NULL legitimately, not stuck
+      step('AttemptSent', 'D1', 0, [person(ALI)]),
+    );
+    expect(alertRow(h.db, 'P1')).toMatchObject({ state: 'open', step: 0, next_due_at: null });
+    expect(alertRow(h.db, 'D1')).toMatchObject({ state: 'open', step: 0, next_due_at: null });
+    expect(h.logs).toEqual([{ alert_id: 'P1', kind: 't_point_like', error: 'alert_stuck', err: { name: 'Error', code: null } }]);
+    expect(JSON.stringify(h.logs)).not.toMatch(/T-SECRET|point_id/);
+    expect(countStuckAlerts(h.db)).toBe(1);
+    const live = dump(h.db);
+    h.db.prepare(`DELETE FROM projection_checkpoints WHERE projection = 'alerts'`).run();
+    const fresh = createProjectionRegistry();
+    registerAlertProjections(fresh);
+    const replayLogs: unknown[] = [];
+    bindAlertProjectionLog(fresh, (line) => replayLogs.push(line));
+    expect(fresh.catchUp(h.db, BRANCH).replayed.alerts).toBe(4);
+    expect(dump(h.db)).toEqual(live);
+    expect(countStuckAlerts(h.db)).toBe(1);
+    expect(replayLogs).toEqual([]);
+    expect(h.logs).toHaveLength(1);
+  });
+
+  it('[01d §3.5 AD-123] positive control: a computable step 1 → next_due_at = its time, no line, not counted stuck', async () => {
+    const h = await harness(cleanups);
+    h.append(raised('W1', 't_point_like', { family: 'action', values: { point_id: 'P', table_id: 'T' } }), step('AttemptSent', 'W1', 0, [person(ALI)]));
+    expect(alertRow(h.db, 'W1')).toMatchObject({ next_due_at: T + FAKE_STEP_1_MS });
+    expect(h.logs).toEqual([]);
+    expect(countStuckAlerts(h.db)).toBe(0);
   });
 
   it('[01d §5.2] buildHubServer wiring: an appended AlertRaised lands in alerts on the test hub', async () => {

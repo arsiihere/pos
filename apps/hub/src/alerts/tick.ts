@@ -75,8 +75,8 @@ const tickEnvelope = (now: number) => ({ now, actor_id: null, device_id: 'hub' }
 let alertsLog: TickLog | null = null;
 
 /**
- * Task 28 fix (G1-16): one line per skipped alert, with no values, no details and no message text (a
- * JSON.parse message can echo its input, §7): the error's name and code only.
+ * Task 28 fix (G1-16): one line per skipped alert (an unreadable row), with no values, no details and no
+ * message text (a JSON.parse message can echo its input, §7): the error's name and code only.
  */
 function logSkipped(alertId: string, kind: string, err: unknown): void {
   const e = err as { name?: unknown; code?: unknown } | null;
@@ -94,9 +94,11 @@ function logSkipped(alertId: string, kind: string, err: unknown): void {
 type Plan = { subject: { stream_type: PosEvent['stream_type']; stream_id: string }; skipped: number[]; item: StepItem };
 
 /**
- * The per-alert work of the step pass: parse the row, find the due steps, and pre-check the latest step's
- * targets. Steps are ordered, so the scan stops at the first step that is not due yet; a step whose time
- * cannot be computed counts as not due (a bad step 2 never blocks step 1). Throws only for this alert.
+ * The per-alert work of the step pass: parse the row and find the due steps. Steps are ordered, so the scan
+ * stops at the first step that is not due yet; a step whose time or targets cannot be computed counts as not
+ * due (a bad step 2 never blocks step 1). The `alerts` projection retires the alert when that step becomes
+ * its next one (AD-123: next_due_at NULL, its one log line), so the tick never logs it and never selects it
+ * again. Throws only for this alert (an unreadable row).
  */
 function planOf(r: DueRow, kind: AlertKind, now: number): Plan | null {
   const row: AlertRow = {
@@ -111,20 +113,19 @@ function planOf(r: DueRow, kind: AlertKind, now: number): Plan | null {
   };
   const stepsDue: number[] = [];
   for (let index = row.step + 1; index < kind.steps.length; index += 1) {
+    const step = kind.steps[index] as AlertKind['steps'][number];
     let at: number;
     try {
-      at = stepAt(kind.steps[index] as AlertKind['steps'][number], row);
-    } catch (err) {
-      if (stepsDue.length === 0) throw err; // nothing due before it: the alert is skipped
-      logSkipped(r.alert_id, r.kind, err); // the due steps before it still go
-      break;
+      at = stepAt(step, row);
+      stepTargets(step, row); // from_value check: a step that cannot be routed is never sent
+    } catch {
+      break; // AD-123: the projection retires the alert (and logs it once) when this becomes its next step
     }
     if (at > now) break;
     stepsDue.push(index);
   }
   const latest = stepsDue.pop();
   if (latest === undefined) return null;
-  stepTargets(kind.steps[latest] as AlertKind['steps'][number], row); // from_value pre-check (throws for this alert)
   return { subject: { stream_type: r.subject_stream_type, stream_id: r.subject_stream_id }, skipped: stepsDue, item: { row, kind, step: latest } };
 }
 
@@ -170,9 +171,9 @@ function stepIntents(tx: WriterTx, now: number): EventDraft[] {
       continue; // expiry, not a step: a step due at or after the expiry time is never sent
     }
     if (kind === undefined) continue; // P-8: never due (next_due_at NULL); kept for a row written before a rollback
-    // Per-alert guard (task 28 fix, G1-16): an alert whose stored values break the step pass is skipped and
-    // logged; it is not closed and its next_due_at is not changed, so it is selected (and logged) again on
-    // the next pass. The other alerts step normally in this same transaction.
+    // Per-alert guard (task 28 fix, G1-16): an alert whose row cannot be read is skipped and logged; the
+    // other alerts step normally in this same transaction. A step that cannot be computed is not this case:
+    // planOf stops before it and the projection retires the alert (AD-123).
     try {
       const plan = planOf(r, kind, now);
       if (plan !== null) plans.push(plan);
