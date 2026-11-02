@@ -65,6 +65,10 @@ export interface ReceiptBuffer {
   size(): number;
   /** App close: the timer stops and what is buffered is flushed. */
   stop(): void;
+  /** §5.1 / AD-88: retention deleted these alerts' rows; drop their recorded and sentVia keys. */
+  forget(alertIds: readonly string[]): void;
+  /** Alerts that have recorded or sentVia keys (memory bound, tests). */
+  tracked(): number;
 }
 
 interface Entry {
@@ -88,7 +92,7 @@ const keyOf = (e: { alert_id: string; staff_id: string | null; device_id: string
   JSON.stringify([e.alert_id, e.staff_id ?? '', e.device_id, e.kind, e.step]);
 
 export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
-  const recorded = new Set<string>();
+  const recorded = new Map<string, Set<string>>(); // alert_id → keys (AD-88: dropped per alert by retention)
   const buffer = new Map<string, Entry>();
   const sentVia = new Map<string, Set<string>>(); // alert_id → device ids
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -97,7 +101,7 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
   /** Buffers one receipt unless its key is recorded or already buffered; true when it was buffered. */
   function add(e: Entry): boolean {
     const key = keyOf(e);
-    if (recorded.has(key) || buffer.has(key)) return false;
+    if (recorded.get(e.alert_id)?.has(key) === true || buffer.has(key)) return false;
     buffer.set(key, e);
     timer ??= setTimeout(() => {
       timer = null;
@@ -128,7 +132,7 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
           ).map((r) => [r.alert_id, r]),
         );
         const drafts: EventDraft[] = [];
-        const keys: string[] = [];
+        const keys: Array<[string, string]> = [];
         for (const [key, e] of batch) {
           const subject = subjects.get(e.alert_id);
           if (subject === undefined) continue; // an unknown alert (recordReceipt): no event
@@ -151,19 +155,25 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
             actor_id: null,
             device_id: 'hub',
           });
-          keys.push(key);
+          keys.push([e.alert_id, key]);
         }
         if (drafts.length === 0) return;
         tx.append(drafts);
         // recorded only once committed: after a rollback a re-sent receipt can still become its event
         tx.onCommit(() => {
-          for (const key of keys) recorded.add(key);
+          for (const [alertId, key] of keys) addRecorded(alertId, key);
         });
       });
     } catch (err) {
       // A11: lossy is accepted for these two events (G1-8c); the batch is dropped and logged (ids not logged).
       env.log.error({ err, receipts: batch.length }, 'alert receipt flush failed');
     }
+  }
+
+  function addRecorded(alertId: string, key: string): void {
+    const keys = recorded.get(alertId) ?? new Set<string>();
+    keys.add(key);
+    recorded.set(alertId, keys);
   }
 
   function record(r: ReceiptInput): void {
@@ -226,7 +236,7 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
     if (buffer.size >= RECEIPT_FLUSH_AT) flush();
   }
 
-  return {
+  const receipts: ReceiptBuffer = {
     seed() {
       const rows = env.db
         .prepare(
@@ -234,7 +244,7 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
            JOIN alerts a ON a.alert_id = r.alert_id WHERE a.state = 'open'`,
         )
         .all() as Array<{ alert_id: string; staff_id: string; device_id: string; kind: string; step: number }>;
-      for (const r of rows) recorded.add(keyOf(r));
+      for (const r of rows) addRecorded(r.alert_id, keyOf(r));
     },
     record,
     fromSocket,
@@ -248,22 +258,42 @@ export function createReceiptBuffer(env: ReceiptEnv): ReceiptBuffer {
     stop() {
       flush();
     },
+    forget(alertIds) {
+      for (const alertId of alertIds) {
+        recorded.delete(alertId);
+        sentVia.delete(alertId);
+      }
+    },
+    tracked: () => new Set([...recorded.keys(), ...sentVia.keys()]).size,
   };
+  dbOf.set(receipts, env.db);
+  return receipts;
 }
 
 // ------------------------------------------------------------------------------------------------ binding
 
 const buffers = new WeakMap<FastifyInstance, ReceiptBuffer>();
+const dbOf = new WeakMap<ReceiptBuffer, Database.Database>();
+const byDb = new WeakMap<Database.Database, ReceiptBuffer>();
 let active: ReceiptBuffer | null = null;
 
 /** Bound once per hub by registerAlerts; the latest bound buffer serves `alerts.recordReceipt`. */
 export function bindReceiptBuffer(app: FastifyInstance, buffer: ReceiptBuffer): void {
   buffers.set(app, buffer);
+  const db = dbOf.get(buffer);
+  if (db !== undefined) byDb.set(db, buffer);
   active = buffer;
 }
 
 export function unbindReceiptBuffer(buffer: ReceiptBuffer): void {
+  const db = dbOf.get(buffer);
+  if (db !== undefined && byDb.get(db) === buffer) byDb.delete(db);
   if (active === buffer) active = null;
+}
+
+/** §5.1 / AD-88: retention (on commit of its batch) drops the purged alerts' keys from the hub's buffer. */
+export function forgetReceiptAlerts(db: Database.Database, alertIds: readonly string[]): void {
+  byDb.get(db)?.forget(alertIds);
 }
 
 /** Like wsHubFor: the hub's receipt buffer (recordSent for tasks 32 / 34; flush / size for tests). */

@@ -2,6 +2,7 @@
 import type Database from 'better-sqlite3';
 import type { HubDeps } from '../server.js';
 import type { WriterTx } from '../engine-host/writer.js';
+import { purgeAlerts } from '../alerts/retention.js';
 import { clearExpiredDeliveryTokens } from './pair-requests.js';
 import { activity, endSession, type SessionRow } from './session-store.js';
 
@@ -145,7 +146,8 @@ function purge(deps: HubDeps, now: number): number {
       if (n > 0) more = true;
     }
   }
-  return deleted;
+  // 01d §5.1 (task 38): the alert projection rows, after 00's own batches
+  return deleted + purgeAlerts(deps, branchId, now);
 }
 
 function localDay(now: number): string {
