@@ -35,11 +35,19 @@
 | O-1 | G0 Q1–Q11 | this G1 | open |
 | O-2 | **Record every stable step inside a session, not only the open → close difference.** The stone swap nets to zero between door open and door close; only the intermediate stable weights (2 400 → 1 400 → 2 400) show it. A jar lifted off its plate is a "lifted" state, not a weight change. | topic 3 (sensing), topic 4 (events) | proposed (spice-shelf dry run) |
 | O-3 | Jars swapped between bins (mirch jar put on the zeera plate) look like two opposite changes; needs a rule (jar weight signature, or "both bins changed in one session and restore each other"). | topic 3 | open |
+| O-5 | **Meat / chicken flow** (freezer dry run, proposed): receive (weigh vs order and invoice) → clean (yield vs expected range, per person on duty) → portion into labelled packs (id, item, weight, date, packed by) → freezer / chiller (door sensor + camera only) → issue by scanning labels and weighing at the issue station → blind daily pack count. Bulk storage without portioning is the cheaper fallback (weigh every issue, count by weight). Choice depends on the father's answer (§3). | topic 3, topic 6, 08 I13 / I14 / I15 | open |
+| O-6 | Chicken (and some meat) arrives with ice or water in the crate; received weight must use crate tare and a drain rule, or the vendor's ice is paid as chicken. | topic 3, 10 | open |
+| O-7 | Pack labels need a **label printer** (not the 03b receipt printer) or pre-printed QR stickers scanned by the tablet camera; to price in topic 2. | topic 2 | open |
 | O-4 | Shelf controller must buffer readings while the hub or Wi-Fi is down and send them with their own sequence on reconnect (F-7); conflicts with 01d G0 G4 "no queue on device". | topic 2, 01e additions | open |
 
 ## 3. Questions for the father / the restaurant
 
-(filled during G1)
+| # | Question | Why |
+|---|---|---|
+| QF-1 | How are mutton, beef, chicken and paye stored today: bulk in the freezer, or cut into portions first? Who cleans and who stores? | decides O-5 (portion packs or bulk) |
+| QF-2 | How much meat, chicken and paye arrive per day / week at Lake City, from how many vendors, fresh or frozen, in crates or bags, with ice? | sizing, O-6 |
+| QF-3 | Usual cleaning yield (10 kg raw mutton → ? kg usable; chicken; paye) as the chef sees it | expected yield range for alerts |
+| QF-4 | Has short weight or extra ice in deliveries been seen before? With which items? | A8 thresholds, which items first |
 
 ## 4. Pilot shelf shopping list
 
