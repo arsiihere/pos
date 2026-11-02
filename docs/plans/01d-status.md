@@ -207,3 +207,65 @@
   - (23) RF-2 lacks the cases with no PIN; WS hiding is asserted only through DB columns.
   - (24) The `{}` details fallback is untested; an accept kind answered by PIN on the raising device is untested.
   - (25) A 2-line station guard is duplicated.
+
+## Batch 6 — Seen and the tick (2026-11-02)
+
+- **Tasks:**
+  - 26: `MarkAlertsSeen`, `RequestSeen`, answering-seat rule
+  - 27: tick loop and `registerTick`
+  - 28: alerts tick steps, superseded skips, restart and answer race
+  - 29: expiry and day close
+  - 30: statement bounds and timed tick
+- **Commits:**
+  - `be948e9` (26)
+  - `4141e87` (task 17 follow-up fix, found in task 26)
+  - `8455a73` (27)
+  - `7a8510e` + `361ca1c` review fix (28)
+  - `bc4b400` (29)
+  - `04942fd` (30)
+- **Reviews:** every task is HIGH and was reviewed alone by opus. All are approved.
+  - **Task 26:** the hidden seat cannot close a notice by any path.
+  - **Task 17 follow-up (found in task 26):** the "for Ali" fallback gave Ali his own inbox row, against §3.4.3 line 285. Fixed and re-reviewed (AD-106).
+  - **Task 28, Important:** a poisoned alert (stored values that cannot be stepped) rolled back the whole alerts tick on every pass, so all escalation on the branch stopped. Fixed with a per-alert guard, a scan that stops at the first step not yet due, and new startup checks (AD-116, AD-117). Re-review found it addressed.
+  - **Task 29:** RF-1 holds (250 alerts close as 200 + 50, each exactly once). A poisoned alert still expires.
+  - **Task 30:** every statement bound passed on the first run, with no src fix needed:
+    - tick: 11, bound 12; read (2) arrives in task 31
+    - projection: ≤ 2 reads per event
+    - raise: 7 / 9
+    - `raiseMany` and `closeMany` cost the same as a single call
+- **Gate:** green on the first run. 277 files passed, 1 skipped; 1736 tests passed, 1 skipped (#58).
+- **Tests closed:**
+  - 26: #16, #33
+  - 27: #22, #37
+  - 28: #4, #19, #21, #25, #34, #50
+  - 29: #24, #36, #51
+  - 30: #35
+  - #58 is written and skipped; it stays open until it runs on the pilot mini PC (AD-9).
+- **AD rows (proposed):** AD-106 to AD-122.
+- **Developer decisions needed:**
+  1. **How a poisoned alert is retired (AD-116).** Today it is skipped and logged on every pass, about every 500 ms. Options:
+     - (a) keep skip-and-log;
+     - (b) close it, which needs a new close reason;
+     - (c) the projection sets `next_due_at` NULL.
+  2. **A request kind with `closes_on.after_ms`.** The spec allows it. Such a request never closes and keeps the tick pre-check true forever, and 200 of them would fill the `LIMIT 200` select. Options:
+     - (a) a startup error (recommended);
+     - (b) `next_due_at` ignores `after_ms` for requests.
+  3. **#58 performance.** A forced run on the dev laptop (i7-4900MQ): tick `writer.run` takes 81.5 ms against the §7 target of 50 ms, while a raise takes 0.74 ms against 5 ms. Most of the time is per-call `db.prepare` in the projection, 5 per `AttemptSent`. Run #58 on the mini PC early. If it misses, rule on per-db prepared-statement caching, which would be a new hub pattern.
+  4. **AD-88 (from batch 5):** receipts for closed alerts are accepted.
+- **Carried to later tasks:**
+  - **Task 31:**
+    - Raise `TICK_TODAY` 11 → 12 (read (2)).
+    - The flag pass must exclude ids closed `expired` in the same pass.
+    - The `no_approver` flag is seeded dirty, which causes an empty `writer.run` every 500 ms until task 31. Task 31's test must show a booted hub reaching an idle pass.
+  - **Task 32:** re-assert #49 `alerts_open` with real rows; the header must check `route`.
+  - **Task 38:** prune the receipt sets.
+- **Deferred minors (for the final review):**
+  - (26) A vacuous "closes nothing for Ali" test.
+  - (26) The 00 registry silently replaces a duplicate `register`.
+  - (27) The boot "stops on close" check is vacuous.
+  - (27) The EXPLAIN test uses a copy of the SQL.
+  - (28) The projection NULLs `next_due_at` with no log line.
+  - (28) A misleading skip log message.
+  - (29) No tie-breaker in the due select.
+  - (29) The mixed-pass statement count is not asserted.
+  - (30) The fake pager assertion is loose.
