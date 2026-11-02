@@ -282,7 +282,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       requester_staff_id: null,
       target: { kind: 'person', staff_id: MGR },
       values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: imran.deviceId, on_requester_device: false },
-      display, // the request's lock-safe display
+      display: { ...display, device_name: 'Imran tablet' }, // the request's lock-safe display + the answering device (§3.12, task 34 fix)
       details: DETAILS, // signed-in card only (§3.12)
       hidden_from: { session_id: imran.sessionId, device_id: imran.deviceId },
       request: null,
@@ -319,7 +319,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
       requester_staff_id: null,
       target: { kind: 'person', staff_id: MGR },
       values: { request_alert_id: id, request_kind: 't_approval', decision: 'approve', device_id: hamza.deviceId },
-      display,
+      display: { ...display, device_name: 'Hamza tablet' }, // the answering device (§3.12, task 34 fix)
       details: null,
       hidden_from: hidden,
       request: null,

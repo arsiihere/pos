@@ -4,9 +4,8 @@ import { z } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
-import { cachedPrepare } from './statements.js';
 import { mayAnswer, type AlertRequestPart } from './targets.js';
-import { lockOnlyView, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
+import { lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
 // context), §3.10 hiding, §6.9 / N3 may-answer rows, §8.3 `seen_by_me`.
@@ -21,12 +20,15 @@ import { lockOnlyView, signedInView, StrictCardView, StrictLockView, type ViewRo
 //   staff socket (inbox rows and may-answer rows) get the signed-in view: `card` with `details` and the AD-23
 //   fields. Every row is parsed with ws-frames' strict view schemas, so no `card` / `details` leaves on a lock
 //   row (§7).
-// - `seen_by_me`: this person's seen (`request_seen`, or an `AlertSeen` receipt); false on a station socket.
+// - `seen_by_me`: this person's seen (`request_seen`, or an `AlertSeen` receipt); false on a station socket, and
+//   false for an open `closes_on: 'seen'` alert (seenByMe): a valid seen would have closed it, so a receipt
+//   on it came from the answering seat (§3.10) and must not mark it seen on the person's other devices.
 // - Every listed alert is "sent" to the device for the receipt check (`recordSent`, §6 batch 3, task 21 carry).
 // Statements: 2 for a staff socket ((1) the device / inbox rows, (2) the open requests by
 // `alerts_open_requests`), 1 for a station socket; fixed whatever the number of alerts.
-// Determinism: no clock read. Logs: none here (a throw is logged by the WS server's catch-up guard, which
-// closes the socket; the part never logs rows).
+// Determinism: no clock read. Logs: none here; a throw is rethrown as an AlertViewError (name and code only,
+// §7) for the WS server's catch-up guard, which logs it and closes the socket.
+// Statements are prepared per call (not cached: AD-125 limits the cache to the tick, projections and raise).
 
 export interface AlertsCatchUpEnv {
   directory(): StaffDirectory;
@@ -96,18 +98,32 @@ export function placeOf(
   return own === undefined ? { set: fallbackSet, for_staff_id: null } : { set: own.set as z.infer<typeof StrictLockView>['set'], for_staff_id: own.for_staff_id };
 }
 
+/**
+ * §8.3 `seen_by_me` with §3.10: an open `closes_on: 'seen'` alert is never "seen by me", because the person's
+ * valid seen closes it (§3.5); a seen receipt on an open one came from the answering seat (recorded, closes
+ * nothing) and must not stop the person's own devices from showing it. No statement.
+ */
+export function seenByMe(kind: AlertKind, state: 'open' | 'closed', seen: 0 | 1 | null): boolean {
+  if (state === 'open' && kind.closes_on === 'seen') return false;
+  return seen === 1;
+}
+
 export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
   function build(db: Database.Database, _state: unknown, socket: SocketCtx): AlertsCatchUpPart {
+    return safeBuild('alerts catch-up', () => buildRows(db, socket));
+  }
+
+  function buildRows(db: Database.Database, socket: SocketCtx): AlertsCatchUpPart {
     const staffId = socket.kind === 'staff' ? socket.staffId : null;
     const params = { device_id: socket.deviceId, session_id: socket.sessionId, staff_id: staffId };
-    const rows = cachedPrepare(db, ROWS_SQL).all(params) as CatchUpRow[];
+    const rows = db.prepare(ROWS_SQL).all(params) as CatchUpRow[];
     const out: PartRow[] = [];
     const listed = new Set<string>();
     let directory: StaffDirectory | undefined;
     const dir = (): StaffDirectory => (directory ??= env.directory());
     const push = (row: CatchUpRow, kind: AlertKind, signedIn: boolean, fallbackSet: z.infer<typeof StrictLockView>['set']): void => {
       const escalation = kind.steps[row.step]?.escalation === true;
-      const seen_by_me = staffId !== null && row.seen === 1;
+      const seen_by_me = staffId !== null && seenByMe(kind, 'open', row.seen);
       if (signedIn) {
         const place = { escalation, ...placeOf(row.mine_json, fallbackSet) };
         out.push(StrictCardRow.parse({ ...signedInView(row, kind, row.step, place), seen_by_me }));
@@ -124,7 +140,7 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       push(row, kind, staffId !== null && row.to_device !== 1 && row.in_inbox === 1, 'recipient');
     }
     if (staffId !== null) {
-      for (const row of cachedPrepare(db, REQUESTS_SQL).all(params) as CatchUpRow[]) {
+      for (const row of db.prepare(REQUESTS_SQL).all(params) as CatchUpRow[]) {
         if (listed.has(row.alert_id) || row.request_json === null) continue;
         const kind = kindOf(row.kind);
         if (kind === undefined) continue;

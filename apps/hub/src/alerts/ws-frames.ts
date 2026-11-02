@@ -15,6 +15,7 @@ import {
   type RequestSeenPayload,
   type WsServerMessage,
 } from '@pos/events';
+import { DomainError } from '@pos/domain';
 import type Database from 'better-sqlite3';
 import { z, ZodError } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
@@ -468,6 +469,34 @@ function send(ws: WsHub, batches: Batch[]): void {
   for (const b of batches) {
     if (b.sessions.length > 0) ws.sendToSessions(b.sessions, b.frame);
     if (b.alertDevices.length > 0) ws.sendToAlertMode(b.alertDevices, b.frame as Parameters<WsHub['sendToAlertMode']>[1]);
+  }
+}
+
+/**
+ * §7: an error a view builder (inbox, catch-up, alerts_open) hands to a caller that logs `{ err }` as is
+ * (the WS server's catch-up / alerts_open guard, the HTTP error handler). It carries only the original
+ * error's name and code (as `safeError`), never its message: a JSON.parse or Zod message can echo details.
+ */
+export class AlertViewError extends Error {
+  readonly code: string | null;
+  readonly cause_name: string;
+  constructor(what: string, err: unknown) {
+    super(`${what} failed`);
+    this.name = 'AlertViewError';
+    const safe = safeError(err);
+    const inner = safe.err as { name?: string; code?: string | null } | undefined;
+    this.cause_name = inner?.name ?? String(safe.error ?? 'unknown');
+    this.code = inner?.code ?? null;
+  }
+}
+
+/** Runs a view builder; a DomainError passes as is, anything else becomes an AlertViewError (§7). */
+export function safeBuild<T>(what: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof DomainError) throw err;
+    throw new AlertViewError(what, err);
   }
 }
 

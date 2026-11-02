@@ -473,6 +473,24 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     expect(idsOf((await inboxRows(other)).rows)).toEqual(['T_HID_DEVICE', 'T_HID_SESSION', 'T_INFO', 'Y_NOTICE_OPEN']);
   });
 
+  it('[01d §7] a corrupt details_json fails the inbox (500) and the catch-up (socket closed) with a log of the error name and code only, never the details text', async () => {
+    const mgr = seat(MGR, 'mgr tablet');
+    const hamza = seat(WAIT, 'hamza tablet');
+    const id = raiseAs(hamza, voidInput());
+    hub.deps.db.prepare('UPDATE alerts SET details_json = ? WHERE alert_id = ?').run('{"item":"Mutton platter","reason":"customer changed mind" broken', id);
+    const response = await inbox(mgr);
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: { code: 'INTERNAL_ERROR' } });
+    const ws = await connectWs(hub.app);
+    clients.push(ws);
+    ws.send({ type: 'auth', device_token: mgr.deviceToken, session_token: mgr.sessionToken });
+    await ws.untilClose();
+    const logs = hub.logs();
+    expect(logs).toContain('AlertViewError');
+    expect(logs).toContain('SyntaxError');
+    for (const text of SECRET_TEXT) expect(logs).not.toContain(text);
+  });
+
   // -------------------------------------------------------------------------------------------- #43
 
   it('[01d #43] the alerts catch-up part: a staff socket and a KDS station socket get their open alerts (person and device targets) through build(db, state, socket); the staff socket also gets an open request its person may answer with no inbox row (N3); 2 statements; an alert-mode socket gets alerts_open, not catch-up', async () => {
@@ -685,8 +703,16 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const [receipt] = raisedOf('approval_receipt');
     await fence();
     const cards = alertFrames(screen).slice(before.get(screen));
-    expect(cards.find((f) => f.alert_id === notice)).toMatchObject({ silent: false, card: { kind_label_key: 'alert.answered_on_requester_device.card' } });
-    expect(cards.find((f) => f.alert_id === receipt)).toMatchObject({ silent: true, card: { details: DETAILS } });
+    // §3.12 "You approved … at Hamza's tablet": the answering device's name is a lock-safe display parameter
+    expect(cards.find((f) => f.alert_id === notice)).toMatchObject({
+      silent: false,
+      card: { kind_label_key: 'alert.answered_on_requester_device.card', device_name: 'Hamza tablet' },
+      lock: { device_name: 'Hamza tablet' },
+    });
+    expect(cards.find((f) => f.alert_id === receipt)).toMatchObject({ silent: true, card: { details: DETAILS, device_name: 'Hamza tablet' } });
+    for (const n of [notice, receipt]) {
+      expect(eventsOf('AlertRaised').find((e) => e.payload.alert_id === n)?.payload.display).toMatchObject({ device_name: 'Hamza tablet' });
+    }
     const locks = alertFrames(bound).slice(before.get(bound));
     expect(idsOf(locks).sort()).toEqual([notice, receipt].sort());
     expectLockOnly(locks);
@@ -758,6 +784,17 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
       expect(stateOf(n)).toBe('open');
       expect(seenReceipts(n)).toEqual([{ staff_id: MGR, device_id: hamza.deviceId }]);
     }
+    // §3.10 / §8.3 (task 34 fix): that seen does not mark the open notices seen on Imran's own device —
+    // inbox, catch-up and alerts_open there all show them unseen
+    const ownNow = signIn(MGR, imranOwn.deviceId);
+    const ownInbox = (await inboxRows(ownNow)).rows.filter((r) => both.includes(String(r.alert_id)));
+    const ownCatchUp = catchUpOf(await socketOf(ownNow)).filter((r) => both.includes(String(r.alert_id)));
+    const ownOpen = openRows(await alertSocket(imranOwn.deviceId)).filter((r) => both.includes(String(r.alert_id)));
+    for (const rows of [ownInbox, ownCatchUp, ownOpen]) {
+      expect(idsOf(rows).sort()).toEqual([...both].sort());
+      for (const r of rows) expect(r.seen_by_me).toBe(false);
+    }
+    endSessionNow(hub, ownNow.sessionId);
     // a new session on that tablet the same day: still hidden (the device part), its seen closes nothing
     const again = signInOn(there, MGR);
     expect(hiddenOnly(idsOf((await inboxRows(again)).rows))).toEqual([]);

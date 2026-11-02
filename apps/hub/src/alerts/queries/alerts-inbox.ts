@@ -4,11 +4,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registry.js';
-import { placeOf } from '../catch-up.js';
+import { placeOf, seenByMe } from '../catch-up.js';
 import { kindOf, PERSONAL_NOTICE_KINDS } from '../kinds.js';
-import { cachedPrepare } from '../statements.js';
 import { mayAnswer, type AlertRequestPart } from '../targets.js';
-import { signedInView, type ViewRow } from '../ws-frames.js';
+import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.7 `GET /queries/alerts-inbox` (AD-13 containers `data.alerts`, `meta.next_cursor`; AD-22 state and
 // close_reason on each row).
@@ -19,10 +18,13 @@ import { signedInView, type ViewRow } from '../ws-frames.js';
 // - Order: open `action` alerts first, then `raised_at` desc (alert_id desc breaks ties). Keyset cursor over
 //   (group, raised_at, alert_id); `limit` default 50, max 200 (pageParams).
 // - Each row is the person's own signed-in view (ws-frames' one builder: card with details, AD-23 fields,
-//   AD-82 outcome) + `seen_by_me` (request_seen, or an AlertSeen receipt), `moved_to_name`,
+//   AD-82 outcome) + `seen_by_me` (request_seen, or an AlertSeen receipt; false on an open `closes_on: 'seen'`
+//   alert, catch-up.ts seenByMe, §3.10), `moved_to_name`,
 //   `for_staff_name` (directory, in memory), `state`, `close_reason`.
 // Statements: 2 ((1) the page of ids by alert_inbox's primary key, (2) the views joined for those ids),
-// whatever the page size. Runs on the read-only connection (ctx.db). countsAsActivity false.
+// whatever the page size, prepared per call (AD-125: the statement cache is for the tick, projections and raise
+// only). Runs on the read-only connection (ctx.db). countsAsActivity false. A build error other than a
+// DomainError is rethrown as an AlertViewError (name and code only, §7) for the HTTP error handler's log.
 
 const Query = z.object({ cursor: z.string().optional(), limit: z.coerce.number().int().optional() });
 
@@ -105,12 +107,16 @@ function nameOf(directory: StaffDirectory, noPin: Map<string, string>, staffId: 
 }
 
 function handle(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
+  return safeBuild('alerts-inbox', () => buildInbox(ctx));
+}
+
+function buildInbox(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
   const session = ctx.session;
   if (session === undefined || session.staff_id === null || ctx.device === undefined) throw new DomainError('SESSION_INVALID');
   const staffId = session.staff_id;
   const cursor = decodeCursor(ctx.page.cursor);
   const day = ctx.state.business_day;
-  const page = cachedPrepare(ctx.db, PAGE_SQL).all({
+  const page = ctx.db.prepare(PAGE_SQL).all({
     staff_id: staffId,
     session_id: session.session_id,
     device_id: ctx.device.device_id,
@@ -123,7 +129,7 @@ function handle(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
   }) as PageRow[];
   const more = page.length > ctx.page.limit;
   const rows = more ? page.slice(0, ctx.page.limit) : page;
-  const views = cachedPrepare(ctx.db, VIEWS_SQL).all({ staff_id: staffId, ids: JSON.stringify(rows.map((r) => r.alert_id)) }) as ViewDbRow[];
+  const views = ctx.db.prepare(VIEWS_SQL).all({ staff_id: staffId, ids: JSON.stringify(rows.map((r) => r.alert_id)) }) as ViewDbRow[];
   const byId = new Map(views.map((v) => [v.alert_id, v]));
   const directory = ctx.directory;
   let noPin: Map<string, string> | undefined;
@@ -142,7 +148,7 @@ function handle(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
     alerts.push(
       AlertInboxRow.parse({
         ...signedInView(v, kind, step, place),
-        seen_by_me: v.seen === 1,
+        seen_by_me: seenByMe(kind, v.state, v.seen),
         moved_to_name: v.moved_to === null ? null : nameOf(directory, names(), v.moved_to),
         for_staff_name: nameOf(directory, names(), place.for_staff_id),
         state: v.state,

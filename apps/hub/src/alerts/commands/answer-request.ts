@@ -161,6 +161,8 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
   const subject = c.record.subject as RaiseInput['subject'];
   const hidden_from = { session_id: actor.sessionId, device_id: actor.deviceId };
   const target = { kind: 'person', staff_id: c.answerer } as const;
+  // §3.12 / #55 "at Hamza's tablet": the answering device's name is a lock-safe display parameter
+  const display = { ...c.record.display, device_name: c.row.device_name };
   const inputs: RaiseInput[] = [];
   if (c.request.needs_pin === 'always') {
     const values: ApprovalReceiptValues = {
@@ -175,7 +177,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
       subject,
       target,
       values,
-      display: c.record.display,
+      display,
       details: c.record.details ?? {},
       dedupe_key: `approval_receipt:${c.record.alert_id}`,
       hidden_from,
@@ -193,7 +195,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
       subject,
       target,
       values,
-      display: c.record.display,
+      display,
       dedupe_key: `on_requester_device:${c.record.alert_id}`,
       hidden_from,
     });
@@ -204,7 +206,7 @@ function noticeInputs(c: Checked, payload: Payload, answered: RequestAnsweredPay
 /** §6.2 Processing (1)–(9): authoritative, drafts only (the pipeline appends them: (10)). */
 function handle(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { alert_id: string; decision: Payload['decision']; answered_at: number } } {
   const answerer = answererOf(ctx.actor, payload);
-  const c = check(readAlert(ctx.tx.db, payload.alert_id), payload, answerer, ctx.directory, payload.alert_id, ctx.actor.deviceId);
+  const c = check(readAlert(ctx.tx.db, payload.alert_id, ctx.actor.deviceId), payload, answerer, ctx.directory, payload.alert_id, ctx.actor.deviceId);
   const now = ctx.clock.branchNow();
   const subject = c.record.subject as { stream_type: PosEvent['stream_type']; stream_id: string };
   // (6)
@@ -273,7 +275,7 @@ function pinFailed(
   errorCode: string,
 ): { row: RequestRow; draft: EventDraft } | null {
   if (payload.method === 'session') return null; // no PIN, never reached (pinCheck returns null)
-  const row = readAlert(tx.db, payload.alert_id);
+  const row = readAlert(tx.db, payload.alert_id, ctx.actor.deviceId);
   if (row === undefined) return null;
   const failed: RequestPinFailedPayload = {
     alert_id: row.alert_id,
@@ -312,7 +314,7 @@ function pinUseFailedInput(row: RequestRow, pinOwner: string, errorCode: string,
     subject: { stream_type: row.subject_stream_type, stream_id: row.subject_stream_id },
     target: { kind: 'person', staff_id: pinOwner },
     values,
-    display: JSON.parse(row.display_json) as AlertDisplay,
+    display: { ...(JSON.parse(row.display_json) as AlertDisplay), device_name: row.device_name },
     dedupe_key: `pin_use_failed:${row.alert_id}:${cmd.command_id}`,
     hidden_from: { session_id: ctx.actor.sessionId, device_id: ctx.actor.deviceId },
   };

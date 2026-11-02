@@ -28,12 +28,15 @@ export interface RequestRow {
   close_reason: string | null;
   decision: string | null;
   closed_by_staff_id: string | null;
+  /** §3.12: the name of the device given to readAlert (the answering device), in the same statement; else null */
+  device_name: string | null;
 }
 
 const READ_ALERT = `SELECT alert_id, kind, family, subject_stream_type, subject_stream_id, dedupe_key, requester_staff_id,
        raised_device_id, values_json, display_json, details_json, request_json, step, raised_at,
-       state, close_reason, decision, closed_by_staff_id
-  FROM alerts WHERE alert_id = ?`;
+       state, close_reason, decision, closed_by_staff_id,
+       (SELECT d.device_name FROM devices d WHERE d.device_id = @device_id) AS device_name
+  FROM alerts WHERE alert_id = @alert_id`;
 
 /**
  * 00 v1.6 §3.7 H-3: a handler-checked command runs for a staff session only (the pipeline's `authorize`
@@ -45,9 +48,12 @@ export function sessionStaff(actor: CommandCtx['actor']): string {
   return actor.staffId;
 }
 
-/** The one alert statement (§6.2 / §6.3 Queries). */
-export function readAlert(db: Database.Database, alertId: string): RequestRow | undefined {
-  return db.prepare(READ_ALERT).get(alertId) as RequestRow | undefined;
+/**
+ * The one alert statement (§6.2 / §6.3 Queries). `deviceId` (the acting device) also reads that device's name
+ * in the same statement, for the personal notices' lock-safe `display.device_name` (§3.12, #55).
+ */
+export function readAlert(db: Database.Database, alertId: string, deviceId: string | null = null): RequestRow | undefined {
+  return db.prepare(READ_ALERT).get({ alert_id: alertId, device_id: deviceId }) as RequestRow | undefined;
 }
 
 /** §3.3 rule 1: the alert exists with a request part (404) and is pending (409, §9 details). No statement. */

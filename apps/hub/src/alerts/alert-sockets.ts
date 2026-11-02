@@ -15,7 +15,8 @@ import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
 import { ACTIVITY_SESSIONS, type BatchReads, type SessionRead } from './targets.js';
-import { lockView, type LockViewRow } from './ws-frames.js';
+import { seenByMe } from './catch-up.js';
+import { lockView, safeBuild, type LockViewRow } from './ws-frames.js';
 
 // 01d §3.7 "Reconnect" and header, §6 batch 3 `alerts_open`, BF-5 / P-6 (`binding_route_until`, `binding_route`).
 // - `alerts_open` (the first frame of an alert-mode socket): open alerts where this device is in any step's
@@ -34,8 +35,9 @@ import { lockView, type LockViewRow } from './ws-frames.js';
 //   binding (`alert_connection` route with a person), to that device's sockets, only when the value differs
 //   from the last one this hub sent it (alerts_open included). The last-sent map lives in this instance (one
 //   per hub, from registerAlerts), never module-global, so two hubs in one process never share it.
-// Statements: `alerts_open` ≤ 3 (alerts with the device and its binding; presence; activity), 1 for a device
-// with no binding; the after-commit check 1 per transaction with such routes, 0 otherwise.
+// Statements: `alerts_open` (socket auth, not a hot path: prepared per call, AD-125; task 34 fix) ≤ 3 (alerts with the device and its binding; presence; activity), 1 for a device
+// with no binding; the after-commit check (the frames' after-commit path: cached) 1 per transaction with such
+// routes, 0 otherwise. A build error reaches the WS server's log as an AlertViewError (name and code, §7).
 // Determinism: `now` from the hub clock. Logs: device ids and error names only, never frame bodies (§7).
 
 const StrictRow = WsAlertsOpenRow.extend({ lock: AlertLockSchema.strict() }).strict();
@@ -162,14 +164,18 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
   }
 
   function alertsOpen(deviceId: string): WsAlertsOpen {
-    const rows = cachedPrepare(env.db, OPEN_SQL).all({ device_id: deviceId }) as OpenRow[];
+    return safeBuild('alerts_open', () => buildOpen(deviceId));
+  }
+
+  function buildOpen(deviceId: string): WsAlertsOpen {
+    const rows = env.db.prepare(OPEN_SQL).all({ device_id: deviceId }) as OpenRow[];
     const head = rows[0];
     let personPart = false;
     let until: number | null = null;
     if (head !== undefined && head.bound_staff_id !== null && (head.device_type === 'tablet' || head.device_type === 'phone')) {
       const staffId = head.bound_staff_id;
-      const presence = cachedPrepare(env.db, PRESENCE_SQL).get(staffId) as { present: number } | undefined;
-      const act = cachedPrepare(env.db, ACTIVITY_SQL).get({ branch_id: env.branchId, staff_id: staffId }) as
+      const presence = env.db.prepare(PRESENCE_SQL).get(staffId) as { present: number } | undefined;
+      const act = env.db.prepare(ACTIVITY_SQL).get({ branch_id: env.branchId, staff_id: staffId }) as
         | { last: number | null; active_json: string | null }
         | undefined;
       const result = evaluate(
@@ -195,7 +201,8 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       const kind = kindOf(row.kind as string);
       if (kind === undefined) continue; // P-8: an unknown kind has no lock label
       // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
-      alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && row.bound_seen === 1 });
+      // §3.10: an open `closes_on: 'seen'` alert is never seen_by_me (catch-up.ts seenByMe)
+      alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && seenByMe(kind, 'open', row.bound_seen) });
     }
     const frame = StrictOpen.parse({ type: 'alerts_open', alerts, binding_route_until: until });
     for (const a of frame.alerts) env.recordSent(deviceId, a.alert_id);
