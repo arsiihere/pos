@@ -8,6 +8,12 @@ const css = readFileSync(kit + 'components/pulse-staff.css', 'utf8');
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('Pulse staff layer (01d)', () => {
+  it('the tab badge sits by logical properties, so it mirrors in RTL', () => {
+    const badge = /\.tab \.badge \{([^}]*)\}/.exec(rules)![1]!;
+    expect(badge).not.toMatch(/(^|[\s;])(left|right|margin-left|margin-right):/);
+    expect(badge).toContain('inset-inline-start');
+  });
+
   it('loads nothing from the network', () => {
     expect(css).not.toMatch(/https?:\/\//);
     expect(css).not.toMatch(/@import\s+url\(/i);
@@ -24,8 +30,11 @@ describe('Pulse staff layer (01d)', () => {
   });
 
   it('every top-level selector stays under .pu', () => {
-    const selectors = [...rules.matchAll(/(?:^|})\s*([^{}@]+)\{/g)].map((m) => (m[1] as string).trim());
+    // a selector starts after a closing brace, or after the opening brace of an @media block
+    const selectors = [...rules.matchAll(/(?:^|[{}])\s*([^{}@]+)\{/g)].map((m) => (m[1] as string).trim());
     expect(selectors.length).toBeGreaterThan(100);
+    // the first rule inside an @media block is checked too
+    expect(selectors).toContain('.pu.staff .who--tiles');
     for (const group of selectors)
       for (const s of group.split(/,(?![^(]*\))/).map((x) => x.trim()))
         expect(s, s).toMatch(/\.pu\b/);
@@ -33,6 +42,8 @@ describe('Pulse staff layer (01d)', () => {
 
   it('brand colours come from the kit brand tokens', () => {
     for (const hex of ['F4A321', '6E140E', '8E1F16', '3A0E07', 'FFF3E6']) expect(rules.toUpperCase()).not.toContain('#' + hex);
+    // the maroon shadows too (#6E140E = rgb 110 20 14): from --brand-secondary through color-mix
+    expect(rules).not.toMatch(/rgb\(\s*110[ ,]+20[ ,]+14/);
     expect(rules).toContain('var(--brand-primary)');
     expect(rules).toContain('var(--brand-secondary)');
   });

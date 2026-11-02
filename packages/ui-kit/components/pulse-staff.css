@@ -312,7 +312,7 @@
 :where(.pu) .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px 10px 24px; background: var(--tab-bg); box-shadow: var(--tab-edge); flex: none; }
 :where(.pu) .tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 60px; border-radius: var(--r-md); font-size: 12px; font-weight: 650; color: var(--muted); }
 :where(.pu) .tab[aria-current="page"] { color: var(--tab-on-ink); background: var(--tab-on-bg); }
-:where(.pu) .tab .badge { position: absolute; top: 4px; left: 50%; margin-left: 6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #fff; font: 700 12px/20px var(--font-num); text-align: center; }
+:where(.pu) .tab .badge { position: absolute; top: 4px; inset-inline-start: 50%; margin-inline-start: 6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #fff; font: 700 12px/20px var(--font-num); text-align: center; }
 :where(.pu) .seg--fill { display: flex; width: 100%; }
 :where(.pu) .seg--fill button { flex: 1; justify-content: center; padding: 0 8px; }
 
@@ -490,7 +490,7 @@
   --r-sm: 10px; --r-md: 16px; --r-lg: 20px; --r-xl: 26px; --r-tb: 20px; --r-mark: 50%;
   --btn-bg: #FFFFFF; --btn-ink: #2B130E; --btn-ring: inset 0 0 0 1.5px #E6D5C2;
   --cnt-bg: #F1E4D4; --cnt-ink: #5A3F36;
-  --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px rgb(110 20 14 / 0.08); --seg-on-n-bg: var(--brand-secondary); --seg-on-n-ink: var(--brand-on-secondary);
+  --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px color-mix(in srgb, var(--brand-secondary) 8%, transparent); --seg-on-n-bg: var(--brand-secondary); --seg-on-n-ink: var(--brand-on-secondary);
   --chrome-bg: var(--brand-secondary); --chrome-ink: var(--brand-on-secondary); --chrome-muted: color-mix(in srgb, var(--brand-on-secondary) 74%, var(--brand-secondary)); --chrome-edge: none; --chrome-btn: rgb(255 255 255 / 0.10); --chrome-btn-ring: none;
   --rail-bg: color-mix(in srgb, var(--brand-secondary) 82%, #000); --rail-ink: var(--chrome-muted); --rail-on: var(--brand-primary); --rail-on-ink: var(--brand-on-primary); --rail-edge: none;
   --mark-bg: var(--brand-primary); --mark-ink: var(--brand-on-primary);
@@ -506,16 +506,16 @@
   --warn: #D9660A; --warn-bg: #FFEEDC; --warn-ink: #9C4700;
   --danger: #C8262E; --danger-bg: #FCE6E4; --danger-ink: #A81D25;
   --info: #2563C9; --info-bg: #E8F0FC; --info-ink: #1D4F9F;
-  --floor-bg: #FFFBF5; --floor-ring: 0 1px 0 #ECDFCF, 0 10px 30px rgb(110 20 14 / 0.06); --floor-dot: #EFE3D3; --wall: #E0CDB8; --win: #C9DCEB; --zone-bg: #F6ECDF; --zone-ink: #7A6157; --chair: #E8D9C7;
-  --tb-bg: #FFFFFF; --tb-edge: #E6D5C2; --tb-shadow: 0 1px 0 #ECDFCF, 0 8px 18px rgb(110 20 14 / 0.08); --free-n: #5A3F36; --clean-fill: repeating-linear-gradient(135deg, #F6EEE4 0 8px, #FCF7F1 8px 16px);
+  --floor-bg: #FFFBF5; --floor-ring: 0 1px 0 #ECDFCF, 0 10px 30px color-mix(in srgb, var(--brand-secondary) 6%, transparent); --floor-dot: #EFE3D3; --wall: #E0CDB8; --win: #C9DCEB; --zone-bg: #F6ECDF; --zone-ink: #7A6157; --chair: #E8D9C7;
+  --tb-bg: #FFFFFF; --tb-edge: #E6D5C2; --tb-shadow: 0 1px 0 #ECDFCF, 0 8px 18px color-mix(in srgb, var(--brand-secondary) 8%, transparent); --free-n: #5A3F36; --clean-fill: repeating-linear-gradient(135deg, #F6EEE4 0 8px, #FCF7F1 8px 16px);
   --sum-bg: #FFFFFF; --sum-ring: inset 0 0 0 1px #ECDFCF;
-  --tile-bg: #FFFFFF; --tile-shadow: 0 1px 0 #ECDFCF, 0 6px 16px rgb(110 20 14 / 0.06);
+  --tile-bg: #FFFFFF; --tile-shadow: 0 1px 0 #ECDFCF, 0 6px 16px color-mix(in srgb, var(--brand-secondary) 6%, transparent);
   --photo-bg: #3B1E14; --photo-none-bg: #F6ECDF; --photo-none-ink: var(--brand-secondary); --plate: #FFF8EE; --plate-rim: #EADBC6;
   --input-bg: #FFFFFF; --input-ring: inset 0 0 0 1.5px #E6D5C2;
   --cart-bg: #FFFFFF; --cart-edge: -1px 0 0 #ECDFCF; --line-open: #FFF4E3;
   --ident-bg: var(--brand-primary); --ident-ink: var(--brand-on-primary);
   --side-bg: color-mix(in srgb, var(--brand-secondary) 66%, #000); --side-ink: var(--brand-on-secondary); --side-muted: var(--chrome-muted); --side-icon: var(--chrome-muted); --side-on: var(--brand-primary); --side-on-ink: var(--brand-on-primary); --side-line: color-mix(in srgb, var(--brand-secondary) 80%, #000); --side-edge: none;
-  --card-shadow: 0 1px 0 #ECDFCF, 0 8px 22px rgb(110 20 14 / 0.05); --th-bg: #FCF7F0; --role-bg: #F6ECDF; --role-ink: #5A3F36; --warnrow-bg: #FFF8EE; --attn-bg: #FFF1DF; --attn-ring: inset 0 0 0 1.5px #F6CFA0;
+  --card-shadow: 0 1px 0 #ECDFCF, 0 8px 22px color-mix(in srgb, var(--brand-secondary) 5%, transparent); --th-bg: #FCF7F0; --role-bg: #F6ECDF; --role-ink: #5A3F36; --warnrow-bg: #FFF8EE; --attn-bg: #FFF1DF; --attn-ring: inset 0 0 0 1.5px #F6CFA0;
   --chart-1: var(--brand-secondary); --chart-2: #B9A595;
   --tab-bg: #FFFFFF; --tab-edge: 0 -1px 0 #ECDFCF; --tab-on-bg: var(--accent-bg); --tab-on-ink: var(--brand-secondary);
   --ident-ring: none;
@@ -554,7 +554,7 @@
 .pu.v-brand.kds .kflag.c-info { --c-solid: #6AAEFF; --c-solid-ink: #04111F; }
 .pu.v-brand.kds .kbar .live { background: rgb(255 255 255 / 0.12); color: #C7F5D5; }
 .pu.v-brand.kds .lane { border-radius: 28px; background: #170E0B; box-shadow: inset 0 0 0 1px #2A1C17; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-.pu.v-brand .on-light { --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px rgb(110 20 14 / 0.08); --seg-on-n-bg: var(--brand-secondary); }
+.pu.v-brand .on-light { --seg-bg: #F1E4D4; --seg-ink: #5A3F36; --seg-on: #FFFFFF; --seg-on-ink: #2B130E; --seg-shadow: 0 1px 0 #E6D5C2, 0 4px 10px color-mix(in srgb, var(--brand-secondary) 8%, transparent); --seg-on-n-bg: var(--brand-secondary); }
 .pu.v-brand { --cat-ink: var(--brand-on-secondary); }
 .pu.v-brand .top { --seg-bg: rgb(255 255 255 / 0.10); --seg-ink: var(--chrome-muted); --seg-on: var(--brand-on-secondary); --seg-on-ink: var(--brand-secondary); --seg-shadow: 0 4px 12px rgb(40 0 0 / 0.25); --cnt-bg: rgb(255 255 255 / 0.16); --cnt-ink: #FFE7D2; }
 .pu.v-brand .hero-card { --chart-1: var(--brand-primary); --chart-2: #E2B597; --line: rgb(255 255 255 / 0.14); --muted: var(--chrome-muted); --ink-2: var(--brand-on-secondary); --surface: var(--brand-secondary); --ok-bg: rgb(199 245 213 / 0.16); --ok-ink: #C7F5D5; }
