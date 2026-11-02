@@ -38,6 +38,8 @@ describe('apps/client lint', () => {
     const allowed =
       "import '../../../packages/ui-kit/tokens.css';\n" +
       "import '../../../packages/ui-kit/components/bundle.css';\n" +
+      "import '../../../packages/ui-kit/components/pulse-staff.css';\n" +
+      "import '../app/ui-kit-staff';\n" +
       "import { availableStock } from '@pos/engine';\n" +
       "import { ULID_RE } from '@pos/domain';\n" +
       'export const a = [availableStock, ULID_RE];\n' +
