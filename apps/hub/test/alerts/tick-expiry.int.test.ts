@@ -2,7 +2,7 @@ import type { DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aDevicePaired } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { defineAlertKind, unregisterAlertKind } from '../../src/alerts/kinds';
+import { defineAlertKind, kindOf, unregisterAlertKind, type AlertKind } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { alertsTick, startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { activity } from '../../src/auth/session-store';
@@ -87,7 +87,10 @@ const noticeInput = (n: number): RaiseInput => ({
 /** §3.5: a kind with `closes_on.after_ms` 10 s and a step at 20 s, after the expiry time. */
 const EXPIRING = 't_expiring';
 const EXPIRY_MS = 10_000;
-/** A request kind declaring `after_ms` (no startup error forbids it): requests never expire (§3.3). */
+/**
+ * A request kind with a step long after raise, so the tick selects it again: requests never expire (§3.3).
+ * It cannot declare `closes_on.after_ms`: that is a startup error (AD-124).
+ */
 const REQ_EXPIRING = 't_req_expiring';
 /** An `after_ms` kind whose step 1 time comes from the values: poisoned when the values are bad. */
 const POISON_EXPIRING = 't_poison_expiring';
@@ -114,8 +117,11 @@ function defineLocalKinds(): void {
     kind: REQ_EXPIRING,
     family: 'action',
     subject: 'table',
-    steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'answerer' }] }],
-    closes_on: { after_ms: EXPIRY_MS },
+    steps: [
+      { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'answerer' }] },
+      { at: { ms: 2 * EXPIRY_MS }, to: [{ target: 'raised_target', set: 'answerer' }] },
+    ],
+    closes_on: 'owner',
     values_schema: z.object({}),
     details_schema: null,
     lead_fallback: false,
@@ -550,7 +556,11 @@ describe('01d alerts tick: expiry and day close (task 29)', () => {
     expect(run).toHaveBeenCalledTimes(1); // one transaction for the closes and the step
   });
 
-  it('[01d §3.3] no expiry for requests: a request kind declaring after_ms is never closed expired by the tick', async () => {
+  it('[01d §3.3] no expiry for requests: a request kind cannot declare after_ms (AD-124); a request selected again by the tick and through day close is never closed expired', async () => {
+    expect(() =>
+      defineAlertKind({ ...(kindOf(REQ_EXPIRING) as AlertKind), kind: 't_req_after_ms', closes_on: { after_ms: EXPIRY_MS } }),
+    ).toThrow(/closes_on.after_ms on a request kind/);
+    expect(kindOf('t_req_after_ms')).toBeUndefined();
     const [id] = raiseHub({
       kind: REQ_EXPIRING,
       subject: { stream_type: 'table', stream_id: 'T1' },
@@ -567,7 +577,7 @@ describe('01d alerts tick: expiry and day close (task 29)', () => {
     closeDay();
     for (let i = 0; i < 3; i += 1) await pass();
     expect(alertRow(id)).toMatchObject({ state: 'open', close_reason: null, expire_due: 0 });
-    expect(facts(id)).toEqual(['AttemptSent:0']);
+    expect(facts(id)).toEqual(['AttemptSent:0', 'AttemptSent:1']); // stepped by the tick, never closed
     expect(log.error.mock.calls.some((c) => c[1] === 'tick failed')).toBe(false);
   });
 

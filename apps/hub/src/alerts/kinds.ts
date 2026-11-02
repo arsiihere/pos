@@ -129,6 +129,8 @@ export function defineAlertKind<V extends Record<string, unknown>, D extends Ale
     }
   });
   if (def.lead_fallback && def.request !== null) fail('lead_fallback: true on a request kind');
+  // AD-124: requests never expire (§3.3), so such a request would stay due forever and fill the tick's LIMIT
+  if (def.request !== null && typeof def.closes_on === 'object') fail('closes_on.after_ms on a request kind (requests never expire)');
   if (!def.expires_at_day_close && def.closes_on !== 'seen') {
     fail("expires_at_day_close: false needs closes_on: 'seen'");
   }

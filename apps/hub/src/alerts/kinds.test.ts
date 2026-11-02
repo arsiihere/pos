@@ -153,6 +153,15 @@ describe('defineAlertKind', () => {
     expect(() => define(infoDef({ steps, values_schema: z.object({ point_id: z.string().min(1) }) }))).not.toThrow();
   });
 
+  it('[01d §3.3 §3.5] closes_on.after_ms on a request kind throws: requests never expire (AD-124)', () => {
+    expect(() => define(requestDef({ kind: 'k_req_after', closes_on: { after_ms: 1000 } }))).toThrow(
+      /closes_on.after_ms on a request kind/,
+    );
+    expect(kindOf('k_req_after')).toBeUndefined();
+    expect(() => define(requestDef({ kind: 'k_req_owner', closes_on: 'owner' }))).not.toThrow();
+    expect(() => define(infoDef({ kind: 'k_info_after', closes_on: { after_ms: 1000 } }))).not.toThrow();
+  });
+
   it('[01d §3.5] a failed check leaves nothing registered', () => {
     expect(() => defineAlertKind(infoDef({ family: 'urgent' }))).toThrow();
     expect(kindOf('k_info')).toBeUndefined();
