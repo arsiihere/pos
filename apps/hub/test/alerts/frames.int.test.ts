@@ -349,7 +349,10 @@ describe('01d ws-frames (task 20)', () => {
     }
     const own = alertFrames(cashTab.ws);
     expect(own.map((f) => f.for_staff_id)).toEqual([null, WAIT]);
-    expect(own.every((f) => f.card !== undefined)).toBe(true);
+    // AD-162 / AD-163: the own row gets the card; the "for Waiter" row is read-only for CASH → lock only
+    expect(own[0]?.card).toBeDefined();
+    expect(own[1]).not.toHaveProperty('card');
+    expect(own[1]).not.toHaveProperty('answers');
   });
 
   it('[01d §6 batch 3] hidden_session_id / hidden_device_id: nothing to that session or any socket of that device; the same person on another device still gets it', async () => {

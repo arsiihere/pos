@@ -7,7 +7,7 @@ import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registr
 import { placeOf, seenByMe } from '../catch-up.js';
 import { kindOf, PERSONAL_NOTICE_KINDS } from '../kinds.js';
 import { mayAnswer, type AlertRequestPart } from '../targets.js';
-import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
+import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.7 `GET /queries/alerts-inbox` (AD-13 containers `data.alerts`, `meta.next_cursor`; AD-22 state and
 // close_reason on each row).
@@ -17,8 +17,11 @@ import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 //   from this session or this device (`hidden_session_id` / `hidden_device_id`, §3.10).
 // - Order: open `action` alerts first, then `raised_at` desc (alert_id desc breaks ties). Keyset cursor over
 //   (group, raised_at, alert_id); `limit` default 50, max 200 (pageParams).
-// - Each row is the person's own signed-in view (ws-frames' one builder: card with details, AD-23 fields,
-//   AD-82 outcome) + `seen_by_me` (request_seen, or an AlertSeen receipt; false on an open `closes_on: 'seen'`
+// - Each row is the person's signed-in view (ws-frames' one builder: card with details, AD-23 fields, AD-82
+//   outcome) when ws-frames' cardRule allows it (AD-162 / AD-163: a person recipient's own row, or a request
+//   the person may answer now, and this device not a device target of the alert), else the lock-only view
+//   (a device-target device such as a kiosk, an informed row, a lead's "for" row, a right removed)
+//   + `seen_by_me` (request_seen, or an AlertSeen receipt; false on an open `closes_on: 'seen'`
 //   alert, catch-up.ts seenByMe, §3.10), `moved_to_name`,
 //   `for_staff_name` (directory, in memory), `state`, `close_reason`.
 // Statements: 2 ((1) the page of ids by alert_inbox's primary key, (2) the views joined for those ids),
@@ -49,6 +52,7 @@ const PAGE_SQL = `
 const VIEWS_SQL = `
   SELECT a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
          a.raised_at, a.requester_staff_id, a.state, a.close_reason, i.moved_to,
+         EXISTS (SELECT 1 FROM alert_recipients d WHERE d.device_id = @device_id AND d.alert_id = a.alert_id) AS to_device,
          (SELECT json_group_array(json_object('for_staff_id', r.for_staff_id, 'set', r.recipient_set))
             FROM alert_recipients r
            WHERE r.alert_id = a.alert_id AND r.staff_id = @staff_id
@@ -71,6 +75,7 @@ interface ViewDbRow extends ViewRow {
   state: 'open' | 'closed';
   close_reason: z.infer<typeof AlertInboxRow>['close_reason'];
   moved_to: string | null;
+  to_device: 0 | 1;
   mine_json: string | null;
   seen: 0 | 1;
 }
@@ -129,7 +134,9 @@ function buildInbox(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
   }) as PageRow[];
   const more = page.length > ctx.page.limit;
   const rows = more ? page.slice(0, ctx.page.limit) : page;
-  const views = ctx.db.prepare(VIEWS_SQL).all({ staff_id: staffId, ids: JSON.stringify(rows.map((r) => r.alert_id)) }) as ViewDbRow[];
+  const views = ctx.db
+    .prepare(VIEWS_SQL)
+    .all({ staff_id: staffId, device_id: ctx.device.device_id, ids: JSON.stringify(rows.map((r) => r.alert_id)) }) as ViewDbRow[];
   const byId = new Map(views.map((v) => [v.alert_id, v]));
   const directory = ctx.directory;
   let noPin: Map<string, string> | undefined;
@@ -143,11 +150,13 @@ function buildInbox(ctx: QueryCtx): z.infer<typeof AlertsInboxResponse> {
     const step = Math.max(0, v.step);
     // a late answerer's inbox row (RequestSeen, N3) has no recipient row: answerer if they may answer now
     const request = v.request_json === null ? null : (JSON.parse(v.request_json) as AlertRequestPart);
-    const fallback = request === null ? 'recipient' : mayAnswer(directory, request, v.requester_staff_id, staffId).ok ? 'answerer' : 'informed';
+    const canAnswer = request !== null && mayAnswer(directory, request, v.requester_staff_id, staffId).ok;
+    const fallback = request === null ? 'recipient' : canAnswer ? 'answerer' : 'informed';
     const place = { escalation: kind.steps[step]?.escalation === true, ...placeOf(v.mine_json, fallback) };
+    const card = cardRule({ deviceTarget: v.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer });
     alerts.push(
       AlertInboxRow.parse({
-        ...signedInView(v, kind, step, place),
+        ...(card ? signedInView(v, kind, step, place) : lockOnlyView(v, kind, step, place)),
         seen_by_me: seenByMe(kind, v.state, v.seen),
         moved_to_name: v.moved_to === null ? null : nameOf(directory, names(), v.moved_to),
         for_staff_name: nameOf(directory, names(), place.for_staff_id),

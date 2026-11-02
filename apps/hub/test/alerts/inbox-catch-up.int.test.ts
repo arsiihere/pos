@@ -859,4 +859,124 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     expect(idsOf(rows)).toEqual(expect.arrayContaining(notices));
     for (const n of notices) expect(rows.find((r) => r.alert_id === n)).toMatchObject({ for_staff_id: null, for_staff_name: null });
   });
+  // ------------------------------------------------------------------------------- AD-162 / AD-163 card rule
+
+  describe('[01d §3.12; AD-162, AD-163] one card rule for inbox, catch-up, requests-to-answer and frames', () => {
+    type Recipient = { staff_id: string | null; device_id: string | null; for_staff_id: string | null; set: 'answerer' | 'informed' | 'recipient' };
+    const person = (staffId: string, set: Recipient['set'], forStaffId: string | null = null): Recipient => ({
+      staff_id: staffId,
+      device_id: null,
+      for_staff_id: forStaffId,
+      set,
+    });
+    const deviceTo = (deviceId: string, set: Recipient['set']): Recipient => ({ staff_id: null, device_id: deviceId, for_staff_id: null, set });
+
+    /** A later step of `alertId` with exactly these recipients (frames go out after commit). */
+    function step(alertId: string, n: number, recipients: Recipient[]): void {
+      append([anAttemptSent({ payload: { alert_id: alertId, step: n, recipients, routes: [] } })]);
+    }
+
+    async function toAnswerRows(s: Seat): Promise<Row[]> {
+      const response = await hub.app.inject({
+        method: 'GET',
+        url: '/queries/requests-to-answer',
+        headers: { authorization: `Bearer ${s.deviceToken}`, 'x-session-token': s.sessionToken },
+      });
+      expect(response.statusCode).toBe(200);
+      return (response.json() as { data: { requests: Row[] } }).data.requests;
+    }
+
+    const rowOf = (rows: Row[], id: string): Row => {
+      const row = rows.find((r) => r.alert_id === id);
+      if (row === undefined) throw new Error(`no row for ${id}`);
+      return row;
+    };
+    const expectCard = (row: Row): void => {
+      expect(row).toMatchObject({ card: { kind_label_key: `alert.${row.kind}.card` } });
+    };
+
+    it('a manager signed in on the kiosk that is a device target of the request gets lock in the inbox, the catch-up and the frames', async () => {
+      const hamza = seat(WAIT, 'hamza tablet');
+      const kiosk = seat(MGR, 'kiosk', 'cashier_kiosk');
+      const ws = await socketOf(kiosk); // MGR has a route (screen on the kiosk): step 0 goes to the answerers only
+      const id = raiseAs(hamza, voidInput());
+      await fence();
+      const before = alertFrames(ws).length;
+      // step 1 (always_on): the kiosk becomes a device target of the request
+      step(id, 1, [person(MGR, 'answerer'), deviceTo(kiosk.deviceId, 'answerer')]);
+      await fence();
+      const frames = alertFrames(ws).slice(before).filter((f) => f.alert_id === id);
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ step: 1 });
+      expectLockOnly(frames);
+      expectLockOnly([rowOf((await inboxRows(kiosk)).rows, id)]);
+      expectLockOnly([rowOf(catchUpOf(await socketOf(kiosk)), id)]);
+      expectLockOnly([rowOf(built(kiosk), id)]);
+      // requests-to-answer follows the same rule: may answer, but on a device-target kiosk → lock
+      const read = rowOf(await toAnswerRows(kiosk), id);
+      expect(read).toMatchObject({ can_answer: true });
+      expectLockOnly([read]);
+    });
+
+    it('a person recipient on their own tablet gets the card in the inbox, the catch-up, requests-to-answer and the frames', async () => {
+      const hamza = seat(WAIT, 'hamza tablet');
+      const mgr = seat(MGR, 'mgr tablet');
+      const ws = await socketOf(mgr);
+      const id = raiseAs(hamza, voidInput());
+      const info = raise(toPerson('t_info', MGR, 'own'));
+      await fence();
+      for (const a of [id, info]) {
+        const frame = alertFrames(ws).find((f) => f.alert_id === a);
+        expect(frame).toBeDefined();
+        expectCard(frame as Row);
+        expectCard(rowOf((await inboxRows(mgr)).rows, a));
+        expectCard(rowOf(built(mgr), a));
+      }
+      expect(rowOf(alertFrames(ws), id)).toMatchObject({ card: { details: DETAILS } });
+      expect(rowOf(await toAnswerRows(mgr), id)).toMatchObject({ can_answer: true, card: { details: DETAILS } });
+    });
+
+    it('an informed viewer (a read-only row) gets lock in the inbox, the catch-up, requests-to-answer and the frames', async () => {
+      const hamza = seat(WAIT, 'hamza tablet');
+      const cash = seat(CASH, 'cash tablet'); // no approver role: may not answer
+      const ws = await socketOf(cash);
+      const id = raiseAs(hamza, voidInput());
+      step(id, 1, [person(MGR, 'answerer'), person(CASH, 'informed')]);
+      await fence();
+      const frames = alertFrames(ws).filter((f) => f.alert_id === id);
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ set: 'informed' });
+      expectLockOnly(frames);
+      expectLockOnly([rowOf((await inboxRows(cash)).rows, id)]);
+      expectLockOnly([rowOf(built(cash), id)]);
+      const read = rowOf(await toAnswerRows(cash), id);
+      expect(read).toMatchObject({ can_answer: false, set: 'informed' });
+      expectLockOnly([read]);
+    });
+
+    it('a viewer who may answer now with no inbox row gets the card in the catch-up and requests-to-answer', async () => {
+      const hamza = seat(WAIT, 'hamza tablet');
+      const id = raiseAs(hamza, voidInput());
+      await seedDirectory(hub, await directory({ withMgr2: true, version: 2 }));
+      const mgr2 = seat(MGR2, 'mgr2 tablet');
+      expect(hub.deps.db.prepare('SELECT COUNT(*) FROM alert_inbox WHERE staff_id = ? AND alert_id = ?').pluck().get(MGR2, id)).toBe(0);
+      expect(rowOf(catchUpOf(await socketOf(mgr2)), id)).toMatchObject({ set: 'answerer', card: { details: DETAILS } });
+      expect(rowOf(await toAnswerRows(mgr2), id)).toMatchObject({ can_answer: true, card: { details: DETAILS } });
+    });
+
+    it('the lead\'s "for Cashier" row is read-only: lock in the inbox, the catch-up and the frames', async () => {
+      const mgr = seat(MGR, 'mgr tablet');
+      const ws = await socketOf(mgr); // MGR has a route; Cashier has none → "for Cashier" on MGR
+      const forCash = raise(toPerson('t_info', CASH, 'c1'));
+      await fence();
+      const frames = alertFrames(ws).filter((f) => f.alert_id === forCash);
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ for_staff_id: CASH });
+      expectLockOnly(frames);
+      const row = rowOf((await inboxRows(mgr)).rows, forCash);
+      expect(row).toMatchObject({ for_staff_id: CASH, for_staff_name: 'Cashier' });
+      expectLockOnly([row]);
+      expectLockOnly([rowOf(built(mgr), forCash)]);
+    });
+  });
 });

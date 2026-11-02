@@ -6,7 +6,7 @@ import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registr
 import { dayStartOf, FROM_DAY_COLUMN, fromBusinessDay, NOT_HIDDEN, PERSON_COLUMNS, placeOf, seenByMe } from '../catch-up.js';
 import { kindOf } from '../kinds.js';
 import { mayAnswer, type AlertRequestPart } from '../targets.js';
-import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
+import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 
 // 01d §6.9 `GET /queries/requests-to-answer` (AD-13: `data.requests`, view + can_answer + seen_by_me; BF-4 /
 // AD-5 `from_business_day`).
@@ -14,8 +14,10 @@ import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 //   #3, N3), `can_answer: true`, set = my latest step row's set, else `answerer` (a late approver has none).
 // - Plus the open requests where I have an inbox row but may not answer now (informed, a lead's "for" rows, a
 //   right removed after the step): read-only, `can_answer: false`, with my latest set (else `informed`).
-// - Each row is my signed-in view (card with details, AD-23 fields), as the `alerts` catch-up gives a
-//   may-answer row on my staff socket, + `seen_by_me` (catch-up.ts seenByMe) + `from_business_day`.
+// - ws-frames' one card rule (cardRule, AD-162 / AD-163), as the `alerts` catch-up: a row I may answer now
+//   gets my signed-in view (card with details, AD-23 fields); a read-only row, or any row on a device that is
+//   a device target of the request (a kiosk, an always-on tablet), gets the lock-only view. Each row + `seen_by_me`
+//   (catch-up.ts seenByMe) + `from_business_day`.
 // - Never a row hidden from this session or device (§3.10; a request is never hidden in practice, the filter
 //   is the catch-up's). Order: raised_at, then alert_id (oldest waiting first).
 // Statements: 2 ((1) every open request by index alerts_open_requests, with my latest set, my seen and the
@@ -25,7 +27,9 @@ import { safeBuild, signedInView, type ViewRow } from '../ws-frames.js';
 // (1) every open request
 const OPEN_SQL = `
   SELECT a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
-         a.raised_at, a.requester_staff_id, ${PERSON_COLUMNS}, ${FROM_DAY_COLUMN}
+         a.raised_at, a.requester_staff_id,
+         EXISTS (SELECT 1 FROM alert_recipients d WHERE d.device_id = @device_id AND d.alert_id = a.alert_id) AS to_device,
+         ${PERSON_COLUMNS}, ${FROM_DAY_COLUMN}
   FROM alerts a
   WHERE a.state = 'open' AND a.request_json IS NOT NULL AND a.step >= 0 AND ${NOT_HIDDEN}
   ORDER BY a.raised_at, a.alert_id`;
@@ -39,6 +43,7 @@ interface DbRow extends ViewRow {
   step: number;
   request_json: string;
   requester_staff_id: string | null;
+  to_device: 0 | 1;
   mine_json: string | null;
   seen: 0 | 1;
   from_day: string | null;
@@ -67,9 +72,10 @@ function build(ctx: QueryCtx, branchId: string): z.infer<typeof RequestsToAnswer
     const can = mayAnswer(ctx.directory, JSON.parse(row.request_json) as AlertRequestPart, row.requester_staff_id, staffId).ok;
     if (!can && !inbox.has(row.alert_id)) continue;
     const place = { escalation: kind.steps[row.step]?.escalation === true, ...placeOf(row.mine_json, can ? 'answerer' : 'informed') };
+    const card = cardRule({ deviceTarget: row.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: true, canAnswer: can });
     requests.push(
       RequestToAnswerRow.parse({
-        ...signedInView(row, kind, row.step, place),
+        ...(card ? signedInView(row, kind, row.step, place) : lockOnlyView(row, kind, row.step, place)),
         can_answer: can,
         seen_by_me: seenByMe(kind, 'open', row.seen),
         from_business_day: fromBusinessDay(row.from_day, row.raised_at),

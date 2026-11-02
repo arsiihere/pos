@@ -6,7 +6,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { CatchUpPart, SocketCtx } from '../ws/catch-up.js';
 import { kindOf, type AlertKind } from './kinds.js';
 import { mayAnswer, type AlertRequestPart } from './targets.js';
-import { lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
+import { cardRule, lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, type ViewRow } from './ws-frames.js';
 
 // 01d §6 batch 3 "A missed frame is covered by … the `alerts` catch-up part" (H-7: built with the socket
 // context), §3.10 hiding, §6.9 / N3 may-answer rows, §8.3 `seen_by_me`.
@@ -16,11 +16,12 @@ import { lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, 
 //   `alert_inbox`, plus, for a staff socket, every open request the person may answer now (§3.3 rules 5–6, in
 //   memory over the directory; v0.5 #3, N3). Never an alert hidden from this session or this device
 //   (`hidden_session_id` / `hidden_device_id`, §3.10).
-// - A device-target row gets the lock-only view (§6 batch 3: every socket of a device-target recipient gets
-//   `lock` only, whatever its session kind), as does every row of a station socket. The person's own rows on a
-//   staff socket (inbox rows and may-answer rows) get the signed-in view: `card` with `details` and the AD-23
-//   fields. Every row is parsed with ws-frames' strict view schemas, so no `card` / `details` leaves on a lock
-//   row (§7).
+// - ws-frames' one card rule (cardRule, AD-162 / AD-163): a device-target row gets the lock-only view (§6
+//   batch 3: every socket of a device-target recipient gets `lock` only, whatever its session kind), as does
+//   every row of a station socket and every read-only row (informed, a lead's "for" row, a request whose right
+//   was removed). The person's own rows on a staff socket (a non-request inbox row of their own, a request they
+//   may answer now) get the signed-in view: `card` with `details` and the AD-23 fields. Every row is parsed
+//   with ws-frames' strict view schemas, so no `card` / `details` leaves on a lock row (§7).
 // - `seen_by_me`: this person's seen (`request_seen`, or an `AlertSeen` receipt); false on a station socket, and
 //   false for an open `closes_on: 'seen'` alert (seenByMe): a valid seen would have closed it, so a receipt
 //   on it came from the answering seat (§3.10) and must not mark it seen on the person's other devices.
@@ -176,8 +177,12 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
       if (signedIn) {
         const place = { escalation, ...placeOf(row.mine_json, fallbackSet) };
         out.push(StrictCardRow.parse({ ...signedInView(row, kind, row.step, place), seen_by_me, from_business_day }));
-      } else {
+      } else if (row.to_device === 1 || staffId === null) {
         const place = { escalation, set: row.device_set ?? 'recipient', for_staff_id: null };
+        out.push(StrictLockRow.parse({ ...lockOnlyView(row, kind, row.step, place), seen_by_me, from_business_day }));
+      } else {
+        // a read-only row of the person (informed, "for", right removed): their own set and "for" person
+        const place = { escalation, ...placeOf(row.mine_json, fallbackSet) };
         out.push(StrictLockRow.parse({ ...lockOnlyView(row, kind, row.step, place), seen_by_me, from_business_day }));
       }
       listed.add(row.alert_id);
@@ -185,8 +190,16 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
     for (const row of rows) {
       const kind = kindOf(row.kind);
       if (kind === undefined) continue; // P-8: an unknown kind has no labels
-      // a device-target socket gets lock only (§6 batch 3); a station socket has no person
-      push(row, kind, staffId !== null && row.to_device !== 1 && row.in_inbox === 1, 'recipient');
+      // a station socket has no person; otherwise the one card rule (a device-target socket gets lock only)
+      const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
+      const canAnswer = staffId !== null && request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
+      const fallbackSet = request === null ? 'recipient' : canAnswer ? 'answerer' : 'informed';
+      const place = placeOf(row.mine_json, fallbackSet);
+      const signedIn =
+        staffId !== null &&
+        row.in_inbox === 1 &&
+        cardRule({ deviceTarget: row.to_device === 1, set: place.set, for_staff_id: place.for_staff_id, request: request !== null, canAnswer });
+      push(row, kind, signedIn, fallbackSet);
     }
     if (staffId !== null) {
       for (const row of db.prepare(REQUESTS_SQL).all(params) as CatchUpRow[]) {

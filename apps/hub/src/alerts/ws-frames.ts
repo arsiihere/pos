@@ -27,7 +27,9 @@ import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
 // writer's after-commit hook only (never on rollback), once per step per socket, not part of the seq stream.
-// - `card` (display + details) only for person recipients, on that person's own staff-session sockets.
+// - `card` (display + details) only under the one card rule (cardRule, AD-162 / AD-163): a person recipient's
+//   own row, or a viewer who may answer the request now, on that person's own staff-session sockets.
+//   Read-only rows (informed, a lead's "for" row, a right removed) get `lock`.
 // - `lock` only everywhere else: alert-mode sockets, and every socket of a device-target recipient,
 //   whatever its session kind (a KDS station socket, a signed-in kiosk's cashier socket).
 // - Hidden from the answering seat: no `alert` frame to `hidden_session_id` or any socket of `hidden_device_id`.
@@ -88,6 +90,7 @@ export interface AlertFrames {
 }
 
 interface StepAlertRow extends ViewRow {
+  requester_staff_id: string | null;
   hidden_session_id: string | null;
   hidden_device_id: string | null;
 }
@@ -133,13 +136,15 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     const rows = cachedPrepare(
       env.db,
       `SELECT alert_id, kind, family, display_json, details_json, values_json, request_json, raised_at,
-              hidden_session_id, hidden_device_id
+              requester_staff_id, hidden_session_id, hidden_device_id
        FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
     ).all(JSON.stringify(ids)) as StepAlertRow[];
     const byId = new Map(rows.map((r) => [r.alert_id, r]));
     const ws = env.ws();
     const sessions = ws.connectedSessions();
     const alertDevices = new Set(ws.alertSockets().map((s) => s.deviceId));
+    let directory: StaffDirectory | undefined;
+    const dir = (): StaffDirectory => (directory ??= env.directory());
     for (const event of steps) {
       const payload = event.payload as AttemptSentPayload;
       const row = byId.get(payload.alert_id);
@@ -147,7 +152,10 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
       if (row === undefined || kind === undefined) continue; // P-8: an unknown kind never steps
       guarded('step', () => {
         const views = stepViews(row, kind, payload.step, event.event_type === 'EscalationStepped');
-        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices));
+        const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);
+        const canAnswer = (staffId: string): boolean =>
+          request !== null && mayAnswer(dir(), request, row.requester_staff_id, staffId).ok;
+        send(ws, planStep(row, payload.recipients, payload.routes, views, sessions, alertDevices, request !== null, canAnswer));
         sendRoutes(row, kind, payload, views);
       }, { alert_id: row.alert_id, kind: row.kind, step: payload.step });
     }
@@ -376,6 +384,32 @@ export function signedInView(row: ViewRow, kind: AlertKind, step: number, place:
   });
 }
 
+/** What the card rule needs to know about one viewer's row of one alert. */
+export interface CardViewer {
+  /** this device is a device target of the alert (any step): kiosk, KDS, always-on, point tablet */
+  deviceTarget: boolean;
+  /** the viewer's row (latest step): its set and its "for" person */
+  set: AlertView['set'];
+  for_staff_id: string | null;
+  /** the alert is a request (`request_json` set) */
+  request: boolean;
+  /** §3.3 rules 5–6 now, in memory (false for a non-request) */
+  canAnswer: boolean;
+}
+
+/**
+ * AD-162 / AD-163, §3.12: the one card rule for the inbox, the catch-up, requests-to-answer and the frames,
+ * asked only for a viewer on their own staff session. The card (with details) goes to a viewer who may answer
+ * the request now, or who is a person recipient of a non-request alert on their own row. A device-target
+ * device gets lock only, whatever the session; read-only rows get lock only: `informed`, a lead's "for" row,
+ * and a request row whose right was removed after the step. Pure; no statement.
+ */
+export function cardRule(v: CardViewer): boolean {
+  if (v.deviceTarget) return false;
+  if (v.request) return v.canAnswer;
+  return v.for_staff_id === null && v.set !== 'informed';
+}
+
 /** §3.12: lock = the lock-safe display parameters with the kind's lock key; card adds the card key and details. */
 function stepViews(row: StepAlertRow, kind: AlertKind, step: number, escalation: boolean): StepViews {
   return {
@@ -399,8 +433,8 @@ function hiddenOf(row: { hidden_session_id: string | null; hidden_device_id: str
 /**
  * One step of one alert, in memory over the socket lists. Device-target rows first: every socket of the
  * device gets `lock`, and such a socket gets nothing else in this step. Then person rows: the person's own
- * staff sockets get `card`, the alert-mode sockets of the step's `alert_connection` routes of that person get
- * `lock`. One frame per socket per recipient (socket, for_staff_id), so a lead's "for Ali" and "for Bilal"
+ * staff sockets get `card` when cardRule allows it (else `lock`: informed, "for" rows, a right removed), the
+ * alert-mode sockets of the step's `alert_connection` routes of that person get `lock`. One frame per socket per recipient (socket, for_staff_id), so a lead's "for Ali" and "for Bilal"
  * cards are two frames and a repeated row is one.
  */
 function planStep(
@@ -410,6 +444,8 @@ function planStep(
   views: StepViews,
   sessions: ConnectedSession[],
   alertDevices: ReadonlySet<string>,
+  request: boolean,
+  canAnswer: (staffId: string) => boolean,
 ): Batch[] {
   const hidden = hiddenOf(row);
   const deviceTarget = new Set<string>();
@@ -450,11 +486,19 @@ function planStep(
   for (const r of recipients) {
     if (r.staff_id === null) continue;
     const staffId = r.staff_id;
+    let card: boolean | undefined;
+    const cardFor = (): boolean =>
+      (card ??= cardRule({ deviceTarget: false, set: r.set, for_staff_id: r.for_staff_id, request, canAnswer: request && canAnswer(staffId) }));
     for (const s of sessions) {
       if (s.kind !== 'staff' || s.staffId !== staffId || hidden.session(s)) continue;
       const socket = `s:${s.sessionId}`;
       if (deviceTarget.has(socket)) continue; // a device-target socket gets lock only (§6 batch 3)
-      claim(socket, r.for_staff_id, () => views.card(r.set, r.for_staff_id), { session: s.sessionId });
+      claim(
+        socket,
+        r.for_staff_id,
+        () => (cardFor() ? views.card(r.set, r.for_staff_id) : views.lock(r.set, r.for_staff_id)),
+        { session: s.sessionId },
+      );
     }
     for (const deviceId of bound.get(staffId) ?? []) {
       const socket = `a:${deviceId}`;
