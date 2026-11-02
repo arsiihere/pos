@@ -33,6 +33,9 @@
 | # | Item | For | Status |
 |---|---|---|---|
 | O-1 | G0 Q1–Q11 | this G1 | open |
+| O-2 | **Record every stable step inside a session, not only the open → close difference.** The stone swap nets to zero between door open and door close; only the intermediate stable weights (2 400 → 1 400 → 2 400) show it. A jar lifted off its plate is a "lifted" state, not a weight change. | topic 3 (sensing), topic 4 (events) | proposed (spice-shelf dry run) |
+| O-3 | Jars swapped between bins (mirch jar put on the zeera plate) look like two opposite changes; needs a rule (jar weight signature, or "both bins changed in one session and restore each other"). | topic 3 | open |
+| O-4 | Shelf controller must buffer readings while the hub or Wi-Fi is down and send them with their own sequence on reconnect (F-7); conflicts with 01d G0 G4 "no queue on device". | topic 2, 01e additions | open |
 
 ## 3. Questions for the father / the restaurant
 
