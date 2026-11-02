@@ -182,20 +182,22 @@ export function Ring({
   children,
 }: {
   size: 56 | 64 | 80 | 96 | 110;
-  pct: number;
+  /** null: the track only (a notice's icon ring, frames InboxLead / BannerResult) */
+  pct: number | null;
   tone: Tone;
   label?: string;
   children?: ReactNode;
 }) {
-  const stroke = RING_STROKE[size] ?? 5;
+  const stroke = pct === null ? 4 : (RING_STROKE[size] ?? 5);
   const c = size / 2;
-  const r = c - stroke / 2 - 0.5;
-  const fillPct = Math.max(0, Math.min(100, pct));
+  const r = c - stroke / 2;
   return (
     <span className={`ring ring--${size} c-${tone}`} {...(label === undefined ? {} : { role: 'img', 'aria-label': label })}>
       <svg viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle className="trk" cx={c} cy={c} r={r} strokeWidth={stroke} />
-        <circle className="val" cx={c} cy={c} r={r} pathLength={100} strokeWidth={stroke} strokeDasharray={`${fillPct.toFixed(1)} 100`} />
+        {pct !== null && (
+          <circle className="val" cx={c} cy={c} r={r} pathLength={100} strokeWidth={stroke} strokeDasharray={`${Math.max(0, Math.min(100, pct)).toFixed(1)} 100`} />
+        )}
       </svg>
       <span className="ring__in">{children}</span>
     </span>
@@ -213,7 +215,7 @@ export function WaitRing({ row, nowMs, size }: { row: AlertRow | RowLike; nowMs:
   const minutes = Math.floor(waited / 60_000);
   if (row.family !== 'urgent' && !earlier) {
     return (
-      <Ring size={size} pct={100} tone={tone}>
+      <Ring size={size} pct={null} tone={tone}>
         <Ico name={FAMILY_ICON[row.family]} />
       </Ring>
     );
@@ -291,7 +293,7 @@ export function detailLine(card: AlertCard | undefined, withAmount: boolean): Re
   const parts: ReactNode[] = [];
   if (d.item !== undefined) {
     parts.push(
-      <span key="i">
+      <bdi key="i">
         {d.item}
         {d.quantity !== undefined && (
           <>
@@ -299,11 +301,11 @@ export function detailLine(card: AlertCard | undefined, withAmount: boolean): Re
             <span className="num">×{d.quantity}</span>
           </>
         )}
-      </span>,
+      </bdi>,
     );
   }
   if (withAmount && d.amount !== undefined) parts.push(<span key="a" className="num">{amountText(d.amount)}</span>);
-  if (!withAmount && d.reason !== undefined && d.reason !== '') parts.push(<span key="r">“{d.reason}”</span>);
+  if (!withAmount && d.reason !== undefined && d.reason !== '') parts.push(<bdi key="r">“{d.reason}”</bdi>);
   if (parts.length === 0) return null;
   return parts.flatMap((p, i) => (i === 0 ? [p] : [' · ', p]));
 }

@@ -85,7 +85,9 @@ function Facts({ row }: { row: SheetRow }) {
       {d.item !== undefined && (
         <div className="fact">
           <span>{t('answer.item')}</span>
-          <b>{d.item}</b>
+          <b>
+            <bdi>{d.item}</bdi>
+          </b>
         </div>
       )}
       {d.quantity !== undefined && (
@@ -103,7 +105,9 @@ function Facts({ row }: { row: SheetRow }) {
       {d.reason !== undefined && d.reason !== '' && (
         <div className="fact">
           <span>{t('answer.reason')}</span>
-          <b>“{d.reason}”</b>
+          <b>
+            <bdi>“{d.reason}”</bdi>
+          </b>
         </div>
       )}
     </div>
@@ -262,7 +266,7 @@ export function AnswerSheet({
         onSubmit={() => void send({ alert_id: row.alert_id, decision: view.decision, method: 'pin' }, 'pin')}
         error={pinError}
         locked={locked}
-        help={pinError === null ? t('answer.pin_not_kept') : null}
+        help={pinError === null && up ? t('answer.pin_not_kept') : null}
         topMessage={message}
         onBack={() => go({ k: 'detail' })}
         onClose={onClose}
@@ -441,7 +445,9 @@ export function NoticeSheet({ row, utcOffsetMs, sheet, onClose }: { row: RowLike
           {d?.item !== undefined && (
             <div className="fact">
               <span>{t('answer.item')}</span>
-              <b>{d.item}</b>
+              <b>
+                <bdi>{d.item}</bdi>
+              </b>
             </div>
           )}
         </div>

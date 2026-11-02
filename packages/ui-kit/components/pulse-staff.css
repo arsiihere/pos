@@ -481,7 +481,7 @@
 /* ===== 2/3 v-brand.css (tokens, brand-mapped) ===== */
 /* Pulse · Chatkhara — Arif Chatkhara maroon chrome, cream ground, saffron primary. Bricolage Grotesque + Figtree. */
 .pu.v-brand {
-  --font: "Figtree", system-ui, sans-serif; --font-display: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-num: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-urdu: "Noto Nastaliq Urdu", serif;
+  --font: "Figtree", system-ui, sans-serif; --font-display: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-num: "Bricolage Grotesque", "Figtree", system-ui, sans-serif; --font-urdu: "Noto Nastaliq Urdu", "Figtree", serif;
   --num-track: -0.02em; --tb-n-weight: 800;
   --bg: #F8F1E7; --surface: #FFFFFF; --surface-2: #FBF6EF; --surface-3: #F1E7DA; --line: #ECDFCF;
   --ink: #2B130E; --ink-2: #5A3F36; --muted: #7A6157;
@@ -692,7 +692,7 @@
 :where(.pu) .fact span { font-size: 13px; font-weight: 650; color: var(--muted); }
 :where(.pu) .fact b { font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
 :where(.pu) .fact--amt b { font: 800 30px/1 var(--font-num); letter-spacing: -0.03em; }
-:where(.pu) .fact--wide { grid-column: 1 / -1; }
+:where(.pu) .fact--wide, :where(.pu) .facts > .fact:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .pu[lang="ur"] :is(.fact span, .fact b) { font-family: var(--font-urdu); line-height: 1.9; }
 .pu[lang="ur"] .fact--amt b { font-family: var(--font-num); }
 :where(.pu) .acts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
@@ -799,7 +799,7 @@
 :where(.pu) .tabbar--3 { grid-template-columns: repeat(3, 1fr); }
 .pu.phone .ac { grid-template-columns: auto minmax(0, 1fr); }
 .pu.phone .ac__end { grid-column: 1 / -1; flex-direction: row; align-items: center; }
-.pu.phone .ac__end .btn { margin: 0 0 0 auto; }
+.pu.phone .ac__end .btn { margin: 0; margin-inline-start: auto; } /* logical: the button sits at the end in Urdu too */
 :where(.pu) .navrow { padding: 12px 18px 0; }
 :where(.pu) .navrow .seg { width: 100%; }
 :where(.pu) .who--big .who__t { min-height: 104px; padding: 14px 18px; gap: 14px; }
@@ -816,7 +816,7 @@
 .pu.staff { position: fixed; inset: 0; height: 100dvh; flex-direction: column; }
 .pu.staff :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .pu.staff .lcard__b { overflow-y: auto; }
-.pu.staff .body { min-height: 0; }
+.pu.staff .body { min-height: 0; font: inherit; } /* the kit's type class .body (tokens.css, 17px/24px) is not the Pulse layout .body */
 .pu[dir="rtl"] .ico--dir { transform: scaleX(-1); }
 :where(.pu) .ring--56 { width: 56px; height: 56px; }
 :where(.pu) .ring--64 { width: 64px; height: 64px; }
@@ -903,7 +903,8 @@
 @media (orientation: portrait) and (min-width: 761px) {
   .pu.staff .top .staff__nav { display: none; }
   .pu.staff .staff__navrow { display: block; }
-  .pu.staff .body--two, .pu.staff .body--test { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: max-content; overflow-y: auto; }
+  .pu.staff .body--two, .pu.staff .body--test { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; overflow-y: auto; }
+  .pu.staff .body--two.body--msg { grid-template-rows: max-content; }
   .pu.staff .body--two .lcard__b, .pu.staff .body--test .lcard__b { overflow: visible; }
   .pu.staff .who--tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -914,6 +915,10 @@
   .pu.staff .body .lcard__b { overflow: visible; }
   .pu.staff .who--tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pu.staff .ph-body { overflow-y: auto; }
+  /* InboxPhone: the cards straight in the body, no list cards or headers */
+  .pu.staff .body--two { align-content: start; }
+  .pu.staff .body--two > .lcard, .pu.staff .body--two .lcard__b { display: contents; }
+  .pu.staff .body--two .lcard__h { display: none; }
 }
 
 /* toast tone (review fix): status is icon + word + colour */

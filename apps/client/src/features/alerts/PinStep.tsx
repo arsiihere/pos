@@ -50,7 +50,7 @@ export function PinKeys({
   }, []);
   return (
     <>
-      <div className={`pin__dots${error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={`${length} digits`} role="status">
+      <div className={`pin__dots${!disabled && error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={`${length} digits`} role="status">
         {Array.from({ length: dots }, (_, i) => (
           <i key={i} className={i < length ? 'f' : ''} />
         ))}

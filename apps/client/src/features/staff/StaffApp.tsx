@@ -340,7 +340,12 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   let page: ReactNode;
   let current: 'inbox' | 'requests' | 'test' = 'inbox';
   if (me === null) {
-    const lockRows = device.type === 'cashier_kiosk' || device.type === 'phone' ? snap.rows.filter((r) => r.state === 'open').slice(0, 3) : [];
+    // F01 (frames LockKiosk, LockPhone): urgent lines first, then newest first (the store's order); up to 3
+    const openRows = snap.rows.filter((r) => r.state === 'open');
+    const lockRows =
+      device.type === 'cashier_kiosk' || device.type === 'phone'
+        ? [...openRows.filter((r) => r.family === 'urgent'), ...openRows.filter((r) => r.family !== 'urgent')].slice(0, 3)
+        : [];
     page = (
       <SignIn
         api={api}
