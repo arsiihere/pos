@@ -86,3 +86,7 @@ Inline SVG only, `class="pos-icon"` (24px) or `pos-icon--lg` (40px): 24px grid, 
 | `reload` | `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg>` |
 | `download` | `<svg viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>` |
 | `link` | `<svg viewBox="0 0 24 24"><path d="M10 14l4-4"/><path d="M8.5 11.5L6 14a3 3 0 0 0 4 4l2.5-2.5"/><path d="M15.5 12.5L18 10a3 3 0 0 0-4-4l-2.5 2.5"/></svg>` |
+
+## Pulse staff layer
+
+Pulse staff layer (01d, 2026-11-02): load `components/pulse-staff.css` on staff screens (`apps/client/src/app/ui-kit-staff.ts`, never from `ui-kit.ts`); root `.pu` (with `.v-brand` for the token block); brand via `--brand-*` (`--brand-primary`, `--brand-secondary` and their `--brand-on-*`). Every rule is scoped under `:where(.pu)`, so it cannot restyle the `.pos-root` pages. It adds no font faces; `tokens.css` declares them from `fonts/`.

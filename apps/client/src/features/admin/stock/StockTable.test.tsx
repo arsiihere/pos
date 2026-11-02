@@ -7,7 +7,7 @@ import { createHubClock } from '../../../app/hub-clock';
 import { t } from '../../../i18n';
 import { fill } from '../../../i18n/en';
 import { AlertBar } from './AlertBar';
-import { ConfigStatus } from './ConfigStatus';
+import { ConfigStatus, MenuStatus } from './ConfigStatus';
 import { pageRows } from './badges';
 import { StockApp } from './StockApp';
 import { StockTable } from './StockTable';
@@ -111,6 +111,7 @@ const STATUS: HubConfigStatus = {
   directory_version: 2,
   last_poll: { outcome: 'applied', at: hubAt(11) },
   last_problem: null,
+  stuck_alerts: 0,
 };
 
 function json(status: number, body: unknown): Response {
@@ -284,6 +285,15 @@ describe('/admin/stock table', () => {
     render({ ...STATUS, config_version: null, last_poll: { outcome: 'not_ready', at: hubAt(11) } });
     expect(container.querySelector('[data-status-line]')?.textContent).toBe('Waiting for hub confirmation');
     expect(container.querySelector('.pos-banner--danger')).toBeNull();
+  });
+
+  it('[01d §3.5 AD-123] the More menu status shows "Stuck alerts: N" while the hub has stuck alerts, and nothing at 0', () => {
+    const clock = createHubClock({ now_ms: hubAt(11, 2), utc_offset_ms: OFFSET });
+    const render = (status: HubConfigStatus) => act(() => root.render(<MenuStatus status={status} clock={clock} />));
+    render({ ...STATUS, stuck_alerts: 1 });
+    expect(container.querySelector('[data-stuck-alerts]')?.textContent).toBe('Stuck alerts: 1');
+    render(STATUS);
+    expect(container.querySelector('[data-stuck-alerts]')).toBeNull();
   });
 
   it('[01a §10 #103 page part] Off since <day> for an item off before the day started; no badge for one off today', () => {

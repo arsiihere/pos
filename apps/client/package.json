@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --mode owner && vite build --mode admin-stock",
+    "build": "vite build --mode owner && vite build --mode admin-stock && vite build --mode staff",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json"
   },

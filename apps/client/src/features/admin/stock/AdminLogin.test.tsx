@@ -36,6 +36,7 @@ const STATUS = {
   directory_version: 2,
   last_poll: { outcome: 'applied', at: 20 },
   last_problem: null,
+  stuck_alerts: 0,
 };
 
 const ROSTER = {

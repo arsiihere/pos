@@ -21,6 +21,14 @@ export interface DirectoryCore {
     permissions: { permission: string; grant_type: 'allowed' | 'requires_approval'; approver_role_ids: string[]; scope: Scope }[];
   }[];
   responsibilities: { responsibility: 'count_stock'; station_id: string; staff_ids: string[]; role_ids: string[] }[];
+  // 01b v1.4 B-1: people without a PIN, for targeting only; absent from an older cloud's directory.
+  no_pin_staff?: NoPinStaff[];
+}
+
+export interface NoPinStaff {
+  staff_id: string;
+  display_name: string;
+  lead_staff_id: string | null;
 }
 
 // 01b §3.3: `scope` only on a granting result.
@@ -69,6 +77,7 @@ export class StaffDirectory {
     private readonly staffById: Map<string, StaffRecord>,
     private readonly roles: Map<string, RoleRecord>,
     private readonly responsibilities: ResponsibilityRecord[],
+    private readonly noPinById: Map<string, NoPinStaff>,
   ) {}
 
   static fromInput(d: DirectoryCore): StaffDirectory {
@@ -99,10 +108,14 @@ export class StaffDirectory {
     const responsibilities = d.responsibilities
       .map((entry) => ({ ...entry, staff_ids: sorted(entry.staff_ids), role_ids: sorted(entry.role_ids) }))
       .sort((a, b) => compare(a.station_id, b.station_id) || compare(a.responsibility, b.responsibility));
-    return new StaffDirectory(d.directory_version, staffById, roles, responsibilities);
+    const noPinById = new Map<string, NoPinStaff>();
+    for (const row of d.no_pin_staff ?? []) {
+      noPinById.set(row.staff_id, { staff_id: row.staff_id, display_name: row.display_name, lead_staff_id: row.lead_staff_id });
+    }
+    return new StaffDirectory(d.directory_version, staffById, roles, responsibilities, noPinById);
   }
 
-  // 01b §5.2: 9 fixed statements, read whole at boot and after an apply.
+  // 01b §5.2: 10 fixed statements (v1.4 B-1 adds no_pin_staff), read whole at boot and after an apply.
   static load(db: Database.Database): StaffDirectory {
     const staff = db.prepare('SELECT staff_id, display_name, pin_hash, lead_staff_id FROM staff').all() as Array<{
       staff_id: string;
@@ -141,6 +154,7 @@ export class StaffDirectory {
     const responsibilities = db
       .prepare('SELECT responsibility, station_id, subject_kind, subject_id FROM responsibilities')
       .all() as Array<{ responsibility: 'count_stock'; station_id: string; subject_kind: 'staff' | 'role'; subject_id: string }>;
+    const noPin = db.prepare('SELECT staff_id, display_name, lead_staff_id FROM no_pin_staff').all() as NoPinStaff[];
     const meta = db.prepare('SELECT directory_version FROM staff_directory_meta').get() as
       | { directory_version: number }
       | undefined;
@@ -191,6 +205,7 @@ export class StaffDirectory {
         floor_ids: floorsByStaff.get(row.staff_id) ?? [],
       })),
       responsibilities: [...sets.values()],
+      no_pin_staff: noPin,
     });
   }
 
@@ -250,11 +265,24 @@ export class StaffDirectory {
     return this.staffById.get(staffId)?.lead_staff_id ?? null;
   }
 
-  // 01b §3.5: direct reports at this branch only (people with a PIN, B3).
-  teamOf(staffId: string): string[] {
+  // 01b §3.5: direct reports at this branch (people with a PIN, B3); v1.4 B-3: with `includeNoPin`, also
+  // the people in `no_pin_staff` whose lead this is (01d team targets).
+  teamOf(staffId: string, o: { includeNoPin?: boolean } = {}): string[] {
     const team: string[] = [];
     for (const staff of this.staffById.values()) if (staff.lead_staff_id === staffId) team.push(staff.staff_id);
+    if (o.includeNoPin === true) {
+      for (const row of this.noPinById.values()) if (row.lead_staff_id === staffId) team.push(row.staff_id);
+    }
     return sorted(team);
+  }
+
+  // 01b v1.4 B-3: the `no_pin_staff` list, sorted by staff_id; never part of the roster (`list`).
+  noPinStaff(): NoPinStaff[] {
+    return [...this.noPinById.values()].sort((a, b) => compare(a.staff_id, b.staff_id)).map((row) => ({ ...row }));
+  }
+
+  isNoPin(staffId: string): boolean {
+    return this.noPinById.has(staffId);
   }
 
   // 01b §3.6: stations where the person is listed, or one of their roles is.

@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { HubConfig } from '../config/schema.js';
+import { countStuckAlerts } from '../projections/alerts.js';
 import { readBranchConfigRow } from '../projections/branch-config.js';
 import { configPoller } from '../sync/config-poller.js';
 import { defineQuery, queryRegistry } from './registry.js';
 
-// §6.21, S29: versions from 2 primary-key reads, the last poll and problem from the poller's memory.
+// §6.21, S29: versions from 2 primary-key reads, the last poll and problem from the poller's memory; 01d
+// AD-123: the stuck alerts count, one more statement.
 // The admin guard already requires access-hub-admin; no further permission. D7: also the provisioned
 // tenant_id and branch_id, which the /admin/stock page puts in every command envelope.
 export function registerConfigStatusQuery(app: FastifyInstance, config: HubConfig): void {
@@ -33,6 +35,7 @@ export function registerConfigStatusQuery(app: FastifyInstance, config: HubConfi
             directory_version: directory?.directory_version ?? null,
             last_poll: poller.lastPoll(),
             last_problem: poller.lastProblem(),
+            stuck_alerts: countStuckAlerts(ctx.db), // 01d AD-123: one statement
           },
         };
       },

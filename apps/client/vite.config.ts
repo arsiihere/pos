@@ -5,6 +5,8 @@ import { defineConfig } from 'vite';
 const ENTRIES: Record<string, string> = {
   owner: '/owner/',
   'admin-stock': '/admin/stock/',
+  // 01d task 41: the staff entry (inbox, requests, answer sheet, test alert)
+  staff: '/staff/',
 };
 
 export default defineConfig(({ mode }) => {

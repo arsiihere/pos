@@ -1,0 +1,768 @@
+{
+ "module": "01d · Notifications and requests",
+ "design_language": "Pulse (Chatkhara brand default)",
+ "design_system": {
+  "tokens": "design/ds/pos/tokens.css",
+  "tokens_json": "design/ds/pos/tokens.json",
+  "components": "design/ds/pos/components/bundle.css",
+  "kit": "design/kit-additions.css",
+  "fonts": "design/ds/pos/fonts/"
+ },
+ "viewports": {
+  "tablet": "1280x800",
+  "tablet_portrait": "800x1280",
+  "kiosk": "1920x1080",
+  "kds": "1920x1080 dark",
+  "phone": "390x844"
+ },
+ "screens": [
+  {
+   "id": "01d-S00",
+   "name": "Staff sign-in (reuses the PIN tiles + PIN pad from 00 / admin-stock)",
+   "kind": "screen",
+   "route": "/staff/",
+   "devices": "T K P",
+   "components": "Staff tiles (.who) + PIN; B05 in the brand line",
+   "frames": [
+    {
+     "file": "design/SignIn.dc.html",
+     "png": "design/screens/SignIn.png",
+     "state": "Staff sign-in — header shows whose alerts this tablet gets (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-C01",
+   "name": "Alert card (one alert)",
+   "kind": "component",
+   "route": "—",
+   "devices": "T K P",
+   "components": "Open card .ac (waiting ring, family pill, tags, table chip, kind, from, details, amount, Answer) and row .ar (icon tile, pill, title, sub, time); new / closed / read-only / lock",
+   "frames": [
+    {
+     "file": "design/Cards.dc.html",
+     "png": "design/screens/Cards.png",
+     "state": "C02 · B05 · Alert card, row, badge and tablet header — every family and state",
+     "w": 1280,
+     "h": 1640
+    },
+    {
+     "file": "design/CardsUrdu.dc.html",
+     "png": "design/screens/CardsUrdu.png",
+     "state": "Alert cards, badges, header — Urdu RTL",
+     "w": 1280,
+     "h": 1800
+    },
+    {
+     "file": "design/CardsDark.dc.html",
+     "png": "design/screens/CardsDark.png",
+     "state": "Families in the dark theme (KDS) — icon + word, colour-blind safe",
+     "w": 1280,
+     "h": 1000
+    }
+   ]
+  },
+  {
+   "id": "01d-C02",
+   "name": "Alert badge (unseen count)",
+   "kind": "component",
+   "route": "app header",
+   "devices": "T K P",
+   "components": "Red count in the top-bar segmented nav; red badge on the Requests / Inbox icon buttons; hidden at 0, 99+",
+   "frames": [
+    {
+     "file": "design/Cards.dc.html",
+     "png": "design/screens/Cards.png",
+     "state": "C02 · B05 · Alert card, row, badge and tablet header — every family and state (also shows 01d-C02)",
+     "w": 1280,
+     "h": 1640
+    },
+    {
+     "file": "design/Inbox.dc.html",
+     "png": "design/screens/Inbox.png",
+     "state": "Inbox — open first (big), then today (rows) (tablet) (also shows 01d-C02)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/BannerUrgent.dc.html",
+     "png": "design/screens/BannerUrgent.png",
+     "state": "Urgent banner over the Puck+ tables screen — stays until opened (tablet) (also shows 01d-C02)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B01",
+   "name": "Alert banner (arrives over any staff screen)",
+   "kind": "banner",
+   "route": "any",
+   "devices": "T K P",
+   "components": "Floating .abn (max 2) + maroon “n more new” pill; tinted Open",
+   "frames": [
+    {
+     "file": "design/BannerUrgent.dc.html",
+     "png": "design/screens/BannerUrgent.png",
+     "state": "Urgent banner over the Puck+ tables screen — stays until opened (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/BannerStack.dc.html",
+     "png": "design/screens/BannerStack.png",
+     "state": "Two at once, then “2 more new” (DQ3, tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/BannerPortrait.dc.html",
+     "png": "design/screens/BannerPortrait.png",
+     "state": "Urgent banner — tablet portrait",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/BannerKiosk.dc.html",
+     "png": "design/screens/BannerKiosk.png",
+     "state": "Escalation on the cashier kiosk — lock text only (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/BannerPhone.dc.html",
+     "png": "design/screens/BannerPhone.png",
+     "state": "Urgent banner on a staff phone (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/BannerUrdu.dc.html",
+     "png": "design/screens/BannerUrdu.png",
+     "state": "Urgent banner — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/BannerResult.dc.html",
+     "png": "design/screens/BannerResult.png",
+     "state": "Result to the requester — info banner, hides after 4 s (tablet) (also shows 01d-B01)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-S01",
+   "name": "Inbox",
+   "kind": "screen",
+   "route": "#/inbox",
+   "devices": "T K P",
+   "components": "Two list cards (Open / Today), .ac + .ar, For-groups (.forg), skeleton, empty ring",
+   "frames": [
+    {
+     "file": "design/Inbox.dc.html",
+     "png": "design/screens/Inbox.png",
+     "state": "Inbox — open first (big), then today (rows) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxLead.dc.html",
+     "png": "design/screens/InboxLead.png",
+     "state": "Lead’s inbox — “For Ali” groups (DQ5, tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxEmpty.dc.html",
+     "png": "design/screens/InboxEmpty.png",
+     "state": "Inbox — nothing needs you (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxLoading.dc.html",
+     "png": "design/screens/InboxLoading.png",
+     "state": "Inbox — loading (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxOffline.dc.html",
+     "png": "design/screens/InboxOffline.png",
+     "state": "Inbox — hub down: last list kept, details still open (B03, tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxKiosk.dc.html",
+     "png": "design/screens/InboxKiosk.png",
+     "state": "Inbox on the cashier kiosk — own nav, no browser back (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/InboxPhone.dc.html",
+     "png": "design/screens/InboxPhone.png",
+     "state": "Inbox on a staff phone (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/InboxUrdu.dc.html",
+     "png": "design/screens/InboxUrdu.png",
+     "state": "Inbox — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-S02",
+   "name": "Requests to answer",
+   "kind": "screen (or Inbox tab, DQ2)",
+   "route": "#/requests",
+   "devices": "T K",
+   "components": "Two list cards (You can answer / For your information), leaving row",
+   "frames": [
+    {
+     "file": "design/Requests.dc.html",
+     "png": "design/screens/Requests.png",
+     "state": "Requests to answer — longest wait first; read-only on the right (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/RequestsEmpty.dc.html",
+     "png": "design/screens/RequestsEmpty.png",
+     "state": "Requests — none waiting (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/RequestsTaken.dc.html",
+     "png": "design/screens/RequestsTaken.png",
+     "state": "Answered elsewhere — row shows who, then slides out (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/RequestsPortrait.dc.html",
+     "png": "design/screens/RequestsPortrait.png",
+     "state": "Requests — tablet portrait",
+     "w": 800,
+     "h": 1280
+    }
+   ]
+  },
+  {
+   "id": "01d-D01",
+   "name": "Request detail / answer sheet",
+   "kind": "sheet",
+   "route": "over S01 / S02",
+   "devices": "T K",
+   "components": "Dialog / bottom sheet .dlg: table chip head, 4 fact tiles, 72 px Reject/Approve or Decline/Accept, Approve-here link",
+   "frames": [
+    {
+     "file": "design/Answer.dc.html",
+     "png": "design/screens/Answer.png",
+     "state": "Answer a void — details, then Approve or Reject (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerAccept.dc.html",
+     "png": "design/screens/AnswerAccept.png",
+     "state": "Accept kind — one tap, no PIN (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerDone.dc.html",
+     "png": "design/screens/AnswerDone.png",
+     "state": "Answered — short “Approved”, then closes; no receipt on this seat (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerPortrait.dc.html",
+     "png": "design/screens/AnswerPortrait.png",
+     "state": "Answer — bottom sheet on tablet portrait",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/AnswerKiosk.dc.html",
+     "png": "design/screens/AnswerKiosk.png",
+     "state": "Answer on the cashier kiosk (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/AnswerHere.dc.html",
+     "png": "design/screens/AnswerHere.png",
+     "state": "On the requester’s own tablet — “Approve here” only on this device (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerUrdu.dc.html",
+     "png": "design/screens/AnswerUrdu.png",
+     "state": "Answer a void — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-D02",
+   "name": "PIN step of the answer (reuses PinPad)",
+   "kind": "sheet step",
+   "route": "in D01",
+   "devices": "T K",
+   "components": "PIN step: back, title, request line, PIN pad with action key, one-line error",
+   "frames": [
+    {
+     "file": "design/Pin.dc.html",
+     "png": "design/screens/Pin.png",
+     "state": "PIN step — typing (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PinReject.dc.html",
+     "png": "design/screens/PinReject.png",
+     "state": "PIN step — to reject (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PinWrong.dc.html",
+     "png": "design/screens/PinWrong.png",
+     "state": "Wrong PIN — cleared (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PinLocked.dc.html",
+     "png": "design/screens/PinLocked.png",
+     "state": "Locked out — keys off (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PinBusy.dc.html",
+     "png": "design/screens/PinBusy.png",
+     "state": "Hub busy — 503, PIN cleared (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-D03",
+   "name": "Approve here (in person): pick approver → their PIN",
+   "kind": "sheet",
+   "route": "in D01",
+   "devices": "T K (raising device only)",
+   "components": "Approver tiles → PIN with warning line",
+   "frames": [
+    {
+     "file": "design/InPersonPick.dc.html",
+     "png": "design/screens/InPersonPick.png",
+     "state": "Approve here — pick the approver (requester’s tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InPersonPin.dc.html",
+     "png": "design/screens/InPersonPin.png",
+     "state": "Approve here — the approver’s PIN (requester’s tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerHere.dc.html",
+     "png": "design/screens/AnswerHere.png",
+     "state": "On the requester’s own tablet — “Approve here” only on this device (tablet) (also shows 01d-D03)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-D04",
+   "name": "Notice detail (N01, N03, N04, test alert)",
+   "kind": "sheet",
+   "route": "over S01",
+   "devices": "T K P",
+   "components": "Notice sheet: family, title, facts, “Not you?” line, Close",
+   "frames": [
+    {
+     "file": "design/NoticeInPerson.dc.html",
+     "png": "design/screens/NoticeInPerson.png",
+     "state": "D04 · “You approved on Hamza’s tablet” — own devices only, audible (tablet) (also shows 01d-D04)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/NoticePinFailed.dc.html",
+     "png": "design/screens/NoticePinFailed.png",
+     "state": "D04 · “Your PIN was entered and the answer failed” (tablet) (also shows 01d-D04)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/NoticePhone.dc.html",
+     "png": "design/screens/NoticePhone.png",
+     "state": "D04 · Result on the requester’s phone (phone) (also shows 01d-D04)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "01d-B02",
+   "name": "Read-only request line",
+   "kind": "inline state",
+   "route": "D01",
+   "devices": "T K",
+   "components": "Grey read-only line instead of buttons",
+   "frames": [
+    {
+     "file": "design/AnswerReadOnly.dc.html",
+     "png": "design/screens/AnswerReadOnly.png",
+     "state": "Read-only — not your team (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerInformed.dc.html",
+     "png": "design/screens/AnswerInformed.png",
+     "state": "Read-only — informed after escalation (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B03",
+   "name": "No connection to the hub",
+   "kind": "inline state",
+   "route": "D01, D02",
+   "devices": "T K",
+   "components": "Danger banner, buttons and pad off",
+   "frames": [
+    {
+     "file": "design/AnswerOffline.dc.html",
+     "png": "design/screens/AnswerOffline.png",
+     "state": "No connection to the hub — buttons off, sheet stays (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/PinOffline.dc.html",
+     "png": "design/screens/PinOffline.png",
+     "state": "Hub down mid-PIN — pad off, PIN cleared (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InboxOffline.dc.html",
+     "png": "design/screens/InboxOffline.png",
+     "state": "Inbox — hub down: last list kept, details still open (B03, tablet) (also shows 01d-B03)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B04",
+   "name": "Answer error states",
+   "kind": "inline / toast",
+   "route": "D01, D02, D03",
+   "devices": "T K",
+   "components": "Danger banner / PIN-step message / ok toast for 409",
+   "frames": [
+    {
+     "file": "design/AnswerOwn.dc.html",
+     "png": "design/screens/AnswerOwn.png",
+     "state": "Your own request — 403 self (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/AnswerTaken.dc.html",
+     "png": "design/screens/AnswerTaken.png",
+     "state": "Someone answered first — 409: sheet closes, toast says who (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/InPersonError.dc.html",
+     "png": "design/screens/InPersonError.png",
+     "state": "Approve here — that person can’t approve here (requester’s tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B05",
+   "name": "Tablet alerts header",
+   "kind": "header strip",
+   "route": "every tablet screen",
+   "devices": "T",
+   "components": "Third line of the top-bar brand block (3 states)",
+   "frames": [
+    {
+     "file": "design/SignInPaused.dc.html",
+     "png": "design/screens/SignInPaused.png",
+     "state": "Sign-in — “Alerts paused” after the time passed (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/Cards.dc.html",
+     "png": "design/screens/Cards.png",
+     "state": "C02 · B05 · Alert card, row, badge and tablet header — every family and state (also shows 01d-B05)",
+     "w": 1280,
+     "h": 1640
+    },
+    {
+     "file": "design/SignIn.dc.html",
+     "png": "design/screens/SignIn.png",
+     "state": "Staff sign-in — header shows whose alerts this tablet gets (tablet) (also shows 01d-B05)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B06",
+   "name": "\"No one can approve … right now\"",
+   "kind": "sticky banner",
+   "route": "always-on screens + approvers",
+   "devices": "K W T",
+   "components": "Sticky warn banner (light) / KDS dark banner",
+   "frames": [
+    {
+     "file": "design/NoApproverKiosk.dc.html",
+     "png": "design/screens/NoApproverKiosk.png",
+     "state": "“No one can approve voids right now” — sticky on the cashier kiosk (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/NoApproverKds.dc.html",
+     "png": "design/screens/NoApproverKds.png",
+     "state": "F01 · Kitchen screen — warning and escalation as lock text (KDS, dark)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "01d-N01",
+   "name": "\"You approved on Hamza's tablet\" (answered on requester's device)",
+   "kind": "notice card",
+   "route": "inbox + banner",
+   "devices": "T K P (own devices only)",
+   "components": "Notice sheet D04",
+   "frames": [
+    {
+     "file": "design/NoticeInPerson.dc.html",
+     "png": "design/screens/NoticeInPerson.png",
+     "state": "D04 · “You approved on Hamza’s tablet” — own devices only, audible (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-N02",
+   "name": "Approval receipt (silent)",
+   "kind": "inbox row only",
+   "route": "inbox",
+   "devices": "T K P",
+   "components": "Silent receipt card (inbox only)",
+   "frames": [
+    {
+     "file": "design/Inbox.dc.html",
+     "png": "design/screens/Inbox.png",
+     "state": "Inbox — open first (big), then today (rows) (tablet) (also shows 01d-N02)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/Cards.dc.html",
+     "png": "design/screens/Cards.png",
+     "state": "C02 · B05 · Alert card, row, badge and tablet header — every family and state (also shows 01d-N02)",
+     "w": 1280,
+     "h": 1640
+    }
+   ]
+  },
+  {
+   "id": "01d-N03",
+   "name": "\"Your PIN was used on Tablet 3 and the answer failed\"",
+   "kind": "notice card",
+   "route": "inbox + banner",
+   "devices": "T K P",
+   "components": "Notice sheet D04",
+   "frames": [
+    {
+     "file": "design/NoticePinFailed.dc.html",
+     "png": "design/screens/NoticePinFailed.png",
+     "state": "D04 · “Your PIN was entered and the answer failed” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-N04",
+   "name": "Request result to the requester",
+   "kind": "notice card",
+   "route": "inbox + banner",
+   "devices": "T K P",
+   "components": "Info banner + notice sheet",
+   "frames": [
+    {
+     "file": "design/BannerResult.dc.html",
+     "png": "design/screens/BannerResult.png",
+     "state": "Result to the requester — info banner, hides after 4 s (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/NoticePhone.dc.html",
+     "png": "design/screens/NoticePhone.png",
+     "state": "D04 · Result on the requester’s phone (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "01d-F01",
+   "name": "Lock text (signed-out overlay; later the Android notification)",
+   "kind": "text pattern",
+   "route": "signed-out kiosk / phone",
+   "devices": "K P (T in 9b)",
+   "components": "Dark lock panel, up to 3 lines",
+   "frames": [
+    {
+     "file": "design/LockKiosk.dc.html",
+     "png": "design/screens/LockKiosk.png",
+     "state": "Signed-out kiosk — lock text, up to 3 lines (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/LockPhone.dc.html",
+     "png": "design/screens/LockPhone.png",
+     "state": "Signed-out phone — lock text above the PIN (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/NoApproverKds.dc.html",
+     "png": "design/screens/NoApproverKds.png",
+     "state": "F01 · Kitchen screen — warning and escalation as lock text (KDS, dark) (also shows 01d-F01)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/BannerKiosk.dc.html",
+     "png": "design/screens/BannerKiosk.png",
+     "state": "Escalation on the cashier kiosk — lock text only (kiosk) (also shows 01d-F01)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "01d-S03",
+   "name": "Send test alert",
+   "kind": "screen",
+   "route": "#/test-alert",
+   "devices": "T K",
+   "components": "Segmented target, radio list (online dot), summary card + Send test",
+   "frames": [
+    {
+     "file": "design/TestAlert.dc.html",
+     "png": "design/screens/TestAlert.png",
+     "state": "Send test alert — to a device; Point off until points exist (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TestAlertPerson.dc.html",
+     "png": "design/screens/TestAlertPerson.png",
+     "state": "Send test alert — to a person, people without a PIN included (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TestAlertTeam.dc.html",
+     "png": "design/screens/TestAlertTeam.png",
+     "state": "Send test alert — to a team, direct reports or whole team (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-S04",
+   "name": "Receipts",
+   "kind": "screen",
+   "route": "#/receipts/:alert_id",
+   "devices": "T K",
+   "components": "Header + Updating chip, one table per step, empty state",
+   "frames": [
+    {
+     "file": "design/Receipts.dc.html",
+     "png": "design/screens/Receipts.png",
+     "state": "Receipts — delivered and seen per person and device, live (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ReceiptsSteps.dc.html",
+     "png": "design/screens/ReceiptsSteps.png",
+     "state": "Receipts — a request with Sent and Escalated steps (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ReceiptsNone.dc.html",
+     "png": "design/screens/ReceiptsNone.png",
+     "state": "Receipts — nobody could be reached (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "01d-B07",
+   "name": "\"Stuck alerts: N\"",
+   "kind": "row on hub admin home (00 /admin)",
+   "route": "/admin",
+   "devices": "K",
+   "components": "Warn banner on 00 /admin home",
+   "frames": [
+    {
+     "file": "design/AdminStuck.dc.html",
+     "png": "design/screens/AdminStuck.png",
+     "state": "Hub admin home — “Stuck alerts: 1”, hidden at 0 (hub admin)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  }
+ ]
+}

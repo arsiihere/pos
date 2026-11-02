@@ -2,6 +2,7 @@
 import type Database from 'better-sqlite3';
 import type { HubDeps } from '../server.js';
 import type { WriterTx } from '../engine-host/writer.js';
+import { purgeAlerts } from '../alerts/retention.js';
 import { clearExpiredDeliveryTokens } from './pair-requests.js';
 import { activity, endSession, type SessionRow } from './session-store.js';
 
@@ -54,10 +55,19 @@ export function sweepOnce(deps: HubDeps): { ended: string[] } {
   return { ended };
 }
 
-export function startSweeper(deps: HubDeps): () => void {
+export interface SweeperLog {
+  error(obj: Record<string, unknown>, msg?: string): void;
+}
+
+export function startSweeper(deps: HubDeps, log: SweeperLog): () => void {
   const timer = setInterval(() => {
-    sweepOnce(deps);
-    retentionOnce(deps, deps.clock.branchNow());
+    // H-8 (§7.3): an error in a run is logged and the next run continues. `err` is pino's Error key (AD-20).
+    try {
+      sweepOnce(deps);
+      retentionOnce(deps, deps.clock.branchNow());
+    } catch (error) {
+      log.error({ timer: 'sweeper', err: error }, 'sweeper run failed');
+    }
   }, SWEEP_MS);
   if (typeof timer.unref === 'function') timer.unref();
   return () => clearInterval(timer);
@@ -136,7 +146,8 @@ function purge(deps: HubDeps, now: number): number {
       if (n > 0) more = true;
     }
   }
-  return deleted;
+  // 01d §5.1 (task 38): the alert projection rows, after 00's own batches
+  return deleted + purgeAlerts(deps, branchId, now);
 }
 
 function localDay(now: number): string {

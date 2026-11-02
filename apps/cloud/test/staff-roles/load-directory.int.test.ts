@@ -129,7 +129,7 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     }
   }
 
-  it('[01b #21] returns the §4.3.1 shape in 8 statements, with 3 and with 30 staff', async () => {
+  it('[01b #21] returns the §4.3.1 shape in 9 statements (01b v1.4 B-5), with 3 and with 30 staff', async () => {
     const branchB = f.branches[1];
     const branchC = f.branches[2];
     await addRole('r-waiter', 'Bera');
@@ -175,11 +175,12 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     );
 
     const { directory, statements } = await load(branchB);
-    expect(statements).toBe(8);
+    expect(statements).toBe(9); // 01b v1.4 B-5: + the no_pin_staff read
     expect(DirectorySchema.safeParse(directory).success).toBe(true);
     const staffIds = directory.staff.map((member) => member.staff_id);
     expect(staffIds).toHaveLength(3); // owner, Hamza, Bilal; the cook without a PIN is not sent (B3)
     expect(staffIds).not.toContain('s-cook');
+    expect(directory.no_pin_staff).toEqual([{ staff_id: 's-cook', display_name: 's-cook', lead_staff_id: null }]); // 01b v1.4 B-1
     const bilal = directory.staff.find((member) => member.staff_id === 's-bilal')!;
     expect(bilal).toEqual({
       staff_id: 's-bilal',
@@ -205,7 +206,7 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     for (let n = 0; n < 27; n += 1) await addStaff(`s-extra-${String(n).padStart(2, '0')}`, branchB, ['r-waiter']);
     const big = await load(branchB);
     expect(big.directory.staff).toHaveLength(30);
-    expect(big.statements).toBe(8);
+    expect(big.statements).toBe(9);
   });
 
   it('[01b #24] a v1.4 hub parses the v2 poll body: first approver kept, leaver absent, scoped grant still a grant', async () => {

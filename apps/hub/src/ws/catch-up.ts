@@ -15,7 +15,8 @@ export interface SocketCtx {
 export interface CatchUpPart {
   part: string;
   appliesTo(socket: SocketCtx): boolean;
-  build(db: Database.Database, state: unknown): unknown;
+  // H-7: `socket` is the same context given to appliesTo; existing parts may ignore it.
+  build(db: Database.Database, state: unknown, socket: SocketCtx): unknown;
 }
 
 const parts: CatchUpPart[] = [];
@@ -37,7 +38,7 @@ export function buildCatchUpState(
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { hub: hubPart(db, branchId, branchName) };
   for (const part of parts) {
-    if (part.appliesTo(socket)) merged[part.part] = part.build(db, state);
+    if (part.appliesTo(socket)) merged[part.part] = part.build(db, state, socket);
   }
   return merged;
 }

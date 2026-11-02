@@ -4,8 +4,11 @@ import { applyStaffDirectory } from '../../src/auth/apply-directory';
 import { swapDirectory } from '../../src/auth/guards';
 import { activity } from '../../src/auth/session-store';
 import { registerEventAudience } from '../../src/ws/audience';
+import { registerCatchUp, type SocketCtx } from '../../src/ws/catch-up';
+import { wsHubFor } from '../../src/ws/server';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { statementCounter } from '../helpers/statement-counter';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 
 describe('websocket publish', () => {
@@ -198,6 +201,123 @@ describe('websocket publish', () => {
     expect((await rotatingWs.untilClose()).code).toBe(4401);
     expect(bystanderWs.messages.some((message) => eventOf(message, 'DeviceTokenRotated') !== undefined)).toBe(false);
     expect((bystanderWs.raw as { readyState?: number }).readyState).toBe(1);
+  });
+
+  it('[00 H-4] connectedSessions lists open session sockets with kind and no statement; sendToStaff reaches only that staff; sendToDevices every socket of the device; a closed socket leaves the list', async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const other = pairDevice(hub, { type: 'tablet' });
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+    const cash = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    const wait = openSession(hub, { kind: 'staff', staffId: 'S_WAIT', deviceId: other.deviceId });
+    const stationLogin = await station(hub, kds.token);
+    const cashWs = await connect(hub);
+    cashWs.send({ type: 'auth', device_token: tablet.token, session_token: cash.token });
+    await cashWs.untilCount(1);
+    const waitWs = await connect(hub);
+    waitWs.send({ type: 'auth', device_token: other.token, session_token: wait.token });
+    await waitWs.untilCount(1);
+    const kdsWs = await connect(hub);
+    kdsWs.send({ type: 'auth', device_token: kds.token, session_token: stationLogin.session_token });
+    await kdsWs.untilCount(1);
+
+    const ws = wsHubFor(hub.app);
+    if (ws === undefined) throw new Error('no ws hub');
+    const counter = statementCounter(hub.deps.db);
+    const readCounter = statementCounter(hub.deps.readDb);
+    const sessions = ws.connectedSessions();
+    expect(counter.count).toBe(0);
+    expect(readCounter.count).toBe(0);
+    expect(sessions).toHaveLength(3);
+    expect(sessions).toEqual(
+      expect.arrayContaining([
+        { staffId: 'S_CASH', deviceId: tablet.deviceId, sessionId: cash.sessionId, kind: 'staff' },
+        { staffId: 'S_WAIT', deviceId: other.deviceId, sessionId: wait.sessionId, kind: 'staff' },
+        { staffId: null, deviceId: kds.deviceId, sessionId: stationLogin.session_id, kind: 'station' },
+      ]),
+    );
+
+    const frame = { type: 'alert_seen', alert_id: '01JD0000000000000000000000' } as const;
+    ws.sendToStaff(['S_CASH'], frame);
+    await cashWs.untilCount(2);
+    expect(cashWs.messages.at(-1)).toEqual(frame);
+    ws.sendToDevices([kds.deviceId], frame);
+    await kdsWs.untilCount(2);
+    expect(kdsWs.messages.at(-1)).toEqual(frame);
+    ws.sendToDevices([tablet.deviceId], frame);
+    await cashWs.untilCount(3);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(waitWs.messages).toHaveLength(1);
+    expect(kdsWs.messages).toHaveLength(2);
+    expect(cashWs.messages).toHaveLength(3);
+
+    waitWs.close();
+    for (let i = 0; i < 50 && ws.connectedSessions().length !== 2; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(ws.connectedSessions().map((s) => s.sessionId).sort()).toEqual([cash.sessionId, stationLogin.session_id].sort());
+  });
+
+  it('[01d §6 batch 3] sendToSessions reaches only the sockets of those session ids (staff or station), never another session of the same person or device', async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const other = pairDevice(hub, { type: 'tablet' });
+    const kds = pairDevice(hub, { type: 'kds', stationId: 'station-1' });
+    const first = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    const second = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: other.deviceId });
+    const stationLogin = await station(hub, kds.token);
+    const firstWs = await connect(hub);
+    firstWs.send({ type: 'auth', device_token: tablet.token, session_token: first.token });
+    await firstWs.untilCount(1);
+    const secondWs = await connect(hub);
+    secondWs.send({ type: 'auth', device_token: other.token, session_token: second.token });
+    await secondWs.untilCount(1);
+    const kdsWs = await connect(hub);
+    kdsWs.send({ type: 'auth', device_token: kds.token, session_token: stationLogin.session_token });
+    await kdsWs.untilCount(1);
+
+    const ws = wsHubFor(hub.app);
+    const counter = statementCounter(hub.deps.db);
+    const frame = { type: 'alert_seen', alert_id: '01JD0000000000000000000001' } as const;
+    ws.sendToSessions([first.sessionId, stationLogin.session_id, 'missing'], frame);
+    await firstWs.untilCount(2);
+    await kdsWs.untilCount(2);
+    expect(firstWs.messages.at(-1)).toEqual(frame);
+    expect(kdsWs.messages.at(-1)).toEqual(frame);
+    const fence = { type: 'alert_seen', alert_id: 'FENCE' } as const;
+    ws.sendToSessions([second.sessionId], fence);
+    await secondWs.untilCount(2);
+    expect(secondWs.messages.at(-1)).toEqual(fence);
+    expect(counter.count).toBe(0);
+  });
+
+  it('[00 H-7] a catch-up part build receives the same socket context as appliesTo', async () => {
+    const hub = await open(cleanups);
+    await seedDirectory(hub);
+    const tablet = pairDevice(hub, { type: 'tablet' });
+    const cash = openSession(hub, { kind: 'staff', staffId: 'S_CASH', deviceId: tablet.deviceId });
+    const seen: { applies?: SocketCtx; build?: SocketCtx } = {};
+    const stop = registerCatchUp({
+      part: 'h7_probe',
+      appliesTo(socket) {
+        seen.applies = socket;
+        return true;
+      },
+      build(_db, _state, socket) {
+        seen.build = socket;
+        return { staff: socket.staffId };
+      },
+    });
+    cleanups.push(async () => stop());
+    const ws = await connect(hub);
+    ws.send({ type: 'auth', device_token: tablet.token, session_token: cash.token });
+    await ws.untilCount(1);
+    expect(seen.build).toBeDefined();
+    expect(seen.build).toBe(seen.applies);
+    expect(seen.build).toMatchObject({ deviceId: tablet.deviceId, sessionId: cash.sessionId, kind: 'staff', staffId: 'S_CASH' });
+    expect((ws.messages[0] as { state: Record<string, unknown> }).state.h7_probe).toEqual({ staff: 'S_CASH' });
   });
 
   it('[00 §6.21] shutdown closes an open socket with 1012', async () => {

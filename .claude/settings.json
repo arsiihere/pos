@@ -29,10 +29,10 @@
       "Bash(wc:*)",
       "Bash(mkdir:*)",
       "Bash(sqlite3:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(git push origin module-01d)"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Bash(git reset:*)",
       "Bash(git checkout main:*)",
       "Bash(git merge:*)",
@@ -41,8 +41,28 @@
       "Bash(sudo:*)",
       "Bash(curl:*)",
       "Bash(wget:*)",
-      "Edit(docs/specs/00_Foundation_Spec_v1.7.md)",
-      "Write(docs/specs/00_Foundation_Spec_v1.7.md)"
+      "Bash(git push origin main:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --delete:*)",
+      "Edit(docs/specs/00_Foundation_Spec_v1.8.md)",
+      "Write(docs/specs/00_Foundation_Spec_v1.8.md)",
+      "Edit(docs/specs/00_Hub_Platform_Access_Spec_v1.6.md)",
+      "Write(docs/specs/00_Hub_Platform_Access_Spec_v1.6.md)",
+      "Edit(docs/specs/01_Restaurant_Setup_Spec_v2.0.md)",
+      "Write(docs/specs/01_Restaurant_Setup_Spec_v2.0.md)",
+      "Edit(docs/specs/01b_Staff_Roles_Spec_v1.4.md)",
+      "Write(docs/specs/01b_Staff_Roles_Spec_v1.4.md)",
+      "Edit(docs/specs/01c_Menu_Variants_Spec_v1.1.md)",
+      "Write(docs/specs/01c_Menu_Variants_Spec_v1.1.md)",
+      "Edit(docs/specs/01d_Notifications_Requests_Spec_v1.0.md)",
+      "Write(docs/specs/01d_Notifications_Requests_Spec_v1.0.md)",
+      "Bash(git push *:main*)",
+      "Bash(git push * main*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push * +*)"
     ]
   }
 }

@@ -3,7 +3,10 @@ import { DomainError, statusOf } from '@pos/domain';
 import type { StaffDirectory } from '../../src/auth/staff-directory';
 import { Semaphore } from '../../src/lib/semaphore';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { EventDraft } from '@pos/events';
 import { checkPin, type RateSubject } from '../../src/auth/pin';
+import { IdempotentReplay } from '../../src/commands/replay';
+import type { Writer, WriterTx } from '../../src/engine-host/writer';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 
@@ -204,6 +207,307 @@ describe('PIN verification', () => {
     expect(statusOf('IP_LOCKED_OUT')).toBe(429);
   });
 });
+
+describe('checkPin hooks (one counting transaction)', () => {
+  const cleanups: Array<() => Promise<void>> = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  async function setup(verifyPin: (hash: string, pin: string) => Promise<boolean> = async (_h, pin) => pin === PIN.a) {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const directory = await directoryOf();
+    const order: string[] = [];
+    let runs = 0;
+    const real = hub.deps.writer;
+    const writer: Writer = {
+      lastSeq: () => real.lastSeq(),
+      addAfterCommit: (fn) => real.addAfterCommit(fn),
+      run(fn) {
+        runs += 1;
+        order.push('run');
+        return real.run(fn);
+      },
+    };
+    let verifies = 0;
+    const deps = {
+      ...pinDeps(hub, directory, new Semaphore(2), async (hash: string, pin: string) => {
+        verifies += 1;
+        order.push('verify');
+        return verifyPin(hash, pin);
+      }),
+      writer,
+      log: hub.app.log,
+    };
+    return { hub, deps, order, runs: () => runs, verifies: () => verifies };
+  }
+
+  it('[00 H-3] prepare ok + match → onMatch gets the prepared value, staff counter reset, 1 writer.run', async () => {
+    const { hub, deps, runs } = await setup();
+    const subject = device('dev-h3-match');
+    await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(1);
+    const before = runs();
+    let prepareSawReadOnly = false;
+    const value = await checkPin(
+      deps,
+      input('S_OWNER', PIN.a, subject),
+      (tx, prepared: { drafts: EventDraft[] }) => {
+        tx.append(prepared.drafts);
+        return 'matched';
+      },
+      {
+        prepare(tx) {
+          expect(() => tx.append([])).toThrow(/read-only/);
+          prepareSawReadOnly = true;
+          return { drafts: [pinFailed('alert-match', 'answer_failed', 'X')] };
+        },
+        onMismatch: () => {
+          throw new Error('not called');
+        },
+        onPrepareFailed: () => {
+          throw new Error('not called');
+        },
+      },
+    );
+    expect(value).toBe('matched');
+    expect(prepareSawReadOnly).toBe(true);
+    expect(runs() - before).toBe(1);
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(0);
+    expect(lockRow(hub, 'device', 'dev-h3-match')?.failed_count).toBe(1);
+    expect(eventsOf(hub, 'RequestPinFailed')).toHaveLength(1);
+  });
+
+  it('[00 H-3] prepare ok + mismatch → onMismatch drafts appended, both counters +1, 401 PIN_INVALID, 1 writer.run', async () => {
+    const { hub, deps, runs } = await setup();
+    const result = checkPin(deps, input('S_OWNER', '0000', device('dev-h3-miss')), () => 'no', {
+      prepare: () => 'prepared',
+      onMismatch: () => [pinFailed('alert-miss', 'pin_invalid', 'PIN_INVALID')],
+    });
+    await expect(result).rejects.toMatchObject({ code: 'PIN_INVALID', details: { attempts_remaining: 4 } });
+    expect(statusOf('PIN_INVALID')).toBe(401);
+    expect(runs()).toBe(1);
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(1);
+    expect(lockRow(hub, 'device', 'dev-h3-miss')?.failed_count).toBe(1);
+    const failed = eventsOf(hub, 'RequestPinFailed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.payload).toMatchObject({ alert_id: 'alert-miss', outcome: 'pin_invalid' });
+  });
+
+  it('[01d §3.3 rule 4] prepare throws REQUEST_NOT_PENDING → same 409, both counters +1, onPrepareFailed(matched), 1 writer.run, for both PINs', async () => {
+    for (const [pin, matched] of [
+      [PIN.a, true],
+      ['0000', false],
+    ] as const) {
+      const { hub, deps, runs } = await setup();
+      const subject = device(`dev-h3-pf-${String(matched)}`);
+      await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+      const before = runs();
+      const seen: Array<{ code: unknown; matched: boolean }> = [];
+      let onMatchCalled = false;
+      const result = checkPin(
+        deps,
+        input('S_OWNER', pin, subject),
+        () => {
+          onMatchCalled = true;
+          return 'no';
+        },
+        {
+          prepare: () => {
+            throw new DomainError('REQUEST_NOT_PENDING', { alert_id: 'alert-pf' });
+          },
+          onMismatch: () => {
+            throw new Error('not called');
+          },
+          onPrepareFailed: (tx: WriterTx, error: unknown, m: boolean) => {
+            seen.push({ code: (error as DomainError).code, matched: m });
+            expect(tx.db.inTransaction).toBe(true);
+            return [pinFailed('alert-pf', 'answer_failed', (error as DomainError).code)];
+          },
+        },
+      );
+      await expect(result).rejects.toMatchObject({ code: 'REQUEST_NOT_PENDING', details: { alert_id: 'alert-pf' } });
+      expect(statusOf('REQUEST_NOT_PENDING')).toBe(409);
+      expect(onMatchCalled).toBe(false);
+      expect(seen).toEqual([{ code: 'REQUEST_NOT_PENDING', matched }]);
+      expect(runs() - before).toBe(1);
+      expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(2);
+      expect(lockRow(hub, 'device', subject.id)?.failed_count).toBe(2);
+      const failed = eventsOf(hub, 'RequestPinFailed');
+      expect(failed).toHaveLength(1);
+      expect(failed[0]?.payload).toMatchObject({ outcome: 'answer_failed', error_code: 'REQUEST_NOT_PENDING' });
+    }
+  });
+
+  it('[00 H-3] the 5th counted prepare failure writes StaffPinLockedOut in that transaction; next call → 429 before verify', async () => {
+    const { hub, deps, runs, verifies } = await setup();
+    const subject = device('dev-h3-lock');
+    const hooks = {
+      prepare: (): never => {
+        throw new DomainError('REQUEST_NOT_PENDING', { alert_id: 'alert-lock' });
+      },
+      onPrepareFailed: () => [pinFailed('alert-lock', 'answer_failed', 'REQUEST_NOT_PENDING')],
+    };
+    for (let i = 0; i < 5; i += 1) {
+      const before = runs();
+      await expect(checkPin(deps, input('S_OWNER', i % 2 === 0 ? PIN.a : '0000', subject), () => 'no', hooks)).rejects.toMatchObject({
+        code: 'REQUEST_NOT_PENDING',
+      });
+      expect(runs() - before).toBe(1);
+    }
+    const locked = lockEvents(hub, 'StaffPinLockedOut');
+    expect(locked).toHaveLength(1);
+    expect(locked[0]?.payload).toMatchObject({ staff_id: 'S_OWNER', failed_count: 5 });
+    const lockSeq = (
+      hub.deps.db.prepare(`SELECT seq FROM events WHERE event_type = 'StaffPinLockedOut'`).get() as { seq: number }
+    ).seq;
+    const lastFailedSeq = (
+      hub.deps.db.prepare(`SELECT MAX(seq) AS seq FROM events WHERE event_type = 'RequestPinFailed'`).get() as { seq: number }
+    ).seq;
+    expect(lastFailedSeq).toBe(lockSeq + 1);
+    const verified = verifies();
+    await expect(checkPin(deps, input('S_OWNER', PIN.a, subject), () => 'no', hooks)).rejects.toMatchObject({
+      code: 'PIN_LOCKED_OUT',
+    });
+    expect(statusOf('PIN_LOCKED_OUT')).toBe(429);
+    expect(verifies()).toBe(verified);
+  });
+
+  it('[00 H-3] prepare calling tx.append → its own error is the prepare error, counted', async () => {
+    const { hub, deps, runs } = await setup();
+    const subject = device('dev-h3-append');
+    let received: unknown;
+    const result = checkPin(deps, input('S_OWNER', PIN.a, subject), () => 'no', {
+      prepare: (tx) => tx.append([pinFailed('alert-append', 'answer_failed', 'X')]),
+      onPrepareFailed: (_tx, error) => {
+        received = error;
+        return [];
+      },
+    });
+    await expect(result).rejects.toThrow(/read-only/);
+    await expect(result).rejects.toBe(received);
+    expect(runs()).toBe(1);
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(1);
+    expect(lockRow(hub, 'device', 'dev-h3-append')?.failed_count).toBe(1);
+    expect(eventsOf(hub, 'RequestPinFailed')).toHaveLength(0);
+  });
+
+  it('[00 H-3] IdempotentReplay from prepare is rethrown, nothing counted', async () => {
+    const { hub, deps } = await setup();
+    const replay = new IdempotentReplay({ status: 200, body: { data: 'stored' } });
+    let failedCalled = false;
+    const result = checkPin(deps, input('S_OWNER', '0000', device('dev-h3-replay')), () => 'no', {
+      prepare: () => {
+        throw replay;
+      },
+      onPrepareFailed: () => {
+        failedCalled = true;
+        return [];
+      },
+    });
+    await expect(result).rejects.toBe(replay);
+    expect(failedCalled).toBe(false);
+    expect(lockRow(hub, 'staff', 'S_OWNER')).toBeUndefined();
+    expect(lockRow(hub, 'device', 'dev-h3-replay')).toBeUndefined();
+  });
+
+  it('[01d BF-2] onPrepareFailed throws → the caller still gets the original prepare error for both PINs, one error log line', async () => {
+    for (const pin of [PIN.a, '0000']) {
+      const { hub, deps } = await setup();
+      const original = new DomainError('REQUEST_NOT_PENDING', { alert_id: 'alert-bf2' });
+      const result = checkPin(deps, input('S_OWNER', pin, device('dev-bf2')), () => 'no', {
+        prepare: () => {
+          throw original;
+        },
+        onPrepareFailed: () => {
+          throw new Error('raise blew up');
+        },
+      });
+      await expect(result).rejects.toBe(original);
+      const lines = hub
+        .logs()
+        .split('\n')
+        .filter((line) => line.includes('"phase":"onPrepareFailed"'));
+      expect(lines).toHaveLength(1);
+      const entry = JSON.parse(lines[0] ?? '{}') as { level: number; err?: { message?: string } };
+      expect(entry.level).toBe(50);
+      expect(entry.err?.message).toBe('raise blew up');
+      expect(hub.logs()).not.toContain(PIN.a);
+    }
+  });
+
+  it('[01d BF-2] onMatch throws after the reset → the original error, counter reset kept, logged', async () => {
+    const { hub, deps, runs } = await setup();
+    const subject = device('dev-h3-onmatch');
+    await expect(checkPin(deps, input('S_OWNER', '0000', subject), () => 'no')).rejects.toMatchObject({ code: 'PIN_INVALID' });
+    const before = runs();
+    const original = new Error('append failed');
+    const result = checkPin(
+      deps,
+      input('S_OWNER', PIN.a, subject),
+      () => {
+        throw original;
+      },
+      { prepare: () => 'p' },
+    );
+    await expect(result).rejects.toBe(original);
+    expect(runs() - before).toBe(2);
+    expect(lockRow(hub, 'staff', 'S_OWNER')?.failed_count).toBe(0);
+    expect(lockRow(hub, 'device', 'dev-h3-onmatch')?.failed_count).toBe(1);
+    const lines = hub
+      .logs()
+      .split('\n')
+      .filter((line) => line.includes('"phase":"onMatch"'));
+    expect(lines).toHaveLength(1);
+    expect(hub.logs()).not.toContain(PIN.a);
+  });
+
+  it('[00 H-3] testHooks.betweenVerifyAndWriter runs after verify and before writer.run', async () => {
+    const { deps, order } = await setup();
+    const result = await checkPin(
+      {
+        ...deps,
+        testHooks: {
+          betweenVerifyAndWriter: async () => {
+            order.push('hook');
+          },
+        },
+      },
+      input('S_OWNER', PIN.a, device('dev-h3-hook')),
+      () => 'ok',
+    );
+    expect(result).toBe('ok');
+    expect(order).toEqual(['verify', 'hook', 'run']);
+  });
+});
+
+function pinFailed(alertId: string, outcome: 'pin_invalid' | 'answer_failed', errorCode: string): EventDraft {
+  return {
+    stream_type: 'audit',
+    stream_id: alertId,
+    event_type: 'RequestPinFailed',
+    schema_version: 1,
+    payload: {
+      alert_id: alertId,
+      subject_stream_type: 'order',
+      subject_stream_id: 'order-1',
+      answerer_staff_id: 'S_OWNER',
+      method: 'pin',
+      device_id: 'dev-1',
+      requester_staff_id: 'S_CASH',
+      outcome,
+      error_code: errorCode,
+    },
+    occurred_at: 1_761_000_000_000,
+    actor_id: 'S_CASH',
+    device_id: 'dev-1',
+  };
+}
+
+function eventsOf(hub: TestHub, eventType: string): Array<{ payload: Record<string, unknown> }> {
+  return lockEvents(hub, eventType);
+}
 
 function device(id: string): RateSubject {
   return { type: 'device', id };

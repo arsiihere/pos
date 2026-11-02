@@ -9,6 +9,7 @@ import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { attachRouteGuards } from '../auth/guards.js';
+import { startTickLoop } from '../alerts/tick.js';
 import { startSweeper } from '../auth/session-sweeper.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
@@ -20,6 +21,7 @@ import { createAuthGeneration } from '../engine-host/auth-generation.js';
 import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
+import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
@@ -218,11 +220,14 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     current = '8';
     phase = 'ready';
     const stopHeart = startHeartbeat(db, deps.clock, provisioned.branch_id);
-    const stopSweep = startSweeper(deps);
+    const stopSweep = startSweeper(deps, app.log);
+    // 01d §3.5: the hub tick loop starts after step 7 (F §5.8: the server is open, projections are current)
+    const stopTick = startTickLoop(deps, app.log);
     beat.stop = () => {
       stopConfirm();
       stopHeart();
       stopSweep();
+      stopTick();
     };
     return handle(deps, app, db, readDb, () => current, beat);
   } catch (error) {
@@ -292,6 +297,7 @@ function createDeps(
   state.setReducer(applyEvent);
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
+  registerAlertProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {

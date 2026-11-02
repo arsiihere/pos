@@ -94,6 +94,35 @@ describe('StaffDirectory', () => {
     });
   });
 
+  it('[01b B-3] teamOf includes no_pin_staff only with includeNoPin; noPinStaff and isNoPin; no-PIN people are not on the roster', () => {
+    const ali = { ...staff('S_ALI', 'Ali', 'hash-ali', ['R_A']), lead_staff_id: null };
+    const bilal = { ...staff('S_BILAL', 'Bilal', 'hash-bilal', ['R_A']), lead_staff_id: 'S_ALI' };
+    const directory = StaffDirectory.fromInput({
+      ...truthTable(),
+      staff: [ali, bilal],
+      no_pin_staff: [
+        { staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' },
+        { staff_id: 'S_ADIL', display_name: 'Adil', lead_staff_id: 'S_ALI' },
+        { staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: null },
+      ],
+    });
+    expect(directory.teamOf('S_ALI')).toEqual(['S_BILAL']);
+    expect(directory.teamOf('S_ALI', { includeNoPin: false })).toEqual(['S_BILAL']);
+    expect(directory.teamOf('S_ALI', { includeNoPin: true })).toEqual(['S_ADIL', 'S_BILAL', 'S_SANA']);
+    expect(directory.noPinStaff()).toEqual([
+      { staff_id: 'S_ADIL', display_name: 'Adil', lead_staff_id: 'S_ALI' },
+      { staff_id: 'S_SANA', display_name: 'Sana', lead_staff_id: 'S_ALI' },
+      { staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: null },
+    ]);
+    expect(directory.isNoPin('S_SANA')).toBe(true);
+    expect(directory.isNoPin('S_ALI')).toBe(false);
+    expect(directory.isNoPin('S_MISSING')).toBe(false);
+    expect(directory.list().map((row) => row.staff_id)).toEqual(['S_ALI', 'S_BILAL']);
+    expect(directory.get('S_SANA')).toBeUndefined();
+    expect(directory.resolve('S_SANA', 'reprint-ticket')).toEqual({ grant: 'not_granted' });
+    expect(StaffDirectory.fromInput(truthTable()).noPinStaff()).toEqual([]);
+  });
+
   it('[00 §5.1] load() round trip through the cache tables', async () => {
     const input = await aDirectory({ directory_version: 4 });
     const fx = freshDb();

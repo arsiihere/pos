@@ -3,7 +3,7 @@ import type { DirectoryInput } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { WriterTx } from '../engine-host/writer.js';
 import { activeSessionsOf, endSession, revokeDevice } from './session-store.js';
-import { StaffDirectory, type DirectoryCore } from './staff-directory.js';
+import { StaffDirectory, type DirectoryCore, type NoPinStaff } from './staff-directory.js';
 
 const PIN_HASH_RE = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$/;
 
@@ -119,9 +119,21 @@ export function applyStaffDirectory(
     for (const roleId of row.role_ids) retainRole(roleId);
   }
   const present = new Set(staff.map((row) => row.staff_id));
-  // 01b B18 b: a lead or responsibility naming someone not stored here (e.g. no PIN) reads as none.
-  for (const row of staff) {
-    if (row.lead_staff_id !== null && !present.has(row.lead_staff_id)) {
+  // 01b v1.4 B-1: a staff_id is in exactly one list; a no_pin_staff entry repeating one already kept is skipped.
+  const noPin: NoPinStaff[] = [];
+  const seenNoPin = new Set<string>();
+  for (const row of d.no_pin_staff ?? []) {
+    if (present.has(row.staff_id) || seenNoPin.has(row.staff_id)) {
+      warnSkip(skipped, { kind: 'staff', id: row.staff_id, reason: 'duplicate staff' });
+      continue;
+    }
+    seenNoPin.add(row.staff_id);
+    noPin.push({ staff_id: row.staff_id, display_name: row.display_name, lead_staff_id: row.lead_staff_id });
+  }
+  // 01b B18 b: a lead or responsibility naming someone not stored here reads as none. v1.4 B-6: a lead
+  // (of either list) naming a no_pin_staff person is kept.
+  for (const row of [...staff, ...noPin]) {
+    if (row.lead_staff_id !== null && !present.has(row.lead_staff_id) && !seenNoPin.has(row.lead_staff_id)) {
       warnSkip(skipped, { kind: 'lead', id: `${row.staff_id}:${row.lead_staff_id}`, reason: 'unknown staff' });
       row.lead_staff_id = null;
     }
@@ -148,7 +160,7 @@ export function applyStaffDirectory(
     })
     .map((row) => row.staff_id)
     .sort();
-  const stored: DirectoryCore = { directory_version: d.directory_version, roles, staff, responsibilities };
+  const stored: DirectoryCore = { directory_version: d.directory_version, roles, staff, responsibilities, no_pin_staff: noPin };
   replaceCache(tx, stored);
   for (const staffId of removed) endStaff(tx, staffId, 'staff_removed');
   for (const staffId of removed) revokePhones(tx, staffId);
@@ -298,6 +310,7 @@ function replaceCache(tx: WriterTx, d: DirectoryCore): void {
     DELETE FROM staff;
     DELETE FROM roles;
     DELETE FROM staff_directory_meta;
+    DELETE FROM no_pin_staff;
   `);
   const insertRole = tx.db.prepare('INSERT INTO roles (role_id, branch_id, name, session_idle_ttl_ms) VALUES (?, ?, ?, ?)');
   const insertPerm = tx.db.prepare('INSERT INTO role_permissions (role_id, permission, grant_type, scope) VALUES (?, ?, ?, ?)');
@@ -328,6 +341,8 @@ function replaceCache(tx: WriterTx, d: DirectoryCore): void {
     for (const permission of row.denied_permissions) insertDenial.run(row.staff_id, permission);
     for (const floorId of row.floor_ids) insertFloor.run(row.staff_id, floorId);
   }
+  const insertNoPin = tx.db.prepare('INSERT INTO no_pin_staff (staff_id, display_name, lead_staff_id) VALUES (?, ?, ?)');
+  for (const row of d.no_pin_staff ?? []) insertNoPin.run(row.staff_id, row.display_name, row.lead_staff_id);
   const seen = new Set<string>();
   for (const entry of d.responsibilities) {
     for (const [kind, ids] of [['staff', entry.staff_ids], ['role', entry.role_ids]] as const) {

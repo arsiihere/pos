@@ -49,6 +49,7 @@ const STATUS = {
   directory_version: 2,
   last_poll: { outcome: 'applied', at: 20 },
   last_problem: null,
+  stuck_alerts: 0,
 };
 
 const OPENED = { business_date: '2026-10-26', opened_at: 30, changed: true, reason: 'opened' };

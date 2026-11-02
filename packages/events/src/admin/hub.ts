@@ -56,6 +56,8 @@ export const ConfigStatusResponse = z.object({
         at: int,
       })
       .nullable(),
+    // 01d AD-123: "Stuck alerts: N", open alerts retired because a step cannot be computed
+    stuck_alerts: int,
   }),
 });
 

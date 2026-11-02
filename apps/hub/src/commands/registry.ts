@@ -1,4 +1,5 @@
 import type { Permission, SessionKind } from '@pos/domain';
+import type Database from 'better-sqlite3';
 import type { EngineState } from '@pos/engine';
 import type { EventDraft, PosCommand } from '@pos/events';
 import type { z } from 'zod';
@@ -28,13 +29,40 @@ export interface CommandCtx {
   config: HubConfig;
 }
 
+/** 00 v1.6 §3.7 H-3: the only commands that may declare `permission: 'checked-in-handler'`. */
+export const HANDLER_CHECKED_COMMANDS = ['AnswerRequest', 'WithdrawRequest', 'MarkAlertsSeen'] as const;
+
+/** 00 v1.6 §3.5 H-3: read-only context for `preRead` / `pinCheck` (built by the pipeline in 01d task 6). */
+export interface PreReadCtx {
+  /** read-only connection */
+  db: Database.Database;
+  state: Readonly<EngineState>;
+  clock: Clock;
+  actor: CommandCtx['actor'];
+  directory: StaffDirectory;
+  branch: CommandCtx['branch'];
+  config: HubConfig;
+  authChanged: boolean;
+}
+
 export interface CommandDef<P extends z.ZodType = z.ZodType> {
   commandType: string;
   payloadSchema: P;
   sessionKind: 'device' | 'admin';
-  permission: Permission | null;
+  /** `'checked-in-handler'` only for HANDLER_CHECKED_COMMANDS (00 v1.6 §3.7 H-3); `ctx.permission` is then null. */
+  permission: Permission | null | 'checked-in-handler';
   approvable?: boolean;
   stationScoped?: boolean;
+  /** 00 v1.6 §3.5 / §4.2 H-3: read-only check after payload Zod, before the PIN step; `db` is the read-only view. */
+  preRead?(db: Database.Database, payload: z.infer<P>, ctx: PreReadCtx): void;
+  /** 00 v1.6 §3.5 H-3: the PIN to verify; `field` is also omitted from `payload_hash` (H-9). */
+  pinCheck?(payload: z.infer<P>, ctx: PreReadCtx): { staff_id: string; pin: string; field: string } | null;
+  /** 00 v1.6 §3.5 H-3: drafts appended on a PIN mismatch / a failed `prepare`. */
+  pinHooks?: {
+    // `cmd` (01d task 23): the command envelope, e.g. its command_id for a notice's dedupe_key (01d §3.10).
+    onMismatch(tx: WriterTx, payload: z.infer<P>, ctx: CommandCtx, cmd: PosCommand): EventDraft[];
+    onPrepareFailed(tx: WriterTx, error: unknown, matched: boolean, payload: z.infer<P>, ctx: CommandCtx, cmd: PosCommand): EventDraft[];
+  };
   handle(ctx: CommandCtx, payload: z.infer<P>, cmd: PosCommand): { events: EventDraft[]; result: unknown };
 }
 
@@ -56,6 +84,11 @@ export function createCommandRegistry(): {
   const byName = new Map<string, CommandDef>();
   return {
     register(d) {
+      if (d.permission === 'checked-in-handler' && !(HANDLER_CHECKED_COMMANDS as readonly string[]).includes(d.commandType)) {
+        throw new Error(
+          `${d.commandType}: permission 'checked-in-handler' is allowed only for HANDLER_CHECKED_COMMANDS (${HANDLER_CHECKED_COMMANDS.join(', ')})`,
+        );
+      }
       byName.set(toKebab(d.commandType), d);
     },
     byPath(name) {

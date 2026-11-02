@@ -18,6 +18,7 @@ import { fixedClock } from '../../src/lib/clock';
 import { sha256hex } from '../../src/lib/hash';
 import { testIdGen } from '../../src/lib/ids';
 import { testSecrets } from '../../src/lib/secrets';
+import { registerAlertProjections } from '../../src/projections/alerts';
 import { registerRestaurantProjections } from '../../src/projections/branch-config';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -60,6 +61,7 @@ export async function createTestHub(o?: {
   state.setReducer(applyEvent);
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
+  registerAlertProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];

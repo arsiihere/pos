@@ -66,8 +66,8 @@ function errorOf(reply: { status: number; body: unknown }): HubError {
 }
 
 // The same store as the pairing page (apps/hub/src/auth/pair-page.ts): database `pos-device`, store
-// `device`, keys `token` and `device_id`.
-function readDeviceKey(key: string): Promise<string | null> {
+// `device`, keys `token`, `device_id` and `device_type` (also read by the 01d staff entry).
+export function readDeviceKey(key: string): Promise<string | null> {
   return new Promise((resolve) => {
     let request: IDBOpenDBRequest;
     try {

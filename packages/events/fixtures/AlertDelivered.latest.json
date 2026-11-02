@@ -1,0 +1,23 @@
+{
+  "event_id": "01J00000000000000000000001",
+  "tenant_id": "01J00000000000000000000002",
+  "branch_id": "01J00000000000000000000003",
+  "schema_version": 1,
+  "occurred_at": 1761000000000,
+  "recorded_at": 1761000000000,
+  "actor_id": null,
+  "device_id": "hub",
+  "seq": 1,
+  "stream_type": "audit",
+  "stream_id": "01J00000000000000000000010",
+  "event_type": "AlertDelivered",
+  "payload": {
+    "alert_id": "01J00000000000000000000010",
+    "subject_stream_type": "hub",
+    "subject_stream_id": "01J00000000000000000000003",
+    "staff_id": "01J00000000000000000000004",
+    "device_id": "01J00000000000000000000005",
+    "route": "alert_connection",
+    "step": 0
+  }
+}
