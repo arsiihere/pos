@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import type { DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aBusinessDayOpened, aDevicePaired } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -54,7 +55,7 @@ const needsApproval = (permission: Grant['permission'], approvers: string[]): Gr
  * One permission needs approval (void-item, by R_MGR / R_SUP); R_MGR holds approve-void branch-wide, R_SUP
  * only my_team. OWNER is a manager (§3.4 `managers`) but holds no approver role.
  */
-async function directory(o: { without?: string[]; noPin?: string[]; version?: number } = {}): Promise<DirectoryInput> {
+async function directory(o: { without?: string[]; noPin?: string[]; version?: number; extra?: number; discount?: boolean } = {}): Promise<DirectoryInput> {
   const base = await aDirectory();
   const pin = (base.staff[0] as DirectoryInput['staff'][number]).pin_hash;
   const person = (staff_id: string, role_ids: string[]): DirectoryInput['staff'][number] => ({
@@ -69,6 +70,10 @@ async function directory(o: { without?: string[]; noPin?: string[]; version?: nu
   const staff = [person(OWNER, ['R_OWNER']), person(MGR, ['R_MGR']), person(SUP, ['R_SUP']), person(ALI, ['R_MGR']), person(WAIT, ['R_WAIT'])].filter(
     (s) => !(o.without ?? []).includes(s.staff_id) && !(o.noPin ?? []).includes(s.staff_id),
   );
+  // `extra` order takers (no approver role): the flag pass's statement count must not grow with them
+  for (let i = 0; i < (o.extra ?? 0); i += 1) staff.push(person(`S_X${String(i).padStart(3, '0')}`, ['R_WAIT']));
+  // `discount`: a second permission that needs approval (by R_MGR only), so the flag pass raises two warnings
+  const wait = o.discount === true ? [needsApproval('void-item', ['R_MGR', 'R_SUP']), needsApproval('apply-discount', ['R_MGR'])] : [needsApproval('void-item', ['R_MGR', 'R_SUP'])];
   return {
     ...base,
     directory_version: o.version ?? (base.directory_version ?? 1) + (o.without?.length ?? 0) + (o.noPin?.length ?? 0),
@@ -76,7 +81,7 @@ async function directory(o: { without?: string[]; noPin?: string[]; version?: nu
       { role_id: 'R_OWNER', name: 'Owner', session_idle_ttl_ms: 3_600_000, permissions: [allowed('force-release-table-lock')] },
       { role_id: 'R_MGR', name: 'Manager', session_idle_ttl_ms: 3_600_000, permissions: [allowed('approve-void'), allowed('force-release-table-lock')] },
       { role_id: 'R_SUP', name: 'Supervisor', session_idle_ttl_ms: 3_600_000, permissions: [allowed('approve-void', 'my_team')] },
-      { role_id: 'R_WAIT', name: 'Order taker', session_idle_ttl_ms: 300_000, permissions: [needsApproval('void-item', ['R_MGR', 'R_SUP'])] },
+      { role_id: 'R_WAIT', name: 'Order taker', session_idle_ttl_ms: 300_000, permissions: wait },
     ],
     staff,
     responsibilities: [],
@@ -329,7 +334,37 @@ describe('01d no_approver and BF-7 (task 31)', () => {
     for (const id of ids) expect(rows().find((r) => r.alert_id === id)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
   });
 
-  it('[01d §3.5] the flag pass reads a fixed number of statements: 1 or 20 notices of removed staff cost the same', async () => {
+  /**
+   * The flag pass's statement count (AD row, task 31): inside `intents` the step pass's due read (1) and the
+   * flags read (2), the fixed reads (3)–(6), (9) = 5, the flag pass's one alert read, the flag write; and, when it
+   * raises, raiseMany's dedupe read + T (one `routesFor` per registered route: here the fake pager, T = 1).
+   * R = 0: `always_on` and `managers` resolve in memory.
+   */
+  const T = 1;
+  const FLAG_PASS = 1 + 1 + 5 + 1 + 1;
+  const FLAG_PASS_RAISING = FLAG_PASS + 1 + T;
+
+  /** Marks the flag, runs `intents` once in a transaction, counts its statements, and rolls the transaction back. */
+  function measureFlagPass(): { statements: number; types: string[] } {
+    hub.deps.db.prepare(`UPDATE alert_flags SET dirty = 1`).run();
+    const counter = statementCounter(hub.deps.db);
+    const out = { statements: -1, types: [] as string[] };
+    const rollback = new Error('measured');
+    try {
+      hub.deps.writer.run((tx) => {
+        counter.reset();
+        const drafts = alertsTick.intents(tx, hub.deps.state.get(), hub.clock.branchNow());
+        out.statements = counter.count;
+        out.types = drafts.map((d) => d.event_type);
+        throw rollback;
+      });
+    } catch (err) {
+      if (err !== rollback) throw err;
+    }
+    return out;
+  }
+
+  it('[01d §3.5] the flag pass reads a fixed number of statements: 1 or 20 notices of removed staff cost the same, pinned to the formula', async () => {
     let version = 10;
     const count = async (n: number): Promise<{ statements: number; closed: number }> => {
       raiseHub(Array.from({ length: n }, (_, i) => receiptInput(ALI, 1000 * n + i)));
@@ -351,7 +386,38 @@ describe('01d no_approver and BF-7 (task 31)', () => {
     const twenty = await count(20);
     expect(one.closed).toBe(1);
     expect(twenty.closed).toBe(20);
-    expect(twenty.statements).toBe(one.statements);
+    expect(one.statements).toBe(FLAG_PASS); // no day open: nothing raised
+    expect(twenty.statements).toBe(FLAG_PASS);
+  });
+
+  it('[01d §3.5] the flag pass raising: 1 or 2 warnings cost FLAG_PASS + dedupe 1 + T, the same with 60 more staff and 40 more open alerts', async () => {
+    openDay();
+    await seedDirectory(hub, await directory({ version: 20 }));
+    const one = measureFlagPass();
+    expect(one.types.filter((t) => t === 'AlertRaised')).toHaveLength(1);
+    expect(one.statements).toBe(FLAG_PASS_RAISING);
+
+    await seedDirectory(hub, await directory({ version: 21, discount: true }));
+    const two = measureFlagPass();
+    expect(two.types.filter((t) => t === 'AlertRaised')).toHaveLength(2);
+    expect(two.statements).toBe(FLAG_PASS_RAISING);
+
+    // 60 more people and 40 more open alerts (personal notices of people still in staff, and info alerts)
+    await seedDirectory(hub, await directory({ version: 22, discount: true, extra: 60 }));
+    raiseHub([
+      ...Array.from({ length: 20 }, (_, i) => receiptInput(MGR, 5000 + i)),
+      ...Array.from({ length: 20 }, (_, i): RaiseInput => ({ kind: 't_info', subject: { stream_type: 'hub', stream_id: BRANCH }, target: { kind: 'person', staff_id: WAIT }, display, dedupe_key: `big:${i}` })),
+    ]);
+    const big = measureFlagPass();
+    expect(big.types.filter((t) => t === 'AlertRaised')).toHaveLength(2);
+    expect(big.types).not.toContain('AlertClosed');
+    expect(big.statements).toBe(FLAG_PASS_RAISING);
+
+    // with both warnings open, nothing is raised: back to FLAG_PASS
+    start();
+    await pass();
+    expect(openNoApprover()).toEqual(['no_approver:apply-discount', 'no_approver:void-item']);
+    expect(measureFlagPass()).toEqual({ statements: FLAG_PASS, types: [] });
   });
 
   // --------------------------------------------------------------------------------------------- #59 hub
@@ -371,6 +437,23 @@ describe('01d no_approver and BF-7 (task 31)', () => {
     expect(alertsTick.due(hub.deps.db, hub.deps.state.get(), hub.clock.branchNow())).toBe(false);
     await pass();
     expect(events(alert.alert_id).filter((e) => e.event_type === 'AlertClosed')).toHaveLength(1);
+  });
+
+  it('[01d #59 hub] (m1) day close with 250 expiring alerts due before no_approver (LIMIT 200): no_approver gets exactly one AlertClosed expired and no done', async () => {
+    // the 250 infos are raised first, so at day close (all due at the same time) they fill the first pass's LIMIT 200
+    raiseHub(Array.from({ length: 250 }, (_, i): RaiseInput => ({ kind: 't_info', subject: { stream_type: 'hub', stream_id: BRANCH }, target: { kind: 'person', staff_id: WAIT }, display, dedupe_key: `many:${i}` })));
+    openDay();
+    start();
+    await pass();
+    const [alert] = rows('no_approver') as [Row];
+    expect(alert.state).toBe('open');
+    closeDay();
+    for (let i = 0; i < 4; i += 1) await pass();
+    const closes = events(alert.alert_id).filter((e) => e.event_type === 'AlertClosed');
+    expect(closes.map((e) => (e.payload as { reason: string }).reason)).toEqual(['expired']);
+    expect(rows('t_info').every((r) => r.state === 'closed' && r.close_reason === 'expired')).toBe(true);
+    expect(dirty()).toBe(0);
+    expect(alertsTick.due(hub.deps.db, hub.deps.state.get(), hub.clock.branchNow())).toBe(false);
   });
 
   it('[01d #59 hub] (m2) on the full stack a phone’s owner binding survives a SessionStarted and a logout on that phone; the owner’s alert still reaches the phone', async () => {
@@ -517,7 +600,11 @@ describe('01d no_approver on a booted hub (task 31)', () => {
   const WALL = 1_761_000_000_000;
   // as main.ts: the step-3 engine fold, so the restarted hub knows the business day is open
   registerRestaurantBootSteps();
-  const bootIt = (path: string) => boot({ configPath: path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud() });
+  const bootIt = (path: string) => boot({ configPath: path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
+  // the offline cloud makes boot log `hub confirm failed`; these tests do not read the log
+  function quiet(): Writable {
+    return new Writable({ write: (_chunk, _enc, done) => done() });
+  }
 
   it('[01d #32] the flag survives a restart: dirty at stop → the restarted hub’s first pass raises no_approver; [01d §3.5] the flag pass clears it, so the next pass opens no transaction (#22)', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });

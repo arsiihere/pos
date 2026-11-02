@@ -212,7 +212,7 @@ const DIRTY_FLAGS_SQL = `SELECT name FROM alert_flags WHERE dirty = 1`;
  * person a notice is for (its raised target is `{ kind: 'person', staff_id }`, §3.10). One statement whatever
  * the number of rows (index `alerts_open_kind`).
  */
-const FLAG_ALERTS_SQL = `SELECT alert_id, kind, dedupe_key, subject_stream_type, subject_stream_id,
+const FLAG_ALERTS_SQL = `SELECT alert_id, kind, dedupe_key, subject_stream_type, subject_stream_id, expire_due,
          json_extract(target_json, '$.staff_id') AS person
     FROM alerts
     WHERE state = 'open' AND kind IN (SELECT value FROM json_each(?))
@@ -229,6 +229,7 @@ interface FlagRow {
   dedupe_key: string;
   subject_stream_type: PosEvent['stream_type'];
   subject_stream_id: string;
+  expire_due: 0 | 1;
   person: string | null;
 }
 
@@ -281,7 +282,8 @@ function unapprovable(directory: StaffDirectory, signedIn: ReadonlySet<string>):
  *   closed `done`; a missing one is raised (one `raiseMany`, its fixed reads cached from this transaction).
  * - BF-7 (AD-3 / P-7): the open personal notices of a person no longer in `staff` (removed, or moved to
  *   `no_pin_staff`) are closed `obsolete`.
- * - Alerts the expiry pass closed in this transaction (`closed`) are skipped (m1: one `AlertClosed`).
+ * - Alerts the expiry pass closed in this transaction (`closed`), and `no_approver` alerts marked `expire_due`
+ *   by day close that the due read's LIMIT left for a later pass, are skipped (m1: one `AlertClosed 'expired'`).
  * - The flag is cleared in the same transaction (§3.9), so the next idle pass opens no transaction (#22).
  * Statements: the alert read 1, the fixed reads (cached when the step pass ran), the raise's dedupe 1 + T when
  * a warning is raised, and the flag write 1 — fixed, whatever the number of alerts or people.
@@ -303,6 +305,9 @@ function flagIntents(tx: WriterTx, state: Readonly<EngineState>, now: number, cl
   for (const r of rows) {
     if (closed.has(r.alert_id)) continue; // m1: expired in this pass
     if (r.kind === NO_APPROVER.kind) {
+      // m1: marked by day close, it is expiry's to close `expired`, in this pass or a later one when the due
+      // read's LIMIT 200 left it out of this pass's `due` (so it is not in `closed` either)
+      if (r.expire_due === 1) continue;
       const permission = r.dedupe_key.startsWith(NO_APPROVER_PREFIX) ? r.dedupe_key.slice(NO_APPROVER_PREFIX.length) : r.dedupe_key;
       if (wanted.has(permission) && !open.has(permission)) open.add(permission);
       else close(r, 'done');
