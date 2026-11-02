@@ -4,6 +4,7 @@ import { aBusinessDayClosed, aBusinessDayOpened, anAlertRaised, anAttemptSent } 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAlertSockets } from '../../src/alerts/alert-sockets';
 import { createAlertsCatchUp } from '../../src/alerts/catch-up';
+import { kindOf } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { receiptBufferFor } from '../../src/alerts/receipts';
 import { currentDirectory } from '../../src/auth/guards';
@@ -715,7 +716,7 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
 
   // -------------------------------------------------------------------------------------------- #55
 
-  it('[01d #55] in person on the raising tablet: answered_on_requester_device and a silent approval_receipt reach Imran on every own route (screen, bound tablet, pager); in person from tablet B → 403 in_person_elsewhere, no PIN verified, nothing counted', async () => {
+  it('[01d #55; AD-164] in person on the raising tablet: answered_on_requester_device and a silent approval_receipt reach Imran on his screen and bound tablet, never on a short-code route (pager); in person from tablet B → 403 in_person_elsewhere, no PIN verified, nothing counted', async () => {
     const hamza = seat(WAIT, 'Hamza tablet');
     const imranTab = device('tablet', 'Imran tablet');
     const imran = signIn(MGR, imranTab);
@@ -754,8 +755,12 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const locks = alertFrames(bound).slice(before.get(bound));
     expect(idsOf(locks).sort()).toEqual([notice, receipt].sort());
     expectLockOnly(locks);
-    // the pager route is resolved for both (AttemptSent.routes); its `send` needs a `short` label (§3.8, §3.12),
-    // which these kinds do not register, so nothing is sent to the fake pager itself
+    // AD-164 (#55 reworded): personal notices have no `short` label, so they are never sent on a short-code
+    // route (§3.8, N8). The pager route is still resolved for Imran in AttemptSent.routes (current behaviour:
+    // routesFor is asked per person, the short-label check is at send), but its `send` is never called for them.
+    expect(kindOf('answered_on_requester_device')?.labels.short).toBeUndefined();
+    expect(kindOf('approval_receipt')?.labels.short).toBeUndefined();
+    expect(kindOf('pin_use_failed')?.labels.short).toBeUndefined();
     for (const n of [notice, receipt]) {
       const step = eventsOf('AttemptSent').find((e) => e.payload.alert_id === n);
       expect(step?.payload.routes).toEqual(
@@ -766,7 +771,22 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
         ]),
       );
     }
-    expect(fakePager.sent.map((s) => s.alert_id)).not.toContain(receipt);
+    // the third personal notice, pin_use_failed (raised as AnswerRequest raises it), likewise
+    const failed = raise({
+      kind: 'pin_use_failed',
+      subject: { stream_type: 'order', stream_id: 'O1' },
+      target: { kind: 'person', staff_id: MGR },
+      values: { request_alert_id: id, request_kind: 't_approval', error_code: 'REQUEST_NOT_PENDING', device_id: hamza.deviceId },
+      display: { ...display, device_name: 'Hamza tablet' },
+      dedupe_key: `pin_use_failed:${id}:t55`,
+    });
+    await fence();
+    expect(alertFrames(screen).some((f) => f.alert_id === failed)).toBe(true);
+    expect(eventsOf('AttemptSent').find((e) => e.payload.alert_id === failed)?.payload.routes).toEqual(
+      expect.arrayContaining([{ staff_id: MGR, route: 'pager', ref: 'pager:5' }]),
+    );
+    const paged = fakePager.sent.map((s) => s.alert_id);
+    for (const n of [notice, receipt, failed]) expect(paged).not.toContain(n);
     // both in Imran's inbox and catch-up on his own tablet, signed-in fields included
     const rows = (await inboxRows(imran)).rows;
     expect(rows.find((r) => r.alert_id === receipt)).toMatchObject({ silent: true, card: { details: DETAILS }, state: 'open' });
