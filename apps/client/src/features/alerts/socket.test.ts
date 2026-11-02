@@ -165,11 +165,8 @@ describe('alert socket', () => {
     sockets[0]!.frame({ type: 'alert', alert: view({ alert_id: 'A1', card: CARD, answers: ['approve', 'reject'], needs_pin: 'always' }) });
     expect(store.snapshot().rows[0]?.card).toEqual(CARD);
     conn.setSession(null);
-    const row = store.snapshot().rows[0]!;
-    expect(row.card).toBeUndefined();
-    expect(row.answers).toBeUndefined();
-    expect(row.needs_pin).toBeUndefined();
-    expect(row.lock).toEqual(LOCK);
+    expect(store.snapshot().rows).toEqual([]);
+    expect(JSON.stringify(store.snapshot())).not.toContain('220000');
   });
 
   it('[01d §8.1, §8.2] reconnects with backoff that never exceeds 5 s, and resets after a good connection', () => {
@@ -206,20 +203,15 @@ describe('alert socket', () => {
     expect(waited).toBe(opened[0]);
   });
 
-  it('[01d §3.7] 4409 (another alert-mode socket for this device) reconnects with backoff; 4401 / 4403 end the socket', () => {
-    const a = setup('phone', null);
-    a.sockets[0]!.open();
-    a.sockets[0]!.drop(4409);
-    a.timers.advance(MAX_BACKOFF_MS);
-    expect(a.sockets).toHaveLength(2);
-
-    for (const code of [4401, 4403]) {
+  it('[01d §3.7] 4401 / 4403 / 4409 end the socket: onEnded, no reconnect (4409 even after a frame)', () => {
+    for (const code of [4401, 4403, 4409]) {
       const b = setup('phone', null);
       b.sockets[0]!.open();
-      b.sockets[0]!.drop(code, 'device_revoked');
+      b.sockets[0]!.frame(alertsOpen([])); // the hub sends alerts_open right after an alert-mode auth
+      b.sockets[0]!.drop(code, code === 4409 ? '' : 'device_revoked');
       b.timers.advance(60_000);
       expect(b.sockets).toHaveLength(1);
-      expect(b.onEnded).toHaveBeenCalledWith(code, 'device_revoked');
+      expect(b.onEnded).toHaveBeenCalledWith(code, code === 4409 ? 'open on another tab/screen' : 'device_revoked');
       expect(b.conn.isUp()).toBe(false);
     }
   });
@@ -312,6 +304,68 @@ describe('alert socket', () => {
     expect(row.card).toBeUndefined();
     expect(row.needs_pin).toBeUndefined();
     expect(row.lock).toEqual(LOCK);
+  });
+
+  describe('[01d §8.1] a session change resets what the page holds (review fix round 1)', () => {
+    const personal = (id: string) => ({ ...view({ alert_id: id, kind: 'pin_use_failed', family: 'info', set: 'recipient', card: CARD }), seen_by_me: true, from_business_day: null });
+
+    it('(a) a direct switch from session A to session B keeps none of A\'s cards or rows', () => {
+      const { sockets, store, conn } = setup('cashier_kiosk', 'sess-A');
+      sockets[0]!.open();
+      sockets[0]!.frame(catchUp([personal('P1')]));
+      expect(store.snapshot().rows).toHaveLength(1);
+      conn.setSession('sess-B');
+      expect(store.snapshot().rows).toEqual([]);
+    });
+
+    it('(b) after sign-out, A\'s personal notices are not left as closed lock rows for the next person', () => {
+      const { sockets, store, conn } = setup('cashier_kiosk', 'sess-A');
+      sockets[0]!.open();
+      sockets[0]!.frame(catchUp([personal('P1')]));
+      conn.setSession(null);
+      sockets[1]!.open();
+      sockets[1]!.frame(alertsOpen([]));
+      expect(store.snapshot().rows).toEqual([]);
+    });
+
+    it('(c) A\'s seen_by_me does not carry over to B', () => {
+      const { sockets, store, conn } = setup('cashier_kiosk', 'sess-A');
+      sockets[0]!.open();
+      sockets[0]!.frame(catchUp([{ ...view({ alert_id: 'A1' }), seen_by_me: true, from_business_day: null }]));
+      conn.setSession('sess-B');
+      sockets[1]!.open();
+      sockets[1]!.frame(catchUp([{ ...view({ alert_id: 'A1' }), seen_by_me: false, from_business_day: null }]));
+      expect(store.snapshot().rows[0]?.seen_by_me).toBe(false);
+      expect(store.snapshot().unseen).toBe(1);
+    });
+
+    it('(d) receipts are sent again for the new session; device-target sounds do not replay', () => {
+      const timers = fakeTimers();
+      const sink = recordingSink(timers);
+      const store = createAlertStore({ sink, timers, alwaysOn: true });
+      const sockets: FakeSocket[] = [];
+      const conn = createAlertConnection({
+        url: 'ws://hub.local/ws',
+        deviceType: 'cashier_kiosk',
+        deviceToken: 'dev-tok',
+        sessionToken: 'sess-A',
+        store,
+        timers,
+        createSocket: (url) => {
+          const s = new FakeSocket(url);
+          sockets.push(s);
+          return s;
+        },
+      });
+      sockets[0]!.open();
+      sockets[0]!.frame({ type: 'alert', alert: view({ alert_id: 'K1' }) });
+      expect(sink.played).toHaveLength(1);
+      conn.setSession('sess-B');
+      sockets[1]!.open();
+      sockets[1]!.frame(catchUp([{ ...view({ alert_id: 'K1' }), seen_by_me: false, from_business_day: null }]));
+      expect(sockets[1]!.sent.filter((m) => m.type === 'receipt')).toEqual([{ type: 'receipt', alert_id: 'K1', kind: 'delivered', step: 0 }]);
+      expect(sink.played).toHaveLength(1);
+    });
   });
 
   it('[01d §8.1] malformed or unknown frames are ignored; other frames go to onFrame', () => {

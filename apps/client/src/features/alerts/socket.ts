@@ -12,8 +12,13 @@ import type { AlertStore, IncomingRow, Timers } from './store';
 export const BACKOFF_MS = [500, 1_000, 2_000, 4_000] as const;
 export const MAX_BACKOFF_MS = 5_000;
 
-/** 00 §6.21 / §3.7: closes after which the same credentials cannot work; no reconnect. */
-const FINAL_CLOSES = new Set([4401, 4403, 4426]);
+/**
+ * 00 §6.21 / §3.7: closes after which reconnecting cannot help; no reconnect. 4409 (controller ruling, review fix
+ * round 1): another alert-mode socket opened for this device token. The hub sends `alerts_open` right after auth,
+ * so reconnecting would let two pages replace each other every backoff step.
+ */
+const FINAL_CLOSES = new Set([4401, 4403, 4409, 4426]);
+export const REPLACED_REASON = 'open on another tab/screen';
 
 /** The part of the browser WebSocket this client uses (so a test can inject a fake). */
 export interface SocketLike {
@@ -43,7 +48,14 @@ export interface AlertConnectionDeps {
   createSocket?: (url: string) => SocketLike;
   /** BF-5: the bound-tablet route deadline (`binding_route`, `alerts_open.binding_route_until`), for the header (task 42) */
   onBindingRoute?: (until: number | null) => void;
-  /** 4401 / 4403 / 4426: the socket will not reconnect with these credentials (sign-out, revoked, upgrade) */
+  /**
+   * The socket closed for good and will not reconnect: 4401 (session ended or token rotated; the reason is the
+   * hub's), 4403 (device revoked), 4409 (reason `REPLACED_REASON`), 4426 (client upgrade required).
+   * Contract: on 4401 the caller signs the page out and calls `setSession(null)` (which opens alert mode on a kiosk
+   * or phone); on 4409 it shows "open on another tab/screen" and calls `setSession` again only on a person's action
+   * (e.g. a Reconnect tap); on 4403 / 4426 it shows the device's revoked / update page. Until then the page is
+   * offline (`isUp()` false: the PIN pad stays disabled).
+   */
   onEnded?: (code: number, reason: string) => void;
   /** `catch_up`, `event` and `error` frames, for the other features on this socket */
   onFrame?: (frame: WsServerMessage) => void;
@@ -193,7 +205,7 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
       detach(s);
       setUp(false);
       if (FINAL_CLOSES.has(ev.code)) {
-        deps.onEnded?.(ev.code, ev.reason);
+        deps.onEnded?.(ev.code, ev.code === 4409 ? REPLACED_REASON : ev.reason);
         return;
       }
       scheduleReconnect(); // 1011, 1012, 4409, a dropped network: try again, ≤ 5 s apart
@@ -208,8 +220,11 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
       session = token;
       attempt = 0;
       closeCurrent();
-      // G1-13e: details need a sign-in; nothing from the signed-in view stays once the page is signed out
-      if (token === null) deps.store.dropCards();
+      // §8.1 / G1-13e: any session change (in, out, or another person) drops the last person's rows (cards,
+      // personal notices, seen) and the receipt set, so the new socket's receipts are recorded for the new person.
+      // The store keeps its shown set, so a device-target alert heard here does not sound again.
+      deps.store.reset();
+      receipted.clear();
       open();
     },
     mode: () => (socket === null && retry === null ? 'none' : modeFor(session)),

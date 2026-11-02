@@ -47,6 +47,16 @@ export interface AudioSink {
   play(sound: SoundName, gain: number): void;
 }
 
+/**
+ * §8.1 / §3.10: the silent kinds (`silent: true` in apps/hub/src/alerts/kinds.ts). Lock and alert-mode views never
+ * carry the `silent` field (AD-23), so the client also knows them by kind.
+ */
+export const SILENT_KINDS: ReadonlySet<string> = new Set(['approval_receipt']);
+
+export function isSilent(a: { kind: string; silent?: boolean | undefined }): boolean {
+  return a.silent === true || SILENT_KINDS.has(a.kind);
+}
+
 /** §8.1 / §8.3: the family's sound; none for a silent kind; a request_result by its outcome (brief N04). */
 export function soundFor(a: {
   kind: string;
@@ -54,7 +64,7 @@ export function soundFor(a: {
   silent?: boolean | undefined;
   outcome?: RequestOutcome | null | undefined;
 }): SoundName | null {
-  if (a.silent === true) return null;
+  if (isSilent(a)) return null;
   if (a.kind === 'request_result') {
     if (a.outcome === 'approved') return 'rising';
     if (a.outcome === 'rejected') return 'falling';

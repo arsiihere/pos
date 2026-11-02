@@ -13,6 +13,7 @@ import {
   detailsText,
   familyText,
   fromDayText,
+  inPersonTitle,
   lockText,
   stepTag,
   timeText,
@@ -179,5 +180,20 @@ describe('[01d §8.1] times, header and errors', () => {
     expect(e('VALIDATION_FAILED', {})).toBe('Something went wrong. Try again.');
     expect(e('NETWORK', {})).toBe('No connection to the hub — try again.');
     expect(e('SOMETHING_ELSE', {})).toBe('Something went wrong. Try again.');
+  });
+});
+
+describe('[01d review fix round 1] labels', () => {
+  it('[01d §8.1] familyText reads "Receipt" for the silent kind even without the silent field (lock / alert mode)', () => {
+    expect(familyText('info', { kind: 'approval_receipt' })).toBe('Receipt');
+    expect(familyText('info', { kind: 'test_alert' })).toBe('Info');
+  });
+
+  it('[01d §3.12] notice.in_person_title is filled from a label, never from a kind key', () => {
+    const lock = { kind_label_key: 'alert.answered_on_requester_device.lock', table_code: '12', point_code: null, requester_name: 'Hamza' };
+    const text = inPersonTitle({ kind: 'void_approval', lock });
+    expect(text).toBe('You approved the request on T12 at Hamza’s tablet');
+    expect(text).not.toContain('void');
+    expect(text).not.toContain('_');
   });
 });

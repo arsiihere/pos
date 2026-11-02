@@ -1344,6 +1344,7 @@ export const en = {
   // a kind this client has no texts for yet (a later module's kind): never the key itself
   'alerts.unknown.request': '{table} · Request · {requester}',
   'alerts.unknown.alert': '{table} · Alert · {requester}',
+  'alerts.kind_fallback': 'request',
   'alerts.table': 'T{code}',
   'alerts.amount': 'Rs {amount}',
   'alerts.months': 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec',
@@ -1419,6 +1420,7 @@ export const en = {
   'errors.ALERT_NOT_FOUND': 'This request is no longer there.',
   'errors.REQUEST_NOT_PENDING': 'This request is already closed.',
   'errors.REQUEST_PIN_REQUIRED': 'Enter your PIN to answer this.',
+  // {kind} comes only from labels.ts inPersonTitle (the `alert.<kind>.name` label or alerts.kind_fallback), never a kind key
   'notice.in_person_title': 'You approved the {kind} on {table} at {requester}’s tablet',
   'notice.pin_failed_title': 'Your PIN was entered on {device} and the answer failed',
   'notice.not_you': 'Not you? Change your PIN and tell the owner.',

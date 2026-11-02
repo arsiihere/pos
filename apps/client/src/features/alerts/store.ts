@@ -1,6 +1,6 @@
 import type { AlertFamily } from '@pos/domain';
 import type { AlertCard, AlertLock, AlertView, RequestOutcome, WsAlertClosed } from '@pos/events';
-import { BASE_GAIN, STEP_UP_GAIN, soundFor, type AudioSink } from './sounds';
+import { BASE_GAIN, STEP_UP_GAIN, isSilent, soundFor, type AudioSink } from './sounds';
 
 // 01d §8.1 / §8.3: the client's alert state: inbox rows, banners, the badge count and the sounds. Pure: the
 // audio sink and the timers are injected. Fed by the `alert`, `alert_seen`, `alert_closed` frames, the
@@ -85,8 +85,12 @@ export interface AlertStore {
   onInbox(rows: readonly IncomingRow[]): void;
   /** tapped: seen here (the caller sends MarkAlertsSeen) */
   open(alertId: string): void;
-  /** G1-13e: signed out (alert mode): drop every card and signed-in field held, keep the lock text */
-  dropCards(): void;
+  /**
+   * §8.1 / G1-13e: the session changed (sign-in, sign-out, another person): drop every row, banner and timer, so
+   * nothing of the last person (cards, personal notices, seen) stays. The shown set is kept, so a device-target
+   * alert already heard here does not sound again.
+   */
+  reset(): void;
   snapshot(): AlertSnapshot;
   subscribe(listener: () => void): () => void;
   dispose(): void;
@@ -172,7 +176,6 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     return next;
   }
 
-  const isSilent = (row: AlertRow): boolean => row.silent === true;
   const gainOf = (id: string): number => (live.get(id)?.escalated === true ? STEP_UP_GAIN : BASE_GAIN);
 
   function stopRepeat(id: string): void {
@@ -226,8 +229,9 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     scheduleRepeat(row.alert_id);
   }
 
+  /** §8.3 G1-14c: the step-up only when the escalation step arrives before the person has seen the alert. */
   function markEscalated(row: IncomingRow): void {
-    if (row.escalation === true) liveOf(row.alert_id).escalated = true;
+    if (row.escalation === true && rows.get(row.alert_id)?.seen_by_me !== true) liveOf(row.alert_id).escalated = true;
   }
 
   function seen(id: string): void {
@@ -273,7 +277,7 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
       const ids = new Set(incoming.map((r) => r.alert_id));
       // an open alert absent from the complete open set was closed while this socket was away
       for (const row of rows.values()) {
-        if (row.state === 'open' && !ids.has(row.alert_id) && row.from_business_day === null) close(row.alert_id, {});
+        if (row.state === 'open' && !ids.has(row.alert_id)) close(row.alert_id, {});
       }
       for (const r of incoming) {
         const before = rows.get(r.alert_id);
@@ -297,9 +301,9 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
 
     onInbox(incoming) {
       for (const r of incoming) {
-        const row = merge(r);
+        // AD-163: the latest server view wins; listing a row is not showing it (m6 shown set untouched)
+        const row = merge(r, r.card === undefined);
         markEscalated(r);
-        shown.add(`${r.alert_id}:${r.step}`);
         if (row.state === 'closed') close(row.alert_id, {});
         else if (row.seen_by_me) hideBanner(row.alert_id);
       }
@@ -311,8 +315,14 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
       changed();
     },
 
-    dropCards() {
-      for (const [id, row] of rows) rows.set(id, lockOnly(row));
+    reset() {
+      for (const id of live.keys()) {
+        stopRepeat(id);
+        hideBanner(id);
+      }
+      live.clear();
+      rows.clear();
+      banners = [];
       changed();
     },
 

@@ -273,3 +273,74 @@ describe('[01d §8.1] inbox rows', () => {
     expect(timers.pending()).toBe(0);
   });
 });
+
+describe('[01d review fix round 1] store', () => {
+  const inboxRow = (over: Parameters<typeof view>[0]) => ({
+    ...view(over),
+    seen_by_me: false,
+    moved_to_name: null,
+    for_staff_name: null,
+    state: 'open' as const,
+    close_reason: null,
+  });
+
+  it('[01d §8.1] a lock-only approval_receipt frame (no silent field, alert mode) is still silent', () => {
+    const { timers, sink, store } = setup();
+    store.onAlert(view({ alert_id: 'S1', kind: 'approval_receipt', family: 'info', set: 'recipient' }));
+    const lock = view({ alert_id: 'x' }).lock;
+    // alerts_open rows (fewer fields): the complete open set, so S1 is listed again
+    store.onCatchUp([
+      { alert_id: 'S1', kind: 'approval_receipt', family: 'info', step: 0, lock, raised_at: 0 },
+      { alert_id: 'S2', kind: 'approval_receipt', family: 'info', step: 0, lock, raised_at: 1 },
+    ]);
+    timers.advance(REMINDER_MS);
+    expect(sink.played).toEqual([]);
+    expect(store.snapshot().banners).toEqual([]);
+    expect(store.snapshot().unseen).toBe(2);
+  });
+
+  it('[01d §3.12; AD-163] an inbox lock row replaces a held card (latest server view wins)', () => {
+    const { store } = setup();
+    const card = { kind_label_key: 'alert.void_approval.card', table_code: '12', requester_name: 'Hamza', details: { amount: 220_000 } };
+    store.onAlert(view({ alert_id: 'A1', card, needs_pin: 'always' }));
+    store.onInbox([inboxRow({ alert_id: 'A1' })]);
+    expect(store.snapshot().rows[0]?.card).toBeUndefined();
+    expect(store.snapshot().rows[0]?.needs_pin).toBeUndefined();
+  });
+
+  it('[01d §8.1 m6] listing a row from the inbox is not showing it: a later catch-up still re-notifies it once', () => {
+    const { sink, store } = setup();
+    store.onInbox([inboxRow({ alert_id: 'A1' })]);
+    expect(sink.played).toEqual([]);
+    store.onCatchUp([{ ...view({ alert_id: 'A1' }), seen_by_me: false, from_business_day: null }]);
+    expect(sink.played.map((p) => p.sound)).toEqual(['urgent']);
+  });
+
+  it('[01d §8.3] the escalation step-up applies only when the alert is not yet seen by me', () => {
+    const { timers, sink, store } = setup();
+    store.onAlert(view({ alert_id: 'A1' }));
+    store.onSeen('A1');
+    store.onAlert(view({ alert_id: 'A1', step: 2, escalation: true }));
+    timers.advance(REMINDER_MS);
+    expect(sink.played.map((p) => p.gain)).toEqual([BASE_GAIN, BASE_GAIN, BASE_GAIN]);
+  });
+
+  it('[01d #61 client] an open earlier-day row missing from the catch-up is closed too', () => {
+    const { store } = setup();
+    store.onCatchUp([{ ...view({ alert_id: 'Y1' }), seen_by_me: false, from_business_day: '2026-11-01' }]);
+    store.onCatchUp([]);
+    expect(store.snapshot().rows[0]).toMatchObject({ alert_id: 'Y1', state: 'closed' });
+  });
+
+  it('[01d §8.1] reset() clears rows, banners and timers but keeps the shown set (no replayed sound)', () => {
+    const { timers, sink, store } = setup();
+    store.onAlert(view({ alert_id: 'A1' }));
+    store.reset();
+    expect(store.snapshot()).toMatchObject({ rows: [], banners: [], unseen: 0 });
+    timers.advance(REMINDER_MS);
+    expect(sink.played).toHaveLength(1);
+    store.onCatchUp([{ ...view({ alert_id: 'A1' }), seen_by_me: false, from_business_day: null }]);
+    expect(sink.played).toHaveLength(1);
+    expect(store.snapshot().rows[0]).toMatchObject({ alert_id: 'A1', seen_by_me: false });
+  });
+});

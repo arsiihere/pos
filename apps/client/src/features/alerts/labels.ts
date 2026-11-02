@@ -3,6 +3,7 @@ import type { AlertCard, AlertDetails, AlertLock, RequestOutcome, WsAlertClosed 
 import { t, type MessageKey } from '../../i18n';
 import { en, fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
+import { isSilent } from './sounds';
 
 // 01d §3.12: alert texts from the client string tables. Each kind has `alert.<kind>.card` (signed in) and
 // `alert.<kind>.lock` (session-less); the parameters come from `display` (lock-safe) and, on the card only,
@@ -85,9 +86,21 @@ export function detailsText(details: AlertDetails | null | undefined): string | 
   return parts.length === 0 ? null : parts.join(' · ');
 }
 
-/** DQ4: the family word (icon + word + colour); the silent kind reads "Receipt". */
-export function familyText(family: AlertFamily, silent = false): string {
-  return t(silent ? 'alerts.family.silent' : `alerts.family.${family}`);
+/** DQ4: the family word (icon + word + colour); the silent kind reads "Receipt" (by flag, or by kind on lock views). */
+export function familyText(family: AlertFamily, silent: boolean | { kind: string; silent?: boolean | undefined } = false): string {
+  const quiet = typeof silent === 'boolean' ? silent : isSilent(silent);
+  return t(quiet ? 'alerts.family.silent' : `alerts.family.${family}`);
+}
+
+/**
+ * §3.10 D04 `answered_on_requester_device` title. `{kind}` is filled only from the label `alert.<kind>.name` when
+ * the owning module defines one, else the neutral word: a kind key is never shown (§3.12).
+ */
+export function inPersonTitle(a: { kind: string; lock: AlertLock }): string {
+  const nameKey = `alert.${a.kind}.name`;
+  const kind = isKey(nameKey) ? t(nameKey) : t('alerts.kind_fallback');
+  const p = params(a.lock);
+  return fill(t('notice.in_person_title'), { kind, table: p.table ?? '', requester: p.requester ?? '' });
 }
 
 /** C01 step marker: "Reminder" on a later step, "Escalated" on the escalation step. */

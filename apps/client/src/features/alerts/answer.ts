@@ -123,7 +123,10 @@ export interface AnswerSenderDeps {
 export interface AnswerSender {
   /** B03: answering is possible only while the hub socket is up */
   canSend(): boolean;
-  /** `pin` / `in_person` read the PIN from `pad`; the pad is cleared when this resolves, whatever the outcome */
+  /**
+   * `pin` / `in_person` read the PIN from `pad`; the pad is cleared when this resolves, whatever the outcome.
+   * While an answer is in flight, another call returns `IN_FLIGHT` at once and sends nothing (the UI ignores it).
+   */
   answer(input: AnswerInput, pad?: PinPad, request?: { requester_name?: string | null }): Promise<AnswerOutcome>;
 }
 
@@ -136,6 +139,7 @@ export function createAnswerSender(deps: AnswerSenderDeps): AnswerSender {
   const base = deps.baseUrl ?? '';
   const newCommandId = deps.newCommandId ?? (() => newUlid());
   const now = deps.now ?? (() => Date.now());
+  let inFlight = false;
 
   async function post(body: unknown, ctx: AnswerContext): Promise<{ status: number; body: unknown } | null> {
     try {
@@ -196,12 +200,16 @@ export function createAnswerSender(deps: AnswerSenderDeps): AnswerSender {
     canSend: () => deps.link.isUp(),
 
     async answer(input, pad, request = {}) {
+      // a double tap while an answer is in flight sends nothing: a second PIN guess must never be counted
+      if (inFlight) return { ok: false, code: 'IN_FLIGHT', details: {}, message: answerErrorText('SERVICE_UNAVAILABLE', {}) };
+      inFlight = true;
       const secret = pad === undefined ? undefined : secrets.get(pad);
       const pin = input.method === 'session' || secret === undefined ? undefined : secret.take();
       secret?.setBusy(true);
       try {
         return await send(input, pin === '' ? undefined : pin, request);
       } finally {
+        inFlight = false;
         // §8.1: the PIN is discarded once the response arrives (or fails), also on an error
         secret?.setBusy(false);
         pad?.clear();

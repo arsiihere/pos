@@ -236,4 +236,23 @@ describe('online-only answers', () => {
     expect(pad.length()).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('[01d #56 client] a double tap while an answer is in flight sends nothing more (no second PIN guess)', async () => {
+    const link = fakeLink(true);
+    const pad = createPinPad(link);
+    let release!: (r: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((r) => (release = r)));
+    const sender = createAnswerSender({ link, context: () => CTX, fetch });
+    type(pad, '4711');
+    const first = sender.answer({ alert_id: 'A1', decision: 'approve', method: 'pin' }, pad);
+    const second = await sender.answer({ alert_id: 'A1', decision: 'approve', method: 'pin' }, pad);
+    expect(second).toMatchObject({ ok: false, code: 'IN_FLIGHT' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(pad.busy()).toBe(true); // the second call does not release the first one's pad
+    release(reply(401, { error: { code: 'PIN_INVALID', message: 'x', details: {} } }));
+    expect(await first).toMatchObject({ ok: false, code: 'PIN_INVALID' });
+    expect(pad.length()).toBe(0);
+    expect(pad.busy()).toBe(false);
+  });
 });
+

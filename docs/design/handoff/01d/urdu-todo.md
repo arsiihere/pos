@@ -4,7 +4,7 @@ Keys in `apps/client/src/i18n/en.ts` added for 01d (task 39: §3.12 labels, §8.
 
 Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `alerts.months` (only نومبر is on a frame).
 
-78 keys.
+79 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -24,6 +24,7 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `alert.no_approver.card` | No one can approve requests right now | frame: کوئی ووئڈ منظور نہیں کر سکتا names the permission; the view carries none |
 | `alerts.unknown.request` | {table} · Request · {requester} |  |
 | `alerts.unknown.alert` | {table} · Alert · {requester} |  |
+| `alerts.kind_fallback` | request | review fix round 1: the `{kind}` word in `notice.in_person_title` when the kind has no name label |
 | `alerts.table` | T{code} |  |
 | `alerts.amount` | Rs {amount} |  |
 | `alerts.closed.rejected` | Rejected by {name} {time} | pattern of alerts.closed.approved: {name} نے … کیا {time} |
