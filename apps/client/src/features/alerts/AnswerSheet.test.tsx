@@ -175,6 +175,37 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     expect(s.fetch).not.toHaveBeenCalled();
   });
 
+  it('[01d D02 B03; frame PinOffline] the hub goes down mid-PIN: pad off, PIN cleared, the "not kept" help hidden', async () => {
+    const s = setup();
+    m.click(m.button('Approve'));
+    typePin('12');
+    expect(m.text()).toContain('Your PIN is not kept.');
+    s.hub.set(false);
+    await flush();
+    expect(m.text()).toContain('No connection to the hub — try again.');
+    expect(m.text()).not.toContain('Your PIN is not kept.');
+    expect(m.container.querySelectorAll('.pin__dots i.f').length).toBe(0);
+    expect(m.container.querySelector('.pin__keys.off')).not.toBeNull();
+    s.hub.set(true);
+    await flush();
+    expect(m.text()).toContain('Your PIN is not kept.');
+  });
+
+  it('[01d D02; frames PinWrong, PinLocked] the dots turn red on a wrong PIN, not while the pad is locked', async () => {
+    setup({ replies: [reply(401, { error: { code: 'PIN_INVALID', details: {} } }), reply(429, { error: { code: 'PIN_LOCKED_OUT', details: { retry_after_ms: 15 * 60_000 } } })] });
+    m.click(m.button('Approve'));
+    typePin('1234');
+    m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
+    await flush();
+    expect(m.container.querySelector('.pin__dots')!.classList.contains('err')).toBe(true);
+    typePin('5678');
+    m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
+    await flush();
+    expect(m.text()).toContain('Too many tries — wait 15 min.');
+    expect(m.container.querySelector('.pin__keys.off')).not.toBeNull();
+    expect(m.container.querySelector('.pin__dots')!.classList.contains('err')).toBe(false);
+  });
+
   it('Escape closes the sheet', () => {
     const s = setup();
     m.key(m.container.querySelector('.dlg'), 'Escape');

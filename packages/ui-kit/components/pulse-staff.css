@@ -918,7 +918,7 @@
   /* InboxPhone: the cards straight in the body, no list cards or headers */
   .pu.staff .body--two { align-content: start; }
   .pu.staff .body--two > .lcard, .pu.staff .body--two .lcard__b { display: contents; }
-  .pu.staff .body--two .lcard__h { display: none; }
+  .pu.staff .body--two .lcard__h { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* visually hidden (.sr): screen readers keep "Open" / "Today" */
 }
 
 /* toast tone (review fix): status is icon + word + colour */

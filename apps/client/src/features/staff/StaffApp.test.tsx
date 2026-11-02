@@ -195,6 +195,32 @@ describe('[01d task 41] staff entry', () => {
     expect(m.text()).not.toMatch(/2,200|Karahi/);
   });
 
+  it('[01d F01; frames LockKiosk, LockPhone] the lock panel lists urgent lines first, then newest, at most 3', async () => {
+    render(KIOSK, hub().fetch);
+    await flush();
+    const lock = (table: string, key: string, requester: string | null) => ({ kind_label_key: key, table_code: table, requester_name: requester });
+    const view = (id: string, family: 'urgent' | 'info', minutesAgo: number, l: ReturnType<typeof lock>) => ({
+      alert_id: id, kind: family === 'urgent' ? 'void_approval' : 'test_alert', family, step: 0, raised_at: NOW - minutesAgo * 60_000, lock: l,
+    });
+    sockets[0]!.frame({
+      type: 'alerts_open',
+      binding_route_until: null,
+      alerts: [
+        view('I1', 'info', 0, lock('', 'alert.test_alert.lock', 'Imran')), // newest, not urgent
+        view('I2', 'info', 1, lock('', 'alert.test_alert.lock', 'Sana')),
+        view('U1', 'urgent', 2, lock('12', 'alert.void_approval.lock', 'Hamza')),
+        view('U2', 'urgent', 5, lock('4', 'alert.void_approval.lock', 'Ali')),
+      ],
+    });
+    await flush();
+    const lines = [...m.container.querySelectorAll('.lockp .lockp__r')].map((r) => r.textContent ?? '');
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain('T12 · Request · Hamza');
+    expect(lines[1]).toContain('T4 · Request · Ali');
+    expect(lines[2]).toContain('Test alert · from Imran');
+    expect(m.container.querySelector('.lockp')!.textContent).not.toContain('Sana');
+  });
+
   it('sign out ends the session and returns to the tiles', async () => {
     const h = hub();
     render(TABLET, h.fetch);
