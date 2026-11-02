@@ -89,6 +89,8 @@ export type RequestOutcome = z.infer<typeof RequestOutcomeSchema>;
 // AD-23 (additive): `answers`, `needs_pin`, `silent` belong to the signed-in view only (they travel with `card`);
 // lock text and alert-mode frames never carry them (G1-13 e; the hub's strict lock schemas refuse them).
 // AD-82 (additive): `outcome` on a `request_result`, absent on every other kind.
+// AD-165 (additive): `raised_device_id` on the signed-in view of a request only (the client compares it with its
+// own device id to show "Approve here", §8.1); never on lock frames, alert-mode frames or `alerts_open`.
 export const AlertViewSchema = z.object({
   alert_id: Id,
   kind: z.string().min(1),
@@ -104,6 +106,7 @@ export const AlertViewSchema = z.object({
   answers: z.array(RequestDecisionSchema).nullable().optional(),
   needs_pin: z.enum(['always', 'never']).nullable().optional(),
   silent: z.boolean().optional(),
+  raised_device_id: Id.optional(),
 });
 export type AlertView = z.infer<typeof AlertViewSchema>;
 

@@ -104,8 +104,15 @@ describe('ws', () => {
     );
   });
 
-  it('[01d AD-23] alerts_open rows refuse answers, needs_pin and silent (signed-in only)', () => {
-    for (const extra of [{ answers: ['approve', 'reject'] }, { needs_pin: 'always' }, { silent: true }, { answers: null }]) {
+  it('[01d AD-23, AD-165] alerts_open rows refuse answers, needs_pin, silent and raised_device_id (signed-in only)', () => {
+    // AD-165: raised_device_id is signed-in only, like the AD-23 fields
+    for (const extra of [
+      { answers: ['approve', 'reject'] },
+      { needs_pin: 'always' },
+      { silent: true },
+      { answers: null },
+      { raised_device_id: 'dev-hamza' },
+    ]) {
       expect(WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...lockOnlyRow, ...extra }], binding_route_until: null }).success).toBe(
         false,
       );

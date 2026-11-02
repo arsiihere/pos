@@ -54,7 +54,7 @@ interface CatchUpRow extends ViewRow {
 }
 
 const COLUMNS = `a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
-       a.raised_at, a.requester_staff_id`;
+       a.raised_at, a.raised_device_id, a.requester_staff_id`;
 
 // The person's latest step rows of the alert (own row and "for" rows), and their seen (also requests-to-answer).
 export const PERSON_COLUMNS = `

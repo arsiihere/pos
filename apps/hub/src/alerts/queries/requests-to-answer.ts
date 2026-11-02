@@ -27,7 +27,7 @@ import { cardRule, lockOnlyView, safeBuild, signedInView, type ViewRow } from '.
 // (1) every open request
 const OPEN_SQL = `
   SELECT a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
-         a.raised_at, a.requester_staff_id,
+         a.raised_at, a.raised_device_id, a.requester_staff_id,
          EXISTS (SELECT 1 FROM alert_recipients d WHERE d.device_id = @device_id AND d.alert_id = a.alert_id) AS to_device,
          ${PERSON_COLUMNS}, ${FROM_DAY_COLUMN}
   FROM alerts a

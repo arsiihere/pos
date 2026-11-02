@@ -11,6 +11,7 @@ import { activity } from '../../src/auth/session-store';
 import type { CommandCtx } from '../../src/commands/registry';
 import type { SocketCtx } from '../../src/ws/catch-up';
 import { wsHubFor } from '../../src/ws/server';
+import { StrictLockView } from '../../src/alerts/ws-frames';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -37,7 +38,7 @@ const TENANT = 'tenant-a';
 const BRANCH = 'branch-1';
 const DETAILS = { item: 'Mutton platter', quantity: 1, amount: 480_000, reason: 'customer changed mind' };
 const SECRET_TEXT = ['Mutton platter', 'customer changed mind', '480000'];
-const SIGNED_IN_KEYS = ['"card"', '"details"', '"answers"', '"needs_pin"', '"silent"'];
+const SIGNED_IN_KEYS = ['"card"', '"details"', '"answers"', '"needs_pin"', '"silent"', '"raised_device_id"'];
 
 async function directory(o: { withMgr2?: boolean; version?: number } = {}): Promise<DirectoryInput> {
   const base = await aDirectory({ directory_version: o.version ?? 1 });
@@ -580,6 +581,43 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const cards = alertFrames(staffWs).filter((f) => f.kind === 't_approval');
     expect(cards).toHaveLength(1);
     expect(cards[0]).toMatchObject({ answers: ['approve', 'reject'], needs_pin: 'always', silent: false, card: { details: DETAILS } });
+  });
+
+  it('[01d AD-165] raised_device_id: on the signed-in view of a request only (card frame, inbox, catch-up, requests-to-answer); never on lock frames, alert-mode frames or alerts_open', async () => {
+    const tab = device('tablet', 'mgr tablet');
+    const mgr = signIn(MGR, tab); // binds the tablet to MGR
+    const hamza = seat(WAIT, 'hamza tablet');
+    const before = raiseAs(hamza, voidInput(1));
+    const alertWs = await alertSocket(tab);
+    const staffWs = await socketOf(mgr);
+    const kdsWs = await stationSocket(device('kds', 'kds'));
+    const second = raiseAs(hamza, voidInput(2));
+    const info = raise(toPerson('t_info', MGR, 'info'));
+    raise(toDevice(tab, 'dev'));
+    await fence();
+    // lock paths: alerts_open, alert-mode frames, a station socket's catch-up
+    expectLockOnly(openRows(alertWs));
+    expectLockOnly(alertFrames(alertWs));
+    expectLockOnly(catchUpOf(kdsWs));
+    // signed-in: requests carry the raising device; a non-request has none
+    const cards = alertFrames(staffWs);
+    expect(cards.find((f) => f.alert_id === second)).toMatchObject({ raised_device_id: hamza.deviceId, card: { details: DETAILS } });
+    expect(cards.find((f) => f.alert_id === info)).not.toHaveProperty('raised_device_id');
+    for (const rows of [(await inboxRows(mgr)).rows, catchUpOf(await socketOf(mgr))]) {
+      expect(rows.find((r) => r.alert_id === before)).toMatchObject({ raised_device_id: hamza.deviceId });
+      expect(rows.find((r) => r.alert_id === info)).not.toHaveProperty('raised_device_id');
+    }
+    const response = await hub.app.inject({
+      method: 'GET',
+      url: '/queries/requests-to-answer',
+      headers: { authorization: `Bearer ${mgr.deviceToken}`, 'x-session-token': mgr.sessionToken },
+    });
+    const toAnswer = (response.json() as { data: { requests: Row[] } }).data.requests;
+    expect(toAnswer.find((r) => r.alert_id === second)).toMatchObject({ can_answer: true, raised_device_id: hamza.deviceId });
+    // the strict lock pick (AD-81) refuses it
+    const lockFrame = alertFrames(alertWs).find((f) => f.alert_id === second) as Row;
+    expect(StrictLockView.safeParse(lockFrame).success).toBe(true);
+    expect(StrictLockView.safeParse({ ...lockFrame, raised_device_id: hamza.deviceId }).success).toBe(false);
   });
 
   it('[01d AD-82] request_result carries outcome on every view (alert-mode lock frame, alerts_open, catch-up, inbox) and never an amount, item or reason; other kinds have none', async () => {

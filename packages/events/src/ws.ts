@@ -28,10 +28,10 @@ export const WsClientMessage = z.discriminatedUnion('type', [
 export type WsClientMessage = z.infer<typeof WsClientMessage>;
 
 // 01d §6 batch 3: `alerts_open` never carries `card` or `details`, nor the signed-in AD-23 fields `answers`,
-// `needs_pin`, `silent` (strict). The spec example row has no `escalation`, `set` or `for_staff_id`, so they are
+// `needs_pin`, `silent`, nor AD-165's `raised_device_id` (strict). The spec example row has no `escalation`, `set` or `for_staff_id`, so they are
 // optional here. `outcome` (AD-82) is lock-safe; `seen_by_me` (§8.3) is the bound person's seen, false for a
 // device-target row with no person (optional: the spec example row has none).
-export const WsAlertsOpenRow = AlertViewSchema.omit({ card: true, answers: true, needs_pin: true, silent: true })
+export const WsAlertsOpenRow = AlertViewSchema.omit({ card: true, answers: true, needs_pin: true, silent: true, raised_device_id: true })
   .partial({ escalation: true, set: true, for_staff_id: true })
   .extend({ seen_by_me: z.boolean().optional() })
   .strict();

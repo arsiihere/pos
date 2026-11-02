@@ -136,7 +136,7 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     const rows = cachedPrepare(
       env.db,
       `SELECT alert_id, kind, family, display_json, details_json, values_json, request_json, raised_at,
-              requester_staff_id, hidden_session_id, hidden_device_id
+              raised_device_id, requester_staff_id, hidden_session_id, hidden_device_id
        FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
     ).all(JSON.stringify(ids)) as StepAlertRow[];
     const byId = new Map(rows.map((r) => [r.alert_id, r]));
@@ -314,6 +314,8 @@ export interface LockViewRow {
 export interface ViewRow extends LockViewRow {
   details_json: string | null;
   request_json: string | null;
+  /** AD-165: the raising device, on a request's signed-in view only */
+  raised_device_id: string;
 }
 
 /** AD-82: a request_result's outcome from its values (kinds.ts RequestResultValues); null when unreadable. */
@@ -369,7 +371,8 @@ export function lockOnlyView(row: LockViewRow, kind: AlertKind, step: number, pl
 /**
  * §6 batch 3 / §3.12 / AD-23: the person's own signed-in view: card (the card label key and the kind's
  * details) plus `answers` / `needs_pin` from the stored request part (null for a non-request) and the kind's
- * `silent`. Only for the person's own staff sockets, inbox and catch-up rows.
+ * `silent`; AD-165: plus `raised_device_id` on a request (absent on every other kind). Only for the person's
+ * own staff sockets, inbox, catch-up and requests-to-answer rows (cardRule); the strict lock pick refuses it.
  */
 export function signedInView(row: ViewRow, kind: AlertKind, step: number, place: ViewPlace): z.infer<typeof StrictCardView> {
   const details = row.details_json === null ? null : (JSON.parse(row.details_json) as AlertDetails);
@@ -381,6 +384,7 @@ export function signedInView(row: ViewRow, kind: AlertKind, step: number, place:
     answers: request === null ? null : [...request.answers],
     needs_pin: request === null ? null : request.needs_pin,
     silent: kind.silent,
+    ...(request === null ? {} : { raised_device_id: row.raised_device_id }),
   });
 }
 

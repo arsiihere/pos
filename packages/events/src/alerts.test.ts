@@ -226,6 +226,24 @@ describe('01d wire shapes', () => {
     expect(AlertViewSchema.safeParse({ ...view, silent: 'yes' }).success).toBe(false);
   });
 
+  it('[01d AD-165] AlertViewSchema: raised_device_id is an optional signed-in field (a request\'s raising device)', () => {
+    const view = {
+      alert_id: ULID,
+      kind: 'void_approval',
+      family: 'urgent',
+      step: 0,
+      escalation: false,
+      set: 'answerer',
+      for_staff_id: null,
+      lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', point_code: null, requester_name: 'Hamza' },
+      raised_at: 1_761_900_000_000,
+    };
+    expect(AlertViewSchema.parse({ ...view, raised_device_id: 'dev-hamza' })).toMatchObject({ raised_device_id: 'dev-hamza' });
+    expect(AlertViewSchema.parse(view)).not.toHaveProperty('raised_device_id');
+    expect(AlertViewSchema.safeParse({ ...view, raised_device_id: '' }).success).toBe(false);
+    expect(AlertViewSchema.safeParse({ ...view, raised_device_id: null }).success).toBe(false);
+  });
+
   it('[01d AD-82] AlertViewSchema.outcome: approved, rejected, withdrawn, obsolete, overridden or null; nothing else', () => {
     const view = {
       alert_id: ULID,

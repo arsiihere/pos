@@ -51,7 +51,7 @@ const PAGE_SQL = `
 // (2) the views of the page's ids
 const VIEWS_SQL = `
   SELECT a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
-         a.raised_at, a.requester_staff_id, a.state, a.close_reason, i.moved_to,
+         a.raised_at, a.raised_device_id, a.requester_staff_id, a.state, a.close_reason, i.moved_to,
          EXISTS (SELECT 1 FROM alert_recipients d WHERE d.device_id = @device_id AND d.alert_id = a.alert_id) AS to_device,
          (SELECT json_group_array(json_object('for_staff_id', r.for_staff_id, 'set', r.recipient_set))
             FROM alert_recipients r
