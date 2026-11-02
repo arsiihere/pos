@@ -146,6 +146,13 @@ export function alertTxCache(tx: WriterTx): AlertTxCache {
   return cache;
 }
 
+/**
+ * §3.4.3 (c): the sessions whose `last_activity_at` counts as a person's last session activity — `kind = 'staff'`
+ * sessions at this branch (alias `s`, named parameter `@branch_id`). Shared by read (9) and alert-sockets.ts
+ * (alerts_open, binding_route), so routing and the tablet header read the same activity.
+ */
+export const ACTIVITY_SESSIONS = "s.branch_id = @branch_id AND s.kind = 'staff'";
+
 function readFixed(tx: WriterTx): FixedReads {
   const cache = alertTxCache(tx);
   if (cache.fixed !== null) return cache.fixed;
@@ -163,12 +170,13 @@ function readFixed(tx: WriterTx): FixedReads {
   ) as DeviceRead[];
   // (6) presence_today
   const presence = cachedPrepare(tx.db, 'SELECT staff_id, present FROM presence_today').all() as Array<{ staff_id: string; present: number }>;
-  // (9) last session activity (active or ended) of every bound staff id (§3.4.3 (c), index staff_sessions_staff_activity)
+  // (9) last session activity (active or ended) of every bound staff id: staff sessions of this branch only
+  // (§3.4.3 (c); an admin session's activity never keeps a binding a route), index staff_sessions_staff_activity
   const activity = cachedPrepare(
     tx.db,
-      `SELECT staff_id, MAX(last_activity_at) AS last FROM staff_sessions
-       WHERE staff_id IN (SELECT staff_id FROM device_bindings) GROUP BY staff_id`,
-  ).all() as Array<{ staff_id: string; last: number }>;
+    `SELECT staff_id, MAX(last_activity_at) AS last FROM staff_sessions s
+     WHERE ${ACTIVITY_SESSIONS} AND staff_id IN (SELECT staff_id FROM device_bindings) GROUP BY staff_id`,
+  ).all({ branch_id: tx.branchId }) as Array<{ staff_id: string; last: number }>;
   cache.fixed = {
     sessions,
     bindings,

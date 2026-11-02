@@ -446,6 +446,31 @@ describe('01d alert-mode delivery (task 32)', () => {
     expectNoSecret(hub.logs());
   });
 
+  it('[01d §3.4.3 (c)] only staff sessions of this branch count as activity: a fresh admin session does not keep a > 2 h tablet binding a route; routing and the header agree', async () => {
+    const t = device('tablet', 't');
+    const adminDev = device('tablet', 'admin');
+    const t0 = hub.clock.branchNow();
+    signOut(signIn(MGR, t), 'idle_timeout'); // MGR's last staff activity: t0
+    hub.clock.set(t0 + IDLE + 1_000);
+    openSession(hub, { kind: 'admin', staffId: MGR, deviceId: adminDev }); // fresh, but not a staff session
+    cleanFlags();
+    const tWs = await alertSocket(t);
+    expect(openOf(tWs).binding_route_until).toBeNull();
+
+    const id = raise(toPerson(1, MGR));
+    const step = hub.deps.db
+      .prepare(`SELECT payload FROM events WHERE event_type = 'AttemptSent' AND json_extract(payload, '$.alert_id') = ?`)
+      .get(id) as { payload: string };
+    const routes = (JSON.parse(step.payload) as { routes: Array<{ route: string; ref: string }> }).routes;
+    expect(routes.filter((r) => r.route === 'alert_connection').map((r) => r.ref)).not.toContain(t);
+    await fence();
+    expect(frames(tWs, 'alert')).toEqual([]);
+    expect(frames(tWs, 'binding_route')).toEqual([]);
+    const again = await alertSocket(t);
+    expect(ids(again)).toEqual([]);
+    expect(openOf(again).binding_route_until).toBeNull();
+  });
+
   // ---------------------------------------------------------------------------------------------- BF-5
 
   it('[01d BF-5] binding_route_until = Ali\'s last activity + 2 h on a bound tablet, null on a kiosk; a sign-in elsewhere that moves it sends binding_route on the next tick that routes to T, once', async () => {

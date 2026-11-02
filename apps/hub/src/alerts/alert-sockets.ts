@@ -14,7 +14,7 @@ import type { WsHub } from '../ws/server.js';
 import { kindOf } from './kinds.js';
 import { bindingIsRoute } from './routes.js';
 import { cachedPrepare } from './statements.js';
-import type { BatchReads, SessionRead } from './targets.js';
+import { ACTIVITY_SESSIONS, type BatchReads, type SessionRead } from './targets.js';
 import { lockView, type LockViewRow } from './ws-frames.js';
 
 // 01d §3.7 "Reconnect" and header, §6 batch 3 `alerts_open`, BF-5 / P-6 (`binding_route_until`, `binding_route`).
@@ -109,20 +109,20 @@ const PRESENCE_SQL = 'SELECT present FROM presence_today WHERE staff_id = ?';
 // (3) §3.4.3 (c): the person's last session activity at this branch (active or ended), and the active
 // sessions (for the in-memory activity value and the "signed in counts as present" rule)
 const ACTIVITY_SQL = `
-  SELECT MAX(last_activity_at) AS last,
-         json_group_array(json_object('session_id', session_id, 'last_activity_at', last_activity_at))
-           FILTER (WHERE ended_at IS NULL) AS active_json
-  FROM staff_sessions WHERE branch_id = @branch_id AND kind = 'staff' AND staff_id = @staff_id`;
+  SELECT MAX(s.last_activity_at) AS last,
+         json_group_array(json_object('session_id', s.session_id, 'last_activity_at', s.last_activity_at))
+           FILTER (WHERE s.ended_at IS NULL) AS active_json
+  FROM staff_sessions s WHERE ${ACTIVITY_SESSIONS} AND s.staff_id = @staff_id`;
 
 // After commit: the same facts for the tablets / phones a transaction routed to through their binding.
 const BINDINGS_SQL = `
   SELECT b.device_id, d.device_type, b.staff_id, b.session_id, b.since,
          (SELECT p.present FROM presence_today p WHERE p.staff_id = b.staff_id) AS present,
          (SELECT MAX(s.last_activity_at) FROM staff_sessions s
-           WHERE s.branch_id = @branch_id AND s.kind = 'staff' AND s.staff_id = b.staff_id) AS last,
+           WHERE ${ACTIVITY_SESSIONS} AND s.staff_id = b.staff_id) AS last,
          (SELECT json_group_array(json_object('session_id', s.session_id, 'last_activity_at', s.last_activity_at))
             FROM staff_sessions s
-           WHERE s.branch_id = @branch_id AND s.kind = 'staff' AND s.staff_id = b.staff_id AND s.ended_at IS NULL) AS active_json
+           WHERE ${ACTIVITY_SESSIONS} AND s.staff_id = b.staff_id AND s.ended_at IS NULL) AS active_json
   FROM device_bindings b JOIN devices d ON d.device_id = b.device_id
   WHERE b.device_id IN (SELECT value FROM json_each(@device_ids)) AND d.revoked_at IS NULL`;
 
