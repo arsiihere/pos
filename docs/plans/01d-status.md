@@ -269,3 +269,61 @@
   - (29) No tie-breaker in the due select.
   - (29) The mixed-pass statement count is not asserted.
   - (30) The fake pager assertion is loose.
+
+## Batch 7 — Ruling follow-ups, warnings, alert mode, test alert, queries (2026-11-02)
+
+- **Ruling follow-ups (before task 31):**
+  - `717894d`: AD-124, a startup error for `after_ms` on a request kind.
+  - `f30d252`: AD-123, a poisoned alert is retired with `next_due_at` NULL and one log line, plus a "Stuck alerts: N" count on `config-status`. This changes 01a §6.21, which is folded at task 44.
+  - `43dead3`: AD-125, the per-db statement cache.
+  - The two reviews (AD-123/124 together, then AD-125) both approved.
+- **#58 numbers (AD-125), dev laptop i7-4900MQ:**
+  - Tick `writer.run` for 200 due alerts and 10 sockets went from 78–89 ms to 36.6 / 38.4 / 40.4 ms; the review run gave 39.8 ms. The limit is 50 ms.
+  - Raise median went from 0.74–1.06 ms to 0.47–0.53 ms. The limit is 5 ms.
+  - The mini PC run is still open, with 00 #79.
+- **Tasks:**
+  - 31: `no_approver` and BF-7
+  - 32: alert-mode delivery, `alerts_open`, `binding_route_until`
+  - 33: `test_alert` / `SendTestAlert`
+  - 34: `alerts-inbox` and the `alerts` catch-up part, carrying AD-22, AD-23, AD-82 and `seen_by_me`
+  - 35: `my-requests` and `requests-to-answer`, carrying BF-4 `from_business_day`
+- **Commits:**
+  - 31: `05ac0a2`, then `1f72e07` (follow-up)
+  - 32: `aecbcec`, then `0449dc7` (review fix)
+  - 33: `66fb1e1`
+  - 34: `085701b`, then `430acc1` (review fix)
+  - 35: `9cc7da7`
+- **Reviews** (all opus): 31, 32 and 34 are HIGH and were reviewed alone; 33 and 35 were reviewed as a pair. All approved.
+  - **31:** m1 had a hole when more than 200 alerts are due. It is fixed, and the flag-pass count is pinned at 9 / 11.
+  - **32, Important:** read (9) lacked the spec's `kind = 'staff'` and branch filter, so admin-session activity kept a binding a route. Fixed (AD-129). No secret leak in alert mode.
+  - **34, Important:** a seen from the hidden answering seat showed the person's open notices as `seen_by_me: true` on their other devices. Fixed (AD-138). In the same round: safe error logs (AD-148), the notice's device name (AD-147), and the cache was kept off non-hot paths.
+- **Gate:** green on the first run. 283 files passed, 1 skipped; 1818 tests passed, 1 skipped (#58).
+- **Tests closed:**
+  - 31: #32, #59 (hub)
+  - 32: #26, #28, #64, #65, and #49's `alerts_open`
+  - 33: #17, #52
+  - 34: #39, #42, #43, #55
+  - 35: #10, #41, #53, #61 (hub)
+- **AD rows (proposed):** AD-126 to AD-152, plus the as-built notes for AD-123 and AD-125.
+- **Developer decisions needed:**
+  - **A:** `card` with `details` on may-answer rows (catch-up, `requests-to-answer`). §3.12 says "person recipients" only (AD-142).
+  - **B:** on a device that is a device target, `alerts-inbox` gives the signed-in `card` while catch-up gives lock only.
+  - **C:** #55 says the personal notices reach the pager, but §3.8 skips `short_code` routes for kinds without a `short` label, and §3.10 gives the notices none. Either add `short` labels or reword #55.
+  - **D:** §8.1 "Approve here" only on the raising device, but no wire field carries `raised_device_id` (task 41).
+  - **The §3.5 tick bound on a dirty-flag pass (AD-131).**
+- **Carried to later tasks:**
+  - Task 38: prune the receipt `recorded` / `sentVia` sets.
+  - Task 39: `can_answer` wins over `set: 'informed'`.
+  - Task 41: `raised_device_id` (gap D).
+  - Task 42: `binding_route` `lastSent` is per device, not per socket.
+- **Deferred minors (for the final review):**
+  - (31) A no_approver warning can be missed after closing and reopening the day within about 500 ms.
+  - (32) The bounds classifier relies on the unqualified text of read (9).
+  - (32) A phone's first route sends one `binding_route: null`.
+  - (33) A `payload.target` cast.
+  - (34) `seen_by_me` lags up to 1 s for non-requests.
+  - (34) The inbox's CASE sort is not ordered by the index.
+  - (35) Before the first day opens, `my-requests` lists every closed request.
+  - (35) The `FROM_DAY_COLUMN` subquery is not indexed.
+  - (R-b) The stuck log can fire for a rolled-back transaction.
+  - (R-c) Two comments are ambiguous.
