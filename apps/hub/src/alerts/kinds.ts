@@ -315,3 +315,43 @@ export const ANSWERED_ON_REQUESTER_DEVICE = defineAlertKind<AnsweredOnRequesterD
   labels: { card: 'alert.answered_on_requester_device.card', lock: 'alert.answered_on_requester_device.lock' },
   request: null,
 });
+
+/** §3.9 `no_approver` values: the permission no one signed in can approve (dedupe_key 'no_approver:' + it). */
+export const NoApproverValues = z.object({ permission: z.string().min(1) });
+export type NoApproverValues = z.infer<typeof NoApproverValues>;
+
+/**
+ * §3.10 `no_approver` (§3.9, pilot form of Q-N5): open while the business day is open and no one who could
+ * answer the permission branch-wide is signed in anywhere; raised and closed only by the tick's flag pass.
+ * Step 0 to the always-on screens and the managers; no lead fallback (N5); closed `done` by the tick when an
+ * eligible approver signs in, `expired` at day close.
+ */
+export const NO_APPROVER = defineAlertKind<NoApproverValues>({
+  kind: 'no_approver',
+  family: 'info',
+  subject: 'hub',
+  steps: [
+    {
+      at: { ms: 0 },
+      to: [
+        { target: { kind: 'always_on' }, set: 'recipient' },
+        { target: { kind: 'managers' }, set: 'recipient' },
+      ],
+    },
+  ],
+  closes_on: 'owner',
+  values_schema: NoApproverValues,
+  details_schema: null,
+  lead_fallback: false,
+  expires_at_day_close: true,
+  silent: false,
+  labels: { card: 'alert.no_approver.card', lock: 'alert.no_approver.lock' },
+  request: null,
+});
+
+/** §3.10 personal notices (v0.5 #2, v1.0 #2): closed `obsolete` by the tick's flag pass when their person leaves `staff` (BF-7). */
+export const PERSONAL_NOTICE_KINDS: readonly string[] = Object.freeze([
+  APPROVAL_RECEIPT.kind,
+  ANSWERED_ON_REQUESTER_DEVICE.kind,
+  PIN_USE_FAILED.kind,
+]);

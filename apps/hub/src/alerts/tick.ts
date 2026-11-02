@@ -1,13 +1,15 @@
+import { PERMISSIONS, type Permission } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type { AlertClosedPayload, AlertTarget, EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { readOnlyDb } from '../engine-host/read-only-tx.js';
 import type { WriterTx } from '../engine-host/writer.js';
+import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { HubDeps } from '../server.js';
-import { kindOf, stepAt, type AlertKind } from './kinds.js';
-import { draftOn, routeSteps, stepPayload, type StepItem } from './raise.js';
+import { kindOf, NO_APPROVER, PERSONAL_NOTICE_KINDS, registeredAlertKinds, stepAt, type AlertKind, type NoApproverValues } from './kinds.js';
+import { alertDirectoryOf, alerts, draftOn, routeSteps, stepPayload, type RaiseInput, type StepItem } from './raise.js';
 import { cachedPrepare } from './statements.js';
-import { stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
+import { batchReads, stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
 
 // 01d §3.5 "The tick" (A8, G1-16) and §4.2 `registerTick`: the hub's one tick loop (00 H-8 timers row).
 // - Every TICK_MS a pass reads `now = clock.branchNow()` ONCE and gives it to every registered tick, in
@@ -146,7 +148,7 @@ function expires(r: DueRow, kind: AlertKind | undefined, now: number): boolean {
 }
 
 /**
- * §3.5 step and expiry pass (tasks 28–29; the flag pass is task 31). For each due alert, the steps whose
+ * §3.5 step and expiry pass (tasks 28–29; the flag pass, flagIntents, is task 31). For each due alert, the steps whose
  * `at` has passed beyond the alert's current step: the latest is sent (`AttemptSent`, or `EscalationStepped`
  * for an `escalation: true` step) and each earlier one is `StepSkipped 'superseded'` (restart / tick lag,
  * G1-16b); none → nothing (clock rounding). An expiring alert is closed instead (`expires`, checked before
@@ -155,12 +157,11 @@ function expires(r: DueRow, kind: AlertKind | undefined, now: number): boolean {
  * per registered route), so the statement count does not grow with the number of due alerts. A failed send is
  * not retried: the frames and route sends run once, after commit (ws-frames' hook), per step event.
  */
-function stepIntents(tx: WriterTx, now: number): EventDraft[] {
-  const due = cachedPrepare(tx.db, DUE_ALERTS_SQL).all(now) as DueRow[]; // AD-125
-  if (due.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
+function stepIntents(tx: WriterTx, due: readonly DueRow[], now: number, closed: Set<string>): EventDraft[] {
+  if (due.length === 0) return [];
   const env = tickEnvelope(now);
-  // §3.5 expiry closes of this pass (the pseudocode's `closed` ids are theirs; the flag pass, task 31, skips
-  // them). Each due row is one distinct alert, so each is closed at most once here. Written directly, not
+  // §3.5 expiry closes of this pass: their ids go into `closed` (the pseudocode's, m1), which the flag pass
+  // skips. Each due row is one distinct alert, so each is closed at most once here. Written directly, not
   // through closeMany: 'expired' is not an owner reason, and the due row already holds what the draft needs.
   const closes: EventDraft[] = [];
   const plans: Plan[] = [];
@@ -169,6 +170,7 @@ function stepIntents(tx: WriterTx, now: number): EventDraft[] {
     if (expires(r, kind, now)) {
       const p: AlertClosedPayload = { alert_id: r.alert_id, reason: 'expired', by_staff_id: null, note: null };
       closes.push(draftOn({ stream_type: r.subject_stream_type, stream_id: r.subject_stream_id }, env, 'AlertClosed', p));
+      closed.add(r.alert_id);
       continue; // expiry, not a step: a step due at or after the expiry time is never sent
     }
     if (kind === undefined) continue; // P-8: never due (next_due_at NULL); kept for a row written before a rollback
@@ -200,14 +202,146 @@ function stepIntents(tx: WriterTx, now: number): EventDraft[] {
   return drafts;
 }
 
+// ------------------------------------------------------------------------------------------- flag pass
+
+/** §3.5 read (2): the dirty flags (§3.9), inside the transaction. */
+const DIRTY_FLAGS_SQL = `SELECT name FROM alert_flags WHERE dirty = 1`;
+
+/**
+ * The flag pass's one alert read: the open `no_approver` alerts and the open personal notices (BF-7), with the
+ * person a notice is for (its raised target is `{ kind: 'person', staff_id }`, §3.10). One statement whatever
+ * the number of rows (index `alerts_open_kind`).
+ */
+const FLAG_ALERTS_SQL = `SELECT alert_id, kind, dedupe_key, subject_stream_type, subject_stream_id,
+         json_extract(target_json, '$.staff_id') AS person
+    FROM alerts
+    WHERE state = 'open' AND kind IN (SELECT value FROM json_each(?))
+    ORDER BY raised_at, raised_seq`;
+
+/** §3.9: the tick clears the flag in the same transaction that evaluates it. */
+const CLEAR_NO_APPROVER_SQL = `UPDATE alert_flags SET dirty = 0 WHERE name = 'no_approver'`;
+
+const NO_APPROVER_PREFIX = 'no_approver:';
+
+interface FlagRow {
+  alert_id: string;
+  kind: string;
+  dedupe_key: string;
+  subject_stream_type: PosEvent['stream_type'];
+  subject_stream_id: string;
+  person: string | null;
+}
+
+/**
+ * §3.9, in memory from the directory and read (3): the permissions that some role grants with
+ * `requires_approval` here (as resolved for a person who holds it: the same approver roles `mayAnswer` reads,
+ * §3.3 rule 6) for which no person signed in anywhere holds one of the approver roles and, when a registered
+ * approval kind gives the permission a `range_permission`, holds that permission `allowed` at branch scope.
+ * Per permission only: the requester being the only approver signed in still counts (§12.4).
+ */
+function unapprovable(directory: StaffDirectory, signedIn: ReadonlySet<string>): Permission[] {
+  const approverRoles = new Map<Permission, Set<string>>();
+  for (const { staff_id } of directory.list()) {
+    for (const permission of PERMISSIONS) {
+      const r = directory.resolve(staff_id, permission);
+      if (r.grant !== 'requires_approval') continue;
+      const roles = approverRoles.get(permission) ?? new Set<string>();
+      for (const role of r.approver_role_ids) roles.add(role);
+      approverRoles.set(permission, roles);
+    }
+  }
+  const ranges = new Map<string, Set<Permission>>();
+  for (const kind of registeredAlertKinds()) {
+    const right = kind.request?.right;
+    if (right?.mode !== 'approval' || right.range_permission === undefined) continue;
+    const set = ranges.get(right.base_permission) ?? new Set<Permission>();
+    set.add(right.range_permission);
+    ranges.set(right.base_permission, set);
+  }
+  const out: Permission[] = [];
+  for (const [permission, roles] of approverRoles) {
+    const range = [...(ranges.get(permission) ?? [])];
+    const eligible = [...signedIn].some((staffId) => {
+      const person = directory.get(staffId);
+      if (person === undefined || !person.role_ids.some((role) => roles.has(role))) return false;
+      return range.every((p) => {
+        const r = directory.resolve(staffId, p);
+        return r.grant === 'allowed' && r.scope === 'branch';
+      });
+    });
+    if (!eligible) out.push(permission);
+  }
+  return out.sort();
+}
+
+/**
+ * §3.5 flag pass (task 31), run when read (2) has `no_approver`:
+ * - §3.9: while the business day is open, a `no_approver` alert is open per unapprovable permission; one that
+ *   is no longer wanted (an approver signed in, the permission no longer needs approval, the day closed) is
+ *   closed `done`; a missing one is raised (one `raiseMany`, its fixed reads cached from this transaction).
+ * - BF-7 (AD-3 / P-7): the open personal notices of a person no longer in `staff` (removed, or moved to
+ *   `no_pin_staff`) are closed `obsolete`.
+ * - Alerts the expiry pass closed in this transaction (`closed`) are skipped (m1: one `AlertClosed`).
+ * - The flag is cleared in the same transaction (§3.9), so the next idle pass opens no transaction (#22).
+ * Statements: the alert read 1, the fixed reads (cached when the step pass ran), the raise's dedupe 1 + T when
+ * a warning is raised, and the flag write 1 — fixed, whatever the number of alerts or people.
+ */
+function flagIntents(tx: WriterTx, state: Readonly<EngineState>, now: number, closed: ReadonlySet<string>): EventDraft[] {
+  const directory = alertDirectoryOf(tx);
+  const reads = batchReads(tx, [], { previousStep: false }); // (3)–(6), (9): cached per transaction
+  const signedIn = new Set(reads.sessions.map((s) => s.staff_id));
+  const day = (state as Partial<EngineState>).business_day ?? null;
+  const wanted = new Set<string>(day !== null && day.closed_at === null ? unapprovable(directory, signedIn) : []);
+  const rows = cachedPrepare(tx.db, FLAG_ALERTS_SQL).all(JSON.stringify([NO_APPROVER.kind, ...PERSONAL_NOTICE_KINDS])) as FlagRow[];
+  const env = tickEnvelope(now);
+  const drafts: EventDraft[] = [];
+  const close = (r: FlagRow, reason: 'done' | 'obsolete'): void => {
+    const p: AlertClosedPayload = { alert_id: r.alert_id, reason, by_staff_id: null, note: null };
+    drafts.push(draftOn({ stream_type: r.subject_stream_type, stream_id: r.subject_stream_id }, env, 'AlertClosed', p));
+  };
+  const open = new Set<string>();
+  for (const r of rows) {
+    if (closed.has(r.alert_id)) continue; // m1: expired in this pass
+    if (r.kind === NO_APPROVER.kind) {
+      const permission = r.dedupe_key.startsWith(NO_APPROVER_PREFIX) ? r.dedupe_key.slice(NO_APPROVER_PREFIX.length) : r.dedupe_key;
+      if (wanted.has(permission) && !open.has(permission)) open.add(permission);
+      else close(r, 'done');
+    } else if (r.person !== null && directory.get(r.person) === undefined) {
+      close(r, 'obsolete'); // BF-7: the person is no longer in `staff`
+    }
+  }
+  const inputs: RaiseInput[] = [...wanted]
+    .filter((permission) => !open.has(permission))
+    .map((permission) => {
+      const values: NoApproverValues = { permission };
+      return {
+        kind: NO_APPROVER.kind,
+        subject: { stream_type: 'hub', stream_id: tx.branchId },
+        target: { kind: 'always_on' },
+        values,
+        display: { kind_label_key: NO_APPROVER.labels.lock },
+        dedupe_key: NO_APPROVER_PREFIX + permission,
+      };
+    });
+  if (inputs.length > 0) drafts.push(...alerts.raiseMany(alerts.tickCtx(tx, now), inputs).flatMap((r) => r.events));
+  cachedPrepare(tx.db, CLEAR_NO_APPROVER_SQL).run();
+  return drafts;
+}
+
 /** 01d's own tick (name `alerts`, first). `intents` is the §3.5 step / expiry / flag pass (tasks 28–31). */
 export const alertsTick: TickDef = {
   name: 'alerts',
   due(db, _state, now) {
     return (db.prepare(ALERTS_DUE_SQL).get(now) as { due: number }).due === 1;
   },
-  intents(tx, _state, now) {
-    return stepIntents(tx, now);
+  intents(tx, state, now) {
+    const due = cachedPrepare(tx.db, DUE_ALERTS_SQL).all(now) as DueRow[]; // (1), AD-125
+    const flags = (cachedPrepare(tx.db, DIRTY_FLAGS_SQL).all() as Array<{ name: string }>).map((f) => f.name); // (2)
+    if (due.length === 0 && flags.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
+    const closed = new Set<string>();
+    const drafts = stepIntents(tx, due, now, closed);
+    if (flags.includes('no_approver')) drafts.push(...flagIntents(tx, state, now, closed));
+    return drafts;
   },
 };
 

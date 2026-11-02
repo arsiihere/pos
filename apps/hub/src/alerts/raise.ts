@@ -86,6 +86,11 @@ function envOf(tx: WriterTx): AlertEnv {
   return env;
 }
 
+/** The hub's directory for a tick transaction (the flag pass, §3.9), in memory, no statement. */
+export function alertDirectoryOf(tx: WriterTx): StaffDirectory {
+  return envOf(tx).directory();
+}
+
 /** The envelope facts of a raise; `'actor' in ctx` tells a command ctx from a tick ctx (no getter is read). */
 function envelopeOf(ctx: AlertCtx): { now: number; actor_id: string | null; device_id: string } {
   if ('actor' in ctx) return { now: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };

@@ -409,9 +409,9 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
       { staff_id: WAIT, moved_to: MGR },
     ]);
     // §3.5 reads per tick: 1 pre-check, then ≤ 8 + R + T inside (R = 2: tableOwner and the §3.4.2 zone read of
-    // a lead_fallback kind; T = 1 pager). Measured: 1 + 10 (select, 5 fixed, previous step, 2 resolvers, pager).
+    // a lead_fallback kind; T = 1 pager). Measured: 1 + 11 (select, flags, 5 fixed, previous step, 2 resolvers, pager).
     expect(counts.due).toEqual([1]);
-    expect(counts.intents).toEqual([10]);
+    expect(counts.intents).toEqual([11]);
     expect(counts.intents[0]).toBeLessThanOrEqual(8 + 2 + 1);
   });
 
@@ -681,7 +681,7 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
     expect(counts.due).toEqual([1, 1, 1]);
     expect(counts.intents).toHaveLength(2);
     expect(counts.intents[0]).toBe(counts.intents[1]);
-    expect(counts.intents).toEqual([8, 8]); // select, 5 fixed, previous step, pager: the same for 200 alerts and for 1
+    expect(counts.intents).toEqual([9, 9]); // select, flags, 5 fixed, previous step, pager: the same for 200 alerts and for 1
     expect(counts.intents[0]).toBeLessThanOrEqual(8 + 0 + 1);
   });
 

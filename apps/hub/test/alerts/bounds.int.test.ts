@@ -29,9 +29,8 @@ import { FAKE_STEP_1_MS, fakePager, fakeTableOwner, fakeZoneOrderTaker, register
 // (one `routesFor` per registered route). Here R = 2 (table_team + zone_order_taker, the §3.4.2 fallback read of
 // a lead_fallback kind) and T = 1 (fakePager).
 //
-// Tick bound: the spec's 1 + 8 + R + T counts read (2), the dirty flags, which is task 31's flag pass and is not
-// built yet. The bound is asserted as the spec states it; the exact count pinned today is one less
-// (1 + 7 + R + T), and task 31 adds read (2).
+// Tick bound: the spec's 1 + 8 + R + T counts read (2), the dirty flags (task 31). With the flag clean the
+// tick's count is exactly the bound.
 
 const migrations = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const BRANCH = 'branch-1';
@@ -46,7 +45,7 @@ const tid = (i: number): string => `T${String(i).padStart(3, '0')}`;
 const R = 2; // table_team + zone_order_taker
 const ROUTES = 1; // T: fakePager
 const TICK_BOUND = 1 + 8 + R + ROUTES; // §3.5, with read (2)
-const TICK_TODAY = 1 + 7 + R + ROUTES; // read (2) is task 31
+const TICK_TODAY = 1 + 8 + R + ROUTES; // read (2), the dirty flags, included (task 31)
 
 type Grant = DirectoryCore['roles'][number]['permissions'][number];
 const grant = (g: Omit<Grant, 'approver_role_ids'> & { approver_role_ids?: string[] }): Grant => ({ ...g, approver_role_ids: g.approver_role_ids ?? [] });
@@ -178,7 +177,7 @@ function harness(cleanups: Array<() => void>): Promise<Harness> {
     });
     const hub = { connectedSessions: () => [], alertSockets: () => [] } as unknown as WsHub;
     bindAlertEnv(fx.db, { directory: () => dir, ws: () => hub });
-    // 0006 seeds the no_approver flag dirty; its flag pass (and read (2)) is task 31: start clean
+    // 0006 seeds the no_approver flag dirty; these scenarios measure the step pass with the flag clean
     fx.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     return { db: fx.db, writer, clock, log, counter, projection };
   })();
@@ -334,7 +333,7 @@ describe('01d statement bounds (§3.5, §7; test 35)', () => {
     expect(one.steps).toBe(1);
     expect(many.steps).toBe(150);
     expectTickBound(one, many);
-    // pinned: pre-check 1 + select 1 + fixed 5 (incl. activity) + previous step 1 + R 2 + T 1 (read (2) is task 31)
+    // pinned: pre-check 1 + select 1 + flags 1 + fixed 5 (incl. activity) + previous step 1 + R 2 + T 1
     expect(one.statements).toBe(TICK_TODAY);
     expect(many.statements).toBe(TICK_TODAY);
     // every statement of the tick is a read, and the fixed set (with the activity read (9)) runs once

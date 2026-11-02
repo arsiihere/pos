@@ -492,16 +492,16 @@ describe('01d alerts tick: expiry and day close (task 29)', () => {
     for (const id of ids) expect(alertRow(id)).toMatchObject({ state: 'closed', close_reason: 'expired', next_due_at: null });
     expect(run.mock.results.map((r) => (r.value as { appended: PosEvent[] }).appended.length)).toEqual([200, 50]);
 
-    // expiry reads nothing beyond the due select (R = 0, T = 0 for these drafts): 1 statement, ≤ 1 + 8 + R + T
+    // expiry reads nothing beyond the due select and the dirty flags read (2) (R = 0, T = 0): 2 statements, ≤ 1 + 8 + R + T
     expect(counts.due).toEqual([1, 1, 1, 1]); // three passes and the preCheck() above
-    expect(counts.intents).toEqual([1, 1]);
+    expect(counts.intents).toEqual([2, 2]);
 
     // the same count for 1 alert
     const [one] = raiseHub(infoInput(999)) as [string];
     closeDay();
     await pass();
     expect(alertRow(one)).toMatchObject({ state: 'closed', close_reason: 'expired' });
-    expect(counts.intents).toEqual([1, 1, 1]);
+    expect(counts.intents).toEqual([2, 2, 2]);
   });
 
   // ---------------------------------------------------------------------------------------- §3.5 after_ms
