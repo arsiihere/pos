@@ -10,6 +10,7 @@ import { registerSendTestAlert } from './commands/send-test-alert.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
 import { createAlertsCatchUp } from './catch-up.js';
+import { registerAlertReceipts } from './queries/alert-receipts.js';
 import { registerAlertsInbox } from './queries/alerts-inbox.js';
 import { registerMyRequests } from './queries/my-requests.js';
 import { registerRequestsToAnswer } from './queries/requests-to-answer.js';
@@ -72,6 +73,8 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // §6.8, §6.9 (task 35): GET /queries/my-requests, GET /queries/requests-to-answer
   registerMyRequests(app);
   registerRequestsToAnswer(app, branchId);
+  // §6.10 (task 36): GET /queries/alert-receipts
+  registerAlertReceipts(app);
   // §6.2 (task 22): AnswerRequest through the hub's command registry (registerCommandRoutes ran before)
   registerAnswerRequest(app);
   // §6.3 (task 25): WithdrawRequest

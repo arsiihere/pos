@@ -220,7 +220,8 @@ export const RequestToAnswerRow = AlertViewSchema.extend({
 });
 export const RequestsToAnswerResponse = z.object({ data: z.object({ requests: z.array(RequestToAnswerRow) }) });
 
-// §6.10: per step recipients and routes; delivered / seen per person and device.
+// §6.10: per step recipients and routes; delivered / seen per person and device. `for_staff_name` and
+// `no_route` on recipients are additive (task 36, proposed AD row).
 const ReceiptRoute = z.string().min(1); // 'screen' | 'alert_connection' | a registered route (§3.8)
 export const AlertReceiptsResponse = z.object({
   data: z.object({
@@ -236,7 +237,9 @@ export const AlertReceiptsResponse = z.object({
             device_id: Id.nullable(),
             device_name: z.string().nullable(),
             for_staff_id: Id.nullable(),
+            for_staff_name: z.string().nullable(), // task 36 (additive): the "for <person>" name on a lead's row
             set: RecipientSetSchema,
+            no_route: z.boolean(), // task 36 (additive): no route in this step's routes (§3.4.3 "Owner: no route")
           }),
         ),
         routes: z.array(z.object({ staff_id: Id.nullable(), route: ReceiptRoute, ref: z.string() })),
