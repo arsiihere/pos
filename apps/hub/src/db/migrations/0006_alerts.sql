@@ -59,6 +59,8 @@ CREATE TABLE alert_inbox (                    -- every person ever a recipient (
   moved_to   TEXT,                            -- "Moved to Bilal" (G1-11c), set when a later step drops this person
   PRIMARY KEY (staff_id, alert_id)
 );
+-- by alert: the ON DELETE CASCADE from alerts (retention step 2) looks up children by alert_id (AD-161)
+CREATE INDEX alert_inbox_alert ON alert_inbox (alert_id);
 
 CREATE TABLE alert_receipts (                 -- dedupe and receipt view (A11)
   alert_id   TEXT    NOT NULL,

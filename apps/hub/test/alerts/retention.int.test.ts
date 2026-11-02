@@ -177,6 +177,33 @@ describe('alert retention (§5.1)', () => {
     expect(hub.deps.db.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('[01d §5.1; AD-161] a step-2 batch of 500 alerts stays fast with 105 000 inbox rows (alert_inbox_alert serves the cascade)', async () => {
+    const hub = await open();
+    const now = hub.clock.branchNow();
+    const db = hub.deps.db;
+    const expired: Seed[] = [];
+    for (let n = 0; n < ALERT_RETENTION_BATCH; n += 1)
+      expired.push({ id: id('old', n), state: 'closed', raised_at: now - 9 * DAY_MS, closed_at: now - 8 * DAY_MS, rows: false });
+    seed(hub, expired);
+    // 21 000 open alerts with 5 inbox rows each: the cascade must not scan these once per deleted alert
+    const live: Seed[] = [];
+    for (let n = 0; n < 21_000; n += 1) live.push({ id: id('live', n), state: 'open', raised_at: now - HOUR_MS, rows: false });
+    seed(hub, live);
+    const inbox = db.prepare(`INSERT INTO alert_inbox (staff_id, alert_id, first_at) VALUES (?, ?, ?)`);
+    db.transaction(() => {
+      for (let n = 0; n < 21_000; n += 1) for (let s = 0; s < 5; s += 1) inbox.run(`S${s}`, id('live', n), now);
+    })();
+    expect(count(hub, 'alert_inbox')).toBe(105_000);
+    const run = vi.spyOn(hub.deps.writer, 'run');
+    const started = performance.now();
+    expect(purgeAlerts(hub.deps, BRANCH, now)).toBe(ALERT_RETENTION_BATCH);
+    const ms = performance.now() - started;
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(count(hub, 'alert_inbox')).toBe(105_000);
+    // generous bound: about 5 s without the index, a few ms with it
+    expect(ms).toBeLessThan(1_000);
+  });
+
   it('[01d §5.1] statements: 1 day read, then per batch 1 probe + 4 in the writer; nothing to delete opens no transaction', async () => {
     const hub = await open();
     const now = hub.clock.branchNow();

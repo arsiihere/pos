@@ -45,6 +45,9 @@ const INDEXES: Record<string, string> = {
   alert_recipients_device:
     'CREATE INDEX alert_recipients_device ON alert_recipients (device_id, alert_id) WHERE device_id IS NOT NULL',
   alert_recipients_alert: 'CREATE INDEX alert_recipients_alert  ON alert_recipients (alert_id)',
+  // AD-161 (developer ruling): added to the unreleased 0006 for the ON DELETE CASCADE from alerts (retention
+  // step 2); §5.1 gains it at the as-built review.
+  alert_inbox_alert: 'CREATE INDEX alert_inbox_alert ON alert_inbox (alert_id)',
   device_bindings_staff: 'CREATE INDEX device_bindings_staff   ON device_bindings (staff_id)',
   device_bindings_session:
     'CREATE INDEX device_bindings_session ON device_bindings (session_id) WHERE session_id IS NOT NULL',
@@ -75,6 +78,14 @@ describe('hub migration 0006_alerts', () => {
       .all() as Array<{ name: string; sql: string }>;
     const byName = new Map(rows.map((row) => [row.name, row.sql]));
     for (const [name, sql] of Object.entries(INDEXES)) expect(byName.get(name)).toBe(sql);
+  });
+
+  it('[01d §5.1; AD-161] the cascade lookup of alert_inbox by alert_id uses alert_inbox_alert', async () => {
+    const { db } = await from0005();
+    const plan = db.prepare('EXPLAIN QUERY PLAN SELECT 1 FROM alert_inbox WHERE alert_id = ?').all('a-1') as Array<{
+      detail: string;
+    }>;
+    expect(plan.map((row) => row.detail).join('\n')).toContain('alert_inbox_alert');
   });
 
   it('[01d §5.1] alert_flags starts as [(no_approver, 1)]', async () => {
