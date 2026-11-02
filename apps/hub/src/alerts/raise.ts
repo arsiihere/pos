@@ -18,6 +18,7 @@ import { kindOf, type AlertKind, type AlertRecord, type RequestResultValues } fr
 import { askRoutes, routeAsk, routeRecipients, type RouteRow } from './routes.js';
 import { alertTxCache, batchReads, resolveStep, type AlertRequestPart, type AlertRow, type Recipient, type RecipientRow } from './targets.js';
 import { recordReceipt } from './receipts.js';
+import { cachedPrepare } from './statements.js';
 
 // 01d §6.1 / §4.2 `alerts.raise` / `alerts.raiseMany`: pure on the transaction (the caller appends the
 // drafts). Dedupe on (kind, dedupe_key) (open alert or a key returned earlier in this transaction), schema
@@ -151,12 +152,11 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
   }
   const open = new Map<string, { alert_id: string; requester_staff_id: string | null }>();
   if (ask.size > 0) {
-    const rows = tx.db
-      .prepare(
-        `SELECT alert_id, kind, dedupe_key, requester_staff_id FROM alerts
-         WHERE state = 'open' AND (kind, dedupe_key) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))`,
-      )
-      .all(JSON.stringify([...ask.values()])) as Array<{
+    const rows = cachedPrepare(
+      tx.db,
+      `SELECT alert_id, kind, dedupe_key, requester_staff_id FROM alerts
+       WHERE state = 'open' AND (kind, dedupe_key) IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))`,
+    ).all(JSON.stringify([...ask.values()])) as Array<{
       alert_id: string;
       kind: string;
       dedupe_key: string;
@@ -426,13 +426,12 @@ function closeMany(ctx: AlertCtx, items: readonly CloseItem[]): EventDraft[] {
   }
   if (wanted.length === 0) return [];
 
-  const rows = tx.db
-    .prepare(
-      `SELECT alert_id, kind, state, subject_stream_type, subject_stream_id, requester_staff_id, display_json,
-              request_json IS NOT NULL AS is_request
-       FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
-    )
-    .all(JSON.stringify(wanted.map((i) => i.alert_id))) as CloseRow[];
+  const rows = cachedPrepare(
+    tx.db,
+    `SELECT alert_id, kind, state, subject_stream_type, subject_stream_id, requester_staff_id, display_json,
+            request_json IS NOT NULL AS is_request
+     FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
+  ).all(JSON.stringify(wanted.map((i) => i.alert_id))) as CloseRow[];
   const byId = new Map(rows.map((r) => [r.alert_id, r]));
 
   const env = envelopeOf(ctx);

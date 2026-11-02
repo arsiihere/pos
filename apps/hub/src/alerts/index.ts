@@ -8,6 +8,7 @@ import { registerMarkAlertsSeen } from './commands/mark-alerts-seen.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { bindAlertEnv } from './raise.js';
 import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
+import { clearStatementCache } from './statements.js';
 import { createAlertFrames } from './ws-frames.js';
 
 export { alerts, type AlertCtx, type RaiseInput, type RaiseResult } from './raise.js';
@@ -45,5 +46,7 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   app.addHook('onClose', async () => {
     receipts.stop();
     unbindReceiptBuffer(receipts);
+    // AD-125: drop the hub's cached statements (after the receipt flush above), before boot closes the db
+    clearStatementCache(deps.db);
   });
 }

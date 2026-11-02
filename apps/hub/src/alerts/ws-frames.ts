@@ -21,6 +21,7 @@ import type { ConnectedSession, WsHub } from '../ws/server.js';
 import { kindOf, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
 import { mayAnswer, type AlertRequestPart } from './targets.js';
+import { cachedPrepare } from './statements.js';
 
 // 01d §6 batch 3 / §3.6 / §3.12: the alert frames (`alert`, `alert_closed`, `alert_seen`), sent from the
 // writer's after-commit hook only (never on rollback), once per step per socket, not part of the seq stream.
@@ -133,12 +134,11 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     const steps = appended.filter((e) => STEP_EVENTS.has(e.event_type));
     if (steps.length === 0) return;
     const ids = [...new Set(steps.map((e) => String(e.payload.alert_id)))];
-    const rows = env.db
-      .prepare(
-        `SELECT alert_id, kind, family, display_json, details_json, raised_at, hidden_session_id, hidden_device_id
-         FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
-      )
-      .all(JSON.stringify(ids)) as StepAlertRow[];
+    const rows = cachedPrepare(
+      env.db,
+      `SELECT alert_id, kind, family, display_json, details_json, raised_at, hidden_session_id, hidden_device_id
+       FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
+    ).all(JSON.stringify(ids)) as StepAlertRow[];
     const byId = new Map(rows.map((r) => [r.alert_id, r]));
     const ws = env.ws();
     const sessions = ws.connectedSessions();
@@ -178,18 +178,17 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     const ids = [...new Set(alertIds)];
     if (ids.length === 0) return;
     // §6 batch 3: the cumulative recipients of every alert closed in the transaction, one statement
-    const rows = env.db
-      .prepare(
-        `SELECT a.alert_id, a.state, a.close_reason, a.decision, a.closed_by_staff_id, a.requester_staff_id,
-                a.request_json, a.hidden_session_id, a.hidden_device_id,
-                (SELECT json_group_array(DISTINCT r.device_id) FROM alert_recipients r
-                  WHERE r.alert_id = a.alert_id AND r.device_id IS NOT NULL) AS devices_json,
-                (SELECT json_group_array(i.staff_id) FROM alert_inbox i WHERE i.alert_id = a.alert_id) AS people_json,
-                (SELECT json_group_array(DISTINCT b.device_id) FROM alert_inbox i
-                  JOIN device_bindings b ON b.staff_id = i.staff_id WHERE i.alert_id = a.alert_id) AS bound_json
-         FROM alerts a WHERE a.alert_id IN (SELECT value FROM json_each(?))`,
-      )
-      .all(JSON.stringify(ids)) as CloseAlertRow[];
+    const rows = cachedPrepare(
+      env.db,
+      `SELECT a.alert_id, a.state, a.close_reason, a.decision, a.closed_by_staff_id, a.requester_staff_id,
+              a.request_json, a.hidden_session_id, a.hidden_device_id,
+              (SELECT json_group_array(DISTINCT r.device_id) FROM alert_recipients r
+                WHERE r.alert_id = a.alert_id AND r.device_id IS NOT NULL) AS devices_json,
+              (SELECT json_group_array(i.staff_id) FROM alert_inbox i WHERE i.alert_id = a.alert_id) AS people_json,
+              (SELECT json_group_array(DISTINCT b.device_id) FROM alert_inbox i
+                JOIN device_bindings b ON b.staff_id = i.staff_id WHERE i.alert_id = a.alert_id) AS bound_json
+       FROM alerts a WHERE a.alert_id IN (SELECT value FROM json_each(?))`,
+    ).all(JSON.stringify(ids)) as CloseAlertRow[];
     const ws = env.ws();
     const sessions = ws.connectedSessions();
     const alertDevices = ws.alertSockets().map((s) => s.deviceId);

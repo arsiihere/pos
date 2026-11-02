@@ -6,6 +6,7 @@ import type { WriterTx } from '../engine-host/writer.js';
 import type { HubDeps } from '../server.js';
 import { kindOf, stepAt, type AlertKind } from './kinds.js';
 import { draftOn, routeSteps, stepPayload, type StepItem } from './raise.js';
+import { cachedPrepare } from './statements.js';
 import { stepTargets, type AlertRequestPart, type AlertRow } from './targets.js';
 
 // 01d §3.5 "The tick" (A8, G1-16) and §4.2 `registerTick`: the hub's one tick loop (00 H-8 timers row).
@@ -155,7 +156,7 @@ function expires(r: DueRow, kind: AlertKind | undefined, now: number): boolean {
  * not retried: the frames and route sends run once, after commit (ws-frames' hook), per step event.
  */
 function stepIntents(tx: WriterTx, now: number): EventDraft[] {
-  const due = tx.db.prepare(DUE_ALERTS_SQL).all(now) as DueRow[];
+  const due = cachedPrepare(tx.db, DUE_ALERTS_SQL).all(now) as DueRow[]; // AD-125
   if (due.length === 0) return []; // the hint was stale (closed or answered since the pre-check)
   const env = tickEnvelope(now);
   // §3.5 expiry closes of this pass (the pseudocode's `closed` ids are theirs; the flag pass, task 31, skips

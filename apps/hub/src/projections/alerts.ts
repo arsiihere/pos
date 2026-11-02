@@ -15,6 +15,7 @@ import type {
 import type Database from 'better-sqlite3';
 import { deviceBindingsProjection } from '../alerts/bindings.js';
 import { kindOf, registeredAlertKinds, stepAt, type AlertKind } from '../alerts/kinds.js';
+import { cachedPrepare } from '../alerts/statements.js';
 import { stepTargets } from '../alerts/targets.js';
 import type { Projection, ProjectionRegistry } from './registry.js';
 
@@ -22,6 +23,8 @@ import type { Projection, ProjectionRegistry } from './registry.js';
 // `alert_receipts` and `presence_today` projections. Times come from the event envelope (recorded_at).
 // Reads: at most 2 statements per 01d step / close event (the alert row by id; the previous step's
 // recipients of that alert), never a scan of open alerts (§3.5, M10). Every other statement is a write by key.
+// AD-125: the statements of the raise, step, skip and close applies (and the receipt insert) are cached per
+// connection (alerts/statements.ts); the cache does not change what runs, only how often it is prepared.
 
 /** P-8 (Review Focus 3): the one log line for an AlertRaised whose kind this build does not register. */
 export interface UnknownKindLine {
@@ -207,7 +210,8 @@ function applyRaised(tx: Database.Database, event: PosEvent, slot: LogSlot, stuc
   const raisedAt = event.recorded_at;
   const due = nextDue(kind, { raised_at: raisedAt, values: p.values, target: p.target }, -1);
   if (due.stuck !== null) stuck(stuckLine(p.alert_id, p.kind, due.stuck));
-  tx.prepare(
+  cachedPrepare(
+    tx,
     `INSERT INTO alerts (
        alert_id, kind, family, subject_stream_type, subject_stream_id, dedupe_key, requester_staff_id,
        raised_device_id, raised_seq, hidden_session_id, hidden_device_id,
@@ -237,7 +241,7 @@ function applyRaised(tx: Database.Database, event: PosEvent, slot: LogSlot, stuc
 }
 
 function readAlert(tx: Database.Database, alertId: string): AlertDueRow | undefined {
-  return tx.prepare('SELECT kind, target_json, values_json, raised_at, step FROM alerts WHERE alert_id = ?').get(alertId) as
+  return cachedPrepare(tx, 'SELECT kind, target_json, values_json, raised_at, step FROM alerts WHERE alert_id = ?').get(alertId) as
     | AlertDueRow
     | undefined;
 }
@@ -255,7 +259,7 @@ function setStep(tx: Database.Database, alertId: string, row: AlertDueRow, step:
   };
   const due = nextDue(kindOf(row.kind), alert, reached);
   if (due.stuck !== null) stuck(stuckLine(alertId, row.kind, due.stuck));
-  tx.prepare(SET_STEP).run(reached, due.at, alertId);
+  cachedPrepare(tx, SET_STEP).run(reached, due.at, alertId);
 }
 
 function applyStep(tx: Database.Database, event: PosEvent, p: AttemptSentPayload, stuck: StuckSink): void {
@@ -263,24 +267,25 @@ function applyStep(tx: Database.Database, event: PosEvent, p: AttemptSentPayload
   if (row === undefined) return;
   const previous = new Set(
     (
-      tx
-        .prepare(
-          `SELECT staff_id FROM alert_recipients
-           WHERE alert_id = ? AND staff_id IS NOT NULL
-             AND step = (SELECT MAX(step) FROM alert_recipients WHERE alert_id = ? AND step < ?)`,
-        )
-        .all(p.alert_id, p.alert_id, p.step) as Array<{ staff_id: string }>
+      cachedPrepare(
+        tx,
+        `SELECT staff_id FROM alert_recipients
+         WHERE alert_id = ? AND staff_id IS NOT NULL
+           AND step = (SELECT MAX(step) FROM alert_recipients WHERE alert_id = ? AND step < ?)`,
+      ).all(p.alert_id, p.alert_id, p.step) as Array<{ staff_id: string }>
     ).map((r) => r.staff_id),
   );
   const recipients = JSON.stringify(p.recipients);
   // Rows are inserted per step, never replaced; a person with no route is a row too (v0.5 N5).
-  tx.prepare(
+  cachedPrepare(
+    tx,
     `INSERT INTO alert_recipients (alert_id, staff_id, device_id, for_staff_id, recipient_set, step)
      SELECT ?, json_extract(value, '$.staff_id'), json_extract(value, '$.device_id'),
             json_extract(value, '$.for_staff_id'), json_extract(value, '$.set'), ?
      FROM json_each(?) ORDER BY key`,
   ).run(p.alert_id, p.step, recipients);
-  tx.prepare(
+  cachedPrepare(
+    tx,
     `INSERT INTO alert_inbox (staff_id, alert_id, first_at, moved_to)
      SELECT DISTINCT json_extract(value, '$.staff_id'), ?, ?, NULL FROM json_each(?)
      WHERE json_extract(value, '$.staff_id') IS NOT NULL
@@ -291,7 +296,8 @@ function applyStep(tx: Database.Database, event: PosEvent, p: AttemptSentPayload
   const movedTo = p.recipients.find((r) => r.staff_id !== null)?.staff_id ?? null;
   if (dropped.length > 0 && movedTo !== null) {
     // G1-11c "Moved to Bilal": the first person of the new step.
-    tx.prepare(
+    cachedPrepare(
+      tx,
       `UPDATE alert_inbox SET moved_to = ? WHERE alert_id = ? AND staff_id IN (SELECT value FROM json_each(?))`,
     ).run(movedTo, p.alert_id, JSON.stringify(dropped));
   }
@@ -313,7 +319,8 @@ function close(
   byStaffId: string | null,
 ): void {
   // CLOSED is terminal (§3.2): a later close does not rewrite it.
-  tx.prepare(
+  cachedPrepare(
+    tx,
     `UPDATE alerts SET state = 'closed', close_reason = ?, decision = ?, closed_by_staff_id = ?, closed_at = ?,
             next_due_at = NULL
      WHERE alert_id = ? AND state = 'open'`,
@@ -369,7 +376,8 @@ const alertReceiptsProjection: Projection = {
   apply(tx, event) {
     const delivered = event.event_type === 'AlertDelivered';
     const p = event.payload as AlertDeliveredPayload | AlertSeenPayload;
-    tx.prepare(
+    cachedPrepare(
+      tx,
       `INSERT OR IGNORE INTO alert_receipts (alert_id, staff_id, device_id, kind, step, at) VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(
       p.alert_id,

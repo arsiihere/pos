@@ -4,6 +4,7 @@ import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
 import { kindOf, type RecipientSet, type StepDef } from './kinds.js';
+import { cachedPrepare } from './statements.js';
 
 // 01d §3.4: who a step reaches. A target is resolved at each step from the batch reads (§3.5 "Reads per
 // tick") and the in-memory directory, never frozen at raise. §3.4.1 presence filter (BF-8), §3.3 rules 5–6
@@ -149,27 +150,25 @@ function readFixed(tx: WriterTx): FixedReads {
   const cache = alertTxCache(tx);
   if (cache.fixed !== null) return cache.fixed;
   // (3) active staff sessions with their device ids
-  const sessions = tx.db
-    .prepare(
-      `SELECT session_id, staff_id, device_id, last_activity_at FROM staff_sessions
-       WHERE branch_id = ? AND ended_at IS NULL AND kind = 'staff' ORDER BY session_id`,
-    )
-    .all(tx.branchId) as SessionRead[];
+  const sessions = cachedPrepare(
+    tx.db,
+    `SELECT session_id, staff_id, device_id, last_activity_at FROM staff_sessions
+     WHERE branch_id = ? AND ended_at IS NULL AND kind = 'staff' ORDER BY session_id`,
+  ).all(tx.branchId) as SessionRead[];
   // (4) device_bindings, whole table
-  const bindings = tx.db.prepare('SELECT device_id, staff_id, session_id, since FROM device_bindings ORDER BY device_id').all() as BindingRead[];
+  const bindings = cachedPrepare(tx.db, 'SELECT device_id, staff_id, session_id, since FROM device_bindings ORDER BY device_id').all() as BindingRead[];
   // (5) devices not revoked
-  const devices = tx.db
-    .prepare('SELECT device_id, device_type FROM devices WHERE branch_id = ? AND revoked_at IS NULL ORDER BY device_id')
-    .all(tx.branchId) as DeviceRead[];
+  const devices = cachedPrepare(tx.db, 'SELECT device_id, device_type FROM devices WHERE branch_id = ? AND revoked_at IS NULL ORDER BY device_id').all(
+    tx.branchId,
+  ) as DeviceRead[];
   // (6) presence_today
-  const presence = tx.db.prepare('SELECT staff_id, present FROM presence_today').all() as Array<{ staff_id: string; present: number }>;
+  const presence = cachedPrepare(tx.db, 'SELECT staff_id, present FROM presence_today').all() as Array<{ staff_id: string; present: number }>;
   // (9) last session activity (active or ended) of every bound staff id (§3.4.3 (c), index staff_sessions_staff_activity)
-  const activity = tx.db
-    .prepare(
+  const activity = cachedPrepare(
+    tx.db,
       `SELECT staff_id, MAX(last_activity_at) AS last FROM staff_sessions
        WHERE staff_id IN (SELECT staff_id FROM device_bindings) GROUP BY staff_id`,
-    )
-    .all() as Array<{ staff_id: string; last: number }>;
+  ).all() as Array<{ staff_id: string; last: number }>;
   cache.fixed = {
     sessions,
     bindings,
@@ -197,14 +196,13 @@ export function batchReads(
   const sent = alerts.filter((a) => a.step >= 0);
   if (o.previousStep && sent.length > 0) {
     // (7) the previous step's recipients of these alerts
-    const rows = tx.db
-      .prepare(
-        `SELECT r.alert_id, r.staff_id, r.device_id, r.for_staff_id, r.recipient_set AS "set"
-         FROM json_each(?) j JOIN alert_recipients r
-           ON r.alert_id = json_extract(j.value, '$[0]') AND r.step = json_extract(j.value, '$[1]')
-         ORDER BY r.rowid`,
-      )
-      .all(JSON.stringify(sent.map((a) => [a.alert_id, a.step]))) as Array<RecipientRow & { alert_id: string }>;
+    const rows = cachedPrepare(
+      tx.db,
+      `SELECT r.alert_id, r.staff_id, r.device_id, r.for_staff_id, r.recipient_set AS "set"
+       FROM json_each(?) j JOIN alert_recipients r
+         ON r.alert_id = json_extract(j.value, '$[0]') AND r.step = json_extract(j.value, '$[1]')
+       ORDER BY r.rowid`,
+    ).all(JSON.stringify(sent.map((a) => [a.alert_id, a.step]))) as Array<RecipientRow & { alert_id: string }>;
     for (const { alert_id, ...row } of rows) {
       const list = prevRecipients.get(alert_id) ?? [];
       list.push(row);
