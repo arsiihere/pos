@@ -210,11 +210,17 @@ describe('[01d #59 client] re-notify after a reconnect (m6)', () => {
     expect(store.snapshot().rows[0]).toMatchObject({ state: 'closed' });
   });
 
-  it('[01d #59 client] a catch-up row with no card keeps the card the client already holds (AD-162/163)', () => {
+  it('[01d #59 client] a catch-up row with no card replaces the card the client held: the latest server view wins (AD-163)', () => {
     const { store } = setup();
     const card = { kind_label_key: 'alert.void_approval.card', table_code: '12', requester_name: 'Hamza', details: { amount: 220_000 } };
-    store.onAlert(view({ alert_id: 'A1', card }));
+    store.onAlert(view({ alert_id: 'A1', card, answers: ['approve', 'reject'], needs_pin: 'always' }));
     store.onCatchUp([{ alert_id: 'A1', kind: 'void_approval', family: 'urgent', step: 0, lock: { kind_label_key: 'alert.void_approval.lock' }, raised_at: 0 }]);
+    const row = store.snapshot().rows[0]!;
+    expect(row.card).toBeUndefined();
+    expect(row.answers).toBeUndefined();
+    expect(row.needs_pin).toBeUndefined();
+    // a card is shown again only when the server sends one again
+    store.onCatchUp([{ ...view({ alert_id: 'A1', card }), seen_by_me: false, from_business_day: null }]);
     expect(store.snapshot().rows[0]?.card).toEqual(card);
   });
 });

@@ -134,7 +134,8 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
 
   function merge(row: IncomingRow, replace = false): AlertRow {
     const held = rows.get(row.alert_id);
-    // §8.1 (R-d carry, AD-R-d-3): a later lock-only *frame* replaces the card view; it is not merged with it
+    // AD-163 (controller ruling): the latest server view wins: a lock-only frame, catch-up or alerts_open row
+    // replaces a held card view; it is not merged with it. A card is shown again only when the server sends one
     const old = replace && held !== undefined ? lockOnly(held) : held;
     const next: AlertRow = {
       alert_id: row.alert_id,
@@ -155,7 +156,6 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
       decision: old?.decision ?? null,
       by_name: old?.by_name ?? null,
     };
-    // AD-162/163: a lock-only row (alerts_open, a read-only viewer) never drops the card already held
     const card = row.card ?? old?.card;
     if (card !== undefined) next.card = card;
     const outcome = row.outcome !== undefined ? row.outcome : old?.outcome;
@@ -277,7 +277,7 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
       }
       for (const r of incoming) {
         const before = rows.get(r.alert_id);
-        const row = merge({ ...r, state: 'open' });
+        const row = merge({ ...r, state: 'open' }, r.card === undefined);
         markEscalated(r);
         const key = `${r.alert_id}:${r.step}`;
         const fresh = !shown.has(key);

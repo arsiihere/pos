@@ -285,6 +285,35 @@ describe('alert socket', () => {
     expect(row.raised_device_id).toBeUndefined();
   });
 
+  it('[01d §3.12; AD-163] catch-up after a reconnect: an earlier card frame, then a lock catch-up row → lock', () => {
+    const { sockets, store, timers } = setup('cashier_kiosk', 'sess-1');
+    sockets[0]!.open();
+    sockets[0]!.frame(catchUp([]));
+    sockets[0]!.frame({ type: 'alert', alert: view({ alert_id: 'A1', card: CARD, answers: ['approve', 'reject'], raised_device_id: 'D1' }) });
+    expect(store.snapshot().rows[0]?.card).toEqual(CARD);
+    sockets[0]!.drop(1011);
+    timers.advance(MAX_BACKOFF_MS);
+    sockets[1]!.open();
+    sockets[1]!.frame(catchUp([{ ...view({ alert_id: 'A1', step: 1 }), seen_by_me: false, from_business_day: null }]));
+    const row = store.snapshot().rows[0]!;
+    expect(row).toMatchObject({ step: 1, lock: LOCK, state: 'open' });
+    expect(row.card).toBeUndefined();
+    expect(row.answers).toBeUndefined();
+    expect(row.raised_device_id).toBeUndefined();
+  });
+
+  it('[01d §3.12; AD-163] an alerts_open lock row replaces a held card', () => {
+    const { sockets, store } = setup('phone', null);
+    // a card already in the store (e.g. fed by another source before alert mode)
+    store.onAlert(view({ alert_id: 'A1', card: CARD, needs_pin: 'always' }));
+    sockets[0]!.open();
+    sockets[0]!.frame(alertsOpen([{ alert_id: 'A1', kind: 'void_approval', family: 'urgent', step: 0, lock: LOCK, raised_at: 0 }]));
+    const row = store.snapshot().rows[0]!;
+    expect(row.card).toBeUndefined();
+    expect(row.needs_pin).toBeUndefined();
+    expect(row.lock).toEqual(LOCK);
+  });
+
   it('[01d §8.1] malformed or unknown frames are ignored; other frames go to onFrame', () => {
     const onFrame = vi.fn();
     const { sockets, store, conn } = setup('tablet', 'sess-1', { onFrame });
