@@ -7,6 +7,7 @@ import { wsHubFor } from '../ws/server.js';
 import { registerAnswerRequest } from './commands/answer-request.js';
 import { registerMarkAlertsSeen } from './commands/mark-alerts-seen.js';
 import { registerSendTestAlert } from './commands/send-test-alert.js';
+import { registerSetPresence } from './commands/set-presence.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
 import { createAlertsCatchUp } from './catch-up.js';
@@ -83,6 +84,8 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   registerMarkAlertsSeen(app);
   // §6.5 (task 33): SendTestAlert (manage-devices, the normal permission check)
   registerSendTestAlert(app);
+  // §6.6 (task 37): SetPresence (manage-staff, the normal permission check); the screen is 01e's (AD-7)
+  registerSetPresence(app);
   app.addHook('onClose', async () => {
     stopCatchUp();
     receipts.stop();
