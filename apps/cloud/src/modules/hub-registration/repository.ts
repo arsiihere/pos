@@ -98,7 +98,7 @@ export async function consumeCode(
   );
 }
 
-// 01b §4.3.1, §7.3: 8 fixed statements whatever the staff count. Staff with no PIN are not sent (B3); the
+// 01b §4.3.1, §7.3: 9 fixed statements whatever the staff count. Staff with no PIN are sent apart as no_pin_staff (B-1, B-5); the
 // role set adds every approver role named by those roles' grants (m3); floors and responsibilities skip
 // archived floors and stations; approver_role_id is the dual-written first approver (B18 a).
 export async function loadDirectory(

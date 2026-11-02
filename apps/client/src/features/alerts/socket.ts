@@ -208,7 +208,7 @@ export function createAlertConnection(deps: AlertConnectionDeps): AlertConnectio
         deps.onEnded?.(ev.code, ev.code === 4409 ? REPLACED_REASON : ev.reason);
         return;
       }
-      scheduleReconnect(); // 1011, 1012, 4409, a dropped network: try again, ≤ 5 s apart
+      scheduleReconnect(); // 1011, 1012, a dropped network: try again, ≤ 5 s apart (4409 is final, above)
     };
   }
 
