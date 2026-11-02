@@ -370,3 +370,76 @@
 - AD-165 (D): `raised_device_id` is added to the signed-in view, for requests only.
 - AD-156 (E): confirmed. AD-166 (F): first-receipt-wins, noted in §6.10. AD-131: the tick bound is updated at the as-built review.
 - Batch 9a design approvals: 12-hour times (AD-167). The 02 / 04 top-bar change is a carried row (AD-168).
+
+## Batch 9a — Staff entry in the Pulse design (2026-11-02/03)
+
+- **Server follow-ups for the rulings:**
+  - `39b0ac6` AD-161: the `alert_inbox (alert_id)` index in 0006. A retention batch of 500 alerts against 105k inbox rows went from 4.87 s to 13.4 ms.
+  - `fda27d6` AD-162/163: one `cardRule` for inbox, catch-up, requests-to-answer and frames.
+  - `9199808` AD-165: `raised_device_id` on the signed-in view, for requests only.
+  - `dc1ac99` AD-164: the #55 test now asserts that the personal notices never go to the pager.
+  - Review: approved.
+- **Design hand-off:** `4fa6b65` (59 frames).
+- **Kit:** `2b80eb6` + `99c9089`. The Pulse staff layer (`packages/ui-kit/components/pulse-staff.css`, all rules under `:where(.pu)`, brand colours via `--brand-*`, bundled fonts, no CDN) is loaded only by the staff entry through `apps/client/src/app/ui-kit-staff.ts`. *Unattended ruling:* kit-additions.css has no 01d section, so the hand-off's pulse.css, v-brand.css and pulse-01d.css were merged instead.
+- **Tasks:**
+  - 39: store, sounds, labels. `fa200a2`.
+  - 40: socket, alert mode, online-only PIN answers. `c9a4a3a`, `e3de05e`.
+  - 39–40 fixes `3e37eca`:
+    - the silent kind is now decided by kind;
+    - 4409 is final;
+    - an answer in flight is guarded;
+    - a full reset on every session change;
+    - the latest server view wins everywhere.
+  - 41: `/staff/` entry and screens, hub serving, ship script. `8def8f3`.
+  - 42: tablet header. `41ba3e4`.
+  - 41–42 fixes `5a69e8a`:
+    - the open sheet now follows the live view;
+    - the inbox retries after a failure;
+    - the header is approximate (AD-T42-2);
+    - a focus trap;
+    - toast tones;
+    - a session counter;
+    - Zod-parsed responses;
+    - ship stages all builds before swapping.
+- **Visual pass** (webapp-testing, Playwright, mocked hub): 85 states at 1280×800, 800×1280, 1920×1080 and 390×844, in English and Urdu.
+  - 15 frames fixed (`1f5430a`), tests added (`042ead7`).
+  - 21 frames still differ, each because of missing data, a ruling or copy: see `.superpowers` task-visual-report.
+  - No page scroll at ≥1280, no horizontal scroll at 390 or 360, every target ≥ 56 px.
+  - No CDN request: the fonts come from the bundle.
+  - Screenshots of the main screens are in `docs/design/handoff/01d/build-screens/`.
+- **Reviews** (opus):
+  - Every task was reviewed, with one fix round each where needed.
+  - No PIN storage or queueing, and no details leak, was found.
+- **Gate:** green on the first run. 304 files and 2014 tests passed; 1 file and 1 test skipped (#58).
+- **Tests closed:** #56 client, #57 client, #59 client, #61 client.
+- **AD rows:** all 9a rows are in `01d-auto-decisions.md` under "Batch 9a", **unattended — developer to confirm**.
+- **States built without a frame** (for the designer):
+1. The sign-in PIN step: a dialog with the D02 pad and a "Sign in" key, on tablet and kiosk.
+2. Sign-in roster offline: a retry line and Retry now. Roster empty: "Nobody can sign in here yet."
+3. Device not paired, or the page has no meta: one read-only line.
+4. Sign-in errors: DEVICE_SESSION_ACTIVE ("{name} is signed in on this device. Enter your PIN again to take over.", then the next PIN sends `takeover: true`), plus wrong PIN, locked and busy on the pad.
+5. 4409 "This page is open on another tab or screen." with "Use it here" (a warnbar).
+6. The Rejected / Declined done state: a red ring with an x.
+7. A closed request opened from the inbox: no buttons, Close.
+8. D01 for a lock-only request (no card): no fact tiles.
+9. D01 B04 PERMISSION_DENIED from the PIN step: back to the detail with the danger line.
+10. Approve here: the D03 loading skeleton, and in_person_elsewhere / PIN errors on the in-person PIN step.
+11. Test alert: the error line (not found / denied / offline / failed), the disabled Send while nothing is picked, and the "This device" row.
+12. Receipts: loading skeleton, ALERT_NOT_FOUND text, the "for {name}" note on a lead's row, and listed routes without a delivery.
+13. Phone inbox: the two list cards stacked (the frame lists cards straight in `ph-body`).
+14. Phone signed-out header: the branch name instead of the owner's name.
+15. B06 warnbar placement in the staff entry (light, under the top bar).
+16. Tablet signed out: no Live chip (no socket is open; §3.7).
+17. Urdu for every new string (it falls back to English; see the todo list).
+  18. S02 RequestsEmpty can't be reached: the Requests tab hides when the list is empty.
+  19. B07: the stuck count stays in the /admin/stock More menu (AD-123). No banner on the 00 /admin home.
+- **Known data gaps** (need an additive field or 9b; developer ruling):
+  - the tablet header deadline is approximate (an absent person still shows a deadline);
+  - test-alert lists show only PIN holders and "This device";
+  - no approver name in the B02/D03 copy;
+  - no sender in the receipts header;
+  - no tenant or device name in the brand block;
+  - 79 Urdu strings are still English (`docs/design/handoff/01d/urdu-todo.md`).
+- **Carried rows:**
+  - to 02 and 04: the Requests (n) / Inbox (n) top-bar buttons (AD-168);
+  - to 9b: the Android service, notifications, lock-task, and the header source.

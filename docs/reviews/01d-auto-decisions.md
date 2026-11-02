@@ -225,3 +225,131 @@ AD-166 | ruling F (developer, 2026-11-02) | a receipt is keyed without its route
 AD-131 (developer ruling): the tick statement bound is updated at the as-built review.
 AD-167 | 9a design (developer approval, 2026-11-02) | the brief writes times as 14:02, but the frames use 2:02 PM | — | the staff screens show times in 12-hour format ("2:02 PM"), as in 02, 03b and 04 | developer decision | `apps/client` 01d screens
 AD-168 | 9a design (developer approval, 2026-11-02) | the 02 / 04 top bar ("Approvals" / "Alerts") versus 01d ("Requests (n)" / "Inbox (n)") | — | approved. It is a carried row to 02 and 04 (two icon buttons, Requests with a shield and Inbox with a tray, each with a red badge, in place of the single bell). It is not built in 01d | developer decision | carried to 02, 04
+
+## Batch 9a (build) and the ruling follow-ups — all rows below: **unattended — developer to confirm**
+
+These rows are copied from the implementers' reports. Each table keeps its source's columns. The reviews accepted them unless a line says otherwise. Rejected by review and changed in a fix round: the 4409 backoff reset (now final); the inbox merge carve-out (now replace); the optimistic header +2 h as first written (now approximate, extended on activity, AD-T42-2); the AD-T41-10 permission name (now list-based).
+
+### Ruling follow-ups (AD-161–165 server)
+
+These go in docs/reviews/01d-auto-decisions.md. I did not write them there, because that file was outside this task's file list.
+
+| ID | Context | Question | Reading taken | Status | Why | Where |
+|---|---|---|---|---|---|---|
+| AD-R-d-1 | AD-162/163 "for" rows | The ruling's "read-only rows ('for') get lock" is worded for requests. Does it also cover a lead's "for Ali" row of a **non-request** action or info alert (lead fallback, §3.4.3 G1-18a)? | **Yes, for every kind.** The lead sees lock text with `for_staff_id` / `for_staff_name`, so §3.4.3's grouping per person still works. Only the card label and details go. The lead's own row of the same alert still gets the card. | unattended, developer to confirm | One rule everywhere (AD-163). The brief's test "lead's for row gets lock" names no kind. Action and info kinds rarely carry details, so little is lost. | `ws-frames.ts` cardRule |
+| AD-R-d-2 | AD-163 and requests-to-answer | Does requests-to-answer apply the device-target check? | **Yes.** A manager on a kiosk that is a device target gets `can_answer: true` with the lock view only, matching the catch-up. Answering from the kiosk still works: `answers` / `needs_pin` are absent, so the client must know them from the kind. | unattended, developer to confirm | "One rule everywhere"; §3.12 forbids details on device-target devices. | `queries/requests-to-answer.ts` |
+| AD-R-d-3 | AD-163 per-step frames | A person signed in on a kiosk gets the **card** frame at a step where the kiosk is not yet a device target (step 0 to the answerers). From the step that adds the kiosk (always_on) onward, frames give lock. The inbox and catch-up check the device target cumulatively over all steps, so they then give lock too. | **Accepted as is.** Frames follow each step's recipients (§6 batch 3). The card already shown at step 0 is not recalled. | unattended, developer to confirm | "Device target" is decided per step for frames and over all steps for views. | `ws-frames.ts` planStep |
+| AD-R-d-4 | AD-162 frames "can answer now" | For a request, the frames decide the card by `mayAnswer` at send time, not by the step row's set. | **`mayAnswer` at send time.** It equals `set === 'answerer'` in practice: the same transaction resolved the step. It also covers a request "for" row whose lead may answer, which gets the card. | unattended, developer to confirm | It is the ruling's literal "can answer it now". | `ws-frames.ts` |
+
+
+### Kit — Pulse staff layer
+- AD-A: The staff layer is a separate stylesheet (`ui-kit-staff.ts`), loaded only by the staff entry. Every rule is scoped under `:where(.pu)`.
+- AD-B: Brand inputs of v-brand.css map to --brand-* with color-mix() derivations (rail 82%, side 66% of secondary toward black; accent-bg 12% toward white). Colours are derived, not designer-picked.
+- AD-C: The cream ground and ink neutrals of v-brand.css stay fixed, not brand-derived.
+
+
+### Task 39 — store, sounds, labels
+
+| problem | options | choice | why | files |
+|---|---|---|---|---|
+| §8.3 "At most five sounds in total" is unclear: five sound plays per alert, or five sound designs? | (a) cap each alert at 5 plays; (b) at most 5 distinct sounds | (b): exactly 5 recipes (urgent, action, info, rising, falling); a test pins the set | G0-2 says it in the list of sound designs; CHANGES §4 has exactly 5; (a) would silence the 2-min reminder G1-14b asks for | sounds.ts, sounds.test.ts |
+| Sound timing: CHANGES §4 and spec §8.3 | — | no difference found (10 s, 2 min, one step-up of 0.6 → 0.8) | — | sounds.ts, store.ts |
+| Volume after the escalation step once the alert is later seen | keep 0.8, or drop back to 0.6 | keep 0.8 for that alert until it closes | G1-14c: "the step-up happens once, at the branch-scope step" | store.ts |
+| Always-on banners: the spec gives sound rules only | urgent banner stays; or every banner hides after 6 s | every family hides after 6 s, leaving the badge | G1-14d "then a visual badge only"; there is nobody to "open" it at a kiosk | store.ts |
+| `alwaysOn` applies to the whole device, not per alert | per-alert device-target flag (the frame has none); device-wide | device-wide, from the device type (task 41 passes it) | the frames have no field for it | store.ts |
+| An open row missing from a catch-up or `alerts_open` | keep it; mark it closed | mark it closed (no reason), stop its sound and banner | the catch-up is the complete open set (§6 batch 3) | store.ts |
+| BF-4 rows: is the urgent repeat also skipped? | repeat; no repeat | no sound at all, not even the repeat | BF-4 "listed without sound" | store.ts |
+| Urgent banner for an alert already seen when its escalation step arrives | show it again; badge only | show it again (sound at 0.8); it stays until opened | the escalation step is a new step; G1-14c | store.ts |
+| `request_result` text: the brief has "Void T12 approved by Imran.", but the view carries neither the request kind nor the answerer's name | add view fields (server change, not allowed in 9a); neutral copy | neutral copy, one key per outcome: "Request approved · T12" | 9a may not change API shapes | en.ts, labels.ts |
+| `approval_receipt` text: the frame says "You approved…", but the view has no decision (it rejects too) | add a decision field; neutral copy | "You answered a request · T12 · Hamza" | as above | en.ts |
+| `no_approver` text: the spec says "No one can approve voids right now", but the view carries no permission (tick display has the lock key only) | add a field; generic copy | "No one can approve requests right now" (card), "No one can approve requests" (lock) | no server change in 9a; a permission key is never shown | en.ts |
+| Table chip from `table_code` "12" | show as is; prefix "T" | `alerts.table` = "T{code}" | brief C01 "T12" from `table_code`; the spec example is "12" | en.ts, labels.ts |
+| Closed-row text for `obsolete`, `done`, `overridden`, `undone` | "Closed: bill closed"; generic | generic "Closed" (`alerts.closed.closed`, new); `bill_closed` is kept for the owning module | obsolete is not always a closed bill | en.ts, labels.ts |
+| Closed-row time: "Approved by Imran 2:02 PM", but inbox rows and `alert_closed` have no close time | omit the time when unknown | `closedText({ at? })`; no name gives "Approved" or "Rejected" | no field to read it from | labels.ts |
+| `REQUEST_NOT_PENDING` with no name, or closed for another reason | — | "This request is already closed." (proposed copy) | the brief covers only approved, rejected and withdrawn | en.ts, labels.ts |
+| Kind with no client texts (04's `void_approval` before 04 lands) | show the key; generic | "{table} · Request · {requester}" (urgent or has answers), else "… · Alert · …" | never show a kind key | en.ts, labels.ts |
+| Folder: spec §7 says client `apps/client/src/alerts/`; the plan brief says `features/alerts/` | — | `features/alerts/` (plan), the existing client pattern | plan wins on structure; fold into the §7 as-built review | — |
+| Urdu `bind.active` word order | frame DOM order; reordered | DOM order: "الرٹ: {name} — رکیں گے {time}" | frame wins; native review | ur.ts |
+
+
+### Task 40 — socket, answers
+
+| problem | options | choice | why | files |
+|---|---|---|---|---|
+| Where the envelope's `tenant_id` / `branch_id`, the session token and the staff id come from on a staff device (the hub checks the tenant and branch, `commands/route.ts:76`; the WS `hub` catch-up part has no ids) | (a) read config-status as `hub-admin` does (admin route); (b) inject them | (b): `context(): AnswerContext \| null`, filled by the staff sign-in flow (task 41 / 02) from memory | config-status is an admin query; the staff app's sign-in owns these values | answer.ts |
+| Who counts as "socket up" | `onopen`; the first server frame | the first valid server frame | 00 §6.21: nothing is sent before auth succeeds, so `onopen` alone does not mean authenticated | socket.ts |
+| Close codes: which ones reconnect | reconnect on all; stop on the credential closes | 4401, 4403, 4426 → `onEnded`, no reconnect. 1011, 1012, 4409 and network → backoff | the same credentials can never succeed after 4401/4403/4426. §3.7 expects a cloned token to show as a flapping 4409 socket | socket.ts |
+| Backoff steps (spec: "max 5 s") | fixed 5 s; exponential with a cap | 500 ms → 1 s → 2 s → 4 s → 5 s cap, reset after auth | quick first retry after a hub restart (1012), never above 5 s | socket.ts |
+| When a receipt is "shown" | after the store shows a banner; on every row received | on every row received: an `alert` frame, an `alerts_open` row or a catch-up row, once per (alert_id, step), silent kinds and earlier-day rows included | `delivered` is a delivery fact; every received row is listed in the inbox | socket.ts |
+| Lock frame after a card (R-d carry, AD-R-d-3): scope | frames only; frames, catch-up and inbox | **frames only** replace the card. Catch-up and inbox rows keep task 39's keep-the-card rule (its test still asserts it) | the carry names "a later lock frame"; changing the catch-up rule would undo a task 39 test. Under AD-163 a staff catch-up for a device-target device gives lock, so a card from a step-0 frame survives a reconnect on a kiosk. Developer to decide whether catch-up rows should replace too | store.ts |
+| `silent` on a lock frame that replaces a card | drop it; keep it | keep the held `silent` | the safer default: a silent notice must never start sounding | store.ts |
+| Cards after sign-out (G1-13e) | leave it to task 41 (a new store per session); strip them in the connection | `setSession(null)` calls `store.dropCards()`, which strips card, answers, needs_pin and raised_device_id from every row | details need a sign-in. A kiosk or phone in alert mode must not keep the last cashier's amounts and reasons in its list | socket.ts, store.ts |
+| A `session` answer with the socket down (§8.1 says "may be queued as today") | queue it; refuse it | refused like the PIN methods (`NETWORK`) | AD-2: the sender is online-only by construction, and no client queue exists in apps/client | answer.ts |
+| An empty or invalid PIN for `pin` / `in_person` | send it and let the hub return 400; refuse it locally | refused locally (`VALIDATION_FAILED`, pad cleared) | the PIN never leaves the device when it cannot be valid | answer.ts |
+| No staff session at answer time | send without one; refuse | `SESSION_INVALID`, nothing sent | the hub would refuse it anyway | answer.ts |
+| A KDS page with a station session | open the session socket; nothing | opens the session socket (`session_token` = the station token); never alert mode | §6 batch 3: the station socket carries the device-target alerts | socket.ts |
+
+
+### Task 40 — fix rounds
+
+| problem | options | choice | why | files |
+|---|---|---|---|---|
+| Lock views carry no `silent` (AD-23), so alert mode played a chime for `approval_receipt` | add `silent` to lock views (server change); a client kind list | client `SILENT_KINDS = {'approval_receipt'}`, kept equal to kinds.ts by hand | 9a may not change API shapes. One kind, so the duplication is small. Note for the as-built review: a kind that later becomes silent must be added here | sounds.ts, store.ts, labels.ts |
+| 4409 handling | reconnect with backoff; final | final, `onEnded(4409, 'open on another tab/screen')` (controller ruling) | the hub sends `alerts_open` at once, so backoff resets and two tabs flap every 500 ms | socket.ts |
+| Double tap during an answer | queue it; ignore it; send it | returns `IN_FLIGHT` at once and sends nothing. The message is the "Busy — try again." text, but the UI should ignore it | a second POST with the same PIN would count twice toward the lockout | answer.ts |
+| Session change | strip cards on sign-out only; full reset on any change | `store.reset()` + clear `receipted` on any change; keep the shown set (controller ruling) | no personal rows, cards or seen state survive to the next person; no device-target sound replays | socket.ts, store.ts |
+| `{kind}` in `notice.in_person_title` | the kind key; a per-kind name label; a neutral word | `alert.<kind>.name` when the owning module (04) defines it, else `alerts.kind_fallback` "request" | §3.12: a kind key is never shown; 01d defines no name labels | labels.ts, en.ts, urdu-todo.md |
+| requests-to-answer rows and latest-view-wins | store ingests them; task 41 applies it | task 41 applies it (the store has no method for these rows) | not ingested today | — (task 41) |
+
+
+### Task 41 — staff entry
+
+| # | problem | options | choice | why | files |
+|---|---|---|---|---|---|
+| AD-T41-1 | The F §6.3 envelope needs `tenant_id` and `branch_id` (route.ts:76, BRANCH_MISMATCH), but no device route returns `tenant_id`. 12-hour times need the hub zone (S47), and nothing before sign-in gives it. | add a device query (server change, not allowed); read admin config-status (admin session); embed in the page | the hub's `/staff/` serving adds `<meta>` pos-tenant-id / pos-branch-id / pos-branch-name / pos-hub-now-ms / pos-hub-utc-offset-ms to index.html on each request (`registerClientDist({ indexMeta })`). These are ids and the clock only, no secret. | the 00 M79 precedent: `/admin/approve` embeds tenant_id and branch_id. It stays inside the brief's allowed files (client-dist.ts and the serving route); there is no API change. | client-dist.ts, server.ts, staff/api.ts |
+| AD-T41-2 | Staff session storage | sessionStorage (as admin-stock); memory | memory only. A reload means signing in again; the hub's replace or takeover handles the old session | the session token is a credential, and nothing needs it across reloads | staff/api.ts |
+| AD-T41-3 | "Find <approver> or a manager" (§8.1) and "Waiting for {name} or a manager": no wire field names the approver | add a field (server change); name-less copy | fill `{name}` with "an approver" (`answer.an_approver`) | 9a may not change API shapes | AnswerSheet.tsx, en.ts |
+| AD-T41-4 | `answer.ro_informed` copy: CHANGES §5 has "…{name} or a manager can approve."; spec §8.1 and the brief say "Find <approver> or a manager" for informed | keep the frame copy; spec copy | "For your information. Find {name} or a manager." (the brief wins on copy). The key had no Urdu yet | brief / spec over frame | en.ts, urdu-todo.md |
+| AD-T41-5 | Who appears on the D03 approver tiles | only approvers (unknowable on the client); every roster person | every unlocked roster person. The hub refuses a non-approver (STAFF_NOT_FOUND → "That person can't approve here." / PERMISSION_DENIED) | the device roster has no rights | AnswerSheet / StaffApp |
+| AD-T41-6 | Sign-in tile sub line (role names) | show responsibilities keys; none | none | `staff-roster` carries no role names, and a key is never shown | SignIn.tsx |
+| AD-T41-7 | Test alert lists: people without a PIN (frame) and a device list with an online dot (frame) | admin queries (admin session); device-route data only | Person and Team: the device roster (PIN staff only; any person can be the team lead, and the hub sends an empty team for a lead with no reports). Device: "This device" only | no device route lists staff without a PIN or devices; no server change in 9a | TestAlert.tsx |
+| AD-T41-8 | Receipts step names: the receipts carry no escalation flag | "Step n"; by number | 0 Sent, 1 Reminder, 2+ Escalated | the void kind escalates at step 2 (my-requests `ask_in_person: step ≥ 2`) | Receipts.tsx |
+| AD-T41-9 | Banners while signed out | show lock-only banners; none | none. The F01 lock panel shows the lines on kiosk and phone | Open would need a sign-in; F01 is the designed signed-out surface | StaffApp.tsx |
+| AD-T41-10 | Who sees the Requests tab ("approvers only") | permission-based; list-based | the session has `approve-void` allowed, **or** requests-to-answer returned any row; never on the phone | the client has no approver-role data; `approve-void` is the range permission of the pilot's void | StaffApp.tsx |
+| AD-T41-11 | D03 pick step help line (the frame names Imran before anyone is picked) | first tile's name; none | none on the pick step; shown on the PIN step with the picked name | naming a person before the pick would mislead | InPerson.tsx |
+| AD-T41-12 | Waiting ring fill (no escalation time on the wire) | step-based; time-based | it fills over 4 minutes; full with "1d" for an earlier business day | close to the frames (2 min = 50 %) | ui.tsx |
+| AD-T41-13 | Brand block: "Arif Chatkhara" / "Tablet 3" | hard-code; data | the mark is the branch initial; line 1 is the branch name; line 2 is "branch · device type" ("Gulberg · Tablet") | no tenant name or device name reaches a staff page | StaffApp.tsx |
+| AD-T41-14 | Accept-kind facts (Table / From / What moves in the frame) | invent fields; the base details | `AlertDetailsBase` fields only (the owning module, 02, defines its details) | no 01d data for them | AnswerSheet.tsx |
+| AD-T41-15 | Phone layout of the inbox | single list in `ph-body` (frame); stacked list cards | stacked Open / Today cards at full width (≤760 px CSS) | one Inbox component; refine in the visual pass | pulse-staff.css |
+
+
+### Task 41 — fix round
+
+| # | problem | options | choice | why | files |
+|---|---|---|---|---|---|
+| AD-T42-2 | The tablet header deadline before 9b: the hub sends `binding_route` only when its deadline changes, and the page cannot see the hub's activity clock | read it from the hub (a new frame or field, spec bump); approximate it on the page | approximate (controller ruling). Set at sign-in to hub-now + 2 h, moved to hub-now + 2 h by every accepted command from this page (MarkAlertsSeen, AnswerRequest, SendTestAlert; no query counts as activity), replaced by any `binding_route` frame. **Known gap:** when the hub's `until` is null (the person is absent), the page still shows a deadline until a `binding_route: null` frame arrives. Closing it needs an additive frame (spec bump) or 9b. No server change was made | 9a may not change server code or API shapes | StaffApp.tsx, StaffApp.test.tsx |
+| AD-T41-10 (replaces the first row) | Who sees the Requests tab | a permission name; the hub's list | requests-to-answer returned any row (can-answer or read-only); never on the phone | no permission names in the client; the hub computes the list | StaffApp.tsx |
+| AD-T41-16 | `alert_closed` for a request the store does not hold (one seen only through requests-to-answer) was dropped | ingest requests into the store; record closes in the shell | the shell records every `alert_closed` frame (a wrapper around the socket's store) and applies it to request views and to the open sheet | the store keeps its inbox meaning; no change to the task 39/40 contracts | StaffApp.tsx, RequestsToAnswer.tsx |
+| AD-T41-17 | Toast tone for B04 closes | one tone; by outcome | approved → ok; rejected, withdrawn or closed → info; not found → warn | icon + word + colour | AnswerSheet.tsx, StaffApp.tsx, pulse-staff.css |
+
+
+### Task 42 — tablet header
+| # | problem | choice | why |
+|---|---|---|---|
+| AD-T42-1 | The bound person's name is not on the wire (`alerts_open` carries only `until`) | name = the person who last signed in on this tablet page (memory only); fallback "Someone" | no server change allowed; the binding is set by a sign-in on this tablet, so this is normally right. After a reload with no sign-in the name is unknown |
+| AD-T42-2 | A tablet page opens no socket while signed out (m6), so no frame arrives | after sign-in set `until = hub now + 2 h` locally until the hub's frame replaces it | spec: deadline = last session end + 2 h; the tablet must never show later than the hub (a sign-in is "now", so the first frame can only be equal or later) |
+| AD-T42-3 | Logout vs idle expiry | explicit sign-out clears to "none"; idle/4401 keeps the deadline | test 27: logout ends the binding, idle timeout keeps it |
+
+
+### Visual pass
+
+| # | problem | options | choice | why | files |
+|---|---|---|---|---|---|
+| AD-V-1 | Frame tint `#FBE7E3` (`--accent-bg`, `--tab-on-bg`: the selected test target, the active phone tab) against the kit's brand-mapped `color-mix(var(--brand-secondary) 12%, #FFF)` = (238,227,226) | literal frame hex; keep the brand mix | keep the brand mix: a visible greyer pink | DS ruling: brand colours only through `--brand-*`. `#FBE7E3` is not a mix of the brand maroon | pulse-staff.css (unchanged) |
+| AD-V-2 | NoApproverKiosk: an empty Open list next to a non-empty Today shows a ring and "Nothing open." in the frame; the build shows an empty card | add `alerts.nothing_open` (en + urdu-todo) and render it in Inbox.tsx; leave | left as is in this pass (en.ts is outside the visual-pass files) | a copy addition; needs the string table | Inbox.tsx, en.ts (later) |
+| AD-V-3 | F01 lock-line order | newest first (store); urgent first (frames) | urgent first, then newest, up to 3 | LockKiosk and LockPhone list the urgent line on top | StaffApp.tsx |
+| AD-V-4 | Phone inbox headers (Open / Today counts) | keep the list cards (AD-T41-15); flat as the frame | flat; the headers are hidden on the phone (the cards still say Urgent / Info, and the tab carries the badge) | PROMPT: "exactly like the phone frames" | pulse-staff.css |
+| AD-V-5 | The open `no_approver` row also appears in Today under the B06 warnbar | hide it from the list; keep | keep (behaviour, not look) | a list rule change belongs to the spec / brief | — |
+
+
+Reviewer-raised rows (unattended): **AD-M1**: frames decide device-target per step, while the views decide over all steps. This is unreachable with 01d kinds but reachable once point-bound tablets exist. **AD-M2**: the receipts view lists short-code routes that were never used and counts them as routed (affects test_alert receipts).
