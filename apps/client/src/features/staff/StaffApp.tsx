@@ -14,7 +14,8 @@ import { Receipts } from '../alerts/Receipts';
 import { RequestsToAnswer, requestViews, type RequestRow, type RequestView } from '../alerts/RequestsToAnswer';
 import { createAlertConnection, hubSocketUrl, REPLACED_REASON, type SocketLike } from '../alerts/socket';
 import { webAudioSink, type AudioSink, type ToneContext } from '../alerts/sounds';
-import { createAlertStore, type AlertRow, type Timers } from '../alerts/store';
+import { createAlertStore, type AlertRow, type AlertStore, type Timers } from '../alerts/store';
+import type { WsAlertClosed } from '@pos/events';
 import { TestAlert } from '../alerts/TestAlert';
 import { FamilyPill, Ico, initial, isRequest, type IconName } from '../alerts/ui';
 import { createStaffApi, type Device, type PageMeta, type RosterPerson, type SignedIn } from './api';
@@ -66,7 +67,6 @@ interface Me {
   allowed: ReadonlySet<string>;
 }
 
-type Opened = { row: AlertRow | RequestView };
 
 export interface StaffAppProps {
   device: Device;
@@ -85,13 +85,34 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const meRef = useRef<Me | null>(null);
   meRef.current = me;
   const signOutRef = useRef<() => void>(() => {});
+  // the hub counts every accepted command as session activity (commands/route.ts); queries never (§6.7–6.10)
+  const activityRef = useRef<() => void>(() => {});
+  const hubFetch = useMemo(() => {
+    const base = fetch ?? ((input: string, init?: RequestInit) => window.fetch(input, init));
+    return async (input: string, init?: RequestInit): Promise<Response> => {
+      const response = await base(input, init);
+      if (response.ok && input.includes('/commands/')) activityRef.current();
+      return response;
+    };
+  }, [fetch]);
+  // a session counter: replies still in flight from an earlier session are dropped
+  const sessionGen = useRef(0);
 
-  const api = useMemo(
-    () => createStaffApi({ device, meta, ...(fetch === undefined ? {} : { fetch }), onSignedOut: () => signOutRef.current() }),
-    [device, meta, fetch],
-  );
+  const api = useMemo(() => createStaffApi({ device, meta, fetch: hubFetch, onSignedOut: () => signOutRef.current() }), [device, meta, hubFetch]);
   const store = useMemo(() => createAlertStore({ sink: sink ?? browserSink, timers: timers ?? browserTimers, alwaysOn: device.type === 'cashier_kiosk' }), [sink, timers, device.type]);
   const [replaced, setReplaced] = useState(false);
+  // every alert_closed frame, also for requests the store does not hold (seen only through requests-to-answer)
+  const [closes, setCloses] = useState<ReadonlyMap<string, WsAlertClosed>>(new Map());
+  const socketStore = useMemo<AlertStore>(
+    () => ({
+      ...store,
+      onClosed(frame) {
+        store.onClosed(frame);
+        setCloses((m) => new Map(m).set(frame.alert_id, frame));
+      },
+    }),
+    [store],
+  );
   // 01d-B05, BF-5: the tablet's binding. The hub sends only the deadline (`alerts_open.binding_route_until`, `binding_route`;
   // null when the binding is not a route); the name is the person who last signed in on this page (AD-T42-1).
   const [bindingUntil, setBindingUntil] = useState<number | null>(null);
@@ -102,7 +123,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
         url: hubSocketUrl(),
         deviceType: device.type,
         deviceToken: device.token,
-        store,
+        store: socketStore,
         timers: timers ?? browserTimers,
         onBindingRoute: setBindingUntil,
         ...(createSocket === undefined ? {} : { createSocket }),
@@ -111,7 +132,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
           else if (code === 4401) signOutRef.current();
         },
       }),
-    [device, store, timers, createSocket],
+    [device, socketStore, timers, createSocket],
   );
   useEffect(() => () => conn.dispose(), [conn]);
   useEffect(() => () => store.dispose(), [store]);
@@ -121,14 +142,20 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const mode = useSyncExternalStore(conn.subscribe, () => conn.mode());
 
   // S47: the hub's clock from the page (no device zone)
-  const clock = useMemo(() => createHubClock({ now_ms: meta.hubNowMs, utc_offset_ms: meta.utcOffsetMs }), [meta]);
+  const [clock, setClock] = useState(() => createHubClock({ now_ms: meta.hubNowMs, utc_offset_ms: meta.utcOffsetMs }));
   const [nowMs, setNow] = useState(() => clock.nowMs());
   useEffect(() => {
+    setNow(clock.nowMs());
     const timer = setInterval(() => setNow(clock.nowMs()), TICK_MS);
     return () => clearInterval(timer);
   }, [clock]);
-  const offset = meta.utcOffsetMs;
+  const offset = clock.utcOffsetMs;
   const binding = bindingUntil === null ? null : { name: boundName ?? t('bind.someone'), until: bindingUntil };
+  // AD-T42-2 (unattended): approximate until 9b. Set at sign-in, moved to hub-now + 2 h by this page's activity
+  // (an accepted command), replaced by any binding_route frame.
+  activityRef.current = () => {
+    if (meRef.current !== null && device.type === 'tablet') setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
+  };
 
   // B03: the list is from when the socket went down (signed in only)
   const [offlineAt, setOfflineAt] = useState<number | null>(null);
@@ -143,30 +170,54 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [roster, setRoster] = useState<RosterPerson[]>([]);
 
+  const [inboxFailed, setInboxFailed] = useState(false);
   const loadInbox = useCallback(
     async (from: string | null) => {
+      const gen = sessionGen.current;
       const answer = await api.inbox(from);
+      if (gen !== sessionGen.current) return; // an earlier session's reply
+      // a failed read stops the skeleton; the store's rows (socket) stay on screen and the read is retried
+      setInboxLoading(false);
+      setInboxFailed(!answer.ok);
       if (!answer.ok) return;
       store.onInbox(answer.data.alerts);
       setCursor(answer.data.next_cursor);
-      setInboxLoading(false);
     },
     [api, store],
   );
   const loadRequests = useCallback(async () => {
+    const gen = sessionGen.current;
     const answer = await api.requests();
-    if (answer.ok) setRequests(answer.data.requests);
+    if (gen === sessionGen.current && answer.ok) setRequests(answer.data.requests);
   }, [api]);
 
   // re-read requests-to-answer when a request alert arrives, steps or closes (the list is computed by the hub)
-  const requestKey = snap.rows
+  const requestKey = `${snap.rows
     .filter((r) => isRequest(r))
     .map((r) => `${r.alert_id}:${r.step}:${r.state}`)
-    .join(',');
+    .join(',')}|${closes.size}`;
   useEffect(() => {
     if (me === null) return;
     void loadRequests();
   }, [me, requestKey, up, loadRequests]);
+
+  // re-read the inbox when the hub is back (a reconnect after a drop, or after a failed read)
+  const wasDown = useRef(false);
+  const signedInNow = me !== null;
+  useEffect(() => {
+    if (!signedInNow) {
+      wasDown.current = false;
+      return;
+    }
+    if (!up) {
+      wasDown.current = true;
+      return;
+    }
+    if (wasDown.current || inboxFailed) {
+      wasDown.current = false;
+      void loadInbox(null);
+    }
+  }, [up, signedInNow, inboxFailed, loadInbox]);
 
   // MarkAlertsSeen, batched (§6.4: up to 50 ids)
   const seenQueue = useRef<string[]>([]);
@@ -183,6 +234,8 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
 
   // ------------------------------------------------------------------------------------------ session
   const signedIn = async (who: SignedIn) => {
+    sessionGen.current += 1;
+    const gen = sessionGen.current;
     setReplaced(false);
     conn.setSession(who.session_token);
     setInboxLoading(true);
@@ -191,19 +244,24 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     setBoundName(who.display_name);
     setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
     navigate('/inbox');
-    const info = await api.session();
+    const [info, time] = await Promise.all([api.session(), api.hubTime()]);
+    if (gen !== sessionGen.current) return;
+    // S47: re-sync the hub clock from branch-config hub_time (the page's clock is from when it loaded)
+    if (time.ok && time.data !== null) setClock(createHubClock(time.data));
     if (info.ok) {
       const allowed = new Set(Object.entries(info.data.permissions).filter(([, r]) => r.grant === 'allowed').map(([p]) => p));
       setMe((m) => (m === null || m.staffId !== who.staff_id ? m : { ...m, allowed }));
     }
     void loadInbox(null);
     const people = await api.roster();
-    if (people.ok) setRoster(people.data.staff);
+    if (gen === sessionGen.current && people.ok) setRoster(people.data.staff);
   };
 
   const signOut = useCallback(
     (callHub: boolean) => {
+      sessionGen.current += 1;
       setOpened(null);
+      setCloses(new Map());
       setRequests([]);
       setCursor(null);
       setMe(null);
@@ -222,7 +280,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
     () =>
       createAnswerSender({
         link: conn,
-        ...(fetch === undefined ? {} : { fetch }),
+        fetch: hubFetch,
         // task 40's context(), filled from the staff sign-in and the page (H-10: memory only)
         context: () => {
           const token = api.sessionToken();
@@ -231,11 +289,13 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
           return { deviceToken: device.token, sessionToken: token, tenantId: meta.tenantId, branchId: meta.branchId, deviceId: device.id, staffId: who.staffId };
         },
       }),
-    [conn, fetch, api, device, meta],
+    [conn, hubFetch, api, device, meta],
   );
 
   // --------------------------------------------------------------------------------------------- ui state
-  const [opened, setOpened] = useState<Opened | null>(null);
+  // only the id: the sheet reads the live row on every render (a close, an answer elsewhere, a lock view)
+  const [opened, setOpened] = useState<string | null>(null);
+  const lastOpened = useRef<AlertRow | RequestView | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   useEffect(() => {
     if (toast === null) return;
@@ -245,19 +305,35 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
   const [summaries] = useState(() => new Map<string, string>());
 
   const held = useMemo(() => new Map(snap.rows.map((r) => [r.alert_id, r])), [snap.rows]);
-  const views = useMemo(() => requestViews(requests, held), [requests, held]);
+  const views = useMemo(() => requestViews(requests, held, closes), [requests, held, closes]);
   const answerable = views.filter((v) => v.can_answer && v.state === 'open').length;
 
   const allowed = me?.allowed ?? new Set<string>();
-  const showRequests = !phone && (allowed.has('approve-void') || requests.length > 0);
+  // AD-T41-10 (review fix): from the hub's own list, never from a permission name
+  const showRequests = !phone && requests.length > 0;
   const showTest = !phone && allowed.has('manage-devices');
 
   const open = (row: AlertRow | RequestView) => {
     store.open(row.alert_id);
     markSeen(row.alert_id);
-    const view = views.find((v) => v.alert_id === row.alert_id);
-    setOpened({ row: view ?? row });
+    lastOpened.current = views.find((v) => v.alert_id === row.alert_id) ?? row;
+    setOpened(row.alert_id);
   };
+
+  // the open sheet's row, live: the requests view (latest view wins), else the store's row; a row that left both
+  // lists was closed while the sheet was open (requests-to-answer lists open requests only)
+  let sheetRow: AlertRow | RequestView | null = null;
+  if (opened !== null) {
+    const live = views.find((v) => v.alert_id === opened) ?? held.get(opened);
+    const last = lastOpened.current;
+    const c = closes.get(opened);
+    sheetRow =
+      live ??
+      (last === null
+        ? null
+        : { ...last, state: 'closed' as const, close_reason: c?.reason ?? last.close_reason, decision: c?.decision ?? last.decision, by_name: c?.by_name ?? last.by_name });
+    if (live !== undefined) lastOpened.current = live;
+  }
 
   // --------------------------------------------------------------------------------------------- routes
   const receiptsMatch = /^\/receipts\/([^/]+)$/.exec(route);
@@ -434,11 +510,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
       {me !== null && opened === null && (
         <Banners banners={snap.banners} nowMs={nowMs} lockOnly={false} variant={phone ? 'phone' : portrait ? 'wide' : 'side'} onOpen={open} onOpenInbox={() => navigate('/inbox')} />
       )}
-      {me !== null && opened !== null &&
-        (isRequest(opened.row) ? (
+      {me !== null && sheetRow !== null &&
+        (isRequest(sheetRow) ? (
           <AnswerSheet
-            row={opened.row}
-            canAnswer={'can_answer' in opened.row ? opened.row.can_answer : opened.row.set === 'answerer' && (opened.row.answers?.length ?? 0) > 0}
+            row={sheetRow}
+            canAnswer={'can_answer' in sheetRow ? sheetRow.can_answer : sheetRow.set === 'answerer' && (sheetRow.answers?.length ?? 0) > 0}
             deviceId={device.id}
             me={{ staffId: me.staffId, name: me.name }}
             sender={sender}
@@ -454,11 +530,11 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: St
             onToast={setToast}
           />
         ) : (
-          <NoticeSheet row={opened.row} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
+          <NoticeSheet row={sheetRow} utcOffsetMs={offset} sheet={phone || portrait} onClose={() => setOpened(null)} />
         ))}
       {toast !== null && (
-        <div className="toast" role="status">
-          <Ico name="checkc" />
+        <div className={`toast toast--${toast.tone ?? 'ok'}`} role="status">
+          <Ico name={toast.tone === 'warn' ? 'warn' : toast.tone === 'info' ? 'info' : 'checkc'} />
           <div>
             {toast.text}
             {toast.sub !== undefined && <small>{toast.sub}</small>}

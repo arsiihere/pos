@@ -476,28 +476,54 @@ export function Dialog({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]');
-    first?.focus();
-    return () => before?.focus?.();
+    // a step inside (the PIN pad) may already have taken the focus
+    if (!ref.current?.contains(document.activeElement)) focusables(ref.current)[0]?.focus();
+    // Escape closes wherever the focus is while the dialog is open
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeRef.current();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      before?.focus?.();
+    };
   }, []);
+  // focus trap: Tab and Shift+Tab cycle inside the dialog
+  const trap = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    const items = focusables(ref.current);
+    if (items.length === 0) return;
+    const first = items[0]!;
+    const last = items[items.length - 1]!;
+    const at = document.activeElement;
+    if (e.shiftKey && (at === first || !ref.current?.contains(at))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (at === last || !ref.current?.contains(at))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
   return (
-    <div
-      className={`scrim${sheet ? ' scrim--sheet' : ''}`}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation();
-          onClose();
-        }
-      }}
-    >
+    <div className={`scrim${sheet ? ' scrim--sheet' : ''}`} onKeyDown={trap}>
       <div ref={ref} className={`dlg${className === undefined ? '' : ` ${className}`}`} role="dialog" aria-modal="true" aria-labelledby={labelledBy}>
         {sheet && <span className="dlg__grip" />}
         {children}
       </div>
     </div>
   );
+}
+
+function focusables(root: HTMLElement | null): HTMLElement[] {
+  if (root === null) return [];
+  return [...root.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex="0"]')];
 }
 
 export function CloseX({ onClose }: { onClose: () => void }) {

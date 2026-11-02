@@ -915,3 +915,9 @@
   .pu.staff .who--tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pu.staff .ph-body { overflow-y: auto; }
 }
+
+/* toast tone (review fix): status is icon + word + colour */
+:where(.pu) .toast--info .ico { color: var(--info-bg); }
+:where(.pu) .toast--warn .ico { color: var(--warn-bg); }
+:where(.pu) .toast--warn { box-shadow: 0 20px 40px color-mix(in srgb, var(--brand-secondary) 30%, transparent), inset 0 0 0 2px var(--warn); }
+:where(.pu) .ro--result { background: var(--surface-2); }

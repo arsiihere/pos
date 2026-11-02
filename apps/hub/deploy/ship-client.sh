@@ -8,7 +8,8 @@ set -euo pipefail
 
 REMOTE_DIST=/opt/pos-hub/apps/client/dist
 REMOTE_CHECKOUT=/opt/pos-hub
-# Each build is checked, copied and swapped on its own; a refused check ships nothing.
+# Every build is checked, then every build is staged, then every build is swapped; a refused check or a
+# failed copy ships nothing.
 BUILDS=(admin-stock staff)
 
 fail() {
@@ -53,13 +54,15 @@ if [ "$remote_head" != "$local_head" ]; then
   fail "hub checkout is at $remote_head, local HEAD is $local_head; check out the same tag on the hub"
 fi
 
+# (d) stream every build into a staging folder on the hub; one failed copy ships nothing.
 for build in "${BUILDS[@]}"; do
-  # (d) stream the build into a staging folder on the hub.
   tar -C apps/client/dist -cf - "$build" |
     ssh "$target" "rm -rf '$REMOTE_DIST/$build.new' && mkdir -p '$REMOTE_DIST/$build.new' && tar -C '$REMOTE_DIST/$build.new' --strip-components=1 -xf -" ||
-    fail "copy of $build to $target failed; the hub's current $build page is unchanged"
+    fail "copy of $build to $target failed; nothing was swapped, the hub's current pages are unchanged"
+done
 
-  # (e) swap it in with mv, so a broken copy never replaces a good one.
+# (e) swap them in with mv, only once every build is staged, so a broken copy never replaces a good one.
+for build in "${BUILDS[@]}"; do
   ssh "$target" "cd '$REMOTE_DIST' && if [ -e '$build' ]; then rm -rf '$build.old' && mv '$build' '$build.old'; fi && mv '$build.new' '$build' && rm -rf '$build.old'" ||
     fail "swap of $build on $target failed; check $REMOTE_DIST by hand"
 done

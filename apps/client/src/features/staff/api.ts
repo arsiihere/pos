@@ -1,5 +1,5 @@
 import type { DeviceType } from '@pos/domain';
-import type { AlertsInboxResponse, SendTestAlertPayload } from '@pos/events';
+import { AlertReceiptsResponse, AlertsInboxResponse, RequestsToAnswerResponse, type SendTestAlertPayload } from '@pos/events';
 import type { HubError, HubResult } from '../../api/hub-admin';
 import { newUlid } from '../../app/ulid';
 import type { ReceiptsData } from '../alerts/Receipts';
@@ -78,7 +78,14 @@ export function createStaffApi(o: StaffApiOptions) {
   const newCommandId = o.newCommandId ?? (() => newUlid());
   let session: { token: string; staffId: string } | null = null;
 
-  async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown, withSession = true, whole = false): Promise<HubResult<T>> {
+  /** `schema`: the @pos/events Zod schema of the whole reply body; a reply that does not match is refused. */
+  async function send<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: unknown,
+    withSession = true,
+    schema?: { safeParse(v: unknown): { success: true; data: T } | { success: false } },
+  ): Promise<HubResult<T>> {
     const headers: Record<string, string> = { Authorization: `Bearer ${o.device.token}` };
     if (withSession && session !== null) headers['X-Session-Token'] = session.token;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -89,7 +96,12 @@ export function createStaffApi(o: StaffApiOptions) {
       return { ok: false, error: { kind: 'network' } };
     }
     const parsed: unknown = await response.json().catch(() => null);
-    if (response.status >= 200 && response.status < 300) return { ok: true, data: whole ? (parsed as T) : (parsed as { data: T }).data };
+    if (response.status >= 200 && response.status < 300) {
+      if (schema === undefined) return { ok: true, data: (parsed as { data: T }).data };
+      const checked = schema.safeParse(parsed);
+      if (checked.success) return { ok: true, data: checked.data };
+      return { ok: false, error: { kind: 'api', status: response.status, code: 'INVALID_RESPONSE', details: {} } };
+    }
     const err = (parsed as { error?: { code?: unknown; details?: unknown } } | null)?.error;
     const code = typeof err?.code === 'string' ? err.code : 'INTERNAL_ERROR';
     const details = (typeof err?.details === 'object' && err.details !== null ? err.details : {}) as Record<string, unknown>;
@@ -143,12 +155,26 @@ export function createStaffApi(o: StaffApiOptions) {
     /** §6.7: a page of the inbox (50), with the cursor of the next page. */
     async inbox(cursor: string | null): Promise<HubResult<{ alerts: InboxPage['data']['alerts']; next_cursor: string | null }>> {
       const query = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`;
-      const answer = await send<InboxPage>('GET', `/queries/alerts-inbox?limit=50${query}`, undefined, true, true);
+      const answer = await send<InboxPage>('GET', `/queries/alerts-inbox?limit=50${query}`, undefined, true, AlertsInboxResponse);
       if (!answer.ok) return answer;
       return { ok: true, data: { alerts: answer.data.data.alerts, next_cursor: answer.data.meta.next_cursor } };
     },
-    requests: () => send<{ requests: RequestRow[] }>('GET', '/queries/requests-to-answer'),
-    receipts: (alertId: string) => send<ReceiptsData>('GET', `/queries/alert-receipts?alert_id=${encodeURIComponent(alertId)}`),
+    async requests(): Promise<HubResult<{ requests: RequestRow[] }>> {
+      const answer = await send('GET', '/queries/requests-to-answer', undefined, true, RequestsToAnswerResponse);
+      return answer.ok ? { ok: true, data: answer.data.data } : answer;
+    },
+    async receipts(alertId: string): Promise<HubResult<ReceiptsData>> {
+      const answer = await send('GET', `/queries/alert-receipts?alert_id=${encodeURIComponent(alertId)}`, undefined, true, AlertReceiptsResponse);
+      return answer.ok ? { ok: true, data: answer.data.data } : answer;
+    },
+    /** §6.23 hub_time (S47): the hub clock again after sign-in; null when the hub has no config yet. */
+    async hubTime(): Promise<HubResult<{ now_ms: number; utc_offset_ms: number } | null>> {
+      const answer = await send<{ hub_time?: { now_ms?: unknown; utc_offset_ms?: unknown } } | null>('GET', '/queries/branch-config');
+      if (!answer.ok) return answer;
+      const time = answer.data?.hub_time;
+      const ok = typeof time?.now_ms === 'number' && typeof time.utc_offset_ms === 'number';
+      return { ok: true, data: ok ? { now_ms: time.now_ms as number, utc_offset_ms: time.utc_offset_ms as number } : null };
+    },
     markSeen: (alertIds: string[]) => command<{ seen: string[] }>('mark-alerts-seen', 'MarkAlertsSeen', { alert_ids: alertIds }),
     sendTestAlert: (target: SendTestAlertPayload['target']) => command<{ alert_id: string }>('send-test-alert', 'SendTestAlert', { target }),
   };

@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
 import { t } from '../../i18n';
 import { PIN_MIN, type HubLink, type PinPad } from './answer';
 import { CloseX, Ico, Msg, type IconName } from './ui';
@@ -43,6 +43,11 @@ export function PinKeys({
     e.preventDefault();
   };
   const dots = Math.max(4, length);
+  // focus moves into the pad when it opens, so keyboard digits work at once (kiosk)
+  const keysRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    keysRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+  }, []);
   return (
     <>
       <div className={`pin__dots${error?.tone === 'danger' && length === 0 ? ' err' : ''}`} aria-label={`${length} digits`} role="status">
@@ -56,7 +61,7 @@ export function PinKeys({
           {error.text}
         </p>
       )}
-      <div className={`pin__keys${disabled ? ' off' : ''}${narrow ? ' pin__keys--96' : ''}`} onKeyDown={onKey}>
+      <div ref={keysRef} className={`pin__keys${disabled ? ' off' : ''}${narrow ? ' pin__keys--96' : ''}`} onKeyDown={onKey}>
         {DIGITS.map((d) => (
           <button key={d} type="button" className="btn" disabled={disabled} onClick={() => onDigit(d)}>
             {d}

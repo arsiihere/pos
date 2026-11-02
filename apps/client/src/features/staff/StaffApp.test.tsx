@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NOW, VOID_CARD, requestRow } from '../../../test/alert-rows';
 import { flush, mount, reply, type Mounted } from '../../../test/dom';
@@ -41,7 +42,21 @@ beforeEach(() => {
 });
 afterEach(() => m?.unmount());
 
-function hub(o: { permissions?: Record<string, { grant: string }>; requests?: unknown[]; answer?: Response } = {}) {
+const UP = { type: 'catch_up', as_of_seq: 0, state: {} }; // a valid first frame on a staff socket: the socket is up
+const EMPTY_INBOX = () => reply(200, { data: { alerts: [] }, meta: { next_cursor: null } });
+
+function hub(
+  o: {
+    permissions?: Record<string, { grant: string }>;
+    requests?: unknown[];
+    answer?: Response;
+    /** replies for alerts-inbox, in order (then empty) */
+    inbox?: Array<() => Response | Promise<Response>>;
+    /** the hub clock branch-config reports (S47 re-sync) */
+    hubNow?: number;
+  } = {},
+) {
+  const inbox = [...(o.inbox ?? [])];
   const calls: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }> = [];
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = url.split('?')[0]!;
@@ -55,7 +70,9 @@ function hub(o: { permissions?: Record<string, { grant: string }>; requests?: un
       case 'GET /queries/session':
         return reply(200, { data: { permissions: o.permissions ?? {} } });
       case 'GET /queries/alerts-inbox':
-        return reply(200, { data: { alerts: [] }, meta: { next_cursor: null } });
+        return (inbox.shift() ?? EMPTY_INBOX)();
+      case 'GET /queries/branch-config':
+        return reply(200, { data: { config_version: 1, snapshot_hash: 'h', snapshot: {}, hub_time: { now_ms: o.hubNow ?? NOW, utc_offset_ms: 0 } } });
       case 'GET /queries/requests-to-answer':
         return reply(200, { data: { requests: o.requests ?? [] } });
       case 'POST /commands/answer-request':
@@ -73,6 +90,7 @@ function hub(o: { permissions?: Record<string, { grant: string }>; requests?: un
 
 function render(device: Device, fetch: (u: string, i?: RequestInit) => Promise<Response>) {
   const timers = fakeTimers();
+  lastTimers = timers;
   m = mount();
   m.render(
     <StaffApp
@@ -99,6 +117,7 @@ async function signIn(): Promise<void> {
   await flush(8);
 }
 
+let lastTimers: ReturnType<typeof fakeTimers>;
 const TABLET: Device = { token: 'DEV-TOK', id: 'D-T3', type: 'tablet' };
 const KIOSK: Device = { token: 'DEV-TOK', id: 'D-K1', type: 'cashier_kiosk' };
 
@@ -125,7 +144,13 @@ describe('[01d task 41] staff entry', () => {
     expect(m.text()).not.toContain('Requests');
     m.unmount();
 
-    render(TABLET, hub({ permissions: { 'manage-devices': { grant: 'allowed' }, 'approve-void': { grant: 'allowed' } } }).fetch);
+    // approve-void alone no longer shows Requests (AD-T41-10 review fix): only the hub's list does
+    render(TABLET, hub({ permissions: { 'approve-void': { grant: 'allowed' } } }).fetch);
+    await signIn();
+    expect(m.text()).not.toContain('Requests');
+    m.unmount();
+
+    render(TABLET, hub({ permissions: { 'manage-devices': { grant: 'allowed' } }, requests: [requestRow({ alert_id: 'R1' })] }).fetch);
     await signIn();
     expect(m.text()).toContain('Test alert');
     expect(m.text()).toContain('Requests');
@@ -135,7 +160,7 @@ describe('[01d task 41] staff entry', () => {
     const h = hub({ permissions: { 'approve-void': { grant: 'allowed' } }, requests: [requestRow({ alert_id: 'R1' })] });
     render(TABLET, h.fetch);
     await signIn();
-    sockets[0]!.frame({ type: 'alerts_open', alerts: [], binding_route_until: null });
+    sockets[0]!.frame(UP);
     await flush();
     m.click(m.button('Requests'));
     await flush();
@@ -201,10 +226,10 @@ describe('[01d #57 client] tablet alerts header in the shell', () => {
     expect(bind()).toBe('Alerts: Imran — pauses at 4:04 PM');
   });
 
-  it('[01d BF-5] alerts_open and binding_route frames set the deadline; null clears it', async () => {
+  it('[01d BF-5] binding_route frames on the staff socket replace the deadline; null clears it', async () => {
     render(TABLET, hub().fetch);
     await signIn();
-    sockets[0]!.frame({ type: 'alerts_open', alerts: [], binding_route_until: NOW + 30 * 60_000 });
+    sockets[0]!.frame({ type: 'binding_route', until: NOW + 30 * 60_000 });
     await flush();
     expect(bind()).toBe('Alerts: Imran — pauses at 2:34 PM');
     sockets[0]!.frame({ type: 'binding_route', until: NOW + 90 * 60_000 });
@@ -223,3 +248,106 @@ describe('[01d #57 client] tablet alerts header in the shell', () => {
     expect(bind()).toBe('Alerts: none');
   });
 });
+
+// review fix round 1 (tasks 41–42)
+describe('[01d task 41 fixes] live sheet, inbox retry, sessions, clock', () => {
+  async function openR1(o: Parameters<typeof hub>[0] = {}) {
+    const h = hub({ requests: [requestRow({ alert_id: 'R1' })], ...o });
+    render(TABLET, h.fetch);
+    await signIn();
+    sockets[0]!.frame(UP);
+    await flush();
+    m.click(m.button('Requests'));
+    await flush();
+    m.click(m.container.querySelector('[data-alert="R1"]'));
+    return h;
+  }
+
+  it('[01d §8.1] an alert_closed while the sheet is open shows who answered and turns the buttons off', async () => {
+    await openR1();
+    const dlg = () => m.container.querySelector('.dlg')!;
+    expect((m.button('Approve', dlg()) as HTMLButtonElement).disabled).toBe(false);
+    sockets[0]!.frame({ type: 'alert_closed', alert_id: 'R1', reason: 'answered', decision: 'approve', by_name: 'Sana' });
+    await flush(6);
+    expect(dlg().textContent).toContain('Approved by Sana');
+    expect((m.button('Approve', dlg()) as HTMLButtonElement).disabled).toBe(true);
+    expect((m.button('Reject', dlg()) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('[01d §3.12; AD-163] a lock view that replaces the held card drops the details from the open sheet', async () => {
+    await openR1();
+    expect(m.container.querySelector('.dlg')!.textContent).toContain('Chicken Karahi');
+    sockets[0]!.frame({
+      type: 'alert',
+      alert: { alert_id: 'R1', kind: 'void_approval', family: 'urgent', step: 1, escalation: false, set: 'informed', for_staff_id: null, lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', requester_name: 'Hamza' }, raised_at: NOW - 120_000 },
+    });
+    await flush(6);
+    expect(m.container.querySelector('.dlg')!.textContent).not.toMatch(/Karahi|2,200|changed/);
+  });
+
+  it('[01d §8.1] a failed inbox read stops the skeleton, and the inbox is read again when the socket is up and after a reconnect', async () => {
+    const h = hub({ inbox: [() => reply(503, { error: { code: 'SERVICE_UNAVAILABLE', details: {} } })] });
+    render(TABLET, h.fetch);
+    await signIn();
+    expect(m.container.querySelectorAll('.sk').length).toBe(0);
+    const reads = () => h.calls.filter((c) => c.path === '/queries/alerts-inbox').length;
+    expect(reads()).toBe(1);
+    sockets[0]!.frame(UP);
+    await flush(6);
+    expect(reads()).toBe(2);
+    // the socket drops, then reconnects (backoff on the injected timers)
+    act(() => sockets[0]!.onclose?.({ code: 1006, reason: '' }));
+    await flush();
+    act(() => lastTimers.advance(600));
+    await flush();
+    sockets[sockets.length - 1]!.frame(UP);
+    await flush(6);
+    expect(reads()).toBe(3);
+  });
+
+  it('[01d task 41] an inbox reply from an earlier session is dropped', async () => {
+    let release: (r: Response) => void = () => {};
+    const stale = new Promise<Response>((resolve) => (release = resolve));
+    const old = { alert_id: 'OLD', kind: 'test_alert', family: 'info', step: 0, escalation: false, set: 'recipient', for_staff_id: null, lock: { kind_label_key: 'alert.test_alert.lock', requester_name: 'Arif' }, raised_at: NOW, seen_by_me: false, moved_to_name: null, for_staff_name: null, state: 'open', close_reason: null };
+    render(TABLET, hub({ inbox: [() => stale] }).fetch);
+    await signIn();
+    m.click(m.button('Imran — sign out'));
+    await flush();
+    await signIn();
+    release(reply(200, { data: { alerts: [old] }, meta: { next_cursor: null } }));
+    await flush(6);
+    expect(m.container.querySelector('[data-alert="OLD"]')).toBeNull();
+  });
+
+  it('[01d S47] the hub clock is re-synced from branch-config hub_time after sign-in', async () => {
+    render(TABLET, hub({ hubNow: NOW + 60 * 60_000 }).fetch);
+    expect(m.container.querySelector('.clock')!.textContent).toBe('2:04 PM');
+    await signIn();
+    expect(m.container.querySelector('.clock')!.textContent).toBe('3:04 PM');
+  });
+
+  it('[01d #57 client; AD-T42-2] local activity (an accepted command) moves the header deadline to hub-now + 2 h', async () => {
+    await openR1();
+    const bind = () => m.container.querySelector('header.top .brand .bind')?.textContent ?? null;
+    sockets[0]!.frame({ type: 'binding_route', until: NOW + 30 * 60_000 });
+    await flush();
+    expect(bind()).toBe('Alerts: Imran — pauses at 2:34 PM');
+    // tapping the card sent MarkAlertsSeen (batched, 250 ms); the hub counts the command as activity
+    await new Promise((r) => setTimeout(r, 300));
+    await flush(6);
+    expect(bind()).toBe('Alerts: Imran — pauses at 4:04 PM');
+  });
+
+  it('[01d task 41] the toast shows its tone: info for "Already rejected by …"', async () => {
+    await openR1({ answer: reply(409, { error: { code: 'REQUEST_NOT_PENDING', details: { close_reason: 'answered', decision: 'reject', answered_by_name: 'Sana' } } }) });
+    m.click(m.button('Approve', m.container.querySelector('.dlg')!));
+    const keys = m.container.querySelector('.pin__keys')!;
+    for (const d of '1234') m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === d));
+    m.click([...keys.querySelectorAll('button')].find((b) => b.textContent === 'Approve'));
+    await flush(8);
+    const toast = m.container.querySelector('.toast')!;
+    expect(toast.className).toContain('toast--info');
+    expect(toast.textContent).toContain('Already rejected by Sana.');
+  });
+});
+

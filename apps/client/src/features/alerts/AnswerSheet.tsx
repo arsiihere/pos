@@ -4,7 +4,7 @@ import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { createPinPad, type AnswerInput, type AnswerOutcome, type AnswerSender, type HubLink } from './answer';
 import { InPersonPick, type Approver } from './InPerson';
-import { inPersonTitle, timeText, titleText, waitingText, alertText } from './labels';
+import { alertText, closedText, inPersonTitle, timeText, titleText, waitingText } from './labels';
 import { PinStep, type PinError } from './PinStep';
 import { CloseX, Dialog, FamilyPill, FromLine, Ico, Msg, Ring, Tag, Tags, amountText, tableOf, toneOf, type RowLike } from './ui';
 
@@ -26,6 +26,8 @@ export interface SheetRow extends RowLike {
 export interface Toast {
   text: string;
   sub?: string;
+  /** status is icon + word + colour: ok (check), info (i), warn (triangle); default ok */
+  tone?: 'ok' | 'info' | 'warn';
 }
 
 /** How long the "Approved" / "Rejected" confirmation shows before the sheet closes. */
@@ -174,10 +176,13 @@ export function AnswerSheet({
       case 'IN_FLIGHT':
         return; // a double tap; the first answer is still on its way
       case 'REQUEST_NOT_PENDING':
-      case 'ALERT_NOT_FOUND':
-        onToast({ text: outcome.message, sub: subLine });
+      case 'ALERT_NOT_FOUND': {
+        const approved = outcome.details['decision'] === 'approve' || outcome.details['decision'] === 'accept';
+        const tone = outcome.code === 'ALERT_NOT_FOUND' ? 'warn' : approved ? 'ok' : 'info';
+        onToast({ text: outcome.message, sub: subLine, tone });
         onClose();
         return;
+      }
       case 'REQUEST_PIN_REQUIRED':
         go({ k: 'pin', decision });
         return;
@@ -230,9 +235,13 @@ export function AnswerSheet({
     if (approvers === null) void loadApprovers().then(setApprovers, () => setApprovers([]));
   };
 
+  // the row is live (StaffApp): closed while open (answered elsewhere, withdrawn, expired) → back to the detail
+  // with the result line and the buttons off (RequestsTaken); the confirmation of our own answer stays
+  const closed = row.state === 'closed';
+  const view: Step = closed && step.k !== 'done' ? { k: 'detail' } : step;
   let body: ReactNode;
-  if (step.k === 'done') {
-    const ok = positive(step.decision);
+  if (view.k === 'done') {
+    const ok = positive(view.decision);
     body = (
       <div className="done" role="status">
         <Ring size={110} pct={100} tone={ok ? 'ok' : 'danger'}>
@@ -242,15 +251,15 @@ export function AnswerSheet({
         <span>{requestLine(row)}</span>
       </div>
     );
-  } else if (step.k === 'pin') {
+  } else if (view.k === 'pin') {
     body = (
       <PinStep
-        title={fill(t(positive(step.decision) ? 'answer.pin_title_approve' : 'answer.pin_title_reject'), { name: me.name })}
+        title={fill(t(positive(view.decision) ? 'answer.pin_title_approve' : 'answer.pin_title_reject'), { name: me.name })}
         sub={requestLine(row)}
         pad={pad}
         link={link}
-        actionLabel={t(LABEL[step.decision] as 'answer.approve')}
-        onSubmit={() => void send({ alert_id: row.alert_id, decision: step.decision, method: 'pin' }, 'pin')}
+        actionLabel={t(LABEL[view.decision] as 'answer.approve')}
+        onSubmit={() => void send({ alert_id: row.alert_id, decision: view.decision, method: 'pin' }, 'pin')}
         error={pinError}
         locked={locked}
         help={pinError === null ? t('answer.pin_not_kept') : null}
@@ -259,7 +268,7 @@ export function AnswerSheet({
         onClose={onClose}
       />
     );
-  } else if (step.k === 'pick') {
+  } else if (view.k === 'pick') {
     body = (
       <InPersonPick
         people={approvers}
@@ -270,17 +279,17 @@ export function AnswerSheet({
         onClose={onClose}
       />
     );
-  } else if (step.k === 'herepin') {
-    const who = step.who;
+  } else if (view.k === 'herepin') {
+    const who = view.who;
     body = (
       <PinStep
         title={fill(t('answer.their_pin'), { name: who.display_name })}
         sub={requestLine(row)}
         pad={pad}
         link={link}
-        actionLabel={t(LABEL[step.decision] as 'answer.approve')}
+        actionLabel={t(LABEL[view.decision] as 'answer.approve')}
         onSubmit={() =>
-          void send({ alert_id: row.alert_id, decision: step.decision, method: 'in_person', answerer_staff_id: who.staff_id }, 'herepin')
+          void send({ alert_id: row.alert_id, decision: view.decision, method: 'in_person', answerer_staff_id: who.staff_id }, 'herepin')
         }
         error={pinError}
         locked={locked}
@@ -291,7 +300,7 @@ export function AnswerSheet({
       />
     );
   } else {
-    const open = row.state !== 'closed';
+    const open = !closed;
     const roText = here
       ? fill(t('answer.waiting_for'), { name: t('answer.an_approver') })
       : row.set === 'informed'
@@ -321,26 +330,32 @@ export function AnswerSheet({
         <div className="dlg__body">
           <Facts row={row} />
           {!up ? <Msg tone="danger" icon="wifioff" text={t('answer.error.offline')} /> : message !== null && <Msg tone="danger" icon="warn" text={message} />}
-          {!canAnswer && (
+          {closed && (
+            <div className="ro ro--result" role="status">
+              <Ico name={row.close_reason === 'withdrawn' ? 'undo' : row.decision === 'reject' || row.decision === 'decline' ? 'x' : 'check'} />
+              <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name }, utcOffsetMs)}</span>
+            </div>
+          )}
+          {!canAnswer && open && (
             <div className="ro" role="status">
               <Ico name={here ? 'clock' : row.set === 'informed' ? 'info' : 'lock'} />
               <span>{roText}</span>
             </div>
           )}
         </div>
-        {canAnswer && open ? (
+        {canAnswer ? (
           <div className="acts">
-            <button type="button" className={`btn btn--tone c-${yes === 'accept' ? 'mute' : 'danger'}`} disabled={off} onClick={() => choose(no)}>
+            <button type="button" className={`btn btn--tone c-${yes === 'accept' ? 'mute' : 'danger'}`} disabled={off || closed} onClick={() => choose(no)}>
               <Ico name="x" />
               {t(LABEL[no] as 'answer.reject')}
             </button>
-            <button type="button" className="btn btn--primary" disabled={off} onClick={() => choose(yes)}>
+            <button type="button" className="btn btn--primary" disabled={off || closed} onClick={() => choose(yes)}>
               <Ico name="check" />
               {t(LABEL[yes] as 'answer.approve')}
             </button>
           </div>
         ) : (
-          !here && (
+          (!here || closed) && (
             <button type="button" className="btn btn--block btn--lg" onClick={onClose}>
               {t('common.close')}
             </button>

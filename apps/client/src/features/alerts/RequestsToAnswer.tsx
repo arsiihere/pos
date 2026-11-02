@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RequestToAnswerRow } from '@pos/events';
+import type { RequestToAnswerRow, WsAlertClosed } from '@pos/events';
 import { t } from '../../i18n';
 import type { AlertRow } from './store';
 import { Ico, OpenCard, Ring, RowCard } from './ui';
@@ -26,7 +26,12 @@ export const LEAVE_MS = 2_500;
  * with the other signed-in fields; a card shows again only when the server sends one. A close from the socket
  * (`alert_closed`) marks the row closed.
  */
-export function requestViews(fetched: readonly RequestRow[], held: ReadonlyMap<string, AlertRow>): RequestView[] {
+export function requestViews(
+  fetched: readonly RequestRow[],
+  held: ReadonlyMap<string, AlertRow>,
+  /** `alert_closed` frames for alerts the store does not hold (a request seen only through this list) */
+  closes: ReadonlyMap<string, WsAlertClosed> = new Map(),
+): RequestView[] {
   return fetched.map((r) => {
     const h = held.get(r.alert_id);
     const view: RequestView = { ...r, state: 'open', close_reason: null, decision: null, by_name: null };
@@ -36,11 +41,17 @@ export function requestViews(fetched: readonly RequestRow[], held: ReadonlyMap<s
       delete view.needs_pin;
       delete view.raised_device_id;
     }
+    const c = closes.get(r.alert_id);
     if (h?.state === 'closed') {
       view.state = 'closed';
-      view.close_reason = h.close_reason;
-      view.decision = h.decision;
-      view.by_name = h.by_name;
+      view.close_reason = h.close_reason ?? c?.reason ?? null;
+      view.decision = h.decision ?? c?.decision ?? null;
+      view.by_name = h.by_name ?? c?.by_name ?? null;
+    } else if (c !== undefined) {
+      view.state = 'closed';
+      view.close_reason = c.reason;
+      view.decision = c.decision;
+      view.by_name = c.by_name;
     }
     return view;
   });

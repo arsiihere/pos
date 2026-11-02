@@ -124,7 +124,7 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     typePin('1234');
     m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
     await flush();
-    expect(s.onToast).toHaveBeenCalledWith({ text: 'Already approved by Sana.', sub: 'Request · T12' });
+    expect(s.onToast).toHaveBeenCalledWith({ text: 'Already approved by Sana.', sub: 'Request · T12', tone: 'ok' });
     expect(s.onClose).toHaveBeenCalled();
   });
 
@@ -180,4 +180,43 @@ describe('[01d §8.1 D01] AnswerSheet', () => {
     m.key(m.container.querySelector('.dlg'), 'Escape');
     expect(s.onClose).toHaveBeenCalled();
   });
+
+  it('the PIN step takes the focus, so keyboard digits work at once', () => {
+    setup();
+    m.click(m.button('Approve'));
+    const keys = m.container.querySelector('.pin__keys')!;
+    expect(keys.contains(document.activeElement)).toBe(true);
+    m.key(document.activeElement, '1');
+    m.key(document.activeElement, '2');
+    expect(m.container.querySelectorAll('.pin__dots i.f').length).toBe(2);
+  });
+
+  it('the dialog traps Tab, and Escape closes it wherever the focus is', () => {
+    const s = setup();
+    const dlg = m.container.querySelector('.dlg')!;
+    const items = [...dlg.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    items[items.length - 1]!.focus();
+    m.key(items[items.length - 1], 'Tab');
+    expect(document.activeElement).toBe(items[0]);
+    (document.activeElement as HTMLElement).blur();
+    m.key(document.body, 'Escape');
+    expect(s.onClose).toHaveBeenCalled();
+  });
+
+  it('a row that is closed (live, from the shell) shows the result line and the buttons off', () => {
+    setup({ row: { state: 'closed', close_reason: 'answered', decision: 'reject', by_name: 'Sana' } as never });
+    expect(m.text()).toContain('Rejected by Sana');
+    expect((m.button('Approve') as HTMLButtonElement).disabled).toBe(true);
+    expect(m.text()).not.toContain('waiting 2 min');
+  });
+
+  it('ALERT_NOT_FOUND toasts with the warn tone', async () => {
+    const s = setup({ replies: [reply(404, { error: { code: 'ALERT_NOT_FOUND', details: {} } })] });
+    m.click(m.button('Approve'));
+    typePin('1234');
+    m.click(m.button('Approve', m.container.querySelector('.pin__keys')!));
+    await flush();
+    expect(s.onToast).toHaveBeenCalledWith({ text: 'This request is no longer there.', sub: 'Request · T12', tone: 'warn' });
+  });
 });
+

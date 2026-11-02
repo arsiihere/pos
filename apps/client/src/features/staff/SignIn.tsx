@@ -97,6 +97,15 @@ export function SignIn({
     if (answer.error.kind === 'api' && (answer.error.code === 'PIN_LOCKED_OUT' || answer.error.code === 'DEVICE_LOCKED_OUT')) setLocked(true);
   };
 
+  // closing the PIN dialog drops what was typed (the PIN is never kept)
+  const closePin = () => {
+    setSelected(null);
+    setPin('');
+    setError(null);
+    setTakeover(false);
+    setLocked(false);
+  };
+
   const keys = (
     <PinKeys
       length={pin.length}
@@ -181,14 +190,14 @@ export function SignIn({
         </div>
       )}
       {selected !== null && (
-        <Dialog sheet={phone} labelledBy="dt" onClose={() => setSelected(null)}>
+        <Dialog sheet={phone} labelledBy="dt" onClose={closePin}>
           <div className="dlg__h">
-            <button type="button" className="btn" onClick={() => setSelected(null)}>
+            <button type="button" className="btn" onClick={closePin}>
               <Ico name="back" />
               {t('answer.back')}
             </button>
             <span className="grow" />
-            <CloseX onClose={() => setSelected(null)} />
+            <CloseX onClose={closePin} />
           </div>
           <div className="pin">
             <h2 className="pin__t" id="dt">
