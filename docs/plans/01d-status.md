@@ -9,7 +9,7 @@
 - Coverage 65/66 hai. Jo ek bacha hai, #63, woh 9b ka hai.
 - Har batch push hua. Last push: is commit wala `module-01d`.
 
-**"Unattended — developer to confirm" AD rows** (aap door the, isliye ye faisle maine liye):
+**"Unattended — developer to confirm" AD rows** (aap door the, isliye ye faisle maine liye) — **approved by the developer, 2026-11-02** (sab rows approved; neeche "Developer decisions" dekhein):
 - **Kit ka faisla:** kit-additions.css mein 01d ka section hai hi nahi, isliye hand-off ki `pulse.css + v-brand.css + pulse-01d.css` merge ki. Ise `packages/ui-kit/components/pulse-staff.css` mein rakha, `:where(.pu)` ke andar.
 - AD-A, AD-B, AD-C (kit)
 - Tasks 39 aur 40 ki rows ("Batch 9a" section mein, bina ID ke tables)
@@ -47,6 +47,15 @@
 - 79 Urdu strings abhi English mein hain (`docs/design/handoff/01d/urdu-todo.md`).
 
 **Screenshots:** `docs/design/handoff/01d/build-screens/` (10 main screens).
+
+## Developer decisions 2026-11-02
+
+- **v1.1 approved** as built (`docs/specs/01d_Notifications_Requests_Spec_v1.1.md`, APPROVED, developer, 2026-11-02; v1.0 kept as history). Every folded row — ruled, proposed and unattended — is approved; the unattended rows above (kit AD-A–C, tasks 39–40, AD-T41-*, AD-T42-*, AD-V-*, AD-R-d-*, AD-M1, AD-M2) are **approved**. AD-T42-2 is approved as approximate.
+- **Patches:** 00 v1.6 → **v1.6.1**, 01a v2.0 → **v2.0.1** (`stuck_alerts` in §6.21), 01b v1.4 → **v1.4.1**, each an as-built patch with "Changed by 01d v1.1" markers (00 v1.7 stays free for 01e, 01a v2.1 for 03a); the `packages/events` changes stay listed in 01d v1.1 §1.
+- **Carried rows** (01d v1.1 §4.3, README "Requirements carried to other modules"): To the Pulse pass — reconcile `pulse-staff.css` with the shared kit (AD-A–C); To 01e and 9b — an exact tablet header source, an additive frame on presence or session change (AD-T42-2); To 04 — the blocked manual checks 1b and 4, the urgent / action / silent sounds and the request screens, run with 04's first request kind; To 02 / 01e — the data gaps (test-alert lists without no-PIN staff and devices, approver name in B02/D03, sender in receipts, tenant/device name in the brand block). The 79 English strings stay in `urdu-todo.md` for the Urdu review.
+- **README:** row 01d → v1.1 APPROVED, Implemented; open items 9b (#63), #58 on the pilot mini PC, manual checks 5 and 7 on the pilot hardware, and the carried rows.
+- **Manual-check results:** the developer pastes them into `docs/plans/01d-manual-checks.md` later.
+- **Merge** `module-01d` → `main`: by the developer.
 
 ---
 # 01d build status
@@ -463,7 +472,7 @@
   - No PIN storage or queueing, and no details leak, was found.
 - **Gate:** green on the first run. 304 files and 2014 tests passed; 1 file and 1 test skipped (#58).
 - **Tests closed:** #56 client, #57 client, #59 client, #61 client.
-- **AD rows:** all 9a rows are in `01d-auto-decisions.md` under "Batch 9a", **unattended — developer to confirm**.
+- **AD rows:** all 9a rows are in `01d-auto-decisions.md` under "Batch 9a", **unattended — developer to confirm**; **approved by the developer, 2026-11-02**.
 - **States built without a frame** (for the designer):
 1. The sign-in PIN step: a dialog with the D02 pad and a "Sign in" key, on tablet and kiosk.
 2. Sign-in roster offline: a retry line and Retry now. Roster empty: "Nobody can sign in here yet."
@@ -548,8 +557,8 @@
 - Ruling: task 38 dispatched while pair review (36,37) runs — reviewer read-only, files disjoint; any 36/37 fix waits for 38 to finish (no parallel implementers) — cost: possible short wait.
 - Task 38: parked to developer — Important: alert_inbox (alert_id) index — Ruling: cannot resolve within task (spec edit needs owner, R34) — stop condition hit at batch end.
 - ## Rulings after batch 8 + Batch 9a
-- Ruling (unattended): kit decision — merge the Pulse staff-app layer (design/pulse.css + v-brand.css + pulse-01d.css) into packages/ui-kit as the staff stylesheet, fonts from the existing kit fonts (no CDN); record AD "unattended". Reason: the user asked to merge the 01d patterns into the kit, and those patterns cannot work without pulse.css/v-brand.css tokens.
+- Ruling (unattended; approved by the developer 2026-11-02): kit decision — merge the Pulse staff-app layer (design/pulse.css + v-brand.css + pulse-01d.css) into packages/ui-kit as the staff stylesheet, fonts from the existing kit fonts (no CDN); record AD "unattended". Reason: the user asked to merge the 01d patterns into the kit, and those patterns cannot work without pulse.css/v-brand.css tokens.
 - Ruling: task 39 dispatched while R-d review runs (client files disjoint; any R-d fix waits).
-- Task 40: implemented c9a4a3a (DONE). Ruling (unattended): the latest server view wins — a catch-up or alerts_open lock row replaces a held card too (server is authoritative for what the device may show, AD-163) — sent to implementer as follow-up before pair review.
-- Ruling (unattended): header = approximate until 9b — set on sign-in on this page, extended to now+2h on every local activity (MarkAlertsSeen, commands, which the hub also counts, so never later than the hub for a present person); corrected by any binding_route frame; absent-person case documented as known gap needing an additive frame (spec bump) or 9b. — cost if wrong: header may show a deadline for an absent person.
+- Task 40: implemented c9a4a3a (DONE). Ruling (unattended; approved by the developer 2026-11-02): the latest server view wins — a catch-up or alerts_open lock row replaces a held card too (server is authoritative for what the device may show, AD-163) — sent to implementer as follow-up before pair review.
+- Ruling (unattended; approved by the developer 2026-11-02): header = approximate until 9b — set on sign-in on this page, extended to now+2h on every local activity (MarkAlertsSeen, commands, which the hub also counts, so never later than the hub for a present person); corrected by any binding_route frame; absent-person case documented as known gap needing an additive frame (spec bump) or 9b. — cost if wrong: header may show a deadline for an absent person.
 - Ruling: I-1 handled by Task 44 step 2 (draft v1.1, Proposed — needs approval); I-2 is a developer decision (listed at top of status) — not code-fixable without server/spec change.

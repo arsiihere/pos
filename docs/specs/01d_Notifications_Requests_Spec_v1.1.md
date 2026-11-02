@@ -1,20 +1,20 @@
-# 01d — Notifications and requests — Module Spec v1.1 (DRAFT — as built, not approved)
+# 01d — Notifications and requests — Module Spec v1.1 (APPROVED — as built)
 
 ## §1. Header
 
 | | |
 |---|---|
 | Module | 01d Notifications and requests |
-| Version | **v1.1 DRAFT — as built — Proposed, needs developer approval (not approved; module not merged).** v1.1 folds in what the `module-01d` branch built: BF-1–BF-8 (§12.6) as built, the developer's planning decisions AD-1–AD-9, and the build rows AD-10–AD-168 plus the batch 9a rows of `docs/reviews/01d-auto-decisions.md`. Each folded row is marked **ruled** (a developer decision or ruling), **proposed** (an implementer or controller reading, not yet ruled), or **unattended — developer to confirm** (the batch 9a rows). Rows not folded, and why, are in `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`. The contract changes other modules read are listed below and need the developer's approval before this bump. Until then **v1.0 stays the approved spec**; the README module map is not changed. **v1.0 — APPROVED** (developer, 2026-11-01). v1.0 = v0.5 + G4 hostile review run 3 (the last, `docs/reviews/01d_v0.5_hostile_run3.md`: 0 BLOCKER, 2 MAJOR, 16 MINOR, FIX THEN APPROVE, no run 4): R1 and R2 fixed, MINORs m3, m4, m5, m7, m11, m13, m15, m16 fixed, the other eight MINORs listed as build-time fixes BF-1–BF-8 (§12.6). The §4.5 changes are applied by version bump (R26): README, CLAUDE.md, foundation v1.8, 00 v1.6, 01b v1.4. v0.5: G4 hostile review run 2 applied (`docs/reviews/01d_v0.4_hostile_run2.md`, 0 BLOCKER, 6 MAJOR, 12 MINOR). v0.4: G4 hostile review run 1 applied. v0.3: G2 completeness check applied. v0.2: developer review of v0.1. v0.1: first draft from G0 + G1. |
+| Version | **v1.1 APPROVED (developer, 2026-11-02) — as built; v1.0 kept as history.** All folded rows (ruled, proposed and unattended) were approved by the developer on 2026-11-02. v1.1 folds in what the `module-01d` branch built: BF-1–BF-8 (§12.6) as built, the developer's planning decisions AD-1–AD-9, and the build rows AD-10–AD-168 plus the batch 9a rows of `docs/reviews/01d-auto-decisions.md`. Each folded row is marked **ruled** (a developer decision or ruling), **proposed** (an implementer or controller reading, not yet ruled), or **unattended — developer to confirm** (the batch 9a rows); these markers are kept as history. Rows not folded, and why, are in `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`. The contract changes other modules read are listed below; they were approved on 2026-11-02 and applied as 00 v1.6.1, 01a v2.0.1 and 01b v1.4.1. **v1.1 supersedes v1.0**, which is kept as history; the README module map row 01d is v1.1, Implemented. **v1.0 — APPROVED** (developer, 2026-11-01). v1.0 = v0.5 + G4 hostile review run 3 (the last, `docs/reviews/01d_v0.5_hostile_run3.md`: 0 BLOCKER, 2 MAJOR, 16 MINOR, FIX THEN APPROVE, no run 4): R1 and R2 fixed, MINORs m3, m4, m5, m7, m11, m13, m15, m16 fixed, the other eight MINORs listed as build-time fixes BF-1–BF-8 (§12.6). The §4.5 changes are applied by version bump (R26): README, CLAUDE.md, foundation v1.8, 00 v1.6, 01b v1.4. v0.5: G4 hostile review run 2 applied (`docs/reviews/01d_v0.4_hostile_run2.md`, 0 BLOCKER, 6 MAJOR, 12 MINOR). v0.4: G4 hostile review run 1 applied. v0.3: G2 completeness check applied. v0.2: developer review of v0.1. v0.1: first draft from G0 + G1. |
 | Inherits | Shared Standards from **Foundation v1.8** §6 (envelope, error naming, hub HTTP and WS conventions, naming, tests, migrations, folders). Not redefined here. Written against v1.7; v1.8 is the bump this spec makes (§4.5 C-F). |
-| Depends on | Foundation v1.8; **00 Hub Platform & Access v1.6** (command and query registry, writer, WS, sessions, PIN check, directory; v1.6 = v1.5 + this spec's C-00 rows); **01b Staff and Roles v1.4** (effective permission with scope and approvers, `leadOf`, `teamOf`; v1.4 = v1.3 + this spec's C-01b rows); **01a Restaurant Setup v2.0** (business day events only; v1.0 changed nothing in 01a. *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status`, see "Contract changes" below) |
+| Depends on | Foundation v1.8; **00 Hub Platform & Access v1.6** (command and query registry, writer, WS, sessions, PIN check, directory; v1.6 = v1.5 + this spec's C-00 rows); **01b Staff and Roles v1.4** (effective permission with scope and approvers, `leadOf`, `teamOf`; v1.4 = v1.3 + this spec's C-01b rows); **01a Restaurant Setup v2.0** (business day events only; v1.0 changed nothing in 01a. *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status`, see "Contract changes" below; applied as **01a v2.0.1**). *v1.1:* the as-built 00 and 01b rows are applied as **00 v1.6.1** and **01b v1.4.1** (approved 2026-11-02) |
 | Inputs | `docs/stories/01d-g0-decisions.md` (G0 register, with G1 markers), `docs/stories/01d-g1-decisions.md` (G1 record, G1-1 … G1-24), `docs/stories/01d-notifications-teams-refined.md` (2026-10-27 owner record). v1.1 also: `docs/reviews/01d-auto-decisions.md`, `docs/plans/01d-plan.md`, `docs/plans/01d-status.md`, the final review `.superpowers/sdd/01d-plan/final-review-report.md` |
 | Tier | T2 Production (CLAUDE.md). Races that matter here: two answers at once (first wins), answer vs. close, raise twice for one subject. |
-| Changes other specs | §4.5 (R26), **approved with this spec (developer, 2026-11-01) and applied by version bump**: README (R-1–R-9, R34), CLAUDE.md, foundation v1.7 → v1.8 (C-F), 00 v1.5 → v1.6 (C-00), 01b v1.3 → v1.4 (C-01b). Each target carries "Changed by 01d v1.0" markers; the old version files stay as history. **v1.1 DRAFT:** the as-built changes to 00, 01a, 01b and `packages/events` are listed in "Contract changes other modules read" below; none of those specs is edited by this draft. |
+| Changes other specs | §4.5 (R26), **approved with this spec (developer, 2026-11-01) and applied by version bump**: README (R-1–R-9, R34), CLAUDE.md, foundation v1.7 → v1.8 (C-F), 00 v1.5 → v1.6 (C-00), 01b v1.3 → v1.4 (C-01b). Each target carries "Changed by 01d v1.0" markers; the old version files stay as history. **v1.1 (approved 2026-11-02):** the as-built changes to 00, 01a, 01b and `packages/events` are listed in "Contract changes other modules read" below and applied as patch-level as-built bumps: 00 v1.6 → v1.6.1, 01a v2.0 → v2.0.1, 01b v1.4 → v1.4.1 (so 00 v1.7 stays free for 01e and 01a v2.1 for 03a), each with a changelog line and "Changed by 01d v1.1" markers; the old files stay as history. The `packages/events` changes are listed here only. |
 
-### Changes in v1.1 (as built, DRAFT, 2026-11-02)
+### Changes in v1.1 (as built, APPROVED by the developer, 2026-11-02)
 
-v1.1 makes the spec match the code on branch `module-01d` (final review I-1). Status of each row: **ruled** = a developer decision or ruling; **proposed** = an implementer's or controller's reading, not yet ruled; **unattended** = a batch 9a row, developer to confirm. In the body each fold carries a marker `> As built (AD-n, ruled|proposed|unattended): …` (inside tables: *As built (AD-n, …):*). Nothing here adds an error code; one index is added to the unmerged migration `0006` (AD-161).
+v1.1 makes the spec match the code on branch `module-01d` (final review I-1). **All folded rows (ruled, proposed and unattended) were approved by the developer on 2026-11-02.** The per-row status markers below and in the body are kept as history of how each row was reached. Status of each row (history): **ruled** = a developer decision or ruling; **proposed** = an implementer's or controller's reading, not yet ruled; **unattended** = a batch 9a row, developer to confirm. In the body each fold carries a marker `> As built (AD-n, ruled|proposed|unattended): …` (inside tables: *As built (AD-n, …):*). Nothing here adds an error code; one index is added to the unmerged migration `0006` (AD-161).
 
 | # | Change | AD rows (status) | Sections |
 |---|---|---|---|
@@ -46,9 +46,9 @@ v1.1 makes the spec match the code on branch `module-01d` (final review I-1). St
 | 26 | **Batch 9a client decisions** (staff entry, socket, store, sounds, labels, answer sheet, tablet header): folded in §3.7, §3.12, §7 and §8. | Batch 9a rows (unattended) | §3.7, §3.12, §7, §8 |
 | 27 | **Open items before the pilot** listed: 9b with #63, #58 on the pilot mini PC, the manual checks (with the blocked ones), the batch 9a data gaps. | AD-1, AD-9 (ruled); AD-T42-2 (unattended) | §12.1, §12.7 |
 
-### Contract changes other modules read: need developer approval before this bump
+### Contract changes other modules read: approved 2026-11-02, applied as 00 v1.6.1, 01a v2.0.1, 01b v1.4.1
 
-Taken from the final review (`.superpowers/sdd/01d-plan/final-review-report.md`, "Contract-changing ADs that need developer approval"). Every change is additive except where noted. **None of the target specs is edited by this draft**; after approval each is folded into its own spec by version bump (R26, R34), and the README row moves to "Implemented".
+Taken from the final review (`.superpowers/sdd/01d-plan/final-review-report.md`, "Contract-changing ADs that need developer approval"). Every change is additive except where noted. **Approved by the developer on 2026-11-02** and applied as patch-level as-built bumps (R26, R34), each with a changelog line and "Changed by 01d v1.1" markers, the old files kept: **00 v1.6 → v1.6.1** (the 00 rows), **01a v2.0 → v2.0.1** (AD-123), **01b v1.4 → v1.4.1** (the 01b rows). The `packages/events` changes stay listed here. The README row 01d is "v1.1 APPROVED, Implemented".
 
 **`packages/events` (shared wire schemas)**
 - AD-4: the `binding_route` frame and `alerts_open.binding_route_until`.
@@ -82,7 +82,7 @@ Taken from the final review (`.superpowers/sdd/01d-plan/final-review-report.md`,
 - AD-T41-1 (unattended): `client-dist.ts` `indexMeta` (tenant and branch ids, branch name and the hub clock as `<meta>` in `/staff/index.html`).
 
 **01a**
-- AD-123: `stuck_alerts` in `ConfigStatusResponse` and the `config-status` query (01a §6.21: 2 → 3 statements), and the client stock admin. **Not strictly additive:** `stuck_alerts` is a required field (final review m-2); safe only while the hub and its served client ship together (`ship-client.sh`). The developer approves it as is, or with `.default(0)`.
+- AD-123: `stuck_alerts` in `ConfigStatusResponse` and the `config-status` query (01a §6.21: 2 → 3 statements), and the client stock admin. **Not strictly additive:** `stuck_alerts` is a required field (final review m-2); safe only while the hub and its served client ship together (`ship-client.sh`). The developer approves it as is, or with `.default(0)`. **Approved as built (required), 2026-11-02.**
 
 **01b**
 - AD-32: a `no_pin_staff` entry whose id is already in `staff`, or repeated, is skipped (`{ kind: 'staff', reason: 'duplicate staff' }`).
@@ -93,7 +93,7 @@ Taken from the final review (`.superpowers/sdd/01d-plan/final-review-report.md`,
 - AD-161: the `alert_inbox_alert` index in `0006_alerts.sql` (unmerged, never released) and in §5.1.
 
 **Spec-visible behaviour restated here (approve with the bump)**
-- AD-36, AD-117, AD-124: the startup checks. AD-108: `MarkAlertsSeen` writes `AlertClosed` itself. AD-131: the tick bound. AD-156: `business_day_id`. AD-162, AD-163: the card rule. AD-166: first receipt wins. AD-M1, AD-M2. AD-T42-2: the tablet page approximates the BF-5 deadline until 9b (final review I-2).
+- AD-36, AD-117, AD-124: the startup checks. AD-108: `MarkAlertsSeen` writes `AlertClosed` itself. AD-131: the tick bound. AD-156: `business_day_id`. AD-162, AD-163: the card rule. AD-166: first receipt wins. AD-M1, AD-M2. AD-T42-2: the tablet page approximates the BF-5 deadline until 9b (final review I-2). **Approved as approximate** (2026-11-02); the exact header source is carried to 01e and 9b (§4.3).
 
 ### Changes in v1.0 (G4 hostile review run 3, approval, 2026-11-01)
 
@@ -715,9 +715,19 @@ Actor: commands set `actor_id` = session staff (00 §3.7) — for an `in_person`
 
 **To 05 (and 02 for comps)** — discount and comp approval kinds (`approval`, no `range_permission` in the pilot, G1-23; `details_schema` with `amount` and `reason`; steps from `APPROVAL_TIER_STEPS`); **read-only contract (v1.0 #3, m3):** their `apply` / `onWithdraw` only read and return drafts (read-only view, writes throw) and every returned event carries `alert_id` (checked); the approver is `AnswerFacts.answerer_staff_id` / `RequestAnswered.answerer_staff_id`, never `actor_id`; every request records requester, approver, amount, reason, time (G0 N7) — amount and reason live in the owning module's events and in the signed-in `details` (§3.12), never in 01d's `lock` text. **At day close** 05 lists open requests with `alerts.listOpen(db, { kind })` before the Z report and decides each one (close `obsolete` with a note, or keep; 01d never closes them, §3.3, v0.4 #4); several closes in one transaction go through `alerts.closeMany` (v0.5 #8, m5). Discount and comp `apply` events carry `alert_id` (v0.5 m4). **Manager's live view, money section (G0-8 (4))** — whichever module builds it (05 with 04) lists voids, discounts and comps with who approved them and the **method**, joined to the money effect by the `alert_id` on the effect events (v0.5 #7, m4); answers with `method: 'in_person'` are marked as such, with the device and the requester (from `RequestAnswered` and the request's subject; v0.4 #8, M3); answers with `RequestAnswered.on_requester_device = true` (any method) are flagged **"approved on the requester's device"** (v0.5 #2, N2); and **failed PIN attempts on requests** are listed per request from `RequestPinFailed` on `audit` (answerer named, device, requester, time, `outcome`; v0.5 #7, m4; v1.0 #1); and **every personal notice** (`approval_receipt`, `answered_on_requester_device`, `pin_use_failed`) is listed with its **state** (open, or closed `done` and when) and **who saw it on which device and when**, from `AlertSeen` on `audit` (`staff_id`, `device_id`, time), including seens from the answering seat that did not close it — "seen by Imran on Tablet 3 at 9:12 AM" (v1.0 #2, R2: a dismissal by someone holding the PIN shows to whoever reviews the day).
 
-**To 01a** — points and the `point` resolver; zones and `zone_order_taker`. **As built (AD-123, ruled), needs approval and 01a's own bump:** 01a §6.21 `GET /admin/queries/config-status` gains `stuck_alerts: int` (the count of stuck alerts, §3.5) and goes from 2 to 3 statements; `ConfigStatusResponse` (`packages/events/src/admin/hub.ts`) gains the field, **required** (final review m-2; `.default(0)` is the alternative); the `/admin/stock` More menu shows "Stuck alerts: N" while N > 0. The 01a spec is not edited by this draft.
+**To 01a** — points and the `point` resolver; zones and `zone_order_taker`. **As built (AD-123, ruled; approved 2026-11-02, applied as 01a v2.0.1):** 01a §6.21 `GET /admin/queries/config-status` gains `stuck_alerts: int` (the count of stuck alerts, §3.5) and goes from 2 to 3 statements; `ConfigStatusResponse` (`packages/events/src/admin/hub.ts`) gains the field, **required** (final review m-2; `.default(0)` is the alternative); the `/admin/stock` More menu shows "Stuck alerts: N" while N > 0. Applied in 01a v2.0.1 §6.21.
 
 **To 01b** — scoped `approve-discount` / `approve-comp` are post-pilot (§12.4).
+
+> As built (developer decisions, 2026-11-02): the four carried rows below are added with the v1.1 approval.
+
+**To the Pulse pass** — reconcile `pulse-staff.css` with the shared kit (AD-A–C: the staff layer as its own stylesheet scoped under `:where(.pu)`; approved for now).
+
+**To 01e and 9b** — an exact tablet header source: an additive frame on presence or session change, so the header follows the hub's `binding_route_until` without the 9a approximation (AD-T42-2, approved as approximate); needed once 01e can mark people absent.
+
+**To 04** — the blocked manual checks of `docs/plans/01d-manual-checks.md`: 1b (urgent request on a tablet), 4 (PIN lockout on answers), the urgent / action / silent sounds (8.3–8.6) and the request screens of check 7; run with 04's first request kind (§4.4, §12.7 (c)).
+
+**To 02 / 01e** — the batch 9a data gaps (§12.7 (e)), each an additive field or frame: test-alert lists without no-PIN staff and devices (AD-T41-7); the approver name in B02 / D03 (AD-T41-3); the sender in the receipts header and the tenant / device name in the brand block (AD-T41-13). The 79 English strings stay in `docs/design/handoff/01d/urdu-todo.md` for the Urdu review.
 
 ### 4.4 Stubbed until another module lands
 
@@ -744,7 +754,7 @@ Actor: commands set `actor_id` = session staff (00 §3.7) — for an `in_person`
 
 **Approved** with this spec (developer, 2026-11-01) and **applied by version bump**, each with a changelog entry and "Changed by 01d v1.0" markers: README and CLAUDE.md (R-1–R-9, R34), `00_Foundation_Spec_v1.8.md`, `00_Hub_Platform_Access_Spec_v1.6.md`, `01b_Staff_Roles_Spec_v1.4.md`. The old version files stay as history. H-11 (00's endpoint budget rule) was decided at approval by the developer.
 
-> As built (v1.1 DRAFT): the rows below are unchanged; the as-built notes after the C-00 and C-01b tables record how the build met them. Those notes change contracts other modules read, so they need the developer's approval (§1 "Contract changes") and then their own bumps of 00, 01a and 01b. This draft edits none of those specs.
+> As built (v1.1): the rows below are unchanged; the as-built notes after the C-00 and C-01b tables record how the build met them. Those notes change contracts other modules read; they were approved by the developer on 2026-11-02 (§1 "Contract changes") and applied as 00 v1.6.1, 01a v2.0.1 and 01b v1.4.1.
 
 **C-README**
 
@@ -798,7 +808,7 @@ Actor: commands set `actor_id` = session staff (00 §3.7) — for an `in_person`
 | H-13 | §6.17 Q8 "last seen", M40 note (v0.4 #11, M11) | "last-seen is refreshed by every device-authenticated request and by each WebSocket pong" → "… and by each WebSocket pong, **including alert-mode sockets** (01d, H-1): a tablet holding only its alert connection, with no session, counts as seen in device health". (Alert-mode sockets use the same `armKeepalive`, `apps/hub/src/ws/server.ts`.) |
 | H-14 | §5.1 Hub tables, `staff_sessions` (v0.5 #6, N6) | Add the index `staff_sessions_staff_activity ON staff_sessions (staff_id, last_activity_at)`: "created in 01d's migration `0006`; serves 01d's last-activity read (01d §3.4.3 (c)); 00 owns the table, and the index changes no 00 behaviour". |
 
-**As built against C-00 (v1.1 DRAFT; need the developer's approval, then a 00 bump):**
+**As built against C-00 (v1.1; approved 2026-11-02, applied as 00 v1.6.1):**
 
 > - H-1 / H-2 (AD-4, ruled): alert-mode sockets also receive `binding_route`; `WsServerMessage` has **six** alert-related server frames (`alerts_open`, `alert`, `alert_seen`, `alert_closed`, `binding_route`, plus the existing ones). (AD-30, proposed:) `4409` stays a local constant; (AD-31, proposed:) guards close a socket `1011` (local constant) when a builder throws. (AD-19, proposed, superseded:) the interim `4401` for a missing `session_token` was replaced by alert mode.
 > - H-3 (AD-10, proposed): `preRead(db, payload, ctx)`, the 00 §4.2 form. (AD-24:) the early replay peek for `pinCheck` commands, §3.3 rule 4 (a). (AD-25:) `authGen` is captured before the session check (at most one extra M39 re-check). (AD-26:) the hooks ctx is built on the writable transaction with `permission: null`. (AD-27:) PIN commands share `authSemaphores(app).pin` with `/auth/pin`. (AD-94:) both `pinHooks` gain a trailing `cmd: PosCommand` argument (only `cmd.command_id` is read, for the `pin_use_failed` dedupe key); `checkPin` is unchanged. (AD-21:) the read-only view blocks `exec`, `pragma`, `transaction` and requires `readonly && reader`. (AD-67:) `engine-host/read-only-tx.ts` exports `rawDbOf(view)`, used only as a map key by `bindAlertEnv`, never handed to kind code. (AD-20:) BF-2's log line is `{ err, phase: 'onPrepareFailed' }`. All proposed.
@@ -820,11 +830,11 @@ Not in this bump: `point_id` on devices (with 01a points), `pager_bridge`, compa
 | B-5 | §4.4 row 6 (as carried by 01c v1.1 §4.5 B4), README R32 c | **Sync bound raised for `no_pin_staff`:** cloud `loadDirectory` gains **one** statement (active staff at the branch with `pin_hash IS NULL`, with their `lead_staff_id`). `GET /v1/sync/config` `200` with the directory: ≤ 26 → **≤ 27**; directory-only ≤ 17 unchanged (measured 10 → 11); config-only ≤ 22 and `304` unchanged. Raised here, in a spec, as R32 c requires. |
 | B-6 | B18 (b) | Add: "A `lead_staff_id` (of a `staff` or `no_pin_staff` entry) naming a person in `no_pin_staff` is **kept** (that person is present in the directory); only a lead naming someone in neither list is skipped." |
 
-> As built against C-01b (v1.1 DRAFT; need approval, then a 01b bump): (AD-32, proposed) a `no_pin_staff` entry whose `staff_id` is already in `staff`, or that appears twice, is **skipped** with skip reason `{ kind: 'staff', reason: 'duplicate staff' }`, as the existing repeated-`staff` skip (B18: one bad entry does not block the apply; no event-schema change). (AD-33, proposed:) `leadOf` is defined for `staff` entries; a no-PIN entry's lead is read through `noPinStaff()` (nothing in 01d walks upward from a no-PIN person). The B-5 bound (≤ 27) is met as measured. The cloud comment in `hub-registration/repository.ts` still says 8 statements and "staff with no PIN are not sent" (final review m-4, a stale comment).
+> As built against C-01b (v1.1; approved 2026-11-02, applied as 01b v1.4.1): (AD-32, proposed) a `no_pin_staff` entry whose `staff_id` is already in `staff`, or that appears twice, is **skipped** with skip reason `{ kind: 'staff', reason: 'duplicate staff' }`, as the existing repeated-`staff` skip (B18: one bad entry does not block the apply; no event-schema change). (AD-33, proposed:) `leadOf` is defined for `staff` entries; a no-PIN entry's lead is read through `noPinStaff()` (nothing in 01d walks upward from a no-PIN person). The B-5 bound (≤ 27) is met as measured. The cloud comment in `hub-registration/repository.ts` still says 8 statements and "staff with no PIN are not sent" (final review m-4, a stale comment).
 
 Not in this bump: `tap-for-station`, `mark-served`, zone assignment, `manage-zone-stock` (carried to 01b by 02 / 03a / 03b); `pager_ids` (01e).
 
-**C-01a:** none (v0.2 #3: pilot values are constants, A14). *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status` (§4.3 To 01a); this needs approval and a 01a bump.
+**C-01a:** none (v0.2 #3: pilot values are constants, A14). *As built (AD-123, ruled):* the build adds `stuck_alerts` to 01a §6.21 `config-status` (§4.3 To 01a); approved 2026-11-02, applied as 01a v2.0.1.
 
 ---
 
@@ -985,7 +995,7 @@ No 01d table and no cloud schema change (v0.3: `pager_ids` moved to 01e). Cloud 
 
 `AlertTargetSchema` (discriminated union, §3.4), `AlertStepTargetSchema` (step targets incl. `from_value` and `requester_lead`, §3.5), `AlertDisplaySchema` (`{ table_code?, point_code?, requester_name?, device_name?, kind_label_key }`, lock-safe), `AlertDetailsBase` (`{ item?, quantity?, amount?, reason? }`, signed-in only, §3.12), `AlertViewSchema` (§6.3 frame body; `card` with `details` only under the card rule, §6 batch 3), `ALERT_CONSTANTS` (A14, `@pos/domain`), command payloads (§6.2–6.6).
 
-> As built (v1.1 DRAFT): the shapes as built, all additive.
+> As built (v1.1): the shapes as built, all additive.
 > - (AD-11, proposed) ids in payloads and views are `z.string().min(1)`, not ULID-checked, because directory staff ids are not ULIDs (e.g. `S_OWNER`); the convention of `packages/events/src/admin/staff.ts`. "`ulid`" in §6.2–§6.6 reads as this.
 > - (AD-12, proposed) the display and lock fields are `nullable().optional()`, so both `table_code?` (§5.4) and `table_code: null` (§6 batch 3 example) are accepted.
 > - (AD-14, proposed) `AlertStepTargetSchema` kinds are `answerers`, `holders_informed`, `always_on`, `managers`, `requester_lead` as `{ kind }` objects, plus the `from_value` targets; targets that carry an id are refused as step targets.
@@ -1243,7 +1253,7 @@ Always-on screens (kiosk, KDS, point tablets): one sound per step, then a badge 
 
 Reused: `PERMISSION_DENIED` (`details.reason ∈ self, not_approver, out_of_range, not_receiver, not_requester, in_person_elsewhere` — the last added in v1.0 #2: `in_person` from a device other than the request's raising device), `PIN_INVALID`, `PIN_LOCKED_OUT`, `DEVICE_LOCKED_OUT`, `SERVICE_UNAVAILABLE` (argon2 semaphore, 00 §3.5 step 5), `CONFIG_REFERENCE_INVALID`, `STAFF_NOT_FOUND`, `DEVICE_NOT_FOUND`, `DEVICE_TYPE_NOT_ALLOWED` (H-5), `ROUTE_NOT_FOUND` (H-5), `BUSINESS_DAY_NOT_OPEN`, `VALIDATION_FAILED`. Appended to foundation §6.2 and `@pos/domain/src/errors.ts` (C-F F-4).
 
-> As built (v1.1 DRAFT): no hub error code is added. `INTERNAL_ERROR` appears only as a `RequestPinFailed.error_code` value (AD-97). The client's `NETWORK`, `IN_FLIGHT` and `SESSION_INVALID` (§8.1) are local client results, not hub codes.
+> As built (v1.1): no hub error code is added. `INTERNAL_ERROR` appears only as a `RequestPinFailed.error_code` value (AD-97). The client's `NETWORK`, `IN_FLIGHT` and `SESSION_INVALID` (§8.1) are local client results, not hub codes.
 
 ---
 
@@ -1403,8 +1413,8 @@ Test files under `apps/hub/test/alerts/`; a **test kind** `t_approval` (approval
 
 - Every test in §10 passes; `pnpm -w typecheck` (incl. tests, R31) and lint pass. *As built:* met on a clean checkout, except #63 (9b) and #58 (skipped off the pilot hardware).
 - A `test_alert` sent from a manager's tablet reaches a session-less, screen-off pilot tablet as an Android notification, and the receipt view shows delivered and seen. *As built (AD-1, ruled):* the hub side is met; the Android notification needs 9b — **open, required before the pilot** (§12.7).
-- The §4.5 bumps are approved and applied (README incl. R-8, R-9, CLAUDE.md + R34, foundation v1.8 incl. F-5–F-9, 00 v1.6 incl. H-5, H-7–H-14, 01b v1.4 incl. B-5, B-6) — **done with v1.0, 2026-11-01**; H-11 decided at approval by the developer. *v1.1:* the as-built changes to 00, 01a and 01b ("Contract changes", §1) need the developer's approval first, then their own bumps.
-- Every build-time fix BF-1–BF-8 (§12.6) is done, with its test, and folded in as an AD row at the as-built review. *As built:* done and tested; folded in this draft (§12.6 status column).
+- The §4.5 bumps are approved and applied (README incl. R-8, R-9, CLAUDE.md + R34, foundation v1.8 incl. F-5–F-9, 00 v1.6 incl. H-5, H-7–H-14, 01b v1.4 incl. B-5, B-6) — **done with v1.0, 2026-11-01**; H-11 decided at approval by the developer. *v1.1:* the as-built changes to 00, 01a and 01b ("Contract changes", §1) were approved on 2026-11-02 and applied as 00 v1.6.1, 01a v2.0.1 and 01b v1.4.1.
+- Every build-time fix BF-1–BF-8 (§12.6) is done, with its test, and folded in as an AD row at the as-built review. *As built:* done and tested; folded in v1.1 (§12.6 status column).
 - An idle hub opens no 01d transaction (test 22); an APK release reaches the staged tablet first and the rest only after `mark-good` (test 40).
 - No 01d code reads a role name (R5); every pilot value is in `ALERT_CONSTANTS` (A14), none inline.
 
@@ -1443,7 +1453,7 @@ Test files under `apps/hub/test/alerts/`; a **test kind** `t_approval` (approval
 | Q8 | `approver_role_ids` empty at answer time | `403 not_approver`; 01d never auto-closes; owning modules find stale requests with `alerts.listOpen` and close them `obsolete` (§3.3 rule 6, v0.4 #4). |
 | Q9 | 01a setting or constants | Constants (A14); settings post-pilot (§12.4). |
 
-Open for the owner: none (Q3 confirmed, G1-20 kept, 2026-11-01). *v1.1:* the developer's open choices are in §12.7 (d) and in the draft notes.
+Open for the owner: none (Q3 confirmed, G1-20 kept, 2026-11-01). *v1.1:* the developer's open choices of §12.7 (d) were approved as built on 2026-11-02.
 
 ### 12.4 Deferred until needed
 
@@ -1470,7 +1480,7 @@ Open for the owner: none (Q3 confirmed, G1-20 kept, 2026-11-01). *v1.1:* the dev
 - **R2 checked against the review:** (a) in person only on the raising device (test 55); (b) a sign-in as the approver elsewhere still gives the approver a silent receipt for every money answer (test 55); (c) the answering seat neither sees nor closes the receipt or the notice for the business day (test 55); (4) 05's view shows each notice's state and who saw it where (§4.3 To 05). Residual stated: a PIN holder can close it from a third device, visible in 05's view.
 - **MINORs:** m3, m4, m5, m7, m11, m13, m15, m16 fixed here (tests 43, 50, 60 (g′), 66); the other eight are BF-1–BF-8 (§12.6), none changes a contract another module relies on.
 
-> As built (final review, v1.1 DRAFT): R1, R2, the inside-lock select, the read-only contract, the secrets rules and the client rules hold across the branch; no Critical finding. R1 residuals: AD-99 / AD-100 and m-3 (§3.3 rule 4 (d)). BF-5 is met by the hub; the 9a page approximates it (AD-T42-2).
+> As built (final review, v1.1): R1, R2, the inside-lock select, the read-only contract, the secrets rules and the client rules hold across the branch; no Critical finding. R1 residuals: AD-99 / AD-100 and m-3 (§3.3 rule 4 (d)). BF-5 is met by the hub; the 9a page approximates it (AD-T42-2).
 
 ### 12.5a Self-check (author, v0.5, after G4 run 2)
 
@@ -1507,7 +1517,9 @@ Done during the build, each with its test, and folded into the spec as AD rows a
 
 ### 12.7 Open items required before the pilot (v1.1, as built)
 
-None of these blocks the 01d merge except (d); each must be closed before the pilot.
+None of these blocks the 01d merge (the approvals of (d) were given on 2026-11-02; the merge is the developer's); each must be closed before the pilot.
+
+**Open items (developer, 2026-11-02):** 9b (#63); #58 on the pilot mini PC; manual checks 5 and 7 on the pilot hardware; the carried rows of §4.3 (To the Pulse pass, To 01e and 9b, To 04, To 02 / 01e) and (f) below.
 
 **(a) 9b — the tablet app** (`docs/plans/01d-tablet-plan.md`; AD-1, ruled). Blocked on the tablet model (OQ2: model, Android version, device-owner provisioning). Tasks T1–T6: Capacitor shell over the bundled `staff` entry with the device token in Keystore-backed storage; the native `AlertService` holding alert mode with lock-screen notifications and receipts; one notification per alert (**test #63**); lock-task / device-owner runbook; the silent update client (§8.4); manual checks on the real tablet. It also closes: §12.1 DoD bullet 2 (Android notification on a screen-off tablet), the real tablet header from `alerts_open.binding_route_until` (replacing AD-T42-2), `WS_CLOSE.REPLACED` for `4409` (AD-30), and the 2 h binding manual check.
 
@@ -1515,13 +1527,13 @@ None of these blocks the 01d merge except (d); each must be closed before the pi
 
 **(c) The manual checks** in `docs/plans/01d-manual-checks.md` (task 43): 10 checks, **all not done** (they need the developer and the devices).
 - Runnable now: 1a kiosk alert mode with no session; 2a waiter's phone falls back to alert mode (with `test_alert`); 2b tablet header text; 2c an alert going "for" the lead; 3 `test_alert` to a person, a team and a device; 6 the APK endpoints by hand; 7 the visual check on the real tablet, kiosk and phone in EN and UR (the request screens are blocked); 9 "Stuck alerts: N" (only N = 0 can be shown, since every shipped kind has one step); 10 the approximate tablet header (AD-T42-2).
-- **Blocked (no request kind on a running hub; every shipped kind is `info`):** 1b urgent request on a tablet (sound, banner, the 10 s repeat stopping when opened elsewhere); 4 PIN lockout on answers; 8.3 urgent repeated, 8.4 action sound, 8.5 rising / falling chime, 8.6 silent receipt; the request screens of check 7 (Answer, PIN, InPerson, Notice, Requests, the urgent and result banners, AnswerKiosk, AdminStuck). They run when 02 or 04 ships its first request kind, or after a test-harness task that raises `t_approval` on a running hub (to be written spec-first).
-- **Needs the pilot hardware:** 5 (#58, item (b)).
+- **Blocked (no request kind on a running hub; every shipped kind is `info`):** 1b urgent request on a tablet (sound, banner, the 10 s repeat stopping when opened elsewhere); 4 PIN lockout on answers; 8.3 urgent repeated, 8.4 action sound, 8.5 rising / falling chime, 8.6 silent receipt; the request screens of check 7 (Answer, PIN, InPerson, Notice, Requests, the urgent and result banners, AnswerKiosk, AdminStuck). **Carried to 04** (developer, 2026-11-02): they run with 04's first request kind (§4.3 To 04).
+- **Needs the pilot hardware:** 5 (#58, item (b)); 7 on the real pilot tablet, kiosk and phone (developer, 2026-11-02).
 - **Moves to 9b:** the 2 h binding rule on a signed-out tablet (no socket on a signed-out 9a page).
 
-**(d) Developer approvals before this bump** (blocks the merge with I-1 and I-2 of the final review): the "Contract changes other modules read" list (§1); every row marked **proposed** in this draft; every **unattended** batch 9a row; an explicit ruling on AD-T42-2 versus BF-5 (accept it as a 9b-carried gap, or approve an additive frame or field); the owner's choice on AD-149 (`raised_at` vs `waiting_ms`) and AD-140 (action-first ordering); whether catch-up rows should replace a held card like lock frames (§8.1, AD-R-d-3); the AD-107 proposal; and the "Unresolved" items of `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`.
+**(d) Developer approvals — given 2026-11-02** (closes I-1 and I-2 of the final review): all approved as built; AD-T42-2 approved as approximate (the exact header source carried To 01e and 9b, §4.3); the kit rows AD-A–C approved for now (carried To the Pulse pass). The list as it stood (history): the "Contract changes other modules read" list (§1); every row marked **proposed** in this draft; every **unattended** batch 9a row; an explicit ruling on AD-T42-2 versus BF-5 (accept it as a 9b-carried gap, or approve an additive frame or field); the owner's choice on AD-149 (`raised_at` vs `waiting_ms`) and AD-140 (action-first ordering); whether catch-up rows should replace a held card like lock frames (§8.1, AD-R-d-3); the AD-107 proposal; and the "Unresolved" items of `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`.
 
-**(e) Data gaps from batch 9a** (each needs an additive field or frame, so a spec bump, or 9b; developer ruling):
+**(e) Data gaps from batch 9a** (each needs an additive field or frame; **carried to 02 / 01e**, developer 2026-11-02, §4.3; the header source to 01e and 9b):
 - **The tablet header source** (AD-T42-2): the 9a page cannot see the hub's activity clock, and an absent person still shows a deadline until a `binding_route: null` frame. Also the bound person's name is not on the wire (AD-T42-1).
 - No approver name for "Waiting for {name} or a manager" / "Find {name} or a manager" (AD-T41-3).
 - Test-alert lists show only PIN holders and "This device" (AD-T41-7).
@@ -1530,6 +1542,6 @@ None of these blocks the 01d merge except (d); each must be closed before the pi
 - No close time on inbox rows and `alert_closed` (closed rows omit the time).
 - 79 Urdu strings still in English (`docs/design/handoff/01d/urdu-todo.md`); the "Nothing open." string for an empty Open list (AD-V-2).
 
-**(f) Carried rows** (not built in 01d): to 02 and 04, the requester's waiting card (AD-1) and the Requests (n) / Inbox (n) top-bar buttons (AD-168); to 01a, the `config-status` amendment (AD-123); to 00 and 01b, the as-built notes of §4.5.
+**(f) Carried rows** (not built in 01d): to 02 and 04, the requester's waiting card (AD-1) and the Requests (n) / Inbox (n) top-bar buttons (AD-168); to 01a, the `config-status` amendment (AD-123, applied as 01a v2.0.1); to 00 and 01b, the as-built notes of §4.5 (applied as 00 v1.6.1 and 01b v1.4.1); to the Pulse pass, the kit reconcile (AD-A–C); to 01e and 9b, the exact tablet header source (AD-T42-2); to 04, the blocked manual checks; to 02 / 01e, the data gaps of (e) (§4.3).
 
-**After approval** (not done by this draft): the README module map row 01d moves to v1.1 "Implemented"; 00, 01a and 01b get their own bumps for the approved contract rows; a fresh reviewer checks v1.1 (plan Task 44 step 2).
+**Done at approval (2026-11-02):** the README module map row 01d moved to v1.1 APPROVED, Implemented; 00, 01a and 01b got their as-built patch bumps (v1.6.1, v2.0.1, v1.4.1). The merge is the developer's.
