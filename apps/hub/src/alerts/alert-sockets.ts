@@ -24,7 +24,10 @@ import { lockView, type LockViewRow } from './ws-frames.js';
 //   a tablet or phone (v0.5 m7); a kiosk / KDS has no binding row (BF-3). Never an alert hidden from this
 //   device (§3.10). Rows are lock-only (ws-frames' one lock-view builder): never `card` or `details`
 //   (`details_json` is not even read), checked by a strict schema before it leaves (§7). Every listed alert
-//   is "sent" to the device for the receipt check (recordSent, §6 batch 3).
+//   is "sent" to the device for the receipt check (recordSent, §6 batch 3). AD-82's `outcome` (lock-safe) rides on
+//   a request_result row. `seen_by_me` (§8.3, controller ruling on task 32): the bound person's seen
+//   (`request_seen`, or an `AlertSeen` receipt in alert_receipts), read in the same alert statement; false
+//   for a device-target row with no person (no binding, or the person's part is not sent).
 // - `binding_route_until` = the bound person's last session activity + `binding_route_idle_ms` for a tablet
 //   whose binding is a route (task 17 carry: `until` alone is not enough), else null.
 // - `binding_route { until }`: after commit of a step (raise or tick) that routes to a tablet through its
@@ -71,6 +74,7 @@ interface OpenRow extends Partial<Omit<LockViewRow, 'alert_id'>> {
   alert_id: string | null; // null: the LEFT JOIN row of a device with no open alert
   step: number | null;
   to_device: 0 | 1 | null;
+  bound_seen: 0 | 1 | null;
 }
 
 /** The facts §3.4.3 (b), (c) need about one bound person (presence, activity, active sessions). */
@@ -94,8 +98,11 @@ const OPEN_SQL = `
     WHERE d.device_id = @device_id
   )
   SELECT dev.device_type, dev.bound_staff_id, dev.bound_session_id, dev.bound_since,
-         a.alert_id, a.kind, a.family, a.step, a.display_json, a.raised_at,
-         a.alert_id IN (SELECT r.alert_id FROM alert_recipients r WHERE r.device_id = dev.device_id) AS to_device
+         a.alert_id, a.kind, a.family, a.step, a.display_json, a.values_json, a.raised_at,
+         a.alert_id IN (SELECT r.alert_id FROM alert_recipients r WHERE r.device_id = dev.device_id) AS to_device,
+         (EXISTS (SELECT 1 FROM request_seen s WHERE s.alert_id = a.alert_id AND s.staff_id = dev.bound_staff_id)
+          OR EXISTS (SELECT 1 FROM alert_receipts r WHERE r.alert_id = a.alert_id AND r.staff_id = dev.bound_staff_id
+                      AND r.kind = 'seen')) AS bound_seen
   FROM dev LEFT JOIN alerts a
     ON a.state = 'open'
    AND (a.hidden_device_id IS NULL OR a.hidden_device_id <> dev.device_id)
@@ -187,7 +194,8 @@ export function createAlertSockets(env: AlertSocketsEnv): AlertSockets {
       if (row.to_device !== 1 && !personPart) continue; // the bound person's part only while a route (m7)
       const kind = kindOf(row.kind as string);
       if (kind === undefined) continue; // P-8: an unknown kind has no lock label
-      alerts.push(lockView(row as LockViewRow, kind, row.step));
+      // §8.3: the bound person's seen (request_seen, or an AlertSeen receipt), only while their part is sent
+      alerts.push({ ...lockView(row as LockViewRow, kind, row.step), seen_by_me: personPart && row.bound_seen === 1 });
     }
     const frame = StrictOpen.parse({ type: 'alerts_open', alerts, binding_route_until: until });
     for (const a of frame.alerts) env.recordSent(deviceId, a.alert_id);

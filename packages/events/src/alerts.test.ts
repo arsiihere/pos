@@ -14,8 +14,11 @@ import {
   AlertLockSchema,
   AlertStepTargetSchema,
   AlertTargetSchema,
+  AlertInboxRow,
+  AlertsCatchUpPart,
   AlertViewSchema,
   AnswerRequestPayload,
+  REQUEST_OUTCOMES,
   MarkAlertsSeenPayload,
   SendTestAlertPayload,
   SetPresencePayload,
@@ -199,6 +202,85 @@ describe('01d wire shapes', () => {
     };
     expect(AlertViewSchema.parse(withCard).card?.details).toEqual({ item: 'Mutton platter', quantity: 1 });
     expect(AlertViewSchema.safeParse({ ...view, family: 'loud' }).success).toBe(false);
+  });
+
+  it('[01d AD-23] AlertViewSchema: the signed-in fields answers, needs_pin, silent are optional and typed', () => {
+    const view = {
+      alert_id: ULID,
+      kind: 'void_approval',
+      family: 'urgent',
+      step: 1,
+      escalation: false,
+      set: 'answerer',
+      for_staff_id: null,
+      lock: { kind_label_key: 'alert.void_approval.lock', table_code: '12', point_code: null, requester_name: 'Hamza' },
+      raised_at: 1_761_900_000_000,
+    };
+    const signedIn = { ...view, answers: ['approve', 'reject'], needs_pin: 'always', silent: false };
+    expect(AlertViewSchema.parse(signedIn)).toMatchObject({ answers: ['approve', 'reject'], needs_pin: 'always', silent: false });
+    expect(AlertViewSchema.safeParse({ ...view, answers: null, needs_pin: null, silent: true }).success).toBe(true);
+    expect(AlertViewSchema.safeParse({ ...view, answers: ['maybe'] }).success).toBe(false);
+    expect(AlertViewSchema.safeParse({ ...view, needs_pin: 'sometimes' }).success).toBe(false);
+    expect(AlertViewSchema.safeParse({ ...view, silent: 'yes' }).success).toBe(false);
+  });
+
+  it('[01d AD-82] AlertViewSchema.outcome: approved, rejected, withdrawn, obsolete, overridden or null; nothing else', () => {
+    const view = {
+      alert_id: ULID,
+      kind: 'request_result',
+      family: 'info',
+      step: 0,
+      escalation: false,
+      set: 'recipient',
+      for_staff_id: null,
+      lock: { kind_label_key: 'alert.request_result.lock', table_code: '12' },
+      raised_at: 1_761_900_000_000,
+    };
+    expect(REQUEST_OUTCOMES).toEqual(['approved', 'rejected', 'withdrawn', 'obsolete', 'overridden']);
+    for (const outcome of [...REQUEST_OUTCOMES, null]) expect(AlertViewSchema.safeParse({ ...view, outcome }).success).toBe(true);
+    expect(AlertViewSchema.safeParse(view).success).toBe(true);
+    expect(AlertViewSchema.safeParse({ ...view, outcome: 'answered' }).success).toBe(false);
+  });
+
+  it('[01d AD-22] AlertInboxRow: the view plus seen_by_me, moved_to_name, for_staff_name, state and close_reason', () => {
+    const row = {
+      alert_id: ULID,
+      kind: 't_info',
+      family: 'info',
+      step: 0,
+      escalation: false,
+      set: 'recipient',
+      for_staff_id: 'S_CASH',
+      lock: { kind_label_key: 'alert.t_info.lock' },
+      raised_at: 1,
+      seen_by_me: false,
+      moved_to_name: null,
+      for_staff_name: 'Ali',
+      state: 'closed',
+      close_reason: 'expired',
+    };
+    expect(AlertInboxRow.safeParse(row).success).toBe(true);
+    expect(AlertInboxRow.safeParse({ ...row, state: 'open', close_reason: null }).success).toBe(true);
+    expect(AlertInboxRow.safeParse({ ...row, state: 'gone' }).success).toBe(false);
+    expect(AlertInboxRow.safeParse({ ...row, close_reason: 'answered_twice' }).success).toBe(false);
+    expect(AlertInboxRow.safeParse({ ...row, state: undefined }).success).toBe(false);
+  });
+
+  it('[01d §6 batch 3] AlertsCatchUpPart: { alerts: view + seen_by_me }', () => {
+    const row = {
+      alert_id: ULID,
+      kind: 't_info',
+      family: 'info',
+      step: 0,
+      escalation: false,
+      set: 'recipient',
+      for_staff_id: null,
+      lock: { kind_label_key: 'alert.t_info.lock' },
+      raised_at: 1,
+      seen_by_me: true,
+    };
+    expect(AlertsCatchUpPart.safeParse({ alerts: [row] }).success).toBe(true);
+    expect(AlertsCatchUpPart.safeParse({ alerts: [{ ...row, seen_by_me: undefined }] }).success).toBe(false);
   });
 
   describe('[01d §6.2] AnswerRequestPayload', () => {

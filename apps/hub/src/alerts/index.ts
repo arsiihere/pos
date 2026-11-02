@@ -2,12 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { bindAlertProjectionLog } from '../projections/alerts.js';
 import type { HubDeps } from '../server.js';
 import { currentDirectory } from '../auth/guards.js';
+import { registerCatchUp } from '../ws/catch-up.js';
 import { wsHubFor } from '../ws/server.js';
 import { registerAnswerRequest } from './commands/answer-request.js';
 import { registerMarkAlertsSeen } from './commands/mark-alerts-seen.js';
 import { registerSendTestAlert } from './commands/send-test-alert.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
+import { createAlertsCatchUp } from './catch-up.js';
+import { registerAlertsInbox } from './queries/alerts-inbox.js';
 import { bindAlertEnv } from './raise.js';
 import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
 import { clearStatementCache } from './statements.js';
@@ -51,6 +54,13 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   });
   wsHubFor(app).setAlertsOpen((deviceId) => alertSockets.alertsOpen(deviceId));
   deps.writer.addAfterCommit((appended) => alertSockets.afterCommit(appended));
+  // §6 batch 3 / H-7 (task 34): the `alerts` catch-up part of session sockets (rows it lists are "sent" for the
+  // receipt check); removed when this server closes, like 00's restaurant parts
+  const stopCatchUp = registerCatchUp(
+    createAlertsCatchUp({ directory: () => currentDirectory(app), recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId) }),
+  );
+  // §6.7 (task 34): GET /queries/alerts-inbox (registerQueryRoutes ran before)
+  registerAlertsInbox(app);
   // §6.2 (task 22): AnswerRequest through the hub's command registry (registerCommandRoutes ran before)
   registerAnswerRequest(app);
   // §6.3 (task 25): WithdrawRequest
@@ -60,6 +70,7 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // §6.5 (task 33): SendTestAlert (manage-devices, the normal permission check)
   registerSendTestAlert(app);
   app.addHook('onClose', async () => {
+    stopCatchUp();
     receipts.stop();
     unbindReceiptBuffer(receipts);
     // AD-125: drop the hub's cached statements (after the receipt flush above), before boot closes the db

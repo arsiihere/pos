@@ -79,7 +79,16 @@ export type AlertLock = z.infer<typeof AlertLockSchema>;
 export const AlertCardSchema = AlertDisplaySchema.extend({ details: AlertDetailsBase.nullable() });
 export type AlertCard = z.infer<typeof AlertCardSchema>;
 
+// AD-82: the outcome a `request_result` reports (approve / accept → approved, reject / decline → rejected, or
+// the close reason). Lock-safe: never an amount, item or reason, so it may go on alert-mode frames too.
+export const REQUEST_OUTCOMES = ['approved', 'rejected', 'withdrawn', 'obsolete', 'overridden'] as const;
+export const RequestOutcomeSchema = z.enum(REQUEST_OUTCOMES);
+export type RequestOutcome = z.infer<typeof RequestOutcomeSchema>;
+
 // §6 batch 3 `alert` frame body; §3.8 route `send(alert: AlertView, …)`.
+// AD-23 (additive): `answers`, `needs_pin`, `silent` belong to the signed-in view only (they travel with `card`);
+// lock text and alert-mode frames never carry them (G1-13 e; the hub's strict lock schemas refuse them).
+// AD-82 (additive): `outcome` on a `request_result`, absent on every other kind.
 export const AlertViewSchema = z.object({
   alert_id: Id,
   kind: z.string().min(1),
@@ -91,6 +100,10 @@ export const AlertViewSchema = z.object({
   lock: AlertLockSchema,
   card: AlertCardSchema.optional(),
   raised_at: int,
+  outcome: RequestOutcomeSchema.nullable().optional(),
+  answers: z.array(RequestDecisionSchema).nullable().optional(),
+  needs_pin: z.enum(['always', 'never']).nullable().optional(),
+  silent: z.boolean().optional(),
 });
 export type AlertView = z.infer<typeof AlertViewSchema>;
 
@@ -158,16 +171,25 @@ export const SetPresenceResult = z.object({ business_day_id: Id, staff_ids: z.ar
 
 // ----------------------------------------------------------------------------------------- query responses
 
-// §6.7 (F §6.1 envelope, F §6.3 paging).
+// §6.7 (F §6.1 envelope, F §6.3 paging). AD-22 (additive): the inbox lists today's closed alerts too, so each
+// row carries its state and close reason.
 export const AlertInboxRow = AlertViewSchema.extend({
   seen_by_me: z.boolean(),
   moved_to_name: z.string().nullable(),
   for_staff_name: z.string().nullable(),
+  state: z.enum(['open', 'closed']),
+  close_reason: AlertCloseReasonSchema.nullable(),
 });
 export const AlertsInboxResponse = z.object({
   data: z.object({ alerts: z.array(AlertInboxRow) }),
   meta: z.object({ next_cursor: z.string().nullable() }),
 });
+
+// §6 batch 3 `alerts` catch-up part (H-7): the socket's open alerts, each with `seen_by_me` (§8.3); `card` and
+// the AD-23 fields only on the person's own rows on a staff socket.
+export const AlertsCatchUpRow = AlertViewSchema.extend({ seen_by_me: z.boolean() });
+export const AlertsCatchUpPart = z.object({ alerts: z.array(AlertsCatchUpRow) });
+export type AlertsCatchUpPart = z.infer<typeof AlertsCatchUpPart>;
 
 // §6.8; request states §3.3.
 export const RequestStateSchema = z.enum(['pending', 'approved', 'rejected', 'withdrawn', 'closed']);

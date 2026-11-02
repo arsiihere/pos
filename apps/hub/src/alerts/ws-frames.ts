@@ -9,6 +9,7 @@ import {
   type AlertDisplay,
   type AlertLock,
   type AlertView,
+  type RequestOutcome,
   type AttemptSentPayload,
   type PosEvent,
   type RequestSeenPayload,
@@ -18,7 +19,7 @@ import type Database from 'better-sqlite3';
 import { z, ZodError } from 'zod';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { ConnectedSession, WsHub } from '../ws/server.js';
-import { kindOf, type AlertKind } from './kinds.js';
+import { kindOf, REQUEST_RESULT, type AlertKind } from './kinds.js';
 import { registeredRoutes } from './routes.js';
 import { mayAnswer, type AlertRequestPart } from './targets.js';
 import { cachedPrepare } from './statements.js';
@@ -37,29 +38,29 @@ import { cachedPrepare } from './statements.js';
 const StrictLock = AlertLockSchema.strict();
 const StrictCard = AlertCardSchema.extend({ details: AlertDetailsBase.strict().nullable() }).strict();
 // Built from the named lock-safe view fields (pick, not omit): a field later added to the signed-in view
-// (AD-23's answers / needs_pin / silent, task 34) stays refused here.
-const LockAlertFrame = z
-  .object({
-    type: z.literal('alert'),
-    alert: AlertViewSchema.pick({
-      alert_id: true,
-      kind: true,
-      family: true,
-      step: true,
-      escalation: true,
-      set: true,
-      for_staff_id: true,
-      raised_at: true,
-    })
-      .extend({ lock: StrictLock })
-      .strict(),
-  })
+// (AD-23's answers / needs_pin / silent) stays refused here (AD-81). AD-82's `outcome` is lock-safe.
+/** The lock-only view (alert-mode sockets, device-target sockets, routes, a station's catch-up rows). */
+export const StrictLockView = AlertViewSchema.pick({
+  alert_id: true,
+  kind: true,
+  family: true,
+  step: true,
+  escalation: true,
+  set: true,
+  for_staff_id: true,
+  raised_at: true,
+  outcome: true,
+})
+  .extend({ lock: StrictLock })
   .strict();
-const CardAlertFrame = z
-  .object({ type: z.literal('alert'), alert: AlertViewSchema.extend({ lock: StrictLock, card: StrictCard }).strict() })
-  .strict();
+/** The signed-in view (the person's own staff sockets, inbox, catch-up): card with details and the AD-23 fields. */
+export const StrictCardView = AlertViewSchema.extend({ lock: StrictLock, card: StrictCard }).strict();
+const LockAlertFrame = z.object({ type: z.literal('alert'), alert: StrictLockView }).strict();
+const CardAlertFrame = z.object({ type: z.literal('alert'), alert: StrictCardView }).strict();
 const SeenFrame = WsAlertSeen.strict();
 const ClosedFrame = WsAlertClosed.strict();
+
+const REQUEST_RESULT_KIND = REQUEST_RESULT.kind;
 
 const STEP_EVENTS: ReadonlySet<string> = new Set(['AttemptSent', 'EscalationStepped']);
 const CLOSE_EVENTS: ReadonlySet<string> = new Set(['AlertClosed', 'RequestAnswered', 'RequestWithdrawn']);
@@ -85,13 +86,7 @@ export interface AlertFrames {
   sendSeenFrames(staffId: string, alertId: string): void;
 }
 
-interface StepAlertRow {
-  alert_id: string;
-  kind: string;
-  family: AlertView['family'];
-  display_json: string;
-  details_json: string | null;
-  raised_at: number;
+interface StepAlertRow extends ViewRow {
   hidden_session_id: string | null;
   hidden_device_id: string | null;
 }
@@ -136,7 +131,8 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
     const ids = [...new Set(steps.map((e) => String(e.payload.alert_id)))];
     const rows = cachedPrepare(
       env.db,
-      `SELECT alert_id, kind, family, display_json, details_json, raised_at, hidden_session_id, hidden_device_id
+      `SELECT alert_id, kind, family, display_json, details_json, values_json, request_json, raised_at,
+              hidden_session_id, hidden_device_id
        FROM alerts WHERE alert_id IN (SELECT value FROM json_each(?))`,
     ).all(JSON.stringify(ids)) as StepAlertRow[];
     const byId = new Map(rows.map((r) => [r.alert_id, r]));
@@ -292,34 +288,98 @@ function displayParams(display: AlertDisplay, key: string): AlertLock {
   return out;
 }
 
-/** The alert fields every lock-safe view is built from (an `alerts` row; never `details_json`). */
+/**
+ * The alert fields every lock-safe view is built from (an `alerts` row; never `details_json`). `values_json`
+ * is read only for AD-82's request_result outcome (its values carry no amount, item or reason, kinds.ts).
+ */
 export interface LockViewRow {
   alert_id: string;
   kind: string;
   family: AlertView['family'];
   display_json: string;
+  values_json: string;
   raised_at: number;
 }
 
+/** A signed-in view also reads the details and the request part (answers, needs_pin; AD-23). */
+export interface ViewRow extends LockViewRow {
+  details_json: string | null;
+  request_json: string | null;
+}
+
+/** AD-82: a request_result's outcome from its values (kinds.ts RequestResultValues); null when unreadable. */
+function outcomeOf(row: LockViewRow): RequestOutcome | null {
+  const v = JSON.parse(row.values_json) as { close_reason?: unknown; decision?: unknown };
+  switch (v.close_reason) {
+    case 'answered':
+      return v.decision === 'approve' || v.decision === 'accept' ? 'approved' : v.decision === 'reject' || v.decision === 'decline' ? 'rejected' : null;
+    case 'withdrawn':
+    case 'obsolete':
+    case 'overridden':
+      return v.close_reason;
+    default:
+      return null;
+  }
+}
+
 /**
- * The one lock-view builder (§3.12, G1-13 e): the fields shared by every `alert` frame (lock and card) and
- * every `alerts_open` row (alert-sockets.ts, task 32). A lock-safe view field (AD-82's `outcome`, task 34) is
- * added here once.
+ * The one lock-view builder (§3.12, G1-13 e): the fields shared by every `alert` frame (lock and card), every
+ * `alerts_open` row (alert-sockets.ts), every inbox and catch-up row. AD-82's `outcome` is added here, on a
+ * `request_result` only (absent on every other kind).
  */
-export function lockView(row: LockViewRow, kind: AlertKind, step: number): Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at'> {
+export function lockView(
+  row: LockViewRow,
+  kind: AlertKind,
+  step: number,
+): Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at' | 'outcome'> {
   const lock = displayParams(JSON.parse(row.display_json) as AlertDisplay, kind.labels.lock);
-  return { alert_id: row.alert_id, kind: row.kind, family: row.family, step, lock, raised_at: row.raised_at };
+  const view: Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at' | 'outcome'> = {
+    alert_id: row.alert_id,
+    kind: row.kind,
+    family: row.family,
+    step,
+    lock,
+    raised_at: row.raised_at,
+  };
+  if (row.kind === REQUEST_RESULT_KIND) view.outcome = outcomeOf(row);
+  return view;
+}
+
+/** Where a view goes in a step / catch-up / inbox: the recipient set, the "for" person, the escalation flag. */
+export interface ViewPlace {
+  escalation: boolean;
+  set: AlertView['set'];
+  for_staff_id: string | null;
+}
+
+/** §6 batch 3: the lock-only view, parsed strict (no card, details or AD-23 field can leave through it). */
+export function lockOnlyView(row: LockViewRow, kind: AlertKind, step: number, place: ViewPlace): z.infer<typeof StrictLockView> {
+  return StrictLockView.parse({ ...lockView(row, kind, step), ...place });
+}
+
+/**
+ * §6 batch 3 / §3.12 / AD-23: the person's own signed-in view: card (the card label key and the kind's
+ * details) plus `answers` / `needs_pin` from the stored request part (null for a non-request) and the kind's
+ * `silent`. Only for the person's own staff sockets, inbox and catch-up rows.
+ */
+export function signedInView(row: ViewRow, kind: AlertKind, step: number, place: ViewPlace): z.infer<typeof StrictCardView> {
+  const details = row.details_json === null ? null : (JSON.parse(row.details_json) as AlertDetails);
+  const request = row.request_json === null ? null : (JSON.parse(row.request_json) as Pick<AlertRequestPart, 'answers' | 'needs_pin'>);
+  return StrictCardView.parse({
+    ...lockView(row, kind, step),
+    ...place,
+    card: { ...displayParams(JSON.parse(row.display_json) as AlertDisplay, kind.labels.card), details },
+    answers: request === null ? null : [...request.answers],
+    needs_pin: request === null ? null : request.needs_pin,
+    silent: kind.silent,
+  });
 }
 
 /** §3.12: lock = the lock-safe display parameters with the kind's lock key; card adds the card key and details. */
 function stepViews(row: StepAlertRow, kind: AlertKind, step: number, escalation: boolean): StepViews {
-  const lockParams = (key: string): AlertLock => displayParams(JSON.parse(row.display_json) as AlertDisplay, key);
-  const details = row.details_json === null ? null : (JSON.parse(row.details_json) as AlertDetails);
-  const base = { ...lockView(row, kind, step), escalation };
   return {
-    card: (set, for_staff_id) =>
-      CardAlertFrame.parse({ type: 'alert', alert: { ...base, set, for_staff_id, card: { ...lockParams(kind.labels.card), details } } }),
-    lock: (set, for_staff_id) => LockAlertFrame.parse({ type: 'alert', alert: { ...base, set, for_staff_id } }),
+    card: (set, for_staff_id) => CardAlertFrame.parse({ type: 'alert', alert: signedInView(row, kind, step, { escalation, set, for_staff_id }) }),
+    lock: (set, for_staff_id) => LockAlertFrame.parse({ type: 'alert', alert: lockOnlyView(row, kind, step, { escalation, set, for_staff_id }) }),
   };
 }
 

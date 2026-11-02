@@ -104,6 +104,24 @@ describe('ws', () => {
     );
   });
 
+  it('[01d AD-23] alerts_open rows refuse answers, needs_pin and silent (signed-in only)', () => {
+    for (const extra of [{ answers: ['approve', 'reject'] }, { needs_pin: 'always' }, { silent: true }, { answers: null }]) {
+      expect(WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...lockOnlyRow, ...extra }], binding_route_until: null }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('[01d AD-82, §8.3] alerts_open rows take outcome (lock-safe) and seen_by_me', () => {
+    const row = { ...lockOnlyRow, kind: 'request_result', outcome: 'approved', seen_by_me: true };
+    expect(WsAlertsOpen.parse({ type: 'alerts_open', alerts: [row], binding_route_until: null }).alerts[0]).toMatchObject({
+      outcome: 'approved',
+      seen_by_me: true,
+    });
+    expect(WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...row, outcome: 'answered' }], binding_route_until: null }).success).toBe(false);
+    expect(WsAlertsOpen.safeParse({ type: 'alerts_open', alerts: [{ ...row, seen_by_me: 'no' }], binding_route_until: null }).success).toBe(false);
+  });
+
   it('[01d BF-5] binding_route { until: null } and alerts_open.binding_route_until parse', () => {
     expect(WsServerMessage.safeParse({ type: 'binding_route', until: null }).success).toBe(true);
     expect(WsServerMessage.safeParse({ type: 'binding_route', until: 1761907200000 }).success).toBe(true);
