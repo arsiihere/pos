@@ -85,6 +85,8 @@ export interface AlertStore {
   onInbox(rows: readonly IncomingRow[]): void;
   /** tapped: seen here (the caller sends MarkAlertsSeen) */
   open(alertId: string): void;
+  /** G1-13e: signed out (alert mode): drop every card and signed-in field held, keep the lock text */
+  dropCards(): void;
   snapshot(): AlertSnapshot;
   subscribe(listener: () => void): () => void;
   dispose(): void;
@@ -120,8 +122,20 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     for (const fn of [...listeners]) fn();
   }
 
-  function merge(row: IncomingRow): AlertRow {
-    const old = rows.get(row.alert_id);
+  /** The lock view of a row: no card (details) and none of the signed-in fields (AD-23, AD-165). */
+  function lockOnly(row: AlertRow): AlertRow {
+    const rest = { ...row };
+    delete rest.card;
+    delete rest.answers;
+    delete rest.needs_pin;
+    delete rest.raised_device_id;
+    return rest;
+  }
+
+  function merge(row: IncomingRow, replace = false): AlertRow {
+    const held = rows.get(row.alert_id);
+    // §8.1 (R-d carry, AD-R-d-3): a later lock-only *frame* replaces the card view; it is not merged with it
+    const old = replace && held !== undefined ? lockOnly(held) : held;
     const next: AlertRow = {
       alert_id: row.alert_id,
       kind: row.kind,
@@ -235,7 +249,7 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     onAlert(view) {
       const old = rows.get(view.alert_id);
       if (old?.state === 'closed') return; // a late frame after the close
-      const row = merge(view);
+      const row = merge(view, view.card === undefined);
       markEscalated(view);
       const key = `${view.alert_id}:${view.step}`;
       if (!shown.has(key)) {
@@ -294,6 +308,11 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
 
     open(alertId) {
       seen(alertId);
+      changed();
+    },
+
+    dropCards() {
+      for (const [id, row] of rows) rows.set(id, lockOnly(row));
       changed();
     },
 
