@@ -327,3 +327,38 @@
   - (35) The `FROM_DAY_COLUMN` subquery is not indexed.
   - (R-b) The stuck log can fire for a rolled-back transaction.
   - (R-c) Two comments are ambiguous.
+
+## Batch 8 — Receipt view, presence, retention (2026-11-02)
+
+- **Tasks:**
+  - 36: `alert-receipts`
+  - 37: `SetPresence`
+  - 38: alert retention, which also prunes the receipt sets in memory (AD-88)
+- **Commits:** `5363b7b` (36), `5f0cb7d` (37), `be9e10b` (38).
+- **Reviews:**
+  - 36 and 37 (both NORMAL) were reviewed as a pair; 38 (HIGH) was reviewed alone. All approved; none needed a fix round.
+  - Task 38 has one Important finding outside its own code, parked for the developer (AD-161). §5.1 is missing an `alert_inbox (alert_id)` index, so each cascaded delete scans the inbox. Measured per 500-alert batch:
+    - about 0.5 s in steady state;
+    - 5.7 s at 105 000 inbox rows;
+    - 5 ms with the index.
+
+    No code-only fix exists. Adding the index means patching the approved spec first, then one line in the unmerged 0006.
+- **Gate:** green on the first run. 286 files passed, 1 skipped; 1844 tests passed, 1 skipped (#58).
+- **Tests closed:**
+  - 36: #46, #57 (hub, all but vi), #62
+  - 37: #45
+  - 38: #38
+- **AD rows (proposed):** AD-153 to AD-161.
+- **Developer decisions needed:**
+  - **AD-161:** the `alert_inbox (alert_id)` index. Proposed: an editorial §5.1 patch, then the unmerged 0006.
+  - **Gap E (AD-156):** `business_day_id` is not defined anywhere.
+  - **Gap F:** a receipt is keyed without its route. When a device delivers on both its session socket and its alert-mode socket, the first one kept decides whether §6.10 shows "bound to Ali (not signed in)" or "delivered to Ali".
+  - **Still open from batch 7:** gaps A–D and AD-131.
+- **Deferred minors (for the final review):**
+  - (36) The step-event read has no upper bound.
+  - (36) `route ?? 'screen'` hides a missing audit event.
+  - (37) A backward stream scan finds the open day.
+  - (38) The receipt keys of an alert whose rows span two step-1 batches are dropped after the first batch (a late duplicate, harmless).
+  - (00, pre-existing) The sweeper logs under the key `err` where the spec says `error`.
+  - (00, pre-existing) After a failure, the sweeper retries every 15 s for the rest of the hour.
+- **Next:** Batch 9a (tasks 39–42, the staff entry UI). Batch 9b is blocked on the tablet model (OQ2).
