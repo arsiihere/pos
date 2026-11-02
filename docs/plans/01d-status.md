@@ -1,3 +1,54 @@
+# 01d status — summary (2026-11-03, controller; developer away, built unattended)
+
+> **Short Hinglish summary — padhein yahan se**
+
+**Kya bana:** 01d poora bana hai: Batches 0 se 8, 9a, phir Task 43 aur Task 44.
+- Hub par alerts aur requests ka poora engine hai: raise/close, targets, routes, tick (steps, expiry, day close), PIN answers, personal notices, receipts, retention aur queries.
+- `/staff/` entry Pulse design mein bani hai: inbox, requests, answer sheet, PIN, Approve here, test alert, receipts aur tablet header.
+- Har task ka opus review hua. Gate ek clean checkout par green raha: 304 files, 2014 tests, 695 s, aur 1 skip (#58).
+- Coverage 65/66 hai. Jo ek bacha hai, #63, woh 9b ka hai.
+- Har batch push hua. Last push: is commit wala `module-01d`.
+
+**"Unattended — developer to confirm" AD rows** (aap door the, isliye ye faisle maine liye):
+- **Kit ka faisla:** kit-additions.css mein 01d ka section hai hi nahi, isliye hand-off ki `pulse.css + v-brand.css + pulse-01d.css` merge ki. Ise `packages/ui-kit/components/pulse-staff.css` mein rakha, `:where(.pu)` ke andar.
+- AD-A, AD-B, AD-C (kit)
+- Tasks 39 aur 40 ki rows ("Batch 9a" section mein, bina ID ke tables)
+- AD-T41-1 se AD-T41-17
+  - AD-T41-1: hub `/staff/index.html` mein tenant, branch aur clock ke meta tags daalta hai.
+- AD-T42-1 se AD-T42-3
+  - **AD-T42-2:** tablet header ka deadline andaaze se aata hai. Absent person ke liye bhi deadline dikh sakti hai, jo BF-5 se alag hai. Ise theek karne ke liye spec bump ya 9b chahiye.
+- AD-V-1 se AD-V-5 (visual pass)
+- AD-R-d-1 se AD-R-d-4 (card rule ke edges)
+- AD-M1, AD-M2 (reviewer ki rows)
+- Saari rows `docs/reviews/01d-auto-decisions.md` → "Batch 9a" mein hain.
+- Mere controller rulings neeche "Controller rulings" section mein hain.
+
+**Manual checks jo aapko karne hain:** `docs/plans/01d-manual-checks.md`. Usmein 10 checks hain, saare abhi pending.
+- **Blocked:** running hub par koi request, urgent ya action alert raise nahi ho sakta, kyunki har shipped kind info hai. Is wajah se ye blocked hain: check 1b, poora check 4, urgent/action/silent sounds, aur request screens. Iske liye 02/04 ka pehla request kind chahiye, ya ek test harness, jo pehle spec mein aaye.
+- **9b mein jayega:** 2 h wala binding rule.
+- **Sirf N = 0 check ho sakta hai:** "Stuck alerts: N".
+- **#58 pending:** mini PC par chalana hai. Laptop par tick 36–40 ms aaya, limit 50 ms hai.
+
+**Merge se pehle kya baaki hai:**
+1. As-built spec **v1.1 DRAFT** (`docs/specs/01d_Notifications_Requests_Spec_v1.1.md`, notes `docs/reviews/01d_v1.1_asbuilt_draft_notes.md`) review karke approve karein.
+   - Yeh "Proposed — needs approval" hai. v1.0 aur README ko maine nahi chhua.
+   - Jo contract changes doosre modules padhte hain, unki list draft ke §1 mein hai: events, 00, 01a `stuck_alerts`, 01b, migration. Inhe alag se approve karna hoga.
+2. Saari unattended AD rows confirm karein, ya badalne ko bolein.
+3. Manual checks chalayein aur unke results `01d-manual-checks.md` mein likhein.
+4. Uske baad hi `module-01d` → `main` merge hoga. Maine merge nahi kiya.
+5. Merge ke baad bhi ye open rahenge: 9b (tablet app, #63) aur #58.
+
+**Data gaps** (inke liye additive field chahiye, aapka ruling):
+- tablet header ka source;
+- test alert ki lists (sirf PIN wale staff aur "This device");
+- B02/D03 copy mein approver ka naam;
+- receipts header mein sender;
+- brand block mein tenant aur device ka naam;
+- 79 Urdu strings abhi English mein hain (`docs/design/handoff/01d/urdu-todo.md`).
+
+**Screenshots:** `docs/design/handoff/01d/build-screens/` (10 main screens).
+
+---
 # 01d build status
 
 ## Batch 0 — Setup (2026-11-01)
@@ -457,3 +508,48 @@
   - **Blocked on the pilot build:** no request, urgent alert or action alert can be raised on a running hub. Every shipped kind is info; the test kinds exist only in Vitest. Affected: check 1b, check 4, the urgent / action / silent sounds, and the request screens. This needs 02/04's first request kind, or a test-harness task written spec-first.
   - **Moves to 9b:** the 2 h binding rule. A signed-out tablet page has no socket.
   - **Only N = 0 can be checked:** "Stuck alerts: N", because every shipped kind has one step.
+
+## Controller rulings (exhaustive, from the build ledger, in order made)
+
+- Ruling: controller implemented Task 0 itself — brief gives verbatim text for two config files, and .claude/settings.json edits may be blocked for subagents — cost if wrong: none beyond one review seat.
+- ## Pre-flight (scoped per batch — Ruling: scan each batch before its first dispatch — plan is 838 lines/45 tasks, batch-local scan keeps it accurate — cost if wrong: a cross-batch conflict caught later by review)
+- | Tasks | Shared | Finding | Ruling |
+- | 4↔5 | route.ts (4: hash/permission; 5: IdempotentReplay → commands/replay.ts) | Task 5 file list omits route.ts and replay.ts though its step 3 requires them | Ruling: task 5 may touch route.ts + create commands/replay.ts — plan step text mandates it — cost: none |
+- | 4↔6 | pinField via pinCheck(payload, preCtx) | PreReadCtx built only in task 6 | Ruling: task 4 adds the omit plumbing; pinField stays undefined (no def has pinCheck); no ctx stub beyond what typing needs — task 6 builds PreReadCtx — cost: small rework in 6 |
+- Task 1: implemented 5f54533 (DONE_WITH_CONCERNS minor). Ruling: typecheck command is `pnpm --filter <pkg> typecheck && pnpm --filter <pkg> typecheck:tests` (pnpm passes 2nd script as tsc arg) — tell all implementers — cost: none. Ruling: brief's `httpStatus` = existing `statusOf` — cost: none. Pair review with task 2 pending.
+- Task 3: dispatched (base 5458710, opus af083ba8) in parallel with read-only pair review 1+2. Ruling: run reviewer and next implementer concurrently — reviewer is read-only, task 3 does not edit task-2 files — cost if wrong: task 3 rework if task 2 view schema changes.
+- Ruling: preRead signature follows the spec (00 §4.2: `preRead(db, payload, ctx)`), not the plan's `preRead(ctx, payload)` — spec wins (CLAUDE.md) — Task 6 changes the type (no callers yet) — cost if wrong: trivial rename.
+- | Tasks | Shared | Finding | Ruling |
+- | 4↔6 | route.ts pinField / preRead | brief says `preRead(preCtx, payload)`; AD-10 says spec `preRead(db, payload, ctx)` | Ruling: task 6 uses spec form `preRead(readOnlyDb(deps.db), payload, preCtx)` and fixes the registry type — AD-10 agreed by developer |
+- Task 9: dispatched base dbb1805 (parallel with read-only task 7 review). Ruling: order 9 before 8 — 9 is independent of ws work; 8 waits for task 7 review — cost: none.
+- | Tasks | Shared | Finding | Ruling |
+- Task 11 HIGH review: Approved, 0 Crit/Imp; reviewer ran 2 files 6/6. ⚠️ admin no-PIN create paths bump directory_version — Ruling: shared write wrapper bumps (write.ts:98), existing 01b behaviour, not this task — cost: final review re-checks.
+- | Tasks | Shared | Finding | Ruling |
+- Ruling: §3.4.2 sentence 2 moves to task 17 — "no route" is §3.4.3, built in task 17, and §3.4.3 lead_fallback ("Lead has none → table-team fallback §3.4.2 or managers") is already task 17's scope. Task 17 may extend resolveStep/Recipient to carry the table_team origin (owner + table_id, before the presence filter) so routeRecipients can apply the fallback; zone_order_taker via the registered resolver (fakeZoneOrderTaker in fakes.ts); none → managers; "fallback reaching someone already in the step adds nothing". Task 18's batchReads collects the zone_order_taker resolver call in its fixed reads. No task-16 code change. — why: plan assigned §3.4.2 to 16 but it is unbuildable without routes — cost if wrong: task 17 grows; rework of resolveStep's return shape.
+- Ruling: fix may add a narrow `rawDbOf(db)` (proxy→target WeakMap) export to engine-host/read-only-tx.ts (00 H-3 file created in this unmerged branch, task 5) or key env otherwise; must not hand raw db to kind code. AD row. — why: smallest fix, spec mandates prepare raises — cost: one 00 file touched.
+- Ruling: BF-6 invalidation also on DevicePaired and BusinessDayClosed (both change reads 5/bindings) — conservative superset, only extra re-reads in those txs; proposed AD — cost if wrong: none functionally.
+- | Tasks | Shared | Finding | Ruling |
+- | 23↔24 | hidden_from raise option | 23's pin_use_failed needs hidden_from (= sending session/device) but task 18 deferred the option "to 24" | Ruling: task 23 adds the `hidden_from` raise input (first user); 24 reuses — cost: none |
+- Ruling: M39 re-check in preRead adds 2 reads only when the auth generation moved (§6.2 says both "1 statement" and "M39 re-check") — allowed as conditional +2, proposed AD — why: spec lists both; rare path; prepare repeats authoritatively — cost if wrong: drop it from preRead later.
+- Ruling: pin_use_failed raise inside onPrepareFailed is wrapped in try/catch + safe log (option a) — §3.3 rule 4(d) "No path skips the count" binds; BF-2 rollback would drop a matched PIN's count (oracle) — raise is read-only and returns drafts, so catching keeps count + RequestPinFailed, loses only the notice — cost if wrong: one notice lost on a bug path. Dispatched as a small follow-up fix to task 23 (resume implementer), with re-review.
+- Ruling (provisional, confirm with developer at batch 6 stop): receipts for closed alerts stay accepted (spec lists only unknown/not-sent/step-above as ignored); a duplicate AlertDelivered after restart is harmless (alert_receipts INSERT OR IGNORE). Task 38 prunes recorded/sentVia per alert (Map<alert_id, Set<key>>) when the alert's rows are deleted by retention — cost if wrong: extra duplicate events in audit stream.
+- | Tasks | Shared | Finding | Ruling |
+- | 27 | fakeFires (task 13 carry, plan said 30) | 27 is first registerTick user | Ruling: fakeFires added in 27 — cost: none |
+- Found defect in task 17 (C1): lead "for Ali" fallback also writes Ali's own recipient + inbox row; spec §3.4.3 l.285 "Ali has no inbox row for it until a later step reaches Ali directly". Ruling: spec is explicit → fix in task 17's code (resume task 17 implementer) after task 26 review — cost: none.
+- Ruling: per-alert guard in stepIntents, skip + safe log (option a, no spec change); stop stepsDue scan at the first not-due step; extend defineAlertKind startup checks: at.value key must be a required z.number, from_value key a required non-empty z.string (extends AD-36, proposed AD). How to finally retire a poison alert (close reason vs projection NULL) → developer question at batch 6 stop. — cost if wrong: a poison alert holds one of 200 slots until ruled.
+- Ruling: rulings applied as follow-up tasks before batch 7 — R-a (AD-124 startup error) + R-b (AD-123 poison NULL + stuck count) by one implementer as two commits, reviewed together (HIGH); then R-c (AD-125 cache + #58 re-measure), reviewed alone (HIGH). They count as part of batch 7's checkpoint. — cost: none.
+- | Tasks | Shared | Finding | Ruling |
+- Ruling: fix Minor 1 now (spec m1 behaviour: >200 due at day close → no_approver closed 'done' instead of 'expired'; skip expire_due rows in flag pass) + Minor 2 (pin dirty-flag raise-path count) — cheap, spec-visible — cost: one small round.
+- Ruling: fix read (9) now in a follow-up commit (spec explicit) — resume task 32 implementer; add admin-session test. — cost: none.
+- Ruling: seen_by_me in alerts_open (§8.3 l.995, #39 l.1085 require it) → additive field on WsAlertsOpenRow, false for device-target rows with no person; carried into task 34 (files ws.ts, alert-sockets.ts), AD row. — cost if wrong: client ignores it.
+- Ruling: fix round 1 = Important 1 (open closes_on:'seen' alert → seen_by_me false) + Minor 4 (cachedPrepare used on inbox/catch-up = outside AD-125 hot-path scope → revert to plain prepare there) + Minor 3 (safe error log in catch-up/inbox parse, as ws-frames safeError) + device_name carry (fill display.device_name in the notice raises, assert #55 "at Hamza's tablet"). — cost: small.
+- Ruling: a row with can_answer true and set 'informed' → can_answer wins (answer right is evaluated now, §3.3 rule 6) — carry to task 39 client — cost if wrong: client shows answer sheet to someone informed whose right widened (still checked by hub).
+- | Tasks | Shared | Finding | Ruling |
+- Ruling: task 38 dispatched while pair review (36,37) runs — reviewer read-only, files disjoint; any 36/37 fix waits for 38 to finish (no parallel implementers) — cost: possible short wait.
+- Task 38: parked to developer — Important: alert_inbox (alert_id) index — Ruling: cannot resolve within task (spec edit needs owner, R34) — stop condition hit at batch end.
+- ## Rulings after batch 8 + Batch 9a
+- Ruling (unattended): kit decision — merge the Pulse staff-app layer (design/pulse.css + v-brand.css + pulse-01d.css) into packages/ui-kit as the staff stylesheet, fonts from the existing kit fonts (no CDN); record AD "unattended". Reason: the user asked to merge the 01d patterns into the kit, and those patterns cannot work without pulse.css/v-brand.css tokens.
+- Ruling: task 39 dispatched while R-d review runs (client files disjoint; any R-d fix waits).
+- Task 40: implemented c9a4a3a (DONE). Ruling (unattended): the latest server view wins — a catch-up or alerts_open lock row replaces a held card too (server is authoritative for what the device may show, AD-163) — sent to implementer as follow-up before pair review.
+- Ruling (unattended): header = approximate until 9b — set on sign-in on this page, extended to now+2h on every local activity (MarkAlertsSeen, commands, which the hub also counts, so never later than the hub for a present person); corrected by any binding_route frame; absent-person case documented as known gap needing an additive frame (spec bump) or 9b. — cost if wrong: header may show a deadline for an absent person.
+- Ruling: I-1 handled by Task 44 step 2 (draft v1.1, Proposed — needs approval); I-2 is a developer decision (listed at top of status) — not code-fixable without server/spec change.
