@@ -1,3 +1,4 @@
+import type { EngineState } from '@pos/engine';
 import { AlertsCatchUpPart } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
@@ -23,6 +24,8 @@ import { lockOnlyView, safeBuild, signedInView, StrictCardView, StrictLockView, 
 // - `seen_by_me`: this person's seen (`request_seen`, or an `AlertSeen` receipt); false on a station socket, and
 //   false for an open `closes_on: 'seen'` alert (seenByMe): a valid seen would have closed it, so a receipt
 //   on it came from the answering seat (§3.10) and must not mark it seen on the person's other devices.
+// - `from_business_day` (BF-4, AD-5; task 35): the business date of an alert raised before the current
+//   business day's `opened_at`, else null (fromBusinessDay), read in the same statements.
 // - Every listed alert is "sent" to the device for the receipt check (`recordSent`, §6 batch 3, task 21 carry).
 // Statements: 2 for a staff socket ((1) the device / inbox rows, (2) the open requests by
 // `alerts_open_requests`), 1 for a station socket; fixed whatever the number of alerts.
@@ -34,6 +37,8 @@ export interface AlertsCatchUpEnv {
   directory(): StaffDirectory;
   /** receipts.ts `recordSent`: this device was given the alert in the catch-up. */
   recordSent(deviceId: string, alertId: string): void;
+  /** The hub's branch: the `hub` stream id whose BusinessDayOpened events date an earlier day's row (BF-4). */
+  branchId: string;
 }
 
 interface CatchUpRow extends ViewRow {
@@ -44,13 +49,14 @@ interface CatchUpRow extends ViewRow {
   in_inbox: 0 | 1;
   mine_json: string | null;
   seen: 0 | 1;
+  from_day: string | null;
 }
 
 const COLUMNS = `a.alert_id, a.kind, a.family, a.step, a.display_json, a.details_json, a.values_json, a.request_json,
        a.raised_at, a.requester_staff_id`;
 
-// The person's latest step rows of the alert (own row and "for" rows), and their seen.
-const PERSON_COLUMNS = `
+// The person's latest step rows of the alert (own row and "for" rows), and their seen (also requests-to-answer).
+export const PERSON_COLUMNS = `
        (SELECT json_group_array(json_object('for_staff_id', r.for_staff_id, 'set', r.recipient_set))
           FROM alert_recipients r
          WHERE r.alert_id = a.alert_id AND r.staff_id = @staff_id
@@ -59,7 +65,21 @@ const PERSON_COLUMNS = `
        (EXISTS (SELECT 1 FROM request_seen s WHERE s.alert_id = a.alert_id AND s.staff_id = @staff_id)
         OR EXISTS (SELECT 1 FROM alert_receipts k WHERE k.alert_id = a.alert_id AND k.staff_id = @staff_id AND k.kind = 'seen')) AS seen`;
 
-const NOT_HIDDEN = `(a.hidden_session_id IS NULL OR a.hidden_session_id <> @session_id)
+/**
+ * BF-4 / AD-5, a column of the row's own statement (no statement added): for an alert raised before the current
+ * business day's `opened_at` (@day_start), the `business_date` of the latest BusinessDayOpened recorded at or
+ * before its raise (index events_stream: the hub stream, newest first), '' when it was raised before any day
+ * opened; null for an alert of the current day, or when no day was ever opened. See fromBusinessDay.
+ */
+export const FROM_DAY_COLUMN = `
+       CASE WHEN @day_start IS NOT NULL AND a.raised_at < @day_start THEN
+         COALESCE((SELECT json_extract(e.payload, '$.business_date') FROM events e
+                    WHERE e.stream_type = 'hub' AND e.stream_id = @branch_id AND e.event_type = 'BusinessDayOpened'
+                      AND e.recorded_at <= a.raised_at
+                    ORDER BY e.seq DESC LIMIT 1), '')
+       END AS from_day`;
+
+export const NOT_HIDDEN = `(a.hidden_session_id IS NULL OR a.hidden_session_id <> @session_id)
    AND (a.hidden_device_id IS NULL OR a.hidden_device_id <> @device_id)`;
 
 // (1) open alerts with this device in any step's recipients, or this person in alert_inbox (cumulative)
@@ -69,7 +89,7 @@ const ROWS_SQL = `
          (SELECT r.recipient_set FROM alert_recipients r WHERE r.alert_id = a.alert_id AND r.device_id = @device_id
            ORDER BY r.step DESC LIMIT 1) AS device_set,
          EXISTS (SELECT 1 FROM alert_inbox i WHERE i.alert_id = a.alert_id AND i.staff_id = @staff_id) AS in_inbox,
-         ${PERSON_COLUMNS}
+         ${PERSON_COLUMNS}, ${FROM_DAY_COLUMN}
   FROM alerts a
   WHERE a.state = 'open' AND a.step >= 0 AND ${NOT_HIDDEN}
     AND (a.alert_id IN (SELECT r.alert_id FROM alert_recipients r WHERE r.device_id = @device_id)
@@ -78,13 +98,14 @@ const ROWS_SQL = `
 
 // (2) every open request (index alerts_open_requests); may-answer is decided in memory
 const REQUESTS_SQL = `
-  SELECT ${COLUMNS}, 0 AS to_device, NULL AS device_set, 0 AS in_inbox, ${PERSON_COLUMNS}
+  SELECT ${COLUMNS}, 0 AS to_device, NULL AS device_set, 0 AS in_inbox, ${PERSON_COLUMNS}, ${FROM_DAY_COLUMN}
   FROM alerts a
   WHERE a.state = 'open' AND a.request_json IS NOT NULL AND a.step >= 0 AND ${NOT_HIDDEN}
   ORDER BY a.raised_at, a.alert_id`;
 
-const StrictLockRow = StrictLockView.extend({ seen_by_me: z.boolean() }).strict();
-const StrictCardRow = StrictCardView.extend({ seen_by_me: z.boolean() }).strict();
+const FromDay = AlertsCatchUpPart.shape.alerts.element.shape.from_business_day;
+const StrictLockRow = StrictLockView.extend({ seen_by_me: z.boolean(), from_business_day: FromDay }).strict();
+const StrictCardRow = StrictCardView.extend({ seen_by_me: z.boolean(), from_business_day: FromDay }).strict();
 type PartRow = z.infer<typeof StrictLockRow> | z.infer<typeof StrictCardRow>;
 
 /** The person's row of the alert's latest step they were in: their own row first, else a "for" row. */
@@ -108,14 +129,41 @@ export function seenByMe(kind: AlertKind, state: 'open' | 'closed', seen: 0 | 1 
   return seen === 1;
 }
 
+/** The hub's local date of `ms`, as OpenBusinessDay labels a day (S33). */
+function localDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * BF-4 / AD-5: `from_business_day` from FROM_DAY_COLUMN. An alert raised before any business day opened (''),
+ * but listed once a day is open, is dated by the hub's local date of its raise, so it is never re-notified as
+ * today's. No clock read: the date comes from the stored raise time.
+ */
+export function fromBusinessDay(fromDay: string | null, raisedAt: number): string | null {
+  if (fromDay === null) return null;
+  return fromDay === '' ? localDate(raisedAt) : fromDay;
+}
+
+/** The current business day's start (`opened_at`; the latest day, open or closed), null when none ever opened. */
+export function dayStartOf(state: Readonly<EngineState> | undefined): number | null {
+  return state?.business_day?.opened_at ?? null;
+}
+
 export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
-  function build(db: Database.Database, _state: unknown, socket: SocketCtx): AlertsCatchUpPart {
-    return safeBuild('alerts catch-up', () => buildRows(db, socket));
+  function build(db: Database.Database, state: unknown, socket: SocketCtx): AlertsCatchUpPart {
+    return safeBuild('alerts catch-up', () => buildRows(db, state as Readonly<EngineState> | undefined, socket));
   }
 
-  function buildRows(db: Database.Database, socket: SocketCtx): AlertsCatchUpPart {
+  function buildRows(db: Database.Database, state: Readonly<EngineState> | undefined, socket: SocketCtx): AlertsCatchUpPart {
     const staffId = socket.kind === 'staff' ? socket.staffId : null;
-    const params = { device_id: socket.deviceId, session_id: socket.sessionId, staff_id: staffId };
+    const params = {
+      device_id: socket.deviceId,
+      session_id: socket.sessionId,
+      staff_id: staffId,
+      day_start: dayStartOf(state),
+      branch_id: env.branchId,
+    };
     const rows = db.prepare(ROWS_SQL).all(params) as CatchUpRow[];
     const out: PartRow[] = [];
     const listed = new Set<string>();
@@ -124,12 +172,13 @@ export function createAlertsCatchUp(env: AlertsCatchUpEnv): CatchUpPart {
     const push = (row: CatchUpRow, kind: AlertKind, signedIn: boolean, fallbackSet: z.infer<typeof StrictLockView>['set']): void => {
       const escalation = kind.steps[row.step]?.escalation === true;
       const seen_by_me = staffId !== null && seenByMe(kind, 'open', row.seen);
+      const from_business_day = fromBusinessDay(row.from_day, row.raised_at);
       if (signedIn) {
         const place = { escalation, ...placeOf(row.mine_json, fallbackSet) };
-        out.push(StrictCardRow.parse({ ...signedInView(row, kind, row.step, place), seen_by_me }));
+        out.push(StrictCardRow.parse({ ...signedInView(row, kind, row.step, place), seen_by_me, from_business_day }));
       } else {
         const place = { escalation, set: row.device_set ?? 'recipient', for_staff_id: null };
-        out.push(StrictLockRow.parse({ ...lockOnlyView(row, kind, row.step, place), seen_by_me }));
+        out.push(StrictLockRow.parse({ ...lockOnlyView(row, kind, row.step, place), seen_by_me, from_business_day }));
       }
       listed.add(row.alert_id);
     };

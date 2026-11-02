@@ -11,6 +11,8 @@ import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
 import { createAlertsCatchUp } from './catch-up.js';
 import { registerAlertsInbox } from './queries/alerts-inbox.js';
+import { registerMyRequests } from './queries/my-requests.js';
+import { registerRequestsToAnswer } from './queries/requests-to-answer.js';
 import { bindAlertEnv } from './raise.js';
 import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
 import { clearStatementCache } from './statements.js';
@@ -27,6 +29,7 @@ export { registerTick, type TickDef } from './tick.js';
 // `alerts` projection gets the server log for its P-8 unknown-kind line and its AD-123 stuck line.
 export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // raise / raiseMany (task 18): the hub's directory and socket lists, read in memory at each raise
+  const branchId = deps.config.provisioned?.branch_id ?? '';
   bindAlertEnv(deps.db, { directory: () => currentDirectory(app), ws: () => wsHubFor(app) });
   bindAlertProjectionLog(deps.projections, (line) => {
     if (line.error === 'alert_stuck') app.log.error(line, 'alerts projection: alert stuck, a step cannot be computed');
@@ -46,7 +49,7 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   // for the receipt check) and the binding_route frame after a commit that routes to a bound tablet
   const alertSockets = createAlertSockets({
     db: deps.db,
-    branchId: deps.config.provisioned?.branch_id ?? '',
+    branchId,
     clock: deps.clock,
     ws: () => wsHubFor(app),
     recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
@@ -55,12 +58,20 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   wsHubFor(app).setAlertsOpen((deviceId) => alertSockets.alertsOpen(deviceId));
   deps.writer.addAfterCommit((appended) => alertSockets.afterCommit(appended));
   // §6 batch 3 / H-7 (task 34): the `alerts` catch-up part of session sockets (rows it lists are "sent" for the
-  // receipt check); removed when this server closes, like 00's restaurant parts
+  // receipt check); removed when this server closes, like 00's restaurant parts. BF-4 (task 35): the branch id
+  // dates an earlier day's row from the hub stream's BusinessDayOpened
   const stopCatchUp = registerCatchUp(
-    createAlertsCatchUp({ directory: () => currentDirectory(app), recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId) }),
+    createAlertsCatchUp({
+      directory: () => currentDirectory(app),
+      recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
+      branchId,
+    }),
   );
   // §6.7 (task 34): GET /queries/alerts-inbox (registerQueryRoutes ran before)
   registerAlertsInbox(app);
+  // §6.8, §6.9 (task 35): GET /queries/my-requests, GET /queries/requests-to-answer
+  registerMyRequests(app);
+  registerRequestsToAnswer(app, branchId);
   // §6.2 (task 22): AnswerRequest through the hub's command registry (registerCommandRoutes ran before)
   registerAnswerRequest(app);
   // §6.3 (task 25): WithdrawRequest

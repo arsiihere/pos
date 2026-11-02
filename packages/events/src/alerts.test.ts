@@ -20,6 +20,8 @@ import {
   AnswerRequestPayload,
   REQUEST_OUTCOMES,
   MarkAlertsSeenPayload,
+  MyRequestsResponse,
+  RequestsToAnswerResponse,
   SendTestAlertPayload,
   SetPresencePayload,
 } from './alerts';
@@ -278,9 +280,53 @@ describe('01d wire shapes', () => {
       lock: { kind_label_key: 'alert.t_info.lock' },
       raised_at: 1,
       seen_by_me: true,
+      from_business_day: null,
     };
     expect(AlertsCatchUpPart.safeParse({ alerts: [row] }).success).toBe(true);
     expect(AlertsCatchUpPart.safeParse({ alerts: [{ ...row, seen_by_me: undefined }] }).success).toBe(false);
+  });
+
+  it('[01d BF-4] catch-up and requests-to-answer rows carry raised_at and from_business_day (a YYYY-MM-DD business date or null; required)', () => {
+    const view = {
+      alert_id: ULID,
+      kind: 't_approval',
+      family: 'urgent',
+      step: 2,
+      escalation: true,
+      set: 'answerer',
+      for_staff_id: null,
+      lock: { kind_label_key: 'alert.t_approval.lock' },
+      raised_at: 1,
+      seen_by_me: false,
+    };
+    for (const from of [null, '2025-10-19']) {
+      expect(AlertsCatchUpPart.safeParse({ alerts: [{ ...view, from_business_day: from }] }).success).toBe(true);
+      expect(RequestsToAnswerResponse.safeParse({ data: { requests: [{ ...view, can_answer: true, from_business_day: from }] } }).success).toBe(true);
+    }
+    for (const bad of [undefined, '19/10/2025', 20251019]) {
+      expect(AlertsCatchUpPart.safeParse({ alerts: [{ ...view, from_business_day: bad }] }).success).toBe(false);
+      expect(RequestsToAnswerResponse.safeParse({ data: { requests: [{ ...view, can_answer: true, from_business_day: bad }] } }).success).toBe(false);
+    }
+    expect(AlertsCatchUpPart.safeParse({ alerts: [{ ...view, raised_at: undefined, from_business_day: null }] }).success).toBe(false);
+  });
+
+  it('[01d §6.8] MyRequestsResponse rows: state, close_reason, decision, answerer_name, raised_at, waiting_ms, ask_in_person, lock (AD-13)', () => {
+    const row = {
+      alert_id: ULID,
+      kind: 't_approval',
+      state: 'approved',
+      close_reason: 'answered',
+      decision: 'approve',
+      answerer_name: 'Manager',
+      raised_at: 1,
+      waiting_ms: 0,
+      ask_in_person: false,
+      lock: { kind_label_key: 'alert.t_approval.lock' },
+    };
+    expect(MyRequestsResponse.safeParse({ data: { requests: [row] } }).success).toBe(true);
+    expect(MyRequestsResponse.safeParse({ data: { requests: [{ ...row, state: 'pending', close_reason: null, decision: null, answerer_name: null }] } }).success).toBe(true);
+    expect(MyRequestsResponse.safeParse({ data: { requests: [{ ...row, state: 'open' }] } }).success).toBe(false);
+    expect(MyRequestsResponse.safeParse({ data: { requests: [{ ...row, waiting_ms: -1 }] } }).success).toBe(false);
   });
 
   describe('[01d §6.2] AnswerRequestPayload', () => {

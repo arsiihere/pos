@@ -348,7 +348,7 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
 
   /** A catch-up part instance on the hub's db (the one registerAlerts made is equivalent), for direct builds. */
   function part(sent: Array<[string, string]> = []) {
-    return createAlertsCatchUp({ directory: () => currentDirectory(hub.app), recordSent: (d, a) => sent.push([d, a]) });
+    return createAlertsCatchUp({ directory: () => currentDirectory(hub.app), recordSent: (d, a) => sent.push([d, a]), branchId: BRANCH });
   }
   function ctxFor(s: { deviceId: string; sessionId: string; staffId: string | null }, kind: 'staff' | 'station' = 'staff'): SocketCtx {
     return { deviceId: s.deviceId, deviceType: 'tablet', sessionId: s.sessionId, kind, staffId: s.staffId, stationId: kind === 'station' ? 'station-1' : null, asOfSeq: 0 };

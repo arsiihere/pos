@@ -185,9 +185,13 @@ export const AlertsInboxResponse = z.object({
   meta: z.object({ next_cursor: z.string().nullable() }),
 });
 
-// §6 batch 3 `alerts` catch-up part (H-7): the socket's open alerts, each with `seen_by_me` (§8.3); `card` and
-// the AD-23 fields only on the person's own rows on a staff socket.
-export const AlertsCatchUpRow = AlertViewSchema.extend({ seen_by_me: z.boolean() });
+// BF-4 / AD-5 (additive): the business date of an alert raised before the current business day's `opened_at`,
+// else null; the client lists such a row without a re-notify, marked "from <date>" (§8.1).
+const FromBusinessDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable();
+
+// §6 batch 3 `alerts` catch-up part (H-7): the socket's open alerts, each with `seen_by_me` (§8.3) and
+// `from_business_day` (BF-4); `card` and the AD-23 fields only on the person's own rows on a staff socket.
+export const AlertsCatchUpRow = AlertViewSchema.extend({ seen_by_me: z.boolean(), from_business_day: FromBusinessDay });
 export const AlertsCatchUpPart = z.object({ alerts: z.array(AlertsCatchUpRow) });
 export type AlertsCatchUpPart = z.infer<typeof AlertsCatchUpPart>;
 
@@ -207,8 +211,13 @@ export const MyRequestRow = z.object({
 });
 export const MyRequestsResponse = z.object({ data: z.object({ requests: z.array(MyRequestRow) }) });
 
-// §6.9: rows I may answer now (can_answer true) plus read-only inbox rows with my latest set.
-export const RequestToAnswerRow = AlertViewSchema.extend({ can_answer: z.boolean(), seen_by_me: z.boolean() });
+// §6.9: rows I may answer now (can_answer true) plus read-only inbox rows with my latest set; BF-4
+// `from_business_day` (AD-5, additive).
+export const RequestToAnswerRow = AlertViewSchema.extend({
+  can_answer: z.boolean(),
+  seen_by_me: z.boolean(),
+  from_business_day: FromBusinessDay,
+});
 export const RequestsToAnswerResponse = z.object({ data: z.object({ requests: z.array(RequestToAnswerRow) }) });
 
 // §6.10: per step recipients and routes; delivered / seen per person and device.
