@@ -1428,6 +1428,7 @@ export const en = {
   'bind.active': 'Alerts: {name} — pauses at {time}',
   'bind.paused': 'Alerts paused',
   'bind.none': 'Alerts: none',
+  'bind.someone': 'Someone',
   'lock.title': 'Alerts',
   'lock.sign_in': 'Sign in to see details',
   'test.send_to': 'Send to',

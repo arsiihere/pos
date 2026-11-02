@@ -3,9 +3,11 @@ import { createHubClock } from '../../app/hub-clock';
 import { navigate, useHashRoute } from '../../app/router';
 import { language, t } from '../../i18n';
 import { fill } from '../../i18n/en';
+import { ALERT_CONSTANTS } from '@pos/domain';
 import { createAnswerSender } from '../alerts/answer';
 import { AnswerSheet, NoticeSheet, type Toast } from '../alerts/AnswerSheet';
 import { Banners } from '../alerts/Banner';
+import { BindingHeader } from '../alerts/BindingHeader';
 import { Inbox } from '../alerts/Inbox';
 import { badgeText, lockText, timeText } from '../alerts/labels';
 import { Receipts } from '../alerts/Receipts';
@@ -73,11 +75,9 @@ export interface StaffAppProps {
   createSocket?: (url: string) => SocketLike;
   sink?: AudioSink;
   timers?: Timers;
-  /** 01d-B05 (task 42): the third line of the brand block on tablets */
-  brandLine?: ReactNode;
 }
 
-export function StaffApp({ device, meta, fetch, createSocket, sink, timers, brandLine }: StaffAppProps) {
+export function StaffApp({ device, meta, fetch, createSocket, sink, timers }: StaffAppProps) {
   const phone = useMedia(PHONE);
   const portrait = useMedia(PORTRAIT);
   const route = useHashRoute();
@@ -92,6 +92,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
   );
   const store = useMemo(() => createAlertStore({ sink: sink ?? browserSink, timers: timers ?? browserTimers, alwaysOn: device.type === 'cashier_kiosk' }), [sink, timers, device.type]);
   const [replaced, setReplaced] = useState(false);
+  // 01d-B05, BF-5: the tablet's binding. The hub sends only the deadline (`alerts_open.binding_route_until`, `binding_route`;
+  // null when the binding is not a route); the name is the person who last signed in on this page (AD-T42-1).
+  const [bindingUntil, setBindingUntil] = useState<number | null>(null);
+  const [boundName, setBoundName] = useState<string | null>(null);
   const conn = useMemo(
     () =>
       createAlertConnection({
@@ -100,6 +104,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
         deviceToken: device.token,
         store,
         timers: timers ?? browserTimers,
+        onBindingRoute: setBindingUntil,
         ...(createSocket === undefined ? {} : { createSocket }),
         onEnded: (code, reason) => {
           if (code === 4409 || reason === REPLACED_REASON) setReplaced(true);
@@ -123,6 +128,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
     return () => clearInterval(timer);
   }, [clock]);
   const offset = meta.utcOffsetMs;
+  const binding = bindingUntil === null ? null : { name: boundName ?? t('bind.someone'), until: bindingUntil };
 
   // B03: the list is from when the socket went down (signed in only)
   const [offlineAt, setOfflineAt] = useState<number | null>(null);
@@ -181,6 +187,9 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
     conn.setSession(who.session_token);
     setInboxLoading(true);
     setMe({ staffId: who.staff_id, name: who.display_name, allowed: new Set() });
+    // §3.7: a sign-in refreshes the header; the hub's own deadline (session end + 2 h) replaces this one when it sends it
+    setBoundName(who.display_name);
+    setBindingUntil(clock.nowMs() + ALERT_CONSTANTS.binding_route_idle_ms);
     navigate('/inbox');
     const info = await api.session();
     if (info.ok) {
@@ -198,7 +207,10 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
       setRequests([]);
       setCursor(null);
       setMe(null);
-      if (callHub) void api.signOut();
+      if (callHub) {
+        void api.signOut();
+        setBindingUntil(null); // a logout ends the binding (§3.7); an idle sign-out keeps it
+      }
       else api.drop();
       conn.setSession(null);
     },
@@ -368,7 +380,7 @@ export function StaffApp({ device, meta, fetch, createSocket, sink, timers, bran
               <span>
                 {meta.branchName} · {deviceWord}
               </span>
-              {device.type === 'tablet' && brandLine}
+              {device.type === 'tablet' && <BindingHeader binding={binding} nowMs={clock.nowMs} utcOffsetMs={offset} timers={timers ?? browserTimers} sink={sink ?? browserSink} />}
             </div>
           </div>
           {me !== null && <div className="staff__nav">{seg(false)}</div>}

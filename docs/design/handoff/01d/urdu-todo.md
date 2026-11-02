@@ -142,3 +142,4 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.route.other` | {route} · {ref} | task 41 (staff entry) |
 | `receipts.not_found` | This alert is no longer there. | task 41 (staff entry) |
 | `receipts.for` | for {name} | task 41 (staff entry) |
+| `bind.someone` | Someone | task 42 (tablet header; name unknown after a reload) |

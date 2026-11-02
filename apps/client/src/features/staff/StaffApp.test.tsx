@@ -180,3 +180,46 @@ describe('[01d task 41] staff entry', () => {
     expect(m.text()).toContain('Who is signing in?');
   });
 });
+
+// 01d task 42, §3.7 / §8.1 (B05), BF-5: the tablet alerts header in the brand block. Tablets only, signed in or not.
+describe('[01d #57 client] tablet alerts header in the shell', () => {
+  const bind = () => m.container.querySelector('header.top .brand .bind')?.textContent ?? null;
+
+  it('[01d #57 client] shows "Alerts: none" on a signed-out tablet, and nothing on a kiosk', async () => {
+    render(TABLET, hub().fetch);
+    await flush();
+    expect(bind()).toBe('Alerts: none');
+    m.unmount();
+    render(KIOSK, hub().fetch);
+    await flush();
+    expect(m.container.querySelector('.bind')).toBeNull();
+  });
+
+  it('[01d #57 client] a sign-in refreshes it: the signed-in person, 2 h after now', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    expect(bind()).toBe('Alerts: Imran — pauses at 4:04 PM');
+  });
+
+  it('[01d BF-5] alerts_open and binding_route frames set the deadline; null clears it', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    sockets[0]!.frame({ type: 'alerts_open', alerts: [], binding_route_until: NOW + 30 * 60_000 });
+    await flush();
+    expect(bind()).toBe('Alerts: Imran — pauses at 2:34 PM');
+    sockets[0]!.frame({ type: 'binding_route', until: NOW + 90 * 60_000 });
+    await flush();
+    expect(bind()).toBe('Alerts: Imran — pauses at 3:34 PM');
+    sockets[0]!.frame({ type: 'binding_route', until: null });
+    await flush();
+    expect(bind()).toBe('Alerts: none');
+  });
+
+  it('[01d #57 client] signing out ends the binding (logout), so the header reads none', async () => {
+    render(TABLET, hub().fetch);
+    await signIn();
+    m.click(m.button('Imran — sign out'));
+    await flush();
+    expect(bind()).toBe('Alerts: none');
+  });
+});
