@@ -192,6 +192,30 @@ export const APPROVAL_TIER_STEPS: readonly StepDef[] = Object.freeze([
 // alerts/kinds), so the kind exists before boot replays projections (step 4); otherwise a replayed alert
 // of the kind would take the P-8 unknown-kind path (next_due_at NULL, an `unknown_kind` line).
 
+/** §3.10 / §3.5: a `test_alert` closes `expired` this long after its raise (fixed by the spec, A14). */
+export const TEST_ALERT_AFTER_MS = 600_000;
+
+/**
+ * §3.10 `test_alert`: a manager (`manage-devices`) sends a test to a person, a team, a device or a point
+ * (point stubbed until 01a, §4.4) and watches the receipts (`SendTestAlert`, §6.5). Subject hub / branch_id;
+ * step 0 to the raised target; closed `expired` by the tick at raised_at + TEST_ALERT_AFTER_MS (§3.5 M1).
+ * The §3.5 example: lead fallback on (a person with no route is told through their lead), day close expires it.
+ */
+export const TEST_ALERT = defineAlertKind<Record<string, never>>({
+  kind: 'test_alert',
+  family: 'info',
+  subject: 'hub',
+  steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+  closes_on: { after_ms: TEST_ALERT_AFTER_MS },
+  values_schema: z.object({}),
+  details_schema: null,
+  lead_fallback: true,
+  expires_at_day_close: true,
+  silent: false,
+  labels: { card: 'alert.test_alert.card', lock: 'alert.test_alert.lock' },
+  request: null,
+});
+
 /** §3.10 `request_result` values: decision and answerer, or closer and reason (G1-21.2). */
 export const RequestResultValues = z.object({
   request_alert_id: z.string().min(1),

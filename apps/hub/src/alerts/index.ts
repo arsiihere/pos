@@ -5,6 +5,7 @@ import { currentDirectory } from '../auth/guards.js';
 import { wsHubFor } from '../ws/server.js';
 import { registerAnswerRequest } from './commands/answer-request.js';
 import { registerMarkAlertsSeen } from './commands/mark-alerts-seen.js';
+import { registerSendTestAlert } from './commands/send-test-alert.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
 import { createAlertSockets } from './alert-sockets.js';
 import { bindAlertEnv } from './raise.js';
@@ -56,6 +57,8 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   registerWithdrawRequest(app);
   // §6.4 (task 26): MarkAlertsSeen; its AlertSeen receipts go to this hub's buffer (bound above) on commit
   registerMarkAlertsSeen(app);
+  // §6.5 (task 33): SendTestAlert (manage-devices, the normal permission check)
+  registerSendTestAlert(app);
   app.addHook('onClose', async () => {
     receipts.stop();
     unbindReceiptBuffer(receipts);

@@ -259,6 +259,11 @@ export function unregisterTargetResolver(kind: ResolverKind): void {
   resolvers.delete(kind);
 }
 
+/** Whether a later module registered the resolver (e.g. `SendTestAlert`'s `points_not_available`, §6.5). */
+export function hasTargetResolver(kind: ResolverKind): boolean {
+  return resolvers.has(kind);
+}
+
 /**
  * The key a resolver result is stored under. `table_team` is keyed by table only: the resolver returns the
  * table's owner (`tableOwner`), and 01d adds the direct reports for `depth: 'direct'` (§3.4 table).
