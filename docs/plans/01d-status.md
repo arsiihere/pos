@@ -443,3 +443,17 @@
 - **Carried rows:**
   - to 02 and 04: the Requests (n) / Inbox (n) top-bar buttons (AD-168);
   - to 9b: the Android service, notifications, lock-task, and the header source.
+
+## Task 43 — Gate, coverage, manual checks (2026-11-03)
+
+- **Gate on a clean checkout.** A detached worktree at `d3c5981` with a fresh `pnpm install --frozen-lockfile`, Postgres up. Result: green. 304 files passed and 1 skipped; 2014 tests passed and 1 skipped (#58). Wall time 695 s.
+- **Coverage.** Run with `node tools/spec-coverage/01d-coverage.mjs` (commit `1e5d647`).
+  - 65 of 66 §10 test numbers are present. The missing one is #63, which the plan puts in the tablet plan (9b).
+  - #56, #57, #59 and #61 each have a hub part and a client part.
+  - #58 is written but skipped off pilot hardware.
+  - All 16 rows of the §12.2 checklist have their tests.
+  - No `Date.now` or `Math.random` in `apps/hub/src/alerts`, and no role name there (R5).
+- **Manual checks.** `docs/plans/01d-manual-checks.md` has 10 checks with exact steps, all **not done**: they need the developer and the devices.
+  - **Blocked on the pilot build:** no request, urgent alert or action alert can be raised on a running hub. Every shipped kind is info; the test kinds exist only in Vitest. Affected: check 1b, check 4, the urgent / action / silent sounds, and the request screens. This needs 02/04's first request kind, or a test-harness task written spec-first.
+  - **Moves to 9b:** the 2 h binding rule. A signed-out tablet page has no socket.
+  - **Only N = 0 can be checked:** "Stuck alerts: N", because every shipped kind has one step.
