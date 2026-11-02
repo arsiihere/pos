@@ -362,3 +362,11 @@
   - (00, pre-existing) The sweeper logs under the key `err` where the spec says `error`.
   - (00, pre-existing) After a failure, the sweeper retries every 15 s for the rest of the hour.
 - **Next:** Batch 9a (tasks 39–42, the staff entry UI). Batch 9b is blocked on the tablet model (OQ2).
+
+### Developer rulings after batch 8 (2026-11-02)
+- AD-161: the `alert_inbox (alert_id)` index goes into the unmerged 0006, with no new migration. The §5.1 change is folded in at the as-built review.
+- AD-162 (A) and AD-163 (B): one card rule everywhere (inbox, catch-up, frames). The card goes only to a person recipient, or to someone who can answer now, on their own staff session. Read-only and device-target-only viewers get the lock view.
+- AD-164 (C): #55 is reworded. Personal notices are never sent on short-code routes.
+- AD-165 (D): `raised_device_id` is added to the signed-in view, for requests only.
+- AD-156 (E): confirmed. AD-166 (F): first-receipt-wins, noted in §6.10. AD-131: the tick bound is updated at the as-built review.
+- Batch 9a design approvals: 12-hour times (AD-167). The 02 / 04 top-bar change is a carried row (AD-168).
