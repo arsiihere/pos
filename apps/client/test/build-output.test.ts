@@ -9,6 +9,8 @@ const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
 const ENTRIES = [
   { name: 'owner', base: '/owner/', otherFeatures: 'src/features/admin/' },
   { name: 'admin-stock', base: '/admin/stock/', otherFeatures: 'src/features/owner/' },
+  // 01d task 41: the staff entry (/staff/) carries neither the owner app nor the stock page
+  { name: 'staff', base: '/staff/', otherFeatures: 'src/features/owner/' },
 ] as const;
 // A data: URL (`data:image/svg+xml,…`, `data:font/woff2;base64,…`), not a minified `{data:null}` property.
 const DATA_URL_RE = /data:[a-z]+\/[a-z0-9.+-]+[;,]/i;
@@ -60,6 +62,19 @@ describe('client build output', () => {
         if (src.endsWith('.css')) expect(src.includes('packages/ui-kit/'), `${entry.name}: ${src}`).toBe(true);
       }
     }
+  });
+
+  it('[01d task 41] the staff build has staff/index.html, its own code and none of the stock page', () => {
+    expect(existsSync(join(DIST, 'staff', 'index.html'))).toBe(true);
+    const js = filesUnder(join(DIST, 'staff'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => readFileSync(f, 'utf8'))
+      .join('\n');
+    // the page meta the hub serves (staff entry only) and the device-route sign-in
+    expect(js).toContain('pos-tenant-id');
+    expect(js).toContain('/auth/pin');
+    // the stock page's admin queries stay in their own entry
+    expect(js).not.toContain('/admin/queries/stock');
   });
 
   it('[01a S35 d] each dist has an assets/*.woff2 file', () => {

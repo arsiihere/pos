@@ -7,6 +7,8 @@ import type { FastifyContextConfig, FastifyInstance, FastifyReply } from 'fastif
 
 // §7.1, S39 b: the built admin-stock entry, found relative to this file (as M81 finds the UI kit).
 export const CLIENT_DIST_DIR = fileURLToPath(new URL('../../../client/dist/admin-stock/', import.meta.url));
+// 01d task 41: the built staff entry (/staff/), served the same way.
+export const STAFF_DIST_DIR = fileURLToPath(new URL('../../../client/dist/staff/', import.meta.url));
 // S21: the same header on every file served from a build, on the hub and on the cloud.
 export const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
@@ -30,6 +32,22 @@ export interface ClientDistOptions {
   prefix: string; // '/admin/stock/'
   dir: string;
   routeConfig: FastifyContextConfig;
+  // 01d task 41 (proposed AD, as /admin/approve embeds the ids, 00 M79): `<meta name content>` tags put into
+  // index.html before </head> on each request. Ids and the hub clock only, never a secret.
+  indexMeta?: () => Record<string, string> | null;
+}
+
+const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const escapeAttr = (value: string): string => value.replace(/[&<>"]/g, (c) => ESCAPES[c] ?? c);
+
+function withMeta(body: Buffer, meta: Record<string, string> | null): Buffer {
+  if (meta === null) return body;
+  const tags = Object.entries(meta)
+    .map(([name, content]) => `<meta name="${escapeAttr(name)}" content="${escapeAttr(content)}">`)
+    .join('');
+  const html = body.toString('utf8');
+  const at = html.indexOf('</head>');
+  return Buffer.from(at === -1 ? tags + html : html.slice(0, at) + tags + html.slice(at), 'utf8');
 }
 
 // Reads the file list and bodies once, at registration: a release that replaces the files on disk takes
@@ -41,7 +59,8 @@ export function registerClientDist(app: FastifyInstance, o: ClientDistOptions): 
   const send = (reply: FastifyReply, name: string): FastifyReply => {
     const file = files.get(name);
     if (file === undefined) throw new DomainError('ROUTE_NOT_FOUND');
-    return reply.header('content-security-policy', CSP).header('cache-control', file.cache).type(file.type).send(file.body);
+    const body = name === 'index.html' && o.indexMeta !== undefined ? withMeta(file.body, o.indexMeta()) : file.body;
+    return reply.header('content-security-policy', CSP).header('cache-control', file.cache).type(file.type).send(body);
   };
   app.get(o.prefix, { config: o.routeConfig }, async (_request, reply) => send(reply, 'index.html'));
   app.get(`${o.prefix}*`, { config: o.routeConfig }, async (request, reply) =>

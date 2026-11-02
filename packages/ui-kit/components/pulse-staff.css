@@ -808,3 +808,110 @@
 .pu[lang="ur"] .top .brand b { font-size: 16px; line-height: 1.5; }
 .pu[lang="ur"] .top .brand span { font-size: 12px; line-height: 1.5; margin-top: 0; }
 .pu[lang="ur"] .top .bind { font-size: 12px; line-height: 1.5; margin-top: 0; }
+
+/* ===== 4/4 the 01d staff entry /staff/ (task 41) =====
+   The frames' inline styles as classes (the client has no style props, S35 d), and the PROMPT layout rules:
+   the shell fills the viewport (100dvh, overflow hidden) and only the list regions scroll; dialogs keep their
+   buttons visible; portrait moves the nav to its own row and turns D01 / D04 into sheets. */
+.pu.staff { position: fixed; inset: 0; height: 100dvh; flex-direction: column; }
+.pu.staff :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.pu.staff .lcard__b { overflow-y: auto; }
+.pu.staff .body { min-height: 0; }
+.pu[dir="rtl"] .ico--dir { transform: scaleX(-1); }
+:where(.pu) .ring--56 { width: 56px; height: 56px; }
+:where(.pu) .ring--64 { width: 64px; height: 64px; }
+:where(.pu) .ring--80 { width: 80px; height: 80px; }
+:where(.pu) .ring--96 { width: 96px; height: 96px; }
+:where(.pu) .ring--110 { width: 110px; height: 110px; }
+:where(.pu) .ico--14 { width: 14px; height: 14px; }
+:where(.pu) .ico--15 { width: 15px; height: 15px; }
+:where(.pu) .ico--30 { width: 30px; height: 30px; }
+:where(.pu) .ico--36 { width: 36px; height: 36px; }
+:where(.pu) .ico--44 { width: 44px; height: 44px; stroke-width: 2.6; }
+:where(.pu) .ico--ok { color: var(--ok); }
+:where(.pu) .ico--warn { color: var(--warn); }
+:where(.pu) .ico--danger { color: var(--danger); }
+:where(.pu) .ac__chev { margin-top: auto; color: var(--muted); }
+:where(.pu) .atag--mid { vertical-align: middle; }
+:where(.pu) .tcode--icon { background: var(--c-bg); color: var(--c-ink); }
+:where(.pu) .av--48 { width: 48px; height: 48px; }
+:where(.pu) .live--off { background: var(--danger-bg); color: var(--danger-ink); }
+:where(.pu) .muted--14 { font-size: 14px; }
+:where(.pu) .pad-x-4 { padding: 0 4px; }
+:where(.pu) .col--8 { gap: 8px; }
+.pu.staff .is-leaving { opacity: 0.75; transform: translateX(24px); transition: opacity 0.4s, transform 0.4s; }
+.pu.staff[dir="rtl"] .is-leaving { transform: translateX(-24px); }
+
+/* bodies (Inbox, Requests: grid 1.15fr 1fr; InboxOffline: the B03 line across the top) */
+:where(.pu) .body--two { grid-template-columns: 1.15fr 1fr; grid-template-rows: minmax(0, 1fr); }
+:where(.pu) .body--msg { grid-template-rows: auto minmax(0, 1fr); }
+:where(.pu) .body:not(.body--two).body--msg { grid-template-columns: 1fr; }
+:where(.pu) .body__full { grid-column: 1 / -1; }
+:where(.pu) .staff__warn { padding: 12px 18px 0; flex: none; }
+:where(.pu) .staff__navrow { display: none; }
+
+/* skeleton parts (InboxLoading) */
+:where(.pu) .sk--ic { width: 52px; height: 52px; border-radius: 14px; }
+:where(.pu) .sk--l1 { width: 60%; height: 16px; }
+:where(.pu) .sk--l2 { width: 40%; height: 12px; }
+:where(.pu) .sk--t { width: 60px; height: 14px; }
+:where(.pu) .sk--tile { min-height: 104px; border-radius: var(--r-lg); }
+:where(.pu) .sk--row { height: 58px; margin: 6px 18px; }
+
+/* dialog body scrolls, buttons stay (PROMPT "fit to screen") */
+.pu.staff .dlg { max-height: calc(100dvh - 32px); }
+:where(.pu) .dlg__body { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
+.pu.staff .here { width: 100%; }
+
+/* S00 sign-in (SignIn, LockKiosk, LockPhone) */
+:where(.pu) .body--signin { align-content: start; gap: 18px; padding: 24px 28px; overflow-y: auto; }
+:where(.pu) .signin__h1 { font: 800 28px/1.1 var(--font-display); letter-spacing: -0.02em; }
+:where(.pu) .signin__p { margin-top: 6px; }
+:where(.pu) .who--tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+:where(.pu) .who--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+:where(.pu) .signin__phone { padding: 18px; gap: 14px; align-items: center; }
+:where(.pu) .pin__keys--96 { grid-template-columns: repeat(3, 96px); }
+
+/* S03 test alert (TestAlert*) */
+:where(.pu) .body--test { grid-template-columns: 1.4fr 1fr; grid-template-rows: minmax(0, 1fr); }
+:where(.pu) .ta { padding: 22px; gap: 14px; }
+:where(.pu) .ta__lead { font-weight: 650; }
+:where(.pu) .ta__who { gap: 14px; }
+:where(.pu) .ta__name { font: 800 26px/1.1 var(--font-display); }
+:where(.pu) .ta__sub { margin-top: 4px; }
+:where(.pu) .ta__after { text-align: center; }
+:where(.pu) .ar__ic--44 { width: 44px; height: 44px; border-radius: 12px; }
+:where(.pu) .ar__ic--64 { width: 64px; height: 64px; border-radius: 18px; }
+
+/* S04 receipts (Receipts*) */
+:where(.pu) .rc { padding: 20px; gap: 12px; }
+:where(.pu) .rc__head { gap: 14px; }
+:where(.pu) .rc__title { font: 800 24px/1.1 var(--font-display); }
+:where(.pu) .rc__sub { margin-top: 4px; }
+:where(.pu) .rc__steps { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; }
+:where(.pu) .rc__step { gap: 12px; }
+:where(.pu) .rt__for { color: var(--muted); font-weight: 600; }
+.pu[lang="ur"] :is(.signin__h1, .ta__name, .rc__title) { font-family: var(--font-urdu); line-height: 1.8; }
+
+/* the 1920 kiosk: six tiles a row (LockKiosk) */
+@media (min-width: 1600px) {
+  .pu.staff .who--tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .pu.staff .body--two { grid-template-columns: 1.3fr 1fr; }
+}
+
+/* tablet portrait (800 wide): the nav on its own row, one column, D01 / D04 as bottom sheets */
+@media (orientation: portrait) and (min-width: 761px) {
+  .pu.staff .top .staff__nav { display: none; }
+  .pu.staff .staff__navrow { display: block; }
+  .pu.staff .body--two, .pu.staff .body--test { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: max-content; overflow-y: auto; }
+  .pu.staff .body--two .lcard__b, .pu.staff .body--test .lcard__b { overflow: visible; }
+  .pu.staff .who--tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* phone (390): full-width stacked cards, never the tablet layout shrunk */
+@media (max-width: 760px) {
+  .pu.staff .body { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: max-content; padding: 8px 16px 16px; gap: 12px; overflow-y: auto; }
+  .pu.staff .body .lcard__b { overflow: visible; }
+  .pu.staff .who--tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pu.staff .ph-body { overflow-y: auto; }
+}

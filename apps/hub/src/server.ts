@@ -31,7 +31,8 @@ import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerCommandRoutes } from './commands/route.js';
-import { CLIENT_DIST_DIR, registerClientDist } from './lib/client-dist.js';
+import { hubTime } from './lib/hub-time.js';
+import { CLIENT_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
 import { registerAdminPage } from './admin/routes.js';
 import { Semaphore } from './lib/semaphore.js';
 import { registerUiAssets } from './lib/ui-assets.js';
@@ -191,6 +192,25 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerUiAssets(app);
   // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
+  // 01d task 41: the staff entry, the same way. Its commands need the envelope ids, which no device route
+  // returns, and its 12-hour times the hub clock (S47), so index.html carries them (proposed AD).
+  registerClientDist(app, {
+    prefix: '/staff/',
+    dir: STAFF_DIST_DIR,
+    routeConfig: { group: 'admin-page' },
+    indexMeta: () => {
+      const provisioned = deps.config.provisioned;
+      if (provisioned === undefined) return null;
+      const time = hubTime(deps.clock);
+      return {
+        'pos-tenant-id': provisioned.tenant_id,
+        'pos-branch-id': provisioned.branch_id,
+        'pos-branch-name': provisioned.branch_name,
+        'pos-hub-now-ms': String(time.now_ms),
+        'pos-hub-utc-offset-ms': String(time.utc_offset_ms),
+      };
+    },
+  });
   installCors(app, deps.config.cors_origins);
   bindConfigPoller(
     app,

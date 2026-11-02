@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listRouteGuards } from '../src/auth/guards';
-import { CSP as HUB_CSP, registerClientDist as registerHubClientDist } from '../src/lib/client-dist';
+import { CSP as HUB_CSP, registerClientDist as registerHubClientDist, STAFF_DIST_DIR } from '../src/lib/client-dist';
 import { CSP as CLOUD_CSP, registerClientDist as registerCloudClientDist } from '../../cloud/src/lib/client-dist';
 import { createTestHub } from './helpers/test-hub';
 
@@ -108,6 +108,62 @@ describe('client-dist', () => {
     const guest = await createTestHub({ config: { guest_network_cidrs: ['10.9.0.0/16'] } });
     cleanups.push(() => guest.close());
     const denied = await guest.app.inject({ method: 'GET', url: '/admin/stock/', remoteAddress: '10.9.0.5' });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
+  });
+  it('[01d task 41] an index meta source adds escaped <meta> tags to index.html only, read on each request', async () => {
+    const own = buildDir({
+      'index.html': '<!doctype html><head><title>x</title></head><script type="module" src="/s/assets/a1.js"></script>',
+      'assets/a1.js': 'console.log(1);',
+    });
+    cleanups.push(() => rmSync(own, { recursive: true, force: true }));
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    let tenant = 'T<1>"';
+    registerHubClientDist(hub.app, { prefix: '/s/', dir: own, routeConfig: { group: 'static' }, indexMeta: () => ({ 'pos-tenant-id': tenant }) });
+    await hub.app.ready();
+
+    const index = await hub.app.inject({ method: 'GET', url: '/s/' });
+    expect(index.statusCode).toBe(200);
+    expect(index.headers['content-security-policy']).toBe(EXPECTED_CSP);
+    expect(index.headers['cache-control']).toBe('no-cache');
+    expect(index.body).toContain('<meta name="pos-tenant-id" content="T&lt;1&gt;&quot;"></head>');
+    tenant = 'T2';
+    expect((await hub.app.inject({ method: 'GET', url: '/s/index.html' })).body).toContain('content="T2"');
+    const asset = await hub.app.inject({ method: 'GET', url: '/s/assets/a1.js' });
+    expect(asset.body).toBe('console.log(1);');
+  });
+
+  it('[01d task 41] the hub serves /staff/ from the built staff entry with the same headers and guards as /admin/stock/', async () => {
+    expect(STAFF_DIST_DIR.endsWith('/client/dist/staff/')).toBe(true);
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await hub.app.ready();
+    const stock = await hub.app.inject({ method: 'GET', url: '/admin/stock/' });
+    const page = await hub.app.inject({ method: 'GET', url: '/staff/' });
+    expect(page.statusCode).toBe(200);
+    for (const header of ['content-security-policy', 'cache-control', 'content-type']) {
+      expect(page.headers[header], header).toBe(stock.headers[header]);
+    }
+    expect(page.body).toContain('/staff/assets/');
+    // the envelope ids and the hub clock for the staff app (as /admin/approve embeds the ids, 00 M79)
+    const provisioned = hub.deps.config.provisioned!;
+    expect(page.body).toContain(`<meta name="pos-tenant-id" content="${provisioned.tenant_id}">`);
+    expect(page.body).toContain(`<meta name="pos-branch-id" content="${provisioned.branch_id}">`);
+    expect(page.body).toMatch(/<meta name="pos-hub-now-ms" content="\d+">/);
+    expect(page.body).toMatch(/<meta name="pos-hub-utc-offset-ms" content="-?\d+">/);
+    const asset = /\/staff\/(assets\/[^"]+\.js)/.exec(page.body)![1]!;
+    const js = await hub.app.inject({ method: 'GET', url: `/staff/${asset}` });
+    expect(js.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect(js.headers['content-security-policy']).toBe(EXPECTED_CSP);
+    expect(listRouteGuards(hub.app).filter((r) => r.url.startsWith('/staff/') && r.method === 'GET')).toEqual([
+      { method: 'GET', url: '/staff/', guards: ['host', 'provisioned', 'guest'] },
+      { method: 'GET', url: '/staff/*', guards: ['host', 'provisioned', 'guest'] },
+    ]);
+
+    const guest = await createTestHub({ config: { guest_network_cidrs: ['10.9.0.0/16'] } });
+    cleanups.push(() => guest.close());
+    const denied = await guest.app.inject({ method: 'GET', url: '/staff/', remoteAddress: '10.9.0.5' });
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('GUEST_NETWORK_FORBIDDEN');
   });

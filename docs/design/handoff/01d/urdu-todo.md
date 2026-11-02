@@ -4,7 +4,7 @@ Keys in `apps/client/src/i18n/en.ts` added for 01d (task 39: §3.12 labels, §8.
 
 Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `alerts.months` (only نومبر is on a frame).
 
-79 keys.
+134 keys.
 
 | Key | English | Note |
 |---|---|---|
@@ -47,7 +47,7 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `answer.their_pin` | {name}’s PIN |  |
 | `answer.here_help` | {name} will be told on his own devices that he approved here. |  |
 | `answer.ro_team` | You can’t approve this — not your team. Find {name} or a manager. |  |
-| `answer.ro_informed` | For your information. {name} or a manager can approve. |  |
+| `answer.ro_informed` | For your information. Find {name} or a manager. | task 41: spec §8.1 / brief B02 copy ("Find <approver> or a manager") |
 | `answer.ro_removed` | You can’t approve this any more. |  |
 | `answer.error.already_approved` | Already approved by {name}. |  |
 | `answer.error.already_rejected` | Already rejected by {name}. |  |
@@ -87,3 +87,58 @@ Needs native review as well: every 01d entry in `ur.ts` (frame drafts), and `ale
 | `receipts.no_route` | No route |  |
 | `receipts.hidden_seat` | Hidden (answering seat) |  |
 | `admin.stuck` | Stuck alerts: {n} — an alert stopped sending reminders. It can still be answered. |  |
+| `alerts.signin.who` | Who is signing in? | task 41 (staff entry) |
+| `alerts.signin.pick` | Tap your name, then your PIN. | task 41 (staff entry) |
+| `alerts.signin.pin_for` | {name}, enter your PIN | task 41 (staff entry) |
+| `alerts.signin.submit` | Sign in | task 41 (staff entry) |
+| `alerts.signin.active` | {name} is signed in on this device. Enter your PIN again to take over. | task 41 (staff entry) |
+| `alerts.signin.offline` | No connection to the hub — retrying… | task 41 (staff entry) |
+| `alerts.signin.retry` | Retry now | task 41 (staff entry) |
+| `alerts.signin.none` | Nobody can sign in here yet. | task 41 (staff entry) |
+| `alerts.signin.not_paired` | This device is not paired with the hub. Pair it first. | task 41 (staff entry) |
+| `alerts.live` | Live | task 41 (staff entry) |
+| `alerts.hub_offline` | Hub offline | task 41 (staff entry) |
+| `alerts.sign_out` | {name} — sign out | task 41 (staff entry) |
+| `alerts.sign_out_short` | Sign out | task 41 (staff entry) |
+| `alerts.device.tablet` | Tablet | task 41 (staff entry) |
+| `alerts.device.cashier_kiosk` | Cashier kiosk | task 41 (staff entry) |
+| `alerts.device.phone` | Phone | task 41 (staff entry) |
+| `alerts.device.kds` | Kitchen screen | task 41 (staff entry) |
+| `alerts.empty_sub` | New alerts appear here and as a banner. | task 41 (staff entry) |
+| `alerts.offline_since` | No connection to the hub — try again. The list is from {time}. | task 41 (staff entry) |
+| `alerts.load_more` | Load more | task 41 (staff entry) |
+| `alerts.new` | new | task 41 (staff entry) |
+| `alerts.min` | min | task 41 (staff entry) |
+| `alerts.days` | {n}d | task 41 (staff entry) |
+| `alerts.replaced` | This page is open on another tab or screen. | task 41 (staff entry) |
+| `alerts.use_here` | Use it here | task 41 (staff entry) |
+| `alerts.no_approver_clears` | Clears when an approver signs in | task 41 (staff entry) |
+| `requests.empty_sub` | Requests you can answer appear here, oldest first. | task 41 (staff entry) |
+| `answer.back` | Back | task 41 (staff entry) |
+| `answer.an_approver` | an approver | task 41 (staff entry) |
+| `answer.fact.when` | When | task 41 (staff entry) |
+| `answer.fact.device` | Device | task 41 (staff entry) |
+| `answer.fact.request` | Request | task 41 (staff entry) |
+| `test.title` | Send a test alert | task 41 (staff entry) |
+| `test.person` | Person | task 41 (staff entry) |
+| `test.team` | Team | task 41 (staff entry) |
+| `test.device` | Device | task 41 (staff entry) |
+| `test.point` | Point | task 41 (staff entry) |
+| `test.direct` | Direct reports | task 41 (staff entry) |
+| `test.whole` | Whole team | task 41 (staff entry) |
+| `test.team_of` | {name}’s team | task 41 (staff entry) |
+| `test.this_device` | This device | task 41 (staff entry) |
+| `test.person_sub` | Their devices, or their lead’s tablet if they have none | task 41 (staff entry) |
+| `test.not_found` | Not found — reload the list. | task 41 (staff entry) |
+| `test.denied` | You can’t send test alerts. | task 41 (staff entry) |
+| `receipts.sent_by` | Sent {time} by {name} · to {target} | task 41 (staff entry) |
+| `receipts.step.sent` | Sent | task 41 (staff entry) |
+| `receipts.step.reminder` | Reminder | task 41 (staff entry) |
+| `receipts.step.escalated` | Escalated | task 41 (staff entry) |
+| `receipts.people` | · {n} people | task 41 (staff entry) |
+| `receipts.route.screen` | {device} (signed in) | task 41 (staff entry) |
+| `receipts.route.bound` | {device}, bound to {name} (not signed in) | task 41 (staff entry) |
+| `receipts.route.device` | {device} (screen) | task 41 (staff entry) |
+| `receipts.route.other` | {route} · {ref} | task 41 (staff entry) |
+| `receipts.not_found` | This alert is no longer there. | task 41 (staff entry) |
+| `receipts.for` | for {name} | task 41 (staff entry) |

@@ -71,6 +71,22 @@ export function alertText(a: Labelled): string {
   return textOf(a, a.card !== undefined ? 'card' : 'lock');
 }
 
+/**
+ * C01 / D01 title (task 41): the alert's text without the parts the card shows on their own (the table chip and
+ * "from <name>"), e.g. "Void request", "Test alert". Card text when the row has a card, else lock text.
+ */
+export function titleText(a: Labelled): string {
+  const level = a.card !== undefined ? 'card' : 'lock';
+  const display: AlertLock = level === 'card' && a.card !== undefined ? a.card : a.lock;
+  const outcomeKey = a.kind === 'request_result' && a.outcome != null ? `alert.request_result.${a.outcome}` : null;
+  const key = outcomeKey ?? display.kind_label_key;
+  const template = isKey(key)
+    ? t(key)
+    : t(a.family === 'urgent' || (a.answers?.length ?? 0) > 0 ? 'alerts.unknown.request' : 'alerts.unknown.alert');
+  const kept = template.split(' · ').filter((part) => !/\{(table|requester|point)\}/.test(part));
+  return fillLine(kept.length > 0 ? kept.join(' · ') : template, params(display));
+}
+
 /** F01 lock line: never an amount, item or reason. */
 export function lockText(a: Labelled): string {
   return textOf(a, 'lock');
