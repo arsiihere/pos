@@ -6,6 +6,7 @@ import { wsHubFor } from '../ws/server.js';
 import { registerAnswerRequest } from './commands/answer-request.js';
 import { registerMarkAlertsSeen } from './commands/mark-alerts-seen.js';
 import { registerWithdrawRequest } from './commands/withdraw-request.js';
+import { createAlertSockets } from './alert-sockets.js';
 import { bindAlertEnv } from './raise.js';
 import { bindReceiptBuffer, createReceiptBuffer, unbindReceiptBuffer } from './receipts.js';
 import { clearStatementCache } from './statements.js';
@@ -37,6 +38,18 @@ export function registerAlerts(app: FastifyInstance, deps: HubDeps): void {
   receipts.seed();
   bindReceiptBuffer(app, receipts);
   wsHubFor(app).onReceipt((from, msg) => receipts.fromSocket(from, msg));
+  // §3.7 reconnect / §6 batch 3 / BF-5 (task 32): alerts_open for alert-mode sockets (rows it lists are "sent"
+  // for the receipt check) and the binding_route frame after a commit that routes to a bound tablet
+  const alertSockets = createAlertSockets({
+    db: deps.db,
+    branchId: deps.config.provisioned?.branch_id ?? '',
+    clock: deps.clock,
+    ws: () => wsHubFor(app),
+    recordSent: (deviceId, alertId) => receipts.recordSent(deviceId, alertId),
+    log: app.log,
+  });
+  wsHubFor(app).setAlertsOpen((deviceId) => alertSockets.alertsOpen(deviceId));
+  deps.writer.addAfterCommit((appended) => alertSockets.afterCommit(appended));
   // §6.2 (task 22): AnswerRequest through the hub's command registry (registerCommandRoutes ran before)
   registerAnswerRequest(app);
   // §6.3 (task 25): WithdrawRequest

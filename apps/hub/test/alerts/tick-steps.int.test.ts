@@ -634,7 +634,7 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
     start();
     hub.clock.advance(45_000);
     await pass();
-    await ws.untilCount(3);
+    await ws.untilCount(4); // catch_up, step 0, BF-5 binding_route after the raise (task 32), step 1
     expect(frames()).toEqual([{ step: 0 }, { step: 1 }]);
     expect(sent).toEqual([
       { alert_id: id, step: 0, route_ref: `TXT-${MGR}` },
@@ -642,7 +642,7 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
     ]);
     // an idle pass sends nothing more
     await pass();
-    await expect(ws.untilCount(4, 100)).rejects.toThrow();
+    await expect(ws.untilCount(5, 100)).rejects.toThrow();
     expect(frames()).toHaveLength(2);
     expect(sent).toHaveLength(2);
 

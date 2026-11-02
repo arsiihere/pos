@@ -280,22 +280,42 @@ interface StepViews {
   lock(set: Recipients[number]['set'], forStaffId: string | null): z.infer<typeof LockAlertFrame>;
 }
 
+/** §3.12: the lock-safe display parameters (table, point, requester, device name) under a label key. */
+function displayParams(display: AlertDisplay, key: string): AlertLock {
+  const out: AlertLock = {
+    kind_label_key: key,
+    table_code: display.table_code ?? null,
+    point_code: display.point_code ?? null,
+    requester_name: display.requester_name ?? null,
+  };
+  if (display.device_name !== undefined) out.device_name = display.device_name;
+  return out;
+}
+
+/** The alert fields every lock-safe view is built from (an `alerts` row; never `details_json`). */
+export interface LockViewRow {
+  alert_id: string;
+  kind: string;
+  family: AlertView['family'];
+  display_json: string;
+  raised_at: number;
+}
+
+/**
+ * The one lock-view builder (§3.12, G1-13 e): the fields shared by every `alert` frame (lock and card) and
+ * every `alerts_open` row (alert-sockets.ts, task 32). A lock-safe view field (AD-82's `outcome`, task 34) is
+ * added here once.
+ */
+export function lockView(row: LockViewRow, kind: AlertKind, step: number): Pick<AlertView, 'alert_id' | 'kind' | 'family' | 'step' | 'lock' | 'raised_at'> {
+  const lock = displayParams(JSON.parse(row.display_json) as AlertDisplay, kind.labels.lock);
+  return { alert_id: row.alert_id, kind: row.kind, family: row.family, step, lock, raised_at: row.raised_at };
+}
+
 /** §3.12: lock = the lock-safe display parameters with the kind's lock key; card adds the card key and details. */
 function stepViews(row: StepAlertRow, kind: AlertKind, step: number, escalation: boolean): StepViews {
-  const display = JSON.parse(row.display_json) as AlertDisplay;
-  const lockParams = (key: string): AlertLock => {
-    const out: AlertLock = {
-      kind_label_key: key,
-      table_code: display.table_code ?? null,
-      point_code: display.point_code ?? null,
-      requester_name: display.requester_name ?? null,
-    };
-    if (display.device_name !== undefined) out.device_name = display.device_name;
-    return out;
-  };
-  const lock = lockParams(kind.labels.lock);
+  const lockParams = (key: string): AlertLock => displayParams(JSON.parse(row.display_json) as AlertDisplay, key);
   const details = row.details_json === null ? null : (JSON.parse(row.details_json) as AlertDetails);
-  const base = { alert_id: row.alert_id, kind: row.kind, family: row.family, step, escalation, lock, raised_at: row.raised_at };
+  const base = { ...lockView(row, kind, step), escalation };
   return {
     card: (set, for_staff_id) =>
       CardAlertFrame.parse({ type: 'alert', alert: { ...base, set, for_staff_id, card: { ...lockParams(kind.labels.card), details } } }),
