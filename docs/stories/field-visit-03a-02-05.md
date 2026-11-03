@@ -22,15 +22,14 @@ Ask in plain words; the "decides" column is for the developer, not for the resta
 | 6 | Two chefs on one station: who takes which ticket? Head chef assigns, or first come first served? | C | lane claim (K7) pilot form |
 | 7 | Who decides to switch a stove off or send a chef on break during a rush? How often per evening? | M | `manage-stations` permission; live capacity |
 | 8 | Do you tell customers a time? How late is "too late" before someone must go and tell the customer (5 min? 10?) Who tells them? | F, OT | `slip_threshold_ms`; slip target |
-| 9 | **At the peak, when the tandoor cannot keep up, who should wait: the table (sitting, karahi in front of them) or the takeaway customer standing at the counter?** | F | order-type weights (D3, D5); simulator finding §6 |
+| 9 | **At the peak, when the tandoor cannot keep up, who should wait: the table (sitting, karahi in front of them) or the takeaway customer standing at the counter?** | F | order-type weights (D3, D5); simulator finding §6 **Answered 2026-11-03: takeaway first, the table waits** |
 | 10 | Do you push a VIP or complaint order ahead? How often? Who may do it? | F | boost (D3) permission and defaults |
 | 11 | Will every chef tap Start and Done on every ticket, with greasy hands, in a rush? (The owner's rule is "no tap, no job" — confirm with the chefs that they know.) | F, C | `completion_mode` default (§3 #10) |
 | 12 | Where is food collected: one pass for everything, or tandoor separate? Who hands it to the waiter? | C, M | 01a v2.1 points; assembler |
 | 13 | How many seconds from each station to each pass / counter? (measure, don't ask) | — | carry times (D8) |
-| 14 | How many naan + roti per hour at the Friday peak? (count during the rush, and ask the tandoor wala his guess) | C, count | tandoor capacity vs demand (§6 overload) |
+| 14 | How many naan + roti per hour at the Friday peak? (count during the rush, and ask the tandoor wala his guess) | C, count | tandoor capacity vs demand (§6 overload) **Answered 2026-11-03: owner does not know — count it during the rush** |
 | 15 | When the kitchen is behind, how do you find out today, and what do you do (stop takeaway? add a man?) | M, F | pressure display and `station_overload` alert (D19–D21) |
-| 15a | A plate comes back from a table ("more spicy", "not cooked enough", or a kitchen fault): what happens today — same plate fixed, or a new one? Does it jump the queue? Is it ever charged? | F, C | D28 defaults: fix vs remake, `adjust_time_ms`, `returns_boost` |
-
+| 15a | A plate comes back from a table ("more spicy", "not cooked enough", or a kitchen fault): what happens today — same plate fixed, or a new one? Does it jump the queue? Is it ever charged? | F, C | D28 defaults: fix vs remake, `adjust_time_ms`, `returns_boost` **Answered 2026-11-03: a return never queues, fixing it is the priority; fix is free; own-wrong-order charge still open** |
 ## B. 02 — Ordering and tables (M, OT)
 
 | # | Ask | Who | Decides |
@@ -49,7 +48,7 @@ Ask in plain words; the "decides" column is for the developer, not for the resta
 
 | # | Ask | Who | Decides |
 |---|---|---|---|
-| 25 | **The pilot runs beside the current billing (R20). Will the cashier enter every bill twice? If not, what is the POS bill for during the pilot?** | F | 05 pilot scope (the biggest question) |
+| 25 | **The pilot runs beside the current billing (R20). Will the cashier enter every bill twice? If not, what is the POS bill for during the pilot?** | F | 05 pilot scope (the biggest question) **Answered 2026-11-03: parallel, floor by floor; a POS floor bills from the POS, no double entry** |
 | 26 | How is a bill made today, is there a PRA receipt, and what happens when the internet is down? | F, K | OQ15 |
 | 27 | Payment modes and rough share: cash, card machine, JazzCash / Easypaisa, Raast, bank transfer? | K | R7 payment list |
 | 28 | Who gives a discount or a free item, and who approves it? | F, K | discount / comp kinds (N7, C2, C3) |
