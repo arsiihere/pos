@@ -58,6 +58,10 @@ const KEY_SETS = {
       'draws', 'reserved_seq', 'weight_pct', 'max_early_ms', 'max_late_ms', 'max_carry_ms', 'stage', 'fire_ms',
       'deadline_ms', 'fired_at', 'started_at', 'done_at', 'mark', 'return_of', 'load_id',
     ],
+    EngineOrderGroup: ['target_land_ms', 'line_ids'],
+    EngineLineAlternate: ['station_id', 'carry_ms', 'home'],
+    EngineLineDraw: ['stock_item_id', 'quantity', 'reserved'],
+    EngineLineReturnOf: ['order_item_id', 'mode'],
   },
 } as const;
 
@@ -79,6 +83,10 @@ const keysMatch: {
   Load: SameKeys<Load, Current['Load']>;
   EngineOrder: SameKeys<EngineOrder, Current['EngineOrder']>;
   EngineLine: SameKeys<EngineLine, Current['EngineLine']>;
+  EngineOrderGroup: SameKeys<EngineOrder['groups'][string], Current['EngineOrderGroup']>;
+  EngineLineAlternate: SameKeys<EngineLine['alternates'][number], Current['EngineLineAlternate']>;
+  EngineLineDraw: SameKeys<EngineLine['draws'][number], Current['EngineLineDraw']>;
+  EngineLineReturnOf: SameKeys<NonNullable<EngineLine['return_of']>, Current['EngineLineReturnOf']>;
 } = {
   EngineState: true,
   StockEntry: true,
@@ -90,6 +98,10 @@ const keysMatch: {
   Load: true,
   EngineOrder: true,
   EngineLine: true,
+  EngineOrderGroup: true,
+  EngineLineAlternate: true,
+  EngineLineDraw: true,
+  EngineLineReturnOf: true,
 };
 
 function stationConfig(payload: EngineConfig, id: string): EngineConfig['stations'][number] {
