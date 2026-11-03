@@ -45,7 +45,7 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
             device_id: ctx.actor.deviceId,
           };
         });
-        const next = ctx.tx.append(drafts).reduce(applyEvent, ctx.state);
+        const next = ctx.tx.append(drafts).reduce((s, e) => applyEvent(s, e), ctx.state);
         return {
           events: [],
           result: {

@@ -142,6 +142,7 @@ describe('@pos/engine stock slice', () => {
     // The config now counts the pot in g with a 1 000 g threshold; the open day froze piece.
     const grams = stockItem('K1', { stock_unit: 'g', low_stock_threshold: 1000 });
     const pieceDay = (onHand: number): EngineState => ({
+      ...initialEngineState(),
       stock: { K1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'piece' } },
       business_day: day('piece', T0),
     });
@@ -150,6 +151,7 @@ describe('@pos/engine stock slice', () => {
 
     // The next open froze g: the threshold applies again.
     const gramDay = (onHand: number): EngineState => ({
+      ...initialEngineState(),
       stock: { K1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'g' } },
       business_day: day('g', T0),
     });

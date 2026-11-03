@@ -1,4 +1,4 @@
-import { availableStock, canServeFromStock, dayDraws, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
+import { availableStock, canServeFromStock, dayDraws, initialEngineState, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
 import {
   AddPrecookedStockResult,
   AdminAuthResponse,
@@ -106,6 +106,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const i1 = stockItem(config, 'I1');
     const entry = (setAt: number | null): StockEntry => ({ on_hand: 4, reserved: 1, set_at: setAt, unit: 'piece' });
     const state = (setAt: number | null, start: number | null): EngineState => ({
+      ...initialEngineState(),
       stock: { I1: entry(setAt) },
       business_day: start === null ? null : { business_date: '2026-10-25', opened_at: start, closed_at: null, stock_units: {}, draws: {} },
     });

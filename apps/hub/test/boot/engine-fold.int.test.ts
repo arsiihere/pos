@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineState } from '@pos/engine';
+import { initialEngineState, type EngineState } from '@pos/engine';
 import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
@@ -78,7 +78,7 @@ describe('engine state through boot (S15)', () => {
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
-    expect(engine(first)).toEqual({ stock: {}, business_day: null });
+    expect(engine(first)).toEqual(initialEngineState());
     append(first, [
       draft('stock', 'K1', 'StockSet', { stock_item_id: 'K1', on_hand: 12, unit: 'piece' }, WALL, 2),
       draft('stock', 'K2', 'StockSet', { stock_item_id: 'K2', on_hand: 2500, unit: 'g' }, WALL, 2),

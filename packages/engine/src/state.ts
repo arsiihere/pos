@@ -1,4 +1,5 @@
 import type { Unit } from '@pos/domain';
+import type { EngineConfig } from '@pos/events';
 
 // 01a S14: all quantities are integers in `unit` (the stock item's stock unit, S44; 01c V5).
 export interface StockEntry {
@@ -24,11 +25,127 @@ export interface BusinessDay {
   draws: Record<string, DayDraws>;
 }
 
+// 03a §3.3: integer ms; an Interval is [start, end).
+export type Interval = { start: number; end: number };
+
+// 03a §6.1a (v0.6.2, G4-3 #3): receives stock invariant breaches; a fold's result never depends on it.
+export type BreachReport = (b: { event_id: string; stock_item_id: string; on_hand: number; reserved: number }) => void;
+
+// 03a §3.3, D24: sorted boundaries t; u[i] = units in use from t[i] to t[i + 1]. Built by profile.ts (task 4).
+export type Profile = { t: number[]; u: number[] };
+
+type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'parking';
+
+// 03a §3.8 (v0.4, G2 #4).
+export interface SlipRecord {
+  order_ids: string[];
+  last_estimate: number; // from the last SlipWarned
+  alert_id: string | null; // from SlipWarned.alert_id; null after its AlertClosed is folded
+  resolved_at: number | null; // recorded_at of the fold that resolved every group of the key
+}
+
+// 03a §3.3 batch load (F §4.7 BatchStationState semantics); id = station_id + ':' + earliest order_item_id,
+// fixed by FireDispatched.load_id. The interval comes from the profile.
+// provisional — confirmed by task 13 (batch loads), proposed AD-5
+export interface Load {
+  load_id: string;
+  program_id: string;
+  order_item_ids: string[];
+  fire_ms: number | null;
+  fired_at: number | null;
+}
+
+// 03a §3.3.
+export interface StationRuntime {
+  station_id: string;
+  type: 'slot' | 'batch';
+  capacity: number;
+  capacity_override: number | null; // effective = override ?? capacity (D37)
+  paused: boolean; // D21
+  profile: Profile;
+  unfired: string[]; // OrderItemIds sorted by (fire, order_item_id)
+  loads: Record<string, Load>; // batch only
+}
+
+// 03a §3.3.
+export interface EngineOrder {
+  order_id: string;
+  order_type: OrderType;
+  table_key: string;
+  table_id: string | null;
+  follow_up: boolean;
+  pickup_at_ms: number | null;
+  placed_at: number;
+  placed_by: string | null;
+  target_land_ms: number; // copied from OrderPlaced (§3.5.1)
+  promise_ms: number;
+  boosted: boolean;
+  line_ids: string[];
+  awaiting: number; // lines listed but not yet seen
+  last_served_at: number | null; // recorded_at of the ItemServed that left no line open
+  last_line_fold_at: number; // recorded_at of the latest fold that names the order or one of its lines
+  next_group_index: number; // group ids are order_id + ':' + index
+  groups: Record<string, { target_land_ms: number; line_ids: string[] }>;
+}
+
+// 03a §3.3.
+export interface EngineLine {
+  order_item_id: string;
+  order_id: string;
+  group_id: string;
+  serve_mode: 'sync' | 'immediate';
+  station_id: string;
+  alternates: Array<{ station_id: string; carry_ms: number; home: boolean }>;
+  point_id: string | null;
+  carry_ms: number;
+  units: number;
+  prep_ms: number;
+  cook_ms: number;
+  full_cook_ms: number;
+  from_stock: boolean;
+  program_id: string | null;
+  stock_cook_ms: number | null; // the ItemAdded copy of the stock cook time, null when none
+  stock_program_id: string | null; // ItemAdded.stock_program_id (D25 copy); batch only
+  draws: Array<{ stock_item_id: string; quantity: number; reserved: number }>; // ItemAdded.stock_draws as copied
+  reserved_seq: number | null; // seq of the line's latest StockReserved; null only when every draws[].reserved is 0
+  weight_pct: number;
+  max_early_ms: number;
+  max_late_ms: number | null;
+  max_carry_ms: number | null;
+  stage: 'added' | 'cooking' | 'done' | 'served' | 'removed' | 'voided' | 'returned';
+  fire_ms: number | null; // planned fire
+  deadline_ms: number; // latest fire
+  fired_at: number | null;
+  started_at: number | null;
+  done_at: number | null;
+  mark: null | 'expedite' | 'boost' | 'pulled' | 'return' | 'moved';
+  return_of: { order_item_id: string; mode: 'fix' | 'remake' } | null; // D28
+  load_id: string | null;
+}
+
+// 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).
 export interface EngineState {
-  stock: Record<string, StockEntry>;
-  business_day: BusinessDay | null;
+  stock: Record<string, StockEntry>; // unchanged (01a S14, 01c V5)
+  business_day: BusinessDay | null; // unchanged (01a S33, 01c §3.5.3)
+  config: EngineConfig | null; // last EngineConfigApplied (§3.11)
+  stations: Record<string, StationRuntime>;
+  orders: Record<string, EngineOrder>;
+  lines: Record<string, EngineLine>;
+  slips: Record<string, SlipRecord>; // by table_key (§3.8)
+  next_alert_due_at: number | null; // minimum of slip_due (§3.8)
+  slip_due: Record<string, number>; // per table_key crossing / close time
 }
 
 export function initialEngineState(): EngineState {
-  return { stock: {}, business_day: null };
+  return {
+    stock: {},
+    business_day: null,
+    config: null,
+    stations: {},
+    orders: {},
+    lines: {},
+    slips: {},
+    next_alert_due_at: null,
+    slip_due: {},
+  };
 }
