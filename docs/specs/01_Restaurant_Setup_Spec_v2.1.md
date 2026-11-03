@@ -1057,6 +1057,7 @@ Appended to F §6.2 and `@pos/domain/src/errors.ts` in the same change (the only
 | `IDEMPOTENCY_KEY_MISMATCH` | 422 | `{ idempotency_key }` | Same key, different request hash (S7) |
 | `STOCK_NOT_TRACKED` | 422 | `{ item_id }` | `SetPrecookedStock` or `AddPrecookedStock` for an item that is not stock-tracked at this branch (§4.3) |
 | `BUSINESS_DAY_NOT_OPEN` | 409 | `{}` | `SetPrecookedStock` or `AddPrecookedStock` while no business day is open: none opened yet, or the last one closed (S33; v1.0 adds the closed case) |
+| `POINT_NOT_FOUND` | 404 | `{ point_id }` | §6.9a path names a point not in the branch (Q-v2.1-1) |
 
 v0.6: `SNAPSHOT_SCHEMA_UNSUPPORTED` (v0.3–v0.5) is withdrawn with the schema negotiation (S28 b). It was never merged, so no catalogue entry is removed. A missing `Idempotency-Key` header is `400 VALIDATION_FAILED` with `issues[0].path = 'headers.idempotency-key'`. A tenant-level write by an owner who does not cover every branch reuses the foundation's `403 PERMISSION_DENIED` with `details { reason: 'tenant_wide_write' }` (S8); no new code.
 

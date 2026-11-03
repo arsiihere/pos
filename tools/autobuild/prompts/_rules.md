@@ -4,7 +4,7 @@ You are running UNATTENDED inside an automated loop for module {{MOD}}. Nobody w
 Never ask the user anything. Never wait for confirmation. Decide using the policy below, record the decision, and keep going.
 
 ## Sources of truth (in this order; code wins over prose when they disagree on what EXISTS)
-1. docs/specs/00_Foundation_Spec_v1.8.md §6 (Shared Standards) — changes only by an approved version bump (README R34)
+1. docs/specs/00_Foundation_Spec_v1.9.md §6 (Shared Standards) — changes only by an approved version bump (README R34)
 2. The approved spec for {{MOD}} (latest docs/specs/{{MOD}}_*_Spec_v1.*.md)
 3. docs/plans/{{MOD}}-plan.md (tasks, Interfaces block, coverage table, Global Constraints)
 4. docs/specs/README.md (owner answers, carried requirements)
