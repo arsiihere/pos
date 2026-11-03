@@ -13,8 +13,10 @@ ORDERS = 2000
 # station: (capacity, cook s). Two tandoors = 60 wall slots. Sized ~1.3x peak demand.
 STATIONS = {'tandoor': (60, 180), 'karahi': (50, 1200), 'bbq': (30, 900), 'degh': (1000, 60), 'tawa': (8, 300)}
 MENU = [('tandoor', 3.0), ('karahi', 0.6), ('bbq', 0.4), ('degh', 0.5), ('tawa', 0.3)]  # avg lines per order
-KEEP = 60
+KEEP = 60          # freeze window (s): a line starting within KEEP of now is fixed
 STEP = 30
+MAX_EARLY = 60     # max_early_ms default (01a A-11, 60 000 ms): a held line never starts before latest - MAX_EARLY
+PRUNE = True       # 03a v0.5 (G4-1 #1): pivot = the new lines' earliest possible start against the fixed lines
 
 def rush_times(seed):
     r = random.Random(seed); ts = []
@@ -72,10 +74,21 @@ class Station:
             t = now                                       # late: earliest fit after now
             while prof.max_in(t, t + r.cook) >= s.cap: t += STEP
         r.start, r.end = t, t + r.cook; prof.add(t, t + r.cook)
-    def replan(s, now):
-        fixed = [r for r in s.res if r.fired or (r.start is not None and r.start - now <= KEEP)]
-        free = sorted((r for r in s.res if not (r.fired or (r.start is not None and r.start - now <= KEEP))),
-                      key=lambda r: (r.target, r.item))
+    def earliest_possible(s, r, now, prof):
+        """03a v0.5 pivot: earliest start the new line may take (never before latest - MAX_EARLY) against fixed lines."""
+        t = max(now, r.target - r.cook - MAX_EARLY)
+        while prof.max_in(t, t + r.cook) >= s.cap: t += STEP
+        return t
+    def replan(s, now, new_items=()):
+        frozen = lambda r: r.fired or (r.start is not None and r.start - now <= KEEP)
+        fixed = [r for r in s.res if frozen(r)]
+        if PRUNE and new_items:
+            base = Profile([(r.start, r.end) for r in fixed])
+            pivot = min(s.earliest_possible(r, now, base) for r in new_items)
+            new_ids = {r.item for r in new_items}
+            fixed += [r for r in s.res if not frozen(r) and r.item not in new_ids and r.end <= pivot]
+        fixed_ids = {r.item for r in fixed}
+        free = sorted((r for r in s.res if r.item not in fixed_ids), key=lambda r: (r.target, r.item))
         prof = Profile([(r.start, r.end) for r in fixed])
         for r in free: s.place(r, now, prof)
         return len(free)
@@ -91,7 +104,7 @@ class Station:
 def run(seed=7):
     r = random.Random(seed)
     st = {k: Station(*v) for k, v in STATIONS.items()}
-    events = 0; replan_ms = []; max_free = 0; item = 0; late = 0
+    events = 0; replan_ms = []; max_free = 0; item = 0; late = 0; counts = []
     t0 = time.perf_counter()
     for t in rush_times(seed):
         for s in st.values():
@@ -102,12 +115,13 @@ def run(seed=7):
             lines += [name] * n
         if not lines: lines = ['tandoor']
         target = t + max(STATIONS[n][1] for n in lines) + 300
-        touched = set()
+        touched = {}
         for name in lines:
-            item += 1; st[name].res.append(Res(item, target, STATIONS[name][1])); touched.add(name)
+            item += 1; x = Res(item, target, STATIONS[name][1]); st[name].res.append(x); touched.setdefault(name, []).append(x)
         events += 1 + len(lines)
         a = time.perf_counter()
-        for name in touched: max_free = max(max_free, st[name].replan(t))
+        for name, new in touched.items():
+            c = st[name].replan(t, new); counts.append(c); max_free = max(max_free, c)
         replan_ms.append((time.perf_counter() - a) * 1000)
         late += sum(1 for name in touched for x in st[name].res if x.end > x.target and not x.fired)
     total = time.perf_counter() - t0
@@ -115,7 +129,13 @@ def run(seed=7):
     print(f'orders {ORDERS}, events replayed ≈ {events}, items {item}')
     print(f'full-day replay (Python): {total:.1f} s; re-plan p50 {replan_ms[len(replan_ms)//2]:.2f} ms, '
           f'p99 {replan_ms[int(len(replan_ms)*0.99)]:.1f} ms, max {replan_ms[-1]:.1f} ms')
+    counts.sort()
     print(f'max unfired reservations re-planned on one station at once: {max_free}')
+    print(f're-placed per station re-plan: p50 {counts[len(counts)//2]}, p99 {counts[int(len(counts)*0.99)]}, max {counts[-1]}')
+    print(f'late unfired lines summed over submits: {late}')
 
 if __name__ == '__main__':
+    import sys
+    if '--no-prune' in sys.argv: PRUNE = False
+    print(f'PRUNE={PRUNE} KEEP={KEEP}s MAX_EARLY={MAX_EARLY}s')
     run()
