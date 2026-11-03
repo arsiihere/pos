@@ -134,3 +134,14 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **Carried to later tasks:** …
 - **Open items:** …
 ```
+
+## Batch 0 — Setup (2026-11-03)
+
+- **Tasks:** 0.
+- **Commits:** `07cf818` (AD-1–AD-4 developer rulings, open items 2 and 4), `6fdf085` (task 0).
+- **Reviews:** task 0 alone, one fresh opus reviewer: spec ✅, Approved, 0 Critical / 0 Important; 3 Minor (F §6.2 note has no ⚠️ prefix; 01a §9 `POINT_NOT_FOUND` row sits after the 409 / 422 rows; `_rules.md:8` glob `{{MOD}}_*_Spec_v1.*.md` misses v2.x module specs). No fix round.
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` — green: 304 files passed (1 skipped), 2014 tests passed (1 skipped), 10 m 14 s.
+- **Tests closed:** — (no code).
+- **AD rows (proposed):** AD-1 (`used_by` floor shape), AD-2 (BF-9 re-reserve, S41 full-cook), AD-3 (BF-10 wording only), AD-4 (units > capacity → `ceil(units / capacity)` rounds + warn).
+- **Carried to later tasks:** —
+- **Open items:** `_rules.md:8` glob; 01a §9 intro "the only allowed foundation edit" wording is stale (pre-existing; spec text, for task 29 / developer).
