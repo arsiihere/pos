@@ -30,7 +30,7 @@
       "Bash(mkdir:*)",
       "Bash(sqlite3:*)",
       "Bash(psql:*)",
-      "Bash(git push origin module-01d)"
+      "Bash(git push origin module-03a)"
     ],
     "deny": [
       "Bash(git reset:*)",
