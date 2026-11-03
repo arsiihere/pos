@@ -4,7 +4,7 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
-> *(controller fills this in at each checkpoint: kya bana, kya bacha, aapko kya decide karna hai)*
+> **Batch 1 ke baad (2026-11-03):** events (order, station, stock), error codes, `EngineState` v3 aur occupancy profile ban gaye; gate green. AD-1–AD-4 aapke rulings hain; AD-5 (`Load` ka provisional shape) task 13 mein confirm hoga. Aapko abhi kuch decide nahi karna — batch 2 ke liye "go" ka intezaar hai.
 
 ## Rules for this board
 
@@ -38,12 +38,12 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 | Task | Batch | RISK | Status | Commit | Tests | Note |
 |---|---|---|---|---|---|---|
-| 0 | 0 | NORMAL | TODO | | — | autobuild rules, deny list, F §6.2 / 01a §9 appends |
-| 1 | 1 | NORMAL | TODO | | #103, #114 fixture | |
-| 1b | 1 | NORMAL | TODO | | [03a §4.2] | |
-| 2 | 1 | NORMAL | TODO | | [03a §9] | |
-| 3 | 1 | NORMAL | TODO | | #56 | perf project created (P-4) |
-| 4 | 1 | HIGH | TODO | | [03a §3.3 profile], RF 1 | |
+| 0 | 0 | NORMAL | DONE | `6fdf085` | — | autobuild rules, deny list, F §6.2 / 01a §9 appends |
+| 1 | 1 | NORMAL | DONE | `2b317b5` | #103, #114 fixture | |
+| 1b | 1 | NORMAL | DONE | `5b005d7` | [03a §4.2] | |
+| 2 | 1 | NORMAL | DONE | `0bde005` | [03a §9] | |
+| 3 | 1 | NORMAL | DONE | `462eb21`, `8f112be` | #56 | perf project created (P-4) |
+| 4 | 1 | HIGH | DONE | `f0eba66` | [03a §3.3 profile], RF 1 | |
 | 6 | 2 | HIGH | TODO | | #16, #18, #19, #43, RF 4 | |
 | 7 | 2 | HIGH | TODO | | #17, #31, F #1, #2, #5–#7, #10, BF-2 | |
 | 8c | 2 | HIGH | TODO | | #51, #96, #115, #116, F #4, #8 | runs before 8 |
@@ -101,6 +101,7 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | AD-2 | 12b | BF-9: held lines after a unit-changing `StockSet` | (a) re-reserve held lines in the new unit; (b) record the over-sell as an accepted cost | (a) — developer ruling 2026-11-03; a line whose count is not valid in the new unit goes full-cook (01a S41) | Keeps reserved ≤ on_hand in the new unit; S41 already defines the not-valid case | `packages/engine/src/stock.ts` (12b), extends #118 |
 | AD-3 | 15, 29 | BF-10: "the order taker hears before the promise is blown" | (a) narrow the claim to Waada Guard (EDF / FIFO padding 0); (b) `level = min(T + slip_threshold_ms, P)` | (a) — developer ruling 2026-11-03; spec wording only, no code | Under EDF / FIFO the padding is 0 so the claim cannot hold; no behaviour change | as-built spec text (29); `[03a BF-10]` test in 15 |
 | AD-4 | 4, 7 | Review Focus 1: a line whose `units` exceed the station's effective capacity (spec states no rule) | (a) occupy the whole capacity for one cook; (b) occupy the whole station for `ceil(units / capacity)` consecutive rounds | (b) — developer ruling 2026-11-03: the line holds all `capacity` for `cook_ms × ceil(units / capacity)`; a `warn { order_item_id, station_id, units, capacity }` is logged; tested | Real kitchens cook an over-size line in rounds; one cook would under-book the station | `packages/engine/src/profile.ts` (4), placement + warn (7; the warn is emitted outside the pure engine) |
+| AD-5 | 3, 13 | §3.3 declares `loads: Record<LoadId, Load>` ("F §4.7 BatchStationState semantics") but never defines `Load` | (a) provisional shape from F §4.7, confirmed in task 13; (b) fix now; (c) opaque until 13 | (a) — controller ruling: `Load { load_id, program_id, order_item_ids, fire_ms, fired_at }` | F §4.7 carries the semantics; v3 unreleased, key set editable until 13 | `packages/engine/src/state.ts`, `test/state.test.ts` |
 
 Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD rows at the named checkpoint:
 
@@ -145,3 +146,14 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **AD rows (proposed):** AD-1 (`used_by` floor shape), AD-2 (BF-9 re-reserve, S41 full-cook), AD-3 (BF-10 wording only), AD-4 (units > capacity → `ceil(units / capacity)` rounds + warn).
 - **Carried to later tasks:** —
 - **Open items:** `_rules.md:8` glob; 01a §9 intro "the only allowed foundation edit" wording is stale (pre-existing; spec text, for task 29 / developer).
+
+## Batch 1 — Events, errors, state, profile (2026-11-03)
+
+- **Tasks:** 1, 1b, 2, 3, 4.
+- **Commits:** `2b317b5` (task 1), `5b005d7` (task 1b), `0bde005` (task 2), `462eb21` (task 3), `8f112be` (task 3 review fix), `f0eba66` (task 4).
+- **Reviews:** one fresh opus reviewer per task (task 4 HIGH: full opus review with its invariants; NORMAL tasks reviewed one per reviewer, not paired). All five: spec ✅, Approved, 0 Critical / 0 Important. One fix round: task 3 (Minor 1, nested inline types added to the v3 key-set guard, `8f112be`; test-only, re-checked by the controller). Minors noted, not fixed: task 1 fixture polish (return line's engine station when the served line used an alternate; `seq` collisions in `aReturnLinesAdded`; `anOrderBatch` override order); task 1b `Id` strictness frame vs events, `station_plan.fire_ms` nullable; task 2 envelope test builds the envelope itself; task 3 payload cast in `apply-event.ts`, a station missing from a later `EngineConfigApplied` keeps its runtime (reading); task 4 `removeInterval` throws below 0 (kept: loud beats silent corruption), preconditions documented not guarded.
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` — green: 309 files passed (1 skipped), 2075 tests passed (1 skipped), 12 m 26 s. The `perf` project has no file yet (`--project perf` alone exits 1 until task 18; `pnpm -w test` passes).
+- **Tests closed:** #56, #103 fixture, #114 fixture; `[03a §4.2]`, `[03a §4.2 A-19]`, `[03a §3.6.3]`, `[03a §9]`, `[03a §3.11]`, `[03a §3.3 profile]` incl. AD-4.
+- **AD rows (proposed):** AD-1–AD-4 (developer rulings, before batch 1), AD-5 (`Load` provisional, controller ruling at task 3). Written to `docs/reviews/03a-auto-decisions.md`.
+- **Carried to later tasks:** 7 — emit the AD-4 `warn` (outside the pure engine); 7 / 8 / 16 — store the booked `{ interval, units }` on the line and remove exactly that (a capacity change must not recompute `occupancy` for a removal); 8a — the return-line fold takes `serve_mode 'immediate'` / no draws from `return_of`, and the engine station from the served line; 13 — confirm `Load` (AD-5); 16b — decide whether `station_plan.fire_ms` narrows to `number`; 20 — snapshot load checks the profile is canonical; a later client task — `errors.STATION_PAUSED` / `STATION_PAUSE_DISABLED` keys (03a §8 item 5).
+- **Open items:** unchanged (1–5 above); item 2 carried to the UI module, item 4 needs the pilot mini PC.
