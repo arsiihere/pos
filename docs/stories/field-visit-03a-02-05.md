@@ -29,6 +29,7 @@ Ask in plain words; the "decides" column is for the developer, not for the resta
 | 13 | How many seconds from each station to each pass / counter? (measure, don't ask) | — | carry times (D8) |
 | 14 | How many naan + roti per hour at the Friday peak? (count during the rush, and ask the tandoor wala his guess) | C, count | tandoor capacity vs demand (§6 overload) |
 | 15 | When the kitchen is behind, how do you find out today, and what do you do (stop takeaway? add a man?) | M, F | pressure display and `station_overload` alert (D19–D21) |
+| 15a | A plate comes back from a table ("more spicy", "not cooked enough", or a kitchen fault): what happens today — same plate fixed, or a new one? Does it jump the queue? Is it ever charged? | F, C | D28 defaults: fix vs remake, `adjust_time_ms`, `returns_boost` |
 
 ## B. 02 — Ordering and tables (M, OT)
 
