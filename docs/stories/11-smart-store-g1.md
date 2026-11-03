@@ -76,6 +76,15 @@
 | 6 | Kitchen receives: the cook confirms on the tablet (or the jar is weighed at the issue station) | cook | transfer store → kitchen (08 I5) |
 | 7 | Between rounds a cook needs more: **request** on the tablet → approved by the manager (or auto within par) → keeper fetches | cook, manager, keeper | 01d request kind |
 
+**Variant asked by the developer (2026-11-03): "anyone may go, but takes only what that session allows".** Five chefs each fetch their own list; taking more than the list is the problem. Proposed shape (Claude):
+
+- **Allowance per session:** a session opens only against an approved list or request (the chef's station refill list, or a request); the allowance is that list. Taking less is fine; the unused allowance ends when the session closes (more needs a new request).
+- **Kitchen stock per station:** each chef's list comes from his station's kitchen stock (tandoor, karahi, ...), which fits 01c's `stock_item_branches.station_id`.
+- **One person in the godown at a time:** the door kit opens a new session only after the last one closed. Without it, two chefs' bin changes cannot be attributed (both had mirch on their list → whose 380 g?). Concurrent sessions would need ambiguity flags on every overlap.
+- **Who may open is a branch setting (R18):** `keeper_only` or `anyone_with_list`.
+
+Trade-offs: `anyone_with_list` = per-person accountability and no keeper bottleneck, but more door openings and more people who know the godown; queues at rush if one-at-a-time. `keeper_only` = fewest openings, one accountable person, but the keeper can collude with one chef. **Tailgating** (a second person walks in while the door is open) is not detected by the door sensor; only the camera clip and a "door open too long" alert catch it.
+
 **Suspicious, in real time (store side):** a bin changed that is not on the list or request (A1); more than listed (A6); drop then return in one session (A2); store opened outside a round with no request, or by someone who is not the keeper; a change with no session (A3). **Over days (kitchen side):** refills into the kitchen larger than recipe usage says it needed → the leak is between store and kitchen, or in the kitchen (by shift and person on duty, 08 I16).
 
 ## 6. Dry runs per item type (developer asked, 2026-11-02)
