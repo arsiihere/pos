@@ -58,6 +58,26 @@
 
 (filled at the end)
 
+## 5a. Developer's model: store and kitchen stock (developer, 2026-11-03)
+
+**As the developer sees it:** two places. **Inventory** = the store (godown): bulk, e.g. 10 kg of each masala, 50 packets. **Stock** = the day's working stock in the kitchen: e.g. 0.5 kg of each masala, 10 packets of tawa piece. Kitchen stock is used through the day; when it falls below a threshold the system says so and it is refilled from the store. **One person** whose job is to keep the daily stock is the one who goes to the store and brings it. Store weights are measured in real time, and an act is suspicious when the person went for X and other bins changed too.
+
+**Naming clash (to settle):** in the specs "stock" already means **pre-cooked stock** (01a S45, `StockSet` / `StockAdded`, pots of paye ready to serve) and 01c `stock_items`. Proposed words: **Store** (godown, the developer's "inventory") and **Kitchen stock** (the developer's "stock"); Urdu UI may say *Godown* / *Kitchen*.
+
+**Proposed workflow (Claude, for approval):**
+
+| Step | What happens | Who | Data |
+|---|---|---|---|
+| 1 | Each item has, per kitchen, a **par** (target, 500 g) and a **threshold** (refill point, 150 g) | owner sets once | settings as data (R18) |
+| 2 | Kitchen stock is known by **recipe usage** (08: orders × recipes) with the POS; standalone: the cook taps "low" or the keeper checks; kitchen bins later | system / cook | 08 depletion; no kitchen sensors in the pilot (heat, grease) |
+| 3 | At fixed **refill rounds** (e.g. 11:00 before lunch, 17:00 before dinner) the system builds a **refill list**: every item below threshold, quantity = par − current | system | 01d action alert to the stock keeper |
+| 4 | Only the **stock keeper on duty** can open the store (door kit: RFID or PIN; permission `refill-kitchen-stock`); anyone else, including a manager, opens only with a reason and is flagged | stock keeper | session with purpose = refill list #n |
+| 5 | Store bins drop; each drop is matched to the list (item and quantity, ± tolerance) | system | store events (topic 4) |
+| 6 | Kitchen receives: the cook confirms on the tablet (or the jar is weighed at the issue station) | cook | transfer store → kitchen (08 I5) |
+| 7 | Between rounds a cook needs more: **request** on the tablet → approved by the manager (or auto within par) → keeper fetches | cook, manager, keeper | 01d request kind |
+
+**Suspicious, in real time (store side):** a bin changed that is not on the list or request (A1); more than listed (A6); drop then return in one session (A2); store opened outside a round with no request, or by someone who is not the keeper; a change with no session (A3). **Over days (kitchen side):** refills into the kitchen larger than recipe usage says it needed → the leak is between store and kitchen, or in the kitchen (by shift and person on duty, 08 I16).
+
 ## 6. Dry runs per item type (developer asked, 2026-11-02)
 
 Illustrative walk-throughs to fix the mental model. Every number is an example; tolerances are **placeholders** until topic 2 (hardware research) and topic 3 (sensing rules) set them. Everything here is configuration (R18): adding a shelf, a bin or an item is pairing and mapping, never code.
