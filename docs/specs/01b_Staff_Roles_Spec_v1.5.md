@@ -187,16 +187,16 @@ No endpoint, error code, event or migration change.
 
 | Row (03a) | 01b section | Change |
 |---|---|---|
-| B-1 | §3.2 scopes, `PERMISSION_CATALOGUE`, §6.15 | Permission `manage-stations` (group `kitchen`; scopes `branch`, `my_stations`; default **Manager**, and Owner holds every permission): live capacity, lane Off / On, station pause (03a §6.6) |
-| B-2 | §3.2, `PERMISSION_CATALOGUE`, §6.15 | Permission `mark-served` (group `orders`; scopes `branch`, `own_tables`, `my_floors`; default Owner, Manager, Order taker, Waiter); 02 uses it. **No backfill migration**: `DEFAULT_ROLES` seeds new tenants only, no tenant runs live before the pilot (R29), and the dev and pilot tenants are re-seeded with this release (release note). If a tenant set up for the pilot exists when v1.5 ships, the `0003_manage_stock_backfill.sql` pattern applies |
+| B-1 | §3.3 scopes, `PERMISSION_CATALOGUE`, §6.15 | Permission `manage-stations` (group `kitchen`; scopes `branch`, `my_stations`; default **Manager**, and Owner holds every permission): live capacity, lane Off / On, station pause (03a §6.6) |
+| B-2 | §3.3, `PERMISSION_CATALOGUE`, §6.15 | Permission `mark-served` (group `orders`; scopes `branch`, `own_tables`, `my_floors`; default Owner, Manager, Order taker, Waiter); 02 uses it. **No backfill migration**: `DEFAULT_ROLES` seeds new tenants only, no tenant runs live before the pilot (R29), and the dev and pilot tenants are re-seeded with this release (release note). If a tenant set up for the pilot exists when v1.5 ships, the `0003_manage_stock_backfill.sql` pattern applies |
 | B-3 | `default-roles.ts`, roles editor catalogue | Both permissions added; directory statement count unchanged (rows, not statements) |
-| B-4 | §3.6, §4.2, §5.2, §5.3 | Responsibility kind **`run_station`**, assignable per station like `count_stock`; `my_stations` for `manage-stations` resolves through `stationsOf(staff, 'run_station')`; `stationsOf`'s `responsibility` parameter widens to `'count_stock' \| 'run_station'`; carried in the existing `responsibilities` rows (no new statement) |
+| B-4 | §3.6, §4.2, §5.1, §5.2, §5.3 | Responsibility kind **`run_station`**, assignable per station like `count_stock`; `my_stations` for `manage-stations` resolves through `stationsOf(staff, 'run_station')`; `stationsOf`'s `responsibility` parameter widens to `'count_stock' \| 'run_station'`; carried in the existing `responsibilities` rows (no new statement) |
 | B-5 | §6.15 | `mark-item-returned` (exists) default grants: Owner, Manager, **Order taker** (03a D28 return to kitchen); no backfill, as B-2 |
 | B-6 | §6.10 | `GET` / `PATCH /v1/admin/branches/:branch_id/settings` gains the `branch_engine_settings` fields of 01a v2.1 A-12 (same ranges and defaults; written in the same transaction as the branch settings, one audit row; `expected_version` as B23). No new endpoint |
 | B-7 | — | `boost-order` default Owner, Manager: no change (as built) |
 | B-8 | §4.4 row 6 | `GET /v1/sync/config` `200` with the directory ≤ 27 → **≤ 32**; config-only ≤ 22 → **≤ 27**; directory-only ≤ 17 and `304` unchanged. Cause: 01a snapshot schema 3 adds 5 builder statements. The bound test is re-baselined |
 
-No error code or event change. Migrations: the `responsibilities` CHECK widens on both sides (B-4, §5.2, §5.3).
+No error code or event change. Migrations: the `responsibilities` CHECK widens on both sides (B-4, §5.1 cloud, §5.2 hub).
 
 ### Stories covered
 
