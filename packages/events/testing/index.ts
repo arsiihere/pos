@@ -1,5 +1,6 @@
 import type { BranchConfig, ConfigItem } from '../src/config.js';
 import type { PosEvent } from '../src/envelope.js';
+import type { StockReservedPayload } from '../src/events/stock/StockReserved.v1.js';
 
 const T = 1_761_000_000_000;
 
@@ -695,14 +696,19 @@ export interface OrderBatchSpec {
   /** seq of the first event; default 1 */
   seq?: number;
   /**
-   * Events appended after the ItemAdded rows with the same recorded_at (e.g. the §4.2 StockReserved
-   * rows, whose builder is task 1b's); their payloads are kept, their envelope is re-stamped.
+   * The §4.2 StockReserved rows, appended right after the ItemAdded rows (stock / stock_item_id); each entry
+   * overrides aStockReserved's payload. Default none: an order without stock draws writes no StockReserved.
+   */
+  reserved?: Array<Partial<StockReservedPayload>>;
+  /**
+   * Events appended after the StockReserved rows with the same recorded_at; their payloads are kept,
+   * their envelope is re-stamped.
    */
   then?: PosEvent[];
 }
 
-// 03a §4.2 submit batch: OrderPlaced, then ItemAdded in order_item_ids order, then (via `then`) the
-// StockReserved rows; one recorded_at; placed_by = actor_id, placed_at = recorded_at (§3.3).
+// 03a §4.2 submit batch: OrderPlaced, then ItemAdded in order_item_ids order, then the StockReserved rows
+// (`reserved`), then `then`; one recorded_at; placed_by = actor_id, placed_at = recorded_at (§3.3).
 export function anOrderBatch(spec: OrderBatchSpec = {}): PosEvent[] {
   const orderId = spec.order_id ?? ORDER_ID;
   const lines = spec.lines ?? [{ order_item_id: 'L1' }];
@@ -718,7 +724,8 @@ export function anOrderBatch(spec: OrderBatchSpec = {}): PosEvent[] {
     ...spec.order,
   });
   const added = lines.map((l) => order('ItemAdded', orderId, itemAddedPayload(orderId, l.order_item_id, l.item)));
-  return [placed, ...added, ...(spec.then ?? [])].map((e, i) => ({
+  const reserved = (spec.reserved ?? []).map((r) => aStockReserved({ payload: r }));
+  return [placed, ...added, ...reserved, ...(spec.then ?? [])].map((e, i) => ({
     ...e,
     recorded_at: at,
     occurred_at: at,
@@ -726,4 +733,96 @@ export function anOrderBatch(spec: OrderBatchSpec = {}): PosEvent[] {
     seq: first + i,
     event_id: eventId(first + i),
   }));
+}
+
+// 03a §4.2 station-stream events (station / station_id; EngineConfigApplied on station / branch_id).
+function station(eventType: string, streamId: string, payload: Record<string, unknown>): PosEvent {
+  return { ...envelope, stream_type: 'station', stream_id: streamId, event_type: eventType, payload };
+}
+
+export function aFireDispatched(overrides?: Overrides): PosEvent {
+  return build(
+    station('FireDispatched', 'S1', {
+      station_id: 'S1',
+      order_item_ids: ['L1'],
+      load_id: null,
+      due_at: T,
+      reason: 'scheduled',
+    }),
+    overrides,
+  );
+}
+
+// 03a §3.11: aBranchConfig's station S1 "Karahi" with the 01a v2.1 §5.2a config defaults; point P1 stands for
+// the branch's "Pass" (A-1). reference_cook_ms = the median of the routed items' cook_time_ms (1 200 000).
+export function anEngineConfigApplied(overrides?: Overrides): PosEvent {
+  return build(
+    station('EngineConfigApplied', envelope.branch_id, {
+      config_version: 1,
+      stations: [
+        {
+          station_id: 'S1',
+          name: 'Karahi',
+          station_type: 'slot',
+          capacity: 4,
+          freshness_window_ms: null,
+          completion_mode: 'two_tap',
+          policy: 'waada_guard',
+          freeze_ms: 120_000,
+          min_slack_keep_ms: 60_000,
+          promise_padding_ms: null,
+          pressure_window_ms: 900_000,
+          pressure_amber_bp: 8_000,
+          pressure_red_bp: 10_000,
+          pressure_alert_ms: 300_000,
+          pause_enabled: false,
+          lane_units: null,
+          reserve_units: 0,
+          point_id: 'P1',
+          alternates: [],
+          carry_times: [],
+          programs: [],
+          reference_cook_ms: 1_200_000,
+          is_archived: false,
+        },
+      ],
+      settings: {
+        weight_dine_in_pct: 100,
+        weight_takeaway_pct: 200,
+        weight_delivery_pct: 200,
+        weight_parking_pct: 200,
+        weight_follow_up_pct: 300,
+        promise_padding_dine_in_ms: PADDING_MS,
+        promise_padding_takeaway_ms: PADDING_MS,
+        promise_padding_delivery_ms: PADDING_MS,
+        promise_padding_parking_ms: PADDING_MS,
+        slip_threshold_ms: 120_000,
+        slip_escalate_ms: 120_000,
+        cascade_step_ms: 60_000,
+        min_gain_ms: 60_000,
+        returns_boost: true,
+        order_abandon_ms: 14_400_000,
+      },
+    }),
+    overrides,
+  );
+}
+
+// 03a §4.2 stock-stream events: line L1 draws 500 g of aBranchConfig's K1 (Half I1). The stream id follows
+// the payload's stock_item_id when an override changes it.
+function stockLine(eventType: string, payload: Record<string, unknown>, overrides?: Overrides): PosEvent {
+  const event = build(stock(eventType, 'K1', { stock_item_id: 'K1', order_item_id: 'L1', quantity: 500, ...payload }), overrides);
+  return overrides?.stream_id === undefined ? { ...event, stream_id: String(event.payload.stock_item_id) } : event;
+}
+
+export function aStockReserved(overrides?: Overrides): PosEvent {
+  return stockLine('StockReserved', {}, overrides);
+}
+
+export function aStockReleased(overrides?: Overrides): PosEvent {
+  return stockLine('StockReleased', { reason: 'removed' }, overrides);
+}
+
+export function aStockConsumed(overrides?: Overrides): PosEvent {
+  return stockLine('StockConsumed', {}, overrides);
 }

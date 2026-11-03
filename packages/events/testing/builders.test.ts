@@ -36,6 +36,11 @@ const builderNames = [
   'anOrderLinesAdded',
   'anItemStarted',
   'anItemDone',
+  'aFireDispatched',
+  'anEngineConfigApplied',
+  'aStockReserved',
+  'aStockReleased',
+  'aStockConsumed',
 ] as const;
 
 describe('builders', () => {
@@ -231,5 +236,92 @@ describe('order builders', () => {
   it('[03a §4.2] anItemStarted and anItemDone default to a tap on L1', () => {
     expect(builders.anItemStarted().payload).toMatchObject({ order_item_id: 'L1', source: 'tap' });
     expect(builders.anItemDone({ payload: { source: 'inferred' } }).payload).toMatchObject({ order_item_id: 'L1', source: 'inferred' });
+  });
+
+  it('[03a §4.2] anOrderBatch emits spec.reserved as StockReserved after the ItemAdded rows and before then, one recorded_at', () => {
+    const batch = builders.anOrderBatch({
+      recorded_at: 7_000,
+      seq: 10,
+      lines: [{ order_item_id: 'A1', line: { from_stock: true } }, { order_item_id: 'A2' }],
+      reserved: [{ order_item_id: 'A1' }, { stock_item_id: 'K2', order_item_id: 'A1', quantity: 2 }],
+      then: [builders.anItemStarted()],
+    });
+    const parsed = batch.map((e) => parseEvent(e));
+    expect(parsed.map((e) => e.event_type)).toEqual([
+      'OrderPlaced',
+      'ItemAdded',
+      'ItemAdded',
+      'StockReserved',
+      'StockReserved',
+      'ItemStarted',
+    ]);
+    expect(new Set(parsed.map((e) => e.recorded_at))).toEqual(new Set([7_000]));
+    expect(parsed.map((e) => e.seq)).toEqual([10, 11, 12, 13, 14, 15]);
+    expect(parsed[3]).toMatchObject({ stream_type: 'stock', stream_id: 'K1', payload: { stock_item_id: 'K1', order_item_id: 'A1', quantity: 500 } });
+    expect(parsed[4]).toMatchObject({ stream_type: 'stock', stream_id: 'K2', payload: { stock_item_id: 'K2', order_item_id: 'A1', quantity: 2 } });
+    expect(builders.anOrderBatch().map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+  });
+});
+
+describe('station and stock builders', () => {
+  it('[03a §4.2] aFireDispatched and anEngineConfigApplied are station-stream events; stock builders are keyed by stock_item_id', () => {
+    const fire = builders.aFireDispatched();
+    expect(fire).toMatchObject({ stream_type: 'station', stream_id: 'S1', payload: { station_id: 'S1', reason: 'scheduled' } });
+    const config = builders.anEngineConfigApplied();
+    expect(config).toMatchObject({ stream_type: 'station', stream_id: config.branch_id });
+    for (const e of [builders.aStockReserved(), builders.aStockReleased(), builders.aStockConsumed()]) {
+      expect(e.stream_type, e.event_type).toBe('stock');
+      expect(e.stream_id, e.event_type).toBe(e.payload.stock_item_id);
+      expect(e.schema_version, e.event_type).toBe(1);
+    }
+    expect(builders.aStockReleased({ payload: { reason: 'voided' } }).payload.reason).toBe('voided');
+  });
+
+  it('[03a §3.11] anEngineConfigApplied carries the 01a v2.1 §5.2a config defaults for aBranchConfig station S1', () => {
+    const { payload } = parseEvent(builders.anEngineConfigApplied());
+    expect(payload.stations).toEqual([
+      {
+        station_id: 'S1',
+        name: 'Karahi',
+        station_type: 'slot',
+        capacity: 4,
+        freshness_window_ms: null,
+        completion_mode: 'two_tap',
+        policy: 'waada_guard',
+        freeze_ms: 120_000,
+        min_slack_keep_ms: 60_000,
+        promise_padding_ms: null,
+        pressure_window_ms: 900_000,
+        pressure_amber_bp: 8_000,
+        pressure_red_bp: 10_000,
+        pressure_alert_ms: 300_000,
+        pause_enabled: false,
+        lane_units: null,
+        reserve_units: 0,
+        point_id: 'P1',
+        alternates: [],
+        carry_times: [],
+        programs: [],
+        reference_cook_ms: 1_200_000,
+        is_archived: false,
+      },
+    ]);
+    expect(payload.settings).toEqual({
+      weight_dine_in_pct: 100,
+      weight_takeaway_pct: 200,
+      weight_delivery_pct: 200,
+      weight_parking_pct: 200,
+      weight_follow_up_pct: 300,
+      promise_padding_dine_in_ms: 180_000,
+      promise_padding_takeaway_ms: 180_000,
+      promise_padding_delivery_ms: 180_000,
+      promise_padding_parking_ms: 180_000,
+      slip_threshold_ms: 120_000,
+      slip_escalate_ms: 120_000,
+      cascade_step_ms: 60_000,
+      min_gain_ms: 60_000,
+      returns_boost: true,
+      order_abandon_ms: 14_400_000,
+    });
   });
 });
