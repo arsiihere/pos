@@ -97,21 +97,25 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | # | Task | Problem | Options | Choice | Why | Files |
 |---|---|---|---|---|---|---|
 | — | — | *(plan-time rows below are written to `docs/reviews/03a-auto-decisions.md` at the batch 1 checkpoint)* | | | | |
+| AD-1 | C3 | Shape of `used_by` when archiving a point that active stations name | (a) 01a's floor shape `{ entity: 'station', ids }`; (b) a point-specific shape | (a) — developer ruling 2026-11-03 | Matches 01a v2.1 §6.9a Q-v2.1-2 and the floor → table precedent (§6.4); no new shape for the client | `apps/cloud/src/modules/restaurant/points.ts` (C3) |
+| AD-2 | 12b | BF-9: held lines after a unit-changing `StockSet` | (a) re-reserve held lines in the new unit; (b) record the over-sell as an accepted cost | (a) — developer ruling 2026-11-03; a line whose count is not valid in the new unit goes full-cook (01a S41) | Keeps reserved ≤ on_hand in the new unit; S41 already defines the not-valid case | `packages/engine/src/stock.ts` (12b), extends #118 |
+| AD-3 | 15, 29 | BF-10: "the order taker hears before the promise is blown" | (a) narrow the claim to Waada Guard (EDF / FIFO padding 0); (b) `level = min(T + slip_threshold_ms, P)` | (a) — developer ruling 2026-11-03; spec wording only, no code | Under EDF / FIFO the padding is 0 so the claim cannot hold; no behaviour change | as-built spec text (29); `[03a BF-10]` test in 15 |
+| AD-4 | 4, 7 | Review Focus 1: a line whose `units` exceed the station's effective capacity (spec states no rule) | (a) occupy the whole capacity for one cook; (b) occupy the whole station for `ceil(units / capacity)` consecutive rounds | (b) — developer ruling 2026-11-03: the line holds all `capacity` for `cook_ms × ceil(units / capacity)`; a `warn { order_item_id, station_id, units, capacity }` is logged; tested | Real kitchens cook an over-size line in rounds; one cook would under-book the station | `packages/engine/src/profile.ts` (4), placement + warn (7; the warn is emitted outside the pure engine) |
 
 Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD rows at the named checkpoint:
 
 - P-5 `liveInterval(state, order_item_id, t)` (spec writes `liveInterval(line, t)`) — batch 2.
-- Review Focus 1: a line whose units exceed effective capacity occupies the whole station — batch 1.
-- BF-9 option "re-reserve in the new unit"; BF-10 option "narrow the claim" — batch 4.
+- Review Focus 1 → ruled as AD-4 (rounds), above.
+- BF-9 → AD-2; BF-10 → AD-3 (ruled 2026-11-03, above).
 - P-11 re-placed-lines bound rule — batch 5 (task 18).
 - P-12 `@pos/engine/sim` test-only subpath export — batch 5.
 
 ## Open items
 
 1. Command halves of #101, #103, #107 (`409 RETURN_ALREADY_OPEN`), #114 → 02 (README "To 02" #1, #8).
-2. No owner-app screen to assign `run_station` (01b v1.5 defines none); API only until specified.
+2. No owner-app screen to assign `run_station` (01b v1.5 defines none); API only until specified — **carried to the UI module** (developer, 2026-11-03).
 3. H-5 / H-6 write-time checks → 03b's pairing / binding UI (and 01e).
-4. Task 28 needs the pilot mini PC.
+4. Task 28 needs the pilot mini PC (like 00 #79; developer, 2026-11-03).
 5. 03a §12.3 Q12 (customer's own wrong order) still open; 02 / 04, not blocking.
 
 ## Batch entries
