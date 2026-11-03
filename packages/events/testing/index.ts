@@ -487,3 +487,243 @@ export function aBranchConfigItemStock(overrides?: Partial<BranchConfig>): Branc
     ...overrides,
   };
 }
+
+// 03a §4.2: order-stream events (order / order_id). One dine-in order O1 at table T12 with one sync
+// line L1 (Mutton Karahi I2, slot station S1, 20 min) in group O1:0; promise = target + 180 000 padding.
+const ORDER_ID = 'O1';
+const ORDER_TARGET = T + 1_500_000;
+const PADDING_MS = 180_000;
+// 01a v2.1 §5.2a item knob default; the `fix` cook time of a return (§3.8a).
+const ADJUST_TIME_MS = 180_000;
+
+function order(eventType: string, orderId: string, payload: Record<string, unknown>): PosEvent {
+  return { ...envelope, stream_type: 'order', stream_id: orderId, event_type: eventType, payload };
+}
+
+function engineLine(orderItemId: string, o?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    order_item_id: orderItemId,
+    station_id: 'S1',
+    alternates: [],
+    point_id: null,
+    carry_ms: 0,
+    from_stock: false,
+    weight_pct: 100,
+    max_early_ms: 60_000,
+    max_late_ms: null,
+    max_carry_ms: null,
+    ...o,
+  };
+}
+
+function itemAddedPayload(orderId: string, orderItemId: string, o?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    order_id: orderId,
+    order_item_id: orderItemId,
+    parent_order_item_id: null,
+    line_kind: 'item',
+    item_id: 'I2',
+    deal_id: null,
+    deal_part_id: null,
+    option_id: null,
+    option_quantity: null,
+    variant_group_id: null,
+    variant_group_name: null,
+    variant_name: null,
+    name: 'Mutton Karahi',
+    category_id: 'C1',
+    requires_weighing: false,
+    quantity: 1,
+    sale_unit: 'piece',
+    price_minor: 120_000,
+    extra_price_minor: null,
+    allocated_price_minor: null,
+    tax_class_id: null,
+    station_id: 'S1',
+    program_id: null,
+    stock_program_id: null,
+    program_cook_time_ms: null,
+    stock_program_cook_time_ms: null,
+    serve_mode: 'sync',
+    prep_buffer_ms: 0,
+    cook_time_ms: 1_200_000,
+    stock_time_ms: null,
+    out_of_stock_behaviour: 'cook_fresh',
+    stock_draws: [],
+    options: [],
+    line_total_minor: 120_000,
+    kitchen_note: null,
+    ...o,
+  };
+}
+
+function orderPlacedPayload(orderId: string, lineIds: string[], lines?: Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    order_id: orderId,
+    order_type: 'dine_in',
+    table_id: 'T12',
+    table_key: 'dine_in:T12',
+    follow_up: false,
+    pickup_at_ms: null,
+    order_item_ids: lineIds,
+    groups: [{ group_id: `${orderId}:0`, target_land_ms: ORDER_TARGET, promise_ms: ORDER_TARGET + PADDING_MS, order_item_ids: lineIds }],
+    lines: lines ?? lineIds.map((id) => engineLine(id)),
+  };
+}
+
+export function anOrderPlaced(overrides?: Overrides): PosEvent {
+  return build(order('OrderPlaced', ORDER_ID, orderPlacedPayload(ORDER_ID, ['L1'])), overrides);
+}
+
+export function anItemAdded(overrides?: Overrides): PosEvent {
+  return build(order('ItemAdded', ORDER_ID, itemAddedPayload(ORDER_ID, 'L1')), overrides);
+}
+
+// A later addition (P-10): line L2 in a new group O1:1.
+export function anOrderLinesAdded(overrides?: Overrides): PosEvent {
+  return build(
+    order('OrderLinesAdded', ORDER_ID, {
+      order_id: ORDER_ID,
+      order_item_ids: ['L2'],
+      groups: [{ group_id: `${ORDER_ID}:1`, target_land_ms: ORDER_TARGET, promise_ms: ORDER_TARGET + PADDING_MS, order_item_ids: ['L2'] }],
+      lines: [engineLine('L2', { return_of: null, cook_ms_override: null })],
+    }),
+    overrides,
+  );
+}
+
+export interface ReturnOptions {
+  /** the return line's order_item_id; default `<served>R` */
+  order_item_id?: string;
+  /** the item's 01a v2.1 adjust_time_ms (D25 copy by 02); default 180 000; used for `fix` only */
+  adjust_time_ms?: number;
+  /** index of the new group (`order_id:<n>`); default 1 */
+  group_index?: number;
+  target_land_ms?: number;
+  promise_ms?: number;
+  /** engine-field overrides of the OrderLinesAdded line (e.g. the served line's engine station, alternates) */
+  line?: Record<string, unknown>;
+  recorded_at?: number;
+  actor_id?: string | null;
+}
+
+// 03a §3.8a (D28; v0.5 G4-1 #11, v0.6 G4-2 #18): what 02's ReturnToKitchen appends for a served line,
+// given that line's ItemAdded. One batch, one recorded_at: OrderLinesAdded with one new line, its
+// ItemAdded (the served line's D25 copy minus money, a plain 'item' line, whole quantity), and
+// ItemReturned for `remake`.
+export function aReturnLinesAdded(served: PosEvent, mode: 'fix' | 'remake', o: ReturnOptions = {}): PosEvent[] {
+  const s = served.payload;
+  const orderId = String(s.order_id);
+  const servedId = String(s.order_item_id);
+  const newId = o.order_item_id ?? `${servedId}R`;
+  const target = o.target_land_ms ?? ORDER_TARGET;
+  const stamp = {
+    recorded_at: o.recorded_at ?? served.recorded_at,
+    occurred_at: o.recorded_at ?? served.recorded_at,
+    actor_id: o.actor_id ?? served.actor_id,
+  };
+  const linesAdded = order('OrderLinesAdded', orderId, {
+    order_id: orderId,
+    order_item_ids: [newId],
+    groups: [
+      {
+        group_id: `${orderId}:${o.group_index ?? 1}`,
+        target_land_ms: target,
+        promise_ms: o.promise_ms ?? target + PADDING_MS,
+        order_item_ids: [newId],
+      },
+    ],
+    lines: [
+      engineLine(newId, {
+        station_id: s.station_id,
+        ...o.line,
+        from_stock: false,
+        return_of: { order_item_id: servedId, mode },
+        cook_ms_override: mode === 'fix' ? (o.adjust_time_ms ?? ADJUST_TIME_MS) : null,
+      }),
+    ],
+  });
+  const added = order('ItemAdded', orderId, {
+    ...s,
+    order_item_id: newId,
+    line_kind: 'item',
+    parent_order_item_id: null,
+    deal_id: null,
+    deal_part_id: null,
+    option_id: null,
+    option_quantity: null,
+    options: [],
+    price_minor: 0,
+    extra_price_minor: null,
+    allocated_price_minor: null,
+    line_total_minor: 0,
+    tax_class_id: null,
+  });
+  const events = [linesAdded, added];
+  if (mode === 'remake') {
+    events.push(order('ItemReturned', orderId, { order_item_id: servedId, mode: 'remake', replacement_order_item_id: newId }));
+  }
+  return events.map((e, i) => ({ ...e, ...stamp, seq: served.seq + 1 + i, event_id: eventId(served.seq + 1 + i) }));
+}
+
+export function anItemStarted(overrides?: Overrides): PosEvent {
+  return build(order('ItemStarted', ORDER_ID, { order_item_id: 'L1', started_at: T, source: 'tap' }), overrides);
+}
+
+export function anItemDone(overrides?: Overrides): PosEvent {
+  return build(order('ItemDone', ORDER_ID, { order_item_id: 'L1', done_at: T + 1_200_000, source: 'tap' }), overrides);
+}
+
+function eventId(seq: number): string {
+  return `01J${String(seq).padStart(23, '0')}`;
+}
+
+export interface OrderBatchSpec {
+  order_id?: string;
+  /** the lines in order_item_ids order; default one line L1 */
+  lines?: Array<{
+    order_item_id: string;
+    /** ItemAdded payload overrides */
+    item?: Record<string, unknown>;
+    /** OrderPlaced.lines[] engine-field overrides */
+    line?: Record<string, unknown>;
+  }>;
+  /** OrderPlaced payload overrides (order fields, groups) */
+  order?: Record<string, unknown>;
+  recorded_at?: number;
+  actor_id?: string | null;
+  /** seq of the first event; default 1 */
+  seq?: number;
+  /**
+   * Events appended after the ItemAdded rows with the same recorded_at (e.g. the §4.2 StockReserved
+   * rows, whose builder is task 1b's); their payloads are kept, their envelope is re-stamped.
+   */
+  then?: PosEvent[];
+}
+
+// 03a §4.2 submit batch: OrderPlaced, then ItemAdded in order_item_ids order, then (via `then`) the
+// StockReserved rows; one recorded_at; placed_by = actor_id, placed_at = recorded_at (§3.3).
+export function anOrderBatch(spec: OrderBatchSpec = {}): PosEvent[] {
+  const orderId = spec.order_id ?? ORDER_ID;
+  const lines = spec.lines ?? [{ order_item_id: 'L1' }];
+  const ids = lines.map((l) => l.order_item_id);
+  const at = spec.recorded_at ?? T;
+  const first = spec.seq ?? 1;
+  const placed = order('OrderPlaced', orderId, {
+    ...orderPlacedPayload(
+      orderId,
+      ids,
+      lines.map((l) => engineLine(l.order_item_id, l.line)),
+    ),
+    ...spec.order,
+  });
+  const added = lines.map((l) => order('ItemAdded', orderId, itemAddedPayload(orderId, l.order_item_id, l.item)));
+  return [placed, ...added, ...(spec.then ?? [])].map((e, i) => ({
+    ...e,
+    recorded_at: at,
+    occurred_at: at,
+    actor_id: spec.actor_id ?? null,
+    seq: first + i,
+    event_id: eventId(first + i),
+  }));
+}
