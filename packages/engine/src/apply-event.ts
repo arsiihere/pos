@@ -4,17 +4,19 @@ import type {
   FireDispatchedPayload,
   ItemAddedPayload,
   ItemDonePayload,
+  ItemReturnedPayload,
   ItemServedPayload,
   ItemStartedPayload,
   ItemVoidedPayload,
   OrderGroupPayload,
   OrderLinePayload,
+  OrderLinesAddedLinePayload,
   OrderLinesAddedPayload,
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
 import { capacityFor } from './replan.js';
-import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { removeInterval, type Underflow } from './profile.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
@@ -63,10 +65,15 @@ function groupIndex(order_id: string, group_id: string): number {
 // with its OrderPlaced engine fields (the only place they are kept until its ItemAdded) and neutral values
 // for the ItemAdded fields, which its ItemAdded fold fills; nothing is placed until awaiting reaches 0.
 // line_ids keep order_item_ids order and list only the ids of `lines[]` (a deal line has no entry, §3.2).
+// §3.8a: a return line (OrderLinesAdded `return_of` set) is listed as immediate, mark 'return', from_stock false,
+// with its `fix` cook_ms_override kept in cook_ms until its ItemAdded; it must be alone in a new group (its own
+// group, never the old one re-opened) and a `fix` must carry cook_ms_override — else InvalidEvent (AD-8: the
+// event changes nothing when non-strict).
+type ListedLine = OrderLinePayload & Partial<Pick<OrderLinesAddedLinePayload, 'return_of' | 'cook_ms_override'>>;
 function listLines(
   state: EngineState,
   order: EngineOrder,
-  p: { order_id: string; order_item_ids: string[]; groups: OrderGroupPayload[]; lines: OrderLinePayload[] },
+  p: { order_id: string; order_item_ids: string[]; groups: OrderGroupPayload[]; lines: ListedLine[] },
   recorded_at: number,
 ): EngineState {
   const groups = { ...order.groups };
@@ -86,20 +93,25 @@ function listLines(
     const l = byId.get(id)!;
     const group = p.groups.find((g) => g.order_item_ids.includes(id));
     if (group === undefined) throw new InvalidEvent('line_in_no_group', id, l.station_id);
+    const return_of = l.return_of ?? null;
+    if (return_of !== null) {
+      if (group.order_item_ids.length !== 1 || order.groups[group.group_id] !== undefined) throw new InvalidEvent('return_group_invalid', id, l.station_id);
+      if (return_of.mode === 'fix' && (l.cook_ms_override ?? null) === null) throw new InvalidEvent('cook_ms_override_null', id, l.station_id);
+    }
     lines[id] = {
       order_item_id: id,
       order_id: p.order_id,
       group_id: group.group_id,
-      serve_mode: 'sync',
+      serve_mode: return_of === null ? 'sync' : 'immediate',
       station_id: l.station_id,
       alternates: l.alternates.map((a) => ({ ...a })),
       point_id: l.point_id,
       carry_ms: l.carry_ms,
       units: 0,
       prep_ms: 0,
-      cook_ms: 0,
+      cook_ms: return_of?.mode === 'fix' ? l.cook_ms_override! : 0,
       full_cook_ms: 0,
-      from_stock: l.from_stock,
+      from_stock: return_of === null ? l.from_stock : false,
       program_id: null,
       stock_cook_ms: null,
       stock_program_id: null,
@@ -115,8 +127,8 @@ function listLines(
       fired_at: null,
       started_at: null,
       done_at: null,
-      mark: null,
-      return_of: null,
+      mark: return_of === null ? null : 'return',
+      return_of: return_of === null ? null : { ...return_of },
       load_id: null,
       booked: null,
     };
@@ -190,21 +202,29 @@ function dropListed(state: EngineState, order: EngineOrder, line: EngineLine): {
 
 // The listed placeholder filled from its ItemAdded (§3.2 units, cook time, copies; §3.2 deadline from the
 // stored group T). Throws InvalidEvent for a writer bug.
+// §3.8a: a return line takes from ItemAdded only units, prep and the program copies; it stays immediate, never
+// from stock, with no draw (draws []), cook = lineShape's; its return_of must name a served line of the order.
 function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p: ItemAddedPayload): EngineLine {
   const id = p.order_item_id;
   const station = state.stations[listed.station_id];
   if (station === undefined) throw new InvalidEvent('station_missing', id, listed.station_id);
-  if (p.serve_mode === null) throw new InvalidEvent('serve_mode_null', id, listed.station_id);
+  const ret = listed.return_of;
+  if (ret !== null) {
+    const served = state.lines[ret.order_item_id];
+    if (served === undefined || served.order_id !== listed.order_id || served.stage !== 'served') {
+      throw new InvalidEvent('return_of_not_served', id, listed.station_id);
+    }
+  }
   try {
+    const shape = lineShape(p, { return_of: ret, cook_ms_override: ret?.mode === 'fix' ? listed.cook_ms : null }, station.type, listed.from_stock);
     const filled: EngineLine = {
       ...listed,
-      serve_mode: p.serve_mode,
+      ...shape,
       units: lineUnits(p),
       prep_ms: p.prep_buffer_ms ?? 0,
-      ...lineCookTimes(p, station.type, listed.from_stock),
       program_id: p.program_id,
       stock_program_id: p.stock_program_id,
-      draws: p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
+      draws: ret !== null ? [] : p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
     };
     // The unqueued deadline (AD-4 occupancy); the placement at awaiting = 0 replaces it with the queued one (AD-12).
     return { ...filled, deadline_ms: deadlineOf(filled, order.groups[listed.group_id]!.target_land_ms, capacityFor(station, id)) };
@@ -343,6 +363,24 @@ function foldItemDoneUndone(state: EngineState, event: PosEvent): EngineState {
 
 const OPEN_STAGES: ReadonlySet<EngineLine['stage']> = new Set(['added', 'cooking', 'done']);
 
+// §3.8a, §4.2 ItemReturned (remake only, written by 02 with the return batch): the served line goes `returned`,
+// which exits it for the engine as `voided` does (§3.3: a closed stage that occupies nothing). A served line holds
+// no booking, so nothing leaves the profile (moveLine keeps AD-7 anyway) and no re-plan runs (not a §3.5.3
+// trigger; the old group's T and slip are untouched). §3.3 absent ids: an order or line not in the state is a
+// no-op. A writer bug — the line is not served, or replacement_order_item_id is not its remake line — throws
+// InvalidEvent (AD-8: strict throws, non-strict one invalid_event diagnostic).
+function foldItemReturned(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ItemReturnedPayload;
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined || state.orders[line.order_id] === undefined) return state;
+  if (line.stage !== 'served') throw new InvalidEvent('item_returned_not_served', line.order_item_id, line.station_id);
+  const r = lineOf(state, p.replacement_order_item_id);
+  if (r === undefined || r.order_id !== line.order_id || r.return_of?.order_item_id !== line.order_item_id || r.return_of.mode !== 'remake') {
+    throw new InvalidEvent('item_returned_replacement_invalid', line.order_item_id, line.station_id);
+  }
+  return moveLine(state, line, event, strict, { stage: 'returned' });
+}
+
 // §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3).
 function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ItemServedPayload;
@@ -476,9 +514,10 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldItemEnded(state, event, o, 'removed');
     case 'ItemVoided':
       return foldItemEnded(state, event, o, 'voided');
+    case 'ItemReturned':
+      return foldItemReturned(state, event, strict);
     // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'ItemMovedToStock':
-    case 'ItemReturned':
     case 'OrderBoosted':
     case 'ItemsReleased':
     case 'SlipWarned':

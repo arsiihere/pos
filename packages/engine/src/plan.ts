@@ -50,6 +50,28 @@ export function lineCookTimes(
   return { cook_ms: from_stock ? stock! : full, full_cook_ms: full, stock_cook_ms: stock };
 }
 
+// §3.8a (D28): what a line of an OrderLinesAdded / ProposedOrder is to the engine. A return line (return_of set)
+// is immediate, never from stock (its draws are [] in the fold, so reserveStock has nothing to reserve) and cooks
+// for the event's cook_ms_override on `fix` (the item's adjust_time_ms copied by 02, never config) or the normal
+// fresh cook on `remake`; ItemAdded's serve_mode, stock time and from_stock are not taken. Any other line: §3.2.
+export type ReturnLink = { return_of: EngineLine['return_of']; cook_ms_override: number | null };
+export function lineShape(
+  item: ItemAddedPayload,
+  link: ReturnLink,
+  type: StationRuntime['type'],
+  from_stock: boolean,
+): { serve_mode: EngineLine['serve_mode']; from_stock: boolean } & Pick<EngineLine, 'cook_ms' | 'full_cook_ms' | 'stock_cook_ms'> {
+  const id = item.order_item_id;
+  if (link.return_of === null) {
+    return { serve_mode: required(item.serve_mode, 'serve_mode', id), from_stock, ...lineCookTimes(item, type, from_stock) };
+  }
+  if (link.return_of.mode === 'fix') {
+    const cook = required(link.cook_ms_override, 'cook_ms_override', id);
+    return { serve_mode: 'immediate', from_stock: false, cook_ms: cook, full_cook_ms: cook, stock_cook_ms: null };
+  }
+  return { serve_mode: 'immediate', from_stock: false, ...lineCookTimes(item, type, false) };
+}
+
 // §3.2: d(L) = T − carry − cook − prep, the latest fire that lands on target.
 // Review fix (AD-4): cook = the occupancy cook at the station's effective capacity, so an over-capacity line's
 // deadline lands its last round at T − carry. This is the deadline of an unqueued line; a line queued behind
@@ -210,6 +232,9 @@ function placeSequence(
   const p1 = pass1(state, uses, all, t, { prune: o.prune, strict: o.strict });
   let profiles: Record<string, Profile> = p1.profiles;
   const placements = new Map<string, Placement>();
+  // §3.8a: a return line is an immediate placed here — its earliest fit after pass 1 kept the older lines within
+  // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines". SEAM (task 16):
+  // with settings.returns_boost = true it is placed as a boost of the return line only (§3.9) and may push others.
   for (const line of immediates) {
     const cap = effectiveCapacity(stations[line.station_id]!);
     const fire = earliestFit(profiles[line.station_id]!, t, line.prep_ms, line.cook_ms, line.units, cap);
@@ -363,8 +388,8 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
     const l = lines[id];
     if (l === undefined || l.units === 0) continue;
     const pl = loop.placements.get(id);
-    const cap = effectiveCapacity(next.stations[l.station_id]!);
-    lines[id] = { ...l, deadline_ms: pl !== undefined ? queuedDeadline(pl.fire, loop.T, loop.T) : Math.min(l.deadline_ms, deadlineOf(l, loop.T, Math.max(cap, 1))) };
+    const cap = capacityFor(next.stations[l.station_id]!, id);
+    lines[id] = { ...l, deadline_ms: pl !== undefined ? queuedDeadline(pl.fire, loop.T, loop.T) : Math.min(l.deadline_ms, deadlineOf(l, loop.T, cap)) };
   }
   const groups = { ...order!.groups, [ended.group_id]: { ...group!, target_land_ms: loop.T } };
   const target_land_ms = Math.max(...Object.values(groups).map((g) => g.target_land_ms));
@@ -460,19 +485,24 @@ export function planOrderWith(
   const engineLines = proposed.lines.filter((l) => isEngineLine(l));
   const planLines = engineLines.map((l) => {
     const station = stationOf(state.stations, { order_item_id: l.order_item_id, station_id: l.station_id! });
-    const fs = from_stock[l.order_item_id] === true;
-    if (l.serve_mode === null) throw new InvalidEvent('serve_mode_null', l.order_item_id, station.station_id);
+    let shape: ReturnType<typeof lineShape>;
+    try {
+      shape = lineShape(l, l, station.type, from_stock[l.order_item_id] === true);
+    } catch (e) {
+      if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, l.order_item_id, station.station_id);
+      throw e;
+    }
     const line: PlanLine & NewLine & { from_stock: boolean } = {
       order_item_id: l.order_item_id,
       station_id: station.station_id,
       units: lineUnits(l),
       prep_ms: l.prep_buffer_ms ?? 0,
-      cook_ms: lineCookTimes(l, station.type, fs).cook_ms,
+      cook_ms: shape.cook_ms,
       carry_ms: l.carry_ms,
-      serve_mode: l.serve_mode,
+      serve_mode: shape.serve_mode,
       max_early_ms: l.max_early_ms,
       alternates: l.alternates,
-      from_stock: fs,
+      from_stock: shape.from_stock,
     };
     return line;
   });

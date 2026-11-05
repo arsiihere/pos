@@ -391,7 +391,9 @@ export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Placem
   const byStation = new Map<string, Array<[EngineLine, Placement]>>();
   for (const [id, pl] of moves) {
     const line = lines[id]!;
-    byStation.set(line.station_id, [...(byStation.get(line.station_id) ?? []), [line, pl]]);
+    const list = byStation.get(line.station_id);
+    if (list === undefined) byStation.set(line.station_id, [[line, pl]]);
+    else list.push([line, pl]);
     lines[id] = { ...line, fire_ms: pl.fire, booked: pl.booked };
   }
   for (const [sid, list] of byStation) {
