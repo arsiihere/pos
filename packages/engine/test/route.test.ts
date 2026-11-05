@@ -5,7 +5,8 @@
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemStarted, anOrderBatch } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, initialEngineState, planOrder, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
+import { DomainError } from '@pos/domain';
+import { applyEvent, checkOrderable, initialEngineState, planOrder, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
 import { liveProfile } from '../src/live';
 import { planOrderWith } from '../src/plan';
 
@@ -338,7 +339,7 @@ describe('@pos/engine re-routing (§3.5.5 D10)', () => {
     expect(no.state.stations.S2!.unfired).toEqual([]);
   });
 
-  it('[03a §3.5.5] a re-plan never moves a line onto a FIFO station; a non-FIFO sync line is not offered a FIFO alternate', () => {
+  it('[03a §3.5.5] a re-plan never moves a line onto a FIFO station (§3.5.3 FIFO: no re-plan, submit order)', () => {
     const s = heldH(S2ALT, null, [{ station_id: 'S2', capacity: 1, policy: 'fifo' }]);
     const r = submit(s, 'OC', [{ id: 'C1', cook: 1, mode: 'immediate' }], at(30));
     expect(r.state.lines.H!.station_id).toBe('S1');
@@ -483,5 +484,89 @@ describe('@pos/engine void re-plan with only FIFO siblings (carried from task 9)
     expect(v.orders.OG!.target_land_ms).toBe(at(5));
     expect(v.orders.OG!.promise_ms).toBe(P);
     expect(v.lines.F).toMatchObject({ station_id: 'S2', fire_ms: at(0), deadline_ms: at(0) });
+  });
+});
+
+const paused = (s: EngineState, id: string, on = true): EngineState => deepFreeze({ ...s, stations: { ...s.stations, [id]: { ...s.stations[id]!, paused: on } } });
+
+describe('@pos/engine routing — task 11 review (spec-literal filters)', () => {
+  it('[03a §3.10] checkOrderable refuses a line whose allowed set is empty and whose own station is paused: carry-filtered alternate', () => {
+    const s = paused(kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1 }]), 'S1');
+    const p = (max: number) => proposed('ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 10 * M, home: false }], maxCarry: max }]);
+    expect(() => checkOrderable(s, p(5 * M))).toThrow(DomainError);
+    try {
+      checkOrderable(s, p(5 * M));
+    } catch (e) {
+      expect(e).toMatchObject({ code: 'STATION_PAUSED', details: { station_id: 'S1' } });
+    }
+    expect(() => planOrder(s, p(5 * M), at(0), {})).toThrow(DomainError);
+    expect(() => checkOrderable(s, p(10 * M))).not.toThrow();
+    expect(line(planOrder(s, p(10 * M), at(0), {}), 'N').station_id).toBe('S2');
+  });
+
+  it('[03a §3.10] checkOrderable refuses when the only unpaused alternate is shut by its reserve (cap < 1)', () => {
+    const build = (reserve: number) => paused(kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1, reserve_units: reserve }]), 'S1');
+    const p = proposed('ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }]);
+    expect(() => checkOrderable(build(1), p)).toThrow(DomainError);
+    expect(() => checkOrderable(build(0), p)).not.toThrow();
+  });
+
+  it('[03a #28] a home alternate is carry-filtered like any alternate; the routed station never is', () => {
+    const s = busyS1();
+    // S2 is the home for the order type but carry 10 min > max 5 min → filtered; the routed S1 (carry 30 > 5) stays.
+    const r = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', carry: 30, alts: [{ station_id: 'S2', carry_ms: 10 * M, home: true }], maxCarry: 5 * M }], at(0));
+    expect(line(r.plan, 'N')).toMatchObject({ station_id: 'S1', eta_ms: at(55) });
+    expect(r.state.lines.N!.routed_station_id).toBe('S1');
+    // Within max → the home alternate is used, and the routed station keeps its exemption after the move.
+    const ok = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', carry: 30, alts: [{ station_id: 'S2', carry_ms: 5 * M, home: true }], maxCarry: 5 * M }], at(0));
+    expect(ok.state.lines.N).toMatchObject({ station_id: 'S2', routed_station_id: 'S1', alternates: [{ station_id: 'S1', carry_ms: 30 * M, home: false }] });
+  });
+
+  it('[03a #29] a non-home line sees effective − reserve on its own station too: it goes to an allowed alternate', () => {
+    // N routed to S1 whose only unit is reserved for S1's home lines; S2 is N's home.
+    const s = kitchen([{ station_id: 'S1', capacity: 1, reserve_units: 1 }, { station_id: 'S2', capacity: 1 }]);
+    const r = submit(s, 'ON', [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 0, home: true }] }], at(0));
+    expect(line(r.plan, 'N').station_id).toBe('S2');
+    expect(r.state.diagnostics.filter((d) => d.kind === 'reserve_fallback')).toEqual([]);
+  });
+
+  it('[03a #29] no allowed station can take the line → its own station at full capacity, never refused (D3), reserve_fallback diagnostic', () => {
+    const s = kitchen([{ station_id: 'S1', capacity: 1, reserve_units: 1 }, { station_id: 'S2', capacity: 1 }]);
+    // The home alternate S2 is carry-filtered, and S1's unit is reserved: fallback onto S1 at capacity 1.
+    const items: Item[] = [{ id: 'N', cook: 5, mode: 'immediate', alts: [{ station_id: 'S2', carry_ms: 10 * M, home: true }], maxCarry: 5 * M }];
+    expect(() => checkOrderable(s, proposed('ON', items))).not.toThrow();
+    const r = submit(s, 'ON', items, at(0));
+    expect(line(r.plan, 'N')).toMatchObject({ station_id: 'S1', eta_ms: at(5) });
+    expect(r.state.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: 'reserve_fallback', order_item_id: 'N', station_id: 'S1', detail: { capacity: 1, reserve_units: 1 } }),
+    );
+  });
+
+  it('[03a #29] a hidden line shut out of its station by a later reserve leaves it at the next re-plan (D10)', () => {
+    let s = paused(kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1 }]), 'S2');
+    s = submit(s, 'OB', [{ id: 'H', cook: 20, alts: [{ station_id: 'S2', carry_ms: 0, home: true }] }], at(0), { order_type: 'delivery', pickup_at_ms: at(60) }).state;
+    expect(s.lines.H).toMatchObject({ station_id: 'S1', fire_ms: at(40) });
+    s = paused(s, 'S2', false);
+    const cfg = anEngineConfigApplied({
+      recorded_at: at(5),
+      occurred_at: at(5),
+      payload: { config_version: 2, stations: [{ ...S1, station_id: 'S1', capacity: 1, reserve_units: 1 }, { ...S1, station_id: 'S2', capacity: 1 }], settings: SETTINGS },
+    });
+    s = fold(s, [cfg]);
+    const r = submit(s, 'OC', [{ id: 'C1', cook: 1, mode: 'immediate' }], at(10));
+    expect(r.state.lines.H).toMatchObject({ station_id: 'S2', fire_ms: at(39), deadline_ms: at(40) });
+    expect(r.state.stations.S1!.unfired).toEqual(['C1']);
+    expect(r.state.stations.S2!.unfired).toEqual(['H']);
+  });
+
+  it('[03a §3.5.5] no FIFO filter: a sync line may use a FIFO alternate, where AD-14 applies (earliest fit, no hold, deadline = fire)', () => {
+    const s = busyS1({}, [{ station_id: 'S2', capacity: 1, policy: 'fifo' }]);
+    const r = submit(s, 'ON', [{ id: 'N', cook: 10, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: null });
+    expect(T(r.plan)).toBe(at(10));
+    expect(line(r.plan, 'N').station_id).toBe('S2');
+    expect(r.state.lines.N).toMatchObject({ station_id: 'S2', fire_ms: at(0), deadline_ms: at(0) });
+    // Held to a pickup: on the FIFO station it still fires at its earliest fit; on the Waada home it would be held.
+    const held = submit(s, 'OP', [{ id: 'P', cook: 10, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: at(60) });
+    expect(held.state.lines.P).toMatchObject({ station_id: 'S1', fire_ms: at(50) });
   });
 });

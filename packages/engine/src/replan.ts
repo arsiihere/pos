@@ -23,7 +23,7 @@ import { effectiveCapacity } from './capacity.js';
 import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
-import { homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
+import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
@@ -32,7 +32,7 @@ export { bookingAt, type Booking, type Placement } from './overload.js';
 // ProposedOrder).
 export type NewLine = Pick<
   EngineLine,
-  'order_item_id' | 'station_id' | 'serve_mode' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms' | 'max_carry_ms'
+  'order_item_id' | 'station_id' | 'serve_mode' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms' | 'max_carry_ms' | 'routed_station_id'
 > & {
   alternates: ReadonlyArray<Alternate>;
 };
@@ -209,10 +209,11 @@ export function syncOrder<L extends NewLine>(state: EngineState, lines: readonly
   return out;
 }
 
-// §3.5.3 / §3.5.5: a new sync line is a FIFO line (AD-14: placed at its earliest fit, no hold) when its allowed
-// stations are FIFO (route.ts offers a sync line only stations of its home's policy).
+// §3.5.3 / AD-14: a new sync line is a FIFO line (placed at its earliest fit in listing order, no hold) when every
+// allowed station is FIFO. A sync line that may also use a held (Waada Guard / EDF) station is routed in the loop,
+// where a FIFO station it is placed on still takes it at its earliest fit (plan.ts trySyncAt).
 export function isFifoLine(ctx: RouteCtx, line: Pick<NewLine, 'serve_mode'>, options: readonly RouteOption[]): boolean {
-  return line.serve_mode === 'sync' && options.length > 0 && ctx.fifo.has(options[0]!.station_id);
+  return line.serve_mode === 'sync' && allFifo(ctx, options);
 }
 
 // §3.5.3 pivot on station S: min over the new lines that may use S (route.ts: their allowed stations) of
@@ -319,10 +320,14 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   };
   const landOn = (sid: string, b: Booking): void => {
     targetOf(sid).add(b);
-    if (idSet.has(sid) && !processed.has(sid)) incoming.set(sid, [...(incoming.get(sid) ?? []), b]);
+    if (idSet.has(sid) && !processed.has(sid)) {
+      const list = incoming.get(sid);
+      if (list === undefined) incoming.set(sid, [b]);
+      else list.push(b);
+    }
   };
   // §3.5.5 D10: the first other allowed station (preference order) where the line fits by its deadline there.
-  const reroute = (L: EngineLine, options: readonly RouteOption[], own: RouteOption): [string, Move] | null => {
+  const reroute = (L: EngineLine, options: readonly RouteOption[], own: Pick<RouteOption, 'station_id' | 'carry_ms' | 'cap'>): [string, Move] | null => {
     for (const opt of options) {
       if (opt.station_id === own.station_id) continue;
       // Same land at the point: slot end moves by the carry difference; d' = slot end' − cook' − prep.
@@ -376,7 +381,26 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     const caps = new Map<string, number>();
     for (const L of pass1Order(state, free, pol.keep_ms, t)) {
       const options = routeOptions(ctx, L, true);
-      const own = optionOn(options, id)!;
+      const own = optionOn(options, id);
+      if (own === undefined) {
+        // §3.5.5 reserve (task 11 review): the line is not home here and the reserve leaves it < 1 unit (the reserve
+        // or an override changed since it was placed): it must leave. Its other allowed stations in preference
+        // order by its deadline there; else — proposed (implementer, overnight) — the first allowed station at its
+        // earliest fit (late; the tick slips it), never refused (D3).
+        const from = { station_id: id, carry_ms: L.carry_ms, cap: effectiveCapacity(station) };
+        const r = reroute(L, options, from);
+        if (r !== null) {
+          away.push(r);
+          continue;
+        }
+        const opt = options[0]!;
+        const d = L.deadline_ms + occupancy(L.units, from.cap, L.cook_ms).cook_ms - occupancy(L.units, opt.cap, L.cook_ms).cook_ms + from.carry_ms - opt.carry_ms;
+        const fire = earliestFit(targetOf(opt.station_id), Math.max(t, d - L.max_early_ms), L.prep_ms, L.cook_ms, L.units, opt.cap);
+        const booked = bookingAt(L, opt.cap, fire);
+        landOn(opt.station_id, booked);
+        away.push([L.order_item_id, { fire, booked, capped: false, to: { ...rerouted(L, opt), deadline_ms: d } }]);
+        continue;
+      }
       caps.set(L.order_item_id, own.cap);
       const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
       const fire =

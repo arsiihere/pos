@@ -221,6 +221,11 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
     expect(replay.lines.L1R).toMatchObject({ station_id: 'S1', max_carry_ms: 90_000, alternates: [{ station_id: 'S2', carry_ms: 0, home: false }] });
     expect(replay.stations.S1!.unfired).toEqual(['L1R']);
     expect(replay.stations.S2!.unfired).toEqual([]);
+    // Task 1 / 8a guard: with no alternate the line stays on its engine station (OrderLinesAdded.lines[].station_id),
+    // which differs from ItemAdded.station_id (S1, kept as the routed station only).
+    const stay = buildEngineState([kitchen, ...log, ...aReturnLinesAdded(servedAdded, 'fix', { recorded_at: at(10), target_land_ms: at(14), line: { station_id: 'S2', alternates: [] } })]);
+    expect(stay.lines.L1R).toMatchObject({ station_id: 'S2', routed_station_id: 'S1', alternates: [] });
+    expect(stay.stations.S2!.unfired).toEqual(['L1R']);
   });
 
   it('[03a #114 engine] a return of a deal_part / option_child line folds with draws [], its own group, never re-opening the old group', () => {

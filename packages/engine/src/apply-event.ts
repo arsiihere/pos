@@ -139,6 +139,7 @@ function listLines(
       load_id: null,
       booked: null,
       capped: false,
+      routed_station_id: l.station_id,
     };
   }
   p.groups.forEach((g, i) => {
@@ -239,6 +240,8 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
       prep_ms: p.prep_buffer_ms ?? 0,
       program_id: p.program_id,
       stock_program_id: p.stock_program_id,
+      // §4.2 / D25: ItemAdded.station_id is the routed (home) station; the line's station_id stays the engine's.
+      routed_station_id: p.station_id ?? listed.station_id,
       draws: ret !== null ? [] : p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
     };
     // The unqueued deadline (AD-4 occupancy); the placement at awaiting = 0 replaces it with the queued one (AD-12).

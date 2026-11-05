@@ -16,33 +16,36 @@
 // station it takes leaves them (rerouted). The allowed set and the home are therefore the same before and after a
 // move, so the fold at awaiting = 0 re-runs exactly planOrder's routing (§3.5.1 "one sequence").
 //
-// Filters (the same for planOrder and the fold, so both see one set):
-//   - the home station is never filtered by max_carry_ms (proposed (implementer, overnight) R2: "its routed
-//     (home) station" is always allowed; every other station, the routed one included when an alternate is home,
-//     must pass the carry test — so the set is the same whichever station the line currently names);
+// Filters (the same for planOrder and the fold, so both see one set) — exactly the spec's (task 11 review):
+//   - the routed station (EngineLine.routed_station_id = ItemAdded.station_id, the D25 home route) is never
+//     filtered by max_carry_ms; every alternate is, a home alternate included ("its routed (home) station or an
+//     alternate … whose carry_ms ≤ max_carry_ms(L)");
 //   - paused stations are not offered to a new line; a placed (hidden) line keeps its own station while it is
 //     paused (§3.10 "open lines continue") and is not moved onto a paused one (proposed (implementer,
 //     overnight) R7);
 //   - alternates only between slot stations (P-3): a line on a batch station has no alternates;
-//   - a station whose capacity for the line (after the reserve) is < 1 is not offered;
-//   - FIFO (§3.5.3, AD-14; proposed (implementer, overnight) R5): a sync line whose home station is FIFO is a FIFO line and is offered
-//     only FIFO stations; any other sync line only non-FIFO ones (it is held to T, and a FIFO station never
-//     holds); an immediate line any. A re-plan never moves a line onto or off a FIFO station.
-// When every station is filtered out (unreachable after checkOrderable except for a carry-filtered set), the line
-// stays on its own station (proposed (implementer, overnight) R8).
+//   - reserve (D8): a station where the line's capacity (effective − reserve_units unless it is the line's home)
+//     is < 1 is not offered, its own station included.
+// No FIFO filter: each station's policy applies to the lines placed on it (plan.ts). Only a re-plan never moves a
+// line onto a FIFO station (§3.5.3 FIFO: lines there are placed at earliestFit(t) in submit order and never
+// re-planned, so an older line cannot join that queue later).
+// When every station is filtered out the line falls back to its own station at its full effective capacity
+// (`fallback`): 'reserve' when the reserve alone shut it out there (D3: placement is never refused; the fold
+// records a 'reserve_fallback' diagnostic — proposed (implementer, overnight)), 'filtered' otherwise (paused /
+// carry; checkOrderable refuses a new line whose fallback station is paused, §3.10).
 import { effectiveCapacity } from './capacity.js';
 import type { EngineLine, EngineState } from './state.js';
 
 export type Alternate = { station_id: string; carry_ms: number; home: boolean };
 
-// What routing reads of a line (an EngineLine, or a line of a ProposedOrder).
-export type RouteLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'carry_ms' | 'max_carry_ms' | 'serve_mode'> & {
+// What routing reads of a line (an EngineLine, or a line of a ProposedOrder: routed_station_id = its station_id).
+export type RouteLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'carry_ms' | 'max_carry_ms' | 'routed_station_id'> & {
   alternates: ReadonlyArray<Alternate>;
 };
 
 // One allowed station of a line: its carry to the point, whether it is the line's home, and the capacity the line
 // may use there (effective capacity, minus reserve_units when it is not the line's home).
-export type RouteOption = { station_id: string; carry_ms: number; home: boolean; cap: number };
+export type RouteOption = { station_id: string; carry_ms: number; home: boolean; cap: number; fallback?: 'reserve' | 'filtered' };
 
 // Per-pass lookups from state.config (built once per placement / re-plan, O(stations)).
 export type RouteCtx = {
@@ -92,37 +95,49 @@ function rawCap(ctx: RouteCtx, station_id: string, home: string): number {
 }
 
 // §3.5.5: the allowed stations of a line, in preference order (home, lowest carry, station_id).
-// placed = false: a new line (planOrder, the fold at awaiting = 0); placed = true: a hidden line in a re-plan (its
-// own station always allowed, D10; never onto a FIFO station).
+// placed = false: a new line (planOrder, the fold at awaiting = 0, checkOrderable); placed = true: a hidden line in a
+// re-plan (its own station allowed while paused, R7; never onto a FIFO station). A placed line whose own station
+// is shut by the reserve gets no option there (pass 1 then moves it, replan.ts).
 export function routeOptions(ctx: RouteCtx, line: RouteLine, placed: boolean): RouteOption[] {
   const stations = ctx.state.stations;
   const home = homeOf(line);
   const own = stations[line.station_id];
   const multi = own !== undefined && own.type === 'slot';
-  const fifoLine = line.serve_mode === 'sync' ? ctx.fifo.has(home) : null;
   const out: RouteOption[] = [];
   for (const e of entriesOf(line)) {
     const isOwn = e.station_id === line.station_id;
     const s = stations[e.station_id];
     if (s === undefined || (!isOwn && (!multi || s.type !== 'slot'))) continue;
     const isHome = e.station_id === home;
-    const raw = rawCap(ctx, e.station_id, home);
+    const cap = rawCap(ctx, e.station_id, home);
+    if (cap < 1) continue;
+    const opt = { station_id: e.station_id, carry_ms: e.carry_ms, home: isHome, cap };
     if (placed && isOwn) {
-      // proposed (implementer, overnight) R4: a placed line whose capacity after the reserve is < 1 (the reserve or an override changed
-      // since it was placed) keeps the station's effective capacity until it moves (no division by zero).
-      out.push({ station_id: e.station_id, carry_ms: e.carry_ms, home: isHome, cap: raw >= 1 ? raw : effectiveCapacity(s) });
+      out.push(opt);
       continue;
     }
-    if (s.paused || raw < 1) continue;
-    if (!isHome && line.max_carry_ms !== null && e.carry_ms > line.max_carry_ms) continue;
-    if (placed ? ctx.fifo.has(e.station_id) : fifoLine !== null && ctx.fifo.has(e.station_id) !== fifoLine) continue;
-    out.push({ station_id: e.station_id, carry_ms: e.carry_ms, home: isHome, cap: raw });
+    if (s.paused) continue;
+    if (e.station_id !== line.routed_station_id && line.max_carry_ms !== null && e.carry_ms > line.max_carry_ms) continue;
+    if (placed && ctx.fifo.has(e.station_id)) continue;
+    out.push(opt);
   }
   if (out.length === 0 && own !== undefined) {
     const raw = rawCap(ctx, line.station_id, home);
-    out.push({ station_id: line.station_id, carry_ms: line.carry_ms, home: line.station_id === home, cap: raw >= 1 ? raw : effectiveCapacity(own) });
+    out.push({
+      station_id: line.station_id,
+      carry_ms: line.carry_ms,
+      home: line.station_id === home,
+      cap: raw >= 1 ? raw : effectiveCapacity(own),
+      fallback: raw >= 1 ? 'filtered' : 'reserve',
+    });
   }
   return out.sort(byPreference);
+}
+
+// §3.5.3 / AD-14: every allowed station of the line is FIFO (it is then placed at its earliest fit in listing
+// order, never held; a line that may also use a held station is routed inside the sync loop instead).
+export function allFifo(ctx: RouteCtx, options: readonly RouteOption[]): boolean {
+  return options.length > 0 && options.every((o) => ctx.fifo.has(o.station_id));
 }
 
 // The option of `station_id` among a line's options (undefined when not allowed).

@@ -34,9 +34,12 @@ export type Interval = { start: number; end: number };
 // AD-4 (ruling 2026-11-05): 'over_capacity' is a warning, not a breach: a line whose units exceed the
 // station's effective capacity, appended by the placing fold in strict and non-strict mode alike, with
 // order_item_id, station_id and detail { units, capacity }. 'invalid_event' (AD-6, task 6 ruling): a writer
-// bug a non-strict order fold skipped, detail { event_type, order_id, order_item_id, reason }.
+// bug a non-strict order fold skipped, detail { event_type, order_id, order_item_id, reason }. 'reserve_fallback'
+// (task 11 review): a new line no allowed station could take (§3.5.5 reserve leaves it < 1 unit everywhere) was
+// booked on its own station at full effective capacity (D3: never refused); order_item_id, station_id, detail
+// { capacity, reserve_units }.
 export type Diagnostic = {
-  kind: 'profile_underflow' | 'stock_breach' | 'over_capacity' | 'invalid_event';
+  kind: 'profile_underflow' | 'stock_breach' | 'over_capacity' | 'invalid_event' | 'reserve_fallback';
   event_id?: string;
   order_item_id?: string;
   station_id?: string;
@@ -142,6 +145,9 @@ export interface EngineLine {
   // unfired lines only (getAlertIntents overload[].capped, task 15). Leftovers include uncapped lines when the
   // 16-probe budget runs out (AD-15 Q4a), so capped = true does not imply max_late_ms ≠ null.
   capped: boolean;
+  // §3.5.5 (task 11 review): the routed station (ItemAdded.station_id, the D25 home route, §4.2), never filtered by
+  // max_carry_ms; kept because station_id / alternates change when the line moves (route.ts R1).
+  routed_station_id: string;
 }
 
 // 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).

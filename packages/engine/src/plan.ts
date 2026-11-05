@@ -99,7 +99,8 @@ export { effectiveCapacity } from './capacity.js';
 type PlanLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms'>;
 
 // A placement with the station it was made on (§3.5.5) and that station's carry to the point.
-export type Routed = Placement & { station_id: string; carry_ms: number };
+// fallback = 'reserve': no allowed station could take the line, booked on its own at full capacity (route.ts).
+export type Routed = Placement & { station_id: string; carry_ms: number; fallback?: 'reserve' };
 
 // The line's booking fits on p when fired at `fire` (latestFit over the one-point window [fire, fire]).
 function fitsAt(p: Profile, line: PlanLine, cap: number, fire: number): boolean {
@@ -134,6 +135,7 @@ function trySyncAt(
   profiles: Readonly<Record<string, Profile>>,
   order: readonly PlanLine[],
   options: ReadonlyMap<string, readonly RouteOption[]>,
+  fifo: ReadonlySet<string>,
   T: number,
   t: number,
 ): { ok: true; placements: Map<string, Routed>; profiles: Record<string, Profile> } | { ok: false; advance: number } {
@@ -153,7 +155,14 @@ function trySyncAt(
       const f0 = fireEndingAt(line, cap, T - o.carry_ms);
       let fire: number | null = null;
       let a = 0;
-      if (f0 >= t && fitsAt(here, line, cap, f0)) {
+      if (fifo.has(sid)) {
+        // §3.5.3 / AD-14 (task 11 review): a FIFO station takes the line at its earliest fit from t, never held;
+        // it fits at T when it lands by T (its land floors the group's T), else T must reach that land.
+        const e = earliestFit(here, t, line.prep_ms, line.cook_ms, line.units, cap);
+        const land = bookingAt(line, cap, e).end + o.carry_ms;
+        if (land <= T) fire = e;
+        else a = land - T;
+      } else if (f0 >= t && fitsAt(here, line, cap, f0)) {
         fire = f0;
       } else if (cs !== undefined && f0 >= t && fitsAt(base, line, cap, f0)) {
         // D36: the conflict is with this order's own siblings only: end where they start.
@@ -171,8 +180,8 @@ function trySyncAt(
       if (fire !== null) {
         const booked = bookingAt(line, cap, fire);
         cur[sid] = addInterval(here, booked, booked.units);
-        chainStart.set(sid, Math.min(cs ?? Number.POSITIVE_INFINITY, booked.start));
-        placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms });
+        if (!fifo.has(sid)) chainStart.set(sid, Math.min(cs ?? Number.POSITIVE_INFINITY, booked.start));
+        placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms, ...(o.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
         placed = true;
         break;
       }
@@ -209,8 +218,9 @@ function holdAndFire(
   }
   // F §4.7 D36: longest cook first (ties by order_item_id), the first one earliest in time; by home station.
   const order = syncOrder(state, lines);
+  const fifo = routeCtx(state).fifo;
   for (;;) {
-    const r = trySyncAt(profiles, order, options, T, t);
+    const r = trySyncAt(profiles, order, options, fifo, T, t);
     if (r.ok) return { T, placements: r.placements, profiles: r.profiles };
     // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs (and route.ts
     // never offers a station where the line's capacity is < 1), and with capacity ≥ 1 every advance comes from a
@@ -285,7 +295,7 @@ function placeSequence(
     const { fire, booked } = tries[k]!;
     const sid = opts[k]!.station_id;
     profiles = { ...profiles, [sid]: addInterval(profiles[sid]!, booked, booked.units) };
-    placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: opts[k]!.carry_ms });
+    placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: opts[k]!.carry_ms, ...(opts[k]!.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
   }
   const targets: number[] = [];
   for (const group of syncGroups) {
@@ -303,7 +313,11 @@ function placeSequence(
     }
     const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g);
     profiles = r.profiles;
-    for (const [id, pl] of r.placements) placements.set(id, pl);
+    for (const [id, pl] of r.placements) {
+      placements.set(id, pl);
+      // AD-14: a line the loop placed on a FIFO station is a FIFO line there (deadline = its fire).
+      if (ctx.fifo.has(pl.station_id)) fifo.add(id);
+    }
     targets.push(r.T);
   }
   return { placements, targets, fifo, moves: p1.moves };
@@ -338,6 +352,16 @@ function bookNew(
     };
     touched.add(sid);
     const cap = effectiveCapacity(station);
+    if (pl.fallback === 'reserve') {
+      // task 11 review: the reserve left the line no station; booked here at full capacity (D3), logged by the host.
+      diagnostics.push({
+        kind: 'reserve_fallback',
+        event_id,
+        order_item_id: line.order_item_id,
+        station_id: sid,
+        detail: { capacity: cap, reserve_units: state.config?.stations.find((c) => c.station_id === sid)?.reserve_units ?? 0 },
+      });
+    }
     if (line.units > cap) {
       diagnostics.push({
         kind: 'over_capacity',
@@ -446,7 +470,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   const T = group!.target_land_ms;
   let loop: { T: number; placements: Map<string, Routed> };
   if (movable.length === 0) {
-    if (!(floor < T)) return next;
+    if (floor === Number.NEGATIVE_INFINITY || !(floor < T)) return next;
     loop = { T: floor, placements: new Map() };
   } else {
     const ctx = routeCtx(next);
@@ -526,14 +550,29 @@ export interface PlanResult {
   }>;
 }
 
-// 03a §6.1d, §3.5.1 step 1 (D21): a line routed only to a paused station (its engine station and every allowed
-// alternate paused) → 409 STATION_PAUSED { station_id } (the line's station). Lines that are not engine lines
-// (§3.2) are never checked; a station the engine does not know is not paused.
+// 03a §6.1d, §3.5.1 step 1 (D21, §3.10): a line routed only to a paused station → 409 STATION_PAUSED
+// { station_id } (the line's station). "Routed" = its §3.5.5 allowed set (carry, reserve, not paused; route.ts):
+// when that set is empty the placement would fall back onto the line's own station, and when that station is
+// paused the line is refused (task 11 review). Lines that are not engine lines (§3.2) are never checked; a station
+// the engine does not know is not paused.
 export function checkOrderable(state: EngineState, proposed: ProposedOrder): void {
+  const ctx = routeCtx(state);
   for (const line of proposed.lines) {
     if (!isEngineLine(line)) continue;
-    const ids = [line.station_id!, ...line.alternates.map((a) => a.station_id)];
-    if (ids.every((id) => state.stations[id]?.paused === true)) {
+    const opts = routeOptions(
+      ctx,
+      {
+        order_item_id: line.order_item_id,
+        station_id: line.station_id!,
+        routed_station_id: line.station_id!,
+        carry_ms: line.carry_ms,
+        max_carry_ms: line.max_carry_ms,
+        alternates: line.alternates,
+      },
+      false,
+    );
+    const only = opts.length === 1 ? opts[0]! : undefined;
+    if (only?.fallback !== undefined && state.stations[only.station_id]?.paused === true) {
       throw new DomainError('STATION_PAUSED', { station_id: line.station_id });
     }
   }
@@ -595,6 +634,7 @@ export function planOrderWith(
       serve_mode: shape.serve_mode,
       max_early_ms: l.max_early_ms,
       max_carry_ms: l.max_carry_ms,
+      routed_station_id: station.station_id,
       alternates: l.alternates,
       from_stock: shape.from_stock,
     };
