@@ -88,9 +88,12 @@ export class Work implements Profile {
 }
 
 // A line as the search reads it: w = weightOf (§3.5.2), urgency = w × (t − placed_at) (the pass-1 tie key).
+// cap (task 11, §3.5.5 reserve, D8): the capacity this line may use on the station when it differs from the
+// station's (a line the station is not home for sees effective capacity − reserve_units); absent = the station's.
 export type OverloadLine = Pick<EngineLine, 'order_item_id' | 'deadline_ms' | 'max_early_ms' | 'max_late_ms' | 'units' | 'prep_ms' | 'cook_ms'> & {
   w: number;
   urgency: number;
+  cap?: number;
 };
 
 export type OverloadResult = {
@@ -124,12 +127,13 @@ function probe(base: Profile, lines: readonly OverloadLine[], cap: number, t: nu
   );
   for (let k = order.length - 1; k >= 0; k--) {
     const { L, key } = order[k]!;
-    const fire = latestFit(work, loOf(L, t), key, L.prep_ms, L.cook_ms, L.units, cap);
+    const c = L.cap ?? cap;
+    const fire = latestFit(work, loOf(L, t), key, L.prep_ms, L.cook_ms, L.units, c);
     if (fire === null) {
       failed.push(L);
       continue;
     }
-    const booked = bookingAt(L, cap, fire);
+    const booked = bookingAt(L, c, fire);
     work.add(booked);
     placements.set(L.order_item_id, { fire, booked });
   }
@@ -182,8 +186,9 @@ export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap
   const left = [...lines.filter((L) => hopeless.has(L.order_item_id)), ...chosen.p.failed];
   const capped = new Set<string>();
   for (const { L } of ascending(left.map((L) => ({ L, key: L.deadline_ms + (L.max_late_ms ?? stretch(L, lambda)) })))) {
-    const fire = earliestFit(work, loOf(L, t), L.prep_ms, L.cook_ms, L.units, cap);
-    const booked = bookingAt(L, cap, fire);
+    const c = L.cap ?? cap;
+    const fire = earliestFit(work, loOf(L, t), L.prep_ms, L.cook_ms, L.units, c);
+    const booked = bookingAt(L, c, fire);
     work.add(booked);
     placements.set(L.order_item_id, { fire, booked });
     capped.add(L.order_item_id);
@@ -201,8 +206,9 @@ export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap
     const old = placements.get(L.order_item_id)!;
     work.remove(old.booked);
     const lo = loOf(L, t);
-    const fire = Math.min(current, latestFit(work, lo, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, cap) ?? earliestFit(work, lo, L.prep_ms, L.cook_ms, L.units, cap));
-    const booked = fire === current ? old.booked : bookingAt(L, cap, fire);
+    const c = L.cap ?? cap;
+    const fire = Math.min(current, latestFit(work, lo, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, c) ?? earliestFit(work, lo, L.prep_ms, L.cook_ms, L.units, c));
+    const booked = fire === current ? old.booked : bookingAt(L, c, fire);
     work.add(booked);
     if (fire !== current) placements.set(L.order_item_id, { fire, booked });
   }

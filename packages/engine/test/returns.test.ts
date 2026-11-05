@@ -189,7 +189,7 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
     expect(s.lines.L1R).toEqual(mid.lines.L1R);
   });
 
-  it('[03a #80] fix: cook_ms_override comes from the event; a later config change does not change a replay; max_carry_ms is the line\'s (routing stub = engine station)', () => {
+  it('[03a #80] fix: cook_ms_override comes from the event; a later config change does not change a replay; max_carry_ms and alternates are the line\'s and drive its routing (§3.5.5, route.test.ts)', () => {
     const { log, servedAdded } = servedFromStock();
     const kitchen = config([{ station_id: 'S1', capacity: 2 }, { station_id: 'S2', capacity: 2 }]);
     // The item's adjust_time_ms was 240 000 when 02 wrote the return (D25 copy); never the 180 000 default.
@@ -215,11 +215,12 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
     });
     const replay2 = buildEngineState([...events, later]);
     expect(replay2.lines.L1R).toEqual(replay.lines.L1R);
-    // The line's own max_carry_ms and alternates are kept (D25); routing is task 11 → it stays on its engine
-    // station (OrderLinesAdded.lines[].station_id, D8), not ItemAdded.station_id (the home route, S1).
-    expect(replay.lines.L1R).toMatchObject({ station_id: 'S2', max_carry_ms: 90_000, alternates: [{ station_id: 'S1', carry_ms: 0, home: true }] });
-    expect(replay.stations.S2!.unfired).toEqual(['L1R']);
-    expect(replay.stations.S1!.unfired).toEqual([]);
+    // The line's own max_carry_ms and alternates are kept (D25) and route it (task 11, §3.5.5): its engine station
+    // is S2 (OrderLinesAdded.lines[].station_id, D8) and S1 is the alternate marked home; both land the return at
+    // the same time → home (D9). The station it leaves joins its alternates.
+    expect(replay.lines.L1R).toMatchObject({ station_id: 'S1', max_carry_ms: 90_000, alternates: [{ station_id: 'S2', carry_ms: 0, home: false }] });
+    expect(replay.stations.S1!.unfired).toEqual(['L1R']);
+    expect(replay.stations.S2!.unfired).toEqual([]);
   });
 
   it('[03a #114 engine] a return of a deal_part / option_child line folds with draws [], its own group, never re-opening the old group', () => {

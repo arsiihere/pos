@@ -7,7 +7,8 @@ import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, isFifo, isHidden, pass1, queueOrder, sortUnfired, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, isFifo, isFifoLine, isHidden, pass1, sortUnfired, syncOrder, type Move, type NewLine, type Placement } from './replan.js';
+import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
@@ -97,6 +98,9 @@ export { effectiveCapacity } from './capacity.js';
 // What the placement reads of a line (an EngineLine, or a line built from a ProposedOrder).
 type PlanLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms'>;
 
+// A placement with the station it was made on (§3.5.5) and that station's carry to the point.
+export type Routed = Placement & { station_id: string; carry_ms: number };
+
 // The line's booking fits on p when fired at `fire` (latestFit over the one-point window [fire, fire]).
 function fitsAt(p: Profile, line: PlanLine, cap: number, fire: number): boolean {
   return latestFit(p, fire, fire, line.prep_ms, line.cook_ms, line.units, cap) === fire;
@@ -118,88 +122,100 @@ function stationOf(stations: Readonly<Record<string, StationRuntime>>, line: Pic
 
 // One trial of the F §4.7 step 3 full pass at candidate T. Each sync line's station interval ends at T − carry
 // (hold, D16). Same-station siblings that collide only with each other are serialised (F §4.7 "Intra-order
-// collisions", D36): sorted longest-cook-first, packed back from T so the shortest lands at T and each longer
-// one ends where the later siblings start. A line that does not fit gives the smallest advance of T that clears
-// its conflict; the caller then repeats the full pass at the advanced T (a pass is trusted only when nothing
-// advanced, so restarting gives the same T as continuing the pass).
+// collisions", D36): taken in syncOrder (shortest first), packed back from T so the shortest lands at T and each
+// longer one ends where the later siblings start. §3.5.5 (task 11): "at candidate T, it fits if it fits at any
+// allowed station with interval ending at T − carry; preference: home, then lowest carry, then station_id" — each
+// line tries its allowed stations in that order (at its capacity there, D8 reserve) and takes the first that fits.
+// A line that fits nowhere gives, per station, the smallest advance of T that clears its conflict there; "T
+// advances by the smallest advance over all allowed stations"; the caller then repeats the full pass at the
+// advanced T (a pass is trusted only when nothing advanced). With one allowed station per line this is task 7's
+// trial exactly.
 function trySyncAt(
   profiles: Readonly<Record<string, Profile>>,
-  stations: Readonly<Record<string, StationRuntime>>,
-  byStation: ReadonlyArray<readonly [string, readonly PlanLine[]]>,
+  order: readonly PlanLine[],
+  options: ReadonlyMap<string, readonly RouteOption[]>,
   T: number,
   t: number,
-): { ok: true; placements: Map<string, Placement>; profiles: Record<string, Profile> } | { ok: false; advance: number } {
-  const out: Record<string, Profile> = { ...profiles };
-  const placements = new Map<string, Placement>();
-  for (const [station_id, sorted] of byStation) {
-    const cap = effectiveCapacity(stations[station_id]!);
-    const base = profiles[station_id]!;
-    let cur = base;
-    let chainStart = Number.POSITIVE_INFINITY;
-    let placedHere = false;
-    for (let k = sorted.length - 1; k >= 0; k--) {
-      const line = sorted[k]!;
-      const f0 = fireEndingAt(line, cap, T - line.carry_ms);
-      let fire: number;
-      if (f0 >= t && fitsAt(cur, line, cap, f0)) {
+): { ok: true; placements: Map<string, Routed>; profiles: Record<string, Profile> } | { ok: false; advance: number } {
+  const cur: Record<string, Profile> = { ...profiles };
+  const chainStart = new Map<string, number>();
+  const placements = new Map<string, Routed>();
+  for (const line of order) {
+    let advance = Number.POSITIVE_INFINITY;
+    let nonPositive: number | null = null;
+    let placed = false;
+    for (const o of options.get(line.order_item_id)!) {
+      const sid = o.station_id;
+      const cap = o.cap;
+      const base = profiles[sid]!;
+      const here = cur[sid]!;
+      const cs = chainStart.get(sid);
+      const f0 = fireEndingAt(line, cap, T - o.carry_ms);
+      let fire: number | null = null;
+      let a = 0;
+      if (f0 >= t && fitsAt(here, line, cap, f0)) {
         fire = f0;
-      } else if (placedHere && f0 >= t && fitsAt(base, line, cap, f0)) {
+      } else if (cs !== undefined && f0 >= t && fitsAt(base, line, cap, f0)) {
         // D36: the conflict is with this order's own siblings only: end where they start.
-        const f = fireEndingAt(line, cap, Math.min(T - line.carry_ms, chainStart));
-        if (f >= t && fitsAt(cur, line, cap, f)) {
+        const f = fireEndingAt(line, cap, Math.min(T - o.carry_ms, cs));
+        if (f >= t && fitsAt(here, line, cap, f)) {
           fire = f;
         } else {
           // The siblings move with T, so the advance is measured against the profile without them.
-          let advance = earliestFit(base, Math.max(f, t), line.prep_ms, line.cook_ms, line.units, cap) - f;
-          if (advance <= 0) advance = earliestFit(cur, Math.max(f, t), line.prep_ms, line.cook_ms, line.units, cap) - f;
-          return { ok: false, advance };
+          a = earliestFit(base, Math.max(f, t), line.prep_ms, line.cook_ms, line.units, cap) - f;
+          if (a <= 0) a = earliestFit(here, Math.max(f, t), line.prep_ms, line.cook_ms, line.units, cap) - f;
         }
       } else {
-        return { ok: false, advance: earliestFit(base, Math.max(f0, t), line.prep_ms, line.cook_ms, line.units, cap) - f0 };
+        a = earliestFit(base, Math.max(f0, t), line.prep_ms, line.cook_ms, line.units, cap) - f0;
       }
-      const booked = bookingAt(line, cap, fire);
-      cur = addInterval(cur, booked, booked.units);
-      chainStart = Math.min(chainStart, booked.start);
-      placedHere = true;
-      placements.set(line.order_item_id, { fire, booked });
+      if (fire !== null) {
+        const booked = bookingAt(line, cap, fire);
+        cur[sid] = addInterval(here, booked, booked.units);
+        chainStart.set(sid, Math.min(cs ?? Number.POSITIVE_INFINITY, booked.start));
+        placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms });
+        placed = true;
+        break;
+      }
+      if (a > 0) advance = Math.min(advance, a);
+      else nonPositive ??= a;
     }
-    out[station_id] = cur;
+    if (!placed) return { ok: false, advance: advance === Number.POSITIVE_INFINITY ? (nonPositive ?? 0) : advance };
   }
-  return { ok: true, placements, profiles: out };
+  return { ok: true, placements, profiles: cur };
 }
 
-// F §4.7 hold-and-fire for one sync group against `profiles` (the profile after the immediate lines, D36):
-// candidate T = max over the group's lines of their slot-formula land time (earliest fit from t, + carry),
-// raised to `floor` (delivery pickup, D3); then full passes until one completes with no advancement.
+// F §4.7 hold-and-fire for one sync group against `profiles` (the profile after the immediate lines, D36; every
+// allowed station of every line present): candidate T = max over the group's lines of their least slot-formula
+// land time over their allowed stations (earliest fit from t, + carry), raised to `floor` (delivery pickup, D3);
+// then full passes until one completes with no advancement.
 // Terminates: T only grows, by ≥ 1 ms per advance, and past the profiles' last boundaries every line fits.
 function holdAndFire(
+  state: EngineState,
   profiles: Readonly<Record<string, Profile>>,
-  stations: Readonly<Record<string, StationRuntime>>,
-  lines: readonly PlanLine[],
+  lines: ReadonlyArray<PlanLine & NewLine>,
+  options: ReadonlyMap<string, readonly RouteOption[]>,
   t: number,
   floor: number | null,
-): { T: number; placements: Map<string, Placement>; profiles: Record<string, Profile> } {
-  const groups = new Map<string, PlanLine[]>();
+): { T: number; placements: Map<string, Routed>; profiles: Record<string, Profile> } {
   let T = floor ?? Number.NEGATIVE_INFINITY;
   for (const line of lines) {
-    const cap = effectiveCapacity(stationOf(stations, line));
-    const fire = earliestFit(profiles[line.station_id]!, t, line.prep_ms, line.cook_ms, line.units, cap);
-    T = Math.max(T, bookingAt(line, cap, fire).end + line.carry_ms);
-    groups.set(line.station_id, [...(groups.get(line.station_id) ?? []), line]);
+    stationOf(state.stations, line);
+    let least = Number.POSITIVE_INFINITY;
+    for (const o of options.get(line.order_item_id)!) {
+      const fire = earliestFit(profiles[o.station_id]!, t, line.prep_ms, line.cook_ms, line.units, o.cap);
+      least = Math.min(least, bookingAt(line, o.cap, fire).end + o.carry_ms);
+    }
+    T = Math.max(T, least);
   }
-  const byStation = [...groups.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([id, ls]) => {
-      const cap = effectiveCapacity(stations[id]!);
-      // F §4.7 D36: longest cook first (ties by order_item_id), the first one earliest in time (queueOrder).
-      return [id, queueOrder(ls, cap)] as const;
-    });
+  // F §4.7 D36: longest cook first (ties by order_item_id), the first one earliest in time; by home station.
+  const order = syncOrder(state, lines);
   for (;;) {
-    const r = trySyncAt(profiles, stations, byStation, T, t);
+    const r = trySyncAt(profiles, order, options, T, t);
     if (r.ok) return { T, placements: r.placements, profiles: r.profiles };
-    // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs, and with
-    // capacity ≥ 1 every advance comes from a fit that failed at the current fire. Kept as a guard (never a
-    // hang): an InvalidEvent, so a non-strict fold records a diagnostic (task 7 review ruling).
+    // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs (and route.ts
+    // never offers a station where the line's capacity is < 1), and with capacity ≥ 1 every advance comes from a
+    // fit that failed at the current fire. Kept as a guard (never a hang): an InvalidEvent, so a non-strict fold
+    // records a diagnostic (task 7 review ruling).
     if (!(r.advance > 0)) throw new InvalidEvent('capacity_invalid', lines[0]!.order_item_id, lines[0]!.station_id);
     T += r.advance;
   }
@@ -211,19 +227,23 @@ export type SequenceOptions = { strict: boolean; prune: boolean };
 
 // §3.5.1 steps 2–4, "one sequence" (G4-1 #3), shared by planOrder / calculateETA and the fold at awaiting = 0, so
 // both reach the same placement for the same (state, t):
-//   2. pass 1 of §3.5.3 (replan.ts) on every station a new line may use (its station and its allowed alternates,
-//      v0.6 G4-2 #23): the older hidden lines are re-placed within their slack, keep first (D6);
-//   3. the immediate lines, each at its earliest fit from t against the profile after pass 1, interval added (D36);
-//      with them, in `listing` order, every sync line on a FIFO station (§3.5.3 "no hold … placed at
-//      earliestFit(t) in submit order; its target is that land time"; AD-14): no hold, no pickup floor;
-//   4. each sync group's hold-and-fire loop over its other lines, in the given order, against the profile after
-//      the steps before it, floored by the pickup and by the land of each of the group's FIFO lines (AD-14: the
-//      group stays one group and T ≥ every FIFO land, so nothing is late at submit). A group of FIFO lines only
-//      has T = max(pickup, their lands).
-// Routing (§3.5.5) is task 11: every new line is placed on its engine station. §3.3: in-flight lines are read only
-// through liveProfiles (inside pass 1); the working profiles include their live intervals and are never stored.
-// Returns the new lines' placements, the groups' targets (loop results), the FIFO-placed sync lines and pass 1's
-// moves of older lines. `listing` = the batch's order_item_ids in listing order (the step-3 order).
+//   2. pass 1 of §3.5.3 (replan.ts) on every station a new line may use (its allowed stations, §3.5.5, v0.6
+//      G4-2 #23): the older hidden lines are re-placed within their slack, keep first (D6);
+//   3. the immediate lines, each at its earliest fit from t on its best station (§3.5.5: minimum arrival = land +
+//      carry; home unless another station beats it by ≥ min_gain_ms) against the profile after pass 1, interval
+//      added (D36); with them, in `listing` order, every FIFO sync line (§3.5.3 "no hold … placed at
+//      earliestFit(t) in submit order; its target is that land time"; AD-14; route.ts: a sync line whose home is
+//      FIFO, offered only FIFO stations, routed like an immediate one): no hold, no pickup floor;
+//   4. each sync group's hold-and-fire loop over its other lines (routed inside the loop, §3.5.5), in the given
+//      order, against the profile after the steps before it, floored by the pickup and by the land of each of the
+//      group's FIFO lines (AD-14: the group stays one group and T ≥ every FIFO land, so nothing is late at submit).
+//      A group of FIFO lines only has T = max(pickup, their lands).
+// Routing reads only the line's own fields (station, alternates with their home flag, carry, max_carry_ms) and
+// the state, and a move keeps the allowed set and the home (route.ts R1), so the fold of planOrder's batch routes
+// as planOrder did. §3.3: in-flight lines are read only through liveProfiles (inside pass 1); the working
+// profiles include their live intervals and are never stored. Returns the new lines' placements (with their
+// station), the groups' targets (loop results), the FIFO-placed sync lines and pass 1's moves of older lines.
+// `listing` = the batch's order_item_ids in listing order (the step-3 order).
 function placeSequence(
   state: EngineState,
   immediates: ReadonlyArray<PlanLine & NewLine>,
@@ -232,42 +252,56 @@ function placeSequence(
   t: number,
   floor: number | null,
   o: SequenceOptions,
-): { placements: Map<string, Placement>; targets: number[]; fifo: Set<string>; moves: Map<string, Placement> } {
+): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move> } {
   const stations = state.stations;
+  const ctx = routeCtx(state);
   const all = [...immediates, ...syncGroups.flat()];
   for (const line of all) stationOf(stations, line);
-  const uses = all.flatMap((l) => [l.station_id, ...l.alternates.map((a) => a.station_id)]);
+  const options = new Map(all.map((l) => [l.order_item_id, routeOptions(ctx, l, false)]));
+  const uses = [...options.values()].flatMap((os) => os.map((x) => x.station_id));
   const p1 = pass1(state, uses, all, t, { prune: o.prune, strict: o.strict });
   let profiles: Record<string, Profile> = p1.profiles;
-  const placements = new Map<string, Placement>();
+  const placements = new Map<string, Routed>();
   // §3.8a: a return line is an immediate placed here — its earliest fit after pass 1 kept the older lines within
   // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines". SEAM (task 16):
   // with settings.returns_boost = true it is placed as a boost of the return line only (§3.9) and may push others.
-  // §3.5.3 FIFO / AD-14: a FIFO station's sync line is placed here like an immediate one.
-  const fifo = new Set(syncGroups.flat().filter((l) => isFifo(state, l.station_id)).map((l) => l.order_item_id));
+  // §3.5.3 FIFO / AD-14: a FIFO sync line is placed here like an immediate one.
+  const fifo = new Set(syncGroups.flat().filter((l) => isFifoLine(ctx, l, options.get(l.order_item_id)!)).map((l) => l.order_item_id));
   const rank = new Map(listing.map((id, i) => [id, i]));
   const step3 = [...immediates, ...syncGroups.flat().filter((l) => fifo.has(l.order_item_id))].sort(
     (a, b) => (rank.get(a.order_item_id) ?? 0) - (rank.get(b.order_item_id) ?? 0),
   );
   for (const line of step3) {
-    const cap = effectiveCapacity(stations[line.station_id]!);
-    const fire = earliestFit(profiles[line.station_id]!, t, line.prep_ms, line.cook_ms, line.units, cap);
-    const booked = bookingAt(line, cap, fire);
-    profiles = { ...profiles, [line.station_id]: addInterval(profiles[line.station_id]!, booked, booked.units) };
-    placements.set(line.order_item_id, { fire, booked });
+    const opts = options.get(line.order_item_id)!;
+    const tries = opts.map((x) => {
+      const fire = earliestFit(profiles[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
+      return { fire, booked: bookingAt(line, x.cap, fire) };
+    });
+    const k = chooseImmediate(
+      ctx,
+      opts,
+      tries.map((x, i) => x.booked.end + opts[i]!.carry_ms),
+    );
+    const { fire, booked } = tries[k]!;
+    const sid = opts[k]!.station_id;
+    profiles = { ...profiles, [sid]: addInterval(profiles[sid]!, booked, booked.units) };
+    placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: opts[k]!.carry_ms });
   }
   const targets: number[] = [];
   for (const group of syncGroups) {
     if (group.length === 0) continue;
     // AD-14: each FIFO line's land floors the group's T.
     let g = floor ?? Number.NEGATIVE_INFINITY;
-    for (const l of group) if (fifo.has(l.order_item_id)) g = Math.max(g, placements.get(l.order_item_id)!.booked.end + l.carry_ms);
+    for (const l of group) {
+      const pl = placements.get(l.order_item_id);
+      if (fifo.has(l.order_item_id)) g = Math.max(g, pl!.booked.end + pl!.carry_ms);
+    }
     const held = group.filter((l) => !fifo.has(l.order_item_id));
     if (held.length === 0) {
       targets.push(g);
       continue;
     }
-    const r = holdAndFire(profiles, stations, held, t, g === Number.NEGATIVE_INFINITY ? null : g);
+    const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g);
     profiles = r.profiles;
     for (const [id, pl] of r.placements) placements.set(id, pl);
     targets.push(r.T);
@@ -278,10 +312,12 @@ function placeSequence(
 // Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
 // on their stations (§3.3, (fire, order_item_id)); a line over effective capacity appends an 'over_capacity'
 // diagnostic (AD-4) in both modes. The stored profile gets only planned bookings, never live intervals (§3.3).
+// §3.5.5: a line goes to the station its placement was made on, with the route fields of that move (route.ts R1;
+// the same station as OrderPlaced.lines[].station_id when the fold routes as planOrder did).
 function bookNew(
   state: EngineState,
   pending: readonly EngineLine[],
-  placements: ReadonlyMap<string, Placement>,
+  placements: ReadonlyMap<string, Routed>,
   deadlines: ReadonlyMap<string, number>,
   event_id: string,
 ): EngineState {
@@ -290,22 +326,24 @@ function bookNew(
   const diagnostics: Diagnostic[] = [];
   const touched = new Set<string>();
   for (const line of pending) {
-    const { fire, booked } = placements.get(line.order_item_id)!;
-    lines[line.order_item_id] = { ...line, fire_ms: fire, booked, capped: false, deadline_ms: deadlines.get(line.order_item_id)! };
-    const station = stations[line.station_id]!;
-    stations[line.station_id] = {
+    const pl = placements.get(line.order_item_id)!;
+    const { fire, booked } = pl;
+    const sid = pl.station_id;
+    lines[line.order_item_id] = { ...line, ...rerouted(line, pl), fire_ms: fire, booked, capped: false, deadline_ms: deadlines.get(line.order_item_id)! };
+    const station = stations[sid]!;
+    stations[sid] = {
       ...station,
       profile: addInterval(station.profile, booked, booked.units),
       unfired: [...station.unfired, line.order_item_id],
     };
-    touched.add(line.station_id);
+    touched.add(sid);
     const cap = effectiveCapacity(station);
     if (line.units > cap) {
       diagnostics.push({
         kind: 'over_capacity',
         event_id,
         order_item_id: line.order_item_id,
-        station_id: line.station_id,
+        station_id: sid,
         detail: { units: line.units, capacity: cap },
       });
     }
@@ -356,13 +394,13 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   const deadlines = new Map<string, number>();
   for (const l of pending) {
     const pl = placed.placements.get(l.order_item_id)!;
-    const T = order.groups[l.group_id]?.target_land_ms ?? pl.booked.end + l.carry_ms;
+    const T = order.groups[l.group_id]?.target_land_ms ?? pl.booked.end + pl.carry_ms;
     // §3.5.3 / AD-14: a FIFO line's target is its own land time, so its deadline is its fire.
     if (placed.fifo.has(l.order_item_id)) {
       deadlines.set(l.order_item_id, pl.fire);
       continue;
     }
-    const lt = l.serve_mode === 'sync' ? loopT.get(l.group_id)! : pl.booked.end + l.carry_ms;
+    const lt = l.serve_mode === 'sync' ? loopT.get(l.group_id)! : pl.booked.end + pl.carry_ms;
     deadlines.set(l.order_item_id, queuedDeadline(pl.fire, lt, T));
   }
   return bookNew(applyMoves(state, placed.moves, event_id, o.strict), pending, placed.placements, deadlines, event_id);
@@ -373,11 +411,14 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
 // latest-start times of the remaining items in that order are recalculated; target land time may move earlier").
 // Called after the ended line left the profile (AD-7). Reading (report): the one sequence again —
 //   1. pass 1 on the ended line's station, with the group's hidden lines held where they are (fixed input);
-//   2. the group's hold-and-fire loop over its hidden lines on all their stations, against the live profiles
-//      after step 1 without those lines; floor = the pickup time and the land time (live interval end + carry)
-//      of every other open line of the group that cannot move (frozen, fired, COOKING);
+//   2. the group's hold-and-fire loop over its hidden lines on all their allowed stations (§3.5.5: a hidden line may
+//      change station, D10; never onto / off a FIFO station), against the live profiles after step 1 without those
+//      lines; floor = the pickup time and the land time (live interval end + carry) of every other open line of the
+//      group that cannot move (frozen, fired, COOKING, FIFO);
 //   3. loop < T → the hidden lines take the loop placement, the group T and every group line's deadline become
 //      T', the order T = max over its groups; otherwise nothing of the group changes (T kept).
+//      With no hidden line left to re-loop (task 11 fix: e.g. only FIFO siblings remain) the loop result is the
+//      floor itself: T' = min(T, floor).
 // Promises (EngineOrder.promise_ms) are never touched. An immediate line is its own group: nothing to re-loop.
 export function replanEnded(state: EngineState, ended: EngineLine, t: number, event_id: string, o: SequenceOptions): EngineState {
   const order = state.orders[ended.order_id];
@@ -394,29 +435,45 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   const held = new Set(movable.map((l) => l.order_item_id));
   const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
   let next = applyMoves(state, p1.moves, event_id, o.strict);
-  if (movable.length === 0) return next;
+  if (siblings.length === 0) return next;
 
-  const ids = [...new Set(movable.map((l) => l.station_id))];
-  const live = liveProfiles(next, ids, t);
-  const profiles: Record<string, Profile> = { ...live };
-  for (const l of movable) {
-    const b = l.booked!;
-    profiles[l.station_id] = o.strict
-      ? removeInterval(profiles[l.station_id]!, b, b.units)
-      : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
-  }
   let floor = order!.pickup_at_ms ?? Number.NEGATIVE_INFINITY;
   for (const l of siblings) {
     if (held.has(l.order_item_id)) continue;
     const iv = liveInterval(next, l.order_item_id, t);
     if (iv !== null) floor = Math.max(floor, iv.end + l.carry_ms);
   }
-  for (const l of movable) stationOf(next.stations, l);
-  const loop = holdAndFire(profiles, next.stations, movable, t, floor === Number.NEGATIVE_INFINITY ? null : floor);
   const T = group!.target_land_ms;
-  if (!(loop.T < T)) return next;
-
-  next = applyMoves(next, loop.placements, event_id, o.strict);
+  let loop: { T: number; placements: Map<string, Routed> };
+  if (movable.length === 0) {
+    if (!(floor < T)) return next;
+    loop = { T: floor, placements: new Map() };
+  } else {
+    const ctx = routeCtx(next);
+    const lines = movable.map((l) => next.lines[l.order_item_id]!);
+    const options = new Map(lines.map((l) => [l.order_item_id, routeOptions(ctx, l, true)]));
+    const ids = [...new Set([...options.values()].flatMap((os) => os.map((x) => x.station_id)))];
+    const profiles: Record<string, Profile> = { ...liveProfiles(next, ids, t) };
+    for (const l of lines) {
+      const b = l.booked!;
+      profiles[l.station_id] = o.strict
+        ? removeInterval(profiles[l.station_id]!, b, b.units)
+        : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
+    }
+    for (const l of lines) stationOf(next.stations, l);
+    loop = holdAndFire(next, profiles, lines, options, t, floor === Number.NEGATIVE_INFINITY ? null : floor);
+    if (!(loop.T < T)) return next;
+    const moves = new Map<string, Move>();
+    for (const l of lines) {
+      const pl = loop.placements.get(l.order_item_id)!;
+      const { station_id, carry_ms, ...placement } = pl;
+      moves.set(
+        l.order_item_id,
+        station_id === l.station_id ? placement : { ...placement, to: { ...rerouted(l, { station_id, carry_ms }), deadline_ms: pl.fire } },
+      );
+    }
+    next = applyMoves(next, moves, event_id, o.strict);
+  }
   // AD-12: the group's queued deadlines at T'. A re-looped line's slot is its loop placement (loopT = T'); a
   // sibling that cannot move keeps its slot, never later than its unqueued deadline at T'.
   const lines = { ...next.lines };
@@ -537,6 +594,7 @@ export function planOrderWith(
       carry_ms: l.carry_ms,
       serve_mode: shape.serve_mode,
       max_early_ms: l.max_early_ms,
+      max_carry_ms: l.max_carry_ms,
       alternates: l.alternates,
       from_stock: shape.from_stock,
     };
@@ -555,12 +613,13 @@ export function planOrderWith(
   );
 
   const order_type = proposed.order.order_type;
-  const land = (l: PlanLine): number => placed.placements.get(l.order_item_id)!.booked.end + l.carry_ms;
+  const placementOf = (l: PlanLine): Routed => placed.placements.get(l.order_item_id)!;
+  const land = (l: PlanLine): number => placementOf(l).booked.end + placementOf(l).carry_ms;
   let index = state.orders[proposed.order_id]?.next_group_index ?? 0;
   const groups: PlanResult['groups'] = [];
   if (sync.length > 0) {
     const T = placed.targets[0]!;
-    const padding = Math.max(...sync.map((l) => paddingOf(state, l.station_id, order_type)));
+    const padding = Math.max(...sync.map((l) => paddingOf(state, placementOf(l).station_id, order_type)));
     groups.push({ group_id: `${proposed.order_id}:${index++}`, target_land_ms: T, promise_ms: T + padding, order_item_ids: sync.map((l) => l.order_item_id) });
   }
   for (const l of immediates) {
@@ -568,21 +627,26 @@ export function planOrderWith(
     groups.push({
       group_id: `${proposed.order_id}:${index++}`,
       target_land_ms: T,
-      promise_ms: T + paddingOf(state, l.station_id, order_type),
+      promise_ms: T + paddingOf(state, placementOf(l).station_id, order_type),
       order_item_ids: [l.order_item_id],
     });
   }
+  // §4.2: OrderPlaced.lines[].station_id is the engine's starting station (D8): the chosen one, with its carry,
+  // and the other allowed stations as alternates (route.ts R1).
   return {
     groups,
-    lines: planLines.map((l, i) => ({
-      order_item_id: l.order_item_id,
-      station_id: l.station_id,
-      alternates: engineLines[i]!.alternates.map((a) => ({ ...a })),
-      point_id: engineLines[i]!.point_id,
-      carry_ms: l.carry_ms,
-      from_stock: l.from_stock,
-      eta_ms: land(l),
-    })),
+    lines: planLines.map((l, i) => {
+      const r = rerouted(l, placementOf(l));
+      return {
+        order_item_id: l.order_item_id,
+        station_id: r.station_id,
+        alternates: r.alternates,
+        point_id: engineLines[i]!.point_id,
+        carry_ms: r.carry_ms,
+        from_stock: l.from_stock,
+        eta_ms: land(l),
+      };
+    }),
   };
 }
 

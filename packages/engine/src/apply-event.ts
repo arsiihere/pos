@@ -348,16 +348,18 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict:
 // §3.4 FireDispatched: each listed line that is unfired gets fired_at = recorded_at and the event's load_id
 // (§3.3: the load name is fixed here) and fire_ms = min(fire_ms, recorded_at) (AD-9); its planned booking leaves the
 // profile and it leaves unfired, so from now on it occupies its packed live interval (§3.3). A fired line is never
-// fired twice: a listed line already fired, started or ended is left as it is; a listed id not in the state is
-// skipped. AD-8 (8b): a listed line on another station than payload.station_id, or of an order still awaiting lines,
-// is a writer bug — strict throws; non-strict that line is left untouched with one invalid_event diagnostic and the
-// other lines fire. §3.3: the fold refreshes last_line_fold_at of each order it fires a line of.
+// fired twice: a listed line already fired, started or ended is left as it is (before any check: once lines can
+// change station, §3.5.5, a re-listed line may sit on another station by now); a listed id not in the state is
+// skipped. AD-8 (8b): a line about to fire that is on another station than payload.station_id, or of an order
+// still awaiting lines, is a writer bug — strict throws; non-strict that line is left untouched with one
+// invalid_event diagnostic and the other lines fire. §3.3: the fold refreshes last_line_fold_at of each order it
+// fires a line of.
 function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   for (const id of p.order_item_ids) {
     const line = lineOf(next, id);
-    if (line === undefined) continue;
+    if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
     const bug =
       line.station_id !== p.station_id ? 'station_mismatch' : (next.orders[line.order_id]?.awaiting ?? 0) > 0 ? 'order_awaiting' : null;
     if (bug !== null) {
@@ -366,7 +368,6 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
       next = addDiagnostic(next, invalidEventDiagnostic(event, e));
       continue;
     }
-    if (line.stage !== 'added' || line.fired_at !== null) continue;
     // AD-9: a pulled / early_fill line packs from its actual dispatch and sorts by it (the planned fire stays in
     // the event's due_at); a scheduled or missed fire (recorded_at ≥ fire_ms) keeps fire_ms.
     const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
