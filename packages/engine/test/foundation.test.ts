@@ -1,9 +1,18 @@
 // Foundation §4.7 "Required unit tests for @pos/engine" (F tests 1–15), relative to T = 1_761_000_000_000.
 // Times are in ms as the foundation writes them; the engine reads them as integer ms.
 import { parseEvent, type EngineConfig, type ItemAddedPayload } from '@pos/events';
-import { anEngineConfigApplied, anItemAdded, anOrderBatch } from '@pos/events/testing';
+import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemDone, anItemStarted, anOrderBatch } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { addInterval, applyEvent, initialEngineState, planOrder, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
+import {
+  addInterval,
+  applyEvent,
+  initialEngineState,
+  liveInterval,
+  planOrder,
+  type EngineState,
+  type PlanResult,
+  type ProposedOrder,
+} from '../src/index';
 
 const T = 1_761_000_000_000;
 const PAD = 180_000;
@@ -36,14 +45,14 @@ function kitchen(reservations: Record<string, Array<[number, number]>>, capacity
 
 type Item = { id: string; station: string; cook: number; prep?: number; mode?: 'sync' | 'immediate' };
 
-function order(items: Item[]): ProposedOrder {
+function order(items: Item[], order_id = 'O1'): ProposedOrder {
   const base = anItemAdded().payload as unknown as ItemAddedPayload;
   return deepFreeze({
-    order_id: 'O1',
+    order_id,
     order: { order_type: 'dine_in', table_id: 'T12', table_key: 'dine_in:T12', follow_up: false, pickup_at_ms: null },
     lines: items.map((i) => ({
       ...base,
-      order_id: 'O1',
+      order_id,
       order_item_id: i.id,
       station_id: i.station,
       cook_time_ms: i.cook,
@@ -63,12 +72,12 @@ function order(items: Item[]): ProposedOrder {
 }
 
 // Plans at now = T, then folds the batch 02 would append at recorded_at = T (the same placement, §3.5.1).
-function submit(state: EngineState, items: Item[]): { plan: PlanResult; state: EngineState } {
-  const plan = planOrder(state, order(items), T, {});
+function submit(state: EngineState, items: Item[], now = T, order_id = 'O1', seq = 10): { plan: PlanResult; state: EngineState } {
+  const plan = planOrder(state, order(items, order_id), now, {});
   const batch = anOrderBatch({
-    order_id: 'O1',
-    recorded_at: T,
-    seq: 10,
+    order_id,
+    recorded_at: now,
+    seq,
     lines: items.map((i) => ({
       order_item_id: i.id,
       item: { station_id: i.station, cook_time_ms: i.cook, prep_buffer_ms: i.prep ?? 0, serve_mode: i.mode ?? 'sync' },
@@ -173,3 +182,51 @@ describe('@pos/engine foundation §4.7 required tests (slot ETA, hold-and-fire)'
   });
 });
 
+// Real lines for the overrun tests (D33): an order per line on station X, folded at recorded_at = T.
+function stageEvents(o: { order_id: string; id: string; at: number; seq: number }) {
+  const env = { stream_id: o.order_id, recorded_at: o.at, occurred_at: o.at, seq: o.seq, event_id: `01JF${String(o.seq).padStart(22, '0')}` };
+  return {
+    fire: deepFreeze(aFireDispatched({ ...env, stream_id: 'X', payload: { station_id: 'X', order_item_ids: [o.id], due_at: o.at } })),
+    start: deepFreeze(anItemStarted({ ...env, payload: { order_item_id: o.id, started_at: o.at } })),
+    done: deepFreeze(anItemDone({ ...env, payload: { order_item_id: o.id, done_at: o.at } })),
+  };
+}
+
+describe('@pos/engine foundation §4.7 required tests (Done early, overrun, D33)', () => {
+  it('[03a F #4] Done early frees capacity for the next item', () => {
+    // Reservation A [T, T + 20) (fired and started at T), reservation B [T + 20, T + 40).
+    let s = submit(kitchen({ X: [] }), [{ id: 'A', station: 'X', cook: 20 }], T, 'O1', 10).state;
+    s = submit(s, [{ id: 'B', station: 'X', cook: 20 }], T, 'O2', 20).state;
+    expect(s.lines.A!.booked).toEqual({ start: T, end: T + 20, units: 1 });
+    expect(s.lines.B!.booked).toEqual({ start: T + 20, end: T + 40, units: 1 });
+    s = applyEvent(s, stageEvents({ order_id: 'O1', id: 'A', at: T, seq: 30 }).fire);
+    s = deepFreeze(applyEvent(s, stageEvents({ order_id: 'O1', id: 'A', at: T, seq: 31 }).start));
+    // Control: still COOKING at T + 11, A occupies [T, T + 20), so C goes after B.
+    expect(liveInterval(s, 'A', T + 11)).toEqual({ start: T, end: T + 20 });
+    expect(eta(planOrder(s, order([{ id: 'C', station: 'X', cook: 5 }], 'O3'), T + 11, {}), 'C')).toBe(T + 45);
+
+    // Done for A at T + 10: A's endsAt → T + 10 (it occupies nothing from then on).
+    s = deepFreeze(applyEvent(s, stageEvents({ order_id: 'O1', id: 'A', at: T + 10, seq: 32 }).done));
+    expect(s.lines.A!.done_at).toBe(T + 10);
+    expect(liveInterval(s, 'A', T + 11)).toBeNull();
+    const { plan, state: after } = submit(s, [{ id: 'C', station: 'X', cook: 5 }], T + 11, 'O3', 40);
+    expect(after.lines.C!.fire_ms).toBe(T + 11);
+    expect(after.lines.C!.booked).toEqual({ start: T + 11, end: T + 16, units: 1 });
+    expect(eta(plan, 'C')).toBe(T + 16);
+    // Without overlapping B.
+    expect(after.lines.B!.booked).toEqual({ start: T + 20, end: T + 40, units: 1 });
+  });
+
+  it('[03a F #8] an overrunning item blocks the next slot (D33)', () => {
+    let s = submit(kitchen({ X: [] }), [{ id: 'A', station: 'X', cook: 20 }], T, 'O1', 10).state;
+    expect(s.lines.A!.booked).toEqual({ start: T, end: T + 20, units: 1 }); // planned endsAt = T + 20
+    s = applyEvent(s, stageEvents({ order_id: 'O1', id: 'A', at: T, seq: 30 }).fire);
+    s = deepFreeze(applyEvent(s, stageEvents({ order_id: 'O1', id: 'A', at: T, seq: 31 }).start));
+    // now = T + 25, A still COOKING: live_endsAt(A) = T + 25.
+    expect(liveInterval(s, 'A', T + 25)).toEqual({ start: T, end: T + 25 });
+    const { plan, state: after } = submit(s, [{ id: 'B', station: 'X', cook: 10 }], T + 25, 'O2', 40);
+    expect(after.lines.B!.fire_ms!).toBeGreaterThanOrEqual(T + 25);
+    expect(after.lines.B!.booked).toEqual({ start: T + 25, end: T + 35, units: 1 });
+    expect(eta(plan, 'B')).toBeGreaterThanOrEqual(T + 35);
+  });
+});

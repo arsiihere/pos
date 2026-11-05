@@ -1,7 +1,12 @@
 import type { Unit } from '@pos/domain';
 import type {
   EngineConfig,
+  FireDispatchedPayload,
   ItemAddedPayload,
+  ItemDonePayload,
+  ItemServedPayload,
+  ItemStartedPayload,
+  ItemVoidedPayload,
   OrderGroupPayload,
   OrderLinePayload,
   OrderLinesAddedPayload,
@@ -9,6 +14,7 @@ import type {
   PosEvent,
 } from '@pos/events';
 import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines } from './plan.js';
+import { removeInterval, type Underflow } from './profile.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
@@ -240,6 +246,118 @@ function foldItemAdded(state: EngineState, event: PosEvent, strict: boolean): En
   return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id) : next;
 }
 
+// ---- §3.4 stage folds (stage only; their stock effects are task 12) -------------------------------------------
+
+// The line a stage event names, or undefined when it is not in the state or is still a placeholder (§3.3 absent
+// ids: a no-op; AD-8 reader rule: a placeholder is not yet a line).
+function lineOf(state: EngineState, order_item_id: string): EngineLine | undefined {
+  const line = state.lines[order_item_id];
+  return line === undefined || isPlaceholder(line) ? undefined : line;
+}
+
+// AD-7: takes a line off its station's planned profile, removing exactly `booked` and clearing it, and drops it
+// from `unfired`. AD-6: strict → removeInterval throws on an underflow; non-strict → it clamps and the fold
+// appends a 'profile_underflow' diagnostic. A line with nothing booked and not in unfired returns state itself.
+function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: boolean): EngineState {
+  const station = state.stations[line.station_id];
+  if (station === undefined) return state;
+  const id = line.order_item_id;
+  const inUnfired = station.unfired.includes(id);
+  if (line.booked === null && !inUnfired) return state;
+  let underflow: Underflow | null = null;
+  let profile = station.profile;
+  if (line.booked !== null) {
+    profile = strict
+      ? removeInterval(profile, line.booked, line.booked.units)
+      : removeInterval(profile, line.booked, line.booked.units, (u) => {
+          underflow = u;
+        });
+  }
+  const next: EngineState = {
+    ...state,
+    stations: { ...state.stations, [station.station_id]: { ...station, profile, unfired: inUnfired ? station.unfired.filter((x) => x !== id) : station.unfired } },
+    lines: { ...state.lines, [id]: { ...line, booked: null } },
+  };
+  if (underflow === null) return next;
+  const { at, deficit } = underflow as Underflow;
+  return addDiagnostic(next, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { order_item_id: id, at, deficit } });
+}
+
+function patchLine(state: EngineState, id: string, patch: Partial<EngineLine>): EngineState {
+  return { ...state, lines: { ...state.lines, [id]: { ...state.lines[id]!, ...patch } } };
+}
+
+// A line leaves the planned profile and takes `stage` (and the other fields of `patch`).
+function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict: boolean, patch: Partial<EngineLine>): EngineState {
+  return patchLine(unbook(state, line, event, strict), line.order_item_id, patch);
+}
+
+// §3.4 FireDispatched: each listed line that is unfired gets fired_at = recorded_at and the event's load_id
+// (§3.3: the load name is fixed here); its planned booking leaves the profile and it leaves unfired, so from
+// now on it occupies its packed live interval (§3.3). A fired line is never fired twice: a listed line already
+// fired, started or ended is left as it is; a listed id not in the state is skipped.
+function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as FireDispatchedPayload;
+  let next = state;
+  for (const id of p.order_item_ids) {
+    const line = lineOf(next, id);
+    if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
+    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id });
+  }
+  return next;
+}
+
+// §3.4 ItemStarted: ADDED → COOKING, started_at = min(started_at, recorded_at) (§3.3, §4.2). A Start on a line
+// that was never fired also takes its planned booking off the profile. Any other stage: no change.
+function foldItemStarted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ItemStartedPayload;
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined || line.stage !== 'added') return state;
+  return moveLine(state, line, event, strict, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+}
+
+// §3.4 ItemDone: COOKING (or a line never started) → DONE, done_at = min(done_at, recorded_at) (§4.2). A done
+// line occupies nothing (F §4.7 test 4: Done early frees capacity).
+function foldItemDone(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ItemDonePayload;
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) return state;
+  return moveLine(state, line, event, strict, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+}
+
+// §3.4, D16 ItemDoneUndone: DONE → COOKING; done_at cleared, so liveInterval gives it its COOKING occupancy
+// again (test 51). A line done without a Start keeps its done time as the latest possible Start.
+function foldItemDoneUndone(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as { order_item_id: string };
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined || line.stage !== 'done') return state;
+  return patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at });
+}
+
+const OPEN_STAGES: ReadonlySet<EngineLine['stage']> = new Set(['added', 'cooking', 'done']);
+
+// §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3).
+function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ItemServedPayload;
+  let next = state;
+  for (const id of p.order_item_ids) {
+    const line = lineOf(next, id);
+    if (line === undefined || !OPEN_STAGES.has(line.stage)) continue;
+    next = moveLine(next, line, event, strict, { stage: 'served' });
+  }
+  return next;
+}
+
+// §3.4 ItemRemoved / ItemVoided: any stage before served → removed / voided. BF-12: a partial ItemVoided
+// (units < the line's units) lowers units and draws in task 12; here only a void of the whole line ends it.
+function foldItemEnded(state: EngineState, event: PosEvent, strict: boolean, stage: 'removed' | 'voided'): EngineState {
+  const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined || !OPEN_STAGES.has(line.stage)) return state;
+  if (stage === 'voided' && p.units! < line.units) return state;
+  return moveLine(state, line, event, strict, { stage });
+}
+
 function invalidEventDiagnostic(event: PosEvent, e: InvalidEvent): Diagnostic {
   const p = event.payload as { order_id?: unknown };
   return {
@@ -330,20 +448,27 @@ function fold(state: EngineState, event: PosEvent, strict: boolean): EngineState
       return foldOrderLinesAdded(state, event);
     case 'ItemAdded':
       return foldItemAdded(state, event, strict);
-    // 03a §3.12 types whose folds land in later tasks: unchanged until then.
+    case 'FireDispatched':
+      return foldFireDispatched(state, event, strict);
     case 'ItemStarted':
+      return foldItemStarted(state, event, strict);
     case 'ItemDone':
+      return foldItemDone(state, event, strict);
     case 'ItemDoneUndone':
+      return foldItemDoneUndone(state, event);
     case 'ItemServed':
+      return foldItemServed(state, event, strict);
     case 'ItemRemoved':
+      return foldItemEnded(state, event, strict, 'removed');
     case 'ItemVoided':
+      return foldItemEnded(state, event, strict, 'voided');
+    // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'ItemMovedToStock':
     case 'ItemReturned':
     case 'OrderBoosted':
     case 'ItemsReleased':
     case 'SlipWarned':
     case 'AlertClosed':
-    case 'FireDispatched':
     case 'ReservationsShifted':
     case 'StationCapacitySet':
     case 'StationPauseSet':

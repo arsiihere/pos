@@ -5,3 +5,4 @@ export * from './version.js';
 export * from './replay-events.js';
 export * from './profile.js';
 export { calculateETA, checkOrderable, planOrder, type PlanResult, type ProposedLine, type ProposedOrder } from './plan.js';
+export { liveInterval } from './live.js';
