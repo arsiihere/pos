@@ -133,6 +133,20 @@ describe('@pos/engine overload Λ search (§3.5.6, D5, AD-15)', () => {
     expect(maxU(r.profile)).toBeLessThanOrEqual(1);
   });
 
+  it('[03a #27] a cap-0 line that lands on time is not capped; one that is actually late is', () => {
+    const empty = deepFreeze({ t: [], u: [] });
+    const a = overloadPlace(empty, deepFreeze([line('A', { deadline_ms: 10 * M }), line('B', { max_late_ms: 0 })]), 1, 0, STEP);
+    expect(fireOf(a, 'B')).toBe(0);
+    expect(a.capped).toEqual([]);
+    const b = overloadPlace(empty, deepFreeze([line('A'), line('B', { deadline_ms: 10 * M, max_late_ms: 0 })]), 1, 0, STEP);
+    expect(fireOf(b, 'B')).toBe(10 * M);
+    expect(b.capped).toEqual([]);
+    // The slot is busy until 5 min: B (cap 0, due 0) cannot be on time → placed after the others and capped.
+    const c = overloadPlace(deepFreeze({ t: [0, 5 * M], u: [1, 0] }), deepFreeze([line('B', { max_late_ms: 0 })]), 1, 0, STEP);
+    expect(fireOf(c, 'B')).toBe(5 * M);
+    expect(c.capped).toEqual(['B']);
+  });
+
   it('[03a #27] a capped line that cannot fit by its cap goes at earliestFit after the others, flagged capped (never a refusal)', () => {
     const base = deepFreeze({ t: [0, 10 * M], u: [1, 0] });
     const r = overloadPlace(base, deepFreeze([line('A'), line('B', { max_late_ms: 5 * M })]), 1, 0, STEP);

@@ -22,7 +22,7 @@
 //   - If 16 probes find no success, the largest Λ probed is used and every line that did not fit there is placed at
 //     earliestFit after the others.
 //   - `capped` = the lines placed after the others, plus the lines whose final lateness (fire − d, after the AD-16
-//     compaction below) is ≥ max_late_ms: §3.10 raises station_overload when a line reaches its cap.
+//     compaction below) is > 0 and ≥ max_late_ms: §3.10 raises station_overload when a line reaches its cap.
 // A reporting cap, never a refusal (D3): every line gets a placement.
 import { earliestFit, latestFit, occupancy } from './profile.js';
 import type { EngineLine, Profile } from './state.js';
@@ -191,7 +191,8 @@ export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap
   // AD-16 (developer ruling 2026-11-06): forward compaction. Backward latestFit(hi = d_Λ) can leave a line later
   // than it needs to be (a free slot by its own deadline lies before it). In execution order (ascending fire, ties
   // by order_item_id) each line is taken off the local profile and moved earlier, never later:
-  // min(current fire, latestFit(lo, d) ?? earliestFit(lo)), then re-added. Λ and the order are the search's.
+  // min(current fire, latestFit(lo, d) ?? earliestFit(lo)), then re-added. Λ is the search's, and the lines are
+  // walked in the search's execution order (the final firing order may differ; lateness never rises).
   // One extra linear pass (one fit pair + one remove / add per line).
   const exec = lines
     .map((L) => ({ L, fire: placements.get(L.order_item_id)!.fire }))
@@ -206,7 +207,11 @@ export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap
     if (fire !== current) placements.set(L.order_item_id, { fire, booked });
   }
   // Held at the cap, from the final placement (§3.10: a line reaches its max_late_ms cap; AD-16).
-  for (const L of withCap) if (placements.get(L.order_item_id)!.fire - L.deadline_ms >= L.max_late_ms!) capped.add(L.order_item_id);
+  // Only a line that is actually late counts (AD-15): lateness > 0 and ≥ max_late_ms.
+  for (const L of withCap) {
+    const late = placements.get(L.order_item_id)!.fire - L.deadline_ms;
+    if (late > 0 && late >= L.max_late_ms!) capped.add(L.order_item_id);
+  }
 
   return {
     profile: work.snapshot(),
