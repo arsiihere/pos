@@ -167,10 +167,13 @@ describe('@pos/engine EngineState v3', () => {
     let s = initialEngineState();
     for (const e of log) s = applyEvent(s, e, { strict: false });
     expect(s).toEqual(strict);
-    // Today's StockAdded unit mismatch throw is unchanged by the flag (stock breaches move to diagnostics in task 12).
+    // Task 12 (BF-13, A-20): a StockAdded unit mismatch throws only when strict; non-strict leaves the entry as it is
+    // and appends one 'stock_breach' diagnostic.
     const mismatch = { ...aStockSet({ recorded_at: T0 + 2 }), event_type: 'StockAdded', payload: { stock_item_id: 'I1', quantity: 1, unit: 'g' } } as PosEvent;
     expect(() => applyEvent(strict, mismatch)).toThrow('StockAdded unit mismatch');
-    expect(() => applyEvent(strict, mismatch, { strict: false })).toThrow('StockAdded unit mismatch');
+    const loose = applyEvent(strict, mismatch, { strict: false });
+    expect(loose.stock).toEqual(strict.stock);
+    expect(loose.diagnostics).toMatchObject([{ kind: 'stock_breach', event_id: mismatch.event_id, stock_item_id: 'I1' }]);
   });
 
   it('[03a AD-6] addDiagnostic appends to a copy and never mutates the input', () => {

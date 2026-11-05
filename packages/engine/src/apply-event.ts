@@ -15,12 +15,12 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { capacityFor } from './replan.js';
-import { checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { capacityFor, pass1, stationPolicy } from './replan.js';
+import { applyPass1, checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
 import { removeInterval, type Underflow } from './profile.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
-import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime } from './state.js';
+import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
@@ -28,6 +28,8 @@ import { stockOf } from './stock.js';
 // StockSet / StockAdded v2 (01c V5): keyed by stock_item_id; parseEvent upcasts v1.
 interface StockSet { stock_item_id: string; on_hand: number; unit: Unit }
 interface StockAdded { stock_item_id: string; quantity: number; unit: Unit }
+// StockReserved / StockReleased / StockConsumed v1 (03a §4.2): one draw of one line.
+interface StockLine { stock_item_id: string; order_item_id: string; quantity: number }
 // BusinessDayOpened v2 (01c §5.3 row 3): parseEvent upcasts v1.
 interface BusinessDayOpened { business_date: string; stock_units: Record<string, Unit>; draws: Record<string, DayDraws> }
 
@@ -487,18 +489,199 @@ function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): E
 }
 
 // §3.4 ItemRemoved / ItemVoided: any stage before served → removed / voided. BF-12: a partial ItemVoided
-// (units < the line's units) lowers units and draws in task 12; here only a void of the whole line ends it (a
-// partial one only refreshes last_line_fold_at). §3.5.3 triggers (D13): the line's station is re-planned at
-// recorded_at and its group's T may move earlier, never later (replanEnded, test 89). The end that leaves no line
-// open sets last_served_at (§3.3).
+// (units < the line's units) is partialVoid below; a void of the whole line ends it. §3.5.3 triggers (D13): the
+// line's station is re-planned at recorded_at and its group's T may move earlier, never later (replanEnded, test
+// 89). The end that leaves no line open sets last_served_at (§3.3).
+// Proposed (implementer, overnight): a whole void keeps the line's units and draws[].quantity (BF-12 "voided only
+// when no unit is left": the stage says no unit is left; units 0 would read as an AD-8 placeholder); its releases
+// then take every draw's reserved to 0.
 function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, stage: 'removed' | 'voided'): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || !isOpen(line)) return state;
-  if (stage === 'voided' && p.units! < line.units) return touchOrder(state, line.order_id, event.recorded_at);
+  if (stage === 'voided' && p.units! < line.units) return touchOrder(partialVoid(state, line, p.units!, event, o), line.order_id, event.recorded_at);
   const ended = moveLine(state, line, event, strict, { stage });
   return touchOrder(replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o), line.order_id, event.recorded_at);
+}
+
+// BF-12 (§3.7 partial-void share, v0.6.2 G4-3 #2): the cause's fold lowers the line's units by the voided units and
+// every draws[].quantity by its share = quantity × voided ÷ units (an exact integer: a piece line's draw is units ×
+// quantity_per_sale_unit, 01c §3.5.2; a share that is not whole is a writer bug, AD-8). draws[].reserved, from_stock,
+// cook_ms, the program and reserved_seq are kept: the StockReleased of each share follows ("the cause, then its
+// releases") and lowers only reserved. Between the two, a draw's reserved may exceed its quantity; the §3.7
+// invariant holds at the batch boundary. A line with no draw lowers units only.
+// §3.5.3 (D13 "that station"): the line's station is re-planned at recorded_at (pass 1), so a hidden line is
+// re-booked with its remaining units (AD-7: exactly its old `booked` leaves the profile); a frozen line keeps its
+// booking and a fired / COOKING line packs with its remaining units (§3.3); a frozen batch load is not re-formed.
+// Proposed (implementer, overnight): the group's T is kept (the line still lands at T; "T may move earlier" is
+// exercised by the whole void / remove, replanEnded).
+function partialVoid(state: EngineState, line: EngineLine, voidedUnits: number, event: PosEvent, o: SequenceOptions): EngineState {
+  const id = line.order_item_id;
+  const draws = line.draws.map((d) => {
+    const share = (d.quantity * voidedUnits) / line.units;
+    if (!Number.isInteger(share)) throw new InvalidEvent('void_share_not_integer', id, line.station_id);
+    return { ...d, quantity: d.quantity - share };
+  });
+  const next = patchLine(state, id, { units: line.units - voidedUnits, draws });
+  const p1 = pass1(next, [line.station_id], [], event.recorded_at, { prune: false, strict: o.strict });
+  return applyPass1(next, p1, event.event_id, o.strict);
+}
+
+// ---- 03a §3.7 stock folds (AD-6: strict throws on a breach; non-strict clamps and appends 'stock_breach') ------
+
+// AD-6 (developer ruling; replaces §3.7 / §6.1a `report`): a stock invariant breach — on_hand, reserved or a
+// draw's reserved would go below 0, a StockSet excess not held by frozen or fired lines, a StockAdded in another
+// unit, a StockReserved past its draw. Strict (tests) throws; non-strict (the hub) keeps the clamped result and
+// appends one diagnostic per event with the entry's values before the fold. The result never depends on it.
+function stockBreach(
+  state: EngineState,
+  event: PosEvent,
+  strict: boolean,
+  stock_item_id: string,
+  before: StockEntry,
+  what: string,
+  detail: Record<string, number | string | null>,
+): EngineState {
+  if (strict) throw new Error(`stock invariant breach: ${what} (event ${event.event_id}, stock item ${stock_item_id})`);
+  return addDiagnostic(state, {
+    kind: 'stock_breach',
+    event_id: event.event_id,
+    stock_item_id,
+    detail: { event_type: event.event_type, ...detail, on_hand: before.on_hand, reserved: before.reserved },
+  });
+}
+
+function withEntry(state: EngineState, stock_item_id: string, entry: StockEntry): EngineState {
+  return { ...state, stock: { ...state.stock, [stock_item_id]: entry } };
+}
+
+// The line a stock-line event names and the index of its draw on that stock item. §3.3 absent ids: a line not in the
+// state (or a placeholder) → line undefined. A present line with no draw on the stock item is a writer bug (AD-8:
+// InvalidEvent, strict throws, non-strict the event changes nothing but one invalid_event diagnostic).
+function drawOf(state: EngineState, p: StockLine): { line: EngineLine | undefined; i: number } {
+  const line = lineOf(state, p.order_item_id);
+  if (line === undefined) return { line, i: -1 };
+  const i = line.draws.findIndex((d) => d.stock_item_id === p.stock_item_id);
+  if (i < 0) throw new InvalidEvent('draw_not_on_line', p.order_item_id, line.station_id);
+  return { line, i };
+}
+
+// §3.7 StockReserved: reserved += quantity on the entry and on the line's draw; reserved_seq = the event's seq.
+// A line not in the state — absent, or dropped by a non-strict ItemAdded fold (AD-8) — is a no-op returning state
+// itself, stock untouched (§3.3 absent ids). Proposed (implementer, overnight): unlike a release or consume, nothing
+// could ever release or consume a reservation of a line the state does not hold (stockEffects drafts from
+// line.draws), so adding it would keep `reserved` held for good and lower `available` for every later order.
+// A reservation past the draw's quantity is clamped to it (a breach). The from_stock false → true flip (stock cook
+// time, stock program, re-plan of the line's station) is task 12b (§3.7 StockAdded, test 87); a submit's own
+// reservation flips nothing (OrderPlaced already marked the line from_stock).
+function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockLine;
+  const { line, i } = drawOf(state, p);
+  if (line === undefined) return state;
+  const draw = line.draws[i]!;
+  const take = Math.min(p.quantity, Math.max(0, draw.quantity - draw.reserved));
+  const prev = stockOf(state, p.stock_item_id);
+  const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: d.reserved + take } : d));
+  let next = withEntry(state, p.stock_item_id, { ...prev, reserved: prev.reserved + take });
+  next = patchLine(next, line.order_item_id, { draws, reserved_seq: take > 0 ? event.seq : line.reserved_seq });
+  if (take === p.quantity) return next;
+  return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockReserved past the draw', {
+    order_item_id: p.order_item_id,
+    quantity: p.quantity,
+    draw_quantity: draw.quantity,
+    draw_reserved: draw.reserved,
+  });
+}
+
+// §3.7 StockReleased (bookkeeping only, never a re-plan): the entry's reserved −= quantity and the draw's reserved
+// −= quantity, each clamped at 0 (a breach). When no draw of the line holds any unit any more, the line goes fresh:
+// from_stock false, cook_ms = full_cook_ms, reserved_seq null; a batch line's program follows (currentProgram, BF-1:
+// program_id is the ItemAdded copy). BF-12: units and draws[].quantity are the cause's (partialVoid), never changed
+// here. A line not in the state still lowers the entry: e.g. the abandon release (§3.6.1) or a close release of an
+// exited order, whose fold's removal step (§3.3) took the order out just before (drafted while it held the units).
+function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockLine;
+  const { line, i } = drawOf(state, p);
+  const prev = stockOf(state, p.stock_item_id);
+  let short = prev.reserved < p.quantity;
+  let next = withEntry(state, p.stock_item_id, { ...prev, reserved: Math.max(0, prev.reserved - p.quantity) });
+  if (line !== undefined) {
+    short = short || line.draws[i]!.reserved < p.quantity;
+    const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: Math.max(0, d.reserved - p.quantity) } : d));
+    const fresh = draws.every((d) => d.reserved === 0);
+    next = patchLine(next, line.order_item_id, fresh ? { draws, from_stock: false, cook_ms: line.full_cook_ms, reserved_seq: null } : { draws });
+  }
+  if (!short) return next;
+  const reason = (event.payload as { reason?: unknown }).reason;
+  return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockReleased below 0', {
+    order_item_id: p.order_item_id,
+    quantity: p.quantity,
+    reason: typeof reason === 'string' ? reason : null,
+  });
+}
+
+// §3.7 consume (P-5, A-18): on_hand = max(0, on_hand − quantity), reserved = max(0, reserved − quantity), the draw's
+// reserved = 0, reserved_seq null when no draw holds any; from_stock stays true (the plate was taken from the pot).
+// A clamp (or a draw holding less than quantity) is a breach: after a recount below reserved the pot was already
+// known to be short, so the Start commits (non-strict). A line not in the state still moves the entry (as a release).
+function foldStockConsumed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockLine;
+  const { line, i } = drawOf(state, p);
+  const prev = stockOf(state, p.stock_item_id);
+  let short = prev.on_hand < p.quantity || prev.reserved < p.quantity;
+  let next = withEntry(state, p.stock_item_id, {
+    ...prev,
+    on_hand: Math.max(0, prev.on_hand - p.quantity),
+    reserved: Math.max(0, prev.reserved - p.quantity),
+  });
+  if (line !== undefined) {
+    short = short || line.draws[i]!.reserved < p.quantity;
+    const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: 0 } : d));
+    next = patchLine(next, line.order_item_id, draws.every((d) => d.reserved === 0) ? { draws, reserved_seq: null } : { draws });
+  }
+  if (!short) return next;
+  return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockConsumed below 0', { order_item_id: p.order_item_id, quantity: p.quantity });
+}
+
+// §3.7 (v0.6.2, G4-3 #3): the units of `stock_item_id` reserved for frozen or fired lines at t — a line on the
+// chef's Next list (unfired, fire_ms ≤ t + freeze_ms; a batch member by its load's fire) or fired and not started.
+// O(lines); read only when a count falls below reserved.
+function heldByFrozenOrFired(state: EngineState, stock_item_id: string, t: number): number {
+  let held = 0;
+  for (const id in state.lines) {
+    const l = state.lines[id]!;
+    if (l.reserved_seq === null || l.stage !== 'added') continue;
+    const frozen = l.fired_at !== null || (l.fire_ms !== null && l.fire_ms <= t + stationPolicy(state, l.station_id).freeze_ms);
+    if (!frozen) continue;
+    for (const d of l.draws) if (d.stock_item_id === stock_item_id) held += d.reserved;
+  }
+  return held;
+}
+
+// 01a S14 StockSet: on_hand = count, unit = the event's, set_at = recorded_at, reserved unchanged. §3.7: a count
+// below reserved is allowed only by the units reserved for frozen or fired lines (their releases never come; the
+// hidden lines' releases precede the StockSet, stockEffects, task 12b). Any other excess folds as counted and is a
+// breach. The re-plan of a recount is task 12b (§3.5.3).
+function foldStockSet(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockSet;
+  const prev = stockOf(state, p.stock_item_id);
+  const next = withEntry(state, p.stock_item_id, { on_hand: p.on_hand, reserved: prev.reserved, set_at: event.recorded_at, unit: p.unit });
+  if (p.on_hand >= prev.reserved) return next;
+  const held = heldByFrozenOrFired(state, p.stock_item_id, event.recorded_at);
+  if (prev.reserved - held <= p.on_hand) return next;
+  return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockSet below reserved not held by frozen or fired lines', { count: p.on_hand, held });
+}
+
+// 01a S14 / S45 StockAdded: on_hand += quantity, set_at and unit unchanged. BF-13 / A-20: a unit other than the
+// entry's leaves the entry unchanged and is a breach (was a throw). The waiting-line reserve is task 12b.
+function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockAdded;
+  const prev = stockOf(state, p.stock_item_id);
+  if (prev.unit !== p.unit) {
+    return stockBreach(state, event, strict, p.stock_item_id, prev, 'StockAdded unit mismatch', { quantity: p.quantity, unit: p.unit, entry_unit: prev.unit });
+  }
+  return withEntry(state, p.stock_item_id, { ...prev, on_hand: prev.on_hand + p.quantity });
 }
 
 // §3.3 last_line_fold_at for the order folds whose effects land in later tasks (ItemMovedToStock 12, OrderBoosted
@@ -595,26 +778,16 @@ export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOpti
 function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
   const strict = o.strict;
   switch (event.event_type) {
-    case 'StockSet': {
-      const p = event.payload as unknown as StockSet;
-      const prev = stockOf(state, p.stock_item_id);
-      return {
-        ...state,
-        stock: {
-          ...state.stock,
-          [p.stock_item_id]: { on_hand: p.on_hand, reserved: prev.reserved, set_at: event.recorded_at, unit: p.unit },
-        },
-      };
-    }
-    case 'StockAdded': {
-      const p = event.payload as unknown as StockAdded;
-      const prev = stockOf(state, p.stock_item_id);
-      if (prev.unit !== p.unit) throw new Error('StockAdded unit mismatch');
-      return {
-        ...state,
-        stock: { ...state.stock, [p.stock_item_id]: { ...prev, on_hand: prev.on_hand + p.quantity } },
-      };
-    }
+    case 'StockSet':
+      return foldStockSet(state, event, strict);
+    case 'StockAdded':
+      return foldStockAdded(state, event, strict);
+    case 'StockReserved':
+      return foldStockReserved(state, event, strict);
+    case 'StockReleased':
+      return foldStockReleased(state, event, strict);
+    case 'StockConsumed':
+      return foldStockConsumed(state, event, strict);
     // 01a S33: recorded_at is the day's start and end.
     case 'BusinessDayOpened': {
       const p = event.payload as unknown as BusinessDayOpened;
@@ -673,9 +846,6 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'ReservationsShifted':
     case 'StationCapacitySet':
     case 'StationPauseSet':
-    case 'StockReserved':
-    case 'StockReleased':
-    case 'StockConsumed':
       return state;
     default:
       return state;

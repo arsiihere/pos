@@ -96,12 +96,14 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     const batch = anOrderBatch({
       lines: [
         { order_item_id: 'D1', item: { line_kind: 'deal', item_id: null, deal_id: 'DL1', station_id: null, serve_mode: null, cook_time_ms: null, prep_buffer_ms: null } },
-        { order_item_id: 'L1', item: { line_kind: 'deal_part', parent_order_item_id: 'D1' } },
+        // Task 12: the StockReserved below names L1's draw on K1 (a from-stock line; §3.7 a stock event on a line
+        // with no draw on that item is a writer bug).
+        { order_item_id: 'L1', item: { line_kind: 'deal_part', parent_order_item_id: 'D1', stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity: 1 }] } },
         { order_item_id: 'L2', item: { line_kind: 'deal_part', parent_order_item_id: 'D1', serve_mode: 'immediate' } },
       ],
       order: {
         lines: [
-          { order_item_id: 'L1', station_id: 'S1', alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null },
+          { order_item_id: 'L1', station_id: 'S1', alternates: [], point_id: null, carry_ms: 0, from_stock: true, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null },
           { order_item_id: 'L2', station_id: 'S1', alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null },
         ],
         groups: [
@@ -321,7 +323,9 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     const cfg = config([{ station_id: 'S1' }]);
     const state = deepFreeze(fold([cfg]));
     const snapshot = JSON.parse(JSON.stringify(state)) as unknown;
-    const batch = anOrderBatch({ lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2' }], recorded_at: T0 }).map(deepFreeze);
+    // Task 12: L1 draws aStockReserved's 500 of K1 (a stock event on a line with no such draw is a writer bug).
+    const l1 = { order_item_id: 'L1', item: { stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity: 500 }] }, line: { from_stock: true } };
+    const batch = anOrderBatch({ lines: [l1, { order_item_id: 'L2' }], recorded_at: T0 }).map(deepFreeze);
     expect(() => fold([...batch, aStockReserved()], state)).not.toThrow();
     expect(state).toEqual(snapshot);
   });
