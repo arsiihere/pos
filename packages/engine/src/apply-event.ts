@@ -266,9 +266,10 @@ export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
 }
 
 // Pure fold (03a §6.1a, AD-6 opts). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns
-// `state` itself (S15). Copies only the touched entry. AD-6: a writer bug an order fold finds (InvalidEvent)
-// throws when strict; non-strict returns the state unchanged but for one 'invalid_event' diagnostic. Other
-// throws (OrderLinesAdded on an absent order, §3.3) throw in both modes.
+// `state` itself (S15). Copies only the touched entry. AD-6 / AD-8(c): a writer bug an order fold finds
+// (InvalidEvent) throws when strict. Non-strict, a listed bad line is dropped and still decrements awaiting
+// (foldItemAdded), and an unlisted one changes nothing (caught here); either way one 'invalid_event'
+// diagnostic is appended. Other throws (OrderLinesAdded on an absent order, §3.3) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   const strict = opts?.strict ?? true;
   try {
