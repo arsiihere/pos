@@ -3,6 +3,7 @@ import { parseEvent, type EngineConfig, type PosEvent } from '@pos/events';
 import { aBusinessDayOpened, aStockSet, anEngineConfigApplied } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
+  addDiagnostic,
   applyEvent,
   buildEngineState,
   ENGINE_REPLAY_EVENTS,
@@ -10,6 +11,7 @@ import {
   initialEngineState,
   type BusinessDay,
   type DayDraws,
+  type Diagnostic,
   type EngineLine,
   type EngineOrder,
   type EngineState,
@@ -37,6 +39,8 @@ function deepFreeze<T>(value: T): T {
 // D62 key-set snapshot. One entry per ENGINE_STATE_VERSION; an entry is never edited once its version
 // ships. Adding or removing a key of any interface below fails the type check of this file (R31) until a
 // new entry is written, and that entry needs ENGINE_STATE_VERSION bumped to its number.
+// AD-6: EngineState.diagnostics is host-side scratch (logged at warn and cleared after commit), not part of
+// snapshots / checkpoints, so it stays outside every key set.
 const KEY_SETS = {
   3: {
     EngineState: ['stock', 'business_day', 'config', 'stations', 'orders', 'lines', 'slips', 'next_alert_due_at', 'slip_due'],
@@ -73,7 +77,7 @@ type SameKeys<T, K extends readonly PropertyKey[]> = [Exclude<keyof T, K[number]
   ? true
   : false;
 const keysMatch: {
-  EngineState: SameKeys<EngineState, Current['EngineState']>;
+  EngineState: SameKeys<Omit<EngineState, 'diagnostics'>, Current['EngineState']>;
   StockEntry: SameKeys<StockEntry, Current['StockEntry']>;
   BusinessDay: SameKeys<BusinessDay, Current['BusinessDay']>;
   DayDraws: SameKeys<DayDraws, Current['DayDraws']>;
@@ -121,7 +125,8 @@ describe('@pos/engine EngineState v3', () => {
     expect(ENGINE_STATE_VERSION).toBe(3);
     const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => parseEvent(e));
     expect(log.map((e) => e.event_type)).toEqual(['EngineConfigApplied', 'BusinessDayOpened', 'StockSet']);
-    const state = buildEngineState(deepFreeze(log));
+    const { diagnostics, ...state } = buildEngineState(deepFreeze(log));
+    expect(diagnostics).toEqual([]);
     expect(state).toEqual(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`));
 
     const keys = KEY_SETS[ENGINE_STATE_VERSION];
@@ -131,7 +136,48 @@ describe('@pos/engine EngineState v3', () => {
     for (const station of Object.values(state.stations)) {
       expect(Object.keys(station).sort()).toEqual([...keys.StationRuntime].sort());
     }
-    expect(Object.keys(initialEngineState()).sort()).toEqual([...keys.EngineState].sort());
+    const { diagnostics: initialDiagnostics, ...initial } = initialEngineState();
+    expect(initialDiagnostics).toEqual([]);
+    expect(Object.keys(initial).sort()).toEqual([...keys.EngineState].sort());
+  });
+
+  it('[03a AD-6] the key-set guard ignores diagnostics and still fails at compile time when a real key is added', () => {
+    // A new real key breaks the v3 set (checked by typecheck:tests).
+    // @ts-expect-error extra is not in the v3 EngineState key set
+    const added: SameKeys<Omit<EngineState, 'diagnostics'> & { extra: number }, Current['EngineState']> = true;
+    // diagnostics itself is outside the v3 set: comparing the full EngineState fails.
+    // @ts-expect-error diagnostics is not in the v3 EngineState key set
+    const full: SameKeys<EngineState, Current['EngineState']> = true;
+    expect([added, full]).toEqual([true, true]);
+    expect(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`)).not.toHaveProperty('diagnostics');
+  });
+
+  it('[03a AD-6] applyEvent defaults to strict and accepts { strict: false }; both fold the v3 log to the same state', () => {
+    const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => deepFreeze(parseEvent(e)));
+    const strict = buildEngineState(log);
+    expect(buildEngineState(log, { strict: true })).toEqual(strict);
+    expect(buildEngineState(log, { strict: false })).toEqual(strict);
+    let s = initialEngineState();
+    for (const e of log) s = applyEvent(s, e, { strict: false });
+    expect(s).toEqual(strict);
+    // Today's StockAdded unit mismatch throw is unchanged by the flag (stock breaches move to diagnostics in task 12).
+    const mismatch = { ...aStockSet({ recorded_at: T0 + 2 }), event_type: 'StockAdded', payload: { stock_item_id: 'I1', quantity: 1, unit: 'g' } } as PosEvent;
+    expect(() => applyEvent(strict, mismatch)).toThrow('StockAdded unit mismatch');
+    expect(() => applyEvent(strict, mismatch, { strict: false })).toThrow('StockAdded unit mismatch');
+  });
+
+  it('[03a AD-6] addDiagnostic appends to a copy and never mutates the input', () => {
+    const before = deepFreeze(initialEngineState());
+    const d: Diagnostic = { kind: 'profile_underflow', event_id: 'E1', station_id: 'S1', detail: { at: T0, deficit: 2 } };
+    const once = addDiagnostic(before, d);
+    expect(before.diagnostics).toEqual([]);
+    expect(once.diagnostics).toEqual([d]);
+    expect(once).not.toBe(before);
+    expect(once.stock).toBe(before.stock);
+    const d2: Diagnostic = { kind: 'stock_breach', event_id: 'E2', stock_item_id: 'I1', detail: { on_hand: 1, reserved: 3 } };
+    const twice = addDiagnostic(deepFreeze(once), d2);
+    expect(once.diagnostics).toEqual([d]);
+    expect(twice.diagnostics).toEqual([d, d2]);
   });
 
   it('[03a §3.3] initialEngineState is the empty v3 state', () => {
@@ -145,6 +191,7 @@ describe('@pos/engine EngineState v3', () => {
       slips: {},
       next_alert_due_at: null,
       slip_due: {},
+      diagnostics: [],
     });
   });
 

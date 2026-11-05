@@ -58,7 +58,7 @@ export async function createTestHub(o?: {
   const config = testConfig(fx.dir, o);
   // As boot with the step-3 fold over an empty log (S15).
   const state = createStateHolder<EngineState>(initialEngineState());
-  state.setReducer(applyEvent);
+  state.setReducer((s, e) => applyEvent(s, e, { strict: false }));
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);

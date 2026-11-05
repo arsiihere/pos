@@ -123,6 +123,49 @@ describe('[03a §3.3 profile] addInterval / removeInterval', () => {
     expect(() => removeInterval(base, iv(0, 10), 2)).toThrow(RangeError);
   });
 
+  it('[03a AD-6] strict removeInterval (no callback) still throws a RangeError on underflow', () => {
+    const base = build([[0, 10, 1]]);
+    expect(() => removeInterval(base, iv(5, 15), 1)).toThrow(RangeError);
+  });
+
+  it('[03a AD-6] non-strict removeInterval clamps at 0, stays canonical, reports once with the first underflow instant and the largest deficit', () => {
+    // u: [0,10)=1, [10,20)=3, [20,30)=1, then 0. Remove 2 on [5, 40): [5,10) -> -1, [10,20) -> 1, [20,30) -> -1, [30,40) -> -2.
+    const base = build([
+      [0, 30, 1],
+      [10, 20, 2],
+    ]);
+    const snapshot = JSON.parse(JSON.stringify(base)) as Profile;
+    const calls: Array<{ at: number; deficit: number }> = [];
+    const out = removeInterval(base, iv(5, 40), 2, (u) => calls.push(u));
+    expect(out).toEqual({ t: [0, 5, 10, 20], u: [1, 0, 1, 0] });
+    expectCanonical(out);
+    expect(calls).toEqual([{ at: 5, deficit: 2 }]);
+    expect(base).toEqual(snapshot);
+
+    // Removing from an empty profile clamps to the empty profile.
+    const calls2: Array<{ at: number; deficit: number }> = [];
+    expect(removeInterval(EMPTY, iv(100, 200), 3, (u) => calls2.push(u))).toEqual({ t: [], u: [] });
+    expect(calls2).toEqual([{ at: 100, deficit: 3 }]);
+
+    // Clamping merges equal neighbours: [0,10)=1 minus 2 on [0,10) leaves nothing.
+    const calls3: Array<{ at: number; deficit: number }> = [];
+    const q = removeInterval(build([[0, 10, 1], [20, 30, 1]]), iv(0, 10), 2, (u) => calls3.push(u));
+    expect(q).toEqual({ t: [20, 30], u: [1, 0] });
+    expectCanonical(q);
+    expect(calls3).toEqual([{ at: 0, deficit: 1 }]);
+  });
+
+  it('[03a AD-6] non-strict add-then-remove without underflow returns the original and never calls the callback', () => {
+    const base = build([
+      [0, 30, 1],
+      [50, 60, 2],
+    ]);
+    const added = deepFreeze(addInterval(base, iv(10, 55), 1));
+    let called = 0;
+    expect(removeInterval(added, iv(10, 55), 1, () => called++)).toEqual(base);
+    expect(called).toBe(0);
+  });
+
   it('[03a §3.3 profile] inputs are never mutated (deep-frozen inputs, structural equality after)', () => {
     const base = build([
       [0, 30, 1],

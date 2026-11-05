@@ -39,8 +39,11 @@ function segmentAt(t: readonly number[], x: number): number {
   return found;
 }
 
-// Adds delta units on [start, end) and returns a new canonical profile. One linear pass.
-function shift(p: Profile, start: number, end: number, delta: number): Profile {
+export type Underflow = { at: number; deficit: number };
+
+// Adds delta units on [start, end) and returns a new canonical profile. One linear pass. A segment that
+// would go below 0 throws, or, with onUnderflow, clamps at 0 and is reported (see removeInterval).
+function shift(p: Profile, start: number, end: number, delta: number, onUnderflow?: (u: Underflow) => void): Profile {
   if (end <= start || delta === 0) return p;
   const { t, u } = p;
   const n = t.length;
@@ -75,14 +78,23 @@ function shift(p: Profile, start: number, end: number, delta: number): Profile {
   const outT: number[] = [];
   const outU: number[] = [];
   let prev = 0;
+  let underflow: Underflow | null = null;
   for (let k = 0; k < rawT.length; k++) {
-    const v = rawU[k]!;
-    if (v < 0) throw new RangeError(`profile: units in use below zero at ${rawT[k]} (removed more than was booked)`);
+    let v = rawU[k]!;
+    if (v < 0) {
+      if (onUnderflow === undefined) {
+        throw new RangeError(`profile: units in use below zero at ${rawT[k]} (removed more than was booked)`);
+      }
+      if (underflow === null) underflow = { at: rawT[k]!, deficit: -v };
+      else if (-v > underflow.deficit) underflow = { at: underflow.at, deficit: -v };
+      v = 0;
+    }
     if (v === prev) continue;
     outT.push(rawT[k]!);
     outU.push(v);
     prev = v;
   }
+  if (underflow !== null) onUnderflow!(underflow);
   return { t: outT, u: outU };
 }
 
@@ -90,9 +102,13 @@ export function addInterval(p: Profile, iv: Interval, units: number): Profile {
   return shift(p, iv.start, iv.end, units);
 }
 
-// Removing more than was booked breaks u ≥ 0: a caller bug, thrown as a RangeError.
-export function removeInterval(p: Profile, iv: Interval, units: number): Profile {
-  return shift(p, iv.start, iv.end, -units);
+// Removing more than was booked breaks u ≥ 0. Without onUnderflow (strict, AD-6) that is a caller bug,
+// thrown as a RangeError. With onUnderflow (non-strict) every segment that would go below 0 is clamped at
+// 0, the result stays canonical, and the callback is called once per removal with the first instant that
+// underflowed (`at`, the start of the earliest such segment) and the largest deficit over all of them;
+// it is not called when nothing underflowed.
+export function removeInterval(p: Profile, iv: Interval, units: number, onUnderflow?: (u: Underflow) => void): Profile {
+  return shift(p, iv.start, iv.end, -units, onUnderflow);
 }
 
 // Latest fire in [lo, hi] whose interval [fire + prep, fire + prep + cook) has u + units ≤ cap

@@ -294,7 +294,7 @@ function createDeps(
   const provisioned = config.provisioned;
   // 01a §2, S15: with no step-3 handler the state is {} as before.
   const state = createStateHolder<EngineState>((initialState ?? {}) as EngineState);
-  state.setReducer(applyEvent);
+  state.setReducer((s, e) => applyEvent(s, e, { strict: false }));
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);

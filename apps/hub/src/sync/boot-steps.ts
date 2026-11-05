@@ -40,7 +40,7 @@ export function foldEngineEvents(db: Database.Database, branchId: string): { sta
   let version = 0;
   for (const row of rows) {
     const event = parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] });
-    state = applyEvent(state, event);
+    state = applyEvent(state, event, { strict: false });
     if (STOCK_VERSION_EVENTS.has(event.event_type)) version = event.seq;
   }
   return { state, stockVersion: version };

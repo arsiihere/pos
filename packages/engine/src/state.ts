@@ -28,8 +28,16 @@ export interface BusinessDay {
 // 03a §3.3: integer ms; an Interval is [start, end).
 export type Interval = { start: number; end: number };
 
-// 03a §6.1a (v0.6.2, G4-3 #3): receives stock invariant breaches; a fold's result never depends on it.
-export type BreachReport = (b: { event_id: string; stock_item_id: string; on_hand: number; reserved: number }) => void;
+// AD-6 (developer ruling 2026-11-05; supersedes the §6.1a `report` callback): a breach a non-strict fold
+// clamped instead of throwing. The host logs it at warn after commit and clears the list; it is not part of
+// snapshots / checkpoints nor of the ENGINE_STATE_VERSION key set.
+export type Diagnostic = {
+  kind: 'profile_underflow' | 'stock_breach';
+  event_id?: string;
+  station_id?: string;
+  stock_item_id?: string;
+  detail: Readonly<Record<string, number | string | null>>;
+};
 
 // 03a §3.3, D24: sorted boundaries t; u[i] = units in use from t[i] to t[i + 1]. Built by profile.ts (task 4).
 export type Profile = { t: number[]; u: number[] };
@@ -134,6 +142,7 @@ export interface EngineState {
   slips: Record<string, SlipRecord>; // by table_key (§3.8)
   next_alert_due_at: number | null; // minimum of slip_due (§3.8)
   slip_due: Record<string, number>; // per table_key crossing / close time
+  diagnostics: Diagnostic[]; // AD-6: host scratch, outside the v3 key set
 }
 
 export function initialEngineState(): EngineState {
@@ -147,5 +156,6 @@ export function initialEngineState(): EngineState {
     slips: {},
     next_alert_due_at: null,
     slip_due: {},
+    diagnostics: [],
   };
 }

@@ -1,6 +1,6 @@
 import type { Unit } from '@pos/domain';
 import type { EngineConfig, PosEvent } from '@pos/events';
-import type { BreachReport, DayDraws, EngineState, StationRuntime } from './state.js';
+import type { DayDraws, Diagnostic, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
@@ -38,10 +38,22 @@ function applyEngineConfig(state: EngineState, config: EngineConfig): EngineStat
   return { ...state, config, stations };
 }
 
-// Pure fold (03a §6.1a). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns `state`
-// itself (S15). Copies only the touched entry. `report` receives stock invariant breaches (03a task 12).
-export function applyEvent(state: EngineState, event: PosEvent, report?: BreachReport): EngineState {
-  void report;
+// AD-6: strict (the default, used by tests) throws on a profile underflow or a stock invariant breach;
+// non-strict (the hub, live and replay) clamps at 0 and appends a Diagnostic instead.
+export type ApplyOptions = { strict?: boolean };
+
+// AD-6: copy-on-write append for non-strict folds (a removeInterval underflow callback becomes a
+// 'profile_underflow' with station_id / event_id; task 12's stock folds add 'stock_breach').
+export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
+  return { ...state, diagnostics: [...state.diagnostics, d] };
+}
+
+// Pure fold (03a §6.1a, AD-6 opts). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns
+// `state` itself (S15). Copies only the touched entry. No fold today removes an interval or checks a stock
+// invariant, so `strict` has no reader yet; the order folds and task 12's stock folds take it from here.
+export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
+  const strict = opts?.strict ?? true;
+  void strict;
   switch (event.event_type) {
     case 'StockSet': {
       const p = event.payload as unknown as StockSet;
@@ -113,8 +125,8 @@ export function applyEvent(state: EngineState, event: PosEvent, report?: BreachR
   }
 }
 
-export function buildEngineState(events: Iterable<PosEvent>, report?: BreachReport): EngineState {
+export function buildEngineState(events: Iterable<PosEvent>, opts?: ApplyOptions): EngineState {
   let state = initialEngineState();
-  for (const event of events) state = applyEvent(state, event, report);
+  for (const event of events) state = applyEvent(state, event, opts);
   return state;
 }

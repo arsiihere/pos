@@ -40,7 +40,7 @@ export function registerSetPrecookedStock(app: FastifyInstance): void {
             device_id: ctx.actor.deviceId,
           })),
         );
-        const next = appended.reduce((s, e) => applyEvent(s, e), ctx.state);
+        const next = appended.reduce((s, e) => applyEvent(s, e, { strict: false }), ctx.state);
         return { events: [], result: { stock_items: stockItems.map((stockItem) => stockItemResult(next, stockItem, now)) } };
       },
     }),
