@@ -801,7 +801,8 @@ The cloud tasks follow 01a's existing patterns (C1 route cases, C6 nested replac
 
 **Invariants:** not due → no statement, no transaction, also while a raised slip or overload persists; a throw rolls back only this tick; with work: 2 + ≤ 1 + 01d bounds.
 
-- [ ] **Step 1: Tests:** `[03a #76]`, `[03a #82]`, `[03a #86]` (60 s idle with Next entries; 60 s with one raised slip and one raised overload unchanged), `[03a #93]`, `[03a #113]`; `[03a BF-4 hub]` an abandoned key's alert is closed `done`.
+- **AD-8 condition (developer, 2026-11-06):** every `invalid_event` diagnostic that dropped a line (AD-8 c) raises a 01d `info` alert to managers: kind `engine_line_dropped`, `values { order_id, order_item_id, reason }`, dedupe `engine_line_dropped:<order_item_id>`; the host also logs it at `warn` (task 20). The kind is defined with this task's fakes and registered with the others in task 23.
+- [ ] **Step 1: Tests:** `[03a AD-8]` a dropped line raises one `engine_line_dropped` alert to managers with its values, and a second fold of the same line does not raise a second; `[03a #76]`, `[03a #82]`, `[03a #86]` (60 s idle with Next entries; 60 s with one raised slip and one raised overload unchanged), `[03a #93]`, `[03a #113]`; `[03a BF-4 hub]` an abandoned key's alert is closed `done`.
 - [ ] **Step 2:** FAIL → **Step 3** → **Step 4:** PASS.
 - [ ] **Commit:** `feat(03a): task 22a fires_alerts tick [spec §6.2a, §3.8, §3.10; BF-4; tests #76, #82, #86, #93, #113]`
 
