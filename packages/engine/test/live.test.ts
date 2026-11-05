@@ -5,6 +5,7 @@ import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemDone, anItem
 import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
+  buildEngineState,
   calculateETA,
   initialEngineState,
   liveInterval,
@@ -95,8 +96,8 @@ function proposed(order_id: string, items: Item[]): ProposedOrder {
   });
 }
 
-function fire(ids: string[], recorded_at: number, load_id: string | null = null): PosEvent {
-  return aFireDispatched({ recorded_at, occurred_at: recorded_at, seq: nextSeq(0), payload: { order_item_ids: ids, due_at: recorded_at, load_id } });
+function fire(ids: string[], recorded_at: number, load_id: string | null = null, reason = 'scheduled', due_at = recorded_at): PosEvent {
+  return aFireDispatched({ recorded_at, occurred_at: recorded_at, seq: nextSeq(0), payload: { order_item_ids: ids, due_at, load_id, reason } });
 }
 function start(order_id: string, id: string, recorded_at: number, started_at = recorded_at): PosEvent {
   return anItemStarted({ stream_id: order_id, recorded_at, occurred_at: recorded_at, seq: nextSeq(0), payload: { order_item_id: id, started_at } });
@@ -151,6 +152,27 @@ describe('@pos/engine stage folds (§3.4; stage only, stock in task 12)', () => 
     expect(s2).toBe(s1);
     // A FireDispatched naming no line in the state is a no-op returning state itself (§3.3 absent ids).
     expect(applyEvent(s1, fire(['NOPE'], at(3)))).toBe(s1);
+  });
+
+  it('[03a AD-9] a pulled line packs from its actual fire, not its later planned fire; a scheduled or missed fire keeps fire_ms; live = replay', () => {
+    const cfg = anEngineConfigApplied({ recorded_at: T0 - 3_600_000, payload: { stations: [{ ...S1, capacity: 1 }] } });
+    const placed = batch('O1', [{ id: 'L1', cook_min: 5 }, { id: 'L2', cook_min: 5 }], at(0));
+    const pull = fire(['L2'], at(1), null, 'pulled', at(5));
+    const s0 = fold(initialEngineState(), [cfg, ...placed]);
+    expect(s0.lines.L2!.fire_ms).toBe(at(5));
+    const s1 = fold(s0, [pull]);
+    // fire_ms = min(fire_ms, recorded_at); the planned fire stays in the event's due_at.
+    expect(s1.lines.L2).toMatchObject({ fire_ms: at(1), fired_at: at(1) });
+    expect(liveInterval(s1, 'L2', at(1))).toEqual(iv(at(1), at(6)));
+    expect(liveInterval(s1, 'L2', at(2))).toEqual(iv(at(2), at(7)));
+    // Live = replay.
+    expect(buildEngineState([cfg, ...placed, pull].map(deepFreeze))).toEqual(s1);
+
+    // A missed scheduled fire (recorded after the planned fire) keeps fire_ms.
+    const missed = fold(s0, [fire(['L2'], at(7), null, 'scheduled', at(5))]);
+    expect(missed.lines.L2).toMatchObject({ fire_ms: at(5), fired_at: at(7) });
+    const onTime = fold(s0, [fire(['L1'], at(0))]);
+    expect(onTime.lines.L1).toMatchObject({ fire_ms: at(0), fired_at: at(0) });
   });
 
   it('[03a §3.4] ItemStarted → COOKING with started = min(started_at, recorded_at); an unfired line leaves the profile', () => {

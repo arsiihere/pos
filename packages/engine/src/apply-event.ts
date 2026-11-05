@@ -293,7 +293,7 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict:
 }
 
 // §3.4 FireDispatched: each listed line that is unfired gets fired_at = recorded_at and the event's load_id
-// (§3.3: the load name is fixed here); its planned booking leaves the profile and it leaves unfired, so from
+// (§3.3: the load name is fixed here) and fire_ms = min(fire_ms, recorded_at) (AD-9); its planned booking leaves the profile and it leaves unfired, so from
 // now on it occupies its packed live interval (§3.3). A fired line is never fired twice: a listed line already
 // fired, started or ended is left as it is; a listed id not in the state is skipped.
 function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
@@ -302,7 +302,10 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
   for (const id of p.order_item_ids) {
     const line = lineOf(next, id);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
-    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id });
+    // AD-9: a pulled / early_fill line packs from its actual dispatch and sorts by it (the planned fire stays in
+    // the event's due_at); a scheduled or missed fire (recorded_at ≥ fire_ms) keeps fire_ms.
+    const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
+    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms });
   }
   return next;
 }
