@@ -15,14 +15,11 @@
 //     occupies nothing. Only in-flight lines can belong to such an order (an exited order has no unfired line).
 // Cook lengths and units are the AD-4 occupancy at the station's effective capacity.
 // Batch loads (each fired load one unit of placement) arrive with task 13; until then every line packs alone.
+import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { addInterval, earliestFit, occupancy } from './profile.js';
-import type { EngineLine, EngineState, Interval, Profile, StationRuntime } from './state.js';
+import type { EngineLine, EngineState, Interval, Profile } from './state.js';
 
-// D37: effective capacity = override ?? capacity.
-export function effectiveCapacity(station: Pick<StationRuntime, 'capacity' | 'capacity_override'>): number {
-  return station.capacity_override ?? station.capacity;
-}
 
 type Booking = { start: number; end: number; units: number };
 

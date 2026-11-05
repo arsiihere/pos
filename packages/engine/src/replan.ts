@@ -13,7 +13,8 @@
 // The new lines (pass 2, §3.5.1 steps 3–4) are placed by plan.ts against the profiles this returns.
 // Frozen, fired, COOKING and done lines never move here (the boost / capacity-change D15 exceptions are task 16).
 import { InvalidEvent } from './invalid-event.js';
-import { effectiveCapacity, liveProfiles } from './live.js';
+import { effectiveCapacity } from './capacity.js';
+import { liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
@@ -42,15 +43,22 @@ export function stationPolicy(state: EngineState, station_id: string): { policy:
   return { policy: cfg.policy, freeze_ms: cfg.freeze_ms, keep_ms: cfg.policy === 'waada_guard' ? cfg.min_slack_keep_ms : 0 };
 }
 
+// §3.5.3 / AD-14: a FIFO station places each new line at its earliest fit, never holds and never re-plans.
+export function isFifo(state: EngineState, station_id: string): boolean {
+  return stationPolicy(state, station_id).policy === 'fifo';
+}
+
 // §3.5.2: w(L) = weight_pct × (follow_up ∨ mark ∈ {expedite, return} ? weight_follow_up_pct : weight_<type>_pct) / 100;
-// 100 for every line on an EDF station (D3). Branch weights read from state.config at each re-plan.
+// 100 for every line on an EDF station (D3). Branch weights read from state.config at each re-plan; weight_pct is
+// the line's D25 copy. A return line (return_of set, §3.8a) takes the follow-up weight from its link, so a later
+// mark change (boost, moved) never drops it (task 9).
 export function weightOf(state: EngineState, line: EngineLine): number {
   if (stationPolicy(state, line.station_id).policy === 'edf') return 100;
   const order = state.orders[line.order_id];
   const settings = state.config?.settings;
   if (order === undefined || settings === undefined) return line.weight_pct;
   const branch =
-    order.follow_up || line.mark === 'expedite' || line.mark === 'return'
+    order.follow_up || line.mark === 'expedite' || line.mark === 'return' || line.return_of !== null
       ? settings.weight_follow_up_pct
       : settings[`weight_${order.order_type}_pct`];
   return (line.weight_pct * branch) / 100;
@@ -296,7 +304,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   for (const id of ids) {
     const station = state.stations[id]!;
     const pol = stationPolicy(state, id);
-    // FIFO (D3): no re-plan of older lines.
+    // FIFO (§3.5.3, D3): no re-plan of older lines; nothing on the station is hidden-and-movable.
     if (pol.policy === 'fifo') {
       profiles[id] = live[id]!;
       continue;

@@ -4,9 +4,10 @@
 import { DomainError } from '@pos/domain';
 import type { ItemAddedPayload } from '@pos/events';
 import { InvalidEvent } from './invalid-event.js';
-import { effectiveCapacity, liveInterval, liveProfiles } from './live.js';
+import { effectiveCapacity } from './capacity.js';
+import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, isHidden, pass1, queueOrder, sortUnfired, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, isFifo, isHidden, pass1, queueOrder, sortUnfired, type NewLine, type Placement } from './replan.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
@@ -89,7 +90,7 @@ export function queuedDeadline(fire: number, loopT: number, T: number): number {
   return fire - (loopT - T);
 }
 
-export { effectiveCapacity } from './live.js';
+export { effectiveCapacity } from './capacity.js';
 
 // ---- §3.5.1 steps 3–4: the one placement sequence of planOrder and the fold ----------------------------------
 
@@ -213,18 +214,25 @@ export type SequenceOptions = { strict: boolean; prune: boolean };
 //   2. pass 1 of §3.5.3 (replan.ts) on every station a new line may use (its station and its allowed alternates,
 //      v0.6 G4-2 #23): the older hidden lines are re-placed within their slack, keep first (D6);
 //   3. the immediate lines, each at its earliest fit from t against the profile after pass 1, interval added (D36);
-//   4. each sync group's hold-and-fire loop, in the given order, against the profile after the steps before it.
+//      with them, in `listing` order, every sync line on a FIFO station (§3.5.3 "no hold … placed at
+//      earliestFit(t) in submit order; its target is that land time"; AD-14): no hold, no pickup floor;
+//   4. each sync group's hold-and-fire loop over its other lines, in the given order, against the profile after
+//      the steps before it, floored by the pickup and by the land of each of the group's FIFO lines (AD-14: the
+//      group stays one group and T ≥ every FIFO land, so nothing is late at submit). A group of FIFO lines only
+//      has T = max(pickup, their lands).
 // Routing (§3.5.5) is task 11: every new line is placed on its engine station. §3.3: in-flight lines are read only
 // through liveProfiles (inside pass 1); the working profiles include their live intervals and are never stored.
-// Returns the new lines' placements, the groups' loop results and pass 1's moves of older lines.
+// Returns the new lines' placements, the groups' targets (loop results), the FIFO-placed sync lines and pass 1's
+// moves of older lines. `listing` = the batch's order_item_ids in listing order (the step-3 order).
 function placeSequence(
   state: EngineState,
   immediates: ReadonlyArray<PlanLine & NewLine>,
   syncGroups: ReadonlyArray<ReadonlyArray<PlanLine & NewLine>>,
+  listing: readonly string[],
   t: number,
   floor: number | null,
   o: SequenceOptions,
-): { placements: Map<string, Placement>; targets: number[]; moves: Map<string, Placement> } {
+): { placements: Map<string, Placement>; targets: number[]; fifo: Set<string>; moves: Map<string, Placement> } {
   const stations = state.stations;
   const all = [...immediates, ...syncGroups.flat()];
   for (const line of all) stationOf(stations, line);
@@ -235,7 +243,13 @@ function placeSequence(
   // §3.8a: a return line is an immediate placed here — its earliest fit after pass 1 kept the older lines within
   // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines". SEAM (task 16):
   // with settings.returns_boost = true it is placed as a boost of the return line only (§3.9) and may push others.
-  for (const line of immediates) {
+  // §3.5.3 FIFO / AD-14: a FIFO station's sync line is placed here like an immediate one.
+  const fifo = new Set(syncGroups.flat().filter((l) => isFifo(state, l.station_id)).map((l) => l.order_item_id));
+  const rank = new Map(listing.map((id, i) => [id, i]));
+  const step3 = [...immediates, ...syncGroups.flat().filter((l) => fifo.has(l.order_item_id))].sort(
+    (a, b) => (rank.get(a.order_item_id) ?? 0) - (rank.get(b.order_item_id) ?? 0),
+  );
+  for (const line of step3) {
     const cap = effectiveCapacity(stations[line.station_id]!);
     const fire = earliestFit(profiles[line.station_id]!, t, line.prep_ms, line.cook_ms, line.units, cap);
     const booked = bookingAt(line, cap, fire);
@@ -245,12 +259,20 @@ function placeSequence(
   const targets: number[] = [];
   for (const group of syncGroups) {
     if (group.length === 0) continue;
-    const r = holdAndFire(profiles, stations, group, t, floor);
+    // AD-14: each FIFO line's land floors the group's T.
+    let g = floor ?? Number.NEGATIVE_INFINITY;
+    for (const l of group) if (fifo.has(l.order_item_id)) g = Math.max(g, placements.get(l.order_item_id)!.booked.end + l.carry_ms);
+    const held = group.filter((l) => !fifo.has(l.order_item_id));
+    if (held.length === 0) {
+      targets.push(g);
+      continue;
+    }
+    const r = holdAndFire(profiles, stations, held, t, g === Number.NEGATIVE_INFINITY ? null : g);
     profiles = r.profiles;
     for (const [id, pl] of r.placements) placements.set(id, pl);
     targets.push(r.T);
   }
-  return { placements, targets, moves: p1.moves };
+  return { placements, targets, fifo, moves: p1.moves };
 }
 
 // Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
@@ -319,7 +341,15 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     if (l.serve_mode === 'sync') syncGroups.set(l.group_id, [...(syncGroups.get(l.group_id) ?? []), l]);
   }
   const groups = [...syncGroups.values()];
-  const placed = placeSequence(state, immediates, groups, t, order.pickup_at_ms, o);
+  const placed = placeSequence(
+    state,
+    immediates,
+    groups,
+    pending.map((l) => l.order_item_id),
+    t,
+    order.pickup_at_ms,
+    o,
+  );
   // AD-12: each new line's queued deadline, from the stored group T and the loop result that placed it.
   const loopT = new Map<string, number>();
   groups.forEach((g, i) => loopT.set(g[0]!.group_id, placed.targets[i]!));
@@ -327,6 +357,11 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   for (const l of pending) {
     const pl = placed.placements.get(l.order_item_id)!;
     const T = order.groups[l.group_id]?.target_land_ms ?? pl.booked.end + l.carry_ms;
+    // §3.5.3 / AD-14: a FIFO line's target is its own land time, so its deadline is its fire.
+    if (placed.fifo.has(l.order_item_id)) {
+      deadlines.set(l.order_item_id, pl.fire);
+      continue;
+    }
     const lt = l.serve_mode === 'sync' ? loopT.get(l.group_id)! : pl.booked.end + l.carry_ms;
     deadlines.set(l.order_item_id, queuedDeadline(pl.fire, lt, T));
   }
@@ -354,7 +389,8 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
           .filter((id) => id !== ended.order_item_id)
           .map((id) => state.lines[id])
           .filter((l): l is EngineLine => l !== undefined && l.units > 0 && (l.stage === 'added' || l.stage === 'cooking'));
-  const movable = siblings.filter((l) => isHidden(state, l, t));
+  // §3.5.3 / AD-14: a FIFO line is never re-looped (no re-plan of older lines); its land is a floor below.
+  const movable = siblings.filter((l) => isHidden(state, l, t) && !isFifo(state, l.station_id));
   const held = new Set(movable.map((l) => l.order_item_id));
   const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
   let next = applyMoves(state, p1.moves, event_id, o.strict);
@@ -508,7 +544,15 @@ export function planOrderWith(
   });
   const immediates = planLines.filter((l) => l.serve_mode === 'immediate');
   const sync = planLines.filter((l) => l.serve_mode === 'sync');
-  const placed = placeSequence(state, immediates, [sync], now, proposed.order.pickup_at_ms, { prune: o.prune, strict: false });
+  const placed = placeSequence(
+    state,
+    immediates,
+    [sync],
+    planLines.map((l) => l.order_item_id),
+    now,
+    proposed.order.pickup_at_ms,
+    { prune: o.prune, strict: false },
+  );
 
   const order_type = proposed.order.order_type;
   const land = (l: PlanLine): number => placed.placements.get(l.order_item_id)!.booked.end + l.carry_ms;
