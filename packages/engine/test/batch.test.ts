@@ -7,6 +7,8 @@ import { buildEngineState, liveInterval, type EngineState } from '../src/index';
 import { currentProgram } from '../src/batch';
 import { batchConfig, batchEvents, CONFIG_COOK, etaB, fireLoad, fold, fryer, loadOf, proposedB, startB, submitB, T, voidB } from './batch-kit';
 import { planOrder } from '../src/plan';
+import { liveProfile } from '../src/live';
+import type { PosEvent } from '@pos/events';
 
 const M = 60_000;
 
@@ -174,5 +176,47 @@ describe('@pos/engine batch loads (task 13)', () => {
     expect(s.lines.H2!.fire_ms).toBe(after.fire_ms);
     expect(after.booked.end).toBeLessThanOrEqual(before.booked.end);
     expect(Math.max(...s.stations.F!.profile.u)).toBe(4);
+  });
+  it('[03a §3.3] a joiner with more prep than the members joins and moves the load\'s fire earlier (F §4.7 step 3(a); AD-5)', () => {
+    const s0 = submitB(fryer({ freshness: 2 * M }), 'OA', [{ id: 'A', cook: 6 * M }], T, { pickup_at_ms: T + 60 * M }).state;
+    expect(loadOf(s0, 'A')!.fire_ms).toBe(loadOf(s0, 'A')!.booked.start);
+    const s = submitB(s0, 'OJ', [{ id: 'J', cook: 6 * M, prep: 2 * M }], T + 1_000, { pickup_at_ms: T + 60 * M }).state;
+    const load = loadOf(s, 'J')!;
+    expect(load).toMatchObject({ load_id: 'F:A', order_item_ids: ['A', 'J'] });
+    expect(load.fire_ms).toBe(load.booked.start - 2 * M);
+    expect(s.lines.A!.fire_ms).toBe(load.fire_ms);
+    expect(s.lines.J!.fire_ms).toBe(load.fire_ms);
+  });
+
+  it('[03a §3.5.6] the overload search keeps loads whole (D14): members still share loads, no over-booking, rebuild = live', () => {
+    const events: PosEvent[] = [batchConfig({ capacity: 2, freshness: 0 })];
+    let s = fryer({ capacity: 2, freshness: 0 });
+    const add = (order_id: string, items: Parameters<typeof proposedB>[1], now: number, pickup: number | null): void => {
+      const plan = planOrder(s, proposedB(order_id, items, { pickup_at_ms: pickup }), now, {});
+      const evs = batchEvents(order_id, items, now, plan, { pickup_at_ms: pickup });
+      events.push(...evs);
+      s = fold(s, evs);
+    };
+    add('OA', [{ id: 'A1', cook: 6 * M }, { id: 'A2', cook: 6 * M }], T, T + 30 * M);
+    add('OB', [{ id: 'B1', cook: 6 * M }, { id: 'B2', cook: 6 * M }], T, T + 40 * M);
+    add('OZ', [{ id: 'Z', cook: 60 * M, program: 'P2' }], T, T + 180 * M);
+    add('OW', [{ id: 'W', cook: M, program: 'P2' }], T, T + 300 * M);
+    expect(loadOf(s, 'A1')!.order_item_ids).toEqual(['A1', 'A2']);
+    // Z starts now and holds the fryer for an hour: both hidden loads are late at the next re-plan of F, here the
+    // void of W (§3.5.3 trigger, unpruned).
+    const st = [startB('OZ', 'Z', T + 1_000), voidB('OW', 'W', 1, T + 2_000)];
+    events.push(...st);
+    s = fold(s, st);
+    const a = loadOf(s, 'A1')!;
+    const b = loadOf(s, 'B1')!;
+    expect(a.order_item_ids).toEqual(['A1', 'A2']);
+    expect(b.order_item_ids).toEqual(['B1', 'B2']);
+    expect(a.load_id).not.toBe(b.load_id);
+    const z = liveInterval(s, 'Z', T + 2_000)!;
+    for (const x of [a, b]) expect(x.booked.start).toBeGreaterThanOrEqual(z.end);
+    expect(a.booked.start >= b.booked.end || a.booked.end <= b.booked.start).toBe(true);
+    for (const id of ['A1', 'A2']) expect(s.lines[id]!.fire_ms).toBe(a.fire_ms);
+    expect(Math.max(...liveProfile(s, 'F', T + 2_000).u)).toBeLessThanOrEqual(2);
+    expect(buildEngineState(events)).toEqual(s);
   });
 });

@@ -13,8 +13,9 @@
 //   - b.program_id = currentProgram(L) (D49) and b's cook = L's cook (proposed (implementer, overnight) J1: the
 //     members' copied cook times are equal, so no member is cooked shorter or longer than its copy, §3.2);
 //   - room: b's units + L's units ≤ the station's effective capacity (|b.items| < capacity, read in units, §3.2);
-//   - prep (proposed (implementer, overnight) J2, reading of "b.startsAt > now"): L can be ready when b starts,
-//     b.start − prep(L) ≥ max(t, b.fire_ms) — fired with b, its prep (off-station, D35) ends by b's start;
+//   - prep (task 13 review, reading of "b.startsAt > now"; F step 3(a) has no other prep condition): L can be
+//     prepped by b's start from now, b.start − prep(L) ≥ t; a joiner with more prep than the members moves the
+//     load's fire earlier to b.start − prep(L) (withMember), so fire_ms = start − the largest member prep (AD-5);
 //   - sync: b.end ≤ E and E − b.end ≤ min(freshness_window_ms, max_early_ms(L)) (§3.6.1: capped per line);
 //   - immediate (F: "join the earliest not-yet-fired load with room"): b.end ≤ the land of a new load
 //     (proposed (implementer, overnight) J3: in F's model a new load starts after every reservation, so joining
@@ -83,7 +84,7 @@ export function workOf(state: EngineState, load: Load): WorkLoad {
 
 // Room, program, cook and prep (the conditions that do not depend on the line's target).
 export function compatible(b: WorkLoad, L: JoinLine, cap: number, t: number): boolean {
-  return L.program !== null && b.program_id === L.program && b.cook_ms === L.cook_ms && b.units + L.units <= cap && b.booked.start - L.prep_ms >= Math.max(t, b.fire_ms);
+  return L.program !== null && b.program_id === L.program && b.cook_ms === L.cook_ms && b.units + L.units <= cap && b.booked.start - L.prep_ms >= t;
 }
 
 const byStart = (a: WorkLoad, b: WorkLoad): number => a.booked.start - b.booked.start || a.booked.end - b.booked.end;
@@ -113,8 +114,16 @@ export function earliestJoinEnd(loads: readonly WorkLoad[], L: JoinLine, cap: nu
   return e;
 }
 
+// A joiner with more prep moves the load's fire earlier (AD-5: fire_ms = booked.start − the largest member prep);
+// storeLoads gives every member the load's fire.
 export function withMember(b: WorkLoad, L: Pick<JoinLine, 'order_item_id' | 'units' | 'prep_ms'>): WorkLoad {
-  return { ...b, members: [...b.members, L.order_item_id], units: b.units + L.units, max_prep: Math.max(b.max_prep, L.prep_ms) };
+  return {
+    ...b,
+    members: [...b.members, L.order_item_id],
+    units: b.units + L.units,
+    max_prep: Math.max(b.max_prep, L.prep_ms),
+    fire_ms: Math.min(b.fire_ms, b.booked.start - L.prep_ms),
+  };
 }
 
 export function formed(L: JoinLine, fire: number, booked: Booking, inherit: string | null = null, capped = false): WorkLoad {

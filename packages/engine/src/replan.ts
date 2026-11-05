@@ -21,7 +21,7 @@
 import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveProfile, liveProfiles } from './live.js';
-import { bookingAt, overloadPlace, Work, type Booking, type Placement } from './overload.js';
+import { bookingAt, overloadPlace, Work, type Booking, type OverloadLine, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
 import { asLoad, formed, freshnessOf, joinLine, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
@@ -560,19 +560,62 @@ function batchPass1(
     cands.push(formed(joinLine(L), fire, booked, from.get(L.order_item_id) ?? null));
   }
   if (late.length === 0) return { profile: work.snapshot(), loads: cands, probes: null };
-  const r = overloadPlace(
-    base,
-    freeLines.map((L) => {
-      const w = weightOf(state, L);
-      return { ...asLoad(L, cap), w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap };
-    }),
-    cap,
-    t,
-    Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000),
-  );
+  // Task 13 review (D14 kept in the overload search): the units of the Λ search are loads. The loads the loop above
+  // formed keep their members; the late lines are grouped by the stored load they came from (same program, cook
+  // and room by construction) — proposed (implementer, overnight) J6; joins into frozen / pruned loads stay fixed.
+  const units: WorkLoad[] = cands.filter((b) => b.load_id === null);
+  const lateGroups = new Map<string, EngineLine[]>();
+  for (const L of late) {
+    const k = from.get(L.order_item_id) ?? L.order_item_id;
+    lateGroups.set(k, [...(lateGroups.get(k) ?? []), L]);
+  }
+  for (const [k, ls] of lateGroups) {
+    let u = formed(joinLine(ls[0]!), 0, { start: 0, end: 0, units: 0 }, from.has(ls[0]!.order_item_id) ? k : null);
+    for (const L of ls.slice(1)) u = withMember(u, joinLine(L));
+    units.push(u);
+  }
+  const r = overloadPlace(base, units.map((u) => overloadUnit(state, u, cap, t)), cap, t, Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000));
   const capped = new Set(r.capped);
-  const singles = r.placements.map(([x, pl]) => formed(joinLine(state.lines[x]!), pl.fire, pl.booked, from.get(x) ?? null, capped.has(x)));
-  return { profile: r.profile, loads: [...keepLoads, ...singles], probes: r.probes };
+  const placed = new Map(r.placements);
+  const loads = units.map((u) => {
+    const pl = placed.get(u.members[0]!)!;
+    return { ...u, fire_ms: pl.fire, booked: pl.booked, capped: capped.has(u.members[0]!) };
+  });
+  return { profile: r.profile, loads: [...cands.filter((b) => b.load_id !== null), ...loads], probes: r.probes };
+}
+
+// Task 13 review: a load as one unit of the §3.5.6 search (keyed by its first member), fitted whole-station with
+// its largest prep and its cook. The unit fires at the load's fire, so in load-fire terms a member m bounds it by
+// latest start: fire ≤ d(m) + prep(m) − max_prep, and by max_early_ms: fire ≥ d(m) − max_early_ms(m).
+// proposed (implementer, overnight) J7: the unit's deadline is the minimum of those latest fires; the binding
+// member (the one giving it; ties by order_item_id) gives the weight (§3.5.2), its max_late_ms and the pass-1 tie
+// key, so d_Λ = min member d + min(Λ × 100 / w_binding, max_late_binding); lo = the largest member bound (≤ d).
+function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number): OverloadLine {
+  let bind: EngineLine | null = null;
+  let d = Number.POSITIVE_INFINITY;
+  let lo = Number.NEGATIVE_INFINITY;
+  for (const m of [...u.members].sort()) {
+    const L = state.lines[m]!;
+    const dm = L.deadline_ms + L.prep_ms - u.max_prep;
+    if (dm < d) {
+      d = dm;
+      bind = L;
+    }
+    lo = Math.max(lo, L.deadline_ms - L.max_early_ms);
+  }
+  const w = weightOf(state, bind!);
+  return {
+    order_item_id: u.members[0]!,
+    deadline_ms: d,
+    max_early_ms: Math.max(0, d - lo),
+    max_late_ms: bind!.max_late_ms,
+    units: Math.max(u.units, cap),
+    prep_ms: u.max_prep,
+    cook_ms: u.cook_ms,
+    w,
+    urgency: w * (t - (state.orders[bind!.order_id]?.placed_at ?? t)),
+    cap,
+  };
 }
 
 // §3.3 unfired order: (fire, order_item_id).

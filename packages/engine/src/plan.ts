@@ -184,8 +184,9 @@ function trySyncAt(
         const list = curLoads[sid] ?? [];
         const b = syncJoin(list, jl, cap, T - o.carry_ms, batch, t);
         if (b !== undefined) {
-          curLoads[sid] = replaced(list, b, withMember(b, jl));
-          placements.set(plan.order_item_id, { fire: b.fire_ms, booked: b.booked, station_id: sid, carry_ms: o.carry_ms });
+          const j = withMember(b, jl);
+          curLoads[sid] = replaced(list, b, j);
+          placements.set(plan.order_item_id, { fire: j.fire_ms, booked: b.booked, station_id: sid, carry_ms: o.carry_ms });
           placed = true;
           break;
         }
@@ -258,7 +259,10 @@ function placeBatchImmediate(
   const booked = bookingAt(W, cap, fire);
   const jl = joinLine(line);
   const b = immediateJoin(list, jl, cap, booked.end, t);
-  if (b !== undefined) return { fire: b.fire_ms, booked: b.booked, loads: replaced(list, b, withMember(b, jl)), formed: false };
+  if (b !== undefined) {
+    const j = withMember(b, jl);
+    return { fire: j.fire_ms, booked: b.booked, loads: replaced(list, b, j), formed: false };
+  }
   return { fire, booked, loads: [...list, formed(jl, fire, booked)], formed: true };
 }
 
