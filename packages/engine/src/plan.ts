@@ -9,7 +9,9 @@ import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
 import { applyMoves, bookingAt, capacityFor, isFifo, isFifoLine, isHidden, pass1, sortUnfired, syncOrder, type Move, type NewLine, type Placement } from './replan.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
-import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
+import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, replaced, syncJoin, withMember, type WorkLoad } from './batch.js';
+import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
+import type { Pass1Result } from './replan.js';
 
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
 export function isEngineLine(item: Pick<ItemAddedPayload, 'station_id' | 'line_kind'>): boolean {
@@ -93,14 +95,31 @@ export function queuedDeadline(fire: number, loopT: number, T: number): number {
 
 export { effectiveCapacity } from './capacity.js';
 
+// Task 13 (01a S11: a batch route requires a program; D49): a batch line whose current program (BF-1) is null is a
+// writer bug — InvalidEvent program_id_null (stock_program_id_null for a from-stock line).
+export function checkProgram(line: Pick<EngineLine, 'order_item_id' | 'from_stock' | 'program_id' | 'stock_program_id'>, station: Pick<StationRuntime, 'type' | 'station_id'>): void {
+  if (station.type === 'batch' && currentProgram(line) === null) {
+    throw new InvalidEvent(line.from_stock ? 'stock_program_id_null' : 'program_id_null', line.order_item_id, station.station_id);
+  }
+}
+
 // ---- §3.5.1 steps 3–4: the one placement sequence of planOrder and the fold ----------------------------------
 
-// What the placement reads of a line (an EngineLine, or a line built from a ProposedOrder).
-type PlanLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms'>;
+// What the placement reads of a line (an EngineLine, or a line built from a ProposedOrder). The program fields are
+// read on a batch station only (task 13: currentProgram, BF-1).
+type PlanLine = Pick<
+  EngineLine,
+  'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms' | 'from_stock' | 'program_id' | 'stock_program_id'
+>;
 
 // A placement with the station it was made on (§3.5.5) and that station's carry to the point.
 // fallback = 'reserve': no allowed station could take the line, booked on its own at full capacity (route.ts).
+// On a batch station (task 13) `booked` is the line's load booking (the whole station) and `fire` the load's fire;
+// the line itself books nothing (the load is booked once, storeLoads).
 export type Routed = Placement & { station_id: string; carry_ms: number; fallback?: 'reserve' };
+
+// Task 13: the unfired loads of each batch station during one placement (from pass 1, then the new lines').
+type Loads = Record<string, WorkLoad[]>;
 
 // The line's booking fits on p when fired at `fire` (latestFit over the one-point window [fire, fire]).
 function fitsAt(p: Profile, line: PlanLine, cap: number, fire: number): boolean {
@@ -131,6 +150,11 @@ function stationOf(stations: Readonly<Record<string, StationRuntime>>, line: Pic
 // advances by the smallest advance over all allowed stations"; the caller then repeats the full pass at the
 // advanced T (a pass is trusted only when nothing advanced). With one allowed station per line this is task 7's
 // trial exactly.
+// Task 13, a batch station (F §4.7 step 3): the line fits at T when (a) it joins an unfired load of its program with
+// room whose end is ≤ T − carry and within the freshness window (capped by max_early_ms, batch.ts), or (b) a new
+// load — the whole station, so it never overlaps another load — ends at T − carry (prep done by then); same-order
+// loads of other programs chain as D36 siblings. Otherwise T advances by the smallest advance to the next time (a)
+// or (b) holds. Loads formed in the trial are joinable by the lines after them (the trial's own copy of `loads`).
 function trySyncAt(
   profiles: Readonly<Record<string, Profile>>,
   order: readonly PlanLine[],
@@ -138,17 +162,35 @@ function trySyncAt(
   fifo: ReadonlySet<string>,
   T: number,
   t: number,
-): { ok: true; placements: Map<string, Routed>; profiles: Record<string, Profile> } | { ok: false; advance: number } {
+  loads: Readonly<Loads>,
+  windows: ReadonlyMap<string, number>,
+): { ok: true; placements: Map<string, Routed>; profiles: Record<string, Profile>; loads: Loads } | { ok: false; advance: number } {
   const cur: Record<string, Profile> = { ...profiles };
+  const curLoads: Loads = { ...loads };
   const chainStart = new Map<string, number>();
   const placements = new Map<string, Routed>();
-  for (const line of order) {
+  for (const plan of order) {
     let advance = Number.POSITIVE_INFINITY;
     let nonPositive: number | null = null;
     let placed = false;
-    for (const o of options.get(line.order_item_id)!) {
+    for (const o of options.get(plan.order_item_id)!) {
       const sid = o.station_id;
       const cap = o.cap;
+      const batch = windows.get(sid);
+      // A batch line is fitted as a whole-station booking (batch.ts asLoad).
+      const line = batch === undefined ? plan : asLoad(plan, cap);
+      if (batch !== undefined && !fifo.has(sid)) {
+        const jl = joinLine(plan);
+        const list = curLoads[sid] ?? [];
+        const b = syncJoin(list, jl, cap, T - o.carry_ms, batch, t);
+        if (b !== undefined) {
+          curLoads[sid] = replaced(list, b, withMember(b, jl));
+          placements.set(plan.order_item_id, { fire: b.fire_ms, booked: b.booked, station_id: sid, carry_ms: o.carry_ms });
+          placed = true;
+          break;
+        }
+        advance = Math.min(advance, joinAdvance(list, jl, cap, T - o.carry_ms, t));
+      }
       const base = profiles[sid]!;
       const here = cur[sid]!;
       const cs = chainStart.get(sid);
@@ -181,7 +223,8 @@ function trySyncAt(
         const booked = bookingAt(line, cap, fire);
         cur[sid] = addInterval(here, booked, booked.units);
         if (!fifo.has(sid)) chainStart.set(sid, Math.min(cs ?? Number.POSITIVE_INFINITY, booked.start));
-        placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms, ...(o.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
+        if (batch !== undefined) curLoads[sid] = [...(curLoads[sid] ?? []), formed(joinLine(plan), fire, booked)];
+        placements.set(plan.order_item_id, { fire, booked, station_id: sid, carry_ms: o.carry_ms, ...(o.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
         placed = true;
         break;
       }
@@ -190,7 +233,33 @@ function trySyncAt(
     }
     if (!placed) return { ok: false, advance: advance === Number.POSITIVE_INFINITY ? (nonPositive ?? 0) : advance };
   }
-  return { ok: true, placements, profiles: cur };
+  return { ok: true, placements, profiles: cur, loads: curLoads };
+}
+
+// Task 13: the freshness window of every batch station (its presence marks the station as batch).
+function batchWindows(state: EngineState): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of Object.values(state.stations)) if (s.type === 'batch') out.set(s.station_id, freshnessOf(state, s.station_id));
+  return out;
+}
+
+// Task 13, step 3 on a batch station (F §4.7 "For immediate items at a batch station: join the earliest
+// not-yet-fired load with room …; if none exists, create a new load"; batch.ts J3): a new load at its earliest fit
+// from t, unless a compatible load lands no later.
+function placeBatchImmediate(
+  profile: Profile,
+  list: readonly WorkLoad[],
+  line: PlanLine,
+  cap: number,
+  t: number,
+): { fire: number; booked: { start: number; end: number; units: number }; loads: WorkLoad[]; formed: boolean } {
+  const W = asLoad(line, cap);
+  const fire = earliestFit(profile, t, W.prep_ms, W.cook_ms, W.units, cap);
+  const booked = bookingAt(W, cap, fire);
+  const jl = joinLine(line);
+  const b = immediateJoin(list, jl, cap, booked.end, t);
+  if (b !== undefined) return { fire: b.fire_ms, booked: b.booked, loads: replaced(list, b, withMember(b, jl)), formed: false };
+  return { fire, booked, loads: [...list, formed(jl, fire, booked)], formed: true };
 }
 
 // F §4.7 hold-and-fire for one sync group against `profiles` (the profile after the immediate lines, D36; every
@@ -198,6 +267,7 @@ function trySyncAt(
 // land time over their allowed stations (earliest fit from t, + carry), raised to `floor` (delivery pickup, D3);
 // then full passes until one completes with no advancement.
 // Terminates: T only grows, by ≥ 1 ms per advance, and past the profiles' last boundaries every line fits.
+// Task 13: on a batch station a line's least land is the earlier of a new load's and the earliest compatible load's.
 function holdAndFire(
   state: EngineState,
   profiles: Readonly<Record<string, Profile>>,
@@ -205,14 +275,20 @@ function holdAndFire(
   options: ReadonlyMap<string, readonly RouteOption[]>,
   t: number,
   floor: number | null,
-): { T: number; placements: Map<string, Routed>; profiles: Record<string, Profile> } {
+  loads: Readonly<Loads> = {},
+): { T: number; placements: Map<string, Routed>; profiles: Record<string, Profile>; loads: Loads } {
+  const windows = batchWindows(state);
   let T = floor ?? Number.NEGATIVE_INFINITY;
-  for (const line of lines) {
-    stationOf(state.stations, line);
+  for (const plan of lines) {
+    stationOf(state.stations, plan);
     let least = Number.POSITIVE_INFINITY;
-    for (const o of options.get(line.order_item_id)!) {
+    for (const o of options.get(plan.order_item_id)!) {
+      const batch = windows.has(o.station_id);
+      const line = batch ? asLoad(plan, o.cap) : plan;
       const fire = earliestFit(profiles[o.station_id]!, t, line.prep_ms, line.cook_ms, line.units, o.cap);
-      least = Math.min(least, bookingAt(line, o.cap, fire).end + o.carry_ms);
+      let land = bookingAt(line, o.cap, fire).end;
+      if (batch) land = Math.min(land, earliestJoinEnd(loads[o.station_id] ?? [], joinLine(plan), o.cap, t));
+      least = Math.min(least, land + o.carry_ms);
     }
     T = Math.max(T, least);
   }
@@ -220,8 +296,8 @@ function holdAndFire(
   const order = syncOrder(state, lines);
   const fifo = routeCtx(state).fifo;
   for (;;) {
-    const r = trySyncAt(profiles, order, options, fifo, T, t);
-    if (r.ok) return { T, placements: r.placements, profiles: r.profiles };
+    const r = trySyncAt(profiles, order, options, fifo, T, t, loads, windows);
+    if (r.ok) return { T, placements: r.placements, profiles: r.profiles, loads: r.loads };
     // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs (and route.ts
     // never offers a station where the line's capacity is < 1), and with capacity ≥ 1 every advance comes from a
     // fit that failed at the current fire. Kept as a guard (never a hang): an InvalidEvent, so a non-strict fold
@@ -262,7 +338,7 @@ function placeSequence(
   t: number,
   floor: number | null,
   o: SequenceOptions,
-): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move> } {
+): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks'] } {
   const stations = state.stations;
   const ctx = routeCtx(state);
   const all = [...immediates, ...syncGroups.flat()];
@@ -271,6 +347,8 @@ function placeSequence(
   const uses = [...options.values()].flatMap((os) => os.map((x) => x.station_id));
   const p1 = pass1(state, uses, all, t, { prune: o.prune, strict: o.strict });
   let profiles: Record<string, Profile> = p1.profiles;
+  // Task 13: the batch stations' loads after pass 1; the new lines join or form loads in them.
+  let loads: Loads = { ...p1.loads };
   const placements = new Map<string, Routed>();
   // §3.8a: a return line is an immediate placed here — its earliest fit after pass 1 kept the older lines within
   // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines". SEAM (task 16):
@@ -283,6 +361,16 @@ function placeSequence(
   );
   for (const line of step3) {
     const opts = options.get(line.order_item_id)!;
+    const only = opts.length === 1 ? opts[0]! : undefined;
+    if (only !== undefined && stations[only.station_id]!.type === 'batch') {
+      // Task 13: a batch line has its own station only (P-3).
+      const sid = only.station_id;
+      const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t);
+      loads = { ...loads, [sid]: r.loads };
+      if (r.formed) profiles = { ...profiles, [sid]: addInterval(profiles[sid]!, r.booked, r.booked.units) };
+      placements.set(line.order_item_id, { fire: r.fire, booked: r.booked, station_id: sid, carry_ms: only.carry_ms, ...(only.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
+      continue;
+    }
     const tries = opts.map((x) => {
       const fire = earliestFit(profiles[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
       return { fire, booked: bookingAt(line, x.cap, fire) };
@@ -311,8 +399,9 @@ function placeSequence(
       targets.push(g);
       continue;
     }
-    const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g);
+    const r = holdAndFire(state, profiles, held, options, t, g === Number.NEGATIVE_INFINITY ? null : g, loads);
     profiles = r.profiles;
+    loads = r.loads;
     for (const [id, pl] of r.placements) {
       placements.set(id, pl);
       // AD-14: a line the loop placed on a FIFO station is a FIFO line there (deadline = its fire).
@@ -320,7 +409,85 @@ function placeSequence(
     }
     targets.push(r.T);
   }
-  return { placements, targets, fifo, moves: p1.moves };
+  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks };
+}
+
+// ---- task 13: storing loads ----------------------------------------------------------------------------------
+
+const sameBooking = (a: Load['booked'], b: Load['booked']): boolean => a.start === b.start && a.end === b.end && a.units === b.units;
+
+// Stores the unfired loads of a batch station after a placement (AD-7 for loads, AD-6): names the loads formed in
+// it (batch.ts nameLoads), removes exactly the booking of every stored load that is gone or whose booking changed
+// and adds the new bookings (a kept load is booked once and left alone), and gives every member line the load's
+// fire_ms and load_id (booked null, capped from the overload search). `loads` lists every unfired load of the
+// station; every member is an unfired line already in `unfired`. A strict underflow throws; non-strict it clamps
+// and appends a profile_underflow diagnostic. Unchanged loads return state itself.
+function storeLoads(state: EngineState, station_id: string, after: readonly WorkLoad[], event_id: string, strict: boolean): EngineState {
+  const station = state.stations[station_id]!;
+  const named = nameLoads(station_id, after);
+  const before = station.loads;
+  const unchanged =
+    named.length === Object.keys(before).length &&
+    named.every((w) => {
+      const b = before[w.load_id!];
+      return b !== undefined && sameBooking(b.booked, w.booked) && b.order_item_ids.length === w.members.length && b.order_item_ids.every((m) => w.members.includes(m)) && !w.capped;
+    });
+  if (unchanged) return state;
+  const kept = new Set(named.filter((w) => before[w.load_id!] !== undefined && sameBooking(before[w.load_id!]!.booked, w.booked)).map((w) => w.load_id!));
+  let profile = station.profile;
+  const diagnostics: Diagnostic[] = [];
+  for (const b of Object.values(before)) {
+    if (kept.has(b.load_id)) continue;
+    let under: { at: number; deficit: number } | null = null;
+    profile = strict
+      ? removeInterval(profile, b.booked, b.booked.units)
+      : removeInterval(profile, b.booked, b.booked.units, (u) => {
+          under = u;
+        });
+    if (under !== null) {
+      const { at, deficit } = under as { at: number; deficit: number };
+      diagnostics.push({ kind: 'profile_underflow', event_id, station_id, detail: { load_id: b.load_id, at, deficit } });
+    }
+  }
+  const loads: Record<string, Load> = {};
+  const lines: Record<string, EngineLine> = { ...state.lines };
+  for (const w of named) {
+    if (!kept.has(w.load_id!)) profile = addInterval(profile, w.booked, w.booked.units);
+    const members = [...w.members].sort();
+    loads[w.load_id!] = { load_id: w.load_id!, program_id: w.program_id, order_item_ids: members, fire_ms: w.fire_ms, booked: { ...w.booked } };
+    for (const m of members) lines[m] = { ...lines[m]!, fire_ms: w.fire_ms, load_id: w.load_id!, booked: null, capped: w.capped };
+  }
+  return {
+    ...state,
+    stations: { ...state.stations, [station_id]: { ...station, profile, loads, unfired: sortUnfired(station.unfired, lines) } },
+    lines,
+    diagnostics: diagnostics.length === 0 ? state.diagnostics : [...state.diagnostics, ...diagnostics],
+  };
+}
+
+function storeAllLoads(state: EngineState, loads: Readonly<Loads>, event_id: string, strict: boolean): EngineState {
+  let next = state;
+  for (const sid of Object.keys(loads).sort()) next = storeLoads(next, sid, loads[sid]!, event_id, strict);
+  return next;
+}
+
+// Task 11 re-review: a hidden line pass 1 kept on its own station at full capacity because the reserve shut it out
+// everywhere gets the same reserve_fallback diagnostic as a new line (bookNew).
+function fallbackDiagnostics(state: EngineState, fallbacks: Pass1Result['fallbacks'], event_id: string): EngineState {
+  if (fallbacks.length === 0) return state;
+  const ds: Diagnostic[] = fallbacks.map((f) => ({
+    kind: 'reserve_fallback',
+    event_id,
+    order_item_id: f.order_item_id,
+    station_id: f.station_id,
+    detail: { capacity: f.capacity, reserve_units: f.reserve_units },
+  }));
+  return { ...state, diagnostics: [...state.diagnostics, ...ds] };
+}
+
+// Pass 1's stored effect: the slot moves (applyMoves), the batch stations' loads, the reserve fallbacks.
+export function applyPass1(state: EngineState, p1: Pick<Pass1Result, 'moves' | 'loads' | 'fallbacks'>, event_id: string, strict: boolean): EngineState {
+  return fallbackDiagnostics(storeAllLoads(applyMoves(state, p1.moves, event_id, strict), p1.loads, event_id, strict), p1.fallbacks, event_id);
 }
 
 // Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
@@ -343,11 +510,13 @@ function bookNew(
     const pl = placements.get(line.order_item_id)!;
     const { fire, booked } = pl;
     const sid = pl.station_id;
-    lines[line.order_item_id] = { ...line, ...rerouted(line, pl), fire_ms: fire, booked, capped: false, deadline_ms: deadlines.get(line.order_item_id)! };
     const station = stations[sid]!;
+    // Task 13: a batch line's booking is its load's, stored once by storeLoads.
+    const batch = station.type === 'batch';
+    lines[line.order_item_id] = { ...line, ...rerouted(line, pl), fire_ms: fire, booked: batch ? null : booked, capped: false, deadline_ms: deadlines.get(line.order_item_id)! };
     stations[sid] = {
       ...station,
-      profile: addInterval(station.profile, booked, booked.units),
+      profile: batch ? station.profile : addInterval(station.profile, booked, booked.units),
       unfired: [...station.unfired, line.order_item_id],
     };
     touched.add(sid);
@@ -425,9 +594,14 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
       continue;
     }
     const lt = l.serve_mode === 'sync' ? loopT.get(l.group_id)! : pl.booked.end + pl.carry_ms;
-    deadlines.set(l.order_item_id, queuedDeadline(pl.fire, lt, T));
+    // Task 13: a batch line's slot is its load's interval, so its latest fire is load start − its own prep (the
+    // load fires at start − its largest prep, ≤ that).
+    const own = state.stations[pl.station_id]!.type === 'batch' ? pl.booked.start - l.prep_ms : pl.fire;
+    deadlines.set(l.order_item_id, queuedDeadline(own, lt, T));
   }
-  return bookNew(applyMoves(state, placed.moves, event_id, o.strict), pending, placed.placements, deadlines, event_id);
+  const moved = applyMoves(state, placed.moves, event_id, o.strict);
+  const booked = bookNew(moved, pending, placed.placements, deadlines, event_id);
+  return fallbackDiagnostics(storeAllLoads(booked, placed.loads, event_id, o.strict), placed.fallbacks, event_id);
 }
 
 // §3.5.3 triggers (D13): ItemRemoved / ItemVoided re-plan "that station", and "the group's T may move earlier,
@@ -458,7 +632,7 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   const movable = siblings.filter((l) => isHidden(state, l, t) && !isFifo(state, l.station_id));
   const held = new Set(movable.map((l) => l.order_item_id));
   const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
-  let next = applyMoves(state, p1.moves, event_id, o.strict);
+  let next = applyPass1(state, p1, event_id, o.strict);
   if (siblings.length === 0) return next;
 
   let floor = order!.pickup_at_ms ?? Number.NEGATIVE_INFINITY;
@@ -624,7 +798,7 @@ export function planOrderWith(
       if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, l.order_item_id, station.station_id);
       throw e;
     }
-    const line: PlanLine & NewLine & { from_stock: boolean } = {
+    const line: PlanLine & NewLine = {
       order_item_id: l.order_item_id,
       station_id: station.station_id,
       units: lineUnits(l),
@@ -637,7 +811,10 @@ export function planOrderWith(
       routed_station_id: station.station_id,
       alternates: l.alternates,
       from_stock: shape.from_stock,
+      program_id: l.program_id,
+      stock_program_id: l.stock_program_id,
     };
+    checkProgram(line, station);
     return line;
   });
   const immediates = planLines.filter((l) => l.serve_mode === 'immediate');

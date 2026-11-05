@@ -24,6 +24,7 @@ import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
+import { asLoad, formed, freshnessOf, joinLine, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
@@ -105,6 +106,12 @@ export type Pass1Result = {
   moves: Map<string, Move>;
   // §3.5.6: the Λ probes run per station where a late set went to the overload search (for the simulator, task 18).
   probes: Record<string, number>;
+  // Task 13: per batch station of the pass, its unfired loads after pass 1 (frozen and pruned loads as stored, the
+  // hidden ones re-formed); stored by storeLoads (plan.ts), and the loads new lines may join in pass 2.
+  loads: Record<string, WorkLoad[]>;
+  // Task 11 re-review: hidden lines pass 1 placed on their own station at full capacity because the reserve shut
+  // them out of every allowed station (route.ts fallback 'reserve'); the folding caller appends a reserve_fallback.
+  fallbacks: Array<{ order_item_id: string; station_id: string; capacity: number; reserve_units: number }>;
 };
 
 // ---- profile sweeps (review fix 3: no hidden-lines × profile-size cost) ------------------------------------------
@@ -296,6 +303,8 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   const profiles: Record<string, Profile> = {};
   const moves = new Map<string, Move>();
   const probes: Record<string, number> = {};
+  const loads: Record<string, WorkLoad[]> = {};
+  const fallbacks: Pass1Result['fallbacks'] = [];
   const opts = new Map(newLines.map((L) => [L.order_item_id, routeOptions(ctx, L, false)]));
   const fifoLines = new Set(newLines.filter((L) => isFifoLine(ctx, L, opts.get(L.order_item_id)!)).map((L) => L.order_item_id));
   const held = syncOrder(state, newLines.filter((L) => L.serve_mode === 'sync' && !fifoLines.has(L.order_item_id)));
@@ -352,6 +361,15 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     const liveHere = inc === undefined ? live[id]! : combine(live[id]!, profileOf(inc), 1);
     processed.add(id);
     pending.delete(id);
+    // Task 13: a batch station re-forms its hidden loads (alternates are slot-only, P-3: no line is routed onto or
+    // off it, and no re-routed line lands here).
+    if (station.type === 'batch') {
+      const r = batchPass1(state, station, liveHere, pol, newLines, held, opts, fifoLines, t, T_min, o);
+      profiles[id] = r.profile;
+      loads[id] = r.loads;
+      if (r.probes !== null) probes[id] = r.probes;
+      continue;
+    }
     // FIFO (§3.5.3, D3): no re-plan of older lines; nothing on the station is hidden-and-movable.
     if (pol.policy === 'fifo') {
       profiles[id] = liveHere;
@@ -402,6 +420,9 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
         continue;
       }
       caps.set(L.order_item_id, own.cap);
+      if (own.fallback === 'reserve') {
+        fallbacks.push({ order_item_id: L.order_item_id, station_id: id, capacity: own.cap, reserve_units: ctx.reserve.get(id) ?? 0 });
+      }
       const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
       const fire =
         latestFit(work, lo, L.deadline_ms - pol.keep_ms, L.prep_ms, L.cook_ms, L.units, own.cap) ??
@@ -451,7 +472,107 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     profiles[id] = out;
   }
   for (const [sid, w] of settled) profiles[sid] = w.snapshot();
-  return { profiles, moves, probes };
+  return { profiles, moves, probes, loads, fallbacks };
+}
+
+// Task 13: pass 1 of §3.5.3 on a batch station at t. The unit of placement is the load (F §4.7, batch.ts):
+//   fixed  = the live profile minus the hidden loads (fire > t + freeze_ms); frozen loads stay where they are and
+//            keep their members, and may still gain joiners (§3.7: "a frozen program-Q load never gains a
+//            program-P line", so it may gain a program-Q one);
+//   prune  = (submit) hidden loads whose booking ends ≤ the pivot, with each new line fitted as a whole-station
+//            booking (D25; joins need no capacity, so a pruned load stays joinable);
+//   pass 1 = the hidden loads are re-formed (§12.6 G4-1 #10: "a hidden load is re-formed by every re-plan"): their
+//            members in pass-1 order, each line L with slot end E = d + prep + cook
+//              1. joins the first load b (start order) of the station with b.end ≤ E − keep and (E − keep) − b.end
+//                 ≤ min(freshness, max_early_ms) (the keep cushion applied to the target, so lines that shared a
+//                 load re-form together — proposed (implementer, overnight) J4);
+//              2. else forms a load at latestFit(lo = max(t, d − max_early_ms), hi = d − keep) (whole station);
+//              3. else joins with b.end ≤ E and E − b.end ≤ the window (its own keep, still on time);
+//              4. else forms a load at latestFit(lo, d);
+//              5. else joins the late set.
+//   late   = §3.5.6 on the batch station, proposed (implementer, overnight) J5: every free hidden line is re-placed
+//            by the overload search as a load of its own (whole station), the loads formed above discarded; §3.5.6
+//            defines no join rule, and a singleton load keeps the search's per-line deadlines exact.
+// A re-formed load is named after the stored load the line that formed it came from (nameLoads), so a void of the
+// naming line, whose fold re-plans the station, keeps the name (§3.3 v0.2.1).
+function batchPass1(
+  state: EngineState,
+  station: StationRuntime,
+  liveHere: Profile,
+  pol: ReturnType<typeof stationPolicy>,
+  newLines: readonly NewLine[],
+  held: readonly NewLine[],
+  opts: ReadonlyMap<string, RouteOption[]>,
+  fifoLines: ReadonlySet<string>,
+  t: number,
+  T_min: number,
+  o: Pass1Options,
+): { profile: Profile; loads: WorkLoad[]; probes: number | null } {
+  const id = station.station_id;
+  const stored = Object.values(station.loads).map((l) => workOf(state, l));
+  if (pol.policy === 'fifo') return { profile: liveHere, loads: stored, probes: null };
+  const isHiddenLoad = (b: WorkLoad): boolean => b.fire_ms > t + pol.freeze_ms;
+  const hidden = stored.filter(isHiddenLoad);
+  if (hidden.length === 0) return { profile: liveHere, loads: stored, probes: null };
+  const cap = capacityFor(station, hidden[0]!.members[0] ?? id);
+  const fixed = combine(liveHere, profileOf(hidden.map((b) => b.booked)), -1, o.strict ? undefined : () => undefined);
+  const whole = <L extends NewLine>(L: L): L => (optionOn(opts.get(L.order_item_id) ?? [], id) === undefined ? L : asLoad(L, cap));
+  const pivot = o.prune && newLines.length > 0 ? pivotOn(fixed, id, held.map(whole), newLines.map(whole), opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
+  const pruned = hidden.filter((b) => b.booked.end <= pivot);
+  const free = hidden.filter((b) => b.booked.end > pivot);
+  const base = combine(fixed, profileOf(pruned.map((b) => b.booked)), 1);
+  const keepLoads = [...stored.filter((b) => !isHiddenLoad(b)), ...pruned];
+  const from = new Map<string, string>();
+  const freeLines: EngineLine[] = [];
+  for (const b of free) {
+    for (const m of b.members) {
+      const l = state.lines[m];
+      if (l === undefined || l.stage !== 'added' || l.fired_at !== null) continue;
+      freeLines.push(l);
+      from.set(m, b.load_id!);
+    }
+  }
+  const window = freshnessOf(state, id);
+  const work = new Work(base);
+  let cands: WorkLoad[] = [...keepLoads];
+  const late: EngineLine[] = [];
+  const join = (L: EngineLine, E: number): boolean => {
+    const jl = joinLine(L);
+    const b = syncJoin(cands, jl, cap, E, window, t);
+    if (b === undefined) return false;
+    cands = replaced(cands, b, withMember(b, jl));
+    return true;
+  };
+  for (const L of pass1Order(state, freeLines, pol.keep_ms, t)) {
+    const E = slotEnd(L, cap);
+    if (join(L, E - pol.keep_ms)) continue;
+    const W = asLoad(L, cap);
+    const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
+    let fire = latestFit(work, lo, L.deadline_ms - pol.keep_ms, W.prep_ms, W.cook_ms, W.units, cap);
+    if (fire === null && join(L, E)) continue;
+    fire ??= latestFit(work, lo, L.deadline_ms, W.prep_ms, W.cook_ms, W.units, cap);
+    if (fire === null) {
+      late.push(L);
+      continue;
+    }
+    const booked = bookingAt(W, cap, fire);
+    work.add(booked);
+    cands.push(formed(joinLine(L), fire, booked, from.get(L.order_item_id) ?? null));
+  }
+  if (late.length === 0) return { profile: work.snapshot(), loads: cands, probes: null };
+  const r = overloadPlace(
+    base,
+    freeLines.map((L) => {
+      const w = weightOf(state, L);
+      return { ...asLoad(L, cap), w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap };
+    }),
+    cap,
+    t,
+    Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000),
+  );
+  const capped = new Set(r.capped);
+  const singles = r.placements.map(([x, pl]) => formed(joinLine(state.lines[x]!), pl.fire, pl.booked, from.get(x) ?? null, capped.has(x)));
+  return { profile: r.profile, loads: [...keepLoads, ...singles], probes: r.probes };
 }
 
 // §3.3 unfired order: (fire, order_item_id).

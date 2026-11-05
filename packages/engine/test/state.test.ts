@@ -50,7 +50,8 @@ const KEY_SETS = {
     SlipRecord: ['order_ids', 'last_estimate', 'alert_id', 'resolved_at'],
     StationRuntime: ['station_id', 'type', 'capacity', 'capacity_override', 'paused', 'profile', 'unfired', 'loads'],
     Profile: ['t', 'u'],
-    Load: ['load_id', 'program_id', 'order_item_ids', 'fire_ms', 'fired_at'],
+    Load: ['load_id', 'program_id', 'order_item_ids', 'fire_ms', 'booked'],
+    LoadBooked: ['start', 'end', 'units'],
     EngineOrder: [
       'order_id', 'order_type', 'table_key', 'table_id', 'follow_up', 'pickup_at_ms', 'placed_at', 'placed_by',
       'target_land_ms', 'promise_ms', 'boosted', 'line_ids', 'awaiting', 'last_served_at', 'last_line_fold_at',
@@ -94,6 +95,7 @@ const keysMatch: {
   EngineLineDraw: SameKeys<EngineLine['draws'][number], Current['EngineLineDraw']>;
   EngineLineReturnOf: SameKeys<NonNullable<EngineLine['return_of']>, Current['EngineLineReturnOf']>;
   EngineLineBooked: SameKeys<NonNullable<EngineLine['booked']>, Current['EngineLineBooked']>;
+  LoadBooked: SameKeys<Load['booked'], Current['LoadBooked']>;
 } = {
   EngineState: true,
   StockEntry: true,
@@ -110,6 +112,7 @@ const keysMatch: {
   EngineLineDraw: true,
   EngineLineReturnOf: true,
   EngineLineBooked: true,
+  LoadBooked: true,
 };
 
 function stationConfig(payload: EngineConfig, id: string): EngineConfig['stations'][number] {

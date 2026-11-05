@@ -60,15 +60,25 @@ export interface SlipRecord {
   resolved_at: number | null; // recorded_at of the fold that resolved every group of the key
 }
 
-// 03a §3.3 batch load (F §4.7 BatchStationState semantics); id = station_id + ':' + earliest order_item_id,
-// fixed by FireDispatched.load_id. The interval comes from the profile.
-// provisional — confirmed by task 13 (batch loads), proposed AD-5
+// 03a §3.3 batch load (F §4.7 BatchStationState semantics): an *unfired* load of a batch station. AD-5, confirmed
+// with a change by task 13 (the v3 shape is unreleased):
+//   - load_id: station_id + ':' + the earliest order_item_id at its forming; a name, not membership (v0.2.1): it
+//     stays when that line is voided or removed before the fire; the fire fixes it in FireDispatched.load_id.
+//   - program_id: the members' current program (BF-1 currentProgram); a load never mixes programs (D49).
+//   - order_item_ids: the members, sorted; every member is an unfired 'added' line whose load_id is this id.
+//   - fire_ms: the load's planned fire = booked.start − the largest member prep (prep is off-station, D35); every
+//     member's fire_ms is this value.
+//   - booked (AD-7 for loads, replaces fired_at): the exact booking of the load in the station profile — the whole
+//     station (`capacity` units at forming; a load never overlaps another, F §4.7 step 3(b)) over the members'
+//     cook. Members carry booked = null; the load is booked once and removed exactly once (AD-6 on the removal).
+// A load leaves `loads` when it fires (FireDispatched; its lines then carry fired_at and load_id and pack as one
+// unit, §3.3) or when its last member leaves, so a fired load is never a candidate for joiners (D34).
 export interface Load {
   load_id: string;
   program_id: string;
   order_item_ids: string[];
-  fire_ms: number | null;
-  fired_at: number | null;
+  fire_ms: number;
+  booked: { start: number; end: number; units: number };
 }
 
 // 03a §3.3.

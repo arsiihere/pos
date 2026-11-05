@@ -16,11 +16,11 @@ import type {
   PosEvent,
 } from '@pos/events';
 import { capacityFor } from './replan.js';
-import { deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
 import { removeInterval, type Underflow } from './profile.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
-import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
+import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
@@ -244,6 +244,7 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
       routed_station_id: p.station_id ?? listed.station_id,
       draws: ret !== null ? [] : p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
     };
+    checkProgram(filled, station);
     // The unqueued deadline (AD-4 occupancy); the placement at awaiting = 0 replaces it with the queued one (AD-12).
     return { ...filled, deadline_ms: deadlineOf(filled, order.groups[listed.group_id]!.target_land_ms, capacityFor(station, id)) };
   } catch (e) {
@@ -318,6 +319,8 @@ function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: b
   const station = state.stations[line.station_id];
   if (station === undefined) return state;
   const id = line.order_item_id;
+  const load = line.load_id === null ? undefined : station.loads[line.load_id];
+  if (load !== undefined && load.order_item_ids.includes(id)) return leaveLoad(state, station, load, line, event, strict);
   const inUnfired = station.unfired.includes(id);
   if (line.booked === null && !inUnfired) return state;
   let underflow: Underflow | null = null;
@@ -339,6 +342,35 @@ function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: b
   return addDiagnostic(next, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { order_item_id: id, at, deficit } });
 }
 
+// Task 13 (AD-7 for loads): an unfired member leaves its load and `unfired`. The load keeps its name and booking
+// while it has members (§3.3: a name, not membership; its fire is kept, the next re-plan of a hidden load re-forms
+// it); the last member's leaving removes exactly the load's booking (AD-6 as unbook) and the load.
+function leaveLoad(state: EngineState, station: StationRuntime, load: Load, line: EngineLine, event: PosEvent, strict: boolean): EngineState {
+  const id = line.order_item_id;
+  const rest = load.order_item_ids.filter((x) => x !== id);
+  const loads = { ...station.loads };
+  let profile = station.profile;
+  let underflow: Underflow | null = null;
+  if (rest.length > 0) {
+    loads[load.load_id] = { ...load, order_item_ids: rest };
+  } else {
+    delete loads[load.load_id];
+    profile = strict
+      ? removeInterval(profile, load.booked, load.booked.units)
+      : removeInterval(profile, load.booked, load.booked.units, (u) => {
+          underflow = u;
+        });
+  }
+  const next: EngineState = {
+    ...state,
+    stations: { ...state.stations, [station.station_id]: { ...station, profile, loads, unfired: station.unfired.filter((x) => x !== id) } },
+    lines: { ...state.lines, [id]: { ...line, booked: null } },
+  };
+  if (underflow === null) return next;
+  const { at, deficit } = underflow as Underflow;
+  return addDiagnostic(next, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { load_id: load.load_id, order_item_id: id, at, deficit } });
+}
+
 function patchLine(state: EngineState, id: string, patch: Partial<EngineLine>): EngineState {
   return { ...state, lines: { ...state.lines, [id]: { ...state.lines[id]!, ...patch } } };
 }
@@ -357,10 +389,15 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict:
 // still awaiting lines, is a writer bug — strict throws; non-strict that line is left untouched with one
 // invalid_event diagnostic and the other lines fire. §3.3: the fold refreshes last_line_fold_at of each order it
 // fires a line of.
+// Task 13 (§3.6.1 item 1, §4.2): a FireDispatched naming an unfired load of its station fires every member of the
+// load as well as the listed lines (a pulled-in line leaves its own load); the load leaves `loads` with its last
+// member, its booking removed exactly once, and every fired line carries the event's load_id.
 function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
-  for (const id of p.order_item_ids) {
+  const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
+  const ids = load === undefined ? p.order_item_ids : [...new Set([...p.order_item_ids, ...load.order_item_ids])];
+  for (const id of ids) {
     const line = lineOf(next, id);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
     const bug =

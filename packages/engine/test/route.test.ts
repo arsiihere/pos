@@ -559,6 +559,28 @@ describe('@pos/engine routing — task 11 review (spec-literal filters)', () => 
     expect(r.state.stations.S2!.unfired).toEqual(['H']);
   });
 
+  it('[03a #29] a hidden line shut out of its own station by the reserve, with no other allowed station, falls back to full capacity in pass 1 with a reserve_fallback diagnostic', () => {
+    // H on S1, its home alternate S2 carry-filtered (10 min > max 5 min): S1 is its only station.
+    let s = kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1 }]);
+    const h: Item = { id: 'H', cook: 20, alts: [{ station_id: 'S2', carry_ms: 10 * M, home: true }], maxCarry: 5 * M };
+    s = submit(s, 'OB', [h], at(0), { order_type: 'delivery', pickup_at_ms: at(60) }).state;
+    expect(s.lines.H).toMatchObject({ station_id: 'S1', fire_ms: at(40) });
+    expect(s.diagnostics.filter((d) => d.kind === 'reserve_fallback')).toEqual([]);
+    // S1 now reserves its one unit for its home lines; H is not home there.
+    const cfg = anEngineConfigApplied({
+      recorded_at: at(5),
+      occurred_at: at(5),
+      payload: { config_version: 2, stations: [{ ...S1, station_id: 'S1', capacity: 1, reserve_units: 1 }, { ...S1, station_id: 'S2', capacity: 1 }], settings: SETTINGS },
+    });
+    s = fold(s, [cfg]);
+    // A submit on S1 runs pass 1 there: H stays on S1 at full capacity and the fallback is recorded.
+    const r = submit(s, 'OC', [{ id: 'C1', cook: 1, mode: 'immediate' }], at(10));
+    expect(r.state.lines.H).toMatchObject({ station_id: 'S1' });
+    expect(r.state.diagnostics).toContainEqual(
+      expect.objectContaining({ kind: 'reserve_fallback', order_item_id: 'H', station_id: 'S1', detail: { capacity: 1, reserve_units: 1 } }),
+    );
+  });
+
   it('[03a §3.5.5] no FIFO filter: a sync line may use a FIFO alternate, where AD-14 applies (earliest fit, no hold, deadline = fire)', () => {
     const s = busyS1({}, [{ station_id: 'S2', capacity: 1, policy: 'fifo' }]);
     const r = submit(s, 'ON', [{ id: 'N', cook: 10, alts: [{ station_id: 'S2', carry_ms: 0, home: false }] }], at(0), { pickup_at_ms: null });

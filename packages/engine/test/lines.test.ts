@@ -257,9 +257,13 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
       station_id: 'S2', cook_ms: 120_000, full_cook_ms: 600_000, stock_cook_ms: 120_000, program_id: 'PR1', stock_program_id: 'PR2',
     });
     expect(s.lines.B1!).toMatchObject({
-      stage: 'added', mark: null, return_of: null, load_id: null, fired_at: null, started_at: null, done_at: null,
+      stage: 'added', mark: null, return_of: null, fired_at: null, started_at: null, done_at: null,
       weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null, alternates: [], point_id: null,
     });
+    // Task 13: an unfired batch line is a member of a load (§3.3 name station_id:earliest order_item_id) running
+    // its current program (BF-1: from stock → the copied stock program), booked once on the load.
+    expect(s.lines.B1!).toMatchObject({ load_id: 'S2:B1', booked: null });
+    expect(s.stations.S2!.loads['S2:B1']).toMatchObject({ program_id: 'PR2', order_item_ids: ['B1'] });
     expect(s.stations.S2!.unfired).toEqual(['B1']);
     expect(s.stations.S1!.unfired.slice().sort()).toEqual(['G1', 'M1', 'P3', 'ST']);
   });

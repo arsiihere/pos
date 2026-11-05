@@ -13,6 +13,7 @@ import {
   type PlanResult,
   type ProposedOrder,
 } from '../src/index';
+import { etaB, fireLoad, fold, fryer, loadOf, submitB } from './batch-kit';
 
 const T = 1_761_000_000_000;
 const PAD = 180_000;
@@ -228,5 +229,83 @@ describe('@pos/engine foundation §4.7 required tests (Done early, overrun, D33)
     expect(after.lines.B!.fire_ms!).toBeGreaterThanOrEqual(T + 25);
     expect(after.lines.B!.booked).toEqual({ start: T + 25, end: T + 35, units: 1 });
     expect(eta(plan, 'B')).toBeGreaterThanOrEqual(T + 35);
+  });
+});
+
+// F §4.7 batch station (D14, D17, D34, D35, D49): tests 3, 9, 14, 15 (task 13). Station F is a batch station; a
+// load occupies the whole station (no two loads overlap, F §4.7 step 3(b)), so its booking holds `capacity` units.
+// Targets are given as delivery pickups (§3.5.1: T = max(pickup, loop)); every F time here is inside freeze_ms,
+// so the loads are frozen (fixed input that still accepts joiners, §3.7).
+describe('@pos/engine foundation §4.7 required tests (batch loads)', () => {
+  it('[03a F #3] batch: an item joins only when both freshness conditions hold', () => {
+    // Batch A: endsAt = T + 10 000 (program P1, 6 000 ms), freshnessWindowMs = 5 000.
+    let s = submitB(fryer({ freshness: 5_000 }), 'OA', [{ id: 'A0', cook: 6_000 }], T, { pickup_at_ms: T + 10_000 }).state;
+    const A = loadOf(s, 'A0')!;
+    expect(A).toMatchObject({ load_id: 'F:A0', program_id: 'P1', booked: { start: T + 4_000, end: T + 10_000, units: 4 } });
+    // T + 10 000 joins A (exact match); T + 14 000 joins A (diff 4 000 ≤ 5 000); T + 16 000 does not (6 000 > 5 000).
+    const r10 = submitB(s, 'O10', [{ id: 'X10', cook: 6_000 }], T, { pickup_at_ms: T + 10_000 });
+    s = r10.state;
+    expect(loadOf(s, 'X10')!.load_id).toBe('F:A0');
+    expect(etaB(r10.plan, 'X10')).toBe(T + 10_000);
+    const r14 = submitB(s, 'O14', [{ id: 'X14', cook: 6_000 }], T, { pickup_at_ms: T + 14_000 });
+    s = r14.state;
+    expect(loadOf(s, 'X14')!.load_id).toBe('F:A0');
+    expect(etaB(r14.plan, 'X14')).toBe(T + 10_000);
+    expect(r14.plan.groups[0]!.target_land_ms).toBe(T + 14_000);
+    const r16 = submitB(s, 'O16', [{ id: 'X16', cook: 6_000 }], T, { pickup_at_ms: T + 16_000 });
+    s = r16.state;
+    expect(loadOf(s, 'X16')).toMatchObject({ load_id: 'F:X16', order_item_ids: ['X16'], booked: { start: T + 10_000, end: T + 16_000, units: 4 } });
+    expect(loadOf(s, 'A0')!.order_item_ids).toEqual(['A0', 'X10', 'X14']);
+    // A still holds the station once: 4 units over its interval, then the new load.
+    expect(s.stations.F!.profile).toEqual({ t: [T + 4_000, T + 16_000], u: [4, 0] });
+  });
+
+  it('[03a F #9] a fired batch is closed to new joiners (D34)', () => {
+    // Load L: startsAt = T − 5, endsAt = T + 1 000, 1 item, capacity 3, freshnessWindowMs = 5 000.
+    const placed = submitB(fryer({ capacity: 3, freshness: 5_000 }), 'OL', [{ id: 'L0', cook: 1_005 }], T - 1_000, { pickup_at_ms: T + 1_000 }).state;
+    expect(loadOf(placed, 'L0')).toMatchObject({ load_id: 'F:L0', fire_ms: T - 5, booked: { start: T - 5, end: T + 1_000, units: 3 } });
+    // Control: before L starts, an item whose target is in L's window joins it.
+    const before = submitB(placed, 'OX', [{ id: 'X', cook: 1_005 }], T - 10, { pickup_at_ms: T + 3_000 }).state;
+    expect(loadOf(before, 'X')!.load_id).toBe('F:L0');
+    // L fires at T − 5; at T, X (target T + 500 as in F, and T + 3 000 inside the window) does not join L.
+    const fired = fold(placed, [fireLoad('F:L0', ['L0'], T - 5)]);
+    expect(fired.lines.L0).toMatchObject({ fired_at: T - 5, load_id: 'F:L0' });
+    expect(fired.stations.F!.loads).toEqual({});
+    for (const pickup of [T + 500, T + 3_000]) {
+      const s = submitB(fired, 'OX', [{ id: 'X', cook: 1_005 }], T, { pickup_at_ms: pickup }).state;
+      const x = loadOf(s, 'X')!;
+      expect(x).toMatchObject({ load_id: 'F:X', order_item_ids: ['X'] });
+      // A new load, after L's live interval at T ([T, T + 1 005): packed from max(fire, now), §3.3).
+      expect(liveInterval(s, 'L0', T)).toEqual({ start: T, end: T + 1_005 });
+      expect(x.booked.start).toBeGreaterThanOrEqual(T + 1_005);
+    }
+  });
+
+  it('[03a F #14] batch loads never mix programs (D49)', () => {
+    // Capacity 4, P1 6 000 ms and P2 2 000 ms. Unfired load L (P1) with 1 item, endsAt = T + 10 000.
+    const s0 = submitB(fryer({ capacity: 4 }), 'OL', [{ id: 'L0', cook: 6_000, program: 'P1' }], T, { pickup_at_ms: T + 10_000 }).state;
+    const L = loadOf(s0, 'L0')!;
+    expect(L.booked).toEqual({ start: T + 4_000, end: T + 10_000, units: 4 });
+    // Sync item X (P2), target T + 10 000: free capacity and an exact freshness match, yet it does not join L.
+    const s = submitB(s0, 'OX', [{ id: 'X', cook: 2_000, program: 'P2' }], T, { pickup_at_ms: T + 10_000 }).state;
+    const x = loadOf(s, 'X')!;
+    expect(x.load_id).not.toBe(L.load_id);
+    expect(x.program_id).toBe('P2');
+    expect(loadOf(s, 'L0')!.order_item_ids).toEqual(['L0']);
+    // The new P2 load's station interval does not overlap L.
+    expect(x.booked.start >= L.booked.end || x.booked.end <= L.booked.start).toBe(true);
+    expect(x.booked).toEqual({ start: T + 10_000, end: T + 12_000, units: 4 });
+  });
+
+  it('[03a F #15] a new batch load excludes prep from station time (D35, D49)', () => {
+    // Empty batch station, program P (cookTimeMs = 20); X: prep_buffer = 10; branchNow = T.
+    for (const mode of ['sync', 'immediate'] as const) {
+      const { plan, state: s } = submitB(fryer(), 'O1', [{ id: 'X', cook: 20, prep: 10, mode }], T);
+      expect(etaB(plan, 'X')).toBe(T + 30);
+      expect(loadOf(s, 'X')).toMatchObject({ fire_ms: T, booked: { start: T + 10, end: T + 30, units: 4 } });
+      expect(s.lines.X!.fire_ms).toBe(T);
+      // Reservation [T + 10, T + 30), not [T, T + 30).
+      expect(s.stations.F!.profile).toEqual({ t: [T + 10, T + 30], u: [4, 0] });
+    }
   });
 });

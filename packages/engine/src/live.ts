@@ -14,11 +14,17 @@
 //   - §3.3: a line of an order out of the engine at t (isOrderInEngine; abandoned before its physical removal)
 //     occupies nothing. Only in-flight lines can belong to such an order (an exited order has no unfired line).
 // Cook lengths and units are the AD-4 occupancy at the station's effective capacity.
-// Batch loads (each fired load one unit of placement) arrive with task 13; until then every line packs alone.
+// Batch stations (task 13, §3.3 "a batch station: its fired-not-started loads, each as one unit of placement"):
+// a load holds the whole station (F §4.7, batch.ts), so the in-flight lines are grouped by load_id (a line fired
+// without a load is its own group). A group with a COOKING member occupies [its earliest started + prep, the latest
+// member end) — a COOKING member's live end, a not-started member's max(fire, t) + prep + cook (proposed
+// (implementer, overnight) L1); a group with no COOKING member is packed like a fired line, from max(fire, t) with
+// its largest prep and cook. Either way with every unit of the station. An unfired member occupies its load's
+// booking (Load.booked, AD-7 for loads).
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { addInterval, earliestFit, occupancy } from './profile.js';
-import type { EngineLine, EngineState, Interval, Profile } from './state.js';
+import type { EngineLine, EngineState, Interval, Profile, StationRuntime } from './state.js';
 
 
 type Booking = { start: number; end: number; units: number };
@@ -67,7 +73,7 @@ function inFlightOf(state: EngineState, station_ids: ReadonlySet<string>, t: num
 
 // One station's live bookings at t: the COOKING lines, then the fired-not-started ones packed in
 // (fire_ms, order_item_id) order. O(fired lines × their boundaries): each fit and insert scans only the pack.
-function packStation(lines: readonly EngineLine[], cap: number, t: number): { pack: Profile; bookings: Map<string, Booking> } {
+function packSlot(lines: readonly EngineLine[], cap: number, t: number): { pack: Profile; bookings: Map<string, Booking> } {
   let pack: Profile = { t: [], u: [] };
   const bookings = new Map<string, Booking>();
   const fired: EngineLine[] = [];
@@ -90,6 +96,61 @@ function packStation(lines: readonly EngineLine[], cap: number, t: number): { pa
     bookings.set(line.order_item_id, b);
   }
   return { pack, bookings };
+}
+
+// One batch station's live bookings at t (header): one booking per load group, all `cap` units.
+function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack: Profile; bookings: Map<string, Booking> } {
+  const groups = new Map<string, EngineLine[]>();
+  for (const line of lines) {
+    const key = line.load_id === null ? `\u0000${line.order_item_id}` : line.load_id;
+    const g = groups.get(key);
+    if (g === undefined) groups.set(key, [line]);
+    else g.push(line);
+  }
+  const cookOf = (l: EngineLine): number => occupancy(Math.max(l.units, cap), cap, l.cook_ms).cook_ms;
+  const fireOf = (l: EngineLine): number => l.fire_ms ?? l.fired_at!;
+  let pack: Profile = { t: [], u: [] };
+  const bookings = new Map<string, Booking>();
+  const fired: Array<{ members: EngineLine[]; fire: number; first: string; prep: number; cook: number }> = [];
+  for (const members of groups.values()) {
+    if (!members.some(isCooking)) {
+      fired.push({
+        members,
+        fire: Math.min(...members.map(fireOf)),
+        first: members.map((m) => m.order_item_id).sort()[0]!,
+        prep: Math.max(...members.map((m) => m.prep_ms)),
+        cook: Math.max(...members.map(cookOf)),
+      });
+      continue;
+    }
+    let start = Number.POSITIVE_INFINITY;
+    let end = Number.NEGATIVE_INFINITY;
+    for (const m of members) {
+      if (isCooking(m)) {
+        const st = (m.started_at ?? t) + m.prep_ms;
+        start = Math.min(start, st);
+        end = Math.max(end, st + cookOf(m), t);
+      } else {
+        end = Math.max(end, Math.max(fireOf(m), t) + m.prep_ms + cookOf(m));
+      }
+    }
+    const b = { start, end, units: cap };
+    pack = addInterval(pack, b, b.units);
+    for (const m of members) bookings.set(m.order_item_id, b);
+  }
+  fired.sort((a, b) => a.fire - b.fire || (a.first < b.first ? -1 : a.first > b.first ? 1 : 0));
+  for (const g of fired) {
+    const s = earliestFit(pack, Math.max(g.fire, t), g.prep, g.cook, cap, cap);
+    const b = { start: s + g.prep, end: s + g.prep + g.cook, units: cap };
+    pack = addInterval(pack, b, b.units);
+    for (const m of g.members) bookings.set(m.order_item_id, b);
+  }
+  return { pack, bookings };
+}
+
+function packStation(station: StationRuntime, lines: readonly EngineLine[], t: number): { pack: Profile; bookings: Map<string, Booking> } {
+  const cap = effectiveCapacity(station);
+  return station.type === 'batch' ? packBatch(lines, cap, t) : packSlot(lines, cap, t);
 }
 
 // Pointwise sum of two canonical profiles in one linear sweep; the result is canonical (profile.ts).
@@ -126,7 +187,7 @@ export function liveProfiles(state: EngineState, station_ids: Iterable<string>, 
     const station = state.stations[id];
     if (station === undefined) continue;
     const lines = inFlight.get(id);
-    out[id] = lines === undefined ? station.profile : sumProfiles(station.profile, packStation(lines, effectiveCapacity(station), t).pack);
+    out[id] = lines === undefined ? station.profile : sumProfiles(station.profile, packStation(station, lines, t).pack);
   }
   return out;
 }
@@ -141,15 +202,18 @@ export function liveInterval(state: EngineState, order_item_id: string, t: numbe
   if (line === undefined) return null;
   const station = state.stations[line.station_id];
   if (station === undefined || !inEngineAt(state, line, t, new Map())) return null;
-  if (isCooking(line)) {
+  if (isCooking(line) && station.type !== 'batch') {
     const b = cookingBooking(line, effectiveCapacity(station), t);
     return { start: b.start, end: b.end };
   }
-  if (isFiredNotStarted(line)) {
+  if (isCooking(line) || isFiredNotStarted(line)) {
     const lines = inFlightOf(state, new Set([line.station_id]), t).get(line.station_id)!;
-    const b = packStation(lines, effectiveCapacity(station), t).bookings.get(order_item_id)!;
+    const b = packStation(station, lines, t).bookings.get(order_item_id)!;
     return { start: b.start, end: b.end };
   }
   if (line.stage === 'added' && line.booked !== null) return { start: line.booked.start, end: line.booked.end };
+  // An unfired member of a batch load occupies the load's booking.
+  const load = line.stage === 'added' && line.load_id !== null ? station.loads[line.load_id] : undefined;
+  if (load !== undefined && load.order_item_ids.includes(order_item_id)) return { start: load.booked.start, end: load.booked.end };
   return null;
 }
