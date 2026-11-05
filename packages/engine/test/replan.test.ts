@@ -15,6 +15,7 @@ import {
 } from '../src/index';
 import { liveProfile } from '../src/live';
 import { planOrderWith } from '../src/plan';
+import { placeLateSet } from '../src/replan';
 
 const T0 = 1_761_000_000_000; // "12:00"
 const M = 60_000;
@@ -48,7 +49,8 @@ function fold(state: EngineState, events: PosEvent[], opts?: Opts): EngineState 
 }
 
 // A line of an order: station, serve mode (default sync), cook / prep in minutes, units, carry in minutes.
-type Item = { id: string; st?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number };
+// early = max_early_ms in minutes (default 1, the config default).
+type Item = { id: string; st?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number };
 type OrderOver = { pickup_at_ms?: number | null; order_type?: 'dine_in' | 'takeaway' | 'delivery' | 'parking' };
 
 let seq = 100;
@@ -82,7 +84,7 @@ function proposed(order_id: string, items: Item[], o: OrderOver = {}): ProposedO
       point_id: null,
       carry_ms: (i.carry ?? 0) * M,
       weight_pct: 100,
-      max_early_ms: 60_000,
+      max_early_ms: (i.early ?? 1) * M,
       max_late_ms: null,
       max_carry_ms: null,
       cook_ms_override: null,
@@ -106,7 +108,7 @@ function batch(order_id: string, items: Item[], recorded_at: number, groups: Pla
         serve_mode: i.mode ?? 'sync',
         quantity: i.units ?? 1,
       },
-      line: { station_id: i.st ?? 'S1', carry_ms: (i.carry ?? 0) * M },
+      line: { station_id: i.st ?? 'S1', carry_ms: (i.carry ?? 0) * M, max_early_ms: (i.early ?? 1) * M },
     })),
     order: { order_type: o.order_type ?? 'dine_in', pickup_at_ms: o.pickup_at_ms ?? null, groups },
   });
@@ -155,12 +157,15 @@ function maxUnits(s: EngineState, station_id: string, t: number, from = t): numb
   return m;
 }
 
-// Seeded PRNG (LCG), local to this file.
+// Seeded PRNG (mulberry32), local to this file; rnd(n) is uniform in 0 … n − 1 from the high bits.
 function prng(seed0: number): (n: number) => number {
-  let seed = seed0;
+  let a = seed0 >>> 0;
   return (n: number) => {
-    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
-    return seed % n;
+    a = (a + 0x6d2b79f5) >>> 0;
+    let x = a;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return Math.floor((((x ^ (x >>> 14)) >>> 0) / 4_294_967_296) * n);
   };
 }
 
@@ -254,9 +259,9 @@ describe('@pos/engine re-plan pass 1 (§3.5.3, §3.5.1 one sequence, §3.4 freez
   });
 
   it('[03a #23] property, 50 seeds: pruned keeps on time every line unpruned keeps, T_pruned ≤ T_unpruned, no over-booking', () => {
-    const rnd = prng(23);
     let differ = 0;
     for (let run = 0; run < 50; run++) {
+      const rnd = prng(2_300 + run); // 50 independent seeds
       const caps = [1 + rnd(3), 1 + rnd(3)];
       const stations = ['S1', 'S2'];
       let s = kitchen([{ station_id: 'S1', capacity: caps[0]! }, { station_id: 'S2', capacity: caps[1]! }]);
@@ -275,6 +280,7 @@ describe('@pos/engine re-plan pass 1 (§3.5.3, §3.5.1 one sequence, §3.4 freez
             mode: rnd(4) === 0 ? 'immediate' : 'sync',
             units: 1 + rnd(caps[si]!),
             carry: rnd(2),
+            early: rnd(15), // max_early_ms 0 … 14 min
           });
         }
         return items;
@@ -379,6 +385,78 @@ describe('@pos/engine re-plan pass 1 (§3.5.3, §3.5.1 one sequence, §3.4 freez
     expect(lax.lines.H!.fire_ms).toBe(at(16));
   });
 
+  it('[03a AD-12] a feasible serialised group stays on time across a later submit (queued deadline)', () => {
+    let s = kitchen([{ station_id: 'S1', capacity: 1 }]);
+    // D36 queue on capacity 1: A (cook 10) [12:25, 12:35), then B (cook 5) [12:35, 12:40) = T.
+    ({ state: s } = submit(s, 'OG', [{ id: 'A', cook: 10 }, { id: 'B', cook: 5 }], at(0), { pickup_at_ms: at(40) }));
+    expect(s.lines.A!.booked).toEqual({ start: at(25), end: at(35), units: 1 });
+    expect(s.lines.A!.deadline_ms).toBe(at(25)); // its own slot, not T − cook = 12:30
+    expect(s.lines.B!.deadline_ms).toBe(at(35));
+    const r = submit(s, 'ON', [{ id: 'N', cook: 1, mode: 'immediate' }], at(1));
+    // Pass 1 keeps both in their queue, each taking its keep: A [12:24, 12:34), B [12:34, 12:39) ≤ T.
+    expect(r.state.lines.A!.booked).toEqual({ start: at(24), end: at(34), units: 1 });
+    expect(r.state.lines.B!.booked).toEqual({ start: at(34), end: at(39), units: 1 });
+    for (const id of ['A', 'B']) expect(fireOf(r.state, id)).toBeLessThanOrEqual(r.state.lines[id]!.deadline_ms);
+  });
+
+  it('[03a AD-12] property, 50 seeds: a serialised group stays on time across later submits (no disturbance)', () => {
+    for (let run = 0; run < 50; run++) {
+      const rnd = prng(1_200 + run);
+      const cap = 1 + rnd(2);
+      let s = kitchen([{ station_id: 'S1', capacity: cap }, { station_id: 'S2', capacity: 1 + rnd(2) }]);
+      let now = T0;
+      const gItems: Item[] = [];
+      for (let k = 0; k < 2 + rnd(3); k++) {
+        gItems.push({ id: `G${run}L${k}`, st: rnd(4) === 0 ? 'S2' : 'S1', cook: 2 + rnd(12), prep: rnd(2), units: 1 + rnd(cap), carry: rnd(2), early: rnd(15) });
+      }
+      const g = submit(s, `G${run}`, gItems, now, { pickup_at_ms: now + (20 + rnd(40)) * M });
+      s = g.state;
+      const TG = T(g.plan);
+      const onTime = (st: EngineState): void => {
+        for (const it of gItems) {
+          const l = st.lines[it.id]!;
+          expect(l.fire_ms!).toBeLessThanOrEqual(l.deadline_ms);
+          expect(l.booked!.end + l.carry_ms).toBeLessThanOrEqual(TG);
+        }
+      };
+      onTime(s);
+      for (let k = 0; k < 1 + rnd(4); k++) {
+        now += rnd(3) * M;
+        const items: Item[] = [];
+        for (let j = 0; j < 1 + rnd(3); j++) {
+          items.push({ id: `N${run}_${k}L${j}`, st: rnd(2) === 0 ? 'S1' : 'S2', cook: 1 + rnd(10), mode: rnd(3) === 0 ? 'immediate' : 'sync', early: rnd(15) });
+        }
+        ({ state: s } = submit(s, `N${run}_${k}`, items, now, { pickup_at_ms: rnd(2) === 0 ? null : now + (5 + rnd(40)) * M }));
+        onTime(s);
+      }
+    }
+  });
+
+  it('[03a AD-4] a 4-unit line on capacity 3 is never pass-1-placed past T − carry (occupancy deadline)', () => {
+    let s = kitchen([{ station_id: 'S1', capacity: 3 }]);
+    // 4 units on capacity 3: the whole station for 2 rounds × 5 min = [12:20, 12:30), T = 12:30.
+    ({ state: s } = submit(s, 'OX', [{ id: 'X', cook: 5, units: 4 }], at(0), { pickup_at_ms: at(30) }));
+    expect(s.lines.X!.booked).toEqual({ start: at(20), end: at(30), units: 3 });
+    expect(s.lines.X!.deadline_ms).toBe(at(20));
+    const r = submit(s, 'ON', [{ id: 'N', cook: 1, mode: 'immediate' }], at(1));
+    expect(r.state.lines.X!.booked).toEqual({ start: at(19), end: at(29), units: 3 });
+    expect(r.state.lines.X!.booked!.end).toBeLessThanOrEqual(at(30));
+  });
+
+  it('[03a §3.5.6 stub] the late set is placed in the given (pass-1) order, each at its earliest fit from max(t, d − max_early)', () => {
+    const line = (id: string, d: number, early: number) => ({ order_item_id: id, deadline_ms: d, max_early_ms: early, units: 1, prep_ms: 0, cook_ms: 2 * M });
+    const busy = { t: [at(0), at(10)], u: [1, 0] };
+    // L2 first (as given), then L1 after it; L3's early bound 12:19 is later than the free point.
+    const r = placeLateSet(busy, [line('L2', at(3), M), line('L1', at(5), M), line('L3', at(20), M)], 1, at(0));
+    expect(r.placements).toEqual([
+      ['L2', { fire: at(10), booked: { start: at(10), end: at(12), units: 1 } }],
+      ['L1', { fire: at(12), booked: { start: at(12), end: at(14), units: 1 } }],
+      ['L3', { fire: at(19), booked: { start: at(19), end: at(21), units: 1 } }],
+    ]);
+    expect(r.profile).toEqual({ t: [at(0), at(14), at(19), at(21)], u: [1, 0, 1, 0] });
+    expect(busy).toEqual({ t: [at(0), at(10)], u: [1, 0] }); // input untouched
+  });
+
   it('[03a §3.5.3] capacity < 1 is invalid data: strict throws InvalidEvent capacity_invalid; non-strict records invalid_event', () => {
     const s = kitchen([{ station_id: 'S1', capacity: 0 }]);
     const events = batch('O1', [{ id: 'L1', cook: 5 }], at(0), [{ group_id: 'O1:0', target_land_ms: at(5), promise_ms: at(8), order_item_ids: ['L1'] }]);
@@ -448,8 +526,8 @@ describe('@pos/engine re-plan on void / remove (D13: T\' = min(T, loop), promise
 
 describe('@pos/engine Review Focus 2: equal recorded_at and equal fire_ms across stations', () => {
   it('[03a §3.5.3] Review Focus 2, 50 seeds: one recorded_at per day, equal fires across stations → stable placement, live = rebuild', () => {
-    const rnd = prng(2);
     for (let run = 0; run < 50; run++) {
+      const rnd = prng(200 + run); // 50 independent seeds
       const cap = 1 + rnd(2);
       const stations = ['S1', 'S2', 'S3'];
       const base = kitchen(stations.map((id) => ({ station_id: id, capacity: cap })));

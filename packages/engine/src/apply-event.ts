@@ -13,6 +13,7 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
+import { capacityFor } from './replan.js';
 import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { removeInterval, type Underflow } from './profile.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
@@ -205,7 +206,8 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
       stock_program_id: p.stock_program_id,
       draws: p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
     };
-    return { ...filled, deadline_ms: deadlineOf(filled, order.groups[listed.group_id]!.target_land_ms) };
+    // The unqueued deadline (AD-4 occupancy); the placement at awaiting = 0 replaces it with the queued one (AD-12).
+    return { ...filled, deadline_ms: deadlineOf(filled, order.groups[listed.group_id]!.target_land_ms, capacityFor(station, id)) };
   } catch (e) {
     if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, id, listed.station_id);
     throw e;

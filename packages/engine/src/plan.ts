@@ -6,7 +6,7 @@ import type { ItemAddedPayload } from '@pos/events';
 import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity, liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, isHidden, pass1, sortUnfired, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, isHidden, pass1, queueOrder, sortUnfired, type NewLine, type Placement } from './replan.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
@@ -51,8 +51,20 @@ export function lineCookTimes(
 }
 
 // §3.2: d(L) = T − carry − cook − prep, the latest fire that lands on target.
-export function deadlineOf(line: Pick<EngineLine, 'carry_ms' | 'cook_ms' | 'prep_ms'>, target_land_ms: number): number {
-  return target_land_ms - line.carry_ms - line.cook_ms - line.prep_ms;
+// Review fix (AD-4): cook = the occupancy cook at the station's effective capacity, so an over-capacity line's
+// deadline lands its last round at T − carry. This is the deadline of an unqueued line; a line queued behind
+// same-station siblings (F §4.7 D36) gets its queued deadline at placement (AD-12, queuedDeadline).
+export function deadlineOf(line: Pick<EngineLine, 'carry_ms' | 'cook_ms' | 'prep_ms' | 'units'>, target_land_ms: number, cap: number): number {
+  return target_land_ms - line.carry_ms - occupancy(line.units, cap, line.cook_ms).cook_ms - line.prep_ms;
+}
+
+// AD-12 (developer ruling): a line's deadline is its own slot in the D36 queue: d = slot end − cook(occupancy) −
+// prep, slot end ≤ T − carry the end the serialisation gave the line (T − carry when not queued). The placement
+// was made by a loop whose result `loopT` may differ from the stored target T (append gap, §3.5.3; for an
+// immediate line loopT is its own land time); the queue keeps its shape, so slot end = booked.end − (loopT − T)
+// and d = fire − (loopT − T). For planOrder at now = recorded_at loopT = T and d = the planned fire.
+export function queuedDeadline(fire: number, loopT: number, T: number): number {
+  return fire - (loopT - T);
 }
 
 export { effectiveCapacity } from './live.js';
@@ -156,15 +168,15 @@ function holdAndFire(
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([id, ls]) => {
       const cap = effectiveCapacity(stations[id]!);
-      const dur = (l: PlanLine): number => occupancy(l.units, cap, l.cook_ms).cook_ms;
-      // F §4.7 D36: longest cook first (ties by order_item_id), the first one earliest in time.
-      return [id, [...ls].sort((x, y) => dur(y) - dur(x) || (x.order_item_id < y.order_item_id ? -1 : 1))] as const;
+      // F §4.7 D36: longest cook first (ties by order_item_id), the first one earliest in time (queueOrder).
+      return [id, queueOrder(ls, cap)] as const;
     });
   for (;;) {
     const r = trySyncAt(profiles, stations, byStation, T, t);
     if (r.ok) return { T, placements: r.placements, profiles: r.profiles };
-    // Unreachable with capacity ≥ 1 (every advance comes from a fit that failed at the current fire); invalid
-    // data, never a hang: an InvalidEvent, so a non-strict fold records a diagnostic (task 7 review ruling).
+    // Unreachable: capacity < 1 is already refused by stationOf / capacityFor before any loop runs, and with
+    // capacity ≥ 1 every advance comes from a fit that failed at the current fire. Kept as a guard (never a
+    // hang): an InvalidEvent, so a non-strict fold records a diagnostic (task 7 review ruling).
     if (!(r.advance > 0)) throw new InvalidEvent('capacity_invalid', lines[0]!.order_item_id, lines[0]!.station_id);
     T += r.advance;
   }
@@ -219,14 +231,20 @@ function placeSequence(
 // Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
 // on their stations (§3.3, (fire, order_item_id)); a line over effective capacity appends an 'over_capacity'
 // diagnostic (AD-4) in both modes. The stored profile gets only planned bookings, never live intervals (§3.3).
-function bookNew(state: EngineState, pending: readonly EngineLine[], placements: ReadonlyMap<string, Placement>, event_id: string): EngineState {
+function bookNew(
+  state: EngineState,
+  pending: readonly EngineLine[],
+  placements: ReadonlyMap<string, Placement>,
+  deadlines: ReadonlyMap<string, number>,
+  event_id: string,
+): EngineState {
   const stations: Record<string, StationRuntime> = { ...state.stations };
   const lines: Record<string, EngineLine> = { ...state.lines };
   const diagnostics: Diagnostic[] = [];
   const touched = new Set<string>();
   for (const line of pending) {
     const { fire, booked } = placements.get(line.order_item_id)!;
-    lines[line.order_item_id] = { ...line, fire_ms: fire, booked };
+    lines[line.order_item_id] = { ...line, fire_ms: fire, booked, deadline_ms: deadlines.get(line.order_item_id)! };
     const station = stations[line.station_id]!;
     stations[line.station_id] = {
       ...station,
@@ -275,8 +293,19 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   for (const l of pending) {
     if (l.serve_mode === 'sync') syncGroups.set(l.group_id, [...(syncGroups.get(l.group_id) ?? []), l]);
   }
-  const placed = placeSequence(state, immediates, [...syncGroups.values()], t, order.pickup_at_ms, o);
-  return bookNew(applyMoves(state, placed.moves, event_id, o.strict), pending, placed.placements, event_id);
+  const groups = [...syncGroups.values()];
+  const placed = placeSequence(state, immediates, groups, t, order.pickup_at_ms, o);
+  // AD-12: each new line's queued deadline, from the stored group T and the loop result that placed it.
+  const loopT = new Map<string, number>();
+  groups.forEach((g, i) => loopT.set(g[0]!.group_id, placed.targets[i]!));
+  const deadlines = new Map<string, number>();
+  for (const l of pending) {
+    const pl = placed.placements.get(l.order_item_id)!;
+    const T = order.groups[l.group_id]?.target_land_ms ?? pl.booked.end + l.carry_ms;
+    const lt = l.serve_mode === 'sync' ? loopT.get(l.group_id)! : pl.booked.end + l.carry_ms;
+    deadlines.set(l.order_item_id, queuedDeadline(pl.fire, lt, T));
+  }
+  return bookNew(applyMoves(state, placed.moves, event_id, o.strict), pending, placed.placements, deadlines, event_id);
 }
 
 // §3.5.3 triggers (D13): ItemRemoved / ItemVoided re-plan "that station", and "the group's T may move earlier,
@@ -327,10 +356,15 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   if (!(loop.T < T)) return next;
 
   next = applyMoves(next, loop.placements, event_id, o.strict);
+  // AD-12: the group's queued deadlines at T'. A re-looped line's slot is its loop placement (loopT = T'); a
+  // sibling that cannot move keeps its slot, never later than its unqueued deadline at T'.
   const lines = { ...next.lines };
   for (const id of group!.line_ids) {
     const l = lines[id];
-    if (l !== undefined && l.units > 0) lines[id] = { ...l, deadline_ms: deadlineOf(l, loop.T) };
+    if (l === undefined || l.units === 0) continue;
+    const pl = loop.placements.get(id);
+    const cap = effectiveCapacity(next.stations[l.station_id]!);
+    lines[id] = { ...l, deadline_ms: pl !== undefined ? queuedDeadline(pl.fire, loop.T, loop.T) : Math.min(l.deadline_ms, deadlineOf(l, loop.T, Math.max(cap, 1))) };
   }
   const groups = { ...order!.groups, [ended.group_id]: { ...group!, target_land_ms: loop.T } };
   const target_land_ms = Math.max(...Object.values(groups).map((g) => g.target_land_ms));
