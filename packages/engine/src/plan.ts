@@ -10,8 +10,11 @@ export function isEngineLine(item: Pick<ItemAddedPayload, 'station_id' | 'line_k
 }
 
 // §3.2 P-1: quantity for a piece line; 1 for a g / ml line and while a weight is pending (01c V18).
-export function lineUnits(item: Pick<ItemAddedPayload, 'sale_unit' | 'quantity'>): number {
-  return item.sale_unit === 'piece' && item.quantity !== null ? item.quantity : 1;
+// A filled line therefore has units ≥ 1; units 0 marks a placeholder not yet seen (AD-8).
+export function lineUnits(item: Pick<ItemAddedPayload, 'sale_unit' | 'quantity' | 'order_item_id'>): number {
+  if (item.sale_unit !== 'piece' || item.quantity === null) return 1;
+  if (item.quantity < 1) throw new InvalidEvent('quantity_invalid', item.order_item_id);
+  return item.quantity;
 }
 
 // AD-6 (task 6 ruling): a writer bug found by an order fold. Strict folds throw it; non-strict folds leave the
@@ -45,7 +48,11 @@ export function lineCookTimes(
       ? required(item.cook_time_ms, 'cook_time_ms', item.order_item_id)
       : required(item.program_cook_time_ms, 'program_cook_time_ms', item.order_item_id);
   const stock = type === 'slot' ? item.stock_time_ms : item.stock_program_cook_time_ms;
-  return { cook_ms: from_stock && stock !== null ? stock : full, full_cook_ms: full, stock_cook_ms: stock };
+  // 01c V12: a from-stock line always has its stock cook time; a null one is a writer bug, never the full cook.
+  if (from_stock && stock === null) {
+    throw new InvalidEvent(type === 'slot' ? 'stock_time_ms_null' : 'stock_program_cook_time_ms_null', item.order_item_id);
+  }
+  return { cook_ms: from_stock ? stock! : full, full_cook_ms: full, stock_cook_ms: stock };
 }
 
 // §3.2: d(L) = T − carry − cook − prep, the latest fire that lands on target.

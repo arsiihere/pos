@@ -322,82 +322,128 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(state).toEqual(snapshot);
   });
 
-  it('[03a AD-6] writer-bug order folds throw when strict and record one invalid_event diagnostic when non-strict', () => {
-    const cfg = config([{ station_id: 'S1' }, { station_id: 'S2', station_type: 'batch', capacity: 2 }]);
-    const engineFields = { alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null };
-    const group = (ids: string[]) => [{ group_id: 'O1:0', target_land_ms: T0 + 1_500_000, promise_ms: T0 + 1_680_000, order_item_ids: ids }];
-    type Case = { name: string; events: PosEvent[]; reason: string; event_type: string; station_id?: string };
-    const cases: Case[] = [
-      {
-        name: 'station ItemAdded not listed by OrderPlaced.lines',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1' }], order: { lines: [], groups: [] }, recorded_at: T0 }),
-        reason: 'line_not_listed',
-        event_type: 'ItemAdded',
+  const wbCfg = config([{ station_id: 'S1' }, { station_id: 'S2', station_type: 'batch', capacity: 2 }]);
+  const wbFields = { alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null };
+  type Unlisted = { name: string; events: () => PosEvent[]; reason: string; event_type: string; station_id?: string; order_item_id: string };
+  const unlisted: Unlisted[] = [
+    {
+      name: 'station ItemAdded not listed by OrderPlaced.lines',
+      events: () => anOrderBatch({ lines: [{ order_item_id: 'L1' }], order: { lines: [], groups: [] }, recorded_at: T0 }),
+      reason: 'line_not_listed', event_type: 'ItemAdded', order_item_id: 'L1',
+    },
+    {
+      name: 'station ItemAdded after awaiting reached 0',
+      events: () => [...anOrderBatch({ recorded_at: T0 }), anItemAdded({ recorded_at: T0, seq: 9, payload: { order_item_id: 'L1' } })],
+      reason: 'line_not_listed', event_type: 'ItemAdded', order_item_id: 'L1',
+    },
+    {
+      name: 'duplicate ItemAdded of an already filled line (awaiting > 0)',
+      events: () => {
+        const b = anOrderBatch({ lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2' }], recorded_at: T0 });
+        return [b[0]!, b[1]!, { ...b[1]!, seq: 9, event_id: '01J00000000000000000000099' }];
       },
+      reason: 'line_not_listed', event_type: 'ItemAdded', order_item_id: 'L1',
+    },
+    {
+      name: 'listed line in no group (OrderPlaced)',
+      events: () =>
+        anOrderBatch({
+          lines: [{ order_item_id: 'L1' }],
+          order: { groups: [{ group_id: 'O1:0', target_land_ms: T0 + 1_500_000, promise_ms: T0 + 1_680_000, order_item_ids: [] }] },
+          recorded_at: T0,
+        }).slice(0, 1),
+      reason: 'line_in_no_group', event_type: 'OrderPlaced', station_id: 'S1', order_item_id: 'L1',
+    },
+  ];
+
+  it.each(unlisted)('[03a AD-6] unlisted writer bug: $name → strict throws; non-strict changes nothing but one invalid_event', (c) => {
+    const events = c.events();
+    const bad = deepFreeze(events[events.length - 1]!);
+    for (const opts of [undefined, { strict: true }]) {
+      const before = fold([wbCfg, ...events.slice(0, -1)], initialEngineState(), opts);
+      expect(() => applyEvent(before, bad, opts)).toThrow(c.reason);
+    }
+    const before = fold([wbCfg, ...events.slice(0, -1)], initialEngineState(), { strict: false });
+    const { diagnostics, ...rest } = applyEvent(before, bad, { strict: false });
+    const { diagnostics: prior, ...beforeRest } = before;
+    for (const k of Object.keys(beforeRest) as Array<keyof typeof beforeRest>) expect(rest[k], k).toBe(beforeRest[k]);
+    expect(diagnostics).toEqual([
+      ...prior,
       {
-        name: 'station ItemAdded after awaiting reached 0',
-        events: [...anOrderBatch({ recorded_at: T0 }), anItemAdded({ recorded_at: T0, seq: 9, payload: { order_item_id: 'L1' } })],
-        reason: 'line_not_listed',
-        event_type: 'ItemAdded',
+        kind: 'invalid_event',
+        event_id: bad.event_id,
+        ...(c.station_id === undefined ? {} : { station_id: c.station_id }),
+        detail: { event_type: c.event_type, order_id: 'O1', order_item_id: c.order_item_id, reason: c.reason },
       },
-      {
-        name: 'engine station not in the state',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1', line: { station_id: 'S9' } }], recorded_at: T0 }),
-        reason: 'station_missing',
-        event_type: 'ItemAdded',
-        station_id: 'S9',
-      },
-      {
-        name: 'listed line in no group',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1' }], order: { groups: group([]) }, recorded_at: T0 }).slice(0, 1),
-        reason: 'line_in_no_group',
-        event_type: 'OrderPlaced',
-        station_id: 'S1',
-      },
-      {
-        name: 'serve_mode null on a station line',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1', item: { serve_mode: null } }], recorded_at: T0 }),
-        reason: 'serve_mode_null',
-        event_type: 'ItemAdded',
-        station_id: 'S1',
-      },
-      {
-        name: 'slot cook_time_ms null',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1', item: { cook_time_ms: null } }], recorded_at: T0 }),
-        reason: 'cook_time_ms_null',
-        event_type: 'ItemAdded',
-        station_id: 'S1',
-      },
-      {
-        name: 'batch program_cook_time_ms null',
-        events: anOrderBatch({ lines: [{ order_item_id: 'L1', line: { station_id: 'S2', ...engineFields } }], recorded_at: T0 }),
-        reason: 'program_cook_time_ms_null',
-        event_type: 'ItemAdded',
-        station_id: 'S2',
-      },
-    ];
-    for (const c of cases) {
-      const bad = deepFreeze(c.events[c.events.length - 1]!);
-      for (const opts of [undefined, { strict: true }]) {
-        const before = fold([cfg, ...c.events.slice(0, -1)], initialEngineState(), opts);
-        expect(() => applyEvent(before, bad, opts), c.name).toThrow(c.reason);
-      }
-      const before = fold([cfg, ...c.events.slice(0, -1)], initialEngineState(), { strict: false });
-      const after = applyEvent(before, bad, { strict: false });
-      const { diagnostics, ...rest } = after;
-      const { diagnostics: prior, ...beforeRest } = before;
-      expect(rest, c.name).toEqual(beforeRest);
-      for (const k of Object.keys(beforeRest) as Array<keyof typeof beforeRest>) expect(rest[k], `${c.name}: ${k}`).toBe(beforeRest[k]);
-      expect(diagnostics, c.name).toEqual([
-        ...prior,
+    ]);
+  });
+
+  type Listed = { reason: string; item?: Record<string, unknown>; line?: Record<string, unknown>; station_id: string };
+  const listedBugs: Listed[] = [
+    { reason: 'station_missing', line: { station_id: 'S9' }, station_id: 'S9' },
+    { reason: 'serve_mode_null', item: { serve_mode: null }, station_id: 'S1' },
+    { reason: 'cook_time_ms_null', item: { cook_time_ms: null }, station_id: 'S1' },
+    { reason: 'program_cook_time_ms_null', line: { station_id: 'S2', ...wbFields }, station_id: 'S2' },
+    { reason: 'stock_time_ms_null', item: { stock_time_ms: null }, line: { from_stock: true }, station_id: 'S1' },
+    {
+      reason: 'stock_program_cook_time_ms_null',
+      item: { program_id: 'PR1', program_cook_time_ms: 600_000, stock_program_cook_time_ms: null },
+      line: { station_id: 'S2', ...wbFields, from_stock: true },
+      station_id: 'S2',
+    },
+    { reason: 'quantity_invalid', item: { quantity: 0 }, station_id: 'S1' },
+  ];
+
+  it.each(listedBugs)('[03a AD-6] listed writer bug $reason: strict throws; non-strict drops the line, still plans the other lines', (c) => {
+    for (const badAt of [1, 2]) {
+      const ids = ['L1', 'L2', 'L3'];
+      const bad = ids[badAt]!;
+      const batch = anOrderBatch({
+        lines: ids.map((id) => (id === bad ? { order_item_id: id, item: c.item, line: c.line } : { order_item_id: id })),
+        recorded_at: T0,
+      });
+      const badEvent = batch[1 + badAt]!;
+      expect(() => fold([wbCfg, ...batch])).toThrow(c.reason);
+      expect(() => fold([wbCfg, ...batch], initialEngineState(), { strict: true })).toThrow(c.reason);
+
+      const s = fold([wbCfg, ...batch], initialEngineState(), { strict: false });
+      const good = ids.filter((id) => id !== bad);
+      expect(s.orders.O1!.awaiting).toBe(0);
+      expect(s.lines[bad]).toBeUndefined();
+      expect(s.orders.O1!.line_ids).toEqual(good);
+      expect(s.orders.O1!.groups['O1:0']!.line_ids).toEqual(good);
+      for (const id of good) expect(s.lines[id]!.fire_ms).toBe(T0);
+      expect(s.stations.S1!.unfired).toEqual(good);
+      expect(s.diagnostics).toEqual([
         {
           kind: 'invalid_event',
-          event_id: bad.event_id,
-          ...(c.station_id === undefined ? {} : { station_id: c.station_id }),
-          detail: { event_type: c.event_type, order_id: 'O1', order_item_id: 'L1', reason: c.reason },
+          event_id: badEvent.event_id,
+          station_id: c.station_id,
+          detail: { event_type: 'ItemAdded', order_id: 'O1', order_item_id: bad, reason: c.reason },
         },
       ]);
     }
+  });
+
+  it('[03a §3.3] a group lists only engine lines: deal and no-station ids are left out', () => {
+    const batch = anOrderBatch({
+      lines: [
+        { order_item_id: 'D1', item: { line_kind: 'deal', item_id: null, deal_id: 'DL1', station_id: null, serve_mode: null, cook_time_ms: null } },
+        { order_item_id: 'L1', item: { line_kind: 'deal_part', parent_order_item_id: 'D1' } },
+        { order_item_id: 'N1', item: { station_id: null, serve_mode: null, cook_time_ms: null } },
+      ],
+      order: {
+        lines: [{ order_item_id: 'L1', station_id: 'S1', ...wbFields }],
+        groups: [{ group_id: 'O1:0', target_land_ms: T0 + 1_500_000, promise_ms: T0 + 1_680_000, order_item_ids: ['D1', 'L1', 'N1'] }],
+      },
+      recorded_at: T0,
+    });
+    const placed = fold([wbCfg, batch[0]!]);
+    expect(placed.orders.O1!.groups['O1:0']!.line_ids).toEqual(['L1']);
+    const s = fold(batch.slice(1), placed);
+    expect(s.orders.O1!.groups['O1:0']!.line_ids).toEqual(['L1']);
+    expect(s.orders.O1!.line_ids).toEqual(['L1']);
+    expect(s.lines.L1!.fire_ms).toBe(T0);
   });
 
   it('[03a §3.3] OrderLinesAdded on an absent order throws in both modes (not a diagnostic)', () => {

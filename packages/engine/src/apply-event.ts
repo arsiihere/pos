@@ -65,10 +65,14 @@ function listLines(
   const groups = { ...order.groups };
   let next = order.next_group_index;
   for (const g of p.groups) {
-    groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: [...g.order_item_ids] };
     next = Math.max(next, groupIndex(p.order_id, g.group_id) + 1);
   }
   const byId = new Map(p.lines.map((l) => [l.order_item_id, l]));
+  // A group lists only engine lines: an id with no lines[] entry (a deal, no station) is left out here, and a
+  // listed id whose ItemAdded is not a line is removed by its ItemAdded fold.
+  for (const g of p.groups) {
+    groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: g.order_item_ids.filter((id) => byId.has(id)) };
+  }
   const listed = p.order_item_ids.filter((id) => byId.has(id));
   const lines = { ...state.lines };
   for (const id of listed) {
@@ -158,63 +162,97 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
   return listLines(state, order, p, event.recorded_at);
 }
 
-// §3.2, §3.5.1: fills the listed line from its ItemAdded (units, cook time, copies), or drops a deal /
-// no-station entry; decrements awaiting; at 0 the batch's lines are placed (planNewLines). An absent order
-// is a no-op (§3.3 absent ids).
-function foldItemAdded(state: EngineState, event: PosEvent): EngineState {
-  const p = event.payload as unknown as ItemAddedPayload;
-  const order = state.orders[p.order_id];
-  if (order === undefined) return state;
+// AD-8: a placeholder from listLines not yet filled by its ItemAdded (a filled line has units ≥ 1).
+function isPlaceholder(line: EngineLine): boolean {
+  return line.units === 0 && line.fire_ms === null && line.booked === null;
+}
+
+// Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a
+// listed writer-bug line dropped when non-strict).
+function dropListed(state: EngineState, order: EngineOrder, line: EngineLine): { state: EngineState; order: EngineOrder } {
+  const lines = { ...state.lines };
+  delete lines[line.order_item_id];
+  const groups = { ...order.groups };
+  const g = groups[line.group_id];
+  if (g !== undefined) groups[line.group_id] = { ...g, line_ids: g.line_ids.filter((x) => x !== line.order_item_id) };
+  return {
+    state: { ...state, lines },
+    order: { ...order, line_ids: order.line_ids.filter((x) => x !== line.order_item_id), groups },
+  };
+}
+
+// The listed placeholder filled from its ItemAdded (§3.2 units, cook time, copies; §3.2 deadline from the
+// stored group T). Throws InvalidEvent for a writer bug.
+function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p: ItemAddedPayload): EngineLine {
   const id = p.order_item_id;
-  const listed = state.lines[id];
-  let next: EngineState;
-  let updated: EngineOrder;
-  if (isEngineLine(p)) {
-    if (listed === undefined || listed.order_id !== p.order_id || order.awaiting === 0) {
-      throw new InvalidEvent('line_not_listed', id);
-    }
-    const station = state.stations[listed.station_id];
-    if (station === undefined) throw new InvalidEvent('station_missing', id, listed.station_id);
-    if (p.serve_mode === null) throw new InvalidEvent('serve_mode_null', id, listed.station_id);
-    let cook: ReturnType<typeof lineCookTimes>;
-    try {
-      cook = lineCookTimes(p, station.type, listed.from_stock);
-    } catch (e) {
-      if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, id, listed.station_id);
-      throw e;
-    }
+  const station = state.stations[listed.station_id];
+  if (station === undefined) throw new InvalidEvent('station_missing', id, listed.station_id);
+  if (p.serve_mode === null) throw new InvalidEvent('serve_mode_null', id, listed.station_id);
+  try {
     const filled: EngineLine = {
       ...listed,
       serve_mode: p.serve_mode,
       units: lineUnits(p),
       prep_ms: p.prep_buffer_ms ?? 0,
-      ...cook,
+      ...lineCookTimes(p, station.type, listed.from_stock),
       program_id: p.program_id,
       stock_program_id: p.stock_program_id,
       draws: p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
     };
-    const target = order.groups[listed.group_id]!.target_land_ms;
-    next = { ...state, lines: { ...state.lines, [id]: { ...filled, deadline_ms: deadlineOf(filled, target) } } };
-    updated = { ...order, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
+    return { ...filled, deadline_ms: deadlineOf(filled, order.groups[listed.group_id]!.target_land_ms) };
+  } catch (e) {
+    if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, id, listed.station_id);
+    throw e;
+  }
+}
+
+// §3.2, §3.5.1: fills the listed line from its ItemAdded, or drops a deal / no-station entry; decrements
+// awaiting; at 0 the batch's lines are placed (planNewLines). An absent order is a no-op (§3.3 absent ids).
+// AD-6 (task 6 review ruling): an ItemAdded that is not listed (no placeholder: unknown id, a duplicate of a
+// filled line, or awaiting already 0) throws line_not_listed. A listed line that is a writer bug throws when
+// strict; non-strict it is dropped, still counts against awaiting and gets one invalid_event diagnostic, so
+// the order's other lines are still planned.
+function foldItemAdded(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ItemAddedPayload;
+  const order = state.orders[p.order_id];
+  if (order === undefined) return state;
+  const id = p.order_item_id;
+  const found = state.lines[id];
+  const listed = found !== undefined && found.order_id === p.order_id && isPlaceholder(found) ? found : undefined;
+  let next: EngineState = state;
+  let updated: EngineOrder = order;
+  if (isEngineLine(p)) {
+    if (listed === undefined || order.awaiting === 0) throw new InvalidEvent('line_not_listed', id);
+    try {
+      next = { ...state, lines: { ...state.lines, [id]: fillLine(state, order, listed, p) } };
+    } catch (e) {
+      if (strict || !(e instanceof InvalidEvent)) throw e;
+      ({ state: next, order: updated } = dropListed(state, order, listed));
+      next = addDiagnostic(next, invalidEventDiagnostic(event, e));
+    }
   } else {
     if (order.awaiting === 0) return state;
     // 01c §3.4.7: a deal line (or a line with no station) is never a line, even when lines[] listed it.
-    let lines = state.lines;
-    let line_ids = order.line_ids;
-    let groups = order.groups;
-    if (listed !== undefined && listed.order_id === p.order_id) {
-      lines = { ...state.lines };
-      delete lines[id];
-      line_ids = line_ids.filter((x) => x !== id);
-      groups = { ...groups };
-      const g = groups[listed.group_id];
-      if (g !== undefined) groups[listed.group_id] = { ...g, line_ids: g.line_ids.filter((x) => x !== id) };
-    }
-    next = lines === state.lines ? state : { ...state, lines };
-    updated = { ...order, line_ids, groups, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
+    if (listed !== undefined) ({ state: next, order: updated } = dropListed(state, order, listed));
   }
+  updated = { ...updated, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
   next = { ...next, orders: { ...next.orders, [p.order_id]: updated } };
   return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id) : next;
+}
+
+function invalidEventDiagnostic(event: PosEvent, e: InvalidEvent): Diagnostic {
+  const p = event.payload as { order_id?: unknown };
+  return {
+    kind: 'invalid_event',
+    event_id: event.event_id,
+    ...(e.station_id === undefined ? {} : { station_id: e.station_id }),
+    detail: {
+      event_type: event.event_type,
+      order_id: typeof p.order_id === 'string' ? p.order_id : null,
+      order_item_id: e.order_item_id,
+      reason: e.reason,
+    },
+  };
 }
 
 // AD-6: strict (the default, used by tests) throws on a profile underflow or a stock invariant breach;
@@ -234,26 +272,15 @@ export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   const strict = opts?.strict ?? true;
   try {
-    return fold(state, event);
+    return fold(state, event, strict);
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
-    const p = event.payload as { order_id?: unknown };
-    return addDiagnostic(state, {
-      kind: 'invalid_event',
-      event_id: event.event_id,
-      ...(e.station_id === undefined ? {} : { station_id: e.station_id }),
-      detail: {
-        event_type: event.event_type,
-        order_id: typeof p.order_id === 'string' ? p.order_id : null,
-        order_item_id: e.order_item_id,
-        reason: e.reason,
-      },
-    });
+    return addDiagnostic(state, invalidEventDiagnostic(event, e));
   }
 }
 
-function fold(state: EngineState, event: PosEvent): EngineState {
+function fold(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   switch (event.event_type) {
     case 'StockSet': {
       const p = event.payload as unknown as StockSet;
@@ -301,7 +328,7 @@ function fold(state: EngineState, event: PosEvent): EngineState {
     case 'OrderLinesAdded':
       return foldOrderLinesAdded(state, event);
     case 'ItemAdded':
-      return foldItemAdded(state, event);
+      return foldItemAdded(state, event, strict);
     // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'ItemStarted':
     case 'ItemDone':
