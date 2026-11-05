@@ -4,7 +4,7 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
-> **Batch 1 ke baad (2026-11-03):** events (order, station, stock), error codes, `EngineState` v3 aur occupancy profile ban gaye; gate green. AD-1–AD-4 aapke rulings hain; AD-5 (`Load` ka provisional shape) task 13 mein confirm hoga. Aapko abhi kuch decide nahi karna — batch 2 ke liye "go" ka intezaar hai.
+> **Batch 2 ke baad (2026-11-05):** placement core ban gaya — lines, hold-and-fire, target / promise, stage folds, `liveInterval`, re-plan passes, return lines. Gate green. Aapka AD-12 (queued deadline) laga diya; re-plan ab 700 lines par ~6 ms. AD-7 se AD-11 controller ke rulings hain (dekh lein). Batch 3 ke liye "go" ka intezaar hai.
 
 ## Rules for this board
 
@@ -44,11 +44,11 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | 2 | 1 | NORMAL | DONE | `0bde005` | [03a §9] | |
 | 3 | 1 | NORMAL | DONE | `462eb21`, `8f112be` | #56 | perf project created (P-4) |
 | 4 | 1 | HIGH | DONE | `f0eba66` | [03a §3.3 profile], RF 1 | |
-| 6 | 2 | HIGH | TODO | | #16, #18, #19, #43, RF 4 | |
-| 7 | 2 | HIGH | TODO | | #17, #31, F #1, #2, #5–#7, #10, BF-2 | |
-| 8c | 2 | HIGH | TODO | | #51, #96, #115, #116, F #4, #8 | runs before 8 |
-| 8 | 2 | HIGH | TODO | | #20–#23, #89, #91, #98, RF 2 | |
-| 8a | 2 | HIGH | TODO | | #75, #80, #114 engine | |
+| 6 | 2 | HIGH | DONE | `f8826e6`, `0315dc1`, `316e9b6` | #16, #18, #19, #43, RF 4 | |
+| 7 | 2 | HIGH | DONE | `ace2270` | #17, #31, F #1, #2, #5–#7, #10, BF-2 | |
+| 8c | 2 | HIGH | DONE | `be5afc1`, `788c05d` | #51, #96, #115, #116, F #4, #8 | runs before 8 |
+| 8 | 2 | HIGH | DONE | `aa1cc99`, `091b939` | #20–#23, #89, #91, #98, RF 2 | |
+| 8a | 2 | HIGH | DONE | `8b2d209` | #75, #80, #114 engine | |
 | 8b | 3 | HIGH | TODO | | #49, #78, #81, #99, #101 engine, #111 engine, BF-6 | |
 | 9 | 3 | HIGH | TODO | | #24, #25, #90 | |
 | 10 | 3 | HIGH | TODO | | #26, #27 | |
@@ -106,6 +106,7 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | AD-7 | 6–8, 16 | Removing a line from the profile must use exactly the booked interval and units (developer follow-up), but §3.3 `EngineLine` has no field for them; recomputing `occupancy(units, cap, cook)` after a capacity change gives a different interval | (a) store the booking on the line; (b) recompute from the capacity at booking time (not stored either) | (a) — controller ruling 2026-11-05: `EngineLine.booked: { start, end, units } \| null`, set at every `addInterval` of the line, used and cleared by its removal; v3 key set updated (unreleased) | Only (a) makes the removal exact; one field | `packages/engine/src/state.ts`, `test/state.test.ts`, the placing and removing folds |
 | AD-8 | 6 | §3.3 has no place for `OrderPlaced.lines[]` engine fields until each `ItemAdded` arrives; `EngineOrder` has one `target_land_ms` / `promise_ms` while `OrderPlaced` has them per group; a writer-bug `ItemAdded` (null `serve_mode` / cook time, missing station, unlisted id) has no rule | placeholder line vs a new pending field; order T/P from the first group vs the max; throw vs no-op | Controller rulings 2026-11-05: (a) the line enters `lines` at `OrderPlaced` as a placeholder filled by its `ItemAdded`; **reader rule:** a line of an order with `awaiting > 0` that is still a placeholder is not yet a line (never placed, never in `unfired`); (b) order T/P = max over its groups (`recorded_at` with no groups); (c) writer bugs: strict throws; non-strict records `invalid_event` — a listed bad line still decrements `awaiting` and is dropped, so the rest of the order plans; an unlisted one changes nothing. The §3.3 absent-order `OrderLinesAdded` throw stays in both modes | No new state field; one bad line never stalls an order in the hub | `packages/engine/src/{plan,apply-event,state}.ts`, `test/lines.test.ts` |
 | AD-9 | 8c | A pulled / early-fill line (`FireDispatched` before its planned `fire_ms`) packs from `max(fire_ms, t)` (§3.3), so it cannot start earlier than planned — the pull does nothing until then | (a) the fold sets `fire_ms = min(fire_ms, recorded_at)`; (b) pack from `fired_at` but sort by planned `fire_ms` | (a) — controller ruling 2026-11-05; the planned fire stays in the event's `due_at` | One field, one meaning (the line's fire); packing and order agree | `packages/engine/src/{apply-event,live}.ts`, `test/live.test.ts` |
+| AD-10 | 8c | Stage folds the spec leaves unstated (§3.4 shows only the main transitions) | throw / diagnostic / no-op per case | Controller ruling 2026-11-05 (task 8c review): a stage event from the wrong stage (double Start from two tablets, Served twice, Undo after Served) is a silent no-op that returns `state` (§3.3 absent-id spirit; realistic duplicates, not writer bugs); Done is allowed from `added`; Undo with no `started_at` falls back to `done_at`; Removed / Voided allowed from `added`, `cooking`, `done` | Duplicates from real devices never fail a log | `packages/engine/src/apply-event.ts` |
 | AD-11 | 8 | Void / remove `T' = min(T, loop)` for a group spread over several stations (§3.5.3 says "that station; the group's T may move earlier") | (a) pass 1 on that station, then the group's loop re-places its hidden lines on all their stations; (b) re-loop only that station's lines | (a) — controller ruling 2026-11-05: floor = pickup and the land of each sibling that cannot move; promise never moves; only the ended line's group is re-looped (other groups of the order are not) | Moving T earlier necessarily moves siblings on other stations; they only take free capacity | `packages/engine/src/{plan,replan}.ts`, `test/replan.test.ts` |
 | AD-12 | 7, 8 | Two lines of one group on one station that cannot cook both at once are queued back to back (F §4.7 D36), but §3.2's `d = T − carry − cook − prep` ignores the queue: a later submit's pass 1 pushes the first line later and makes the second late (review of task 8, Critical), breaking §3.5.3 "at submit no line is late by construction" | (a) queued deadline; (b) keep the current slot as a fallback; (c) re-place same-station siblings as a chain; (d) spec bump first | (a) — **developer ruling 2026-11-05:** each line's deadline is its own slot in the queue (`d = slot end − cook − prep`, slot end ≤ `T − carry`), stored in `deadline_ms` and used by re-plans, slack and slips; recomputed when the group's T moves | The most correct; one formula changes (§3.2), folded at task 29 | `packages/engine/src/{plan,replan,apply-event}.ts` |
 
@@ -164,3 +165,23 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **AD rows (proposed):** AD-1–AD-4 (developer rulings, before batch 1), AD-5 (`Load` provisional, controller ruling at task 3). Written to `docs/reviews/03a-auto-decisions.md`.
 - **Carried to later tasks:** 7 — emit the AD-4 `warn` (outside the pure engine); 7 / 8 / 16 — store the booked `{ interval, units }` on the line and remove exactly that (a capacity change must not recompute `occupancy` for a removal); 8a — the return-line fold takes `serve_mode 'immediate'` / no draws from `return_of`, and the engine station from the served line; 13 — confirm `Load` (AD-5); 16b — decide whether `station_plan.fire_ms` narrows to `number`; 20 — snapshot load checks the profile is canonical; a later client task — `errors.STATION_PAUSED` / `STATION_PAUSE_DISABLED` keys (03a §8 item 5).
 - **Open items:** unchanged (1–5 above); item 2 carried to the UI module, item 4 needs the pilot mini PC.
+
+## Batch 2 — Placement core (2026-11-05)
+
+- **Before task 6:** `cfaff6a` (autobuild spec lock matches every current version), `aba023e` (AD-6 recorded, open item 6), `6420934` (AD-6 code: strict flag, `state.diagnostics`, `removeInterval` underflow), `f9cf4a9` (AD-7).
+- **Tasks:** 6, 7, 8c, 8, 8a.
+- **Commits:** `f8826e6`, `0315dc1`, `316e9b6` (task 6 + 2 fix rounds), `ace2270` (task 7), `be5afc1`, `788c05d` (task 8c + AD-9 fix), `aa1cc99`, `091b939` (task 8 + review fix), `8b2d209` (task 8a); docs `2217837` (AD-8), `b29838f` (AD-9), `adfa6f0` (AD-11, AD-12).
+- **Reviews:** a fresh opus reviewer per task (all HIGH), AD-6 reviewed as its own task. Results:
+  - AD-6: Approved, 0 C / 0 I.
+  - Task 6: Approved; one ruling-level Important (a bad `ItemAdded` stalled its order in non-strict mode) → fixed in round 2 with Minors (duplicate `ItemAdded`, null stock time, group ids); scoped re-review Approved. Round 1 was the controller's pre-review ruling (writer bugs → diagnostics).
+  - Task 7: Approved, 0 C / 0 I; the fold re-running hold-and-fire at `recorded_at` confirmed against §3.5.1 / §3.5.3 (brute-force probe).
+  - Task 8c: Approved, 0 C / 0 I (after the AD-9 pre-review fix).
+  - Task 8: **Needs fixes** — Critical: a D36-queued group made late by an unrelated submit (spec gap in §3.2's deadline) → developer ruling AD-12 (queued deadline); Important: over-capacity deadline (AD-4) and re-plan cost (49 ms median on 700 hidden lines) → fixed in one round (5.7–7.3 ms median); re-review Approved.
+  - Task 8a: Approved, 0 C / 0 I.
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` — green: 315 files passed (1 skipped), 2164 tests passed (1 skipped), 11 m 36 s.
+- **Tests closed:** #16, #17, #18, #19, #20, #21, #22, #23, #31, #43, #51, #75, #80, #89, #91, #96 (live half), #98, #114 engine, #115 (live half), #116; F #1, #2, #4, #5, #6, #7, #8, #10; `[03a BF-2]`, Review Focus 1 (placement), 2, 4 (placement half); `[03a AD-4]`, `[03a AD-6]`, `[03a AD-9]`, `[03a AD-12]`.
+- **Coverage split (controller):** #96 and #115's moved bookings after a late Start → `[03a #96 shift]` / `[03a #115 shift]` in task 16b (`lateStartShift`); #96's `getTickIntents` sameness → `[03a #96 tick]` in task 14.
+- **AD rows (proposed):** AD-6 (developer), AD-7 (`booked` on the line), AD-8 (placeholder lines, order T / P, writer-bug `ItemAdded`), AD-9 (a fired line packs from its actual fire), AD-10 (stage-fold choices), AD-11 (void re-plan across stations), AD-12 (developer: queued deadline). **AD-6 and AD-12 change spec text** (§6.1a `report?` → `opts`; §3.7 "no stock fold throws" holds only non-strict; §3.2 deadline) — fold at task 29.
+- **Carried to later tasks:** 8b — `last_line_fold_at` for `ItemReturned`, a return re-opening `last_served_at`, duplicate deal / no-station `ItemAdded` double-decrement, `listLines` ignoring ids not in `order_item_ids`, `FireDispatched` ignoring `payload.station_id` and naming a line of an order still awaiting, stream-id checks; 10 — the late-set stub's lateness; 11 — alternates use the unqueued `T_min − carry` in the pivot; 12 — `[03a #75]` `reserveStock` / `stockEffects` (incl. the `StockAdded` path) draft nothing for a return line, `StockReserved` for a dropped line is tolerated, strict / non-strict stock breach (AD-6); 14 — `[03a #96 tick]`; 16 / pull / boost — a return line keeps `mark 'return'` (its follow-up weight depends on it); 16b — `[03a #96 shift]`, `[03a #115 shift]`; 18 — remaining O(m²) array spreads in `holdAndFire` / `planNewLines`; 20 — log `diagnostics` at warn after commit and clear (hub restart tests compare a strict rebuild with live state); 21 — snapshots exclude `diagnostics`; 02 — `OrderPlaced.order_item_ids` listed in `proposed.lines` order.
+- **Spec notes for task 29:** the D36 lower-bound gap is closed by AD-12; §3.7 / §6.1a / §3.2 wording per AD-6 / AD-12.
+- **Open items:** 1–6 unchanged.
