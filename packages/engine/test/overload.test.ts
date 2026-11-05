@@ -78,6 +78,38 @@ describe('@pos/engine overload Λ search (§3.5.6, D5, AD-15)', () => {
     expect(r.probes).toBeLessThanOrEqual(OVERLOAD_MAX_PROBES);
   });
 
+  it('[03a AD-16] forward compaction: a line with a free slot by its own deadline is not left late (A, B due 0; C due 30 → 30)', () => {
+    const r = overloadPlace(deepFreeze({ t: [], u: [] }), deepFreeze([line('A'), line('B'), line('C', { deadline_ms: 30 * M })]), 1, 0, STEP);
+    expect(r.lambda).toBe(10 * M);
+    expect(fireOf(r, 'C')).toBe(30 * M);
+    expect(maxU(r.profile)).toBeLessThanOrEqual(1);
+    const late = overloadPlace(deepFreeze({ t: [], u: [] }), deepFreeze([line('A'), line('B'), line('F', { deadline_ms: 120 * M })]), 1, 0, STEP);
+    expect(fireOf(late, 'F')).toBe(120 * M);
+    expect([fireOf(late, 'A'), fireOf(late, 'B')].sort((a, b) => a - b)).toEqual([0, 10 * M]);
+  });
+
+  it('[03a AD-16] property, 40 seeds: after compaction no line is later, max weighted lateness never higher, units ≤ cap, rebuild = profile', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const rnd = prng(1_000 + seed);
+      const cap = 1 + rnd(4);
+      const lines: OverloadLine[] = [];
+      for (let k = 0; k < 5 + rnd(40); k++) {
+        lines.push(line(`L${String(k).padStart(3, '0')}`, { deadline_ms: rnd(120) * M, cook_ms: (2 + rnd(12)) * M, units: 1 + rnd(2), w: [100, 200, 300][rnd(3)]!, max_early_ms: rnd(10) * M, urgency: rnd(50), max_late_ms: rnd(4) === 0 ? rnd(30) * M : null }));
+      }
+      const base = deepFreeze({ t: [0, rnd(30) * M + 1], u: [cap, 0] });
+      const frozen = deepFreeze(lines);
+      const raw = overloadPlace(base, frozen, cap, 0, STEP, false);
+      const r = overloadPlace(base, frozen, cap, 0, STEP);
+      expect(r.lambda).toBe(raw.lambda);
+      const wl = (x: ReturnType<typeof overloadPlace>): number =>
+        Math.max(0, ...lines.filter((L) => !x.capped.includes(L.order_item_id)).map((L) => ((fireOf(x, L.order_item_id) - L.deadline_ms) * L.w) / 100));
+      for (const L of lines) expect(fireOf(r, L.order_item_id)).toBeLessThanOrEqual(fireOf(raw, L.order_item_id));
+      expect(wl(r)).toBeLessThanOrEqual(wl(raw)); // only earlier moves: never higher (it can drop on capacity > 1)
+      expect(maxU(r.profile)).toBeLessThanOrEqual(cap);
+      expect(r.profile).toEqual(rebuild(base, r));
+    }
+  });
+
   it('[03a §3.5.6] Λ = 0 is probed first: EDF without keep may fit everything pass 1 could not (one probe)', () => {
     const r = overloadPlace(deepFreeze({ t: [], u: [] }), deepFreeze([line('A', { deadline_ms: 10 * M }), line('B', { deadline_ms: 0 })]), 1, 0, STEP);
     expect(r.lambda).toBe(0);
@@ -259,9 +291,9 @@ describe('@pos/engine overload through the re-plan (§3.5.3 late set → §3.5.6
     const { before, after } = scene(null);
     expect(before.lines.B!.deadline_ms).toBe(at(33));
     expect(before.lines.C!.deadline_ms).toBe(at(39));
-    // Λ = 2 min (both w 100): B 2 min late at 12:35, C at its d_Λ 12:41.
+    // Λ = 2 min (both w 100): B 2 min late at 12:35; C (d_Λ 12:41) compacted to 12:40, the first free instant (AD-16).
     expect(after.lines.B!.fire_ms).toBe(at(35));
-    expect(after.lines.C!.fire_ms).toBe(at(41));
+    expect(after.lines.C!.fire_ms).toBe(at(40));
     expect(after.lines.B!.capped).toBe(false);
     expect(after.lines.C!.capped).toBe(false);
     expect(before.lines.B!.capped).toBe(false);
@@ -270,13 +302,20 @@ describe('@pos/engine overload through the re-plan (§3.5.3 late set → §3.5.6
     expect([...after.stations.S1!.unfired].sort()).toEqual(['B', 'C']);
   });
 
-  it('[03a #27] a line held at its max_late_ms cap is stored capped = true on the line', () => {
+  it('[03a #27] cap 0: C is not let late (B carries the lateness after it); on time, so it never reached its cap', () => {
     const { after } = scene(0);
-    // C may not be late at all (cap 0): it fires by its deadline 12:39 (12:38, within max_early) and B carries
-    // the lateness after it (Λ = 10 min: B at 12:43 instead of 12:35 uncapped).
+    // C fires by its deadline 12:39 (12:38, within max_early) and B goes after it (Λ = 10 min: 12:43, not 12:35).
     expect(after.lines.C!.fire_ms).toBeLessThanOrEqual(after.lines.C!.deadline_ms);
     expect(after.lines.C!.fire_ms).toBe(at(38));
     expect(after.lines.B!.fire_ms).toBe(at(43));
+    expect(after.lines.C!.capped).toBe(false); // AD-16: capped from the final lateness (−1 min < 0)
+    expect(maxUnits(after, at(25))).toBeLessThanOrEqual(1);
+  });
+
+  it('[03a #27] a line that ends at its max_late_ms cap is stored capped = true on the line', () => {
+    const { after } = scene(1);
+    expect(after.lines.C!.fire_ms).toBe(at(40)); // d 12:39 + cap 1 min, never later
+    expect(after.lines.B!.fire_ms).toBe(at(35));
     expect(after.lines.C!.capped).toBe(true);
     expect(after.lines.B!.capped).toBe(false);
     expect(maxUnits(after, at(25))).toBeLessThanOrEqual(1);

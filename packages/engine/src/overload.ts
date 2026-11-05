@@ -21,8 +21,8 @@
 //     past its cap; see the report of task 10.)
 //   - If 16 probes find no success, the largest Λ probed is used and every line that did not fit there is placed at
 //     earliestFit after the others.
-//   - `capped` = the lines placed after the others, plus the lines held at their cap at the chosen Λ
-//     (Λ > 0 and Λ × 100 / w ≥ max_late_ms): §3.10 raises station_overload when a line reaches its cap.
+//   - `capped` = the lines placed after the others, plus the lines whose final lateness (fire − d, after the AD-16
+//     compaction below) is ≥ max_late_ms: §3.10 raises station_overload when a line reaches its cap.
 // A reporting cap, never a refusal (D3): every line gets a placement.
 import { earliestFit, latestFit, occupancy } from './profile.js';
 import type { EngineLine, Profile } from './state.js';
@@ -63,11 +63,15 @@ export class Work implements Profile {
     }
     return lo;
   }
-  add(b: Booking): void {
+  add(b: Booking, sign: 1 | -1 = 1): void {
     if (b.end <= b.start || b.units === 0) return;
     const i = this.boundary(b.start);
     const j = this.boundary(b.end);
-    for (let k = i; k < j; k++) this.u[k]! += b.units;
+    for (let k = i; k < j; k++) this.u[k]! += sign * b.units;
+  }
+  // Takes back exactly a booking this profile holds (the AD-16 compaction's own placements only).
+  remove(b: Booking): void {
+    this.add(b, -1);
   }
   snapshot(): Profile {
     const t: number[] = [];
@@ -133,8 +137,9 @@ function probe(base: Profile, lines: readonly OverloadLine[], cap: number, t: nu
 }
 
 // §3.5.6 search on one station. `base` = the fixed profile (fixed + pruned + held lines); `lines` = every free
-// hidden line of the station; cap = its effective capacity; step = cascade_step_ms (≥ 1).
-export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap: number, t: number, step: number): OverloadResult {
+// hidden line of the station; cap = its effective capacity; step = cascade_step_ms (≥ 1). compact = false skips the
+// AD-16 compaction (only the AD-16 property test compares against it).
+export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap: number, t: number, step: number, compact = true): OverloadResult {
   // Hopeless capped lines: in the limit Λ → ∞ every uncapped line lies past them, so only the lines with a cap
   // compete, backward at d + max_late_ms against base. One pass, not a Λ probe.
   const withCap = lines.filter((L) => L.max_late_ms !== null);
@@ -183,8 +188,25 @@ export function overloadPlace(base: Profile, lines: readonly OverloadLine[], cap
     placements.set(L.order_item_id, { fire, booked });
     capped.add(L.order_item_id);
   }
-  // Held at the cap at the chosen Λ (§3.10: a line reaches its max_late_ms cap).
-  if (lambda > 0) for (const L of withCap) if (stretch(L, lambda) >= L.max_late_ms!) capped.add(L.order_item_id);
+  // AD-16 (developer ruling 2026-11-06): forward compaction. Backward latestFit(hi = d_Λ) can leave a line later
+  // than it needs to be (a free slot by its own deadline lies before it). In execution order (ascending fire, ties
+  // by order_item_id) each line is taken off the local profile and moved earlier, never later:
+  // min(current fire, latestFit(lo, d) ?? earliestFit(lo)), then re-added. Λ and the order are the search's.
+  // One extra linear pass (one fit pair + one remove / add per line).
+  const exec = lines
+    .map((L) => ({ L, fire: placements.get(L.order_item_id)!.fire }))
+    .sort((a, b) => a.fire - b.fire || byId(a.L.order_item_id, b.L.order_item_id));
+  for (const { L, fire: current } of compact ? exec : []) {
+    const old = placements.get(L.order_item_id)!;
+    work.remove(old.booked);
+    const lo = loOf(L, t);
+    const fire = Math.min(current, latestFit(work, lo, L.deadline_ms, L.prep_ms, L.cook_ms, L.units, cap) ?? earliestFit(work, lo, L.prep_ms, L.cook_ms, L.units, cap));
+    const booked = fire === current ? old.booked : bookingAt(L, cap, fire);
+    work.add(booked);
+    if (fire !== current) placements.set(L.order_item_id, { fire, booked });
+  }
+  // Held at the cap, from the final placement (§3.10: a line reaches its max_late_ms cap; AD-16).
+  for (const L of withCap) if (placements.get(L.order_item_id)!.fire - L.deadline_ms >= L.max_late_ms!) capped.add(L.order_item_id);
 
   return {
     profile: work.snapshot(),

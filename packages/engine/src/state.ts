@@ -139,7 +139,8 @@ export interface EngineLine {
   booked: { start: number; end: number; units: number } | null;
   // §3.5.6 / AD-15 (controller ruling 2026-11-06): the overload search left the line at its max_late_ms cap or
   // placed it after the others. Recomputed at every re-placement (false outside the search); §3.10 reads it on
-  // unfired lines only (getAlertIntents overload[].capped, task 15).
+  // unfired lines only (getAlertIntents overload[].capped, task 15). Leftovers include uncapped lines when the
+  // 16-probe budget runs out (AD-15 Q4a), so capped = true does not imply max_late_ms ≠ null.
   capped: boolean;
 }
 
