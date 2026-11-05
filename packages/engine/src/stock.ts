@@ -126,6 +126,7 @@ export type StockCtx = {
 // engine line (a deal, no station, §3.2) is never reserved.
 function isTracked(state: EngineState, line: ProposedLine): boolean {
   if (!isEngineLine(line) || line.return_of !== null || line.stock_draws.length === 0) return false;
+  // A station the state does not know reads as slot (stock_time_ms); planOrder refuses such a line anyway.
   const batch = state.stations[line.station_id!]?.type === 'batch';
   return (batch ? line.stock_program_cook_time_ms : line.stock_time_ms) !== null;
 }

@@ -622,19 +622,24 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
 //      With no hidden line left to re-loop (task 11 fix: e.g. only FIFO siblings remain) the loop result is the
 //      floor itself: T' = min(T, floor).
 // Promises (EngineOrder.promise_ms) are never touched. An immediate line is its own group: nothing to re-loop.
-export function replanEnded(state: EngineState, ended: EngineLine, t: number, event_id: string, o: SequenceOptions): EngineState {
+// Task 12 review (§3.5.3 lists ItemVoided with no partial / whole distinction; AD-11): `partial` = the line was
+// partially voided and is still open at its lower units (BF-12). It stays among the group's lines: when hidden and
+// not FIFO it is movable — left free in step 1, so pass 1 re-books it with its remaining units (AD-7: exactly its
+// old `booked` leaves the profile) even when the loop keeps T, then re-looped with the group; otherwise its live
+// interval is a floor like any other line that cannot move.
+export function replanEnded(state: EngineState, ended: EngineLine, t: number, event_id: string, o: SequenceOptions, partial = false): EngineState {
   const order = state.orders[ended.order_id];
   const group = order?.groups[ended.group_id];
   const siblings =
     order === undefined || group === undefined || ended.serve_mode !== 'sync'
       ? []
       : group.line_ids
-          .filter((id) => id !== ended.order_item_id)
+          .filter((id) => partial || id !== ended.order_item_id)
           .map((id) => state.lines[id])
           .filter((l): l is EngineLine => l !== undefined && l.units > 0 && (l.stage === 'added' || l.stage === 'cooking'));
   // §3.5.3 / AD-14: a FIFO line is never re-looped (no re-plan of older lines); its land is a floor below.
   const movable = siblings.filter((l) => isHidden(state, l, t) && !isFifo(state, l.station_id));
-  const held = new Set(movable.map((l) => l.order_item_id));
+  const held = new Set(movable.map((l) => l.order_item_id).filter((id) => id !== ended.order_item_id));
   const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
   let next = applyPass1(state, p1, event_id, o.strict);
   if (siblings.length === 0) return next;

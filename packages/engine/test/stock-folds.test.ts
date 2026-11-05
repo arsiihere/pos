@@ -18,8 +18,8 @@ import {
   aStockSet,
 } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, initialEngineState, reserveStock, stockOf, type EngineState, type ProposedOrder } from '../src/index';
-import { batchConfig, loadOf } from './batch-kit';
+import { applyEvent, buildEngineState, initialEngineState, planOrder, reserveStock, stockOf, type EngineState, type ProposedOrder } from '../src/index';
+import { batchConfig, fryer, loadOf, submitB, voidB } from './batch-kit';
 
 const T = 1_761_000_000_000; // the builders' T
 const DAY = T - 3_600_000; // the open day's start passed to reserveStock
@@ -380,6 +380,65 @@ describe('@pos/engine stock folds (§3.7)', () => {
     const loose = fold([bad], odd, { strict: false });
     expect(loose.lines.L).toEqual(odd.lines.L);
     expect(loose.diagnostics).toMatchObject([{ kind: 'invalid_event', event_id: bad.event_id }]);
+  });
+
+  // Task 12 review (§3.5.3 lists ItemVoided with no partial / whole distinction; AD-11): a partial void re-plans
+  // the group like a void — T' = min(T, loop), the promise never moves.
+  it('[03a §3.5.3] a partial void that frees capacity lets the group T move earlier; the promise is unchanged', () => {
+    const s0 = fold([cfg()]);
+    const block = (units: number) => {
+      const p = planOrder(s0, proposed('O0', [{ id: 'A', quantity: units }]), T, {});
+      return fold(submit('O0', [{ id: 'A', quantity: units }], T, p.groups[0]!.target_land_ms), s0);
+    };
+    const withL = (s: EngineState) => {
+      const p = planOrder(s, proposed('O1', [{ id: 'L', quantity: 3 }]), T + 1, {});
+      return fold(submit('O1', [{ id: 'L', quantity: 3 }], T + 1, p.groups[0]!.target_land_ms), s);
+    };
+    // Capacity 4, 2 units busy for one cook: L × 3 waits for them (T = T + 2 cooks).
+    const s1 = withL(block(2));
+    const T1 = s1.orders.O1!.groups['O1:0']!.target_land_ms;
+    const P1 = s1.orders.O1!.promise_ms;
+    expect(T1).toBe(T + 2 * COOK);
+    expect(s1.lines.L!.booked).toEqual({ start: T + COOK, end: T + 2 * COOK, units: 3 });
+    // 1 unit voided: 2 + 2 fit together, the loop lands earlier.
+    const s2 = fold([voided('O1', 'L', 1, T + 10)], s1);
+    const T2 = s2.orders.O1!.groups['O1:0']!.target_land_ms;
+    expect(T2).toBeLessThan(T1);
+    expect(s2.orders.O1!.target_land_ms).toBe(T2);
+    expect(s2.orders.O1!.promise_ms).toBe(P1);
+    expect(s2.lines.L).toMatchObject({ units: 2, booked: { units: 2, end: T2 } });
+    // AD-7: the old 3-unit booking left the profile exactly (A's 2 units + L's 2 units only).
+    expect(Math.max(...s2.stations.S1!.profile.u)).toBe(4);
+    expect(s2.diagnostics).toEqual([]);
+  });
+
+  it('[03a §3.5.3] a partial void whose loop would not land earlier keeps T, and the line is still re-booked at its lower units', () => {
+    const s0 = fold([cfg()]);
+    const pA = planOrder(s0, proposed('O0', [{ id: 'A', quantity: 3 }]), T, {});
+    const sA = fold(submit('O0', [{ id: 'A', quantity: 3 }], T, pA.groups[0]!.target_land_ms), s0);
+    const pL = planOrder(sA, proposed('O1', [{ id: 'L', quantity: 3 }]), T + 1, {});
+    const s1 = fold(submit('O1', [{ id: 'L', quantity: 3 }], T + 1, pL.groups[0]!.target_land_ms), sA);
+    const T1 = s1.orders.O1!.groups['O1:0']!.target_land_ms;
+    // 3 busy + 2 still exceed 4: nothing lands earlier.
+    const s2 = fold([voided('O1', 'L', 1, T + 10)], s1);
+    expect(s2.orders.O1!.groups['O1:0']!.target_land_ms).toBe(T1);
+    expect(s2.orders.O1!.promise_ms).toBe(s1.orders.O1!.promise_ms);
+    expect(s2.lines.L!.booked).toEqual({ ...s1.lines.L!.booked!, units: 2 });
+    expect(s2.stations.S1!.profile).toEqual({ t: [T, T + COOK, T + 2 * COOK], u: [3, 2, 0] });
+  });
+
+  it('[03a §3.5.3] a partial void of a line in a hidden batch load re-forms the load at the lower units (old booking removed exactly)', () => {
+    // Fryer capacity 2: B1 × 3 needs two rounds; a delivery picked up in an hour keeps the load hidden.
+    const a = submitB(fryer({ capacity: 2 }), 'OA', [{ id: 'B1', cook: 300_000, units: 3 }], T, { pickup_at_ms: T + 3_600_000 });
+    const before = loadOf(a.state, 'B1')!;
+    expect(before.booked.end - before.booked.start).toBe(600_000);
+    const s1 = fold([voidB('OA', 'B1', 1, T + 10)], a.state);
+    const after = loadOf(s1, 'B1')!;
+    expect(s1.lines.B1).toMatchObject({ units: 2, load_id: 'F:B1', fire_ms: after.fire_ms });
+    expect(after).toMatchObject({ load_id: 'F:B1', order_item_ids: ['B1'] });
+    expect(after.booked.end - after.booked.start).toBe(300_000); // one round now
+    expect(s1.stations.F!.profile).toEqual({ t: [after.booked.start, after.booked.end], u: [2, 0] });
+    expect(s1.orders.OA!.groups['OA:0']!.target_land_ms).toBe(a.state.orders.OA!.groups['OA:0']!.target_land_ms);
   });
 
   it('[03a #117] variant: a partial void of a batch line in a frozen program-Q load keeps program Q and the load unchanged', () => {

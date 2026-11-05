@@ -15,8 +15,8 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { capacityFor, pass1, stationPolicy } from './replan.js';
-import { applyPass1, checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { capacityFor, stationPolicy } from './replan.js';
+import { checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
 import { removeInterval, type Underflow } from './profile.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
@@ -511,11 +511,11 @@ function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, 
 // cook_ms, the program and reserved_seq are kept: the StockReleased of each share follows ("the cause, then its
 // releases") and lowers only reserved. Between the two, a draw's reserved may exceed its quantity; the §3.7
 // invariant holds at the batch boundary. A line with no draw lowers units only.
-// §3.5.3 (D13 "that station"): the line's station is re-planned at recorded_at (pass 1), so a hidden line is
-// re-booked with its remaining units (AD-7: exactly its old `booked` leaves the profile); a frozen line keeps its
-// booking and a fired / COOKING line packs with its remaining units (§3.3); a frozen batch load is not re-formed.
-// Proposed (implementer, overnight): the group's T is kept (the line still lands at T; "T may move earlier" is
-// exercised by the whole void / remove, replanEnded).
+// §3.5.3 (D13; task 12 review: a partial void re-plans like a void, AD-11): replanEnded with the line kept in its
+// group — its station's pass 1 re-books it when hidden with its remaining units (AD-7: exactly its old `booked`
+// leaves the profile; a hidden batch load is re-formed), then the group loop over its hidden lines on all their
+// stations: T' = min(T, loop), the promise never moves. A frozen line keeps its booking and a fired / COOKING line
+// packs with its remaining units (§3.3); a frozen batch load is not re-formed.
 function partialVoid(state: EngineState, line: EngineLine, voidedUnits: number, event: PosEvent, o: SequenceOptions): EngineState {
   const id = line.order_item_id;
   const draws = line.draws.map((d) => {
@@ -524,8 +524,7 @@ function partialVoid(state: EngineState, line: EngineLine, voidedUnits: number, 
     return { ...d, quantity: d.quantity - share };
   });
   const next = patchLine(state, id, { units: line.units - voidedUnits, draws });
-  const p1 = pass1(next, [line.station_id], [], event.recorded_at, { prune: false, strict: o.strict });
-  return applyPass1(next, p1, event.event_id, o.strict);
+  return replanEnded(next, next.lines[id]!, event.recorded_at, event.event_id, o, true);
 }
 
 // ---- 03a §3.7 stock folds (AD-6: strict throws on a breach; non-strict clamps and appends 'stock_breach') ------
