@@ -138,6 +138,7 @@ function listLines(
       return_of: return_of === null ? null : { ...return_of },
       load_id: null,
       booked: null,
+      capped: false,
     };
   }
   p.groups.forEach((g, i) => {

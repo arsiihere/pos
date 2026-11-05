@@ -137,6 +137,10 @@ export interface EngineLine {
   // AD-7 (controller ruling 2026-11-05): the exact booking in the station profile (after occupancy(), AD-4),
   // set at every addInterval of the line; a removal removes exactly this and clears it, never recomputed.
   booked: { start: number; end: number; units: number } | null;
+  // §3.5.6 / AD-15 (controller ruling 2026-11-06): the overload search left the line at its max_late_ms cap or
+  // placed it after the others. Recomputed at every re-placement (false outside the search); §3.10 reads it on
+  // unfired lines only (getAlertIntents overload[].capped, task 15).
+  capped: boolean;
 }
 
 // 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).

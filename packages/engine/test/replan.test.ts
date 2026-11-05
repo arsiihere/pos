@@ -1,4 +1,4 @@
-// 03a §3.5.3 re-plan (fixed set, pivot, pass 1 with keep then without, late set → stub), §3.5.1 "one sequence"
+// 03a §3.5.3 re-plan (fixed set, pivot, pass 1 with keep then without, late set → §3.5.6, test/overload.test.ts), §3.5.1 "one sequence"
 // (pass 1 → immediate → sync, planOrder = the fold), §3.4 hidden / frozen at recorded_at, D13 triggers (one
 // re-plan per station per batch; ItemRemoved / ItemVoided T' = min(T, loop), promise never moves), D25 prune.
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
@@ -15,7 +15,6 @@ import {
 } from '../src/index';
 import { liveProfile } from '../src/live';
 import { planOrderWith } from '../src/plan';
-import { placeLateSet } from '../src/replan';
 
 const T0 = 1_761_000_000_000; // "12:00"
 const M = 60_000;
@@ -451,20 +450,6 @@ describe('@pos/engine re-plan pass 1 (§3.5.3, §3.5.1 one sequence, §3.4 freez
     const r = submit(s, 'ON', [{ id: 'N', cook: 1, mode: 'immediate' }], at(1));
     expect(r.state.lines.X!.booked).toEqual({ start: at(19), end: at(29), units: 3 });
     expect(r.state.lines.X!.booked!.end).toBeLessThanOrEqual(at(30));
-  });
-
-  it('[03a §3.5.6 stub] the late set is placed in the given (pass-1) order, each at its earliest fit from max(t, d − max_early)', () => {
-    const line = (id: string, d: number, early: number) => ({ order_item_id: id, deadline_ms: d, max_early_ms: early, units: 1, prep_ms: 0, cook_ms: 2 * M });
-    const busy = { t: [at(0), at(10)], u: [1, 0] };
-    // L2 first (as given), then L1 after it; L3's early bound 12:19 is later than the free point.
-    const r = placeLateSet(busy, [line('L2', at(3), M), line('L1', at(5), M), line('L3', at(20), M)], 1, at(0));
-    expect(r.placements).toEqual([
-      ['L2', { fire: at(10), booked: { start: at(10), end: at(12), units: 1 } }],
-      ['L1', { fire: at(12), booked: { start: at(12), end: at(14), units: 1 } }],
-      ['L3', { fire: at(19), booked: { start: at(19), end: at(21), units: 1 } }],
-    ]);
-    expect(r.profile).toEqual({ t: [at(0), at(14), at(19), at(21)], u: [1, 0, 1, 0] });
-    expect(busy).toEqual({ t: [at(0), at(10)], u: [1, 0] }); // input untouched
   });
 
   it('[03a §3.5.3] capacity < 1 is invalid data: strict throws InvalidEvent capacity_invalid; non-strict records invalid_event', () => {

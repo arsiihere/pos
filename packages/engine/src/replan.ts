@@ -9,17 +9,18 @@
 //              lines of (prep + cook + carry); fire times throughout (v0.6, G4-2 #8);
 //   fixed   += hidden lines on S whose booked interval ends ≤ pivot (D25 prune);
 //   pass 1   : the other hidden lines in (d − keep, −w × (t − placed_at), order_item_id) order, each at
-//              latestFit(lo = max(t, d − max_early_ms), hi = d − keep), else latestFit(lo, d), else the late set.
+//              latestFit(lo = max(t, d − max_early_ms), hi = d − keep), else latestFit(lo, d), else the late set,
+//              which sends every free hidden line of the station to the §3.5.6 overload search (overload.ts, AD-15).
 // The new lines (pass 2, §3.5.1 steps 3–4) are placed by plan.ts against the profiles this returns.
 // Frozen, fired, COOKING and done lines never move here (the boost / capacity-change D15 exceptions are task 16).
 import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveProfiles } from './live.js';
+import { bookingAt, overloadPlace, Work, type Booking, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
-export type Booking = { start: number; end: number; units: number };
-export type Placement = { fire: number; booked: Booking };
+export { bookingAt, type Booking, type Placement } from './overload.js';
 
 // A new line of the batch being planned, as the pivot reads it (an EngineLine or a line of a ProposedOrder).
 export type NewLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'serve_mode' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms'> & {
@@ -72,12 +73,6 @@ export function capacityFor(station: StationRuntime, order_item_id: string): num
   return cap;
 }
 
-// AD-4: the booking of a line fired at `fire` (prep off-station, D35).
-export function bookingAt(line: Pick<EngineLine, 'units' | 'prep_ms' | 'cook_ms'>, cap: number, fire: number): Booking {
-  const occ = occupancy(line.units, cap, line.cook_ms);
-  return { start: fire + line.prep_ms, end: fire + line.prep_ms + occ.cook_ms, units: occ.units };
-}
-
 export type Pass1Options = {
   // D25 prune (default true). false = the unpruned re-plan test 23 and the simulator compare against.
   prune: boolean;
@@ -91,8 +86,10 @@ export type Pass1Options = {
 export type Pass1Result = {
   // Per station: the live profile at t after pass 1 (fixed + pruned + re-placed hidden lines), for pass 2.
   profiles: Record<string, Profile>;
-  // Hidden lines whose placement changed (fire or booking), to be stored by applyMoves.
+  // Hidden lines whose placement changed (fire, booking or the §3.5.6 capped flag), to be stored by applyMoves.
   moves: Map<string, Placement>;
+  // §3.5.6: the Λ probes run per station where a late set went to the overload search (for the simulator, task 18).
+  probes: Record<string, number>;
 };
 
 // ---- profile sweeps (review fix 3: no hidden-lines × profile-size cost) ------------------------------------------
@@ -152,50 +149,6 @@ export function combine(a: Profile, b: Profile, sign: 1 | -1, onUnderflow?: (u: 
   }
   if (underflow !== null) onUnderflow!(underflow);
   return { t, u };
-}
-
-// A local, mutable working profile for pass 1 (never escapes: `snapshot` returns a fresh canonical copy). add()
-// inserts at most two boundaries and bumps the segments between them in place; equal neighbours are left
-// unmerged until snapshot, which latestFit / earliestFit read correctly (sorted boundaries, last u = 0).
-class Work implements Profile {
-  readonly t: number[];
-  readonly u: number[];
-  constructor(p: Profile) {
-    this.t = [...p.t];
-    this.u = [...p.u];
-  }
-  private boundary(x: number): number {
-    let lo = 0;
-    let hi = this.t.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (this.t[mid]! < x) lo = mid + 1;
-      else hi = mid;
-    }
-    if (this.t[lo] !== x) {
-      this.t.splice(lo, 0, x);
-      this.u.splice(lo, 0, lo > 0 ? this.u[lo - 1]! : 0);
-    }
-    return lo;
-  }
-  add(b: Booking): void {
-    if (b.end <= b.start || b.units === 0) return;
-    const i = this.boundary(b.start);
-    const j = this.boundary(b.end);
-    for (let k = i; k < j; k++) this.u[k]! += b.units;
-  }
-  snapshot(): Profile {
-    const t: number[] = [];
-    const u: number[] = [];
-    let prev = 0;
-    for (let k = 0; k < this.t.length; k++) {
-      if (this.u[k] === prev) continue;
-      t.push(this.t[k]!);
-      u.push(this.u[k]!);
-      prev = this.u[k]!;
-    }
-    return { t, u };
-  }
 }
 
 // The order of pass 1 (§3.5.3): (d − keep, −w × (t − placed_at), order_item_id).
@@ -268,27 +221,7 @@ function tMin(state: EngineState, newLines: readonly NewLine[], t: number): numb
   return t + m;
 }
 
-// §3.5.6 seam — STUB until task 10 (weighted-lateness overload search): each late line, in the given (pass-1)
-// order, at its earliest fit from its early bound max(t, d − max_early_ms) against the profile after the lines
-// placed before it. Never a refusal (D3). Pure: returns the new profile and the placements in order.
-export function placeLateSet(
-  work: Profile,
-  late: ReadonlyArray<Pick<EngineLine, 'order_item_id' | 'deadline_ms' | 'max_early_ms' | 'units' | 'prep_ms' | 'cook_ms'>>,
-  cap: number,
-  t: number,
-): { profile: Profile; placements: Array<[string, Placement]> } {
-  const w = new Work(work);
-  const placements: Array<[string, Placement]> = [];
-  for (const L of late) {
-    const lo = Math.max(t, L.deadline_ms - L.max_early_ms);
-    const fire = earliestFit(w, lo, L.prep_ms, L.cook_ms, L.units, cap);
-    const booked = bookingAt(L, cap, fire);
-    w.add(booked);
-    placements.push([L.order_item_id, { fire, booked }]);
-  }
-  return { profile: w.snapshot(), placements };
-}
-
+const NONE: ReadonlySet<string> = new Set();
 const sameBooking = (a: Booking | null, b: Booking): boolean => a !== null && a.start === b.start && a.end === b.end && a.units === b.units;
 
 // Pass 1 of §3.5.3 on each of `station_ids` at t. `newLines` are the batch's new lines (empty for a void /
@@ -300,6 +233,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   const live = liveProfiles(state, ids, t);
   const profiles: Record<string, Profile> = {};
   const moves = new Map<string, Placement>();
+  const probes: Record<string, number> = {};
   const T_min = tMin(state, newLines, t);
   for (const id of ids) {
     const station = state.stations[id]!;
@@ -324,7 +258,8 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       if (h.booked!.end <= pivot) pruned.push(h.booked!);
       else free.push(h);
     }
-    const work = new Work(combine(fixed, profileOf(pruned), 1));
+    const base = combine(fixed, profileOf(pruned), 1);
+    const work = new Work(base);
     const cap = capacityFor(station, hidden[0]!.order_item_id);
     const late: EngineLine[] = [];
     const placed: Array<[string, Placement]> = [];
@@ -342,18 +277,35 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       placed.push([L.order_item_id, { fire, booked }]);
     }
     let out = work.snapshot();
+    let capped: ReadonlySet<string> = NONE;
     if (late.length > 0) {
-      const r = placeLateSet(out, late, cap, t);
+      // §3.5.6 / AD-15: a late set re-places all free hidden lines of the station (pass 1's set, not only the late
+      // ones) against base (fixed + pruned; held lines are in fixed) by the weighted-lateness Λ search.
+      const r = overloadPlace(
+        base,
+        free.map((L) => {
+          const w = weightOf(state, L);
+          return { ...L, w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)) };
+        }),
+        cap,
+        t,
+        Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000),
+      );
       out = r.profile;
+      placed.length = 0;
       placed.push(...r.placements);
+      capped = new Set(r.capped);
+      probes[id] = r.probes;
     }
+    // AD-15 Q4b: capped is recomputed at every re-placement of the line (false outside the overload search).
     for (const [x, pl] of placed) {
       const line = state.lines[x]!;
-      if (pl.fire !== line.fire_ms || !sameBooking(line.booked, pl.booked)) moves.set(x, pl);
+      const c = capped.has(x);
+      if (pl.fire !== line.fire_ms || !sameBooking(line.booked, pl.booked) || c !== line.capped) moves.set(x, { ...pl, capped: c });
     }
     profiles[id] = out;
   }
-  return { profiles, moves };
+  return { profiles, moves, probes };
 }
 
 // §3.3 unfired order: (fire, order_item_id).
@@ -388,7 +340,8 @@ function movesOneByOne(profile: Profile, list: ReadonlyArray<[EngineLine, Placem
 }
 
 // Stores re-placements of unfired lines (AD-7: removes exactly the old `booked`, books the new one, sets
-// fire_ms) and re-sorts `unfired` on the touched stations. Per station one sweep removes all old bookings and
+// fire_ms and the §3.5.6 / AD-15 `capped` flag) and re-sorts `unfired` on the touched stations. Per station one
+// sweep removes all old bookings and
 // one adds the new ones. AD-6: if that finds an underflow, the per-line path runs instead: strict → it throws;
 // non-strict → it clamps and appends a 'profile_underflow' diagnostic naming the line. Copy-on-write.
 export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Placement>, event_id: string, strict: boolean): EngineState {
@@ -402,7 +355,7 @@ export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Placem
     const list = byStation.get(line.station_id);
     if (list === undefined) byStation.set(line.station_id, [[line, pl]]);
     else list.push([line, pl]);
-    lines[id] = { ...line, fire_ms: pl.fire, booked: pl.booked };
+    lines[id] = { ...line, fire_ms: pl.fire, booked: pl.booked, capped: pl.capped ?? false };
   }
   for (const [sid, list] of byStation) {
     const station = stations[sid]!;

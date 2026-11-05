@@ -291,7 +291,7 @@ function bookNew(
   const touched = new Set<string>();
   for (const line of pending) {
     const { fire, booked } = placements.get(line.order_item_id)!;
-    lines[line.order_item_id] = { ...line, fire_ms: fire, booked, deadline_ms: deadlines.get(line.order_item_id)! };
+    lines[line.order_item_id] = { ...line, fire_ms: fire, booked, capped: false, deadline_ms: deadlines.get(line.order_item_id)! };
     const station = stations[line.station_id]!;
     stations[line.station_id] = {
       ...station,
