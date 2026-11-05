@@ -321,4 +321,89 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(() => fold([...batch, aStockReserved()], state)).not.toThrow();
     expect(state).toEqual(snapshot);
   });
+
+  it('[03a AD-6] writer-bug order folds throw when strict and record one invalid_event diagnostic when non-strict', () => {
+    const cfg = config([{ station_id: 'S1' }, { station_id: 'S2', station_type: 'batch', capacity: 2 }]);
+    const engineFields = { alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null };
+    const group = (ids: string[]) => [{ group_id: 'O1:0', target_land_ms: T0 + 1_500_000, promise_ms: T0 + 1_680_000, order_item_ids: ids }];
+    type Case = { name: string; events: PosEvent[]; reason: string; event_type: string; station_id?: string };
+    const cases: Case[] = [
+      {
+        name: 'station ItemAdded not listed by OrderPlaced.lines',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1' }], order: { lines: [], groups: [] }, recorded_at: T0 }),
+        reason: 'line_not_listed',
+        event_type: 'ItemAdded',
+      },
+      {
+        name: 'station ItemAdded after awaiting reached 0',
+        events: [...anOrderBatch({ recorded_at: T0 }), anItemAdded({ recorded_at: T0, seq: 9, payload: { order_item_id: 'L1' } })],
+        reason: 'line_not_listed',
+        event_type: 'ItemAdded',
+      },
+      {
+        name: 'engine station not in the state',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1', line: { station_id: 'S9' } }], recorded_at: T0 }),
+        reason: 'station_missing',
+        event_type: 'ItemAdded',
+        station_id: 'S9',
+      },
+      {
+        name: 'listed line in no group',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1' }], order: { groups: group([]) }, recorded_at: T0 }).slice(0, 1),
+        reason: 'line_in_no_group',
+        event_type: 'OrderPlaced',
+        station_id: 'S1',
+      },
+      {
+        name: 'serve_mode null on a station line',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1', item: { serve_mode: null } }], recorded_at: T0 }),
+        reason: 'serve_mode_null',
+        event_type: 'ItemAdded',
+        station_id: 'S1',
+      },
+      {
+        name: 'slot cook_time_ms null',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1', item: { cook_time_ms: null } }], recorded_at: T0 }),
+        reason: 'cook_time_ms_null',
+        event_type: 'ItemAdded',
+        station_id: 'S1',
+      },
+      {
+        name: 'batch program_cook_time_ms null',
+        events: anOrderBatch({ lines: [{ order_item_id: 'L1', line: { station_id: 'S2', ...engineFields } }], recorded_at: T0 }),
+        reason: 'program_cook_time_ms_null',
+        event_type: 'ItemAdded',
+        station_id: 'S2',
+      },
+    ];
+    for (const c of cases) {
+      const bad = deepFreeze(c.events[c.events.length - 1]!);
+      for (const opts of [undefined, { strict: true }]) {
+        const before = fold([cfg, ...c.events.slice(0, -1)], initialEngineState(), opts);
+        expect(() => applyEvent(before, bad, opts), c.name).toThrow(c.reason);
+      }
+      const before = fold([cfg, ...c.events.slice(0, -1)], initialEngineState(), { strict: false });
+      const after = applyEvent(before, bad, { strict: false });
+      const { diagnostics, ...rest } = after;
+      const { diagnostics: prior, ...beforeRest } = before;
+      expect(rest, c.name).toEqual(beforeRest);
+      for (const k of Object.keys(beforeRest) as Array<keyof typeof beforeRest>) expect(rest[k], `${c.name}: ${k}`).toBe(beforeRest[k]);
+      expect(diagnostics, c.name).toEqual([
+        ...prior,
+        {
+          kind: 'invalid_event',
+          event_id: bad.event_id,
+          ...(c.station_id === undefined ? {} : { station_id: c.station_id }),
+          detail: { event_type: c.event_type, order_id: 'O1', order_item_id: 'L1', reason: c.reason },
+        },
+      ]);
+    }
+  });
+
+  it('[03a §3.3] OrderLinesAdded on an absent order throws in both modes (not a diagnostic)', () => {
+    const s = fold([config([{ station_id: 'S1' }])]);
+    const e = deepFreeze(anOrderLinesAdded({ payload: { order_id: 'O9', groups: [] } }));
+    expect(() => applyEvent(s, e)).toThrow('not in the engine');
+    expect(() => applyEvent(s, e, { strict: false })).toThrow('not in the engine');
+  });
 });

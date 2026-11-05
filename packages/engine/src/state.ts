@@ -33,9 +33,10 @@ export type Interval = { start: number; end: number };
 // snapshots / checkpoints nor of the ENGINE_STATE_VERSION key set.
 // AD-4 (ruling 2026-11-05): 'over_capacity' is a warning, not a breach: a line whose units exceed the
 // station's effective capacity, appended by the placing fold in strict and non-strict mode alike, with
-// order_item_id, station_id and detail { units, capacity }.
+// order_item_id, station_id and detail { units, capacity }. 'invalid_event' (AD-6, task 6 ruling): a writer
+// bug a non-strict order fold skipped, detail { event_type, order_id, order_item_id, reason }.
 export type Diagnostic = {
-  kind: 'profile_underflow' | 'stock_breach' | 'over_capacity';
+  kind: 'profile_underflow' | 'stock_breach' | 'over_capacity' | 'invalid_event';
   event_id?: string;
   order_item_id?: string;
   station_id?: string;

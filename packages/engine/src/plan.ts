@@ -14,8 +14,21 @@ export function lineUnits(item: Pick<ItemAddedPayload, 'sale_unit' | 'quantity'>
   return item.sale_unit === 'piece' && item.quantity !== null ? item.quantity : 1;
 }
 
+// AD-6 (task 6 ruling): a writer bug found by an order fold. Strict folds throw it; non-strict folds leave the
+// state unchanged and append an 'invalid_event' diagnostic (applyEvent catches it).
+export class InvalidEvent extends Error {
+  constructor(
+    readonly reason: string,
+    readonly order_item_id: string,
+    readonly station_id?: string,
+  ) {
+    super(`invalid event (${reason}) for line ${order_item_id}${station_id === undefined ? '' : ` on station ${station_id}`}`);
+    this.name = 'InvalidEvent';
+  }
+}
+
 function required<T>(value: T | null, field: string, order_item_id: string): T {
-  if (value === null) throw new Error(`ItemAdded ${order_item_id}: ${field} is null on a station line`);
+  if (value === null) throw new InvalidEvent(`${field}_null`, order_item_id);
   return value;
 }
 
@@ -80,7 +93,8 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   for (const id of pending) {
     const line = lines[id]!;
     const station = stations[line.station_id];
-    if (station === undefined) throw new Error(`line ${id}: station ${line.station_id} is not in the engine state`);
+    // Unreachable through the folds (the ItemAdded fold checked the station, and no fold removes one).
+    if (station === undefined) throw new InvalidEvent('station_missing', id, line.station_id);
     const cap = effectiveCapacity(station);
     const fire = earliestFit(station.profile, t, line.prep_ms, line.cook_ms, line.units, cap);
     const occ = occupancy(line.units, cap, line.cook_ms);

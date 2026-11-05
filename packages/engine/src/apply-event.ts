@@ -8,7 +8,7 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { deadlineOf, isEngineLine, lineCookTimes, lineUnits, planNewLines } from './plan.js';
+import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines } from './plan.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
@@ -74,7 +74,7 @@ function listLines(
   for (const id of listed) {
     const l = byId.get(id)!;
     const group = p.groups.find((g) => g.order_item_ids.includes(id));
-    if (group === undefined) throw new Error(`line ${id} of order ${p.order_id} is in no group`);
+    if (group === undefined) throw new InvalidEvent('line_in_no_group', id, l.station_id);
     lines[id] = {
       order_item_id: id,
       order_id: p.order_id,
@@ -171,12 +171,18 @@ function foldItemAdded(state: EngineState, event: PosEvent): EngineState {
   let updated: EngineOrder;
   if (isEngineLine(p)) {
     if (listed === undefined || listed.order_id !== p.order_id || order.awaiting === 0) {
-      throw new Error(`ItemAdded ${id}: a station line not listed by its OrderPlaced / OrderLinesAdded`);
+      throw new InvalidEvent('line_not_listed', id);
     }
     const station = state.stations[listed.station_id];
-    if (station === undefined) throw new Error(`line ${id}: station ${listed.station_id} is not in the engine state`);
-    if (p.serve_mode === null) throw new Error(`ItemAdded ${id}: serve_mode is null on a station line`);
-    const cook = lineCookTimes(p, station.type, listed.from_stock);
+    if (station === undefined) throw new InvalidEvent('station_missing', id, listed.station_id);
+    if (p.serve_mode === null) throw new InvalidEvent('serve_mode_null', id, listed.station_id);
+    let cook: ReturnType<typeof lineCookTimes>;
+    try {
+      cook = lineCookTimes(p, station.type, listed.from_stock);
+    } catch (e) {
+      if (e instanceof InvalidEvent) throw new InvalidEvent(e.reason, id, listed.station_id);
+      throw e;
+    }
     const filled: EngineLine = {
       ...listed,
       serve_mode: p.serve_mode,
@@ -222,11 +228,32 @@ export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
 }
 
 // Pure fold (03a §6.1a, AD-6 opts). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns
-// `state` itself (S15). Copies only the touched entry. No fold today removes an interval or checks a stock
-// invariant, so `strict` has no reader yet; the order folds and task 12's stock folds take it from here.
+// `state` itself (S15). Copies only the touched entry. AD-6: a writer bug an order fold finds (InvalidEvent)
+// throws when strict; non-strict returns the state unchanged but for one 'invalid_event' diagnostic. Other
+// throws (OrderLinesAdded on an absent order, §3.3) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   const strict = opts?.strict ?? true;
-  void strict;
+  try {
+    return fold(state, event);
+  } catch (e) {
+    if (strict || !(e instanceof InvalidEvent)) throw e;
+    // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
+    const p = event.payload as { order_id?: unknown };
+    return addDiagnostic(state, {
+      kind: 'invalid_event',
+      event_id: event.event_id,
+      ...(e.station_id === undefined ? {} : { station_id: e.station_id }),
+      detail: {
+        event_type: event.event_type,
+        order_id: typeof p.order_id === 'string' ? p.order_id : null,
+        order_item_id: e.order_item_id,
+        reason: e.reason,
+      },
+    });
+  }
+}
+
+function fold(state: EngineState, event: PosEvent): EngineState {
   switch (event.event_type) {
     case 'StockSet': {
       const p = event.payload as unknown as StockSet;
