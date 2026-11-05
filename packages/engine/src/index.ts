@@ -6,3 +6,4 @@ export * from './replay-events.js';
 export * from './profile.js';
 export { calculateETA, checkOrderable, planOrder, type PlanResult, type ProposedLine, type ProposedOrder } from './plan.js';
 export { liveInterval } from './live.js';
+export { isOrderInEngine, noOrderInEngine, ORDER_EXIT_AFTER_SERVED_MS } from './lifecycle.js';

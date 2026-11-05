@@ -186,7 +186,7 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(s3.stations.S1!.unfired).toEqual(['L1', 'L2', 'L3']);
 
     // §3.3: an OrderLinesAdded for an order not in the state is a bug and throws.
-    expect(() => fold([anOrderLinesAdded({ payload: { order_id: 'O9', groups: [] } })], fold([cfg]))).toThrow();
+    expect(() => fold([anOrderLinesAdded({ stream_id: 'O9', payload: { order_id: 'O9', groups: [] } })], fold([cfg]))).toThrow();
   });
 
   it('[03a #43] a weighed line with its weight pending is 1 unit with the item cook time, placed normally (V18)', () => {
@@ -448,7 +448,7 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
 
   it('[03a §3.3] OrderLinesAdded on an absent order throws in both modes (not a diagnostic)', () => {
     const s = fold([config([{ station_id: 'S1' }])]);
-    const e = deepFreeze(anOrderLinesAdded({ payload: { order_id: 'O9', groups: [] } }));
+    const e = deepFreeze(anOrderLinesAdded({ stream_id: 'O9', payload: { order_id: 'O9', groups: [] } }));
     expect(() => applyEvent(s, e)).toThrow('not in the engine');
     expect(() => applyEvent(s, e, { strict: false })).toThrow('not in the engine');
   });

@@ -134,8 +134,14 @@ function submit(
   return { plan, state: s };
 }
 
-function fire(ids: string[], recorded_at: number): PosEvent {
-  return aFireDispatched({ recorded_at, occurred_at: recorded_at, seq: nextSeq(0), payload: { order_item_ids: ids, due_at: recorded_at, load_id: null, reason: 'scheduled' } });
+function fire(ids: string[], recorded_at: number, station_id = 'S1'): PosEvent {
+  return aFireDispatched({
+    stream_id: station_id,
+    recorded_at,
+    occurred_at: recorded_at,
+    seq: nextSeq(0),
+    payload: { station_id, order_item_ids: ids, due_at: recorded_at, load_id: null, reason: 'scheduled' },
+  });
 }
 function start(order_id: string, id: string, recorded_at: number): PosEvent {
   return anItemStarted({ stream_id: order_id, recorded_at, occurred_at: recorded_at, seq: nextSeq(0), payload: { order_item_id: id, started_at: recorded_at } });
@@ -290,7 +296,11 @@ describe('@pos/engine re-plan pass 1 (§3.5.3, §3.5.1 one sequence, §3.4 freez
         const lines = Object.values(s.lines);
         const toStart = lines.filter((l) => l.stage === 'added' && l.fired_at !== null);
         const due = lines.filter((l) => l.stage === 'added' && l.fired_at === null && l.fire_ms !== null && l.fire_ms <= now);
-        s = fold(s, [...toStart.map((l) => start(l.order_id, l.order_item_id, now)), ...(due.length > 0 ? [fire(due.map((l) => l.order_item_id), now)] : [])]);
+        s = fold(s, [...toStart.map((l) => start(l.order_id, l.order_item_id, now)), ...stations.flatMap((st) => {
+            // One FireDispatched per station (8b: a listed line on another station is a writer bug, AD-8).
+            const ids = due.filter((l) => l.station_id === st).map((l) => l.order_item_id);
+            return ids.length > 0 ? [fire(ids, now, st)] : [];
+          })]);
         // Most orders are held for a pickup, so their lines stay hidden (with slack) across later submits.
         const pickup = rnd(3) === 0 ? null : now + (5 + rnd(40)) * M;
         ({ state: s } = submit(s, `O${run}_${k}`, randomItems(`O${run}_${k}`), now, { pickup_at_ms: pickup }));

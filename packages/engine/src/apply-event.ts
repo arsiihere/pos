@@ -17,7 +17,9 @@ import type {
 } from '@pos/events';
 import { capacityFor } from './replan.js';
 import { deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
 import { removeInterval, type Underflow } from './profile.js';
+import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
@@ -56,9 +58,10 @@ function applyEngineConfig(state: EngineState, config: EngineConfig): EngineStat
   return { ...state, config, stations };
 }
 
-// §3.3 deterministic ids: group `order_id:n` → n.
-function groupIndex(order_id: string, group_id: string): number {
-  return Number(group_id.slice(order_id.length + 1));
+// §3.3, §4.2: an order-stream event is on its order's stream (stream_id = order_id); anything else is a writer bug
+// (AD-8: strict throws, non-strict one invalid_event diagnostic and no change).
+function checkStream(event: PosEvent, order_id: string, order_item_id: string, station_id?: string): void {
+  if (event.stream_id !== order_id) throw new InvalidEvent('stream_id_mismatch', order_item_id, station_id);
 }
 
 // §3.5.1, §4.2: the listed lines of an OrderPlaced / OrderLinesAdded. A line of `lines[]` enters `lines` here
@@ -69,6 +72,9 @@ function groupIndex(order_id: string, group_id: string): number {
 // with its `fix` cook_ms_override kept in cook_ms until its ItemAdded; it must be alone in a new group (its own
 // group, never the old one re-opened) and a `fix` must carry cook_ms_override — else InvalidEvent (AD-8: the
 // event changes nothing when non-strict).
+// §3.3 deterministic ids: the event's groups are `order_id:(next_group_index + i)` in order (OrderPlaced 0…n−1, an
+// addition from next_group_index), and every lines[] entry is one of order_item_ids — else InvalidEvent (AD-8).
+// An OrderLinesAdded re-opens the order (last_served_at null, §3.3 fold order).
 type ListedLine = OrderLinePayload & Partial<Pick<OrderLinesAddedLinePayload, 'return_of' | 'cook_ms_override'>>;
 function listLines(
   state: EngineState,
@@ -77,9 +83,10 @@ function listLines(
   recorded_at: number,
 ): EngineState {
   const groups = { ...order.groups };
-  let next = order.next_group_index;
-  for (const g of p.groups) {
-    next = Math.max(next, groupIndex(p.order_id, g.group_id) + 1);
+  const next = order.next_group_index + p.groups.length;
+  const ids = new Set(p.order_item_ids);
+  for (const l of p.lines) {
+    if (!ids.has(l.order_item_id)) throw new InvalidEvent('line_not_in_order', l.order_item_id, l.station_id);
   }
   const byId = new Map(p.lines.map((l) => [l.order_item_id, l]));
   // A group lists only engine lines: an id with no lines[] entry (a deal, no station) is left out here, and a
@@ -133,15 +140,19 @@ function listLines(
       booked: null,
     };
   }
+  p.groups.forEach((g, i) => {
+    if (g.group_id !== `${p.order_id}:${order.next_group_index + i}`) throw new InvalidEvent('group_id_invalid', g.order_item_ids[0] ?? '');
+  });
   const updated: EngineOrder = {
     ...order,
     line_ids: [...order.line_ids, ...listed],
     awaiting: order.awaiting + p.order_item_ids.length,
+    last_served_at: null,
     last_line_fold_at: recorded_at,
     next_group_index: next,
     groups,
   };
-  return { ...state, orders: { ...state.orders, [p.order_id]: updated }, lines };
+  return touchOrder({ ...state, orders: { ...state.orders, [p.order_id]: updated }, lines }, p.order_id, recorded_at);
 }
 
 // §3.3, §4.2: placed_by = actor_id, placed_at = recorded_at; T and P per group copied, never recomputed
@@ -149,6 +160,7 @@ function listLines(
 // with its last item); an order with no group (no plannable line) takes recorded_at.
 function foldOrderPlaced(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as OrderPlacedPayload;
+  checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const at = event.recorded_at;
   const order: EngineOrder = {
     order_id: p.order_id,
@@ -172,10 +184,12 @@ function foldOrderPlaced(state: EngineState, event: PosEvent): EngineState {
   return listLines(state, order, p, at);
 }
 
-// §3.3, §4.2 (P-10): an addition to an order in the engine; an absent order is a bug and throws. The
-// presence rules (removal step, last_served_at re-open) and return lines land in tasks 8b and 8a.
+// §3.3, §4.2 (P-10): an addition to an order in the engine. The removal step has skipped this order (applyEvent),
+// so a present order is re-opened even when recorded_at is past its window by the append gap; an absent order is a
+// bug (it was removed at a listed event at or after its deadline) and throws in both modes.
 function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as OrderLinesAddedPayload;
+  checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const order = state.orders[p.order_id];
   if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
   return listLines(state, order, p, event.recorded_at);
@@ -243,9 +257,10 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
 function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as ItemAddedPayload;
+  const id = p.order_item_id;
+  checkStream(event, p.order_id, id);
   const order = state.orders[p.order_id];
   if (order === undefined) return state;
-  const id = p.order_item_id;
   const found = state.lines[id];
   const listed = found !== undefined && found.order_id === p.order_id && isPlaceholder(found) ? found : undefined;
   let next: EngineState = state;
@@ -259,15 +274,28 @@ function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions):
       ({ state: next, order: updated } = dropListed(state, order, listed));
       next = addDiagnostic(next, invalidEventDiagnostic(event, e));
     }
-  } else {
-    if (order.awaiting === 0) return state;
+  } else if (listed !== undefined) {
     // 01c §3.4.7: a deal line (or a line with no station) is never a line, even when lines[] listed it.
-    if (listed !== undefined) ({ state: next, order: updated } = dropListed(state, order, listed));
+    ({ state: next, order: updated } = dropListed(state, order, listed));
+  } else if (order.awaiting - unfilledCount(state, order) <= 0) {
+    // AD-8 (8b): a non-engine id with no placeholder is consumed only while awaiting exceeds the order's unfilled
+    // placeholders, so a duplicate (or unlisted) deal ItemAdded never takes an engine line's count.
+    throw new InvalidEvent('line_not_listed', id);
   }
   updated = { ...updated, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
   next = { ...next, orders: { ...next.orders, [p.order_id]: updated } };
   // §3.5.3: the one re-plan per station of the batch runs here (pass 1 → immediate → sync), at recorded_at.
-  return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id, o) : next;
+  if (updated.awaiting === 0) next = planNewLines(next, p.order_id, event.recorded_at, event.event_id, o);
+  return touchOrder(next, p.order_id, event.recorded_at);
+}
+
+function unfilledCount(state: EngineState, order: EngineOrder): number {
+  let n = 0;
+  for (const id of order.line_ids) {
+    const l = state.lines[id];
+    if (l !== undefined && isPlaceholder(l)) n++;
+  }
+  return n;
 }
 
 // ---- §3.4 stage folds (stage only; their stock effects are task 12) -------------------------------------------
@@ -317,94 +345,153 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict:
 }
 
 // §3.4 FireDispatched: each listed line that is unfired gets fired_at = recorded_at and the event's load_id
-// (§3.3: the load name is fixed here) and fire_ms = min(fire_ms, recorded_at) (AD-9); its planned booking leaves the profile and it leaves unfired, so from
-// now on it occupies its packed live interval (§3.3). A fired line is never fired twice: a listed line already
-// fired, started or ended is left as it is; a listed id not in the state is skipped.
+// (§3.3: the load name is fixed here) and fire_ms = min(fire_ms, recorded_at) (AD-9); its planned booking leaves the
+// profile and it leaves unfired, so from now on it occupies its packed live interval (§3.3). A fired line is never
+// fired twice: a listed line already fired, started or ended is left as it is; a listed id not in the state is
+// skipped. AD-8 (8b): a listed line on another station than payload.station_id, or of an order still awaiting lines,
+// is a writer bug — strict throws; non-strict that line is left untouched with one invalid_event diagnostic and the
+// other lines fire. §3.3: the fold refreshes last_line_fold_at of each order it fires a line of.
 function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   for (const id of p.order_item_ids) {
     const line = lineOf(next, id);
-    if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
+    if (line === undefined) continue;
+    const bug =
+      line.station_id !== p.station_id ? 'station_mismatch' : (next.orders[line.order_id]?.awaiting ?? 0) > 0 ? 'order_awaiting' : null;
+    if (bug !== null) {
+      const e = new InvalidEvent(bug, id, line.station_id);
+      if (strict) throw e;
+      next = addDiagnostic(next, invalidEventDiagnostic(event, e));
+      continue;
+    }
+    if (line.stage !== 'added' || line.fired_at !== null) continue;
     // AD-9: a pulled / early_fill line packs from its actual dispatch and sorts by it (the planned fire stays in
     // the event's due_at); a scheduled or missed fire (recorded_at ≥ fire_ms) keeps fire_ms.
     const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
     next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms });
+    next = touchOrder(next, line.order_id, event.recorded_at);
   }
   return next;
 }
 
+// The line an order-stream stage event names (§3.3 absent ids: undefined → the fold is a no-op), checked to be on
+// its order's stream (AD-8).
+function stageLine(state: EngineState, event: PosEvent, order_item_id: string): EngineLine | undefined {
+  const line = lineOf(state, order_item_id);
+  if (line !== undefined) checkStream(event, line.order_id, order_item_id, line.station_id);
+  return line;
+}
+
 // §3.4 ItemStarted: ADDED → COOKING, started_at = min(started_at, recorded_at) (§3.3, §4.2). A Start on a line
-// that was never fired also takes its planned booking off the profile. Any other stage: no change.
+// that was never fired also takes its planned booking off the profile. Any other stage: no change (AD-10).
 function foldItemStarted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ItemStartedPayload;
-  const line = lineOf(state, p.order_item_id);
+  const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'added') return state;
-  return moveLine(state, line, event, strict, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+  const next = moveLine(state, line, event, strict, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+  return touchOrder(next, line.order_id, event.recorded_at);
 }
 
 // §3.4 ItemDone: COOKING (or a line never started) → DONE, done_at = min(done_at, recorded_at) (§4.2). A done
 // line occupies nothing (F §4.7 test 4: Done early frees capacity).
 function foldItemDone(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ItemDonePayload;
-  const line = lineOf(state, p.order_item_id);
+  const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) return state;
-  return moveLine(state, line, event, strict, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+  const next = moveLine(state, line, event, strict, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+  return touchOrder(next, line.order_id, event.recorded_at);
 }
 
 // §3.4, D16 ItemDoneUndone: DONE → COOKING; done_at cleared, so liveInterval gives it its COOKING occupancy
 // again (test 51). A line done without a Start keeps its done time as the latest possible Start.
 function foldItemDoneUndone(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as { order_item_id: string };
-  const line = lineOf(state, p.order_item_id);
+  const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'done') return state;
-  return patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at });
+  const next = patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at });
+  return touchOrder(next, line.order_id, event.recorded_at);
 }
-
-const OPEN_STAGES: ReadonlySet<EngineLine['stage']> = new Set(['added', 'cooking', 'done']);
 
 // §3.8a, §4.2 ItemReturned (remake only, written by 02 with the return batch): the served line goes `returned`,
 // which exits it for the engine as `voided` does (§3.3: a closed stage that occupies nothing). A served line holds
 // no booking, so nothing leaves the profile (moveLine keeps AD-7 anyway) and no re-plan runs (not a §3.5.3
 // trigger; the old group's T and slip are untouched). §3.3 absent ids: an order or line not in the state is a
 // no-op. A writer bug — the line is not served, or replacement_order_item_id is not its remake line — throws
-// InvalidEvent (AD-8: strict throws, non-strict one invalid_event diagnostic).
+// InvalidEvent (AD-8: strict throws, non-strict one invalid_event diagnostic). Refreshes last_line_fold_at (§3.3).
 function foldItemReturned(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ItemReturnedPayload;
-  const line = lineOf(state, p.order_item_id);
+  const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || state.orders[line.order_id] === undefined) return state;
   if (line.stage !== 'served') throw new InvalidEvent('item_returned_not_served', line.order_item_id, line.station_id);
   const r = lineOf(state, p.replacement_order_item_id);
   if (r === undefined || r.order_id !== line.order_id || r.return_of?.order_item_id !== line.order_item_id || r.return_of.mode !== 'remake') {
     throw new InvalidEvent('item_returned_replacement_invalid', line.order_item_id, line.station_id);
   }
-  return moveLine(state, line, event, strict, { stage: 'returned' });
+  return touchOrder(moveLine(state, line, event, strict, { stage: 'returned' }), line.order_id, event.recorded_at);
 }
 
-// §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3).
+// §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3). The serve that leaves no line
+// open sets last_served_at (touchOrder).
 function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ItemServedPayload;
   let next = state;
   for (const id of p.order_item_ids) {
-    const line = lineOf(next, id);
-    if (line === undefined || !OPEN_STAGES.has(line.stage)) continue;
-    next = moveLine(next, line, event, strict, { stage: 'served' });
+    const line = stageLine(next, event, id);
+    if (line === undefined || !isOpen(line)) continue;
+    next = touchOrder(moveLine(next, line, event, strict, { stage: 'served' }), line.order_id, event.recorded_at);
   }
   return next;
 }
 
 // §3.4 ItemRemoved / ItemVoided: any stage before served → removed / voided. BF-12: a partial ItemVoided
-// (units < the line's units) lowers units and draws in task 12; here only a void of the whole line ends it.
-// §3.5.3 triggers (D13): the line's station is re-planned at recorded_at and its group's T may move earlier,
-// never later (replanEnded, test 89).
+// (units < the line's units) lowers units and draws in task 12; here only a void of the whole line ends it (a
+// partial one only refreshes last_line_fold_at). §3.5.3 triggers (D13): the line's station is re-planned at
+// recorded_at and its group's T may move earlier, never later (replanEnded, test 89). The end that leaves no line
+// open sets last_served_at (§3.3).
 function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, stage: 'removed' | 'voided'): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
-  const line = lineOf(state, p.order_item_id);
-  if (line === undefined || !OPEN_STAGES.has(line.stage)) return state;
-  if (stage === 'voided' && p.units! < line.units) return state;
+  const line = stageLine(state, event, p.order_item_id);
+  if (line === undefined || !isOpen(line)) return state;
+  if (stage === 'voided' && p.units! < line.units) return touchOrder(state, line.order_id, event.recorded_at);
   const ended = moveLine(state, line, event, strict, { stage });
-  return replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o);
+  return touchOrder(replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o), line.order_id, event.recorded_at);
+}
+
+// §3.3 last_line_fold_at for the order folds whose effects land in later tasks (ItemMovedToStock 12, OrderBoosted
+// 9, ItemsReleased 15b): an event that names a present order (or an open line of one) refreshes its clock.
+function foldNamesOrder(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as { order_id: string };
+  checkStream(event, p.order_id, '');
+  return touchOrder(state, p.order_id, event.recorded_at);
+}
+
+function foldItemMovedToStock(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as { order_item_id: string };
+  const line = stageLine(state, event, p.order_item_id);
+  if (line === undefined || !isOpen(line)) return state;
+  return touchOrder(state, line.order_id, event.recorded_at);
+}
+
+// §3.3 removal: the given orders and their lines leave the state; each line first leaves its station (exactly
+// `booked`, and `unfired`; AD-7, AD-6 via unbook), so a removed order occupies nothing.
+function removeOrders(state: EngineState, ids: readonly string[], event: PosEvent, strict: boolean): EngineState {
+  if (ids.length === 0) return state;
+  let next = state;
+  for (const id of ids) {
+    for (const lid of next.orders[id]!.line_ids) {
+      const line = next.lines[lid];
+      if (line !== undefined) next = unbook(next, line, event, strict);
+    }
+  }
+  const orders = { ...next.orders };
+  const lines = { ...next.lines };
+  for (const id of ids) {
+    for (const lid of orders[id]!.line_ids) delete lines[lid];
+    delete orders[id];
+  }
+  return { ...next, orders, lines };
 }
 
 function invalidEventDiagnostic(event: PosEvent, e: InvalidEvent): Diagnostic {
@@ -434,19 +521,32 @@ export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
   return { ...state, diagnostics: [...state.diagnostics, d] };
 }
 
+const HANDLED: ReadonlySet<string> = new Set([
+  ...ENGINE_REPLAY_EVENTS.order,
+  ...ENGINE_REPLAY_EVENTS.station,
+  ...ENGINE_REPLAY_EVENTS.stock,
+  ...ENGINE_REPLAY_EVENTS.hub,
+]);
+
 // Pure fold (03a §6.1a, AD-6 opts). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns
-// `state` itself (S15). Copies only the touched entry. AD-6 / AD-8(c): a writer bug an order fold finds
-// (InvalidEvent) throws when strict. Non-strict, a listed bad line is dropped and still decrements awaiting
-// (foldItemAdded), and an unlisted one changes nothing (caught here); either way one 'invalid_event'
-// diagnostic is appended. Other throws (OrderLinesAdded on an absent order, §3.3) throw in both modes.
+// `state` itself (S15) and removes nothing. Copies only the touched entry. §3.3 removal step: before every handled
+// fold, at its recorded_at, the orders out of the engine by the predicate leave the state (OrderLinesAdded skips its
+// own order, which it re-opens); with nothing to remove the state is not copied, so an absent-id no-op still returns
+// `state` itself. AD-6 / AD-8(c): a writer bug an order fold finds (InvalidEvent) throws when strict. Non-strict, a
+// listed bad line is dropped and still decrements awaiting (foldItemAdded), and an unlisted one changes nothing
+// but the removal step (caught here); either way one 'invalid_event' diagnostic is appended. Other throws
+// (OrderLinesAdded on an absent order, §3.3) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
+  if (!HANDLED.has(event.event_type)) return state;
   const strict = opts?.strict ?? true;
+  const skip = event.event_type === 'OrderLinesAdded' ? (event.payload as { order_id?: string }).order_id : undefined;
+  const base = removeOrders(state, exitedOrderIds(state, event.recorded_at, skip), event, strict);
   try {
-    return fold(state, event, { strict, prune: opts?.prune ?? true });
+    return fold(base, event, { strict, prune: opts?.prune ?? true });
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
-    return addDiagnostic(state, invalidEventDiagnostic(event, e));
+    return addDiagnostic(base, invalidEventDiagnostic(event, e));
   }
 }
 
@@ -490,7 +590,10 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'BusinessDayClosed': {
       const day = state.business_day;
       if (day === null || day.closed_at !== null) return state;
-      return { ...state, business_day: { ...day, closed_at: event.recorded_at } };
+      // §3.3 (v0.5.1, Q13): every order whose lines are all served / voided / removed / returned exits at the close;
+      // an order with any unserved line stays and exits later by the predicate. Slips: task 15b.
+      const exited = removeOrders(state, closedOrderIds(state), event, strict);
+      return { ...exited, business_day: { ...day, closed_at: event.recorded_at } };
     }
     case 'EngineConfigApplied':
       return applyEngineConfig(state, event.payload as unknown as EngineConfig);
@@ -516,10 +619,13 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldItemEnded(state, event, o, 'voided');
     case 'ItemReturned':
       return foldItemReturned(state, event, strict);
-    // 03a §3.12 types whose folds land in later tasks: unchanged until then.
+    // 03a §3.12 types whose folds land in later tasks: only the §3.3 last_line_fold_at refresh until then.
     case 'ItemMovedToStock':
+      return foldItemMovedToStock(state, event);
     case 'OrderBoosted':
     case 'ItemsReleased':
+      return foldNamesOrder(state, event);
+    // Unchanged until their tasks (SlipWarned never refreshes the clock, §3.3).
     case 'SlipWarned':
     case 'AlertClosed':
     case 'ReservationsShifted':

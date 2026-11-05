@@ -11,8 +11,11 @@
 //     The packing reads only the in-flight lines, never the planned profile.
 //   - Every other placed line: its planned (booked) interval; a done / served / removed / voided / returned line
 //     and a placeholder (AD-8) occupy nothing.
+//   - §3.3: a line of an order out of the engine at t (isOrderInEngine; abandoned before its physical removal)
+//     occupies nothing. Only in-flight lines can belong to such an order (an exited order has no unfired line).
 // Cook lengths and units are the AD-4 occupancy at the station's effective capacity.
 // Batch loads (each fired load one unit of placement) arrive with task 13; until then every line packs alone.
+import { orderInEngine } from './lifecycle.js';
 import { addInterval, earliestFit, occupancy } from './profile.js';
 import type { EngineLine, EngineState, Interval, Profile, StationRuntime } from './state.js';
 
@@ -39,11 +42,25 @@ function cookingBooking(line: EngineLine, cap: number, t: number): Booking {
   return { start, end: Math.max(start + occ.cook_ms, t), units: occ.units };
 }
 
-// The in-flight lines (COOKING, fired-not-started) of the given stations, one pass over the lines.
-function inFlightOf(state: EngineState, station_ids: ReadonlySet<string>): Map<string, EngineLine[]> {
+// §3.3: whether the line's order is in the engine at t, memoised per order for one read.
+function inEngineAt(state: EngineState, line: EngineLine, t: number, memo: Map<string, boolean>): boolean {
+  let v = memo.get(line.order_id);
+  if (v === undefined) {
+    const order = state.orders[line.order_id];
+    v = order !== undefined && orderInEngine(state, order, t);
+    memo.set(line.order_id, v);
+  }
+  return v;
+}
+
+// The in-flight lines (COOKING, fired-not-started) of the given stations at t whose order is in the engine, one
+// pass over the lines.
+function inFlightOf(state: EngineState, station_ids: ReadonlySet<string>, t: number): Map<string, EngineLine[]> {
   const out = new Map<string, EngineLine[]>();
+  const memo = new Map<string, boolean>();
   for (const line of Object.values(state.lines)) {
     if (!station_ids.has(line.station_id) || !(isCooking(line) || isFiredNotStarted(line))) continue;
+    if (!inEngineAt(state, line, t, memo)) continue;
     const list = out.get(line.station_id);
     if (list === undefined) out.set(line.station_id, [line]);
     else list.push(line);
@@ -106,7 +123,7 @@ function sumProfiles(a: Profile, b: Profile): Profile {
 // live intervals. The one read of in-flight lines for every placement path (§3.3).
 export function liveProfiles(state: EngineState, station_ids: Iterable<string>, t: number): Record<string, Profile> {
   const ids = new Set(station_ids);
-  const inFlight = inFlightOf(state, ids);
+  const inFlight = inFlightOf(state, ids, t);
   const out: Record<string, Profile> = {};
   for (const id of ids) {
     const station = state.stations[id];
@@ -126,13 +143,13 @@ export function liveInterval(state: EngineState, order_item_id: string, t: numbe
   const line = state.lines[order_item_id];
   if (line === undefined) return null;
   const station = state.stations[line.station_id];
-  if (station === undefined) return null;
+  if (station === undefined || !inEngineAt(state, line, t, new Map())) return null;
   if (isCooking(line)) {
     const b = cookingBooking(line, effectiveCapacity(station), t);
     return { start: b.start, end: b.end };
   }
   if (isFiredNotStarted(line)) {
-    const lines = inFlightOf(state, new Set([line.station_id])).get(line.station_id)!;
+    const lines = inFlightOf(state, new Set([line.station_id]), t).get(line.station_id)!;
     const b = packStation(lines, effectiveCapacity(station), t).bookings.get(order_item_id)!;
     return { start: b.start, end: b.end };
   }
