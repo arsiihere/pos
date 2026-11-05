@@ -31,9 +31,13 @@ export type Interval = { start: number; end: number };
 // AD-6 (developer ruling 2026-11-05; supersedes the §6.1a `report` callback): a breach a non-strict fold
 // clamped instead of throwing. The host logs it at warn after commit and clears the list; it is not part of
 // snapshots / checkpoints nor of the ENGINE_STATE_VERSION key set.
+// AD-4 (ruling 2026-11-05): 'over_capacity' is a warning, not a breach: a line whose units exceed the
+// station's effective capacity, appended by the placing fold in strict and non-strict mode alike, with
+// order_item_id, station_id and detail { units, capacity }.
 export type Diagnostic = {
-  kind: 'profile_underflow' | 'stock_breach';
+  kind: 'profile_underflow' | 'stock_breach' | 'over_capacity';
   event_id?: string;
+  order_item_id?: string;
   station_id?: string;
   stock_item_id?: string;
   detail: Readonly<Record<string, number | string | null>>;
@@ -129,6 +133,9 @@ export interface EngineLine {
   mark: null | 'expedite' | 'boost' | 'pulled' | 'return' | 'moved';
   return_of: { order_item_id: string; mode: 'fix' | 'remake' } | null; // D28
   load_id: string | null;
+  // AD-7 (controller ruling 2026-11-05): the exact booking in the station profile (after occupancy(), AD-4),
+  // set at every addInterval of the line; a removal removes exactly this and clears it, never recomputed.
+  booked: { start: number; end: number; units: number } | null;
 }
 
 // 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).

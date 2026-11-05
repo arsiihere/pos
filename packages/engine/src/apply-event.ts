@@ -1,6 +1,15 @@
 import type { Unit } from '@pos/domain';
-import type { EngineConfig, PosEvent } from '@pos/events';
-import type { DayDraws, Diagnostic, EngineState, StationRuntime } from './state.js';
+import type {
+  EngineConfig,
+  ItemAddedPayload,
+  OrderGroupPayload,
+  OrderLinePayload,
+  OrderLinesAddedPayload,
+  OrderPlacedPayload,
+  PosEvent,
+} from '@pos/events';
+import { deadlineOf, isEngineLine, lineCookTimes, lineUnits, planNewLines } from './plan.js';
+import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
 import { stockOf } from './stock.js';
 
@@ -36,6 +45,170 @@ function applyEngineConfig(state: EngineState, config: EngineConfig): EngineStat
     }
   }
   return { ...state, config, stations };
+}
+
+// §3.3 deterministic ids: group `order_id:n` → n.
+function groupIndex(order_id: string, group_id: string): number {
+  return Number(group_id.slice(order_id.length + 1));
+}
+
+// §3.5.1, §4.2: the listed lines of an OrderPlaced / OrderLinesAdded. A line of `lines[]` enters `lines` here
+// with its OrderPlaced engine fields (the only place they are kept until its ItemAdded) and neutral values
+// for the ItemAdded fields, which its ItemAdded fold fills; nothing is placed until awaiting reaches 0.
+// line_ids keep order_item_ids order and list only the ids of `lines[]` (a deal line has no entry, §3.2).
+function listLines(
+  state: EngineState,
+  order: EngineOrder,
+  p: { order_id: string; order_item_ids: string[]; groups: OrderGroupPayload[]; lines: OrderLinePayload[] },
+  recorded_at: number,
+): EngineState {
+  const groups = { ...order.groups };
+  let next = order.next_group_index;
+  for (const g of p.groups) {
+    groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: [...g.order_item_ids] };
+    next = Math.max(next, groupIndex(p.order_id, g.group_id) + 1);
+  }
+  const byId = new Map(p.lines.map((l) => [l.order_item_id, l]));
+  const listed = p.order_item_ids.filter((id) => byId.has(id));
+  const lines = { ...state.lines };
+  for (const id of listed) {
+    const l = byId.get(id)!;
+    const group = p.groups.find((g) => g.order_item_ids.includes(id));
+    if (group === undefined) throw new Error(`line ${id} of order ${p.order_id} is in no group`);
+    lines[id] = {
+      order_item_id: id,
+      order_id: p.order_id,
+      group_id: group.group_id,
+      serve_mode: 'sync',
+      station_id: l.station_id,
+      alternates: l.alternates.map((a) => ({ ...a })),
+      point_id: l.point_id,
+      carry_ms: l.carry_ms,
+      units: 0,
+      prep_ms: 0,
+      cook_ms: 0,
+      full_cook_ms: 0,
+      from_stock: l.from_stock,
+      program_id: null,
+      stock_cook_ms: null,
+      stock_program_id: null,
+      draws: [],
+      reserved_seq: null,
+      weight_pct: l.weight_pct,
+      max_early_ms: l.max_early_ms,
+      max_late_ms: l.max_late_ms,
+      max_carry_ms: l.max_carry_ms,
+      stage: 'added',
+      fire_ms: null,
+      deadline_ms: group.target_land_ms,
+      fired_at: null,
+      started_at: null,
+      done_at: null,
+      mark: null,
+      return_of: null,
+      load_id: null,
+      booked: null,
+    };
+  }
+  const updated: EngineOrder = {
+    ...order,
+    line_ids: [...order.line_ids, ...listed],
+    awaiting: order.awaiting + p.order_item_ids.length,
+    last_line_fold_at: recorded_at,
+    next_group_index: next,
+    groups,
+  };
+  return { ...state, orders: { ...state.orders, [p.order_id]: updated }, lines };
+}
+
+// §3.3, §4.2: placed_by = actor_id, placed_at = recorded_at; T and P per group copied, never recomputed
+// (§3.5.1 step 6, P-2). The order's own target / promise are its latest group's (F §4.7: the order lands
+// with its last item); an order with no group (no plannable line) takes recorded_at.
+function foldOrderPlaced(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as OrderPlacedPayload;
+  const at = event.recorded_at;
+  const order: EngineOrder = {
+    order_id: p.order_id,
+    order_type: p.order_type,
+    table_key: p.table_key,
+    table_id: p.table_id,
+    follow_up: p.follow_up,
+    pickup_at_ms: p.pickup_at_ms,
+    placed_at: at,
+    placed_by: event.actor_id,
+    target_land_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.target_land_ms)),
+    promise_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.promise_ms)),
+    boosted: false,
+    line_ids: [],
+    awaiting: 0,
+    last_served_at: null,
+    last_line_fold_at: at,
+    next_group_index: 0,
+    groups: {},
+  };
+  return listLines(state, order, p, at);
+}
+
+// §3.3, §4.2 (P-10): an addition to an order in the engine; an absent order is a bug and throws. The
+// presence rules (removal step, last_served_at re-open) and return lines land in tasks 8b and 8a.
+function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as OrderLinesAddedPayload;
+  const order = state.orders[p.order_id];
+  if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
+  return listLines(state, order, p, event.recorded_at);
+}
+
+// §3.2, §3.5.1: fills the listed line from its ItemAdded (units, cook time, copies), or drops a deal /
+// no-station entry; decrements awaiting; at 0 the batch's lines are placed (planNewLines). An absent order
+// is a no-op (§3.3 absent ids).
+function foldItemAdded(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as ItemAddedPayload;
+  const order = state.orders[p.order_id];
+  if (order === undefined) return state;
+  const id = p.order_item_id;
+  const listed = state.lines[id];
+  let next: EngineState;
+  let updated: EngineOrder;
+  if (isEngineLine(p)) {
+    if (listed === undefined || listed.order_id !== p.order_id || order.awaiting === 0) {
+      throw new Error(`ItemAdded ${id}: a station line not listed by its OrderPlaced / OrderLinesAdded`);
+    }
+    const station = state.stations[listed.station_id];
+    if (station === undefined) throw new Error(`line ${id}: station ${listed.station_id} is not in the engine state`);
+    if (p.serve_mode === null) throw new Error(`ItemAdded ${id}: serve_mode is null on a station line`);
+    const cook = lineCookTimes(p, station.type, listed.from_stock);
+    const filled: EngineLine = {
+      ...listed,
+      serve_mode: p.serve_mode,
+      units: lineUnits(p),
+      prep_ms: p.prep_buffer_ms ?? 0,
+      ...cook,
+      program_id: p.program_id,
+      stock_program_id: p.stock_program_id,
+      draws: p.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity, reserved: 0 })),
+    };
+    const target = order.groups[listed.group_id]!.target_land_ms;
+    next = { ...state, lines: { ...state.lines, [id]: { ...filled, deadline_ms: deadlineOf(filled, target) } } };
+    updated = { ...order, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
+  } else {
+    if (order.awaiting === 0) return state;
+    // 01c §3.4.7: a deal line (or a line with no station) is never a line, even when lines[] listed it.
+    let lines = state.lines;
+    let line_ids = order.line_ids;
+    let groups = order.groups;
+    if (listed !== undefined && listed.order_id === p.order_id) {
+      lines = { ...state.lines };
+      delete lines[id];
+      line_ids = line_ids.filter((x) => x !== id);
+      groups = { ...groups };
+      const g = groups[listed.group_id];
+      if (g !== undefined) groups[listed.group_id] = { ...g, line_ids: g.line_ids.filter((x) => x !== id) };
+    }
+    next = lines === state.lines ? state : { ...state, lines };
+    updated = { ...order, line_ids, groups, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
+  }
+  next = { ...next, orders: { ...next.orders, [p.order_id]: updated } };
+  return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id) : next;
 }
 
 // AD-6: strict (the default, used by tests) throws on a profile underflow or a stock invariant breach;
@@ -96,10 +269,13 @@ export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOpti
     }
     case 'EngineConfigApplied':
       return applyEngineConfig(state, event.payload as unknown as EngineConfig);
-    // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'OrderPlaced':
+      return foldOrderPlaced(state, event);
     case 'OrderLinesAdded':
+      return foldOrderLinesAdded(state, event);
     case 'ItemAdded':
+      return foldItemAdded(state, event);
+    // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'ItemStarted':
     case 'ItemDone':
     case 'ItemDoneUndone':
