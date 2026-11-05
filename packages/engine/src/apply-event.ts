@@ -13,7 +13,7 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines } from './plan.js';
+import { deadlineOf, InvalidEvent, isEngineLine, lineCookTimes, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
 import { removeInterval, type Underflow } from './profile.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, StationRuntime } from './state.js';
 import { initialEngineState } from './state.js';
@@ -218,7 +218,8 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
 // filled line, or awaiting already 0) throws line_not_listed. A listed line that is a writer bug throws when
 // strict; non-strict it is dropped, still counts against awaiting and gets one invalid_event diagnostic, so
 // the order's other lines are still planned.
-function foldItemAdded(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as ItemAddedPayload;
   const order = state.orders[p.order_id];
   if (order === undefined) return state;
@@ -243,7 +244,8 @@ function foldItemAdded(state: EngineState, event: PosEvent, strict: boolean): En
   }
   updated = { ...updated, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
   next = { ...next, orders: { ...next.orders, [p.order_id]: updated } };
-  return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id) : next;
+  // §3.5.3: the one re-plan per station of the batch runs here (pass 1 → immediate → sync), at recorded_at.
+  return updated.awaiting === 0 ? planNewLines(next, p.order_id, event.recorded_at, event.event_id, o) : next;
 }
 
 // ---- §3.4 stage folds (stage only; their stock effects are task 12) -------------------------------------------
@@ -353,12 +355,16 @@ function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): E
 
 // §3.4 ItemRemoved / ItemVoided: any stage before served → removed / voided. BF-12: a partial ItemVoided
 // (units < the line's units) lowers units and draws in task 12; here only a void of the whole line ends it.
-function foldItemEnded(state: EngineState, event: PosEvent, strict: boolean, stage: 'removed' | 'voided'): EngineState {
+// §3.5.3 triggers (D13): the line's station is re-planned at recorded_at and its group's T may move earlier,
+// never later (replanEnded, test 89).
+function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, stage: 'removed' | 'voided'): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
   const line = lineOf(state, p.order_item_id);
   if (line === undefined || !OPEN_STAGES.has(line.stage)) return state;
   if (stage === 'voided' && p.units! < line.units) return state;
-  return moveLine(state, line, event, strict, { stage });
+  const ended = moveLine(state, line, event, strict, { stage });
+  return replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o);
 }
 
 function invalidEventDiagnostic(event: PosEvent, e: InvalidEvent): Diagnostic {
@@ -378,7 +384,9 @@ function invalidEventDiagnostic(event: PosEvent, e: InvalidEvent): Diagnostic {
 
 // AD-6: strict (the default, used by tests) throws on a profile underflow or a stock invariant breach;
 // non-strict (the hub, live and replay) clamps at 0 and appends a Diagnostic instead.
-export type ApplyOptions = { strict?: boolean };
+// prune (default true): the D25 prune of the §3.5.3 re-plan; false only for the unpruned comparison of test 23
+// and the §10.6 simulator (`runDay(day, { prune })`).
+export type ApplyOptions = { strict?: boolean; prune?: boolean };
 
 // AD-6: copy-on-write append for non-strict folds (a removeInterval underflow callback becomes a
 // 'profile_underflow' with station_id / event_id; task 12's stock folds add 'stock_breach').
@@ -394,7 +402,7 @@ export function addDiagnostic(state: EngineState, d: Diagnostic): EngineState {
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   const strict = opts?.strict ?? true;
   try {
-    return fold(state, event, strict);
+    return fold(state, event, { strict, prune: opts?.prune ?? true });
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
@@ -402,7 +410,8 @@ export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOpti
   }
 }
 
-function fold(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const strict = o.strict;
   switch (event.event_type) {
     case 'StockSet': {
       const p = event.payload as unknown as StockSet;
@@ -450,7 +459,7 @@ function fold(state: EngineState, event: PosEvent, strict: boolean): EngineState
     case 'OrderLinesAdded':
       return foldOrderLinesAdded(state, event);
     case 'ItemAdded':
-      return foldItemAdded(state, event, strict);
+      return foldItemAdded(state, event, o);
     case 'FireDispatched':
       return foldFireDispatched(state, event, strict);
     case 'ItemStarted':
@@ -462,9 +471,9 @@ function fold(state: EngineState, event: PosEvent, strict: boolean): EngineState
     case 'ItemServed':
       return foldItemServed(state, event, strict);
     case 'ItemRemoved':
-      return foldItemEnded(state, event, strict, 'removed');
+      return foldItemEnded(state, event, o, 'removed');
     case 'ItemVoided':
-      return foldItemEnded(state, event, strict, 'voided');
+      return foldItemEnded(state, event, o, 'voided');
     // 03a §3.12 types whose folds land in later tasks: unchanged until then.
     case 'ItemMovedToStock':
     case 'ItemReturned':

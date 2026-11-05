@@ -3,8 +3,10 @@
 // Pure: no clock, no ids; t is the triggering event's recorded_at or the handler's now.
 import { DomainError } from '@pos/domain';
 import type { ItemAddedPayload } from '@pos/events';
-import { effectiveCapacity, liveProfiles } from './live.js';
-import { addInterval, earliestFit, latestFit, occupancy } from './profile.js';
+import { InvalidEvent } from './invalid-event.js';
+import { effectiveCapacity, liveInterval, liveProfiles } from './live.js';
+import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
+import { applyMoves, bookingAt, capacityFor, isHidden, pass1, sortUnfired, type NewLine, type Placement } from './replan.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 // §3.2: a line is an ItemAdded with station_id not null and line_kind ≠ 'deal' (01c §3.4.7).
@@ -20,19 +22,8 @@ export function lineUnits(item: Pick<ItemAddedPayload, 'sale_unit' | 'quantity' 
   return item.quantity;
 }
 
-// AD-6 / AD-8(c): a writer bug found by an order fold. Strict folds throw it. Non-strict: a listed bad line is
-// dropped and still decrements awaiting (foldItemAdded); an unlisted one changes nothing (applyEvent catches
-// it); either way one 'invalid_event' diagnostic is appended.
-export class InvalidEvent extends Error {
-  constructor(
-    readonly reason: string,
-    readonly order_item_id: string,
-    readonly station_id?: string,
-  ) {
-    super(`invalid event (${reason}) for line ${order_item_id}${station_id === undefined ? '' : ` on station ${station_id}`}`);
-    this.name = 'InvalidEvent';
-  }
-}
+// AD-6 / AD-8(c): InvalidEvent (its own module, shared with replan.ts).
+export { InvalidEvent } from './invalid-event.js';
 
 function required<T>(value: T | null, field: string, order_item_id: string): T {
   if (value === null) throw new InvalidEvent(`${field}_null`, order_item_id);
@@ -66,32 +57,10 @@ export function deadlineOf(line: Pick<EngineLine, 'carry_ms' | 'cook_ms' | 'prep
 
 export { effectiveCapacity } from './live.js';
 
-// Sorted insert into StationRuntime.unfired, ordered by (fire, order_item_id) (§3.3).
-function insertUnfired(unfired: readonly string[], id: string, fire: number, lines: Readonly<Record<string, EngineLine>>): string[] {
-  const out = [...unfired];
-  let i = out.length;
-  while (i > 0) {
-    const prev = lines[out[i - 1]!]!;
-    const pf = prev.fire_ms ?? Number.POSITIVE_INFINITY;
-    if (pf < fire || (pf === fire && out[i - 1]! < id)) break;
-    i--;
-  }
-  out.splice(i, 0, id);
-  return out;
-}
-
 // ---- §3.5.1 steps 3–4: the one placement sequence of planOrder and the fold ----------------------------------
 
 // What the placement reads of a line (an EngineLine, or a line built from a ProposedOrder).
 type PlanLine = Pick<EngineLine, 'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms'>;
-type Booking = { start: number; end: number; units: number };
-type Placement = { fire: number; booked: Booking };
-
-// AD-4: the booking of a line fired at `fire` (prep off-station, D35).
-function bookingAt(line: PlanLine, cap: number, fire: number): Booking {
-  const occ = occupancy(line.units, cap, line.cook_ms);
-  return { start: fire + line.prep_ms, end: fire + line.prep_ms + occ.cook_ms, units: occ.units };
-}
 
 // The line's booking fits on p when fired at `fire` (latestFit over the one-point window [fire, fire]).
 function fitsAt(p: Profile, line: PlanLine, cap: number, fire: number): boolean {
@@ -108,6 +77,7 @@ function stationOf(stations: Readonly<Record<string, StationRuntime>>, line: Pic
   // Unreachable through the folds (the ItemAdded fold checked the station); a ProposedOrder naming a station the
   // engine has no runtime for is a caller bug.
   if (station === undefined) throw new InvalidEvent('station_missing', line.order_item_id, line.station_id);
+  capacityFor(station, line.order_item_id); // capacity < 1 → InvalidEvent capacity_invalid (task 7 review ruling)
   return station;
 }
 
@@ -193,30 +163,40 @@ function holdAndFire(
   for (;;) {
     const r = trySyncAt(profiles, stations, byStation, T, t);
     if (r.ok) return { T, placements: r.placements, profiles: r.profiles };
-    // Unreachable (every advance comes from a fit that failed at the current fire): a bug, never a hang.
-    if (!(r.advance > 0)) throw new Error(`hold-and-fire made no progress at T = ${T}`);
+    // Unreachable with capacity ≥ 1 (every advance comes from a fit that failed at the current fire); invalid
+    // data, never a hang: an InvalidEvent, so a non-strict fold records a diagnostic (task 7 review ruling).
+    if (!(r.advance > 0)) throw new InvalidEvent('capacity_invalid', lines[0]!.order_item_id, lines[0]!.station_id);
     T += r.advance;
   }
 }
 
-// §3.5.1 steps 3–4 against the live station profiles at t (pass 1, step 2, arrives in task 8): the immediate
-// lines first, each at its earliest fit from t, its interval added (D36); then each sync group's hold-and-fire
-// loop, in the given order, against the profile after the steps before it. Routing (§3.5.5) is task 11: every
-// line uses its engine station. Shared by planOrder / calculateETA and the fold at awaiting = 0, so both reach
-// the same placement for the same (state, t). §3.3: in-flight lines are read only through liveProfiles (the
-// planned profile plus the liveInterval of every COOKING and fired-not-started line at t); the returned
-// profiles therefore include those live intervals and are never stored.
-function placeBatch(
+// Options of the placement sequence: AD-6 strictness and the D25 prune (default on; off only for the unpruned
+// re-plan of test 23 and the simulator, §10.6).
+export type SequenceOptions = { strict: boolean; prune: boolean };
+
+// §3.5.1 steps 2–4, "one sequence" (G4-1 #3), shared by planOrder / calculateETA and the fold at awaiting = 0, so
+// both reach the same placement for the same (state, t):
+//   2. pass 1 of §3.5.3 (replan.ts) on every station a new line may use (its station and its allowed alternates,
+//      v0.6 G4-2 #23): the older hidden lines are re-placed within their slack, keep first (D6);
+//   3. the immediate lines, each at its earliest fit from t against the profile after pass 1, interval added (D36);
+//   4. each sync group's hold-and-fire loop, in the given order, against the profile after the steps before it.
+// Routing (§3.5.5) is task 11: every new line is placed on its engine station. §3.3: in-flight lines are read only
+// through liveProfiles (inside pass 1); the working profiles include their live intervals and are never stored.
+// Returns the new lines' placements, the groups' loop results and pass 1's moves of older lines.
+function placeSequence(
   state: EngineState,
-  immediates: readonly PlanLine[],
-  syncGroups: ReadonlyArray<readonly PlanLine[]>,
+  immediates: ReadonlyArray<PlanLine & NewLine>,
+  syncGroups: ReadonlyArray<ReadonlyArray<PlanLine & NewLine>>,
   t: number,
   floor: number | null,
-): { placements: Map<string, Placement>; targets: number[] } {
+  o: SequenceOptions,
+): { placements: Map<string, Placement>; targets: number[]; moves: Map<string, Placement> } {
   const stations = state.stations;
   const all = [...immediates, ...syncGroups.flat()];
   for (const line of all) stationOf(stations, line);
-  let profiles: Record<string, Profile> = liveProfiles(state, all.map((l) => l.station_id), t);
+  const uses = all.flatMap((l) => [l.station_id, ...l.alternates.map((a) => a.station_id)]);
+  const p1 = pass1(state, uses, all, t, { prune: o.prune, strict: o.strict });
+  let profiles: Record<string, Profile> = p1.profiles;
   const placements = new Map<string, Placement>();
   for (const line of immediates) {
     const cap = effectiveCapacity(stations[line.station_id]!);
@@ -233,18 +213,56 @@ function placeBatch(
     for (const [id, pl] of r.placements) placements.set(id, pl);
     targets.push(r.T);
   }
-  return { placements, targets };
+  return { placements, targets, moves: p1.moves };
 }
 
-// §3.5.1 "When the fold plans": places the order's lines that are not placed yet (this batch's lines) at the
-// ItemAdded that brought awaiting to 0, through placeBatch (steps 3–4; the order's pickup_at_ms is the delivery
-// floor). The sync groups go in line_ids order of their first line. The stored group T and P are never
-// recomputed (§3.5.1 step 6, P-2): the loop result only places the lines, and for a batch planned by planOrder
-// at a now ≤ recorded_at against the same state it lands every group exactly at its stored T; a line that no
-// longer fits by the append gap lands later and the tick slips it (§3.5.3). Each booking is the AD-4 occupancy,
-// stored on the line (AD-7); a line over effective capacity appends an 'over_capacity' diagnostic (AD-4) in
-// both modes. Copy-on-write: only the touched stations and lines are copied.
-export function planNewLines(state: EngineState, order_id: string, t: number, event_id: string): EngineState {
+// Books new lines (AD-7: `booked` on the line, added to the stored profile; fire_ms set) and re-sorts `unfired`
+// on their stations (§3.3, (fire, order_item_id)); a line over effective capacity appends an 'over_capacity'
+// diagnostic (AD-4) in both modes. The stored profile gets only planned bookings, never live intervals (§3.3).
+function bookNew(state: EngineState, pending: readonly EngineLine[], placements: ReadonlyMap<string, Placement>, event_id: string): EngineState {
+  const stations: Record<string, StationRuntime> = { ...state.stations };
+  const lines: Record<string, EngineLine> = { ...state.lines };
+  const diagnostics: Diagnostic[] = [];
+  const touched = new Set<string>();
+  for (const line of pending) {
+    const { fire, booked } = placements.get(line.order_item_id)!;
+    lines[line.order_item_id] = { ...line, fire_ms: fire, booked };
+    const station = stations[line.station_id]!;
+    stations[line.station_id] = {
+      ...station,
+      profile: addInterval(station.profile, booked, booked.units),
+      unfired: [...station.unfired, line.order_item_id],
+    };
+    touched.add(line.station_id);
+    const cap = effectiveCapacity(station);
+    if (line.units > cap) {
+      diagnostics.push({
+        kind: 'over_capacity',
+        event_id,
+        order_item_id: line.order_item_id,
+        station_id: line.station_id,
+        detail: { units: line.units, capacity: cap },
+      });
+    }
+  }
+  for (const sid of touched) stations[sid] = { ...stations[sid]!, unfired: sortUnfired(stations[sid]!.unfired, lines) };
+  return {
+    ...state,
+    stations,
+    lines,
+    diagnostics: diagnostics.length === 0 ? state.diagnostics : [...state.diagnostics, ...diagnostics],
+  };
+}
+
+// §3.5.1 "When the fold plans": at the ItemAdded that brought awaiting to 0 (the one re-plan of the batch per
+// station, §3.5.3 triggers), runs the sequence (pass 1, immediates, sync; the order's pickup_at_ms is the
+// delivery floor) for the order's lines not placed yet. The sync groups go in line_ids order of their first line.
+// Pass 1's moves are stored first (AD-7: exactly the old `booked` removed, AD-6), then the new lines are booked.
+// The stored group T and P are never recomputed (§3.5.1 step 6, P-2): the loop result only places the lines, and
+// for a batch planned by planOrder at now = recorded_at against the same state it lands every group exactly at
+// its stored T; a line that no longer fits by the append gap lands at its earliest fit (the whole group moves
+// with the loop) and the tick slips it (§3.5.3, test 91). Copy-on-write: only touched stations and lines.
+export function planNewLines(state: EngineState, order_id: string, t: number, event_id: string, o: SequenceOptions): EngineState {
   const order = state.orders[order_id];
   if (order === undefined) return state;
   const pending = order.line_ids
@@ -257,38 +275,66 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
   for (const l of pending) {
     if (l.serve_mode === 'sync') syncGroups.set(l.group_id, [...(syncGroups.get(l.group_id) ?? []), l]);
   }
-  const placed = placeBatch(state, immediates, [...syncGroups.values()], t, order.pickup_at_ms);
+  const placed = placeSequence(state, immediates, [...syncGroups.values()], t, order.pickup_at_ms, o);
+  return bookNew(applyMoves(state, placed.moves, event_id, o.strict), pending, placed.placements, event_id);
+}
 
-  // The stored profile gets only the planned bookings (the live intervals placeBatch read are not stored, §3.3).
-  const stations: Record<string, StationRuntime> = { ...state.stations };
-  const lines: Record<string, EngineLine> = { ...state.lines };
-  const diagnostics: Diagnostic[] = [];
-  for (const line of pending) {
-    const { fire, booked } = placed.placements.get(line.order_item_id)!;
-    lines[line.order_item_id] = { ...line, fire_ms: fire, booked };
-    const station = stations[line.station_id]!;
-    stations[line.station_id] = {
-      ...station,
-      profile: addInterval(station.profile, booked, booked.units),
-      unfired: insertUnfired(station.unfired, line.order_item_id, fire, lines),
-    };
-    const cap = effectiveCapacity(station);
-    if (line.units > cap) {
-      diagnostics.push({
-        kind: 'over_capacity',
-        event_id,
-        order_item_id: line.order_item_id,
-        station_id: line.station_id,
-        detail: { units: line.units, capacity: cap },
-      });
-    }
+// §3.5.3 triggers (D13): ItemRemoved / ItemVoided re-plan "that station", and "the group's T may move earlier,
+// never later: T' = min(T, loop result); the promise P never moves" (test 89; story "void of an item in-flight →
+// latest-start times of the remaining items in that order are recalculated; target land time may move earlier").
+// Called after the ended line left the profile (AD-7). Reading (report): the one sequence again —
+//   1. pass 1 on the ended line's station, with the group's hidden lines held where they are (fixed input);
+//   2. the group's hold-and-fire loop over its hidden lines on all their stations, against the live profiles
+//      after step 1 without those lines; floor = the pickup time and the land time (live interval end + carry)
+//      of every other open line of the group that cannot move (frozen, fired, COOKING);
+//   3. loop < T → the hidden lines take the loop placement, the group T and every group line's deadline become
+//      T', the order T = max over its groups; otherwise nothing of the group changes (T kept).
+// Promises (EngineOrder.promise_ms) are never touched. An immediate line is its own group: nothing to re-loop.
+export function replanEnded(state: EngineState, ended: EngineLine, t: number, event_id: string, o: SequenceOptions): EngineState {
+  const order = state.orders[ended.order_id];
+  const group = order?.groups[ended.group_id];
+  const siblings =
+    order === undefined || group === undefined || ended.serve_mode !== 'sync'
+      ? []
+      : group.line_ids
+          .filter((id) => id !== ended.order_item_id)
+          .map((id) => state.lines[id])
+          .filter((l): l is EngineLine => l !== undefined && l.units > 0 && (l.stage === 'added' || l.stage === 'cooking'));
+  const movable = siblings.filter((l) => isHidden(state, l, t));
+  const held = new Set(movable.map((l) => l.order_item_id));
+  const p1 = pass1(state, [ended.station_id], [], t, { prune: false, held, strict: o.strict });
+  let next = applyMoves(state, p1.moves, event_id, o.strict);
+  if (movable.length === 0) return next;
+
+  const ids = [...new Set(movable.map((l) => l.station_id))];
+  const live = liveProfiles(next, ids, t);
+  const profiles: Record<string, Profile> = { ...live };
+  for (const l of movable) {
+    const b = l.booked!;
+    profiles[l.station_id] = o.strict
+      ? removeInterval(profiles[l.station_id]!, b, b.units)
+      : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
   }
-  return {
-    ...state,
-    stations,
-    lines,
-    diagnostics: diagnostics.length === 0 ? state.diagnostics : [...state.diagnostics, ...diagnostics],
-  };
+  let floor = order!.pickup_at_ms ?? Number.NEGATIVE_INFINITY;
+  for (const l of siblings) {
+    if (held.has(l.order_item_id)) continue;
+    const iv = liveInterval(next, l.order_item_id, t);
+    if (iv !== null) floor = Math.max(floor, iv.end + l.carry_ms);
+  }
+  for (const l of movable) stationOf(next.stations, l);
+  const loop = holdAndFire(profiles, next.stations, movable, t, floor === Number.NEGATIVE_INFINITY ? null : floor);
+  const T = group!.target_land_ms;
+  if (!(loop.T < T)) return next;
+
+  next = applyMoves(next, loop.placements, event_id, o.strict);
+  const lines = { ...next.lines };
+  for (const id of group!.line_ids) {
+    const l = lines[id];
+    if (l !== undefined && l.units > 0) lines[id] = { ...l, deadline_ms: deadlineOf(l, loop.T) };
+  }
+  const groups = { ...order!.groups, [ended.group_id]: { ...group!, target_land_ms: loop.T } };
+  const target_land_ms = Math.max(...Object.values(groups).map((g) => g.target_land_ms));
+  return { ...next, lines, orders: { ...next.orders, [order!.order_id]: { ...order!, groups, target_land_ms } } };
 }
 
 // ---- §6.1b–d: planOrder, calculateETA, checkOrderable --------------------------------------------------------
@@ -351,17 +397,30 @@ function paddingOf(state: EngineState, station_id: string, order_type: OrderType
   return station?.promise_padding_ms ?? config.settings[`promise_padding_${order_type}_ms`];
 }
 
-// 03a §6.1b, §3.5.1 steps 1, 3–6 (pass 1 of step 2 arrives in task 8), BF-2; in-flight lines through
-// liveInterval at now (§3.3, via placeBatch). Pure: returns the plan, never
-// state, so nothing is appended (AD-4's over_capacity diagnostic is the fold's). from_stock is reserveStock's map
-// (a line absent from it is fresh). Groups: the sync group first (`order_id:n`, n = the order's
-// next_group_index, 0 for a new order), then one group per immediate line in listing order; eta_ms is the line's
-// own land time at its point (a serialised sync sibling lands before T, D36).
+// 03a §6.1b, §3.5.1 steps 1–6, BF-2: the one sequence (pass 1 → immediate → sync, placeSequence) at now, the
+// same as the fold at awaiting = 0; in-flight lines through liveInterval at now (§3.3). Pure: returns the plan,
+// never state, so nothing is appended (AD-4's over_capacity diagnostic is the fold's). from_stock is
+// reserveStock's map (a line absent from it is fresh). Groups: the sync group first (`order_id:n`, n = the
+// order's next_group_index, 0 for a new order), then one group per immediate line in listing order; eta_ms is
+// the line's own land time at its point (a serialised sync sibling lands before T, D36).
 export function planOrder(
   state: EngineState,
   proposed: ProposedOrder,
   now: number,
   from_stock: Readonly<Record<string, boolean>>,
+): PlanResult {
+  return planOrderWith(state, proposed, now, from_stock, { prune: true });
+}
+
+// planOrder with the D25 prune as an option: { prune: false } is the unpruned re-plan test 23 (and the §10.6
+// simulator) compares against. Not exported from the package index. A working-profile underflow clamps (no
+// state is returned to carry a diagnostic; the fold reports it, AD-6).
+export function planOrderWith(
+  state: EngineState,
+  proposed: ProposedOrder,
+  now: number,
+  from_stock: Readonly<Record<string, boolean>>,
+  o: { prune: boolean },
 ): PlanResult {
   checkOrderable(state, proposed);
   const engineLines = proposed.lines.filter((l) => isEngineLine(l));
@@ -369,7 +428,7 @@ export function planOrder(
     const station = stationOf(state.stations, { order_item_id: l.order_item_id, station_id: l.station_id! });
     const fs = from_stock[l.order_item_id] === true;
     if (l.serve_mode === null) throw new InvalidEvent('serve_mode_null', l.order_item_id, station.station_id);
-    const line: PlanLine & { serve_mode: 'sync' | 'immediate'; from_stock: boolean } = {
+    const line: PlanLine & NewLine & { from_stock: boolean } = {
       order_item_id: l.order_item_id,
       station_id: station.station_id,
       units: lineUnits(l),
@@ -377,13 +436,15 @@ export function planOrder(
       cook_ms: lineCookTimes(l, station.type, fs).cook_ms,
       carry_ms: l.carry_ms,
       serve_mode: l.serve_mode,
+      max_early_ms: l.max_early_ms,
+      alternates: l.alternates,
       from_stock: fs,
     };
     return line;
   });
   const immediates = planLines.filter((l) => l.serve_mode === 'immediate');
   const sync = planLines.filter((l) => l.serve_mode === 'sync');
-  const placed = placeBatch(state, immediates, [sync], now, proposed.order.pickup_at_ms);
+  const placed = placeSequence(state, immediates, [sync], now, proposed.order.pickup_at_ms, { prune: o.prune, strict: false });
 
   const order_type = proposed.order.order_type;
   const land = (l: PlanLine): number => placed.placements.get(l.order_item_id)!.booked.end + l.carry_ms;
