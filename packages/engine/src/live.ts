@@ -148,7 +148,8 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
   return { pack, bookings };
 }
 
-function packStation(station: StationRuntime, lines: readonly EngineLine[], t: number): { pack: Profile; bookings: Map<string, Booking> } {
+// Exported for slip.ts (BF-14 (a)): the slip crossing of a fired-not-started line reads the same packing.
+export function packStation(station: StationRuntime, lines: readonly EngineLine[], t: number): { pack: Profile; bookings: Map<string, Booking> } {
   const cap = effectiveCapacity(station);
   return station.type === 'batch' ? packBatch(lines, cap, t) : packSlot(lines, cap, t);
 }

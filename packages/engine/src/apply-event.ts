@@ -15,6 +15,7 @@ import type {
   OrderPlacedPayload,
   PosEvent,
   ReservationsShiftedPayload,
+  SlipWarnedPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
 import { applyMoves, capacityFor, flipPlacement, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
@@ -36,6 +37,7 @@ import { closeExitIds, exitedOrderIds, isOpen, orderInEngine, touchOrder } from 
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
+import { upkeepSlips } from './slip.js';
 import { isHiddenUnfired, stockOf } from './stock.js';
 
 // Payloads as validated by the @pos/events schemas (§4.2).
@@ -934,13 +936,39 @@ export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOpti
   const strict = opts?.strict ?? true;
   const skip = event.event_type === 'OrderLinesAdded' ? (event.payload as { order_id?: string }).order_id : undefined;
   const base = removeOrders(state, exitedOrderIds(state, event.recorded_at, skip), event, strict);
+  let out: EngineState;
   try {
-    return fold(base, event, { strict, prune: opts?.prune ?? true });
+    out = fold(base, event, { strict, prune: opts?.prune ?? true });
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
-    return addDiagnostic(base, invalidEventDiagnostic(event, e));
+    out = addDiagnostic(base, invalidEventDiagnostic(event, e));
   }
+  // §3.8 (task 15): the slip state and slip_due of the table keys this fold touched (the removal step included).
+  return upkeepSlips(state, out, event.recorded_at);
+}
+
+// §3.8 Slip state: SlipWarned sets slips[key] (the tick writes it from raiseMany's alert_id); never a §3.3 clock fold.
+// Resolution, resolved_at and slip_due follow in upkeepSlips.
+function foldSlipWarned(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as SlipWarnedPayload;
+  const rec = { order_ids: [...p.order_ids], last_estimate: p.estimated_land_ms, alert_id: p.alert_id, resolved_at: null };
+  return { ...state, slips: { ...state.slips, [p.table_key]: rec } };
+}
+
+// §3.8: an AlertClosed whose alert_id is some slips[key].alert_id sets it to null — and drops the record when the key
+// was already resolved (the close `done` of fires_alerts); any other AlertClosed returns state itself.
+function foldAlertClosed(state: EngineState, event: PosEvent): EngineState {
+  const alert_id = (event.payload as { alert_id?: unknown }).alert_id;
+  for (const key in state.slips) {
+    const slip = state.slips[key]!;
+    if (slip.alert_id !== alert_id) continue;
+    const slips = { ...state.slips };
+    if (slip.resolved_at !== null) delete slips[key];
+    else slips[key] = { ...slip, alert_id: null };
+    return { ...state, slips };
+  }
+  return state;
 }
 
 function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
@@ -974,11 +1002,13 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       const day = state.business_day;
       if (day === null || day.closed_at !== null) return state;
       // §3.3 (v0.5.1, Q13): every order whose lines are all served / voided / removed / returned exits at the close;
-      // an order with any unserved line stays and exits later by the predicate. Slips: task 15b.
+      // an order with any unserved line stays and exits later by the predicate. The close also clears slips (§3.3,
+      // §3.8): an order carried over the close that is still late slips afresh by the crossing rule.
       const exited = removeOrders(state, closeExitIds(state), event, strict);
       // §3.5.3 (task 12b): the close re-plans every station with an unfired line, once, after its releases.
       const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o);
-      return { ...replanned, business_day: { ...day, closed_at: event.recorded_at } };
+      const slips = Object.keys(replanned.slips).length === 0 ? replanned.slips : {};
+      return { ...replanned, business_day: { ...day, closed_at: event.recorded_at }, slips };
     }
     case 'EngineConfigApplied':
       return applyEngineConfig(state, event.payload as unknown as EngineConfig);
@@ -1012,9 +1042,12 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'OrderBoosted':
     case 'ItemsReleased':
       return foldNamesOrder(state, event);
-    // Unchanged until their tasks (SlipWarned never refreshes the clock, §3.3).
+    // §3.8 slip state (neither refreshes the §3.3 clock).
     case 'SlipWarned':
+      return foldSlipWarned(state, event);
     case 'AlertClosed':
+      return foldAlertClosed(state, event);
+    // Unchanged until their tasks.
     case 'StationCapacitySet':
     case 'StationPauseSet':
       return state;
