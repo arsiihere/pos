@@ -71,6 +71,7 @@ export function GoesWithPicker({
   self,
   error,
   disabled = false,
+  failed = false,
 }: {
   value: GoesWithLink[];
   onChange: (next: GoesWithLink[]) => void;
@@ -79,6 +80,7 @@ export function GoesWithPicker({
   self: { kind: GoesWithKind; id: string };
   error?: string | undefined;
   disabled?: boolean;
+  failed?: boolean;
 }) {
   const isItem = self.kind === 'item';
   const nameOf = (link: GoesWithLink) =>
@@ -97,7 +99,7 @@ export function GoesWithPicker({
         <p>{t('goeswith.help')}{isItem && ` ${t('goeswith.help_item')}`}</p>
       </div>
       {error !== undefined && <span className="pos-field__error">{error}</span>}
-      {disabled && <p className="pos-field__help">{t('goeswith.loading')}</p>}
+      {disabled && <p className="pos-field__help">{t(failed ? 'goeswith.failed' : 'goeswith.loading')}</p>}
       {value.length === 0 && <p className="pos-field__help">{t('goeswith.none')}</p>}
       {value.map((link) => (
         <div key={keyOf(link)} className="pos-row" data-goes-with={keyOf(link)}>

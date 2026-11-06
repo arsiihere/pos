@@ -250,4 +250,47 @@ describe('owner item Timing group and goes-with', () => {
     await click(button(ui.container, t('owner.category.save')));
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ name: 'Karahi 2' });
   });
+
+  it('[01a A-13] a failed menu read says so on the picker instead of "Reading the menu…"', async () => {
+    const { api } = server(undefined, true);
+    await renderItem(api, dish('I1', 'Chicken Karahi'));
+    const section = q<HTMLElement>('[data-section="goes-with"]')!;
+    expect(section.textContent).toContain(t('goeswith.failed'));
+    expect(section.textContent).not.toContain(t('goeswith.loading'));
+  });
+
+  it('[01a A-13] the menu read follows next_cursor: a target on page 2 is offered', async () => {
+    const { api, calls } = fakeApi((call) => {
+      if (call.url.startsWith('/v1/admin/menu')) {
+        const archived = call.url.includes('status=archived');
+        const second = call.url.includes('cursor=P2');
+        const items = archived ? [] : second ? [dish('I9', 'Page two dish')] : [dish('I1', 'Chicken Karahi')];
+        return ok({ can_edit_tenant: true, tax_classes: [], categories: CATEGORIES, variant_groups: [], items, next_cursor: !archived && !second ? 'P2' : null });
+      }
+      return ok({ item: ITEMS[0] });
+    });
+    await renderItem(api, dish('I1', 'Chicken Karahi'));
+    expect([...(field('goes_with_add') as HTMLSelectElement).options].map((o) => o.value)).toContain('item:I9');
+    expect(calls.filter((c) => c.url.startsWith('/v1/admin/menu') && !c.url.includes('archived'))).toHaveLength(2);
+  });
+
+  it('[01a A-13] a category name edited before the menu read finishes is saved, and no goes_with is sent', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { api, calls } = fakeApi(async (call) => {
+      if (call.url.startsWith('/v1/admin/menu')) {
+        await gate;
+        return ok({ can_edit_tenant: true, tax_classes: [], categories: CATEGORIES, variant_groups: [], items: call.url.includes('archived') ? [] : ITEMS, next_cursor: null });
+      }
+      return ok({ category: cat('C1', 'Karahi') });
+    });
+    const stored = { source_kind: 'category' as const, source_id: 'C1', target_kind: 'item' as const, target_id: 'I77', excluded: false };
+    await renderCategory(api, cat('C1', 'Karahi', { goes_with: [stored] }));
+    setValue(field('name'), 'Karahi 2');
+    release();
+    await flush();
+    expect((field('name') as HTMLInputElement).value).toBe('Karahi 2');
+    await click(button(ui.container, t('owner.category.save')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ name: 'Karahi 2' });
+  });
 });

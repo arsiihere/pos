@@ -133,7 +133,7 @@ export function CategoryForm({
         </div>
         <WindowsField value={category?.availability_windows ?? []} onChange={setWindows} />
         {category !== null && (
-          <GoesWithPicker value={links} onChange={setLinks} categories={categories} items={everyItem.items ?? []} disabled={everyItem.items === null} self={{ kind: 'category', id: category.category_id }} error={goesError} />
+          <GoesWithPicker value={links} onChange={setLinks} categories={categories} items={everyItem.items ?? []} disabled={everyItem.items === null} failed={everyItem.failed} self={{ kind: 'category', id: category.category_id }} error={goesError} />
         )}
         <p className="pos-note">{fill(t('owner.category.hours_note'), { name: name.trim() === '' ? t('owner.category.this') : name.trim() })}</p>
         {error !== null && <Banner tone="danger" text={error} />}

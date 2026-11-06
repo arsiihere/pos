@@ -1597,6 +1597,7 @@ export function ItemForm({
                 categories={categories}
                 items={everyItem.items ?? []}
                 disabled={everyItem.items === null}
+                failed={everyItem.failed}
                 self={{ kind: 'item', id: base.item_id }}
                 error={problemFor('item-goes_with')}
               />

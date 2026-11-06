@@ -624,3 +624,85 @@ describe('owner station form: C8 review fixes', () => {
     expect(patchOf(calls)?.body).toEqual({ freeze_ms: 180_000, alternates: [] });
   });
 });
+
+describe('owner station form: C8 review 2', () => {
+  const TAWA = { ...KARAHI, station_id: 'S4', name: 'Tawa' };
+  const GRILL = { ...KARAHI, station_id: 'S5', name: 'Grill' };
+  const input = (id: string, name: string) => container.querySelector<HTMLInputElement>(`[data-station-id="${id}"] [name="${name}"]`);
+  const err = (sel: string) => container.querySelector(sel)?.textContent ?? '';
+
+  function setup(stations: unknown[], onWrite?: (call: Call) => Response, stock: { stock_item_id: string; name: string }[] = []) {
+    return fakeApi((call) => {
+      if (call.method === 'GET' && call.url.startsWith('/v1/admin/menu')) return json(200, { data: { can_edit_tenant: true, tax_classes: [], categories: [], items: [{ item_id: 'I1', name: 'Paye' }], next_cursor: null } });
+      if (call.method === 'GET' && call.url.startsWith('/v1/admin/stock-items')) return json(200, { data: { can_edit_tenant: true, stock_items: stock } });
+      if (call.method === 'GET') return json(200, { data: { stations, points: POINTS } });
+      return onWrite?.(call) ?? json(200, { data: { station: KARAHI } });
+    });
+  }
+  async function openEditor(api: ReturnType<typeof fakeApi>['api']) {
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+    await click(button(t('owner.common.edit'), station('S1')));
+  }
+  const refuse = (path: string, message: string) => () =>
+    json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path, message }] } } });
+
+  it('[03a A-10] a carry refusal stays on the box that was sent when the owner edits the list afterwards', async () => {
+    const { api } = setup([KARAHI], refuse('carry_times.0.carry_ms', 'too long'));
+    await openEditor(api);
+    setValue(input('S1', 'carry_PT1'), '20');
+    setValue(input('S1', 'carry_PT2'), '1');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(err('[data-carry-point="PT1"]')).toContain('too long');
+    setValue(input('S1', 'carry_PT1'), '');
+    expect(err('[data-carry-point="PT1"]')).toContain('too long');
+    expect(err('[data-carry-point="PT2"]')).not.toContain('too long');
+  });
+
+  it('[03a A-9] an alternates refusal stays on the row that was sent when another row is removed afterwards', async () => {
+    const alt = (id: string) => ({ alternate_station_id: id, order_types: ['dine_in'], home_for_order_types: [] });
+    const { api } = setup([{ ...KARAHI, alternates: [alt('S4'), alt('S5')] }, TAWA, GRILL], refuse('alternates.0.order_types', 'bad types'));
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), '3');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(err('[data-alternate-id="S4"]')).toContain('bad types');
+    await click(container.querySelector('[data-alternate-id="S4"] button[aria-label]') as HTMLButtonElement);
+    expect(container.querySelector('[data-alternate-id="S4"]')).toBeNull();
+    expect(err('[data-alternate-id="S5"]')).not.toContain('bad types');
+  });
+
+  it('[03a A-10] an untouched carry box keeps its stored ms in the PATCH of another box', async () => {
+    const stored = { ...KARAHI, carry_times: [{ point_id: 'PT1', carry_ms: 20_000 }] };
+    const { api, calls } = setup([stored]);
+    await openEditor(api);
+    expect(input('S1', 'carry_PT1')?.value).toBe('0.33');
+    setValue(input('S1', 'reserve'), '1');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ reserve_units: 1 });
+    await click(button(t('owner.common.edit'), station('S1')));
+    setValue(input('S1', 'carry_PT2'), '1');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(calls.filter((c) => c.method === 'PATCH')[1]?.body).toEqual({
+      carry_times: [{ point_id: 'PT1', carry_ms: 20_000 }, { point_id: 'PT2', carry_ms: 60_000 }],
+    });
+  });
+
+  it('[01c V16] archiving a station that stock items are counted at names those stock items, not menu items', async () => {
+    const { api, calls } = setup(
+      [KARAHI],
+      () => json(409, { error: { code: 'CONFIG_IN_USE', message: 'x', details: { entity: 'station', id: 'S1', used_by: { entity: 'stock_item', ids: ['K1', 'K2', 'K9'] } } } }),
+      [{ stock_item_id: 'K1', name: 'Marinade' }, { stock_item_id: 'K2', name: 'Degh rice' }],
+    );
+    await openEditor(api);
+    await click(station('S1')?.querySelector<HTMLButtonElement>('button.pos-more') as HTMLButtonElement);
+    await click(button(fill(t('stations.menu_archive'), { station: 'Karahi' }), station('S1')?.querySelector('[role="menu"]')));
+    await click(button(fill(t('archive.archive_name'), { name: 'Karahi' }), container.querySelector('[role="dialog"]')));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(fill(t('archive.station_blocked_by_stock'), { n: '3' }));
+    expect(dialog?.querySelector('[data-in-use]')?.textContent).toContain('Marinade');
+    expect(dialog?.querySelector('[data-in-use]')?.textContent).toContain('Degh rice');
+    expect(calls.some((c) => c.url.startsWith('/v1/admin/menu'))).toBe(false);
+    expect(button(t('archive.open_stock_items'), dialog as HTMLElement)).toBeTruthy();
+    expect(dialog?.textContent).not.toContain(t('archive.open_items'));
+  });
+});

@@ -1559,6 +1559,11 @@ export const en = {
   'receipts.not_found': 'This alert is no longer there.',
   'receipts.for': 'for {name}',
   // 03a D1, A-1–A-10: Points page and the station Timing group
+  'archive.station_blocked_by_stock': '{n} stock items are counted at this station. Move them to another station first.',
+  'archive.open_stock_items': 'Open stock items',
+  'stations.used_by_stock_short': 'Used by {n} stock items',
+  'stations.used_by_stock_names': 'Used by {n} stock items: {names}',
+  'goeswith.failed': 'The menu could not be read. Close this form and open it again; goes-with is left as it was.',
   'archive.station_blocked_by_stations': '{n} other stations list this one as an alternate. Remove it from their alternates first.',
   'stations.used_by_stations_short': 'Used by {n} stations',
   'stations.used_by_stations_names': 'Used by {n} stations: {names}',

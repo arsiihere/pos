@@ -12,7 +12,7 @@ export interface InUse {
   ids: string[];
   names: string[];
   // Who uses the row: items by default; stations when another station names it as an alternate (A-9).
-  by?: 'station';
+  by?: 'station' | 'stock_item';
 }
 
 export function usedIds(error: CloudError): string[] | null {
@@ -21,10 +21,11 @@ export function usedIds(error: CloudError): string[] | null {
   return Array.isArray(usedBy?.ids) ? usedBy.ids.filter((id): id is string => typeof id === 'string') : [];
 }
 
-// The entity that uses the refused row: a station can be named by items (routes) or by other stations (alternates).
-export function usedEntity(error: CloudError): 'item' | 'station' {
+// The entity that uses the refused row: a station can be named by items (routes), stock items (counted there,
+// 01c V16) or other stations (alternates, A-9).
+export function usedEntity(error: CloudError): 'item' | 'station' | 'stock_item' {
   const usedBy = error.kind === 'api' ? (error.details['used_by'] as { entity?: unknown } | undefined) : undefined;
-  return usedBy?.entity === 'station' ? 'station' : 'item';
+  return usedBy?.entity === 'station' ? 'station' : usedBy?.entity === 'stock_item' ? 'stock_item' : 'item';
 }
 
 export async function itemNames(api: CloudAdmin, ids: readonly string[]): Promise<InUse> {

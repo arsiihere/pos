@@ -492,6 +492,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'bind.paused': 'الرٹ رکے ہوئے ہیں',
   'bind.none': 'الرٹ: کوئی نہیں',
   // 03a D1, A-1–A-10: Points page and the station Timing group
+  'archive.station_blocked_by_stock': '{n} اسٹاک آئٹم اس اسٹیشن پر گنے جاتے ہیں۔ پہلے انہیں دوسرے اسٹیشن پر لے جائیں۔',
+  'archive.open_stock_items': 'اسٹاک آئٹم کھولیں',
+  'stations.used_by_stock_short': '{n} اسٹاک آئٹم استعمال کرتے ہیں',
+  'stations.used_by_stock_names': '{n} اسٹاک آئٹم استعمال کرتے ہیں: {names}',
+  'goeswith.failed': 'مینو نہیں پڑھا جا سکا۔ یہ فارم بند کر کے دوبارہ کھولیں؛ ساتھ چلنے والی چیزیں جیسی تھیں ویسی رہیں گی۔',
   'archive.station_blocked_by_stations': '{n} دوسرے اسٹیشن اسے متبادل کے طور پر رکھتے ہیں۔ پہلے اسے ان کے متبادل سے ہٹائیں۔',
   'stations.used_by_stations_short': '{n} اسٹیشن استعمال کرتے ہیں',
   'stations.used_by_stations_names': '{n} اسٹیشن استعمال کرتے ہیں: {names}',

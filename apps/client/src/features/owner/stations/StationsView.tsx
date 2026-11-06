@@ -18,7 +18,7 @@ import { errorText, issueMessages } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { BranchSelect, Page } from '../Shell';
-import { TimingFields, alternatesEdited, emptyAlternateIssues, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
+import { TimingFields, alternatesEdited, emptyAlternateIssues, resolveRowIssues, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
 import { AddStationDialog, COMPLETION_MODES, parseWhole, RecipeDialog, typeOptions } from './StationDialogs';
 
 // §8.1 #/stations (01a-S04): one row per station with a summary; Edit opens it in place with its batch
@@ -46,6 +46,10 @@ function summary(station: Station): string {
     .join(' · ');
 }
 
+const BLOCKED_BODY = { item: 'archive.station_blocked_body', station: 'archive.station_blocked_by_stations', stock_item: 'archive.station_blocked_by_stock' } as const;
+const HINT_SHORT = { item: 'stations.used_by_short', station: 'stations.used_by_stations_short', stock_item: 'stations.used_by_stock_short' } as const;
+const HINT_NAMES = { item: 'stations.used_by_names', station: 'stations.used_by_stations_names', stock_item: 'stations.used_by_stock_names' } as const;
+
 // A-9: the alternates a station can name are the branch's other active slot stations.
 function offeredFor(stations: readonly StationRow[], selfId: string): OfferedStation[] {
   return stations
@@ -57,6 +61,11 @@ function offeredFor(stations: readonly StationRow[], selfId: string): OfferedSta
 async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
   if (usedEntity(error) === 'station') {
     return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
+  }
+  if (usedEntity(error) === 'stock_item') {
+    const result = await api.listStockItems();
+    const byId = new Map(result.ok ? result.data.stock_items.map((item) => [item.stock_item_id, item.name]) : []);
+    return { ids, names: ids.flatMap((id) => byId.get(id) ?? []), by: 'stock_item' };
   }
   return itemNames(api, ids);
 }
@@ -158,7 +167,7 @@ function StationEditor({
     }
     const empty = emptyAlternateIssues(timing, type, offeredIds);
     if (Object.keys(empty).length > 0) {
-      setIssues(empty);
+      setIssues(resolveRowIssues(empty, timing, station, type, offeredIds));
       setError(t('errors.VALIDATION_FAILED'));
       return;
     }
@@ -177,7 +186,7 @@ function StationEditor({
       onTypeBlocked(await usersOf(api, result.error, ids, allStations));
       return;
     }
-    setIssues(issueMessages(result.error));
+    setIssues(resolveRowIssues(issueMessages(result.error), timing, station, type, offeredIds));
     setError(errorText(result.error));
   }
 
@@ -267,7 +276,6 @@ function StationEditor({
         points={points}
         offered={offered}
         issues={issues}
-        base={station}
         currentPointId={station.point_id}
       />
       {station.station_type === 'batch' && (
@@ -310,10 +318,10 @@ function UsedByHint({ inUse }: { inUse: InUse }) {
       type="button"
       className="pos-hint"
       title={names}
-      aria-label={fill(t(inUse.by === 'station' ? 'stations.used_by_stations_names' : 'stations.used_by_names'), { n, names })}
+      aria-label={fill(t(HINT_NAMES[inUse.by ?? 'item']), { n, names })}
     >
       <Icon name="info" />
-      {fill(t(inUse.by === 'station' ? 'stations.used_by_stations_short' : 'stations.used_by_short'), { n })}
+      {fill(t(HINT_SHORT[inUse.by ?? 'item']), { n })}
     </button>
   );
 }
@@ -571,7 +579,7 @@ export function StationsView({
       {ask?.kind === 'blocked' && (
         <BlockedDialog
           title={fill(t(ask.type ? 'archive.station_type_blocked' : 'archive.blocked_title'), { name: ask.station.name })}
-          body={fill(t(ask.inUse.by === 'station' ? 'archive.station_blocked_by_stations' : 'archive.station_blocked_body'), {
+          body={fill(t(BLOCKED_BODY[ask.inUse.by ?? 'item']), {
             n: String(ask.inUse.ids.length),
             branch: branchName(branchId),
           })}
@@ -579,8 +587,12 @@ export function StationsView({
           onClose={() => setAsk(null)}
           action={
             ask.inUse.by === 'station' ? undefined : (
-              <button type="button" className="pos-btn pos-btn--primary" onClick={() => leave(() => navigate('/menu'))}>
-                {t('archive.open_items')}
+              <button
+                type="button"
+                className="pos-btn pos-btn--primary"
+                onClick={() => leave(() => navigate(ask.inUse.by === 'stock_item' ? '/stock-items' : '/menu'))}
+              >
+                {t(ask.inUse.by === 'stock_item' ? 'archive.open_stock_items' : 'archive.open_items')}
               </button>
             )
           }
