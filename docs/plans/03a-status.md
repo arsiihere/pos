@@ -54,11 +54,12 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | 10 | 3 | HIGH | DONE | `5bbf64b`, `b127a44`, `c9ebfc2` | #26, #27 | |
 | 11 | 3 | HIGH | DONE | `2aee7e5`, `169d155` | #28–#30 | |
 | 13 | 3 | HIGH | DONE | `565dcd3`, `f61ad5d` | #44, F #3, #9, #14, #15 | |
-| 12 | 4 | HIGH | TODO | | #39, #41, #74 engine, #102, #117, #119, 01a #129, BF-12, BF-13 | |
-| 12b | 4 | HIGH | TODO | | #40, #42, #84, #87, #88, #104, #105, #109, #118, BF-1, BF-7, BF-8, BF-9 | |
-| 14 | 4 | HIGH | TODO | | #32, #52, #62 engine, #110, #111 tick, F #12, #13, BF-5, RF 3 | |
-| 15 | 4 | HIGH | TODO | | #35, #36, #92, #106, BF-3, BF-4, BF-10, BF-14 | |
-| 15b | 4 | NORMAL | TODO | | #37, #38, #77 engine | |
+| 12 | 4 | HIGH | DONE | `afb53ef`, `4b4eb7b` | #39, #41, #74 engine, #102, #117, #119, 01a #129, BF-12, BF-13 | |
+| 12b | 4 | HIGH | DONE | `ea6056c`, `51ef84a` | #40, #42, #84, #87, #88, #104, #105, #109, #118, BF-1, BF-7, BF-8, BF-9 | **BF-9 parked** (`it.todo`), developer question |
+| 14 | 4 | HIGH | DONE | `f75d453` | #32, #52, #62 engine, #110, #111 tick, F #12, #13, BF-5, RF 3 | |
+| 14b | 4 | HIGH | DONE | `1eb33e7`, `9e893c9`, `9bcd50a` | #62 boundary clause, F D42, `[03a AD-20]` | added overnight: `ReservationsShifted` fold, exited orders kept while reserved |
+| 15 | 4 | HIGH | DONE | `249f91d`, `663ca0a` | #35, #36, #92, #106, BF-3, BF-4, BF-10, BF-14 | |
+| 15b | 4 | NORMAL | DONE | `4e5fd86`, `dc92693` | #37, #38, #77 engine | |
 | 16 | 5 | HIGH | TODO | | #34, #45, #97, #100, #107 engine, #108, F #11 | |
 | 16b | 5 | NORMAL | TODO | | #33, #46–#48, #50 | |
 | 17 | 5 | HIGH | TODO | | #53–#55, #94 | |
@@ -141,7 +142,9 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 3. H-5 / H-6 write-time checks → 03b's pairing / binding UI (and 01e).
 4. Task 28 needs the pilot mini PC (like 00 #79; developer, 2026-11-03).
 5. 03a §12.3 Q12 (customer's own wrong order) still open; 02 / 04, not blocking.
-6. **For 01a's next bump:** the §9 intro "the only allowed foundation edit" is stale (R34 lets a module append its §9 codes to F §6.2) — developer note 2026-11-05.
+6. **BF-9 / AD-2 (developer question, see the batch 4 entry):** not built; `it.todo('[03a BF-9]')`.
+7. **Done or Served without a Start on a from-stock line (developer question):** no consume is written, so its units stay reserved until the abandon pass (up to `order_abandon_ms`, default 4 h) or the next close; the spec has no consume at Done.
+8. **For 01a's next bump:** the §9 intro "the only allowed foundation edit" is stale (R34 lets a module append its §9 codes to F §6.2) — developer note 2026-11-05.
 
 ## Batch entries
 
@@ -218,3 +221,24 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **AD rows:** AD-13 (abandon clock), AD-14 (FIFO line in a group; amended for routing), AD-15 (overload search readings; amended), AD-17, AD-18, AD-5 final — controller / **proposed (implementer, overnight)**; AD-16 — **developer ruling**.
 - **Carried to later tasks:** 12 — AD-6 applies to the stock folds (strict throws, non-strict clamps + diagnostic; this overrides the plan's "no fold throws / `report`" wording), `[03a #75]` `reserveStock` drafts nothing for a return line, `StockReserved` for a dropped line tolerated; 14 — `[03a #96 tick]`, a partial `FireDispatched` / `ItemStarted` on an unfired load member over-books briefly, `packBatch` stale `load_id` on a COOKING member; 15b — drop `slips` / `slip_due` of removed orders, #81 split part; 16 — return line keeps `mark 'return'` (weight now from `return_of`), batch → slot config change with loads, capacity-drop version of the overload-load test, FIFO lines out of boost / capacity re-plans; 16b — pressure of a load with room, `[03a #96 shift]`, `[03a #115 shift]`; 18 — record the removal-scan cost, J7 unit weight (min over members' `d_Λ`), remaining O(m²) spreads, `tMin` max over a batch's groups; 20 / 22a — log diagnostics at warn and clear, dedupe `reserve_fallback`, `engine_line_dropped` alert; 24 — a FIFO → Waada Guard policy change keeps deadline = fire; 29 — spec notes (AD-6, AD-12 – AD-18 wording; follow-up weight from `return_of`); 02 — copy `PlanResult` route fields verbatim, `OrderPlaced.order_item_ids` in `proposed.lines` order, a batch line with no program → `InvalidEvent` mapping; 03b — `StartItem` / `pullEarly` on a batch station name the load; 01a / 02 — forbid two alternates both marked home. Known gaps: `live.ts` packs fired lines without the reserve.
 - **Open items:** 1–6 unchanged.
+
+## Batch 4 — Stock, tick, slip (2026-11-06)
+
+- **Tasks:** 12, 12b, 14, 14b (added overnight), 15, 15b.
+- **Commits:** `afb53ef`, `4b4eb7b` (12 + fix), `ea6056c`, `51ef84a` (12b + fix), `f75d453` (14), `1eb33e7`, `9e893c9`, `9bcd50a` (14b + 2 fixes), `249f91d`, `663ca0a` (15 + fix), `4e5fd86`, `dc92693` (15b + fix); docs `6e0a5e7` (AD-19 – AD-22).
+- **Reviews:** a fresh opus reviewer per task.
+  - 12: Needs fixes — Important: a partial void kept T (dropped §3.5.3 `T' = min`, AD-11) → round 1, a partial void re-plans its group like a void; Approved.
+  - 12b: Needs fixes — Important: a `StockAdded` candidate filter §3.7 does not state → round 1 removed it (+ 3 Minors); Approved. BF-9 parked (below).
+  - 14: Approved, 0 C / 0 I; found two plan-level gaps no task owned → task 14b.
+  - 14b: Needs fixes — Important: a kept exited order was resurrected by a stage fold → round 1 (`activeLine` guard); re-review Important: `OrderLinesAdded` on a kept order threw, against §3.3 / test 78 (**caused by the controller's instruction in round 1**, and it could have stopped boot replay) → round 2, it re-opens; Approved.
+  - 15: Needs fixes — Important: the slips drop at `BusinessDayClosed` had no test → round 1 (+ stronger oracle, abandon-time touch); Approved.
+  - 15b: Needs fixes — Important: an expedited line could land 10+ min later than its sync slot (78 / 648 probe combinations) → round 1 (held at the old booking, moved only if earlier; probe now 0 / 648); Approved.
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` — green: 326 files passed (1 skipped), 2348 tests passed (1 skipped, 1 todo = `[03a BF-9]`), 10 m 11 s. **Power cut during the first run:** the process was killed mid-gate; `git fsck` clean, no uncommitted code, nothing stashed, no task in progress. The re-run failed at `ECONNREFUSED 127.0.0.1:5433` before any test (the `pos-pg-test` container did not survive the cut; typecheck and lint had passed); `docker start pos-pg-test` per `docs/manual-test-e2e.md`, then green. No code change.
+- **Tests closed:** #32, #35, #36, #37, #38, #39, #40, #41, #42, #52, #62 engine, #74 engine, #75 (reserve half), #77 engine, #81 (split part), #84, #87, #88, #91 (slip half), #92, #96 tick, #102, #104, #105, #106, #109, #110, #111 tick, #117, #118, #119; 01a #129; F #12, #13; BF-1, BF-3, BF-4, BF-5, BF-7, BF-8, BF-10, BF-12, BF-13, BF-14; Review Focus 3. **Not closed: BF-9.**
+- **AD rows:** AD-19, AD-20, AD-21, AD-22 — all **proposed (implementer, overnight)**.
+- **Developer questions:**
+  1. **BF-9 vs tests #42 / #118.** AD-2 (yours) says re-reserve held lines in the new unit after a unit-changing `StockSet`. Tests #42 and #118 say those lines are consumed before the `StockSet` (Q14) and "their later `ItemStarted` drafts no `StockConsumed`". Re-reserving would make that later Start consume, so building AD-2 changes behaviour the spec states; it also needs `item_id` and the sale quantity on `EngineLine`, a new-unit quantity in the `StockReserved` fold, and a meaning for "full-cook" on an already-consumed frozen line. **The code follows #42 / #118.** Not treated as stop condition 2 because the code and the spec agree; the conflict is between the ruling and the spec, and it is an isolated edge (a unit change at the open with from-stock lines carried over the close). A hidden full-cook line carried over such a unit change can also be reserved with its old-unit draw. Decide: rewrite #42 / #118 for AD-2, or take BF-9's other option (accepted cost).
+  2. Done or Served without a Start on a from-stock line (open item 7): should it consume?
+  3. AD-19: refuse a `sold_out` line when 0 < available < needed? 02 greys an item out only at 0, so a short line looks orderable and is then refused.
+- **Carried to later tasks:** 16 / 16b — `lateStartShift` writes `ReservationsShifted` (`late_start`, the fold exists), `[03a #96 shift]`, `[03a #115 shift]`, reuse `pressureBp`, the bands and #48; 17 — #94 static set; 18 — add a 20-line `StockAdded` at peak (≈ 44 ms at 1 200 hidden lines on the dev box), record upkeep cost (+37 µs per event), memoise packing per (station, t) if re-plan p99 is tight; 20 — log diagnostics and clear; 22 — evaluate `noOrderInEngine` / `checkpoint_pending` after the pass's fold (test 111 "that pass"); 22a — `engine_line_dropped`, dedupe `reserve_fallback`, the D12 goes-with pre-ticks (AD-22); A14 / hub — use the array form of `stockEffects`; 03b — fire a whole load before a Start or pull on one of its lines; `GiveMeMore` on a `single_tap` line writes the inferred start; 29 — §3.7 "no fold throws" per AD-6, an A-row for S14 `StockSet` below reserved / 01a #66, §6.1f wording, Q14 prose, 03a line 340 "fired never moves".
+- **Open items:** see Open items above (6, 7 new).
