@@ -82,14 +82,26 @@ interface DrawRow {
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 16 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 21 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
 // items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
-// branch's deal rows, the deals sold here with their active parts and choices, deal windows. Active rows only, except
-// stations, programs and tax classes (S22).
+// branch's deal rows, the deals sold here with their active parts and choices, deal windows, and schema 3's points,
+// alternates, carry times, engine settings, goes-with (01b v1.5 B-8). Active rows only, except stations, programs,
+// tax classes (S22) and points.
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
 // stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47); deal choices by
 // sort_order, then item_id (m5). Returns the wire object (S27).
 export async function buildSnapshot(
+  client: pg.PoolClient,
+  tenant: TenantContext,
+  branchId: string,
+  header: SnapshotHeader,
+): Promise<Record<string, unknown>> {
+  const body = await buildSnapshotBody(client, tenant, branchId, header);
+  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(body))) as Record<string, unknown>;
+}
+
+// The built body before the schema parse: every schema 3 field, whatever the wire version keeps.
+export async function buildSnapshotBody(
   client: pg.PoolClient,
   tenant: TenantContext,
   branchId: string,
@@ -117,6 +129,18 @@ export async function buildSnapshot(
     freshness_window_ms: number | null;
     completion_mode: string;
     is_archived: boolean;
+    point_id: string;
+    policy: string;
+    freeze_ms: number;
+    min_slack_keep_ms: number;
+    promise_padding_ms: number | null;
+    pressure_window_ms: number;
+    pressure_amber_bp: number;
+    pressure_red_bp: number;
+    pressure_alert_ms: number;
+    pause_enabled: boolean;
+    lane_units: number | null;
+    reserve_units: number;
     program_id: string | null;
     program_name: string | null;
     cook_time_ms: number | null;
@@ -124,6 +148,8 @@ export async function buildSnapshot(
   }>(
     `SELECT s.station_id, s.name, s.location_label, s.station_type, s.capacity, s.freshness_window_ms,
             s.completion_mode, s.archived_at IS NOT NULL AS is_archived,
+            s.point_id, s.policy, s.freeze_ms, s.min_slack_keep_ms, s.promise_padding_ms, s.pressure_window_ms,
+            s.pressure_amber_bp, s.pressure_red_bp, s.pressure_alert_ms, s.pause_enabled, s.lane_units, s.reserve_units,
             p.program_id, p.name AS program_name, p.cook_time_ms, p.archived_at IS NOT NULL AS program_archived
        FROM stations s
        LEFT JOIN batch_programs p
@@ -156,7 +182,8 @@ export async function buildSnapshot(
     `SELECT m.item_id, m.category_id, m.variant_group_id, m.variant_name, m.name, m.description, m.sort_order,
             COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
-            m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id
+            m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id,
+            m.weight_pct, m.max_early_ms, m.max_carry_ms, m.max_late_ms, m.adjust_time_ms
        FROM item_routes r
        JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id
       WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND m.archived_at IS NULL
@@ -250,6 +277,13 @@ export async function buildSnapshot(
       ORDER BY start_ms, end_ms, window_id`,
     [soldDealIds],
   );
+
+  // 01a v2.1 §4.3, schema 3 (01b v1.5 B-8).
+  const points = await selectPoints(scoped, branchId);
+  const alternates = await selectStationAlternates(scoped, branchId);
+  const carryTimes = await selectCarryTimes(scoped, branchId);
+  const engineSettings = await selectEngineSettings(scoped, branchId);
+  const goesWith = await selectGoesWith(level);
 
   // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
   stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
@@ -387,6 +421,23 @@ export async function buildSnapshot(
     tablesByFloor.set(table.floor_id, list);
   }
 
+  const alternatesByStation = new Map<string, Array<{ station_id: string; order_types: string[]; home_for_order_types: string[] }>>();
+  for (const row of alternates) {
+    const list = alternatesByStation.get(row.station_id) ?? [];
+    list.push({
+      station_id: row.alternate_station_id,
+      order_types: [...row.order_types].sort(compare),
+      home_for_order_types: [...row.home_for_order_types].sort(compare),
+    });
+    alternatesByStation.set(row.station_id, list);
+  }
+  const carryTimesByStation = new Map<string, Array<{ point_id: string; carry_ms: number }>>();
+  for (const row of carryTimes) {
+    const list = carryTimesByStation.get(row.station_id) ?? [];
+    list.push({ point_id: row.point_id, carry_ms: row.carry_ms });
+    carryTimesByStation.set(row.station_id, list);
+  }
+
   const stationList: Array<Record<string, unknown> & { programs: unknown[] }> = [];
   for (const row of stations) {
     let station = stationList.at(-1);
@@ -400,6 +451,20 @@ export async function buildSnapshot(
         freshness_window_ms: row.freshness_window_ms,
         completion_mode: row.completion_mode,
         is_archived: row.is_archived,
+        point_id: row.point_id,
+        policy: row.policy,
+        freeze_ms: row.freeze_ms,
+        min_slack_keep_ms: row.min_slack_keep_ms,
+        promise_padding_ms: row.promise_padding_ms,
+        pressure_window_ms: row.pressure_window_ms,
+        pressure_amber_bp: row.pressure_amber_bp,
+        pressure_red_bp: row.pressure_red_bp,
+        pressure_alert_ms: row.pressure_alert_ms,
+        pause_enabled: row.pause_enabled,
+        lane_units: row.lane_units,
+        reserve_units: row.reserve_units,
+        alternates: alternatesByStation.get(row.station_id) ?? [],
+        carry_times: carryTimesByStation.get(row.station_id) ?? [],
         programs: [],
       };
       stationList.push(station);
@@ -414,7 +479,7 @@ export async function buildSnapshot(
     }
   }
 
-  const built = {
+  return {
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     config_version: header.config_version,
     branch_id: branchId,
@@ -423,6 +488,7 @@ export async function buildSnapshot(
     day_stale_after_hours: header.day_stale_after_hours,
     day_min_gap_hours: header.day_min_gap_hours,
     floors: floors.map((floor) => ({ ...floor, tables: tablesByFloor.get(floor.floor_id) ?? [] })),
+    points,
     stations: stationList,
     tax_classes: taxClasses,
     categories: categories.map((category) => ({
@@ -440,8 +506,75 @@ export async function buildSnapshot(
       modifier_group_ids: groupIdsByItem.get(item.item_id) ?? [],
     })),
     deals: deals.filter((deal) => deal.parts.every((part) => part.choices.length > 0)),
+    engine_settings: engineSettings,
+    goes_with: goesWith,
   };
-  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(built))) as Record<string, unknown>;
+}
+
+// 01a §4.3 V3: archived rows stay, as stations do, so an archived station's point_id still resolves.
+function selectPoints(scoped: TenantScopedRepository, branchId: string) {
+  return scoped.query<{ point_id: string; name: string; sort_order: number; is_archived: boolean }>(
+    `SELECT point_id, name, sort_order, archived_at IS NOT NULL AS is_archived FROM points
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY sort_order, point_id COLLATE "C"`,
+    [branchId],
+  );
+}
+
+// CL-10: a row naming an archived station, at either end, is left out (restore has no check).
+function selectStationAlternates(scoped: TenantScopedRepository, branchId: string) {
+  return scoped.query<{ station_id: string; alternate_station_id: string; order_types: string[]; home_for_order_types: string[] }>(
+    `SELECT a.station_id, a.alternate_station_id, a.order_types, a.home_for_order_types
+       FROM station_alternates a
+       JOIN stations s ON s.tenant_id = a.tenant_id AND s.branch_id = a.branch_id AND s.station_id = a.station_id
+       JOIN stations t ON t.tenant_id = a.tenant_id AND t.branch_id = a.branch_id AND t.station_id = a.alternate_station_id
+      WHERE a.tenant_id = $1 AND a.branch_id = ANY($2) AND a.branch_id = $3
+        AND s.archived_at IS NULL AND t.archived_at IS NULL
+      ORDER BY a.station_id COLLATE "C", a.alternate_station_id COLLATE "C"`,
+    [branchId],
+  );
+}
+
+function selectCarryTimes(scoped: TenantScopedRepository, branchId: string) {
+  return scoped.query<{ station_id: string; point_id: string; carry_ms: number }>(
+    `SELECT station_id, point_id, carry_ms FROM carry_times
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY station_id COLLATE "C", point_id COLLATE "C"`,
+    [branchId],
+  );
+}
+
+// CL-3: every branch has exactly one row, so a missing row is an error, never a default.
+async function selectEngineSettings(scoped: TenantScopedRepository, branchId: string) {
+  const rows = await scoped.query<Record<string, unknown>>(
+    `SELECT weight_dine_in_pct, weight_takeaway_pct, weight_delivery_pct, weight_parking_pct, weight_follow_up_pct,
+            promise_padding_dine_in_ms, promise_padding_takeaway_ms, promise_padding_delivery_ms, promise_padding_parking_ms,
+            slip_threshold_ms, slip_escalate_ms, cascade_step_ms, min_gain_ms, returns_boost, order_abandon_ms, table_lock_ttl_ms
+       FROM branch_engine_settings
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
+    [branchId],
+  );
+  const row = rows[0];
+  if (row === undefined) throw new Error(`no engine settings row for branch ${branchId}`);
+  return row;
+}
+
+// CL-12: archiving a category or item does not touch its links, so a link with an archived end is left out here.
+function selectGoesWith(level: TenantLevelRepository) {
+  const active = (kind: 'source' | 'target') => `CASE l.${kind}_kind
+          WHEN 'category' THEN EXISTS (SELECT 1 FROM categories c
+                                        WHERE c.tenant_id = l.tenant_id AND c.category_id = l.${kind}_id AND c.archived_at IS NULL)
+          ELSE EXISTS (SELECT 1 FROM menu_items m
+                        WHERE m.tenant_id = l.tenant_id AND m.item_id = l.${kind}_id AND m.archived_at IS NULL)
+        END`;
+  return level.query<{ source_kind: string; source_id: string; target_kind: string; target_id: string; excluded: boolean }>(
+    `SELECT l.source_kind, l.source_id, l.target_kind, l.target_id, l.excluded
+       FROM goes_with_links l
+      WHERE l.tenant_id = $1
+        AND ${active('source')}
+        AND ${active('target')}
+      ORDER BY l.source_kind COLLATE "C", l.source_id COLLATE "C", l.target_kind COLLATE "C", l.target_id COLLATE "C"`,
+  );
 }
 
 function compare(a: string, b: string): number {

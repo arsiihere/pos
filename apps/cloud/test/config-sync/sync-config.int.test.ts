@@ -54,8 +54,8 @@ describe('GET /v1/sync/config', () => {
     const v = await versions();
     const response = await poll(v.config - 1, v.directory);
     expect(response.statusCode).toBe(200);
-    // 01a §6.1: ≤ 13 config-only; + 9 builder statements (01c §4.5, AD-16)
-    expect(counter.count).toBeLessThanOrEqual(22);
+    // 01a §6.1: ≤ 13 config-only; + 9 builder statements (01c §4.5, AD-16); + 5 (01b v1.5 B-8)
+    expect(counter.count).toBeLessThanOrEqual(27);
     const data = response.json().data;
     expect(data.directory).toBeNull();
     const snapshot = BranchConfigSnapshotSchemaV2.parse(data.config.snapshot);

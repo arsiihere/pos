@@ -323,7 +323,7 @@ describe('buildSnapshot', () => {
     };
     const ten = await countFor(10);
     const threeHundred = await countFor(300);
-    expect(ten).toBe(16); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows
+    expect(ten).toBe(21); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows; 03a C6: + points, alternates, carry times, engine settings, goes-with
     expect(threeHundred).toBe(ten);
     expect(ten).toBeLessThanOrEqual(22);
   });
@@ -336,7 +336,7 @@ describe('buildSnapshot', () => {
       counter.reset();
       const snapshot = await buildSnapshot(client, tenant(), f.branches[0], HEADER);
       expect(snapshot.items).toHaveLength(5_000);
-      expect(counter.count).toBeLessThanOrEqual(22); // 16 (01c tasks 27, 28, 31): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows
+      expect(counter.count).toBeLessThanOrEqual(22); // 21 (01c tasks 27, 28, 31; 03a C6): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows, points, alternates, carry times, engine settings, goes-with
     } finally {
       client.release();
     }
@@ -386,11 +386,13 @@ describe('buildSnapshot', () => {
     };
     try {
       const otherOnly = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([f.branches[1]]) });
-      await buildSnapshot(client, otherOnly, f.branches[0], HEADER);
+      // 01a CL-3: the out-of-scope caller also reads no engine settings row, and a missing row is an error.
+      await expect(buildSnapshot(client, otherOnly, f.branches[0], HEADER)).rejects.toThrow(/engine settings/);
     } finally {
       (client as { query: unknown }).query = original;
       client.release();
     }
+    expect(windowRows.length).toBeGreaterThan(0); // the statement ran: the tenant's category window
     expect(windowRows.filter((row) => row.item_id !== null)).toEqual([]);
   });
 

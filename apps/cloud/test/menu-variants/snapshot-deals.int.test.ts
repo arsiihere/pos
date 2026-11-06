@@ -483,11 +483,11 @@ describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () =>
     ]);
   });
 
-  it('[01c #62] builder statement count fixed: 16 with no deal, 1 deal and 50 deals sold here', async () => {
+  it('[01c #62] builder statement count fixed: 21 with no deal, 1 deal and 50 deals sold here', async () => {
     const [a, b] = f.branches;
     // 01c §6.17: 01a's 7 + 9 (… modifier groups with options, option rows, links, deals with parts and choices, deal
-    // windows, deal branch rows)
-    expect(await countBuild(a)).toBe(16);
+    // windows, deal branch rows); + 5 (03a C6: points, alternates, carry times, engine settings, goes-with)
+    expect(await countBuild(a)).toBe(21);
     const karahi = await item('Chicken Karahi', [a, b], 115_000);
     const naan = await item('Naan', [a, b], 3_000);
     const make = (i: number) =>
@@ -505,14 +505,14 @@ describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () =>
       });
     const first = await make(0);
     await sell(first.deal_id, a, 90_000);
-    expect(await countBuild(a)).toBe(16);
+    expect(await countBuild(a)).toBe(21);
     expect((await build(a)).deals).toHaveLength(1);
 
     for (let i = 1; i < 50; i += 1) {
       const deal = await make(i);
       await sell(deal.deal_id, a);
     }
-    expect(await countBuild(a)).toBe(16);
+    expect(await countBuild(a)).toBe(21);
     const fifty = await build(a);
     expect(fifty.deals).toHaveLength(50);
     expect(fifty.deals.map((d) => d.sort_order)).toEqual(Array.from({ length: 50 }, (_, i) => i));
@@ -520,7 +520,7 @@ describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () =>
     expect(fifty.deals[49]!.price_minor).toBe(100_049);
     expect(fifty.deals.every((d) => d.availability_windows.length === 1 && d.parts[1]!.choices.length === 2)).toBe(true);
     // B: none sold there; the same statements
-    expect(await countBuild(b)).toBe(16);
+    expect(await countBuild(b)).toBe(21);
     expect((await build(b)).deals).toEqual([]);
   }, 120_000);
 });
