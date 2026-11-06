@@ -107,12 +107,15 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
     if (g === undefined) groups.set(key, [line]);
     else g.push(line);
   }
-  const cookOf = (l: EngineLine): number => occupancy(Math.max(l.units, cap), cap, l.cook_ms).cook_ms;
   const fireOf = (l: EngineLine): number => l.fire_ms ?? l.fired_at!;
   let pack: Profile = { t: [], u: [] };
   const bookings = new Map<string, Booking>();
   const fired: Array<{ members: EngineLine[]; fire: number; first: string; prep: number; cook: number }> = [];
   for (const members of groups.values()) {
+    // Task 16 review (AD-4): a load's rounds come from its members' summed units, as its booking did (load units over a
+    // lowered capacity); within the capacity that is one round, whatever the split.
+    const units = members.reduce((n, m) => n + m.units, 0);
+    const cookOf = (l: EngineLine): number => occupancy(Math.max(units, cap), cap, l.cook_ms).cook_ms;
     if (!members.some(isCooking)) {
       fired.push({
         members,

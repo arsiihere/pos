@@ -5,7 +5,7 @@
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemStarted, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, getAlertIntents, initialEngineState, liveInterval, planOrder, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
+import { addInterval, applyEvent, buildEngineState, earliestFit, getAlertIntents, initialEngineState, latestFit, liveInterval, planOrder, removeInterval, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
 import { effectiveCapacity } from '../src/capacity';
 import { liveProfile } from '../src/live';
 import type { Profile } from '../src/state';
@@ -257,6 +257,49 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     expectRebuild(k);
   });
 
+  // §3.4: pushed past t + freeze_ms, a frozen line is still the frozen line of this fold: pass 1 must not take it as hidden.
+  it('[03a #97] a frozen line pushed past the freeze ends where it was needed: not later (t + 150 s, not its deadline t + 170 s)', () => {
+    const t = T0 + 10 * M;
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('OA', [{ id: 'A', cook: M }], t - M, { pickup: t + 170 * S + M }); // d = t + 170 s
+    k.submit('OX', [{ id: 'X', cook: 150 * S }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
+    const s = k.apply([boost('OX', t)]);
+    expect(s.lines.X).toMatchObject({ fire_ms: t, booked: { start: t, end: t + 150 * S, units: 1 } });
+    expect(s.lines.A).toMatchObject({ fire_ms: t + 150 * S, mark: 'moved', station_id: 'S1' });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it('[03a #97] a frozen line pushed past the freeze never lands before its frozen fire (a gap before the boost is not taken)', () => {
+    const t = T0 + 10 * M;
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('OF', [{ id: 'CK', cook: 80 * S }], t - M);
+    k.apply([fireEv('S1', 'CK', t - M), startEv('OF', 'CK', t - M)]); // one unit until t + 20 s
+    k.submit('OA', [{ id: 'A', cook: 15 * S, early: 5 * M }], t - M, { pickup: t + 170 * S + 15 * S });
+    k.submit('OX', [{ id: 'X', cook: 150 * S, units: 2 }], t - M, { pickup: t + 60 * M });
+    expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
+    const s = k.apply([boost('OX', t)]);
+    expect(s.lines.X).toMatchObject({ fire_ms: t + 20 * S, booked: { end: t + 170 * S } });
+    expect(s.lines.A).toMatchObject({ fire_ms: t + 170 * S, mark: 'moved' });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it('[03a #97] pushed past the freeze, a frozen line does not re-route off its station (§3.5.5 D10), on a capacity change either', () => {
+    const t = T0 + 10 * M;
+    const alt = [{ station_id: 'S2', carry_ms: 0, home: false }];
+    const k = new Kitchen([SLOT(2), { station_id: 'S2', capacity: 2 }]);
+    k.submit('OB', [{ id: 'B', station: 'S1', cook: 150 * S }], t - M, { pickup: t + 150 * S });
+    k.submit('OA', [{ id: 'A', station: 'S1', cook: M, alternates: alt }], t - M, { pickup: t + 170 * S + M });
+    k.submit('OC', [{ id: 'C', station: 'S1', cook: M }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    expect(k.state.lines.A).toMatchObject({ station_id: 'S1', fire_ms: t + 110 * S });
+    expect(k.state.lines.B!.fire_ms).toBe(t);
+    const s = k.apply([capacity('S1', 1, t)]);
+    expect(s.lines.A).toMatchObject({ station_id: 'S1', fire_ms: t + 150 * S, mark: 'moved' });
+    expectProfileExact(s);
+  });
+
   it('[03a §3.9] a boost never moves a fired line; its live interval stays a fixed input of T_b', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('OF', [{ id: 'FD', cook: 10 * M }], T0);
@@ -481,6 +524,20 @@ describe('@pos/engine returns_boost (§3.8a)', () => {
     expect(Math.max(...liveProfile(s, 'S1', at(10)).u)).toBeLessThanOrEqual(1);
     expectProfileExact(s);
     expectRebuild(k);
+  });
+
+  it('[03a #75] returns_boost: an order the return pushes past the threshold slips on the next getAlertIntents; one pushed less does not; never the return itself', () => {
+    const run = (cook: number): string[] => {
+      const k = returnKitchen({ returns_boost: true }, 1);
+      k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10), { pickup: at(21) }); // frozen at 12:11
+      const plan = planOrder(k.state, proposedReturn(k, cook), at(10), {});
+      const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: at(10), target_land_ms: plan.groups[0]!.target_land_ms, promise_ms: plan.groups[0]!.promise_ms, order_item_id: 'LR', adjust_time_ms: cook }));
+      expect(s.lines.X!.mark).toBe('moved');
+      expect(s.slips).toEqual({});
+      return getAlertIntents(s, at(10) + 1).slips.flatMap((x) => x.order_ids);
+    };
+    expect(run(5 * M)).toEqual(['O2']); // X pushed 4 min
+    expect(run(2 * M)).toEqual([]); // X pushed 1 min
   });
 
   it('[03a #107 engine] with returns_boost false the return waits for the frozen line (§3.8a expedite: nothing is pushed)', () => {
@@ -746,6 +803,61 @@ describe('@pos/engine capacity change (§3.10, D37, D15 exception)', () => {
     expectRebuild(k);
   });
 
+  it('[03a AD-4] a load whose units exceed a lowered capacity keeps its rounds once fired: its live interval is its booking (load units, not per member)', () => {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
+    k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }, { id: 'B', program: 'P1', cook: 10 * M, units: 15 }], T0, { pickup: T0 + 11 * M });
+    const id = k.state.lines.A!.load_id!;
+    expect(k.state.lines.B!.load_id).toBe(id);
+    const s = k.apply([capacity('F', 20, T0)]);
+    expect(s.stations.F!.loads[id]!.booked).toEqual({ start: T0 + M, end: T0 + 21 * M, units: 20 });
+    const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'B'], load_id: id, due_at: T0 + M, reason: 'scheduled' } }), T0 + M)]);
+    expect(liveInterval(f, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+    expect(liveInterval(f, 'B', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+    // A started: the COOKING group keeps the rounds too.
+    const c = k.apply([startEv('O1', 'A', T0 + M), startEv('O1', 'B', T0 + M)]);
+    expect(liveInterval(c, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+  });
+
+  it('[03a AD-4] a load within the capacity packs one round, as before', () => {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
+    k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 10 }, { id: 'B', program: 'P1', cook: 10 * M, units: 10 }], T0);
+    const id = k.state.lines.A!.load_id!;
+    const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'B'], load_id: id, due_at: T0, reason: 'scheduled' } }), T0)]);
+    expect(liveInterval(f, 'A', T0)).toEqual({ start: T0, end: T0 + 10 * M });
+  });
+
+  it('[03a AD-4] a pass-1 re-route onto a smaller station logs over_capacity there, in both modes', () => {
+    const build = (): Kitchen => {
+      const k = new Kitchen([{ station_id: 'S1', capacity: 4 }, { station_id: 'S2', capacity: 2 }]);
+      k.submit('OL', [{ id: 'H', station: 'S1', cook: 5 * M, units: 3, early: 30 * M, alternates: [{ station_id: 'S2', carry_ms: 0, home: false }] }], T0, { pickup: T0 + 40 * M });
+      return k;
+    };
+    const k = build();
+    expect(k.state.lines.H!.station_id).toBe('S1');
+    const fill = k.state;
+    // S1's stored profile is patched full over H's window, so its re-plan finds no room there; S2 fits H in two rounds.
+    const blocked: EngineState = deepFreeze({ ...fill, stations: { ...fill.stations, S1: { ...fill.stations.S1!, profile: { t: [T0, T0 + 35 * M, T0 + 40 * M], u: [4, 7, 0] } } } });
+    const ev = capacity('S1', 4, T0 + S);
+    const live = deepFreeze(applyEvent(blocked, deepFreeze(ev), { strict: false }));
+    expect(live.lines.H!.station_id).toBe('S2');
+    expect(live.diagnostics.filter((d) => d.kind === 'over_capacity')).toEqual([expect.objectContaining({ order_item_id: 'H', station_id: 'S2', detail: { units: 3, capacity: 2 } })]);
+    const strictly = deepFreeze(applyEvent(blocked, deepFreeze(ev)));
+    expect(strictly.lines.H!.station_id).toBe('S2');
+    expect(strictly.diagnostics.filter((d) => d.kind === 'over_capacity')).toHaveLength(1);
+  });
+
+  it('[03a AD-4] a boost re-route onto a smaller station logs over_capacity there', () => {
+    const k = new Kitchen([{ station_id: 'S1', capacity: 3 }, { station_id: 'S2', capacity: 2 }]);
+    k.submit('O0', [{ id: 'Z', station: 'S1', cook: 40 * M, units: 3 }], T0);
+    k.apply([fireEv('S1', 'Z', T0), startEv('O0', 'Z', T0)]);
+    k.submit('O1', [{ id: 'H', station: 'S1', cook: 5 * M, units: 3, alternates: [{ station_id: 'S2', carry_ms: 0, home: false }] }], T0, { pickup: T0 + 60 * M });
+    expect(k.state.lines.H!.station_id).toBe('S1');
+    const n = k.state.diagnostics.length;
+    const s = k.apply([boost('O1', T0)]);
+    expect(s.lines.H!.station_id).toBe('S2');
+    expect(s.diagnostics.slice(n).filter((d) => d.kind === 'over_capacity')).toEqual([expect.objectContaining({ order_item_id: 'H', station_id: 'S2', detail: { units: 3, capacity: 2 } })]);
+  });
+
   it('[03a §3.3] a StationCapacitySet naming an absent station is a no-op returning state itself', () => {
     const k = new Kitchen([SLOT(2)]);
     expect(applyEvent(k.state, capacity('NOPE', 1, T0))).toBe(k.state);
@@ -826,10 +938,39 @@ describe('@pos/engine disturbance invariants (§3.9, §3.10, D15)', () => {
   }
 
   const STATIONS: Array<Partial<StationCfg>> = [
-    { station_id: 'S1', capacity: 4, freeze_ms: 120_000 },
+    // keep 90 s on S1: older lines sit before their deadline, so a frozen line can be pushed past the freeze and stay on time.
+    { station_id: 'S1', capacity: 4, freeze_ms: 120_000, min_slack_keep_ms: 90_000 },
     { station_id: 'S2', capacity: 2, freeze_ms: 120_000 },
     { station_id: 'F', station_type: 'batch', capacity: 4, freeze_ms: 120_000, freshness_window_ms: 2 * M, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'Q', cook_time_ms: 999_999, is_archived: false }] },
   ];
+
+  // §3.4 oracle, slot stations: walking the frozen lines in (fire, id) order against what is fixed in the result, each
+  // on-time line ends exactly at its earliest fit from its old fire (minimal); one pushed past its deadline went
+  // through §3.5.6, so it is checked only for "never earlier" (above) and is left out of the walk, as §3.4 says.
+  function expectFrozenMinimal(before: EngineState, s: EngineState, t: number, disturbed: ReadonlySet<string>, boosted: string | null, seed: number): void {
+    for (const sid of disturbed) {
+      const station = s.stations[sid]!;
+      if (station.type !== 'slot') continue;
+      const cap = effectiveCapacity(station);
+      const isOurs = (id: string): boolean => s.lines[id]!.order_id !== boosted;
+      let work = liveProfile(s, sid, t);
+      for (const id of station.unfired) {
+        const b = s.lines[id]!.booked;
+        if (b !== null && isOurs(id)) work = removeInterval(work, b, b.units);
+      }
+      const frozen = before.stations[sid]!.unfired
+        .map((id) => before.lines[id]!)
+        .filter((l) => l.order_id !== boosted && l.booked !== null && l.fire_ms! <= t + 120_000)
+        .filter((l) => s.lines[l.order_item_id] !== undefined);
+      for (const l of frozen) {
+        const a = s.lines[l.order_item_id]!;
+        const expected = l.fire_ms! < t && latestFit(work, l.fire_ms!, l.fire_ms!, l.prep_ms, a.cook_ms, a.units, cap) === l.fire_ms ? l.fire_ms! : earliestFit(work, Math.max(l.fire_ms!, t), l.prep_ms, a.cook_ms, a.units, cap);
+        if (expected !== l.fire_ms && expected > a.deadline_ms) continue; // the late set
+        expect(a.fire_ms, `seed ${seed} frozen ${l.order_item_id} at t + ${t - T0}`).toBe(expected);
+        work = addInterval(work, a.booked!, a.booked!.units);
+      }
+    }
+  }
 
   it('[03a §3.9, §3.10] property over 50 seeds: no booking over capacity, fired and COOKING never move, boost changes only the boosted order\'s T and never a promise, frozen lines only later, rebuild = live, AD-7 exact', () => {
     for (let seed = 1; seed <= 50; seed++) {
@@ -855,7 +996,7 @@ describe('@pos/engine disturbance invariants (§3.9, §3.10, D15)', () => {
             else if (kind < 0.7) items.push({ id: iid, station: 'S1', cook: ri(2, 12) * M, prep: rnd() < 0.2 ? 30 * S : 0, units: ri(1, 3), early: ri(1, 5) * M, late: rnd() < 0.2 ? 5 * M : null, alternates: rnd() < 0.5 ? [{ station_id: 'S2', carry_ms: 0, home: false }] : [], mode: rnd() < 0.1 ? 'immediate' : 'sync' });
             else items.push({ id: iid, station: 'S2', cook: ri(2, 12) * M, units: ri(1, 2), early: ri(1, 5) * M, alternates: rnd() < 0.5 ? [{ station_id: 'S1', carry_ms: 0, home: false }] : [] });
           }
-          k.submit(id, items, t, rnd() < 0.3 ? { pickup: t + ri(10, 40) * M } : {});
+          k.submit(id, items, t, rnd() < 0.6 ? { pickup: t + ri(4, 30) * M } : {});
           orders.push(id);
           continue;
         }
@@ -916,6 +1057,7 @@ describe('@pos/engine disturbance invariants (§3.9, §3.10, D15)', () => {
         }
         expectNoOverbooking(s, t, disturbed);
         expectProfileExact(s);
+        expectFrozenMinimal(before, s, t, disturbed, boosted, seed);
       }
       expectRebuild(k);
     }

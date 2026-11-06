@@ -7,7 +7,7 @@ import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, fixedProfiles, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, fixedProfiles, heldAfterFrozen, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Placement } from './replan.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
 import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
@@ -395,7 +395,7 @@ function placeSequence(
   const placed = boosted === null ? null : placeReturnBoost(state, ctx, boosted, uses, t, event_id, o);
   const base = placed?.base ?? state;
   const rest = boosted === null ? all : all.filter((l) => !boosted.has(l.order_item_id));
-  const p1 = pass1(placed?.work ?? state, uses, rest, t, { prune: o.prune, strict: o.strict, ...(placed === null ? {} : { late: placed.frozen.late }) });
+  const p1 = pass1(placed?.work ?? state, uses, rest, t, { prune: o.prune, strict: o.strict, ...(placed === null ? {} : { late: placed.frozen.late, held: heldAfterFrozen(placed.frozen) }) });
   let profiles: Record<string, Profile> = p1.profiles;
   // Task 13: the batch stations' loads after pass 1; the new lines join or form loads in them.
   let loads: Loads = { ...p1.loads };
@@ -515,12 +515,13 @@ function markFrozen(state: EngineState, step: FrozenStep | null): EngineState {
 }
 
 // §3.4 D15 exceptions: the re-plan of a boost or a capacity change on `station_ids` at t: frozen lines first
-// (placeFrozen), then pass 1 of the hidden ones (held lines are fixed input), the late set through §3.5.6. No new line.
+// (placeFrozen), then pass 1 of the hidden ones (held and just-placed frozen lines are fixed input, heldAfterFrozen), the
+// late set through §3.5.6. No new line.
 export function replanDisturbed(state: EngineState, station_ids: readonly string[], t: number, event_id: string, o: SequenceOptions, held?: ReadonlySet<string>): EngineState {
   if (station_ids.length === 0) return state;
   const step = placeFrozen(state, station_ids, t, { strict: o.strict, ...(held === undefined ? {} : { held }) });
   const s1 = applyPass1(state, step, event_id, o.strict);
-  const p1 = pass1(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, ...(held === undefined ? {} : { held }) });
+  const p1 = pass1(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, held: heldAfterFrozen(step, held) });
   return markFrozen(applyPass1(s1, p1, event_id, o.strict), step);
 }
 

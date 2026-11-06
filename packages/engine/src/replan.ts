@@ -738,6 +738,15 @@ export function placeFrozen(state: EngineState, station_ids: Iterable<string>, t
   return { moves, loads, late, before, fallbacks: [] };
 }
 
+// §3.4: every line placeFrozen placed is fixed input of the pass 1 that follows (`held`, with the caller's own), even
+// when its new fire lies past t + freeze_ms: it is still a frozen line of this fold, so it moved only later and only as
+// far as needed and stays on its station (§3.5.5 D10). Only the late set goes on, to §3.5.6.
+export function heldAfterFrozen(step: Pick<FrozenStep, 'before' | 'late'>, held?: ReadonlySet<string>): ReadonlySet<string> {
+  const out = new Set(held ?? NONE);
+  for (const id of step.before.keys()) if (!step.late.has(id)) out.add(id);
+  return out;
+}
+
 // §3.3 unfired order: (fire, order_item_id).
 export function sortUnfired(ids: readonly string[], lines: Readonly<Record<string, EngineLine>>): string[] {
   return [...ids].sort((a, b) => {
@@ -778,7 +787,8 @@ function opsOneByOne(profile: Profile, ops: readonly Op[], event_id: string, sta
 // (§3.5.5 re-route, task 11) takes the line off its old station (exactly `booked`, and `unfired`) and onto the new
 // one, with the new route fields and deadline. Per station one sweep removes all old bookings and one adds the new
 // ones. AD-6: if that finds an underflow, the per-line path runs instead: strict → it throws; non-strict → it
-// clamps and appends a 'profile_underflow' diagnostic naming the line. Copy-on-write.
+// clamps and appends a 'profile_underflow' diagnostic naming the line. AD-4 (task 16 review): a re-route onto a station
+// where the line's units exceed its effective capacity appends an over_capacity diagnostic, in both modes. Copy-on-write.
 export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Move>, event_id: string, strict: boolean): EngineState {
   if (moves.size === 0) return state;
   const stations: Record<string, StationRuntime> = { ...state.stations };
@@ -800,6 +810,8 @@ export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Move>,
     } else {
       push(ops, line.station_id, { line, remove: line.booked, add: null });
       push(ops, to, { line, remove: null, add: mv.booked });
+      const cap = effectiveCapacity(stations[to]!);
+      if (line.units > cap) diagnostics.push({ kind: 'over_capacity', event_id, order_item_id: id, station_id: to, detail: { units: line.units, capacity: cap } });
       const out = leaving.get(line.station_id);
       if (out === undefined) leaving.set(line.station_id, new Set([id]));
       else out.add(id);
