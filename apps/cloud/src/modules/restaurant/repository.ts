@@ -844,6 +844,11 @@ export interface MenuItemRow {
   low_stock_threshold: number | null;
   carries_over: boolean;
   requires_weighing: boolean;
+  weight_pct: number;
+  max_early_ms: number;
+  max_carry_ms: number | null;
+  max_late_ms: number | null;
+  adjust_time_ms: number;
   archived_at: number | null;
 }
 
@@ -866,7 +871,8 @@ const ROUTE_COLUMNS = 'branch_id, station_id, program_id, stock_program_id, pric
 const MENU_ITEM_COLUMNS =
   'item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name, description, sort_order, ' +
   'price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, ' +
-  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, archived_at';
+  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, ' +
+  'weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, archived_at';
 
 // 01c §6 lock order 3: an item's variant group FOR SHARE (§6.4 reference), with what §3.3 checks against.
 export async function shareVariantGroup(
@@ -997,8 +1003,10 @@ export async function insertMenuItem(
     `INSERT INTO menu_items (tenant_id, item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name,
                              description, sort_order, price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms,
                              out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold,
-                             carries_over, requires_weighing, created_at, updated_at)
-     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23
+                             carries_over, requires_weighing, created_at, updated_at,
+                             weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms)
+     SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23,
+            $24, $25, $26, $27, $28
        FROM tenants WHERE tenant_id = $1
      RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1024,6 +1032,11 @@ export async function insertMenuItem(
       item.carries_over,
       item.requires_weighing,
       now,
+      item.weight_pct,
+      item.max_early_ms,
+      item.max_carry_ms,
+      item.max_late_ms,
+      item.adjust_time_ms,
     ],
   );
   return menuItemRow(rows[0]!);
@@ -1052,7 +1065,8 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            sort_order = $8, price_minor = $9, serve_mode = $10, prep_buffer_ms = $11, cook_time_ms = $12,
                            stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
-                           updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24
+                           updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24,
+                           weight_pct = $25, max_early_ms = $26, max_carry_ms = $27, max_late_ms = $28, adjust_time_ms = $29
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1079,6 +1093,11 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       item.variant_group_id,
       item.variant_name,
       item.requires_weighing,
+      item.weight_pct,
+      item.max_early_ms,
+      item.max_carry_ms,
+      item.max_late_ms,
+      item.adjust_time_ms,
     ],
   );
   return menuItemRow(rows[0]!);
@@ -1192,18 +1211,94 @@ export async function selectAllTaxClasses(repo: TenantLevelRepository): Promise<
   return rows.map(withArchivedAt);
 }
 
-// §6.11 statement 3: every category with its windows in one statement (S47 window order).
+// A-13: the links a category or an item is the source of. Lists are ordered by (target_kind, target_id), byte order,
+// so a read and the list a write has just stored answer alike.
+export type GoesWithKind = 'category' | 'item';
+
+export type GoesWithLinkRow = {
+  source_kind: GoesWithKind;
+  source_id: string;
+  target_kind: GoesWithKind;
+  target_id: string;
+  excluded: boolean;
+};
+
+// §6.11: a source's list as one column, so the menu read keeps its statement count (index: the A-13 unique key).
+function goesWithJson(kind: GoesWithKind, tenantId: string, sourceId: string): string {
+  return `(SELECT COALESCE(json_agg(json_build_object('source_kind', l.source_kind, 'source_id', l.source_id,
+                     'target_kind', l.target_kind, 'target_id', l.target_id, 'excluded', l.excluded)
+                     ORDER BY l.target_kind, l.target_id COLLATE "C"), '[]'::json)
+             FROM goes_with_links l
+            WHERE l.tenant_id = ${tenantId} AND l.source_kind = '${kind}' AND l.source_id = ${sourceId})`;
+}
+
+export async function selectGoesWithOf(repo: TenantLevelRepository, kind: GoesWithKind, sourceId: string): Promise<GoesWithLinkRow[]> {
+  return repo.query<GoesWithLinkRow>(
+    `SELECT source_kind, source_id, target_kind, target_id, excluded FROM goes_with_links
+      WHERE tenant_id = $1 AND source_kind = $2 AND source_id = $3
+      ORDER BY target_kind, target_id COLLATE "C"`,
+    [kind, sourceId],
+  );
+}
+
+export async function deleteGoesWithOf(repo: TenantLevelRepository, kind: GoesWithKind, sourceId: string): Promise<void> {
+  await repo.query(`DELETE FROM goes_with_links WHERE tenant_id = $1 AND source_kind = $2 AND source_id = $3`, [kind, sourceId]);
+}
+
+// One multi-row INSERT.
+export async function insertGoesWith(
+  repo: TenantLevelRepository,
+  links: readonly GoesWithLinkRow[],
+  ids: IdGen,
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `INSERT INTO goes_with_links (tenant_id, link_id, source_kind, source_id, target_kind, target_id, excluded, created_at, updated_at)
+     SELECT tenant_id, u.link_id, u.source_kind, u.source_id, u.target_kind, u.target_id, u.excluded, $2, $2
+       FROM tenants, unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::boolean[])
+            AS u (link_id, source_kind, source_id, target_kind, target_id, excluded)
+      WHERE tenant_id = $1`,
+    [
+      now,
+      links.map(() => ids.next()),
+      links.map((l) => l.source_kind),
+      links.map((l) => l.source_id),
+      links.map((l) => l.target_kind),
+      links.map((l) => l.target_id),
+      links.map((l) => l.excluded),
+    ],
+  );
+}
+
+// A-13 target check, one statement, without a lock: a target archived a moment later is what the builder already
+// handles (it drops links to inactive rows), and an item row locked here could break the 01c lock order.
+export async function selectGoesWithTargets(
+  repo: TenantLevelRepository,
+  categoryIds: readonly string[],
+  itemIds: readonly string[],
+): Promise<Array<{ kind: GoesWithKind; id: string; archived_at: number | null }>> {
+  const rows = await repo.query<{ kind: GoesWithKind; id: string; archived_at: string | null }>(
+    `SELECT 'category' AS kind, category_id AS id, archived_at FROM categories WHERE tenant_id = $1 AND category_id = ANY($2)
+     UNION ALL
+     SELECT 'item' AS kind, item_id AS id, archived_at FROM menu_items WHERE tenant_id = $1 AND item_id = ANY($3)`,
+    [categoryIds, itemIds],
+  );
+  return rows.map((row) => ({ ...row, archived_at: msOrNull(row.archived_at) }));
+}
+
+// §6.11 statement 3: every category with its windows and its goes_with list in one statement (S47 window order).
 export async function selectAllCategories(
   repo: TenantLevelRepository,
-): Promise<Array<CategoryRow & { availability_windows: WindowRow[] }>> {
-  const rows = await repo.query<Raw<CategoryRow> & { start_ms: number | null; end_ms: number | null }>(
-    `SELECT c.category_id, c.name, c.sort_order, c.archived_at, w.start_ms, w.end_ms
+): Promise<Array<CategoryRow & { availability_windows: WindowRow[]; goes_with: GoesWithLinkRow[] }>> {
+  const rows = await repo.query<Raw<CategoryRow> & { start_ms: number | null; end_ms: number | null; goes_with: GoesWithLinkRow[] }>(
+    `SELECT c.category_id, c.name, c.sort_order, c.archived_at, w.start_ms, w.end_ms,
+            ${goesWithJson('category', 'c.tenant_id', 'c.category_id')} AS goes_with
        FROM categories c
        LEFT JOIN availability_windows w ON w.tenant_id = c.tenant_id AND w.category_id = c.category_id
       WHERE c.tenant_id = $1
       ORDER BY c.sort_order, c.category_id, w.start_ms, w.end_ms, w.window_id`,
   );
-  const out: Array<CategoryRow & { availability_windows: WindowRow[] }> = [];
+  const out: Array<CategoryRow & { availability_windows: WindowRow[]; goes_with: GoesWithLinkRow[] }> = [];
   for (const row of rows) {
     let category = out.at(-1);
     if (category === undefined || category.category_id !== row.category_id) {
@@ -1213,6 +1308,7 @@ export async function selectAllCategories(
         sort_order: row.sort_order,
         archived_at: msOrNull(row.archived_at),
         availability_windows: [],
+        goes_with: row.goes_with,
       };
       out.push(category);
     }
@@ -1240,9 +1336,11 @@ export async function selectAllVariantGroups(repo: TenantLevelRepository): Promi
 export async function selectMenuPage(
   repo: TenantLevelRepository,
   o: { archived: boolean; categoryId: string | null; pattern: string | null; after: { n: string; id: string } | null; limit: number },
-): Promise<Array<{ item: MenuItemRow; sortName: string }>> {
-  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string; sort_name: string }>(
-    `SELECT ${MENU_ITEM_COLUMNS}, lower(name) AS sort_name FROM menu_items
+): Promise<Array<{ item: MenuItemRow; goesWith: GoesWithLinkRow[]; sortName: string }>> {
+  const rows = await repo.query<Raw<MenuItemRow> & { price_minor: string; sort_name: string; goes_with: GoesWithLinkRow[] }>(
+    `SELECT ${MENU_ITEM_COLUMNS}, lower(name) AS sort_name,
+            ${goesWithJson('item', 'menu_items.tenant_id', 'menu_items.item_id')} AS goes_with
+       FROM menu_items
       WHERE tenant_id = $1
         AND (archived_at IS NOT NULL) = $2
         AND ($3::text IS NULL OR category_id = $3)
@@ -1253,7 +1351,7 @@ export async function selectMenuPage(
       LIMIT $7`,
     [o.archived, o.categoryId, o.pattern, o.after?.n ?? null, o.after?.id ?? null, o.limit + 1],
   );
-  return rows.map(({ sort_name, ...row }) => ({ item: menuItemRow(row), sortName: sort_name }));
+  return rows.map(({ sort_name, goes_with, ...row }) => ({ item: menuItemRow(row), goesWith: goes_with, sortName: sort_name }));
 }
 
 // §6.11 statement 5: the page items' windows, = ANY($ids).

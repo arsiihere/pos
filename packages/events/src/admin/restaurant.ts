@@ -241,6 +241,40 @@ export const AvailabilityWindows = z
   )
   .max(4);
 
+// A-13: one element of a goes_with list; source_kind and source_id come from the path. A target repeated in one list
+// → 400 at goes_with.N.target_id (one row per source and target).
+const GoesWithKind = z.enum(['category', 'item']);
+const ItemGoesWith = z
+  .array(
+    z.object({
+      target_kind: GoesWithKind,
+      target_id: z.string().min(1),
+      excluded: z.boolean().default(false),
+    }),
+  )
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((link, i) => {
+      const key = `${link.target_kind}:${link.target_id}`;
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', path: [i, 'target_id'], message: 'duplicate target' });
+      seen.add(key);
+    });
+  });
+// A-13: `excluded` is an item override, so a category's list never carries it.
+const CategoryGoesWith = ItemGoesWith.superRefine((list, ctx) => {
+  list.forEach((link, i) => {
+    if (link.excluded) ctx.addIssue({ code: 'custom', path: [i, 'excluded'], message: 'only an item can exclude' });
+  });
+});
+// The five A-13 fields, the shape the snapshot carries.
+const GoesWithLink = z.object({
+  source_kind: GoesWithKind,
+  source_id: z.string(),
+  target_kind: GoesWithKind,
+  target_id: z.string(),
+  excluded: z.boolean(),
+});
+
 export const CreateCategoryBody = z.object({
   name: Name,
   sort_order: SortOrder.default(0),
@@ -252,6 +286,7 @@ export const PatchCategoryBody = z
     name: Name.optional(),
     sort_order: SortOrder.optional(),
     availability_windows: AvailabilityWindows.optional(),
+    goes_with: CategoryGoesWith.optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
@@ -275,6 +310,7 @@ export const CategoryResponse = z.object({
       sort_order: z.number(),
       archived_at: z.number().nullable(),
       availability_windows: z.array(z.object({ start_ms: z.number(), end_ms: z.number() })),
+      goes_with: z.array(GoesWithLink),
     }),
   }),
 });
@@ -289,6 +325,12 @@ const StockTime = z.number().int().min(0).max(14_400_000).nullable();
 export const Description = z.string().max(300).nullable();
 // 01c §3.3: variant_name 1–30 after trimming.
 const VariantName = z.string().trim().min(1).max(30);
+// §5.2a A-11: the item's timing knobs.
+const WeightPct = z.number().int().min(10).max(1000);
+const MaxEarly = z.number().int().min(0).max(3_600_000);
+const MaxCarry = z.number().int().min(0).max(600_000).nullable();
+const MaxLate = z.number().int().min(0).max(7_200_000).nullable();
+const AdjustTime = z.number().int().min(0).max(3_600_000);
 
 // 01c §3.3, V4: 0–1 draws (pilot), quantity 1 … 1 000 000; one per stock_item_id (C6: the repeat → 400 at
 // stock_draws.N.stock_item_id). The unit rule needs the stock item, so it is the service's (422 unit_mismatch).
@@ -341,6 +383,11 @@ export const CreateMenuItemBody = z
     requires_weighing: z.boolean().default(false),
     stock_draws: StockDraws.default([]),
     availability_windows: AvailabilityWindows.default([]),
+    weight_pct: WeightPct.default(100),
+    max_early_ms: MaxEarly.default(60_000),
+    max_carry_ms: MaxCarry.default(null),
+    max_late_ms: MaxLate.default(null),
+    adjust_time_ms: AdjustTime.default(180_000),
     routes: z
       .array(RouteInput)
       .default([])
@@ -383,6 +430,12 @@ export const PatchMenuItemBody = z
     requires_weighing: z.boolean().optional(),
     stock_draws: StockDraws.optional(),
     availability_windows: AvailabilityWindows.optional(),
+    weight_pct: WeightPct.optional(),
+    max_early_ms: MaxEarly.optional(),
+    max_carry_ms: MaxCarry.optional(),
+    max_late_ms: MaxLate.optional(),
+    adjust_time_ms: AdjustTime.optional(),
+    goes_with: ItemGoesWith.optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' })
@@ -443,6 +496,12 @@ const MenuItem = z.object({
   requires_weighing: z.boolean(),
   stock_draws: z.array(z.object({ stock_item_id: z.string(), quantity_per_sale_unit: z.number() })),
   availability_windows: z.array(Window),
+  weight_pct: z.number(),
+  max_early_ms: z.number(),
+  max_carry_ms: z.number().nullable(),
+  max_late_ms: z.number().nullable(),
+  adjust_time_ms: z.number(),
+  goes_with: z.array(GoesWithLink),
   archived_at: z.number().nullable(),
   routes: z.array(Route),
 });
@@ -478,6 +537,7 @@ export const MenuResponse = z.object({
         sort_order: z.number(),
         archived_at: z.number().nullable(),
         availability_windows: z.array(Window),
+        goes_with: z.array(GoesWithLink),
       }),
     ),
     variant_groups: z.array(VariantGroupWire),
@@ -572,6 +632,7 @@ export type AdminStation = z.infer<typeof Station>;
 export type AdminPoint = z.infer<typeof Point>;
 export type AdminProgram = z.infer<typeof ProgramSummary>;
 export type AdminTaxClass = z.infer<typeof TaxClassResponse>['data']['tax_class'];
+export type AdminGoesWithLink = z.infer<typeof GoesWithLink>;
 export type AdminCategory = z.infer<typeof CategoryResponse>['data']['category'];
 export type AdminRoute = z.infer<typeof Route>;
 export type AdminMenuItem = z.infer<typeof MenuItem>;

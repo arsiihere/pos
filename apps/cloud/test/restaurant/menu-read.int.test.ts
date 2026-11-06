@@ -141,6 +141,12 @@ describe('owner menu read', () => {
           { start_ms: 3600000, end_ms: 5400000 },
           { start_ms: 3600000, end_ms: 7200000 },
         ],
+        weight_pct: 100,
+        max_early_ms: 60000,
+        max_carry_ms: null,
+        max_late_ms: null,
+        adjust_time_ms: 180000,
+        goes_with: [],
         archived_at: null,
         routes: all.items.find((i) => i.item_id === 'MI-000')!.routes,
       },
@@ -150,8 +156,8 @@ describe('owner menu read', () => {
       { tax_class_id: 'TX-1', name: 'Standard', rate_bp: 1600, archived_at: null },
     ]);
     expect(first.categories).toEqual([
-      { category_id: 'CT-0', name: 'Old', sort_order: 0, archived_at: 9, availability_windows: [] },
-      { category_id: 'CT-1', name: 'Mains', sort_order: 1, archived_at: null, availability_windows: [] },
+      { category_id: 'CT-0', name: 'Old', sort_order: 0, archived_at: 9, availability_windows: [], goes_with: [] },
+      { category_id: 'CT-1', name: 'Mains', sort_order: 1, archived_at: null, availability_windows: [], goes_with: [] },
       {
         category_id: 'CT-2',
         name: 'Breakfast',
@@ -161,6 +167,7 @@ describe('owner menu read', () => {
           { start_ms: 3600000, end_ms: 7200000 },
           { start_ms: 25200000, end_ms: 46800000 },
         ],
+        goes_with: [],
       },
     ]);
   });

@@ -24,6 +24,7 @@ import {
   archiveStationPrograms,
   branchExists,
   deleteDrawsOf,
+  deleteGoesWithOf,
   deleteWindowsOf,
   insertCategory,
   insertPoint,
@@ -31,6 +32,7 @@ import {
   insertDraws,
   insertFloor,
   insertItemRoutes,
+  insertGoesWith,
   insertMenuItem,
   insertProgram,
   insertStation,
@@ -60,6 +62,8 @@ import {
   selectDrawsOf,
   selectItemRoutes,
   selectItemWindows,
+  selectGoesWithOf,
+  selectGoesWithTargets,
   selectMenuPage,
   selectPrograms,
   replaceAlternates,
@@ -93,6 +97,8 @@ import {
   type CategoryRow,
   type DrawRow,
   type FloorRow,
+  type GoesWithKind,
+  type GoesWithLinkRow,
   type MenuItemRow,
   type PointRow,
   type ProgramRow,
@@ -940,7 +946,7 @@ export async function patchTaxClass(
   });
 }
 
-type CategoryWire = CategoryRow & { availability_windows: WindowRow[] };
+type CategoryWire = CategoryRow & { availability_windows: WindowRow[]; goes_with: GoesWithLinkRow[] };
 
 // §6.13 POST: tenant-level, with its availability_windows (S47).
 export async function createCategory(
@@ -970,6 +976,7 @@ export async function createCategory(
           [],
           body.availability_windows,
         ),
+        goes_with: [], // §6.13: PATCH only
       };
       await writeConfigAudit(
         level,
@@ -991,9 +998,9 @@ export async function createCategory(
   );
 }
 
-// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive: items, then 01c V16 active variant
-// groups, then active deals) → write (windows replaced when sent,
-// S47) → audit → bump every branch.
+// §6.13 PATCH: lock → no-op (row, windows, goes_with, S26) → A-13 self link (400) → rules on the merged row (S22
+// in-use check on archive: items, then 01c V16 active variant groups, then active deals) → A-13 targets (422) →
+// write (windows S47 and goes_with A-13 replaced when sent) → audit → bump every branch.
 export async function patchCategory(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -1013,9 +1020,12 @@ export async function patchCategory(
     };
     const target = { category_id: categoryId };
     const beforeWindows = await selectWindowsOf(level, target);
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, body.availability_windows)) {
-      return { category: { ...before, availability_windows: beforeWindows } };
+    const beforeLinks = await selectGoesWithOf(level, 'category', categoryId);
+    const nextLinks = goesWithFrom('category', categoryId, body.goes_with);
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, body.availability_windows) && unchangedLinks(beforeLinks, nextLinks)) {
+      return { category: { ...before, availability_windows: beforeWindows, goes_with: beforeLinks } };
     }
+    assertNoSelfLink(nextLinks);
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await activeItemIdsWith(level, 'category_id', categoryId);
       if (ids.length > 0) {
@@ -1036,12 +1046,14 @@ export async function patchCategory(
         throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'deal', ids: dealIds } });
       }
     }
+    await assertGoesWithTargets(level, nextLinks);
     const row = await nameTaken('categories_active_name', 'category', merged.name, () =>
       updateCategory(level, merged, now),
     );
     const category = {
       ...row,
       availability_windows: await replaceWindows(level, deps.ids, target, beforeWindows, body.availability_windows),
+      goes_with: await replaceGoesWith(level, deps.ids, 'category', categoryId, beforeLinks, nextLinks, now),
     };
     await writeConfigAudit(
       level,
@@ -1051,7 +1063,7 @@ export async function patchCategory(
         entityId: categoryId,
         branchId: null,
         action: auditActionFor(before, category),
-        before: { ...before, availability_windows: beforeWindows },
+        before: { ...before, availability_windows: beforeWindows, goes_with: beforeLinks },
         after: category,
       },
       deps,
@@ -1062,8 +1074,8 @@ export async function patchCategory(
   });
 }
 
-// §6.11 (01c §6.3): 8 fixed statements (coversEveryBranch, tax classes, categories with windows, variant groups
-// with their members, the item page, its windows, its routes, its draws). The cursor is base64url JSON
+// §6.11 (01c §6.3): 8 fixed statements (coversEveryBranch, tax classes, categories with windows and goes_with, variant
+// groups with their members, the item page with its goes_with, its windows, its routes, its draws). The cursor is base64url JSON
 // { n: lower(name), id } of the page's last row (S48 keyset).
 export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, ownerUserId: string, query: MenuQueryInput) {
   const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
@@ -1086,12 +1098,13 @@ export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, owne
   const routes = await selectItemRoutes(scoped, ids);
   const draws = await selectDrawsOf(level, ids);
   const last = pageRows.at(-1);
-  const items = pageRows.map(({ item }) =>
+  const items = pageRows.map(({ item, goesWith }) =>
     itemWire(
       item,
       windows.filter((w) => w.item_id === item.item_id),
       draws.filter((d) => d.item_id === item.item_id),
       routes.filter((r) => r.item_id === item.item_id),
+      goesWith,
     ),
   );
   return {
@@ -1191,7 +1204,7 @@ export async function createMenuItem(
       const draws = drawInput.length > 0 ? await insertDraws(level, row.item_id, drawInput) : [];
       const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, row.item_id, routeInput, now) : [];
       const windows = await replaceWindows(level, deps.ids, { item_id: row.item_id }, [], windowInput);
-      const { routes: wiredRoutes, ...item } = itemWire(row, windows, draws, routes);
+      const { routes: wiredRoutes, ...item } = itemWire(row, windows, draws, routes, []); // goes_with: §6.15 PATCH only
       const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
       await insertConfigAuditRows(
         level,
@@ -1217,12 +1230,23 @@ export async function createMenuItem(
 }
 
 // 01c §6.3, §5.4: the item wire, exactly its keys (the deprecated columns are left out); routes as 01a §6.11.
-function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[], routes: readonly RouteRow[]): AdminMenuItem {
-  return { ...itemFields(item, windows, draws), routes: wireRoutes(routes) };
+function itemWire(
+  item: MenuItemRow,
+  windows: readonly WindowRow[],
+  draws: readonly DrawRow[],
+  routes: readonly RouteRow[],
+  links: readonly GoesWithLinkRow[],
+): AdminMenuItem {
+  return { ...itemFields(item, windows, draws, links), routes: wireRoutes(routes) };
 }
 
 // The item wire without its routes: what a menu_item config_audit row holds (§6.4, §6.5: draws in before / after).
-function itemFields(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[]): Omit<AdminMenuItem, 'routes'> {
+function itemFields(
+  item: MenuItemRow,
+  windows: readonly WindowRow[],
+  draws: readonly DrawRow[],
+  links: readonly GoesWithLinkRow[],
+): Omit<AdminMenuItem, 'routes'> {
   return {
     item_id: item.item_id,
     category_id: item.category_id,
@@ -1242,6 +1266,12 @@ function itemFields(item: MenuItemRow, windows: readonly WindowRow[], draws: rea
     requires_weighing: item.requires_weighing,
     stock_draws: draws.map(({ stock_item_id, quantity_per_sale_unit }) => ({ stock_item_id, quantity_per_sale_unit })),
     availability_windows: windows.map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
+    weight_pct: item.weight_pct,
+    max_early_ms: item.max_early_ms,
+    max_carry_ms: item.max_carry_ms,
+    max_late_ms: item.max_late_ms,
+    adjust_time_ms: item.adjust_time_ms,
+    goes_with: [...links],
     archived_at: item.archived_at,
   };
 }
@@ -1276,6 +1306,7 @@ interface ItemPatch {
   before: MenuItemRow;
   merged: MenuItemRow;
   draw: DrawRow | undefined;
+  links: readonly GoesWithLinkRow[] | undefined;
   groups: readonly SharedGroup[];
   restoring: boolean;
   routes: RouteRow[];
@@ -1337,6 +1368,7 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: "requires_weighing needs sale_unit 'g' or 'ml'" }] });
     },
   ],
+  ['400 A-13 self link', (p) => assertNoSelfLink(p.links)],
   // (2) 409 CONFIG_IN_USE: R4, R10, R6
   // (V16, D-3; P1). Plain reads after the item lock, no lock taken (§6 "Lock order").
   [
@@ -1456,14 +1488,15 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       }
     },
   ],
+  ['422 A-13 goes_with targets', (p) => assertGoesWithTargets(p.level, p.links)],
 ];
 
 // 01c §6.5 (01a §6.15): per attempt (withItemRestart): tenant-wide 403 (C4, before all) → read the item without a
 // lock (404) → lock its stored and merged variant group(s) FOR SHARE in id order (3) → lock the item FOR UPDATE (4);
-// a variant_group_id other than the unlocked read → restart → merge → no-op (row, windows and draws, S26) →
+// a variant_group_id other than the unlocked read → restart → merge → no-op (row, windows, draws and goes_with, S26) →
 // ITEM_PATCH_RULES (the draw's stock item is locked in the first, §6 kind 5) → write (R5 and 01a's name index;
-// stock_draws replaced by delete + insert; the deprecated columns as §5.1, P-11) → audit (the item wire, draws in
-// before / after, as on create) → bump every branch (10). No variant_groups row is locked after the item; later
+// stock_draws and goes_with replaced by delete + insert; the deprecated columns as §5.1, P-11) → audit (the item wire,
+// draws and goes_with in before / after, as on create) → bump every branch (10). No variant_groups row is locked after the item; later
 // reads of a group use the rows locked before it.
 export async function patchMenuItem(
   deps: RestaurantDeps,
@@ -1487,7 +1520,7 @@ export async function patchMenuItem(
     if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
     if (before.variant_group_id !== seen.variant_group_id) throw new ItemRestart();
     const now = deps.clock.branchNow();
-    const { archived, availability_windows: windowInput, stock_draws: drawInput, ...fields } = body;
+    const { archived, availability_windows: windowInput, stock_draws: drawInput, goes_with: linkInput, ...fields } = body;
     const merged: MenuItemRow = {
       ...before,
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
@@ -1499,10 +1532,17 @@ export async function patchMenuItem(
       quantity_per_sale_unit,
     }));
     const routes = await selectItemRoutes(scoped, [itemId]);
+    const beforeLinks = await selectGoesWithOf(level, 'item', itemId);
+    const nextLinks = goesWithFrom('item', itemId, linkInput);
     // T4 (§12.7, V13 divergence): the no-op runs before the reference checks on menu_items; S26 compares the
-    // merged row, the windows and the draws.
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput) && unchangedDraws(beforeDraws, drawInput)) {
-      return { item: itemWire(before, beforeWindows, beforeDraws, routes) };
+    // merged row, the windows, the draws and the goes_with list.
+    if (
+      unchangedRow(before, merged) &&
+      unchangedWindows(beforeWindows, windowInput) &&
+      unchangedDraws(beforeDraws, drawInput) &&
+      unchangedLinks(beforeLinks, nextLinks)
+    ) {
+      return { item: itemWire(before, beforeWindows, beforeDraws, routes, beforeLinks) };
     }
     const patch: ItemPatch = {
       level,
@@ -1511,6 +1551,7 @@ export async function patchMenuItem(
       before,
       merged,
       draw: (drawInput ?? beforeDraws)[0],
+      links: nextLinks,
       groups,
       restoring: before.archived_at !== null && merged.archived_at === null,
       routes,
@@ -1531,7 +1572,8 @@ export async function patchMenuItem(
     );
     const windows = await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput);
     const draws = await replaceDraws(level, itemId, beforeDraws, drawInput);
-    const item = itemFields(row, windows, draws);
+    const links = await replaceGoesWith(level, deps.ids, 'item', itemId, beforeLinks, nextLinks, now);
+    const item = itemFields(row, windows, draws, links);
     await writeConfigAudit(
       level,
       {
@@ -1540,7 +1582,7 @@ export async function patchMenuItem(
         entityId: itemId,
         branchId: null,
         action: auditActionFor(before, item),
-        before: itemFields(before, beforeWindows, beforeDraws),
+        before: itemFields(before, beforeWindows, beforeDraws, beforeLinks),
         after: item,
       },
       deps,
@@ -1656,6 +1698,56 @@ async function replaceWindows(
   if (next === undefined) return current;
   if (current.length > 0) await deleteWindowsOf(level, target);
   return next.length > 0 ? insertWindows(level, target, next, ids) : [];
+}
+
+// A-13: the sent list as stored rows (the source is the path), in the read's order; not sent → undefined.
+function goesWithFrom(
+  kind: GoesWithKind,
+  sourceId: string,
+  input: ReadonlyArray<{ target_kind: GoesWithKind; target_id: string; excluded: boolean }> | undefined,
+): GoesWithLinkRow[] | undefined {
+  if (input === undefined) return undefined;
+  const key = (link: { target_kind: string; target_id: string }) => `${link.target_kind}:${link.target_id}`;
+  return input
+    .map(({ target_kind, target_id, excluded }) => ({ source_kind: kind, source_id: sourceId, target_kind, target_id, excluded }))
+    .sort((a, b) => (key(a) < key(b) ? -1 : 1));
+}
+
+// S26: goesWithFrom and selectGoesWithOf answer in one order, so the lists compare directly.
+function unchangedLinks(current: readonly GoesWithLinkRow[], next: readonly GoesWithLinkRow[] | undefined): boolean {
+  return next === undefined || canonicalJson(current) === canonicalJson(next);
+}
+
+// A-13: a source never links itself. An item naming its own category is not a self link.
+function assertNoSelfLink(links: readonly GoesWithLinkRow[] | undefined): void {
+  const self = links?.find((link) => link.target_kind === link.source_kind && link.target_id === link.source_id);
+  if (self === undefined) return;
+  throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'goes_with', message: 'a source cannot link itself' }] });
+}
+
+// A-13: every target is an active row of this tenant (another tenant's reads as unknown).
+async function assertGoesWithTargets(level: TenantLevelRepository, links: readonly GoesWithLinkRow[] | undefined): Promise<void> {
+  if (links === undefined || links.length === 0) return;
+  const idsOf = (kind: GoesWithKind) => links.filter((link) => link.target_kind === kind).map((link) => link.target_id);
+  const rows = await selectGoesWithTargets(level, idsOf('category'), idsOf('item'));
+  const found = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row]));
+  for (const link of links) assertReference('goes_with', found.get(`${link.target_kind}:${link.target_id}`));
+}
+
+// A-13: replace-list (delete + one multi-row INSERT, in the write's transaction); not sent or unchanged → the stored list.
+async function replaceGoesWith(
+  level: TenantLevelRepository,
+  ids: IdGen,
+  kind: GoesWithKind,
+  sourceId: string,
+  current: GoesWithLinkRow[],
+  next: GoesWithLinkRow[] | undefined,
+  now: number,
+): Promise<GoesWithLinkRow[]> {
+  if (next === undefined || unchangedLinks(current, next)) return current;
+  if (current.length > 0) await deleteGoesWithOf(level, kind, sourceId);
+  if (next.length > 0) await insertGoesWith(level, next, ids, now);
+  return next;
 }
 
 // 01c V4 (01a S44 between the item and its stock item): equal units → quantity_per_sale_unit 1; different units

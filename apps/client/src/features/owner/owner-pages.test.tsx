@@ -93,13 +93,19 @@ const PAYE: MenuItem = {
   requires_weighing: false,
   stock_draws: [],
   availability_windows: [],
+  weight_pct: 100,
+  max_early_ms: 60_000,
+  max_carry_ms: null,
+  max_late_ms: null,
+  adjust_time_ms: 180_000,
+  goes_with: [],
   archived_at: null,
   routes: [
     { branch_id: B1, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null },
     { branch_id: B2, station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null },
   ],
 };
-const CATEGORY = { category_id: 'C1', name: 'Breakfast', sort_order: 1, archived_at: null, availability_windows: [] };
+const CATEGORY = { category_id: 'C1', name: 'Breakfast', sort_order: 1, archived_at: null, availability_windows: [], goes_with: [] };
 const TAX = { tax_class_id: 'X1', name: 'PRA cash', rate_bp: 1600, archived_at: null };
 const SLOT = {
   station_id: 'S1',

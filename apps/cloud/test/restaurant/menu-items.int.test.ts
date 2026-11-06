@@ -104,6 +104,12 @@ describe('menu item create', () => {
       requires_weighing: false,
       stock_draws: [],
       availability_windows: [],
+      weight_pct: 100,
+      max_early_ms: 60000,
+      max_carry_ms: null,
+      max_late_ms: null,
+      adjust_time_ms: 180000,
+      goes_with: [],
       archived_at: null,
       routes: [{ branch_id: f.branches[0], station_id: menu.slotStationId, program_id: null, stock_program_id: null, price_minor_override: null }],
     });
