@@ -1,11 +1,13 @@
 // Foundation §4.7 "Required unit tests for @pos/engine" (F tests 1–15), relative to T = 1_761_000_000_000.
 // Times are in ms as the foundation writes them; the engine reads them as integer ms.
-import { parseEvent, type EngineConfig, type ItemAddedPayload } from '@pos/events';
+import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemDone, anItemStarted, anOrderBatch } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import {
   addInterval,
   applyEvent,
+  buildEngineState,
+  getTickIntents,
   initialEngineState,
   liveInterval,
   planOrder,
@@ -307,5 +309,99 @@ describe('@pos/engine foundation §4.7 required tests (batch loads)', () => {
       // Reservation [T + 10, T + 30), not [T, T + 30).
       expect(s.stations.F!.profile).toEqual({ t: [T + 10, T + 30], u: [4, 0] });
     }
+  });
+});
+
+// F §4.7 tests 12 and 13 (task 14): the fires tick (getTickIntents, D42, D44). Real logs: a config event with stations
+// X and Y (capacity 1) and the §4.2 batches planned with planOrder, so buildEngineState replays them.
+describe('@pos/engine foundation §4.7 required tests (fires tick, D42, D44)', () => {
+  let n = 500;
+  const ev = (e: PosEvent, at: number): PosEvent => {
+    n++;
+    return deepFreeze({ ...e, recorded_at: at, occurred_at: at, seq: n, event_id: `01JT${String(n).padStart(22, '0')}` });
+  };
+  const cfg = (cascade_step_ms: number): PosEvent => {
+    const base = parseEvent(anEngineConfigApplied()).payload as unknown as EngineConfig;
+    return ev(
+      anEngineConfigApplied({
+        payload: { stations: ['X', 'Y'].map((station_id) => ({ ...S1, station_id, capacity: 1 })), settings: { ...base.settings, cascade_step_ms } },
+      }),
+      T - 60_000,
+    );
+  };
+  // planOrder at `at`, then the batch 02 appends (recorded_at = at).
+  function batch(state: EngineState, items: Item[], at: number, order_id: string): PosEvent[] {
+    const plan = planOrder(state, order(items, order_id), at, {});
+    return anOrderBatch({
+      order_id,
+      recorded_at: at,
+      seq: n + 1,
+      lines: items.map((i) => ({
+        order_item_id: i.id,
+        item: { station_id: i.station, cook_time_ms: i.cook, prep_buffer_ms: i.prep ?? 0, serve_mode: i.mode ?? 'sync' },
+        line: { station_id: i.station },
+      })),
+      order: { groups: plan.groups },
+    }).map((e) => ev(e, at));
+  }
+  const fire = (station_id: string, id: string, at: number): PosEvent =>
+    ev(aFireDispatched({ stream_id: station_id, payload: { station_id, order_item_ids: [id], load_id: null, due_at: at, reason: 'scheduled' } }), at);
+  const start = (order_id: string, id: string, at: number): PosEvent =>
+    ev(anItemStarted({ stream_id: order_id, payload: { order_item_id: id, started_at: at, source: 'tap' } }), at);
+  function replay(log: PosEvent[]): EngineState {
+    return deepFreeze(buildEngineState(log));
+  }
+
+  it('[03a F #13] replay does not re-fire (D44); a missed fire is dispatched exactly once; the same intents twice (pure)', () => {
+    // A's latest start is T + 10 (B holds X until then).
+    const log: PosEvent[] = [cfg(60_000)];
+    log.push(...batch(replay(log), [{ id: 'B', station: 'X', cook: 10, mode: 'immediate' }], T, 'OB'), fire('X', 'B', T));
+    log.push(...batch(replay(log), [{ id: 'A', station: 'X', cook: 20, mode: 'immediate' }], T, 'OA'));
+    expect(replay(log).lines.A!.fire_ms).toBe(T + 10);
+    // First log: FireDispatched(A) at T + 10; rebuilt, the tick at T + 60 has no FireDispatched for A.
+    const fired = replay([...log, fire('X', 'A', T + 10)]);
+    expect(fired.lines.A!.fired_at).toBe(T + 10);
+    expect(getTickIntents(fired, T + 60).filter((d) => d.event_type === 'FireDispatched')).toEqual([]);
+    // Second log, no FireDispatched: exactly one FireDispatched intent for A (the missed fire).
+    const missed = replay(log);
+    const intents = getTickIntents(missed, T + 60);
+    expect(intents).toEqual([
+      { stream_type: 'station', stream_id: 'X', event_type: 'FireDispatched', schema_version: 1, payload: { station_id: 'X', order_item_ids: ['A'], load_id: null, due_at: T + 10, reason: 'scheduled' } },
+    ]);
+    expect(getTickIntents(missed, T + 60)).toEqual(intents);
+  });
+
+  it('[03a F #12] an overrun cascades down the station: one ReservationsShifted (quantised); other stations and targets unchanged; state unchanged until applied', () => {
+    // X: A (O1) COOKING, planned [T, T + 20). B (O2, sync) [T + 20, T + 30), C (O3, sync) [T + 30, T + 40);
+    // O2's sync sibling B2 on Y [T + 20, T + 30). cascade_step_ms = 5.
+    const log: PosEvent[] = [cfg(5)];
+    log.push(...batch(replay(log), [{ id: 'A', station: 'X', cook: 20, mode: 'immediate' }], T, 'O1'), fire('X', 'A', T), start('O1', 'A', T));
+    log.push(...batch(replay(log), [{ id: 'B', station: 'X', cook: 10 }, { id: 'B2', station: 'Y', cook: 10 }], T, 'O2'));
+    log.push(...batch(replay(log), [{ id: 'C', station: 'X', cook: 10 }], T, 'O3'));
+    const s0 = replay(log);
+    expect(s0.lines.B!.booked).toEqual({ start: T + 20, end: T + 30, units: 1 });
+    expect(s0.lines.B2!.booked).toEqual({ start: T + 20, end: T + 30, units: 1 });
+    expect(s0.lines.C!.booked).toEqual({ start: T + 30, end: T + 40, units: 1 });
+    // The tick at T + 20 fired B and B2 (their fire time; A at its planned end, no shift); B2 was started then.
+    expect(getTickIntents(s0, T + 20).map((d) => [d.event_type, d.stream_id])).toEqual([
+      ['FireDispatched', 'X'],
+      ['FireDispatched', 'Y'],
+    ]);
+    const s = replay([...log, fire('X', 'B', T + 20), fire('Y', 'B2', T + 20), start('O2', 'B2', T + 20)]);
+    // Tick at T + 25, A still COOKING.
+    const intents = getTickIntents(s, T + 25);
+    expect(liveInterval(s, 'A', T + 25)).toEqual({ start: T, end: T + 25 });
+    // B (fired, not started) is packed behind A's live end (F-20): [T + 25, T + 35); C is shifted by one 5 ms step
+    // to [T + 35, T + 45); B2 on Y unchanged; the targets unchanged (slips for O2 / O3: getAlertIntents, task 15).
+    expect(liveInterval(s, 'B', T + 25)).toEqual({ start: T + 25, end: T + 35 });
+    expect(intents).toEqual([
+      { stream_type: 'station', stream_id: 'X', event_type: 'ReservationsShifted', schema_version: 1, payload: { station_id: 'X', cause: 'overrun', shifts: [{ order_item_id: 'C', by_ms: 5 }] } },
+    ]);
+    expect(s.lines.C!.booked!.start + 5).toBe(T + 35);
+    expect(liveInterval(s, 'B2', T + 25)).toEqual({ start: T + 20, end: T + 30 });
+    expect([s.orders.O2!.target_land_ms, s.orders.O3!.target_land_ms]).toEqual([T + 30, T + 40]);
+    // Pure: the state is unchanged until the intent is applied.
+    expect(getTickIntents(s, T + 25)).toEqual(intents);
+    expect(s.lines.C!.booked).toEqual({ start: T + 30, end: T + 40, units: 1 });
   });
 });
