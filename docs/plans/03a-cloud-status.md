@@ -23,6 +23,11 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 | CL-6 | Push policy, build | Red mid-batch pushes are fine (engine lane merges at its task 23). Push C1, the board and after every task. Build apps/client once here. Branch must be green at the end | — |
 
 ### Proposed AD rows
+- CL-7 (C2): POST with no `point_id` uses the active "Pass", else the active point with the lowest (`sort_order`, `point_id`), else `422 { field: 'point_id' }`.
+- CL-8 (C2): merged row with `lane_units` / `reserve_units` above capacity, or amber ≥ red, or duplicate or non-subset order types: `400 VALIDATION_FAILED`, not a 500 from the CHECK.
+- CL-9 (C2): carry-time `point_id` of another branch `422 { field: 'carry_times' }`; failing alternate `422 { field: 'alternates' }`; `station_type` to batch with alternates or named as one `409 CONFIG_IN_USE { used_by: station }`.
+- CL-10 (C2): naming an archived station `422 alternates`; archiving a station an active one names `409 CONFIG_IN_USE`; restore has no check, so an active station can still name an archived one, and the C6 builder leaves those rows out of the snapshot.
+- CL-11 (C2): station PATCH locks the target and named alternates in one `ORDER BY station_id FOR UPDATE` statement instead of S8's target-then-references `FOR SHARE`, because the literal order deadlocks when two stations name each other. No external change. As-built at task 29.
 - C5a staging: V3 added next to V2, `SNAPSHOT_SCHEMA_VERSION` stays 2 until the flip (pin V2 to `z.literal(2)` or remove it then).
 
 ### Parked for later tasks
