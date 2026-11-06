@@ -41,7 +41,7 @@ import {
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
 import { optionOn, routeCtx, routeFromConfig, routeOptions } from './route.js';
-import { closeExitIds, exitedOrderIds, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
+import { closeExitIds, exitedOrderIds, FoldScope, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS, type ReplayEventType } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -58,6 +58,23 @@ interface StockLine { stock_item_id: string; order_item_id: string; quantity: nu
 interface BusinessDayOpened { business_date: string; stock_units: Record<string, Unit>; draws: Record<string, DayDraws> }
 
 const EMPTY_PROFILE = (): StationRuntime['profile'] => ({ t: [], u: [] });
+
+// One applyEvent's options: plan.ts reads strict and prune, the helpers below write through scope (lifecycle.ts).
+type FoldOptions = SequenceOptions & { scope: FoldScope };
+
+function setLine(state: EngineState, line: EngineLine, o: FoldOptions): EngineState {
+  const lines = o.scope.writableLines(state);
+  lines[line.order_item_id] = line;
+  o.scope.lineIds.add(line.order_item_id);
+  return { ...state, lines };
+}
+
+function setOrder(state: EngineState, order: EngineOrder, o: FoldOptions): EngineState {
+  const orders = o.scope.writableOrders(state);
+  orders[order.order_id] = order;
+  o.scope.orderIds.add(order.order_id);
+  return { ...state, orders };
+}
 
 // §3.10, §3.11: an EngineConfigApplied that changes a station's capacity re-plans it as a capacity change (D15
 // exception), also when its type changes in the same event (the old-type bookings are re-placed as in two events);
@@ -149,12 +166,12 @@ function clearNightSettings(state: EngineState, event: PosEvent, o: SequenceOpti
 }
 
 // §3.9 OrderBoosted (D4; boostOrder, plan.ts). An absent order is a no-op (§3.3); its clock refreshes (§3.3).
-function foldOrderBoosted(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+function foldOrderBoosted(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as { order_id: string };
   checkStream(event, p.order_id, '');
   const order = state.orders[p.order_id];
   if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
-  return touchOrder(boostOrder(state, p.order_id, event.recorded_at, event.event_id, o), p.order_id, event.recorded_at);
+  return touchOrder(boostOrder(state, p.order_id, event.recorded_at, event.event_id, o), p.order_id, event.recorded_at, o.scope);
 }
 
 // 03a §3.11: store the config; a StationRuntime per station (a new one with an empty profile). An existing
@@ -205,6 +222,7 @@ function listLines(
   order: EngineOrder,
   p: { order_id: string; order_item_ids: string[]; groups: OrderGroupPayload[]; lines: ListedLine[] },
   recorded_at: number,
+  o: FoldOptions,
 ): EngineState {
   const groups = { ...order.groups };
   const next = order.next_group_index + p.groups.length;
@@ -219,7 +237,7 @@ function listLines(
     groups[g.group_id] = { target_land_ms: g.target_land_ms, line_ids: g.order_item_ids.filter((id) => byId.has(id)) };
   }
   const listed = p.order_item_ids.filter((id) => byId.has(id));
-  const lines = { ...state.lines };
+  const lines = o.scope.writableLines(state);
   for (const id of listed) {
     const l = byId.get(id)!;
     const group = p.groups.find((g) => g.order_item_ids.includes(id));
@@ -229,6 +247,7 @@ function listLines(
       if (group.order_item_ids.length !== 1 || order.groups[group.group_id] !== undefined) throw new InvalidEvent('return_group_invalid', id, l.station_id);
       if (return_of.mode === 'fix' && (l.cook_ms_override ?? null) === null) throw new InvalidEvent('cook_ms_override_null', id, l.station_id);
     }
+    o.scope.lineIds.add(id);
     lines[id] = {
       order_item_id: id,
       order_id: p.order_id,
@@ -278,13 +297,13 @@ function listLines(
     next_group_index: next,
     groups,
   };
-  return touchOrder({ ...state, orders: { ...state.orders, [p.order_id]: updated }, lines }, p.order_id, recorded_at);
+  return touchOrder(setOrder({ ...state, lines }, updated, o), p.order_id, recorded_at, o.scope);
 }
 
 // §3.3, §4.2: placed_by = actor_id, placed_at = recorded_at; T and P per group copied, never recomputed
 // (§3.5.1 step 6, P-2). The order's own target / promise are its latest group's (F §4.7: the order lands
 // with its last item); an order with no group (no plannable line) takes recorded_at.
-function foldOrderPlaced(state: EngineState, event: PosEvent): EngineState {
+function foldOrderPlaced(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as OrderPlacedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const at = event.recorded_at;
@@ -307,27 +326,28 @@ function foldOrderPlaced(state: EngineState, event: PosEvent): EngineState {
     next_group_index: 0,
     groups: {},
   };
-  return listLines(state, order, p, at);
+  return listLines(state, order, p, at, o);
 }
 
 // §3.3, §4.2 (P-10): an addition to an order in the engine. The removal step has skipped this order (applyEvent),
 // so a present order is re-opened even when recorded_at is past its window by the append gap; an absent order is a
 // bug (it was removed at a listed event at or after its deadline) and throws in both modes.
-function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
+function foldOrderLinesAdded(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as OrderLinesAddedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const order = state.orders[p.order_id];
   // §3.3 keys this on presence: an order kept by AD-20 for its reservation is present, so it re-opens like any present
   // order (test 78); only an absent order throws.
   if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
-  return listLines(state, order, p, event.recorded_at);
+  return listLines(state, order, p, event.recorded_at, o);
 }
 
 // Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a
 // listed writer-bug line dropped when non-strict).
-function dropListed(state: EngineState, order: EngineOrder, line: EngineLine): { state: EngineState; order: EngineOrder } {
-  const lines = { ...state.lines };
+function dropListed(state: EngineState, order: EngineOrder, line: EngineLine, o: FoldOptions): { state: EngineState; order: EngineOrder } {
+  const lines = o.scope.writableLines(state);
   delete lines[line.order_item_id];
+  o.scope.lineIds.add(line.order_item_id);
   const groups = { ...order.groups };
   const g = groups[line.group_id];
   if (g !== undefined) groups[line.group_id] = { ...g, line_ids: g.line_ids.filter((x) => x !== line.order_item_id) };
@@ -380,7 +400,7 @@ function fillLine(state: EngineState, order: EngineOrder, listed: EngineLine, p:
 // filled line, or awaiting already 0) throws line_not_listed. A listed line that is a writer bug throws when
 // strict; non-strict it is dropped, still counts against awaiting and gets one invalid_event diagnostic, so
 // the order's other lines are still planned.
-function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+function foldItemAdded(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as ItemAddedPayload;
   const id = p.order_item_id;
@@ -394,25 +414,28 @@ function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions):
   if (isEngineLine(p)) {
     if (listed === undefined || order.awaiting === 0) throw new InvalidEvent('line_not_listed', id);
     try {
-      next = { ...state, lines: { ...state.lines, [id]: fillLine(state, order, listed, p) } };
+      next = setLine(state, fillLine(state, order, listed, p), o);
     } catch (e) {
       if (strict || !(e instanceof InvalidEvent)) throw e;
-      ({ state: next, order: updated } = dropListed(state, order, listed));
+      ({ state: next, order: updated } = dropListed(state, order, listed, o));
       next = addDiagnostic(next, invalidEventDiagnostic(event, e));
     }
   } else if (listed !== undefined) {
     // 01c §3.4.7: a deal line (or a line with no station) is never a line, even when lines[] listed it.
-    ({ state: next, order: updated } = dropListed(state, order, listed));
+    ({ state: next, order: updated } = dropListed(state, order, listed, o));
   } else if (order.awaiting - unfilledCount(state, order) <= 0) {
     // AD-8 (8b): a non-engine id with no placeholder is consumed only while awaiting exceeds the order's unfilled
     // placeholders, so a duplicate (or unlisted) deal ItemAdded never takes an engine line's count.
     throw new InvalidEvent('line_not_listed', id);
   }
   updated = { ...updated, awaiting: order.awaiting - 1, last_line_fold_at: event.recorded_at };
-  next = { ...next, orders: { ...next.orders, [p.order_id]: updated } };
+  next = setOrder(next, updated, o);
   // §3.5.3: the one re-plan per station of the batch runs here (pass 1 → immediate → sync), at recorded_at.
-  if (updated.awaiting === 0) next = planNewLines(next, p.order_id, event.recorded_at, event.event_id, o);
-  return touchOrder(next, p.order_id, event.recorded_at);
+  if (updated.awaiting === 0) {
+    o.scope.whole = true;
+    next = planNewLines(next, p.order_id, event.recorded_at, event.event_id, o);
+  }
+  return touchOrder(next, p.order_id, event.recorded_at, o.scope);
 }
 
 function unfilledCount(state: EngineState, order: EngineOrder): number {
@@ -436,12 +459,13 @@ function lineOf(state: EngineState, order_item_id: string): EngineLine | undefin
 // AD-7: takes a line off its station's planned profile, removing exactly `booked` and clearing it, and drops it
 // from `unfired`. AD-6: strict → removeInterval throws on an underflow; non-strict → it clamps and the fold
 // appends a 'profile_underflow' diagnostic. A line with nothing booked and not in unfired returns state itself.
-function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: boolean): EngineState {
+function unbook(state: EngineState, line: EngineLine, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const station = state.stations[line.station_id];
   if (station === undefined) return state;
   const id = line.order_item_id;
   const load = line.load_id === null ? undefined : station.loads[line.load_id];
-  if (load !== undefined && load.order_item_ids.includes(id)) return leaveLoad(state, station, load, line, event, strict);
+  if (load !== undefined && load.order_item_ids.includes(id)) return leaveLoad(state, station, load, line, event, o);
   const inUnfired = station.unfired.includes(id);
   if (line.booked === null && !inUnfired) return state;
   let underflow: Underflow | null = null;
@@ -453,11 +477,7 @@ function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: b
           underflow = u;
         });
   }
-  const next: EngineState = {
-    ...state,
-    stations: { ...state.stations, [station.station_id]: { ...station, profile, unfired: inUnfired ? station.unfired.filter((x) => x !== id) : station.unfired } },
-    lines: { ...state.lines, [id]: { ...line, booked: null } },
-  };
+  const next = setLine({ ...state, stations: { ...state.stations, [station.station_id]: { ...station, profile, unfired: inUnfired ? station.unfired.filter((x) => x !== id) : station.unfired } } }, { ...line, booked: null }, o);
   if (underflow === null) return next;
   const { at, deficit } = underflow as Underflow;
   return addDiagnostic(next, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { order_item_id: id, at, deficit } });
@@ -466,7 +486,8 @@ function unbook(state: EngineState, line: EngineLine, event: PosEvent, strict: b
 // Task 13 (AD-7 for loads): an unfired member leaves its load and `unfired`. The load keeps its name and booking
 // while it has members (§3.3: a name, not membership; its fire is kept, the next re-plan of a hidden load re-forms
 // it); the last member's leaving removes exactly the load's booking (AD-6 as unbook) and the load.
-function leaveLoad(state: EngineState, station: StationRuntime, load: Load, line: EngineLine, event: PosEvent, strict: boolean): EngineState {
+function leaveLoad(state: EngineState, station: StationRuntime, load: Load, line: EngineLine, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const id = line.order_item_id;
   const rest = load.order_item_ids.filter((x) => x !== id);
   const loads = { ...station.loads };
@@ -482,23 +503,19 @@ function leaveLoad(state: EngineState, station: StationRuntime, load: Load, line
           underflow = u;
         });
   }
-  const next: EngineState = {
-    ...state,
-    stations: { ...state.stations, [station.station_id]: { ...station, profile, loads, unfired: station.unfired.filter((x) => x !== id) } },
-    lines: { ...state.lines, [id]: { ...line, booked: null } },
-  };
+  const next = setLine({ ...state, stations: { ...state.stations, [station.station_id]: { ...station, profile, loads, unfired: station.unfired.filter((x) => x !== id) } } }, { ...line, booked: null }, o);
   if (underflow === null) return next;
   const { at, deficit } = underflow as Underflow;
   return addDiagnostic(next, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { load_id: load.load_id, order_item_id: id, at, deficit } });
 }
 
-function patchLine(state: EngineState, id: string, patch: Partial<EngineLine>): EngineState {
-  return { ...state, lines: { ...state.lines, [id]: { ...state.lines[id]!, ...patch } } };
+function patchLine(state: EngineState, id: string, patch: Partial<EngineLine>, o: FoldOptions): EngineState {
+  return setLine(state, { ...state.lines[id]!, ...patch }, o);
 }
 
 // A line leaves the planned profile and takes `stage` (and the other fields of `patch`).
-function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict: boolean, patch: Partial<EngineLine>): EngineState {
-  return patchLine(unbook(state, line, event, strict), line.order_item_id, patch);
+function moveLine(state: EngineState, line: EngineLine, event: PosEvent, o: FoldOptions, patch: Partial<EngineLine>): EngineState {
+  return patchLine(unbook(state, line, event, o), line.order_item_id, patch, o);
 }
 
 // §3.4 FireDispatched: each listed line that is unfired gets fired_at = recorded_at and the event's load_id
@@ -513,7 +530,8 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, strict:
 // Task 13 (§3.6.1 item 1, §4.2): a FireDispatched naming an unfired load of its station fires every member of the
 // load as well as the listed lines (a pulled-in line leaves its own load); the load leaves `loads` with its last
 // member, its booking removed exactly once, and every fired line carries the event's load_id.
-function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldFireDispatched(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
@@ -534,8 +552,8 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
     const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
     // §3.3 D17: Give me more is a human-triggered jump, marked; a return keeps its RETURN marker (§3.8a).
     const mark = p.reason === 'pulled' && line.return_of === null ? { mark: 'pulled' as const } : {};
-    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms, ...mark });
-    next = touchOrder(next, line.order_id, event.recorded_at);
+    next = moveLine(next, line, event, o, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms, ...mark });
+    next = touchOrder(next, line.order_id, event.recorded_at, o.scope);
   }
   return next;
 }
@@ -566,7 +584,8 @@ function foldStationPause(state: EngineState, event: PosEvent): EngineState {
 //     twice) moves once, by its first entry's by_ms; a later entry for the same reservation with another by_ms is
 //     writer bug 'shift_conflict' (it would split a load or move one booking twice);
 //   - a line whose order the removal step keeps only for its reservation (AD-20) is absent (activeLine).
-function foldReservationsShifted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldReservationsShifted(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as ReservationsShiftedPayload;
   if (state.stations[p.station_id] === undefined) return state;
   let next = state;
@@ -590,10 +609,10 @@ function foldReservationsShifted(state: EngineState, event: PosEvent, strict: bo
     if (prev !== undefined) continue;
     if (inLoad) {
       moved.set(key, by_ms);
-      next = shiftLoad(next, station, load, by_ms, event, strict);
+      next = shiftLoad(next, station, load, by_ms, event, o);
     } else if (line.booked !== null) {
       moved.set(key, by_ms);
-      next = shiftSlot(next, station, line, line.booked, by_ms, event, strict);
+      next = shiftSlot(next, station, line, line.booked, by_ms, event, o);
     }
   }
   if (moved.size === 0) return next;
@@ -615,21 +634,20 @@ function moveBooking(state: EngineState, station: StationRuntime, from: Load['bo
   return { state: addDiagnostic(state, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { ...detail, at, deficit } }), profile };
 }
 
-function shiftSlot(state: EngineState, station: StationRuntime, line: EngineLine, booked: Load['booked'], by: number, event: PosEvent, strict: boolean): EngineState {
-  const { state: next, profile } = moveBooking(state, station, booked, by, event, strict, { order_item_id: line.order_item_id });
-  return {
-    ...next,
-    stations: { ...next.stations, [station.station_id]: { ...station, profile } },
-    lines: { ...next.lines, [line.order_item_id]: { ...line, booked: { ...booked, start: booked.start + by, end: booked.end + by }, fire_ms: line.fire_ms! + by } },
-  };
+function shiftSlot(state: EngineState, station: StationRuntime, line: EngineLine, booked: Load['booked'], by: number, event: PosEvent, o: FoldOptions): EngineState {
+  const { state: next, profile } = moveBooking(state, station, booked, by, event, o.strict, { order_item_id: line.order_item_id });
+  return setLine({ ...next, stations: { ...next.stations, [station.station_id]: { ...station, profile } } }, { ...line, booked: { ...booked, start: booked.start + by, end: booked.end + by }, fire_ms: line.fire_ms! + by }, o);
 }
 
-function shiftLoad(state: EngineState, station: StationRuntime, load: Load, by: number, event: PosEvent, strict: boolean): EngineState {
-  const { state: next, profile } = moveBooking(state, station, load.booked, by, event, strict, { load_id: load.load_id });
-  const lines = { ...next.lines };
+function shiftLoad(state: EngineState, station: StationRuntime, load: Load, by: number, event: PosEvent, o: FoldOptions): EngineState {
+  const { state: next, profile } = moveBooking(state, station, load.booked, by, event, o.strict, { load_id: load.load_id });
+  const lines = o.scope.writableLines(next);
   for (const m of load.order_item_ids) {
     const l = lines[m];
-    if (l !== undefined && l.fire_ms !== null) lines[m] = { ...l, fire_ms: l.fire_ms + by };
+    if (l !== undefined && l.fire_ms !== null) {
+      lines[m] = { ...l, fire_ms: l.fire_ms + by };
+      o.scope.lineIds.add(m);
+    }
   }
   const shifted: Load = { ...load, fire_ms: load.fire_ms + by, booked: { ...load.booked, start: load.booked.start + by, end: load.booked.end + by } };
   return { ...next, lines, stations: { ...next.stations, [station.station_id]: { ...station, profile, loads: { ...station.loads, [load.load_id]: shifted } } } };
@@ -656,32 +674,32 @@ function stageLine(state: EngineState, event: PosEvent, order_item_id: string): 
 
 // §3.4 ItemStarted: ADDED → COOKING, started_at = min(started_at, recorded_at) (§3.3, §4.2). A Start on a line
 // that was never fired also takes its planned booking off the profile. Any other stage: no change (AD-10).
-function foldItemStarted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldItemStarted(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemStartedPayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'added') return state;
-  const next = moveLine(state, line, event, strict, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
-  return touchOrder(next, line.order_id, event.recorded_at);
+  const next = moveLine(state, line, event, o, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+  return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
 // §3.4 ItemDone: COOKING (or a line never started) → DONE, done_at = min(done_at, recorded_at) (§4.2). A done
 // line occupies nothing (F §4.7 test 4: Done early frees capacity).
-function foldItemDone(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldItemDone(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemDonePayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) return state;
-  const next = moveLine(state, line, event, strict, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
-  return touchOrder(next, line.order_id, event.recorded_at);
+  const next = moveLine(state, line, event, o, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+  return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
 // §3.4, D16 ItemDoneUndone: DONE → COOKING; done_at cleared, so liveInterval gives it its COOKING occupancy
 // again (test 51). A line done without a Start keeps its done time as the latest possible Start.
-function foldItemDoneUndone(state: EngineState, event: PosEvent): EngineState {
+function foldItemDoneUndone(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as { order_item_id: string };
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'done') return state;
-  const next = patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at });
-  return touchOrder(next, line.order_id, event.recorded_at);
+  const next = patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at }, o);
+  return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
 // §3.8a, §4.2 ItemReturned (remake only, written by 02 with the return batch): the served line goes `returned`,
@@ -690,7 +708,7 @@ function foldItemDoneUndone(state: EngineState, event: PosEvent): EngineState {
 // trigger; the old group's T and slip are untouched). §3.3 absent ids: an order or line not in the state is a
 // no-op. A writer bug — the line is not served, or replacement_order_item_id is not its remake line — throws
 // InvalidEvent (AD-8: strict throws, non-strict one invalid_event diagnostic). Refreshes last_line_fold_at (§3.3).
-function foldItemReturned(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldItemReturned(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemReturnedPayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || state.orders[line.order_id] === undefined) return state;
@@ -699,18 +717,18 @@ function foldItemReturned(state: EngineState, event: PosEvent, strict: boolean):
   if (r === undefined || r.order_id !== line.order_id || r.return_of?.order_item_id !== line.order_item_id || r.return_of.mode !== 'remake') {
     throw new InvalidEvent('item_returned_replacement_invalid', line.order_item_id, line.station_id);
   }
-  return touchOrder(moveLine(state, line, event, strict, { stage: 'returned' }), line.order_id, event.recorded_at);
+  return touchOrder(moveLine(state, line, event, o, { stage: 'returned' }), line.order_id, event.recorded_at, o.scope);
 }
 
 // §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3). The serve that leaves no line
 // open sets last_served_at (touchOrder).
-function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldItemServed(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemServedPayload;
   let next = state;
   for (const id of p.order_item_ids) {
     const line = stageLine(next, event, id);
     if (line === undefined || !isOpen(line)) continue;
-    next = touchOrder(moveLine(next, line, event, strict, { stage: 'served' }), line.order_id, event.recorded_at);
+    next = touchOrder(moveLine(next, line, event, o, { stage: 'served' }), line.order_id, event.recorded_at, o.scope);
   }
   return next;
 }
@@ -722,14 +740,13 @@ function foldItemServed(state: EngineState, event: PosEvent, strict: boolean): E
 // Proposed (implementer, overnight): a whole void keeps the line's units and draws[].quantity (BF-12 "voided only
 // when no unit is left": the stage says no unit is left; units 0 would read as an AD-8 placeholder); its releases
 // then take every draw's reserved to 0.
-function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, stage: 'removed' | 'voided'): EngineState {
-  const strict = o.strict;
+function foldItemEnded(state: EngineState, event: PosEvent, o: FoldOptions, stage: 'removed' | 'voided'): EngineState {
   const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || !isOpen(line)) return state;
-  if (stage === 'voided' && p.units! < line.units) return touchOrder(partialVoid(state, line, p.units!, event, o), line.order_id, event.recorded_at);
-  const ended = moveLine(state, line, event, strict, { stage });
-  return touchOrder(replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o), line.order_id, event.recorded_at);
+  if (stage === 'voided' && p.units! < line.units) return touchOrder(partialVoid(state, line, p.units!, event, o), line.order_id, event.recorded_at, o.scope);
+  const ended = moveLine(state, line, event, o, { stage });
+  return touchOrder(replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o), line.order_id, event.recorded_at, o.scope);
 }
 
 // BF-12 (§3.7 partial-void share, v0.6.2 G4-3 #2): the cause's fold lowers the line's units by the voided units and
@@ -743,14 +760,14 @@ function foldItemEnded(state: EngineState, event: PosEvent, o: SequenceOptions, 
 // leaves the profile; a hidden batch load is re-formed), then the group loop over its hidden lines on all their
 // stations: T' = min(T, loop), the promise never moves. A frozen line keeps its booking and a fired / COOKING line
 // packs with its remaining units (§3.3); a frozen batch load is not re-formed.
-function partialVoid(state: EngineState, line: EngineLine, voidedUnits: number, event: PosEvent, o: SequenceOptions): EngineState {
+function partialVoid(state: EngineState, line: EngineLine, voidedUnits: number, event: PosEvent, o: FoldOptions): EngineState {
   const id = line.order_item_id;
   const draws = line.draws.map((d) => {
     const share = (d.quantity * voidedUnits) / line.units;
     if (!Number.isInteger(share)) throw new InvalidEvent('void_share_not_integer', id, line.station_id);
     return { ...d, quantity: d.quantity - share };
   });
-  const next = patchLine(state, id, { units: line.units - voidedUnits, draws });
+  const next = patchLine(state, id, { units: line.units - voidedUnits, draws }, o);
   return replanEnded(next, next.lines[id]!, event.recorded_at, event.event_id, o, true);
 }
 
@@ -805,7 +822,8 @@ function drawOf(state: EngineState, p: StockLine): { line: EngineLine | undefine
 // a batch line's program follows by currentProgram, BF-1) and re-plans: BF-7, only this line is re-placed, within
 // its own slack (flipPlacement). Proposed (implementer, overnight): a flipped line that is not hidden at the fold
 // (never a StockAdded candidate; only a writer bug gets here) takes the stock cook and keeps its fire and booking.
-function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldStockReserved(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
   if (line === undefined) return state;
@@ -814,10 +832,11 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
   const prev = stockOf(state, p.stock_item_id);
   const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: d.reserved + take } : d));
   let next = withEntry(state, p.stock_item_id, { ...prev, reserved: prev.reserved + take });
-  next = patchLine(next, line.order_item_id, { draws, reserved_seq: take > 0 ? event.seq : line.reserved_seq });
+  next = patchLine(next, line.order_item_id, { draws, reserved_seq: take > 0 ? event.seq : line.reserved_seq }, o);
   if (!line.from_stock && take > 0) {
-    next = patchLine(next, line.order_item_id, { from_stock: true, cook_ms: line.stock_cook_ms ?? line.cook_ms });
-    next = replaceFlipped(next, line, event, strict);
+    next = patchLine(next, line.order_item_id, { from_stock: true, cook_ms: line.stock_cook_ms ?? line.cook_ms }, o);
+    o.scope.whole = true; // the flip's re-placement (a batch line's load re-forms)
+    next = replaceFlipped(next, line, event, o);
   }
   if (take === p.quantity) return next;
   return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockReserved past the draw', {
@@ -832,11 +851,12 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
 // (exactly the old `booked` removed, AD-7 / AD-6), a batch station's loads by storeLoads.
 // Hidden is judged at recorded_at, the only time the fold has; stockEffects chose the line at the draft's occurred_at
 // (proposed (implementer, overnight): a line frozen in that ms append gap keeps its fire and booking, see isCandidate).
-function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, strict: boolean): EngineState {
+function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const id = before.order_item_id;
   if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at)) return state;
   const fp = flipPlacement(state, id, before.cook_ms, event.recorded_at, strict);
-  const patched = patchLine(state, id, { deadline_ms: fp.deadline_ms });
+  const patched = patchLine(state, id, { deadline_ms: fp.deadline_ms }, o);
   return fp.kind === 'slot' ? applyMoves(patched, new Map([[id, fp.move]]), event.event_id, strict) : storeLoads(patched, before.station_id, fp.loads, event.event_id, strict);
 }
 
@@ -859,7 +879,8 @@ function freshDeadline(state: EngineState, line: EngineLine): number {
 // here. A line not in the state still lowers the entry. AD-20 (task 14b): the abandon release (§3.6.1 4a) and the
 // close release of an exited order find their line, because the removal step keeps an order while a line holds a
 // reservation; the order leaves at the next listed fold after the last release.
-function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldStockReleased(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
   const prev = stockOf(state, p.stock_item_id);
@@ -869,7 +890,7 @@ function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean)
     short = short || line.draws[i]!.reserved < p.quantity;
     const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: Math.max(0, d.reserved - p.quantity) } : d));
     const fresh = draws.every((d) => d.reserved === 0);
-    next = patchLine(next, line.order_item_id, fresh ? { draws, from_stock: false, cook_ms: line.full_cook_ms, reserved_seq: null, deadline_ms: freshDeadline(state, line) } : { draws });
+    next = patchLine(next, line.order_item_id, fresh ? { draws, from_stock: false, cook_ms: line.full_cook_ms, reserved_seq: null, deadline_ms: freshDeadline(state, line) } : { draws }, o);
   }
   if (!short) return next;
   const reason = (event.payload as { reason?: unknown }).reason;
@@ -884,7 +905,8 @@ function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean)
 // reserved = 0, reserved_seq null when no draw holds any; from_stock stays true (the plate was taken from the pot).
 // A clamp (or a draw holding less than quantity) is a breach: after a recount below reserved the pot was already
 // known to be short, so the Start commits (non-strict). A line not in the state still moves the entry (as a release).
-function foldStockConsumed(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+function foldStockConsumed(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
+  const strict = o.strict;
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
   const prev = stockOf(state, p.stock_item_id);
@@ -897,7 +919,7 @@ function foldStockConsumed(state: EngineState, event: PosEvent, strict: boolean)
   if (line !== undefined) {
     short = short || line.draws[i]!.reserved < p.quantity;
     const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: 0 } : d));
-    next = patchLine(next, line.order_item_id, draws.every((d) => d.reserved === 0) ? { draws, reserved_seq: null } : { draws });
+    next = patchLine(next, line.order_item_id, draws.every((d) => d.reserved === 0) ? { draws, reserved_seq: null } : { draws }, o);
   }
   if (!short) return next;
   return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockConsumed below 0', { order_item_id: p.order_item_id, quantity: p.quantity });
@@ -988,7 +1010,7 @@ function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): E
 //      the source group's T. With no hidden expedite line nothing is re-placed (released lines hold nothing).
 //   P4 AD-12: every source group whose membership changed gets its queued deadlines again at its old T (plan.ts
 //      requeueGroup), before the re-plan reads them.
-function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemsReleasedPayload;
   const t = event.recorded_at;
   const oid = p.order_id;
@@ -1010,7 +1032,7 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptio
   };
   const released = pick(p.released);
   const expedite = pick(p.expedite);
-  if (released.length + expedite.length === 0) return touchOrder(state, oid, t);
+  if (released.length + expedite.length === 0) return touchOrder(state, oid, t, o.scope);
 
   const groups = { ...order.groups };
   const lines = { ...state.lines };
@@ -1049,32 +1071,36 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptio
     }
     next = { ...next, orders: { ...next.orders, [oid]: { ...ord, groups: g } } };
   }
-  return touchOrder(next, oid, t);
+  return touchOrder(next, oid, t, o.scope);
 }
 
-function foldItemMovedToStock(state: EngineState, event: PosEvent): EngineState {
+function foldItemMovedToStock(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as { order_item_id: string };
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || !isOpen(line)) return state;
-  return touchOrder(state, line.order_id, event.recorded_at);
+  return touchOrder(state, line.order_id, event.recorded_at, o.scope);
 }
 
 // §3.3 removal: the given orders and their lines leave the state; each line first leaves its station (exactly
 // `booked`, and `unfired`; AD-7, AD-6 via unbook), so a removed order occupies nothing.
-function removeOrders(state: EngineState, ids: readonly string[], event: PosEvent, strict: boolean): EngineState {
+function removeOrders(state: EngineState, ids: readonly string[], event: PosEvent, o: FoldOptions): EngineState {
   if (ids.length === 0) return state;
   let next = state;
   for (const id of ids) {
     for (const lid of next.orders[id]!.line_ids) {
       const line = next.lines[lid];
-      if (line !== undefined) next = unbook(next, line, event, strict);
+      if (line !== undefined) next = unbook(next, line, event, o);
     }
   }
-  const orders = { ...next.orders };
-  const lines = { ...next.lines };
+  const orders = o.scope.writableOrders(next);
+  const lines = o.scope.writableLines(next);
   for (const id of ids) {
-    for (const lid of orders[id]!.line_ids) delete lines[lid];
+    for (const lid of orders[id]!.line_ids) {
+      delete lines[lid];
+      o.scope.lineIds.add(lid);
+    }
     delete orders[id];
+    o.scope.orderIds.add(id);
   }
   return { ...next, orders, lines };
 }
@@ -1123,19 +1149,28 @@ const HANDLED: ReadonlySet<string> = new Set([
 // (OrderLinesAdded on an absent order, §3.3) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   if (!HANDLED.has(event.event_type)) return state;
+  const { next, named } = foldNamed(state, event, opts);
+  // §3.8 (task 15): the slip state and slip_due of the table keys this fold touched (the removal step included).
+  return upkeepSlips(state, next, event.recorded_at, named);
+}
+
+// The removal step and the fold of a handled event, with what they name for the upkeep (§7.1). Not in the package index.
+export function foldNamed(state: EngineState, event: PosEvent, opts?: ApplyOptions): { next: EngineState; named: FoldScope } {
   const strict = opts?.strict ?? true;
   const skip = event.event_type === 'OrderLinesAdded' ? (event.payload as { order_id?: string }).order_id : undefined;
-  const base = removeOrders(state, exitedOrderIds(state, event.recorded_at, skip), event, strict);
-  let out: EngineState;
+  const named = new FoldScope();
+  const o: FoldOptions = { strict, prune: opts?.prune ?? true, scope: named };
+  const base = removeOrders(state, exitedOrderIds(state, event.recorded_at, skip), event, o);
+  named.seal();
+  let next: EngineState;
   try {
-    out = fold(base, event, { strict, prune: opts?.prune ?? true });
+    next = fold(base, event, o);
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
-    out = addDiagnostic(base, invalidEventDiagnostic(event, e));
+    next = addDiagnostic(base, invalidEventDiagnostic(event, e));
   }
-  // §3.8 (task 15): the slip state and slip_due of the table keys this fold touched (the removal step included).
-  return upkeepSlips(state, out, event.recorded_at);
+  return { next, named };
 }
 
 // §3.8 Slip state: SlipWarned sets slips[key] (the tick writes it from raiseMany's alert_id); never a §3.3 clock fold.
@@ -1161,22 +1196,37 @@ function foldAlertClosed(state: EngineState, event: PosEvent): EngineState {
   return state;
 }
 
-function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+// §7.1: the event types whose fold always re-plans or may rewrite any line (FoldScope.whole); ItemAdded at awaiting 0 and
+// a StockReserved flip set it where they re-plan.
+const REPLANS: ReadonlySet<ReplayEventType> = new Set<ReplayEventType>([
+  'StockSet',
+  'BusinessDayOpened',
+  'BusinessDayClosed',
+  'EngineConfigApplied',
+  'ItemRemoved',
+  'ItemVoided',
+  'OrderBoosted',
+  'ItemsReleased',
+  'StationCapacitySet',
+]);
+
+function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   // Test 94: exhaustive both ways; a listed type with no case fails `satisfies never`, a case off the lists does not
   // compile. applyEvent's HANDLED gate has already returned state for every other type.
   const replayType = event.event_type as ReplayEventType;
+  if (REPLANS.has(replayType)) o.scope.whole = true;
   switch (replayType) {
     case 'StockSet':
       return replanStock(foldStockSet(state, event, strict), event, o);
     case 'StockAdded':
       return foldStockAdded(state, event, strict);
     case 'StockReserved':
-      return foldStockReserved(state, event, strict);
+      return foldStockReserved(state, event, o);
     case 'StockReleased':
-      return foldStockReleased(state, event, strict);
+      return foldStockReleased(state, event, o);
     case 'StockConsumed':
-      return foldStockConsumed(state, event, strict);
+      return foldStockConsumed(state, event, o);
     // 01a S33: recorded_at is the day's start and end.
     case 'BusinessDayOpened': {
       const p = event.payload as unknown as BusinessDayOpened;
@@ -1198,7 +1248,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       // §3.3 (v0.5.1, Q13): every order whose lines are all served / voided / removed / returned exits at the close;
       // an order with any unserved line stays and exits later by the predicate. The close also clears slips (§3.3,
       // §3.8): an order carried over the close that is still late slips afresh by the crossing rule.
-      const exited = removeOrders(state, closeExitIds(state), event, strict);
+      const exited = removeOrders(state, closeExitIds(state), event, o);
       // §3.5.3 (task 12b): the close re-plans every station with an unfired line, once, after its releases.
       const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o);
       const slips = Object.keys(replanned.slips).length === 0 ? replanned.slips : {};
@@ -1207,31 +1257,31 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'EngineConfigApplied':
       return foldEngineConfig(state, event, o);
     case 'OrderPlaced':
-      return foldOrderPlaced(state, event);
+      return foldOrderPlaced(state, event, o);
     case 'OrderLinesAdded':
-      return foldOrderLinesAdded(state, event);
+      return foldOrderLinesAdded(state, event, o);
     case 'ItemAdded':
       return foldItemAdded(state, event, o);
     case 'FireDispatched':
-      return foldFireDispatched(state, event, strict);
+      return foldFireDispatched(state, event, o);
     case 'ItemStarted':
-      return foldItemStarted(state, event, strict);
+      return foldItemStarted(state, event, o);
     case 'ItemDone':
-      return foldItemDone(state, event, strict);
+      return foldItemDone(state, event, o);
     case 'ItemDoneUndone':
-      return foldItemDoneUndone(state, event);
+      return foldItemDoneUndone(state, event, o);
     case 'ItemServed':
-      return foldItemServed(state, event, strict);
+      return foldItemServed(state, event, o);
     case 'ItemRemoved':
       return foldItemEnded(state, event, o, 'removed');
     case 'ItemVoided':
       return foldItemEnded(state, event, o, 'voided');
     case 'ItemReturned':
-      return foldItemReturned(state, event, strict);
+      return foldItemReturned(state, event, o);
     case 'ReservationsShifted':
-      return foldReservationsShifted(state, event, strict);
+      return foldReservationsShifted(state, event, o);
     case 'ItemMovedToStock':
-      return foldItemMovedToStock(state, event);
+      return foldItemMovedToStock(state, event, o);
     case 'OrderBoosted':
       return foldOrderBoosted(state, event, o);
     case 'ItemsReleased':

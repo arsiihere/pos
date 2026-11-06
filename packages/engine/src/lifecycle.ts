@@ -123,13 +123,49 @@ export function closeExitIds(state: EngineState): string[] {
   return closedOrderIds(state).filter((id) => !holdsReservation(state, state.orders[id]!));
 }
 
+// §3.3 copy-on-write, §7.1 (task 18p): one applyEvent's bookkeeping, created per call and dropped with it, never shared.
+//   - writableLines / writableOrders: one copy of the map however many lines the fold patches. The copy is the fold's own
+//     working copy, so it is written in place; the input maps are never written. A state that came from anywhere else (the
+//     input, a re-plan's own copy) is copied first. Only the helpers of apply-event.ts and touchOrder write through it,
+//     and they never read an older state of the same fold afterwards.
+//   - lineIds / orderIds: the candidates the fold names for upkeepSlips, which still compares each by reference, so naming
+//     one that did not change costs one comparison and changes no result; only a change left unnamed could.
+//   - whole: a re-plan may move any hidden line, so that fold compares the whole maps. A re-plan is O(lines) itself
+//     (liveProfiles, pass 1), which is §7.1's "inside the re-plan budget"; a fold with no re-plan names its lines.
+export class FoldScope {
+  readonly lineIds = new Set<string>();
+  readonly orderIds = new Set<string>();
+  whole = false;
+  private ownLines: EngineState['lines'] | null = null;
+  private ownOrders: EngineState['orders'] | null = null;
+
+  writableLines(state: EngineState): EngineState['lines'] {
+    if (state.lines !== this.ownLines) this.ownLines = { ...state.lines };
+    return this.ownLines;
+  }
+
+  writableOrders(state: EngineState): EngineState['orders'] {
+    if (state.orders !== this.ownOrders) this.ownOrders = { ...state.orders };
+    return this.ownOrders;
+  }
+
+  // Ends the removal step: applyEvent keeps its result for a non-strict InvalidEvent, so the fold must not write into it.
+  seal(): void {
+    this.ownLines = null;
+    this.ownOrders = null;
+  }
+}
+
 // §3.3: a fold that acts on the order or one of its lines sets last_line_fold_at = recorded_at, and when it leaves no
 // line open (and none awaited) sets last_served_at = recorded_at — an order with no plannable line (Review Focus 4)
 // at the fold that brings awaiting to 0. An absent order is unchanged.
-export function touchOrder(state: EngineState, order_id: string, t: number): EngineState {
+export function touchOrder(state: EngineState, order_id: string, t: number, scope: FoldScope): EngineState {
   const order = state.orders[order_id];
   if (order === undefined) return state;
   const closes = order.last_served_at === null && order.awaiting === 0 && !order.line_ids.some((l) => isOpen(state.lines[l]));
   const updated: EngineOrder = { ...order, last_line_fold_at: t, last_served_at: closes ? t : order.last_served_at };
-  return { ...state, orders: { ...state.orders, [order_id]: updated } };
+  const orders = scope.writableOrders(state);
+  orders[order_id] = updated;
+  scope.orderIds.add(order_id);
+  return { ...state, orders };
 }

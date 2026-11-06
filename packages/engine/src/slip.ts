@@ -41,14 +41,17 @@
 //   R7 overload (§3.10): every station, sorted by id; waiting = the orders in the engine with a line on the station
 //      not yet done (unfired, fired or COOKING); capped = an unfired line of the station has `capped` (AD-15 / 16).
 //   R8 upkeep: the touched keys are found by comparing the fold's input and output (copy-on-write, so a changed line,
-//      order or slip is a new object): the keys of every changed order and of every changed line's order, every
+//      order or slip is a new object), over the lines and orders the fold names (task 18p, §7.1; lifecycle.ts FoldScope;
+//      a re-plan compares the whole maps): the keys of every changed order and of every changed line's order, every
 //      changed slip key; BF-14 (b) generalised — a changed in-flight line (fired-not-started or COOKING, before or
 //      after) also touches the keys of every fired-not-started line of its station, and an effective-capacity change
 //      every line of that station; a changed slip_threshold_ms or order_abandon_ms (or the first config) touches
-//      every key. The comparison is O(lines) only when the fold copied `lines` (already O(lines)); the recompute is
-//      O(lines of the touched keys).
+//      every key. The recompute is O(lines of the touched keys). Two reads remain beyond §7.1's terms, since v3 keeps no
+//      index for them: the fired-not-started lines of a station (one pass over the lines, at most once per fold, only
+//      when an in-flight line changed or a touched key has a fired-not-started line) and a key's orders (one read of
+//      each present order's table_key, ordersByKey).
 import { effectiveCapacity } from './capacity.js';
-import { ORDER_EXIT_AFTER_SERVED_MS, orderInEngine } from './lifecycle.js';
+import { ORDER_EXIT_AFTER_SERVED_MS, orderInEngine, type FoldScope } from './lifecycle.js';
 import { liveProfiles, packStation } from './live.js';
 import { pressureBp, pressureWindowOf } from './pressure.js';
 import { occupancy } from './profile.js';
@@ -84,24 +87,30 @@ function isInFlight(line: EngineLine): boolean {
 
 // ---- reading context: lazily built per call, never stored ----------------------------------------------------------
 
+// The in-flight lines of every station, one pass over the lines (the exit filter is applied per t).
+function inFlightByStation(lines: EngineState['lines']): Map<string, EngineLine[]> {
+  const out = new Map<string, EngineLine[]>();
+  for (const id in lines) {
+    const l = lines[id]!;
+    if (!isInFlight(l)) continue;
+    const list = out.get(l.station_id);
+    if (list === undefined) out.set(l.station_id, [l]);
+    else list.push(l);
+  }
+  return out;
+}
+
 class Ctx {
-  private flight: Map<string, EngineLine[]> | null = null;
   private exits = new Map<string, number>();
 
-  constructor(readonly state: EngineState) {}
+  // `flight`: the pass over state.lines when the caller has already made it.
+  constructor(
+    readonly state: EngineState,
+    private flight: Map<string, EngineLine[]> | null = null,
+  ) {}
 
-  // The in-flight lines of every station, one pass over the lines (the exit filter is applied per t).
   private inFlight(station_id: string): readonly EngineLine[] {
-    if (this.flight === null) {
-      this.flight = new Map();
-      for (const id in this.state.lines) {
-        const l = this.state.lines[id]!;
-        if (!isInFlight(l)) continue;
-        const list = this.flight.get(l.station_id);
-        if (list === undefined) this.flight.set(l.station_id, [l]);
-        else list.push(l);
-      }
-    }
+    this.flight ??= inFlightByStation(this.state.lines);
     return this.flight.get(station_id) ?? [];
   }
 
@@ -389,7 +398,19 @@ export function slipGroupsAt(state: EngineState, key: string, t: number): Array<
 
 // ---- fold-side upkeep (apply-event.ts calls it after every handled fold) --------------------------------------------
 
-function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
+// Visits (before, after) of each entry that is a different object in `next`: the named ids only, or every id when the
+// fold compares the whole maps (`named` null). Same map → nothing changed.
+function eachChanged<V>(prev: Record<string, V>, next: Record<string, V>, named: ReadonlySet<string> | null, visit: (a: V | undefined, b: V | undefined) => void): void {
+  if (prev === next) return;
+  if (named !== null) {
+    for (const id of named) if (prev[id] !== next[id]) visit(prev[id], next[id]);
+    return;
+  }
+  for (const id in next) if (prev[id] !== next[id]) visit(prev[id], next[id]);
+  for (const id in prev) if (next[id] === undefined) visit(prev[id], undefined);
+}
+
+function touchedKeys(prev: EngineState, next: EngineState, named: FoldScope): { keys: Set<string>; flight: Map<string, EngineLine[]> | null } {
   const keys = new Set<string>();
   const pc = prev.config;
   const nc = next.config;
@@ -404,7 +425,7 @@ function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
       for (const id in s.orders) keys.add(s.orders[id]!.table_key);
       for (const k in s.slips) keys.add(k);
     }
-    return keys;
+    return { keys, flight: null };
   }
   if (prev.slips !== next.slips) {
     for (const k in prev.slips) if (prev.slips[k] !== next.slips[k]) keys.add(k);
@@ -415,46 +436,25 @@ function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
   // via foldNamesOrder), and that moves the packing of the lines behind its in-flight lines: their stations count as
   // in-flight changes (review, task 15).
   const orderFlight = (s: EngineState, o: EngineOrder): void => {
+    keys.add(o.table_key);
     for (const lid of o.line_ids) {
       const l = s.lines[lid];
       if (l !== undefined && isInFlight(l)) flight.add(l.station_id);
     }
   };
-  if (prev.orders !== next.orders) {
-    for (const id in next.orders) {
-      const a = prev.orders[id];
-      const b = next.orders[id]!;
-      if (a === b) continue;
-      keys.add(b.table_key);
-      orderFlight(next, b);
-      if (a !== undefined) {
-        keys.add(a.table_key);
-        orderFlight(prev, a);
-      }
-    }
-    for (const id in prev.orders) {
-      const a = prev.orders[id]!;
-      if (next.orders[id] === undefined) {
-        keys.add(a.table_key);
-        orderFlight(prev, a);
-      }
-    }
-  }
-  if (prev.lines !== next.lines) {
-    const add = (l: EngineLine): void => {
-      const o = next.orders[l.order_id] ?? prev.orders[l.order_id];
-      if (o !== undefined) keys.add(o.table_key);
-      if (isInFlight(l)) flight.add(l.station_id);
-    };
-    for (const id in next.lines) {
-      const a = prev.lines[id];
-      const b = next.lines[id]!;
-      if (a === b) continue;
-      add(b);
-      if (a !== undefined) add(a);
-    }
-    for (const id in prev.lines) if (next.lines[id] === undefined) add(prev.lines[id]!);
-  }
+  eachChanged(prev.orders, next.orders, named.whole ? null : named.orderIds, (a, b) => {
+    if (b !== undefined) orderFlight(next, b);
+    if (a !== undefined) orderFlight(prev, a);
+  });
+  const lineChanged = (l: EngineLine): void => {
+    const o = next.orders[l.order_id] ?? prev.orders[l.order_id];
+    if (o !== undefined) keys.add(o.table_key);
+    if (isInFlight(l)) flight.add(l.station_id);
+  };
+  eachChanged(prev.lines, next.lines, named.whole ? null : named.lineIds, (a, b) => {
+    if (b !== undefined) lineChanged(b);
+    if (a !== undefined) lineChanged(a);
+  });
   const capChanged = new Set<string>();
   if (prev.stations !== next.stations) {
     for (const sid in next.stations) {
@@ -463,16 +463,22 @@ function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
       if (a !== undefined && a !== b && effectiveCapacity(a) !== effectiveCapacity(b)) capChanged.add(sid);
     }
   }
-  if (flight.size > 0 || capChanged.size > 0) {
+  const addKey = (l: EngineLine): void => {
+    const o = next.orders[l.order_id];
+    if (o !== undefined) keys.add(o.table_key);
+  };
+  if (capChanged.size > 0) {
     for (const id in next.lines) {
       const l = next.lines[id]!;
-      if (capChanged.has(l.station_id) || (flight.has(l.station_id) && isFiredNotStarted(l))) {
-        const o = next.orders[l.order_id];
-        if (o !== undefined) keys.add(o.table_key);
-      }
+      if (capChanged.has(l.station_id)) addKey(l);
     }
   }
-  return keys;
+  if (flight.size === 0) return { keys, flight: null };
+  const byStation = inFlightByStation(next.lines);
+  for (const sid of flight) {
+    for (const l of byStation.get(sid) ?? []) if (isFiredNotStarted(l)) addKey(l);
+  }
+  return { keys, flight: byStation };
 }
 
 // R4 at the fold's recorded_at: every order of the slip absent, out of the engine, or with every sync group resolved.
@@ -484,12 +490,12 @@ function slipResolved(state: EngineState, slip: SlipRecord, t: number): boolean 
 }
 
 // §3.8 Slip state and slip_due upkeep for the keys the fold touched (prev = the fold's input, next = its output, t =
-// its recorded_at): a resolving fold sets resolved_at = t when the alert is open, else drops slips[key]; a fold that
+// its recorded_at, named = what the fold names, §7.1): a resolving fold sets resolved_at = t when the alert is open, else drops slips[key]; a fold that
 // un-resolves clears resolved_at; then slip_due[key] is recomputed for those keys only and next_alert_due_at is its
 // minimum. Nothing changed → `next` itself (slip_due and next_alert_due_at keep their references, test 106).
-export function upkeepSlips(prev: EngineState, next: EngineState, t: number): EngineState {
+export function upkeepSlips(prev: EngineState, next: EngineState, t: number, named: FoldScope): EngineState {
   if (prev === next) return next;
-  const touched = touchedKeys(prev, next);
+  const { keys: touched, flight } = touchedKeys(prev, next, named);
   if (touched.size === 0) return next;
   let slips = next.slips;
   for (const key of touched) {
@@ -506,7 +512,7 @@ export function upkeepSlips(prev: EngineState, next: EngineState, t: number): En
     }
   }
   const state = slips === next.slips ? next : { ...next, slips };
-  const ctx = new Ctx(state);
+  const ctx = new Ctx(state, flight); // `slips` is all that differs from `next`, so the pass over next.lines holds
   const byKey = ordersByKey(state, touched);
   let due = state.slip_due;
   for (const key of touched) {
