@@ -14,6 +14,11 @@ export function isOpen(line: EngineLine | undefined): boolean {
   return line !== undefined && OPEN_STAGES.has(line.stage);
 }
 
+// AD-8: a listed line not yet filled by its ItemAdded is not a line.
+export function isPlaceholder(line: EngineLine): boolean {
+  return line.units === 0 && line.fire_ms === null && line.booked === null;
+}
+
 // A line not yet fired: hidden, frozen, or a placeholder (AD-8) still awaiting its ItemAdded.
 function isUnfired(line: EngineLine): boolean {
   return line.stage === 'added' && line.fired_at === null;

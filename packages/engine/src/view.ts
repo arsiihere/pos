@@ -8,7 +8,7 @@
 // §6.5 do not list it, and the overload item reads it on unfired lines only (slip.ts).
 import type { ReservationsShiftedPayload, StationPlanLine as WsStationPlanLine } from '@pos/events';
 import { effectiveCapacity } from './capacity.js';
-import { orderInEngine } from './lifecycle.js';
+import { isPlaceholder, orderInEngine } from './lifecycle.js';
 import { liveInterval, liveProfile, liveProfiles } from './live.js';
 import { bookingAt } from './overload.js';
 import { pressureBand, pressureBp, type PressureBand } from './pressure.js';
@@ -141,14 +141,14 @@ export interface GroupReadiness {
 // Per group, its sync lines only (F: "Immediate items are never held"): done = `done` or later, waiting = `added` or
 // `cooking`; a removed / voided / returned line is neither. hold is a hint (§3.4 v0.3), never a block: a line still at
 // the pass (`done`) with a sibling not yet done. Order READY (§3.4) = no group has anything waiting.
-// Proposed (implementer, overnight) G1: `now` is an optional third argument. §6.1i has no time, but §3.3 says every view
-// uses the predicate, which needs one; without it the order's row is read. The host should pass it. Alternative: no
-// predicate here (an exited order would still answer until its row goes).
+// Proposed (implementer, overnight) G1: `now` is a required third argument. §6.1i has no time, but §3.3 says every view
+// uses the predicate, which needs one; required, so a host written from §6.1i gets a compile error instead of silently
+// skipping the predicate. Alternative: no predicate here (an exited order would still answer until its row goes).
 // Proposed (implementer, overnight) G2: a served line counts as done ("done (or later)", §3.4) but holds nothing, it has
 // left the pass. Alternative: hold = done ∧ waiting, which would flag HOLD with nothing on the pass.
-export function groupReadiness(state: EngineState, order_id: string, now?: number): GroupReadiness[] {
+export function groupReadiness(state: EngineState, order_id: string, now: number): GroupReadiness[] {
   const order = state.orders[order_id];
-  if (order === undefined || (now !== undefined && !orderInEngine(state, order, now))) return [];
+  if (order === undefined || !orderInEngine(state, order, now)) return [];
   return Object.keys(order.groups).map((group_id) => {
     const done: string[] = [];
     const waiting: string[] = [];
@@ -164,10 +164,6 @@ export function groupReadiness(state: EngineState, order_id: string, now?: numbe
     }
     return { group_id, done, waiting, hold: atPass && waiting.length > 0 };
   });
-}
-
-function isPlaceholder(line: EngineLine): boolean {
-  return line.units === 0 && line.fire_ms === null && line.booked === null;
 }
 
 // ---- stationsLive (§6.5, §6.1j) -------------------------------------------------------------------------------------
@@ -248,22 +244,33 @@ function pullStart(pack: Profile, others: Profile, now: number, prep: number, co
   return earliestFit(others, s, prep, cook, units, cap) === s ? s : null;
 }
 
-// Slot station: the next n lines in fire order ("pulls the next items early", D16; D17 never reorders).
+// Whether the lines fit together as the fold will place them: every one gets fire_ms = now, so they pack by
+// order_item_id (§3.3 packing, AD-9), not in the order they were chosen.
+function pullSetFits(live: Profile, pack: Profile, lines: readonly EngineLine[], now: number, cap: number): boolean {
+  let others = live;
+  for (const l of lines) others = removeInterval(others, l.booked!, l.booked!.units, () => {});
+  let packed = pack;
+  for (const l of [...lines].sort((a, b) => byId(a.order_item_id, b.order_item_id))) {
+    const s = pullStart(packed, others, now, l.prep_ms, l.cook_ms, l.units, cap);
+    if (s === null) return false;
+    const b = bookingAt(l, cap, s);
+    others = addInterval(others, b, b.units);
+    packed = addInterval(packed, b, b.units);
+  }
+  return true;
+}
+
+// Slot station: the next n lines in fire order ("pulls the next items early", D16; D17 never reorders). A line joins
+// only if the whole set still fits in the fold's order.
 function pullSlot(state: EngineState, station: StationRuntime, n: number, now: number, cap: number): FireDispatchedDraft | null {
-  let live = liveProfile(state, station.station_id, now);
-  let pack = combine(live, station.profile, -1, () => {});
+  const live = liveProfile(state, station.station_id, now);
+  const pack = combine(live, station.profile, -1, () => {});
   const out: EngineLine[] = [];
   for (const id of station.unfired) {
     if (out.length >= n) break;
     const line = state.lines[id];
     if (!ready(state, line) || line.booked === null || !pullable(line, now)) continue;
-    const others = removeInterval(live, line.booked, line.booked.units, () => {});
-    const s = pullStart(pack, others, now, line.prep_ms, line.cook_ms, line.units, cap);
-    if (s === null) continue;
-    const b = bookingAt(line, cap, s);
-    live = addInterval(others, b, b.units);
-    pack = addInterval(pack, b, b.units);
-    out.push(line);
+    if (pullSetFits(live, pack, [...out, line], now, cap)) out.push(line);
   }
   if (out.length === 0) return null;
   return pullDraft(station.station_id, out.map((l) => l.order_item_id).sort(byId), null, out[0]!.fire_ms!);

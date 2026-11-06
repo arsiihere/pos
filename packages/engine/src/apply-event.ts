@@ -40,7 +40,7 @@ import {
   type SequenceOptions,
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
-import { closeExitIds, exitedOrderIds, isOpen, orderInEngine, touchOrder } from './lifecycle.js';
+import { closeExitIds, exitedOrderIds, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -274,11 +274,6 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
   // order (test 78); only an absent order throws.
   if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
   return listLines(state, order, p, event.recorded_at);
-}
-
-// AD-8: a placeholder from listLines not yet filled by its ItemAdded (a filled line has units ≥ 1).
-function isPlaceholder(line: EngineLine): boolean {
-  return line.units === 0 && line.fire_ms === null && line.booked === null;
 }
 
 // Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a

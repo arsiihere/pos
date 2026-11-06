@@ -294,7 +294,7 @@ describe('@pos/engine READY and hold at pass (§3.4, §3 #9, §6.1i)', () => {
     const k = new Kitchen([SLOT(4)]);
     k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'B', cook: 10 * M }, { id: 'I', cook: M, mode: 'immediate' }], T0);
     const group = (s: EngineState) => {
-      const g = groupReadiness(s, 'O1');
+      const g = groupReadiness(s, 'O1', T0);
       return g.filter((x) => x.done.length + x.waiting.length > 0);
     };
     expect(group(k.state)).toEqual([{ group_id: expect.any(String), done: [], waiting: ['A', 'B'], hold: false }]);
@@ -313,7 +313,7 @@ describe('@pos/engine READY and hold at pass (§3.4, §3 #9, §6.1i)', () => {
     // Last sync line done: READY, no hold; served is "or later".
     const ready = k.apply([doneEv('O1', 'B', at(15))]);
     expect(group(ready)).toEqual([{ group_id: expect.any(String), done: ['A', 'B'], waiting: [], hold: false }]);
-    expect(groupReadiness(ready, 'O1').every((g) => g.waiting.length === 0)).toBe(true);
+    expect(groupReadiness(ready, 'O1', T0).every((g) => g.waiting.length === 0)).toBe(true);
     const served = k.apply([servedEv('O1', 'A', at(16))]);
     expect(group(served)).toEqual([{ group_id: expect.any(String), done: ['A', 'B'], waiting: [], hold: false }]);
   });
@@ -322,19 +322,19 @@ describe('@pos/engine READY and hold at pass (§3.4, §3 #9, §6.1i)', () => {
     const k = new Kitchen([SLOT(4)]);
     k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'B', cook: 10 * M }, { id: 'C', cook: 10 * M }], T0);
     k.apply([fireEv('S1', ['A', 'B', 'C'], T0), startEv('O1', 'A', T0), doneEv('O1', 'A', at(5))]);
-    expect(groupReadiness(k.state, 'O1')[0]).toMatchObject({ done: ['A'], waiting: ['B', 'C'], hold: true });
+    expect(groupReadiness(k.state, 'O1', T0)[0]).toMatchObject({ done: ['A'], waiting: ['B', 'C'], hold: true });
     k.apply([servedEv('O1', 'A', at(6))]); // HOLD never blocks a serve (§3.4 v0.3)
     expect(k.state.lines.A!.stage).toBe('served');
-    expect(groupReadiness(k.state, 'O1')[0]).toMatchObject({ done: ['A'], waiting: ['B', 'C'], hold: false });
+    expect(groupReadiness(k.state, 'O1', T0)[0]).toMatchObject({ done: ['A'], waiting: ['B', 'C'], hold: false });
     k.apply([startEv('O1', 'B', at(6)), doneEv('O1', 'B', at(16))]);
-    expect(groupReadiness(k.state, 'O1')[0]).toMatchObject({ done: ['A', 'B'], waiting: ['C'], hold: true });
+    expect(groupReadiness(k.state, 'O1', T0)[0]).toMatchObject({ done: ['A', 'B'], waiting: ['C'], hold: true });
     k.apply([orderEv('ItemVoided', 'O1', { order_item_id: 'C', reason: 'x' }, at(17))]);
-    expect(groupReadiness(k.state, 'O1')[0]).toMatchObject({ done: ['A', 'B'], waiting: [], hold: false });
+    expect(groupReadiness(k.state, 'O1', T0)[0]).toMatchObject({ done: ['A', 'B'], waiting: [], hold: false });
   });
 
   it('[03a §6.1i] an absent order has none; an order out of the engine at now has none (the predicate, not the row)', () => {
     const k = new Kitchen([SLOT(1)], { order_abandon_ms: 3_600_000 });
-    expect(groupReadiness(k.state, 'NOPE')).toEqual([]);
+    expect(groupReadiness(k.state, 'NOPE', T0)).toEqual([]);
     k.submit('O1', [{ id: 'A', cook: 5 * M }], T0);
     k.apply([fireEv('S1', 'A', T0)]);
     expect(groupReadiness(k.state, 'O1', T0)[0]).toMatchObject({ waiting: ['A'] });
@@ -418,7 +418,7 @@ describe('@pos/engine stationView / stationPlan (§6.1h, §3.6.3, D16, D17)', ()
     expect(stationPlan(s, 'S1', T0).lines).toEqual([]);
     expect(stationView(s, 'S1', T0)).toEqual({ now: [], next: [], later_count: 0 });
     expect(stationsLive(s, T0).stations[0]!.later_count).toBe(0);
-    expect(groupReadiness(s, 'O1')[0]!.waiting).toEqual(['A']);
+    expect(groupReadiness(s, 'O1', T0)[0]!.waiting).toEqual(['A']);
   });
 
   it('[03a §3.3] [03a AD-20] a line of an order out of the engine is in no view, though its row is still there', () => {
@@ -577,6 +577,21 @@ describe('@pos/engine pullEarly (§6.1k, D16 Give me more)', () => {
     expect(pullEarly(before, 'S1', 1, at(11))).not.toBeNull(); // from 12:11, nothing in the way
   });
 
+  it('[03a §6.1k] a multi-line pull never over-books: the set is tested in the fold\'s order (order_item_id), not in fire order', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'R', cook: M, early: 0 }], T0, { pickup: at(12) });
+    k.submit('O2', [{ id: 'Z', cook: 8 * M, early: 60 * M }], T0, { pickup: at(30) });
+    k.submit('O3', [{ id: 'A', cook: 2 * M, prep: 3 * M, early: 60 * M }], T0, { pickup: at(40) });
+    expect(k.state.lines.R!.booked).toMatchObject({ start: at(11), end: at(12) });
+    expect(k.state.lines.Z!.fire_ms!).toBeLessThan(k.state.lines.A!.fire_ms!);
+    // In fire order both fit before R; the fold packs A first, which would put Z on [12:05, 12:13), over R.
+    const draft = pullEarly(k.state, 'S1', 2, T0);
+    expect(draft!.payload.order_item_ids).toEqual(['Z']);
+    const s = k.apply([fromDraft(draft!, T0)]);
+    expect(liveInterval(s, 'Z', T0)).toEqual({ start: T0, end: at(8) });
+    expect(maxUnits(s, 'S1', T0)).toBe(1);
+  });
+
   it('[03a §6.1k] a mark pulled never overwrites return; a re-listed fired line is left as it is', () => {
     const k = new Kitchen([SLOT(1)], { returns_boost: false });
     k.submit('OS', [{ id: 'L1', cook: 5 * M }], T0);
@@ -588,7 +603,10 @@ describe('@pos/engine pullEarly (§6.1k, D16 Give me more)', () => {
     // A scheduled fire writes no mark.
     const j = new Kitchen([SLOT(1)]);
     j.submit('O1', [{ id: 'A', cook: M }], T0);
-    expect(j.apply([fireEv('S1', 'A', T0)]).lines.A!.mark).toBeNull();
+    const fired = j.apply([fireEv('S1', 'A', T0)]);
+    expect(fired.lines.A!.mark).toBeNull();
+    // Re-listed by a pull after it fired: untouched, no mark, no second fire (D44).
+    expect(j.apply([fireEv('S1', 'A', at(1), 'pulled')]).lines.A).toEqual(fired.lines.A);
   });
 
   describe('on a batch station', () => {
