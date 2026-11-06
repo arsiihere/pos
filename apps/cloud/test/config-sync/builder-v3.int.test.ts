@@ -270,7 +270,7 @@ describe('buildSnapshotBody: schema 3', () => {
     ]);
   });
 
-  it('[01a §4.3 V3] another tenant’s links never appear; the hash is equal across two builds with every list filled', async () => {
+  it('[01a §4.3 V3] another tenant’s links never appear; the hash is equal across two builds with points, alternates, carry times and goes-with filled', async () => {
     await seedSlots();
     await alternate('ST-1', 'ST-3', ['takeaway', 'dine_in'], []);
     await sql(`INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at) VALUES ($1, $2, 'ST-3', $3, 15000, 0, 0)`, [
