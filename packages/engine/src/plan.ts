@@ -696,6 +696,56 @@ export function replanEnded(state: EngineState, ended: EngineLine, t: number, ev
   return { ...next, lines, orders: { ...next.orders, [order!.order_id]: { ...order!, groups, target_land_ms } } };
 }
 
+// Task 15b (AD-12 for a group whose membership changed: ItemsReleased, §3.8): the group keeps its stored T ("unticked
+// lines stay sync with each other at their old T"), and its hidden lines get their queued deadlines (their D36 slots)
+// again without the lines that left. proposed (implementer, overnight): the trial is replanEnded's step 2 floored by T
+// itself — the group's hold-and-fire loop over its hidden, non-FIFO lines (fixed input: every other line, and the
+// group's lines that cannot move as a floor at their live land), against the live profiles at t without those lines;
+// each line the loop places on its own station takes d = queuedDeadline(fire, loopT, T) (loopT > T only when the
+// group no longer fits at T: the AD-12 append-gap shape). Nothing is moved or booked here (the fold's re-plan, if
+// any, follows and reads the new deadlines); a line placed on another station in the trial keeps its deadline.
+// Unchanged deadlines return state itself.
+export function requeueGroup(state: EngineState, order_id: string, group_id: string, t: number, o: SequenceOptions): EngineState {
+  const order = state.orders[order_id];
+  const group = order?.groups[group_id];
+  if (order === undefined || group === undefined) return state;
+  const siblings = group.line_ids
+    .map((id) => state.lines[id])
+    .filter((l): l is EngineLine => l !== undefined && l.serve_mode === 'sync' && l.units > 0 && (l.stage === 'added' || l.stage === 'cooking'));
+  const movable = siblings.filter((l) => isHidden(state, l, t) && !isFifo(state, l.station_id));
+  if (movable.length === 0) return state;
+  const held = new Set(movable.map((l) => l.order_item_id));
+  const T = group.target_land_ms;
+  let floor = Math.max(T, order.pickup_at_ms ?? Number.NEGATIVE_INFINITY);
+  for (const l of siblings) {
+    if (held.has(l.order_item_id)) continue;
+    const iv = liveInterval(state, l.order_item_id, t);
+    if (iv !== null) floor = Math.max(floor, iv.end + l.carry_ms);
+  }
+  const ctx = routeCtx(state);
+  const options = new Map(movable.map((l) => [l.order_item_id, routeOptions(ctx, l, true)]));
+  const ids = [...new Set([...options.values()].flatMap((os) => os.map((x) => x.station_id)))];
+  const profiles: Record<string, Profile> = { ...liveProfiles(state, ids, t) };
+  for (const l of movable) {
+    const b = l.booked!;
+    profiles[l.station_id] = o.strict
+      ? removeInterval(profiles[l.station_id]!, b, b.units)
+      : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
+  }
+  for (const l of movable) stationOf(state.stations, l);
+  const loop = holdAndFire(state, profiles, movable, options, t, floor);
+  let lines: Record<string, EngineLine> | null = null;
+  for (const l of movable) {
+    const pl = loop.placements.get(l.order_item_id);
+    if (pl === undefined || pl.station_id !== l.station_id) continue;
+    const d = queuedDeadline(pl.fire, loop.T, T);
+    if (d === l.deadline_ms) continue;
+    lines ??= { ...state.lines };
+    lines[l.order_item_id] = { ...l, deadline_ms: d };
+  }
+  return lines === null ? state : { ...state, lines };
+}
+
 // ---- §6.1b–d: planOrder, calculateETA, checkOrderable --------------------------------------------------------
 
 type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'parking';

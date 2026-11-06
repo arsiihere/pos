@@ -8,6 +8,7 @@ import type {
   ItemServedPayload,
   ItemStartedPayload,
   ItemVoidedPayload,
+  ItemsReleasedPayload,
   OrderGroupPayload,
   OrderLinePayload,
   OrderLinesAddedLinePayload,
@@ -18,7 +19,7 @@ import type {
   SlipWarnedPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
-import { applyMoves, capacityFor, flipPlacement, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
+import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import {
   applyPass1,
   checkProgram,
@@ -29,6 +30,7 @@ import {
   lineUnits,
   planNewLines,
   replanEnded,
+  requeueGroup,
   storeLoads,
   type SequenceOptions,
 } from './plan.js';
@@ -852,8 +854,97 @@ function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): E
   return withEntry(state, p.stock_item_id, { ...prev, on_hand: prev.on_hand + p.quantity });
 }
 
+// §3.8 applyEvent(ItemsReleased) (D11, D12; task 15b): "released lines leave their group; expedite lines become
+// immediate (mark 'expedite', weight = follow_up weight, D12); unticked lines stay sync with each other at their old
+// T; re-plan." §3.3 absent ids: an absent order (or one out of the engine, AD-20 kept) is a no-op returning state; an
+// absent id is skipped; a listed line of another order is a writer bug (AD-8: line_not_in_order). The fold refreshes
+// the order's clock (§3.3 last_line_fold_at).
+// Proposed (implementer, overnight) readings, each keeping the stated rules:
+//   P1 only open sync lines take part (added, cooking, done): a line already immediate (an earlier split, a starter, a
+//      return line, which keeps its mark 'return', §3.8a) or ended is left as it is, so a repeated event changes no
+//      line. A line in both lists is released (released is read first).
+//   P2 a line that leaves its group becomes immediate in a group of its own (§3.2: "immediate lines are each their own
+//      group"; a released line goes now with no hold) with the id order_id:next_group_index (§3.3), in payload order,
+//      released first. A released line keeps its stage and placement (a done line holds nothing). A source group left
+//      with no line is removed; the rest keeps its id and T, and the order's T and promise do not move.
+//   P3 the re-plan (§3.5.3 trigger "ItemsReleased") is the expedite lines' placement as immediates, once per station:
+//      each hidden, non-FIFO slot expedite line leaves its station (AD-7: exactly `booked`) and planNewLines runs the
+//      one sequence for them (pass 1 on the stations they may use — the other hidden lines re-placed within their
+//      slack, keep first — then each at its earliest fit), as a return line is placed (§3.8a). Its group's T is its
+//      new land and its deadline its fire (immediate, AD-12). A frozen, fired, COOKING or done expedite line keeps its
+//      placement (D15: a split is neither a boost nor a capacity change), as does a line on a FIFO station (AD-14: no
+//      re-plan of placed lines) or a batch load member (the load is the unit of placement, task 13); its group takes
+//      the source group's T. With no hidden expedite line nothing is re-placed (released lines hold nothing).
+//   P4 AD-12: every source group whose membership changed gets its queued deadlines again at its old T (plan.ts
+//      requeueGroup), before the re-plan reads them.
+function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const strict = o.strict;
+  const p = event.payload as unknown as ItemsReleasedPayload;
+  const t = event.recorded_at;
+  const oid = p.order_id;
+  checkStream(event, oid, p.released[0] ?? p.expedite[0] ?? '');
+  const order = state.orders[oid];
+  if (order === undefined || !orderInEngine(state, order, t)) return state; // absent, or AD-20 kept
+  const seen = new Set<string>();
+  const pick = (ids: readonly string[]): EngineLine[] => {
+    const out: EngineLine[] = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const line = lineOf(state, id);
+      if (line === undefined) continue;
+      if (line.order_id !== oid) throw new InvalidEvent('line_not_in_order', id, line.station_id);
+      if (line.serve_mode === 'sync' && isOpen(line)) out.push(line);
+    }
+    return out;
+  };
+  const released = pick(p.released);
+  const expedite = pick(p.expedite);
+  if (released.length + expedite.length === 0) return touchOrder(state, oid, t);
+
+  const groups = { ...order.groups };
+  const lines = { ...state.lines };
+  const sources = new Set<string>();
+  const movable: string[] = [];
+  let index = order.next_group_index;
+  const leave = (line: EngineLine, patch: Partial<EngineLine>, own: boolean): void => {
+    const id = line.order_item_id;
+    const gid = `${oid}:${index++}`;
+    const src = groups[line.group_id];
+    if (src !== undefined) {
+      groups[line.group_id] = { ...src, line_ids: src.line_ids.filter((x) => x !== id) };
+      sources.add(line.group_id);
+    }
+    lines[id] = { ...line, ...patch, serve_mode: 'immediate', group_id: gid };
+    if (own) groups[gid] = { target_land_ms: src?.target_land_ms ?? order.target_land_ms, line_ids: [id] };
+  };
+  for (const line of released) leave(line, {}, true);
+  for (const line of expedite) {
+    const move = isHidden(state, line, t) && !isFifo(state, line.station_id);
+    if (move) movable.push(line.order_item_id);
+    leave(line, { mark: 'expedite' }, !move);
+  }
+  for (const gid of sources) if (groups[gid]!.line_ids.length === 0) delete groups[gid];
+  let next: EngineState = { ...state, lines, orders: { ...state.orders, [oid]: { ...order, groups, next_group_index: index } } };
+  // P3 / AD-7: the hidden expedite lines leave their stations (exactly `booked`) to be placed again as immediates.
+  for (const id of movable) next = patchLine(unbook(next, next.lines[id]!, event, strict), id, { fire_ms: null, capped: false });
+  // P4 / AD-12.
+  for (const gid of [...sources].sort()) next = requeueGroup(next, oid, gid, t, o);
+  if (movable.length > 0) {
+    next = planNewLines(next, oid, t, event.event_id, o);
+    const ord = next.orders[oid]!;
+    const g = { ...ord.groups };
+    for (const id of movable) {
+      const l = next.lines[id]!;
+      g[l.group_id] = { target_land_ms: l.booked!.end + l.carry_ms, line_ids: [id] };
+    }
+    next = { ...next, orders: { ...next.orders, [oid]: { ...ord, groups: g } } };
+  }
+  return touchOrder(next, oid, t);
+}
+
 // §3.3 last_line_fold_at for the order folds whose effects land in later tasks (ItemMovedToStock 12, OrderBoosted
-// 9, ItemsReleased 15b): an event that names a present order (or an open line of one) refreshes its clock.
+// 9): an event that names a present order (or an open line of one) refreshes its clock.
 function foldNamesOrder(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as { order_id: string };
   checkStream(event, p.order_id, '');
@@ -1040,8 +1131,9 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'ItemMovedToStock':
       return foldItemMovedToStock(state, event);
     case 'OrderBoosted':
-    case 'ItemsReleased':
       return foldNamesOrder(state, event);
+    case 'ItemsReleased':
+      return foldItemsReleased(state, event, o);
     // §3.8 slip state (neither refreshes the §3.3 clock).
     case 'SlipWarned':
       return foldSlipWarned(state, event);

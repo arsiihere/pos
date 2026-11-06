@@ -17,5 +17,5 @@ export {
   type ReservationsShiftedDraft,
   type TickDraft,
 } from './tick.js';
-export { getAlertIntents, nextAlertDueAt, type AlertIntents } from './slip.js';
+export { getAlertIntents, goesWith, nextAlertDueAt, planRelease, type AlertIntents, type GoesWithLine, type GoesWithLink, type ItemsReleasedDraft } from './slip.js';
 export { stationPressure } from './pressure.js';

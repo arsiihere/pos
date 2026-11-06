@@ -52,6 +52,7 @@ import { ORDER_EXIT_AFTER_SERVED_MS, orderInEngine } from './lifecycle.js';
 import { liveProfiles, packStation } from './live.js';
 import { pressureBp, pressureWindowOf } from './pressure.js';
 import { occupancy } from './profile.js';
+import type { ItemsReleasedPayload } from '@pos/events';
 import type { EngineLine, EngineOrder, EngineState, SlipRecord } from './state.js';
 
 export interface AlertIntents {
@@ -264,14 +265,15 @@ function lineCrossing(ctx: Ctx, line: EngineLine, level: number, lo: number, exi
   return c < exit ? c : INF;
 }
 
-// BF-14 (a): the first t ≥ lo at which the packed estimate exceeds the level. Assumption: the packed estimate is
-// non-decreasing in t (each packed Start is the earliest fit ≥ max(fire, t) beside fixed COOKING intervals); then the
-// result is the earliest crossing. Should the packing ever be non-monotone (an order ahead leaving the engine frees its
-// unit), the result is still an instant r with estimate(r) > level and estimate(r − 1) ≤ level, and it is a pure
-// function of the state, so per-key = full recompute, live = replay and test 92's item / no-item pair hold regardless. s(t) ≥ max(fire, t), so at
+// BF-14 (a): the first t ≥ lo at which the packed estimate exceeds the level. s(t) ≥ max(fire, t), so at
 // hi = level − prep − cook − carry + 1 the estimate exceeds it whenever the line still packs; a range cut by the exit
 // that never crosses gives none. Binary search keeps "lo false, hi true", so the result r has estimate(r) > level and
 // estimate(r − 1) ≤ level.
+// Assumption: the packed estimate is non-decreasing in t (each packed Start is the earliest fit ≥ max(fire, t) beside
+// fixed COOKING intervals); then the result is the earliest crossing. The packing is non-monotone when an order ahead
+// exits (it leaves the engine and frees its unit), and then the result is still an instant r with estimate(r) > level
+// and estimate(r − 1) ≤ level and a pure function of the state, so per-key = full recompute, live = replay and test
+// 92's item / no-item pair hold regardless.
 function firedCrossing(ctx: Ctx, line: EngineLine, level: number, lo: number, exit: number): number {
   const pred = (t: number): boolean => {
     const e = ctx.packedEnd(line, t);
@@ -615,4 +617,75 @@ export function nextAlertDueAt(state: EngineState, exclude?: ReadonlySet<string>
     if (min === null || v < min) min = v;
   }
   return min;
+}
+
+// ---- §6.1m split send (D11, D12; task 15b) ----------------------------------------------------------------------------
+
+// A line as goesWith reads it: ItemAdded.item_id (null for a line with no menu item) and ItemAdded.category_id.
+export type GoesWithLine = { item_id: string | null; category_id: string };
+// One row of 01a v2.1 A-13 `goes_with_links` as the config snapshot (schema 3) carries it in `goes_with[]`.
+export type GoesWithLink = { source_kind: 'category' | 'item'; source_id: string; target_kind: 'category' | 'item'; target_id: string; excluded: boolean };
+
+// D12: does lineB go with lineA (lineA released, lineB a candidate to pre-tick)? A row matches when its source is
+// lineA's item (item rows) or category (category rows) and its target lineB's item or category. A-13: a category row is
+// the category's default, an item row adds to it, and an item row with `excluded` removes a default.
+// Proposed (implementer, overnight): the most specific matching row decides — item source over category source, then
+// item target over category target (so an item's exclude of a whole category is undone for one item it adds back);
+// on a tie an exclude wins. No matching row (nothing configured) → false.
+export function goesWith(lineA: GoesWithLine, lineB: GoesWithLine, links: ReadonlyArray<GoesWithLink>): boolean {
+  let best = -1;
+  let ok = false;
+  for (const l of links) {
+    const src = l.source_kind === 'item' ? lineA.item_id !== null && l.source_id === lineA.item_id : l.source_id === lineA.category_id;
+    if (!src) continue;
+    const tgt = l.target_kind === 'item' ? lineB.item_id !== null && l.target_id === lineB.item_id : l.target_id === lineB.category_id;
+    if (!tgt) continue;
+    const rank = (l.source_kind === 'item' ? 2 : 0) + (l.target_kind === 'item' ? 1 : 0);
+    if (rank > best) {
+      best = rank;
+      ok = !l.excluded;
+    } else if (rank === best && l.excluded) {
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+// The draft as the other engine drafts (tick.ts): no envelope ids or times; the host stamps them.
+export type ItemsReleasedDraft = { stream_type: 'order'; stream_id: string; event_type: 'ItemsReleased'; schema_version: 1; payload: ItemsReleasedPayload };
+
+// §3.8 / §6.1m: one ItemsReleased per order with work, in order_ids order (an absent order or one with nothing to send
+// gives none): released = the order's done sync lines (go now, no hold), expedite = its open (added / cooking) sync
+// lines that are ticked; lines in line_ids order. ticks.released narrows released to the ticked done lines.
+// Proposed (implementer, overnight): the engine state carries no goes-with links (§3.11's EngineConfigApplied has no
+// goes_with field) nor a line's item / category, so planRelease pre-ticks nothing by itself: the caller (the
+// slip_warning apply, 02's table view) computes D12's pre-ticks with goesWith over the snapshot's goes_with and passes
+// them as ticks.expedite; with no ticks nothing is expedited (D12: "none configured → none"). alert_id = the open
+// slip alert of the order's table key (slips[table_key].alert_id), else null.
+export function planRelease(state: EngineState, order_ids: string[], ticks?: { released?: string[]; expedite?: string[] }): ItemsReleasedDraft[] {
+  const rel = ticks?.released === undefined ? null : new Set(ticks.released);
+  const exp = new Set(ticks?.expedite ?? []);
+  const out: ItemsReleasedDraft[] = [];
+  const seen = new Set<string>();
+  for (const order_id of order_ids) {
+    if (seen.has(order_id)) continue;
+    seen.add(order_id);
+    const order = state.orders[order_id];
+    if (order === undefined) continue;
+    const released: string[] = [];
+    const expedite: string[] = [];
+    for (const id of order.line_ids) {
+      const l = state.lines[id];
+      if (l === undefined || isPlaceholder(l) || l.serve_mode !== 'sync') continue;
+      if (l.stage === 'done') {
+        if (rel === null || rel.has(id)) released.push(id);
+      } else if ((l.stage === 'added' || l.stage === 'cooking') && exp.has(id)) {
+        expedite.push(id);
+      }
+    }
+    if (released.length + expedite.length === 0) continue;
+    const alert_id = state.slips[order.table_key]?.alert_id ?? null;
+    out.push({ stream_type: 'order', stream_id: order_id, event_type: 'ItemsReleased', schema_version: 1, payload: { order_id, alert_id, released, expedite } });
+  }
+  return out;
 }
