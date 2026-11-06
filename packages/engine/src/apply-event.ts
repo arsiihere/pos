@@ -2,6 +2,7 @@ import type { Unit } from '@pos/domain';
 import type {
   EngineConfig,
   FireDispatchedPayload,
+  StationPauseSetPayload,
   ItemAddedPayload,
   ItemDonePayload,
   ItemReturnedPayload,
@@ -489,10 +490,22 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
     // AD-9: a pulled / early_fill line packs from its actual dispatch and sorts by it (the planned fire stays in
     // the event's due_at); a scheduled or missed fire (recorded_at ≥ fire_ms) keeps fire_ms.
     const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
-    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms });
+    // §3.3 D17: Give me more is a human-triggered jump, marked; a return keeps its RETURN marker (§3.8a).
+    const mark = p.reason === 'pulled' && line.return_of === null ? { mark: 'pulled' as const } : {};
+    next = moveLine(next, line, event, strict, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms, ...mark });
     next = touchOrder(next, line.order_id, event.recorded_at);
   }
   return next;
+}
+
+// §3.10 (D21): the flag only. Open lines continue: nothing is re-placed, the tick still fires them and hidden lines
+// keep their station; only new orders (checkOrderable) and later routing (route.ts) read it. The BusinessDayOpened
+// fold clears it. Absent station or no change: state itself.
+function foldStationPause(state: EngineState, event: PosEvent): EngineState {
+  const p = event.payload as unknown as StationPauseSetPayload;
+  const station = state.stations[p.station_id];
+  if (station === undefined || station.paused === p.paused) return state;
+  return { ...state, stations: { ...state.stations, [p.station_id]: { ...station, paused: p.paused } } };
 }
 
 // F §4.7 D42 applyEvent(ReservationsShifted) (task 14b): each listed unfired reservation of the station moves by its
@@ -1186,9 +1199,8 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldAlertClosed(state, event);
     case 'StationCapacitySet':
       return foldStationCapacity(state, event, o);
-    // Unchanged until its task (16b).
     case 'StationPauseSet':
-      return state;
+      return foldStationPause(state, event);
     default:
       return state;
   }

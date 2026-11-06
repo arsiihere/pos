@@ -300,6 +300,21 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     expectProfileExact(s);
   });
 
+  // Task 16 review (b): a frozen batch load is held the same way.
+  it('[03a #97] batch: a frozen load pushed past the freeze by a boost of a 150 s load of another program ends at t + 150 s', () => {
+    const t = T0 + 10 * M;
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 4, freeze_ms: 120_000, freshness_window_ms: 0, programs: [{ program_id: 'P1', name: 'P1', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'P2', cook_time_ms: 999_999, is_archived: false }] }]);
+    k.submit('OA', [{ id: 'A', program: 'P1', cook: M }], t - M, { pickup: t + 170 * S + M }); // d = t + 170 s
+    k.submit('OX', [{ id: 'X', program: 'P2', cook: 150 * S }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
+    const s = k.apply([boost('OX', t)]);
+    expect(s.lines.X).toMatchObject({ fire_ms: t, mark: 'boost' });
+    expect(s.lines.A).toMatchObject({ fire_ms: t + 150 * S, mark: 'moved', station_id: 'F' });
+    expect(s.stations.F!.loads[s.lines.A!.load_id!]).toMatchObject({ fire_ms: t + 150 * S, booked: { start: t + 150 * S, end: t + 210 * S } });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
   it('[03a §3.9] a boost never moves a fired line; its live interval stays a fixed input of T_b', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('OF', [{ id: 'FD', cook: 10 * M }], T0);
@@ -538,6 +553,21 @@ describe('@pos/engine returns_boost (§3.8a)', () => {
     };
     expect(run(5 * M)).toEqual(['O2']); // X pushed 4 min
     expect(run(2 * M)).toEqual([]); // X pushed 1 min
+  });
+
+  // Task 16 review (a): the return path holds a pushed frozen line too (heldAfterFrozen), as boost and capacity do.
+  it('[03a #97] return path: frozen A at t + 110 s, d = t + 170 s, a return of 150 s → A ends at t + 150 s, not re-placed again, never earlier', () => {
+    const t = at(10);
+    const k = returnKitchen({ returns_boost: true }, 1);
+    k.submit('OA', [{ id: 'A', cook: M }], t - M, { pickup: t + 170 * S + M }); // d = t + 170 s
+    k.submit('OX', [{ id: 'X', cook: 150 * S }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
+    const plan = planOrder(k.state, proposedReturn(k, 150 * S), t, {});
+    const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: t, target_land_ms: plan.groups[0]!.target_land_ms, promise_ms: plan.groups[0]!.promise_ms, order_item_id: 'LR', adjust_time_ms: 150 * S }));
+    expect(s.lines.LR).toMatchObject({ mark: 'return', fire_ms: t, booked: { start: t, end: t + 150 * S, units: 1 } });
+    expect(s.lines.A).toMatchObject({ fire_ms: t + 150 * S, mark: 'moved', deadline_ms: t + 170 * S });
+    expectProfileExact(s);
+    expectRebuild(k);
   });
 
   it('[03a #107 engine] with returns_boost false the return waits for the frozen line (§3.8a expedite: nothing is pushed)', () => {

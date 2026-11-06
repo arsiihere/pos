@@ -2,6 +2,8 @@
 // basis points, from the live profile (the planned bookings plus the in-flight lines laid over them, §3.3), never
 // stored. Task 15 builds stationPressure for the §3.10 overload item of getAlertIntents; the bands, stationsLive and
 // the views are task 16b.
+// Task 13 note: a batch load books the whole station, so a load with room reads as full here: §3.10 is time occupancy
+// ("booked unit-ms"), and the bands see exactly that, not the units on the tray.
 import { effectiveCapacity } from './capacity.js';
 import { liveProfile } from './live.js';
 import { bookedUnitMs } from './profile.js';
@@ -23,4 +25,19 @@ export function stationPressure(state: EngineState, station_id: string, now: num
   const station = state.stations[station_id];
   if (station === undefined) return 0;
   return pressureBp(liveProfile(state, station_id, now), effectiveCapacity(station), pressureWindowOf(state, station_id), now);
+}
+
+export type PressureBand = 'green' | 'amber' | 'red';
+
+// §3.10: green < pressure_amber_bp ≤ amber ≤ pressure_red_bp < red.
+export function pressureBand(bp: number, thresholds: { pressure_amber_bp: number; pressure_red_bp: number }): PressureBand {
+  if (bp < thresholds.pressure_amber_bp) return 'green';
+  return bp <= thresholds.pressure_red_bp ? 'amber' : 'red';
+}
+
+// §3.10, §6.1m: max(1, min(capacity, lanes_on × lane_units)), lane_units = the configured value, or when it is null
+// max(1, floor(capacity ÷ lane_count)), never 0. lane_count is an input, an integer ≥ 1 (03a never reads devices).
+export function capacityForLanes(station: { capacity: number; lane_units: number | null }, lanes_on: number, lane_count: number): number {
+  const lane_units = station.lane_units ?? Math.max(1, Math.floor(station.capacity / lane_count));
+  return Math.max(1, Math.min(station.capacity, lanes_on * lane_units));
 }

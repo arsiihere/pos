@@ -146,8 +146,8 @@ describe('ws', () => {
     const frame = { type: 'station_plan', station_id: 'S1', as_of_seq: 42, lines: [line] };
     expect(WsServerMessage.parse(frame)).toEqual(frame);
     expect(WsServerMessage.safeParse({ ...frame, lines: [] }).success).toBe(true);
-    // fire_ms as in the §3.3 Line (`number | null`); deadline_ms is always set.
-    expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, fire_ms: null }] }).success).toBe(true);
+    // Task 16b: every unfired line listed has a planned fire; deadline_ms is always set.
+    expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, fire_ms: null }] }).success).toBe(false);
     expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, deadline_ms: null }] }).success).toBe(false);
     for (const mark of ['expedite', 'boost', 'pulled', 'return', 'moved']) {
       expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, mark, frozen: false }] }).success, mark).toBe(true);

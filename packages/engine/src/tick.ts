@@ -62,7 +62,7 @@ function configOf(state: EngineState, station_id: string): StationCfg | undefine
 // An unfired, placed line the tick may fire: in its station's `unfired` (placed), stage added, never fired, its order
 // present and not awaiting listed lines (AD-8: the FireDispatched fold refuses those). An unfired line keeps its order
 // in the engine (§3.3), so the exit predicate needs no check here.
-function ready(state: EngineState, line: EngineLine | undefined): line is EngineLine {
+export function ready(state: EngineState, line: EngineLine | undefined): line is EngineLine {
   if (line === undefined || line.stage !== 'added' || line.fired_at !== null || line.fire_ms === null) return false;
   const order = state.orders[line.order_id];
   return order !== undefined && order.awaiting === 0;
@@ -74,7 +74,7 @@ function loadOf(station: StationRuntime, line: EngineLine): Load | undefined {
   return load !== undefined && load.order_item_ids.includes(line.order_item_id) ? load : undefined;
 }
 
-function loadReady(state: EngineState, load: Load): boolean {
+export function loadReady(state: EngineState, load: Load): boolean {
   return load.order_item_ids.every((id) => ready(state, state.lines[id]));
 }
 
@@ -157,7 +157,7 @@ function scheduledFires(state: EngineState, now: number): Fire[] {
 
 // The drafts as the host will fold them (recorded_at = now), on a scratch copy; non-strict, so a scratch fold never
 // stops the pass (its diagnostics stay on the scratch state).
-function scratch(state: EngineState, drafts: readonly TickDraft[], now: number): EngineState {
+export function scratch(state: EngineState, drafts: readonly TickDraft[], now: number): EngineState {
   let s = state;
   for (const d of drafts) {
     const event: PosEvent = {
@@ -186,7 +186,7 @@ function scratch(state: EngineState, drafts: readonly TickDraft[], now: number):
 // planned reservations per station, the live profiles of every station at an instant (one liveProfiles read per
 // instant, cached) and the exit predicate per (order, instant). Keeps a pass linear in the lines (§7.1), and the
 // nextDueAt search from re-reading every line for every candidate instant.
-type Ctx = {
+export type Ctx = {
   state: EngineState;
   ids: string[];
   cooking: Map<string, EngineLine[]>;
@@ -196,7 +196,7 @@ type Ctx = {
   step: number | null;
 };
 
-function ctxOf(state: EngineState): Ctx {
+export function ctxOf(state: EngineState): Ctx {
   const cooking = new Map<string, EngineLine[]>();
   for (const id in state.lines) {
     const l = state.lines[id]!;
@@ -439,9 +439,16 @@ function inferredDones(c: Ctx, now: number): ItemDoneDraft[] {
 function cascadeAt(c: Ctx, station: StationRuntime, t: number): ReservationsShiftedPayload['shifts'] {
   const step = c.step;
   if (step === null) return [];
+  if (!cookingAt(c, station.station_id, t).some((l) => t > (plannedEnd(c.state, l) ?? Infinity))) return [];
+  return pushDown(c, station, t, step);
+}
+
+// F §4.7 D42's loop at t, shared with the late Start (view.ts lateStartShift, step 1: 03a §3.3 moves a line only by how
+// far the Start came late): each planned reservation in start order, delayed by the smallest delay that fits, rounded
+// up to whole steps.
+export function pushDown(c: Ctx, station: StationRuntime, t: number, step: number): ReservationsShiftedPayload['shifts'] {
   const cap = effectiveCapacity(station);
   if (!(cap >= 1)) return [];
-  if (!cookingAt(c, station.station_id, t).some((l) => t > (plannedEnd(c.state, l) ?? Infinity))) return [];
   const reservations = reservationsOf(c, station);
   if (reservations.length === 0) return [];
   let work = combine(liveAt(c, t)[station.station_id]!, station.profile, -1, () => {});

@@ -66,11 +66,12 @@ export const WsBindingRoute = z.object({ type: z.literal('binding_route'), until
 export type WsBindingRoute = z.infer<typeof WsBindingRoute>;
 
 // 03a §3.6.3 (v0.2 pre-G2 #12): one station's plan — every unfired line, from `stationPlan(state, station_id, now)`.
-// The catch-up part `station_plan` carries the same body per station. fire_ms / mark as in the §3.3 Line.
+// The catch-up part `station_plan` carries the same body per station. mark as in the §3.3 Line; fire_ms narrowed from it
+// to a number (task 16b): a line is listed once placed, and a placed line always has a planned fire.
 export const StationPlanLine = z.object({
   order_item_id: Id,
   order_id: Id,
-  fire_ms: z.number().int().nullable(),
+  fire_ms: z.number().int(),
   deadline_ms: z.number().int(),
   mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
   frozen: z.boolean(),
