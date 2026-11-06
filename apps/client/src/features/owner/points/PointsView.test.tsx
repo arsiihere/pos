@@ -160,4 +160,25 @@ describe('owner points page (03a A-1; 01a §6.9a)', () => {
     await open(api);
     expect(m.container.textContent).toContain(t('owner.points.empty'));
   });
+
+  it('[01a §6.9a] a refused restore keeps its error shown after the list reloads', async () => {
+    const { api } = setup(() => fail(409, 'CONFIG_NAME_TAKEN', { field: 'name' }));
+    await open(api);
+    await click(m.container.querySelector<HTMLButtonElement>('.pos-appbar button.pos-more') as HTMLButtonElement);
+    await click(button(m.container.querySelector('.pos-appbar [role="menu"]') as HTMLElement, t('owner.common.show_archived')));
+    await click(button(row('PT3'), t('owner.common.restore')));
+    expect(m.container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.CONFIG_NAME_TAKEN'));
+  });
+
+  it('[01a §6.9a] saving a rename with nothing changed closes without sending', async () => {
+    const { api, calls } = setup();
+    await open(api);
+    await click(button(row('PT1'), t('owner.points.rename')));
+    await act(async () => {
+      (dialog().querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+    expect(m.container.querySelector('[role="dialog"]')).toBeNull();
+  });
 });

@@ -21,11 +21,17 @@ export const KNOBS: readonly Knob[] = [
 
 export const knobText = (ms: number | null): string => (ms === null ? '' : formatMinutes(ms));
 
+// A box left as stored keeps its exact stored ms (two-decimal minutes may not round-trip it); otherwise the
+// typed minutes. null = not a number. Shared with the station form (C8).
+export function minutesOrStored(text: string, stored: number | null | undefined): number | null {
+  return stored != null && text === formatMinutes(stored) ? stored : parseMinutes(text);
+}
+
 // undefined = the box does not hold a value in range. A box left as stored keeps its exact stored ms, which
 // two-decimal minutes may not round-trip.
 export function knobValue(knob: Knob, text: string, stored: number | null | undefined): number | null | undefined {
   if (text.trim() === '') return knob.nullable ? null : undefined;
-  const ms = stored != null && text === formatMinutes(stored) ? stored : parseMinutes(text);
+  const ms = minutesOrStored(text, stored);
   return ms === null || ms < knob.min || ms > knob.max ? undefined : ms;
 }
 

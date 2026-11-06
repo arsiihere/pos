@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCloudAdmin } from '../../../api/cloud-admin';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
+import { en } from '../../../i18n/en';
+import { ur } from '../../../i18n/ur';
 import { StationsView } from './StationsView';
 
 let container: HTMLDivElement;
@@ -451,8 +453,11 @@ describe('owner station form: Timing group (03a A-2–A-10)', () => {
     await openEditor(api);
     expect(container.querySelector('[data-alternate-id="S3"]')).toBeNull();
     expect(container.querySelector('[data-alternate-id="S4"]')).not.toBeNull();
+    // The drop alone is not an edit (nothing is sent); with another edit it goes out in the same PATCH.
+    setValue(input('S1', 'freeze'), '3');
     await click(button(t('owner.stations.save_station'), station('S1')));
     expect(write(calls)?.body).toEqual({
+      freeze_ms: 180_000,
       alternates: [{ alternate_station_id: 'S4', order_types: ['dine_in'], home_for_order_types: ['dine_in'] }],
     });
   });
@@ -487,5 +492,135 @@ describe('owner station form: Timing group (03a A-2–A-10)', () => {
     await click(button(t('owner.stations.save_station'), station('S1')));
     expect(write(calls)).toBeUndefined();
     expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.VALIDATION_FAILED'));
+  });
+});
+
+describe('owner station form: C8 review fixes', () => {
+  const TAWA = { ...KARAHI, station_id: 'S4', name: 'Tawa' };
+  const input = (id: string, name: string) => container.querySelector<HTMLInputElement>(`[data-station-id="${id}"] [name="${name}"]`);
+  const patchOf = (calls: Call[]) => calls.find((c) => c.method === 'PATCH');
+
+  function setup(stations: unknown[], onWrite?: (call: Call) => Response) {
+    return fakeApi((call) => {
+      if (call.method === 'GET' && call.url.startsWith('/v1/admin/menu')) return json(200, { data: { can_edit_tenant: true, tax_classes: [], categories: [], items: [{ item_id: 'I1', name: 'Paye' }], next_cursor: null } });
+      if (call.method === 'GET') return json(200, { data: { stations, points: POINTS } });
+      return onWrite?.(call) ?? json(200, { data: { station: KARAHI } });
+    });
+  }
+  async function openEditor(api: ReturnType<typeof fakeApi>['api'], id = 'S1') {
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+    await click(button(t('owner.common.edit'), station(id)));
+  }
+  const stationInUse = () => json(409, { error: { code: 'CONFIG_IN_USE', message: 'x', details: { entity: 'station', id: 'S1', used_by: { entity: 'station', ids: ['S4', 'S9'] } } } });
+
+  it('[01a §6.9] archiving a station another station names as alternate lists those stations, not items', async () => {
+    const { api, calls } = setup([KARAHI, TAWA], stationInUse);
+    await openEditor(api);
+    await click(station('S1')?.querySelector<HTMLButtonElement>('button.pos-more') as HTMLButtonElement);
+    await click(button(fill(t('stations.menu_archive'), { station: 'Karahi' }), station('S1')?.querySelector('[role="menu"]')));
+    await click(button(fill(t('archive.archive_name'), { name: 'Karahi' }), container.querySelector('[role="dialog"]')));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(fill(t('archive.station_blocked_by_stations'), { n: '2' }));
+    expect(dialog?.querySelector('[data-in-use]')?.textContent).toContain('Tawa');
+    expect(calls.some((c) => c.url.startsWith('/v1/admin/menu'))).toBe(false);
+  });
+
+  it('[01a §6.9] a type change refused for stations that name it as alternate lists those stations', async () => {
+    const { api } = setup([KARAHI, TAWA], stationInUse);
+    await openEditor(api);
+    await click(button(t('owner.stations.type_batch'), station('S1')));
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(fill(t('archive.station_blocked_by_stations'), { n: '2' }));
+    expect(dialog?.querySelector('[data-in-use]')?.textContent).toContain('Tawa');
+  });
+
+  it('[01a §8.1] the busy-check labels state the rules of 03a §3.10 and §3.5.5 in both languages', () => {
+    expect(en['owner.stations.pressure_window']).toMatch(/ahead/);
+    expect(en['owner.stations.pressure_amber']).toMatch(/capacity/);
+    expect(en['owner.stations.pressure_red']).toMatch(/capacity/);
+    expect(en['owner.stations.reserve_units']).toMatch(/own order types/);
+    for (const key of ['owner.stations.pressure_window', 'owner.stations.pressure_amber', 'owner.stations.pressure_red', 'owner.stations.reserve_units'] as const) {
+      expect(ur[key]).toBeDefined();
+      expect(ur[key]).not.toBe(en[key]);
+    }
+    expect(ur['owner.stations.pressure_window']).toContain('آگے');
+    expect('owner.stations.point_default' in en).toBe(false);
+  });
+
+  it('[03a A-10] a nested refusal carry_times.N.carry_ms reaches the box of the Nth sent row', async () => {
+    const { api } = setup([KARAHI, FRYER], () =>
+      json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path: 'carry_times.1.carry_ms', message: 'Number must be less than or equal to 600000' }] } } }),
+    );
+    await openEditor(api);
+    // Boxes are filled PT2 then PT1, so that is the sent order; index 1 is PT1.
+    setValue(input('S1', 'carry_PT2'), '20');
+    setValue(input('S1', 'carry_PT1'), '1');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    const label = (id: string) => container.querySelector(`[data-carry-point="${id}"]`);
+    const sentOrder = Object.keys({ PT2: 1, PT1: 1 });
+    const second = sentOrder[1] as string;
+    expect(label(second)?.className).toContain('pos-field--error');
+    expect(label(second)?.textContent).toContain('Number must be less than or equal to 600000');
+    expect(label(sentOrder[0] as string)?.className).not.toContain('pos-field--error');
+  });
+
+  it('[03a A-9] a nested refusal alternates.N.order_types shows on the Nth sent alternate row', async () => {
+    const withAlts = { ...KARAHI, alternates: [{ alternate_station_id: 'S3', order_types: ['dine_in'], home_for_order_types: [] }, { alternate_station_id: 'S4', order_types: ['dine_in'], home_for_order_types: [] }] };
+    const gone = { ...KARAHI, station_id: 'S3', name: 'Old', archived_at: 5 };
+    const { api } = setup([withAlts, gone, TAWA], () =>
+      json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path: 'alternates.0.order_types', message: 'bad types' }] } } }),
+    );
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), '3');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    // S3 is dropped before sending, so sent index 0 is S4.
+    expect(container.querySelector('[data-alternate-id="S4"]')?.textContent).toContain('bad types');
+  });
+
+  it('[03a A-9] an alternate with no order type is refused before sending, on its row', async () => {
+    const { api, calls } = setup([KARAHI, TAWA]);
+    await openEditor(api);
+    setValue(input('S1', 'alternate_add') as unknown as HTMLSelectElement, 'S4');
+    for (const ot of ['dine_in', 'takeaway', 'delivery', 'parking']) {
+      await click(container.querySelector(`[data-alternate-id="S4"] [data-order-type="${ot}"]`) as HTMLButtonElement);
+    }
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(patchOf(calls)).toBeUndefined();
+    expect(container.querySelector('[data-alternate-id="S4"]')?.textContent).toContain(t('owner.stations.alternate_need_type'));
+  });
+
+  it('[03a A-4; minor] a stored value that minutes cannot round-trip stays as stored when its box is untouched', async () => {
+    const odd = { ...KARAHI, freeze_ms: 20_000, promise_padding_ms: 20_000 };
+    const { api, calls } = setup([odd, FRYER]);
+    await openEditor(api);
+    expect(input('S1', 'freeze')?.value).toBe('0.33');
+    setValue(input('S1', 'reserve'), '1');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(patchOf(calls)?.body).toEqual({ reserve_units: 1 });
+  });
+
+  it('[03a A-6, A-8; minor] clearing padding and lane sends null', async () => {
+    const set = { ...KARAHI, promise_padding_ms: 60_000, lane_units: 2 };
+    const { api, calls } = setup([set, FRYER]);
+    await openEditor(api);
+    setValue(input('S1', 'padding'), '');
+    setValue(input('S1', 'lane'), '');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(patchOf(calls)?.body).toEqual({ promise_padding_ms: null, lane_units: null });
+  });
+
+  it('[03a A-9; CL-10, minor] a station with an archived alternate is not dirty on open; with another edit the drop is sent', async () => {
+    const withOld = { ...KARAHI, alternates: [{ alternate_station_id: 'S3', order_types: ['dine_in'], home_for_order_types: [] }] };
+    const gone = { ...KARAHI, station_id: 'S3', name: 'Old', archived_at: 5 };
+    const { api, calls } = setup([withOld, gone]);
+    await openEditor(api);
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(patchOf(calls)).toBeUndefined();
+    await click(button(t('owner.common.edit'), station('S1')));
+    setValue(input('S1', 'freeze'), '3');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(patchOf(calls)?.body).toEqual({ freeze_ms: 180_000, alternates: [] });
   });
 });

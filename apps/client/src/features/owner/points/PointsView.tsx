@@ -62,17 +62,25 @@ function PointDialog({
       setError(t('errors.VALIDATION_FAILED'));
       return;
     }
+    const patch =
+      point === null
+        ? null
+        : {
+            ...(name.trim() !== point.name ? { name: name.trim() } : {}),
+            ...(sortValue !== undefined && sortValue !== point.sort_order ? { sort_order: sortValue } : {}),
+          };
+    // PatchPointBody refuses a body with only expected_version: nothing changed, nothing sent.
+    if (patch !== null && Object.keys(patch).length === 0) {
+      onClose();
+      return;
+    }
     setBusy(true);
     setError(null);
     setIssues({});
     const result =
       point === null
         ? await api.createPoint(branchId, { name: name.trim(), ...(sortValue === undefined ? {} : { sort_order: sortValue }) }, key)
-        : await api.patchPoint(branchId, point.point_id, {
-            expected_version: point.version,
-            ...(name.trim() !== point.name ? { name: name.trim() } : {}),
-            ...(sortValue !== undefined && sortValue !== point.sort_order ? { sort_order: sortValue } : {}),
-          });
+        : await api.patchPoint(branchId, point.point_id, { expected_version: point.version, ...patch });
     setBusy(false);
     if (result.ok) {
       renew();
@@ -149,13 +157,14 @@ export function PointsView({
   const down = useCloudDown(api);
   const leave = useLeave();
 
-  const load = useCallback(async () => {
+  // `keepError`: a refused write reloads the list but leaves its message showing.
+  const load = useCallback(async (keepError = false) => {
     const result = await api.listStations(branchId);
     if (result.ok) {
       setPoints(result.data.points);
       setStations(result.data.stations);
       setStale(false);
-      setError(null);
+      if (!keepError) setError(null);
     } else setError(errorText(result.error));
   }, [api, branchId]);
 
@@ -193,7 +202,7 @@ export function PointsView({
       const names = ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []);
       setAsk({ kind: 'blocked', point, inUse: { ids, names } });
     } else setError(errorText(error));
-    await load();
+    await load(true);
   }
 
   const visible = (points ?? []).filter((point) => showArchived || active(point));

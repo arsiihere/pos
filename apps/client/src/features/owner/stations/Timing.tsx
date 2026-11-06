@@ -2,7 +2,8 @@ import type { PatchStationBody, Point, Station, StationType } from '../../../api
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
-import { formatMinutes, parseMinutes } from '../minutes';
+import { formatMinutes } from '../minutes';
+import { minutesOrStored } from '../menu/timing';
 
 // §8.1 (03a D1; 01a §5.2a A-2–A-10): the station form's "Timing" group. Times are typed in minutes and sent as
 // ms (minutes.ts); the pressure thresholds are typed as a percent of the window and sent as basis points. The
@@ -12,20 +13,6 @@ export type Policy = Station['policy'];
 export type OrderType = Station['alternates'][number]['order_types'][number];
 export const ORDER_TYPES: readonly OrderType[] = ['dine_in', 'takeaway', 'delivery', 'parking'];
 export const POLICIES: readonly Policy[] = ['waada_guard', 'edf', 'fifo'];
-
-export const DEFAULTS = {
-  policy: 'waada_guard',
-  freeze_ms: 120_000,
-  min_slack_keep_ms: 60_000,
-  promise_padding_ms: null,
-  pressure_window_ms: 900_000,
-  pressure_amber_bp: 8_000,
-  pressure_red_bp: 10_000,
-  pressure_alert_ms: 300_000,
-  pause_enabled: false,
-  lane_units: null,
-  reserve_units: 0,
-} as const;
 
 type Alternate = Station['alternates'][number];
 export type AlternateRow = { id: string; order_types: OrderType[]; home: OrderType[] };
@@ -135,13 +122,14 @@ export function timingPatch(
   type: StationType,
   offered: ReadonlySet<string>,
 ): Pick<PatchStationBody, 'point_id' | 'policy' | 'freeze_ms' | 'min_slack_keep_ms' | 'promise_padding_ms' | 'pressure_window_ms' | 'pressure_amber_bp' | 'pressure_red_bp' | 'pressure_alert_ms' | 'pause_enabled' | 'lane_units' | 'reserve_units' | 'alternates' | 'carry_times'> | null {
-  const freeze = parseMinutes(state.freeze);
-  const slack = parseMinutes(state.slack);
-  const padding = state.padding.trim() === '' ? null : parseMinutes(state.padding);
-  const window = parseMinutes(state.window);
+  // A box left as stored keeps the stored ms (minutes show two decimals only).
+  const freeze = minutesOrStored(state.freeze, base.freeze_ms);
+  const slack = minutesOrStored(state.slack, base.min_slack_keep_ms);
+  const padding = state.padding.trim() === '' ? null : minutesOrStored(state.padding, base.promise_padding_ms);
+  const window = minutesOrStored(state.window, base.pressure_window_ms);
   const amber = parsePercentBp(state.amber);
   const red = parsePercentBp(state.red);
-  const alert = parseMinutes(state.alert);
+  const alert = minutesOrStored(state.alert, base.pressure_alert_ms);
   const lane = state.lane.trim() === '' ? null : parseWhole(state.lane);
   const reserve = parseWhole(state.reserve);
   if (
@@ -150,13 +138,8 @@ export function timingPatch(
   ) {
     return null;
   }
-  const carryRows: Station['carry_times'] = [];
-  for (const [point_id, text] of Object.entries(state.carry)) {
-    if (text.trim() === '') continue;
-    const carry_ms = parseMinutes(text);
-    if (carry_ms === null) return null;
-    carryRows.push({ point_id, carry_ms });
-  }
+  const carryRows = carryList(state, base);
+  if (carryRows === null) return null;
   const out: ReturnType<typeof timingPatch> & object = {};
   if (state.point_id !== '' && state.point_id !== base.point_id) out.point_id = state.point_id;
   if (state.policy !== base.policy) out.policy = state.policy;
@@ -171,12 +154,74 @@ export function timingPatch(
   if (lane !== base.lane_units) out.lane_units = lane;
   if (reserve !== base.reserve_units) out.reserve_units = reserve;
   // A batch station takes no alternates (A-9): leaving slot clears the list.
-  const rows = type === 'slot'
-    ? state.alternates.filter((row) => offered.has(row.id)).map((row) => ({ alternate_station_id: row.id, order_types: row.order_types, home_for_order_types: row.home }))
-    : [];
+  const rows = sentAlternates(state, type, offered);
   if (!sameAlternates(rows, base.alternates)) out.alternates = rows;
-  if (JSON.stringify(normaliseCarry(carryRows)) !== JSON.stringify(normaliseCarry(base.carry_times))) out.carry_times = carryRows.filter((row) => row.carry_ms > 0);
+  if (JSON.stringify(normaliseCarry(carryRows)) !== JSON.stringify(normaliseCarry(base.carry_times))) out.carry_times = carryRows;
   return out;
+}
+
+// The carry rows that go out, in the order of the boxes' state: empty and 0 boxes are not sent (missing = 0).
+// null = a box holds no number. An untouched box keeps its stored ms.
+function carryList(state: TimingState, base: StationFields): Station['carry_times'] | null {
+  const rows: Station['carry_times'] = [];
+  for (const [point_id, text] of Object.entries(state.carry)) {
+    if (text.trim() === '') continue;
+    const carry_ms = minutesOrStored(text, base.carry_times.find((row) => row.point_id === point_id)?.carry_ms);
+    if (carry_ms === null) return null;
+    if (carry_ms > 0) rows.push({ point_id, carry_ms });
+  }
+  return rows;
+}
+
+// The alternates that go out: none for a batch station (A-9); rows naming a station that is not offered
+// (archived since, CL-10) are left out.
+function sentAlternates(state: TimingState, type: StationType, offered: ReadonlySet<string>): Alternate[] {
+  return type === 'slot'
+    ? state.alternates
+        .filter((row) => offered.has(row.id))
+        .map((row) => ({ alternate_station_id: row.id, order_types: row.order_types, home_for_order_types: row.home }))
+    : [];
+}
+
+// An edit of the alternates list itself: against the saved rows that are still offered, so a saved row that was
+// archived since does not make the form look changed.
+export function alternatesEdited(state: TimingState, base: StationFields, type: StationType, offered: ReadonlySet<string>): boolean {
+  return !sameAlternates(
+    sentAlternates(state, type, offered),
+    base.alternates.filter((row) => offered.has(row.alternate_station_id)),
+  );
+}
+
+// A-9: order_types is non-empty. Refused here, on its row, keyed by the index in the sent list as the cloud's are.
+export function emptyAlternateIssues(state: TimingState, type: StationType, offered: ReadonlySet<string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  sentAlternates(state, type, offered).forEach((row, i) => {
+    if (row.order_types.length === 0) out[`alternates.${i}.order_types`] = t('owner.stations.alternate_need_type');
+  });
+  return out;
+}
+
+// The cloud names a nested row by its index in the list that was sent (`carry_times.1.carry_ms`); the form
+// shows rows in another order or with some left out, so the index is mapped back to the row's own key.
+export function rowIssues(
+  issues: Record<string, string>,
+  state: TimingState,
+  base: StationFields,
+  type: StationType,
+  offered: ReadonlySet<string>,
+): { carry: Record<string, string>; alternate: Record<string, string>; rest: Record<string, string> } {
+  const carry: Record<string, string> = {};
+  const alternate: Record<string, string> = {};
+  const rest: Record<string, string> = {};
+  const sentCarry = carryList(state, base) ?? [];
+  const sentAlt = sentAlternates(state, type, offered);
+  for (const [path, message] of Object.entries(issues)) {
+    const m = /^(carry_times|alternates)\.(\d+)(\..*)?$/.exec(path);
+    const id = m === null ? undefined : m[1] === 'carry_times' ? sentCarry[Number(m[2])]?.point_id : sentAlt[Number(m[2])]?.alternate_station_id;
+    if (m === null || id === undefined) rest[path] = message;
+    else (m[1] === 'carry_times' ? carry : alternate)[id] ??= message;
+  }
+  return { carry, alternate, rest };
 }
 
 function sameAlternates(a: readonly Alternate[], b: readonly Alternate[]): boolean {
@@ -206,8 +251,8 @@ export function TimingFields({
   type,
   points,
   offered,
-  issues,
-  newStation = false,
+  issues: rawIssues,
+  base,
   currentPointId,
 }: {
   state: TimingState;
@@ -216,9 +261,11 @@ export function TimingFields({
   points: readonly Point[];
   offered: readonly OfferedStation[];
   issues: Record<string, string>;
-  newStation?: boolean;
+  base: StationFields;
   currentPointId: string;
 }) {
+  const offeredIds = new Set(offered.map((x) => x.station_id));
+  const { carry: carryIssues, alternate: alternateIssues, rest: issues } = rowIssues(rawIssues, state, base, type, offeredIds);
   const set = (patch: Partial<TimingState>) => onChange({ ...state, ...patch });
   const pointChoices = points.filter((p) => p.archived_at === null || p.point_id === currentPointId);
   const carryPoints = points.filter((p) => p.archived_at === null || (state.carry[p.point_id] ?? '') !== '');
@@ -252,7 +299,6 @@ export function TimingFields({
         <label className={`pos-field${issues['point_id'] !== undefined ? ' pos-field--error' : ''}`}>
           <span className="pos-field__label">{t('owner.stations.point')}</span>
           <select className="pos-select" name="point_id" value={state.point_id} onChange={(e) => set({ point_id: e.target.value })}>
-            {newStation && <option value="">{t('owner.stations.point_default')}</option>}
             {pointChoices.map((p) => (
               <option key={p.point_id} value={p.point_id}>
                 {p.name}
@@ -331,6 +377,7 @@ export function TimingFields({
                   </button>
                 ))}
               </div>
+              {alternateIssues[row.id] !== undefined && <span className="pos-field__help">{alternateIssues[row.id]}</span>}
               <div className="pos-row" role="group" aria-label={t('owner.stations.alternate_home')}>
                 <span className="pos-field__label">{t('owner.stations.alternate_home')}</span>
                 {ORDER_TYPES.filter((ot) => row.order_types.includes(ot)).map((ot) => (
@@ -385,7 +432,7 @@ export function TimingFields({
         {issues['carry_times'] !== undefined && <span className="pos-field__help">{issues['carry_times']}</span>}
         <div className="pos-grid pos-grid--3">
           {carryPoints.map((p) => (
-            <label key={p.point_id} className="pos-field" data-carry-point={p.point_id}>
+            <label key={p.point_id} className={`pos-field${carryIssues[p.point_id] !== undefined ? ' pos-field--error' : ''}`} data-carry-point={p.point_id}>
               <span className="pos-field__label">{fill(t('owner.stations.carry_to'), { point: p.name })}</span>
               <input
                 className="pos-input pos-input--mono"
@@ -395,6 +442,7 @@ export function TimingFields({
                 value={state.carry[p.point_id] ?? ''}
                 onChange={(e) => set({ carry: { ...state.carry, [p.point_id]: e.target.value } })}
               />
+              {carryIssues[p.point_id] !== undefined && <span className="pos-field__help">{carryIssues[p.point_id]}</span>}
             </label>
           ))}
         </div>

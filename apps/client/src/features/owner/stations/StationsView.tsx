@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CloudAdmin, CompletionMode, PatchStationBody, Point, Program, Station, StationType } from '../../../api/cloud-admin';
+import type { CloudAdmin, CloudError, CompletionMode, PatchStationBody, Point, Program, Station, StationType } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
@@ -12,13 +12,13 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
-import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
+import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
 import { errorText, issueMessages } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { BranchSelect, Page } from '../Shell';
-import { TimingFields, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
+import { TimingFields, alternatesEdited, emptyAlternateIssues, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
 import { AddStationDialog, COMPLETION_MODES, parseWhole, RecipeDialog, typeOptions } from './StationDialogs';
 
 // §8.1 #/stations (01a-S04): one row per station with a summary; Edit opens it in place with its batch
@@ -51,6 +51,14 @@ function offeredFor(stations: readonly StationRow[], selfId: string): OfferedSta
   return stations
     .filter((s) => s.station_id !== selfId && s.archived_at === null && s.station_type === 'slot')
     .map((s) => ({ station_id: s.station_id, name: s.name }));
+}
+
+// 409 CONFIG_IN_USE names items (routes) or stations (alternates, A-9): name each from what is loaded.
+async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
+  if (usedEntity(error) === 'station') {
+    return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
+  }
+  return itemNames(api, ids);
 }
 
 function editorKey(station: StationRow): string {
@@ -87,6 +95,7 @@ function StationEditor({
   chips,
   points,
   offered,
+  allStations,
 }: {
   api: CloudAdmin;
   branchId: string;
@@ -103,6 +112,7 @@ function StationEditor({
   chips: ReactNode;
   points: readonly Point[];
   offered: readonly OfferedStation[];
+  allStations: readonly { station_id: string; name: string }[];
 }) {
   const [name, setName] = useState(station.name);
   const [label, setLabel] = useState(station.location_label ?? '');
@@ -131,7 +141,10 @@ function StationEditor({
   if (mode !== station.completion_mode) patch.completion_mode = mode;
   const timingChanges = timingPatch(timing, station, type, offeredIds);
   if (timingChanges !== null) Object.assign(patch, timingChanges);
-  const changed = Object.keys(patch).map((field) => t((timingFieldLabel(field) ?? `owner.stations.field.${field}`) as Parameters<typeof t>[0]));
+  // A saved alternate that is archived now is dropped from the form (CL-10); that alone is not an edit, but it
+  // goes out with any other save so the cloud does not refuse the archived row.
+  const alternatesDirty = alternatesEdited(timing, station, type, offeredIds);
+  const changed = Object.keys(patch).filter((field) => field !== 'alternates' || alternatesDirty).map((field) => t((timingFieldLabel(field) ?? `owner.stations.field.${field}`) as Parameters<typeof t>[0]));
   useDirtyForm(changed.length === 0 ? null : { name: station.name, fields: changed });
 
   async function save() {
@@ -141,6 +154,12 @@ function StationEditor({
     }
     if (changed.length === 0) {
       onClose();
+      return;
+    }
+    const empty = emptyAlternateIssues(timing, type, offeredIds);
+    if (Object.keys(empty).length > 0) {
+      setIssues(empty);
+      setError(t('errors.VALIDATION_FAILED'));
       return;
     }
     setBusy(true);
@@ -155,7 +174,7 @@ function StationEditor({
     const ids = usedIds(result.error);
     if (ids !== null && patch.station_type !== undefined) {
       setType(station.station_type);
-      onTypeBlocked(await itemNames(api, ids));
+      onTypeBlocked(await usersOf(api, result.error, ids, allStations));
       return;
     }
     setIssues(issueMessages(result.error));
@@ -248,6 +267,7 @@ function StationEditor({
         points={points}
         offered={offered}
         issues={issues}
+        base={station}
         currentPointId={station.point_id}
       />
       {station.station_type === 'batch' && (
@@ -290,10 +310,10 @@ function UsedByHint({ inUse }: { inUse: InUse }) {
       type="button"
       className="pos-hint"
       title={names}
-      aria-label={fill(t('stations.used_by_names'), { n, names })}
+      aria-label={fill(t(inUse.by === 'station' ? 'stations.used_by_stations_names' : 'stations.used_by_names'), { n, names })}
     >
       <Icon name="info" />
-      {fill(t('stations.used_by_short'), { n })}
+      {fill(t(inUse.by === 'station' ? 'stations.used_by_stations_short' : 'stations.used_by_short'), { n })}
     </button>
   );
 }
@@ -363,7 +383,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       const station = stations?.find((s) => s.station_id === stationId);
-      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await itemNames(api, ids), type: false });
+      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, result.error, ids, stations ?? []), type: false });
       else setError(errorText(result.error));
     } else if (archived) setUndo({ stationId, program });
     else setUndo(null);
@@ -376,7 +396,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       if (ids !== null) {
-        const inUse = await itemNames(api, ids);
+        const inUse = await usersOf(api, result.error, ids, stations ?? []);
         setUsedBy((known) => new Map(known).set(station.station_id, inUse));
         setAsk({ kind: 'blocked', station, inUse, type: false });
       } else setError(errorText(result.error));
@@ -454,6 +474,7 @@ export function StationsView({
               chips={chips(run.station.station_id)}
               points={points}
               offered={offeredFor(stations, run.station.station_id)}
+              allStations={stations}
               onSaved={() => {
                 setOpen(null);
                 flashSaved(run.station.station_id);
@@ -550,13 +571,18 @@ export function StationsView({
       {ask?.kind === 'blocked' && (
         <BlockedDialog
           title={fill(t(ask.type ? 'archive.station_type_blocked' : 'archive.blocked_title'), { name: ask.station.name })}
-          body={fill(t('archive.station_blocked_body'), { n: String(ask.inUse.ids.length), branch: branchName(branchId) })}
+          body={fill(t(ask.inUse.by === 'station' ? 'archive.station_blocked_by_stations' : 'archive.station_blocked_body'), {
+            n: String(ask.inUse.ids.length),
+            branch: branchName(branchId),
+          })}
           inUse={ask.inUse}
           onClose={() => setAsk(null)}
           action={
-            <button type="button" className="pos-btn pos-btn--primary" onClick={() => leave(() => navigate('/menu'))}>
-              {t('archive.open_items')}
-            </button>
+            ask.inUse.by === 'station' ? undefined : (
+              <button type="button" className="pos-btn pos-btn--primary" onClick={() => leave(() => navigate('/menu'))}>
+                {t('archive.open_items')}
+              </button>
+            )
           }
         />
       )}

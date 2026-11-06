@@ -11,12 +11,20 @@ import { t, typeClass } from '../../i18n';
 export interface InUse {
   ids: string[];
   names: string[];
+  // Who uses the row: items by default; stations when another station names it as an alternate (A-9).
+  by?: 'station';
 }
 
 export function usedIds(error: CloudError): string[] | null {
   if (error.kind !== 'api' || error.code !== 'CONFIG_IN_USE') return null;
   const usedBy = error.details['used_by'] as { ids?: unknown } | undefined;
   return Array.isArray(usedBy?.ids) ? usedBy.ids.filter((id): id is string => typeof id === 'string') : [];
+}
+
+// The entity that uses the refused row: a station can be named by items (routes) or by other stations (alternates).
+export function usedEntity(error: CloudError): 'item' | 'station' {
+  const usedBy = error.kind === 'api' ? (error.details['used_by'] as { entity?: unknown } | undefined) : undefined;
+  return usedBy?.entity === 'station' ? 'station' : 'item';
 }
 
 export async function itemNames(api: CloudAdmin, ids: readonly string[]): Promise<InUse> {
