@@ -215,6 +215,90 @@ export type ConfigDeal = BranchConfig['deals'][number];
 export type ConfigCategory = BranchConfig['categories'][number];
 export type ConfigStation = BranchConfig['stations'][number];
 
+// 01a §4.3 (Changed by 03a v1.0), §5.2a A-1..A-13: snapshot schema 3, schema 2 plus the engine configuration. Names
+// and enum values as EngineStationConfig / EngineSettings; reference_cook_ms is not here (the hub derives it, 03a §3.11).
+// NOT .strict() (S28 c). Plain ints: ranges are enforced at the write routes.
+// Additive for now: SNAPSHOT_SCHEMA_VERSION and the types above stay on schema 2 until the hub and cloud move over.
+const orderType = z.enum(['dine_in', 'takeaway', 'delivery', 'parking']);
+const goesWithKind = z.enum(['category', 'item']);
+
+const v2Shape = BranchConfigSnapshotSchemaV2.shape;
+
+export const BranchConfigSnapshotSchemaV3 = BranchConfigSnapshotSchemaV2.extend({
+  snapshot_schema_version: z.literal(3),
+  points: z.array(
+    z.object({
+      point_id: z.string(),
+      name: z.string(),
+      sort_order: int,
+      is_archived: z.boolean(),
+    }),
+  ),
+  stations: z.array(
+    v2Shape.stations.element.extend({
+      point_id: z.string(),
+      policy: z.enum(['waada_guard', 'edf', 'fifo']),
+      freeze_ms: int,
+      min_slack_keep_ms: int,
+      promise_padding_ms: int.nullable(),
+      pressure_window_ms: int,
+      pressure_amber_bp: int,
+      pressure_red_bp: int,
+      pressure_alert_ms: int,
+      pause_enabled: z.boolean(),
+      lane_units: int.nullable(),
+      reserve_units: int,
+      alternates: z.array(
+        z.object({
+          station_id: z.string(),
+          order_types: z.array(orderType),
+          home_for_order_types: z.array(orderType),
+        }),
+      ),
+      carry_times: z.array(z.object({ point_id: z.string(), carry_ms: int })),
+    }),
+  ),
+  items: z.array(
+    v2Shape.items.element.extend({
+      weight_pct: int,
+      max_early_ms: int,
+      max_carry_ms: int.nullable(),
+      max_late_ms: int.nullable(),
+      adjust_time_ms: int,
+    }),
+  ),
+  // A-12: every EngineSettings key, plus 02's table_lock_ttl_ms (not an engine field, not in EngineConfigApplied).
+  engine_settings: z.object({
+    weight_dine_in_pct: int,
+    weight_takeaway_pct: int,
+    weight_delivery_pct: int,
+    weight_parking_pct: int,
+    weight_follow_up_pct: int,
+    promise_padding_dine_in_ms: int,
+    promise_padding_takeaway_ms: int,
+    promise_padding_delivery_ms: int,
+    promise_padding_parking_ms: int,
+    slip_threshold_ms: int,
+    slip_escalate_ms: int,
+    cascade_step_ms: int,
+    min_gain_ms: int,
+    returns_boost: z.boolean(),
+    order_abandon_ms: int,
+    table_lock_ttl_ms: int,
+  }),
+  goes_with: z.array(
+    z.object({
+      source_kind: goesWithKind,
+      source_id: z.string(),
+      target_kind: goesWithKind,
+      target_id: z.string(),
+      excluded: z.boolean(),
+    }),
+  ),
+});
+
+export type BranchConfigSnapshotV3 = z.infer<typeof BranchConfigSnapshotSchemaV3>;
+
 // 01c §4.2 (V12): the builder lists only tracked draws.
 export function isStockTracked(item: Pick<ConfigItem, 'stock_draws'>): boolean {
   return item.stock_draws.length > 0;
