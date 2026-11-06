@@ -263,15 +263,14 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // §3.7 StockAdded candidates (v0.6.2, G4-3 #4): hidden full-cook lines — from_stock false, a draw, a stock cook time
 // (and on a batch station the copied stock program), a hidden slot line or a member of a hidden batch load — of an
 // order in the engine. A frozen line, a fired / COOKING line and a return line (no draw, [03a #75]) never are.
-// Proposed (implementer, overnight): only lines of orders placed in the open business day (placed_at ≥ dayStartMs).
-// A line kept over a close has draws (ItemAdded.stock_draws) in its own day's unit; after a unit change at the open
-// (01a S44, Q14) reserving those quantities against a count in the new unit would be wrong, and the engine cannot
-// tell which units changed (BF-9, see the task 12b report).
-function isCandidate(state: EngineState, line: EngineLine, t: number, dayStartMs: number): boolean {
+// Hidden is judged at the draft's occurred_at; the fold sees recorded_at, which is a few ms later. Proposed
+// (implementer, overnight): a line whose fire falls inside that gap is a candidate here and frozen at the fold, which
+// then switches its cook but keeps its fire and booking (replaceFlipped). The gap is the §3.5.3 append gap.
+function isCandidate(state: EngineState, line: EngineLine, t: number): boolean {
   if (line.from_stock || line.return_of !== null || line.draws.length === 0 || line.stock_cook_ms === null) return false;
   if (state.stations[line.station_id]?.type === 'batch' && line.stock_program_id === null) return false;
   const order = state.orders[line.order_id];
-  if (order === undefined || order.awaiting > 0 || order.placed_at < dayStartMs) return false;
+  if (order === undefined || order.awaiting > 0) return false;
   return orderInEngine(state, order, t) && isHiddenUnfired(state, line, t);
 }
 
@@ -283,7 +282,7 @@ function waitingReserve(state: EngineState, stock_item_ids: readonly string[], t
   const cands: EngineLine[] = [];
   for (const id in state.lines) {
     const l = state.lines[id]!;
-    if (id !== except && l.draws.some((d) => ids.has(d.stock_item_id)) && isCandidate(state, l, t, ctx.dayStartMs)) cands.push(l);
+    if (id !== except && l.draws.some((d) => ids.has(d.stock_item_id)) && isCandidate(state, l, t)) cands.push(l);
   }
   cands.sort((a, b) => a.deadline_ms - b.deadline_ms || byId(a.order_item_id, b.order_item_id));
   const items = new Map(ctx.stockItems.map((s) => [s.stock_item_id, s]));

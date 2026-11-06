@@ -737,12 +737,20 @@ export type FlipPlacement =
 // b.end ≤ E − keep within min(freshness, max_early_ms); else forms a load at latestFit(lo, d' − keep); else joins
 // with b.end ≤ E; else forms at latestFit(lo, d'); proposed (implementer, overnight) else at earliestFit(lo) (late;
 // the tick slips it, never refused, D3).
+// The capacity a line is placed with on its own station (pass 1's own option: effective − reserve away from home),
+// the station's effective capacity on a batch station or when no option is left. The flip and the whole release
+// both shift the deadline with it, so a flip then a release gives back the same deadline_ms.
+export function placementCap(state: EngineState, line: EngineLine): number {
+  const station = state.stations[line.station_id]!;
+  if (station.type === 'batch') return capacityFor(station, line.order_item_id);
+  return optionOn(routeOptions(routeCtx(state), line, true), station.station_id)?.cap ?? capacityFor(station, line.order_item_id);
+}
+
 export function flipPlacement(state: EngineState, id: string, oldCook: number, t: number, strict: boolean): FlipPlacement {
   const line = state.lines[id]!;
   const station = state.stations[line.station_id]!;
   const pol = stationPolicy(state, station.station_id);
-  const own = optionOn(routeOptions(routeCtx(state), line, true), station.station_id);
-  const cap = station.type === 'batch' ? capacityFor(station, id) : (own?.cap ?? capacityFor(station, id));
+  const cap = placementCap(state, line);
   const shift = occupancy(line.units, cap, oldCook).cook_ms - occupancy(line.units, cap, line.cook_ms).cook_ms;
   const d = line.deadline_ms + shift;
   const lo = Math.max(t, d - line.max_early_ms);
@@ -751,11 +759,10 @@ export function flipPlacement(state: EngineState, id: string, oldCook: number, t
     if (pol.policy === 'fifo') return { kind: 'slot', deadline_ms: line.fire_ms!, move: { fire: line.fire_ms!, booked: bookingAt(line, cap, line.fire_ms!), capped: false } };
     const b = line.booked!;
     const work = removeInterval(liveProfile(state, station.station_id, t), b, b.units, clamp);
-    const fire =
-      latestFit(work, lo, d - pol.keep_ms, line.prep_ms, line.cook_ms, line.units, cap) ??
-      latestFit(work, lo, d, line.prep_ms, line.cook_ms, line.units, cap) ??
-      line.fire_ms! + shift;
-    return { kind: 'slot', deadline_ms: d, move: { fire, booked: bookingAt(line, cap, fire), capped: false } };
+    const fit = latestFit(work, lo, d - pol.keep_ms, line.prep_ms, line.cook_ms, line.units, cap) ?? latestFit(work, lo, d, line.prep_ms, line.cook_ms, line.units, cap);
+    // The fallback keeps the line's old slot end, so it keeps its §3.5.6 capped flag (no search ran).
+    const fire = fit ?? line.fire_ms! + shift;
+    return { kind: 'slot', deadline_ms: d, move: { fire, booked: bookingAt(line, cap, fire), capped: fit === null ? line.capped : false } };
   }
   let work = liveProfile(state, station.station_id, t);
   const loads: WorkLoad[] = [];

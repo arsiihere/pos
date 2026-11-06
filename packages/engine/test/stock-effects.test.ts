@@ -186,11 +186,11 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(replay([...head, ...events])).toEqual(s1);
   });
 
-  it('[03a #87] batch: a line in a hidden load switches to its stock program and lands in a load of it; a line in a frozen load is not a candidate', () => {
-    const item = (draws: Draw[]) => ({
+  it('[03a #87] batch: a line in a hidden load switches to its stock program and lands in a load of it; a line in a frozen or fired load is not a candidate', () => {
+    const item = (draws: Draw[], cook = 300_000) => ({
       station_id: 'F',
       program_id: 'P1',
-      program_cook_time_ms: 300_000,
+      program_cook_time_ms: cook,
       stock_program_id: 'P2',
       stock_program_cook_time_ms: 60_000,
       cook_time_ms: 999_999,
@@ -198,25 +198,38 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
       stock_draws: draws,
       out_of_stock_behaviour: 'cook_fresh',
     });
-    const batchOrder = (order_id: string, id: string, land: number, pickup: number | null) =>
+    const batchOrder = (order_id: string, id: string, land: number, pickup: number | null, cook = 300_000) =>
       anOrderBatch({
         order_id,
         recorded_at: T,
         seq: nextSeq(4),
-        lines: [{ order_item_id: id, item: item(kb()), line: { station_id: 'F', from_stock: false } }],
+        lines: [{ order_item_id: id, item: item(kb(), cook), line: { station_id: 'F', from_stock: false } }],
         order: {
           groups: [{ group_id: `${order_id}:0`, target_land_ms: land, promise_ms: land + 180_000, order_item_ids: [id] }],
           ...(pickup === null ? {} : { order_type: 'delivery', pickup_at_ms: pickup }),
         },
       });
     const p = T + 3_600_000;
-    const head = [stamp(batchConfig({}, DAY - 60_000), DAY - 60_000), set('KB', 0, DAY), ...batchOrder('OF', 'BZ', T + 330_000, null), ...batchOrder('OH', 'BH', p, p)];
+    const pre = [
+      stamp(batchConfig({}, DAY - 60_000), DAY - 60_000),
+      set('KB', 0, DAY),
+      ...batchOrder('OF', 'BZ', T + 330_000, null),
+      ...batchOrder('OD', 'BD', T + 700_000, null, 240_000), // another cook: its own load, not BZ's
+      ...batchOrder('OH', 'BH', p, p),
+    ];
+    const sPre = fold(pre);
+    // BD's load fires (it then leaves `loads`, D34): a line of a fired load is not a candidate either.
+    const bd = loadOf(sPre, 'BD')!;
+    expect(bd.order_item_ids).toEqual(['BD']);
+    const fireBd = stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: bd.order_item_ids, load_id: bd.load_id, due_at: T + 1, reason: 'scheduled' } }), T + 1);
+    const head = [...pre, fireBd];
     const s0 = fold(head);
+    expect(s0.lines.BD!.fired_at).toBe(T + 1);
     expect(loadOf(s0, 'BH')).toMatchObject({ program_id: 'P1' });
     expect(loadOf(s0, 'BZ')!.fire_ms <= T + 1_000 + 120_000).toBe(true); // frozen load
-    const { events, state: s1 } = commit(s0, [added('KB', 2, T + 1_000)], T + 1_000);
+    const { events, state: s1 } = commit(s0, [added('KB', 3, T + 1_000)], T + 1_000);
     expect(events.map(brief)).toEqual([
-      { type: 'StockAdded', id: 'KB', q: 2 },
+      { type: 'StockAdded', id: 'KB', q: 3 },
       { type: 'StockReserved', id: 'KB', line: 'BH', q: 1 },
     ]);
     const load = loadOf(s1, 'BH')!;
@@ -228,6 +241,7 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(Object.keys(s1.stations.F!.loads).length).toBe(2);
     expect(s1.lines.BZ).toEqual(s0.lines.BZ);
     expect(loadOf(s1, 'BZ')).toEqual(loadOf(s0, 'BZ'));
+    expect(s1.lines.BD).toEqual(s0.lines.BD);
     expect(replay([...head, ...events])).toEqual(s1);
 
     // BF-1: a later whole release (a recount to 0) sends BH back to its program_id; the StockSet re-plan puts it in a
@@ -392,20 +406,19 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(replay([...head, ...events])).toEqual(s1);
   });
 
-  it('[03a #42] close then open with a unit change: hidden released at the close, frozen and fired carried; BusinessDayOpened drafts nothing; the unit-changing StockSet is preceded by their StockConsumed and enters with reserved 0', () => {
-    const p = T + 3_600_000;
+  it('[03a #42] close then open with a unit change: frozen and fired carried over the close; BusinessDayOpened drafts nothing; the unit-changing StockSet is preceded by their StockConsumed and enters with reserved 0', () => {
     const head = [
       cfg(),
       opened(DAY),
       set('KB', 9, DAY),
-      ...hidden('O1', [{ id: 'H', draws: kb(), from_stock: true }], p),
       ...frozen('O2', [{ id: 'Z', draws: kb(), from_stock: true }]),
       ...frozen('O3', [{ id: 'W', draws: kb(), from_stock: true }]),
       fired(['W'], T + 1),
     ];
     const close = commit(fold(head), [closed(T + 600_000)], T + 600_000);
-    // BF-11 rewrite of the first clause: only the hidden line is released at the close; reserved = 2 at the open.
-    expect(close.events.map(brief)).toEqual([{ type: 'StockReleased', id: 'KB', line: 'H', q: 1, reason: 'day_closed' }, { type: 'BusinessDayClosed' }]);
+    // BF-11 rewrite of the first clause: the close releases hidden lines only (#88), so the frozen and fired lines'
+    // reservations are carried: reserved = 2 at the open.
+    expect(close.events.map(brief)).toEqual([{ type: 'BusinessDayClosed' }]);
     const open = opened(T + 1_200_000, { KB: 'g', X: 'piece', Y: 'piece' });
     expect(stockEffects(close.state, { ...draftOf(open), occurred_at: T + 1_200_000 }, CTX)).toEqual([]);
     const s2 = fold([open], close.state);
@@ -413,7 +426,6 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     const ctxG: StockCtx = { ...CTX, dayStartMs: T + 1_200_000, configStockUnits: { ...CTX.configStockUnits, KB: 'g' } };
     const count = set('KB', 500, T + 1_300_000, 'g');
     const batch = stockEffects(s2, [{ ...draftOf(count), occurred_at: T + 1_300_000 }], ctxG);
-    // No reserve after it: H's draws are in the old unit (proposed reading: only lines placed in the open day).
     expect(batch.map(brief)).toEqual([
       { type: 'StockConsumed', id: 'KB', line: 'Z', q: 1 },
       { type: 'StockConsumed', id: 'KB', line: 'W', q: 1 },
@@ -426,6 +438,24 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
       expect(s3.lines[id]).toMatchObject({ from_stock: true, reserved_seq: null });
       expect(stockEffects(s3, { ...draftOf(started(s3.lines[id]!.order_id, id, T + 1_400_000)), occurred_at: T + 1_400_000 }, ctxG)).toEqual([]);
     }
+  });
+
+  it('[03a §3.7] a hidden line of an order kept over the close is a StockAdded candidate after the open when no unit changed', () => {
+    const p = T + 3_600_000;
+    const head = [cfg(), opened(DAY), set('KB', 1, DAY), ...hidden('O1', [{ id: 'H', draws: kb(), from_stock: true }], p)];
+    const close = commit(fold(head), [closed(T + 600_000)], T + 600_000);
+    expect(close.events.map(brief)).toEqual([{ type: 'StockReleased', id: 'KB', line: 'H', q: 1, reason: 'day_closed' }, { type: 'BusinessDayClosed' }]);
+    expect(close.state.lines.H).toMatchObject({ from_stock: false, cook_ms: COOK });
+    const s1 = fold([opened(T + 1_200_000)], close.state);
+    const ctx: StockCtx = { ...CTX, dayStartMs: T + 1_200_000 };
+    const count = set('KB', 2, T + 1_300_000);
+    const batch = stockEffects(s1, [{ ...draftOf(count), occurred_at: T + 1_300_000 }], ctx);
+    expect(batch.map(brief)).toEqual([{ type: 'StockSet', id: 'KB' }, { type: 'StockReserved', id: 'KB', line: 'H', q: 1 }]);
+    const s2 = fold(batch.map((d) => toEvent(d, T + 1_300_000)), s1);
+    expect(s2.lines.H).toMatchObject({ from_stock: true, cook_ms: STOCK_COOK });
+    expect(s2.lines.H!.booked!.end).toBeLessThanOrEqual(p);
+    // The release and the flip shift the deadline with the same capacity: back to the submit's deadline_ms.
+    expect(s2.lines.H!.deadline_ms).toBe(fold(head).lines.H!.deadline_ms);
   });
 
   it('[03a #118] Q14 on a multi-draw line: a unit-changing StockSet of X consumes L\'s X and Y draws before it; both reserved 0; L\'s Start drafts nothing; no breach', () => {

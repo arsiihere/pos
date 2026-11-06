@@ -15,7 +15,7 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { applyMoves, capacityFor, flipPlacement, pass1, stationPolicy } from './replan.js';
+import { applyMoves, capacityFor, flipPlacement, pass1, placementCap, stationPolicy } from './replan.js';
 import {
   applyPass1,
   checkProgram,
@@ -616,6 +616,8 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
 
 // BF-7: the flipped line's re-placement (replan.ts flipPlacement), stored like any re-plan: a slot move by applyMoves
 // (exactly the old `booked` removed, AD-7 / AD-6), a batch station's loads by storeLoads.
+// Hidden is judged at recorded_at, the only time the fold has; stockEffects chose the line at the draft's occurred_at
+// (proposed (implementer, overnight): a line frozen in that ms append gap keeps its fire and booking, see isCandidate).
 function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, strict: boolean): EngineState {
   const id = before.order_item_id;
   if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at)) return state;
@@ -628,10 +630,11 @@ function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent,
 // d' = d + cook_occ(cook) − cook_occ(full_cook) at the station's effective capacity. Proposed (implementer,
 // overnight): the release fold keeps deadline_ms consistent with cook_ms (as the flip does) so the trigger's re-plan
 // (StockSet, BusinessDayClosed, §3.5.3) places the line at full cook by the same T; the fold itself moves nothing.
+// Capacity as the flip's (placementCap), so a flip then a whole release returns the same deadline_ms.
 function freshDeadline(state: EngineState, line: EngineLine): number {
   const station = state.stations[line.station_id];
-  const cap = station === undefined ? 0 : effectiveCapacity(station);
-  if (!(cap >= 1) || line.cook_ms === line.full_cook_ms) return line.deadline_ms;
+  if (station === undefined || !(effectiveCapacity(station) >= 1) || line.cook_ms === line.full_cook_ms) return line.deadline_ms;
+  const cap = placementCap(state, line);
   return line.deadline_ms + occupancy(line.units, cap, line.cook_ms).cook_ms - occupancy(line.units, cap, line.full_cook_ms).cook_ms;
 }
 
