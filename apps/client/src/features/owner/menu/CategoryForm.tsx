@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from 'react';
-import type { AvailabilityWindow, CloudAdmin, Category, MenuItem, PatchCategoryBody } from '../../../api/cloud-admin';
+import { useEffect, useState, type FormEvent } from 'react';
+import type { AvailabilityWindow, CloudAdmin, Category, PatchCategoryBody } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
@@ -8,7 +8,7 @@ import { t } from '../../../i18n';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
-import { GoesWithPicker, goesWithState, sameGoesWith } from './GoesWith';
+import { GoesWithPicker, goesWithState, sameGoesWith, useEveryItem, type GoesWithLink } from './GoesWith';
 import { WindowsField } from './WindowsField';
 
 // §6.13, §8.1 (01a-S06): a category's name, position and Available hours (S47), as a dialog over the
@@ -21,15 +21,13 @@ export function CategoryForm({
   api,
   category,
   categories = [],
-  items = [],
   onSaved,
   onCancel,
 }: {
   api: CloudAdmin;
   category: Category | null;
-  // The menu's categories and items, for the goes-with picker (A-13).
+  // The menu's categories, for the goes-with picker (A-13); the items are read when the dialog opens.
   categories?: readonly Category[];
-  items?: readonly MenuItem[];
   onSaved: (notice?: string | null) => void;
   onCancel: () => void;
 }) {
@@ -37,11 +35,19 @@ export function CategoryForm({
   const [name, setName] = useState(category?.name ?? '');
   const [sort, setSort] = useState(String(category?.sort_order ?? 0));
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(category?.availability_windows ?? []);
-  const baseLinks = useMemo(
-    () => (category === null ? [] : goesWithState(category.goes_with, categories, items, { kind: 'category', id: category.category_id })),
-    [category, categories, items],
+  // As in ItemForm: held as stored until the whole menu is read, then base and form settle together.
+  const everyItem = useEveryItem(api, category !== null);
+  const [baseLinks, setBaseLinks] = useState<GoesWithLink[]>(() =>
+    (category?.goes_with ?? []).map((l) => ({ target_kind: l.target_kind, target_id: l.target_id, excluded: l.excluded })),
   );
-  const [links, setLinks] = useState(baseLinks);
+  const [links, setLinks] = useState<GoesWithLink[]>(baseLinks);
+  useEffect(() => {
+    if (category === null || everyItem.items === null) return;
+    const settled = goesWithState(category.goes_with, categories, everyItem.items, { kind: 'category', id: category.category_id });
+    setBaseLinks(settled);
+    setLinks(settled);
+    // Once, when the read arrives.
+  }, [everyItem.items]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [goesError, setGoesError] = useState<string | undefined>(undefined);
@@ -127,7 +133,7 @@ export function CategoryForm({
         </div>
         <WindowsField value={category?.availability_windows ?? []} onChange={setWindows} />
         {category !== null && (
-          <GoesWithPicker value={links} onChange={setLinks} categories={categories} items={items} self={{ kind: 'category', id: category.category_id }} error={goesError} />
+          <GoesWithPicker value={links} onChange={setLinks} categories={categories} items={everyItem.items ?? []} disabled={everyItem.items === null} self={{ kind: 'category', id: category.category_id }} error={goesError} />
         )}
         <p className="pos-note">{fill(t('owner.category.hours_note'), { name: name.trim() === '' ? t('owner.category.this') : name.trim() })}</p>
         {error !== null && <Banner tone="danger" text={error} />}

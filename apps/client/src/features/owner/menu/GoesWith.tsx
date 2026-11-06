@@ -1,6 +1,8 @@
-import type { Category, MenuItem } from '../../../api/cloud-admin';
+import { useEffect, useState } from 'react';
+import type { Category, CloudAdmin, MenuItem } from '../../../api/cloud-admin';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
+import { loadEveryItem } from '../menu-pages';
 
 // 01a v2.1 §8.1 (A-13): the "Goes with" picker on a category and an item. A link names a whole category or one
 // item; only an item's list can also mark a target "Never suggest" (excluded). The list is sent whole on save
@@ -14,7 +16,33 @@ export interface GoesWithLink {
 
 const keyOf = (link: Pick<GoesWithLink, 'target_kind' | 'target_id'>) => `${link.target_kind}:${link.target_id}`;
 
-// The stored links as the form holds them: archived, unknown and self targets left out.
+// Every item, active and archived together, read when a form with a picker opens (loadEveryItem: one menu read
+// per page of 200 for the active rows, then the same for the archived rows; at least 2 reads). The menu list's own
+// page is filtered and partial, so it cannot tell "archived" from "not on this page". null = not read (yet);
+// failed = the read did not work, so the picker stays off and the list is never sent.
+export function useEveryItem(api: CloudAdmin, enabled: boolean): { items: MenuItem[] | null; failed: boolean } {
+  const [state, setState] = useState<{ items: MenuItem[] | null; failed: boolean }>({ items: null, failed: false });
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    void (async () => {
+      try {
+        const result = await loadEveryItem(api);
+        if (!live) return;
+        setState(result.ok && Array.isArray(result.data.items) ? { items: result.data.items, failed: false } : { items: null, failed: true });
+      } catch {
+        if (live) setState({ items: null, failed: true });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [api, enabled]);
+  return state;
+}
+
+// The stored links as the form holds them. Only a target positively known to be archived (or the source itself)
+// is left out; one the menu read did not return is kept and sent back unchanged.
 export function goesWithState(
   stored: readonly { target_kind: GoesWithKind; target_id: string; excluded: boolean }[],
   categories: readonly Category[],
@@ -28,7 +56,7 @@ export function goesWithState(
         link.target_kind === 'category'
           ? categories.find((c) => c.category_id === link.target_id)
           : items.find((i) => i.item_id === link.target_id);
-      return target !== undefined && target.archived_at === null;
+      return target === undefined || target.archived_at === null;
     })
     .map((link) => ({ target_kind: link.target_kind, target_id: link.target_id, excluded: link.excluded }));
 }
@@ -42,6 +70,7 @@ export function GoesWithPicker({
   items,
   self,
   error,
+  disabled = false,
 }: {
   value: GoesWithLink[];
   onChange: (next: GoesWithLink[]) => void;
@@ -49,6 +78,7 @@ export function GoesWithPicker({
   items: readonly MenuItem[];
   self: { kind: GoesWithKind; id: string };
   error?: string | undefined;
+  disabled?: boolean;
 }) {
   const isItem = self.kind === 'item';
   const nameOf = (link: GoesWithLink) =>
@@ -67,6 +97,7 @@ export function GoesWithPicker({
         <p>{t('goeswith.help')}{isItem && ` ${t('goeswith.help_item')}`}</p>
       </div>
       {error !== undefined && <span className="pos-field__error">{error}</span>}
+      {disabled && <p className="pos-field__help">{t('goeswith.loading')}</p>}
       {value.length === 0 && <p className="pos-field__help">{t('goeswith.none')}</p>}
       {value.map((link) => (
         <div key={keyOf(link)} className="pos-row" data-goes-with={keyOf(link)}>
@@ -77,6 +108,7 @@ export function GoesWithPicker({
               type="button"
               role="checkbox"
               aria-checked={link.excluded}
+              disabled={disabled}
               className={`pos-tick${link.excluded ? ' is-on' : ''}`}
               onClick={() => onChange(value.map((x) => (keyOf(x) === keyOf(link) ? { ...x, excluded: !x.excluded } : x)))}
             >
@@ -87,6 +119,7 @@ export function GoesWithPicker({
           <button
             type="button"
             className="pos-btn"
+            disabled={disabled}
             aria-label={fill(t('goeswith.remove'), { name: nameOf(link) })}
             onClick={() => onChange(value.filter((x) => keyOf(x) !== keyOf(link)))}
           >
@@ -99,6 +132,7 @@ export function GoesWithPicker({
         <select
           className="pos-select"
           name="goes_with_add"
+          disabled={disabled}
           value=""
           onChange={(e) => {
             const [kind, ...rest] = e.target.value.split(':');

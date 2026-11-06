@@ -44,7 +44,7 @@ import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { quantityAffix, quantityInput, unitOption } from '../stock-items/stock';
 import { linkStock, type LinkPlan, type LinkStep } from './linkStock';
-import { GoesWithPicker, goesWithState, sameGoesWith, type GoesWithLink } from './GoesWith';
+import { GoesWithPicker, goesWithState, sameGoesWith, useEveryItem, type GoesWithLink } from './GoesWith';
 import { KNOBS, knobText, knobValue, rangeText, weightValue, type Knob } from './timing';
 import { windowText, WindowsField } from './WindowsField';
 
@@ -284,12 +284,14 @@ const IN_FOLD = (id: string) =>
   id.startsWith('route-') ||
   ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready', 'item-weight_pct', 'item-max_early_minutes', 'item-max_carry_minutes', 'item-max_late_minutes', 'item-adjust_time_minutes', 'item-goes_with'].includes(id);
 
+const storedLinks = (item: MenuItem | null): GoesWithLink[] =>
+  item === null ? [] : item.goes_with.map((l) => ({ target_kind: l.target_kind, target_id: l.target_id, excluded: l.excluded }));
+
 export function ItemForm({
   api,
   item,
   taxClasses,
   categories,
-  items = [],
   branchIds,
   onSaved,
   onCancel,
@@ -301,8 +303,6 @@ export function ItemForm({
   item: MenuItem | null;
   taxClasses: readonly TaxClass[];
   categories: readonly Category[];
-  // The menu's items, for the goes-with picker (A-13).
-  items?: readonly MenuItem[];
   branchIds: readonly string[];
   onSaved: (notice?: string | null) => void;
   onCancel: () => void;
@@ -361,10 +361,18 @@ export function ItemForm({
   const [carry, setCarry] = useState(knobText(item?.max_carry_ms ?? null));
   const [late, setLate] = useState(knobText(item?.max_late_ms ?? null));
   const [adjust, setAdjust] = useState(knobText(item?.adjust_time_ms ?? 180_000));
-  const [baseLinks, setBaseLinks] = useState<GoesWithLink[]>(() =>
-    item === null ? [] : goesWithState(item.goes_with, categories, items, { kind: 'item', id: item.item_id }),
-  );
+  // Until the whole menu is read the stored list is held as it is (picker off, never sent); the read then drops
+  // the targets known to be archived from the base and the form together, so nothing differs by itself.
+  const everyItem = useEveryItem(api, item !== null);
+  const [baseLinks, setBaseLinks] = useState<GoesWithLink[]>(() => storedLinks(item));
   const [links, setLinks] = useState<GoesWithLink[]>(baseLinks);
+  useEffect(() => {
+    if (item === null || everyItem.items === null) return;
+    const settled = goesWithState(item.goes_with, categories, everyItem.items, { kind: 'item', id: item.item_id });
+    setBaseLinks(settled);
+    setLinks(settled);
+    // Once, when the read arrives.
+  }, [everyItem.items]);
   const [routes, setRoutes] = useState<Record<string, RouteChoice>>(() =>
     Object.fromEntries(branchIds.map((b) => [b, routeOf(item, b)])),
   );
@@ -1578,7 +1586,7 @@ export function ItemForm({
                 <TextField name="max_early_minutes" label={t('item.timing.max_early')} value={early} onChange={setEarly} numeric error={problemFor('item-max_early_minutes')} />
                 <TextField name="max_carry_minutes" label={t('item.timing.max_carry')} value={carry} onChange={setCarry} numeric help={t('item.timing.max_carry_help')} error={problemFor('item-max_carry_minutes')} />
                 <TextField name="max_late_minutes" label={t('item.timing.max_late')} value={late} onChange={setLate} numeric help={t('item.timing.max_late_help')} error={problemFor('item-max_late_minutes')} />
-                <TextField name="adjust_time_minutes" label={t('item.timing.adjust')} value={adjust} onChange={setAdjust} numeric error={problemFor('item-adjust_time_minutes')} />
+                <TextField name="adjust_time_minutes" label={t('item.timing.adjust')} value={adjust} onChange={setAdjust} numeric help={t('item.timing.adjust_help')} error={problemFor('item-adjust_time_minutes')} />
               </div>
             </section>
 
@@ -1587,7 +1595,8 @@ export function ItemForm({
                 value={links}
                 onChange={setLinks}
                 categories={categories}
-                items={items}
+                items={everyItem.items ?? []}
+                disabled={everyItem.items === null}
                 self={{ kind: 'item', id: base.item_id }}
                 error={problemFor('item-goes_with')}
               />

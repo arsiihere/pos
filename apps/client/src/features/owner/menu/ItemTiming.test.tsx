@@ -5,6 +5,7 @@ import { button, click, fail, fakeApi, flush, mount, ok, setValue, type Call, ty
 import { GuardProvider } from '../guard';
 import { CategoryForm } from './CategoryForm';
 import { ItemForm } from './ItemForm';
+import { KNOBS, rangeText } from './timing';
 
 // 01a v2.1 §8.1 (A-11, A-13): the item form's "Timing" group and the goes-with picker on item and category.
 
@@ -38,10 +39,19 @@ const link = (target_kind: 'category' | 'item', target_id: string, excluded = fa
 });
 const ITEMS = [dish('I1', 'Chicken Karahi'), dish('I2', 'Naan'), dish('I3', 'Raita'), dish('I4', 'Old curry', { archived_at: 5 })];
 
-function server(on?: (call: Call) => Response | undefined) {
+// The menu read answers active and archived rows apart (loadEveryItem); `menuFails` loses it.
+function server(on?: (call: Call) => Response | undefined, menuFails = false) {
   return fakeApi((call) => {
     const answer = on?.(call);
     if (answer !== undefined) return answer;
+    if (call.url.startsWith('/v1/admin/menu?') || call.url === '/v1/admin/menu') {
+      if (menuFails) return fail(500, 'INTERNAL');
+      const archived = call.url.includes('status=archived');
+      return ok({
+        can_edit_tenant: true, tax_classes: [], categories: CATEGORIES, variant_groups: [],
+        items: ITEMS.filter((i) => (i.archived_at !== null) === archived), next_cursor: null,
+      });
+    }
     if (call.url.endsWith('/stations')) return ok({ stations: [] });
     if (call.url.startsWith('/v1/admin/stock-items')) return ok({ can_edit_tenant: true, stock_items: [] });
     if (call.url.startsWith('/v1/admin/categories')) return ok({ category: cat('C1', 'Karahi') });
@@ -50,10 +60,19 @@ function server(on?: (call: Call) => Response | undefined) {
   });
 }
 
+async function renderCategory(api: ReturnType<typeof fakeApi>['api'], category: Category) {
+  await ui.render(
+    <GuardProvider>
+      <CategoryForm api={api} category={category} categories={CATEGORIES} onSaved={() => {}} onCancel={() => {}} />
+    </GuardProvider>,
+  );
+  await flush();
+}
+
 async function renderItem(api: ReturnType<typeof fakeApi>['api'], item: MenuItem | null) {
   await ui.render(
     <GuardProvider>
-      <ItemForm api={api} item={item} taxClasses={[]} categories={CATEGORIES} items={ITEMS} branchIds={['B1']} onSaved={() => {}} onCancel={() => {}} />
+      <ItemForm api={api} item={item} taxClasses={[]} categories={CATEGORIES} branchIds={['B1']} onSaved={() => {}} onCancel={() => {}} />
     </GuardProvider>,
   );
   await flush();
@@ -89,14 +108,27 @@ describe('owner item Timing group and goes-with', () => {
     ]);
   });
 
-  it('[01a A-11] a knob outside its range is refused before sending', async () => {
+  it.each([
+    ['weight_pct', '5', () => t('item.timing.need_pct')],
+    ['max_early_minutes', '61', () => rangeText(KNOBS[0]!)],
+    ['max_carry_minutes', '11', () => rangeText(KNOBS[1]!)],
+    ['max_late_minutes', '121', () => rangeText(KNOBS[2]!)],
+    ['adjust_time_minutes', '61', () => rangeText(KNOBS[3]!)],
+  ])('[01a A-11] %s outside its range is refused before sending', async (name, value, message) => {
     const { api, calls } = server();
     await renderItem(api, dish('I1', 'Chicken Karahi'));
-    setValue(field('weight_pct'), '5');
-    setValue(field('max_carry_minutes'), '11');
+    setValue(field(name), value);
     await click(button(ui.container, t('item.save')));
     expect(patches(calls)).toEqual([]);
-    expect(ui.container.textContent).toContain(t('item.timing.need_pct'));
+    expect(q(`#item-${name}`)!.closest('label')!.textContent).toContain(message());
+  });
+
+  it('[01a A-11] a time left as stored keeps its exact ms; clearing max_late sends null', async () => {
+    const { api, calls } = server();
+    await renderItem(api, dish('I1', 'Chicken Karahi', { max_early_ms: 61_234, max_late_ms: 300_000 }));
+    setValue(field('max_late_minutes'), '');
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([{ max_late_ms: null }]);
   });
 
   it('[01a A-11] a new item POSTs the five knobs and offers no goes-with picker', async () => {
@@ -114,15 +146,15 @@ describe('owner item Timing group and goes-with', () => {
     expect(body).not.toHaveProperty('goes_with');
   });
 
-  it('[01a A-13] the item picker adds category and item targets, marks an exclude, and drops archived targets on save', async () => {
+  it('[01a A-13] the item picker offers the whole menu, adds targets, and drops only a known-archived one', async () => {
     const { api, calls } = server();
     await renderItem(
       api,
       dish('I1', 'Chicken Karahi', { goes_with: [link('category', 'C3'), link('item', 'I4'), link('item', 'I3', true)] }),
     );
     const picker = q<HTMLElement>('[data-section="goes-with"]')!;
-    // Archived targets are not shown; the self item and archived ones are not offered.
     expect(picker.querySelector('[data-goes-with="category:C3"]')).toBeNull();
+    expect(picker.querySelector('[data-goes-with="item:I4"]')).toBeNull();
     expect(picker.querySelector('[data-goes-with="item:I3"]')).not.toBeNull();
     const offered = [...(field('goes_with_add') as HTMLSelectElement).options].map((o) => o.value);
     expect(offered).toEqual(['', 'category:C1', 'category:C2', 'item:I2']);
@@ -141,6 +173,40 @@ describe('owner item Timing group and goes-with', () => {
     ]);
   });
 
+  it('[01a A-13] a target the menu read did not return stays, with its exclude, after an add', async () => {
+    const { api, calls } = server();
+    await renderItem(api, dish('I1', 'Chicken Karahi', { goes_with: [link('item', 'I77', true), link('category', 'C88')] }));
+    expect(q('[data-goes-with="item:I77"]')).not.toBeNull();
+    setValue(field('goes_with_add'), 'item:I2');
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([
+      {
+        goes_with: [
+          { target_kind: 'item', target_id: 'I77', excluded: true },
+          { target_kind: 'category', target_id: 'C88', excluded: false },
+          { target_kind: 'item', target_id: 'I2', excluded: false },
+        ],
+      },
+    ]);
+  });
+
+  it('[01a A-13] an unrelated edit with stored links sends no goes_with', async () => {
+    const { api, calls } = server();
+    await renderItem(api, dish('I1', 'Chicken Karahi', { goes_with: [link('item', 'I77', true), link('item', 'I4')] }));
+    setValue(field('weight_pct'), '120');
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([{ weight_pct: 120 }]);
+  });
+
+  it('[01a A-13] a failed menu read disables the picker and sends no goes_with', async () => {
+    const { api, calls } = server(undefined, true);
+    await renderItem(api, dish('I1', 'Chicken Karahi', { goes_with: [link('item', 'I77', true)] }));
+    expect(field('goes_with_add')!.disabled).toBe(true);
+    setValue(field('weight_pct'), '120');
+    await click(button(ui.container, t('item.save')));
+    expect(patches(calls)).toEqual([{ weight_pct: 120 }]);
+  });
+
   it('[01a A-13] a 422 on goes_with shows under the picker', async () => {
     const { api } = server((call) => (call.method === 'PATCH' ? fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'goes_with' }) : undefined));
     await renderItem(api, dish('I1', 'Chicken Karahi'));
@@ -154,12 +220,7 @@ describe('owner item Timing group and goes-with', () => {
     const category = cat('C1', 'Karahi', {
       goes_with: [{ source_kind: 'category', source_id: 'C1', target_kind: 'category', target_id: 'C3', excluded: false }],
     });
-    await ui.render(
-      <GuardProvider>
-        <CategoryForm api={api} category={category} categories={CATEGORIES} items={ITEMS} onSaved={() => {}} onCancel={() => {}} />
-      </GuardProvider>,
-    );
-    await flush();
+    await renderCategory(api, category);
     const picker = q<HTMLElement>('[data-section="goes-with"]')!;
     expect([...(field('goes_with_add') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'category:C2', 'item:I1', 'item:I2', 'item:I3']);
     setValue(field('goes_with_add'), 'item:I2');
@@ -168,5 +229,25 @@ describe('owner item Timing group and goes-with', () => {
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({
       goes_with: [{ target_kind: 'item', target_id: 'I2', excluded: false }],
     });
+  });
+
+  it('[01a A-13] a category save that changes only the name sends no goes_with, even when the menu read finishes meanwhile', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { api, calls } = fakeApi(async (call) => {
+      if (call.url.startsWith('/v1/admin/menu')) {
+        await gate;
+        return ok({ can_edit_tenant: true, tax_classes: [], categories: CATEGORIES, variant_groups: [], items: call.url.includes('archived') ? [] : ITEMS, next_cursor: null });
+      }
+      return ok({ category: cat('C1', 'Karahi') });
+    });
+    const stored = { source_kind: 'category' as const, source_id: 'C1', target_kind: 'item' as const, target_id: 'I77', excluded: false };
+    await renderCategory(api, cat('C1', 'Karahi', { goes_with: [stored] }));
+    expect(field('goes_with_add')!.disabled).toBe(true);
+    release();
+    await flush();
+    setValue(field('name'), 'Karahi 2');
+    await click(button(ui.container, t('owner.category.save')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ name: 'Karahi 2' });
   });
 });

@@ -152,8 +152,13 @@ function SettingsForm({
       return;
     }
     if (result.error.kind === 'api' && result.error.code === 'VALIDATION_FAILED') {
-      setErrors({ gap: fill(t('branches.gap_not_less'), { n: String(staleValue) }) });
-      return;
+      // The cloud names the field in details.issues; only the day-gap check has the gap message.
+      const issues = result.error.details['issues'];
+      const paths = Array.isArray(issues) ? (issues as { path?: unknown }[]).map((i) => String(i.path ?? '')) : [];
+      if (paths.length === 0 || paths.some((p) => p.includes('day_'))) {
+        setErrors({ gap: fill(t('branches.gap_not_less'), { n: String(staleValue) }) });
+        return;
+      }
     }
     setBanner({ tone: 'danger', text: errorText(result.error) ?? '' });
   }

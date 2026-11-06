@@ -419,7 +419,6 @@ export function MenuView({ api }: { api: CloudAdmin }) {
         item={editing.item}
         taxClasses={menu.tax_classes}
         categories={menu.categories}
-        items={items}
         branchIds={branchIds}
         readOnly={!canEdit}
         variantGroups={menu.variant_groups}
@@ -905,7 +904,6 @@ export function MenuView({ api }: { api: CloudAdmin }) {
           api={api}
           category={editing.category}
           categories={menu?.categories ?? []}
-          items={items}
           onSaved={(notice) => {
             if (editing.category !== null) flashSaved(editing.category.category_id);
             closeForm(notice);

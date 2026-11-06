@@ -1,4 +1,4 @@
-import { BRANCH_ENGINE_SETTING_KEYS, type BranchEngineSettings } from '@pos/events';
+import type { BranchEngineSettings } from '@pos/events';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
@@ -19,20 +19,20 @@ interface Spec {
 const pct = (key: NumericKey, label: MessageKey): Spec => ({ key, kind: 'pct', min: 10, max: 1000, label });
 const pad = (key: NumericKey, label: MessageKey): Spec => ({ key, kind: 'ms', min: 0, max: 1_800_000, label });
 
-export const WEIGHTS: Spec[] = [
+const WEIGHTS: Spec[] = [
   pct('weight_dine_in_pct', 'branches.timing.weight_dine_in_pct'),
   pct('weight_takeaway_pct', 'branches.timing.weight_takeaway_pct'),
   pct('weight_delivery_pct', 'branches.timing.weight_delivery_pct'),
   pct('weight_parking_pct', 'branches.timing.weight_parking_pct'),
   pct('weight_follow_up_pct', 'branches.timing.weight_follow_up_pct'),
 ];
-export const PADDINGS: Spec[] = [
+const PADDINGS: Spec[] = [
   pad('promise_padding_dine_in_ms', 'branches.timing.promise_padding_dine_in_ms'),
   pad('promise_padding_takeaway_ms', 'branches.timing.promise_padding_takeaway_ms'),
   pad('promise_padding_delivery_ms', 'branches.timing.promise_padding_delivery_ms'),
   pad('promise_padding_parking_ms', 'branches.timing.promise_padding_parking_ms'),
 ];
-export const OTHERS: Spec[] = [
+const OTHERS: Spec[] = [
   { key: 'slip_threshold_ms', kind: 'ms', min: 60_000, max: 1_800_000, label: 'branches.timing.slip_threshold_ms' },
   { key: 'slip_escalate_ms', kind: 'ms', min: 30_000, max: 1_800_000, label: 'branches.timing.slip_escalate_ms' },
   { key: 'cascade_step_ms', kind: 'ms', min: 15_000, max: 300_000, label: 'branches.timing.cascade_step_ms' },
@@ -82,7 +82,6 @@ export const engineFieldLabel = (key: string): string | undefined => {
   const spec = SPECS.find((s) => s.key === key);
   return spec === undefined ? undefined : t(spec.label);
 };
-export const isEngineKey = (key: string): boolean => (BRANCH_ENGINE_SETTING_KEYS as string[]).includes(key);
 
 export function KitchenTiming({
   state,
