@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -97,10 +97,10 @@ export async function buildSnapshot(
   header: SnapshotHeader,
 ): Promise<Record<string, unknown>> {
   const body = await buildSnapshotBody(client, tenant, branchId, header);
-  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV2.parse(body))) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV3.parse(body))) as Record<string, unknown>;
 }
 
-// The built body before the schema parse: every schema 3 field, whatever the wire version keeps.
+// The built body before the schema parse.
 export async function buildSnapshotBody(
   client: pg.PoolClient,
   tenant: TenantContext,

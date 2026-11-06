@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadDirectory } from '../../src/modules/hub-registration/repository';
 import { pgCounter } from '../helpers/pg-counter';
@@ -58,7 +58,7 @@ describe('GET /v1/sync/config', () => {
     expect(counter.count).toBeLessThanOrEqual(27);
     const data = response.json().data;
     expect(data.directory).toBeNull();
-    const snapshot = BranchConfigSnapshotSchemaV2.parse(data.config.snapshot);
+    const snapshot = BranchConfigSnapshotSchemaV3.parse(data.config.snapshot);
     expect(snapshot).toMatchObject({ config_version: v.config, branch_id: f.branches[0], currency_code: 'PKR' });
     expect(data.config.snapshot_hash).toBe(sha256hex(canonicalJson(data.config.snapshot)));
 
@@ -113,7 +113,7 @@ describe('GET /v1/sync/config', () => {
     const response = await poll(0, v.directory);
     expect(response.statusCode).toBe(200);
     const received = JSON.parse(response.body) as { data: { config: { snapshot_hash: string; snapshot: unknown } } };
-    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(received.data.config.snapshot)));
+    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV3.parse(received.data.config.snapshot)));
     expect(hubHash).toBe(received.data.config.snapshot_hash);
 
     // an optional field undefined on one row: canonicalJson throws, so the hash can only be taken over the wire.

@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
@@ -71,8 +71,27 @@ describe('buildSnapshot', () => {
     await seedMenu(cloud.pool, f, { archived: true });
     await seedVariants();
     const snapshot = await build(f.branches[0]);
+    const pass = (await sql(`SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2`, [f.branches[0]])).rows[0].point_id as string;
+    // 01a §4.3 V3, §5.2a: the engine fields at their defaults.
+    const engineStation = {
+      point_id: pass,
+      policy: 'waada_guard',
+      freeze_ms: 120000,
+      min_slack_keep_ms: 60000,
+      promise_padding_ms: null,
+      pressure_window_ms: 900000,
+      pressure_amber_bp: 8000,
+      pressure_red_bp: 10000,
+      pressure_alert_ms: 300000,
+      pause_enabled: false,
+      lane_units: null,
+      reserve_units: 0,
+      alternates: [],
+      carry_times: [],
+    };
+    const itemKnobs = { weight_pct: 100, max_early_ms: 60000, max_carry_ms: null, max_late_ms: null, adjust_time_ms: 180000 };
     expect(snapshot).toEqual({
-      snapshot_schema_version: 2,
+      snapshot_schema_version: 3,
       config_version: 42,
       branch_id: f.branches[0],
       currency_code: 'PKR',
@@ -90,8 +109,10 @@ describe('buildSnapshot', () => {
           ],
         },
       ],
+      points: [{ point_id: pass, name: 'Pass', sort_order: 0, is_archived: false }],
       stations: [
         {
+          ...engineStation,
           station_id: 'ST-2',
           name: 'Fryer',
           location_label: 'Back kitchen',
@@ -107,6 +128,7 @@ describe('buildSnapshot', () => {
           ],
         },
         {
+          ...engineStation,
           station_id: 'ST-1',
           name: 'Karahi',
           location_label: null,
@@ -118,6 +140,7 @@ describe('buildSnapshot', () => {
           programs: [],
         },
         {
+          ...engineStation,
           station_id: 'ST-X',
           name: 'Old tandoor',
           location_label: null,
@@ -151,8 +174,28 @@ describe('buildSnapshot', () => {
       ],
       modifier_groups: [],
       deals: [],
+      engine_settings: {
+        weight_dine_in_pct: 100,
+        weight_takeaway_pct: 200,
+        weight_delivery_pct: 200,
+        weight_parking_pct: 200,
+        weight_follow_up_pct: 300,
+        promise_padding_dine_in_ms: 180000,
+        promise_padding_takeaway_ms: 180000,
+        promise_padding_delivery_ms: 180000,
+        promise_padding_parking_ms: 180000,
+        slip_threshold_ms: 120000,
+        slip_escalate_ms: 120000,
+        cascade_step_ms: 60000,
+        min_gain_ms: 60000,
+        returns_boost: true,
+        order_abandon_ms: 14400000,
+        table_lock_ttl_ms: 600000,
+      },
+      goes_with: [],
       items: [
         {
+          ...itemKnobs,
           item_id: 'IT-0000',
           category_id: 'CT-1',
           variant_group_id: 'VG-1',
@@ -180,6 +223,7 @@ describe('buildSnapshot', () => {
           modifier_group_ids: [],
         },
         {
+          ...itemKnobs,
           item_id: 'IT-0001',
           category_id: 'CT-1',
           variant_group_id: null,
@@ -214,11 +258,11 @@ describe('buildSnapshot', () => {
     expect(other.stock_items).toEqual([expect.objectContaining({ stock_item_id: 'SK-4', station_id: 'ST-B' })]);
   });
 
-  it('[01c #57] the built snapshot parses with BranchConfigSnapshotSchemaV2; canonicalJson is stable across two builds', async () => {
+  it('[01c #57] the built snapshot parses with BranchConfigSnapshotSchemaV3; canonicalJson is stable across two builds', async () => {
     await seedMenu(cloud.pool, f, { archived: true });
     await seedVariants();
     const first = await build(f.branches[0]);
-    const parsed = BranchConfigSnapshotSchemaV2.parse(first);
+    const parsed = BranchConfigSnapshotSchemaV3.parse(first);
     expect(parsed).toEqual(first);
     const second = await build(f.branches[0]);
     expect(sha256hex(canonicalJson(second))).toBe(sha256hex(canonicalJson(first)));
@@ -297,7 +341,7 @@ describe('buildSnapshot', () => {
   it('[01c #93] a batch route resolves program_id and stock_program_id in programs[] with cook_time_ms, archived included; a slot route has both null', async () => {
     await seedMenu(cloud.pool, f, { archived: true });
     await sql(`UPDATE batch_programs SET archived_at = 1 WHERE tenant_id = $1 AND program_id = 'PG-2'`);
-    const snapshot = BranchConfigSnapshotSchemaV2.parse(await build(f.branches[0]));
+    const snapshot = BranchConfigSnapshotSchemaV3.parse(await build(f.branches[0]));
     const batch = snapshot.items.find((item) => item.item_id === 'IT-0001')!;
     const programs = snapshot.stations.find((station) => station.station_id === batch.station_id)!.programs;
     expect(programs.find((program) => program.program_id === batch.program_id)).toMatchObject({ cook_time_ms: 360000, is_archived: false });
@@ -349,7 +393,7 @@ describe('buildSnapshot', () => {
     const cloudHash = sha256hex(canonicalJson(wire));
 
     const body = JSON.stringify(wire);
-    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(JSON.parse(body))));
+    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV3.parse(JSON.parse(body))));
     expect(hubHash).toBe(cloudHash);
 
     const raw = await cloud.pool.query<{ price_minor: unknown }>(
@@ -358,7 +402,7 @@ describe('buildSnapshot', () => {
     expect(raw.rows[0]!.price_minor).toBe('120000'); // pg returns BIGINT as a string
     const unconverted = JSON.parse(body) as { items: Array<Record<string, unknown>> };
     unconverted.items[0]!.price_minor = raw.rows[0]!.price_minor;
-    expect(() => BranchConfigSnapshotSchemaV2.parse(unconverted)).toThrow();
+    expect(() => BranchConfigSnapshotSchemaV3.parse(unconverted)).toThrow();
   });
 
   it('[01a S47] two windows with the same start are ordered by end', async () => {

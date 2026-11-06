@@ -396,16 +396,22 @@ function configItem(itemId: string, name: string, sortOrder: number, o: Partial<
     program_id: null,
     stock_program_id: null,
     modifier_group_ids: [],
+    weight_pct: 100,
+    max_early_ms: 60_000,
+    max_carry_ms: null,
+    max_late_ms: null,
+    adjust_time_ms: 180_000,
     ...o,
   };
 }
 
 // 01c §4.6: slot station "Karahi"; stock item K1 "Karahi pot" counted in g
 // there; Half I1 draws 500 g, Full I3 draws 1 000 g (variant group V1);
-// I2 is not stock-tracked.
+// I2 is not stock-tracked. Schema 3 (01a §4.3): point P1 and the defaults of anEngineConfigApplied (station S1
+// included), so the two builders agree; table_lock_ttl_ms is 02's (A-12 default), not an engine field.
 export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
   return {
-    snapshot_schema_version: 2,
+    snapshot_schema_version: 3,
     config_version: 1,
     branch_id: envelope.branch_id,
     currency_code: 'PKR',
@@ -413,6 +419,7 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
     day_stale_after_hours: 16,
     day_min_gap_hours: 4,
     floors: [],
+    points: [{ point_id: 'P1', name: 'Pass', sort_order: 0, is_archived: false }],
     stations: [
       {
         station_id: 'S1',
@@ -424,6 +431,20 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
         completion_mode: 'two_tap',
         is_archived: false,
         programs: [],
+        point_id: 'P1',
+        policy: 'waada_guard',
+        freeze_ms: 120_000,
+        min_slack_keep_ms: 60_000,
+        promise_padding_ms: null,
+        pressure_window_ms: 900_000,
+        pressure_amber_bp: 8_000,
+        pressure_red_bp: 10_000,
+        pressure_alert_ms: 300_000,
+        pause_enabled: false,
+        lane_units: null,
+        reserve_units: 0,
+        alternates: [],
+        carry_times: [],
       },
     ],
     tax_classes: [],
@@ -458,11 +479,30 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
       }),
     ],
     deals: [],
+    engine_settings: {
+      weight_dine_in_pct: 100,
+      weight_takeaway_pct: 200,
+      weight_delivery_pct: 200,
+      weight_parking_pct: 200,
+      weight_follow_up_pct: 300,
+      promise_padding_dine_in_ms: PADDING_MS,
+      promise_padding_takeaway_ms: PADDING_MS,
+      promise_padding_delivery_ms: PADDING_MS,
+      promise_padding_parking_ms: PADDING_MS,
+      slip_threshold_ms: 120_000,
+      slip_escalate_ms: 120_000,
+      cascade_step_ms: 60_000,
+      min_gain_ms: 60_000,
+      returns_boost: true,
+      order_abandon_ms: 14_400_000,
+      table_lock_ttl_ms: 600_000,
+    },
+    goes_with: [],
     ...overrides,
   };
 }
 
-// 01a's per-item stock fixture in schema 2 (01c §5.1 backfill rule: a tracked item becomes a stock item with
+// 01a's per-item stock fixture in schema 3 (01c §5.1 backfill rule: a tracked item becomes a stock item with
 // the same id, counted at its route station, with one draw): slot station "Karahi"; I1 (pieces, 1 per sale)
 // and I3 (g, 250 g per piece) are stock items; I2 is not stock-tracked. No variant groups.
 export function aBranchConfigItemStock(overrides?: Partial<BranchConfig>): BranchConfig {

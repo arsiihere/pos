@@ -268,7 +268,7 @@ function counterDirectory(directory: DirectoryInput): void {
   directory.responsibilities = [{ responsibility: 'count_stock', station_id: 'S1', staff_ids: ['S_CNT'], role_ids: [] }];
 }
 
-// The hub holds `config` (a schema-2 snapshot) and a day is open.
+// The hub holds `config` (a schema-3 snapshot) and a day is open.
 async function openConfigDay(
   config: BranchConfig,
   testHooks?: { beforeCommit?: () => void },

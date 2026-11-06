@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2, type BranchConfig, type CreateDealRequest, type DealBranchWire, type DealWire } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type BranchConfig, type CreateDealRequest, type DealBranchWire, type DealWire } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { createDeal, createModifierGroup } from '../helpers/menu-variants';
@@ -18,7 +18,7 @@ type ListedDeal = DealWire & { branches: DealBranchWire[] };
 type ApiError = { error: { code: string; details: Record<string, unknown> } };
 
 // 01c §6.16 deal branch PUT (per-branch sale and price, M4, AD-6) and §4.6 rule 5 (V11 e, m5, AU-11): the deals of
-// a branch's schema-2 snapshot, written through the API (§6.14, §6.15, §6.16). Branch A is Gulberg.
+// a branch's schema-3 snapshot, written through the API (§6.14, §6.15, §6.16). Branch A is Gulberg.
 describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -43,7 +43,7 @@ describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () =>
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }
@@ -54,7 +54,7 @@ describe('01c deal branch PUT (§6.16) and snapshot deals (§4.6 rule 5)', () =>
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
       counter.reset();
-      BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
       return counter.count;
     } finally {
       client.release();

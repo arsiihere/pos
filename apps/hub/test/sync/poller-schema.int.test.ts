@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadBranchConfig } from '../../src/projections/branch-config';
@@ -121,7 +121,7 @@ describe('config poller: schema version and stored body', () => {
     expect(loaded.state === 'APPLIED' ? loaded.entry.config : null).toEqual(branchConfig());
   });
 
-  it('[01c #61] a hub on schema 2 receiving a schema-1 body → schema_unsupported, last config kept, nothing persisted', async () => {
+  it('[01c #61] a hub on schema 3 receiving a schema-1 body → schema_unsupported, last config kept, nothing persisted', async () => {
     const { h, cloud } = await hub();
     cloud.respondWithSnapshot(snapshot(3));
     await configPoller(h.app).pollOnce();
@@ -168,7 +168,7 @@ describe('config poller: schema version and stored body', () => {
     cloud.next = async (q) => (q.config_version === 0 ? respond : { kind: 'not_modified' });
     expect((await configPoller(h.app).pollOnce()).outcome).toBe('applied');
     expect(cloud.calls[0]).toEqual({ config_version: 0, directory_version: 0 });
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(current));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV3.parse(current));
     expect((await configPoller(h.app).pollOnce()).outcome).toBe('unchanged');
     expect(cloud.calls[1]).toEqual({ config_version: 5, directory_version: 0 });
     expect(count(h, `SELECT COUNT(*) FROM events WHERE event_type = 'BranchConfigApplied'`)).toBe(2);

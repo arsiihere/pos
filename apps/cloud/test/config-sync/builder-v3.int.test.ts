@@ -81,7 +81,7 @@ describe('buildSnapshotBody: schema 3', () => {
       [linkId, sourceKind, sourceId, targetKind, targetId, excluded],
     );
 
-  it('[01a §4.3 V3] the unparsed body parses as schema 3 once its version is set to 3, every engine field kept', async () => {
+  it('[01a §4.3 V3] the unparsed body parses as schema 3 once its version is set to 3 (the wire version since the flip), every engine field kept', async () => {
     await seedSlots();
     await alternate('ST-3', 'ST-4', ['takeaway'], []);
     await sql(`INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at) VALUES ($1, $2, 'ST-3', $3, 15000, 0, 0)`, [

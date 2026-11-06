@@ -2,7 +2,6 @@ import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { anEngineConfigApplied } from '../testing/index';
 import {
-  BranchConfigSnapshotSchemaV2,
   BranchConfigSnapshotSchemaV3,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
@@ -180,20 +179,24 @@ function snapV2(): SnapV2 {
   return exampleV2() as SnapV2;
 }
 
-describe('BranchConfigSnapshotSchemaV2: the 01a rules kept from schema 1', () => {
-  it('[01a §4.3] SNAPSHOT_SCHEMA_VERSION is 2 (01c V12)', () => {
-    expect(SNAPSHOT_SCHEMA_VERSION).toBe(2);
+function snapV3(): SnapV2 {
+  return exampleV3() as unknown as SnapV2;
+}
+
+describe('BranchConfigSnapshotSchemaV3: the 01a rules kept from schema 1', () => {
+  it('[01a §4.3] SNAPSHOT_SCHEMA_VERSION is 3 (03a §4.5)', () => {
+    expect(SNAPSHOT_SCHEMA_VERSION).toBe(3);
   });
 
   it('[01a S28 c] unknown fields are dropped, not rejected', () => {
-    const s = snapV2();
+    const s = snapV3();
     const withExtra = {
       ...s,
       business_day_start_ms: 21600000,
       future_field: 'x',
       items: [{ ...s.items[0], future_item_field: 1 }],
     };
-    const r = BranchConfigSnapshotSchemaV2.safeParse(withExtra);
+    const r = BranchConfigSnapshotSchemaV3.safeParse(withExtra);
     expect(r.success).toBe(true);
     expect(r.data).not.toHaveProperty('business_day_start_ms');
     expect(r.data).not.toHaveProperty('future_field');
@@ -201,35 +204,35 @@ describe('BranchConfigSnapshotSchemaV2: the 01a rules kept from schema 1', () =>
   });
 
   it('[01a S27] price_minor "120000" fails', () => {
-    const s = snapV2();
+    const s = snapV3();
     s.items[0] = { ...s.items[0], price_minor: '120000' };
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(false);
   });
 
   it('[01a S34] missing tax_enabled fails; tax_class_id null passes', () => {
-    expect(BranchConfigSnapshotSchemaV2.safeParse(without(snapV2(), 'tax_enabled')).success).toBe(false);
-    const s = snapV2();
+    expect(BranchConfigSnapshotSchemaV3.safeParse(without(snapV3(), 'tax_enabled')).success).toBe(false);
+    const s = snapV3();
     s.items[0] = { ...s.items[0], tax_class_id: null };
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(true);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(true);
   });
 
   it('[01a S22] programs and tax classes require is_archived', () => {
-    const s1 = snapV2();
+    const s1 = snapV3();
     s1.stations[1]!.programs[0] = without(s1.stations[1]!.programs[0]!, 'is_archived');
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s1).success).toBe(false);
-    const s2 = snapV2();
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s1).success).toBe(false);
+    const s2 = snapV3();
     s2.tax_classes[0] = without(s2.tax_classes[0]!, 'is_archived');
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s2).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s2).success).toBe(false);
   });
 
   it('[01a S33, S47] missing day_stale_after_hours or availability_windows fails', () => {
-    expect(BranchConfigSnapshotSchemaV2.safeParse(without(snapV2(), 'day_stale_after_hours')).success).toBe(false);
-    const s = snapV2();
+    expect(BranchConfigSnapshotSchemaV3.safeParse(without(snapV3(), 'day_stale_after_hours')).success).toBe(false);
+    const s = snapV3();
     s.items[0] = without(s.items[0]!, 'availability_windows');
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(false);
-    const c = snapV2();
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(false);
+    const c = snapV3();
     c.categories[0] = without(c.categories[0]!, 'availability_windows');
-    expect(BranchConfigSnapshotSchemaV2.safeParse(c).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(c).success).toBe(false);
   });
 
   it('[01a §6.1] SyncConfigEnvelopeSchema keeps the snapshot as a record and allows nulls', () => {
@@ -242,35 +245,35 @@ describe('BranchConfigSnapshotSchemaV2: the 01a rules kept from schema 1', () =>
   });
 });
 
-describe('BranchConfigSnapshotSchemaV2', () => {
+describe('BranchConfigSnapshotSchemaV3: the 01c rules kept from schema 2', () => {
   it('[01c §4.6] the §4.6 example, filled out to every key, parses', () => {
-    const r = BranchConfigSnapshotSchemaV2.safeParse(exampleV2());
+    const r = BranchConfigSnapshotSchemaV3.safeParse(exampleV3());
     expect(r.success).toBe(true);
-    expect(r.data).toEqual(exampleV2());
+    expect(r.data).toEqual(exampleV3());
   });
 
-  it('[01c §4.6] snapshot_schema_version must be 2', () => {
-    expect(BranchConfigSnapshotSchemaV2.safeParse({ ...exampleV2(), snapshot_schema_version: 1 }).success).toBe(false);
+  it('[01c §4.6] snapshot_schema_version must be 3', () => {
+    expect(BranchConfigSnapshotSchemaV3.safeParse({ ...exampleV3(), snapshot_schema_version: 1 }).success).toBe(false);
   });
 
   it('[01c §4.6 M5] modifier_group_ids of 21 ids parses (no maximum)', () => {
-    const s = snapV2();
+    const s = snapV3();
     s.items[0] = { ...s.items[0], modifier_group_ids: Array.from({ length: 21 }, (_, n) => `M${n + 1}`) };
-    const r = BranchConfigSnapshotSchemaV2.safeParse(s);
+    const r = BranchConfigSnapshotSchemaV3.safeParse(s);
     expect(r.success).toBe(true);
     expect(r.data?.items[0]?.modifier_group_ids).toHaveLength(21);
   });
 
   it('[01c §4.6 M1] a missing has_plain_options fails', () => {
-    const s = snapV2();
+    const s = snapV3();
     s.modifier_groups[0] = without(s.modifier_groups[0], 'has_plain_options');
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(false);
   });
 
   it('[01c §4.6 V2] group_label is dropped (not .strict())', () => {
-    const s = snapV2();
+    const s = snapV3();
     s.items[0] = { ...s.items[0], group_label: 'Chicken Karahi' };
-    const r = BranchConfigSnapshotSchemaV2.safeParse({ ...s, future_field: 1 });
+    const r = BranchConfigSnapshotSchemaV3.safeParse({ ...s, future_field: 1 });
     expect(r.success).toBe(true);
     expect(r.data?.items[0]).not.toHaveProperty('group_label');
     expect(r.data).not.toHaveProperty('future_field');
@@ -278,23 +281,23 @@ describe('BranchConfigSnapshotSchemaV2', () => {
 
   it('[01c §4.6 V12, V18] requires_weighing, stock_draws and modifier_group_ids are required on items', () => {
     for (const field of ['requires_weighing', 'stock_draws', 'modifier_group_ids', 'variant_group_id', 'variant_name']) {
-      const s = snapV2();
+      const s = snapV3();
       s.items[0] = without(s.items[0], field);
-      expect(BranchConfigSnapshotSchemaV2.safeParse(s).success, field).toBe(false);
+      expect(BranchConfigSnapshotSchemaV3.safeParse(s).success, field).toBe(false);
     }
   });
 
   it('[01c §4.6 §3.3] stock_draws holds at most one entry', () => {
-    const s = snapV2();
+    const s = snapV3();
     const draw = { stock_item_id: 'K1', quantity_per_sale_unit: 500 };
     s.items[0] = { ...s.items[0], stock_draws: [draw, { ...draw, stock_item_id: 'K2' }] };
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(false);
   });
 
   it('[01c §4.6 F1] a required group kept with options: [] parses', () => {
-    const s = snapV2();
+    const s = snapV3();
     s.modifier_groups[0] = { ...s.modifier_groups[0], options: [] };
-    expect(BranchConfigSnapshotSchemaV2.safeParse(s).success).toBe(true);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(s).success).toBe(true);
   });
 
   it('[01c §4.2 V12] isStockTracked(item) is stock_draws.length > 0', () => {
@@ -302,7 +305,7 @@ describe('BranchConfigSnapshotSchemaV2', () => {
     expect(isStockTracked({ stock_draws: [{ stock_item_id: 'K1', quantity_per_sale_unit: 500 }] })).toBe(true);
   });
 
-  it('[01c §4.2 P-7] schema-2 types are assignable to the @pos/domain menu-line inputs', () => {
+  it('[01c §4.2 P-7] schema-3 types are assignable to the @pos/domain menu-line inputs', () => {
     expectTypeOf<ConfigItem>().toExtend<MenuLineItem>();
     expectTypeOf<ConfigModifierGroup>().toExtend<MenuLineGroup>();
     expectTypeOf<ConfigDeal>().toExtend<MenuLineDeal>();
@@ -413,12 +416,10 @@ describe('BranchConfigSnapshotSchemaV3', () => {
     expect(r.data).toEqual(exampleV3());
   });
 
-  it('[01a §4.3 V3] snapshot_schema_version 2 is refused; a V2 example is refused by V3 and still parses as V2', () => {
+  it('[01a §4.3 V3] snapshot_schema_version 2 is refused; a V2 example is refused; schema 3 is the only schema', () => {
     expect(refused({ ...exampleV3(), snapshot_schema_version: 2 })).toBe(true);
     expect(refused(exampleV2())).toBe(true);
-    expect(BranchConfigSnapshotSchemaV2.safeParse(exampleV2()).data).toEqual(exampleV2());
-    expect(BranchConfigSnapshotSchemaV2.safeParse(exampleV3()).success).toBe(false);
-    expect(SNAPSHOT_SCHEMA_VERSION).toBe(2);
+    expect(SNAPSHOT_SCHEMA_VERSION).toBe(3);
   });
 
   it.each(['points', 'engine_settings', 'goes_with'])('[01a §4.3 V3] missing top-level %s is refused', (key) => {

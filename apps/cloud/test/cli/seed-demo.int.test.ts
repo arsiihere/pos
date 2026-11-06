@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import type { AddressInfo } from 'node:net';
-import { BranchConfigSnapshotSchemaV2, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type BranchConfig } from '@pos/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { seedDemo } from '../../src/cli/seed-demo';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
@@ -66,7 +66,7 @@ describe('seed-demo', () => {
     try {
       const out: Array<{ name: string; snapshot: BranchConfig }> = [];
       for (const b of branches) {
-        out.push({ name: b.name, snapshot: BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, b.branch_id, HEADER)) });
+        out.push({ name: b.name, snapshot: BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, b.branch_id, HEADER)) });
       }
       return out;
     } finally {

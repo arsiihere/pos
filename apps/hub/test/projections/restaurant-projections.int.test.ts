@@ -9,7 +9,7 @@ import { createTestHub, type TestHub } from '../helpers/test-hub';
 
 const BRANCH = 'branch-1';
 
-function configApplied(hash: string, version: number, schema = 2): EventDraft {
+function configApplied(hash: string, version: number, schema = 3): EventDraft {
   return {
     stream_type: 'hub',
     stream_id: BRANCH,
@@ -83,7 +83,7 @@ describe('restaurant projections', () => {
     });
     const live = read();
     expect(live).toEqual({
-      config: [{ branch_id: BRANCH, config_version: 3, snapshot_schema_version: 2, snapshot_hash: 'a'.repeat(64), applied_at: t1 }],
+      config: [{ branch_id: BRANCH, config_version: 3, snapshot_schema_version: 3, snapshot_hash: 'a'.repeat(64), applied_at: t1 }],
       availability: [
         { item_id: 'I1', is_available: 0, changed_at: t1, changed_by: 'S_MGR' },
         { item_id: 'I2', is_available: 1, changed_at: t2, changed_by: 'S_MGR' },
@@ -115,8 +115,8 @@ describe('restaurant projections', () => {
     const at = h.clock.branchNow();
     expect(applied).toEqual({
       state: 'APPLIED',
-      row: { branch_id: BRANCH, config_version: 4, snapshot_schema_version: 2, snapshot_hash: hash, applied_at: at },
-      entry: { config, snapshotHash: hash, configVersion: 4, snapshotSchemaVersion: 2, appliedAt: at },
+      row: { branch_id: BRANCH, config_version: 4, snapshot_schema_version: 3, snapshot_hash: hash, applied_at: at },
+      entry: { config, snapshotHash: hash, configVersion: 4, snapshotSchemaVersion: 3, appliedAt: at },
     });
 
     h.deps.writer.run((tx) => tx.append([configApplied(hash, 5, 1)]));

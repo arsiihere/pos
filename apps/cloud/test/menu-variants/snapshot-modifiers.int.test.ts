@@ -1,5 +1,5 @@
 import { isGroupSatisfiable } from '@pos/domain';
-import { BranchConfigSnapshotSchemaV2, type BranchConfig, type CreateModifierGroupRequest, type ModifierGroupWire } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type BranchConfig, type CreateModifierGroupRequest, type ModifierGroupWire } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { createModifierGroup, createVariantGroup, seedModifierGroupRows } from '../helpers/menu-variants';
@@ -16,7 +16,7 @@ const HEADER: SnapshotHeader = {
 };
 
 // 01c §4.6 rules 3 and 6 (V8, V9 has_plain_options, F1, M5, m5, m15): the modifier groups of a branch's
-// schema-2 snapshot and each item's resolved effective set, written through the API (§6.11, §6.12).
+// schema-3 snapshot and each item's resolved effective set, written through the API (§6.11, §6.12).
 describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -39,7 +39,7 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }
@@ -51,7 +51,7 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
       counter.reset();
-      BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
       return counter.count;
     } finally {
       client.release();
@@ -239,7 +239,7 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     expect(idsOf(atA, menu.itemIds[1]!)).toEqual([bread.modifier_group_id, sauce.modifier_group_id]);
   });
 
-  it('[01c #100] an item with 21 effective groups (seeded directly) → the builder succeeds, the snapshot parses with BranchConfigSnapshotSchemaV2 and lists 21 ids', async () => {
+  it('[01c #100] an item with 21 effective groups (seeded directly) → the builder succeeds, the snapshot parses with BranchConfigSnapshotSchemaV3 and lists 21 ids', async () => {
     const [a] = f.branches;
     const groupIds: string[] = [];
     for (let n = 0; n < 21; n += 1) {
@@ -249,7 +249,7 @@ describe('01c snapshot modifier groups and effective sets (§4.6)', () => {
     }
     await seedLinks(groupIds.map((groupId) => ({ groupId, kind: 'category', targetId: menu.categoryIds[0], mode: 'attach' })));
 
-    const snapshot = await build(a); // parsed with BranchConfigSnapshotSchemaV2 in build()
+    const snapshot = await build(a); // parsed with BranchConfigSnapshotSchemaV3 in build()
     expect(idsOf(snapshot, menu.itemIds[0]!)).toEqual(groupIds);
     expect(snapshot.modifier_groups).toHaveLength(21);
   });
