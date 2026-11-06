@@ -712,3 +712,78 @@ export function applyMoves(state: EngineState, moves: ReadonlyMap<string, Move>,
     diagnostics: diagnostics.length === 0 ? state.diagnostics : [...state.diagnostics, ...diagnostics],
   };
 }
+
+// ---- §3.7 StockAdded flip (task 12b; BF-7) ---------------------------------------------------------------------
+
+// BF-7 (G4-3 #11): the StockReserved fold that flips a hidden line from fresh to stock re-places only that line, within
+// its own slack, on its own station; no other line moves. The line already carries its stock cook time (and on a
+// batch station its stock program, BF-1 currentProgram); `oldCook` is the cook it was booked with. Its slot end is
+// kept (§3.7 "the line may now fire later and still land on its T"), so its deadline moves later by the occupancy
+// difference: d' = d + cook_occ(old) − cook_occ(new) (AD-12 slot). Cost: one live read of its station and one fit
+// pair (a batch line also one scan of the station's loads) — independent of the number of hidden lines.
+export type FlipPlacement =
+  | { kind: 'slot'; deadline_ms: number; move: Move }
+  | { kind: 'batch'; deadline_ms: number; loads: WorkLoad[] };
+
+// A slot line: removed from its station's live profile (exactly its `booked`, AD-7), then placed at
+// latestFit(lo = max(t, d' − max_early_ms), hi = d' − keep), else latestFit(lo, d'); proposed (implementer,
+// overnight): if neither fits (the live profile moved since the line was booked) it takes its old slot end with the
+// stock cook (fire = old fire + the occupancy difference), inside its old booking, so it never needs capacity it
+// did not hold. FIFO (§3.5.3, AD-14: no re-plan): proposed (implementer, overnight) it keeps its fire, its booking
+// shrinks to the stock cook, deadline = fire.
+// A batch line (§3.7: "the re-plan places it in a load of that program"; G4-1 #10) leaves its load (which keeps its
+// name and booking while it has members; with none left its booking goes, AD-7) and, as batchPass1 steps 1–4 for
+// this one line with slot end E: joins the first compatible load (its stock program and cook, room, prep) with
+// b.end ≤ E − keep within min(freshness, max_early_ms); else forms a load at latestFit(lo, d' − keep); else joins
+// with b.end ≤ E; else forms at latestFit(lo, d'); proposed (implementer, overnight) else at earliestFit(lo) (late;
+// the tick slips it, never refused, D3).
+export function flipPlacement(state: EngineState, id: string, oldCook: number, t: number, strict: boolean): FlipPlacement {
+  const line = state.lines[id]!;
+  const station = state.stations[line.station_id]!;
+  const pol = stationPolicy(state, station.station_id);
+  const own = optionOn(routeOptions(routeCtx(state), line, true), station.station_id);
+  const cap = station.type === 'batch' ? capacityFor(station, id) : (own?.cap ?? capacityFor(station, id));
+  const shift = occupancy(line.units, cap, oldCook).cook_ms - occupancy(line.units, cap, line.cook_ms).cook_ms;
+  const d = line.deadline_ms + shift;
+  const lo = Math.max(t, d - line.max_early_ms);
+  const clamp = strict ? undefined : (): void => undefined;
+  if (station.type !== 'batch') {
+    if (pol.policy === 'fifo') return { kind: 'slot', deadline_ms: line.fire_ms!, move: { fire: line.fire_ms!, booked: bookingAt(line, cap, line.fire_ms!), capped: false } };
+    const b = line.booked!;
+    const work = removeInterval(liveProfile(state, station.station_id, t), b, b.units, clamp);
+    const fire =
+      latestFit(work, lo, d - pol.keep_ms, line.prep_ms, line.cook_ms, line.units, cap) ??
+      latestFit(work, lo, d, line.prep_ms, line.cook_ms, line.units, cap) ??
+      line.fire_ms! + shift;
+    return { kind: 'slot', deadline_ms: d, move: { fire, booked: bookingAt(line, cap, fire), capped: false } };
+  }
+  let work = liveProfile(state, station.station_id, t);
+  const loads: WorkLoad[] = [];
+  for (const l of Object.values(station.loads)) {
+    if (!l.order_item_ids.includes(id)) {
+      loads.push(workOf(state, l));
+      continue;
+    }
+    const rest = l.order_item_ids.filter((m) => m !== id);
+    if (rest.length > 0) loads.push(workOf(state, { ...l, order_item_ids: rest }));
+    else work = removeInterval(work, l.booked, l.booked.units, clamp);
+  }
+  const E = d + line.prep_ms + occupancy(line.units, cap, line.cook_ms).cook_ms;
+  const jl = joinLine(line);
+  const window = freshnessOf(state, station.station_id);
+  const join = (end: number): WorkLoad[] | null => {
+    const b = syncJoin(loads, jl, cap, end, window, t);
+    return b === undefined ? null : replaced(loads, b, withMember(b, jl));
+  };
+  const W = asLoad(line, cap);
+  const fit = (hi: number): number | null => latestFit(work, lo, hi, W.prep_ms, W.cook_ms, W.units, cap);
+  const form = (fire: number): WorkLoad[] => [...loads, formed(jl, fire, bookingAt(W, cap, fire))];
+  const viaKeep = join(E - pol.keep_ms);
+  if (viaKeep !== null) return { kind: 'batch', deadline_ms: d, loads: viaKeep };
+  const f1 = fit(d - pol.keep_ms);
+  if (f1 !== null) return { kind: 'batch', deadline_ms: d, loads: form(f1) };
+  const viaEnd = join(E);
+  if (viaEnd !== null) return { kind: 'batch', deadline_ms: d, loads: viaEnd };
+  const f2 = fit(d) ?? earliestFit(work, lo, W.prep_ms, W.cook_ms, W.units, cap);
+  return { kind: 'batch', deadline_ms: d, loads: form(f2) };
+}

@@ -426,7 +426,7 @@ const sameBooking = (a: Load['booked'], b: Load['booked']): boolean => a.start =
 // fire_ms and load_id (booked null, capped from the overload search). `loads` lists every unfired load of the
 // station; every member is an unfired line already in `unfired`. A strict underflow throws; non-strict it clamps
 // and appends a profile_underflow diagnostic. Unchanged loads return state itself.
-function storeLoads(state: EngineState, station_id: string, after: readonly WorkLoad[], event_id: string, strict: boolean): EngineState {
+export function storeLoads(state: EngineState, station_id: string, after: readonly WorkLoad[], event_id: string, strict: boolean): EngineState {
   const station = state.stations[station_id]!;
   const named = nameLoads(station_id, after);
   const before = station.loads;

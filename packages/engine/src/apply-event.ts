@@ -15,14 +15,27 @@ import type {
   OrderPlacedPayload,
   PosEvent,
 } from '@pos/events';
-import { capacityFor, stationPolicy } from './replan.js';
-import { checkProgram, deadlineOf, InvalidEvent, isEngineLine, lineShape, lineUnits, planNewLines, replanEnded, type SequenceOptions } from './plan.js';
+import { applyMoves, capacityFor, flipPlacement, pass1, stationPolicy } from './replan.js';
+import {
+  applyPass1,
+  checkProgram,
+  deadlineOf,
+  InvalidEvent,
+  isEngineLine,
+  lineShape,
+  lineUnits,
+  planNewLines,
+  replanEnded,
+  storeLoads,
+  type SequenceOptions,
+} from './plan.js';
+import { effectiveCapacity } from './capacity.js';
 import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
-import { removeInterval, type Underflow } from './profile.js';
+import { occupancy, removeInterval, type Underflow } from './profile.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
-import { stockOf } from './stock.js';
+import { isHiddenUnfired, stockOf } from './stock.js';
 
 // Payloads as validated by the @pos/events schemas (§4.2).
 // StockSet / StockAdded v2 (01c V5): keyed by stock_item_id; parseEvent upcasts v1.
@@ -571,9 +584,13 @@ function drawOf(state: EngineState, p: StockLine): { line: EngineLine | undefine
 // itself, stock untouched (§3.3 absent ids). Proposed (implementer, overnight): unlike a release or consume, nothing
 // could ever release or consume a reservation of a line the state does not hold (stockEffects drafts from
 // line.draws), so adding it would keep `reserved` held for good and lower `available` for every later order.
-// A reservation past the draw's quantity is clamped to it (a breach). The from_stock false → true flip (stock cook
-// time, stock program, re-plan of the line's station) is task 12b (§3.7 StockAdded, test 87); a submit's own
-// reservation flips nothing (OrderPlaced already marked the line from_stock).
+// A reservation past the draw's quantity is clamped to it (a breach). A submit's own reservation flips nothing
+// (OrderPlaced already marked the line from_stock) and re-plans nothing (§3.5.3).
+// Task 12b (§3.7 StockAdded "the fold", §3.5.3 triggers, test 87): a reservation that flips the line's from_stock
+// from false to true (one written after a StockAdded) switches it to its stock cook time (cook_ms = stock_cook_ms;
+// a batch line's program follows by currentProgram, BF-1) and re-plans: BF-7, only this line is re-placed, within
+// its own slack (flipPlacement). Proposed (implementer, overnight): a flipped line that is not hidden at the fold
+// (never a StockAdded candidate; only a writer bug gets here) takes the stock cook and keeps its fire and booking.
 function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
@@ -584,6 +601,10 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
   const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: d.reserved + take } : d));
   let next = withEntry(state, p.stock_item_id, { ...prev, reserved: prev.reserved + take });
   next = patchLine(next, line.order_item_id, { draws, reserved_seq: take > 0 ? event.seq : line.reserved_seq });
+  if (!line.from_stock && take > 0) {
+    next = patchLine(next, line.order_item_id, { from_stock: true, cook_ms: line.stock_cook_ms ?? line.cook_ms });
+    next = replaceFlipped(next, line, event, strict);
+  }
   if (take === p.quantity) return next;
   return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockReserved past the draw', {
     order_item_id: p.order_item_id,
@@ -591,6 +612,27 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
     draw_quantity: draw.quantity,
     draw_reserved: draw.reserved,
   });
+}
+
+// BF-7: the flipped line's re-placement (replan.ts flipPlacement), stored like any re-plan: a slot move by applyMoves
+// (exactly the old `booked` removed, AD-7 / AD-6), a batch station's loads by storeLoads.
+function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, strict: boolean): EngineState {
+  const id = before.order_item_id;
+  if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at)) return state;
+  const fp = flipPlacement(state, id, before.cook_ms, event.recorded_at, strict);
+  const patched = patchLine(state, id, { deadline_ms: fp.deadline_ms });
+  return fp.kind === 'slot' ? applyMoves(patched, new Map([[id, fp.move]]), event.event_id, strict) : storeLoads(patched, before.station_id, fp.loads, event.event_id, strict);
+}
+
+// The deadline of a line that goes back to its full cook (a whole release): its slot end is kept (AD-12), so
+// d' = d + cook_occ(cook) − cook_occ(full_cook) at the station's effective capacity. Proposed (implementer,
+// overnight): the release fold keeps deadline_ms consistent with cook_ms (as the flip does) so the trigger's re-plan
+// (StockSet, BusinessDayClosed, §3.5.3) places the line at full cook by the same T; the fold itself moves nothing.
+function freshDeadline(state: EngineState, line: EngineLine): number {
+  const station = state.stations[line.station_id];
+  const cap = station === undefined ? 0 : effectiveCapacity(station);
+  if (!(cap >= 1) || line.cook_ms === line.full_cook_ms) return line.deadline_ms;
+  return line.deadline_ms + occupancy(line.units, cap, line.cook_ms).cook_ms - occupancy(line.units, cap, line.full_cook_ms).cook_ms;
 }
 
 // §3.7 StockReleased (bookkeeping only, never a re-plan): the entry's reserved −= quantity and the draw's reserved
@@ -609,7 +651,7 @@ function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean)
     short = short || line.draws[i]!.reserved < p.quantity;
     const draws = line.draws.map((d, j) => (j === i ? { ...d, reserved: Math.max(0, d.reserved - p.quantity) } : d));
     const fresh = draws.every((d) => d.reserved === 0);
-    next = patchLine(next, line.order_item_id, fresh ? { draws, from_stock: false, cook_ms: line.full_cook_ms, reserved_seq: null } : { draws });
+    next = patchLine(next, line.order_item_id, fresh ? { draws, from_stock: false, cook_ms: line.full_cook_ms, reserved_seq: null, deadline_ms: freshDeadline(state, line) } : { draws });
   }
   if (!short) return next;
   const reason = (event.payload as { reason?: unknown }).reason;
@@ -661,7 +703,7 @@ function heldByFrozenOrFired(state: EngineState, stock_item_id: string, t: numbe
 // 01a S14 StockSet: on_hand = count, unit = the event's, set_at = recorded_at, reserved unchanged. §3.7: a count
 // below reserved is allowed only by the units reserved for frozen or fired lines (their releases never come; the
 // hidden lines' releases precede the StockSet, stockEffects, task 12b). Any other excess folds as counted and is a
-// breach. The re-plan of a recount is task 12b (§3.5.3).
+// breach. The re-plan of a recount runs after this fold (replanStock, §3.5.3).
 function foldStockSet(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as StockSet;
   const prev = stockOf(state, p.stock_item_id);
@@ -672,8 +714,30 @@ function foldStockSet(state: EngineState, event: PosEvent, strict: boolean): Eng
   return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockSet below reserved not held by frozen or fired lines', { count: p.on_hand, held });
 }
 
+// §3.5.3 triggers (task 12b): the re-plan of a recount or a close, at its own event, after its releases (§4.2): pass 1
+// on the given stations at recorded_at with no new line (no pivot, nothing pruned), stored as any re-plan (applyPass1).
+// The released lines go back to their full cook (and a batch line to its fresh program, BF-1) here; FIFO stations
+// re-place nothing (AD-14).
+function replanStations(state: EngineState, station_ids: readonly string[], event: PosEvent, o: SequenceOptions): EngineState {
+  if (station_ids.length === 0) return state;
+  const p1 = pass1(state, station_ids, [], event.recorded_at, { prune: false, strict: o.strict });
+  return applyPass1(state, p1, event.event_id, o.strict);
+}
+
+// §3.5.3: "a recount re-plans at its own StockSet (every station with an unfired line drawing on that stock item)".
+// Proposed (implementer, overnight): every StockSet is a count, so every StockSet re-plans those stations (the fold
+// cannot tell whether releases preceded it); with nothing released pass 1 only re-places hidden lines as any re-plan.
+function replanStock(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const sid = (event.payload as unknown as StockSet).stock_item_id;
+  const ids = Object.keys(state.stations).filter((st) =>
+    state.stations[st]!.unfired.some((id) => state.lines[id]?.draws.some((d) => d.stock_item_id === sid) === true),
+  );
+  return replanStations(state, ids, event, o);
+}
+
 // 01a S14 / S45 StockAdded: on_hand += quantity, set_at and unit unchanged. BF-13 / A-20: a unit other than the
-// entry's leaves the entry unchanged and is a breach (was a throw). The waiting-line reserve is task 12b.
+// entry's leaves the entry unchanged and is a breach (was a throw). The waiting-line reserve is drafted by
+// stockEffects (its StockReserved events follow; their folds flip and re-place, task 12b).
 function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as StockAdded;
   const prev = stockOf(state, p.stock_item_id);
@@ -778,7 +842,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
   const strict = o.strict;
   switch (event.event_type) {
     case 'StockSet':
-      return foldStockSet(state, event, strict);
+      return replanStock(foldStockSet(state, event, strict), event, o);
     case 'StockAdded':
       return foldStockAdded(state, event, strict);
     case 'StockReserved':
@@ -807,7 +871,9 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       // §3.3 (v0.5.1, Q13): every order whose lines are all served / voided / removed / returned exits at the close;
       // an order with any unserved line stays and exits later by the predicate. Slips: task 15b.
       const exited = removeOrders(state, closedOrderIds(state), event, strict);
-      return { ...exited, business_day: { ...day, closed_at: event.recorded_at } };
+      // §3.5.3 (task 12b): the close re-plans every station with an unfired line, once, after its releases.
+      const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o);
+      return { ...replanned, business_day: { ...day, closed_at: event.recorded_at } };
     }
     case 'EngineConfigApplied':
       return applyEngineConfig(state, event.payload as unknown as EngineConfig);
