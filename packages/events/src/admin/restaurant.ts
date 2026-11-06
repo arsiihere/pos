@@ -172,6 +172,7 @@ const Point = z.object({
   name: z.string(),
   sort_order: z.number(),
   archived_at: z.number().nullable(),
+  version: z.string(),
 });
 
 const ProgramSummary = z.object({
@@ -185,6 +186,28 @@ export const StationListResponse = z.object({
   data: z.object({ stations: z.array(Station.extend({ programs: z.array(ProgramSummary) })), points: z.array(Point) }),
 });
 export const StationResponse = z.object({ data: z.object({ station: Station }) });
+
+// §6.9a, §5.2a A-1: names 1–40 characters after trimming.
+const PointName = z.string().trim().min(1).max(40);
+
+export const CreatePointBody = z.object({
+  name: PointName,
+  sort_order: SortOrder.default(0),
+});
+
+// R30, C9: expected_version is required and a body with nothing else is refused.
+export const PatchPointBody = z
+  .object({
+    expected_version: z.string().min(1),
+    name: PointName.optional(),
+    sort_order: SortOrder.optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((body) => body.name !== undefined || body.sort_order !== undefined || body.archived !== undefined, {
+    message: 'a field besides expected_version is required',
+  });
+
+export const PointResponse = z.object({ data: z.object({ point: Point }) });
 
 // §3.3: cook_time_ms 1 … 14 400 000.
 const CookTime = z.number().int().min(1).max(14_400_000);
@@ -508,6 +531,8 @@ export type CreateTableInput = z.infer<typeof CreateTableBody>;
 export type PatchTableInput = z.infer<typeof PatchTableBody>;
 export type CreateStationInput = z.infer<typeof CreateStationBody>;
 export type PatchStationInput = z.infer<typeof PatchStationBody>;
+export type CreatePointInput = z.infer<typeof CreatePointBody>;
+export type PatchPointInput = z.infer<typeof PatchPointBody>;
 export type CreateProgramInput = z.infer<typeof CreateProgramBody>;
 export type PatchProgramInput = z.infer<typeof PatchProgramBody>;
 export type CreateTaxClassInput = z.infer<typeof CreateTaxClassBody>;
@@ -525,6 +550,8 @@ export type CreateTableRequest = z.input<typeof CreateTableBody>;
 export type PatchTableRequest = z.input<typeof PatchTableBody>;
 export type CreateStationRequest = z.input<typeof CreateStationBody>;
 export type PatchStationRequest = z.input<typeof PatchStationBody>;
+export type CreatePointRequest = z.input<typeof CreatePointBody>;
+export type PatchPointRequest = z.input<typeof PatchPointBody>;
 export type CreateProgramRequest = z.input<typeof CreateProgramBody>;
 export type PatchProgramRequest = z.input<typeof PatchProgramBody>;
 export type CreateTaxClassRequest = z.input<typeof CreateTaxClassBody>;

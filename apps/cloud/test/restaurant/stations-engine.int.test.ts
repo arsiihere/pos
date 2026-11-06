@@ -482,8 +482,8 @@ describe('station engine fields', () => {
     expect(counter.count).toBe(3);
     const body = listed.json().data;
     expect(body.points).toEqual([
-      { point_id: pass, name: 'Pass', sort_order: 0, archived_at: null },
-      { point_id: 'PT-X', name: 'Old', sort_order: 3, archived_at: 1 },
+      { point_id: pass, name: 'Pass', sort_order: 0, archived_at: null, version: expect.any(String) },
+      { point_id: 'PT-X', name: 'Old', sort_order: 3, archived_at: 1, version: expect.any(String) },
     ]);
     expect(body.stations.map((s: { station_id: string }) => s.station_id)).toEqual([a, b, fryer]);
     expect(body.stations[0]).toMatchObject({

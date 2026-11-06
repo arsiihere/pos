@@ -17,6 +17,7 @@ import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
+  activeStationIdsAtPoint,
   activeStationsNamingAlternate,
   activeStockItemIdsAt,
   activeTableIds,
@@ -25,6 +26,7 @@ import {
   deleteDrawsOf,
   deleteWindowsOf,
   insertCategory,
+  insertPoint,
   insertConfigAuditRows,
   insertDraws,
   insertFloor,
@@ -41,6 +43,7 @@ import {
   linkingGroupIds,
   lockCategory,
   lockFloor,
+  lockPoint,
   lockItemRoute,
   lockMenuItem,
   readMenuItem,
@@ -80,6 +83,7 @@ import {
   shareVariantGroups,
   updateCategory,
   updateFloor,
+  updatePoint,
   updateMenuItem,
   updateProgram,
   updateStation,
@@ -90,6 +94,7 @@ import {
   type DrawRow,
   type FloorRow,
   type MenuItemRow,
+  type PointRow,
   type ProgramRow,
   type RouteRow,
   type StationLists,
@@ -100,11 +105,14 @@ import {
   type WindowRow,
   type WindowTarget,
 } from './repository.js';
+import { toPointWire } from './versions.js';
 import type {
   AdminMenuItem,
+  AdminPoint,
   CreateCategoryInput,
   CreateFloorInput,
   CreateMenuItemInput,
+  CreatePointInput,
   CreateProgramInput,
   CreateStationInput,
   CreateTableInput,
@@ -112,6 +120,7 @@ import type {
   PatchCategoryInput,
   PatchFloorInput,
   PatchMenuItemInput,
+  PatchPointInput,
   PatchProgramInput,
   PatchStationInput,
   PatchTableInput,
@@ -365,7 +374,7 @@ export async function listStations(deps: RestaurantDeps, tenant: TenantContext, 
   const programs = await selectPrograms(repo, branchId);
   const points = await selectPoints(repo, branchId);
   return {
-    points,
+    points: points.map(toPointWire),
     stations: stations.map((station) => ({
       ...station,
       programs: programs
@@ -643,6 +652,103 @@ export async function patchStation(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { station };
+  });
+}
+
+// §6.9a POST on the common write script: key → write (index → 409) → audit → bump.
+export async function createPoint(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: CreatePointInput,
+): Promise<IdempotentResult<{ point: AdminPoint }>> {
+  assertBranchAllowed(req.tenant, branchId);
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      const point = await nameTaken('points_branch_name_active', 'point', body.name, () =>
+        insertPoint(scoped, {
+          branchId,
+          pointId: deps.ids.next(),
+          name: body.name,
+          sortOrder: body.sort_order,
+          now: deps.clock.branchNow(),
+        }),
+      );
+      if (point === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'point',
+          entityId: point.point_id,
+          branchId,
+          action: 'create',
+          before: null,
+          after: point,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'branch', branchId });
+      return { status: 201, body: { point: toPointWire(point) } };
+    },
+  );
+}
+
+// §6.9a PATCH: lock (Q-v2.1-1 404) → version (R30 409 CONFIG_STALE, a stale no-op too) → no-op (200, nothing written)
+// → archive with an active station (Q-v2.1-2 409) → name (index → 409, a rename or a restore) → write → audit → bump.
+export async function patchPoint(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  pointId: string,
+  body: PatchPointInput,
+): Promise<{ point: AdminPoint }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockPoint(scoped, branchId, pointId);
+    if (before === undefined) throw new DomainError('POINT_NOT_FOUND', { point_id: pointId });
+    await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/points/:point_id');
+    if (body.expected_version !== toPointWire(before).version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'point', id: pointId });
+    }
+    const now = deps.clock.branchNow();
+    const merged: PointRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (unchangedRow(before, merged)) return { point: toPointWire(before) };
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await activeStationIdsAtPoint(scoped, branchId, pointId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'point', id: pointId, used_by: { entity: 'station', ids } });
+      }
+    }
+    const point = await nameTaken('points_branch_name_active', 'point', merged.name, () => updatePoint(scoped, branchId, merged, now));
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'point',
+        entityId: pointId,
+        branchId,
+        action: auditActionFor(before, point),
+        before,
+        after: point,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { point: toPointWire(point) };
   });
 }
 

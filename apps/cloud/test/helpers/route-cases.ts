@@ -7,6 +7,7 @@ export interface BIds {
   floorId: string;
   tableId: string;
   stationId: string;
+  pointId: string;
   programId: string;
   taxClassId: string;
   categoryId: string;
@@ -56,6 +57,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/branches/:branch_id/stations/:station_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}`,
     payload: { name: 'Fryer' },
+  }),
+  'POST /v1/admin/branches/:branch_id/points': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/points`,
+    payload: { name: 'Window' },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/points/:point_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/points/${ids.pointId}`,
+    payload: { expected_version: 'stale', name: 'Window' },
   }),
   'POST /v1/admin/branches/:branch_id/stations/:station_id/programs': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}/programs`,

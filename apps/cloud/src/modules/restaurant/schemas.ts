@@ -7,6 +7,7 @@ export const BranchParams = z.object({ branch_id: z.string().min(1) });
 export const FloorParams = BranchParams.extend({ floor_id: z.string().min(1) });
 export const TableParams = BranchParams.extend({ table_id: z.string().min(1) });
 export const StationParams = BranchParams.extend({ station_id: z.string().min(1) });
+export const PointParams = BranchParams.extend({ point_id: z.string().min(1) });
 export const ProgramParams = StationParams.extend({ program_id: z.string().min(1) });
 export const TaxClassParams = z.object({ tax_class_id: z.string().min(1) });
 export const CategoryParams = z.object({ category_id: z.string().min(1) });

@@ -6,6 +6,7 @@ export type AuditEntity =
   | 'floor'
   | 'table'
   | 'station'
+  | 'point' // 01a §6.9a
   | 'batch_program'
   | 'tax_class'
   | 'category'

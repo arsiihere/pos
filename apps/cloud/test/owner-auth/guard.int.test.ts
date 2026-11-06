@@ -97,6 +97,7 @@ describe('JWT guard: credential version and forced change', () => {
       floorId: 'X',
       tableId: 'X',
       stationId: 'X',
+      pointId: 'X',
       programId: 'X',
       taxClassId: 'X',
       categoryId: 'X',
