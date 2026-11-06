@@ -75,7 +75,7 @@ describe('seed-demo', () => {
   };
 
   it(
-    '[01c §7] variant group Chicken Karahi Half/Full on one Karahi pot counted at Karahi everywhere; Spice level on category Karahi; Bread links Naan; Family karahi deal sold at every branch; snapshots parse as schema 2; a second run is a no-op',
+    '[01c §7] variant group Chicken Karahi Half/Full on one Karahi pot counted at Karahi everywhere; Spice level on category Karahi; Bread links Naan; Family karahi deal sold at every branch; snapshots parse as schema 3; a second run is a no-op',
     async () => {
       const out: string[] = [];
       await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => out.push(text) });

@@ -33,6 +33,7 @@ import {
   selectActiveAtBranch,
   selectActiveResponsibilities,
   selectBranchIds,
+  lockAndSelectBranchWire,
   selectBranchWire,
   selectOwner,
   selectFloorStates,
@@ -474,7 +475,7 @@ export async function renameBranch(
     const repo = new TenantLevelRepository(req.tenant, client);
     const owner = await selectOwner(repo, req.ownerUserId);
     if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
-    const before = await selectBranchWire(repo, branchId, { lock: true });
+    const before = await lockAndSelectBranchWire(repo, branchId);
     if (before === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
     if (before.name === body.name) return { branch: before };
     try {
@@ -506,7 +507,7 @@ export async function renameBranch(
 // §6.10 GET: the path branch among the owner's (no statement), then 1 statement.
 export async function getBranchSettings(deps: StaffRolesDeps, tenant: TenantContext, branchId: string): Promise<{ branch: BranchWire }> {
   assertBranchAllowed(tenant, branchId);
-  const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId, { lock: false });
+  const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId);
   if (branch === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
   return { branch };
 }
@@ -535,9 +536,9 @@ export async function getTeamTree(
   return { branch_id: branchId, roots };
 }
 
-// §6.10 PATCH: 01a's common write script plus B8: lock the branch row → expected_version (v1.5 B-6, B23) → merge →
+// §6.10 PATCH: 01a's common write script plus B8: lock the branch row, then read it → expected_version (v1.5 B-6, B23) → merge →
 // stale > gap (B16, 01a S33) → no-op → update both rows → audit branch_settings / update → bumpConfigVersion for
-// this branch only. 6 statements on a write, 2 on a no-op or a stale version.
+// this branch only. 7 statements on a write, 3 on a no-op or a stale version.
 export async function patchBranchSettings(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -549,7 +550,7 @@ export async function patchBranchSettings(
     const repo = new TenantLevelRepository(req.tenant, client);
     const owner = await selectOwner(repo, req.ownerUserId);
     if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
-    const stored = await selectBranchWire(repo, branchId, { lock: true });
+    const stored = await lockAndSelectBranchWire(repo, branchId);
     if (stored === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
     const { expected_version: expectedVersion, ...changes } = body;
     if (expectedVersion !== stored.version) throw new DomainError('CONFIG_STALE', { entity: 'branch_settings', id: branchId });
@@ -578,6 +579,7 @@ export async function patchBranchSettings(
       },
       deps,
     );
+    await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(repo, { kind: 'branch', branchId });
     return { branch: { ...stored, ...after, version } };
   });

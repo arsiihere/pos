@@ -175,6 +175,21 @@ describe('buildSnapshotBody: schema 3', () => {
     expect(station(b, 'ST-X').carry_times).toEqual([]);
   });
 
+  it('[01a §4.3 V3] a carry time naming an archived point is kept: the point stays in points[] (is_archived), so the reference resolves', async () => {
+    const [a] = f.branches;
+    await sql(
+      `INSERT INTO points (tenant_id, branch_id, point_id, name, archived_at, created_at, updated_at) VALUES ($1, $2, 'PT-OLD', 'Old pass', 5, 0, 0)`,
+      [a],
+    );
+    await sql(
+      `INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at) VALUES ($1, $2, 'ST-1', 'PT-OLD', 4000, 0, 0)`,
+      [a],
+    );
+    const b = await body();
+    expect(station(b, 'ST-1').carry_times).toEqual([{ point_id: 'PT-OLD', carry_ms: 4000 }]);
+    expect(b.points.find((row) => row.point_id === 'PT-OLD')).toMatchObject({ is_archived: true });
+  });
+
   it('[01a §4.3 V3] engine_settings is this branch’s row with every A-12 key; a missing row is an error, not a default (CL-3)', async () => {
     const [a, other] = f.branches;
     await sql(`UPDATE branch_engine_settings SET returns_boost = false, order_abandon_ms = 7200000, table_lock_ttl_ms = 120000 WHERE tenant_id = $1 AND branch_id = $2`, [a]);
@@ -258,6 +273,10 @@ describe('buildSnapshotBody: schema 3', () => {
   it('[01a §4.3 V3] another tenant’s links never appear; the hash is equal across two builds with every list filled', async () => {
     await seedSlots();
     await alternate('ST-1', 'ST-3', ['takeaway', 'dine_in'], []);
+    await sql(`INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at) VALUES ($1, $2, 'ST-3', $3, 15000, 0, 0)`, [
+      f.branches[0],
+      await pass(),
+    ]);
     await link('L1', 'item', 'IT-0000', 'category', 'CT-1');
     await cloud.pool.query(
       `INSERT INTO goes_with_links (tenant_id, link_id, source_kind, source_id, target_kind, target_id, created_at, updated_at)
@@ -265,7 +284,11 @@ describe('buildSnapshotBody: schema 3', () => {
       [f.other.tenantId],
     );
     const first = await raw();
-    expect((first as unknown as V3Body).goes_with).toHaveLength(1);
+    const filled = first as unknown as V3Body;
+    expect(filled.goes_with).toHaveLength(1);
+    expect(filled.points.length).toBeGreaterThan(0);
+    expect(station(filled, 'ST-1').alternates).toHaveLength(1);
+    expect(station(filled, 'ST-3').carry_times).toHaveLength(1);
     const second = await raw();
     expect(sha256hex(canonicalJson(second))).toBe(sha256hex(canonicalJson(first)));
   });

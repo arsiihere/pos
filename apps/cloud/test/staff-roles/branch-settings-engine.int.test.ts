@@ -48,9 +48,11 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   let cloud: TestCloud;
   let f: RestaurantFixture;
   let counter: ReturnType<typeof pgCounter>;
+  // Set by a race test: the first writer's PATCH waits here with its row writes done and its transaction open.
+  let holdBeforeBump: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
-    cloud = await createTestCloud({ testHooks: { handlerStart: () => counter.reset() } });
+    cloud = await createTestCloud({ testHooks: { handlerStart: () => counter.reset(), beforeBump: async () => holdBeforeBump?.() } });
     counter = pgCounter(cloud.pool);
     await cloud.app.ready();
   });
@@ -59,6 +61,7 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
   beforeEach(async () => {
     cloud.clock.set(T);
+    holdBeforeBump = undefined;
     f = await restaurantFixture(cloud);
   });
 
@@ -130,13 +133,13 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect((await patchCurrent({ returns_boost: 'no' })).statusCode).toBe(400);
   });
 
-  it('[01b B-6] one PATCH of branch and engine fields is one audit row and one bump of this branch only, in 6 statements (5 before B-6); the others stay', async () => {
+  it('[01b B-6] one PATCH of branch and engine fields is one audit row and one bump of this branch only, in 7 statements (5 before B-6: + the A-12 UPDATE, + the read split from the lock); the others stay', async () => {
     const before = await branchOf();
     const [config, otherConfig] = [await configVersion(), await configVersion(f.branches[1])];
     cloud.clock.set(T + 5000);
     const response = await patchSettings({ expected_version: before.version, tax_enabled: true, weight_takeaway_pct: 250, returns_boost: false });
     expect(response.statusCode, response.body).toBe(200);
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(7);
     const branch = response.json().data.branch;
     expect(branch).toMatchObject({ ...DEFAULTS, ...BRANCH_SETTINGS, tax_enabled: true, weight_takeaway_pct: 250, returns_boost: false });
     expect(branch).toEqual(await branchOf());
@@ -208,12 +211,12 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect((await branchOf()).version).toBe(before.version);
   });
 
-  it('[01b B-6, S26] an unchanged PATCH is a no-op: 200 with the stored branch, 2 statements, no audit, no bump, no row write', async () => {
+  it('[01b B-6, S26] an unchanged PATCH is a no-op: 200 with the stored branch, 3 statements, no audit, no bump, no row write', async () => {
     const before = await branchOf();
     const config = await configVersion();
     const response = await patchSettings({ expected_version: before.version, weight_dine_in_pct: 100, returns_boost: true, tax_enabled: false });
     expect(response.statusCode, response.body).toBe(200);
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(3);
     expect(response.json().data.branch).toEqual(before);
     expect(await audits()).toEqual([]);
     expect(await configVersion()).toBe(config);
@@ -239,5 +242,60 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     const snapshot = BranchConfigSnapshotSchemaV3.parse(next.json().data.config.snapshot);
     expect(snapshot.config_version).toBe(held + 1);
     expect(snapshot.engine_settings).toEqual({ ...DEFAULTS, order_abandon_ms: 7_200_000, table_lock_ttl_ms: 120_000, returns_boost: false });
+  });
+
+  // A first writer through the real route, stopped inside its transaction after writing only an A-12 field; `second`
+  // is sent once it is held, and the first commits only when Postgres reports the second blocked on the branch row.
+  const raceAgainstEngineWrite = async (second: (heldVersion: string) => ReturnType<typeof patchSettings>) => {
+    const held = await branchOf();
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let reached!: () => void;
+    const reachedHold = new Promise<void>((resolve) => (reached = resolve));
+    holdBeforeBump = () => {
+      holdBeforeBump = undefined; // the second request must not stop here
+      reached();
+      return released;
+    };
+    const first = patchSettings({ expected_version: held.version, weight_dine_in_pct: 150 });
+    await reachedHold;
+    const secondResponse = second(held.version);
+    try {
+      await blockedOnBranchRow();
+    } finally {
+      release();
+    }
+    const firstResponse = await first;
+    expect(firstResponse.statusCode, firstResponse.body).toBe(200);
+    return { held, first: firstResponse, second: await secondResponse };
+  };
+  const blockedOnBranchRow = async () => {
+    for (let i = 0; i < 500; i += 1) {
+      const blocked = await cloud.pool.query(
+        `SELECT 1 FROM pg_stat_activity
+          WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0 AND query LIKE '%FROM branches%FOR UPDATE%'`,
+      );
+      if (blocked.rows.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('the second request never blocked on the branch row');
+  };
+
+  it('[01b B23, B-6] race: a PATCH with the old version, blocked on the branch lock while another save commits an engine field, gets 409 CONFIG_STALE and keeps that value', async () => {
+    const race = await raceAgainstEngineWrite((heldVersion) => patchSettings({ expected_version: heldVersion, weight_takeaway_pct: 300 }));
+    expect(race.second.statusCode, race.second.body).toBe(409);
+    expect(race.second.json().error).toMatchObject({ code: 'CONFIG_STALE', details: { entity: 'branch_settings', id: f.branches[0] } });
+    expect(await engineRow()).toMatchObject({ weight_dine_in_pct: 150, weight_takeaway_pct: 200 });
+    expect(await audits()).toHaveLength(1);
+    expect((await branchOf()).version).toBe(race.first.json().data.branch.version);
+  });
+
+  it('[01b §6.9, B-6] race: a rename blocked on the branch lock while a save commits an engine field answers the committed values and version', async () => {
+    const race = await raceAgainstEngineWrite(() =>
+      cloud.app.inject({ method: 'PATCH', url: `/v1/admin/branches/${f.branches[0]}`, headers: auth(), payload: { name: 'Gulberg' } }),
+    );
+    expect(race.second.statusCode, race.second.body).toBe(200);
+    expect(race.second.json().data.branch).toEqual(await branchOf());
+    expect(race.second.json().data.branch).toMatchObject({ name: 'Gulberg', weight_dine_in_pct: 150, version: race.first.json().data.branch.version });
   });
 });

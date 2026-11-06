@@ -631,18 +631,17 @@ function group<R extends { staff_id: string }, V>(rows: R[], value: (row: R) => 
   return out;
 }
 
-// 01b §5.3 BranchWire; one statement, joined to the branch's A-12 row (v1.5 B-6). `lock` takes the branch row
-// FOR UPDATE (§6.9, §6.10), which serialises every writer of the A-12 row too. CL-3: every branch has exactly one
-// A-12 row, so a missing one is an error, never a default (the left join tells it from an unknown branch).
+// 01b §5.3 BranchWire; one statement, joined to the branch's A-12 row (v1.5 B-6). CL-3: every branch has exactly
+// one A-12 row, so a missing one is an error, never a default (the left join tells it from an unknown branch).
 // BIGINTs through Number().
 const BRANCH_WIRE_COLUMNS = `b.branch_id, b.name, b.status, b.hub_last_seen_at, b.hub_synced_at, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours, ${BRANCH_ENGINE_SETTING_KEYS.map((key) => `e.${key}`).join(', ')}`;
 
-export async function selectBranchWire(db: TenantSql, branchId: string, o: { lock: boolean }): Promise<BranchWire | undefined> {
+export async function selectBranchWire(db: TenantSql, branchId: string): Promise<BranchWire | undefined> {
   const rows = await db.query<BranchRow>(
     `SELECT ${BRANCH_WIRE_COLUMNS}
        FROM branches b
        LEFT JOIN branch_engine_settings e ON e.tenant_id = b.tenant_id AND e.branch_id = b.branch_id
-      WHERE b.tenant_id = $1 AND b.branch_id = $2${o.lock ? ' FOR UPDATE OF b' : ''}`,
+      WHERE b.tenant_id = $1 AND b.branch_id = $2`,
     [branchId],
   );
   const row = rows[0];
@@ -655,6 +654,16 @@ export async function selectBranchWire(db: TenantSql, branchId: string, o: { loc
     day_stale_after_hours: Number(row.day_stale_after_hours),
     day_min_gap_hours: Number(row.day_min_gap_hours),
   });
+}
+
+// §6.9, §6.10: the branch row lock serialises every writer of the branch's settings, the A-12 row included. Two
+// statements on purpose (B23): under READ COMMITTED a statement that waited for a lock re-reads only the locked row
+// and keeps its first snapshot of a joined one, so a joined read would hash the A-12 values from before the save it
+// waited for, and a stale expected_version would pass. The read after the lock takes a fresh snapshot.
+export async function lockAndSelectBranchWire(db: TenantSql, branchId: string): Promise<BranchWire | undefined> {
+  const locked = await db.query(`SELECT 1 FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [branchId]);
+  if (locked.length === 0) return undefined;
+  return selectBranchWire(db, branchId);
 }
 
 export async function updateBranchName(db: TenantSql, branchId: string, name: string): Promise<void> {

@@ -33,7 +33,7 @@ const STORED = {
 async function render() {
   const { api, calls } = fakeApi((call: Call) => {
     if (call.method === 'GET') return ok({ branch: STORED });
-    return ok({ branch: { ...STORED, ...(call.body as object) } });
+    return ok({ branch: { ...STORED, ...(call.body as object), version: 'v2' } });
   });
   await m.render(
     <GuardProvider>
@@ -69,6 +69,11 @@ describe('[01b §8] branch settings', () => {
       body: { expected_version: 'v1', tax_enabled: true, day_stale_after_hours: 10 },
     });
     expect(m.container.textContent).toContain(fill(t('branches.settings_saved'), { name: 'Gulberg' }));
+
+    // B23: the next save sends the version the last save answered.
+    setValue(field('day_stale_after_hours'), '11');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH').at(-1)).toMatchObject({ body: { expected_version: 'v2', day_stale_after_hours: 11 } });
   });
 
   it('[01b §8, S50 c] phone: the back arrow asks before dropping changes', async () => {
