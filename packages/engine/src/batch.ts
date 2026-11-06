@@ -33,16 +33,24 @@ export function currentProgram(line: Pick<EngineLine, 'from_stock' | 'program_id
 
 // §3.11 station_type ("open lines keep their placement as fixed input; new lines follow the new type"): an unfired line
 // placed under the station's previous type, read off its shape, so no new state field is needed: a slot booking
-// (`booked`) on a batch station, or a member of a stored load on a slot station. proposed (implementer, overnight) S1:
-// every re-placement leaves such a line where it is, whatever the trigger (a later capacity change, a boost, an
-// expedite, a void's re-loop, a StockAdded flip), and it stays in the fixed profile of every placement; the tick still
-// fires it and the cascade still shifts it (D42, physical). Alternative: a later capacity change re-places it too, which
-// would need the old type's placement rules on a station of the new type.
+// (`booked`) on a batch station, or a member of a stored load on a slot station. proposed (implementer, overnight) S1: a
+// re-placement leaves such a line where it is (a boost, an expedite, a void's re-loop, a StockAdded flip), and it stays in
+// the fixed profile of those placements; the tick still fires it and the cascade still shifts it (D42, physical). The one
+// exception is the capacity fold (§3.5.3, §3.10 "no frozen line is booked over the new capacity"): it re-places these by
+// their shape as frozen lines (replan.ts placeFrozen `oldType`), a slot booking as a slot line, a stored load as a block.
 export function placedUnderOldType(state: EngineState, line: EngineLine): boolean {
   const station = state.stations[line.station_id];
   if (station === undefined || line.stage !== 'added' || line.fired_at !== null) return false;
   if (station.type === 'batch') return line.booked !== null;
   return line.load_id !== null && station.loads[line.load_id]?.order_item_ids.includes(line.order_item_id) === true;
+}
+
+// A stored load on a slot station as one block (§3.10, §3.11): it keeps its booking's width and length while they fit the
+// capacity; above it, the whole station with the members' AD-4 rounds, as a load on a batch station. No rule of the new
+// type applies to it (proposed (implementer, overnight)).
+export function blockShape(b: Pick<WorkLoad, 'units' | 'max_prep' | 'cook_ms' | 'booked'>, cap: number): { units: number; prep_ms: number; cook_ms: number } {
+  if (b.booked.units <= cap) return { units: b.booked.units, prep_ms: b.max_prep, cook_ms: b.booked.end - b.booked.start };
+  return { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
 }
 
 export function isBatchStation(state: EngineState, station_id: string): boolean {

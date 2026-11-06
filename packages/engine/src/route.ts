@@ -37,7 +37,7 @@
 // records a 'reserve_fallback' diagnostic — proposed (implementer, overnight)), 'filtered' otherwise (paused /
 // carry; checkOrderable refuses a new line whose fallback station is paused, §3.10).
 import { effectiveCapacity } from './capacity.js';
-import type { EngineLine, EngineState } from './state.js';
+import type { EngineLine, EngineOrder, EngineState } from './state.js';
 
 export type Alternate = { station_id: string; carry_ms: number; home: boolean };
 
@@ -88,6 +88,30 @@ function entriesOf(line: RouteLine): Array<{ station_id: string; carry_ms: numbe
     out.push({ station_id: a.station_id, carry_ms: a.carry_ms });
   }
   return out;
+}
+
+// §3.11 "alternates, carry | from the next re-plan / tick" (the row apart from "new orders only": these two are not D25
+// copies; §3.5.5 marks only max_carry_ms as copied): a line's route as the config has it now, in the shape of R1 above:
+// allowed = the routed station's row filtered by order type; home = the alternate listing the order type in
+// home_for_order_types, else the routed station (D9); carry = the station's carry_times row for the line's point, a missing
+// row = 0 (01a A-10). proposed (implementer, overnight): `null` when the config no longer lists the routed station (its
+// copies stand); an alternate naming an unlisted station reads carry 0 and routeOptions drops it.
+export type ConfigStations = ReadonlyMap<string, NonNullable<EngineState['config']>['stations'][number]>;
+export function routeFromConfig(
+  stations: ConfigStations,
+  line: Pick<EngineLine, 'station_id' | 'routed_station_id' | 'point_id'>,
+  order_type: EngineOrder['order_type'],
+): Pick<EngineLine, 'carry_ms' | 'alternates'> | null {
+  const routed = stations.get(line.routed_station_id);
+  if (routed === undefined) return null;
+  const carryOf = (id: string): number => stations.get(id)?.carry_times.find((c) => c.point_id === line.point_id)?.carry_ms ?? 0;
+  const rows = routed.alternates.filter((a) => a.order_types.includes(order_type));
+  const home = rows.find((a) => a.home_for_order_types.includes(order_type))?.station_id ?? routed.station_id;
+  const ids = [routed.station_id, ...rows.map((a) => a.station_id)].filter((id) => id !== line.station_id);
+  return {
+    carry_ms: carryOf(line.station_id),
+    alternates: [...new Set(ids)].map((id) => ({ station_id: id, carry_ms: carryOf(id), home: id === home })),
+  };
 }
 
 const byPreference = (a: RouteOption, b: RouteOption): number =>

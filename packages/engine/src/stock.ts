@@ -246,8 +246,10 @@ function lineConsumes(line: EngineLine): StockConsumedDraft[] {
 
 // §3.4 / §3.7: an unfired, placed line whose (planned) fire is after t + freeze_ms — a hidden slot line, or a member
 // of a hidden batch load (its fire_ms is the load's fire). Frozen, fired, COOKING and ended lines are not hidden.
+// §3.11: a line placed under the station's old type is fixed input and behaves as a frozen line here: a recount or a day
+// close keeps its reservation (a release would shorten its cook under a booking that stays), a flip never picks it.
 export function isHiddenUnfired(state: EngineState, line: EngineLine, t: number): boolean {
-  if (line.stage !== 'added' || line.fired_at !== null || line.fire_ms === null) return false;
+  if (line.stage !== 'added' || line.fired_at !== null || line.fire_ms === null || placedUnderOldType(state, line)) return false;
   const placed = line.booked !== null || (line.load_id !== null && state.stations[line.station_id]?.loads[line.load_id]?.order_item_ids.includes(line.order_item_id) === true);
   return placed && line.fire_ms > t + stationPolicy(state, line.station_id).freeze_ms;
 }
@@ -269,7 +271,6 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // then switches its cook but keeps its fire and booking (replaceFlipped). The gap is the §3.5.3 append gap.
 function isCandidate(state: EngineState, line: EngineLine, t: number): boolean {
   if (line.from_stock || line.return_of !== null || line.draws.length === 0 || line.stock_cook_ms === null) return false;
-  if (placedUnderOldType(state, line)) return false; // §3.11: fixed input, not re-placed by a flip
   if (state.stations[line.station_id]?.type === 'batch' && line.stock_program_id === null) return false;
   const order = state.orders[line.order_id];
   if (order === undefined || order.awaiting > 0) return false;

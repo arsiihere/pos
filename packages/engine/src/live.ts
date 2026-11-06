@@ -19,8 +19,9 @@
 // without a load is its own group). A group with a COOKING member occupies [its earliest started + prep, the latest
 // member end) — a COOKING member's live end, a not-started member's max(fire, t) + prep + cook (proposed
 // (implementer, overnight) L1); a group with no COOKING member is packed like a fired line, from max(fire, t) with
-// its largest prep and cook. Either way with every unit of the station, except a line with no load (§3.11): its own. An unfired member occupies its load's
-// booking (Load.booked, AD-7 for loads).
+// its largest prep and cook. Either way with every unit of the station, except a line with no load (§3.11): its own.
+// An unfired member occupies its load's booking (Load.booked, AD-7 for loads). §3.11: a load fired on a station that has
+// since become slot is still a load, so it holds the whole station too, as it did unfired (packStation).
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { addInterval, earliestFit, occupancy } from './profile.js';
@@ -158,7 +159,7 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
 // Exported for slip.ts (BF-14 (a)): the slip crossing of a fired-not-started line reads the same packing.
 export function packStation(station: StationRuntime, lines: readonly EngineLine[], t: number): { pack: Profile; bookings: Map<string, Booking> } {
   const cap = effectiveCapacity(station);
-  return station.type === 'batch' ? packBatch(lines, cap, t) : packSlot(lines, cap, t);
+  return station.type === 'batch' || lines.some((l) => l.load_id !== null) ? packBatch(lines, cap, t) : packSlot(lines, cap, t);
 }
 
 // Pointwise sum of two canonical profiles in one linear sweep; the result is canonical (profile.ts).
@@ -210,7 +211,7 @@ export function liveInterval(state: EngineState, order_item_id: string, t: numbe
   if (line === undefined) return null;
   const station = state.stations[line.station_id];
   if (station === undefined || !inEngineAt(state, line, t, new Map())) return null;
-  if (isCooking(line) && station.type !== 'batch') {
+  if (isCooking(line) && station.type !== 'batch' && line.load_id === null) {
     const b = cookingBooking(line, effectiveCapacity(station), t);
     return { start: b.start, end: b.end };
   }

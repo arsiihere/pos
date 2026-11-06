@@ -39,8 +39,8 @@ import {
   storeLoads,
   type SequenceOptions,
 } from './plan.js';
-import { placedUnderOldType } from './batch.js';
 import { effectiveCapacity } from './capacity.js';
+import { optionOn, routeCtx, routeFromConfig, routeOptions } from './route.js';
 import { closeExitIds, exitedOrderIds, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS, type ReplayEventType } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
@@ -60,20 +60,65 @@ interface BusinessDayOpened { business_date: string; stock_units: Record<string,
 const EMPTY_PROFILE = (): StationRuntime['profile'] => ({ t: [], u: [] });
 
 // §3.10, §3.11: an EngineConfigApplied that changes a station's capacity re-plans it as a capacity change (D15
-// exception); every other change applies from the next re-plan. Station type changes are §3.11's fixed-input row
-// (placedUnderOldType, batch.ts): nothing on such a station moves, so it is not re-planned here, even when its capacity
-// changes in the same event.
+// exception), also when its type changes in the same event (the old-type bookings are re-placed as in two events);
+// every other change applies from the next re-plan.
 function foldEngineConfig(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
   const config = event.payload as unknown as EngineConfig;
-  const after = applyEngineConfig(state, config);
+  const after = reachHiddenRoutes(state, applyEngineConfig(state, config), event.recorded_at);
   const ids = config.stations
     .filter((s) => {
       const prev = state.stations[s.station_id];
-      return prev !== undefined && prev.type === s.station_type && prev.capacity !== s.capacity;
+      return prev !== undefined && prev.capacity !== s.capacity;
     })
     .map((s) => s.station_id);
   return replanCapacity(state, after, ids, event.recorded_at, event.event_id, o);
 }
+
+// §3.11 "policy, freeze, keep, pressure fields, alternates, carry | from the next re-plan / tick": a line hidden at this
+// event takes its allowed stations, home and carry from the config (route.ts routeFromConfig); max_carry_ms stays its copy
+// (§3.5.5, test 80), frozen and fired lines keep their copies (D10). As a re-route does, its deadline shifts so it lands at
+// the point when it did (d' = d + cook_occ(cap) − cook_occ(cap') + carry − carry'); T and P do not move, and nothing is
+// re-placed here: the next re-plan and the next tick read the new fields.
+// proposed (implementer, overnight), all keeping the row and P-8 (only state.config is read):
+//   - the fields are written at the config fold, not looked up at each re-plan, so routing and planOrder keep reading one
+//     stored route (planOrder = fold holds as before) and a re-plan costs nothing extra; hidden is judged at this event;
+//   - only a line that reads a station whose alternates or carry_times changed is touched;
+//   - a line on a FIFO station keeps its copies (FIFO never re-plans, deadline = fire, AD-14), as does a line placed under
+//     the old type (fixed input, §3.11);
+//   - a hidden line already on an alternate the config removed stays there until a re-plan moves it (R3; "open lines
+//     continue"), reading that station's carry.
+function reachHiddenRoutes(before: EngineState, after: EngineState, t: number): EngineState {
+  const rows = new Map(after.config!.stations.map((s) => [s.station_id, s]));
+  const prev = new Map((before.config?.stations ?? []).map((s) => [s.station_id, s]));
+  const changed = new Set<string>();
+  for (const [id, s] of rows) {
+    const p = prev.get(id);
+    if (JSON.stringify([s.alternates, s.carry_times]) !== JSON.stringify([p?.alternates ?? [], p?.carry_times ?? []])) changed.add(id);
+  }
+  if (changed.size === 0) return after;
+  const ctx = routeCtx(after);
+  let lines: Record<string, EngineLine> | null = null;
+  for (const id of Object.keys(after.lines)) {
+    const line = after.lines[id]!;
+    if (!changed.has(line.routed_station_id) && !changed.has(line.station_id) && !line.alternates.some((a) => changed.has(a.station_id))) continue;
+    const order = after.orders[line.order_id];
+    const station = after.stations[line.station_id];
+    if (order === undefined || station === undefined || isFifo(after, line.station_id) || !isHiddenUnfired(after, line, t)) continue;
+    const route = routeFromConfig(rows, line, order.order_type);
+    if (route === null || sameRoute(line, route)) continue;
+    const next = { ...line, ...route };
+    const capOf = (l: EngineLine): number => optionOn(routeOptions(ctx, l, true), l.station_id)?.cap ?? effectiveCapacity(station);
+    const cook = (cap: number): number => occupancy(line.units, Math.max(1, cap), line.cook_ms).cook_ms;
+    lines ??= { ...after.lines };
+    lines[id] = { ...next, deadline_ms: line.deadline_ms + cook(capOf(line)) - cook(capOf(next)) + line.carry_ms - next.carry_ms };
+  }
+  return lines === null ? after : { ...after, lines };
+}
+
+const sameRoute = (line: EngineLine, route: Pick<EngineLine, 'carry_ms' | 'alternates'>): boolean =>
+  line.carry_ms === route.carry_ms &&
+  line.alternates.length === route.alternates.length &&
+  route.alternates.every((a) => line.alternates.some((b) => b.station_id === a.station_id && b.carry_ms === a.carry_ms && b.home === a.home));
 
 // §3.10 (D37): StationCapacitySet sets capacity_override, and the station re-plans (§3.5.3; D15 exception). The fold
 // takes the event as given: ≤ capacity for a station session, ≤ 100 for staff are the command's (§6.6). Absent station:
@@ -789,7 +834,7 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
 // (proposed (implementer, overnight): a line frozen in that ms append gap keeps its fire and booking, see isCandidate).
 function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, strict: boolean): EngineState {
   const id = before.order_item_id;
-  if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at) || placedUnderOldType(state, before)) return state;
+  if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at)) return state;
   const fp = flipPlacement(state, id, before.cook_ms, event.recorded_at, strict);
   const patched = patchLine(state, id, { deadline_ms: fp.deadline_ms });
   return fp.kind === 'slot' ? applyMoves(patched, new Map([[id, fp.move]]), event.event_id, strict) : storeLoads(patched, before.station_id, fp.loads, event.event_id, strict);

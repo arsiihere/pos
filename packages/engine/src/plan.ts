@@ -517,9 +517,10 @@ function markFrozen(state: EngineState, step: FrozenStep | null): EngineState {
 // §3.4 D15 exceptions: the re-plan of a boost or a capacity change on `station_ids` at t: frozen lines first
 // (placeFrozen), then pass 1 of the hidden ones (held and just-placed frozen lines are fixed input, heldAfterFrozen), the
 // late set through §3.5.6. No new line.
-export function replanDisturbed(state: EngineState, station_ids: readonly string[], t: number, event_id: string, o: SequenceOptions, held?: ReadonlySet<string>): EngineState {
+// oldType (the capacity fold only, §3.5.3, §3.10): the bookings placed under the station's old type go with the frozen ones.
+export function replanDisturbed(state: EngineState, station_ids: readonly string[], t: number, event_id: string, o: SequenceOptions, held?: ReadonlySet<string>, oldType = false): EngineState {
   if (station_ids.length === 0) return state;
-  const step = placeFrozen(state, station_ids, t, { strict: o.strict, ...(held === undefined ? {} : { held }) });
+  const step = placeFrozen(state, station_ids, t, { strict: o.strict, oldType, ...(held === undefined ? {} : { held }) });
   const s1 = applyPass1(state, step, event_id, o.strict);
   const p1 = pass1(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, held: heldAfterFrozen(step, held) });
   return markFrozen(applyPass1(s1, p1, event_id, o.strict), step);
@@ -537,14 +538,14 @@ export function replanCapacity(before: EngineState, after: EngineState, station_
     if (isFifo(after, sid)) continue;
     for (const id of after.stations[sid]!.unfired) {
       const l = after.lines[id];
-      if (l === undefined || placedUnderOldType(after, l)) continue;
+      if (l === undefined) continue;
       const delta = occupancy(l.units, placementCap(before, l), l.cook_ms).cook_ms - occupancy(l.units, placementCap(after, l), l.cook_ms).cook_ms;
       if (delta === 0) continue;
       lines ??= { ...after.lines };
       lines[id] = { ...l, deadline_ms: l.deadline_ms + delta };
     }
   }
-  const replanned = replanDisturbed(lines === null ? after : { ...after, lines }, station_ids, t, event_id, o);
+  const replanned = replanDisturbed(lines === null ? after : { ...after, lines }, station_ids, t, event_id, o, undefined, true);
   const diagnostics: Diagnostic[] = [];
   const changed = new Map<string, number>();
   for (const sid of station_ids) {

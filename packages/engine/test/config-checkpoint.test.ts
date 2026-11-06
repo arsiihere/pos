@@ -18,6 +18,7 @@ import {
   applyEvent,
   buildEngineState,
   fromCheckpoint,
+  getAlertIntents,
   getTickIntents,
   initialEngineState,
   liveInterval,
@@ -32,6 +33,7 @@ import {
   type StockCtx,
 } from '../src/index';
 import { liveProfile } from '../src/live';
+import { placeFrozen } from '../src/replan';
 import { routeCtx, routeOptions } from '../src/route';
 import type { Profile } from '../src/state';
 
@@ -81,6 +83,9 @@ type Item = {
   alternates?: Array<{ station_id: string; carry_ms: number; home: boolean }>;
   draws?: Array<{ stock_item_id: string; quantity: number }>;
   stock_cook?: number;
+  point?: string;
+  carry?: number;
+  max_carry?: number;
 };
 type OrderOpts = { pickup?: number; reserved?: Array<{ stock_item_id: string; order_item_id: string; quantity: number }> };
 
@@ -102,12 +107,12 @@ function proposed(order_id: string, items: Item[], o: OrderOpts): ProposedOrder 
       order_item_id: i.id,
       ...(itemFields(i) as Partial<ItemAddedPayload>),
       alternates: i.alternates ?? [],
-      point_id: null,
-      carry_ms: 0,
+      point_id: i.point ?? null,
+      carry_ms: i.carry ?? 0,
       weight_pct: 100,
       max_early_ms: i.early ?? 3_600_000,
       max_late_ms: null,
-      max_carry_ms: null,
+      max_carry_ms: i.max_carry ?? null,
       cook_ms_override: null,
       return_of: null,
     })),
@@ -139,7 +144,7 @@ class Kitchen {
           return {
             order_item_id: i.id,
             item: itemFields(i),
-            line: { station_id: r.station_id, alternates: r.alternates, carry_ms: r.carry_ms, max_early_ms: p.max_early_ms, max_late_ms: null, max_carry_ms: null, from_stock: from_stock[i.id] === true },
+            line: { station_id: r.station_id, alternates: r.alternates, point_id: p.point_id, carry_ms: r.carry_ms, max_early_ms: p.max_early_ms, max_late_ms: null, max_carry_ms: p.max_carry_ms, from_stock: from_stock[i.id] === true },
           };
         }),
         order: { order_type: o.pickup === undefined ? 'dine_in' : 'delivery', table_id: null, table_key: `t:${order_id}`, pickup_at_ms: o.pickup ?? null, follow_up: false, groups: plan.groups },
@@ -289,7 +294,7 @@ describe('§3.11 EngineConfigApplied effects', () => {
     const k = new Kitchen();
     k.apply(config([{ station_id: 'F', capacity: 1, policy: 'fifo' }], T0 - 60 * M));
     k.submit('O0', [{ id: 'z', cook: 30 * M }], T0);
-    k.submit('O1', [{ id: 'a', cook: 10 * M, early: 0 }], T0 + 1);
+    k.submit('O1', [{ id: 'a', cook: 10 * M, early: 20 * M }], T0 + 1);
     const a = k.state.lines.a!;
     expect(a.deadline_ms).toBe(a.fire_ms);
     const s = k.apply(config([{ station_id: 'F', capacity: 1, policy: 'waada_guard' }], T0 + 2));
@@ -507,6 +512,351 @@ describe('§3.11 station type change: open lines are fixed input', () => {
     expect(stockEffects(k.state, { ...(draft as EventDraft), occurred_at: T0 + 2 }, CTX).map((d) => d.event_type)).toContain('StockReserved');
     k.apply(config([batchF], T0 + 1));
     expect(stockEffects(k.state, { ...(draft as EventDraft), occurred_at: T0 + 2 }, CTX).map((d) => d.event_type)).not.toContain('StockReserved');
+  });
+});
+
+describe('§3.10, §3.11 a capacity change re-places the bookings of the old type (D15 exception)', () => {
+  // Slot → batch: two frozen slot lines side by side on two units.
+  function twoFrozenSlot(units = 1): Kitchen {
+    const k = new Kitchen();
+    k.apply(config([slotF], T0 - 60 * M));
+    k.submit('Oa', [{ id: 'a', cook: 10 * M, units }], T0);
+    k.submit('Ob', [{ id: 'b', cook: 10 * M }], T0);
+    return k;
+  }
+  // Batch → slot: 'p', 'q' one hidden load; 'r' a frozen load.
+  function loads(): Kitchen {
+    const k = new Kitchen();
+    k.apply(config([batchF], T0 - 60 * M));
+    k.submit('Op', [{ id: 'p', cook: 10 * M, program: 'P1' }, { id: 'q', cook: 10 * M, program: 'P1' }], T0, { pickup: T0 + 60 * M });
+    k.submit('Or', [{ id: 'r', cook: 10 * M, program: 'P1' }], T0);
+    return k;
+  }
+
+  it('[03a #45] slot → batch, then an override below the bookings: nothing over the new capacity, the pushed line marked moved, only later, a slip, AD-7 exact', () => {
+    const k = twoFrozenSlot();
+    k.apply(config([batchF], T0 + 1));
+    const fire = k.state.lines.a!.fire_ms!;
+    expect(k.state.lines.b!.fire_ms).toBe(fire);
+    const s = k.apply(stationEv('StationCapacitySet', 'F', { station_id: 'F', capacity_override: 1 }, T0 + 2));
+    expect(maxUnits(s.stations.F!.profile)).toBe(1);
+    const moved = [s.lines.a!, s.lines.b!].filter((l) => l.fire_ms !== fire);
+    expect(moved.map((l) => l.order_item_id)).toEqual(['b']);
+    expect(moved[0]!.mark).toBe('moved');
+    expect(moved[0]!.fire_ms!).toBeGreaterThanOrEqual(fire + 10 * M);
+    expect(s.lines.a).toMatchObject({ fire_ms: fire, mark: null });
+    expect(moved[0]!.booked!.start).toBeGreaterThanOrEqual(s.lines.a!.booked!.end);
+    expect(getAlertIntents(s, T0 + 3).slips.map((x) => x.table_key)).toEqual(['t:Ob']);
+    k.apply(voided('Oa', 'a', 1, T0 + 4), voided('Ob', 'b', 1, T0 + 5));
+    expect(k.state.stations.F!.profile).toEqual({ t: [], u: [] });
+    replayEquals(k);
+  });
+
+  it('[03a #45] batch → slot, then capacity 1: a stored load is a block at the new capacity, nothing over it, AD-7 exact', () => {
+    const k = loads();
+    k.apply(config([slotF], T0 + 1));
+    const { p, r } = k.state.lines;
+    const s = k.apply(config([{ ...slotF, capacity: 1 }], T0 + 2));
+    expect(maxUnits(s.stations.F!.profile)).toBe(1);
+    const block = s.stations.F!.loads[p!.load_id!]!;
+    expect(block.booked.units).toBe(1);
+    expect(block.booked.end - block.booked.start).toBe(20 * M); // AD-4: two units, two rounds
+    expect(s.stations.F!.loads[r!.load_id!]!.booked.units).toBe(1);
+    expect(s.lines.p!.fire_ms).toBe(s.lines.q!.fire_ms);
+    k.apply(voided('Op', 'p', 1, T0 + 3), voided('Op', 'q', 1, T0 + 4), voided('Or', 'r', 1, T0 + 5));
+    expect(k.state.stations.F!.profile).toEqual({ t: [], u: [] });
+    expect(k.state.stations.F!.loads).toEqual({});
+    replayEquals(k);
+  });
+
+  it('[03a #54] batch → slot: a block pushed past its deadline goes through §3.5.6, moves together, is marked moved', () => {
+    const k = new Kitchen();
+    k.apply(config([batchF], T0 - 60 * M));
+    k.submit('Or', [{ id: 'r', cook: 10 * M, program: 'P1', early: 0 }, { id: 'u', cook: 10 * M, program: 'P1', early: 0 }], T0, { pickup: T0 + 11 * M });
+    k.apply(config([slotF], T0 + 1), stationEv('StationCapacitySet', 'F', { station_id: 'F', capacity_override: 3 }, T0 + 2));
+    const before = k.state.lines.r!;
+    const block0 = k.state.stations.F!.loads[before.load_id!]!;
+    k.submit('Oz', [{ id: 'z', cook: 5 * M, mode: 'immediate' }], T0 + 3);
+    expect(k.state.lines.z!.fire_ms!).toBeLessThan(before.fire_ms!);
+    expect(k.state.lines.z!.booked!.end).toBeGreaterThan(block0.booked.start); // overlaps: 2 + 1 units on 3
+    const s = k.apply(stationEv('StationCapacitySet', 'F', { station_id: 'F', capacity_override: 2 }, T0 + 4));
+    expect(maxUnits(s.stations.F!.profile)).toBeLessThanOrEqual(2);
+    const r = s.lines.r!;
+    expect(r.fire_ms!).toBeGreaterThan(before.fire_ms!);
+    expect(r.fire_ms!).toBeGreaterThan(before.deadline_ms);
+    expect(r.mark).toBe('moved');
+    expect(s.lines.u).toMatchObject({ fire_ms: r.fire_ms, mark: 'moved', load_id: r.load_id });
+    expect(s.stations.F!.loads[r.load_id!]!.booked.start).toBeGreaterThanOrEqual(s.lines.z!.booked!.end);
+    k.apply(voided('Or', 'r', 1, T0 + 5), voided('Or', 'u', 1, T0 + 6), voided('Oz', 'z', 1, T0 + 7));
+    expect(k.state.stations.F!.profile).toEqual({ t: [], u: [] });
+    replayEquals(k);
+  });
+
+  it('[03a #54] one event changes type and capacity: as the two-event form, with the AD-4 warning', () => {
+    const one = twoFrozenSlot(2);
+    const s1 = one.apply(config([{ ...batchF, capacity: 1 }], T0 + 1));
+    const two = twoFrozenSlot(2);
+    two.apply(config([batchF], T0 + 1));
+    const s2 = two.apply(config([{ ...batchF, capacity: 1 }], T0 + 1));
+    expect(maxUnits(s1.stations.F!.profile)).toBe(1);
+    expect(s1.lines).toEqual(s2.lines);
+    expect(s1.stations.F!.profile).toEqual(s2.stations.F!.profile);
+    expect(s1.diagnostics.filter((d) => d.kind === 'over_capacity')).toEqual([expect.objectContaining({ order_item_id: 'a', station_id: 'F', detail: { units: 2, capacity: 1 } })]);
+    replayEquals(one);
+
+    const back = loads();
+    const s3 = back.apply(config([{ ...slotF, capacity: 1 }], T0 + 1));
+    expect(s3.stations.F!.type).toBe('slot');
+    expect(maxUnits(s3.stations.F!.profile)).toBe(1);
+    replayEquals(back);
+  });
+
+  it('[03a #45] BusinessDayOpened resets an override: the fixed lines above the configured capacity are re-placed too', () => {
+    const k = new Kitchen();
+    k.apply(config([slotF], T0 - 60 * M), stationEv('StationCapacitySet', 'F', { station_id: 'F', capacity_override: 3 }, T0 - 1));
+    k.submit('Oa', [{ id: 'a', cook: 10 * M }], T0);
+    k.submit('Ob', [{ id: 'b', cook: 10 * M }], T0);
+    k.submit('Oc', [{ id: 'c', cook: 10 * M }], T0);
+    k.apply(config([{ ...batchF }], T0 + 1));
+    expect(maxUnits(k.state.stations.F!.profile)).toBe(3);
+    const s = k.apply(open(T0 + 2));
+    expect(s.stations.F!.capacity_override).toBeNull();
+    expect(maxUnits(s.stations.F!.profile)).toBe(2);
+    expect(Object.values(s.lines).filter((l) => l.mark === 'moved')).toHaveLength(1);
+    replayEquals(k);
+  });
+
+  it('[03a #54] outside the capacity fold a FIFO batch station leaves an old-type booking where it is (it stays in the fixed profile)', () => {
+    const k = twoFrozenSlot();
+    k.apply(config([{ ...batchF, policy: 'fifo' }], T0 + 1));
+    const step = placeFrozen(k.state, ['F'], T0 + 2, { strict: true });
+    expect(step.moves.size).toBe(0);
+    expect(step.before.size).toBe(0);
+  });
+
+  it('[03a #54] a boost keeps today\'s rule: the old-type lines stay where they are', () => {
+    const k = twoFrozenSlot();
+    k.apply(config([batchF], T0 + 1));
+    const { a, b } = k.state.lines;
+    const s = k.apply(boosted('Oa', T0 + 2));
+    expect(s.lines.b).toEqual(b);
+    expect(s.lines.a).toMatchObject({ fire_ms: a!.fire_ms, booked: a!.booked, mark: null });
+  });
+});
+
+describe('§3.11 config alternates and carry reach hidden lines', () => {
+  type Alt = StationCfg['alternates'][number];
+  const altB = (over: Partial<Alt> = {}): Alt => ({ station_id: 'B', order_types: ['delivery'], home_for_order_types: [], ...over });
+  const A = (alternates: Alt[] = [altB()], carry: number | null = null): Partial<StationCfg> => ({ station_id: 'A', capacity: 1, alternates, carry_times: carry === null ? [] : [{ point_id: 'P1', carry_ms: carry }] });
+  const B = (carry: number | null = null): Partial<StationCfg> => ({ station_id: 'B', capacity: 1, carry_times: carry === null ? [] : [{ point_id: 'P1', carry_ms: carry }] });
+  const pickup = T0 + 60 * M;
+
+  function hidden(stations: Array<Partial<StationCfg>>, alternates: Array<{ station_id: string; carry_ms: number; home: boolean }>, carry = 0, max_carry?: number): Kitchen {
+    const k = new Kitchen();
+    k.apply(config(stations, T0 - 60 * M));
+    k.submit('O1', [{ id: 'h', station: 'A', cook: 10 * M, early: 5 * M, alternates, point: 'P1', carry, ...(max_carry === undefined ? {} : { max_carry }) }], T0, { pickup });
+    expect(k.state.lines.h!.station_id).toBe('A');
+    return k;
+  }
+  const allowed = (s: EngineState, id: string): string[] => routeOptions(routeCtx(s), s.lines[id]!, true).map((o) => o.station_id);
+
+  it('[03a §3.11] an alternate removed: a hidden line no longer has it, moves nowhere at the fold, and is not re-routed onto it', () => {
+    const k = hidden([A(), B()], [{ station_id: 'B', carry_ms: 0, home: false }]);
+    expect(allowed(k.state, 'h').sort()).toEqual(['A', 'B']);
+    const before = k.state;
+    const s = k.apply(config([A([]), B()], T0 + 1));
+    expect(allowed(s, 'h')).toEqual(['A']);
+    expect(s.lines.h!.alternates).toEqual([]);
+    expect(s.lines.h!.fire_ms).toBe(before.lines.h!.fire_ms);
+    expect(Object.is(s.stations.A, before.stations.A)).toBe(true);
+    // A blocker takes its slot: with the alternate it would have gone to B; now it goes late on A.
+    k.submit('O2', [{ id: 'x', station: 'A', cook: 50 * M, mode: 'immediate' }], T0 + 2);
+    expect(k.state.lines.h!.station_id).toBe('A');
+    replayEquals(k);
+  });
+
+  it('[03a §3.11] an alternate added: a hidden line may use it from the next re-plan; another order type may not', () => {
+    const k = hidden([A([]), B()], []);
+    expect(allowed(k.state, 'h')).toEqual(['A']);
+    const s = k.apply(config([A([altB()]), B()], T0 + 1));
+    expect(s.lines.h!.alternates).toEqual([{ station_id: 'B', carry_ms: 0, home: false }]);
+    expect(allowed(s, 'h').sort()).toEqual(['A', 'B']);
+    // A fired, not started line grows over h's window (§3.3 live interval): the next re-plan of A (a void) cannot keep h there.
+    k.submit('O2', [{ id: 'x', station: 'A', cook: 30 * M, mode: 'immediate' }], T0 + 2);
+    k.fireAll(T0 + 3);
+    expect(k.state.lines.x!.fired_at).not.toBeNull();
+    k.submit('O3', [{ id: 'y', station: 'A', cook: M }], T0 + 4, { pickup: T0 + 200 * M });
+    k.apply(voided('O3', 'y', 1, T0 + 30 * M));
+    expect(k.state.lines.h).toMatchObject({ station_id: 'B', carry_ms: 0, alternates: [{ station_id: 'A', carry_ms: 0, home: true }] });
+    replayEquals(k);
+
+    const other = hidden([A([]), B()], []);
+    const s2 = other.apply(config([A([altB({ order_types: ['dine_in'] })]), B()], T0 + 1));
+    expect(allowed(s2, 'h')).toEqual(['A']);
+  });
+
+  it('[03a §3.11] home_for_order_types: the flag follows the config (D9)', () => {
+    const k = hidden([A([]), B()], []);
+    const s = k.apply(config([A([altB({ home_for_order_types: ['delivery'] })]), B()], T0 + 1));
+    expect(s.lines.h!.alternates).toEqual([{ station_id: 'B', carry_ms: 0, home: true }]);
+    expect(routeOptions(routeCtx(s), s.lines.h!, true).find((o) => o.home)!.station_id).toBe('B');
+  });
+
+  it('[03a §3.11] a carry change: the deadline shifts by it, T and P stay; the fire moves only at the next re-plan, and the line still lands at T', () => {
+    const k = hidden([A([]), B()], []);
+    const before = k.state.lines.h!;
+    const order = k.state.orders.O1!;
+    const s = k.apply(config([A([], 5 * M), B()], T0 + 1));
+    const h = s.lines.h!;
+    expect(h.carry_ms).toBe(5 * M);
+    expect(h.deadline_ms).toBe(before.deadline_ms - 5 * M);
+    expect(h.fire_ms).toBe(before.fire_ms);
+    expect(h.booked).toEqual(before.booked);
+    expect(s.orders.O1).toEqual(order);
+    // The next re-plan of the station (a void of another line): the line lands at T − carry on the station.
+    k.submit('O2', [{ id: 'y', station: 'A', cook: 1 * M, mode: 'immediate' }], T0 + 2);
+    k.apply(voided('O2', 'y', 1, T0 + 3));
+    const after = k.state.lines.h!;
+    expect(after.fire_ms).toBeLessThanOrEqual(h.deadline_ms);
+    expect(after.booked!.end + after.carry_ms).toBeLessThanOrEqual(order.target_land_ms);
+    expect(k.state.orders.O1!.promise_ms).toBe(order.promise_ms);
+    replayEquals(k);
+  });
+
+  it('[03a §3.11] a carry change reaches the next tick: with no re-plan yet, the planned land passes T + threshold and the alert pass slips it', () => {
+    const k = hidden([A([]), B()], []);
+    expect(getAlertIntents(k.state, T0 + 2).slips).toEqual([]);
+    const s = k.apply(config([A([], 10 * M), B()], T0 + 1));
+    expect(getAlertIntents(s, T0 + 2).slips.map((x) => x.table_key)).toEqual(['t:O1']);
+    expect(s.next_alert_due_at).not.toBeNull();
+  });
+
+  it('[03a §3.11] a missing carry row reads 0 (01a A-10); an alternate\'s new carry is read from the config and max_carry_ms stays the line\'s copy (#80)', () => {
+    const k = hidden([A([], 5 * M), B(4 * M)], [], 5 * M, 6 * M);
+    const before = k.state.lines.h!;
+    const s0 = k.apply(config([A([altB()], 5 * M), B(4 * M)], T0 + 1));
+    expect(s0.lines.h!.alternates).toEqual([{ station_id: 'B', carry_ms: 4 * M, home: false }]);
+    // B's carry grows past the line's copied max_carry_ms: B is no longer offered; the copy is unchanged.
+    const s1 = k.apply(config([A([altB()], 5 * M), B(7 * M)], T0 + 2));
+    expect(s1.lines.h!.alternates).toEqual([{ station_id: 'B', carry_ms: 7 * M, home: false }]);
+    expect(s1.lines.h!.max_carry_ms).toBe(6 * M);
+    expect(allowed(s1, 'h')).toEqual(['A']);
+    // A's row removed: carry 0.
+    const s2 = k.apply(config([A([altB()]), B(7 * M)], T0 + 3));
+    expect(s2.lines.h!.carry_ms).toBe(0);
+    expect(s2.lines.h!.deadline_ms).toBe(before.deadline_ms + 5 * M);
+    replayEquals(k);
+  });
+
+  it('[03a §3.11] a frozen line, a fired line and a line under the old type keep their copies (D10, fixed input)', () => {
+    const k = new Kitchen();
+    k.apply(config([A([]), B()], T0 - 60 * M));
+    k.submit('O2', [{ id: 'r', station: 'B', cook: 10 * M, mode: 'immediate', point: 'P1' }], T0);
+    k.fireAll(T0 + 1);
+    k.submit('O1', [{ id: 'f', station: 'A', cook: 10 * M, point: 'P1' }], T0 + 2);
+    const { f, r } = k.state.lines;
+    expect(r!.fired_at).not.toBeNull();
+    expect(f!.fired_at).toBeNull();
+    expect(f!.fire_ms!).toBeLessThanOrEqual(T0 + 2 * M);
+    const s = k.apply(config([A([altB({ order_types: ['dine_in'] })], 5 * M), B(5 * M)], T0 + 3));
+    expect(s.lines.r).toEqual(r);
+    expect(s.lines.f).toEqual(f);
+    replayEquals(k);
+
+    const old = new Kitchen();
+    old.apply(config([{ ...slotF, carry_times: [] }], T0 - 60 * M));
+    old.submit('O3', [{ id: 'h', cook: 10 * M, point: 'P1' }], T0, { pickup });
+    const s2 = old.apply(config([{ ...batchF, carry_times: [{ point_id: 'P1', carry_ms: 5 * M }] }], T0 + 1));
+    expect(s2.lines.h!.carry_ms).toBe(0);
+    replayEquals(old);
+  });
+
+  it('[03a §3.11] a batch member takes the config carry too; a config that changes neither keeps the line objects', () => {
+    const k = new Kitchen();
+    const G: Partial<StationCfg> = { ...batchF, station_id: 'G', capacity: 2 };
+    k.apply(config([G], T0 - 60 * M));
+    k.submit('O1', [{ id: 'm', station: 'G', cook: 10 * M, program: 'P1', point: 'P1' }], T0, { pickup });
+    const before = k.state.lines.m!;
+    const same = k.apply(config([G], T0 + 1));
+    expect(Object.is(same.lines.m, before)).toBe(true);
+    const s = k.apply(config([{ ...G, carry_times: [{ point_id: 'P1', carry_ms: 3 * M }] }], T0 + 2));
+    expect(s.lines.m!.carry_ms).toBe(3 * M);
+    expect(s.lines.m!.deadline_ms).toBe(before.deadline_ms - 3 * M);
+    replayEquals(k);
+  });
+
+  it('[03a §3.5.1] planOrder = the fold after a route change: the plan of a new order lands where the fold places it', () => {
+    const k = hidden([A([]), B()], []);
+    k.apply(config([A([altB()], 2 * M), B(M)], T0 + 1));
+    const plan = k.submit('O2', [{ id: 'n', station: 'A', cook: 8 * M, point: 'P1', carry: 2 * M, alternates: [{ station_id: 'B', carry_ms: M, home: false }] }], T0 + 2, { pickup: T0 + 62 * M });
+    const planned = plan.lines.find((l) => l.order_item_id === 'n')!;
+    expect(k.state.lines.n!.station_id).toBe(planned.station_id);
+    expect(k.state.lines.n!.carry_ms).toBe(planned.carry_ms);
+    expect(k.state.lines.n!.booked!.end + k.state.lines.n!.carry_ms).toBe(plan.groups[0]!.target_land_ms);
+    expect(k.state.lines.h!.carry_ms).toBe(2 * M);
+    replayEquals(k);
+  });
+});
+
+describe('§3.7, §3.11 a stock release keeps a fixed booking', () => {
+  const CTX: StockCtx = deepFreeze({
+    dayStartMs: T0 - 60 * M,
+    stockItems: [{ stock_item_id: 'KB', name: 'KB', stock_unit: 'piece', carries_over: false, station_id: 'F', low_stock_threshold: null } satisfies ConfigStockItem],
+    configStockUnits: { KB: 'piece' },
+  });
+  function reservedHidden(): Kitchen {
+    const k = new Kitchen();
+    k.apply(config([slotF], T0 - 60 * M), stockSet('KB', 5, T0 - 60 * M));
+    k.submit('O1', [{ id: 'h', cook: 10 * M, draws: [{ stock_item_id: 'KB', quantity: 1 }], stock_cook: M }], T0, { pickup: T0 + 60 * M, reserved: [{ stock_item_id: 'KB', order_item_id: 'h', quantity: 1 }] });
+    return k;
+  }
+  const draft = (e: PosEvent, at: number): EventDraft => {
+    const { event_id, seq: _s, recorded_at, tenant_id, branch_id, ...rest } = e;
+    void [event_id, _s, recorded_at, tenant_id, branch_id];
+    return { ...(rest as EventDraft), occurred_at: at };
+  };
+  const types = (k: Kitchen, d: EventDraft): string[] => stockEffects(k.state, d, CTX).map((x) => x.event_type);
+
+  it('[03a #54] a recount and a day close release a native hidden line, but not one placed under the old type', () => {
+    const native = reservedHidden();
+    expect(types(native, draft(stockSet('KB', 0, T0 + 2), T0 + 2))).toContain('StockReleased');
+    expect(types(native, draft(closed(T0 + 2), T0 + 2))).toContain('StockReleased');
+    const fixed = reservedHidden();
+    fixed.apply(config([batchF], T0 + 1));
+    expect(types(fixed, draft(stockSet('KB', 0, T0 + 2), T0 + 2))).not.toContain('StockReleased');
+    expect(types(fixed, draft(closed(T0 + 2), T0 + 2))).not.toContain('StockReleased');
+  });
+});
+
+describe('§3.11 minors', () => {
+  it('[03a #54] batch → slot: a fired load holds the whole station as it did unfired, COOKING too; a slot line waits for it', () => {
+    const k = new Kitchen();
+    k.apply(config([batchF], T0 - 60 * M));
+    k.submit('Or', [{ id: 'r', cook: 10 * M, program: 'P1' }], T0);
+    k.apply(config([slotF], T0 + 1));
+    const fire = k.state.lines.r!.fire_ms!;
+    const at = Math.max(fire, T0 + 2);
+    expect(maxUnits(liveProfile(k.state, 'F', at))).toBe(2);
+    k.fireAll(at);
+    expect(k.state.lines.r!.fired_at).not.toBeNull();
+    expect(maxUnits(liveProfile(k.state, 'F', at + 1))).toBe(2);
+    k.apply(started('Or', 'r', at + 1));
+    expect(maxUnits(liveProfile(k.state, 'F', at + 2))).toBe(2);
+    const iv = liveInterval(k.state, 'r', at + 2)!;
+    k.submit('On', [{ id: 'n', cook: 5 * M, mode: 'immediate' }], at + 3);
+    expect(k.state.lines.n!.booked!.start).toBeGreaterThanOrEqual(iv.end);
+    replayEquals(k);
+  });
+
+  it('[03a §3.11] a new line whose only station is archived falls back to it (D3), filtered', () => {
+    const k = new Kitchen();
+    k.apply(config([{ station_id: 'A', capacity: 1, is_archived: true }], T0 - 60 * M));
+    k.submit('O1', [{ id: 'n', station: 'A', cook: 5 * M, mode: 'immediate' }], T0);
+    expect(k.state.lines.n!.station_id).toBe('A');
+    expect(k.state.lines.n!.booked).not.toBeNull();
+    const line = { ...k.state.lines.n!, booked: null, fire_ms: null };
+    expect(routeOptions(routeCtx(k.state), line, false)).toEqual([expect.objectContaining({ station_id: 'A', fallback: 'filtered' })]);
+    replayEquals(k);
   });
 });
 
