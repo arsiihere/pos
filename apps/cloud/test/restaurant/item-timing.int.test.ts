@@ -92,7 +92,7 @@ describe('item timing knobs and goes-with links', () => {
     target_id,
     excluded,
   });
-  const noRow = ({ link_id: _id, ...row }: Link & { link_id: string }): Link => row;
+  const noRow = (row: Link): Link => link(row.source_kind, row.source_id, row.target_kind, row.target_id, row.excluded);
 
   describe('[01a §6.15 A-11] the five knobs', () => {
     it('[01a §6.15 A-11] POST defaults the five knobs and returns them; the menu read and the row agree', async () => {
@@ -388,7 +388,7 @@ describe('item timing knobs and goes-with links', () => {
       expect(all.items.find((i) => i.item_id === item)).toMatchObject(KNOB_DEFAULTS);
     });
 
-    it('[01a §6.11 A-13] a category with windows and links answers each once; another tenant never sees the rows', async () => {
+    it('[01a §6.11 A-13] a category with windows and links answers each once', async () => {
       // CT-2 is seeded with windows: the join's row count must not repeat a link
       await patchCategory(otherCategory, {
         availability_windows: [
@@ -400,13 +400,119 @@ describe('item timing knobs and goes-with links', () => {
       const read = (await readMenu()).categories.find((c) => c.category_id === otherCategory)!;
       expect(read.availability_windows).toHaveLength(2);
       expect(read.goes_with).toEqual([link('category', otherCategory, 'item', item)]);
+    });
+
+    it('[01a §6.13 A-13] a link row under another tenant with the same source id is never read or replaced', async () => {
+      // goes_with_links has no FK on source_id, so only the tenant filter keeps these rows apart
+      const seed = (tenantId: string, linkId: string, kind: string, sourceId: string, targetKind: string, targetId: string) =>
+        cloud.pool.query(
+          `INSERT INTO goes_with_links (tenant_id, link_id, source_kind, source_id, target_kind, target_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 0, 0)`,
+          [tenantId, linkId, kind, sourceId, targetKind, targetId],
+        );
+      await seed(f.other.tenantId, 'LK-THEIRS-I', 'item', item, 'item', 'IT-THEIRS');
+      await seed(f.other.tenantId, 'LK-THEIRS-C', 'category', category, 'category', 'CT-THEIRS');
+      const theirRows = async () =>
+        (
+          await cloud.pool.query(
+            `SELECT link_id, source_kind, source_id, target_kind, target_id, excluded, version, created_at, updated_at
+               FROM goes_with_links WHERE tenant_id = $1 ORDER BY link_id`,
+            [f.other.tenantId],
+          )
+        ).rows;
+      const seeded = await theirRows();
+      expect(seeded).toHaveLength(2);
+
+      // tenant A's menu read
+      const read = await readMenu();
+      expect(read.items.find((i) => i.item_id === item)!.goes_with).toEqual([]);
+      expect(read.categories.find((c) => c.category_id === category)!.goes_with).toEqual([]);
+
+      // tenant A's PATCH answers: a change without the list, then the no-op of an empty list
+      const repriced = await patchItem(item, { price_minor: 5 });
+      expect(repriced.statusCode, repriced.body).toBe(200);
+      expect(repriced.json().data.item.goes_with).toEqual([]);
+      const renamed = await patchCategory(category, { name: 'Karahi renamed' });
+      expect(renamed.statusCode, renamed.body).toBe(200);
+      expect(renamed.json().data.category.goes_with).toEqual([]);
+      expect((await patchItem(item, { goes_with: [] })).json().data.item.goes_with).toEqual([]);
+      expect((await patchCategory(category, { goes_with: [] })).json().data.category.goes_with).toEqual([]);
+
+      // tenant A's replace-list, set then replaced then cleared: their rows stay, and A's audit never holds them
+      const itemLink = link('item', item, 'item', otherItem);
+      const categoryLink = link('category', category, 'item', otherItem);
+      const onItem = await patchItem(item, { goes_with: [{ target_kind: 'item', target_id: otherItem }] });
+      expect(onItem.json().data.item.goes_with).toEqual([itemLink]);
+      const onCategory = await patchCategory(category, { goes_with: [{ target_kind: 'item', target_id: otherItem }] });
+      expect(onCategory.json().data.category.goes_with).toEqual([categoryLink]);
+      expect((await audit('menu_item', item)).at(-1)!.before).toMatchObject({ goes_with: [] });
+      expect((await audit('category', category)).at(-1)!.before).toMatchObject({ goes_with: [] });
+      expect(await theirRows()).toEqual(seeded);
+      await patchItem(item, { goes_with: [{ target_kind: 'category', target_id: otherCategory }] });
+      await patchCategory(category, { goes_with: [{ target_kind: 'category', target_id: otherCategory }] });
+      expect(await theirRows()).toEqual(seeded);
+      await patchItem(item, { goes_with: [] });
+      await patchCategory(category, { goes_with: [] });
+      expect(await links('item', item)).toEqual([]);
+      expect(await links('category', category)).toEqual([]);
+      expect(await theirRows()).toEqual(seeded);
+
+      // the other direction: tenant A's row on tenant B's source id stays out of tenant B's read
+      await seed(f.tenantId, 'LK-OURS-I', 'item', 'IT-THEIRS', 'item', otherItem);
+      await seed(f.tenantId, 'LK-OURS-C', 'category', 'CT-THEIRS', 'item', otherItem);
       const theirs = await cloud.app.inject({
         method: 'GET',
         url: '/v1/admin/menu',
         headers: { authorization: `Bearer ${f.other.token}` },
       });
-      expect(theirs.statusCode).toBe(200);
-      expect(theirs.body).not.toContain(item);
+      expect(theirs.statusCode, theirs.body).toBe(200);
+      const theirMenu = theirs.json().data as { items: Array<{ item_id: string; goes_with: Link[] }>; categories: Array<{ category_id: string; goes_with: Link[] }> };
+      expect(theirMenu.items.find((i) => i.item_id === 'IT-THEIRS')!.goes_with).toEqual([]);
+      expect(theirMenu.categories.find((c) => c.category_id === 'CT-THEIRS')!.goes_with).toEqual([]);
+    });
+
+    it('[01a §6.15 A-13] an exact no-op whose stored target has since been archived → 200, no audit, no bump (T4: no-op first)', async () => {
+      const list = [{ target_kind: 'item', target_id: otherItem }];
+      await patchItem(item, { goes_with: list });
+      await patchCategory(category, { goes_with: list });
+      const archive = await patchItem(otherItem, { archived: true });
+      expect(archive.statusCode, archive.body).toBe(200);
+      const v0 = await versions();
+      const [c0, i0] = [await links('category', category), await links('item', item)];
+      const [ac0, ai0] = [await audit('category', category), await audit('menu_item', item)];
+
+      const sameItem = await patchItem(item, { goes_with: list });
+      expect(sameItem.statusCode, sameItem.body).toBe(200);
+      expect(sameItem.json().data.item.goes_with).toEqual([link('item', item, 'item', otherItem)]);
+      const sameCategory = await patchCategory(category, { goes_with: list });
+      expect(sameCategory.statusCode, sameCategory.body).toBe(200);
+      expect(sameCategory.json().data.category.goes_with).toEqual([link('category', category, 'item', otherItem)]);
+
+      expect(await audit('menu_item', item)).toEqual(ai0);
+      expect(await audit('category', category)).toEqual(ac0);
+      expect(await links('item', item)).toEqual(i0);
+      expect(await links('category', category)).toEqual(c0);
+      expect(await versions()).toEqual(v0);
+
+      // the same list with a real change is checked, so the archived target answers
+      const changed = await patchItem(item, { price_minor: 5, goes_with: list });
+      expect(changed.statusCode, changed.body).toBe(422);
+      expect(changed.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'goes_with', reason: 'archived' } });
+    });
+
+    it('[01a §6.13 A-13] a category PATCH with both an in-use archive and a bad target answers the 409 first', async () => {
+      const bad = [{ target_kind: 'item', target_id: 'IT-NOPE' }];
+      const v0 = await versions();
+      const both = await patchCategory(category, { archived: true, goes_with: bad });
+      expect(both.statusCode, both.body).toBe(409);
+      expect(both.json().error).toMatchObject({ code: 'CONFIG_IN_USE', details: { entity: 'category', id: category, used_by: { entity: 'menu_item' } } });
+      // each alone answers its own: the bad target is a real 422 once the archive is gone
+      const alone = await patchCategory(category, { goes_with: bad });
+      expect(alone.statusCode, alone.body).toBe(422);
+      expect(alone.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'goes_with', reason: 'not_found' } });
+      expect(await links('category', category)).toEqual([]);
+      expect(await audit('category', category)).toEqual([]);
+      expect(await versions()).toEqual(v0);
     });
 
     it('[01a §6.15 A-13] archiving a linked item or category leaves the rows (the builder drops them later)', async () => {
