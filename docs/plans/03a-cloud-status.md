@@ -1,8 +1,8 @@
 # 03a cloud lane status (C1–C9)
 
-## Report: STOPPED at C2, waiting on developer decisions
+## Report: in progress (C2 onward), developer rulings received
 
-Stop rule hit: C2 onward needs files outside this lane's list, and two gaps need a spec decision.
+The first stop, at C2, is resolved by the AD rows below.
 
 | Task | State | Commit | Review |
 |---|---|---|---|
@@ -12,16 +12,18 @@ Stop rule hit: C2 onward needs files outside this lane's list, and two gaps need
 
 Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at dcca7a1: 214 failed, 2210 passed, 41 files failed.
 
-### Decisions needed
-1. Widen the file list: `packages/events/src/admin/restaurant.ts` (C2, C4), `admin/staff.ts` (C7), `packages/events/testing/index.ts` (C5), `apps/client/src/features/owner/**` (C8, C9).
-2. C6 hub half: `apps/hub/src/sync/**`, `apps/hub/src/projections/branch-config.ts` are forbidden; flipping to V3 breaks apps/hub and packages/engine tests using `aBranchConfig`. Who does it?
-3. New branches: `issue-registration-code.ts:78` creates no Pass point or `branch_engine_settings` row; the spec only covers the migration.
-4. `'point'` in `config_audit_entity_check`: needed by S26, absent from §5.2a and §6.0.
-5. `version` on new tables: §5.2a says integer column; check against how R30 writes compare it.
+### AD rows: developer rulings
+| AD | Problem | Developer ruling | Files |
+|---|---|---|---|
+| CL-1 | C2, C4, C5, C7, C8, C9 need files outside the lane's first list | May edit them. Only this lane changes `aBranchConfig`; the engine lane appends new builders at the end of the file only | `packages/events/src/admin/restaurant.ts`, `admin/staff.ts`, `packages/events/testing/index.ts`, `apps/client/src/features/owner/**` |
+| CL-2 | C6 hub half | This lane does it: `apps/hub/src/sync/**` EXCEPT `boot-steps.ts` (engine task 20), `apps/hub/src/projections/branch-config.ts`, expectation-only edits in tests using `aBranchConfig` (`apps/hub`, `packages/engine`). V3 flip = ONE separate commit, last of C6; the engine lane resolves engine-test conflicts at merge | as listed |
+| CL-3 | New branches get no Pass point or settings row | Every branch-create path inserts "Pass" and `branch_engine_settings` in the same transaction. Folded into 01a's as-built at task 29 | `issue-registration-code.ts` and any other branch-create path |
+| CL-4 | `'point'` in `config_audit_entity_check` is absent from §5.2a, §6.0 | Keep it in 0007. As-built at task 29 | `0007_engine_config.sql` |
+| CL-5 | `version` column vs R30 | Check how R30 writes work and follow the existing pattern; come back only if it means changing the column | see below |
+| CL-6 | Push policy, build | Red mid-batch pushes are fine (engine lane merges at its task 23). Push C1, the board and after every task. Build apps/client once here. Branch must be green at the end | — |
 
 ### Proposed AD rows
 - C5a staging: V3 added next to V2, `SNAPSHOT_SCHEMA_VERSION` stays 2 until the flip (pin V2 to `z.literal(2)` or remove it then).
-- `'point'` audit widening in unmerged 0007 (decision 4).
 
 ### Parked for later tasks
 - C5a tests: accepted enum values and nullability coverage (Minor).
