@@ -195,13 +195,24 @@ describe('@pos/engine ReservationsShifted fold (F §4.7 D42)', () => {
     );
     // One listed member moves the whole load ("a load's members follow").
     expect(fold(s, [shiftEv('F', [{ order_item_id: 'F2', by_ms: by }], T0 + 10 * M)])).toEqual(both);
-    // Members listed with different by_ms split the load: a writer bug (AD-8) — strict throws; non-strict the load
+    // Members listed with different by_ms would split the load: writer bug shift_conflict (AD-8) — strict throws; non-strict the load
     // moves by its first listed member's by_ms and one invalid_event diagnostic names the other.
     const split = shiftEv('F', [{ order_item_id: 'F1', by_ms: by }, { order_item_id: 'F2', by_ms: by + 1 }], T0 + 10 * M);
-    expect(() => applyEvent(s, split)).toThrow(/load_split/);
+    expect(() => applyEvent(s, split)).toThrow(/shift_conflict/);
     const lax = applyEvent(s, split, { strict: false });
     expect(lax.stations.F!.loads[load.load_id]).toEqual(moved);
-    expect(lax.diagnostics.map((d) => [d.kind, d.detail.reason, d.detail.order_item_id])).toEqual([['invalid_event', 'load_split', 'F2']]);
+    expect(lax.diagnostics.map((d) => [d.kind, d.detail.reason, d.detail.order_item_id])).toEqual([['invalid_event', 'shift_conflict', 'F2']]);
+  });
+
+  it('[03a F D42] a slot line listed twice moves once; a second entry with another by_ms is writer bug shift_conflict', () => {
+    const s = f12();
+    const once = fold(s, [shiftEv('X', [{ order_item_id: 'C', by_ms: 5 }], T0 + 1)]);
+    expect(fold(s, [shiftEv('X', [{ order_item_id: 'C', by_ms: 5 }, { order_item_id: 'C', by_ms: 5 }], T0 + 1)])).toEqual(once);
+    const twice = shiftEv('X', [{ order_item_id: 'C', by_ms: 5 }, { order_item_id: 'C', by_ms: 10 }], T0 + 1);
+    expect(() => applyEvent(s, twice)).toThrow(/shift_conflict/);
+    const lax = applyEvent(s, twice, { strict: false });
+    expect(lax.lines.C).toEqual(once.lines.C);
+    expect(lax.diagnostics.map((d) => [d.kind, d.detail.reason, d.detail.order_item_id])).toEqual([['invalid_event', 'shift_conflict', 'C']]);
   });
 
   it('[03a F D42] absent ids and in-flight / ended lines are a no-op (state itself); an unfired line on another station is an AD-8 writer bug', () => {

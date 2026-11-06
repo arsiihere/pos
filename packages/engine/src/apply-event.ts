@@ -32,7 +32,7 @@ import {
   type SequenceOptions,
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
-import { closeExitIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
+import { closeExitIds, exitedOrderIds, isKeptExited, isOpen, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -209,7 +209,11 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as OrderLinesAddedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const order = state.orders[p.order_id];
-  if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
+  // AD-20 (task 14b review): an order kept only for its reservation is absent to the folds, so it throws as an absent
+  // order does. The skipped exited order without a reservation (the append-gap straddle) still re-opens.
+  if (order === undefined || isKeptExited(state, order, event.recorded_at)) {
+    throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
+  }
   return listLines(state, order, p, event.recorded_at);
 }
 
@@ -281,7 +285,7 @@ function foldItemAdded(state: EngineState, event: PosEvent, o: SequenceOptions):
   const id = p.order_item_id;
   checkStream(event, p.order_id, id);
   const order = state.orders[p.order_id];
-  if (order === undefined) return state;
+  if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
   const found = state.lines[id];
   const listed = found !== undefined && found.order_id === p.order_id && isPlaceholder(found) ? found : undefined;
   let next: EngineState = state;
@@ -414,7 +418,7 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
   const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
   const ids = load === undefined ? p.order_item_ids : [...new Set([...p.order_item_ids, ...load.order_item_ids])];
   for (const id of ids) {
-    const line = lineOf(next, id);
+    const line = activeLine(next, id, event.recorded_at);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
     const bug =
       line.station_id !== p.station_id ? 'station_mismatch' : (next.orders[line.order_id]?.awaiting ?? 0) > 0 ? 'order_awaiting' : null;
@@ -445,15 +449,17 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
 //     reservation: they move by the packing at every read (F-20, §3.3), so there is nothing to move;
 //   - an unfired line on another station: an AD-8 writer bug (InvalidEvent 'station_mismatch': strict throws,
 //     non-strict that entry is skipped with one invalid_event diagnostic), as FireDispatched;
-//   - a reservation listed more than once (the members of one load, as the cascade lists them) moves once, by its
-//     first entry's by_ms; a later entry with another by_ms would split the load: writer bug 'load_split'.
+//   - a reservation listed more than once (the members of one load, as the cascade lists them, or a slot line listed
+//     twice) moves once, by its first entry's by_ms; a later entry for the same reservation with another by_ms is
+//     writer bug 'shift_conflict' (it would split a load or move one booking twice);
+//   - a line whose order the removal step keeps only for its reservation (AD-20) is absent (activeLine).
 function foldReservationsShifted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as ReservationsShiftedPayload;
   if (state.stations[p.station_id] === undefined) return state;
   let next = state;
   const moved = new Map<string, number>(); // reservation key (load_id or order_item_id) → by_ms
   for (const { order_item_id: id, by_ms } of p.shifts) {
-    const line = lineOf(next, id);
+    const line = activeLine(next, id, event.recorded_at);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null || by_ms === 0) continue;
     const station = next.stations[p.station_id]!;
     const load = line.load_id === null ? undefined : station.loads[line.load_id];
@@ -461,7 +467,7 @@ function foldReservationsShifted(state: EngineState, event: PosEvent, strict: bo
     const bug = line.station_id !== p.station_id ? 'station_mismatch' : null;
     const key = inLoad ? load.load_id : id;
     const prev = moved.get(key);
-    const split = bug === null && prev !== undefined && prev !== by_ms ? 'load_split' : null;
+    const split = bug === null && prev !== undefined && prev !== by_ms ? 'shift_conflict' : null;
     if (bug !== null || split !== null) {
       const e = new InvalidEvent((bug ?? split)!, id, line.station_id);
       if (strict) throw e;
@@ -518,8 +524,19 @@ function shiftLoad(state: EngineState, station: StationRuntime, load: Load, by: 
 
 // The line an order-stream stage event names (§3.3 absent ids: undefined → the fold is a no-op), checked to be on
 // its order's stream (AD-8).
-function stageLine(state: EngineState, event: PosEvent, order_item_id: string): EngineLine | undefined {
+// AD-20 (task 14b review): the line an order-stream or station fold acts on — lineOf, and its order in the engine at
+// t. After the removal step a present order out of the engine is one kept only for its reservation; to every fold but
+// the stock folds (which must still find the line, drawOf) it is absent, so nothing re-opens it or refreshes its
+// clock (§3.3: "Removal never changes a result").
+function activeLine(state: EngineState, order_item_id: string, t: number): EngineLine | undefined {
   const line = lineOf(state, order_item_id);
+  if (line === undefined) return undefined;
+  const order = state.orders[line.order_id];
+  return order !== undefined && orderInEngine(state, order, t) ? line : undefined;
+}
+
+function stageLine(state: EngineState, event: PosEvent, order_item_id: string): EngineLine | undefined {
+  const line = activeLine(state, order_item_id, event.recorded_at);
   if (line !== undefined) checkStream(event, line.order_id, order_item_id, line.station_id);
   return line;
 }
@@ -840,6 +857,8 @@ function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): E
 function foldNamesOrder(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as { order_id: string };
   checkStream(event, p.order_id, '');
+  const order = state.orders[p.order_id];
+  if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
   return touchOrder(state, p.order_id, event.recorded_at);
 }
 

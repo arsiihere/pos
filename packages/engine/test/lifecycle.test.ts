@@ -343,6 +343,32 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(buildEngineState([...events, tickle(t + 1), ...stamped(drafts, t + 1), tickle(t + 2)])).toEqual({ ...gone });
   });
 
+  it('[03a AD-20] a kept exited order never re-enters: order-stream and station folds on it return state itself; the release still folds; then removed', () => {
+    const events = [cfg(1), kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(1))];
+    const t = at(1) + ABANDON;
+    const kept = fold([tickle(t + 1)], fold(events));
+    expect(kept.orders.O1).toBeDefined();
+    const shift = { ...fire(['L1'], t + 2), event_type: 'ReservationsShifted', payload: { station_id: 'S1', cause: 'overrun', shifts: [{ order_item_id: 'L1', by_ms: 60_000 }] } };
+    const boosted = ev('OrderBoosted', 'O1', { order_id: 'O1' }, t + 2);
+    for (const e of [start('O1', 'L1', t + 2), done('O1', 'L1', t + 2), served('O1', ['L1'], t + 2), removed('O1', 'L1', t + 2), voided('O1', 'L1', 1, t + 2), fire(['L1'], t + 2), shift, boosted]) {
+      for (const strict of [true, false]) {
+        const after = applyEvent(kept, e, { strict });
+        expect(Object.is(after, kept), `${e.event_type} strict=${strict}`).toBe(true);
+        expect(isOrderInEngine(after, 'O1', t + 2)).toBe(false);
+      }
+    }
+    // OrderLinesAdded on it throws, as on an absent order (§3.3).
+    expect(() => applyEvent(kept, anOrderLinesAdded({ stream_id: 'O1', recorded_at: t + 2, occurred_at: t + 2, seq: nextSeq(), payload: { ...anOrderLinesAdded().payload, order_id: 'O1' } }))).toThrow(/not in the engine/);
+    // After a Start that changed nothing, the abandon release is still drafted, folds, and the next listed fold removes O1.
+    const tapped = fold([start('O1', 'L1', t + 2)], kept);
+    const drafts = getTickIntents(tapped, t + 3);
+    expect(drafts.map((d) => [d.event_type, (d.payload as { reason?: string }).reason])).toEqual([['StockReleased', 'abandoned']]);
+    const released = fold(stamped(drafts, t + 3), tapped);
+    expect(released.stock.KB!.reserved).toBe(0);
+    expect(released.orders.O1).toBeDefined();
+    expect(fold([tickle(t + 4)], released).orders.O1).toBeUndefined();
+  });
+
   it('[03a AD-20] served exit with a from-stock line Done without a Start: kept 30 min on; released by the abandon pass, or by the close', () => {
     const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
     const events = [cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
