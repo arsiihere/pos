@@ -350,6 +350,23 @@ describe('[01a §5.2a] cloud migration 0007_engine_config.sql', () => {
     for (const index of indexes) expect(index.first_column, index.index_name).toBe('tenant_id');
   });
 
+  it('[01a §6.9a] config_audit accepts entity point, keeps every earlier entity, and still refuses an unknown one', async () => {
+    const insert = (id: string, entity: string) =>
+      pool.query(
+        `INSERT INTO config_audit (tenant_id, audit_id, actor_kind, branch_id, entity, entity_id, action, after, at)
+         VALUES ($1, $2, 'cli', 'b1', $3, 'x', 'create', '{}', $4)`,
+        [TN, id, entity, T],
+      );
+    await insert('a-point', 'point');
+    const earlier = [
+      'floor', 'table', 'station', 'batch_program', 'tax_class', 'category', 'menu_item', 'item_route', 'branch_settings',
+      'staff', 'role', 'responsibility', 'branch', 'owner_user',
+      'variant_group', 'stock_item', 'stock_item_branch', 'modifier_group', 'deal', 'deal_branch',
+    ];
+    for (const entity of earlier) await insert(`a-${entity}`, entity);
+    await expect(insert('a-unknown', 'carry_time')).rejects.toMatchObject({ code: '23514', constraint: 'config_audit_entity_check' });
+  });
+
   it('[01a §12.3 Q-v2.1-2] an index serves "active stations naming this point"', async () => {
     const { rows } = await pool.query(`SELECT indexdef FROM pg_indexes WHERE indexname = 'stations_point'`);
     expect(rows[0].indexdef).toContain('(tenant_id, branch_id, point_id) WHERE (archived_at IS NULL)');

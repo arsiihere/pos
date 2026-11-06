@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -20,7 +21,7 @@ afterAll(async () => {
 
 async function addFuture(pool: pg.Pool): Promise<void> {
   await pool.query(
-    `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (7, '0007_future.sql', 'f', $1)`,
+    `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (9999, '9999_future.sql', 'f', $1)`,
     [T],
   );
 }
@@ -38,16 +39,16 @@ async function hasLeftAt(pool: pg.Pool): Promise<boolean> {
 }
 
 describe('[01b B22] migrations runner and a database ahead of the build', () => {
-  it('[01b #105] migrate() refuses a database with an unknown migration, applies nothing, and the process exits 1; without the row it applies 0005 and 0006', async () => {
+  it('[01b #105] migrate() refuses a database with an unknown migration, applies nothing, and the process exits 1; without the row it applies every migration from 0005 on', async () => {
     const { url, pool } = await scratchDatabaseAt(4);
     await addFuture(pool);
 
     const refused = migrate(pool, migrationsDir, clock);
     await expect(refused).rejects.toMatchObject({ name: 'MigrationUnknownVersionError' });
     await expect(refused).rejects.toThrow(
-      'database has migration 0007 (0007_future.sql) that this build does not have: this build is older than the database; deploy the current build',
+      'database has migration 9999 (9999_future.sql) that this build does not have: this build is older than the database; deploy the current build',
     );
-    expect(await applied(pool)).toEqual([1, 2, 3, 4, 7]);
+    expect(await applied(pool)).toEqual([1, 2, 3, 4, 9999]);
     expect(await hasLeftAt(pool)).toBe(false);
 
     // The cloud process (01b §4.3 row 20) exits 1 before listening, with nothing applied.
@@ -65,12 +66,16 @@ describe('[01b B22] migrations runner and a database ahead of the build', () => 
       timeout: 30_000,
     });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('0007_future.sql');
-    expect(await applied(pool)).toEqual([1, 2, 3, 4, 7]);
+    expect(result.stderr).toContain('9999_future.sql');
+    expect(await applied(pool)).toEqual([1, 2, 3, 4, 9999]);
     expect(await hasLeftAt(pool)).toBe(false);
 
-    await pool.query(`DELETE FROM schema_migrations WHERE version = 7`);
-    expect(await migrate(pool, migrationsDir, clock)).toEqual({ applied: ['0005_staff_roles.sql', '0006_menu_variants.sql'] });
-    expect(await applied(pool)).toEqual([1, 2, 3, 4, 5, 6]);
+    await pool.query(`DELETE FROM schema_migrations WHERE version = 9999`);
+    // Read from the folder, so the next real migration does not break this test.
+    const files = readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
+    const rest = files.filter((name) => Number(name.slice(0, 4)) > 4);
+    expect(rest[0]).toBe('0005_staff_roles.sql');
+    expect(await migrate(pool, migrationsDir, clock)).toEqual({ applied: rest });
+    expect(await applied(pool)).toEqual(files.map((name) => Number(name.slice(0, 4))));
   }, 40_000);
 });

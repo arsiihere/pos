@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
@@ -94,6 +94,14 @@ async function applied(pool: pg.Pool): Promise<number[]> {
   return rows.map((row) => row.version);
 }
 
+// Every migration in the folder, so the next real migration does not break the "it commits" checks.
+function allVersions(): number[] {
+  return readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => Number(name.slice(0, 4)))
+    .sort((a, b) => a - b);
+}
+
 const CONSTRAINTS = [
   'branches_day_gap',
   'branches_day_settings',
@@ -122,7 +130,7 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
 
     await migrate(pool, migrationsDir, clock);
 
-    expect(await applied(pool)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await applied(pool)).toEqual(allVersions());
     const { rows: constraints } = await pool.query<{ conname: string; convalidated: boolean }>(
       `SELECT conname, convalidated FROM pg_constraint WHERE conname = ANY($1::text[]) ORDER BY conname`,
       [CONSTRAINTS],
@@ -295,7 +303,7 @@ describe('[01b §5.1] cloud migration 0005_staff_roles.sql', () => {
 
     const empty = await scratchDatabaseAt(4);
     await migrate(empty.pool, migrationsDir, clock);
-    expect(await applied(empty.pool)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await applied(empty.pool)).toEqual(allVersions());
   });
 
   it('[01b #66] clamps day settings to 48 / 12, the new CHECKs refuse 49 / 13, and set-branch-settings takes the same ranges', async () => {

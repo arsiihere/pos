@@ -124,3 +124,11 @@ CREATE TABLE goes_with_links (                                               -- 
   version BIGINT NOT NULL DEFAULT 1, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
   PRIMARY KEY (tenant_id, link_id),
   UNIQUE (tenant_id, source_kind, source_id, target_kind, target_id));
+
+-- §6.9a: the points routes write `point` audit rows (common write script, S26). Actions unchanged.
+ALTER TABLE config_audit DROP CONSTRAINT config_audit_entity_check;
+ALTER TABLE config_audit ADD CONSTRAINT config_audit_entity_check CHECK (entity IN (
+  'floor','table','station','batch_program','tax_class','category','menu_item','item_route','branch_settings',
+  'staff','role','responsibility','branch','owner_user',
+  'variant_group','stock_item','stock_item_branch','modifier_group','deal','deal_branch',
+  'point'));
