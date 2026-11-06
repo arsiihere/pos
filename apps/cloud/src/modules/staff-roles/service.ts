@@ -47,6 +47,7 @@ import {
   selectRoleHolders,
   setRoleArchived,
   updateBranchName,
+  updateBranchEngineSettings,
   updateBranchSettings,
   updatePin,
   updateRoleRow,
@@ -57,9 +58,11 @@ import {
   type StaffFilter,
 } from './repository.js';
 import {
+  branchSettingsVersion,
   responsibilitySetVersion,
   roleVersion,
   staffVersion,
+  toBranchSettings,
   toResponsibilitySet,
   toRoleWire,
   toStaffWire,
@@ -532,8 +535,9 @@ export async function getTeamTree(
   return { branch_id: branchId, roots };
 }
 
-// §6.10 PATCH: 01a's common write script plus B8: lock the branch row → merge → stale > gap (B16, 01a S33) →
-// no-op → update → audit branch_settings / update → bumpConfigVersion for this branch only.
+// §6.10 PATCH: 01a's common write script plus B8: lock the branch row → expected_version (v1.5 B-6, B23) → merge →
+// stale > gap (B16, 01a S33) → no-op → update both rows → audit branch_settings / update → bumpConfigVersion for
+// this branch only. 6 statements on a write, 2 on a no-op or a stale version.
 export async function patchBranchSettings(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -547,25 +551,20 @@ export async function patchBranchSettings(
     if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
     const stored = await selectBranchWire(repo, branchId, { lock: true });
     if (stored === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
-    const before = settingsOf(stored);
-    const after = {
-      tax_enabled: body.tax_enabled ?? before.tax_enabled,
-      day_stale_after_hours: body.day_stale_after_hours ?? before.day_stale_after_hours,
-      day_min_gap_hours: body.day_min_gap_hours ?? before.day_min_gap_hours,
-    };
+    const { expected_version: expectedVersion, ...changes } = body;
+    if (expectedVersion !== stored.version) throw new DomainError('CONFIG_STALE', { entity: 'branch_settings', id: branchId });
+    const before = toBranchSettings(stored);
+    const after = toBranchSettings({ ...before, ...changes });
     if (after.day_stale_after_hours <= after.day_min_gap_hours) {
       throw new DomainError('VALIDATION_FAILED', {
         issues: [{ path: 'day_min_gap_hours', message: 'day_min_gap_hours must be less than day_stale_after_hours' }],
       });
     }
-    if (
-      after.tax_enabled === before.tax_enabled &&
-      after.day_stale_after_hours === before.day_stale_after_hours &&
-      after.day_min_gap_hours === before.day_min_gap_hours
-    ) {
-      return { branch: stored };
-    }
+    // The version input is every setting, so no field can be left out of the no-op rule.
+    const version = branchSettingsVersion(branchId, after);
+    if (version === stored.version) return { branch: stored };
     await updateBranchSettings(repo, branchId, after);
+    await updateBranchEngineSettings(repo, branchId, after, deps.clock.branchNow());
     await writeConfigAudit(
       repo,
       {
@@ -580,12 +579,8 @@ export async function patchBranchSettings(
       deps,
     );
     await bumpConfigVersion(repo, { kind: 'branch', branchId });
-    return { branch: { ...stored, ...after } };
+    return { branch: { ...stored, ...after, version } };
   });
-}
-
-function settingsOf(branch: BranchWire) {
-  return { tax_enabled: branch.tax_enabled, day_stale_after_hours: branch.day_stale_after_hours, day_min_gap_hours: branch.day_min_gap_hours };
 }
 
 type ResponsibilitySet = { responsibilities: ResponsibilityWire[]; version: string };

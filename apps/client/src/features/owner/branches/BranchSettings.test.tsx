@@ -27,6 +27,7 @@ const STORED = {
   tax_enabled: false,
   day_stale_after_hours: 16,
   day_min_gap_hours: 4,
+  version: 'v1',
 };
 
 async function render() {
@@ -65,7 +66,7 @@ describe('[01b §8] branch settings', () => {
     await click(button(m.container, t('branches.save_settings')));
     expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({
       url: '/v1/admin/branches/B1/settings',
-      body: { tax_enabled: true, day_stale_after_hours: 10 },
+      body: { expected_version: 'v1', tax_enabled: true, day_stale_after_hours: 10 },
     });
     expect(m.container.textContent).toContain(fill(t('branches.settings_saved'), { name: 'Gulberg' }));
   });

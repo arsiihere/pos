@@ -5,6 +5,26 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
 const T = 1_761_000_000_000;
 
+// 01a v2.1 A-12 defaults: the settings wire and audit shape carry them since 01b v1.5 B-6.
+const ENGINE_DEFAULTS = {
+  weight_dine_in_pct: 100,
+  weight_takeaway_pct: 200,
+  weight_delivery_pct: 200,
+  weight_parking_pct: 200,
+  weight_follow_up_pct: 300,
+  promise_padding_dine_in_ms: 180_000,
+  promise_padding_takeaway_ms: 180_000,
+  promise_padding_delivery_ms: 180_000,
+  promise_padding_parking_ms: 180_000,
+  slip_threshold_ms: 120_000,
+  slip_escalate_ms: 120_000,
+  cascade_step_ms: 60_000,
+  min_gain_ms: 60_000,
+  table_lock_ttl_ms: 600_000,
+  returns_boost: true,
+  order_abandon_ms: 14_400_000,
+};
+
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -26,8 +46,12 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)',
   const url = (branchId: string) => `/v1/admin/branches/${branchId}/settings`;
   const getSettings = (branchId: string, token = f.token) =>
     cloud.app.inject({ method: 'GET', url: url(branchId), headers: { authorization: `Bearer ${token}` } });
-  const patchSettings = (branchId: string, payload: object) =>
-    cloud.app.inject({ method: 'PATCH', url: url(branchId), headers: { authorization: `Bearer ${f.token}` }, payload });
+  // v1.5 B-6: expected_version is required; these tests send the current one (stale versions: branch-settings-engine).
+  const patchSettings = async (branchId: string, payload: object) => {
+    const current = await getSettings(branchId);
+    const expected_version: string = current.statusCode === 200 ? current.json().data.branch.version : 'unread';
+    return cloud.app.inject({ method: 'PATCH', url: url(branchId), headers: { authorization: `Bearer ${f.token}` }, payload: { expected_version, ...payload } });
+  };
   const configVersions = async () =>
     (
       await cloud.pool.query<{ branch_id: string; config_version: string }>(
@@ -63,8 +87,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)',
         actor_kind: 'owner',
         actor_owner_user_id: f.userId,
         action: 'update',
-        before: { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 },
-        after: { tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4 },
+        before: { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4, ...ENGINE_DEFAULTS },
+        after: { tax_enabled: true, day_stale_after_hours: 20, day_min_gap_hours: 4, ...ENGINE_DEFAULTS },
       },
     ]);
 
@@ -137,6 +161,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)',
       tax_enabled: true,
       day_stale_after_hours: 30,
       day_min_gap_hours: 6,
+      ...ENGINE_DEFAULTS,
+      version: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
 
     const outside = await getSettings(f.branches[2], f.tokenFor([f.branches[0], f.branches[1]]));

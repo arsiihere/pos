@@ -95,7 +95,7 @@ function SettingsForm({
 
   const staleValue = whole(stale);
   const gapValue = whole(gap);
-  const patch: BranchSettingsPatchRequest = {};
+  const patch: Omit<BranchSettingsPatchRequest, 'expected_version'> = {};
   if (tax !== stored.tax_enabled) patch.tax_enabled = tax;
   if (staleValue !== stored.day_stale_after_hours) patch.day_stale_after_hours = staleValue;
   if (gapValue !== stored.day_min_gap_hours) patch.day_min_gap_hours = gapValue;
@@ -120,7 +120,7 @@ function SettingsForm({
     }
     setBusy(true);
     setBanner(null);
-    const result = await api.patchBranchSettings(stored.branch_id, patch);
+    const result = await api.patchBranchSettings(stored.branch_id, { expected_version: stored.version, ...patch });
     setBusy(false);
     if (result.ok) {
       onStored(result.data.branch);
