@@ -28,6 +28,8 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - CL-9 (C2): carry-time `point_id` of another branch `422 { field: 'carry_times' }`; failing alternate `422 { field: 'alternates' }`; `station_type` to batch with alternates or named as one `409 CONFIG_IN_USE { used_by: station }`.
 - CL-10 (C2): naming an archived station `422 alternates`; archiving a station an active one names `409 CONFIG_IN_USE`; restore has no check, so an active station can still name an archived one, and the C6 builder leaves those rows out of the snapshot.
 - CL-11 (C2): station PATCH locks the target and named alternates in one `ORDER BY station_id FOR UPDATE` statement instead of S8's target-then-references `FOR SHARE`, because the literal order deadlocks when two stations name each other. No external change. As-built at task 29.
+- CL-12 (C4): goes-with target checks use a plain read, not the §6 script's `FOR SHARE`: locking item targets deadlocks two items linking each other and inverts the lock kinds. No invariant lost because archive has no in-use check on links and the C6 builder drops inactive links (C6 must test it). As-built at task 29.
+- CL-13 (C4): `goes_with` lists are last write wins as fields of `menu_items` / `categories` (S23); §5.2a's "new tables need `expected_version`" is not applied to `goes_with_links`. Item POST takes the knobs but no list. As-built at task 29.
 - C5a staging: V3 added next to V2, `SNAPSHOT_SCHEMA_VERSION` stays 2 until the flip (pin V2 to `z.literal(2)` or remove it then).
 
 ### Parked for later tasks
@@ -37,6 +39,7 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - C3: `apps/cloud/src/lib/config-audit.ts:25` needs `'point'`.
 - C2/C3 test precision (Minor, reviewer): CL-7 "Pass first" clause untested (`stations-engine.int.test.ts:349`); clearing a nullable to null untested (`:161`); `issue-code.int.test.ts:68` does not prove rollback; another tenant's ids in body references untested; 100 ms race holds; point race test title (`points.int.test.ts:310`).
 - Task 29 notes: §6.8 points lack `version`; §6.0 lacks §6.9a; `points_branch_name_active` is case-sensitive, stations use `lower(name)`; CL-11 alternate `FOR UPDATE` briefly blocks FK key-share writers.
+- C8/C9 owner forms must drop archived targets and alternates before saving, or a resend gets `422`; a category archive path of ruling 7 is untested (`item-timing.int.test.ts:412`, Minor).
 - C1 test order dependency at `engine-config-migration.int.test.ts:112` (Minor).
 
 ### Notes
