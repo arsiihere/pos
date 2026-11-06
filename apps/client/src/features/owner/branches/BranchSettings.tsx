@@ -8,6 +8,7 @@ import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Icon } from '../../../components/Icon';
 import { Skeleton } from '../../../components/Skeleton';
+import { StaleBanner } from '../../../components/StaleBanner';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
@@ -15,6 +16,7 @@ import { useCloudDown } from '../cloud';
 import { errorText } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
+import { engineFieldLabel, engineState, enginePatch, KitchenTiming, type EngineState } from './KitchenTiming';
 
 // 01b §8 #/branches/:id/settings (01b-S07, §6.10, B16): tax on or off, the stale-day hours (1–48) and the
 // second Start-day gap (0–12). The form checks the ranges and stale > gap before sending, then PATCHes only
@@ -47,6 +49,8 @@ function BackLink() {
 export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: string }) {
   const [stored, setStored] = useState<BranchDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped by Reload so the form starts again from the branch as it is now.
+  const [epoch, setEpoch] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -69,18 +73,28 @@ export function BranchSettings({ api, branchId }: { api: CloudAdmin; branchId: s
       </Page>
     );
   }
-  return <SettingsForm key={stored.branch_id} api={api} stored={stored} onStored={setStored} back={back} />;
+  // 409 CONFIG_STALE (B23): Reload reads the branch again and drops the draft.
+  async function reload() {
+    const result = await api.getBranchSettings(branchId);
+    if (result.ok) {
+      setStored(result.data.branch);
+      setEpoch((n) => n + 1);
+    } else setLoadError(errorText(result.error));
+  }
+  return <SettingsForm key={`${stored.branch_id}:${epoch}`} api={api} stored={stored} onStored={setStored} onReload={() => void reload()} back={back} />;
 }
 
 function SettingsForm({
   api,
   stored,
   onStored,
+  onReload,
   back,
 }: {
   api: CloudAdmin;
   stored: BranchDetail;
   onStored: (next: BranchDetail) => void;
+  onReload: () => void;
   back: ReactNode;
 }) {
   const [tax, setTax] = useState(stored.tax_enabled);
@@ -88,6 +102,9 @@ function SettingsForm({
   const [gap, setGap] = useState(String(stored.day_min_gap_hours));
   const [errors, setErrors] = useState<{ stale?: string; gap?: string }>({});
   const [banner, setBanner] = useState<{ tone: 'ok' | 'danger'; text: string } | null>(null);
+  const [engine, setEngine] = useState<EngineState>(() => engineState(stored));
+  const [engineErrors, setEngineErrors] = useState<Record<string, string>>({});
+  const [changedElsewhere, setChangedElsewhere] = useState(false);
   const [busy, setBusy] = useState(false);
   const down = useCloudDown(api);
   const leave = useLeave();
@@ -99,12 +116,14 @@ function SettingsForm({
   if (tax !== stored.tax_enabled) patch.tax_enabled = tax;
   if (staleValue !== stored.day_stale_after_hours) patch.day_stale_after_hours = staleValue;
   if (gapValue !== stored.day_min_gap_hours) patch.day_min_gap_hours = gapValue;
+  const checked = enginePatch(engine, stored);
+  Object.assign(patch, checked.patch);
   const fields: Record<string, string> = {
     tax_enabled: t('branches.tax'),
     day_stale_after_hours: t('branches.stale'),
     day_min_gap_hours: t('branches.gap'),
   };
-  const changed = Object.keys(patch).map((k) => fields[k] ?? k);
+  const changed = Object.keys(patch).map((k) => fields[k] ?? engineFieldLabel(k) ?? k);
   useDirtyForm(changed.length === 0 ? null : { name: fill(t('branches.settings_title'), { name: stored.name }), fields: changed });
 
   async function save() {
@@ -113,7 +132,8 @@ function SettingsForm({
     if (!(gapValue >= 0 && gapValue <= 12)) found.gap = t('branches.gap_range');
     else if (found.stale === undefined && !(staleValue > gapValue)) found.gap = fill(t('branches.gap_not_less'), { n: String(staleValue) });
     setErrors(found);
-    if (Object.keys(found).length > 0) return;
+    setEngineErrors(checked.errors);
+    if (Object.keys(found).length > 0 || Object.keys(checked.errors).length > 0) return;
     if (changed.length === 0) {
       navigate('/branches');
       return;
@@ -127,6 +147,10 @@ function SettingsForm({
       setBanner({ tone: 'ok', text: fill(t('branches.settings_saved'), { name: result.data.branch.name }) });
       return;
     }
+    if (result.error.kind === 'api' && result.error.code === 'CONFIG_STALE') {
+      setChangedElsewhere(true);
+      return;
+    }
     if (result.error.kind === 'api' && result.error.code === 'VALIDATION_FAILED') {
       setErrors({ gap: fill(t('branches.gap_not_less'), { n: String(staleValue) }) });
       return;
@@ -135,7 +159,7 @@ function SettingsForm({
   }
 
   const saveButton = (
-    <BusyButton primary size={phone ? 'lg block' : undefined} busy={busy} disabled={down} onClick={() => void save()}>
+    <BusyButton primary size={phone ? 'lg block' : undefined} busy={busy} disabled={down || changedElsewhere} onClick={() => void save()}>
       {t('branches.save_settings')}
     </BusyButton>
   );
@@ -150,6 +174,7 @@ function SettingsForm({
 
   return (
     <Page api={api} title={fill(t('branches.settings_title'), { name: stored.name })} start={back} end={actions}>
+      {changedElsewhere && <StaleBanner onReload={onReload} />}
       {banner !== null && <Banner tone={banner.tone} text={banner.text} />}
       <section className="pos-section pos-settings">
         <div className="pos-section__head">
@@ -187,6 +212,7 @@ function SettingsForm({
           )}
         </label>
       </section>
+      <KitchenTiming state={engine} onChange={setEngine} errors={engineErrors} />
       {phone && (
         <div className="pos-pagebar">
           <ActionBar>{saveButton}</ActionBar>

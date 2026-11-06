@@ -97,7 +97,7 @@ function page(items: unknown[], next: string | null, canEdit = true) {
     data: {
       can_edit_tenant: canEdit,
       tax_classes: [{ tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, archived_at: null }],
-      categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [] }],
+      categories: [{ category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] }],
       variant_groups: [],
       items,
       next_cursor: next,
