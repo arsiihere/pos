@@ -33,6 +33,35 @@ export interface StationRow {
   freshness_window_ms: number | null;
   completion_mode: CompletionMode;
   archived_at: number | null;
+  point_id: string;
+  policy: 'waada_guard' | 'edf' | 'fifo';
+  freeze_ms: number;
+  min_slack_keep_ms: number;
+  promise_padding_ms: number | null;
+  pressure_window_ms: number;
+  pressure_amber_bp: number;
+  pressure_red_bp: number;
+  pressure_alert_ms: number;
+  pause_enabled: boolean;
+  lane_units: number | null;
+  reserve_units: number;
+}
+
+export type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'parking';
+
+// 01a §5.2a A-9, A-10: the station's replace-lists.
+export interface StationLists {
+  alternates: Array<{ alternate_station_id: string; order_types: OrderType[]; home_for_order_types: OrderType[] }>;
+  carry_times: Array<{ point_id: string; carry_ms: number }>;
+}
+
+export type StationWithLists = StationRow & StationLists;
+
+export interface PointRow {
+  point_id: string;
+  name: string;
+  sort_order: number;
+  archived_at: number | null;
 }
 
 export interface ProgramRow {
@@ -62,7 +91,21 @@ type Raw<T> = { [K in keyof T]: K extends 'archived_at' ? string | null : T[K] }
 const FLOOR_COLUMNS = 'floor_id, name, sort_order, archived_at';
 const TABLE_COLUMNS = 'table_id, floor_id, name, seats, sort_order, archived_at';
 const STATION_COLUMNS =
-  'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at';
+  'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at, ' +
+  'point_id, policy, freeze_ms, min_slack_keep_ms, promise_padding_ms, pressure_window_ms, pressure_amber_bp, ' +
+  'pressure_red_bp, pressure_alert_ms, pause_enabled, lane_units, reserve_units';
+// One station's lists as columns of a statement over `stations`. COLLATE "C": the order the service sorts in.
+const STATION_LIST_COLUMNS = `
+  COALESCE((SELECT json_agg(json_build_object('alternate_station_id', a.alternate_station_id, 'order_types', a.order_types,
+                                              'home_for_order_types', a.home_for_order_types)
+                            ORDER BY a.alternate_station_id COLLATE "C")
+              FROM station_alternates a
+             WHERE a.tenant_id = stations.tenant_id AND a.branch_id = stations.branch_id AND a.station_id = stations.station_id),
+           '[]'::json) AS alternates,
+  COALESCE((SELECT json_agg(json_build_object('point_id', c.point_id, 'carry_ms', c.carry_ms) ORDER BY c.point_id COLLATE "C")
+              FROM carry_times c
+             WHERE c.tenant_id = stations.tenant_id AND c.branch_id = stations.branch_id AND c.station_id = stations.station_id),
+           '[]'::json) AS carry_times`;
 const PROGRAM_COLUMNS = 'program_id, station_id, name, cook_time_ms, archived_at';
 
 export interface BranchRow {
@@ -219,15 +262,77 @@ export async function updateTable(
   return tableRow(rows[0]!);
 }
 
-// §6.8: stations and programs, archived included; by name, then id (as in the snapshot).
-export async function selectStations(repo: TenantScopedRepository, branchId: string): Promise<StationRow[]> {
-  const rows = await repo.query<Raw<StationRow>>(
-    `SELECT ${STATION_COLUMNS} FROM stations
+// §6.8: stations with their lists, archived included; by name, then id (as in the snapshot). One statement, so the
+// lists keep the GET at 3 (subqueries on the A-9, A-10 primary keys, one branch's rows).
+export async function selectStations(repo: TenantScopedRepository, branchId: string): Promise<StationWithLists[]> {
+  const rows = await repo.query<Raw<StationWithLists>>(
+    `SELECT ${STATION_COLUMNS}, ${STATION_LIST_COLUMNS} FROM stations
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
       ORDER BY name, station_id`,
     [branchId],
   );
-  return rows.map(withArchivedAt);
+  return rows.map((row) => withArchivedAt<StationWithLists>(row));
+}
+
+// §6.8 (A-1): the branch's points, archived included.
+export async function selectPoints(repo: TenantScopedRepository, branchId: string): Promise<PointRow[]> {
+  const rows = await repo.query<Raw<PointRow>>(
+    `SELECT point_id, name, sort_order, archived_at FROM points
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY sort_order, point_id`,
+    [branchId],
+  );
+  return rows.map((row) => withArchivedAt<PointRow>(row));
+}
+
+// §6.9: a locked station's lists, in a statement of their own: run after the lock, it sees what a write it waited for
+// committed (a subquery in the locking statement would keep that statement's older snapshot).
+export async function selectStationLists(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<StationLists> {
+  const rows = await repo.query<StationLists & { station_id: string }>(
+    `SELECT station_id, ${STATION_LIST_COLUMNS} FROM stations
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4`,
+    [branchId, stationId],
+  );
+  return { alternates: rows[0]!.alternates, carry_times: rows[0]!.carry_times };
+}
+
+// Ruling 1 (CL rulings, §6.9): the point a POST without point_id gets. FOR SHARE against a concurrent archive.
+export async function shareDefaultPoint(repo: TenantScopedRepository, branchId: string): Promise<string | undefined> {
+  const rows = await repo.query<{ point_id: string }>(
+    `SELECT point_id FROM points
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND archived_at IS NULL
+      ORDER BY name = 'Pass' DESC, sort_order, point_id
+      LIMIT 1
+      FOR SHARE`,
+    [branchId],
+  );
+  return rows[0]?.point_id;
+}
+
+// §6.9 reference check: the named points of this branch, FOR SHARE in id order.
+export async function sharePointsById(
+  repo: TenantScopedRepository,
+  branchId: string,
+  pointIds: string[],
+): Promise<Array<{ point_id: string; archived_at: number | null }>> {
+  type Shared = { point_id: string; archived_at: number | null };
+  const rows = await repo.query<Raw<Shared>>(
+    `SELECT point_id, archived_at FROM points
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND point_id = ANY($4)
+      ORDER BY point_id
+      FOR SHARE`,
+    [branchId, pointIds],
+  );
+  return rows.map((row) => withArchivedAt<Shared>(row));
+}
+
+export async function branchExists(repo: TenantScopedRepository, branchId: string): Promise<boolean> {
+  const rows = await repo.query(`SELECT 1 FROM branches WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`, [branchId]);
+  return rows.length > 0;
 }
 
 export async function selectPrograms(repo: TenantScopedRepository, branchId: string): Promise<ProgramRow[]> {
@@ -248,8 +353,11 @@ export async function insertStation(
 ): Promise<StationRow | undefined> {
   const rows = await repo.query<Raw<StationRow>>(
     `INSERT INTO stations (tenant_id, branch_id, station_id, name, location_label, station_type, capacity,
-                           freshness_window_ms, completion_mode, created_at, updated_at)
-     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9, $10, $11, $11 FROM branches
+                           freshness_window_ms, completion_mode, point_id, policy, freeze_ms, min_slack_keep_ms,
+                           promise_padding_ms, pressure_window_ms, pressure_amber_bp, pressure_red_bp, pressure_alert_ms,
+                           pause_enabled, lane_units, reserve_units, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23
+       FROM branches
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
      RETURNING ${STATION_COLUMNS}`,
     [
@@ -261,24 +369,40 @@ export async function insertStation(
       station.capacity,
       station.freshness_window_ms,
       station.completion_mode,
+      station.point_id,
+      station.policy,
+      station.freeze_ms,
+      station.min_slack_keep_ms,
+      station.promise_padding_ms,
+      station.pressure_window_ms,
+      station.pressure_amber_bp,
+      station.pressure_red_bp,
+      station.pressure_alert_ms,
+      station.pause_enabled,
+      station.lane_units,
+      station.reserve_units,
       now,
     ],
   );
   return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
 }
 
-export async function lockStation(
+// §6.9 PATCH: the target and the alternates its body names, this branch only, FOR UPDATE in id order. S8 takes the
+// target, then the references: two stations naming each other would deadlock on that order, so here one ordered
+// statement takes both, and an alternate waits for a type change to it (and the reverse) as a reference must.
+export async function lockStationsById(
   repo: TenantScopedRepository,
   branchId: string,
-  stationId: string,
-): Promise<StationRow | undefined> {
+  stationIds: string[],
+): Promise<StationRow[]> {
   const rows = await repo.query<Raw<StationRow>>(
     `SELECT ${STATION_COLUMNS} FROM stations
-      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = ANY($4)
+      ORDER BY station_id
       FOR UPDATE`,
-    [branchId, stationId],
+    [branchId, stationIds],
   );
-  return rows[0] === undefined ? undefined : withArchivedAt(rows[0]);
+  return rows.map((row) => withArchivedAt<StationRow>(row));
 }
 
 export async function updateStation(
@@ -289,7 +413,10 @@ export async function updateStation(
 ): Promise<StationRow> {
   const rows = await repo.query<Raw<StationRow>>(
     `UPDATE stations SET name = $5, location_label = $6, station_type = $7, capacity = $8, freshness_window_ms = $9,
-                         completion_mode = $10, archived_at = $11, updated_at = $12
+                         completion_mode = $10, archived_at = $11, point_id = $12, policy = $13, freeze_ms = $14,
+                         min_slack_keep_ms = $15, promise_padding_ms = $16, pressure_window_ms = $17,
+                         pressure_amber_bp = $18, pressure_red_bp = $19, pressure_alert_ms = $20, pause_enabled = $21,
+                         lane_units = $22, reserve_units = $23, updated_at = $24
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4
       RETURNING ${STATION_COLUMNS}`,
     [
@@ -302,10 +429,85 @@ export async function updateStation(
       station.freshness_window_ms,
       station.completion_mode,
       station.archived_at,
+      station.point_id,
+      station.policy,
+      station.freeze_ms,
+      station.min_slack_keep_ms,
+      station.promise_padding_ms,
+      station.pressure_window_ms,
+      station.pressure_amber_bp,
+      station.pressure_red_bp,
+      station.pressure_alert_ms,
+      station.pause_enabled,
+      station.lane_units,
+      station.reserve_units,
       now,
     ],
   );
   return withArchivedAt(rows[0]!);
+}
+
+// A-9: the rows are always rewritten whole, so `version` stays 1; no write compares it (CL-5).
+export async function replaceAlternates(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+  alternates: StationLists['alternates'],
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `DELETE FROM station_alternates WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4`,
+    [branchId, stationId],
+  );
+  if (alternates.length === 0) return;
+  await repo.query(
+    `INSERT INTO station_alternates (tenant_id, branch_id, station_id, alternate_station_id, order_types,
+                                     home_for_order_types, created_at, updated_at)
+     SELECT b.tenant_id, b.branch_id, $4, x.alternate_station_id,
+            ARRAY(SELECT jsonb_array_elements_text(x.order_types)),
+            ARRAY(SELECT jsonb_array_elements_text(x.home_for_order_types)), $6, $6
+       FROM branches b
+      CROSS JOIN jsonb_to_recordset($5::jsonb) AS x (alternate_station_id text, order_types jsonb, home_for_order_types jsonb)
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3`,
+    [branchId, stationId, JSON.stringify(alternates), now],
+  );
+}
+
+export async function replaceCarryTimes(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+  carryTimes: StationLists['carry_times'],
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `DELETE FROM carry_times WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND station_id = $4`,
+    [branchId, stationId],
+  );
+  if (carryTimes.length === 0) return;
+  await repo.query(
+    `INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at)
+     SELECT b.tenant_id, b.branch_id, $4, x.point_id, x.carry_ms, $7, $7
+       FROM branches b
+      CROSS JOIN unnest($5::text[], $6::int[]) AS x (point_id, carry_ms)
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3`,
+    [branchId, stationId, carryTimes.map((row) => row.point_id), carryTimes.map((row) => row.carry_ms), now],
+  );
+}
+
+// Ruling 5: the stations whose alternates name this one. The branch's rows of the A-9 primary key: a small read.
+export async function stationsNamingAlternate(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ station_id: string }>(
+    `SELECT station_id FROM station_alternates
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND alternate_station_id = $4
+      ORDER BY station_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.station_id);
 }
 
 // S22: routes of active items that point at the station (index item_routes_station).

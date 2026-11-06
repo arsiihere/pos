@@ -125,11 +125,11 @@ export async function seedMenu(
     [a],
   );
   await q(
-    `INSERT INTO stations (tenant_id, branch_id, station_id, name, location_label, station_type, capacity,
+    `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, location_label, station_type, capacity,
        freshness_window_ms, created_at, updated_at)
-     VALUES ($1, $2, 'ST-1', 'Karahi', NULL, 'slot', 4, NULL, 0, 0),
-            ($1, $2, 'ST-2', 'Fryer', 'Back kitchen', 'batch', 8, 0, 0, 0),
-            ($1, $3, 'ST-B', 'Karahi', NULL, 'slot', 4, NULL, 0, 0)`,
+     VALUES ($1, $2, 'ST-1', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Karahi', NULL, 'slot', 4, NULL, 0, 0),
+            ($1, $2, 'ST-2', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Fryer', 'Back kitchen', 'batch', 8, 0, 0, 0),
+            ($1, $3, 'ST-B', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $3 AND name = 'Pass'), 'Karahi', NULL, 'slot', 4, NULL, 0, 0)`,
     [a, b],
   );
   await q(
@@ -214,8 +214,8 @@ export async function seedMenu(
     [a],
   );
   await q(
-    `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, archived_at, created_at, updated_at)
-     VALUES ($1, $2, 'ST-X', 'Old tandoor', 'slot', 2, 1, 0, 0)`,
+    `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, archived_at, created_at, updated_at)
+     VALUES ($1, $2, 'ST-X', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Old tandoor', 'slot', 2, 1, 0, 0)`,
     [a],
   );
   await q(

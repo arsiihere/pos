@@ -72,6 +72,21 @@ describe('stations', () => {
       freshness_window_ms: null,
       completion_mode: 'two_tap',
       archived_at: null,
+      // ⚠️ 01a v2.1 §6.9: the exact shape gains the engine fields; every value is pinned in stations-engine.int.test.ts
+      point_id: expect.any(String),
+      policy: 'waada_guard',
+      freeze_ms: 120_000,
+      min_slack_keep_ms: 60_000,
+      promise_padding_ms: null,
+      pressure_window_ms: 900_000,
+      pressure_amber_bp: 8_000,
+      pressure_red_bp: 10_000,
+      pressure_alert_ms: 300_000,
+      pause_enabled: false,
+      lane_units: null,
+      reserve_units: 0,
+      alternates: [],
+      carry_times: [],
     });
 
     const batch = await createStation(f.branches[0], {
@@ -111,7 +126,7 @@ describe('stations', () => {
     ]);
 
     const listed = await listStations(f.branches[0]);
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(3); // ⚠️ 01a v2.1 §6.8: 2 → 3 (points)
     expect(listed.json().data.stations.map((s: { name: string; programs: unknown[] }) => [s.name, s.programs])).toEqual([
       ['Fryer', []],
       ['Tawa', []],

@@ -40,8 +40,8 @@ describe('cross-tenant', () => {
     );
     const stationId = 'B-STATION-0000000000000001';
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
-       VALUES ($1, $2, $3, 'B station', 'batch', 1, 0, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
+       VALUES ($1, $2, $3, (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'B station', 'batch', 1, 0, 0, 0)`,
       [f.other.tenantId, f.other.branchId, stationId],
     );
     const programId = 'B-PROGRAM-0000000000000001';

@@ -84,6 +84,15 @@ async function createBranch(
     }
     throw error;
   }
+  // 01a CL-3 (§5.2a A-1, A-12): as 0007 did for the branches it found. Settings values are the column defaults.
+  await ctx.query(
+    `INSERT INTO points (tenant_id, branch_id, point_id, name, created_at, updated_at) VALUES ($1, $2, $3, 'Pass', $4, $4)`,
+    [tenantId, branchId, ids.next(), now],
+  );
+  await ctx.query(
+    `INSERT INTO branch_engine_settings (tenant_id, branch_id, created_at, updated_at) VALUES ($1, $2, $3, $3)`,
+    [tenantId, branchId, now],
+  );
   await ctx.query(
     `INSERT INTO staff_branches (tenant_id, branch_id, staff_id) SELECT $1, $2, unnest($3::text[])`,
     [tenantId, branchId, admins.map((admin) => admin.staff_id)],

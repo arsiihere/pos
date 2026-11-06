@@ -108,8 +108,8 @@ describe('role archive and restore (01b B14, §6.7)', () => {
     );
   const addStation = (stationId: string, branchId: string) =>
     cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, $3, $3, 'slot', 1, $4, $4)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, $3, (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), $3, 'slot', 1, $4, $4)`,
       [f.tenantId, branchId, stationId, T],
     );
   const addRoleCounter = (branchId: string, stationId: string, id: string) =>

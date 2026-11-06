@@ -38,6 +38,42 @@ describe('issue-registration-code', () => {
     expect(normaliseCode('abcd-efgh jkmn')).toBe('ABCDEFGHJKMN');
   });
 
+  it('[01a CL-3] a new branch gets its Pass point and engine settings in the same transaction; a reissue adds none', async () => {
+    await truncateAll(pool);
+    const sys = new SystemContext(pool);
+    const deps = { clock: fixedClock(T), ids: testIdGen(), secrets: testSecrets() };
+    const seeded = await seedTenant(
+      sys,
+      { name: 'Pilot', currency: 'PKR', ownerEmail: 'cl3@example.com', ownerName: 'Ada', password: 'password-1', pin: '1234' },
+      deps,
+    );
+    const issued = await issueRegistrationCode(sys, { tenantId: seeded.tenant_id, branchName: 'Gulberg' }, deps);
+    const points = () =>
+      pool.query(`SELECT name, sort_order, archived_at, created_at::bigint AS at FROM points WHERE tenant_id = $1 AND branch_id = $2`, [
+        seeded.tenant_id,
+        issued.branch_id,
+      ]);
+    const settings = () =>
+      pool.query<{ slip_threshold_ms: number; created_at: string }>(
+        `SELECT slip_threshold_ms, created_at FROM branch_engine_settings WHERE tenant_id = $1 AND branch_id = $2`,
+        [seeded.tenant_id, issued.branch_id],
+      );
+    expect((await points()).rows).toEqual([{ name: 'Pass', sort_order: 0, archived_at: null, at: String(T) }]);
+    expect((await settings()).rows).toEqual([{ slip_threshold_ms: 120_000, created_at: String(T) }]);
+
+    await issueRegistrationCode(sys, { tenantId: seeded.tenant_id, branchId: issued.branch_id }, deps);
+    expect((await points()).rows).toHaveLength(1);
+    expect((await settings()).rows).toHaveLength(1);
+
+    // A branch whose name is taken rolls everything back: no second point or settings row anywhere.
+    await expect(issueRegistrationCode(sys, { tenantId: seeded.tenant_id, branchName: 'Gulberg' }, deps)).rejects.toThrow('already used');
+    const all = await pool.query(`SELECT 1 FROM points WHERE tenant_id = $1 UNION ALL SELECT 1 FROM branch_engine_settings WHERE tenant_id = $1`, [
+      seeded.tenant_id,
+    ]);
+    expect(all.rows).toHaveLength(2);
+    await truncateAll(pool);
+  });
+
   it('[00 §10 #57] new branch: Owner and Manager assigned; owners\' allowed_branch_ids include it; reissue for an unconfirmed branch expires the old code; reissue after confirm refused', async () => {
     const sys = new SystemContext(pool);
     const clock = fixedClock(T);

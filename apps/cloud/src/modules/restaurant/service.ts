@@ -20,6 +20,7 @@ import {
   activeStockItemIdsAt,
   activeTableIds,
   archiveStationPrograms,
+  branchExists,
   deleteDrawsOf,
   deleteWindowsOf,
   insertCategory,
@@ -43,7 +44,7 @@ import {
   lockMenuItem,
   readMenuItem,
   lockProgram,
-  lockStation,
+  lockStationsById,
   lockTable,
   lockTaxClass,
   programRouteItemIds,
@@ -57,7 +58,14 @@ import {
   selectItemWindows,
   selectMenuPage,
   selectPrograms,
+  replaceAlternates,
+  replaceCarryTimes,
+  selectPoints,
+  selectStationLists,
   selectStations,
+  shareDefaultPoint,
+  sharePointsById,
+  stationsNamingAlternate,
   selectTables,
   selectWindowsOf,
   shareCategory,
@@ -83,7 +91,9 @@ import {
   type MenuItemRow,
   type ProgramRow,
   type RouteRow,
+  type StationLists,
   type StationRow,
+  type StationWithLists,
   type TableRow,
   type TaxClassRow,
   type WindowRow,
@@ -346,51 +356,162 @@ export async function patchTable(
   });
 }
 
-// §6.8: 2 statements, archived rows included.
+// §6.8 (A-1–A-10): 3 statements, archived rows included. Each station's lists come with its row.
 export async function listStations(deps: RestaurantDeps, tenant: TenantContext, branchId: string) {
   assertBranchAllowed(tenant, branchId);
   const repo = new TenantScopedRepository(tenant, deps.pool);
   const stations = await selectStations(repo, branchId);
   const programs = await selectPrograms(repo, branchId);
-  return stations.map((station) => ({
-    ...station,
-    programs: programs
-      .filter((program) => program.station_id === station.station_id)
-      .map(({ program_id, name, cook_time_ms, archived_at }) => ({ program_id, name, cook_time_ms, archived_at })),
-  }));
+  const points = await selectPoints(repo, branchId);
+  return {
+    points,
+    stations: stations.map((station) => ({
+      ...station,
+      programs: programs
+        .filter((program) => program.station_id === station.station_id)
+        .map(({ program_id, name, cook_time_ms, archived_at }) => ({ program_id, name, cook_time_ms, archived_at })),
+    })),
+  };
 }
 
-// §6.9 POST on the common write script.
+// Ruling 2 (§5.2a A-7, A-8): the rules across fields, on the merged row, so the CHECKs never fire as a 500.
+function assertStationFieldsFit(
+  row: Pick<StationRow, 'capacity' | 'lane_units' | 'reserve_units' | 'pressure_amber_bp' | 'pressure_red_bp'>,
+): void {
+  const issues: Array<{ path: string; message: string }> = [];
+  if (row.lane_units !== null && row.lane_units > row.capacity) {
+    issues.push({ path: 'lane_units', message: 'lane_units is above capacity' });
+  }
+  if (row.reserve_units > row.capacity) issues.push({ path: 'reserve_units', message: 'reserve_units is above capacity' });
+  if (row.pressure_amber_bp >= row.pressure_red_bp) {
+    issues.push({ path: 'pressure_amber_bp', message: 'pressure_amber_bp must be below pressure_red_bp' });
+  }
+  if (issues.length > 0) throw new DomainError('VALIDATION_FAILED', { issues });
+}
+
+// The fields a PATCH body sent (a sent null stays: it clears a nullable field).
+function sentFields<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+// The stored form of a list: rows by id, order types sorted, so a list sent in another order is the same list.
+function normaliseLists(lists: StationLists): StationLists {
+  return {
+    alternates: lists.alternates
+      .map((row) => ({
+        ...row,
+        order_types: [...row.order_types].sort(byText),
+        home_for_order_types: [...row.home_for_order_types].sort(byText),
+      }))
+      .sort((a, b) => byText(a.alternate_station_id, b.alternate_station_id)),
+    carry_times: [...lists.carry_times].sort((a, b) => byText(a.point_id, b.point_id)),
+  };
+}
+
+// A-9: both slot, same branch, distinct. `found` holds the named stations of this branch.
+function assertAlternates(
+  alternates: StationLists['alternates'],
+  stationType: StationRow['station_type'],
+  stationId: string,
+  found: ReadonlyArray<{ station_id: string; station_type: StationRow['station_type'] }>,
+): void {
+  const invalid = (reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field: 'alternates', reason });
+  if (alternates.length === 0) return;
+  if (stationType !== 'slot') throw invalid('not_slot');
+  for (const { alternate_station_id: id } of alternates) {
+    if (id === stationId) throw invalid('self');
+    const station = found.find((row) => row.station_id === id);
+    if (station === undefined) throw invalid('not_found');
+    if (station.station_type !== 'slot') throw invalid('not_slot');
+  }
+}
+
+// A-2, A-10: pointId (when given) is an active point of the branch; carry times name points of the branch, archived
+// ones included (ruling 4). A branch that does not exist answers 404 first, as insertStation would have.
+async function assertPoints(
+  scoped: TenantScopedRepository,
+  branchId: string,
+  pointId: string | null,
+  carryTimes: StationLists['carry_times'],
+): Promise<void> {
+  const carryIds = carryTimes.map((row) => row.point_id);
+  const ids = [...new Set(pointId === null ? carryIds : [pointId, ...carryIds])];
+  if (ids.length === 0) return;
+  const points = await sharePointsById(scoped, branchId, ids);
+  const named = (id: string) => points.find((point) => point.point_id === id);
+  if (pointId !== null) {
+    const point = named(pointId);
+    if (point === undefined) return refuseMissingPoint(scoped, branchId, 'not_found');
+    if (point.archived_at !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'point_id', reason: 'archived' });
+  }
+  if (carryIds.some((id) => named(id) === undefined)) {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'carry_times', reason: 'not_found' });
+  }
+}
+
+async function refuseMissingPoint(scoped: TenantScopedRepository, branchId: string, reason: string): Promise<never> {
+  if (!(await branchExists(scoped, branchId))) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+  throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'point_id', reason });
+}
+
+// §6.9 POST on the common write script. References FOR SHARE: the point (ruling 1 when not sent), then the alternates.
 export async function createStation(
   deps: RestaurantDeps,
   req: OwnerRequest,
   branchId: string,
   body: CreateStationInput,
-): Promise<IdempotentResult<{ station: StationRow }>> {
+): Promise<IdempotentResult<{ station: StationWithLists }>> {
   assertBranchAllowed(req.tenant, branchId);
+  assertStationFieldsFit(body);
   return withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
-      const station = await nameTaken('stations_active_name', 'station', body.name, () =>
+      const now = deps.clock.branchNow();
+      const lists = normaliseLists(body);
+      const stationId = deps.ids.next();
+      const pointId =
+        body.point_id ?? (await shareDefaultPoint(scoped, branchId)) ?? (await refuseMissingPoint(scoped, branchId, 'no_active_point'));
+      await assertPoints(scoped, branchId, pointId, lists.carry_times);
+      const namedIds = lists.alternates.map((row) => row.alternate_station_id);
+      const named = namedIds.length > 0 ? await shareStationsById(scoped, namedIds) : [];
+      assertAlternates(lists.alternates, body.station_type, stationId, named.filter((row) => row.branch_id === branchId));
+      const row = await nameTaken('stations_active_name', 'station', body.name, () =>
         insertStation(
           scoped,
           branchId,
           {
-            station_id: deps.ids.next(),
+            station_id: stationId,
             name: body.name,
             location_label: body.location_label,
             station_type: body.station_type,
             capacity: body.capacity,
             freshness_window_ms: body.station_type === 'batch' ? (body.freshness_window_ms ?? 0) : null,
             completion_mode: body.completion_mode,
+            point_id: pointId,
+            policy: body.policy,
+            freeze_ms: body.freeze_ms,
+            min_slack_keep_ms: body.min_slack_keep_ms,
+            promise_padding_ms: body.promise_padding_ms,
+            pressure_window_ms: body.pressure_window_ms,
+            pressure_amber_bp: body.pressure_amber_bp,
+            pressure_red_bp: body.pressure_red_bp,
+            pressure_alert_ms: body.pressure_alert_ms,
+            pause_enabled: body.pause_enabled,
+            lane_units: body.lane_units,
+            reserve_units: body.reserve_units,
           },
-          deps.clock.branchNow(),
+          now,
         ),
       );
-      if (station === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      if (row === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      if (lists.alternates.length > 0) await replaceAlternates(scoped, branchId, stationId, lists.alternates, now);
+      if (lists.carry_times.length > 0) await replaceCarryTimes(scoped, branchId, stationId, lists.carry_times, now);
+      const station: StationWithLists = { ...row, ...lists };
       await writeConfigAudit(
         level,
         {
@@ -411,22 +532,26 @@ export async function createStation(
   );
 }
 
-// §6.9 PATCH: lock → rules on the merged row (S22 in-use check on a type change or an archive; freshness only
-// for batch) → write → audit (plus one batch_program / archive row per program a slot change archives) → bump.
+// §6.9 PATCH: lock (the target and the alternates named; see lockStationsById) → rules on the merged row (S22 in-use
+// check on a type change or an archive; freshness only for batch; A-2, A-7–A-10) → write the row and the lists that
+// changed → one audit row (plus one batch_program / archive row per program a slot change archives) → bump.
 export async function patchStation(
   deps: RestaurantDeps,
   req: OwnerRequest,
   branchId: string,
   stationId: string,
   body: PatchStationInput,
-): Promise<{ station: StationRow }> {
+): Promise<{ station: StationWithLists }> {
   assertBranchAllowed(req.tenant, branchId);
   return inTransaction(deps.pool, async (client) => {
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
-    const before = await lockStation(scoped, branchId, stationId);
-    if (before === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
+    const namedIds = (body.alternates ?? []).map((row) => row.alternate_station_id);
+    const locked = await lockStationsById(scoped, branchId, [...new Set([stationId, ...namedIds])]);
+    const target = locked.find((row) => row.station_id === stationId);
+    if (target === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
     await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id');
+    const before: StationWithLists = { ...target, ...(await selectStationLists(scoped, branchId, stationId)) };
     const now = deps.clock.branchNow();
     const stationType = body.station_type ?? before.station_type;
     const typeChanged = stationType !== before.station_type;
@@ -435,17 +560,18 @@ export async function patchStation(
         issues: [{ path: 'freshness_window_ms', message: 'only batch stations have a freshness window' }],
       });
     }
-    const merged: StationRow = {
+    const { archived, alternates, carry_times, ...fields } = body;
+    const lists = normaliseLists({ alternates: alternates ?? before.alternates, carry_times: carry_times ?? before.carry_times });
+    const merged: StationWithLists = {
       ...before,
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.location_label !== undefined ? { location_label: body.location_label } : {}),
-      ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
-      ...(body.completion_mode !== undefined ? { completion_mode: body.completion_mode } : {}),
-      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+      ...sentFields(fields),
+      ...lists,
+      ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
       station_type: stationType,
       freshness_window_ms:
         stationType === 'slot' ? null : (body.freshness_window_ms ?? (typeChanged ? 0 : before.freshness_window_ms)),
     };
+    assertStationFieldsFit(merged);
     if (unchangedRow(before, merged)) return { station: before };
     const archiving = before.archived_at === null && merged.archived_at !== null;
     if (typeChanged || archiving) {
@@ -461,9 +587,28 @@ export async function patchStation(
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'stock_item', ids } });
       }
     }
-    const station = await nameTaken('stations_active_name', 'station', merged.name, () =>
+    if (alternates !== undefined) assertAlternates(lists.alternates, stationType, stationId, locked);
+    // Ruling 5: a station in an alternates list, either side, cannot become batch.
+    if (typeChanged && stationType === 'batch') {
+      const naming = await stationsNamingAlternate(scoped, branchId, stationId);
+      const ids = naming.length > 0 ? naming : lists.alternates.length > 0 ? [stationId] : [];
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids } });
+      }
+    }
+    const pointMoved = merged.point_id !== before.point_id;
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    await assertPoints(scoped, branchId, pointMoved || restoring ? merged.point_id : null, carry_times === undefined ? [] : lists.carry_times);
+    const row = await nameTaken('stations_active_name', 'station', merged.name, () =>
       updateStation(scoped, branchId, merged, now),
     );
+    if (!unchangedRow(before.alternates, lists.alternates)) {
+      await replaceAlternates(scoped, branchId, stationId, lists.alternates, now);
+    }
+    if (!unchangedRow(before.carry_times, lists.carry_times)) {
+      await replaceCarryTimes(scoped, branchId, stationId, lists.carry_times, now);
+    }
+    const station: StationWithLists = { ...row, ...lists };
     const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
     await writeConfigAudit(
       level,

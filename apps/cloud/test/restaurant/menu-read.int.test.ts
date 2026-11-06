@@ -42,8 +42,8 @@ describe('owner menu read', () => {
        VALUES ($1, 'WN-2', 'CT-2', 25200000, 46800000), ($1, 'WN-1', 'CT-2', 3600000, 7200000)`,
     );
     await q(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, 'ST-A', 'Karahi', 'slot', 2, 0, 0), ($1, $3, 'ST-B', 'Karahi', 'slot', 2, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, 'ST-A', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Karahi', 'slot', 2, 0, 0), ($1, $3, 'ST-B', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $3 AND name = 'Pass'), 'Karahi', 'slot', 2, 0, 0)`,
       [a, b],
     );
   });

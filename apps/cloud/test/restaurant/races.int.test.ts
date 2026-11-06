@@ -85,8 +85,8 @@ describe('config write lock order', () => {
     const menu = await seedMenu(cloud.pool, f, { items: 1 });
     // A slot station of branch A that no route uses yet.
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, 'ST-R', 'Grill', 'slot', 2, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, 'ST-R', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Grill', 'slot', 2, 0, 0)`,
       [f.tenantId, f.branches[0]],
     );
     return { f, menu };

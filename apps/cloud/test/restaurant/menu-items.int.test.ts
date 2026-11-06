@@ -22,8 +22,8 @@ describe('menu item create', () => {
     menu = await seedMenu(cloud.pool, f, { items: 1, archived: true });
     // A second batch station at A with its own program, and a slot station at C.
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
-       VALUES ($1, $2, 'ST-3', 'Grill', 'batch', 2, 0, 0, 0), ($1, $3, 'ST-C', 'Karahi', 'slot', 2, NULL, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
+       VALUES ($1, $2, 'ST-3', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Grill', 'batch', 2, 0, 0, 0), ($1, $3, 'ST-C', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $3 AND name = 'Pass'), 'Karahi', 'slot', 2, NULL, 0, 0)`,
       [f.tenantId, f.branches[0], f.branches[2]],
     );
     await cloud.pool.query(

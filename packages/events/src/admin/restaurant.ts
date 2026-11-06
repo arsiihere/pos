@@ -45,6 +45,49 @@ const CompletionMode = z.enum(['two_tap', 'single_tap', 'auto_done']);
 // The spec gives the label no length; names' 60 characters keep it a label.
 const LocationLabel = z.string().trim().min(1).max(60).nullable();
 
+// 01a §5.2a A-3–A-8 (03a v1.0): ranges of one field; the rules across fields (amber < red, lane and reserve units
+// within capacity) read the merged row, so the service checks them.
+const Policy = z.enum(['waada_guard', 'edf', 'fifo']);
+const FreezeMs = z.number().int().min(0).max(900_000);
+const MinSlackKeepMs = z.number().int().min(0).max(600_000);
+const PromisePaddingMs = z.number().int().min(0).max(1_800_000).nullable();
+const PressureWindowMs = z.number().int().min(300_000).max(3_600_000);
+const PressureBp = z.number().int().min(1).max(20_000);
+const PressureAlertMs = z.number().int().min(60_000).max(3_600_000);
+const LaneUnits = z.number().int().min(1).max(100).nullable();
+const ReserveUnits = z.number().int().min(0).max(100);
+
+function issueOnRepeat(values: readonly string[], ctx: z.RefinementCtx, path: (string | number)[], message: string): void {
+  values.forEach((value, i) => {
+    if (values.indexOf(value) !== i) ctx.addIssue({ code: 'custom', message, path: [...path, i] });
+  });
+}
+
+// A-9: order_types non-empty, home_for_order_types ⊆ order_types; a repeated value is refused, not collapsed.
+const OrderType = z.enum(['dine_in', 'takeaway', 'delivery', 'parking']);
+const StationAlternate = z.object({
+  alternate_station_id: z.string().min(1),
+  order_types: z.array(OrderType),
+  home_for_order_types: z.array(OrderType),
+});
+const StationAlternateInput = StationAlternate.extend({ order_types: z.array(OrderType).min(1) }).superRefine((row, ctx) => {
+  issueOnRepeat(row.order_types, ctx, ['order_types'], 'repeated order type');
+  issueOnRepeat(row.home_for_order_types, ctx, ['home_for_order_types'], 'repeated order type');
+  row.home_for_order_types.forEach((type, i) => {
+    if (!row.order_types.includes(type)) {
+      ctx.addIssue({ code: 'custom', message: 'not one of order_types', path: ['home_for_order_types', i] });
+    }
+  });
+});
+// A-9, A-10: nested replace-lists; one row per alternate station, one per point.
+const StationAlternates = z.array(StationAlternateInput).superRefine((rows, ctx) =>
+  issueOnRepeat(rows.map((row) => row.alternate_station_id), ctx, [], 'repeated alternate station'),
+);
+const CarryTime = z.object({ point_id: z.string().min(1), carry_ms: z.number().int().min(0).max(600_000) });
+const CarryTimes = z.array(CarryTime).superRefine((rows, ctx) =>
+  issueOnRepeat(rows.map((row) => row.point_id), ctx, [], 'repeated point'),
+);
+
 export const CreateStationBody = z
   .object({
     name: Name,
@@ -53,6 +96,20 @@ export const CreateStationBody = z
     capacity: Capacity,
     freshness_window_ms: Freshness.optional(),
     completion_mode: CompletionMode.default('two_tap'),
+    point_id: z.string().min(1).optional(),
+    policy: Policy.default('waada_guard'),
+    freeze_ms: FreezeMs.default(120_000),
+    min_slack_keep_ms: MinSlackKeepMs.default(60_000),
+    promise_padding_ms: PromisePaddingMs.default(null),
+    pressure_window_ms: PressureWindowMs.default(900_000),
+    pressure_amber_bp: PressureBp.default(8_000),
+    pressure_red_bp: PressureBp.default(10_000),
+    pressure_alert_ms: PressureAlertMs.default(300_000),
+    pause_enabled: z.boolean().default(false),
+    lane_units: LaneUnits.default(null),
+    reserve_units: ReserveUnits.default(0),
+    alternates: StationAlternates.default([]),
+    carry_times: CarryTimes.default([]),
   })
   .refine((body) => body.station_type === 'batch' || body.freshness_window_ms === undefined, {
     message: 'only batch stations have a freshness window',
@@ -68,6 +125,20 @@ export const PatchStationBody = z
     freshness_window_ms: Freshness.optional(),
     completion_mode: CompletionMode.optional(),
     archived: z.boolean().optional(),
+    point_id: z.string().min(1).optional(),
+    policy: Policy.optional(),
+    freeze_ms: FreezeMs.optional(),
+    min_slack_keep_ms: MinSlackKeepMs.optional(),
+    promise_padding_ms: PromisePaddingMs.optional(),
+    pressure_window_ms: PressureWindowMs.optional(),
+    pressure_amber_bp: PressureBp.optional(),
+    pressure_red_bp: PressureBp.optional(),
+    pressure_alert_ms: PressureAlertMs.optional(),
+    pause_enabled: z.boolean().optional(),
+    lane_units: LaneUnits.optional(),
+    reserve_units: ReserveUnits.optional(),
+    alternates: StationAlternates.optional(),
+    carry_times: CarryTimes.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
@@ -80,6 +151,27 @@ const Station = z.object({
   freshness_window_ms: z.number().nullable(),
   completion_mode: CompletionMode,
   archived_at: z.number().nullable(),
+  point_id: z.string(),
+  policy: Policy,
+  freeze_ms: z.number(),
+  min_slack_keep_ms: z.number(),
+  promise_padding_ms: z.number().nullable(),
+  pressure_window_ms: z.number(),
+  pressure_amber_bp: z.number(),
+  pressure_red_bp: z.number(),
+  pressure_alert_ms: z.number(),
+  pause_enabled: z.boolean(),
+  lane_units: z.number().nullable(),
+  reserve_units: z.number(),
+  alternates: z.array(StationAlternate),
+  carry_times: z.array(CarryTime),
+});
+
+const Point = z.object({
+  point_id: z.string(),
+  name: z.string(),
+  sort_order: z.number(),
+  archived_at: z.number().nullable(),
 });
 
 const ProgramSummary = z.object({
@@ -90,7 +182,7 @@ const ProgramSummary = z.object({
 });
 
 export const StationListResponse = z.object({
-  data: z.object({ stations: z.array(Station.extend({ programs: z.array(ProgramSummary) })) }),
+  data: z.object({ stations: z.array(Station.extend({ programs: z.array(ProgramSummary) })), points: z.array(Point) }),
 });
 export const StationResponse = z.object({ data: z.object({ station: Station }) });
 
@@ -450,6 +542,7 @@ export type AdminFloor = z.infer<typeof Floor>;
 export type AdminTable = z.infer<typeof Table>;
 export type AdminStationList = z.infer<typeof StationListResponse>['data'];
 export type AdminStation = z.infer<typeof Station>;
+export type AdminPoint = z.infer<typeof Point>;
 export type AdminProgram = z.infer<typeof ProgramSummary>;
 export type AdminTaxClass = z.infer<typeof TaxClassResponse>['data']['tax_class'];
 export type AdminCategory = z.infer<typeof CategoryResponse>['data']['category'];

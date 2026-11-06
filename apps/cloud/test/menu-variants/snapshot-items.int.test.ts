@@ -33,8 +33,8 @@ describe('01c snapshot item contents (§4.6)', () => {
     const [a, b] = f.branches;
     // A second slot station "Grill" at branch A; an archived slot station at branch B.
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, archived_at, created_at, updated_at)
-       VALUES ($1, $2, 'ST-G', 'Grill', 'slot', 4, NULL, 0, 0), ($1, $3, 'ST-BX', 'Old grill', 'slot', 2, 1, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, archived_at, created_at, updated_at)
+       VALUES ($1, $2, 'ST-G', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Grill', 'slot', 4, NULL, 0, 0), ($1, $3, 'ST-BX', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $3 AND name = 'Pass'), 'Old grill', 'slot', 2, 1, 0, 0)`,
       [f.tenantId, a, b],
     );
   });
