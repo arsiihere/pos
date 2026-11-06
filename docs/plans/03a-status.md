@@ -17,16 +17,16 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 | Path | Target | Drill (Python, seed 7) | CI (task 18) | Pilot box (task 28) |
 |---|---|---|---|---|
-| Re-plan per submit p99 | ≤ 50 ms | 641.3 ms (pessimistic, not the gate) | — | — |
-| Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | — | — |
-| Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | — | — |
+| Re-plan per submit p99 | ≤ 50 ms | 641.3 ms (pessimistic, not the gate) | **MISS** 448.1 ms (p50 39.0, max 1 055.0; n 2 000; load 5.3 → 3.4) | — |
+| Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | 414 / 1 841 / 1 894 (n 7 429) | — |
+| Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | not set: gate missed | — |
 | Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | — | — |
-| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | — | — |
-| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | — | — |
-| Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | — | — |
+| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **MISS** max 376.5 ms (p50 278.5; n 21; 20 flipped; load 3.8) | — |
+| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | pass: max 36.5 ms (p50 27.0; n 21; 4.54 MB, 5 779 lines; load 3.8) / task 21 | — |
+| Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | **MISS** 433.9 s (51 133 events; load 3.4 → 4.6) | — |
 | 2-day replay (steps 2–3) | ≤ 80 s | — | — | — |
-| Events replayed per day | ≈ R6 ± 20 % | 65 876 | — | — |
-| Live = replayed (generated day) | equal | — | — | — |
+| Events replayed per day | ≈ R6 ± 20 % | 65 876 | pass: 51 134 (+13.6 % on R6's 45k, AD-26) | — |
+| Live = replayed (generated day) | equal | — | pass: end state and 102 mid-day states equal | — |
 | `fires` pass with work p99 | ≤ 20 ms | — | (test 62) | — |
 | `fires_alerts` pass with work p99 | ≤ 20 ms | — | (tests 76, 93) | — |
 | Crash restart ≤ 500 events (steps 2–3) | ≤ 2 s | — | (test 64) | — |
