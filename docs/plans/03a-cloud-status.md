@@ -19,7 +19,7 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 | CL-2 | C6 hub half | This lane does it: `apps/hub/src/sync/**` EXCEPT `boot-steps.ts` (engine task 20), `apps/hub/src/projections/branch-config.ts`, expectation-only edits in tests using `aBranchConfig` (`apps/hub`, `packages/engine`). V3 flip = ONE separate commit, last of C6; the engine lane resolves engine-test conflicts at merge | as listed |
 | CL-3 | New branches get no Pass point or settings row | Every branch-create path inserts "Pass" and `branch_engine_settings` in the same transaction. Folded into 01a's as-built at task 29 | `issue-registration-code.ts` and any other branch-create path |
 | CL-4 | `'point'` in `config_audit_entity_check` is absent from §5.2a, §6.0 | Keep it in 0007. As-built at task 29 | `0007_engine_config.sql` |
-| CL-5 | `version` column vs R30 | Check how R30 writes work and follow the existing pattern; come back only if it means changing the column | see below |
+| CL-5 | `version` column vs R30 | Check how R30 writes work and follow the existing pattern; come back only if it means changing the column. **Outcome:** R30 `expected_version` is a content hash built per wire (`menu-variants/versions.ts`, `staff-roles`); 0006's tables have no `version` column. New wires follow the hash. 0007's `version` column stays as §5.2a states and no write compares it, so the column needs no change. Flag the unused column at task 29 | `points`, stations, branch settings wires |
 | CL-6 | Push policy, build | Red mid-batch pushes are fine (engine lane merges at its task 23). Push C1, the board and after every task. Build apps/client once here. Branch must be green at the end | — |
 
 ### Proposed AD rows
