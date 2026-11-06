@@ -21,6 +21,7 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 | CL-4 | `'point'` in `config_audit_entity_check` is absent from §5.2a, §6.0 | Keep it in 0007. As-built at task 29 | `0007_engine_config.sql` |
 | CL-5 | `version` column vs R30 | Check how R30 writes work and follow the existing pattern; come back only if it means changing the column. **Outcome:** R30 `expected_version` is a content hash built per wire (`menu-variants/versions.ts`, `staff-roles`); 0006's tables have no `version` column. New wires follow the hash. 0007's `version` column stays as §5.2a states and no write compares it, so the column needs no change. Flag the unused column at task 29 | `points`, stations, branch settings wires |
 | CL-6 | Push policy, build | Red mid-batch pushes are fine (engine lane merges at its task 23). Push C1, the board and after every task. Build apps/client once here. Branch must be green at the end | — |
+| CL-14 | C7, C8, C9 need client files outside CL-1's list | Yes: this lane may edit `apps/client/src/api/**` and `apps/client/src/i18n/**` | as listed |
 
 ### Proposed AD rows
 - CL-7 (C2): POST with no `point_id` uses the active "Pass", else the active point with the lowest (`sort_order`, `point_id`), else `422 { field: 'point_id' }`.
@@ -30,6 +31,9 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - CL-11 (C2): station PATCH locks the target and named alternates in one `ORDER BY station_id FOR UPDATE` statement instead of S8's target-then-references `FOR SHARE`, because the literal order deadlocks when two stations name each other. No external change. As-built at task 29.
 - CL-12 (C4): goes-with target checks use a plain read, not the §6 script's `FOR SHARE`: locking item targets deadlocks two items linking each other and inverts the lock kinds. No invariant lost because archive has no in-use check on links and the C6 builder drops inactive links (C6 must test it). As-built at task 29.
 - CL-13 (C4): `goes_with` lists are last write wins as fields of `menu_items` / `categories` (S23); §5.2a's "new tables need `expected_version`" is not applied to `goes_with_links`. Item POST takes the knobs but no list. As-built at task 29.
+- CL-15 (C6): the snapshot drops alternates with an archived station at either end; goes_with drops only archived ends, so a link to an active item not routed at this branch stays, and consumers must tolerate that id; carry times naming an archived point stay, because the point stays in `points[]`.
+- CL-16 (C7): `expected_version` is new and required on branch settings PATCH, built per B-6 and B23 because the endpoint had no version. 01b §5.3, §9 and `BranchWire` need as-built rows at task 29. A version-only body is `400` per §6.10's "at least one", unlike staff and role PATCH.
+- CL-17 (C7): branch settings and rename lock in one statement and read in a second, because a joined `FOR UPDATE OF b` kept a stale `e` under READ COMMITTED. Write 7 statements, no-op 3. `set-branch-settings` CLI audit rows hold 3 fields against the route's 19 (task 29).
 - C5a staging: V3 added next to V2, `SNAPSHOT_SCHEMA_VERSION` stays 2 until the flip (pin V2 to `z.literal(2)` or remove it then).
 
 ### Parked for later tasks

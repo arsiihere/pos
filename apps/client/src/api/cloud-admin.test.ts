@@ -333,10 +333,10 @@ describe('cloud-admin client', () => {
       { run: (api) => api.renameBranch('B1', { name: 'Gulberg' }), method: 'PATCH', url: '/v1/admin/branches/B1', body: { name: 'Gulberg' } },
       { run: (api) => api.getBranchSettings('B1'), method: 'GET', url: '/v1/admin/branches/B1/settings' },
       {
-        run: (api) => api.patchBranchSettings('B1', { tax_enabled: true }),
+        run: (api) => api.patchBranchSettings('B1', { expected_version: 'v6', tax_enabled: true }),
         method: 'PATCH',
         url: '/v1/admin/branches/B1/settings',
-        body: { tax_enabled: true },
+        body: { expected_version: 'v6', tax_enabled: true },
       },
       { run: (api) => api.getTeamTree('B1'), method: 'GET', url: '/v1/admin/branches/B1/team-tree' },
     ];
