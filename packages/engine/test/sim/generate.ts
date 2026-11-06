@@ -41,6 +41,8 @@ export type GenerateOptions = {
   // Default 2 000 (§10.6); fewer orders of the same distributions for a faster test.
   orders?: number;
   start_ms?: number;
+  // Prepended to order and line ids, so the days of one log never share an id (twoDayLog).
+  id_prefix?: string;
 };
 
 // §10.6, by station id.
@@ -60,7 +62,7 @@ function stations(): SimStation[] {
 
 // The drill's MENU, in its order, with its weights formula ported as is. The numbers are the drill's labels ("avg lines per
 // order"), not what the formula gives: realised ≈ 2.60 / 1.35 / 1.09 / 1.21 / 0.99 lines per order, which is the drill's
-// 14 412 lines (§10.6). See the task 18a report: at these rates karahi, BBQ and tawa are asked for ~200 % at peak.
+// 14 412 lines (§10.6). See the task 18a report: at these rates seed 7 asks karahi, BBQ and tawa for 261 / 218 / 250 % in their peak hour.
 const MENU: ReadonlyArray<readonly [string, number]> = [
   ['tandoor', 3.0],
   ['karahi', 0.6],
@@ -110,7 +112,7 @@ function rushTimes(r: () => number, n: number): number[] {
 }
 
 // The most units a station is asked for in any one-hour window (windows every 10 minutes).
-function peakHourUnits(orders: readonly SimOrder[], start_ms: number, station_id: string): number {
+export function peakHourUnits(orders: readonly SimOrder[], start_ms: number, station_id: string): number {
   const perHour = new Map<number, number>();
   for (const o of orders) {
     const n = o.lines.filter((l) => l.station_id === station_id).length;
@@ -122,9 +124,15 @@ function peakHourUnits(orders: readonly SimOrder[], start_ms: number, station_id
   return Math.max(0, ...perHour.values());
 }
 
+// §10.6 overload day: the capacity at which that peak hour asks for 125 % of what the station can cook.
+export function overloadCapacity(peakUnits: number, cook_ms: number): number {
+  return Math.max(1, Math.round((peakUnits * cook_ms) / (OVERLOAD * HOUR)));
+}
+
 export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
   const n = o.orders ?? 2_000;
   const start_ms = o.start_ms ?? START_MS;
+  const prefix = o.id_prefix ?? '';
   const arrivals = prng(seed);
   const menu = prng(seed ^ 0x9e3779b9);
   const kinds = prng(seed ^ 0x517cc1b7);
@@ -132,7 +140,7 @@ export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
   const cookOf = new Map(list.map((s) => [s.station_id, s.cook_ms]));
   let nextLine = 1;
   const orders = rushTimes(arrivals, n).map((offset, i): SimOrder => {
-    const order_id = `O${String(i + 1).padStart(6, '0')}`;
+    const order_id = `${prefix}O${String(i + 1).padStart(6, '0')}`;
     const lines: SimLine[] = [];
     const names: string[] = [];
     for (const [station_id, avg] of MENU) {
@@ -140,7 +148,7 @@ export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
       for (let k = 0; k < count; k++) names.push(station_id);
     }
     if (names.length === 0) names.push('tandoor');
-    for (const station_id of names) lines.push({ order_item_id: `L${String(nextLine++).padStart(7, '0')}`, station_id });
+    for (const station_id of names) lines.push({ order_item_id: `${prefix}L${String(nextLine++).padStart(7, '0')}`, station_id });
     const at_ms = start_ms + offset;
     // Proposed (implementer, overnight): the replay_cost drill has no order types and the policy report (D22) reports
     // by type, so the mix is tandoor_sim.py's: 55 % dine in, 33 % takeaway, 12 % follow-up (a dine-in order). Dine-in
@@ -167,8 +175,7 @@ export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
   // busiest hour asks for 125 % of what it can cook (the §10.6 tandoor is sized well above its peak).
   const sized = o.overload !== true ? list : list.map((s) => {
     if (s.station_id !== 'tandoor') return s;
-    const capacity = Math.max(1, Math.round((peakHourUnits(orders, start_ms, 'tandoor') * s.cook_ms) / (OVERLOAD * HOUR)));
-    return { ...s, capacity };
+    return { ...s, capacity: overloadCapacity(peakHourUnits(orders, start_ms, 'tandoor'), s.cook_ms) };
   });
   return { seed, start_ms, stations: sized, orders };
 }

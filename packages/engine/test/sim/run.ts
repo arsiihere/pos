@@ -18,6 +18,7 @@ import {
   initialEngineState,
   lateStartShift,
   nextDueAt,
+  ORDER_EXIT_AFTER_SERVED_MS,
   reserveStock,
   type EngineState,
   type ProposedOrder,
@@ -343,16 +344,24 @@ export function runDay(day: SimDay, o: RunOptions = {}): SimResult {
 }
 
 // §7.1 "replay of 2 days": two generated business days, each opened and closed, on one log and one state (a deferred
-// checkpoint that was never written). The close comes 5 h after the 18 h day's end, past every order's exit.
-export function twoDayLog(seed: number, o: Pick<GenerateOptions, 'orders'> = {}): SimResult {
-  const first = generateDay(seed, o);
-  const second = generateDay(seed + 1, { ...o, start_ms: first.start_ms + 24 * HOUR });
+// checkpoint that was never written), with per-day ids. drive returns when the day's last line is done, which on an
+// over-capacity day is long after its 18 h of orders, so each close comes at max(start + 23 h, the day's last event) plus
+// the exit time, past every order's exit (§3.3), and the next day starts no earlier than 24 h on, after that close.
+// `shape` changes a generated day before it runs (a test's small over-capacity day).
+export function twoDayLog(seed: number, o: Pick<GenerateOptions, 'orders'> & { shape?: (day: SimDay) => SimDay } = {}): SimResult {
+  const shape = o.shape ?? ((day: SimDay): SimDay => day);
+  const gen: GenerateOptions = o.orders === undefined ? {} : { orders: o.orders };
+  const first = shape(generateDay(seed, { ...gen, id_prefix: 'D1' }));
   const sim = new Sim('waada_guard', true, false);
   sim.append(configEvent(first.stations, 'waada_guard', first.start_ms - 2, sim.seq));
-  for (const day of [first, second]) {
+  const closeDay = (day: SimDay): number => {
     opening(sim, day);
     sim.drive(day);
-    sim.boundary(aBusinessDayClosed({ payload: { business_date: new Date(day.start_ms).toISOString().slice(0, 10) } }), day.start_ms + 23 * HOUR);
-  }
+    const close = Math.max(day.start_ms + 23 * HOUR, sim.events.at(-1)!.recorded_at) + ORDER_EXIT_AFTER_SERVED_MS;
+    sim.boundary(aBusinessDayClosed(), close);
+    return close;
+  };
+  const closed = closeDay(first);
+  closeDay(shape(generateDay(seed + 1, { ...gen, id_prefix: 'D2', start_ms: Math.max(first.start_ms + 24 * HOUR, ceilGrid(closed + TICK_MS)) })));
   return sim.result();
 }

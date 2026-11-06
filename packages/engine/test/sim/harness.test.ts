@@ -2,11 +2,10 @@
 // task 18's perf gate). Everything here drives the real engine; a breach throws (strict folds) and fails the test.
 import { parseEvent, type PosEvent } from '@pos/events';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildEngineState, type EngineState } from '../../src/index';
-import { generateDay, policyReport, runDay, TICK_MS, twoDayLog, type PolicyReport, type SimResult } from './index';
+import { buildEngineState } from '../../src/index';
+import { generateDay, overloadCapacity, peakHourUnits, policyReport, runDay, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
 
 const POLICIES = ['fifo', 'edf', 'waada_guard'] as const;
-const aside = (s: EngineState): EngineState => ({ ...s, diagnostics: [] });
 const count = (events: readonly PosEvent[], type: string): number => events.filter((e) => e.event_type === type).length;
 
 describe('[03a §10.6 harness] generated day', () => {
@@ -74,6 +73,32 @@ describe('[03a §10.6 harness] generated day', () => {
   });
 });
 
+describe('[03a §10.6 harness] overload sizing, by hand', () => {
+  it('[03a §10.6 harness] 60 + 40 tandoor lines inside one hour, and 50 three hours later: peak 100; 100 × 180 s / 3 600 s = 5 units, 5 / 1.25 = capacity 4', () => {
+    const MIN = 60_000;
+    const order = (minute: number, tandoor: number): SimOrder => ({
+      order_id: `O${minute}`,
+      at_ms: 1_000_000_000_000 + minute * MIN,
+      order_type: 'dine_in',
+      follow_up: false,
+      table_id: 'T1',
+      table_key: 'dine_in:T1',
+      pickup_at_ms: 0,
+      lines: [
+        ...Array.from({ length: tandoor }, (_, i) => ({ order_item_id: `L${minute}-${i}`, station_id: 'tandoor' })),
+        { order_item_id: `K${minute}`, station_id: 'karahi' },
+      ],
+    });
+    // Minutes 50 and 70 straddle a clock hour, and one of the 10-minute windows holds both; minute 240 is on its own.
+    const orders = [order(50, 60), order(70, 40), order(240, 50)];
+    const peak = peakHourUnits(orders, 1_000_000_000_000, 'tandoor');
+    expect(peak).toBe(100);
+    expect(overloadCapacity(peak, 180_000)).toBe(4);
+    expect(peakHourUnits(orders, 1_000_000_000_000, 'karahi')).toBe(2);
+    expect(overloadCapacity(0, 180_000)).toBe(1);
+  });
+});
+
 describe('[03a §10.6 harness] a day on the real engine', () => {
   const day = generateDay(7, { orders: 200 });
   let run: SimResult;
@@ -85,8 +110,8 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
     expect(runDay(generateDay(7, { orders: 200 }), {}).events).toEqual(run.events);
   }, 120_000);
 
-  it('[03a §10.6 harness] the live state is the replayed state, diagnostics aside; no breach', () => {
-    expect(aside(buildEngineState(run.events))).toEqual(aside(run.liveState));
+  it('[03a §10.6 harness] the live state is the replayed state, diagnostics included; no breach', () => {
+    expect(buildEngineState(run.events)).toEqual(run.liveState);
     expect(run.liveState.diagnostics.filter((d) => d.kind !== 'over_capacity')).toEqual([]);
   }, 60_000);
 
@@ -153,7 +178,8 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
   });
 
   it('[03a §10.6 harness] skipping idle passes through nextDueAt writes exactly what a pass every 500 ms writes', () => {
-    // The densest hour of the 2 000-order day: a pass on every grid point, due or not.
+    // 60 orders from the 13 h peak of the 2 000-order day, on an empty kitchen, so this does not saturate it: the
+    // saturated case (250 orders, 46 s) is skip.perf.test.ts. A pass on every grid point, due or not.
     const full = generateDay(7);
     const peak = full.orders.findIndex((o) => o.at_ms - full.start_ms >= 13 * 3_600_000);
     const slice = { ...full, orders: full.orders.slice(peak, peak + 60) };
@@ -162,7 +188,7 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
 
   it('[03a §10.6 harness] prune: false runs the same day unpruned and replays with the same option', () => {
     const unpruned = runDay(day, { prune: false });
-    expect(aside(buildEngineState(unpruned.events, { prune: false }))).toEqual(aside(unpruned.liveState));
+    expect(buildEngineState(unpruned.events, { prune: false })).toEqual(unpruned.liveState);
     const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
     expect(sum(unpruned.replacedLines)).toBeGreaterThanOrEqual(sum(run.replacedLines));
   }, 120_000);
@@ -173,7 +199,37 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
     expect(count(two.events, 'BusinessDayOpened')).toBe(2);
     expect(count(two.events, 'BusinessDayClosed')).toBe(2);
     expect(count(two.events, 'OrderPlaced')).toBe(60);
-    expect(aside(buildEngineState(two.events))).toEqual(aside(two.liveState));
+    expect(buildEngineState(two.events)).toEqual(two.liveState);
+    expect(Object.keys(two.liveState.orders)).toEqual([]);
+  }, 120_000);
+});
+
+describe('[03a §10.6 harness] twoDayLog on an over-capacity day', () => {
+  it('[03a §10.6 harness] a day that cooks past start + 23 h: time never goes back, the close follows every order out, ids are per day', () => {
+    const H = 3_600_000;
+    // 60 orders at capacity 1: the lines queue well past the 18 h of orders.
+    const shape = (day: ReturnType<typeof generateDay>): ReturnType<typeof generateDay> => ({ ...day, stations: day.stations.map((s) => ({ ...s, capacity: 1 })) });
+    const two = twoDayLog(7, { orders: 60, shape });
+    const times = two.events.map((e) => e.recorded_at);
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    expect(two.events.map((e) => e.seq)).toEqual(two.events.map((_, i) => i + 1));
+
+    const closes = two.events.filter((e) => e.event_type === 'BusinessDayClosed');
+    expect(closes).toHaveLength(2);
+    const opens = two.events.filter((e) => e.event_type === 'BusinessDayOpened');
+    const start = opens[0]!.recorded_at + 1;
+    // This is the case the fix is for: the first day's last cook ends after start + 23 h.
+    const firstClose = two.events.indexOf(closes[0]!);
+    const last = two.events[firstClose - 1]!;
+    expect(last.recorded_at).toBeGreaterThan(start + 23 * H);
+    expect(closes[0]!.recorded_at).toBe(last.recorded_at + 1_800_000);
+    expect(opens[1]!.recorded_at).toBeGreaterThan(closes[0]!.recorded_at);
+
+    const placed = two.events.filter((e) => e.event_type === 'OrderPlaced').map((e) => e.stream_id);
+    expect(new Set(placed).size).toBe(120);
+    expect(placed.slice(0, 60).every((id) => id.startsWith('D1'))).toBe(true);
+    expect(placed.slice(60).every((id) => id.startsWith('D2'))).toBe(true);
+    expect(buildEngineState(two.events)).toEqual(two.liveState);
     expect(Object.keys(two.liveState.orders)).toEqual([]);
   }, 120_000);
 });
