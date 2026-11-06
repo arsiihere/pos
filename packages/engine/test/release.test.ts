@@ -21,6 +21,7 @@ import {
 } from '../src/index';
 import { profileOf, weightOf, type Booking } from '../src/replan';
 import { slipDueOf } from '../src/slip';
+import { fryer, loadOf, submitB, T as BT } from './batch-kit';
 
 const T0 = 1_761_000_000_000; // "12:00"
 const M = 60_000;
@@ -228,6 +229,78 @@ describe('03a §3.8 applyEvent(ItemsReleased) (D11, D12)', () => {
     expect(r.lines.B!.fire_ms).toBe(at(2));
     expect(r.stations.S2!.profile).toEqual(bookedProfile(r, 'S2'));
     expect(r.stations.S1).toBe(s.stations.S1);
+  });
+
+  it('[03a D12] an expedited line never lands later than its sync slot: pass 1 cannot move a sibling into its old slot (review probe)', () => {
+    for (const g of [26, 30]) {
+      let s = kitchen([{ station_id: 'S1', capacity: 2 }, { station_id: 'S2', capacity: 1 }]);
+      s = submit(s, 'O0', [{ id: 'X', station: 'S2', cook: 16 * M, mode: 'immediate' }], at(0), 'dine_in:T5');
+      s = fold(s, [fireEv('S2', ['X'], at(0)), stamp(anItemStarted({ stream_id: 'O0', payload: { order_item_id: 'X', started_at: at(0), source: 'tap' } }), at(0))]);
+      s = submit(s, 'O1', [{ id: 'B', station: 'S2', cook: 6 * M }, { id: 'C', cook: 24 * M }], at(0));
+      s = submit(s, 'O2', [{ id: 'D', station: 'S2', cook: 6 * M }, { id: 'G', cook: g * M }], at(0), 'dine_in:T7');
+      const old = s.lines.B!;
+      expect(old.fire_ms! > at(4)).toBe(true); // hidden at 12:02
+      const r = fold(s, [releasedEv('O1', [], ['B'], at(2))]);
+      const b = r.lines.B!;
+      expect(b).toMatchObject({ serve_mode: 'immediate', mark: 'expedite' });
+      expect(b.booked!.end + b.carry_ms).toBeLessThanOrEqual(old.booked!.end + old.carry_ms);
+      expect(b.deadline_ms).toBe(b.fire_ms);
+      expect(r.orders.O1!.groups[b.group_id]!.target_land_ms).toBe(b.booked!.end + b.carry_ms);
+      for (const sid of ['S1', 'S2']) expect(r.stations[sid]!.profile).toEqual(bookedProfile(r, sid));
+    }
+  });
+
+  it('[03a D12] property over 40 seeds: an expedited line never lands later than before its release; profiles = bookings; live = replay', () => {
+    let rng = 0;
+    const rand = (n: number): number => {
+      rng = (rng * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return rng % n;
+    };
+    let checked = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      rng = seed;
+      const log: PosEvent[] = [];
+      let s = kitchen([{ station_id: 'S1', capacity: 1 + rand(2) }, { station_id: 'S2', capacity: 1 + rand(2) }], log);
+      const orders = 2 + rand(3);
+      for (let k = 0; k < orders; k++) {
+        const items: Item[] = [];
+        const n = 2 + rand(3);
+        for (let j = 0; j < n; j++) items.push({ id: `L${k}_${j}`, station: rand(2) === 0 ? 'S1' : 'S2', cook: (2 + rand(20)) * M });
+        s = submit(s, `O${k}`, items, at(0), `dine_in:T${k}`, log);
+      }
+      const t = at(2);
+      const k = rand(orders);
+      const cands = s.orders[`O${k}`]!.line_ids.filter((id) => {
+        const l = s.lines[id]!;
+        return l.booked !== null && l.fire_ms! > t + 120_000;
+      });
+      if (cands.length === 0) continue;
+      const pickN = 1 + rand(cands.length);
+      const exp = cands.slice(0, pickN);
+      const before = Object.fromEntries(exp.map((id) => [id, s.lines[id]!.booked!.end + s.lines[id]!.carry_ms]));
+      const ev = releasedEv(`O${k}`, [], exp, t);
+      const r = fold(s, [ev], log);
+      for (const id of exp) {
+        const l = r.lines[id]!;
+        expect(l.mark).toBe('expedite');
+        expect(l.booked!.end + l.carry_ms, `seed ${seed} ${id}`).toBeLessThanOrEqual(before[id]!);
+        checked++;
+      }
+      for (const sid of ['S1', 'S2']) expect(r.stations[sid]!.profile).toEqual(bookedProfile(r, sid));
+      expect(buildEngineState(log)).toEqual(r);
+    }
+    expect(checked).toBeGreaterThan(20);
+  });
+
+  it('[03a task 13] a hidden expedite line that is a batch load member keeps its load (the load is the unit of placement)', () => {
+    let s = fryer({ capacity: 4 });
+    ({ state: s } = submitB(s, 'O1', [{ id: 'A', cook: 30 * M }, { id: 'B', cook: 5 * M }], BT));
+    const before = s.lines.B!;
+    expect(before.fire_ms! > BT + 4 * M).toBe(true);
+    const load = loadOf(s, 'B')!;
+    const r = fold(s, [stamp({ ...anItemStarted(), event_type: 'ItemsReleased', stream_id: 'O1', payload: { order_id: 'O1', alert_id: null, released: [], expedite: ['B'] } }, BT + 2 * M)]);
+    expect(r.lines.B).toMatchObject({ serve_mode: 'immediate', mark: 'expedite', fire_ms: before.fire_ms, load_id: load.load_id, booked: null });
+    expect(r.stations.F).toBe(s.stations.F);
   });
 
   it('[03a AD-14] a hidden expedite line on a FIFO station keeps its placement (no re-plan of placed lines); it is still immediate, mark expedite', () => {

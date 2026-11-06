@@ -29,6 +29,7 @@ import {
   lineShape,
   lineUnits,
   planNewLines,
+  placeExpedites,
   replanEnded,
   requeueGroup,
   storeLoads,
@@ -867,18 +868,17 @@ function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): E
 //      group"; a released line goes now with no hold) with the id order_id:next_group_index (§3.3), in payload order,
 //      released first. A released line keeps its stage and placement (a done line holds nothing). A source group left
 //      with no line is removed; the rest keeps its id and T, and the order's T and promise do not move.
-//   P3 the re-plan (§3.5.3 trigger "ItemsReleased") is the expedite lines' placement as immediates, once per station:
-//      each hidden, non-FIFO slot expedite line leaves its station (AD-7: exactly `booked`) and planNewLines runs the
-//      one sequence for them (pass 1 on the stations they may use — the other hidden lines re-placed within their
-//      slack, keep first — then each at its earliest fit), as a return line is placed (§3.8a). Its group's T is its
-//      new land and its deadline its fire (immediate, AD-12). A frozen, fired, COOKING or done expedite line keeps its
+//   P3 the re-plan (§3.5.3 trigger "ItemsReleased") is the expedite lines' placement as immediates, once per station
+//      (plan.ts placeExpedites, review fix 1, ruling option (a)): pass 1 on the stations they may use with each hidden,
+//      non-FIFO slot expedite line held at its old booking, then each takes its earliest fit only when that lands
+//      earlier than its old booking (AD-7 exact), so an expedite never lands later (D12). Its group's T is its land
+//      and its deadline its fire (immediate, AD-12). A frozen, fired, COOKING or done expedite line keeps its
 //      placement (D15: a split is neither a boost nor a capacity change), as does a line on a FIFO station (AD-14: no
 //      re-plan of placed lines) or a batch load member (the load is the unit of placement, task 13); its group takes
 //      the source group's T. With no hidden expedite line nothing is re-placed (released lines hold nothing).
 //   P4 AD-12: every source group whose membership changed gets its queued deadlines again at its old T (plan.ts
 //      requeueGroup), before the re-plan reads them.
 function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
-  const strict = o.strict;
   const p = event.payload as unknown as ItemsReleasedPayload;
   const t = event.recorded_at;
   const oid = p.order_id;
@@ -926,12 +926,11 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptio
   }
   for (const gid of sources) if (groups[gid]!.line_ids.length === 0) delete groups[gid];
   let next: EngineState = { ...state, lines, orders: { ...state.orders, [oid]: { ...order, groups, next_group_index: index } } };
-  // P3 / AD-7: the hidden expedite lines leave their stations (exactly `booked`) to be placed again as immediates.
-  for (const id of movable) next = patchLine(unbook(next, next.lines[id]!, event, strict), id, { fire_ms: null, capped: false });
   // P4 / AD-12.
   for (const gid of [...sources].sort()) next = requeueGroup(next, oid, gid, t, o);
+  // P3: the one re-plan, the expedite lines held at their old bookings first.
   if (movable.length > 0) {
-    next = planNewLines(next, oid, t, event.event_id, o);
+    next = placeExpedites(next, movable, t, event.event_id, o);
     const ord = next.orders[oid]!;
     const g = { ...ord.groups };
     for (const id of movable) {

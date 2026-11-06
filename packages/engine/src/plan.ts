@@ -732,6 +732,7 @@ export function requeueGroup(state: EngineState, order_id: string, group_id: str
       ? removeInterval(profiles[l.station_id]!, b, b.units)
       : removeInterval(profiles[l.station_id]!, b, b.units, () => undefined);
   }
+  // stationOf throws InvalidEvent for a line whose station is gone (as in replanEnded); kept for that throw.
   for (const l of movable) stationOf(state.stations, l);
   const loop = holdAndFire(state, profiles, movable, options, t, floor);
   let lines: Record<string, EngineLine> | null = null;
@@ -744,6 +745,48 @@ export function requeueGroup(state: EngineState, order_id: string, group_id: str
     lines[l.order_item_id] = { ...l, deadline_ms: d };
   }
   return lines === null ? state : { ...state, lines };
+}
+
+// Task 15b (review fix 1; §3.8 D12, proposed (implementer, overnight), controller ruling option (a)): the one re-plan of
+// an ItemsReleased for its hidden expedite lines, which must never land later than their sync slot:
+//   1. pass 1 once on every station the lines may use, with the lines held at their OLD bookings as fixed input
+//      (so no sibling can be moved keep-first into an old slot);
+//   2. per line (payload order), its earliest fit from t on each allowed station against the live profile after step
+//      1 (and the lines moved before it) with its own old booking removed, the station chosen as an immediate's
+//      (§3.5.5 chooseImmediate on arrival = land + carry);
+//   3. the line moves there only when that arrival is earlier than its old one (AD-7: exactly the old `booked`
+//      removed, the new one booked; a move to another station takes the route fields); else it keeps its booking.
+// Either way its deadline becomes its fire (immediate, AD-12); the fold sets its group T to its land.
+export function placeExpedites(state: EngineState, ids: readonly string[], t: number, event_id: string, o: SequenceOptions): EngineState {
+  if (ids.length === 0) return state;
+  const ctx0 = routeCtx(state);
+  const opts = new Map(ids.map((id) => [id, routeOptions(ctx0, state.lines[id]!, true)]));
+  const uses = [...new Set([...opts.values()].flatMap((os) => os.map((x) => x.station_id)))];
+  const p1 = pass1(state, uses, [], t, { prune: false, held: new Set(ids), strict: o.strict });
+  let next = applyPass1(state, p1, event_id, o.strict);
+  const ctx = routeCtx(next);
+  for (const id of ids) {
+    const line = next.lines[id]!;
+    const old = line.booked!;
+    const options = opts.get(id)!;
+    const live = liveProfiles(next, [line.station_id, ...options.map((x) => x.station_id)], t);
+    live[line.station_id] = o.strict ? removeInterval(live[line.station_id]!, old, old.units) : removeInterval(live[line.station_id]!, old, old.units, () => undefined);
+    const tries = options.map((x) => {
+      const fire = earliestFit(live[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
+      return { fire, booked: bookingAt(line, x.cap, fire) };
+    });
+    const k = tries.length === 0 ? -1 : chooseImmediate(ctx, options, tries.map((x, i) => x.booked.end + options[i]!.carry_ms));
+    let fire = line.fire_ms!;
+    if (k >= 0 && tries[k]!.booked.end + options[k]!.carry_ms < old.end + line.carry_ms) {
+      const { fire: f, booked } = tries[k]!;
+      const opt = options[k]!;
+      const move: Move = opt.station_id === line.station_id ? { fire: f, booked, capped: false } : { fire: f, booked, capped: false, to: { ...rerouted(line, opt), deadline_ms: f } };
+      next = applyMoves(next, new Map([[id, move]]), event_id, o.strict);
+      fire = f;
+    }
+    next = { ...next, lines: { ...next.lines, [id]: { ...next.lines[id]!, deadline_ms: fire } } };
+  }
+  return next;
 }
 
 // ---- §6.1b–d: planOrder, calculateETA, checkOrderable --------------------------------------------------------
