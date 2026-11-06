@@ -264,7 +264,11 @@ function lineCrossing(ctx: Ctx, line: EngineLine, level: number, lo: number, exi
   return c < exit ? c : INF;
 }
 
-// BF-14 (a): the first t ≥ lo at which the packed estimate exceeds the level. s(t) ≥ max(fire, t), so at
+// BF-14 (a): the first t ≥ lo at which the packed estimate exceeds the level. Assumption: the packed estimate is
+// non-decreasing in t (each packed Start is the earliest fit ≥ max(fire, t) beside fixed COOKING intervals); then the
+// result is the earliest crossing. Should the packing ever be non-monotone (an order ahead leaving the engine frees its
+// unit), the result is still an instant r with estimate(r) > level and estimate(r − 1) ≤ level, and it is a pure
+// function of the state, so per-key = full recompute, live = replay and test 92's item / no-item pair hold regardless. s(t) ≥ max(fire, t), so at
 // hi = level − prep − cook − carry + 1 the estimate exceeds it whenever the line still packs; a range cut by the exit
 // that never crosses gives none. Binary search keeps "lo false, hi true", so the result r has estimate(r) > level and
 // estimate(r − 1) ≤ level.
@@ -360,6 +364,27 @@ export function slipDueOf(state: EngineState): Record<string, number> {
   return out;
 }
 
+// Per unresolved sync group of the key at t (orders in the engine, none awaiting): its level, crossing and estimate at
+// t. A pure reader of the same slipCrossing / estimate as getAlertIntents (the test oracle of test 92).
+export function slipGroupsAt(state: EngineState, key: string, t: number): Array<{ order_id: string; placed_at: number; level: number; crossing: number; estimate: number }> {
+  const th = thresholdOf(state);
+  if (th === null) return [];
+  const ctx = new Ctx(state);
+  const slip = state.slips[key];
+  const out: Array<{ order_id: string; placed_at: number; level: number; crossing: number; estimate: number }> = [];
+  for (const order of ordersByKey(state, new Set([key])).get(key) ?? []) {
+    if (order.awaiting > 0 || !orderInEngine(state, order, t)) continue;
+    for (const g of syncGroups(state, order)) {
+      if (groupResolved(g)) continue;
+      const level = levelOf(g, slip, th);
+      let est = Number.NEGATIVE_INFINITY;
+      for (const l of g.lines) est = Math.max(est, lineEstimate(ctx, l, t) ?? Number.NEGATIVE_INFINITY);
+      out.push({ order_id: order.order_id, placed_at: order.placed_at, level, crossing: groupCrossing(ctx, g, level), estimate: est });
+    }
+  }
+  return out;
+}
+
 // ---- fold-side upkeep (apply-event.ts calls it after every handled fold) --------------------------------------------
 
 function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
@@ -383,17 +408,36 @@ function touchedKeys(prev: EngineState, next: EngineState): Set<string> {
     for (const k in prev.slips) if (prev.slips[k] !== next.slips[k]) keys.add(k);
     for (const k in next.slips) if (prev.slips[k] !== next.slips[k]) keys.add(k);
   }
+  const flight = new Set<string>();
+  // A changed order may change its exit time without changing a line (last_line_fold_at: OrderBoosted / ItemsReleased
+  // via foldNamesOrder), and that moves the packing of the lines behind its in-flight lines: their stations count as
+  // in-flight changes (review, task 15).
+  const orderFlight = (s: EngineState, o: EngineOrder): void => {
+    for (const lid of o.line_ids) {
+      const l = s.lines[lid];
+      if (l !== undefined && isInFlight(l)) flight.add(l.station_id);
+    }
+  };
   if (prev.orders !== next.orders) {
     for (const id in next.orders) {
       const a = prev.orders[id];
       const b = next.orders[id]!;
       if (a === b) continue;
       keys.add(b.table_key);
-      if (a !== undefined) keys.add(a.table_key);
+      orderFlight(next, b);
+      if (a !== undefined) {
+        keys.add(a.table_key);
+        orderFlight(prev, a);
+      }
     }
-    for (const id in prev.orders) if (next.orders[id] === undefined) keys.add(prev.orders[id]!.table_key);
+    for (const id in prev.orders) {
+      const a = prev.orders[id]!;
+      if (next.orders[id] === undefined) {
+        keys.add(a.table_key);
+        orderFlight(prev, a);
+      }
+    }
   }
-  const flight = new Set<string>();
   if (prev.lines !== next.lines) {
     const add = (l: EngineLine): void => {
       const o = next.orders[l.order_id] ?? prev.orders[l.order_id];

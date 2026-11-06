@@ -4,6 +4,7 @@
 // 91. Pure: every input is deep-frozen.
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import {
+  aBusinessDayClosed,
   aBusinessDayOpened,
   aFireDispatched,
   anAlertClosed,
@@ -31,7 +32,7 @@ import {
   type ProposedOrder,
   type TickDraft,
 } from '../src/index';
-import { slipDueOf } from '../src/slip';
+import { slipDueOf, slipGroupsAt } from '../src/slip';
 
 const T0 = 1_761_000_000_000; // "12:00"
 const S = 1_000;
@@ -382,6 +383,43 @@ describe('03a §3.8 slip estimate and crossing', () => {
     }
   });
 
+  it('[03a §3.8] BusinessDayClosed drops slips: an open slip of an order carried over the close slips afresh by the crossing', () => {
+    const r0 = lateLine();
+    const f = r0.f;
+    let s = r0.s;
+    s = fold(s, [stamp(aBusinessDayOpened(), f)]);
+    s = fold(s, [startEv('O1', 'A', f + 3 * M)]); // lands T + 3 min > T + threshold
+    const item = getAlertIntents(s, f + 3 * M).slips[0]!;
+    s = fold(s, [slipWarnedEv(item, 'AL1', f + 3 * M)]);
+    expect(s.slips['dine_in:T12']!.alert_id).toBe('AL1');
+    s = fold(s, [stamp(aBusinessDayClosed(), f + 4 * M)]);
+    expect(s.orders.O1).toBeDefined(); // a COOKING line: carried over the close (Q13)
+    expect(s.slips).toEqual({});
+    const placed = s.orders.O1!.placed_at;
+    expect(s.slip_due).toEqual({ 'dine_in:T12': placed });
+    const a = getAlertIntents(s, placed);
+    expect(a.resolved).toEqual([]);
+    expect(a.slips).toEqual([{ table_key: 'dine_in:T12', order_ids: ['O1'], estimate: T(s, 'O1') + 3 * M, target: T(s, 'O1'), promise: T(s, 'O1') + PAD }]);
+  });
+
+  it('[03a §3.8] an order whose only change is its clock (OrderBoosted) moves its abandon time: the keys packed behind it are recomputed', () => {
+    // abandon 15 min, threshold 15 min; A (O1, key k1) and B (O2, key k2) fired together on capacity 1, never tapped.
+    let s = kitchen([{ station_id: 'S1', capacity: 1 }], { order_abandon_ms: 15 * M, slip_threshold_ms: 15 * M });
+    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'k1' }));
+    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'k2' }));
+    const f = s.lines.A!.fire_ms!;
+    s = fold(s, [fireEv('S1', ['A', 'B'], f)]);
+    const boosted = (order_id: string, t: number): PosEvent =>
+      stamp({ ...anItemStarted(), event_type: 'OrderBoosted', stream_id: order_id, payload: { order_id } }, t);
+    // O2's clock refreshed at f + 12: O2 exits at f + 27. A exits at f + 15, so B packs behind A until then and its
+    // crossing (level f + 35) is after A has gone: t + 10 min > f + 35 min.
+    s = fold(s, [boosted('O2', f + 12 * M)]);
+    expect(s.slip_due.k2).toBe(f + 25 * M + 1);
+    // O1's clock refreshed at f + 13: A stays until f + 28, B packs behind it, t + 20 min > f + 35 → f + 15 min + 1.
+    s = fold(s, [boosted('O1', f + 13 * M)]);
+    expect(s.slip_due.k2).toBe(f + 15 * M + 1);
+  });
+
   it('[03a §3.8] an EngineConfigApplied that changes slip_threshold_ms recomputes every key', () => {
     const { s, f } = lateLine();
     expect(s.next_alert_due_at).toBe(f + TH + 1);
@@ -457,6 +495,22 @@ function check92(s: EngineState): void {
   const has = (a: AlertIntents): boolean => a.slips.some((x) => x.table_key === key) || a.resolved.some((x) => x.table_key === key);
   expect(has(getAlertIntents(s, due)), `item for ${key} at ${due}`).toBe(true);
   expect(has(getAlertIntents(s, due - 1)), `no item for ${key} at ${due - 1}`).toBe(false);
+  // Oracle (review): a slip item's estimate exceeds its level; a group crossing at `due` after its order's placed_at
+  // is not over its level at due − 1 (the crossing is the first such instant).
+  const item = getAlertIntents(s, due).slips.find((x) => x.table_key === key);
+  if (item === undefined) return;
+  const slip = s.slips[key];
+  expect(item.estimate).toBeGreaterThan((slip === undefined ? item.target : slip.last_estimate) + s.config!.settings.slip_threshold_ms);
+  const before = slipGroupsAt(s, key, due - 1);
+  for (const g of slipGroupsAt(s, key, due)) {
+    if (g.crossing !== due) continue;
+    expect(g.estimate).toBeGreaterThan(g.level);
+    if (due > g.placed_at) {
+      const b = before.find((x) => x.order_id === g.order_id && x.level === g.level && x.crossing === g.crossing);
+      expect(b, `group of ${g.order_id} at due − 1`).toBeDefined();
+      expect(b!.estimate).toBeLessThanOrEqual(g.level);
+    }
+  }
 }
 
 function runSeed(seed: number): { live: EngineState; log: PosEvent[]; firedOnCap1: number } {
