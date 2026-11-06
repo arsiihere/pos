@@ -510,6 +510,23 @@ export async function stationsNamingAlternate(
   return rows.map((row) => row.station_id);
 }
 
+// A-9: the active stations whose alternates name this one. A plain read after the station lock.
+export async function activeStationsNamingAlternate(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ station_id: string }>(
+    `SELECT sa.station_id FROM station_alternates sa
+       JOIN stations s ON s.tenant_id = sa.tenant_id AND s.branch_id = sa.branch_id AND s.station_id = sa.station_id
+      WHERE sa.tenant_id = $1 AND sa.branch_id = ANY($2) AND sa.branch_id = $3 AND sa.alternate_station_id = $4
+        AND s.archived_at IS NULL
+      ORDER BY sa.station_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.station_id);
+}
+
 // S22: routes of active items that point at the station (index item_routes_station).
 export async function activeRouteItemIds(
   repo: TenantScopedRepository,

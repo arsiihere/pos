@@ -17,6 +17,7 @@ import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
+  activeStationsNamingAlternate,
   activeStockItemIdsAt,
   activeTableIds,
   archiveStationPrograms,
@@ -410,12 +411,13 @@ function normaliseLists(lists: StationLists): StationLists {
   };
 }
 
-// A-9: both slot, same branch, distinct. `found` holds the named stations of this branch.
+// A-9: both slot, same branch, distinct, and the named station is not archived. `found` holds the named stations of
+// this branch.
 function assertAlternates(
   alternates: StationLists['alternates'],
   stationType: StationRow['station_type'],
   stationId: string,
-  found: ReadonlyArray<{ station_id: string; station_type: StationRow['station_type'] }>,
+  found: ReadonlyArray<{ station_id: string; station_type: StationRow['station_type']; archived_at: number | null }>,
 ): void {
   const invalid = (reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field: 'alternates', reason });
   if (alternates.length === 0) return;
@@ -424,6 +426,7 @@ function assertAlternates(
     if (id === stationId) throw invalid('self');
     const station = found.find((row) => row.station_id === id);
     if (station === undefined) throw invalid('not_found');
+    if (station.archived_at !== null) throw invalid('archived');
     if (station.station_type !== 'slot') throw invalid('not_slot');
   }
 }
@@ -585,6 +588,11 @@ export async function patchStation(
       const ids = await activeStockItemIdsAt(scoped, branchId, stationId);
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'stock_item', ids } });
+      }
+      // A-9: refused while an active station names it as an alternate; its own list does not block and keeps its rows.
+      const naming = await activeStationsNamingAlternate(scoped, branchId, stationId);
+      if (naming.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids: naming } });
       }
     }
     if (alternates !== undefined) assertAlternates(lists.alternates, stationType, stationId, locked);

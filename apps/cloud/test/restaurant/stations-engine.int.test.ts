@@ -400,6 +400,75 @@ describe('station engine fields', () => {
     expect((await patch(b, { station_type: 'batch' })).statusCode).toBe(200);
   });
 
+  it('[01a §6.9 A-9] naming an archived station as an alternate → 422 { field: alternates }, on POST and PATCH', async () => {
+    const id = await addStation('Tawa');
+    const old = await addStation('Old');
+    expect((await patch(old, { archived: true })).statusCode).toBe(200);
+    const start = await versionOf();
+    const details = { field: 'alternates', reason: 'archived' };
+    expectError(await patch(id, { alternates: [alternate(old)] }), 422, 'CONFIG_REFERENCE_INVALID', details);
+    expectError(
+      await post({ name: 'New', station_type: 'slot', capacity: 1, alternates: [alternate(old)] }),
+      422,
+      'CONFIG_REFERENCE_INVALID',
+      details,
+    );
+    expect(await versionOf()).toBe(start);
+  });
+
+  it('[01a §6.9 A-9] archiving a station an active station names → 409 CONFIG_IN_USE, ids sorted; an archived one does not block', async () => {
+    const x = await addStation('X');
+    const a = await addStation('A', { alternates: [alternate(x)] });
+    const b = await addStation('B', { alternates: [alternate(x)] });
+    const start = await versionOf();
+    expectError(await patch(x, { archived: true }), 409, 'CONFIG_IN_USE', {
+      entity: 'station',
+      id: x,
+      used_by: { entity: 'station', ids: [a, b].sort() },
+    });
+    expect(await versionOf()).toBe(start);
+    expect((await list()).json().data.stations.find((s: { station_id: string }) => s.station_id === x).archived_at).toBeNull();
+
+    // b archived: only a still blocks. a's list cleared: x archives.
+    expect((await patch(b, { archived: true })).statusCode).toBe(200);
+    expectError(await patch(x, { archived: true }), 409, 'CONFIG_IN_USE', { used_by: { entity: 'station', ids: [a] } });
+    expect((await patch(a, { alternates: [] })).statusCode).toBe(200);
+    expect((await patch(x, { archived: true })).statusCode).toBe(200);
+  });
+
+  it('[01a §6.9 A-9] archiving a station with only its own list is allowed and keeps its rows; restoring needs no check', async () => {
+    const x = await addStation('X');
+    const a = await addStation('A', { alternates: [alternate(x)] });
+    const archived = await patch(a, { archived: true });
+    expect(archived.statusCode, archived.body).toBe(200);
+    expect(archived.json().data.station.alternates).toEqual([alternate(x)]);
+    const rows = await cloud.pool.query(`SELECT alternate_station_id FROM station_alternates WHERE station_id = $1`, [a]);
+    expect(rows.rows).toEqual([{ alternate_station_id: x }]);
+
+    // x is now named only by an archived station, so it archives; a restores with its row, unchecked.
+    expect((await patch(x, { archived: true })).statusCode).toBe(200);
+    const restored = await patch(a, { archived: false });
+    expect(restored.statusCode, restored.body).toBe(200);
+    expect(restored.json().data.station.alternates).toEqual([alternate(x)]);
+    expect((await patch(x, { archived: false })).statusCode).toBe(200);
+  });
+
+  it('[01a §6.9 A-9] an archive racing a list that names the station: never an active station naming a newly archived one', async () => {
+    const a = await addStation('A');
+    const x = await addStation('X');
+    holdAfterLock = 100;
+    const [named, archived] = await Promise.all([patch(a, { alternates: [alternate(x)] }), patch(x, { archived: true })]);
+    expect([named.statusCode, archived.statusCode].sort(), `${named.body} ${archived.body}`).toEqual(
+      named.statusCode === 200 ? [200, 409] : [200, 422],
+    );
+    const bad = await cloud.pool.query(
+      `SELECT 1 FROM station_alternates sa
+         JOIN stations s ON s.tenant_id = sa.tenant_id AND s.branch_id = sa.branch_id AND s.station_id = sa.alternate_station_id
+        WHERE s.archived_at IS NOT NULL`,
+    );
+    expect(bad.rows).toEqual([]);
+  });
+
   it('[01a §6.8 A-1–A-10] GET lists points and the fields, archived included, in 3 statements however many rows', async () => {
     const pass = await passOf();
     await addPoint('PT-X', 'Old', { sort: 3, archived: true });
