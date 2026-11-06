@@ -250,7 +250,7 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     const hits = walk(src)
       .filter((file) => !file.endsWith('.test.ts') && readFileSync(file, 'utf8').includes('sha256hex(canonicalJson('))
       .map((file) => relative(src, file));
-    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/staff-roles/versions.ts']);
+    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/restaurant/versions.ts', 'modules/staff-roles/versions.ts']);
   });
 });
 
