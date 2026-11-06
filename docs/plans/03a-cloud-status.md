@@ -35,6 +35,8 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - C6: sort assertions moved here from C5; `alternate_station_id` maps to snapshot `station_id`.
 - C2: test fixtures need `point_id` (`test/helpers/restaurant.ts`, 11 test files); capacity below `lane_units`/`reserve_units` must be a validation error, not a 500; default point if Pass is renamed or archived; duplicate `order_types` values.
 - C3: `apps/cloud/src/lib/config-audit.ts:25` needs `'point'`.
+- C2/C3 test precision (Minor, reviewer): CL-7 "Pass first" clause untested (`stations-engine.int.test.ts:349`); clearing a nullable to null untested (`:161`); `issue-code.int.test.ts:68` does not prove rollback; another tenant's ids in body references untested; 100 ms race holds; point race test title (`points.int.test.ts:310`).
+- Task 29 notes: §6.8 points lack `version`; §6.0 lacks §6.9a; `points_branch_name_active` is case-sensitive, stations use `lower(name)`; CL-11 alternate `FOR UPDATE` briefly blocks FK key-share writers.
 - C1 test order dependency at `engine-config-migration.int.test.ts:112` (Minor).
 
 ### Notes
