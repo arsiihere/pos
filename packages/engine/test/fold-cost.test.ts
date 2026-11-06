@@ -1,10 +1,15 @@
 // 03a §7.1 (upkeep "O(lines of the touched keys) + O(open keys) per fold … no per-event scan in replay"), §3.8 touched
-// keys only, §3.3 copy-on-write. Task 18p: the folds name what they touched, so the scan cannot come back. Counted reads
-// on a Proxy over `lines`, never a wall clock. The per-key = full recompute check itself is slip.test.ts #92 / #106.
+// keys only, §3.3 copy-on-write. Task 18p: the folds name what they touched, and these tests keep the extra scans out.
+// One pass over `lines` remains on a fold that changes an in-flight line (most stage events): v3 has no per-station index
+// of those lines (BF-14 (b)); it is pinned at one pass below, not removed. Counted reads on a Proxy over `lines`, never a
+// wall clock. The per-key = full recompute check itself is slip.test.ts #92 / #106.
 import type { PosEvent } from '@pos/events';
+import { aStockReserved, anOrderBatch } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import { foldNamed } from '../src/apply-event';
+import * as engine from '../src/index';
 import { applyEvent, initialEngineState, type EngineLine, type EngineOrder, type EngineState } from '../src/index';
+import { batchConfig, deepFreeze, loadOf } from './batch-kit';
 import { exitedOrderIds, FoldScope } from '../src/lifecycle';
 import { upkeepSlips } from '../src/slip';
 import { generateDay, runDay } from './sim/index';
@@ -65,6 +70,24 @@ const quietFold = (s: EngineState, e: PosEvent): boolean =>
 
 const doneFold = (s: EngineState, e: PosEvent): boolean => e.event_type === 'ItemDone' && Object.values(s.lines).filter(isInFlight).length >= 2;
 
+const changedLines = (a: EngineState, b: EngineState): string[] => [...new Set([...Object.keys(a.lines), ...Object.keys(b.lines)])].filter((id) => a.lines[id] !== b.lines[id]);
+
+// The old full diff as the oracle: a fold that does not compare the whole maps must name every line and order it changed.
+function expectNamed(prev: EngineState, next: EngineState, named: FoldScope): void {
+  if (named.whole) return;
+  for (const id of changedLines(prev, next)) expect(named.lineIds).toContain(id);
+  for (const id of new Set([...Object.keys(prev.orders), ...Object.keys(next.orders)])) {
+    if (prev.orders[id] !== next.orders[id]) expect(named.orderIds).toContain(id);
+  }
+}
+
+const hiddenOn = (s: EngineState): EngineLine[] => {
+  const station = Object.values(s.stations).find((st) => st.type === 'slot' && st.unfired.length >= 3);
+  return station === undefined ? [] : station.unfired.map((id) => s.lines[id]!).filter((l) => l.fired_at === null && l.booked !== null && s.orders[l.order_id]!.awaiting === 0).reverse();
+};
+
+const envelope = (at: PosEvent, event_type: string, stream_id: string, payload: Record<string, unknown>): PosEvent => ({ ...at, event_type, stream_id, payload, schema_version: 1 });
+
 describe('[03a §7.1] fold cost', () => {
   it('[03a §7.1] a fold with no in-flight change: upkeep reads no line outside the touched keys', () => {
     const { state, event } = before(quietFold);
@@ -108,18 +131,99 @@ describe('[03a §7.1] fold cost', () => {
     let quiet = 0;
     for (const event of log) {
       const { next, named } = foldNamed(state, event, {});
-      if (!named.whole) {
-        quiet++;
-        for (const id of new Set([...Object.keys(state.lines), ...Object.keys(next.lines)])) {
-          if (state.lines[id] !== next.lines[id]) expect(named.lineIds).toContain(id);
-        }
-        for (const id of new Set([...Object.keys(state.orders), ...Object.keys(next.orders)])) {
-          if (state.orders[id] !== next.orders[id]) expect(named.orderIds).toContain(id);
-        }
-      }
+      if (!named.whole) quiet++;
+      expectNamed(state, next, named);
       state = applyEvent(state, event);
     }
     expect(quiet).toBeGreaterThan(log.length / 2);
+  });
+
+  it('[03a §7.1] naming: a void re-plans other lines, so it compares the whole maps', () => {
+    // The first hidden line in the log whose void changes another line (the group's other lines, or a re-placed neighbour).
+    let state = initialEngineState();
+    let found: { prev: EngineState; next: EngineState; named: FoldScope; id: string } | null = null;
+    for (const at of log) {
+      for (const line of hiddenOn(state)) {
+        const event = envelope(at, 'ItemVoided', line.order_id, { order_item_id: line.order_item_id, units: line.units });
+        const { next, named } = foldNamed(state, event, {});
+        if (changedLines(state, next).some((id) => id !== line.order_item_id)) {
+          found = { prev: state, next, named, id: line.order_item_id };
+          break;
+        }
+      }
+      if (found !== null) break;
+      state = applyEvent(state, at);
+    }
+    expect(found).not.toBeNull();
+    const { prev, next, named } = found!;
+    expectNamed(prev, next, named);
+  });
+
+  it('[03a §7.1] naming: a load shift names every member of the load', () => {
+    const { state, event: at } = before((s) => Object.values(s.stations).some((st) => Object.values(st.loads).length > 0));
+    const station = Object.values(state.stations).find((st) => Object.values(st.loads).length > 0)!;
+    const load = Object.values(station.loads)[0]!;
+    const event = envelope(at, 'ReservationsShifted', station.station_id, { station_id: station.station_id, cause: 'overrun', shifts: [{ order_item_id: load.order_item_ids[0]!, by_ms: 60_000 }] });
+    const { next, named } = foldNamed(state, event, {});
+    expect(named.whole).toBe(false);
+    expect(changedLines(state, next)).toEqual(expect.arrayContaining([...load.order_item_ids]));
+    expectNamed(state, next, named);
+  });
+
+  it('[03a §7.1] naming: a batch flip re-forms the loads of its station, so it compares the whole maps', () => {
+    const T = 1_761_000_000_000;
+    const pickup = T + 3_600_000;
+    const stamp = (e: PosEvent, seq: number): PosEvent => ({ ...e, recorded_at: T, occurred_at: T, seq, event_id: `01K${String(seq).padStart(23, '0')}` });
+    const order = (order_id: string, id: string, seq: number): PosEvent[] =>
+      anOrderBatch({
+        order_id,
+        recorded_at: T,
+        seq,
+        lines: [
+          {
+            order_item_id: id,
+            item: { station_id: 'F', program_id: 'P1', program_cook_time_ms: 300_000, stock_program_id: 'P2', stock_program_cook_time_ms: 60_000, cook_time_ms: 999_999, quantity: 1, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }], out_of_stock_behaviour: 'cook_fresh' },
+            line: { station_id: 'F', from_stock: false },
+          },
+        ],
+        order: { order_type: 'delivery', pickup_at_ms: pickup, groups: [{ group_id: `${order_id}:0`, target_land_ms: pickup, promise_ms: pickup + 180_000, order_item_ids: [id] }] },
+      });
+    let state = initialEngineState();
+    for (const e of [stamp(batchConfig({}, T - 60_000), 1), ...order('O1', 'B1', 10), ...order('O2', 'B2', 20)]) state = applyEvent(state, e);
+    expect(loadOf(state, 'B1')).toBeDefined();
+    expect(loadOf(state, 'B2')).toBeDefined();
+    const event = stamp(aStockReserved({ payload: { stock_item_id: 'KB', order_item_id: 'B1', quantity: 1 } }), 30);
+    const { next, named } = foldNamed(state, event, {});
+    expect(next.lines.B1!.from_stock).toBe(true);
+    expect(changedLines(state, next)).toContain('B2');
+    expectNamed(state, next, named);
+  });
+
+  it('[03a §7.1, AD-6] a non-strict fold that writes and then throws leaves the removal step\'s result as it was', () => {
+    const run = runDay(generateDay(7, { orders: 10 }));
+    const live = deepFreeze(run.liveState);
+    const at = run.events.at(-1)!.recorded_at + 3_600_000;
+    const exited = exitedOrderIds(live, at);
+    expect(exited.length).toBeGreaterThan(0);
+    // listLines writes L9 into the fold's working copy, then finds the group id wrong (after the loop over the lines).
+    const bad = anOrderBatch({
+      order_id: 'BAD',
+      recorded_at: at,
+      seq: 1_000_000,
+      lines: [{ order_item_id: 'L9' }],
+      order: { groups: [{ group_id: 'BAD:7', target_land_ms: at + 60_000, promise_ms: at + 240_000, order_item_ids: ['L9'] }] },
+    })[0]!;
+    const next = applyEvent(live, deepFreeze(bad), { strict: false });
+    expect(next.lines.L9).toBeUndefined();
+    expect(next.orders.BAD).toBeUndefined();
+    for (const id of exited) expect(next.orders[id]).toBeUndefined();
+    expect(next.diagnostics.at(-1)).toMatchObject({ kind: 'invalid_event', detail: { reason: 'group_id_invalid' } });
+    expect(() => applyEvent(live, bad)).toThrow('group_id_invalid');
+  });
+
+  it('[03a §7.1] the fold seam stays internal: not in the package index', () => {
+    for (const name of ['foldNamed', 'FoldScope', 'upkeepSlips']) expect(Object.keys(engine)).not.toContain(name);
+    for (const name of ['addDiagnostic', 'applyEvent', 'buildEngineState']) expect(Object.keys(engine)).toContain(name);
   });
 
   it('[03a §3.3] one writable copy per fold; the removal step is sealed off from the fold', () => {
