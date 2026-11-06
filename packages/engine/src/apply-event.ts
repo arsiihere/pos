@@ -32,7 +32,7 @@ import {
   type SequenceOptions,
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
-import { closeExitIds, exitedOrderIds, isKeptExited, isOpen, orderInEngine, touchOrder } from './lifecycle.js';
+import { closeExitIds, exitedOrderIds, isOpen, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -209,11 +209,9 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as OrderLinesAddedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
   const order = state.orders[p.order_id];
-  // AD-20 (task 14b review): an order kept only for its reservation is absent to the folds, so it throws as an absent
-  // order does. The skipped exited order without a reservation (the append-gap straddle) still re-opens.
-  if (order === undefined || isKeptExited(state, order, event.recorded_at)) {
-    throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
-  }
+  // §3.3 keys this on presence: an order kept by AD-20 for its reservation is present, so it re-opens like any present
+  // order (test 78); only an absent order throws.
+  if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
   return listLines(state, order, p, event.recorded_at);
 }
 

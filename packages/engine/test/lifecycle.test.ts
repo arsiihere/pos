@@ -357,8 +357,6 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
         expect(isOrderInEngine(after, 'O1', t + 2)).toBe(false);
       }
     }
-    // OrderLinesAdded on it throws, as on an absent order (§3.3).
-    expect(() => applyEvent(kept, anOrderLinesAdded({ stream_id: 'O1', recorded_at: t + 2, occurred_at: t + 2, seq: nextSeq(), payload: { ...anOrderLinesAdded().payload, order_id: 'O1' } }))).toThrow(/not in the engine/);
     // After a Start that changed nothing, the abandon release is still drafted, folds, and the next listed fold removes O1.
     const tapped = fold([start('O1', 'L1', t + 2)], kept);
     const drafts = getTickIntents(tapped, t + 3);
@@ -397,6 +395,37 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(b.orders.O1).toBeUndefined();
     expect(b.stock.KB!.reserved).toBe(0);
     expect(noOrderInEngine(b, closeAt)).toBe(true);
+  });
+
+  it('[03a AD-20] a kept served-exit order is present: an OrderLinesAdded past its exit re-opens it (§3.3, test 78); its reservation stays', () => {
+    const events = [cfg(1), kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
+    const exit = at(25) + ORDER_EXIT_AFTER_SERVED_MS;
+    const kept = fold([tickle(exit)], fold(events));
+    expect(kept.orders.O1).toBeDefined();
+    expect(isOrderInEngine(kept, 'O1', exit + 1)).toBe(false);
+    const p = anOrderLinesAdded().payload as { groups: Array<Record<string, unknown>>; lines: Array<Record<string, unknown>> };
+    const s2 = nextSeq();
+    const added: PosEvent = {
+      ...anOrderLinesAdded({
+        stream_id: 'O1',
+        payload: {
+          order_id: 'O1',
+          order_item_ids: ['L2'],
+          groups: p.groups.map((g) => ({ ...g, group_id: `O1:${kept.orders.O1!.next_group_index}`, order_item_ids: ['L2'] })),
+          lines: p.lines.map((l) => ({ ...l, order_item_id: 'L2' })),
+        },
+      }),
+      recorded_at: exit + 1,
+      occurred_at: exit + 1,
+      seq: s2,
+      event_id: `01J${String(s2).padStart(23, '0')}`,
+    };
+    const reopened = fold([added], kept);
+    expect(reopened.orders.O1!.last_served_at).toBeNull();
+    expect(isOrderInEngine(reopened, 'O1', exit + 1)).toBe(true);
+    expect(reopened.lines.L1!.reserved_seq).toBe(kept.lines.L1!.reserved_seq);
+    expect(reopened.stock.KB!.reserved).toBe(1);
+    expect(buildEngineState([...events, tickle(exit), added])).toEqual({ ...reopened });
   });
 
   it('[03a AD-20] the close itself keeps an all-served order whose line still holds a reservation (no release written)', () => {

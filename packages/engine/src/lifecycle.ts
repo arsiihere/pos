@@ -74,12 +74,6 @@ function holdsReservation(state: EngineState, order: EngineOrder): boolean {
   });
 }
 
-// AD-20 (task 14b review): an order the removal step keeps only for its reservation — present, out of the engine at
-// t, a line still holding a reservation. The folds treat it as absent (§3.3 "removal never changes a result").
-export function isKeptExited(state: EngineState, order: EngineOrder, t: number): boolean {
-  return !orderInEngine(state, order, t) && holdsReservation(state, order);
-}
-
 // §3.6.1 / §3.12 (v0.6, G4-2 #3): the checkpoint condition — no order of state.orders is in the engine by the
 // predicate, and no line of an exited order holds a live reservation. The second clause is checkable because the
 // removal step keeps such an order (AD-20); it keeps a held unit out of the checkpoint's stock.
