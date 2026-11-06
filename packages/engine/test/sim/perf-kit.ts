@@ -1,6 +1,7 @@
 // 03a §10.6, §7.1 (task 18): what the perf gate measures, apart from its asserts. Test code only; not in ./index, so no
 // other test pulls node:fs through @pos/engine/sim.
 /* eslint-disable no-restricted-imports -- test/sim, Node only: the gate saves each number to disk as it is measured */
+import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
 import { cpus, loadavg } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -42,7 +43,9 @@ export function dist(samples: readonly number[]): Dist {
 }
 
 const WORKSPACE = join(dirname(fileURLToPath(import.meta.url)), '../../../../.superpowers/sdd/03a-plan');
-export const NUMBERS_FILE = join(WORKSPACE, 'task-18-numbers.json');
+// POS_PERF_OUT: a labelled diagnostic run writes elsewhere and never over the gate's own numbers.
+const OUT = process.env.POS_PERF_OUT ?? WORKSPACE;
+export const NUMBERS_FILE = join(OUT, 'task-18-numbers.json');
 
 function writeDurably(file: string, text: string): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -67,7 +70,7 @@ export function writeSection(file: string, section: string, data: unknown): void
 }
 
 export function writeSamples(name: string, samples: readonly number[]): void {
-  writeDurably(join(WORKSPACE, 'task-18-samples', `${name}.json`), `${JSON.stringify(samples)}\n`);
+  writeDurably(join(OUT, 'task-18-samples', `${name}.json`), `${JSON.stringify(samples)}\n`);
 }
 
 const machine = (): { load_1_5_15: number[]; cpu: string; at: string } => ({ load_1_5_15: loadavg(), cpu: cpus()[0]?.model ?? 'unknown', at: new Date().toISOString() });
@@ -101,12 +104,15 @@ export function replayFrom(checkpoint: EngineCheckpointV1, events: readonly PosE
 // live = replayed for a report line; key order does not count.
 export const sameState = (a: EngineState, b: EngineState): boolean => isDeepStrictEqual(a, b);
 
-// RunOptions.watch: keeps the live state (a reference; folds never write it) about every `every` events.
-export function keepEvery(into: Map<number, EngineState>, every: number): (state: EngineState, seq: number) => void {
+export const digestOf = (state: EngineState): string => createHash('sha256').update(JSON.stringify(state)).digest('hex');
+
+// RunOptions.watch: a digest of the live state about every `every` events. A digest, never the state: ~100 retained
+// states of thousands of lines roughly doubled the day's run and replay in the task 18 gate run (GC; see its report).
+export function keepEvery(into: Map<number, string>, every: number): (state: EngineState, seq: number) => void {
   let next = every;
   return (state, seq) => {
     if (seq < next) return;
-    into.set(seq, state);
+    into.set(seq, digestOf(state));
     next = seq + every;
   };
 }
@@ -130,9 +136,9 @@ const unfiredOf = (s: EngineState): number => {
 };
 
 // A separate, untimed fold of the whole log (per-event clocks would disturb the replay's own number). States are
-// immutable, so it keeps the two peak states by reference, and compares against the live states `live` kept.
+// immutable, so it keeps the two peak states by reference, and compares against the live digests `live` kept.
 // Only instants' ends count as a peak: never a state in the middle of a batch.
-export function peakPass(events: readonly PosEvent[], live: ReadonlyMap<number, EngineState>): Peak {
+export function peakPass(events: readonly PosEvent[], live: ReadonlyMap<number, string>): Peak {
   let state = initialEngineState();
   const totals = new Map<string, { n: number; total_ms: number }>();
   let byUnfired: PeakPoint | null = null;
@@ -153,7 +159,7 @@ export function peakPass(events: readonly PosEvent[], live: ReadonlyMap<number, 
     const kept = live.get(i + 1);
     if (kept !== undefined) {
       live_compared++;
-      if (!isDeepStrictEqual(kept, state)) live_mismatches.push(i + 1);
+      if (kept !== digestOf(state)) live_mismatches.push(i + 1);
     }
     if (events[i + 1] !== undefined && events[i + 1]!.recorded_at === e.recorded_at) continue;
     const unfired = unfiredOf(state);

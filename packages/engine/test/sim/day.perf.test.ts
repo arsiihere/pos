@@ -2,7 +2,7 @@
 // a miss stays red (the plan's stop rule). One shared run per describe in beforeAll; each `it` only reads results. Every
 // number is on disk (perf-kit, task-18-numbers.json) before the next step starts.
 import { beforeAll, describe, expect, it } from 'vitest';
-import { applyEvent, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint, type EngineState } from '../../src/index';
+import { applyEvent, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint } from '../../src/index';
 import { generateDay, policyReport, runDay, twoDayLog, type SimResult } from './index';
 import { dist, keepEvery, measureAtPeak, peakPass, peakSummary, replayFrom, sameState, step, writeSamples, type AtPeak, type Peak } from './perf-kit';
 
@@ -37,7 +37,7 @@ describe('[03a §10.6] the generated day (seed 7, 2 000 orders)', () => {
 
   beforeAll(() => {
     const day = generateDay(SEED);
-    const live = new Map<number, EngineState>();
+    const live = new Map<number, string>();
     run = step('day_run', () => runDay(day, { watch: keepEvery(live, 500) }), (r) => ({ ...closeSummary(r), orders: day.orders.length, lines: day.orders.reduce((n, o) => n + o.lines.length, 0) }));
     writeSamples('day_replan_ms', run.replanMs);
     writeSamples('day_replaced_lines', run.replacedLines);

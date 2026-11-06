@@ -4,9 +4,9 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { applyEvent, initialEngineState, toCheckpoint, type EngineState } from '../../src/index';
+import { applyEvent, initialEngineState, toCheckpoint } from '../../src/index';
 import { generateDay, runDay, type SimResult } from './index';
-import { dist, keepEvery, measureAtPeak, peakPass, pctl, replayFrom, writeSection, type Peak } from './perf-kit';
+import { digestOf, dist, keepEvery, measureAtPeak, peakPass, pctl, replayFrom, writeSection, type Peak } from './perf-kit';
 
 describe('[03a task 18] perf kit', () => {
   it('[03a task 18] pctl is nearest rank; dist keeps every sample', () => {
@@ -28,7 +28,7 @@ describe('[03a task 18] perf kit', () => {
     const full = generateDay(7);
     const from = full.orders.findIndex((o) => o.at_ms - full.start_ms >= 13 * 3_600_000);
     const day = { ...full, orders: full.orders.slice(from, from + 150) };
-    const live = new Map<number, EngineState>();
+    const live = new Map<number, string>();
     let run: SimResult;
     let peak: Peak;
 
@@ -42,14 +42,14 @@ describe('[03a task 18] perf kit', () => {
       const r = replayFrom(toCheckpoint(first, 1), run.events, 1);
       expect(r.events).toBe(run.events.length - 1);
       expect(r.state).toEqual(run.liveState);
-    });
+    }, 120_000);
 
     it('[03a task 18] the replay can hand back the state after a chosen event', () => {
       const first = applyEvent(initialEngineState(), run.events[0]!);
       const seq = [...live.keys()][1]!;
       const r = replayFrom(toCheckpoint(first, 1), run.events, 1, seq - 1);
-      expect(r.captured).toEqual(live.get(seq));
-    });
+      expect(digestOf(r.captured!)).toBe(live.get(seq));
+    }, 120_000);
 
     it('[03a task 18] the peak pass compares live states mid-day and finds a real peak', () => {
       expect(live.size).toBeGreaterThan(5);
