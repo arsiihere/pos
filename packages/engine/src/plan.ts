@@ -384,7 +384,7 @@ function placeSequence(
   floor: number | null,
   o: SequenceOptions,
   event_id = '',
-): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; base: EngineState; frozen: FrozenStep | null } {
+): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; base: EngineState; frozen: FrozenStep | null; observed: PlanObserved } {
   const stations = state.stations;
   const ctx = routeCtx(state);
   const all = [...immediates, ...syncGroups.flat()];
@@ -440,7 +440,7 @@ function placeSequence(
     }
     targets.push(r.T);
   }
-  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, base, frozen: placed?.frozen ?? null };
+  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, base, frozen: placed?.frozen ?? null, observed: { replaced: p1.replaced, probes: p1.probes } };
 }
 
 // §3.8a returns_boost: the return lines of a batch placed as a boost, each with the allowed stations a boost may use.
@@ -1144,6 +1144,20 @@ export function planOrderWith(
   from_stock: Readonly<Record<string, boolean>>,
   o: { prune: boolean },
 ): PlanResult {
+  return planOrderObserved(state, proposed, now, from_stock, o).plan;
+}
+
+// §7.1 row 2, §10.6 (the simulator, task 18a): what pass 1 of this plan did, from the Pass1Result the placement already
+// computes; no clock, no I/O, and nothing in a fold or a plan reads it. Not exported from the package index.
+export type PlanObserved = Pick<Pass1Result, 'replaced' | 'probes'>;
+
+export function planOrderObserved(
+  state: EngineState,
+  proposed: ProposedOrder,
+  now: number,
+  from_stock: Readonly<Record<string, boolean>>,
+  o: { prune: boolean },
+): { plan: PlanResult; observed: PlanObserved } {
   checkOrderable(state, proposed);
   const engineLines = proposed.lines.filter((l) => isEngineLine(l));
   const planLines = engineLines.map((l) => {
@@ -1209,19 +1223,22 @@ export function planOrderWith(
   // §4.2: OrderPlaced.lines[].station_id is the engine's starting station (D8): the chosen one, with its carry,
   // and the other allowed stations as alternates (route.ts R1).
   return {
-    groups,
-    lines: planLines.map((l, i) => {
-      const r = rerouted(l, placementOf(l));
-      return {
-        order_item_id: l.order_item_id,
-        station_id: r.station_id,
-        alternates: r.alternates,
-        point_id: engineLines[i]!.point_id,
-        carry_ms: r.carry_ms,
-        from_stock: l.from_stock,
-        eta_ms: land(l),
-      };
-    }),
+    observed: placed.observed,
+    plan: {
+      groups,
+      lines: planLines.map((l, i) => {
+        const r = rerouted(l, placementOf(l));
+        return {
+          order_item_id: l.order_item_id,
+          station_id: r.station_id,
+          alternates: r.alternates,
+          point_id: engineLines[i]!.point_id,
+          carry_ms: r.carry_ms,
+          from_stock: l.from_stock,
+          eta_ms: land(l),
+        };
+      }),
+    },
   };
 }
 

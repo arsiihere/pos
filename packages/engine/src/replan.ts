@@ -112,6 +112,9 @@ export type Pass1Result = {
   moves: Map<string, Move>;
   // §3.5.6: the Λ probes run per station where a late set went to the overload search (for the simulator, task 18).
   probes: Record<string, number>;
+  // §7.1 row 2, D27 (for the simulator, task 18a; nothing reads it in a fold): per station of the pass, the older lines
+  // pass 1 re-placed (its free set, after freeze and prune). 0 on a FIFO station or one with no hidden line.
+  replaced: Record<string, number>;
   // Task 13: per batch station of the pass, its unfired loads after pass 1 (frozen and pruned loads as stored, the
   // hidden ones re-formed); stored by storeLoads (plan.ts), and the loads new lines may join in pass 2.
   loads: Record<string, WorkLoad[]>;
@@ -318,6 +321,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
   const profiles: Record<string, Profile> = {};
   const moves = new Map<string, Move>();
   const probes: Record<string, number> = {};
+  const replaced: Record<string, number> = {};
   const loads: Record<string, WorkLoad[]> = {};
   const fallbacks: Pass1Result['fallbacks'] = [];
   const opts = new Map(newLines.map((L) => [L.order_item_id, routeOptions(ctx, L, false)]));
@@ -376,6 +380,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     const liveHere = inc === undefined ? live[id]! : combine(live[id]!, profileOf(inc), 1);
     processed.add(id);
     pending.delete(id);
+    replaced[id] = 0;
     // Task 13: a batch station re-forms its hidden loads (alternates are slot-only, P-3: no line is routed onto or
     // off it, and no re-routed line lands here).
     if (station.type === 'batch') {
@@ -384,6 +389,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       loads[id] = r.loads;
       for (const [x, mv] of r.moves) moves.set(x, mv);
       if (r.probes !== null) probes[id] = r.probes;
+      replaced[id] = r.replaced;
       continue;
     }
     // FIFO (§3.5.3, D3): no re-plan of older lines; nothing on the station is hidden-and-movable.
@@ -409,6 +415,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       if (h.booked!.end <= pivot) pruned.push(h.booked!);
       else free.push(h);
     }
+    replaced[id] = free.length;
     const base = combine(fixed, profileOf(pruned), 1);
     const work = new Work(base);
     const firstId = (hidden[0] ?? forced[0])?.order_item_id ?? blocks[0]!.members[0]!;
@@ -502,7 +509,7 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     profiles[id] = out;
   }
   for (const [sid, w] of settled) profiles[sid] = w.snapshot();
-  return { profiles, moves, probes, loads, fallbacks };
+  return { profiles, moves, probes, replaced, loads, fallbacks };
 }
 
 // Task 13: pass 1 of §3.5.3 on a batch station at t. The unit of placement is the load (F §4.7, batch.ts):
@@ -537,10 +544,10 @@ function batchPass1(
   t: number,
   T_min: number,
   o: Pass1Options,
-): { profile: Profile; loads: WorkLoad[]; moves: ReadonlyMap<string, Move>; probes: number | null } {
+): { profile: Profile; loads: WorkLoad[]; moves: ReadonlyMap<string, Move>; probes: number | null; replaced: number } {
   const id = station.station_id;
   const stored = Object.values(station.loads).map((l) => workOf(state, l));
-  if (pol.policy === 'fifo') return { profile: liveHere, loads: stored, moves: new Map(), probes: null };
+  if (pol.policy === 'fifo') return { profile: liveHere, loads: stored, moves: new Map(), probes: null, replaced: 0 };
   // §3.4 D15 exceptions: a load of the boosted lines is held; a frozen load pushed past its deadline (placeFrozen) is
   // free, as a unit of the §3.5.6 search, moving only later from its fire.
   const heldLoad = (b: WorkLoad): boolean => o.held !== undefined && b.members.some((m) => o.held!.has(m));
@@ -549,7 +556,7 @@ function batchPass1(
   const hidden = stored.filter(isHiddenLoad);
   // §3.10, §3.11: a slot booking left from the old type (placeFrozen, oldType) pushed past its deadline: a line of the search.
   const forcedLines = lateLines(state, station, o.late);
-  if (hidden.length === 0 && forcedLines.length === 0) return { profile: liveHere, loads: stored, moves: new Map(), probes: null };
+  if (hidden.length === 0 && forcedLines.length === 0) return { profile: liveHere, loads: stored, moves: new Map(), probes: null, replaced: 0 };
   const cap = capacityFor(station, hidden[0]?.members[0] ?? id);
   const fixed = combine(liveHere, profileOf([...hidden.map((b) => b.booked), ...forcedLines.map((l) => l.booked!)]), -1, o.strict ? undefined : () => undefined);
   const whole = <L extends NewLine>(L: L): L => (optionOn(opts.get(L.order_item_id) ?? [], id) === undefined ? L : asLoad(L, cap));
@@ -601,7 +608,7 @@ function batchPass1(
     work.add(booked);
     cands.push(formed(joinLine(L), fire, booked, from.get(L.order_item_id) ?? null));
   }
-  if (late.length === 0 && forcedLines.length === 0) return { profile: work.snapshot(), loads: cands, moves: new Map(), probes: null };
+  if (late.length === 0 && forcedLines.length === 0) return { profile: work.snapshot(), loads: cands, moves: new Map(), probes: null, replaced: freeLines.length };
   // Task 13 review (D14 kept in the overload search): the units of the Λ search are loads. The loads the loop above
   // formed keep their members; the late lines are grouped by the stored load they came from (same program, cook
   // and room by construction) — proposed (implementer, overnight) J6; joins into frozen / pruned loads stay fixed.
@@ -628,7 +635,7 @@ function batchPass1(
     const pl = placed.get(u.members[0]!)!;
     return { ...u, fire_ms: pl.fire, booked: pl.booked, capped: capped.has(u.members[0]!) };
   });
-  return { profile: r.profile, loads: [...cands.filter((b) => b.load_id !== null), ...loads], moves, probes: r.probes };
+  return { profile: r.profile, loads: [...cands.filter((b) => b.load_id !== null), ...loads], moves, probes: r.probes, replaced: freeLines.length + late.length };
 }
 
 // Task 13 review: a load as one unit of the §3.5.6 search (keyed by its first member), fitted whole-station with
