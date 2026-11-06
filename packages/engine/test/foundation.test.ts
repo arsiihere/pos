@@ -7,6 +7,7 @@ import {
   addInterval,
   applyEvent,
   buildEngineState,
+  getAlertIntents,
   getTickIntents,
   initialEngineState,
   liveInterval,
@@ -351,6 +352,37 @@ describe('@pos/engine foundation §4.7 required tests (fires tick, D42, D44)', (
   function replay(log: PosEvent[]): EngineState {
     return deepFreeze(buildEngineState(log));
   }
+
+  it('[03a F #11] capacity reduction triggers recalculation (D37): A keeps its slot, B moves after it; the slip is on the next getAlertIntents, not in the event (F-17)', () => {
+    let s = deepFreeze(
+      applyEvent(
+        initialEngineState(),
+        deepFreeze(
+          anEngineConfigApplied({
+            recorded_at: T - 60_000,
+            payload: { stations: [{ ...S1, station_id: 'X', capacity: 2 }], settings: { ...(parseEvent(anEngineConfigApplied()).payload as unknown as EngineConfig).settings, slip_threshold_ms: 5 } },
+          }),
+        ),
+      ),
+    );
+    // A = [T+5, T+25), B = [T+10, T+30) (prep off-station, D35; separate tables so the slip names B's order).
+    s = submit(s, [{ id: 'A', station: 'X', cook: 20, prep: 5 }], T, 'OA', 10).state;
+    s = submit(s, [{ id: 'B', station: 'X', cook: 20, prep: 10 }], T, 'OB', 20).state;
+    expect(s.lines.A!.booked).toEqual({ start: T + 5, end: T + 25, units: 1 });
+    expect(s.lines.B!.booked).toEqual({ start: T + 10, end: T + 30, units: 1 });
+    const event = { ...anItemStarted(), stream_type: 'station', stream_id: 'X', event_type: 'StationCapacitySet', payload: { station_id: 'X', capacity_override: 1, previous: null, reason: 'manager' }, recorded_at: T, occurred_at: T, seq: 30 } as PosEvent;
+    const after = deepFreeze(applyEvent(s, deepFreeze(event)));
+    expect(after.lines.A!.booked).toEqual({ start: T + 5, end: T + 25, units: 1 });
+    expect(after.lines.B!.booked).toEqual({ start: T + 25, end: T + 45, units: 1 });
+    expect(after.lines.B!.mark).toBe('moved');
+    expect(after.lines.A!.mark).toBeNull();
+    // Both orders share a table_key in this kit: the slip names B's order, written on the next pass (D13: the fold wrote nothing).
+    expect(after.slips).toEqual({});
+    const slips = getAlertIntents(after, T).slips;
+    expect(slips).toHaveLength(1);
+    expect(slips[0]!.order_ids).toEqual(['OB']);
+    expect(slips[0]!.estimate).toBe(T + 45);
+  });
 
   it('[03a F #13] replay does not re-fire (D44); a missed fire is dispatched exactly once; the same intents twice (pure)', () => {
     // A's latest start is T + 10 (B holds X until then).

@@ -2,7 +2,8 @@
 // follow-up weight (§3.5.2), from_stock false, no draws, its own group, on the served line's engine station;
 // `fix` cooks for the event's cook_ms_override (never config), `remake` for the normal cook and its ItemReturned
 // makes the served line `returned`. Placement = the one sequence (pass 1 keeps older lines within d − keep, then
-// the return at its earliest fit): within others' slack, never past their deadlines (returns_boost is task 16).
+// the return at its earliest fit): within others' slack, never past their deadlines (with returns_boost false;
+// returns_boost true is disturbances.test.ts, task 16).
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemStarted, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
@@ -25,11 +26,12 @@ function deepFreeze<T>(value: T): T {
 const S1 = (parseEvent(anEngineConfigApplied()).payload as unknown as EngineConfig).stations[0]!;
 type StationCfg = EngineConfig['stations'][number];
 
-function config(stations: Array<Partial<StationCfg>>, recorded_at = T0 - 3_600_000, version = 1): PosEvent {
+function config(stations: Array<Partial<StationCfg>>, recorded_at = T0 - 3_600_000, version = 1, settings: Partial<EngineConfig['settings']> = {}): PosEvent {
+  const base = parseEvent(anEngineConfigApplied()).payload as unknown as EngineConfig;
   return anEngineConfigApplied({
     recorded_at,
     occurred_at: recorded_at,
-    payload: { config_version: version, stations: stations.map((s) => ({ ...S1, ...s })) },
+    payload: { config_version: version, stations: stations.map((s) => ({ ...S1, ...s })), settings: { ...base.settings, ...settings } },
   });
 }
 
@@ -166,7 +168,8 @@ describe('@pos/engine return to kitchen (§3.8a, D28)', () => {
 
   it('[03a #75] remake → normal cook time; it never pushes the older line past its deadline; ItemReturned makes the served line returned', () => {
     const { log, servedAdded } = servedFromStock();
-    const before = fold([config([{ station_id: 'S1', capacity: 1 }]), ...log, ...heldDelivery()]);
+    // §3.8a expedite placement (returns_boost false); with the default true it is placed as a boost and may push (task 16).
+    const before = fold([config([{ station_id: 'S1', capacity: 1 }], undefined, undefined, { returns_boost: false }), ...log, ...heldDelivery()]);
     const plan = planOrder(before, proposedReturn(servedAdded, 'remake', null), at(10), {});
     const ret = aReturnLinesAdded(servedAdded, 'remake', { recorded_at: at(10), target_land_ms: plan.groups[0]!.target_land_ms, promise_ms: plan.groups[0]!.promise_ms });
     expect(ret.map((e) => e.event_type)).toEqual(['OrderLinesAdded', 'ItemAdded', 'ItemReturned']);

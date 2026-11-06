@@ -7,9 +7,9 @@ import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
-import { applyMoves, bookingAt, capacityFor, isFifo, isFifoLine, isHidden, pass1, sortUnfired, syncOrder, type Move, type NewLine, type Placement } from './replan.js';
+import { applyMoves, bookingAt, capacityFor, fixedProfiles, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Placement } from './replan.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
-import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, replaced, syncJoin, withMember, type WorkLoad } from './batch.js';
+import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
 
@@ -110,7 +110,7 @@ export function checkProgram(line: Pick<EngineLine, 'order_item_id' | 'from_stoc
 type PlanLine = Pick<
   EngineLine,
   'order_item_id' | 'station_id' | 'units' | 'prep_ms' | 'cook_ms' | 'carry_ms' | 'max_early_ms' | 'from_stock' | 'program_id' | 'stock_program_id'
->;
+> & { return_of?: EngineLine['return_of'] };
 
 // A placement with the station it was made on (§3.5.5) and that station's carry to the point.
 // fallback = 'reserve': no allowed station could take the line, booked on its own at full capacity (route.ts).
@@ -266,6 +266,47 @@ function placeBatchImmediate(
   return { fire, booked, loads: [...list, formed(jl, fire, booked)], formed: true };
 }
 
+// §3.5.1 step 3, one immediate line: on a batch station its load (P-3: its own station only), else its earliest fit
+// on each allowed station with the choice of §3.5.5 (minimum arrival; home unless beaten by ≥ min_gain_ms).
+function placeImmediate(
+  state: EngineState,
+  ctx: ReturnType<typeof routeCtx>,
+  line: PlanLine,
+  opts: readonly RouteOption[],
+  profiles: Record<string, Profile>,
+  loads: Loads,
+  t: number,
+): { placement: Routed; profiles: Record<string, Profile>; loads: Loads; formed: boolean } {
+  const only = opts.length === 1 ? opts[0]! : undefined;
+  if (only !== undefined && state.stations[only.station_id]!.type === 'batch') {
+    const sid = only.station_id;
+    const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t);
+    return {
+      placement: { fire: r.fire, booked: r.booked, station_id: sid, carry_ms: only.carry_ms, ...(only.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) },
+      profiles: r.formed ? { ...profiles, [sid]: addInterval(profiles[sid]!, r.booked, r.booked.units) } : profiles,
+      loads: { ...loads, [sid]: r.loads },
+      formed: r.formed,
+    };
+  }
+  const tries = opts.map((x) => {
+    const fire = earliestFit(profiles[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
+    return { fire, booked: bookingAt(line, x.cap, fire) };
+  });
+  const k = chooseImmediate(
+    ctx,
+    opts,
+    tries.map((x, i) => x.booked.end + opts[i]!.carry_ms),
+  );
+  const { fire, booked } = tries[k]!;
+  const sid = opts[k]!.station_id;
+  return {
+    placement: { fire, booked, station_id: sid, carry_ms: opts[k]!.carry_ms, ...(opts[k]!.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) },
+    profiles: { ...profiles, [sid]: addInterval(profiles[sid]!, booked, booked.units) },
+    loads,
+    formed: true,
+  };
+}
+
 // F §4.7 hold-and-fire for one sync group against `profiles` (the profile after the immediate lines, D36; every
 // allowed station of every line present): candidate T = max over the group's lines of their least slot-formula
 // land time over their allowed stations (earliest fit from t, + carry), raised to `floor` (delivery pickup, D3);
@@ -342,52 +383,38 @@ function placeSequence(
   t: number,
   floor: number | null,
   o: SequenceOptions,
-): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks'] } {
+  event_id = '',
+): { placements: Map<string, Routed>; targets: number[]; fifo: Set<string>; moves: Map<string, Move>; loads: Loads; fallbacks: Pass1Result['fallbacks']; base: EngineState; frozen: FrozenStep | null } {
   const stations = state.stations;
   const ctx = routeCtx(state);
   const all = [...immediates, ...syncGroups.flat()];
   for (const line of all) stationOf(stations, line);
   const options = new Map(all.map((l) => [l.order_item_id, routeOptions(ctx, l, false)]));
   const uses = [...options.values()].flatMap((os) => os.map((x) => x.station_id));
-  const p1 = pass1(state, uses, all, t, { prune: o.prune, strict: o.strict });
+  const boosted = boostedReturns(state, ctx, immediates, options);
+  const placed = boosted === null ? null : placeReturnBoost(state, ctx, boosted, uses, t, event_id, o);
+  const base = placed?.base ?? state;
+  const rest = boosted === null ? all : all.filter((l) => !boosted.has(l.order_item_id));
+  const p1 = pass1(placed?.work ?? state, uses, rest, t, { prune: o.prune, strict: o.strict, ...(placed === null ? {} : { late: placed.frozen.late }) });
   let profiles: Record<string, Profile> = p1.profiles;
   // Task 13: the batch stations' loads after pass 1; the new lines join or form loads in them.
   let loads: Loads = { ...p1.loads };
-  const placements = new Map<string, Routed>();
+  const placements = new Map<string, Routed>(placed?.placements ?? []);
+  for (const [sid, list] of Object.entries(placed?.loads ?? {})) loads = { ...loads, [sid]: [...(loads[sid] ?? []), ...list] };
   // §3.8a: a return line is an immediate placed here — its earliest fit after pass 1 kept the older lines within
-  // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines". SEAM (task 16):
-  // with settings.returns_boost = true it is placed as a boost of the return line only (§3.9) and may push others.
+  // d − keep, i.e. "within other lines' slack and min_slack_keep_ms, never past their deadlines"; with
+  // settings.returns_boost = true it was placed above, as a boost of the return line only, and may push others.
   // §3.5.3 FIFO / AD-14: a FIFO sync line is placed here like an immediate one.
   const fifo = new Set(syncGroups.flat().filter((l) => isFifoLine(ctx, l, options.get(l.order_item_id)!)).map((l) => l.order_item_id));
   const rank = new Map(listing.map((id, i) => [id, i]));
-  const step3 = [...immediates, ...syncGroups.flat().filter((l) => fifo.has(l.order_item_id))].sort(
+  const step3 = [...immediates.filter((l) => boosted?.has(l.order_item_id) !== true), ...syncGroups.flat().filter((l) => fifo.has(l.order_item_id))].sort(
     (a, b) => (rank.get(a.order_item_id) ?? 0) - (rank.get(b.order_item_id) ?? 0),
   );
   for (const line of step3) {
-    const opts = options.get(line.order_item_id)!;
-    const only = opts.length === 1 ? opts[0]! : undefined;
-    if (only !== undefined && stations[only.station_id]!.type === 'batch') {
-      // Task 13: a batch line has its own station only (P-3).
-      const sid = only.station_id;
-      const r = placeBatchImmediate(profiles[sid]!, loads[sid] ?? [], line, only.cap, t);
-      loads = { ...loads, [sid]: r.loads };
-      if (r.formed) profiles = { ...profiles, [sid]: addInterval(profiles[sid]!, r.booked, r.booked.units) };
-      placements.set(line.order_item_id, { fire: r.fire, booked: r.booked, station_id: sid, carry_ms: only.carry_ms, ...(only.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
-      continue;
-    }
-    const tries = opts.map((x) => {
-      const fire = earliestFit(profiles[x.station_id]!, t, line.prep_ms, line.cook_ms, line.units, x.cap);
-      return { fire, booked: bookingAt(line, x.cap, fire) };
-    });
-    const k = chooseImmediate(
-      ctx,
-      opts,
-      tries.map((x, i) => x.booked.end + opts[i]!.carry_ms),
-    );
-    const { fire, booked } = tries[k]!;
-    const sid = opts[k]!.station_id;
-    profiles = { ...profiles, [sid]: addInterval(profiles[sid]!, booked, booked.units) };
-    placements.set(line.order_item_id, { fire, booked, station_id: sid, carry_ms: opts[k]!.carry_ms, ...(opts[k]!.fallback === 'reserve' ? { fallback: 'reserve' as const } : {}) });
+    const r = placeImmediate(state, ctx, line, options.get(line.order_item_id)!, profiles, loads, t);
+    profiles = r.profiles;
+    loads = r.loads;
+    placements.set(line.order_item_id, r.placement);
   }
   const targets: number[] = [];
   for (const group of syncGroups) {
@@ -413,7 +440,232 @@ function placeSequence(
     }
     targets.push(r.T);
   }
-  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks };
+  return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, base, frozen: placed?.frozen ?? null };
+}
+
+// §3.8a returns_boost: the return lines of a batch placed as a boost, each with the allowed stations a boost may use.
+// §3.5.3 / AD-14: a FIFO station never lets a line jump its queue, so a return with only FIFO stations stays an
+// ordinary immediate there, and FIFO alternates are left out — proposed (implementer, overnight).
+function boostedReturns(
+  state: EngineState,
+  ctx: ReturnType<typeof routeCtx>,
+  immediates: ReadonlyArray<PlanLine & NewLine>,
+  options: ReadonlyMap<string, readonly RouteOption[]>,
+): Map<string, { line: PlanLine & NewLine; opts: RouteOption[] }> | null {
+  if (state.config?.settings.returns_boost !== true) return null;
+  const out = new Map<string, { line: PlanLine & NewLine; opts: RouteOption[] }>();
+  for (const line of immediates) {
+    if ((line.return_of ?? null) === null) continue;
+    const opts = options.get(line.order_item_id)!.filter((x) => !ctx.fifo.has(x.station_id));
+    if (opts.length > 0) out.set(line.order_item_id, { line, opts });
+  }
+  return out.size === 0 ? null : out;
+}
+
+// §3.8a: "the new line is placed as a boost (§3.9) instead and may push others" — the return line only: at its earliest
+// fit against the fixed lines (fired and COOKING); then the D15 exception on the stations it landed on, frozen lines
+// first (the caller's pass 1 places the hidden ones). Returns the stored base (frozen moves applied, no return line
+// yet: the caller books it) and the working state pass 1 reads (base + the return bookings in the profile).
+// mark stays 'return', and order.boosted, the order's other lines and T are not touched: the caller only books it.
+// All pure over `state`, so planOrder at now and the fold at recorded_at reach the same placement (§3.5.1).
+function placeReturnBoost(
+  state: EngineState,
+  ctx: ReturnType<typeof routeCtx>,
+  boosted: ReadonlyMap<string, { line: PlanLine & NewLine; opts: RouteOption[] }>,
+  uses: readonly string[],
+  t: number,
+  event_id: string,
+  o: SequenceOptions,
+): { placements: Map<string, Routed>; loads: Loads; frozen: FrozenStep; base: EngineState; work: EngineState } {
+  let profiles: Record<string, Profile> = fixedProfiles(state, uses, t, o.strict);
+  let loads: Loads = {};
+  const placements = new Map<string, Routed>();
+  const bookings: Array<{ station_id: string; booked: Load['booked'] }> = [];
+  for (const [id, { line, opts }] of boosted) {
+    const r = placeImmediate(state, ctx, line, opts, profiles, loads, t);
+    profiles = r.profiles;
+    loads = r.loads;
+    placements.set(id, r.placement);
+    if (r.formed) bookings.push({ station_id: r.placement.station_id, booked: r.placement.booked });
+  }
+  const withBookings = (s: EngineState): EngineState => {
+    const stations = { ...s.stations };
+    for (const b of bookings) stations[b.station_id] = { ...stations[b.station_id]!, profile: addInterval(stations[b.station_id]!.profile, b.booked, b.booked.units) };
+    return { ...s, stations };
+  };
+  const landed = [...new Set([...placements.values()].map((p) => p.station_id))];
+  const frozen = placeFrozen(withBookings(state), landed, t, { strict: o.strict });
+  const base = applyPass1(state, frozen, event_id, o.strict);
+  return { placements, loads, frozen, base, work: withBookings(base) };
+}
+
+// §3.4: a frozen line whose fire_ms changed gets the red marker (`mark: 'moved'`), except a return line, whose mark
+// stays (§3.8a); a hidden one is not marked. proposed (implementer, overnight): a FIFO line's deadline stays its fire
+// (AD-14) when a capacity drop pushes it.
+function markFrozen(state: EngineState, step: FrozenStep | null): EngineState {
+  if (step === null || step.before.size === 0) return state;
+  let lines: Record<string, EngineLine> | null = null;
+  for (const [id, b] of step.before) {
+    const l = state.lines[id];
+    if (l === undefined || l.fire_ms === b.fire) continue;
+    lines ??= { ...state.lines };
+    lines[id] = { ...l, ...(b.frozen && l.return_of === null ? { mark: 'moved' as const } : {}), ...(b.fifo ? { deadline_ms: l.fire_ms! } : {}) };
+  }
+  return lines === null ? state : { ...state, lines };
+}
+
+// §3.4 D15 exceptions: the re-plan of a boost or a capacity change on `station_ids` at t: frozen lines first
+// (placeFrozen), then pass 1 of the hidden ones (held lines are fixed input), the late set through §3.5.6. No new line.
+export function replanDisturbed(state: EngineState, station_ids: readonly string[], t: number, event_id: string, o: SequenceOptions, held?: ReadonlySet<string>): EngineState {
+  if (station_ids.length === 0) return state;
+  const step = placeFrozen(state, station_ids, t, { strict: o.strict, ...(held === undefined ? {} : { held }) });
+  const s1 = applyPass1(state, step, event_id, o.strict);
+  const p1 = pass1(s1, station_ids, [], t, { prune: false, strict: o.strict, late: step.late, ...(held === undefined ? {} : { held }) });
+  return markFrozen(applyPass1(s1, p1, event_id, o.strict), step);
+}
+
+// §3.10, §3.11, §3.5.3: a capacity change (`after` = `before` with the stations' new capacity or override), re-planned
+// at the event. AD-12: an unfired line keeps its slot end, so an over-size line's deadline moves by the occupancy
+// difference at the old and new capacity (reserve included, placementCap) — proposed (implementer, overnight), as the
+// stock flip does; a FIFO line's deadline follows its fire (markFrozen). AD-4: every line still occupying the
+// station with units > the new effective capacity gets an over_capacity diagnostic, both modes, when it changed.
+export function replanCapacity(before: EngineState, after: EngineState, station_ids: readonly string[], t: number, event_id: string, o: SequenceOptions): EngineState {
+  if (station_ids.length === 0) return after;
+  let lines: Record<string, EngineLine> | null = null;
+  for (const sid of station_ids) {
+    if (isFifo(after, sid)) continue;
+    for (const id of after.stations[sid]!.unfired) {
+      const l = after.lines[id];
+      if (l === undefined) continue;
+      const delta = occupancy(l.units, placementCap(before, l), l.cook_ms).cook_ms - occupancy(l.units, placementCap(after, l), l.cook_ms).cook_ms;
+      if (delta === 0) continue;
+      lines ??= { ...after.lines };
+      lines[id] = { ...l, deadline_ms: l.deadline_ms + delta };
+    }
+  }
+  const replanned = replanDisturbed(lines === null ? after : { ...after, lines }, station_ids, t, event_id, o);
+  const diagnostics: Diagnostic[] = [];
+  const changed = new Map<string, number>();
+  for (const sid of station_ids) {
+    const cap = effectiveCapacity(after.stations[sid]!);
+    if (effectiveCapacity(before.stations[sid]!) !== cap) changed.set(sid, cap);
+  }
+  if (changed.size > 0) {
+    for (const l of Object.values(replanned.lines)) {
+      const cap = changed.get(l.station_id);
+      if (cap === undefined || l.units <= cap || (l.stage !== 'added' && l.stage !== 'cooking') || l.fire_ms === null) continue;
+      diagnostics.push({ kind: 'over_capacity', event_id, order_item_id: l.order_item_id, station_id: l.station_id, detail: { units: l.units, capacity: cap } });
+    }
+  }
+  return diagnostics.length === 0 ? replanned : { ...replanned, diagnostics: [...replanned.diagnostics, ...diagnostics] };
+}
+
+// §3.9 OrderBoosted at t (D4, D15 exception). The order's unfired lines (hidden and frozen) are re-placed first against
+// the fixed lines (fired and COOKING, live; every other unfired line of their stations is out of the way), marked
+// `boost` (a return line keeps 'return', §3.8a), then the D15 re-plan of the stations they left or landed on places
+// every other unfired line there (frozen first, marked `moved`; late set through §3.5.6). A frozen line stays on its
+// station (§3.5.5 D10); a hidden one may take an allowed station. The order's promise stays; its T becomes T_b.
+// proposed (implementer, overnight) readings, each keeping §3.9's stated rules:
+//   B1 "as one group": the order's sync lines of every group go through one hold-and-fire, every group with a re-placed
+//      line takes T_b, order T = max over its groups (AD-8). An immediate line goes at its own earliest fit first
+//      (§3.5.1 step 3, §3.2 "no hold"), its own group's T = its land. Alternative: hold immediates to T_b too.
+//   B2 a line that cannot move (fired, COOKING, FIFO) of those groups floors T_b at its live land (sync lands together,
+//      as AD-11 and AD-14 do); done lines do not. Alternative: T_b below a COOKING sibling's land.
+//   B3 no pickup floor: F §4.7 "earliest fitting interval (starting now)", §3.9 earliestFit(t); a boost is the manager's
+//      call. Alternative: keep the §3.5.1 pickup floor.
+//   B4 FIFO (AD-14; §3.9 does not name FIFO, §3.5.3 "no re-plan of older lines"): a FIFO line of the order stays where
+//      it is, unmarked, and nothing on a FIFO station moves. Alternative: the boosted line jumps the FIFO queue.
+//   B5 a batch line leaves its stored load (which keeps its name and booking while it has members) and forms or joins a
+//      load of the boosted lines only (§3.9 "against the fixed lines"; a frozen load of others is pushed, not joined).
+//   B6 a boost with no movable line only sets boosted (nothing to re-place; T kept). A repeat boost runs again.
+export function boostOrder(state: EngineState, order_id: string, t: number, event_id: string, o: SequenceOptions): EngineState {
+  const order = state.orders[order_id]!;
+  const unfired = order.line_ids
+    .map((id) => state.lines[id])
+    .filter((l): l is EngineLine => l !== undefined && l.stage === 'added' && l.fired_at === null && l.fire_ms !== null);
+  const movable = unfired.filter((l) => !isFifo(state, l.station_id));
+  if (movable.length === 0) return { ...state, orders: { ...state.orders, [order_id]: { ...order, boosted: true } } };
+  const ids = new Set(movable.map((l) => l.order_item_id));
+  const ctx = routeCtx(state);
+  const options = new Map<string, RouteOption[]>();
+  for (const l of movable) {
+    const frozen = l.fire_ms! <= t + stationPolicy(state, l.station_id).freeze_ms;
+    const all = routeOptions(ctx, l, true);
+    if (!frozen && all.length > 0) options.set(l.order_item_id, all);
+    else options.set(l.order_item_id, [optionOwn(all, l, placementCap(state, l))]);
+  }
+  for (const l of movable) stationOf(state.stations, l);
+  const uses = [...new Set([...options.values()].flatMap((os) => os.map((x) => x.station_id)))];
+  let profiles = fixedProfiles(state, uses, t, o.strict);
+  let loads: Loads = {};
+  const placements = new Map<string, Routed>();
+  // The immediate lines first, then one hold-and-fire over the sync lines (§3.5.1 steps 3–4; B1).
+  const immediate = movable.filter((l) => l.serve_mode === 'immediate');
+  const sync = movable.filter((l) => l.serve_mode === 'sync');
+  for (const l of immediate) {
+    const r = placeImmediate(state, ctx, l, options.get(l.order_item_id)!, profiles, loads, t);
+    profiles = r.profiles;
+    loads = r.loads;
+    placements.set(l.order_item_id, r.placement);
+  }
+  const groupIds = new Set(sync.map((l) => l.group_id));
+  let floor: number | null = null;
+  for (const gid of groupIds) {
+    for (const x of order.groups[gid]?.line_ids ?? []) {
+      const l = state.lines[x];
+      if (l === undefined || ids.has(x) || (l.stage !== 'added' && l.stage !== 'cooking')) continue;
+      const iv = liveInterval(state, x, t);
+      if (iv !== null) floor = Math.max(floor ?? iv.end + l.carry_ms, iv.end + l.carry_ms);
+    }
+  }
+  let T_b: number | null = null;
+  if (sync.length > 0) {
+    const r = holdAndFire(state, profiles, sync, options, t, floor, loads);
+    T_b = r.T;
+    loads = r.loads;
+    for (const [id, pl] of r.placements) placements.set(id, pl);
+  }
+  // Store: slot lines by applyMoves (AD-7: exactly the old booked), batch stations' loads by storeLoads.
+  const moves = new Map<string, Move>();
+  for (const l of movable) {
+    const pl = placements.get(l.order_item_id)!;
+    if (state.stations[pl.station_id]!.type === 'batch') continue;
+    const { station_id, carry_ms, fire, booked } = pl;
+    moves.set(l.order_item_id, station_id === l.station_id ? { fire, booked, capped: false } : { fire, booked, capped: false, to: { ...rerouted(l, { station_id, carry_ms }), deadline_ms: fire } });
+  }
+  let next = applyMoves(state, moves, event_id, o.strict);
+  const batchIds = new Set([...movable.filter((l) => state.stations[l.station_id]!.type === 'batch').map((l) => l.station_id), ...Object.keys(loads)]);
+  for (const sid of [...batchIds].sort()) {
+    const others = Object.values(next.stations[sid]!.loads)
+      .map((l) => ({ ...l, order_item_ids: l.order_item_ids.filter((m) => !ids.has(m)) }))
+      .filter((l) => l.order_item_ids.length > 0)
+      .map((l) => workOf(next, l));
+    next = storeLoads(next, sid, [...others, ...(loads[sid] ?? [])], event_id, o.strict);
+  }
+  // Marks, deadlines (AD-12: the line's slot in the new plan, loopT = T_b), group and order T.
+  const lines = { ...next.lines };
+  const groups = { ...order.groups };
+  const stationsTouched = new Set<string>();
+  const fallbacks: Pass1Result['fallbacks'] = [];
+  for (const l of movable) {
+    const pl = placements.get(l.order_item_id)!;
+    const batch = next.stations[pl.station_id]!.type === 'batch';
+    lines[l.order_item_id] = { ...lines[l.order_item_id]!, mark: l.return_of !== null ? l.mark : 'boost', capped: false, deadline_ms: batch ? pl.booked.start - l.prep_ms : pl.fire };
+    stationsTouched.add(l.station_id);
+    stationsTouched.add(pl.station_id);
+    if (pl.fallback === 'reserve') fallbacks.push({ order_item_id: l.order_item_id, station_id: pl.station_id, capacity: effectiveCapacity(next.stations[pl.station_id]!), reserve_units: ctx.reserve.get(pl.station_id) ?? 0 });
+    const g = groups[l.group_id];
+    if (g === undefined) continue;
+    groups[l.group_id] = { ...g, target_land_ms: l.serve_mode === 'sync' ? T_b! : pl.booked.end + pl.carry_ms };
+  }
+  const target_land_ms = Math.max(...Object.values(groups).map((g) => g.target_land_ms));
+  next = { ...next, lines, orders: { ...next.orders, [order_id]: { ...order, boosted: true, groups, target_land_ms } } };
+  return fallbackDiagnostics(replanDisturbed(next, [...stationsTouched].sort(), t, event_id, o, ids), fallbacks, event_id);
+}
+
+// A frozen line's only option: its own station (§3.5.5 D10), at the capacity it may use there.
+function optionOwn(all: readonly RouteOption[], l: EngineLine, cap: number): RouteOption {
+  return all.find((x) => x.station_id === l.station_id) ?? { station_id: l.station_id, carry_ms: l.carry_ms, home: false, cap };
 }
 
 // ---- task 13: storing loads ----------------------------------------------------------------------------------
@@ -584,6 +836,7 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     t,
     order.pickup_at_ms,
     o,
+    event_id,
   );
   // AD-12: each new line's queued deadline, from the stored group T and the loop result that placed it.
   const loopT = new Map<string, number>();
@@ -603,9 +856,9 @@ export function planNewLines(state: EngineState, order_id: string, t: number, ev
     const own = state.stations[pl.station_id]!.type === 'batch' ? pl.booked.start - l.prep_ms : pl.fire;
     deadlines.set(l.order_item_id, queuedDeadline(own, lt, T));
   }
-  const moved = applyMoves(state, placed.moves, event_id, o.strict);
+  const moved = applyMoves(placed.base, placed.moves, event_id, o.strict);
   const booked = bookNew(moved, pending, placed.placements, deadlines, event_id);
-  return fallbackDiagnostics(storeAllLoads(booked, placed.loads, event_id, o.strict), placed.fallbacks, event_id);
+  return markFrozen(fallbackDiagnostics(storeAllLoads(booked, placed.loads, event_id, o.strict), placed.fallbacks, event_id), placed.frozen);
 }
 
 // §3.5.3 triggers (D13): ItemRemoved / ItemVoided re-plan "that station", and "the group's T may move earlier,
@@ -915,6 +1168,7 @@ export function planOrderWith(
       from_stock: shape.from_stock,
       program_id: l.program_id,
       stock_program_id: l.stock_program_id,
+      return_of: l.return_of,
     };
     checkProgram(line, station);
     return line;

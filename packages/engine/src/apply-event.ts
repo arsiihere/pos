@@ -17,11 +17,13 @@ import type {
   PosEvent,
   ReservationsShiftedPayload,
   SlipWarnedPayload,
+  StationCapacitySetPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
 import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import {
   applyPass1,
+  boostOrder,
   checkProgram,
   deadlineOf,
   InvalidEvent,
@@ -30,6 +32,7 @@ import {
   lineUnits,
   planNewLines,
   placeExpedites,
+  replanCapacity,
   replanEnded,
   requeueGroup,
   storeLoads,
@@ -53,6 +56,58 @@ interface StockLine { stock_item_id: string; order_item_id: string; quantity: nu
 interface BusinessDayOpened { business_date: string; stock_units: Record<string, Unit>; draws: Record<string, DayDraws> }
 
 const EMPTY_PROFILE = (): StationRuntime['profile'] => ({ t: [], u: [] });
+
+// §3.10, §3.11: an EngineConfigApplied that changes a station's capacity re-plans it as a capacity change (D15
+// exception); every other change applies from the next re-plan. Station type changes are §3.11's fixed-input row
+// (task 17), so such a station is not re-planned here.
+function foldEngineConfig(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const config = event.payload as unknown as EngineConfig;
+  const after = applyEngineConfig(state, config);
+  const ids = config.stations
+    .filter((s) => {
+      const prev = state.stations[s.station_id];
+      return prev !== undefined && prev.type === s.station_type && prev.capacity !== s.capacity;
+    })
+    .map((s) => s.station_id);
+  return replanCapacity(state, after, ids, event.recorded_at, event.event_id, o);
+}
+
+// §3.10 (D37): StationCapacitySet sets capacity_override, and the station re-plans (§3.5.3; D15 exception). The fold
+// takes the event as given: ≤ capacity for a station session, ≤ 100 for staff are the command's (§6.6). Absent station:
+// a no-op (§3.3).
+function foldStationCapacity(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const p = event.payload as unknown as StationCapacitySetPayload;
+  const station = state.stations[p.station_id];
+  if (station === undefined) return state;
+  const after = { ...state, stations: { ...state.stations, [p.station_id]: { ...station, capacity_override: p.capacity_override } } };
+  return replanCapacity(state, after, [p.station_id], event.recorded_at, event.event_id, o);
+}
+
+// §3.10 (G4-1 #20, G4-2 #13): BusinessDayOpened clears capacity_override and paused; a station whose effective
+// capacity changed re-plans as a capacity change, so a night override never leaves its units booked. Stations with
+// nothing to clear keep their reference.
+function clearNightSettings(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  let stations: EngineState['stations'] | null = null;
+  const ids: string[] = [];
+  for (const id of Object.keys(state.stations)) {
+    const s = state.stations[id]!;
+    if (s.capacity_override === null && !s.paused) continue;
+    stations ??= { ...state.stations };
+    stations[id] = { ...s, capacity_override: null, paused: false };
+    if (effectiveCapacity(s) !== s.capacity) ids.push(id);
+  }
+  if (stations === null) return state;
+  return replanCapacity(state, { ...state, stations }, ids, event.recorded_at, event.event_id, o);
+}
+
+// §3.9 OrderBoosted (D4; boostOrder, plan.ts). An absent order is a no-op (§3.3); its clock refreshes (§3.3).
+function foldOrderBoosted(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
+  const p = event.payload as { order_id: string };
+  checkStream(event, p.order_id, '');
+  const order = state.orders[p.order_id];
+  if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
+  return touchOrder(boostOrder(state, p.order_id, event.recorded_at, event.event_id, o), p.order_id, event.recorded_at);
+}
 
 // 03a §3.11: store the config; a StationRuntime per station (a new one with an empty profile). An existing
 // station keeps capacity_override, paused, profile, unfired and loads; type and capacity come from the payload.
@@ -942,16 +997,6 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: SequenceOptio
   return touchOrder(next, oid, t);
 }
 
-// §3.3 last_line_fold_at for the order folds whose effects land in later tasks (ItemMovedToStock 12, OrderBoosted
-// 9): an event that names a present order (or an open line of one) refreshes its clock.
-function foldNamesOrder(state: EngineState, event: PosEvent): EngineState {
-  const p = event.payload as { order_id: string };
-  checkStream(event, p.order_id, '');
-  const order = state.orders[p.order_id];
-  if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
-  return touchOrder(state, p.order_id, event.recorded_at);
-}
-
 function foldItemMovedToStock(state: EngineState, event: PosEvent): EngineState {
   const p = event.payload as unknown as { order_item_id: string };
   const line = stageLine(state, event, p.order_item_id);
@@ -1077,8 +1122,9 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     // 01a S33: recorded_at is the day's start and end.
     case 'BusinessDayOpened': {
       const p = event.payload as unknown as BusinessDayOpened;
+      const cleared = clearNightSettings(state, event, o);
       return {
-        ...state,
+        ...cleared,
         business_day: {
           business_date: p.business_date,
           opened_at: event.recorded_at,
@@ -1101,7 +1147,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return { ...replanned, business_day: { ...day, closed_at: event.recorded_at }, slips };
     }
     case 'EngineConfigApplied':
-      return applyEngineConfig(state, event.payload as unknown as EngineConfig);
+      return foldEngineConfig(state, event, o);
     case 'OrderPlaced':
       return foldOrderPlaced(state, event);
     case 'OrderLinesAdded':
@@ -1130,7 +1176,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'ItemMovedToStock':
       return foldItemMovedToStock(state, event);
     case 'OrderBoosted':
-      return foldNamesOrder(state, event);
+      return foldOrderBoosted(state, event, o);
     case 'ItemsReleased':
       return foldItemsReleased(state, event, o);
     // §3.8 slip state (neither refreshes the §3.3 clock).
@@ -1138,8 +1184,9 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldSlipWarned(state, event);
     case 'AlertClosed':
       return foldAlertClosed(state, event);
-    // Unchanged until their tasks.
     case 'StationCapacitySet':
+      return foldStationCapacity(state, event, o);
+    // Unchanged until its task (16b).
     case 'StationPauseSet':
       return state;
     default:

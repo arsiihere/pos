@@ -17,7 +17,9 @@
 //              land at the point). Only when none fits does it join the late set. proposed (implementer,
 //              overnight) R3: a line that fits on its own station stays there (no churn back to home).
 // The new lines (pass 2, §3.5.1 steps 3–4) are placed by plan.ts against the profiles this returns.
-// Frozen, fired, COOKING and done lines never move here (the boost / capacity-change D15 exceptions are task 16).
+// Frozen, fired, COOKING and done lines never move in pass 1 alone. The two D15 exceptions (§3.4; task 16), a boost
+// and a capacity change, run placeFrozen first and pass its late set to pass 1 (o.late); fired and COOKING lines never
+// move there either.
 import { InvalidEvent } from './invalid-event.js';
 import { effectiveCapacity } from './capacity.js';
 import { liveProfile, liveProfiles } from './live.js';
@@ -97,6 +99,9 @@ export type Pass1Options = {
   // AD-6: true → an underflow of the working profile throws; false → it clamps (the stored-profile removal in
   // applyMoves is the one that reports a diagnostic).
   strict: boolean;
+  // §3.4 D15 exceptions (task 16): the frozen lines placeFrozen found pushed past their deadline; they go straight
+  // to §3.5.6 with the station's hidden lines and move only later from their current fire.
+  late?: ReadonlySet<string>;
 };
 
 export type Pass1Result = {
@@ -378,11 +383,12 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     const hidden = station.unfired
       .map((x) => state.lines[x])
       .filter((l): l is EngineLine => l !== undefined && isHidden(state, l, t) && o.held?.has(l.order_item_id) !== true);
-    if (hidden.length === 0) {
+    const forced = o.late === undefined ? [] : station.unfired.map((x) => state.lines[x]!).filter((l) => o.late!.has(l.order_item_id));
+    if (hidden.length === 0 && forced.length === 0) {
       profiles[id] = liveHere;
       continue;
     }
-    const fixed = combine(liveHere, profileOf(hidden.map((h) => h.booked!)), -1, o.strict ? undefined : () => undefined);
+    const fixed = combine(liveHere, profileOf([...hidden, ...forced].map((h) => h.booked!)), -1, o.strict ? undefined : () => undefined);
     const pivot = o.prune && newLines.length > 0 ? pivotOn(fixed, id, held, newLines, opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
     const pruned: Booking[] = [];
     const free: EngineLine[] = [];
@@ -392,11 +398,12 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
     }
     const base = combine(fixed, profileOf(pruned), 1);
     const work = new Work(base);
-    capacityFor(station, hidden[0]!.order_item_id); // capacity < 1 → InvalidEvent (task 7 review ruling)
-    const late: EngineLine[] = [];
+    const first = hidden[0] ?? forced[0]!;
+    capacityFor(station, first.order_item_id); // capacity < 1 → InvalidEvent (task 7 review ruling)
+    const late: EngineLine[] = [...forced];
     const placed: Array<[string, Placement]> = [];
     const away: Array<[string, Move]> = [];
-    const caps = new Map<string, number>();
+    const caps = new Map<string, number>(forced.map((L) => [L.order_item_id, placementCap(state, L)]));
     for (const L of pass1Order(state, free, pol.keep_ms, t)) {
       const options = routeOptions(ctx, L, true);
       const own = optionOn(options, id);
@@ -446,13 +453,15 @@ export function pass1(state: EngineState, station_ids: Iterable<string>, newLine
       const gone = new Set(away.map(([x]) => x));
       const r = overloadPlace(
         base,
-        free
-          .filter((L) => !gone.has(L.order_item_id))
-          .map((L) => {
-            const w = weightOf(state, L);
-            return { ...L, w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap: caps.get(L.order_item_id)! };
-          }),
-        capacityFor(station, hidden[0]!.order_item_id),
+        [
+          ...free.filter((L) => !gone.has(L.order_item_id)),
+          // §3.4: a frozen line moves only later: the search's lower bound (max(t, d − max_early_ms)) is its fire.
+          ...forced.map((L) => ({ ...L, max_early_ms: L.deadline_ms - Math.max(t, L.fire_ms!) })),
+        ].map((L) => {
+          const w = weightOf(state, L);
+          return { ...L, w, urgency: w * (t - (state.orders[L.order_id]?.placed_at ?? t)), cap: caps.get(L.order_item_id)! };
+        }),
+        capacityFor(station, first.order_item_id),
         t,
         Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000),
       );
@@ -511,31 +520,41 @@ function batchPass1(
   const id = station.station_id;
   const stored = Object.values(station.loads).map((l) => workOf(state, l));
   if (pol.policy === 'fifo') return { profile: liveHere, loads: stored, probes: null };
-  const isHiddenLoad = (b: WorkLoad): boolean => b.fire_ms > t + pol.freeze_ms;
+  // §3.4 D15 exceptions: a load of the boosted lines is held; a frozen load pushed past its deadline (placeFrozen) is
+  // free, as a unit of the §3.5.6 search, moving only later from its fire.
+  const heldLoad = (b: WorkLoad): boolean => o.held !== undefined && b.members.some((m) => o.held!.has(m));
+  const forcedLoad = (b: WorkLoad): boolean => o.late !== undefined && b.members.some((m) => o.late!.has(m));
+  const isHiddenLoad = (b: WorkLoad): boolean => !heldLoad(b) && (b.fire_ms > t + pol.freeze_ms || forcedLoad(b));
   const hidden = stored.filter(isHiddenLoad);
   if (hidden.length === 0) return { profile: liveHere, loads: stored, probes: null };
   const cap = capacityFor(station, hidden[0]!.members[0] ?? id);
   const fixed = combine(liveHere, profileOf(hidden.map((b) => b.booked)), -1, o.strict ? undefined : () => undefined);
   const whole = <L extends NewLine>(L: L): L => (optionOn(opts.get(L.order_item_id) ?? [], id) === undefined ? L : asLoad(L, cap));
   const pivot = o.prune && newLines.length > 0 ? pivotOn(fixed, id, held.map(whole), newLines.map(whole), opts, fifoLines, t, T_min) : Number.NEGATIVE_INFINITY;
-  const pruned = hidden.filter((b) => b.booked.end <= pivot);
-  const free = hidden.filter((b) => b.booked.end > pivot);
+  const pruned = hidden.filter((b) => !forcedLoad(b) && b.booked.end <= pivot);
+  const free = hidden.filter((b) => forcedLoad(b) || b.booked.end > pivot);
   const base = combine(fixed, profileOf(pruned.map((b) => b.booked)), 1);
   const keepLoads = [...stored.filter((b) => !isHiddenLoad(b)), ...pruned];
   const from = new Map<string, string>();
   const freeLines: EngineLine[] = [];
+  const late: EngineLine[] = [];
+  const floors = new Map<string, number>();
   for (const b of free) {
     for (const m of b.members) {
       const l = state.lines[m];
       if (l === undefined || l.stage !== 'added' || l.fired_at !== null) continue;
-      freeLines.push(l);
       from.set(m, b.load_id!);
+      if (forcedLoad(b)) {
+        late.push(l);
+        floors.set(m, Math.max(t, b.fire_ms));
+      } else {
+        freeLines.push(l);
+      }
     }
   }
   const window = freshnessOf(state, id);
   const work = new Work(base);
   let cands: WorkLoad[] = [...keepLoads];
-  const late: EngineLine[] = [];
   const join = (L: EngineLine, E: number): boolean => {
     const jl = joinLine(L);
     const b = syncJoin(cands, jl, cap, E, window, t);
@@ -574,7 +593,7 @@ function batchPass1(
     for (const L of ls.slice(1)) u = withMember(u, joinLine(L));
     units.push(u);
   }
-  const r = overloadPlace(base, units.map((u) => overloadUnit(state, u, cap, t)), cap, t, Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000));
+  const r = overloadPlace(base, units.map((u) => overloadUnit(state, u, cap, t, floors)), cap, t, Math.max(1, state.config?.settings.cascade_step_ms ?? 60_000));
   const capped = new Set(r.capped);
   const placed = new Map(r.placements);
   const loads = units.map((u) => {
@@ -590,7 +609,8 @@ function batchPass1(
 // proposed (implementer, overnight) J7: the unit's deadline is the minimum of those latest fires; the binding
 // member (the one giving it; ties by order_item_id) gives the weight (§3.5.2), its max_late_ms and the pass-1 tie
 // key, so d_Λ = min member d + min(Λ × 100 / w_binding, max_late_binding); lo = the largest member bound (≤ d).
-function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number): OverloadLine {
+// §3.4 (task 16): a frozen load in the search moves only later: its lower bound is its fire (`floors`), past its d.
+function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number, floors: ReadonlyMap<string, number>): OverloadLine {
   let bind: EngineLine | null = null;
   let d = Number.POSITIVE_INFINITY;
   let lo = Number.NEGATIVE_INFINITY;
@@ -604,10 +624,11 @@ function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number): 
     lo = Math.max(lo, L.deadline_ms - L.max_early_ms);
   }
   const w = weightOf(state, bind!);
+  const floor = floors.get(u.members[0]!);
   return {
     order_item_id: u.members[0]!,
     deadline_ms: d,
-    max_early_ms: Math.max(0, d - lo),
+    max_early_ms: floor === undefined ? Math.max(0, d - lo) : d - Math.max(lo, floor),
     max_late_ms: bind!.max_late_ms,
     units: Math.max(u.units, cap),
     prep_ms: u.max_prep,
@@ -616,6 +637,105 @@ function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number): 
     urgency: w * (t - (state.orders[bind!.order_id]?.placed_at ?? t)),
     cap,
   };
+}
+
+// ---- §3.4 D15 exceptions (task 16): a boost and a capacity change --------------------------------------------------
+
+// The live profiles of `station_ids` at t with every unfired booking taken out (lines' and loads'), except those of
+// `held` lines: the fixed lines of §3.9 / §3.10, fired and COOKING with their live intervals. One read + one sweep.
+export function fixedProfiles(state: EngineState, station_ids: Iterable<string>, t: number, strict: boolean, held: ReadonlySet<string> = NONE): Record<string, Profile> {
+  const live = liveProfiles(state, station_ids, t);
+  const out: Record<string, Profile> = {};
+  for (const id of Object.keys(live)) {
+    const station = state.stations[id]!;
+    const bookings: Booking[] = [];
+    for (const x of station.unfired) {
+      const b = state.lines[x]?.booked;
+      if (b !== null && b !== undefined && !held.has(x)) bookings.push(b);
+    }
+    for (const l of Object.values(station.loads)) if (!l.order_item_ids.some((m) => held.has(m))) bookings.push(l.booked);
+    out[id] = combine(live[id]!, profileOf(bookings), -1, strict ? undefined : () => undefined);
+  }
+  return out;
+}
+
+// What placeFrozen found: the frozen placements to store (slot moves, batch stations' loads), the frozen lines pushed
+// past their deadline (left where they are for §3.5.6), and each considered line's fire before the step.
+export type FrozenStep = Pick<Pass1Result, 'moves' | 'loads' | 'fallbacks'> & {
+  late: ReadonlySet<string>;
+  before: ReadonlyMap<string, { fire: number; frozen: boolean; fifo: boolean }>;
+};
+
+// §3.4 "each frozen line is placed first, at earliestFit(its current fire_ms), so it moves only later and only as far
+// as needed", in (fire, order_item_id) order on each station, against the fixed lines (and `held`: a boost's lines
+// already placed). A line whose fire changed and now lies past its deadline joins the late set (§3.4, §3.9 "lines
+// pushed past their deadline, frozen ones included, go through §3.5.6"): it stays where it is here, the other frozen
+// lines do not see it, and pass 1 (o.late) sends it to §3.5.6 with the hidden lines.
+// A frozen line stays on its station (§3.5.5 D10); on a batch station the unit is the load (whole station, its largest
+// prep, AD-4 rounds when its units exceed the capacity); its members move together (load units, F §4.7).
+// proposed (implementer, overnight) readings:
+//   - a line already past its deadline whose fire did not change was not pushed: it stays out of the late set;
+//   - an overdue line (fire < t, the tick has not fired it yet) stays when it still fits; otherwise it restarts from t;
+//   - FIFO (AD-14 "never re-planned" against §3.10 "no frozen line is booked over the new capacity"; a capacity fold
+//     only, a boost never lands here): every unfired line of the station, hidden too, keeps (fire, id) order and is
+//     pushed later only as far as needed; no late set, no search (FIFO lines have no slack, §3.5.3).
+export function placeFrozen(state: EngineState, station_ids: Iterable<string>, t: number, o: { strict: boolean; held?: ReadonlySet<string> }): FrozenStep {
+  const held = o.held ?? NONE;
+  const fixed = fixedProfiles(state, station_ids, t, o.strict, held);
+  const moves = new Map<string, Move>();
+  const loads: Record<string, WorkLoad[]> = {};
+  const late = new Set<string>();
+  const before = new Map<string, { fire: number; frozen: boolean; fifo: boolean }>();
+  const place = (work: Work, line: { units: number; prep_ms: number; cook_ms: number }, cap: number, fire: number): number => {
+    if (fire < t && latestFit(work, fire, fire, line.prep_ms, line.cook_ms, line.units, cap) === fire) return fire;
+    return earliestFit(work, Math.max(fire, t), line.prep_ms, line.cook_ms, line.units, cap);
+  };
+  for (const id of Object.keys(fixed).sort()) {
+    const station = state.stations[id]!;
+    const pol = stationPolicy(state, id);
+    const fifo = pol.policy === 'fifo';
+    const isFrozenFire = (fire: number): boolean => fire <= t + pol.freeze_ms;
+    const work = new Work(fixed[id]!);
+    if (station.type === 'batch') {
+      const cap = capacityFor(station, id);
+      const stored = Object.values(station.loads).map((l) => workOf(state, l));
+      const take = stored
+        .filter((b) => !b.members.some((m) => held.has(m)) && (fifo || isFrozenFire(b.fire_ms)))
+        .sort((a, b) => a.fire_ms - b.fire_ms || (a.load_id! < b.load_id! ? -1 : 1));
+      const done = new Map<string, WorkLoad>();
+      for (const b of take) {
+        const W = { units: Math.max(b.units, cap), prep_ms: b.max_prep, cook_ms: b.cook_ms };
+        const fire = place(work, W, cap, b.fire_ms);
+        for (const m of b.members) before.set(m, { fire: state.lines[m]!.fire_ms!, frozen: isFrozenFire(b.fire_ms), fifo });
+        let d = Number.POSITIVE_INFINITY;
+        for (const m of b.members) d = Math.min(d, state.lines[m]!.deadline_ms + state.lines[m]!.prep_ms - b.max_prep);
+        if (!fifo && fire !== b.fire_ms && fire > d) {
+          for (const m of b.members) late.add(m);
+          continue;
+        }
+        const booked = bookingAt(W, cap, fire);
+        work.add(booked);
+        done.set(b.load_id!, { ...b, fire_ms: fire, booked, capped: fire === b.fire_ms && b.members.some((m) => state.lines[m]!.capped) });
+      }
+      loads[id] = stored.map((b) => done.get(b.load_id!) ?? b);
+      continue;
+    }
+    for (const x of station.unfired) {
+      const L = state.lines[x];
+      if (L === undefined || !isUnfiredPlaced(L) || held.has(x) || !(fifo || isFrozenFire(L.fire_ms!))) continue;
+      const cap = placementCap(state, L);
+      const fire = place(work, L, cap, L.fire_ms!);
+      before.set(x, { fire: L.fire_ms!, frozen: isFrozenFire(L.fire_ms!), fifo });
+      if (!fifo && fire !== L.fire_ms && fire > L.deadline_ms) {
+        late.add(x);
+        continue;
+      }
+      const booked = bookingAt(L, cap, fire);
+      work.add(booked);
+      if (fire !== L.fire_ms || !sameBooking(L.booked, booked)) moves.set(x, { fire, booked, capped: fire === L.fire_ms ? L.capped : false });
+    }
+  }
+  return { moves, loads, late, before, fallbacks: [] };
 }
 
 // §3.3 unfired order: (fire, order_item_id).
