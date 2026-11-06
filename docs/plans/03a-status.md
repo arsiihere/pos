@@ -20,11 +20,11 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | Re-plan per submit p99 | ≤ 50 ms | 641.3 ms (pessimistic, not the gate) | **MISS** 448.1 ms (p50 39.0, max 1 055.0; n 2 000; load 5.3 → 3.4) | — |
 | Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | 414 / 1 841 / 1 894 (n 7 429) | — |
 | Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | not set: gate missed | — |
-| Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | — | — |
+| Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | probes pass: max 3 (47 searches: bbq 31, tawa 16, tandoor 0) / **MISS** 307.9 ms (p50 32.6, max 470.6; n 2 000; load 4.3 → 3.9) | — |
 | 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **MISS** max 376.5 ms (p50 278.5; n 21; 20 flipped; load 3.8) | — |
 | Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | pass: max 36.5 ms (p50 27.0; n 21; 4.54 MB, 5 779 lines; load 3.8) / task 21 | — |
 | Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | **MISS** 433.9 s (51 133 events; load 3.4 → 4.6) | — |
-| 2-day replay (steps 2–3) | ≤ 80 s | — | — | — |
+| 2-day replay (steps 2–3) | ≤ 80 s | — | **MISS** 348.7 s (101 703 events; load 9.1 → 4.3; engine fold only, no SQLite read) | — |
 | Events replayed per day | ≈ R6 ± 20 % | 65 876 | pass: 51 134 (+13.6 % on R6's 45k, AD-26) | — |
 | Live = replayed (generated day) | equal | — | pass: end state and 102 mid-day states equal | — |
 | `fires` pass with work p99 | ≤ 20 ms | — | (test 62) | — |
