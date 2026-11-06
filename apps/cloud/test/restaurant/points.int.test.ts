@@ -100,7 +100,7 @@ describe('points', () => {
   });
 
   it('[01a §6.9a] POST without Idempotency-Key → 400; nothing written', async () => {
-    const { 'idempotency-key': _key, ...headers } = owner(f).headers;
+    const headers = { authorization: owner(f).headers.authorization! };
     const before = await versionOf();
     const response = await cloud.app.inject({ method: 'POST', url: pointsUrl(f.branches[0]), headers, payload: { name: 'Window' } });
     expect(response.statusCode).toBe(400);
