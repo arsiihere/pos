@@ -239,7 +239,7 @@ A joined table (merge) opens its seating: opening T5 of "T4 + T5" locks the seat
 | 03a | Slip receiver = `tableOwners(...).holder_staff_id` (03a To 02 #6, unchanged in shape except added fields). `table_key` stays the original `table_id` after a move or merge. |
 | 03b | Ticket and KDS show the current table (`currentTableOf`) and "T4 + T5"; Ready to serve uses the `table_team` resolver (`depth: 'direct'`). |
 | 04 | Register `registerMergeGuard`; rejected-void notice → the holder. |
-| 05 | Bill per seating; write `BillClosed { seating_id }`; a bill covers the seating's orders after merges and splits (`seating_orders`). |
+| 05 | Bill per seating; write `BillClosed { seating_id }`; a bill covers the seating's orders after merges and splits (`seating_orders`); whether `BillRequested` alerts the cashier is 05's decision (OQ1). |
 
 ### 4.4 Shared types
 
@@ -675,15 +675,17 @@ All §10 tests pass; every command has happy, error-per-code, retransmit, scope 
 
 ### 12.3 Open questions
 
-| # | Question | Proposed |
+| # | Question | **Decided** (developer, 2026-11-06) |
 |---|---|---|
-| OQ1 | Should Ask for bill also alert the cashier? | 05 decides (it owns the bill queue); 02a only writes `BillRequested`. |
-| OQ2 | Cleaning by waiters who have no tablet (paper era): who taps Clean? | `clean-table` default includes Cashier and Order taker; config. |
-| OQ3 | `call_waiter` chips list | config later; fixed four in the pilot. |
+| OQ1 | Should Ask for bill also alert the cashier? | **05 decides** (it owns the bill queue); 02a only writes `BillRequested`. Carried to 05 (§4.3). |
+| OQ2 | Cleaning by waiters who have no tablet (paper era): who taps Clean? | **`clean-table` default includes Cashier and Order taker**; anything else is config. |
+| OQ3 | `call_waiter` chips list | **Fixed four in the pilot** (`water`, `clear`, `come`, `other`); configurable list later (§12.4). |
+
+No open question left in 02a.
 
 ### 12.4 Deferred until needed
 
-Pass pick-up identity and wrong-team warning (owner round 2); hub-side assignment screen (owner Q1); per-line move between seatings (bill split is 05's); configurable table colours; reservations / waitlist (P2); unmerge as its own command (split covers it); moving a merged seating in one step.
+Pass pick-up identity and wrong-team warning (owner round 2); hub-side assignment screen (owner Q1); per-line move between seatings (bill split is 05's); configurable table colours; reservations / waitlist (P2); unmerge as its own command (split covers it); moving a merged seating in one step; configurable `call_waiter` chips (OQ3).
 
 ### 12.5 Hostile self-review (developer, 2026-11-06)
 
