@@ -54,3 +54,19 @@ function apiErrorKey(code: string, details: Record<string, unknown>): MessageKey
   if (code.endsWith('_NOT_FOUND') && code !== 'ROUTE_NOT_FOUND') return 'errors.NOT_FOUND_stale';
   return errorKey(code);
 }
+
+// 03a A-2–A-10: a 422 CONFIG_REFERENCE_INVALID names its `field`; a 400 VALIDATION_FAILED carries `issues: [{ path, message }]`; the field it names shows the
+// server's own range message under it (the ranges are the cloud's, not the client's).
+export function issueMessages(error: CloudError): Record<string, string> {
+  if (error.kind === 'api' && error.code === 'CONFIG_REFERENCE_INVALID' && typeof error.details['field'] === 'string') {
+    return { [error.details['field']]: errorText(error) ?? '' };
+  }
+  if (error.kind !== 'api' || error.code !== 'VALIDATION_FAILED') return {};
+  const issues = error.details['issues'];
+  if (!Array.isArray(issues)) return {};
+  const out: Record<string, string> = {};
+  for (const issue of issues as { path?: unknown; message?: unknown }[]) {
+    if (typeof issue.path === 'string' && typeof issue.message === 'string' && !(issue.path in out)) out[issue.path] = issue.message;
+  }
+  return out;
+}

@@ -116,6 +116,20 @@ const SLOT = {
   freshness_window_ms: null,
   completion_mode: 'two_tap',
   archived_at: null,
+  point_id: 'PT1',
+  policy: 'waada_guard',
+  freeze_ms: 120_000,
+  min_slack_keep_ms: 60_000,
+  promise_padding_ms: null,
+  pressure_window_ms: 900_000,
+  pressure_amber_bp: 8_000,
+  pressure_red_bp: 10_000,
+  pressure_alert_ms: 300_000,
+  pause_enabled: false,
+  lane_units: null,
+  reserve_units: 0,
+  alternates: [],
+  carry_times: [],
   programs: [],
 };
 
@@ -125,7 +139,7 @@ function menuPage(items: MenuItem[], next: string | null = null) {
 
 function defaults(call: Call): Response {
   if (call.method === 'GET' && call.url.startsWith('/v1/admin/menu')) return menuPage([PAYE]);
-  if (call.method === 'GET' && call.url.endsWith('/stations')) return json(200, { data: { stations: [SLOT] } });
+  if (call.method === 'GET' && call.url.endsWith('/stations')) return json(200, { data: { stations: [SLOT], points: [{ point_id: 'PT1', name: 'Pass', sort_order: 0, archived_at: null, version: 'v1' }] } });
   if (call.method === 'GET' && call.url.endsWith('/floors')) return json(200, { data: { floors: [] } });
   return json(200, { data: {} });
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CloudAdmin, CompletionMode, PatchStationBody, Program, Station, StationType } from '../../../api/cloud-admin';
+import type { CloudAdmin, CompletionMode, PatchStationBody, Point, Program, Station, StationType } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
@@ -14,10 +14,11 @@ import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
-import { errorText } from '../form';
+import { errorText, issueMessages } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { BranchSelect, Page } from '../Shell';
+import { TimingFields, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
 import { AddStationDialog, COMPLETION_MODES, parseWhole, RecipeDialog, typeOptions } from './StationDialogs';
 
 // §8.1 #/stations (01a-S04): one row per station with a summary; Edit opens it in place with its batch
@@ -43,6 +44,17 @@ function summary(station: Station): string {
   ]
     .filter((part) => part !== null && part !== '')
     .join(' · ');
+}
+
+// A-9: the alternates a station can name are the branch's other active slot stations.
+function offeredFor(stations: readonly StationRow[], selfId: string): OfferedStation[] {
+  return stations
+    .filter((s) => s.station_id !== selfId && s.archived_at === null && s.station_type === 'slot')
+    .map((s) => ({ station_id: s.station_id, name: s.name }));
+}
+
+function editorKey(station: StationRow): string {
+  return JSON.stringify({ ...station, programs: undefined });
 }
 
 // Closed stations show as list rows; the open one (one at a time) is its own section between them.
@@ -73,6 +85,8 @@ function StationEditor({
   showArchived,
   inUse,
   chips,
+  points,
+  offered,
 }: {
   api: CloudAdmin;
   branchId: string;
@@ -87,6 +101,8 @@ function StationEditor({
   showArchived: boolean;
   inUse: InUse | undefined;
   chips: ReactNode;
+  points: readonly Point[];
+  offered: readonly OfferedStation[];
 }) {
   const [name, setName] = useState(station.name);
   const [label, setLabel] = useState(station.location_label ?? '');
@@ -94,6 +110,9 @@ function StationEditor({
   const [capacity, setCapacity] = useState(String(station.capacity));
   const [freshness, setFreshness] = useState(formatMinutes(station.freshness_window_ms ?? 0));
   const [mode, setMode] = useState<CompletionMode>(station.completion_mode);
+  const offeredIds = new Set(offered.map((s) => s.station_id));
+  const [timing, setTiming] = useState(() => timingState(station, offeredIds));
+  const [issues, setIssues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const down = useCloudDown(api);
@@ -110,11 +129,13 @@ function StationEditor({
     if (ms !== null) patch.freshness_window_ms = ms;
   }
   if (mode !== station.completion_mode) patch.completion_mode = mode;
-  const changed = Object.keys(patch).map((field) => t(`owner.stations.field.${field}` as Parameters<typeof t>[0]));
+  const timingChanges = timingPatch(timing, station, type, offeredIds);
+  if (timingChanges !== null) Object.assign(patch, timingChanges);
+  const changed = Object.keys(patch).map((field) => t((timingFieldLabel(field) ?? `owner.stations.field.${field}`) as Parameters<typeof t>[0]));
   useDirtyForm(changed.length === 0 ? null : { name: station.name, fields: changed });
 
   async function save() {
-    if (capacityValue === null || name.trim() === '' || (type === 'batch' && parseMinutes(freshness) === null)) {
+    if (capacityValue === null || name.trim() === '' || timingChanges === null || (type === 'batch' && parseMinutes(freshness) === null)) {
       setError(t('errors.VALIDATION_FAILED'));
       return;
     }
@@ -124,6 +145,7 @@ function StationEditor({
     }
     setBusy(true);
     setError(null);
+    setIssues({});
     const result = await api.patchStation(branchId, station.station_id, patch);
     setBusy(false);
     if (result.ok) {
@@ -136,6 +158,7 @@ function StationEditor({
       onTypeBlocked(await itemNames(api, ids));
       return;
     }
+    setIssues(issueMessages(result.error));
     setError(errorText(result.error));
   }
 
@@ -218,6 +241,15 @@ function StationEditor({
           </select>
         </label>
       </div>
+      <TimingFields
+        state={timing}
+        onChange={setTiming}
+        type={type}
+        points={points}
+        offered={offered}
+        issues={issues}
+        currentPointId={station.point_id}
+      />
       {station.station_type === 'batch' && (
         <>
           <div className="pos-section__head pos-section__head--sub">
@@ -285,6 +317,7 @@ export function StationsView({
 }) {
   const branchName = useBranchName();
   const [stations, setStations] = useState<StationRow[] | null>(null);
+  const [points, setPoints] = useState<Point[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -303,6 +336,7 @@ export function StationsView({
     const result = await api.listStations(branchId);
     if (result.ok) {
       setStations(result.data.stations);
+      setPoints(result.data.points);
       setError(null);
     } else setError(errorText(result.error));
   }, [api, branchId]);
@@ -410,7 +444,7 @@ export function StationsView({
         runs(stations.filter(visible), open).map((run) =>
           run.kind === 'open' ? (
             <StationEditor
-              key={`${run.station.station_id}-${run.station.name}-${run.station.station_type}-${run.station.capacity}-${run.station.completion_mode}-${run.station.freshness_window_ms ?? ''}-${run.station.location_label ?? ''}`}
+              key={editorKey(run.station)}
               api={api}
               branchId={branchId}
               station={run.station}
@@ -418,6 +452,8 @@ export function StationsView({
               typeLocked={typeLocked.has(run.station.station_id)}
               inUse={usedBy.get(run.station.station_id)}
               chips={chips(run.station.station_id)}
+              points={points}
+              offered={offeredFor(stations, run.station.station_id)}
               onSaved={() => {
                 setOpen(null);
                 flashSaved(run.station.station_id);

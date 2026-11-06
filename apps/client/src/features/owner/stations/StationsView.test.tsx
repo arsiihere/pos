@@ -90,7 +90,30 @@ async function submit(form: HTMLFormElement | null): Promise<void> {
   await flush();
 }
 
+// 03a A-1–A-10: the engine fields every station on the wire carries, and the branch's points.
+const POINTS = [
+  { point_id: 'PT1', name: 'Pass', sort_order: 0, archived_at: null, version: 'v1' },
+  { point_id: 'PT2', name: 'Tandoor window', sort_order: 1, archived_at: null, version: 'v2' },
+  { point_id: 'PT3', name: 'Old counter', sort_order: 2, archived_at: 5, version: 'v3' },
+];
+const ENGINE = {
+  point_id: 'PT1',
+  policy: 'waada_guard',
+  freeze_ms: 120_000,
+  min_slack_keep_ms: 60_000,
+  promise_padding_ms: null,
+  pressure_window_ms: 900_000,
+  pressure_amber_bp: 8_000,
+  pressure_red_bp: 10_000,
+  pressure_alert_ms: 300_000,
+  pause_enabled: false,
+  lane_units: null,
+  reserve_units: 0,
+  alternates: [] as { alternate_station_id: string; order_types: string[]; home_for_order_types: string[] }[],
+  carry_times: [] as { point_id: string; carry_ms: number }[],
+};
 const KARAHI = {
+  ...ENGINE,
   station_id: 'S1',
   name: 'Karahi',
   location_label: null,
@@ -102,6 +125,7 @@ const KARAHI = {
   programs: [],
 };
 const FRYER = {
+  ...ENGINE,
   station_id: 'S2',
   name: 'Fryer',
   location_label: 'Back kitchen',
@@ -116,7 +140,7 @@ const FRYER = {
 describe('owner stations view', () => {
   it('[01a §8.1] a refused edit shows the saved value again, not the refused text', async () => {
     const { api } = fakeApi((call) => {
-      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI] } });
+      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI], points: POINTS } });
       return json(409, { error: { code: 'CONFIG_NAME_TAKEN', message: 'taken', details: { field: 'name' } } });
     });
     act(() => root.render(<StationsView api={api} branchId="B1" />));
@@ -146,7 +170,7 @@ describe('owner stations view', () => {
           },
         });
       }
-      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER] } });
+      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER], points: POINTS } });
       if (call.method === 'PATCH') {
         return json(409, {
           error: {
@@ -245,7 +269,7 @@ describe('owner stations view', () => {
           },
         });
       }
-      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER] } });
+      if (call.method === 'GET') return json(200, { data: { stations: [KARAHI, FRYER], points: POINTS } });
       if (archiveAnswer === 'in-use') {
         return json(409, {
           error: { code: 'CONFIG_IN_USE', message: 'in use', details: { used_by: { entity: 'menu_item', ids: ['I1', 'I2', 'I9'] } } },
@@ -293,7 +317,7 @@ describe('owner stations view', () => {
   });
 
   it('[01a hand-off S04] Show archived is an app-bar More item; its chip hides archived stations again', async () => {
-    const { api } = fakeApi(() => json(200, { data: { stations: [KARAHI, { ...FRYER, archived_at: 9 }] } }));
+    const { api } = fakeApi(() => json(200, { data: { stations: [KARAHI, { ...FRYER, archived_at: 9 }], points: POINTS } }));
     act(() => root.render(<StationsView api={api} branchId="B1" />));
     await flush();
     const shown = () => [...container.querySelectorAll<HTMLElement>('[data-station-id]')].map((x) => x.dataset['stationId']);
@@ -307,5 +331,161 @@ describe('owner stations view', () => {
     expect(chip?.getAttribute('aria-label')).toBe(t('stations.hide_archived'));
     await click(chip as HTMLButtonElement);
     expect(shown()).toEqual(['S1']);
+  });
+});
+
+describe('owner station form: Timing group (03a A-2–A-10)', () => {
+  const TAWA = { ...KARAHI, station_id: 'S4', name: 'Tawa' };
+  const OLD = { ...KARAHI, station_id: 'S3', name: 'Old tawa', archived_at: 7 };
+  const STATIONS = [KARAHI, FRYER, OLD, TAWA];
+
+  function setup(stations: unknown[], onWrite?: (call: Call) => Response) {
+    const made = fakeApi((call) => {
+      if (call.method === 'GET') return json(200, { data: { stations, points: POINTS } });
+      return onWrite?.(call) ?? json(200, { data: { station: KARAHI } });
+    });
+    return made;
+  }
+  const input = (id: string, name: string) => container.querySelector<HTMLInputElement>(`[data-station-id="${id}"] [name="${name}"]`);
+  const write = (calls: Call[]) => calls.find((c) => c.method === 'PATCH');
+
+  async function openEditor(api: ReturnType<typeof fakeApi>['api'], id = 'S1') {
+    act(() => root.render(<StationsView api={api} branchId="B1" />));
+    await flush();
+    await click(button(t('owner.common.edit'), station(id)));
+  }
+
+  it('[01a §8.1; 03a A-2–A-8] the station form shows every Timing field with its default, times in minutes', async () => {
+    const { api } = setup(STATIONS);
+    await openEditor(api);
+    const group = container.querySelector('[data-group="timing"]');
+    expect(group?.querySelector('h3')?.textContent).toBe(t('owner.stations.timing'));
+    expect(input('S1', 'point_id')).not.toBeNull();
+    expect((input('S1', 'point_id') as unknown as HTMLSelectElement).value).toBe('PT1');
+    expect((input('S1', 'policy') as unknown as HTMLSelectElement).value).toBe('waada_guard');
+    const values = Object.fromEntries(
+      ['freeze', 'slack', 'padding', 'window', 'amber', 'red', 'alert', 'lane', 'reserve'].map((n) => [n, input('S1', n)?.value]),
+    );
+    expect(values).toEqual({ freeze: '2', slack: '1', padding: '', window: '15', amber: '80', red: '100', alert: '5', lane: '', reserve: '0' });
+    expect(group?.querySelector('button[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+    // an archived point is not offered for the station's point
+    const options = [...(input('S1', 'point_id') as unknown as HTMLSelectElement).options].map((o) => o.value);
+    expect(options).toEqual(['PT1', 'PT2']);
+  });
+
+  it('[01a §6.9; 03a A-4, A-7] a changed value is sent in ms (percent as basis points); only changed fields are sent', async () => {
+    const { api, calls } = setup(STATIONS);
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), '3');
+    setValue(input('S1', 'amber'), '95.5');
+    setValue(input('S1', 'padding'), '1.5');
+    setValue(input('S1', 'lane'), '2');
+    setValue(input('S1', 'policy') as unknown as HTMLSelectElement, 'edf');
+    await click(station('S1')?.querySelector('button[role="switch"]') as HTMLButtonElement);
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(write(calls)?.body).toEqual({
+      policy: 'edf',
+      freeze_ms: 180_000,
+      promise_padding_ms: 90_000,
+      pressure_amber_bp: 9_550,
+      pause_enabled: true,
+      lane_units: 2,
+    });
+  });
+
+  it('[01a §8.1; 03a A-2–A-8] a range error from the server shows under its field and the form keeps the typed value', async () => {
+    const { api } = setup(STATIONS, () =>
+      json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path: 'freeze_ms', message: 'Number must be less than or equal to 900000' }] } } }),
+    );
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), '99');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    const field = input('S1', 'freeze')?.closest('label');
+    expect(field?.className).toContain('pos-field--error');
+    expect(field?.textContent).toContain('Number must be less than or equal to 900000');
+    expect(input('S1', 'freeze')?.value).toBe('99');
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.VALIDATION_FAILED'));
+  });
+
+  it('[01a §8.1; 03a A-9] the alternates editor offers only active slot stations of the branch, never the station itself', async () => {
+    const { api } = setup(STATIONS);
+    await openEditor(api);
+    const picker = input('S1', 'alternate_add') as unknown as HTMLSelectElement;
+    expect([...picker.options].map((o) => o.textContent)).toEqual([t('owner.stations.alternate_pick'), 'Tawa']);
+  });
+
+  it('[03a A-9] a batch station has no alternates editor', async () => {
+    const { api } = setup(STATIONS);
+    await openEditor(api, 'S2');
+    expect(container.querySelector('[data-group="alternates"]')).toBeNull();
+    expect(container.querySelector('[data-group="carry-times"]')).not.toBeNull();
+  });
+
+  it('[03a A-9] adding an alternate sends order_types and home_for_order_types; home stays within order_types', async () => {
+    const { api, calls } = setup(STATIONS);
+    await openEditor(api);
+    setValue(input('S1', 'alternate_add') as unknown as HTMLSelectElement, 'S4');
+    const row = () => container.querySelector('[data-alternate-id="S4"]') as HTMLElement;
+    const tick = (attr: string, type: string) => row().querySelector<HTMLButtonElement>(`[${attr}="${type}"]`) as HTMLButtonElement;
+    await click(tick('data-order-type', 'parking'));
+    await click(tick('data-order-type', 'delivery'));
+    await click(tick('data-home-type', 'takeaway'));
+    await click(tick('data-home-type', 'dine_in'));
+    await click(tick('data-order-type', 'dine_in'));
+    expect(row().querySelector('[data-home-type="dine_in"]')).toBeNull();
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(write(calls)?.body).toEqual({
+      alternates: [{ alternate_station_id: 'S4', order_types: ['takeaway'], home_for_order_types: ['takeaway'] }],
+    });
+  });
+
+  it('[03a A-9; CL-10] a saved alternate that is archived now is dropped on save, so the resend is not refused', async () => {
+    const withAlt = {
+      ...KARAHI,
+      alternates: [
+        { alternate_station_id: 'S3', order_types: ['dine_in'], home_for_order_types: [] },
+        { alternate_station_id: 'S4', order_types: ['dine_in'], home_for_order_types: ['dine_in'] },
+      ],
+    };
+    const { api, calls } = setup([withAlt, FRYER, OLD, TAWA]);
+    await openEditor(api);
+    expect(container.querySelector('[data-alternate-id="S3"]')).toBeNull();
+    expect(container.querySelector('[data-alternate-id="S4"]')).not.toBeNull();
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(write(calls)?.body).toEqual({
+      alternates: [{ alternate_station_id: 'S4', order_types: ['dine_in'], home_for_order_types: ['dine_in'] }],
+    });
+  });
+
+  it('[03a A-10] carry times: one minutes box per active point, empty = 0, sent as ms; zero rows are not sent', async () => {
+    const withCarry = { ...KARAHI, carry_times: [{ point_id: 'PT1', carry_ms: 30_000 }] };
+    const { api, calls } = setup([withCarry, FRYER]);
+    await openEditor(api);
+    const boxes = [...container.querySelectorAll('[data-carry-point]')].map((x) => (x as HTMLElement).dataset['carryPoint']);
+    expect(boxes).toEqual(['PT1', 'PT2']);
+    expect(input('S1', 'carry_PT1')?.value).toBe('0.5');
+    setValue(input('S1', 'carry_PT2'), '1.5');
+    setValue(input('S1', 'carry_PT1'), '');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(write(calls)?.body).toEqual({ carry_times: [{ point_id: 'PT2', carry_ms: 90_000 }] });
+  });
+
+  it('[01a §6.9] 422 CONFIG_REFERENCE_INVALID names the field it refused', async () => {
+    const { api } = setup(STATIONS, () =>
+      json(422, { error: { code: 'CONFIG_REFERENCE_INVALID', message: 'x', details: { field: 'alternates', reason: 'archived' } } }),
+    );
+    await openEditor(api);
+    setValue(input('S1', 'alternate_add') as unknown as HTMLSelectElement, 'S4');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(container.querySelector('[data-group="alternates"]')?.textContent).toContain(t('errors.reference.archived'));
+  });
+
+  it('[01a §6.9] a text that is not a number is refused before sending', async () => {
+    const { api, calls } = setup(STATIONS);
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), 'abc');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(write(calls)).toBeUndefined();
+    expect(container.querySelector('.pos-banner--danger')?.textContent).toContain(t('errors.VALIDATION_FAILED'));
   });
 });

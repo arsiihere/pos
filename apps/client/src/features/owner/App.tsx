@@ -23,6 +23,7 @@ import { RoleEditor } from './roles/RoleEditor';
 import { RoleList } from './roles/RoleList';
 import { StaffForm } from './staff/StaffForm';
 import { StaffList } from './staff/StaffList';
+import { PointsView } from './points/PointsView';
 import { StationsView } from './stations/StationsView';
 import { StockCountingView } from './stock-counting/StockCountingView';
 import { TeamsView } from './teams/TeamsView';
@@ -137,7 +138,7 @@ function Routes({
   // Stock counting are per branch and fall back to the picker, as Floors and Stations do.
   const owner = matchOwnerRoute(route);
   const ownerNeedsBranch = owner?.name === 'teams' || owner?.name === 'stock_counting';
-  const needsBranch = route === '/floors' || route === '/stations' || ownerNeedsBranch;
+  const needsBranch = route === '/floors' || route === '/stations' || route === '/points' || ownerNeedsBranch;
   if (owner !== null && (!ownerNeedsBranch || branchId !== null)) {
     return (
       <Shell route={route} userName={user.display_name} counts={{ branches: allowed.length }} onSignOut={signOut}>
@@ -179,6 +180,9 @@ function Routes({
         )}
         {route === '/stations' && branchId !== null && (
           <StationsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
+        )}
+        {route === '/points' && branchId !== null && (
+          <PointsView api={api} branchId={branchId} branchIds={allowed} onBranch={chooseBranch} />
         )}
       </Shell>
     );
