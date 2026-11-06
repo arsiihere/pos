@@ -17,11 +17,13 @@ import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
   buildEngineState,
+  getTickIntents,
   initialEngineState,
   isOrderInEngine,
   liveInterval,
   noOrderInEngine,
   ORDER_EXIT_AFTER_SERVED_MS,
+  stockEffects,
   type EngineState,
 } from '../src/index';
 import { liveProfile } from '../src/live';
@@ -284,6 +286,100 @@ describe('@pos/engine lifecycle: abandon (BF-6, AD-13)', () => {
     const late = fold([start('O2', 'L2', at(30))], fired);
     expect(isOrderInEngine(late, 'O2', at(330) - 1)).toBe(true);
     expect(isOrderInEngine(late, 'O2', at(330))).toBe(false);
+  });
+});
+
+// AD-20 (task 14b, proposed (implementer, overnight)): the removal step keeps an exited order while one of its lines
+// holds a live reservation (reserved_seq ≠ null), so the abandon release (§3.6.1 4a) or the close release (§3.7) can
+// still find it; it occupies nothing meanwhile, and leaves at the first listed fold after its release.
+describe('@pos/engine lifecycle: an exited order is kept while it holds a reservation (AD-20)', () => {
+  // KB: 4 pieces counted before the day. O1 / L1 (20 min, immediate) from stock, one KB reserved at the submit.
+  function reservedOrder(order_id: string, id: string, t: number): PosEvent[] {
+    return anOrderBatch({
+      order_id,
+      recorded_at: t,
+      seq: nextSeq(3),
+      lines: [{ order_item_id: id, item: { cook_time_ms: 20 * M, serve_mode: 'immediate', stock_time_ms: 60_000, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }] }, line: { from_stock: true } }],
+      reserved: [{ stock_item_id: 'KB', order_item_id: id, quantity: 1 }],
+    });
+  }
+  const kb = (on_hand: number, t: number): PosEvent => aStockSet({ stream_id: 'KB', recorded_at: t, occurred_at: t, seq: nextSeq(), payload: { stock_item_id: 'KB', on_hand, unit: 'piece' } });
+  // The host's part (task 22): engine drafts stamped at now.
+  function stamped(drafts: ReadonlyArray<{ stream_type: string; stream_id: string; event_type: string; payload: unknown }>, t: number): PosEvent[] {
+    return drafts.map((d) => {
+      const s = nextSeq();
+      return { ...tickle(t), stream_type: d.stream_type as PosEvent['stream_type'], stream_id: d.stream_id, event_type: d.event_type, schema_version: 1, payload: d.payload as Record<string, unknown>, seq: s, event_id: `01J${String(s).padStart(23, '0')}` };
+    });
+  }
+
+  it('[03a AD-20] abandoned with a live reservation: not removed by a later listed fold; occupies nothing; the tick release is drafted and folded; removed at the next listed fold', () => {
+    const events = [cfg(1), kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(1))];
+    const s = fold(events);
+    expect(s.lines.L1!.reserved_seq).not.toBeNull();
+    expect(s.stock.KB!.reserved).toBe(1);
+    const t = at(1) + ABANDON;
+    // A listed fold past the abandon time keeps O1: it holds a reservation.
+    const kept = fold([tickle(t + 1)], s);
+    expect(kept.orders.O1).toBeDefined();
+    expect(kept.lines.L1).toBeDefined();
+    expect(isOrderInEngine(kept, 'O1', t + 1)).toBe(false);
+    expect(liveInterval(kept, 'L1', t + 1)).toBeNull();
+    expect(liveProfile(kept, 'S1', t + 1)).toEqual({ t: [], u: [] });
+    // §3.6.1 noOrderInEngine: "no line of an exited order holds a live reservation".
+    expect(noOrderInEngine(kept, t + 1)).toBe(false);
+    // The fires pass drafts the abandon release from the kept line; folded, the line is fresh and the entry free.
+    const drafts = getTickIntents(kept, t + 1);
+    expect(drafts.map((d) => [d.event_type, (d.payload as { reason?: string }).reason])).toEqual([['StockReleased', 'abandoned']]);
+    const released = fold(stamped(drafts, t + 1), kept);
+    expect(released.stock.KB!.reserved).toBe(0);
+    expect(released.lines.L1!.reserved_seq).toBeNull();
+    expect(released.orders.O1).toBeDefined(); // the removal step ran before the release's own fold
+    expect(noOrderInEngine(released, t + 1)).toBe(true);
+    const gone = fold([tickle(t + 2)], released);
+    expect(gone.orders.O1).toBeUndefined();
+    expect(gone.lines.L1).toBeUndefined();
+    expect(gone.stock.KB!.reserved).toBe(0);
+    // Live = replay.
+    expect(buildEngineState([...events, tickle(t + 1), ...stamped(drafts, t + 1), tickle(t + 2)])).toEqual({ ...gone });
+  });
+
+  it('[03a AD-20] served exit with a from-stock line Done without a Start: kept 30 min on; released by the abandon pass, or by the close', () => {
+    const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
+    const events = [cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
+    const s = fold(events);
+    expect(s.lines.L1!.stage).toBe('served');
+    expect(s.lines.L1!.reserved_seq).not.toBeNull(); // Done without a Start consumes nothing (§3.7: consume at Start)
+    const exit = at(25) + ORDER_EXIT_AFTER_SERVED_MS;
+    const kept = fold([tickle(exit + 1)], s);
+    expect(kept.orders.O1).toBeDefined();
+    expect(isOrderInEngine(kept, 'O1', exit + 1)).toBe(false);
+    expect(noOrderInEngine(kept, exit + 1)).toBe(false);
+    // (a) The abandon pass, at last_line_fold_at + order_abandon_ms (the served rule set aside, §3.6.1 4a).
+    const abandon = at(25) + ABANDON;
+    expect(getTickIntents(kept, abandon - 1)).toEqual([]);
+    const drafts = getTickIntents(kept, abandon);
+    expect(drafts.map((d) => [d.event_type, (d.payload as { order_item_id?: string }).order_item_id, (d.payload as { reason?: string }).reason])).toEqual([['StockReleased', 'L1', 'abandoned']]);
+    const a = fold([...stamped(drafts, abandon), tickle(abandon + 1)], kept);
+    expect(a.orders.O1).toBeUndefined();
+    expect(a.stock.KB!.reserved).toBe(0);
+    // (b) The close (§3.7 close row: a line of an order already out of the engine that still holds a reservation).
+    const closeAt = exit + 2;
+    const close = aBusinessDayClosed({ recorded_at: closeAt, occurred_at: closeAt, seq: nextSeq() });
+    const releases = stockEffects(kept, { event_type: 'BusinessDayClosed', payload: {}, occurred_at: closeAt });
+    expect(releases.map((d) => [d.event_type, (d.payload as { order_item_id?: string }).order_item_id, (d.payload as { reason?: string }).reason])).toEqual([['StockReleased', 'L1', 'day_closed']]);
+    const b = fold([...stamped(releases, closeAt), close], kept);
+    expect(b.orders.O1).toBeUndefined();
+    expect(b.stock.KB!.reserved).toBe(0);
+    expect(noOrderInEngine(b, closeAt)).toBe(true);
+  });
+
+  it('[03a AD-20] the close itself keeps an all-served order whose line still holds a reservation (no release written)', () => {
+    const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
+    const s = fold([cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))]);
+    const closed = fold([aBusinessDayClosed({ recorded_at: at(26), occurred_at: at(26), seq: nextSeq() })], s);
+    expect(closed.orders.O1).toBeDefined();
+    expect(closed.lines.L1!.reserved_seq).not.toBeNull();
+    expect(closed.stock.KB!.reserved).toBe(1);
   });
 });
 

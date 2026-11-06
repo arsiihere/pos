@@ -14,8 +14,10 @@ import type {
   OrderLinesAddedPayload,
   OrderPlacedPayload,
   PosEvent,
+  ReservationsShiftedPayload,
 } from '@pos/events';
-import { applyMoves, capacityFor, flipPlacement, pass1, placementCap, stationPolicy } from './replan.js';
+import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
+import { applyMoves, capacityFor, flipPlacement, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
 import {
   applyPass1,
   checkProgram,
@@ -30,8 +32,7 @@ import {
   type SequenceOptions,
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
-import { closedOrderIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
-import { occupancy, removeInterval, type Underflow } from './profile.js';
+import { closeExitIds, exitedOrderIds, isOpen, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -432,6 +433,89 @@ function foldFireDispatched(state: EngineState, event: PosEvent, strict: boolean
   return next;
 }
 
+// F §4.7 D42 applyEvent(ReservationsShifted) (task 14b): each listed unfired reservation of the station moves by its
+// by_ms — a slot line's `booked` and `fire_ms` (its latest start, so the fire moves with it); a batch load's `booked`
+// and `fire_ms` with every member's `fire_ms` ("whole loads not yet started"). AD-7 / AD-6: exactly the old booking
+// is removed (strict throws on an underflow, non-strict appends 'profile_underflow') and the moved one added;
+// `unfired` is re-sorted. deadline_ms, the group T and the promise stay (D6, D23: lateness shows as a slip), `capped`
+// stays, and nothing is re-planned (D13). Not a §3.3 clock fold: last_line_fold_at is not refreshed.
+// Proposed (implementer, overnight), per listed entry:
+//   - absent / placeholder line, absent station, by_ms 0: skipped (§3.3 absent ids; all skipped → state itself);
+//   - a fired, COOKING or ended line: skipped. F's pseudocode lists fired lines too, but in 03a they hold no
+//     reservation: they move by the packing at every read (F-20, §3.3), so there is nothing to move;
+//   - an unfired line on another station: an AD-8 writer bug (InvalidEvent 'station_mismatch': strict throws,
+//     non-strict that entry is skipped with one invalid_event diagnostic), as FireDispatched;
+//   - a reservation listed more than once (the members of one load, as the cascade lists them) moves once, by its
+//     first entry's by_ms; a later entry with another by_ms would split the load: writer bug 'load_split'.
+function foldReservationsShifted(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as ReservationsShiftedPayload;
+  if (state.stations[p.station_id] === undefined) return state;
+  let next = state;
+  const moved = new Map<string, number>(); // reservation key (load_id or order_item_id) → by_ms
+  for (const { order_item_id: id, by_ms } of p.shifts) {
+    const line = lineOf(next, id);
+    if (line === undefined || line.stage !== 'added' || line.fired_at !== null || by_ms === 0) continue;
+    const station = next.stations[p.station_id]!;
+    const load = line.load_id === null ? undefined : station.loads[line.load_id];
+    const inLoad = load !== undefined && load.order_item_ids.includes(id);
+    const bug = line.station_id !== p.station_id ? 'station_mismatch' : null;
+    const key = inLoad ? load.load_id : id;
+    const prev = moved.get(key);
+    const split = bug === null && prev !== undefined && prev !== by_ms ? 'load_split' : null;
+    if (bug !== null || split !== null) {
+      const e = new InvalidEvent((bug ?? split)!, id, line.station_id);
+      if (strict) throw e;
+      next = addDiagnostic(next, invalidEventDiagnostic(event, e));
+      continue;
+    }
+    if (prev !== undefined) continue;
+    if (inLoad) {
+      moved.set(key, by_ms);
+      next = shiftLoad(next, station, load, by_ms, event, strict);
+    } else if (line.booked !== null) {
+      moved.set(key, by_ms);
+      next = shiftSlot(next, station, line, line.booked, by_ms, event, strict);
+    }
+  }
+  if (moved.size === 0) return next;
+  const station = next.stations[p.station_id]!;
+  return { ...next, stations: { ...next.stations, [p.station_id]: { ...station, unfired: sortUnfired(station.unfired, next.lines) } } };
+}
+
+// AD-7 / AD-6: the profile with exactly `from` removed and `from` + by added.
+function moveBooking(state: EngineState, station: StationRuntime, from: Load['booked'], by: number, event: PosEvent, strict: boolean, detail: Record<string, string>): { state: EngineState; profile: StationRuntime['profile'] } {
+  let underflow: Underflow | null = null;
+  const removed = strict
+    ? removeInterval(station.profile, from, from.units)
+    : removeInterval(station.profile, from, from.units, (u) => {
+        underflow = u;
+      });
+  const profile = addInterval(removed, { start: from.start + by, end: from.end + by }, from.units);
+  if (underflow === null) return { state, profile };
+  const { at, deficit } = underflow as Underflow;
+  return { state: addDiagnostic(state, { kind: 'profile_underflow', event_id: event.event_id, station_id: station.station_id, detail: { ...detail, at, deficit } }), profile };
+}
+
+function shiftSlot(state: EngineState, station: StationRuntime, line: EngineLine, booked: Load['booked'], by: number, event: PosEvent, strict: boolean): EngineState {
+  const { state: next, profile } = moveBooking(state, station, booked, by, event, strict, { order_item_id: line.order_item_id });
+  return {
+    ...next,
+    stations: { ...next.stations, [station.station_id]: { ...station, profile } },
+    lines: { ...next.lines, [line.order_item_id]: { ...line, booked: { ...booked, start: booked.start + by, end: booked.end + by }, fire_ms: line.fire_ms! + by } },
+  };
+}
+
+function shiftLoad(state: EngineState, station: StationRuntime, load: Load, by: number, event: PosEvent, strict: boolean): EngineState {
+  const { state: next, profile } = moveBooking(state, station, load.booked, by, event, strict, { load_id: load.load_id });
+  const lines = { ...next.lines };
+  for (const m of load.order_item_ids) {
+    const l = lines[m];
+    if (l !== undefined && l.fire_ms !== null) lines[m] = { ...l, fire_ms: l.fire_ms + by };
+  }
+  const shifted: Load = { ...load, fire_ms: load.fire_ms + by, booked: { ...load.booked, start: load.booked.start + by, end: load.booked.end + by } };
+  return { ...next, lines, stations: { ...next.stations, [station.station_id]: { ...station, profile, loads: { ...station.loads, [load.load_id]: shifted } } } };
+}
+
 // The line an order-stream stage event names (§3.3 absent ids: undefined → the fold is a no-op), checked to be on
 // its order's stream (AD-8).
 function stageLine(state: EngineState, event: PosEvent, order_item_id: string): EngineLine | undefined {
@@ -642,8 +726,9 @@ function freshDeadline(state: EngineState, line: EngineLine): number {
 // −= quantity, each clamped at 0 (a breach). When no draw of the line holds any unit any more, the line goes fresh:
 // from_stock false, cook_ms = full_cook_ms, reserved_seq null; a batch line's program follows (currentProgram, BF-1:
 // program_id is the ItemAdded copy). BF-12: units and draws[].quantity are the cause's (partialVoid), never changed
-// here. A line not in the state still lowers the entry: e.g. the abandon release (§3.6.1) or a close release of an
-// exited order, whose fold's removal step (§3.3) took the order out just before (drafted while it held the units).
+// here. A line not in the state still lowers the entry. AD-20 (task 14b): the abandon release (§3.6.1 4a) and the
+// close release of an exited order find their line, because the removal step keeps an order while a line holds a
+// reservation; the order leaves at the next listed fold after the last release.
 function foldStockReleased(state: EngineState, event: PosEvent, strict: boolean): EngineState {
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
@@ -873,7 +958,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       if (day === null || day.closed_at !== null) return state;
       // §3.3 (v0.5.1, Q13): every order whose lines are all served / voided / removed / returned exits at the close;
       // an order with any unserved line stays and exits later by the predicate. Slips: task 15b.
-      const exited = removeOrders(state, closedOrderIds(state), event, strict);
+      const exited = removeOrders(state, closeExitIds(state), event, strict);
       // §3.5.3 (task 12b): the close re-plans every station with an unfired line, once, after its releases.
       const replanned = replanStations(exited, Object.keys(exited.stations).filter((sid) => exited.stations[sid]!.unfired.length > 0), event, o);
       return { ...replanned, business_day: { ...day, closed_at: event.recorded_at } };
@@ -902,6 +987,8 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldItemEnded(state, event, o, 'voided');
     case 'ItemReturned':
       return foldItemReturned(state, event, strict);
+    case 'ReservationsShifted':
+      return foldReservationsShifted(state, event, strict);
     // 03a §3.12 types whose folds land in later tasks: only the §3.3 last_line_fold_at refresh until then.
     case 'ItemMovedToStock':
       return foldItemMovedToStock(state, event);
@@ -911,7 +998,6 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     // Unchanged until their tasks (SlipWarned never refreshes the clock, §3.3).
     case 'SlipWarned':
     case 'AlertClosed':
-    case 'ReservationsShifted':
     case 'StationCapacitySet':
     case 'StationPauseSet':
       return state;

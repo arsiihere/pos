@@ -358,6 +358,34 @@ describe('@pos/engine getTickIntents — batch loads (§3.6.1 item 1, D14, D17, 
     expect(fires(getTickIntents(s, load.fire_ms))).toEqual([]);
     expect(nextDueAt(s, load.fire_ms)).toBeNull();
   });
+
+  it('[03a BF-5] a load is due at max(load fire, its earliest member fire), the minimum over loads (task 14 review)', () => {
+    // Shape-only states: a load's fire and its members' fire_ms set apart, as the scheduled-fire rule reads both.
+    const k = fryer({ capacity: 4, freshness: 5_000, freeze_ms: 3_600_000 });
+    const a = submitB(k, 'O1', [{ id: 'A', cook: 3 * M }], T0);
+    const b = submitB(a.state, 'O2', [{ id: 'B', cook: 3 * M, program: 'P2' }], T0);
+    const X = loadOf(b.state, 'A')!;
+    const Y = loadOf(b.state, 'B')!;
+    expect(X.load_id).not.toBe(Y.load_id);
+    const f = Math.min(X.fire_ms, Y.fire_ms);
+    const shape = (xLoad: number, xLine: number, yLoad: number, yLine: number): EngineState => {
+      const F = b.state.stations.F!;
+      return deepFreeze({
+        ...b.state,
+        lines: { ...b.state.lines, A: { ...b.state.lines.A!, fire_ms: xLine }, B: { ...b.state.lines.B!, fire_ms: yLine } },
+        stations: { ...b.state.stations, F: { ...F, unfired: xLine <= yLine ? ['A', 'B'] : ['B', 'A'], loads: { [X.load_id]: { ...X, fire_ms: xLoad }, [Y.load_id]: { ...Y, fire_ms: yLoad } } } },
+      });
+    };
+    // Members after the load fire: due at the member fire, not at the load fire (no intent there).
+    const late = shape(f, f + 5 * S, f + 60 * S, f + 60 * S);
+    expect(nextDueAt(late, f - 1)).toBe(f + 5 * S);
+    expect(getTickIntents(late, f)).toEqual([]);
+    expect(fires(getTickIntents(late, f + 5 * S)).map((x) => x.load_id)).toEqual([X.load_id]);
+    // A later-listed member with an earlier fire but a later load fire never raises the bound.
+    const mixed = shape(f + 5 * S, f, f + 30 * S, f + 1 * S);
+    expect(nextDueAt(mixed, f - 1)).toBe(f + 5 * S);
+    expect(fires(getTickIntents(mixed, f + 5 * S)).map((x) => x.load_id)).toEqual([X.load_id]);
+  });
 });
 
 describe('@pos/engine getTickIntents — auto-fill (§3.6.1 item 2, D16)', () => {
@@ -545,6 +573,35 @@ describe('@pos/engine getTickIntents — overrun cascade (§3.6.1 item 4, F §4.
     expect(nextDueAt(solo, T0 + 60 * S)).toBeNull();
     expect(getTickIntents(solo, T0 + 60 * S)).toEqual([]);
   });
+
+  it('[03a #62 engine] boundary clause: a folded shift leaves the same now with no intent; fires is due only at each cascade_step_ms boundary', () => {
+    let s = f12();
+    const p = pass(s, T0 + 21);
+    expect(types(p.drafts)).toEqual(['ReservationsShifted']);
+    s = p.state;
+    expect(s.lines.C!.booked).toEqual({ start: T0 + 35, end: T0 + 45, units: 1 });
+    // A second pass at the same now writes nothing new; the next due instant is the next step boundary (+ 1 ms, the
+    // first ms B, packed behind the overrunning A, overlaps C again).
+    expect(getTickIntents(s, T0 + 21)).toEqual([]);
+    expect(nextDueAt(s, T0 + 21)).toBe(T0 + 26);
+    // A pass every ms while A keeps overrunning: one shift of one step per boundary, nothing in between.
+    const shiftedAt: number[] = [];
+    for (let now = T0 + 22; now <= T0 + 50; now++) {
+      const due = nextDueAt(s, now)!;
+      const q = pass(s, now);
+      expect(q.drafts.length > 0, `pass ${now - T0}`).toBe(due <= now);
+      if (q.drafts.length > 0) {
+        expect(q.drafts).toEqual([
+          { stream_type: 'station', stream_id: 'X', event_type: 'ReservationsShifted', schema_version: 1, payload: { station_id: 'X', cause: 'overrun', shifts: [{ order_item_id: 'C', by_ms: 5 }] } },
+        ]);
+        shiftedAt.push(now - T0);
+      }
+      s = q.state;
+    }
+    expect(shiftedAt).toEqual([26, 31, 36, 41, 46]);
+    expect(s.lines.C!.booked).toEqual({ start: T0 + 60, end: T0 + 70, units: 1 });
+    expect(s.lines.C!.deadline_ms).toBe(f12().lines.C!.deadline_ms);
+  });
 });
 
 describe('@pos/engine getTickIntents — abandoned reservations (§3.6.1 item 4a, §3.7)', () => {
@@ -570,7 +627,12 @@ describe('@pos/engine getTickIntents — abandoned reservations (§3.6.1 item 4a
     const after = fold(s, asEvents(rel, abandonAt));
     expect(stockOf(after, 'KB').reserved).toBe(0);
     expect(stockOf(after, 'NN').reserved).toBe(0);
-    expect(after.orders.O1).toBeUndefined(); // removed at the release's own fold (§3.3)
+    // AD-20 (task 14b): the removal step keeps O1 while L holds a reservation, so both releases find the line; once
+    // released, O1 leaves at the next listed fold. It occupies nothing meanwhile.
+    expect(after.orders.O1).toBeDefined();
+    expect(after.lines.L!.reserved_seq).toBeNull();
+    expect(getTickIntents(after, abandonAt)).toEqual([]);
+    expect(fold(after, [stockSet('NN', 4, abandonAt + 1)]).orders.O1).toBeUndefined();
     expect(after.orders.O2).toBeDefined();
     // What is left is H's auto-fill eligibility (d − max_early_ms, the idle station), a minute before its fire.
     expect(nextDueAt(after, abandonAt)).toBe(after.lines.H!.deadline_ms - after.lines.H!.max_early_ms);

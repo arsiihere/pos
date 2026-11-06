@@ -298,6 +298,9 @@ function fillCandidates(state: EngineState, station: StationRuntime, now: number
 
 // §3.6.1 item 2 order: frozen before hidden; Waada Guard — slack (d − fire) ≤ keep first by d, then the larger
 // w × waiting (waiting = now − placed_at, as pass 1's ties, §3.5.4); EDF — by d; ties by order_item_id.
+// Proposed (implementer, overnight): the urgency slack is the planned one, deadline_ms − fire_ms (the line's slack as
+// pass 1 placed it, §3.5.4 keep). The alternative reading, the slack left at the pass (d − now ≤ keep), would rank
+// every line near its deadline urgent whatever its plan; listed for the developer (task 14 review).
 function fillOrder(state: EngineState, lines: EngineLine[], now: number, pol: ReturnType<typeof stationPolicy>): EngineLine[] {
   const key = (l: EngineLine) => {
     const frozen = l.fire_ms! <= now + pol.freeze_ms ? 0 : 1;
@@ -561,7 +564,9 @@ function exactBound(c: Ctx, t: number): number {
       if (!ready(state, line) || line.fire_ms! >= bound) continue;
       const load = loadOf(station, line);
       if (load !== undefined && !loadReady(state, load)) continue;
-      bound = load === undefined ? line.fire_ms! : load.fire_ms;
+      // A load is due as scheduledFires fires it: a member's fire_ms ≤ t and the load's fire_ms ≤ t, so at
+      // max(load fire, its earliest member fire) (task 14 review); every term only ever lowers the bound.
+      bound = Math.min(bound, load === undefined ? line.fire_ms! : Math.max(load.fire_ms, line.fire_ms!));
     }
   }
   for (const list of c.cooking.values()) {
