@@ -23,6 +23,9 @@
 //   - paused stations are not offered to a new line; a placed (hidden) line keeps its own station while it is
 //     paused (§3.10 "open lines continue") and is not moved onto a paused one (proposed (implementer,
 //     overnight) R7);
+//   - §3.11 an archived station is not offered to a new line, nor to a hidden line that is not already on it; a line on
+//     it stays and completes. proposed (implementer, overnight): a new line whose only station is archived (a race with
+//     02's menu) falls back to it like any filtered line (D3: placement is never refused);
 //   - alternates only between slot stations (P-3): a line on a batch station has no alternates;
 //   - reserve (D8): a station where the line's capacity (effective − reserve_units unless it is the line's home)
 //     is < 1 is not offered, its own station included.
@@ -52,18 +55,21 @@ export type RouteCtx = {
   state: EngineState;
   reserve: ReadonlyMap<string, number>;
   fifo: ReadonlySet<string>;
+  archived: ReadonlySet<string>;
   min_gain_ms: number;
 };
 
 export function routeCtx(state: EngineState): RouteCtx {
   const reserve = new Map<string, number>();
   const fifo = new Set<string>();
+  const archived = new Set<string>();
   for (const s of state.config?.stations ?? []) {
+    if (s.is_archived) archived.add(s.station_id);
     reserve.set(s.station_id, s.reserve_units);
     if (s.policy === 'fifo') fifo.add(s.station_id);
   }
   // 01a v2.1 §5.2a default min_gain_ms 60 000 when no config is applied.
-  return { state, reserve, fifo, min_gain_ms: state.config?.settings.min_gain_ms ?? 60_000 };
+  return { state, reserve, fifo, archived, min_gain_ms: state.config?.settings.min_gain_ms ?? 60_000 };
 }
 
 // D9: the alternate marked home for the order type, else the line's own (routed) station.
@@ -116,7 +122,7 @@ export function routeOptions(ctx: RouteCtx, line: RouteLine, placed: boolean): R
       out.push(opt);
       continue;
     }
-    if (s.paused) continue;
+    if (s.paused || ctx.archived.has(e.station_id)) continue;
     if (e.station_id !== line.routed_station_id && line.max_carry_ms !== null && e.carry_ms > line.max_carry_ms) continue;
     if (placed && ctx.fifo.has(e.station_id)) continue;
     out.push(opt);

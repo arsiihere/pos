@@ -26,7 +26,7 @@ import { liveProfile, liveProfiles } from './live.js';
 import { bookingAt, overloadPlace, Work, type Booking, type OverloadLine, type Placement } from './overload.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval, type Underflow } from './profile.js';
 import { allFifo, homeOf, optionOn, rerouted, routeCtx, routeOptions, type Alternate, type RouteCtx, type RouteOption } from './route.js';
-import { asLoad, formed, freshnessOf, joinLine, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, formed, freshnessOf, joinLine, placedUnderOldType, replaced, slotEnd, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Profile, StationRuntime } from './state.js';
 
 export { bookingAt, type Booking, type Placement } from './overload.js';
@@ -49,8 +49,9 @@ export type Move = Placement & { to?: Reroute };
 export function isUnfiredPlaced(line: EngineLine): boolean {
   return line.stage === 'added' && line.fired_at === null && line.fire_ms !== null && line.booked !== null;
 }
+// A slot booking left on a station that is batch now is fixed input (§3.11, placedUnderOldType), never hidden.
 export function isHidden(state: EngineState, line: EngineLine, t: number): boolean {
-  return isUnfiredPlaced(line) && line.fire_ms! > t + stationPolicy(state, line.station_id).freeze_ms;
+  return isUnfiredPlaced(line) && !placedUnderOldType(state, line) && line.fire_ms! > t + stationPolicy(state, line.station_id).freeze_ms;
 }
 
 // The station's planning knobs from state.config (§3.11). A station the config no longer lists keeps the 01a
@@ -643,17 +644,22 @@ function overloadUnit(state: EngineState, u: WorkLoad, cap: number, t: number, f
 
 // The live profiles of `station_ids` at t with every unfired booking taken out (lines' and loads'), except those of
 // `held` lines: the fixed lines of §3.9 / §3.10, fired and COOKING with their live intervals. One read + one sweep.
+// §3.11: a booking placed under the station's previous type stays in (a slot line on a batch station, a load on a slot
+// station): those never move, so a placement must see them.
 export function fixedProfiles(state: EngineState, station_ids: Iterable<string>, t: number, strict: boolean, held: ReadonlySet<string> = NONE): Record<string, Profile> {
   const live = liveProfiles(state, station_ids, t);
   const out: Record<string, Profile> = {};
   for (const id of Object.keys(live)) {
     const station = state.stations[id]!;
     const bookings: Booking[] = [];
-    for (const x of station.unfired) {
-      const b = state.lines[x]?.booked;
-      if (b !== null && b !== undefined && !held.has(x)) bookings.push(b);
+    if (station.type === 'batch') {
+      for (const l of Object.values(station.loads)) if (!l.order_item_ids.some((m) => held.has(m))) bookings.push(l.booked);
+    } else {
+      for (const x of station.unfired) {
+        const b = state.lines[x]?.booked;
+        if (b !== null && b !== undefined && !held.has(x)) bookings.push(b);
+      }
     }
-    for (const l of Object.values(station.loads)) if (!l.order_item_ids.some((m) => held.has(m))) bookings.push(l.booked);
     out[id] = combine(live[id]!, profileOf(bookings), -1, strict ? undefined : () => undefined);
   }
   return out;

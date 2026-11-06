@@ -9,7 +9,7 @@ import { liveInterval, liveProfiles } from './live.js';
 import { addInterval, earliestFit, latestFit, occupancy, removeInterval } from './profile.js';
 import { applyMoves, bookingAt, capacityFor, fixedProfiles, heldAfterFrozen, isFifo, isFifoLine, isHidden, pass1, placeFrozen, placementCap, sortUnfired, stationPolicy, syncOrder, type FrozenStep, type Move, type NewLine, type Placement } from './replan.js';
 import { chooseImmediate, rerouted, routeCtx, routeOptions, type RouteOption } from './route.js';
-import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
+import { asLoad, currentProgram, earliestJoinEnd, formed, freshnessOf, immediateJoin, joinAdvance, joinLine, nameLoads, placedUnderOldType, replaced, syncJoin, withMember, workOf, type WorkLoad } from './batch.js';
 import type { Diagnostic, EngineLine, EngineState, Load, Profile, StationRuntime } from './state.js';
 import type { Pass1Result } from './replan.js';
 
@@ -537,7 +537,7 @@ export function replanCapacity(before: EngineState, after: EngineState, station_
     if (isFifo(after, sid)) continue;
     for (const id of after.stations[sid]!.unfired) {
       const l = after.lines[id];
-      if (l === undefined) continue;
+      if (l === undefined || placedUnderOldType(after, l)) continue;
       const delta = occupancy(l.units, placementCap(before, l), l.cook_ms).cook_ms - occupancy(l.units, placementCap(after, l), l.cook_ms).cook_ms;
       if (delta === 0) continue;
       lines ??= { ...after.lines };
@@ -584,7 +584,7 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
   const unfired = order.line_ids
     .map((id) => state.lines[id])
     .filter((l): l is EngineLine => l !== undefined && l.stage === 'added' && l.fired_at === null && l.fire_ms !== null);
-  const movable = unfired.filter((l) => !isFifo(state, l.station_id));
+  const movable = unfired.filter((l) => !isFifo(state, l.station_id) && !placedUnderOldType(state, l));
   if (movable.length === 0) return { ...state, orders: { ...state.orders, [order_id]: { ...order, boosted: true } } };
   const ids = new Set(movable.map((l) => l.order_item_id));
   const ctx = routeCtx(state);

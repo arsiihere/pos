@@ -106,7 +106,8 @@ function pullIns(state: EngineState, station: StationRuntime, load: Load, taken:
   const cands: Array<{ line: EngineLine; E: number }> = [];
   for (const id of station.unfired) {
     const line = state.lines[id];
-    if (taken.has(id) || !ready(state, line) || currentProgram(line) !== load.program_id) continue;
+    // line.booked: a slot line placed before a type change is fixed input (§3.11), never pulled into a load.
+    if (taken.has(id) || !ready(state, line) || line.booked !== null || currentProgram(line) !== load.program_id) continue;
     const E = slotEnd(line, cap);
     if (load.booked.end <= E && E - load.booked.end <= Math.min(window, line.max_early_ms)) cands.push({ line, E });
   }
@@ -361,10 +362,10 @@ function completionMode(state: EngineState, station_id: string): StationCfg['com
 }
 
 // The cook a COOKING line occupies its station for at effective capacity (live.ts: AD-4 rounds on a slot station; a
-// batch line as its whole load, max(units, cap)).
+// batch line as its whole load, max(units, cap); a line fired with no load is a slot line, §3.11).
 function occupancyCook(station: StationRuntime, line: EngineLine): number {
   const cap = Math.max(1, effectiveCapacity(station));
-  return station.type === 'batch' ? occupancy(Math.max(line.units, cap), cap, line.cook_ms).cook_ms : occupancy(line.units, cap, line.cook_ms).cook_ms;
+  return station.type === 'batch' && line.load_id !== null ? occupancy(Math.max(line.units, cap), cap, line.cook_ms).cook_ms : occupancy(line.units, cap, line.cook_ms).cook_ms;
 }
 
 // The planned end of a COOKING line: started_at + prep + cook (F §4.7 D60 doneAt; D33 planned_endsAt).

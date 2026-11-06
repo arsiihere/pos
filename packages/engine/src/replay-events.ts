@@ -21,3 +21,6 @@ export const ENGINE_REPLAY_EVENTS = {
   stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed'],
   hub: ['BusinessDayOpened', 'BusinessDayClosed'],
 } as const satisfies { order: readonly string[]; station: readonly string[]; stock: readonly string[]; hub: readonly string[] };
+
+// The union of the lists: the type of applyEvent's switch, exhaustive both ways (test 94).
+export type ReplayEventType = (typeof ENGINE_REPLAY_EVENTS)[keyof typeof ENGINE_REPLAY_EVENTS][number];

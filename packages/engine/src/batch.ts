@@ -31,6 +31,20 @@ export function currentProgram(line: Pick<EngineLine, 'from_stock' | 'program_id
   return line.from_stock ? line.stock_program_id : line.program_id;
 }
 
+// §3.11 station_type ("open lines keep their placement as fixed input; new lines follow the new type"): an unfired line
+// placed under the station's previous type, read off its shape, so no new state field is needed: a slot booking
+// (`booked`) on a batch station, or a member of a stored load on a slot station. proposed (implementer, overnight) S1:
+// every re-placement leaves such a line where it is, whatever the trigger (a later capacity change, a boost, an
+// expedite, a void's re-loop, a StockAdded flip), and it stays in the fixed profile of every placement; the tick still
+// fires it and the cascade still shifts it (D42, physical). Alternative: a later capacity change re-places it too, which
+// would need the old type's placement rules on a station of the new type.
+export function placedUnderOldType(state: EngineState, line: EngineLine): boolean {
+  const station = state.stations[line.station_id];
+  if (station === undefined || line.stage !== 'added' || line.fired_at !== null) return false;
+  if (station.type === 'batch') return line.booked !== null;
+  return line.load_id !== null && station.loads[line.load_id]?.order_item_ids.includes(line.order_item_id) === true;
+}
+
 export function isBatchStation(state: EngineState, station_id: string): boolean {
   return state.stations[station_id]?.type === 'batch';
 }

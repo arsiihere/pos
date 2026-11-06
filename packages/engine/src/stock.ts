@@ -11,6 +11,7 @@ import type {
 import { InvalidEvent } from './invalid-event.js';
 import { closedOrderIds, orderInEngine } from './lifecycle.js';
 import { isEngineLine, type ProposedLine, type ProposedOrder } from './plan.js';
+import { placedUnderOldType } from './batch.js';
 import { stationPolicy } from './replan.js';
 import type { DayDraws, EngineLine, EngineState, StockEntry } from './state.js';
 
@@ -268,6 +269,7 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 // then switches its cook but keeps its fire and booking (replaceFlipped). The gap is the §3.5.3 append gap.
 function isCandidate(state: EngineState, line: EngineLine, t: number): boolean {
   if (line.from_stock || line.return_of !== null || line.draws.length === 0 || line.stock_cook_ms === null) return false;
+  if (placedUnderOldType(state, line)) return false; // §3.11: fixed input, not re-placed by a flip
   if (state.stations[line.station_id]?.type === 'batch' && line.stock_program_id === null) return false;
   const order = state.orders[line.order_id];
   if (order === undefined || order.awaiting > 0) return false;

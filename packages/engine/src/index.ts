@@ -3,6 +3,7 @@ export * from './stock.js';
 export * from './apply-event.js';
 export * from './version.js';
 export * from './replay-events.js';
+export { fromCheckpoint, toCheckpoint, type EngineCheckpointV1 } from './checkpoint.js';
 export * from './profile.js';
 export { calculateETA, checkOrderable, planOrder, type PlanResult, type ProposedLine, type ProposedOrder } from './plan.js';
 export { liveInterval } from './live.js';

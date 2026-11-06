@@ -39,9 +39,10 @@ import {
   storeLoads,
   type SequenceOptions,
 } from './plan.js';
+import { placedUnderOldType } from './batch.js';
 import { effectiveCapacity } from './capacity.js';
 import { closeExitIds, exitedOrderIds, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
-import { ENGINE_REPLAY_EVENTS } from './replay-events.js';
+import { ENGINE_REPLAY_EVENTS, type ReplayEventType } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
 import { upkeepSlips } from './slip.js';
@@ -60,7 +61,8 @@ const EMPTY_PROFILE = (): StationRuntime['profile'] => ({ t: [], u: [] });
 
 // §3.10, §3.11: an EngineConfigApplied that changes a station's capacity re-plans it as a capacity change (D15
 // exception); every other change applies from the next re-plan. Station type changes are §3.11's fixed-input row
-// (task 17), so such a station is not re-planned here.
+// (placedUnderOldType, batch.ts): nothing on such a station moves, so it is not re-planned here, even when its capacity
+// changes in the same event.
 function foldEngineConfig(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
   const config = event.payload as unknown as EngineConfig;
   const after = applyEngineConfig(state, config);
@@ -787,7 +789,7 @@ function foldStockReserved(state: EngineState, event: PosEvent, strict: boolean)
 // (proposed (implementer, overnight): a line frozen in that ms append gap keeps its fire and booking, see isCandidate).
 function replaceFlipped(state: EngineState, before: EngineLine, event: PosEvent, strict: boolean): EngineState {
   const id = before.order_item_id;
-  if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at)) return state;
+  if (state.stations[before.station_id] === undefined || !isHiddenUnfired(state, before, event.recorded_at) || placedUnderOldType(state, before)) return state;
   const fp = flipPlacement(state, id, before.cook_ms, event.recorded_at, strict);
   const patched = patchLine(state, id, { deadline_ms: fp.deadline_ms });
   return fp.kind === 'slot' ? applyMoves(patched, new Map([[id, fp.move]]), event.event_id, strict) : storeLoads(patched, before.station_id, fp.loads, event.event_id, strict);
@@ -1116,7 +1118,10 @@ function foldAlertClosed(state: EngineState, event: PosEvent): EngineState {
 
 function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineState {
   const strict = o.strict;
-  switch (event.event_type) {
+  // Test 94: exhaustive both ways; a listed type with no case fails `satisfies never`, a case off the lists does not
+  // compile. applyEvent's HANDLED gate has already returned state for every other type.
+  const replayType = event.event_type as ReplayEventType;
+  switch (replayType) {
     case 'StockSet':
       return replanStock(foldStockSet(state, event, strict), event, o);
     case 'StockAdded':
@@ -1180,7 +1185,6 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
       return foldItemReturned(state, event, strict);
     case 'ReservationsShifted':
       return foldReservationsShifted(state, event, strict);
-    // 03a §3.12 types whose folds land in later tasks: only the §3.3 last_line_fold_at refresh until then.
     case 'ItemMovedToStock':
       return foldItemMovedToStock(state, event);
     case 'OrderBoosted':
@@ -1197,6 +1201,7 @@ function fold(state: EngineState, event: PosEvent, o: SequenceOptions): EngineSt
     case 'StationPauseSet':
       return foldStationPause(state, event);
     default:
+      replayType satisfies never;
       return state;
   }
 }

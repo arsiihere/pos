@@ -19,7 +19,7 @@
 // without a load is its own group). A group with a COOKING member occupies [its earliest started + prep, the latest
 // member end) — a COOKING member's live end, a not-started member's max(fire, t) + prep + cook (proposed
 // (implementer, overnight) L1); a group with no COOKING member is packed like a fired line, from max(fire, t) with
-// its largest prep and cook. Either way with every unit of the station. An unfired member occupies its load's
+// its largest prep and cook. Either way with every unit of the station, except a line with no load (§3.11): its own. An unfired member occupies its load's
 // booking (Load.booked, AD-7 for loads).
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
@@ -110,12 +110,15 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
   const fireOf = (l: EngineLine): number => l.fire_ms ?? l.fired_at!;
   let pack: Profile = { t: [], u: [] };
   const bookings = new Map<string, Booking>();
-  const fired: Array<{ members: EngineLine[]; fire: number; first: string; prep: number; cook: number }> = [];
+  const fired: Array<{ members: EngineLine[]; fire: number; first: string; prep: number; cook: number; width: number }> = [];
   for (const members of groups.values()) {
     // Task 16 review (AD-4): a load's rounds come from its members' summed units, as its booking did (load units over a
     // lowered capacity); within the capacity that is one round, whatever the split.
     const units = members.reduce((n, m) => n + m.units, 0);
-    const cookOf = (l: EngineLine): number => occupancy(Math.max(units, cap), cap, l.cook_ms).cook_ms;
+    // §3.11: a line fired with no load was placed as a slot line before a type change; it keeps its own units and cook.
+    const single = members[0]!.load_id === null;
+    const cookOf = (l: EngineLine): number => occupancy(single ? l.units : Math.max(units, cap), cap, l.cook_ms).cook_ms;
+    const width = single ? occupancy(units, cap, members[0]!.cook_ms).units : cap;
     if (!members.some(isCooking)) {
       fired.push({
         members,
@@ -123,6 +126,7 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
         first: members.map((m) => m.order_item_id).sort()[0]!,
         prep: Math.max(...members.map((m) => m.prep_ms)),
         cook: Math.max(...members.map(cookOf)),
+        width,
       });
       continue;
     }
@@ -137,14 +141,14 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
         end = Math.max(end, Math.max(fireOf(m), t) + m.prep_ms + cookOf(m));
       }
     }
-    const b = { start, end, units: cap };
+    const b = { start, end, units: width };
     pack = addInterval(pack, b, b.units);
     for (const m of members) bookings.set(m.order_item_id, b);
   }
   fired.sort((a, b) => a.fire - b.fire || (a.first < b.first ? -1 : a.first > b.first ? 1 : 0));
   for (const g of fired) {
-    const s = earliestFit(pack, Math.max(g.fire, t), g.prep, g.cook, cap, cap);
-    const b = { start: s + g.prep, end: s + g.prep + g.cook, units: cap };
+    const s = earliestFit(pack, Math.max(g.fire, t), g.prep, g.cook, g.width, cap);
+    const b = { start: s + g.prep, end: s + g.prep + g.cook, units: g.width };
     pack = addInterval(pack, b, b.units);
     for (const m of g.members) bookings.set(m.order_item_id, b);
   }
