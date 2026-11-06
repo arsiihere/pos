@@ -12,6 +12,10 @@ export default defineConfig({
           root: './packages/engine',
           include: ['test/sim/**/*.perf.test.ts'],
           testTimeout: 600_000,
+          // P-4, task 18: wall-clock gates. One file at a time, after every other project.
+          maxWorkers: 1,
+          fileParallelism: false,
+          sequence: { groupOrder: 1 },
         },
       },
     ],

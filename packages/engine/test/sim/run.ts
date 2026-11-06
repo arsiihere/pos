@@ -28,19 +28,26 @@ import { planOrderObserved } from '../../src/plan';
 import { generateDay, TICK_MS, type GenerateOptions, type SimDay, type SimOrder, type SimStation } from './generate';
 
 export type Policy = 'waada_guard' | 'edf' | 'fifo';
-export type RunOptions = { policy?: Policy; prune?: boolean; everyTick?: boolean };
+export type RunOptions = {
+  policy?: Policy;
+  prune?: boolean;
+  everyTick?: boolean;
+  // Task 18: sees the live state after each fold, outside the re-plan stopwatch (the end of a day is drained, so live = replayed compares mid-day states too).
+  watch?: (state: EngineState, last_seq: number) => void;
+};
 
 export type SimResult = {
   events: PosEvent[];
   replanMs: number[]; // per submit: planOrder + the folds of its batch (§7.1 row 1)
   replacedLines: number[]; // per station re-plan: pass 1's free lines + the new lines there (the drill's len(free))
   overloadProbes: number[]; // per §3.5.6 search at a submit
+  overloadStations: string[]; // the station of each overloadProbes entry
   liveState: EngineState;
 };
 
 // §7.1: the simulator's stopwatch, the one clock of test/sim (never in src, F §6.7).
 // eslint-disable-next-line no-restricted-syntax
-const wallMs = (): number => performance.now();
+export const wallMs = (): number => performance.now();
 
 const PROGRAM = (station_id: string): string => `${station_id}-p`;
 const HOUR = 3_600_000;
@@ -74,7 +81,7 @@ function configEvent(stations: readonly SimStation[], policy: Policy, at: number
   });
 }
 
-function itemFields(s: SimStation): Record<string, unknown> {
+export function itemFields(s: SimStation): Record<string, unknown> {
   return {
     station_id: s.station_id,
     item_id: s.station_id,
@@ -85,7 +92,7 @@ function itemFields(s: SimStation): Record<string, unknown> {
 }
 
 // The ProposedOrder 02 builds from branchConfig() (§4.2): the ItemAdded drafts + the config defaults of the line.
-function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimStation>): ProposedOrder {
+export function proposedOf(order: SimOrder, stations: ReadonlyMap<string, SimStation>): ProposedOrder {
   const base = anItemAdded().payload;
   return {
     order_id: order.order_id,
@@ -121,6 +128,8 @@ class Sim {
   replanMs: number[] = [];
   replacedLines: number[] = [];
   overloadProbes: number[] = [];
+  overloadStations: string[] = [];
+  watch: RunOptions['watch'];
   readonly opts: { prune?: boolean };
   readonly template = anItemStarted();
 
@@ -139,6 +148,7 @@ class Sim {
   append(e: PosEvent): void {
     this.events.push(e);
     this.state = applyEvent(this.state, e, this.opts);
+    this.watch?.(this.state, this.events.length);
   }
 
   // The host's stamp on a draft (§3.6.1 Drafts): event_id, seq, occurred_at / recorded_at.
@@ -193,12 +203,14 @@ class Sim {
     ms += wallMs() - b;
     this.state = state;
     this.events.push(...batch);
+    this.watch?.(this.state, this.events.length);
     this.replanMs.push(ms);
     for (const station_id of new Set(order.lines.map((l) => l.station_id))) {
       const fresh = order.lines.filter((l) => l.station_id === station_id).length;
       this.replacedLines.push((observed.replaced[station_id] ?? 0) + fresh);
     }
     this.overloadProbes.push(...Object.values(observed.probes));
+    this.overloadStations.push(...Object.keys(observed.probes));
   }
 
   // One day: orders in time order; returns when every line is served and nothing is due.
@@ -286,7 +298,7 @@ class Sim {
   }
 
   result(): SimResult {
-    return { events: this.events, replanMs: this.replanMs, replacedLines: this.replacedLines, overloadProbes: this.overloadProbes, liveState: this.state };
+    return { events: this.events, replanMs: this.replanMs, replacedLines: this.replacedLines, overloadProbes: this.overloadProbes, overloadStations: this.overloadStations, liveState: this.state };
   }
 }
 
@@ -337,6 +349,7 @@ function opening(sim: Sim, day: SimDay): void {
 export function runDay(day: SimDay, o: RunOptions = {}): SimResult {
   const policy = o.policy ?? 'waada_guard';
   const sim = new Sim(policy, o.prune ?? true, o.everyTick ?? false);
+  sim.watch = o.watch;
   sim.append(configEvent(day.stations, policy, day.start_ms - 2, sim.seq));
   opening(sim, day);
   sim.drive(day);
