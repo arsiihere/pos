@@ -135,6 +135,27 @@ describe('[01b §8] role editor', () => {
     expect([...(stations().querySelector('select')?.options ?? [])].map((o) => o.value)).toEqual(['branch', 'my_stations']);
   });
 
+  it('[01b B-1, B-4] "Their stations" help depends on the permission: manage-stations does not name Stock counting, manage-stock does', async () => {
+    const { api } = fakeApi(handler(() => ok({})));
+    await render(api, 'R_LEAD');
+    const pickStations = async (row: () => HTMLElement) => {
+      await click(button(row(), t('roles.grant.allowed')));
+      const select = row().querySelector<HTMLSelectElement>('select')!;
+      await setValue(select, 'my_stations');
+    };
+
+    await openGroup('kitchen');
+    const stations = () => grantRow(t('perm.manage-stations'));
+    await pickStations(stations);
+    expect(stations().textContent).toContain('Their stations: the stations this person runs.');
+    expect(stations().textContent).not.toContain('Stock counting');
+
+    await openGroup('menu_stock');
+    const stock = () => grantRow(t('perm.manage-stock'));
+    await pickStations(stock);
+    expect(stock().textContent).toContain('stations set in Stock counting');
+  });
+
   it('[01b §8] Pulse: groups are disclosures with a count summary; the first is open; the explain box is an info hint', async () => {
     const { api } = fakeApi(handler(() => ok({})));
     await render(api, 'R_LEAD');

@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-185 keys.
+186 keys.
 
 | Key | English |
 |---|---|
@@ -189,3 +189,4 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `admin_stock.errors.outside_scope` | You can only change items for your stations. |
 | `perm.manage-stations` | Switch lanes off and on, pause a station |
 | `perm.mark-served` | Mark an item served |
+| `roles.scope_help.manage_stations` | Their stations: the stations this person runs. |

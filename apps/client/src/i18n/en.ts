@@ -1162,6 +1162,8 @@ export const en = {
   'roles.scope_help.my_floors': 'floors set on each person',
   'roles.scope_help.my_team': 'people who report to them',
   'roles.scope_help.my_stations': 'stations set in Stock counting',
+  // 01b B-1, B-4: manage-stations resolves my_stations through run_station, which no owner screen assigns yet.
+  'roles.scope_help.manage_stations': 'Their stations: the stations this person runs.',
   'roles.approved_by': 'Approved by',
   'roles.approver_required': 'Pick at least one role to approve.',
   'roles.this_role': 'This role',
