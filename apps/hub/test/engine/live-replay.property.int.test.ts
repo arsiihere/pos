@@ -11,7 +11,7 @@
 // the close at least day_min_gap_hours after the open; passes until the deferred checkpoint is written; a reopen; part B
 // (the rest of the slice, moved after the reopen), stopped mid-flight. Idle passes are skipped as the simulator does
 // (a pass at each fires or alert due, at every tap and submit instant's grid, and a 30 s heartbeat while work is open).
-// No wall-clock assert (AD-32).
+// No wall-clock assert (AD-32). The file runs in about 95 s on an idle laptop, about 240 s under gate load.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +22,7 @@ import type { BranchConfig, ConfigItem, ConfigStation, ConfigStockItem, Director
 import { parseEvent } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import Database from 'better-sqlite3';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { setEngineConfigOf } from '../../src/engine-host/fires-tick';
@@ -121,10 +121,18 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
   let stop: () => void = () => undefined;
   let scratch: string | null = null;
 
+  // SlipWarned per seed: asserted across all seeds in afterAll (a seed's slips depend on its load).
+  const slipSeeds = new Map<number, number>();
+
   beforeAll(async () => {
     directory = await aDirectory();
     // The day moves the clock by hours: sessions stay alive.
     for (const role of directory.roles) role.session_idle_ttl_ms = 7 * 24 * HOUR;
+  });
+
+  afterAll(() => {
+    // 45 of the 50 seeds raise a slip today (seeds 27, 32, 37, 42 and 50 do not); at least 40 must.
+    if (slipSeeds.size === SEEDS.length) expect([...slipSeeds.values()].filter((n) => n > 0).length).toBeGreaterThanOrEqual(40);
   });
 
   afterEach(async () => {
@@ -340,7 +348,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
       if (base.snapshot_seq !== null) {
         expect(base.snapshot_seq).toBeLessThanOrEqual(lastSeq);
         const fromSnapshot = replayEngine(h.deps.db, BRANCH, base.snapshot_seq, base.state!, report);
-        expect(withoutDiagnostics(fromSnapshot.state), `${label}: from the snapshot at ${base.snapshot_seq}`).toEqual(live);
+        expect(withoutDiagnostics(fromSnapshot.state), `${label}: from the snapshot at ${base.snapshot_seq}`).toStrictEqual(JSON.parse(JSON.stringify(live)));
         out.snapshot = base.snapshot_seq < lastSeq;
       }
       if (!checkpoint) return out;
@@ -354,7 +362,7 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
         expect(fallback.snapshot_seq).toBeNull();
         expect(fallback.checkpoint_seq).not.toBeNull();
         const fromCheckpoint = replayEngine(copy, BRANCH, fallback.checkpoint_seq!, fallback.state!, report);
-        expect(withoutDiagnostics(fromCheckpoint.state), `${label}: from the checkpoint at ${fallback.checkpoint_seq}`).toEqual(live);
+        expect(withoutDiagnostics(fromCheckpoint.state), `${label}: from the checkpoint at ${fallback.checkpoint_seq}`).toStrictEqual(JSON.parse(JSON.stringify(live)));
         out.checkpoint = fallback.checkpoint_seq! < lastSeq;
       } finally {
         copy.close();
@@ -434,6 +442,18 @@ describe('03a #59: live state equals replayed state after a mixed day (property,
     const live = withoutDiagnostics(engine());
     expect(Object.values(live.lines).some((l) => !TERMINAL.has(l.stage))).toBe(true);
     expect(await boots('end', true)).toEqual({ snapshot: true, checkpoint: true });
+
+    // Each disturbance really happened: its events are in the log (review, task 27).
+    const counts = Object.fromEntries(
+      (h.deps.db.prepare('SELECT event_type, COUNT(*) AS n FROM events GROUP BY event_type').all() as Array<{ event_type: string; n: number }>).map((r) => [r.event_type, r.n]),
+    ) as Record<string, number>;
+    const releases = h.deps.db.prepare("SELECT DISTINCT json_extract(payload, '$.reason') FROM events WHERE event_type = 'StockReleased'").pluck().all() as string[];
+    for (const type of ['ReservationsShifted', 'FireDispatched', 'OrderBoosted', 'StationCapacitySet', 'StockAdded', 'OrderLinesAdded']) {
+      expect(counts[type] ?? 0, type).toBeGreaterThan(0);
+    }
+    expect(releases).toEqual(expect.arrayContaining(['recount', 'day_closed']));
+    if (seed % 2 === 1) expect(counts.ItemReturned ?? 0, 'ItemReturned').toBe(1);
+    slipSeeds.set(seed, counts.SlipWarned ?? 0);
 
     // No breach: not in the replays, not in the live log (AD-6, §7.2), and no tick failed.
     expect(breaches).toEqual([]);

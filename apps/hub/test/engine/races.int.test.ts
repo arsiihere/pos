@@ -2,7 +2,7 @@
 // writer, and each fake submit reads the state inside its own transaction (02's SubmitOrder, stubbed §4.4), so the
 // second sees the first's reservation: it gets full cook time (`cook_fresh`) or is refused (`sold_out`). Never a
 // double reservation.
-import { initialEngineState, openDayStartMs, type EngineState } from '@pos/engine';
+import { availableStock, initialEngineState, openDayStartMs, type EngineState } from '@pos/engine';
 import type { EventDraft, PosEvent } from '@pos/events';
 import { aBranchConfigItemStock, aBusinessDayOpened, anEngineConfigApplied, aStockSet } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -56,6 +56,11 @@ describe('03a #74 hub: two submits claiming the last stock unit', () => {
 
   // Both commands are in flight at once (the same tick of the event loop); the one writer runs them one after the other.
   async function race(h: TestHub, a: FakeOrder, b: FakeOrder): Promise<Array<{ refused: string[]; appended: PosEvent[] }>> {
+    // The state before either submit: both orders see the one unit, so a read outside the transaction would reserve it
+    // twice.
+    const before = h.deps.state.get() as EngineState;
+    const available = availableStock(before, 'I1', openDayStartMs(before) ?? 0, STOCK_ITEMS.find((s) => s.stock_item_id === 'I1')!);
+    expect(available).toBe(1);
     const stock = () => ({ dayStartMs: openDayStartMs(h.deps.state.get() as EngineState) ?? 0, stockItems: STOCK_ITEMS });
     const submit = async (o: FakeOrder) => {
       await Promise.resolve();
