@@ -4,9 +4,9 @@ Every Urdu string added or changed on `module-03a-cloud` since it left `module-0
 
 Known point to rule on: "piece" is written نگ in these drafts but عدد in the existing money line.
 
-**Counts:** 449 added, 0 changed. New English keys with no Urdu yet: 0. Urdu value with no Urdu letters: 2.
+**Counts:** 447 added, 0 changed. New English keys with no Urdu yet: 0. Urdu value with no Urdu letters: 2.
 
-## Added (449)
+## Added (447)
 
 | Key | English | Urdu |
 |---|---|---|
@@ -98,8 +98,6 @@ Known point to rule on: "piece" is written نگ in these drafts but عدد in th
 | `errors.CONFIG_STALE` | Someone changed this since you opened it | آپ کے کھولنے کے بعد کسی نے اسے بدل دیا ہے |
 | `errors.IDEMPOTENCY_KEY_MISMATCH` | This form was already saved with other values. The list is reloaded; check it before adding again. | یہ فارم پہلے دوسری قدروں سے محفوظ ہو چکا ہے۔ فہرست تازہ کر دی گئی ہے؛ مزید شامل کرنے سے پہلے اسے دیکھ لیں۔ |
 | `errors.NOT_FOUND_stale` | Someone removed this. The page is refreshed. | کسی نے اسے ہٹا دیا ہے۔ صفحہ تازہ کر دیا گیا ہے۔ |
-| `errors.OWN_ADMIN_ACCESS` | You can't remove your own admin access. Call support{support}. | آپ اپنی ایڈمن رسائی نہیں ہٹا سکتے۔ سپورٹ کو کال کریں{support}۔ |
-| `errors.OWN_ADMIN_ACCESS_owner_not_linked` | Your owner login isn't linked to your staff profile yet, so admin access can't be removed. Call support{support} to link it. | آپ کا مالک لاگ اِن ابھی آپ کے اسٹاف پروفائل سے جڑا نہیں، اس لیے ایڈمن رسائی نہیں ہٹ سکتی۔ جوڑنے کے لیے سپورٹ کو کال کریں{support}۔ |
 | `errors.PERMISSION_DENIED` | Only an owner of every branch can change this. | اسے صرف تمام برانچوں کا مالک بدل سکتا ہے۔ |
 | `errors.UNKNOWN` | Something went wrong. Try again. | کچھ غلط ہو گیا۔ دوبارہ کوشش کریں۔ |
 | `errors.VALIDATION_FAILED` | Check the fields and try again. | خانے چیک کر کے دوبارہ کوشش کریں۔ |

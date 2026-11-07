@@ -842,8 +842,6 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'discard.body': 'آپ نے {fields} بدلا ہے۔ یہ ابھی محفوظ نہیں۔',
   'errors.network': 'کلاؤڈ تک رسائی نہیں ہو رہی۔ انٹرنیٹ چیک کریں؛ جو لکھا ہے وہ محفوظ ہے۔',
   'errors.PERMISSION_DENIED': 'اسے صرف تمام برانچوں کا مالک بدل سکتا ہے۔',
-  'errors.OWN_ADMIN_ACCESS_owner_not_linked': 'آپ کا مالک لاگ اِن ابھی آپ کے اسٹاف پروفائل سے جڑا نہیں، اس لیے ایڈمن رسائی نہیں ہٹ سکتی۔ جوڑنے کے لیے سپورٹ کو کال کریں{support}۔',
-  'errors.OWN_ADMIN_ACCESS': 'آپ اپنی ایڈمن رسائی نہیں ہٹا سکتے۔ سپورٹ کو کال کریں{support}۔',
   'errors.reference.unit_mismatch_stock': 'کچھ ڈشیں یہ اسٹاک پرانی اکائی میں استعمال کرتی ہیں۔ پہلے وہ ڈشیں بدلیں۔',
   'errors.CONFIG_REFERENCE_INVALID': 'جس چیز کا حوالہ ہے وہ آرکائیو ہے یا موجود نہیں۔ کوئی اور چنیں۔',
   'errors.NOT_FOUND_stale': 'کسی نے اسے ہٹا دیا ہے۔ صفحہ تازہ کر دیا گیا ہے۔',

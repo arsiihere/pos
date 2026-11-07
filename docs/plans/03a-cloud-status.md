@@ -25,15 +25,16 @@
 | 3 | Add-station dialog | §12.4 note below, no code |
 | 4 | Browser check | Done, `49d2229`..`3dfeb94`: 38 screenshots and a table in `docs/reviews/03a-cloud-browser/` |
 | 5 | Whole-branch review | `docs/reviews/03a-cloud-branch-review.md`: 0 Critical, 0 Important, 11 Minor. No code change required |
-| 6 | Urdu table | `docs/reviews/03a-cloud-urdu-strings.md`: 449 strings |
+| 6 | Urdu table | `docs/reviews/03a-cloud-urdu-strings.md`: 447 strings |
 | 7 | Stash `a621fdc` | Dropped |
 
 **Merge note for the engine lane:** the V3 flip is `8a53778`. Cloud migration 0008 is free for R1b. `apps/hub/src/sync/boot-steps.ts` and non-test files in `packages/engine` were not touched. `git merge-tree` against `origin/module-03a` is clean, but the merged tree was not compiled or tested.
 
 ### Not done or not verified
 - **Browser check gaps:** real phones; cloud-down and failed-menu-read states. `b7cfeef` (station errors under the box) has component tests only, because that browser script was not rerun on the final build.
-- **Urdu:** all 449 strings are unreviewed drafts awaiting the native read. About 760 Urdu keys on other pages (login, stock, staff) remain English, out of scope.
+- **Urdu:** all 447 strings are unreviewed drafts awaiting the native read. About 760 Urdu keys on other pages (login, stock, staff) remain English, out of scope.
 - **C8's first commit had no RED run:** the implementer wrote code before tests. Both C8 fix rounds did run RED first.
+- **Two Urdu strings removed:** `errors.OWN_ADMIN_ACCESS` and `errors.OWN_ADMIN_ACCESS_owner_not_linked` were added during the browser check though they are off its pages. They had the number in the wrong word order and broke `apps/client/src/app/support.test.ts`, which relies on that key having no Urdu. They fall back to English as before.
 - **One-commit rule:** the `MenuView` fix is two commits (`985f169`, `226bf7c`), and `65dbb4e` alone fails `tsc`; `b7cfeef` fixes it.
 
 ### Needs a developer look
