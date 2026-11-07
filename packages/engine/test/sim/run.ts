@@ -13,6 +13,7 @@ import { type PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anItemAdded, anItemStarted, anOrderBatch } from '@pos/events/testing';
 import {
   applyEvent,
+  applyEvents,
   checkOrderable,
   getTickIntents,
   initialEngineState,
@@ -198,10 +199,9 @@ class Sim {
       reserved: stock.drafts.map((d) => d.payload),
     });
     const b = wallMs();
-    let state = this.state;
-    for (const e of batch) state = applyEvent(state, e, this.opts);
+    // AD-28: one transaction's events, one call, as the host will.
+    this.state = applyEvents(this.state, batch, this.opts);
     ms += wallMs() - b;
-    this.state = state;
     this.events.push(...batch);
     this.watch?.(this.state, this.events.length);
     this.replanMs.push(ms);
@@ -254,11 +254,19 @@ class Sim {
       }
     };
 
+    // AD-28: one tick transaction's events, one call, as the host will.
     const pass = (t: number): void => {
       const fired: string[] = [];
+      const stamped: PosEvent[] = [];
       for (const d of getTickIntents(this.state, t)) {
-        this.append(this.stamp(d, t));
+        const e = this.stamp(d, t);
+        this.events.push(e);
+        stamped.push(e);
         if (d.event_type === 'FireDispatched') fired.push(...d.payload.order_item_ids);
+      }
+      if (stamped.length > 0) {
+        this.state = applyEvents(this.state, stamped, this.opts);
+        this.watch?.(this.state, this.events.length);
       }
       for (const id of fired) tapStart(id, t);
     };

@@ -123,11 +123,95 @@ export function closeExitIds(state: EngineState): string[] {
   return closedOrderIds(state).filter((id) => !holdsReservation(state, state.orders[id]!));
 }
 
-// §3.3 copy-on-write, §7.1 (task 18p): one applyEvent's bookkeeping, created per call and dropped with it, never shared.
-//   - writableLines / writableOrders: one copy of the map however many lines the fold patches. The copy is the fold's own
-//     working copy, so it is written in place; the input maps are never written. A state that came from anywhere else (the
-//     input, a re-plan's own copy) is copied first. Only the helpers of apply-event.ts and touchOrder write through it,
-//     and they never read an older state of the same fold afterwards.
+// AD-28: the private maps of one applyEvents call, null until a fold first copies one. Created per call and dropped with
+// it, so a later call copies again and a state already returned is never written. `adopt` runs after each fold: a map that
+// is not the input's is a copy made inside this batch (FoldScope's, or a re-plan's own), and nothing else holds it.
+export class BatchMaps {
+  lines: EngineState['lines'] | null = null;
+  orders: EngineState['orders'] | null = null;
+
+  adopt(input: EngineState, state: EngineState): void {
+    if (state.lines !== input.lines) this.lines = state.lines;
+    if (state.orders !== input.orders) this.orders = state.orders;
+  }
+}
+
+// One map of one fold (FoldScope). Every write of the fold goes through `set` or the map `forDelete` hands out.
+//   - `own`: a copy made in this fold, written freely; nobody else can read it.
+//   - `start`: the batch's map as this event found it (AD-28), written in place. It is also the fold's "before", so its
+//     first write per id keeps the old value in `preEvent`: before() = the map as the event found it. A key is never
+//     deleted from `start` (forDelete copies, however rare), so `start`'s keys in order, less the ones `preEvent` shows
+//     as new, are exactly the keys the event found, in their order. That order reaches slip_due through the touched keys.
+//   - `guard`: after seal(), the map of the removal step's result, which a non-strict InvalidEvent must get back. Writes on
+//     it keep their old value in `undo`, and rollback() restores them; new keys sit at the end and are deleted again, so
+//     the key order comes back too. Outside a batch nothing is guarded: the fold copies at its first write, as seal() drops
+//     `own`.
+class FoldMap<V> {
+  private own: Record<string, V> | null = null;
+  private guard: Record<string, V> | null = null;
+  private sealed = false;
+  private readonly preEvent = new Map<string, V | undefined>();
+  private readonly undo = new Map<string, V | undefined>();
+
+  constructor(
+    private readonly start: Record<string, V> | null,
+    private readonly inBatch: boolean,
+  ) {
+    this.guard = start;
+  }
+
+  writable(current: Record<string, V>): Record<string, V> {
+    if (current === this.own || current === this.guard) return current;
+    this.own = { ...current };
+    return this.own;
+  }
+
+  // The removal step, a dropped placeholder: this write deletes keys, so the map must be one nothing needs back.
+  forDelete(current: Record<string, V>): Record<string, V> {
+    if (current === this.own) return current;
+    this.own = { ...current };
+    return this.own;
+  }
+
+  set(map: Record<string, V>, id: string, value: V): void {
+    if (map === this.start && !this.preEvent.has(id)) this.preEvent.set(id, map[id]);
+    if (this.sealed && map === this.guard && !this.undo.has(id)) this.undo.set(id, map[id]);
+    map[id] = value;
+  }
+
+  seal(): void {
+    this.sealed = true;
+    if (this.inBatch && this.own !== null) this.guard = this.own;
+    this.own = null;
+  }
+
+  rollback(): void {
+    if (this.guard === null) return;
+    for (const [id, value] of this.undo) {
+      if (value === undefined) delete this.guard[id];
+      else this.guard[id] = value;
+    }
+    this.undo.clear();
+  }
+
+  // The value `id` had when the event found it; `prev` is the fold's input map.
+  before(prev: Record<string, V>, id: string): V | undefined {
+    if (this.preEvent.size > 0 && this.preEvent.has(id)) return this.preEvent.get(id);
+    return prev[id];
+  }
+
+  // `prev` is the same object as the fold's result and it was written: the same reference no longer means no change.
+  get wroteInPlace(): boolean {
+    return this.preEvent.size > 0;
+  }
+}
+
+// §3.3 copy-on-write, §7.1 (task 18p), AD-28: one fold's bookkeeping, created per fold and dropped with it, never shared.
+//   - writableLines / writableOrders: one copy of the map however many lines the fold patches, written in place; the input
+//     maps are never written. A state that came from anywhere else (the input, a re-plan's own copy) is copied first. Inside
+//     applyEvents the batch's private map is written in place instead, with the old values kept (FoldMap). Only the helpers
+//     of apply-event.ts and touchOrder write through it, and they never read an older state of the same fold afterwards:
+//     the one reader of "before" is upkeepSlips, through lineBefore / orderBefore.
 //   - lineIds / orderIds: the candidates the fold names for upkeepSlips, which still compares each by reference, so naming
 //     one that did not change costs one comparison and changes no result; only a change left unnamed could.
 //   - whole: a re-plan may move any hidden line, so that fold compares the whole maps. A re-plan is O(lines) itself
@@ -136,23 +220,50 @@ export class FoldScope {
   readonly lineIds = new Set<string>();
   readonly orderIds = new Set<string>();
   whole = false;
-  private ownLines: EngineState['lines'] | null = null;
-  private ownOrders: EngineState['orders'] | null = null;
+  readonly lines: FoldMap<EngineLine>;
+  readonly orders: FoldMap<EngineOrder>;
+
+  constructor(batch?: BatchMaps) {
+    this.lines = new FoldMap(batch?.lines ?? null, batch !== undefined);
+    this.orders = new FoldMap(batch?.orders ?? null, batch !== undefined);
+  }
 
   writableLines(state: EngineState): EngineState['lines'] {
-    if (state.lines !== this.ownLines) this.ownLines = { ...state.lines };
-    return this.ownLines;
+    return this.lines.writable(state.lines);
   }
 
   writableOrders(state: EngineState): EngineState['orders'] {
-    if (state.orders !== this.ownOrders) this.ownOrders = { ...state.orders };
-    return this.ownOrders;
+    return this.orders.writable(state.orders);
+  }
+
+  deletableLines(state: EngineState): EngineState['lines'] {
+    return this.lines.forDelete(state.lines);
+  }
+
+  deletableOrders(state: EngineState): EngineState['orders'] {
+    return this.orders.forDelete(state.orders);
+  }
+
+  setLine(lines: EngineState['lines'], id: string, line: EngineLine): void {
+    this.lines.set(lines, id, line);
+    this.lineIds.add(id);
+  }
+
+  setOrder(orders: EngineState['orders'], id: string, order: EngineOrder): void {
+    this.orders.set(orders, id, order);
+    this.orderIds.add(id);
   }
 
   // Ends the removal step: applyEvent keeps its result for a non-strict InvalidEvent, so the fold must not write into it.
+  // Outside a batch the fold copies; inside one it writes with its old values kept, and rollback() gives the result back.
   seal(): void {
-    this.ownLines = null;
-    this.ownOrders = null;
+    this.lines.seal();
+    this.orders.seal();
+  }
+
+  rollback(): void {
+    this.lines.rollback();
+    this.orders.rollback();
   }
 }
 
@@ -165,7 +276,6 @@ export function touchOrder(state: EngineState, order_id: string, t: number, scop
   const closes = order.last_served_at === null && order.awaiting === 0 && !order.line_ids.some((l) => isOpen(state.lines[l]));
   const updated: EngineOrder = { ...order, last_line_fold_at: t, last_served_at: closes ? t : order.last_served_at };
   const orders = scope.writableOrders(state);
-  orders[order_id] = updated;
-  scope.orderIds.add(order_id);
+  scope.setOrder(orders, order_id, updated);
   return { ...state, orders };
 }

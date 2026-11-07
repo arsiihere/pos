@@ -2,9 +2,9 @@
 // a miss stays red (the plan's stop rule). One shared run per describe in beforeAll; each `it` only reads results. Every
 // number is on disk (perf-kit, task-18-numbers.json) before the next step starts.
 import { beforeAll, describe, expect, it } from 'vitest';
-import { applyEvent, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint } from '../../src/index';
+import { applyEvent, applyEvents, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint } from '../../src/index';
 import { demandPeakPct, generateDay, LINE_RATES, policyReport, runDay, twoDayLog, type PolicyReport, type SimResult } from './index';
-import { dist, keepEvery, measureAtPeak, peakPass, peakSummary, replayFrom, sameState, step, writeSamples, type AtPeak, type Peak } from './perf-kit';
+import { digestOf, dist, keepEvery, measureAtPeak, peakPass, peakSummary, replayFrom, sameState, step, wallMsOf, writeSamples, type AtPeak, type Peak } from './perf-kit';
 
 // A watchdog for a day's work, not a bound. Vitest's default hookTimeout is 10 s and the perf project sets testTimeout only.
 const HOOK_MS = 3_600_000;
@@ -41,6 +41,7 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
   let replay: ReturnType<typeof replayFrom>;
   let peak: Peak;
   let at: AtPeak;
+  let batchEqualsFold: { same_value: boolean; same_text: boolean };
 
   beforeAll(() => {
     const day = generateDay(SEED);
@@ -55,6 +56,15 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
     peak = step('day_peak_pass', () => peakPass(run.events, live), (p) => ({ by_unfired: peakSummary(p.byUnfired), by_lines: peakSummary(p.byLines), fold_mean_ms: p.fold_mean_ms, fold_by_type: p.fold_by_type, live_compared: p.live_compared, live_mismatches: p.live_mismatches }));
     at = step('day_at_peak', () => measureAtPeak(peak, day, run.events, { samples: PEAK_SAMPLES }), (m) => m);
     report = step('day_policy_waada_guard', () => policyReport(run), (r) => r);
+    batchEqualsFold = step(
+      'day_apply_events_equals_fold',
+      () => {
+        const whole = wallMsOf(() => applyEvents(initialEngineState(), run.events));
+        const single = wallMsOf(() => run.events.reduce((s, e) => applyEvent(s, e), initialEngineState()));
+        return { whole_ms: whole.ms, single_ms: single.ms, same_value: sameState(whole.value, single.value), same_text: digestOf(whole.value) === digestOf(single.value) };
+      },
+      (r) => r,
+    );
   }, HOOK_MS);
 
   it('[03a §10.6] re-plan per submit p99 ≤ 50 ms', () => {
@@ -76,6 +86,11 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
     expect(replay.state).toEqual(run.liveState);
     expect(peak.live_compared).toBeGreaterThan(50);
     expect(peak.live_mismatches).toEqual([]);
+  });
+
+  it('[03a AD-28] applyEvents over the whole day deep-equals the per-event fold, key order included', () => {
+    expect(batchEqualsFold.same_value).toBe(true);
+    expect(batchEqualsFold.same_text).toBe(true);
   });
 
   it.each(['bbq', 'degh', 'karahi', 'tandoor', 'tawa'])('[03a AD-27] %s: the busiest hour the kitchen really ran is 90–100 %%', (station_id) => {

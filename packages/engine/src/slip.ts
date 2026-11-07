@@ -399,15 +399,29 @@ export function slipGroupsAt(state: EngineState, key: string, t: number): Array<
 // ---- fold-side upkeep (apply-event.ts calls it after every handled fold) --------------------------------------------
 
 // Visits (before, after) of each entry that is a different object in `next`: the named ids only, or every id when the
-// fold compares the whole maps (`named` null). Same map → nothing changed.
-function eachChanged<V>(prev: Record<string, V>, next: Record<string, V>, named: ReadonlySet<string> | null, visit: (a: V | undefined, b: V | undefined) => void): void {
-  if (prev === next) return;
+// fold compares the whole maps (`named` null). Same map, not written in place → nothing changed. AD-28: inside a batch
+// `prev` may be the map the fold wrote, so every "before" comes from `map`. A key `prev` holds only because this fold added
+// it reads undefined, and is no entry of "before".
+type BeforeMap<V> = { before(prev: Record<string, V>, id: string): V | undefined; readonly wroteInPlace: boolean };
+
+function eachChanged<V>(map: BeforeMap<V>, prev: Record<string, V>, next: Record<string, V>, named: ReadonlySet<string> | null, visit: (a: V | undefined, b: V | undefined) => void): void {
+  if (prev === next && !map.wroteInPlace) return;
   if (named !== null) {
-    for (const id of named) if (prev[id] !== next[id]) visit(prev[id], next[id]);
+    for (const id of named) {
+      const a = map.before(prev, id);
+      if (a !== next[id]) visit(a, next[id]);
+    }
     return;
   }
-  for (const id in next) if (prev[id] !== next[id]) visit(prev[id], next[id]);
-  for (const id in prev) if (next[id] === undefined) visit(prev[id], undefined);
+  for (const id in next) {
+    const a = map.before(prev, id);
+    if (a !== next[id]) visit(a, next[id]);
+  }
+  for (const id in prev) {
+    if (next[id] !== undefined) continue;
+    const a = map.before(prev, id);
+    if (a !== undefined) visit(a, undefined);
+  }
 }
 
 function touchedKeys(prev: EngineState, next: EngineState, named: FoldScope): { keys: Set<string>; flight: Map<string, EngineLine[]> | null } {
@@ -421,10 +435,13 @@ function touchedKeys(prev: EngineState, next: EngineState, named: FoldScope): { 
       pc.settings.slip_threshold_ms !== nc.settings.slip_threshold_ms ||
       pc.settings.order_abandon_ms !== nc.settings.order_abandon_ms)
   ) {
-    for (const s of [prev, next]) {
-      for (const id in s.orders) keys.add(s.orders[id]!.table_key);
-      for (const k in s.slips) keys.add(k);
+    for (const id in prev.orders) {
+      const o = named.orders.before(prev.orders, id);
+      if (o !== undefined) keys.add(o.table_key);
     }
+    for (const k in prev.slips) keys.add(k);
+    for (const id in next.orders) keys.add(next.orders[id]!.table_key);
+    for (const k in next.slips) keys.add(k);
     return { keys, flight: null };
   }
   if (prev.slips !== next.slips) {
@@ -435,23 +452,23 @@ function touchedKeys(prev: EngineState, next: EngineState, named: FoldScope): { 
   // A changed order may change its exit time without changing a line (last_line_fold_at: OrderBoosted / ItemsReleased
   // via foldNamesOrder), and that moves the packing of the lines behind its in-flight lines: their stations count as
   // in-flight changes (review, task 15).
-  const orderFlight = (s: EngineState, o: EngineOrder): void => {
+  const orderFlight = (o: EngineOrder, lineOf: (id: string) => EngineLine | undefined): void => {
     keys.add(o.table_key);
     for (const lid of o.line_ids) {
-      const l = s.lines[lid];
+      const l = lineOf(lid);
       if (l !== undefined && isInFlight(l)) flight.add(l.station_id);
     }
   };
-  eachChanged(prev.orders, next.orders, named.whole ? null : named.orderIds, (a, b) => {
-    if (b !== undefined) orderFlight(next, b);
-    if (a !== undefined) orderFlight(prev, a);
+  eachChanged(named.orders, prev.orders, next.orders, named.whole ? null : named.orderIds, (a, b) => {
+    if (b !== undefined) orderFlight(b, (id) => next.lines[id]);
+    if (a !== undefined) orderFlight(a, (id) => named.lines.before(prev.lines, id));
   });
   const lineChanged = (l: EngineLine): void => {
-    const o = next.orders[l.order_id] ?? prev.orders[l.order_id];
+    const o = next.orders[l.order_id] ?? named.orders.before(prev.orders, l.order_id);
     if (o !== undefined) keys.add(o.table_key);
     if (isInFlight(l)) flight.add(l.station_id);
   };
-  eachChanged(prev.lines, next.lines, named.whole ? null : named.lineIds, (a, b) => {
+  eachChanged(named.lines, prev.lines, next.lines, named.whole ? null : named.lineIds, (a, b) => {
     if (b !== undefined) lineChanged(b);
     if (a !== undefined) lineChanged(a);
   });

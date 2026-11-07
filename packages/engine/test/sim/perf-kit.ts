@@ -12,6 +12,7 @@ import { type ConfigStockItem, type PosEvent } from '@pos/events';
 import { aReturnLinesAdded, aStockAdded, aStockSet, anItemStarted, anOrderBatch } from '@pos/events/testing';
 import {
   applyEvent,
+  applyEvents,
   fromCheckpoint,
   getTickIntents,
   initialEngineState,
@@ -24,6 +25,7 @@ import {
   type ProposedOrder,
   type StockCtx,
 } from '../../src/index';
+import { REPLAY_CHUNK } from '../../src/apply-event';
 import { exitedOrderIds } from '../../src/lifecycle';
 import { planOrderObserved } from '../../src/plan';
 import { itemFields, proposedOf, wallMs } from './run';
@@ -94,11 +96,20 @@ export function replayFrom(checkpoint: EngineCheckpointV1, events: readonly PosE
   const a = wallMs();
   let state = fromCheckpoint(JSON.parse(stored) as EngineCheckpointV1);
   let captured: EngineState | null = null;
-  for (let i = startIndex; i < events.length; i++) {
-    state = applyEvent(state, events[i]!);
-    if (i === captureAt) captured = state;
+  // AD-28: chunks of 500, one cut at captureAt so its state exists.
+  for (let i = startIndex; i < events.length; ) {
+    const end = Math.min(i + REPLAY_CHUNK, events.length, captureAt >= i ? captureAt + 1 : events.length);
+    state = applyEvents(state, events.slice(i, end));
+    if (end - 1 === captureAt) captured = state;
+    i = end;
   }
   return { ms: wallMs() - a, events: events.length - startIndex, state, captured };
+}
+
+export function wallMsOf<R>(work: () => R): { ms: number; value: R } {
+  const a = wallMs();
+  const value = work();
+  return { ms: wallMs() - a, value };
 }
 
 // live = replayed for a report line; key order does not count.

@@ -1,6 +1,6 @@
 export * from './state.js';
 export * from './stock.js';
-export { addDiagnostic, applyEvent, buildEngineState, type ApplyOptions } from './apply-event.js';
+export { addDiagnostic, applyEvent, applyEvents, buildEngineState, type ApplyOptions } from './apply-event.js';
 export * from './version.js';
 export * from './replay-events.js';
 export { fromCheckpoint, toCheckpoint, type EngineCheckpointV1 } from './checkpoint.js';

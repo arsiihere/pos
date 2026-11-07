@@ -41,7 +41,7 @@ import {
 } from './plan.js';
 import { effectiveCapacity } from './capacity.js';
 import { optionOn, routeCtx, routeFromConfig, routeOptions } from './route.js';
-import { closeExitIds, exitedOrderIds, FoldScope, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
+import { BatchMaps, closeExitIds, exitedOrderIds, FoldScope, isOpen, isPlaceholder, orderInEngine, touchOrder } from './lifecycle.js';
 import { ENGINE_REPLAY_EVENTS, type ReplayEventType } from './replay-events.js';
 import type { DayDraws, Diagnostic, EngineLine, EngineOrder, EngineState, Load, StationRuntime, StockEntry } from './state.js';
 import { initialEngineState } from './state.js';
@@ -64,15 +64,13 @@ type FoldOptions = SequenceOptions & { scope: FoldScope };
 
 function setLine(state: EngineState, line: EngineLine, o: FoldOptions): EngineState {
   const lines = o.scope.writableLines(state);
-  lines[line.order_item_id] = line;
-  o.scope.lineIds.add(line.order_item_id);
+  o.scope.setLine(lines, line.order_item_id, line);
   return { ...state, lines };
 }
 
 function setOrder(state: EngineState, order: EngineOrder, o: FoldOptions): EngineState {
   const orders = o.scope.writableOrders(state);
-  orders[order.order_id] = order;
-  o.scope.orderIds.add(order.order_id);
+  o.scope.setOrder(orders, order.order_id, order);
   return { ...state, orders };
 }
 
@@ -247,8 +245,7 @@ function listLines(
       if (group.order_item_ids.length !== 1 || order.groups[group.group_id] !== undefined) throw new InvalidEvent('return_group_invalid', id, l.station_id);
       if (return_of.mode === 'fix' && (l.cook_ms_override ?? null) === null) throw new InvalidEvent('cook_ms_override_null', id, l.station_id);
     }
-    o.scope.lineIds.add(id);
-    lines[id] = {
+    o.scope.setLine(lines, id, {
       order_item_id: id,
       order_id: p.order_id,
       group_id: group.group_id,
@@ -283,7 +280,7 @@ function listLines(
       booked: null,
       capped: false,
       routed_station_id: l.station_id,
-    };
+    });
   }
   p.groups.forEach((g, i) => {
     if (g.group_id !== `${p.order_id}:${order.next_group_index + i}`) throw new InvalidEvent('group_id_invalid', g.order_item_ids[0] ?? '');
@@ -345,7 +342,7 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent, o: FoldOptions
 // Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a
 // listed writer-bug line dropped when non-strict).
 function dropListed(state: EngineState, order: EngineOrder, line: EngineLine, o: FoldOptions): { state: EngineState; order: EngineOrder } {
-  const lines = o.scope.writableLines(state);
+  const lines = o.scope.deletableLines(state);
   delete lines[line.order_item_id];
   o.scope.lineIds.add(line.order_item_id);
   const groups = { ...order.groups };
@@ -645,8 +642,7 @@ function shiftLoad(state: EngineState, station: StationRuntime, load: Load, by: 
   for (const m of load.order_item_ids) {
     const l = lines[m];
     if (l !== undefined && l.fire_ms !== null) {
-      lines[m] = { ...l, fire_ms: l.fire_ms + by };
-      o.scope.lineIds.add(m);
+      o.scope.setLine(lines, m, { ...l, fire_ms: l.fire_ms + by });
     }
   }
   const shifted: Load = { ...load, fire_ms: load.fire_ms + by, booked: { ...load.booked, start: load.booked.start + by, end: load.booked.end + by } };
@@ -1092,8 +1088,8 @@ function removeOrders(state: EngineState, ids: readonly string[], event: PosEven
       if (line !== undefined) next = unbook(next, line, event, o);
     }
   }
-  const orders = o.scope.writableOrders(next);
-  const lines = o.scope.writableLines(next);
+  const orders = o.scope.deletableOrders(next);
+  const lines = o.scope.deletableLines(next);
   for (const id of ids) {
     for (const lid of orders[id]!.line_ids) {
       delete lines[lid];
@@ -1154,11 +1150,29 @@ export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOpti
   return upkeepSlips(state, next, event.recorded_at, named);
 }
 
-// The removal step and the fold of a handled event, with what they name for the upkeep (§7.1). Not in the package index.
-export function foldNamed(state: EngineState, event: PosEvent, opts?: ApplyOptions): { next: EngineState; named: FoldScope } {
+// AD-28 (developer ruling): a batch of events on one private copy of `lines` and `orders`. Same result as
+// events.reduce((s, e) => applyEvent(s, e, opts), state), thrown errors included (a throw drops the copy, and the input was
+// never written); an empty list, or one that changes nothing, returns `state` itself. The copy is made at the first write
+// and writes go in place from then on; BatchMaps dies with the call, so the map it returns is never written again. A fold
+// still copies when it deletes a key (a removal step, FoldMap) and a re-plan still makes its own copies.
+export function applyEvents(state: EngineState, events: readonly PosEvent[], opts?: ApplyOptions): EngineState {
+  const own = new BatchMaps();
+  let s = state;
+  for (const event of events) {
+    if (!HANDLED.has(event.event_type)) continue;
+    const { next, named } = foldNamed(s, event, opts, own);
+    s = upkeepSlips(s, next, event.recorded_at, named);
+    own.adopt(state, s);
+  }
+  return s;
+}
+
+// The removal step and the fold of a handled event, with what they name for the upkeep (§7.1). `batch`: fold into
+// applyEvents' private maps. Not in the package index.
+export function foldNamed(state: EngineState, event: PosEvent, opts?: ApplyOptions, batch?: BatchMaps): { next: EngineState; named: FoldScope } {
   const strict = opts?.strict ?? true;
   const skip = event.event_type === 'OrderLinesAdded' ? (event.payload as { order_id?: string }).order_id : undefined;
-  const named = new FoldScope();
+  const named = new FoldScope(batch);
   const o: FoldOptions = { strict, prune: opts?.prune ?? true, scope: named };
   const base = removeOrders(state, exitedOrderIds(state, event.recorded_at, skip), event, o);
   named.seal();
@@ -1168,6 +1182,7 @@ export function foldNamed(state: EngineState, event: PosEvent, opts?: ApplyOptio
   } catch (e) {
     if (strict || !(e instanceof InvalidEvent)) throw e;
     // AD-6: non-strict never stops on a writer bug: the event changes nothing but the diagnostics.
+    named.rollback();
     next = addDiagnostic(base, invalidEventDiagnostic(event, e));
   }
   return { next, named };
@@ -1301,8 +1316,18 @@ function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState 
   }
 }
 
+// AD-28: replay folds in chunks of this many events.
+export const REPLAY_CHUNK = 500;
+
 export function buildEngineState(events: Iterable<PosEvent>, opts?: ApplyOptions): EngineState {
   let state = initialEngineState();
-  for (const event of events) state = applyEvent(state, event, opts);
-  return state;
+  let chunk: PosEvent[] = [];
+  for (const event of events) {
+    chunk.push(event);
+    if (chunk.length === REPLAY_CHUNK) {
+      state = applyEvents(state, chunk, opts);
+      chunk = [];
+    }
+  }
+  return applyEvents(state, chunk, opts);
 }
