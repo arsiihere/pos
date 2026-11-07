@@ -82,6 +82,19 @@ const field = (name: string) => q<HTMLInputElement | HTMLSelectElement>(`[name="
 const patches = (calls: Call[]) => calls.filter((c) => c.method === 'PATCH').map((c) => c.body as Record<string, unknown>);
 
 describe('owner item Timing group and goes-with', () => {
+  it('[01a §8.1] a save with something to fix brings the summary into view (Save is in the bar over a long form)', async () => {
+    const seen: Element[] = [];
+    (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = function (this: Element) {
+      seen.push(this);
+    };
+    const { api } = server();
+    await renderItem(api, dish('I1', 'Chicken Karahi'));
+    setValue(field('weight_pct'), '5');
+    await click(button(ui.container, t('item.save')));
+    expect(seen.at(-1)).toBe(q('.pos-banner--danger[role="alert"]'));
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
   it('[01a A-11] the Timing group shows the five knobs, minutes for the times', async () => {
     const { api } = server();
     await renderItem(api, dish('I1', 'Chicken Karahi', { weight_pct: 150, max_early_ms: 120_000, max_carry_ms: 300_000, max_late_ms: null, adjust_time_ms: 45_000 }));

@@ -36,7 +36,7 @@ import { t, type MessageKey, typeClass } from '../../../i18n';
 import { idTail, useBranchName } from '../branch';
 import { apiCode, bySortThenName, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
-import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { errorText, isKeyMismatch, useIdempotencyKey, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { formatRupees, parseRupees, shownRupees } from '../money';
@@ -403,6 +403,7 @@ export function ItemForm({
   useEffect(() => {
     if (problems.some((p) => IN_FOLD(p.id)) || Object.keys(failed).length > 0) setFoldOpen(true);
   }, [problems, failed]);
+  useReveal(problems.length > 0 ? problems : null, ['.pos-banner--danger[role="alert"]']);
 
   useEffect(() => {
     let live = true;

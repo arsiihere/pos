@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { CloudError } from '../../api/cloud-admin';
 import { supportText } from '../../app/support';
 import { newUlid } from '../../app/ulid';
@@ -91,4 +91,20 @@ export function issueMessages(error: CloudError): Record<string, string> {
     if (typeof issue.path === 'string' && typeof issue.message === 'string' && !(issue.path in out)) out[issue.path] = plainIssue(issue.path, issue.message);
   }
   return out;
+}
+
+// Save sits in a bar or at the head of a long form, so its answer can land out of sight. When `signal` becomes a
+// new truthy value, the first element matching one of `selectors` (in that order) is brought into view.
+export function useReveal(signal: unknown, selectors: readonly string[]): void {
+  useEffect(() => {
+    if (!signal) return;
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element !== null) {
+        element.scrollIntoView?.({ block: 'center' });
+        return;
+      }
+    }
+    // Only a new answer moves the page; `selectors` are fixed per caller.
+  }, [signal]);
 }

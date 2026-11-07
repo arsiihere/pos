@@ -159,6 +159,40 @@ describe('[01b §8] branch settings', () => {
     expect(m.container.textContent).toContain(fill(t('branches.timing_pct_range'), { min: '10', max: '1000' }));
   });
 
+  describe('[01a v2.1 §8.1] Save is in the bar over a long page, so its answer is brought into view', () => {
+    let seen: Element[];
+    beforeEach(() => {
+      seen = [];
+      (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = function (this: Element) {
+        seen.push(this);
+      };
+    });
+    afterEach(() => {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    });
+
+    it('Changed elsewhere', async () => {
+      await render((call) => (call.method === 'PATCH' ? fail(409, 'CONFIG_STALE') : undefined));
+      setValue(field('min_gain_ms'), '2');
+      await click(button(m.container, t('branches.save_settings')));
+      expect(seen.at(-1)).toBe(m.container.querySelector('[data-stale]'));
+    });
+
+    it('Settings saved', async () => {
+      await render();
+      setValue(field('min_gain_ms'), '2');
+      await click(button(m.container, t('branches.save_settings')));
+      expect(seen.at(-1)?.textContent).toContain(fill(t('branches.settings_saved'), { name: 'Gulberg' }));
+    });
+
+    it('a box out of range', async () => {
+      await render();
+      setValue(field('cascade_step_ms'), '0.1');
+      await click(button(m.container, t('branches.save_settings')));
+      expect(seen.at(-1)).toBe(field('cascade_step_ms')!.closest('label'));
+    });
+  });
+
   it('[01b B23] a stale version shows Changed elsewhere, keeps the draft, and Reload reads the branch again', async () => {
     const calls = await render((call) => (call.method === 'PATCH' ? fail(409, 'CONFIG_STALE') : undefined));
     setValue(field('min_gain_ms'), '2');

@@ -411,6 +411,21 @@ describe('owner station form: Timing group (03a A-2–A-10)', () => {
     expect(field?.textContent).toContain('the limit');
   });
 
+  it('[01a §8.1] a refused save brings the first refused box into view (Save is at the top of a long form)', async () => {
+    const seen: Element[] = [];
+    (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = function (this: Element) {
+      seen.push(this);
+    };
+    const { api } = setup(STATIONS, () =>
+      json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path: 'freeze_ms', message: 'the limit' }] } } }),
+    );
+    await openEditor(api);
+    setValue(input('S1', 'freeze'), '99');
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    expect(seen.at(-1)).toBe(input('S1', 'freeze')?.closest('label'));
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
   it('[01a §8.1; 03a A-2–A-8] a range error from the server shows under its field and the form keeps the typed value', async () => {
     const { api } = setup(STATIONS, () =>
       json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path: 'freeze_ms', message: 'Number must be less than or equal to 900000' }] } } }),

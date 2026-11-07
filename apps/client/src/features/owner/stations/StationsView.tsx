@@ -14,7 +14,7 @@ import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
 import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse as AnyInUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
-import { errorText, issueMessages } from '../form';
+import { errorText, issueMessages, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { BranchSelect, Page } from '../Shell';
@@ -139,6 +139,8 @@ function StationEditor({
   const [error, setError] = useState<string | null>(null);
   const down = useCloudDown(api);
   const leave = useLeave();
+  const here = `[data-station-id="${station.station_id}"]`;
+  useReveal(error, [`${here} .pos-field--error`, `${here} .pos-banner--danger`]);
 
   const patch: PatchStationBody = {};
   if (name.trim() !== station.name) patch.name = name.trim();

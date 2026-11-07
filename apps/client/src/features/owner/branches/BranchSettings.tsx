@@ -13,7 +13,7 @@ import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useCloudDown } from '../cloud';
-import { errorText } from '../form';
+import { errorText, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
 import { engineFieldLabel, engineState, enginePatch, KitchenTiming, type EngineState } from './KitchenTiming';
@@ -109,6 +109,8 @@ function SettingsForm({
   const down = useCloudDown(api);
   const leave = useLeave();
   const phone = usePhone();
+  useReveal(changedElsewhere || banner, ['[data-stale]', '.pos-banner--danger', '.pos-banner--ok']);
+  useReveal(Object.keys(errors).length + Object.keys(engineErrors).length > 0 ? [errors, engineErrors] : null, ['.pos-settings .pos-field--error']);
 
   const staleValue = whole(stale);
   const gapValue = whole(gap);
