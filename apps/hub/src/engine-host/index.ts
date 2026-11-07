@@ -6,6 +6,8 @@ import { bindFiresTick } from './fires-tick.js';
 import { afterEngineCommit } from './reducer.js';
 import { afterSnapshotCommit, cancelScheduled } from './snapshots.js';
 import { bindStationPlans } from './station-plan.js';
+// §6.4: the kinds 03a registers (slip_warning, station_overload, engine_line_dropped), at module load.
+import './kinds.js';
 
 // P-6: what the host wires into the server; called once from buildHubServer.
 export function registerEngineHost(app: FastifyInstance, deps: HubDeps): void {

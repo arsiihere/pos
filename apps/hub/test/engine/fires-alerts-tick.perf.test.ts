@@ -18,7 +18,6 @@ import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
-import { registerEngineKindFakes, resetEngineKindFakes } from './fakes';
 
 const SEED = 7;
 const PASS_P99_MS = 20; // §7.1
@@ -47,7 +46,6 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
   let peak: { state: EngineState; at: number; unfired: number; seq: number };
 
   beforeAll(async () => {
-    registerEngineKindFakes();
     let best: { state: EngineState; seq: number; unfired: number } | null = null;
     const run = runDay(generateDay(SEED), {
       watch: (state, seq) => {
@@ -62,7 +60,6 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
 
   afterAll(async () => {
     await hub?.close();
-    resetEngineKindFakes();
   });
 
   const reset = (): void => {

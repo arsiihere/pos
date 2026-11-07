@@ -5,6 +5,7 @@ import { kindOf } from '../alerts/kinds.js';
 import { alertDirectoryOf, alerts, type CloseItem, type RaiseInput } from '../alerts/raise.js';
 import type { TickDef } from '../alerts/tick.js';
 import { hostFlags, type DroppedLine } from './host-flags.js';
+import { ENGINE_ALERT_KINDS, readLineFacts, slipDetails } from './kinds.js';
 import { rawDbOf, readOnlyDb } from './read-only-tx.js';
 import type { Writer } from './writer.js';
 import type { WarnLog } from './reducer.js';
@@ -21,15 +22,13 @@ import type { WarnLog } from './reducer.js';
 //   4. closes: resolved slips `done` by their alert_id; with day_closed every open slip_warning `obsolete`.
 //   5. one closeMany, then one raiseMany; one SlipWarned per raised slip from the returned alert_id, none when deduped.
 //   6. the drafts: this tick's own transaction (a throw rolls back only this tick, 01d isolation).
-// Statements with work: 2 + 0 (tableOwners is stubbed by placed_by, §4.4) + closeMany's 1 + raiseMany's ≤ 6 + R + T,
-// plus the appends.
+// Statements with work: 2 + 0 (tableOwners is stubbed by placed_by, §4.4) + ≤ 1 (the slips' ItemAdded facts for their
+// details, kinds.ts readLineFacts; only in a pass with a slip to raise) + closeMany's 1 + raiseMany's ≤ 6 + R + T, plus
+// the appends. proposed (implementer): §6.2a / §10.5 state "2 + ≤ 1 + 01d bounds"; the §3.8 details (line name and
+// quantity) are not in the engine state, so they cost this one extra read, whatever the number of slips.
 
-/** The kinds this tick raises: 01d test fakes until task 23 registers them (§3.8, §3.10, AD-8). */
-export const ENGINE_ALERT_KINDS = {
-  slip: 'slip_warning',
-  overload: 'station_overload',
-  lineDropped: 'engine_line_dropped',
-} as const;
+// The kinds this tick raises, registered in kinds.ts (task 23, §6.4); re-exported for the tick's callers.
+export { ENGINE_ALERT_KINDS };
 
 interface AlertsHost {
   log?: WarnLog;
@@ -204,26 +203,39 @@ export const firesAlertsTick: TickDef = {
     // 2. Slips (§3.8), with the defensive inputs rule.
     const directory = alertDirectoryOf(tx);
     const slipKind = kindOf(ENGINE_ALERT_KINDS.slip);
+    const raisable: Array<{ slip: AlertIntents['slips'][number]; receiver: string; values: Record<string, unknown> }> = [];
     for (const slip of intents.slips) {
       if (hostFlags.skipped.has(slip.table_key)) continue;
-      const oldest = slip.order_ids[0] as string;
-      const receiver = receiverOf(state, oldest);
+      const receiver = receiverOf(state, slip.order_ids[0] as string);
       const values = { table_key: slip.table_key, order_ids: slip.order_ids, escalate_ms: state.config?.settings.slip_escalate_ms ?? 0 };
       let reason: string | null = null;
       if (slipKind === undefined) reason = 'kind_not_registered';
       else if (receiver === null) reason = 'no_receiver';
       else if (directory.get(receiver) === undefined) reason = 'receiver_not_in_directory';
       else if (!slipKind.values_schema.safeParse(values).success) reason = 'values_invalid';
-      if (reason !== null || slipKind === undefined || receiver === null) {
+      if (reason !== null || receiver === null) {
         skips.push({ kind: ENGINE_ALERT_KINDS.slip, table_key: slip.table_key, reason: reason ?? 'no_receiver' });
+        continue;
+      }
+      raisable.push({ slip, receiver, values });
+    }
+    // §3.8 details: one read of the ItemAdded facts of every slip order of this pass (none when no slip is raisable).
+    const facts = raisable.length > 0 && slipKind !== undefined ? readLineFacts(tx.db, state, raisable.flatMap((r) => r.slip.order_ids)) : new Map();
+    for (const { slip, receiver, values } of raisable) {
+      if (slipKind === undefined) break;
+      const details = slipDetails(state, slip, facts);
+      // proposed (implementer): details failing the kind's schema are skipped like values that fail it (§3.8).
+      if (slipKind.details_schema === null || !slipKind.details_schema.safeParse(details).success) {
+        skips.push({ kind: ENGINE_ALERT_KINDS.slip, table_key: slip.table_key, reason: 'details_invalid' });
         continue;
       }
       inputs.push({
         kind: slipKind.kind,
-        subject: { stream_type: 'order', stream_id: oldest }, // §3.8: the oldest order of the group (task 20 review)
+        subject: { stream_type: 'order', stream_id: slip.order_ids[0] as string }, // §3.8: the oldest order of the group
         target: { kind: 'person', staff_id: receiver },
         values,
         display: { kind_label_key: slipKind.labels.lock },
+        details,
         dedupe_key: `slip:${slip.table_key}`,
         request: { receiver_staff_id: receiver },
       });

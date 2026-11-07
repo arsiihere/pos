@@ -59,8 +59,39 @@ describe('01d alert events', () => {
       const parsed = parseEvent(fixture(type));
       expect(parsed.event_type, type).toBe(type);
       expect(parsed.stream_type, type).toBe(stream);
-      expect(parsed.schema_version, type).toBe(1);
+      // 01d v1.1.2 D-2: AlertRaised's latest is v2 (its v1 fixture upcasts); every other alert event is v1.
+      expect(parsed.schema_version, type).toBe(type === 'AlertRaised' ? 2 : 1);
     }
+  });
+
+  it('[01d v1.1.2 D-1] AlertDetailsBase takes optional minutes_late (int >= 0) and lines [{ name, quantity >= 1, state }]', () => {
+    const line = { name: 'Karahi', quantity: 1, state: 'cooking' };
+    expect(AlertDetailsBase.safeParse({ minutes_late: 0, lines: [line] }).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({ minutes_late: 7, lines: [] }).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({ minutes_late: -1 }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ minutes_late: 1.5 }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ lines: [{ ...line, quantity: 0 }] }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ lines: [{ ...line, name: '' }] }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ lines: [{ ...line, state: '' }] }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ lines: [{ name: 'Karahi', state: 'cooking' }] }).success).toBe(false);
+    // the four fields and their limits are unchanged
+    expect(AlertDetailsBase.safeParse({ item: 'Mutton platter', quantity: 1, amount: 480_000, reason: 'x'.repeat(200) }).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({ reason: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('[01d v1.1.2 D-2, F D46] AlertRaised v2 carries the widened details; v1 keeps its shape; v1 upcasts to v2 with the payload unchanged', () => {
+    const details = { minutes_late: 4, lines: [{ name: 'Karahi', quantity: 2, state: 'cooking' }] };
+    const base = fixture('AlertRaised').payload;
+    const v2 = payloadSchema('AlertRaised', 2).parse({ ...base, details }) as { details: unknown };
+    expect(v2.details).toEqual(details);
+    const v1 = payloadSchema('AlertRaised', 1).parse({ ...base, details }) as { details: unknown };
+    expect(v1.details).toEqual({});
+    const stored = fixture('AlertRaised');
+    const upcast = parseEvent(stored);
+    expect(upcast.schema_version).toBe(2);
+    expect(upcast.payload).toEqual(stored.payload);
+    const withDetails = parseEvent({ ...stored, payload: { ...stored.payload, details: { item: 'Mutton platter', quantity: 1 } } });
+    expect(withDetails.payload.details).toEqual({ item: 'Mutton platter', quantity: 1 });
   });
 
   it('[01d §4.2] the builders parse', () => {

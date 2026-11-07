@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ALERT_CONSTANTS, PERMISSIONS } from '@pos/domain';
-import { AlertDetailsBase, AlertDisplaySchema, AlertFamilySchema, AlertTargetSchema, RequestDecisionSchema } from '../../alerts.js';
+import { AlertDetailsBaseV1, AlertDisplaySchema, AlertFamilySchema, AlertTargetSchema, RequestDecisionSchema } from '../../alerts.js';
 import { StreamTypeSchema } from '../../envelope.js';
 import { defineEvent } from '../../registry.js';
 
@@ -18,7 +18,8 @@ export const AlertRaisedPayload = z.object({
   target: AlertTargetSchema,
   values: z.record(z.string(), z.unknown()),
   display: AlertDisplaySchema,
-  details: AlertDetailsBase.nullable(),
+  // 01d v1.1.2 D-2: v1 keeps the four-field details shape it was stored with; v2 carries the widened base.
+  details: AlertDetailsBaseV1.nullable(),
   hidden_from: z.object({ session_id: z.string(), device_id: z.string() }).nullable(),
   request: z
     .object({

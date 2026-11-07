@@ -1,6 +1,6 @@
 // 03a task 22a: the `fires_alerts` tick (§6.2a steps 1–6, §3.8 defensive inputs and `skipped`, §3.10 overload check,
 // flags `day_closed` / `reconcile`, BF-4 close; tests #76, #82, #86, #93, #113; AD-8 developer condition
-// `engine_line_dropped`). The three kinds are 01d test fakes (fakes.ts) until task 23.
+// `engine_line_dropped`). The three kinds are the real ones (engine-host/kinds.ts, task 23).
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import { getAlertIntents, type EngineState } from '@pos/engine';
 import type { EngineConfig, EventDraft, PosEvent } from '@pos/events';
 import Database from 'better-sqlite3';
 import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch } from '@pos/events/testing';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot-steps';
@@ -25,7 +25,7 @@ import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
-import { draftOf, fakeSubmit, fakeTap, registerEngineKindFakes, resetEngineKindFakes, type FakeOrder } from './fakes';
+import { draftOf, fakeSubmit, fakeTap, type FakeOrder } from './fakes';
 
 registerEngineBootSteps(() => performance.now());
 registerRestaurantBootSteps();
@@ -65,12 +65,6 @@ describe('03a task 22a: the fires_alerts tick', () => {
   let stop: () => void = () => undefined;
   const log = { error: vi.fn<(obj: Record<string, unknown>, msg?: string) => void>() };
 
-  beforeAll(() => {
-    registerEngineKindFakes();
-  });
-  afterAll(() => {
-    resetEngineKindFakes();
-  });
 
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
@@ -223,8 +217,9 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(m.tx).toBe(1);
     expect(slipAlerts().filter((r) => r.state === 'open')).toHaveLength(4);
     expect(m.reads[0]).toBe(single);
-    // 2 listOpen + raiseMany's 6 (dedupe 1, fixed reads 5; a person target needs no resolver, and no route is registered).
-    expect(single).toBe(2 + 6);
+    // 2 listOpen + 1 ItemAdded read for the slips' details (task 23, proposed reading; one for 1 or 3 tables) +
+    // raiseMany's 6 (dedupe 1, fixed reads 5; a person target needs no resolver, and no route is registered).
+    expect(single).toBe(2 + 1 + 6);
   });
 
   it('[03a §6.2a] the reconcile pass after boot: exactly the 2 listOpen statements, and it is not due again', async () => {
@@ -322,9 +317,10 @@ describe('03a task 22a: the fires_alerts tick', () => {
   // ---------------------------------------------------------------------------------------------------------- #76
   it('[03a #76] skipped inputs (no receiver; values failing the schema) are logged and never raised; the same pass\'s fires commit; a throwing raiseMany rolls back only fires_alerts and the alert follows', async () => {
     kitchen(config({ S1: { capacity: 8 }, S2: { capacity: 8 } }));
-    const long = `dine_in:${'x'.repeat(70)}`;
+    // values the real values_schema refuses: an empty table key (table_key: z.string().min(1), §3.8)
+    const empty = '';
     submit({ order_id: 'O1', actor_id: null, lines: [{ order_item_id: 'L1' }] }); // placed_by null: no receiver
-    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: long }, lines: [{ order_item_id: 'L2' }] }); // values fail
+    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: empty }, lines: [{ order_item_id: 'L2' }] }); // values fail
     submit({ order_id: 'O3', order: { table_id: 'T3', table_key: 'dine_in:T3' }, actor_id: 'S_GONE', lines: [{ order_item_id: 'L3' }] }); // not in the directory
     await pass(hub.clock.branchNow());
     const due = engine().next_alert_due_at!;
@@ -340,7 +336,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(skips.map((l) => [l.table_key, l.reason]).sort()).toEqual([
       [KEY, 'no_receiver'],
       ['dine_in:T3', 'receiver_not_in_directory'],
-      [long, 'values_invalid'],
+      [empty, 'values_invalid'],
     ].sort());
     expect(skips.every((l) => l.kind === ENGINE_ALERT_KINDS.slip)).toBe(true);
     // Skipped keys are not retried every pass, nor logged again.
@@ -632,6 +628,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
           target: { kind: 'person', staff_id: WAITER },
           values: { table_key: KEY, order_ids: ['O1'], escalate_ms: 120_000 },
           display: { kind_label_key: 'alert.slip_warning.lock' },
+          details: { minutes_late: 0, lines: [] }, // the real kind requires its details (task 23)
           dedupe_key: `slip:${KEY}`,
           request: { receiver_staff_id: WAITER },
         }).events,
@@ -733,12 +730,6 @@ const quiet = (): Writable => new Writable({ write: (_chunk, _enc, done) => done
 
 describe('[03a AD-8] a dropped line is never silent across a restart (review I1)', () => {
   const cleanups: Array<() => Promise<void> | void> = [];
-  beforeAll(() => {
-    registerEngineKindFakes();
-  });
-  afterAll(() => {
-    resetEngineKindFakes();
-  });
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     vi.restoreAllMocks();
