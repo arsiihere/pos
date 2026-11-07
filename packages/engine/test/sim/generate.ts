@@ -47,8 +47,9 @@ export type GenerateOptions = {
   id_prefix?: string;
 };
 
-// §10.6's stations and cooks, capacities by AD-27 (01a's range 1–100, none above §10.6's value). Tandoor and degh sit below
-// §10.6's value (60, 100): at their rates those capacities would be idle at peak, not at 90–100 %.
+// §10.6's stations and cooks, capacities by AD-27 (01a's range 1–100, none above §10.6's value). Karahi, BBQ and tawa keep
+// §10.6's capacity and their demand comes down. Tandoor (60) and degh (100) sit below §10.6's value: at those capacities
+// they were idle at peak (25 %, 50 %), and lowering them raises no demand.
 // Proposed (implementer, overnight): §10.6 gives degh no freshness window. A load books the whole station, so the 01a
 // default window 0 would give every order its own 60 s load. Window 60 s (= max_early_ms, which caps it per line, = one
 // load's cook) lets one load serve a minute of landings.
@@ -57,15 +58,16 @@ function stations(): SimStation[] {
     { station_id: 'bbq', type: 'slot', capacity: 30, cook_ms: 900 * SECOND, freshness_window_ms: null },
     { station_id: 'degh', type: 'batch', capacity: 4, cook_ms: 60 * SECOND, freshness_window_ms: 60 * SECOND },
     { station_id: 'karahi', type: 'slot', capacity: 50, cook_ms: 1_200 * SECOND, freshness_window_ms: null },
-    { station_id: 'tandoor', type: 'slot', capacity: 31, cook_ms: 180 * SECOND, freshness_window_ms: null },
+    { station_id: 'tandoor', type: 'slot', capacity: 30, cook_ms: 180 * SECOND, freshness_window_ms: null },
     { station_id: 'tawa', type: 'slot', capacity: 8, cook_ms: 300 * SECOND, freshness_window_ms: null },
   ];
 }
 
 // AD-27: lines per order per station, the rates realised. The drill's formula below really gave ≈ 2.60 / 1.35 / 1.09 / 1.21 /
 // 0.99 (its labels were 3.0 / 0.6 / 0.4 / 0.5 / 0.3), so a demand-side number is now stated once, here. No rate is above
-// what the old day realised.
-export const LINE_RATES: Readonly<Record<string, number>> = { tandoor: 2.6, karahi: 0.58, bbq: 0.5, degh: 0.96, tawa: 0.41 };
+// what the old day realised. Set on seed 7's busiest hours, so that demandPeakPct is 90–100 % and as near 100 % as it goes;
+// the extra decimals are that fit, one line of a station's peak hour is about 1 %.
+export const LINE_RATES: Readonly<Record<string, number>> = { tandoor: 2.55, karahi: 0.582, bbq: 0.503, degh: 0.96, tawa: 0.41 };
 
 // The drill's MENU: the shape of an order's lines at a station, its weights formula as is, then each drawn line kept with
 // the probability that gives the stated rate. So an order still comes in lumps, as the drill's do.

@@ -24,6 +24,17 @@ describe('[03a §10.6, AD-27] the normal peak day', () => {
     }
   });
 
+  it('[03a AD-27] the table of the day: capacity and cook per station', () => {
+    expect(day.stations).toEqual([
+      { station_id: 'bbq', type: 'slot', capacity: 30, cook_ms: 900_000, freshness_window_ms: null },
+      { station_id: 'degh', type: 'batch', capacity: 4, cook_ms: 60_000, freshness_window_ms: 60_000 },
+      { station_id: 'karahi', type: 'slot', capacity: 50, cook_ms: 1_200_000, freshness_window_ms: null },
+      { station_id: 'tandoor', type: 'slot', capacity: 30, cook_ms: 180_000, freshness_window_ms: null },
+      { station_id: 'tawa', type: 'slot', capacity: 8, cook_ms: 300_000, freshness_window_ms: null },
+    ]);
+    expect(LINE_RATES).toEqual({ tandoor: 2.55, karahi: 0.582, bbq: 0.503, degh: 0.96, tawa: 0.41 });
+  });
+
   it('[03a AD-27] no capacity above §10.6\'s value and §10.6\'s cook times', () => {
     const spec: Record<string, { capacity: number; cook_ms: number }> = {
       bbq: { capacity: 30, cook_ms: 900_000 },
