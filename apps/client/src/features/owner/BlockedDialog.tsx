@@ -39,7 +39,7 @@ export async function dealNames(api: CloudAdmin, ids: readonly string[]): Promis
   return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []), by: 'deal' };
 }
 
-export async function itemNames(api: CloudAdmin, ids: readonly string[]): Promise<InUse> {
+export async function itemNames(api: CloudAdmin, ids: readonly string[]): Promise<InUse & { by?: undefined }> {
   const result = await api.getMenu({ limit: 200 });
   const byId = new Map(result.ok ? result.data.items.map((item) => [item.item_id, item.name]) : []);
   return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []) };
