@@ -546,13 +546,25 @@ function loadRounds(state: EngineState, station_id: string, load: Load | undefin
   return cook === 0 ? counted : Math.max(counted, Math.ceil((load.booked.end - load.booked.start) / cook));
 }
 
+// AD-29 Q11 P4, task 18d review: a member leaving its stored load with no fire (a Start, or a Done that an Undo may take
+// back to COOKING) stores the load's rounds as the fire would, so it never falls back to its own units.
+function leavingRounds(state: EngineState, line: EngineLine): Partial<EngineLine> {
+  const load = line.load_id === null ? undefined : state.stations[line.station_id]?.loads[line.load_id];
+  return load === undefined || line.rounds !== null ? {} : { rounds: loadRounds(state, line.station_id, load, [line.order_item_id]) };
+}
+
 function foldFireDispatched(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
   const ids = load === undefined ? p.order_item_ids : [...new Set([...p.order_item_ids, ...load.order_item_ids])];
-  const rounds = p.load_id === null ? null : loadRounds(state, p.station_id, load, ids);
+  // Only the lines the loop below really fires count (a re-listed fired line, an ended one, a writer bug do not).
+  const firing = ids.filter((id) => {
+    const l = activeLine(state, id, event.recorded_at);
+    return l !== undefined && l.stage === 'added' && l.fired_at === null && l.station_id === p.station_id && (state.orders[l.order_id]?.awaiting ?? 0) === 0;
+  });
+  const rounds = p.load_id === null ? null : loadRounds(state, p.station_id, load, firing);
   for (const id of ids) {
     const line = activeLine(next, id, event.recorded_at);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
@@ -694,7 +706,7 @@ function foldItemStarted(state: EngineState, event: PosEvent, o: FoldOptions): E
   const p = event.payload as unknown as ItemStartedPayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'added') return state;
-  const next = moveLine(state, line, event, o, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+  const next = moveLine(state, line, event, o, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at), ...leavingRounds(state, line) });
   return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
@@ -704,7 +716,7 @@ function foldItemDone(state: EngineState, event: PosEvent, o: FoldOptions): Engi
   const p = event.payload as unknown as ItemDonePayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) return state;
-  const next = moveLine(state, line, event, o, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+  const next = moveLine(state, line, event, o, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at), ...leavingRounds(state, line) });
   return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
