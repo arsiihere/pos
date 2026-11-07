@@ -4,7 +4,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { applyEvent, applyEvents, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint } from '../../src/index';
 import { demandPeakPct, generateDay, LINE_RATES, policyReport, runDay, twoDayLog, type PolicyReport, type SimResult } from './index';
-import { digestOf, dist, keepEvery, measureAtPeak, peakPass, peakSummary, replayFrom, sameState, step, wallMsOf, writeSamples, type AtPeak, type Peak } from './perf-kit';
+import { digestOf, dist, keepEvery, measureAtPeak, NUMBERS_FILE, peakPass, peakSummary, replayFrom, sameState, SEED_DAYS, step, wallMsOf, writeSamples, writeSection, type AtPeak, type Peak } from './perf-kit';
 
 // A watchdog for a day's work, not a bound. Vitest's default hookTimeout is 10 s and the perf project sets testTimeout only.
 const HOOK_MS = 3_600_000;
@@ -20,6 +20,7 @@ const FIRES_TICK_P99_MS = 20; // §7.1; test 62 adds the hub's write
 const STATIONS_LIVE_MS = 5; // §7.1; test 66 adds the route
 const UTILISATION_MIN = 90; // AD-27
 const UTILISATION_MAX = 100; // AD-27
+const REPLACED_LINES_P99_MAX = 270; // P-11: ceil(1.2 × 223 / 10) × 10, the plan's "Simulator bounds"
 const MEAN_WAIT_MAX_MS = 3_600_000; // task 18b: "under about 1 h"
 const TARGET_AHEAD_MAX_MS = 2 * 3_600_000; // task 18b: "not running away"; the old day reached ≈ 520 min. Proposed (implementer).
 const PEAK_SAMPLES = 21;
@@ -44,6 +45,9 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
   let batchEqualsFold: { same_value: boolean; same_text: boolean };
 
   beforeAll(() => {
+    // A step that is off leaves no section of an earlier run in the numbers file.
+    const off = [...(process.env.POS_PERF_POLICY === '1' ? [] : ['day_policy_fifo', 'day_policy_edf']), ...(process.env.POS_PERF_SEEDS === '1' ? [] : SEED_DAYS.map((d) => d.section))];
+    for (const section of off) writeSection(NUMBERS_FILE, section, undefined);
     const day = generateDay(SEED);
     const live = new Map<number, string>();
     run = step('day_run', () => runDay(day, { watch: keepEvery(live, 500) }), (r) => ({ ...closeSummary(r), orders: day.orders.length, lines: day.orders.reduce((n, o) => n + o.lines.length, 0), stations: day.stations, line_rates: LINE_RATES, demand_peak_pct: demandPeakPct(day) }));
@@ -93,10 +97,10 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
     expect(batchEqualsFold.same_text).toBe(true);
   });
 
-  it.each(['bbq', 'degh', 'karahi', 'tandoor', 'tawa'])('[03a AD-27] %s: the busiest hour the kitchen really ran is 90–100 %%', (station_id) => {
-    const peakHour = report.utilisation[station_id]!.peak_hour_pct;
-    expect(peakHour).toBeGreaterThanOrEqual(UTILISATION_MIN);
-    expect(peakHour).toBeLessThanOrEqual(UTILISATION_MAX);
+  it.each(['bbq', 'degh', 'karahi', 'tandoor', 'tawa'])('[03a AD-27, AD-29 Q1] %s: the busiest hour the kitchen really ran, on the 10-minute windows, is 90–100 %%', (station_id) => {
+    const peakWindow = report.utilisation[station_id]!.peak_window_pct;
+    expect(peakWindow).toBeGreaterThanOrEqual(UTILISATION_MIN);
+    expect(peakWindow).toBeLessThanOrEqual(UTILISATION_MAX);
   });
 
   it('[03a AD-27] a peak a kitchen can run: mean wait by order type under 1 h, T − now not running away', () => {
@@ -129,7 +133,10 @@ describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () =>
     expect(at.bf7!.ms.max).toBeLessThanOrEqual(BF7_MS);
   });
 
-  // P-11: the re-placed-lines bound is not asserted while a spec bound misses (task 18 report; "Simulator bounds" in the plan).
+  // Deterministic: a count of lines, no clock.
+  it('[03a §7.1 row 2, §12.1 DoD 6, P-11] re-placed lines per station re-plan p99 ≤ 270', () => {
+    expect(dist(run.replacedLines).p99).toBeLessThanOrEqual(REPLACED_LINES_P99_MAX);
+  });
 });
 
 describe('[03a §10.6] two days on one log (a deferred checkpoint never written, §3.12)', () => {

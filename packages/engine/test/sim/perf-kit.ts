@@ -60,6 +60,7 @@ function writeDurably(file: string, text: string): void {
 }
 
 // One section of the numbers file, on disk before the next step starts (a power cut loses only the step under way).
+// `undefined` clears the section (JSON.stringify drops it).
 export function writeSection(file: string, section: string, data: unknown): void {
   let all: Record<string, unknown> = {};
   try {
@@ -70,6 +71,9 @@ export function writeSection(file: string, section: string, data: unknown): void
   all[section] = data;
   writeDurably(file, `${JSON.stringify(all, null, 2)}\n`);
 }
+
+// AD-29 Q2: the report-only days of seeds.perf.test.ts, each its own section of the numbers file.
+export const SEED_DAYS = [8, 11].flatMap((seed) => [false, true].map((overload) => ({ seed, overload, section: `seed_${seed}_${overload ? 'overload' : 'normal'}` })));
 
 export function writeSamples(name: string, samples: readonly number[]): void {
   writeDurably(join(OUT, 'task-18-samples', `${name}.json`), `${JSON.stringify(samples)}\n`);

@@ -8,8 +8,8 @@
 // line on its grid, up to 499 ms after its planned fire, and FIFO / EDF have padding 0 (§3.5.1), so a literal comparison
 // would count the tick's own rounding as a broken promise. max_late_ms is the raw number, with no such allowance.
 // Utilisation: unit-time in use / (capacity × time), mean over the station's first Start to last Done, and the busiest
-// clock hour of that span (peak_hour_pct, the one AD-27's 90–100 % is asserted on). peak_window_pct is the busiest hour on
-// demandPeakPct's windows, every 10 minutes: reported beside it, because a clock hour can split a rush. A batch load counts
+// clock hour of that span (peak_hour_pct, reported). peak_window_pct is the busiest hour on demandPeakPct's windows, every
+// 10 minutes, the one AD-27's 90–100 % is asserted on (AD-29 Q1), because a clock hour can split a rush. A batch load counts
 // once, as the whole station (§3.3).
 import type { EngineConfig } from '@pos/events';
 import { TICK_MS } from './generate';

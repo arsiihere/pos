@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { applyEvent, initialEngineState, toCheckpoint } from '../../src/index';
 import { generateDay, runDay, type SimResult } from './index';
-import { digestOf, dist, keepEvery, measureAtPeak, peakPass, pctl, replayFrom, writeSection, type Peak } from './perf-kit';
+import { digestOf, dist, keepEvery, measureAtPeak, peakPass, pctl, replayFrom, SEED_DAYS, writeSection, type Peak } from './perf-kit';
 
 describe('[03a task 18] perf kit', () => {
   it('[03a task 18] pctl is nearest rank; dist keeps every sample', () => {
@@ -22,6 +22,19 @@ describe('[03a task 18] perf kit', () => {
     writeSection(file, 'a', { x: 1 });
     writeSection(file, 'b', { y: 2 });
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ a: { x: 1 }, b: { y: 2 } });
+  });
+
+  it('[03a task 18f] writeSection with undefined clears a section, so a step that is off leaves no stale numbers', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'perf-kit-')), 'numbers.json');
+    writeSection(file, 'a', { x: 1 });
+    writeSection(file, 'b', { y: 2 });
+    writeSection(file, 'a', undefined);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ b: { y: 2 } });
+  });
+
+  it('[03a AD-29 Q2] the report-only seeds are 8 and 11, a normal and an overload day each, one section per day', () => {
+    expect(SEED_DAYS.map((d) => d.section)).toEqual(['seed_8_normal', 'seed_8_overload', 'seed_11_normal', 'seed_11_overload']);
+    expect(SEED_DAYS.map((d) => [d.seed, d.overload])).toEqual([[8, false], [8, true], [11, false], [11, true]]);
   });
 
   describe('on 150 orders from the 13 h peak', () => {
