@@ -12,7 +12,7 @@ export async function loadWholeMenu(api: CloudAdmin, status: 'active' | 'archive
   const { items, next_cursor, ...rest } = first.data;
   const all = [...items];
   let cursor = next_cursor;
-  while (cursor !== null) {
+  while (cursor != null) {
     const page = await api.getMenu({ status, limit: MENU_PAGE_LIMIT, cursor });
     if (!page.ok) return page;
     all.push(...page.data.items);
@@ -45,8 +45,8 @@ export async function loadMenuPages(
     const { items, next_cursor, ...rest } = page.data;
     all.push(...items);
     const menu = { ...rest, items: [...all] };
-    onPage(menu, next_cursor === null);
-    if (next_cursor === null) return { ok: true, data: menu };
+    onPage(menu, next_cursor == null);
+    if (next_cursor == null) return { ok: true, data: menu };
     cursor = next_cursor;
   }
 }

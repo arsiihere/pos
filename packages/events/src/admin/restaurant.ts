@@ -45,6 +45,49 @@ const CompletionMode = z.enum(['two_tap', 'single_tap', 'auto_done']);
 // The spec gives the label no length; names' 60 characters keep it a label.
 const LocationLabel = z.string().trim().min(1).max(60).nullable();
 
+// 01a §5.2a A-3–A-8 (03a v1.0): ranges of one field; the rules across fields (amber < red, lane and reserve units
+// within capacity) read the merged row, so the service checks them.
+const Policy = z.enum(['waada_guard', 'edf', 'fifo']);
+const FreezeMs = z.number().int().min(0).max(900_000);
+const MinSlackKeepMs = z.number().int().min(0).max(600_000);
+const PromisePaddingMs = z.number().int().min(0).max(1_800_000).nullable();
+const PressureWindowMs = z.number().int().min(300_000).max(3_600_000);
+const PressureBp = z.number().int().min(1).max(20_000);
+const PressureAlertMs = z.number().int().min(60_000).max(3_600_000);
+const LaneUnits = z.number().int().min(1).max(100).nullable();
+const ReserveUnits = z.number().int().min(0).max(100);
+
+function issueOnRepeat(values: readonly string[], ctx: z.RefinementCtx, path: (string | number)[], message: string): void {
+  values.forEach((value, i) => {
+    if (values.indexOf(value) !== i) ctx.addIssue({ code: 'custom', message, path: [...path, i] });
+  });
+}
+
+// A-9: order_types non-empty, home_for_order_types ⊆ order_types; a repeated value is refused, not collapsed.
+const OrderType = z.enum(['dine_in', 'takeaway', 'delivery', 'parking']);
+const StationAlternate = z.object({
+  alternate_station_id: z.string().min(1),
+  order_types: z.array(OrderType),
+  home_for_order_types: z.array(OrderType),
+});
+const StationAlternateInput = StationAlternate.extend({ order_types: z.array(OrderType).min(1) }).superRefine((row, ctx) => {
+  issueOnRepeat(row.order_types, ctx, ['order_types'], 'repeated order type');
+  issueOnRepeat(row.home_for_order_types, ctx, ['home_for_order_types'], 'repeated order type');
+  row.home_for_order_types.forEach((type, i) => {
+    if (!row.order_types.includes(type)) {
+      ctx.addIssue({ code: 'custom', message: 'not one of order_types', path: ['home_for_order_types', i] });
+    }
+  });
+});
+// A-9, A-10: nested replace-lists; one row per alternate station, one per point.
+const StationAlternates = z.array(StationAlternateInput).superRefine((rows, ctx) =>
+  issueOnRepeat(rows.map((row) => row.alternate_station_id), ctx, [], 'repeated alternate station'),
+);
+const CarryTime = z.object({ point_id: z.string().min(1), carry_ms: z.number().int().min(0).max(600_000) });
+const CarryTimes = z.array(CarryTime).superRefine((rows, ctx) =>
+  issueOnRepeat(rows.map((row) => row.point_id), ctx, [], 'repeated point'),
+);
+
 export const CreateStationBody = z
   .object({
     name: Name,
@@ -53,6 +96,20 @@ export const CreateStationBody = z
     capacity: Capacity,
     freshness_window_ms: Freshness.optional(),
     completion_mode: CompletionMode.default('two_tap'),
+    point_id: z.string().min(1).optional(),
+    policy: Policy.default('waada_guard'),
+    freeze_ms: FreezeMs.default(120_000),
+    min_slack_keep_ms: MinSlackKeepMs.default(60_000),
+    promise_padding_ms: PromisePaddingMs.default(null),
+    pressure_window_ms: PressureWindowMs.default(900_000),
+    pressure_amber_bp: PressureBp.default(8_000),
+    pressure_red_bp: PressureBp.default(10_000),
+    pressure_alert_ms: PressureAlertMs.default(300_000),
+    pause_enabled: z.boolean().default(false),
+    lane_units: LaneUnits.default(null),
+    reserve_units: ReserveUnits.default(0),
+    alternates: StationAlternates.default([]),
+    carry_times: CarryTimes.default([]),
   })
   .refine((body) => body.station_type === 'batch' || body.freshness_window_ms === undefined, {
     message: 'only batch stations have a freshness window',
@@ -68,6 +125,20 @@ export const PatchStationBody = z
     freshness_window_ms: Freshness.optional(),
     completion_mode: CompletionMode.optional(),
     archived: z.boolean().optional(),
+    point_id: z.string().min(1).optional(),
+    policy: Policy.optional(),
+    freeze_ms: FreezeMs.optional(),
+    min_slack_keep_ms: MinSlackKeepMs.optional(),
+    promise_padding_ms: PromisePaddingMs.optional(),
+    pressure_window_ms: PressureWindowMs.optional(),
+    pressure_amber_bp: PressureBp.optional(),
+    pressure_red_bp: PressureBp.optional(),
+    pressure_alert_ms: PressureAlertMs.optional(),
+    pause_enabled: z.boolean().optional(),
+    lane_units: LaneUnits.optional(),
+    reserve_units: ReserveUnits.optional(),
+    alternates: StationAlternates.optional(),
+    carry_times: CarryTimes.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
@@ -80,6 +151,28 @@ const Station = z.object({
   freshness_window_ms: z.number().nullable(),
   completion_mode: CompletionMode,
   archived_at: z.number().nullable(),
+  point_id: z.string(),
+  policy: Policy,
+  freeze_ms: z.number(),
+  min_slack_keep_ms: z.number(),
+  promise_padding_ms: z.number().nullable(),
+  pressure_window_ms: z.number(),
+  pressure_amber_bp: z.number(),
+  pressure_red_bp: z.number(),
+  pressure_alert_ms: z.number(),
+  pause_enabled: z.boolean(),
+  lane_units: z.number().nullable(),
+  reserve_units: z.number(),
+  alternates: z.array(StationAlternate),
+  carry_times: z.array(CarryTime),
+});
+
+const Point = z.object({
+  point_id: z.string(),
+  name: z.string(),
+  sort_order: z.number(),
+  archived_at: z.number().nullable(),
+  version: z.string(),
 });
 
 const ProgramSummary = z.object({
@@ -90,9 +183,31 @@ const ProgramSummary = z.object({
 });
 
 export const StationListResponse = z.object({
-  data: z.object({ stations: z.array(Station.extend({ programs: z.array(ProgramSummary) })) }),
+  data: z.object({ stations: z.array(Station.extend({ programs: z.array(ProgramSummary) })), points: z.array(Point) }),
 });
 export const StationResponse = z.object({ data: z.object({ station: Station }) });
+
+// §6.9a, §5.2a A-1: names 1–40 characters after trimming.
+const PointName = z.string().trim().min(1).max(40);
+
+export const CreatePointBody = z.object({
+  name: PointName,
+  sort_order: SortOrder.default(0),
+});
+
+// R30, C9: expected_version is required and a body with nothing else is refused.
+export const PatchPointBody = z
+  .object({
+    expected_version: z.string().min(1),
+    name: PointName.optional(),
+    sort_order: SortOrder.optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((body) => body.name !== undefined || body.sort_order !== undefined || body.archived !== undefined, {
+    message: 'a field besides expected_version is required',
+  });
+
+export const PointResponse = z.object({ data: z.object({ point: Point }) });
 
 // §3.3: cook_time_ms 1 … 14 400 000.
 const CookTime = z.number().int().min(1).max(14_400_000);
@@ -126,6 +241,40 @@ export const AvailabilityWindows = z
   )
   .max(4);
 
+// A-13: one element of a goes_with list; source_kind and source_id come from the path. A target repeated in one list
+// → 400 at goes_with.N.target_id (one row per source and target).
+const GoesWithKind = z.enum(['category', 'item']);
+const ItemGoesWith = z
+  .array(
+    z.object({
+      target_kind: GoesWithKind,
+      target_id: z.string().min(1),
+      excluded: z.boolean().default(false),
+    }),
+  )
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((link, i) => {
+      const key = `${link.target_kind}:${link.target_id}`;
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', path: [i, 'target_id'], message: 'duplicate target' });
+      seen.add(key);
+    });
+  });
+// A-13: `excluded` is an item override, so a category's list never carries it.
+const CategoryGoesWith = ItemGoesWith.superRefine((list, ctx) => {
+  list.forEach((link, i) => {
+    if (link.excluded) ctx.addIssue({ code: 'custom', path: [i, 'excluded'], message: 'only an item can exclude' });
+  });
+});
+// The five A-13 fields, the shape the snapshot carries.
+const GoesWithLink = z.object({
+  source_kind: GoesWithKind,
+  source_id: z.string(),
+  target_kind: GoesWithKind,
+  target_id: z.string(),
+  excluded: z.boolean(),
+});
+
 export const CreateCategoryBody = z.object({
   name: Name,
   sort_order: SortOrder.default(0),
@@ -137,6 +286,7 @@ export const PatchCategoryBody = z
     name: Name.optional(),
     sort_order: SortOrder.optional(),
     availability_windows: AvailabilityWindows.optional(),
+    goes_with: CategoryGoesWith.optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
@@ -160,6 +310,7 @@ export const CategoryResponse = z.object({
       sort_order: z.number(),
       archived_at: z.number().nullable(),
       availability_windows: z.array(z.object({ start_ms: z.number(), end_ms: z.number() })),
+      goes_with: z.array(GoesWithLink),
     }),
   }),
 });
@@ -174,6 +325,12 @@ const StockTime = z.number().int().min(0).max(14_400_000).nullable();
 export const Description = z.string().max(300).nullable();
 // 01c §3.3: variant_name 1–30 after trimming.
 const VariantName = z.string().trim().min(1).max(30);
+// §5.2a A-11: the item's timing knobs.
+const WeightPct = z.number().int().min(10).max(1000);
+const MaxEarly = z.number().int().min(0).max(3_600_000);
+const MaxCarry = z.number().int().min(0).max(600_000).nullable();
+const MaxLate = z.number().int().min(0).max(7_200_000).nullable();
+const AdjustTime = z.number().int().min(0).max(3_600_000);
 
 // 01c §3.3, V4: 0–1 draws (pilot), quantity 1 … 1 000 000; one per stock_item_id (C6: the repeat → 400 at
 // stock_draws.N.stock_item_id). The unit rule needs the stock item, so it is the service's (422 unit_mismatch).
@@ -226,6 +383,11 @@ export const CreateMenuItemBody = z
     requires_weighing: z.boolean().default(false),
     stock_draws: StockDraws.default([]),
     availability_windows: AvailabilityWindows.default([]),
+    weight_pct: WeightPct.default(100),
+    max_early_ms: MaxEarly.default(60_000),
+    max_carry_ms: MaxCarry.default(null),
+    max_late_ms: MaxLate.default(null),
+    adjust_time_ms: AdjustTime.default(180_000),
     routes: z
       .array(RouteInput)
       .default([])
@@ -268,6 +430,12 @@ export const PatchMenuItemBody = z
     requires_weighing: z.boolean().optional(),
     stock_draws: StockDraws.optional(),
     availability_windows: AvailabilityWindows.optional(),
+    weight_pct: WeightPct.optional(),
+    max_early_ms: MaxEarly.optional(),
+    max_carry_ms: MaxCarry.optional(),
+    max_late_ms: MaxLate.optional(),
+    adjust_time_ms: AdjustTime.optional(),
+    goes_with: ItemGoesWith.optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' })
@@ -328,6 +496,12 @@ const MenuItem = z.object({
   requires_weighing: z.boolean(),
   stock_draws: z.array(z.object({ stock_item_id: z.string(), quantity_per_sale_unit: z.number() })),
   availability_windows: z.array(Window),
+  weight_pct: z.number(),
+  max_early_ms: z.number(),
+  max_carry_ms: z.number().nullable(),
+  max_late_ms: z.number().nullable(),
+  adjust_time_ms: z.number(),
+  goes_with: z.array(GoesWithLink),
   archived_at: z.number().nullable(),
   routes: z.array(Route),
 });
@@ -363,6 +537,7 @@ export const MenuResponse = z.object({
         sort_order: z.number(),
         archived_at: z.number().nullable(),
         availability_windows: z.array(Window),
+        goes_with: z.array(GoesWithLink),
       }),
     ),
     variant_groups: z.array(VariantGroupWire),
@@ -416,6 +591,8 @@ export type CreateTableInput = z.infer<typeof CreateTableBody>;
 export type PatchTableInput = z.infer<typeof PatchTableBody>;
 export type CreateStationInput = z.infer<typeof CreateStationBody>;
 export type PatchStationInput = z.infer<typeof PatchStationBody>;
+export type CreatePointInput = z.infer<typeof CreatePointBody>;
+export type PatchPointInput = z.infer<typeof PatchPointBody>;
 export type CreateProgramInput = z.infer<typeof CreateProgramBody>;
 export type PatchProgramInput = z.infer<typeof PatchProgramBody>;
 export type CreateTaxClassInput = z.infer<typeof CreateTaxClassBody>;
@@ -433,6 +610,8 @@ export type CreateTableRequest = z.input<typeof CreateTableBody>;
 export type PatchTableRequest = z.input<typeof PatchTableBody>;
 export type CreateStationRequest = z.input<typeof CreateStationBody>;
 export type PatchStationRequest = z.input<typeof PatchStationBody>;
+export type CreatePointRequest = z.input<typeof CreatePointBody>;
+export type PatchPointRequest = z.input<typeof PatchPointBody>;
 export type CreateProgramRequest = z.input<typeof CreateProgramBody>;
 export type PatchProgramRequest = z.input<typeof PatchProgramBody>;
 export type CreateTaxClassRequest = z.input<typeof CreateTaxClassBody>;
@@ -450,8 +629,10 @@ export type AdminFloor = z.infer<typeof Floor>;
 export type AdminTable = z.infer<typeof Table>;
 export type AdminStationList = z.infer<typeof StationListResponse>['data'];
 export type AdminStation = z.infer<typeof Station>;
+export type AdminPoint = z.infer<typeof Point>;
 export type AdminProgram = z.infer<typeof ProgramSummary>;
 export type AdminTaxClass = z.infer<typeof TaxClassResponse>['data']['tax_class'];
+export type AdminGoesWithLink = z.infer<typeof GoesWithLink>;
 export type AdminCategory = z.infer<typeof CategoryResponse>['data']['category'];
 export type AdminRoute = z.infer<typeof Route>;
 export type AdminMenuItem = z.infer<typeof MenuItem>;

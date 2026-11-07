@@ -7,6 +7,28 @@ import { wsHubFor } from '../../src/ws/server';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
 
+// A secret in a log field, read field by field: a raw search of the log text would also match digits inside a
+// random number such as responseTime 13.025480000000243.
+function logLeaks(logs: string, secrets: readonly string[]): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') found.push(...secrets.filter((secret) => value.includes(secret)));
+    else if (typeof value === 'number') found.push(...secrets.filter((secret) => value === Number(secret)));
+    else if (value !== null && typeof value === 'object') Object.values(value).forEach(walk);
+  };
+  for (const line of logs.split('\n')) {
+    if (line.trim() === '') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      parsed = line;
+    }
+    walk(parsed);
+  }
+  return found;
+}
+
 type ReceiptFrom = { deviceId: string; sessionId: string | null; staffId: string | null; mode: 'session' | 'alert' };
 
 const LOCK_ROW = {
@@ -344,7 +366,7 @@ describe('websocket alert mode', () => {
       expect(logLines(hub).filter((entry) => entry.device_id === device.deviceId && entry.err !== undefined)).toHaveLength(1);
     }
     expect(hub.logs()).not.toContain('alert.test_alert.card');
-    expect(hub.logs()).not.toContain('480000');
+    expect(logLeaks(hub.logs(), ['480000'])).toEqual([]);
     const ok = await authAlert(hub, clean.token);
     expect(ok.messages[0]).toEqual({ type: 'alerts_open', alerts: [LOCK_ROW], binding_route_until: null });
     expect(wsHubFor(hub.app).alertSockets()).toEqual([{ deviceId: clean.deviceId, deviceType: 'tablet' }]);

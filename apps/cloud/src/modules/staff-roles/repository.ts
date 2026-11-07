@@ -1,7 +1,7 @@
 import type { Permission } from '@pos/domain';
 import type { TenantSql } from '../../lib/config-version.js';
-import type { BranchWire, GrantWire, ResponsibilityWire } from '@pos/events';
-import type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
+import { BRANCH_ENGINE_SETTING_KEYS, type BranchEngineSettings, type BranchWire, type GrantWire, type ResponsibilityWire } from '@pos/events';
+import { toBranchWire, type BranchRow, type ResponsibilityRow, type RoleRow, type StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
@@ -631,23 +631,39 @@ function group<R extends { staff_id: string }, V>(rows: R[], value: (row: R) => 
   return out;
 }
 
-// 01b §5.3 BranchWire; one statement. `lock` takes the row FOR UPDATE (§6.9, §6.10). BIGINTs through Number().
-const BRANCH_WIRE_COLUMNS = `branch_id, name, status, hub_last_seen_at, hub_synced_at, tax_enabled, day_stale_after_hours, day_min_gap_hours`;
+// 01b §5.3 BranchWire; one statement, joined to the branch's A-12 row (v1.5 B-6). CL-3: every branch has exactly
+// one A-12 row, so a missing one is an error, never a default (the left join tells it from an unknown branch).
+// BIGINTs through Number().
+const BRANCH_WIRE_COLUMNS = `b.branch_id, b.name, b.status, b.hub_last_seen_at, b.hub_synced_at, b.tax_enabled, b.day_stale_after_hours, b.day_min_gap_hours, ${BRANCH_ENGINE_SETTING_KEYS.map((key) => `e.${key}`).join(', ')}`;
 
-export async function selectBranchWire(db: TenantSql, branchId: string, o: { lock: boolean }): Promise<BranchWire | undefined> {
-  const rows = await db.query<BranchWire>(
-    `SELECT ${BRANCH_WIRE_COLUMNS} FROM branches WHERE tenant_id = $1 AND branch_id = $2${o.lock ? ' FOR UPDATE' : ''}`,
+export async function selectBranchWire(db: TenantSql, branchId: string): Promise<BranchWire | undefined> {
+  const rows = await db.query<BranchRow>(
+    `SELECT ${BRANCH_WIRE_COLUMNS}
+       FROM branches b
+       LEFT JOIN branch_engine_settings e ON e.tenant_id = b.tenant_id AND e.branch_id = b.branch_id
+      WHERE b.tenant_id = $1 AND b.branch_id = $2`,
     [branchId],
   );
   const row = rows[0];
   if (row === undefined) return undefined;
-  return {
+  if (row.returns_boost === null) throw new Error(`no engine settings row for branch ${branchId}`);
+  return toBranchWire({
     ...row,
     hub_last_seen_at: row.hub_last_seen_at === null ? null : Number(row.hub_last_seen_at),
     hub_synced_at: row.hub_synced_at === null ? null : Number(row.hub_synced_at),
     day_stale_after_hours: Number(row.day_stale_after_hours),
     day_min_gap_hours: Number(row.day_min_gap_hours),
-  };
+  });
+}
+
+// §6.9, §6.10: the branch row lock serialises every writer of the branch's settings, the A-12 row included. Two
+// statements on purpose (B23): under READ COMMITTED a statement that waited for a lock re-reads only the locked row
+// and keeps its first snapshot of a joined one, so a joined read would hash the A-12 values from before the save it
+// waited for, and a stale expected_version would pass. The read after the lock takes a fresh snapshot.
+export async function lockAndSelectBranchWire(db: TenantSql, branchId: string): Promise<BranchWire | undefined> {
+  const locked = await db.query(`SELECT 1 FROM branches WHERE tenant_id = $1 AND branch_id = $2 FOR UPDATE`, [branchId]);
+  if (locked.length === 0) return undefined;
+  return selectBranchWire(db, branchId);
 }
 
 export async function updateBranchName(db: TenantSql, branchId: string, name: string): Promise<void> {
@@ -662,6 +678,16 @@ export async function updateBranchSettings(
   await db.query(
     `UPDATE branches SET tax_enabled = $3, day_stale_after_hours = $4, day_min_gap_hours = $5 WHERE tenant_id = $1 AND branch_id = $2`,
     [branchId, s.tax_enabled, s.day_stale_after_hours, s.day_min_gap_hours],
+  );
+}
+
+// v1.5 B-6: the A-12 row, written in the settings PATCH's transaction. 0007's `version` column is not compared by
+// any write (B23 hashes the wire), so it is left alone, as the stations' is.
+export async function updateBranchEngineSettings(db: TenantSql, branchId: string, s: BranchEngineSettings, now: number): Promise<void> {
+  const assignments = BRANCH_ENGINE_SETTING_KEYS.map((key, i) => `${key} = $${i + 3}`).join(', ');
+  await db.query(
+    `UPDATE branch_engine_settings SET ${assignments}, updated_at = $${BRANCH_ENGINE_SETTING_KEYS.length + 3} WHERE tenant_id = $1 AND branch_id = $2`,
+    [branchId, ...BRANCH_ENGINE_SETTING_KEYS.map((key) => s[key]), now],
   );
 }
 

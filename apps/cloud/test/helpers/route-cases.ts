@@ -7,6 +7,7 @@ export interface BIds {
   floorId: string;
   tableId: string;
   stationId: string;
+  pointId: string;
   programId: string;
   taxClassId: string;
   categoryId: string;
@@ -56,6 +57,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/branches/:branch_id/stations/:station_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}`,
     payload: { name: 'Fryer' },
+  }),
+  'POST /v1/admin/branches/:branch_id/points': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/points`,
+    payload: { name: 'Window' },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/points/:point_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/points/${ids.pointId}`,
+    payload: { expected_version: 'stale', name: 'Window' },
   }),
   'POST /v1/admin/branches/:branch_id/stations/:station_id/programs': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/stations/${ids.stationId}/programs`,
@@ -177,7 +186,7 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PUT /v1/admin/staff/:staff_id/pin': (ids) => ({ url: `/v1/admin/staff/${ids.staffId}/pin`, payload: { pin: '1234' } }),
   'PATCH /v1/admin/branches/:branch_id': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}`, payload: { name: 'Gulberg' } }),
   'GET /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings` }),
-  'PATCH /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings`, payload: { tax_enabled: true } }),
+  'PATCH /v1/admin/branches/:branch_id/settings': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/settings`, payload: { expected_version: 'v', tax_enabled: true } }),
   'GET /v1/admin/branches/:branch_id/responsibilities': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/responsibilities` }),
   'GET /v1/admin/branches/:branch_id/team-tree': (ids) => ({ url: `/v1/admin/branches/${ids.branchId}/team-tree` }),
   'PUT /v1/admin/branches/:branch_id/responsibilities': (ids) => ({

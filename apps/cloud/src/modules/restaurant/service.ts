@@ -17,16 +17,22 @@ import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
   activeItemIdsWith,
   activeRouteItemIds,
+  activeStationIdsAtPoint,
+  activeStationsNamingAlternate,
   activeStockItemIdsAt,
   activeTableIds,
   archiveStationPrograms,
+  branchExists,
   deleteDrawsOf,
+  deleteGoesWithOf,
   deleteWindowsOf,
   insertCategory,
+  insertPoint,
   insertConfigAuditRows,
   insertDraws,
   insertFloor,
   insertItemRoutes,
+  insertGoesWith,
   insertMenuItem,
   insertProgram,
   insertStation,
@@ -39,11 +45,12 @@ import {
   linkingGroupIds,
   lockCategory,
   lockFloor,
+  lockPoint,
   lockItemRoute,
   lockMenuItem,
   readMenuItem,
   lockProgram,
-  lockStation,
+  lockStationsById,
   lockTable,
   lockTaxClass,
   programRouteItemIds,
@@ -55,9 +62,18 @@ import {
   selectDrawsOf,
   selectItemRoutes,
   selectItemWindows,
+  selectGoesWithOf,
+  selectGoesWithTargets,
   selectMenuPage,
   selectPrograms,
+  replaceAlternates,
+  replaceCarryTimes,
+  selectPoints,
+  selectStationLists,
   selectStations,
+  shareDefaultPoint,
+  sharePointsById,
+  stationsNamingAlternate,
   selectTables,
   selectWindowsOf,
   shareCategory,
@@ -71,6 +87,7 @@ import {
   shareVariantGroups,
   updateCategory,
   updateFloor,
+  updatePoint,
   updateMenuItem,
   updateProgram,
   updateStation,
@@ -80,20 +97,28 @@ import {
   type CategoryRow,
   type DrawRow,
   type FloorRow,
+  type GoesWithKind,
+  type GoesWithLinkRow,
   type MenuItemRow,
+  type PointRow,
   type ProgramRow,
   type RouteRow,
+  type StationLists,
   type StationRow,
+  type StationWithLists,
   type TableRow,
   type TaxClassRow,
   type WindowRow,
   type WindowTarget,
 } from './repository.js';
+import { toPointWire } from './versions.js';
 import type {
   AdminMenuItem,
+  AdminPoint,
   CreateCategoryInput,
   CreateFloorInput,
   CreateMenuItemInput,
+  CreatePointInput,
   CreateProgramInput,
   CreateStationInput,
   CreateTableInput,
@@ -101,6 +126,7 @@ import type {
   PatchCategoryInput,
   PatchFloorInput,
   PatchMenuItemInput,
+  PatchPointInput,
   PatchProgramInput,
   PatchStationInput,
   PatchTableInput,
@@ -346,51 +372,164 @@ export async function patchTable(
   });
 }
 
-// §6.8: 2 statements, archived rows included.
+// §6.8 (A-1–A-10): 3 statements, archived rows included. Each station's lists come with its row.
 export async function listStations(deps: RestaurantDeps, tenant: TenantContext, branchId: string) {
   assertBranchAllowed(tenant, branchId);
   const repo = new TenantScopedRepository(tenant, deps.pool);
   const stations = await selectStations(repo, branchId);
   const programs = await selectPrograms(repo, branchId);
-  return stations.map((station) => ({
-    ...station,
-    programs: programs
-      .filter((program) => program.station_id === station.station_id)
-      .map(({ program_id, name, cook_time_ms, archived_at }) => ({ program_id, name, cook_time_ms, archived_at })),
-  }));
+  const points = await selectPoints(repo, branchId);
+  return {
+    points: points.map(toPointWire),
+    stations: stations.map((station) => ({
+      ...station,
+      programs: programs
+        .filter((program) => program.station_id === station.station_id)
+        .map(({ program_id, name, cook_time_ms, archived_at }) => ({ program_id, name, cook_time_ms, archived_at })),
+    })),
+  };
 }
 
-// §6.9 POST on the common write script.
+// Ruling 2 (§5.2a A-7, A-8): the rules across fields, on the merged row, so the CHECKs never fire as a 500.
+function assertStationFieldsFit(
+  row: Pick<StationRow, 'capacity' | 'lane_units' | 'reserve_units' | 'pressure_amber_bp' | 'pressure_red_bp'>,
+): void {
+  const issues: Array<{ path: string; message: string }> = [];
+  if (row.lane_units !== null && row.lane_units > row.capacity) {
+    issues.push({ path: 'lane_units', message: 'lane_units is above capacity' });
+  }
+  if (row.reserve_units > row.capacity) issues.push({ path: 'reserve_units', message: 'reserve_units is above capacity' });
+  if (row.pressure_amber_bp >= row.pressure_red_bp) {
+    issues.push({ path: 'pressure_amber_bp', message: 'pressure_amber_bp must be below pressure_red_bp' });
+  }
+  if (issues.length > 0) throw new DomainError('VALIDATION_FAILED', { issues });
+}
+
+// The fields a PATCH body sent (a sent null stays: it clears a nullable field).
+function sentFields<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+// The stored form of a list: rows by id, order types sorted, so a list sent in another order is the same list.
+function normaliseLists(lists: StationLists): StationLists {
+  return {
+    alternates: lists.alternates
+      .map((row) => ({
+        ...row,
+        order_types: [...row.order_types].sort(byText),
+        home_for_order_types: [...row.home_for_order_types].sort(byText),
+      }))
+      .sort((a, b) => byText(a.alternate_station_id, b.alternate_station_id)),
+    carry_times: [...lists.carry_times].sort((a, b) => byText(a.point_id, b.point_id)),
+  };
+}
+
+// A-9: both slot, same branch, distinct, and the named station is not archived. `found` holds the named stations of
+// this branch.
+function assertAlternates(
+  alternates: StationLists['alternates'],
+  stationType: StationRow['station_type'],
+  stationId: string,
+  found: ReadonlyArray<{ station_id: string; station_type: StationRow['station_type']; archived_at: number | null }>,
+): void {
+  const invalid = (reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field: 'alternates', reason });
+  if (alternates.length === 0) return;
+  if (stationType !== 'slot') throw invalid('not_slot');
+  for (const { alternate_station_id: id } of alternates) {
+    if (id === stationId) throw invalid('self');
+    const station = found.find((row) => row.station_id === id);
+    if (station === undefined) throw invalid('not_found');
+    if (station.archived_at !== null) throw invalid('archived');
+    if (station.station_type !== 'slot') throw invalid('not_slot');
+  }
+}
+
+// A-2, A-10: pointId (when given) is an active point of the branch; carry times name points of the branch, archived
+// ones included (ruling 4). A branch that does not exist answers 404 first, as insertStation would have.
+async function assertPoints(
+  scoped: TenantScopedRepository,
+  branchId: string,
+  pointId: string | null,
+  carryTimes: StationLists['carry_times'],
+): Promise<void> {
+  const carryIds = carryTimes.map((row) => row.point_id);
+  const ids = [...new Set(pointId === null ? carryIds : [pointId, ...carryIds])];
+  if (ids.length === 0) return;
+  const points = await sharePointsById(scoped, branchId, ids);
+  const named = (id: string) => points.find((point) => point.point_id === id);
+  if (pointId !== null) {
+    const point = named(pointId);
+    if (point === undefined) return refuseMissingPoint(scoped, branchId, 'not_found');
+    if (point.archived_at !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'point_id', reason: 'archived' });
+  }
+  if (carryIds.some((id) => named(id) === undefined)) {
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'carry_times', reason: 'not_found' });
+  }
+}
+
+async function refuseMissingPoint(scoped: TenantScopedRepository, branchId: string, reason: string): Promise<never> {
+  if (!(await branchExists(scoped, branchId))) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+  throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'point_id', reason });
+}
+
+// §6.9 POST on the common write script. References FOR SHARE: the point (ruling 1 when not sent), then the alternates.
 export async function createStation(
   deps: RestaurantDeps,
   req: OwnerRequest,
   branchId: string,
   body: CreateStationInput,
-): Promise<IdempotentResult<{ station: StationRow }>> {
+): Promise<IdempotentResult<{ station: StationWithLists }>> {
   assertBranchAllowed(req.tenant, branchId);
+  assertStationFieldsFit(body);
   return withIdempotency(
     { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
     { key: req.idempotencyKey, method: req.method, path: req.path, body },
     async (client) => {
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
-      const station = await nameTaken('stations_active_name', 'station', body.name, () =>
+      const now = deps.clock.branchNow();
+      const lists = normaliseLists(body);
+      const stationId = deps.ids.next();
+      const pointId =
+        body.point_id ?? (await shareDefaultPoint(scoped, branchId)) ?? (await refuseMissingPoint(scoped, branchId, 'no_active_point'));
+      await assertPoints(scoped, branchId, pointId, lists.carry_times);
+      const namedIds = lists.alternates.map((row) => row.alternate_station_id);
+      const named = namedIds.length > 0 ? await shareStationsById(scoped, namedIds) : [];
+      assertAlternates(lists.alternates, body.station_type, stationId, named.filter((row) => row.branch_id === branchId));
+      const row = await nameTaken('stations_active_name', 'station', body.name, () =>
         insertStation(
           scoped,
           branchId,
           {
-            station_id: deps.ids.next(),
+            station_id: stationId,
             name: body.name,
             location_label: body.location_label,
             station_type: body.station_type,
             capacity: body.capacity,
             freshness_window_ms: body.station_type === 'batch' ? (body.freshness_window_ms ?? 0) : null,
             completion_mode: body.completion_mode,
+            point_id: pointId,
+            policy: body.policy,
+            freeze_ms: body.freeze_ms,
+            min_slack_keep_ms: body.min_slack_keep_ms,
+            promise_padding_ms: body.promise_padding_ms,
+            pressure_window_ms: body.pressure_window_ms,
+            pressure_amber_bp: body.pressure_amber_bp,
+            pressure_red_bp: body.pressure_red_bp,
+            pressure_alert_ms: body.pressure_alert_ms,
+            pause_enabled: body.pause_enabled,
+            lane_units: body.lane_units,
+            reserve_units: body.reserve_units,
           },
-          deps.clock.branchNow(),
+          now,
         ),
       );
-      if (station === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      if (row === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      if (lists.alternates.length > 0) await replaceAlternates(scoped, branchId, stationId, lists.alternates, now);
+      if (lists.carry_times.length > 0) await replaceCarryTimes(scoped, branchId, stationId, lists.carry_times, now);
+      const station: StationWithLists = { ...row, ...lists };
       await writeConfigAudit(
         level,
         {
@@ -411,22 +550,26 @@ export async function createStation(
   );
 }
 
-// §6.9 PATCH: lock → rules on the merged row (S22 in-use check on a type change or an archive; freshness only
-// for batch) → write → audit (plus one batch_program / archive row per program a slot change archives) → bump.
+// §6.9 PATCH: lock (the target and the alternates named; see lockStationsById) → rules on the merged row (S22 in-use
+// check on a type change or an archive; freshness only for batch; A-2, A-7–A-10) → write the row and the lists that
+// changed → one audit row (plus one batch_program / archive row per program a slot change archives) → bump.
 export async function patchStation(
   deps: RestaurantDeps,
   req: OwnerRequest,
   branchId: string,
   stationId: string,
   body: PatchStationInput,
-): Promise<{ station: StationRow }> {
+): Promise<{ station: StationWithLists }> {
   assertBranchAllowed(req.tenant, branchId);
   return inTransaction(deps.pool, async (client) => {
     const scoped = new TenantScopedRepository(req.tenant, client);
     const level = new TenantLevelRepository(req.tenant, client);
-    const before = await lockStation(scoped, branchId, stationId);
-    if (before === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
+    const namedIds = (body.alternates ?? []).map((row) => row.alternate_station_id);
+    const locked = await lockStationsById(scoped, branchId, [...new Set([stationId, ...namedIds])]);
+    const target = locked.find((row) => row.station_id === stationId);
+    if (target === undefined) throw new DomainError('STATION_NOT_FOUND', { station_id: stationId });
     await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/stations/:station_id');
+    const before: StationWithLists = { ...target, ...(await selectStationLists(scoped, branchId, stationId)) };
     const now = deps.clock.branchNow();
     const stationType = body.station_type ?? before.station_type;
     const typeChanged = stationType !== before.station_type;
@@ -435,17 +578,18 @@ export async function patchStation(
         issues: [{ path: 'freshness_window_ms', message: 'only batch stations have a freshness window' }],
       });
     }
-    const merged: StationRow = {
+    const { archived, alternates, carry_times, ...fields } = body;
+    const lists = normaliseLists({ alternates: alternates ?? before.alternates, carry_times: carry_times ?? before.carry_times });
+    const merged: StationWithLists = {
       ...before,
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.location_label !== undefined ? { location_label: body.location_label } : {}),
-      ...(body.capacity !== undefined ? { capacity: body.capacity } : {}),
-      ...(body.completion_mode !== undefined ? { completion_mode: body.completion_mode } : {}),
-      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+      ...sentFields(fields),
+      ...lists,
+      ...(archived !== undefined ? { archived_at: archived ? (before.archived_at ?? now) : null } : {}),
       station_type: stationType,
       freshness_window_ms:
         stationType === 'slot' ? null : (body.freshness_window_ms ?? (typeChanged ? 0 : before.freshness_window_ms)),
     };
+    assertStationFieldsFit(merged);
     if (unchangedRow(before, merged)) return { station: before };
     const archiving = before.archived_at === null && merged.archived_at !== null;
     if (typeChanged || archiving) {
@@ -460,10 +604,34 @@ export async function patchStation(
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'stock_item', ids } });
       }
+      // A-9: refused while an active station names it as an alternate; its own list does not block and keeps its rows.
+      const naming = await activeStationsNamingAlternate(scoped, branchId, stationId);
+      if (naming.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids: naming } });
+      }
     }
-    const station = await nameTaken('stations_active_name', 'station', merged.name, () =>
+    if (alternates !== undefined) assertAlternates(lists.alternates, stationType, stationId, locked);
+    // Ruling 5: a station in an alternates list, either side, cannot become batch.
+    if (typeChanged && stationType === 'batch') {
+      const naming = await stationsNamingAlternate(scoped, branchId, stationId);
+      const ids = naming.length > 0 ? naming : lists.alternates.length > 0 ? [stationId] : [];
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids } });
+      }
+    }
+    const pointMoved = merged.point_id !== before.point_id;
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    await assertPoints(scoped, branchId, pointMoved || restoring ? merged.point_id : null, carry_times === undefined ? [] : lists.carry_times);
+    const row = await nameTaken('stations_active_name', 'station', merged.name, () =>
       updateStation(scoped, branchId, merged, now),
     );
+    if (!unchangedRow(before.alternates, lists.alternates)) {
+      await replaceAlternates(scoped, branchId, stationId, lists.alternates, now);
+    }
+    if (!unchangedRow(before.carry_times, lists.carry_times)) {
+      await replaceCarryTimes(scoped, branchId, stationId, lists.carry_times, now);
+    }
+    const station: StationWithLists = { ...row, ...lists };
     const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
     await writeConfigAudit(
       level,
@@ -490,6 +658,103 @@ export async function patchStation(
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { station };
+  });
+}
+
+// §6.9a POST on the common write script: key → write (index → 409) → audit → bump.
+export async function createPoint(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: CreatePointInput,
+): Promise<IdempotentResult<{ point: AdminPoint }>> {
+  assertBranchAllowed(req.tenant, branchId);
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      const point = await nameTaken('points_branch_name_active', 'point', body.name, () =>
+        insertPoint(scoped, {
+          branchId,
+          pointId: deps.ids.next(),
+          name: body.name,
+          sortOrder: body.sort_order,
+          now: deps.clock.branchNow(),
+        }),
+      );
+      if (point === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'point',
+          entityId: point.point_id,
+          branchId,
+          action: 'create',
+          before: null,
+          after: point,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'branch', branchId });
+      return { status: 201, body: { point: toPointWire(point) } };
+    },
+  );
+}
+
+// §6.9a PATCH: lock (Q-v2.1-1 404) → version (R30 409 CONFIG_STALE, a stale no-op too) → no-op (200, nothing written)
+// → archive with an active station (Q-v2.1-2 409) → name (index → 409, a rename or a restore) → write → audit → bump.
+export async function patchPoint(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  pointId: string,
+  body: PatchPointInput,
+): Promise<{ point: AdminPoint }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockPoint(scoped, branchId, pointId);
+    if (before === undefined) throw new DomainError('POINT_NOT_FOUND', { point_id: pointId });
+    await deps.testHooks?.afterTargetLock?.('PATCH /v1/admin/branches/:branch_id/points/:point_id');
+    if (body.expected_version !== toPointWire(before).version) {
+      throw new DomainError('CONFIG_STALE', { entity: 'point', id: pointId });
+    }
+    const now = deps.clock.branchNow();
+    const merged: PointRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    if (unchangedRow(before, merged)) return { point: toPointWire(before) };
+    if (before.archived_at === null && merged.archived_at !== null) {
+      const ids = await activeStationIdsAtPoint(scoped, branchId, pointId);
+      if (ids.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'point', id: pointId, used_by: { entity: 'station', ids } });
+      }
+    }
+    const point = await nameTaken('points_branch_name_active', 'point', merged.name, () => updatePoint(scoped, branchId, merged, now));
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'point',
+        entityId: pointId,
+        branchId,
+        action: auditActionFor(before, point),
+        before,
+        after: point,
+      },
+      deps,
+    );
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { point: toPointWire(point) };
   });
 }
 
@@ -681,7 +946,7 @@ export async function patchTaxClass(
   });
 }
 
-type CategoryWire = CategoryRow & { availability_windows: WindowRow[] };
+type CategoryWire = CategoryRow & { availability_windows: WindowRow[]; goes_with: GoesWithLinkRow[] };
 
 // §6.13 POST: tenant-level, with its availability_windows (S47).
 export async function createCategory(
@@ -711,6 +976,7 @@ export async function createCategory(
           [],
           body.availability_windows,
         ),
+        goes_with: [], // §6.13: PATCH only
       };
       await writeConfigAudit(
         level,
@@ -732,9 +998,9 @@ export async function createCategory(
   );
 }
 
-// §6.13 PATCH: lock → rules on the merged row (S22 in-use check on archive: items, then 01c V16 active variant
-// groups, then active deals) → write (windows replaced when sent,
-// S47) → audit → bump every branch.
+// §6.13 PATCH: lock → no-op (row, windows, goes_with, S26) → A-13 self link (400) → rules on the merged row (S22
+// in-use check on archive: items, then 01c V16 active variant groups, then active deals) → A-13 targets (422) →
+// write (windows S47 and goes_with A-13 replaced when sent) → audit → bump every branch.
 export async function patchCategory(
   deps: RestaurantDeps,
   req: OwnerRequest,
@@ -754,9 +1020,12 @@ export async function patchCategory(
     };
     const target = { category_id: categoryId };
     const beforeWindows = await selectWindowsOf(level, target);
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, body.availability_windows)) {
-      return { category: { ...before, availability_windows: beforeWindows } };
+    const beforeLinks = await selectGoesWithOf(level, 'category', categoryId);
+    const nextLinks = goesWithFrom('category', categoryId, body.goes_with);
+    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, body.availability_windows) && unchangedLinks(beforeLinks, nextLinks)) {
+      return { category: { ...before, availability_windows: beforeWindows, goes_with: beforeLinks } };
     }
+    assertNoSelfLink(nextLinks);
     if (before.archived_at === null && merged.archived_at !== null) {
       const ids = await activeItemIdsWith(level, 'category_id', categoryId);
       if (ids.length > 0) {
@@ -777,12 +1046,14 @@ export async function patchCategory(
         throw new DomainError('CONFIG_IN_USE', { entity: 'category', id: categoryId, used_by: { entity: 'deal', ids: dealIds } });
       }
     }
+    await assertGoesWithTargets(level, nextLinks);
     const row = await nameTaken('categories_active_name', 'category', merged.name, () =>
       updateCategory(level, merged, now),
     );
     const category = {
       ...row,
       availability_windows: await replaceWindows(level, deps.ids, target, beforeWindows, body.availability_windows),
+      goes_with: await replaceGoesWith(level, deps.ids, 'category', categoryId, beforeLinks, nextLinks, now),
     };
     await writeConfigAudit(
       level,
@@ -792,7 +1063,7 @@ export async function patchCategory(
         entityId: categoryId,
         branchId: null,
         action: auditActionFor(before, category),
-        before: { ...before, availability_windows: beforeWindows },
+        before: { ...before, availability_windows: beforeWindows, goes_with: beforeLinks },
         after: category,
       },
       deps,
@@ -803,8 +1074,8 @@ export async function patchCategory(
   });
 }
 
-// §6.11 (01c §6.3): 8 fixed statements (coversEveryBranch, tax classes, categories with windows, variant groups
-// with their members, the item page, its windows, its routes, its draws). The cursor is base64url JSON
+// §6.11 (01c §6.3): 8 fixed statements (coversEveryBranch, tax classes, categories with windows and goes_with, variant
+// groups with their members, the item page with its goes_with, its windows, its routes, its draws). The cursor is base64url JSON
 // { n: lower(name), id } of the page's last row (S48 keyset).
 export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, ownerUserId: string, query: MenuQueryInput) {
   const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
@@ -827,12 +1098,13 @@ export async function listMenu(deps: RestaurantDeps, tenant: TenantContext, owne
   const routes = await selectItemRoutes(scoped, ids);
   const draws = await selectDrawsOf(level, ids);
   const last = pageRows.at(-1);
-  const items = pageRows.map(({ item }) =>
+  const items = pageRows.map(({ item, goesWith }) =>
     itemWire(
       item,
       windows.filter((w) => w.item_id === item.item_id),
       draws.filter((d) => d.item_id === item.item_id),
       routes.filter((r) => r.item_id === item.item_id),
+      goesWith,
     ),
   );
   return {
@@ -932,7 +1204,7 @@ export async function createMenuItem(
       const draws = drawInput.length > 0 ? await insertDraws(level, row.item_id, drawInput) : [];
       const routes = routeInput.length > 0 ? await insertItemRoutes(scoped, row.item_id, routeInput, now) : [];
       const windows = await replaceWindows(level, deps.ids, { item_id: row.item_id }, [], windowInput);
-      const { routes: wiredRoutes, ...item } = itemWire(row, windows, draws, routes);
+      const { routes: wiredRoutes, ...item } = itemWire(row, windows, draws, routes, []); // goes_with: §6.15 PATCH only
       const actor = { kind: 'owner' as const, ownerUserId: req.ownerUserId };
       await insertConfigAuditRows(
         level,
@@ -958,12 +1230,23 @@ export async function createMenuItem(
 }
 
 // 01c §6.3, §5.4: the item wire, exactly its keys (the deprecated columns are left out); routes as 01a §6.11.
-function itemWire(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[], routes: readonly RouteRow[]): AdminMenuItem {
-  return { ...itemFields(item, windows, draws), routes: wireRoutes(routes) };
+function itemWire(
+  item: MenuItemRow,
+  windows: readonly WindowRow[],
+  draws: readonly DrawRow[],
+  routes: readonly RouteRow[],
+  links: readonly GoesWithLinkRow[],
+): AdminMenuItem {
+  return { ...itemFields(item, windows, draws, links), routes: wireRoutes(routes) };
 }
 
 // The item wire without its routes: what a menu_item config_audit row holds (§6.4, §6.5: draws in before / after).
-function itemFields(item: MenuItemRow, windows: readonly WindowRow[], draws: readonly DrawRow[]): Omit<AdminMenuItem, 'routes'> {
+function itemFields(
+  item: MenuItemRow,
+  windows: readonly WindowRow[],
+  draws: readonly DrawRow[],
+  links: readonly GoesWithLinkRow[],
+): Omit<AdminMenuItem, 'routes'> {
   return {
     item_id: item.item_id,
     category_id: item.category_id,
@@ -983,6 +1266,12 @@ function itemFields(item: MenuItemRow, windows: readonly WindowRow[], draws: rea
     requires_weighing: item.requires_weighing,
     stock_draws: draws.map(({ stock_item_id, quantity_per_sale_unit }) => ({ stock_item_id, quantity_per_sale_unit })),
     availability_windows: windows.map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
+    weight_pct: item.weight_pct,
+    max_early_ms: item.max_early_ms,
+    max_carry_ms: item.max_carry_ms,
+    max_late_ms: item.max_late_ms,
+    adjust_time_ms: item.adjust_time_ms,
+    goes_with: [...links],
     archived_at: item.archived_at,
   };
 }
@@ -1017,6 +1306,7 @@ interface ItemPatch {
   before: MenuItemRow;
   merged: MenuItemRow;
   draw: DrawRow | undefined;
+  links: readonly GoesWithLinkRow[] | undefined;
   groups: readonly SharedGroup[];
   restoring: boolean;
   routes: RouteRow[];
@@ -1078,6 +1368,7 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       throw new DomainError('VALIDATION_FAILED', { issues: [{ path, message: "requires_weighing needs sale_unit 'g' or 'ml'" }] });
     },
   ],
+  ['400 A-13 self link', (p) => assertNoSelfLink(p.links)],
   // (2) 409 CONFIG_IN_USE: R4, R10, R6
   // (V16, D-3; P1). Plain reads after the item lock, no lock taken (§6 "Lock order").
   [
@@ -1197,14 +1488,15 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       }
     },
   ],
+  ['422 A-13 goes_with targets', (p) => assertGoesWithTargets(p.level, p.links)],
 ];
 
 // 01c §6.5 (01a §6.15): per attempt (withItemRestart): tenant-wide 403 (C4, before all) → read the item without a
 // lock (404) → lock its stored and merged variant group(s) FOR SHARE in id order (3) → lock the item FOR UPDATE (4);
-// a variant_group_id other than the unlocked read → restart → merge → no-op (row, windows and draws, S26) →
+// a variant_group_id other than the unlocked read → restart → merge → no-op (row, windows, draws and goes_with, S26) →
 // ITEM_PATCH_RULES (the draw's stock item is locked in the first, §6 kind 5) → write (R5 and 01a's name index;
-// stock_draws replaced by delete + insert; the deprecated columns as §5.1, P-11) → audit (the item wire, draws in
-// before / after, as on create) → bump every branch (10). No variant_groups row is locked after the item; later
+// stock_draws and goes_with replaced by delete + insert; the deprecated columns as §5.1, P-11) → audit (the item wire,
+// draws and goes_with in before / after, as on create) → bump every branch (10). No variant_groups row is locked after the item; later
 // reads of a group use the rows locked before it.
 export async function patchMenuItem(
   deps: RestaurantDeps,
@@ -1228,7 +1520,7 @@ export async function patchMenuItem(
     if (before === undefined) throw new DomainError('MENU_ITEM_NOT_FOUND', { item_id: itemId });
     if (before.variant_group_id !== seen.variant_group_id) throw new ItemRestart();
     const now = deps.clock.branchNow();
-    const { archived, availability_windows: windowInput, stock_draws: drawInput, ...fields } = body;
+    const { archived, availability_windows: windowInput, stock_draws: drawInput, goes_with: linkInput, ...fields } = body;
     const merged: MenuItemRow = {
       ...before,
       ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
@@ -1240,10 +1532,17 @@ export async function patchMenuItem(
       quantity_per_sale_unit,
     }));
     const routes = await selectItemRoutes(scoped, [itemId]);
+    const beforeLinks = await selectGoesWithOf(level, 'item', itemId);
+    const nextLinks = goesWithFrom('item', itemId, linkInput);
     // T4 (§12.7, V13 divergence): the no-op runs before the reference checks on menu_items; S26 compares the
-    // merged row, the windows and the draws.
-    if (unchangedRow(before, merged) && unchangedWindows(beforeWindows, windowInput) && unchangedDraws(beforeDraws, drawInput)) {
-      return { item: itemWire(before, beforeWindows, beforeDraws, routes) };
+    // merged row, the windows, the draws and the goes_with list.
+    if (
+      unchangedRow(before, merged) &&
+      unchangedWindows(beforeWindows, windowInput) &&
+      unchangedDraws(beforeDraws, drawInput) &&
+      unchangedLinks(beforeLinks, nextLinks)
+    ) {
+      return { item: itemWire(before, beforeWindows, beforeDraws, routes, beforeLinks) };
     }
     const patch: ItemPatch = {
       level,
@@ -1252,6 +1551,7 @@ export async function patchMenuItem(
       before,
       merged,
       draw: (drawInput ?? beforeDraws)[0],
+      links: nextLinks,
       groups,
       restoring: before.archived_at !== null && merged.archived_at === null,
       routes,
@@ -1272,7 +1572,8 @@ export async function patchMenuItem(
     );
     const windows = await replaceWindows(level, deps.ids, { item_id: itemId }, beforeWindows, windowInput);
     const draws = await replaceDraws(level, itemId, beforeDraws, drawInput);
-    const item = itemFields(row, windows, draws);
+    const links = await replaceGoesWith(level, deps.ids, 'item', itemId, beforeLinks, nextLinks, now);
+    const item = itemFields(row, windows, draws, links);
     await writeConfigAudit(
       level,
       {
@@ -1281,7 +1582,7 @@ export async function patchMenuItem(
         entityId: itemId,
         branchId: null,
         action: auditActionFor(before, item),
-        before: itemFields(before, beforeWindows, beforeDraws),
+        before: itemFields(before, beforeWindows, beforeDraws, beforeLinks),
         after: item,
       },
       deps,
@@ -1397,6 +1698,56 @@ async function replaceWindows(
   if (next === undefined) return current;
   if (current.length > 0) await deleteWindowsOf(level, target);
   return next.length > 0 ? insertWindows(level, target, next, ids) : [];
+}
+
+// A-13: the sent list as stored rows (the source is the path), in the read's order; not sent → undefined.
+function goesWithFrom(
+  kind: GoesWithKind,
+  sourceId: string,
+  input: ReadonlyArray<{ target_kind: GoesWithKind; target_id: string; excluded: boolean }> | undefined,
+): GoesWithLinkRow[] | undefined {
+  if (input === undefined) return undefined;
+  const key = (link: { target_kind: string; target_id: string }) => `${link.target_kind}:${link.target_id}`;
+  return input
+    .map(({ target_kind, target_id, excluded }) => ({ source_kind: kind, source_id: sourceId, target_kind, target_id, excluded }))
+    .sort((a, b) => (key(a) < key(b) ? -1 : 1));
+}
+
+// S26: goesWithFrom and selectGoesWithOf answer in one order, so the lists compare directly.
+function unchangedLinks(current: readonly GoesWithLinkRow[], next: readonly GoesWithLinkRow[] | undefined): boolean {
+  return next === undefined || canonicalJson(current) === canonicalJson(next);
+}
+
+// A-13: a source never links itself. An item naming its own category is not a self link.
+function assertNoSelfLink(links: readonly GoesWithLinkRow[] | undefined): void {
+  const self = links?.find((link) => link.target_kind === link.source_kind && link.target_id === link.source_id);
+  if (self === undefined) return;
+  throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'goes_with', message: 'a source cannot link itself' }] });
+}
+
+// A-13: every target is an active row of this tenant (another tenant's reads as unknown).
+async function assertGoesWithTargets(level: TenantLevelRepository, links: readonly GoesWithLinkRow[] | undefined): Promise<void> {
+  if (links === undefined || links.length === 0) return;
+  const idsOf = (kind: GoesWithKind) => links.filter((link) => link.target_kind === kind).map((link) => link.target_id);
+  const rows = await selectGoesWithTargets(level, idsOf('category'), idsOf('item'));
+  const found = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row]));
+  for (const link of links) assertReference('goes_with', found.get(`${link.target_kind}:${link.target_id}`));
+}
+
+// A-13: replace-list (delete + one multi-row INSERT, in the write's transaction); not sent or unchanged → the stored list.
+async function replaceGoesWith(
+  level: TenantLevelRepository,
+  ids: IdGen,
+  kind: GoesWithKind,
+  sourceId: string,
+  current: GoesWithLinkRow[],
+  next: GoesWithLinkRow[] | undefined,
+  now: number,
+): Promise<GoesWithLinkRow[]> {
+  if (next === undefined || unchangedLinks(current, next)) return current;
+  if (current.length > 0) await deleteGoesWithOf(level, kind, sourceId);
+  if (next.length > 0) await insertGoesWith(level, next, ids, now);
+  return next;
 }
 
 // 01c V4 (01a S44 between the item and its stock item): equal units → quantity_per_sale_unit 1; different units

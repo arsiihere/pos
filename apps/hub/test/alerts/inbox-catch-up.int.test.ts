@@ -39,6 +39,40 @@ const TENANT = 'tenant-a';
 const BRANCH = 'branch-1';
 const DETAILS = { item: 'Mutton platter', quantity: 1, amount: 480_000, reason: 'customer changed mind' };
 const SECRET_TEXT = ['Mutton platter', 'customer changed mind', '480000'];
+const SECRET_AMOUNT = 480_000;
+
+/**
+ * The places in newline-delimited JSON log output where order contents from the alert's details leaked: string values
+ * containing a secret text, or a number equal to the secret amount. Walks every field, nested ones (err.message) included.
+ * A line that is not JSON is checked as raw text rather than skipped. A raw substring search is not used for numbers:
+ * a random float such as "responseTime":13.025480000000243 contains "480000" without leaking anything.
+ */
+function leaksInLogs(logs: string): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown, path: string): void => {
+    if (typeof value === 'string') {
+      for (const text of SECRET_TEXT) if (value.includes(text)) found.push(`${path}: string contains "${text}"`);
+    } else if (typeof value === 'number') {
+      if (value === SECRET_AMOUNT) found.push(`${path}: number equals ${SECRET_AMOUNT}`);
+    } else if (Array.isArray(value)) {
+      value.forEach((item, i) => walk(item, `${path}[${i}]`));
+    } else if (value !== null && typeof value === 'object') {
+      for (const [key, item] of Object.entries(value)) walk(item, `${path}.${key}`);
+    }
+  };
+  logs.split('\n').forEach((line, n) => {
+    if (line.trim() === '') return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      for (const text of SECRET_TEXT) if (line.includes(text)) found.push(`line ${n + 1} (not JSON): contains "${text}"`);
+      return;
+    }
+    walk(parsed, `line ${n + 1}`);
+  });
+  return found;
+}
 const SIGNED_IN_KEYS = ['"card"', '"details"', '"answers"', '"needs_pin"', '"silent"', '"raised_device_id"'];
 
 async function directory(o: { withMgr2?: boolean; version?: number } = {}): Promise<DirectoryInput> {
@@ -490,7 +524,7 @@ describe('01d alerts-inbox and the alerts catch-up part (task 34)', () => {
     const logs = hub.logs();
     expect(logs).toContain('AlertViewError');
     expect(logs).toContain('SyntaxError');
-    for (const text of SECRET_TEXT) expect(logs).not.toContain(text);
+    expect(leaksInLogs(logs)).toEqual([]);
   });
 
   // -------------------------------------------------------------------------------------------- #43

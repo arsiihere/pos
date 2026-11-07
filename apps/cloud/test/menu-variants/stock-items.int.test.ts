@@ -208,8 +208,8 @@ describe('01c stock items (§6.6, §6.7, §6.8)', () => {
     // the counted rows through §6.9 (one at the allowed A, one at C, outside the list's token)
     const [, , c] = f.branches;
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, 'ST-C', 'Karahi', 'slot', 4, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, 'ST-C', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Karahi', 'slot', 4, 0, 0)`,
       [f.tenantId, c],
     );
     const noRowVersion = (branchId: string) => stockItemBranchVersion(pot.stock_item_id, branchId, null).version;

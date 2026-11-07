@@ -4,6 +4,7 @@ import type {
   AdminFloor,
   AdminMenuItem,
   AdminMenuPage,
+  AdminPoint,
   AdminProgram,
   AdminRoute,
   AdminStation,
@@ -27,6 +28,7 @@ import type {
   CreateFloorRequest,
   CreateMenuItemRequest,
   CreateModifierGroupRequest,
+  CreatePointRequest,
   CreateProgramRequest,
   CreateStationRequest,
   CreateTableRequest,
@@ -37,6 +39,7 @@ import type {
   PatchFloorRequest,
   PatchMenuItemRequest,
   PatchModifierGroupRequest,
+  PatchPointRequest,
   PatchProgramRequest,
   PatchStockItemRequest,
   PatchVariantGroupRequest,
@@ -88,6 +91,7 @@ export type AvailabilityWindow = AdminWindow;
 export type Table = AdminTable;
 export type Floor = AdminFloor;
 export type Station = AdminStation;
+export type Point = AdminPoint;
 export type StationType = Station['station_type'];
 export type CompletionMode = Station['completion_mode'];
 export type Program = AdminProgram;
@@ -114,6 +118,8 @@ export type CreateTableBody = CreateTableRequest;
 export type PatchTableBody = PatchTableRequest;
 export type CreateStationBody = CreateStationRequest;
 export type PatchStationBody = PatchStationRequest;
+export type CreatePointBody = CreatePointRequest;
+export type PatchPointBody = PatchPointRequest;
 export type CreateProgramBody = CreateProgramRequest;
 export type PatchProgramBody = PatchProgramRequest;
 export type CreateTaxClassBody = CreateTaxClassRequest;
@@ -394,11 +400,16 @@ export function createCloudAdmin(options: CloudAdminOptions) {
 
     // §6.8–§6.10 stations and programs
     listStations: (branchId: string) =>
-      call<{ stations: (Station & { programs: Program[] })[] }>('GET', `${branch(branchId)}/stations`),
+      call<{ stations: (Station & { programs: Program[] })[]; points: Point[] }>('GET', `${branch(branchId)}/stations`),
     createStation: (branchId: string, body: CreateStationBody, key: string) =>
       call<{ station: Station }>('POST', `${branch(branchId)}/stations`, body, key),
     patchStation: (branchId: string, stationId: string, body: PatchStationBody) =>
       call<{ station: Station }>('PATCH', `${branch(branchId)}/stations/${id(stationId)}`, body),
+    // §6.9a points (03a A-1): the list is part of listStations
+    createPoint: (branchId: string, body: CreatePointBody, key: string) =>
+      call<{ point: Point }>('POST', `${branch(branchId)}/points`, body, key),
+    patchPoint: (branchId: string, pointId: string, body: PatchPointBody) =>
+      call<{ point: Point }>('PATCH', `${branch(branchId)}/points/${id(pointId)}`, body),
     createProgram: (branchId: string, stationId: string, body: CreateProgramBody, key: string) =>
       call<{ program: Program & { station_id: string } }>(
         'POST',

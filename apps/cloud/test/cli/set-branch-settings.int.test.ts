@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { runSetBranchSettings, setBranchSettings } from '../../src/cli/set-branch-settings';
 import { SystemContext } from '../../src/cli/system-context';
@@ -94,10 +94,10 @@ describe('set-branch-settings', () => {
   it('[01a §10 #108] a new branch snapshot has tax_enabled false; after --tax-enabled true the next one has true; the snapshot schema rejects a missing tax_enabled', async () => {
     const first = await snapshot();
     expect(first.tax_enabled).toBe(false);
-    expect(BranchConfigSnapshotSchemaV2.safeParse(first).success).toBe(true);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(first).success).toBe(true);
     expect(await run('--branch', f.branches[0], '--tax-enabled', 'true')).toBe(0);
     expect((await snapshot()).tax_enabled).toBe(true);
-    expect(BranchConfigSnapshotSchemaV2.safeParse(without(first, 'tax_enabled')).success).toBe(false);
+    expect(BranchConfigSnapshotSchemaV3.safeParse(without(first, 'tax_enabled')).success).toBe(false);
   });
 
   it('[01a §10 #154] day settings: 20 / 2 updated, audited, this branch bumped, in the snapshot; a new branch has 16 / 4; out-of-range or stale ≤ gap → exit 1, nothing written; the schema rejects a missing field', async () => {
@@ -136,7 +136,7 @@ describe('set-branch-settings', () => {
     }
     expect(await everything()).toEqual(before);
     for (const key of ['day_stale_after_hours', 'day_min_gap_hours']) {
-      expect(BranchConfigSnapshotSchemaV2.safeParse(without(first, key)).success, key).toBe(false);
+      expect(BranchConfigSnapshotSchemaV3.safeParse(without(first, key)).success, key).toBe(false);
     }
   });
 

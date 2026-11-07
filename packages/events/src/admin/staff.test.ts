@@ -91,17 +91,31 @@ describe("[01b §5.3] admin staff wire shapes", () => {
       expect(PinBody.safeParse({ pin }).success, pin).toBe(false);
     expect(
       BranchSettingsPatchBody.safeParse({
+        expected_version: "v1",
         day_stale_after_hours: 48,
         day_min_gap_hours: 12,
       }).success,
     ).toBe(true);
     expect(
-      BranchSettingsPatchBody.safeParse({ day_stale_after_hours: 49 }).success,
+      BranchSettingsPatchBody.safeParse({
+        expected_version: "v1",
+        day_stale_after_hours: 49,
+      }).success,
     ).toBe(false);
     expect(
-      BranchSettingsPatchBody.safeParse({ day_min_gap_hours: 13 }).success,
+      BranchSettingsPatchBody.safeParse({
+        expected_version: "v1",
+        day_min_gap_hours: 13,
+      }).success,
     ).toBe(false);
     expect(BranchSettingsPatchBody.safeParse({}).success).toBe(false);
+    // v1.5 B-6: the version is required, and is not itself a change.
+    expect(
+      BranchSettingsPatchBody.safeParse({ day_min_gap_hours: 4 }).success,
+    ).toBe(false);
+    expect(
+      BranchSettingsPatchBody.safeParse({ expected_version: "v1" }).success,
+    ).toBe(false);
   });
 
   it("[01b #80, §6.4, §6.7] a version-only PATCH body parses, so the no-op rule answers it (200, or 409 when stale)", () => {

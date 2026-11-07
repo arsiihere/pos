@@ -2,9 +2,9 @@ import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { z } from 'zod';
 import { DirectorySchema } from './directory.js';
 
-// 01a §4.3, 01c §4.6 (V12): the branch config snapshot is schema 2. NOT .strict(): within a version the
-// cloud may add optional fields, which an older hub drops (S28 c).
-export const SNAPSHOT_SCHEMA_VERSION = 2;
+// 01a §4.3 (Changed by 03a v1.0), 01c §4.6 (V12): the branch config snapshot is schema 3. NOT .strict(): within a
+// version the cloud may add optional fields, which an older hub drops (S28 c).
+export const SNAPSHOT_SCHEMA_VERSION = 3;
 
 // 01a §3.4 (01b B19, D-11): the hub's config poll interval; the cloud derives hub_stale_after_ms from it.
 export const CONFIG_POLL_INTERVAL_MS = 60_000;
@@ -89,11 +89,10 @@ const sharedTopLevel = {
 // 01c §3.3 limits, applied to the fields 01c adds.
 const priceMinor = int.min(0).max(1_000_000_000);
 
-// 01c §4.6 (V12): snapshot schema 2. NOT .strict(): unknown keys (01a's
-// group_label, stock_unit, ...) are dropped. modifier_group_ids has no
-// maximum (M5): the 20-group limit is write-time only.
-export const BranchConfigSnapshotSchemaV2 = z.object({
-  snapshot_schema_version: z.literal(SNAPSHOT_SCHEMA_VERSION),
+// 01c §4.6 (V12): the fields of schema 2 that schema 3 keeps; never a wire schema on its own. NOT .strict(): unknown
+// keys (01a's group_label, stock_unit, ...) are dropped. modifier_group_ids has no maximum (M5): the 20-group limit
+// is write-time only.
+const SnapshotBase = z.object({
   ...sharedTopLevel,
   variant_groups: z.array(
     z.object({
@@ -205,7 +204,89 @@ export const BranchConfigSnapshotSchemaV2 = z.object({
   ),
 });
 
-export type BranchConfig = z.infer<typeof BranchConfigSnapshotSchemaV2>;
+// 01a §4.3 (Changed by 03a v1.0), §5.2a A-1..A-13: snapshot schema 3, schema 2 plus the engine configuration. Names
+// and enum values as EngineStationConfig / EngineSettings; reference_cook_ms is not here (the hub derives it, 03a §3.11).
+// NOT .strict() (S28 c). Plain ints: ranges are enforced at the write routes. The only wire schema (S28 b).
+const orderType = z.enum(['dine_in', 'takeaway', 'delivery', 'parking']);
+const goesWithKind = z.enum(['category', 'item']);
+
+const baseShape = SnapshotBase.shape;
+
+export const BranchConfigSnapshotSchemaV3 = SnapshotBase.extend({
+  snapshot_schema_version: z.literal(SNAPSHOT_SCHEMA_VERSION),
+  points: z.array(
+    z.object({
+      point_id: z.string(),
+      name: z.string(),
+      sort_order: int,
+      is_archived: z.boolean(),
+    }),
+  ),
+  stations: z.array(
+    baseShape.stations.element.extend({
+      point_id: z.string(),
+      policy: z.enum(['waada_guard', 'edf', 'fifo']),
+      freeze_ms: int,
+      min_slack_keep_ms: int,
+      promise_padding_ms: int.nullable(),
+      pressure_window_ms: int,
+      pressure_amber_bp: int,
+      pressure_red_bp: int,
+      pressure_alert_ms: int,
+      pause_enabled: z.boolean(),
+      lane_units: int.nullable(),
+      reserve_units: int,
+      alternates: z.array(
+        z.object({
+          station_id: z.string(),
+          order_types: z.array(orderType),
+          home_for_order_types: z.array(orderType),
+        }),
+      ),
+      carry_times: z.array(z.object({ point_id: z.string(), carry_ms: int })),
+    }),
+  ),
+  items: z.array(
+    baseShape.items.element.extend({
+      weight_pct: int,
+      max_early_ms: int,
+      max_carry_ms: int.nullable(),
+      max_late_ms: int.nullable(),
+      adjust_time_ms: int,
+    }),
+  ),
+  // A-12: every EngineSettings key, plus 02's table_lock_ttl_ms (not an engine field, not in EngineConfigApplied).
+  engine_settings: z.object({
+    weight_dine_in_pct: int,
+    weight_takeaway_pct: int,
+    weight_delivery_pct: int,
+    weight_parking_pct: int,
+    weight_follow_up_pct: int,
+    promise_padding_dine_in_ms: int,
+    promise_padding_takeaway_ms: int,
+    promise_padding_delivery_ms: int,
+    promise_padding_parking_ms: int,
+    slip_threshold_ms: int,
+    slip_escalate_ms: int,
+    cascade_step_ms: int,
+    min_gain_ms: int,
+    returns_boost: z.boolean(),
+    order_abandon_ms: int,
+    table_lock_ttl_ms: int,
+  }),
+  goes_with: z.array(
+    z.object({
+      source_kind: goesWithKind,
+      source_id: z.string(),
+      target_kind: goesWithKind,
+      target_id: z.string(),
+      excluded: z.boolean(),
+    }),
+  ),
+});
+
+export type BranchConfigSnapshotV3 = z.infer<typeof BranchConfigSnapshotSchemaV3>;
+export type BranchConfig = BranchConfigSnapshotV3;
 export type ConfigItem = BranchConfig['items'][number];
 export type ConfigStockItem = BranchConfig['stock_items'][number];
 export type ConfigVariantGroup = BranchConfig['variant_groups'][number];
@@ -221,7 +302,7 @@ export function isStockTracked(item: Pick<ConfigItem, 'stock_draws'>): boolean {
 }
 
 // §6.1: the snapshot stays a plain record here; the hub hashes the wire JSON
-// before it parses it with BranchConfigSnapshotSchemaV2 (S27).
+// before it parses it with BranchConfigSnapshotSchemaV3 (S27).
 export const SyncConfigEnvelopeSchema = z.object({
   data: z.object({
     config: z
@@ -234,7 +315,7 @@ export const SyncConfigEnvelopeSchema = z.object({
   }),
 });
 
-// Plan P-7: the schema-2 types must stay assignable to the @pos/domain
+// Plan P-7: the snapshot types must stay assignable to the @pos/domain
 // menu-line inputs. Checked here in src, because the package typecheck
 // excludes *.test.ts (the expectTypeOf test in config.test.ts is not compiled).
 type AssertTrue<T extends true> = T;

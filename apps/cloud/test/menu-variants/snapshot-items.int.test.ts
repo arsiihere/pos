@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV2, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type BranchConfig } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
@@ -14,7 +14,7 @@ const HEADER: SnapshotHeader = {
   day_min_gap_hours: 4,
 };
 
-// 01c §4.6 rules 1 and 4, V2, V18: what an item written through the API carries in the schema-2 snapshot.
+// 01c §4.6 rules 1 and 4, V2, V18: what an item written through the API carries in the schema-3 snapshot.
 describe('01c snapshot item contents (§4.6)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -33,8 +33,8 @@ describe('01c snapshot item contents (§4.6)', () => {
     const [a, b] = f.branches;
     // A second slot station "Grill" at branch A; an archived slot station at branch B.
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, archived_at, created_at, updated_at)
-       VALUES ($1, $2, 'ST-G', 'Grill', 'slot', 4, NULL, 0, 0), ($1, $3, 'ST-BX', 'Old grill', 'slot', 2, 1, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, archived_at, created_at, updated_at)
+       VALUES ($1, $2, 'ST-G', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Grill', 'slot', 4, NULL, 0, 0), ($1, $3, 'ST-BX', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $3 AND name = 'Pass'), 'Old grill', 'slot', 2, 1, 0, 0)`,
       [f.tenantId, a, b],
     );
   });
@@ -43,7 +43,7 @@ describe('01c snapshot item contents (§4.6)', () => {
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }

@@ -36,7 +36,7 @@ import { t, type MessageKey, typeClass } from '../../../i18n';
 import { idTail, useBranchName } from '../branch';
 import { apiCode, bySortThenName, referenceText } from '../c01';
 import { useCloudDown } from '../cloud';
-import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
+import { errorText, isKeyMismatch, useIdempotencyKey, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { formatRupees, parseRupees, shownRupees } from '../money';
@@ -44,6 +44,8 @@ import { usePhone } from '../../../app/phone';
 import { Page } from '../Shell';
 import { quantityAffix, quantityInput, unitOption } from '../stock-items/stock';
 import { linkStock, type LinkPlan, type LinkStep } from './linkStock';
+import { GoesWithPicker, goesWithState, sameGoesWith, useEveryItem, type GoesWithLink } from './GoesWith';
+import { KNOBS, knobText, knobValue, rangeText, weightValue, type Knob } from './timing';
 import { windowText, WindowsField } from './WindowsField';
 
 // §8.1, §6.14–§6.16 (01a-S07): the item form. Sections: what customers see, price (Sold by, price, tax
@@ -234,6 +236,7 @@ function serverProblem(error: CloudError, weighedOn: boolean): Problem | null {
     return { id: 'item-variant_name', section: 'item.size_title', text: t('errors.CONFIG_NAME_TAKEN') };
   }
   if (error.code !== 'CONFIG_REFERENCE_INVALID' || typeof field !== 'string') return null;
+  if (field === 'goes_with') return { id: 'item-goes_with', section: 'goeswith.title', text: t('goeswith.field_error') };
   const text = referenceText(error.details);
   if (field === 'variant_group_id') return { id: 'item-variant_group_id', section: 'item.size_title', text };
   if (field === 'variant_name') return { id: 'item-variant_name', section: 'item.size_title', text };
@@ -279,7 +282,10 @@ const MAX_USES = 1_000_000;
 // The fields inside the folded disclosure: an error on any of them opens it.
 const IN_FOLD = (id: string) =>
   id.startsWith('route-') ||
-  ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready'].includes(id);
+  ['item-cook_minutes', 'item-prep_minutes', 'item-stock_time_minutes', 'item-hours', 'item-kept_ready', 'item-weight_pct', 'item-max_early_minutes', 'item-max_carry_minutes', 'item-max_late_minutes', 'item-adjust_time_minutes', 'item-goes_with'].includes(id);
+
+const storedLinks = (item: MenuItem | null): GoesWithLink[] =>
+  item === null ? [] : item.goes_with.map((l) => ({ target_kind: l.target_kind, target_id: l.target_id, excluded: l.excluded }));
 
 export function ItemForm({
   api,
@@ -349,6 +355,24 @@ export function ItemForm({
   const [outOfStock, setOutOfStock] = useState<OutOfStockBehaviour>(item?.out_of_stock_behaviour ?? 'cook_fresh');
   const [saleUnit, setSaleUnit] = useState<Unit>(item?.sale_unit ?? 'piece');
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(item?.availability_windows ?? []);
+  // A-11 knobs as typed; A-13 links (archived targets already left out).
+  const [weight, setWeight] = useState(String(item?.weight_pct ?? 100));
+  const [early, setEarly] = useState(knobText(item?.max_early_ms ?? 60_000));
+  const [carry, setCarry] = useState(knobText(item?.max_carry_ms ?? null));
+  const [late, setLate] = useState(knobText(item?.max_late_ms ?? null));
+  const [adjust, setAdjust] = useState(knobText(item?.adjust_time_ms ?? 180_000));
+  // Until the whole menu is read the stored list is held as it is (picker off, never sent); the read then drops
+  // the targets known to be archived from the base and the form together, so nothing differs by itself.
+  const everyItem = useEveryItem(api, item !== null);
+  const [baseLinks, setBaseLinks] = useState<GoesWithLink[]>(() => storedLinks(item));
+  const [links, setLinks] = useState<GoesWithLink[]>(baseLinks);
+  useEffect(() => {
+    if (item === null || everyItem.items === null) return;
+    const settled = goesWithState(item.goes_with, categories, everyItem.items, { kind: 'item', id: item.item_id });
+    setBaseLinks(settled);
+    setLinks(settled);
+    // Once, when the read arrives.
+  }, [everyItem.items]);
   const [routes, setRoutes] = useState<Record<string, RouteChoice>>(() =>
     Object.fromEntries(branchIds.map((b) => [b, routeOf(item, b)])),
   );
@@ -379,6 +403,7 @@ export function ItemForm({
   useEffect(() => {
     if (problems.some((p) => IN_FOLD(p.id)) || Object.keys(failed).length > 0) setFoldOpen(true);
   }, [problems, failed]);
+  useReveal(problems.length > 0 ? problems : null, ['.pos-banner--danger[role="alert"]']);
 
   useEffect(() => {
     let live = true;
@@ -473,6 +498,13 @@ export function ItemForm({
       ? null
       : parseMinutes(stockTime);
   const priceValue = parseRupees(price);
+  const weightPct = weightValue(weight);
+  const knobMs: Record<Knob['name'], number | null | undefined> = {
+    max_early_ms: knobValue(KNOBS[0]!, early, item?.max_early_ms),
+    max_carry_ms: knobValue(KNOBS[1]!, carry, item?.max_carry_ms),
+    max_late_ms: knobValue(KNOBS[2]!, late, item?.max_late_ms),
+    adjust_time_ms: knobValue(KNOBS[3]!, adjust, item?.adjust_time_ms),
+  };
 
   // 01c: the size group, weighing and the stock draw as they will be sent.
   const group = groupId === '' ? undefined : groupOf(groupId);
@@ -517,6 +549,10 @@ export function ItemForm({
         found.push({ id: `route-${b}`, section: 'item.branches_title', text: t('item.need_price') });
       }
     }
+    if (weightPct === undefined) found.push({ id: 'item-weight_pct', section: 'item.timing', text: t('item.timing.need_pct') });
+    for (const [knob, id] of [[KNOBS[0]!, 'item-max_early_minutes'], [KNOBS[1]!, 'item-max_carry_minutes'], [KNOBS[2]!, 'item-max_late_minutes'], [KNOBS[3]!, 'item-adjust_time_minutes']] as const) {
+      if (knobMs[knob.name] === undefined) found.push({ id, section: 'item.timing', text: rangeText(knob) });
+    }
     if (windows === null) found.push({ id: 'item-hours', section: 'item.section.hours', text: t('owner.hours.invalid') });
     if (groupId !== '') {
       if (group !== undefined && group.category_id !== categoryId) {
@@ -538,6 +574,7 @@ export function ItemForm({
 
   function fields(): Omit<CreateMenuItemBody, 'routes'> | null {
     if (!priceValue.ok || cookMs === null || prepMs === null || windows === null || draws === undefined) return null;
+    if (weightPct === undefined || Object.values(knobMs).includes(undefined)) return null;
     return {
       category_id: categoryId,
       tax_class_id: taxId === '' ? null : taxId,
@@ -555,6 +592,11 @@ export function ItemForm({
       variant_name: groupId === '' ? null : sizeName.trim(),
       requires_weighing: weighedOn,
       stock_draws: draws,
+      weight_pct: weightPct,
+      max_early_ms: knobMs.max_early_ms as number,
+      max_carry_ms: knobMs.max_carry_ms as number | null,
+      max_late_ms: knobMs.max_late_ms as number | null,
+      adjust_time_ms: knobMs.adjust_time_ms as number,
     };
   }
 
@@ -577,7 +619,8 @@ export function ItemForm({
   if (base === null) {
     if (name !== '' || price !== '' || cook !== '') changedLabels.push(t('item.section.customers').toLowerCase());
   } else {
-    const diff = now === null ? { price_minor: true } : patchOf(base, now);
+    const diff: Record<string, unknown> = now === null ? { price_minor: true } : patchOf(base, now);
+    if (!sameGoesWith(links, baseLinks)) diff['goes_with'] = true;
     const labels: Record<string, MessageKey> = {
       price_minor: 'item.changed.price',
       cook_time_ms: 'item.changed.cook',
@@ -640,10 +683,13 @@ export function ItemForm({
 
   async function update(current: MenuItem, next: Omit<CreateMenuItemBody, 'routes'>): Promise<CloudError | 'partial' | null> {
     const patch = patchOf(current, next);
+    // A-13: the list goes whole, and only when the owner changed it.
+    if (!sameGoesWith(links, baseLinks)) patch['goes_with'] = links;
     if (Object.keys(patch).length > 0) {
       const result = await api.patchMenuItem(current.item_id, patch as PatchMenuItemBody);
       if (!result.ok) return result.error;
       setBase({ ...current, ...next });
+      setBaseLinks(links);
     }
     const failures: Record<string, string> = {};
     const savedRoutes = { ...baseRoutes };
@@ -1530,6 +1576,33 @@ export function ItemForm({
                 outerName={category?.name}
               />
             </section>
+
+            <section className="pos-section" data-section="timing">
+              <div className="pos-section__head">
+                <h2>{t('item.timing')}</h2>
+                <p>{t('item.timing_help')}</p>
+              </div>
+              <div className="pos-grid">
+                <TextField name="weight_pct" label={t('item.timing.weight_pct')} value={weight} onChange={setWeight} numeric unit="%" help={t('item.timing.weight_help')} error={problemFor('item-weight_pct')} />
+                <TextField name="max_early_minutes" label={t('item.timing.max_early')} value={early} onChange={setEarly} numeric error={problemFor('item-max_early_minutes')} />
+                <TextField name="max_carry_minutes" label={t('item.timing.max_carry')} value={carry} onChange={setCarry} numeric help={t('item.timing.max_carry_help')} error={problemFor('item-max_carry_minutes')} />
+                <TextField name="max_late_minutes" label={t('item.timing.max_late')} value={late} onChange={setLate} numeric help={t('item.timing.max_late_help')} error={problemFor('item-max_late_minutes')} />
+                <TextField name="adjust_time_minutes" label={t('item.timing.adjust')} value={adjust} onChange={setAdjust} numeric help={t('item.timing.adjust_help')} error={problemFor('item-adjust_time_minutes')} />
+              </div>
+            </section>
+
+            {base !== null && (
+              <GoesWithPicker
+                value={links}
+                onChange={setLinks}
+                categories={categories}
+                items={everyItem.items ?? []}
+                disabled={everyItem.items === null}
+                failed={everyItem.failed}
+                self={{ kind: 'item', id: base.item_id }}
+                error={problemFor('item-goes_with')}
+              />
+            )}
           </Disclosure>
         </fieldset>
 

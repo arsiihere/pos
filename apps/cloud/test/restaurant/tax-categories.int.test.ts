@@ -137,6 +137,7 @@ describe('tax classes and categories', () => {
       sort_order: 3,
       archived_at: null,
       availability_windows: [],
+      goes_with: [],
     });
     for (const snapshot of await snapshots()) {
       expect(snapshot.categories).toEqual([

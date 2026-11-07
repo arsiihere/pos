@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import type { GrantWire, ResponsibilityWire, RoleWire, StaffWire } from '@pos/events';
+import { BRANCH_ENGINE_SETTING_KEYS, type BranchEngineSettings, type BranchWire, type GrantWire, type ResponsibilityWire, type RoleWire, type StaffWire } from '@pos/events';
 
 // 01b B23, §5.3: the only place that builds a staff, role or responsibility wire and its version. Arrays
 // are sorted by JavaScript string order (never database order); every key is present, nullable values are
@@ -36,6 +36,11 @@ export interface ResponsibilityRow {
   subject_id: string;
   station_archived_at: number | null;
 }
+
+// 01b v1.5 B-6: what the settings PATCH replaces, so its version input and its audit shape (not name, status
+// or the hub times: a rename must not make a settings form stale, B23).
+export type BranchSettings = Pick<BranchWire, 'tax_enabled' | 'day_stale_after_hours' | 'day_min_gap_hours'> & BranchEngineSettings;
+export type BranchRow = Omit<BranchWire, 'version'>;
 
 type Unversioned<T> = Omit<T, 'version'>;
 
@@ -109,6 +114,19 @@ export function roleVersion(wire: Unversioned<RoleWire>): string {
 
 export function responsibilitySetVersion(branchId: string, set: ResponsibilityWire[]): string {
   return hash({ branch_id: branchId, responsibilities: sortedResponsibilities(set) });
+}
+
+export function toBranchSettings(row: BranchSettings): BranchSettings {
+  const engine = Object.fromEntries(BRANCH_ENGINE_SETTING_KEYS.map((key) => [key, row[key]])) as BranchEngineSettings;
+  return { tax_enabled: row.tax_enabled, day_stale_after_hours: row.day_stale_after_hours, day_min_gap_hours: row.day_min_gap_hours, ...engine };
+}
+
+export function branchSettingsVersion(branchId: string, settings: BranchSettings): string {
+  return hash({ branch_id: branchId, ...toBranchSettings(settings) });
+}
+
+export function toBranchWire(row: BranchRow): BranchWire {
+  return { ...row, version: branchSettingsVersion(row.branch_id, row) };
 }
 
 export function withVersion<T>(wire: T, version: string): T & { version: string } {

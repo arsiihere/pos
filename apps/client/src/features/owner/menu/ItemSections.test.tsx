@@ -24,8 +24,8 @@ afterEach(() => {
 
 const TAXES: TaxClass[] = [{ tax_class_id: 'X1', name: 'Standard', rate_bp: 1600, archived_at: null }];
 const CATEGORIES: Category[] = [
-  { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [] },
-  { category_id: 'C2', name: 'BBQ', sort_order: 1, archived_at: null, availability_windows: [] },
+  { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] },
+  { category_id: 'C2', name: 'BBQ', sort_order: 1, archived_at: null, availability_windows: [], goes_with: [] },
 ];
 const GROUPS: VariantGroup[] = [
   { variant_group_id: 'VG1', name: 'Chicken Karahi', category_id: 'C1', description: null, sort_order: 0, archived_at: null, member_ids: ['I1', 'I2'], version: 'v1' },
@@ -62,6 +62,12 @@ function item(extra: Partial<MenuItem> = {}): MenuItem {
     requires_weighing: false,
     stock_draws: [],
     availability_windows: [],
+    weight_pct: 100,
+    max_early_ms: 60_000,
+    max_carry_ms: null,
+    max_late_ms: null,
+    adjust_time_ms: 180_000,
+    goes_with: [],
     archived_at: null,
     routes: [{ branch_id: 'B1', station_id: 'S1', program_id: null, stock_program_id: null, price_minor_override: null }],
     ...extra,

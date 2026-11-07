@@ -100,8 +100,8 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     cloud.app.inject({ method: 'PUT', url: responsibilitiesUrl(), headers: auth(), payload });
   const addStation = (stationId: string) =>
     cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, created_at, updated_at)
-       VALUES ($1, $2, $3, $3, 'slot', 1, $4, $4)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, $3, (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), $3, 'slot', 1, $4, $4)`,
       [f.tenantId, f.branches[0], stationId, T],
     );
   const auditCount = async () =>
@@ -250,7 +250,7 @@ describe('changed_versions and one version builder (01b B23, §5.3, §6)', () =>
     const hits = walk(src)
       .filter((file) => !file.endsWith('.test.ts') && readFileSync(file, 'utf8').includes('sha256hex(canonicalJson('))
       .map((file) => relative(src, file));
-    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/staff-roles/versions.ts']);
+    expect(hits.sort()).toEqual(['modules/config-sync/service.ts', 'modules/menu-variants/versions.ts', 'modules/restaurant/versions.ts', 'modules/staff-roles/versions.ts']);
   });
 });
 

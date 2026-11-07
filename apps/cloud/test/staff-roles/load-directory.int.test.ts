@@ -112,8 +112,8 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
 
   async function addStation(stationId: string, branchId: string, archived = false) {
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, archived_at, created_at, updated_at)
-       VALUES ($1, $2, $3, $3, 'slot', 4, $4, $5, $5)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, archived_at, created_at, updated_at)
+       VALUES ($1, $2, $3, (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), $3, 'slot', 4, $4, $5, $5)`,
       [f.tenantId, branchId, stationId, archived ? T : null, T],
     );
   }

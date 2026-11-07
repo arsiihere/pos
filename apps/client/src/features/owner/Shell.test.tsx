@@ -74,6 +74,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '# Restaurant',
       'Floors and tables',
       'Kitchen stations',
+      'Points',
       'People',
       'Branches and settings [3]',
     ]);
@@ -103,6 +104,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '# ریسٹورنٹ',
       'فلور اور میزیں',
       'کچن اسٹیشن',
+      'پوائنٹس',
       'لوگ',
       'برانچیں اور سیٹنگ [3]',
     ]);
@@ -139,6 +141,7 @@ describe('[01b §8] owner shell (design handoff README §9)', () => {
       '#/stock-items',
       '#/floors',
       '#/stations',
+      '#/points',
       '#/staff',
       '#/branches',
     ]);
