@@ -2,7 +2,7 @@
 import { performance } from 'node:perf_hooks';
 import { stationPlan, type EngineState } from '@pos/engine';
 import { WsStationPlan, type EngineConfig, type EventDraft, type PosEvent } from '@pos/events';
-import { aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
+import { aBusinessDayOpened, anEngineConfigApplied, aStockReleased, aStockSet } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
@@ -17,7 +17,7 @@ import { wsHubFor } from '../../src/ws/server';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { draftOf, fakeSubmit, type FakeOrder } from './fakes';
+import { draftOf, fakeSubmit, fakeSubmitDrafts, type FakeOrder } from './fakes';
 
 // As main.ts: the engine steps (the fires tick right after 01d's `alerts`), then the restaurant steps.
 registerEngineBootSteps(() => performance.now());
@@ -76,9 +76,8 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
   };
   const body = (station_id: string, as_of_seq: number): unknown => ({ ...stationPlan(engine(), station_id, hub.clock.branchNow()), as_of_seq });
 
-  async function socketOf(kind: 'staff' | 'station', stationId?: string): Promise<WsClient> {
-    const c: Client =
-      kind === 'staff'
+  function clientOf(kind: 'staff' | 'station', stationId?: string): Client {
+    return kind === 'staff'
         ? (() => {
             const device = pairDevice(hub, { type: 'tablet' });
             return { device, session: openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: device.deviceId }) };
@@ -87,12 +86,16 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
             const device = pairDevice(hub, { type: 'kds', stationId });
             return { device, session: openSession(hub, { kind: 'station', deviceId: device.deviceId, stationId }) };
           })();
+  }
+  // A session socket (session token given) or, with session: false, the device's alert-mode socket (00 H-1).
+  async function connect(c: Client, session = true): Promise<WsClient> {
     const ws = await connectWs(hub.app);
     sockets.push(ws);
-    ws.send({ type: 'auth', device_token: c.device.token, session_token: c.session.token });
+    ws.send(session ? { type: 'auth', device_token: c.device.token, session_token: c.session.token } : { type: 'auth', device_token: c.device.token });
     await ws.untilCount(1);
     return ws;
   }
+  const socketOf = (kind: 'staff' | 'station', stationId?: string): Promise<WsClient> => connect(clientOf(kind, stationId));
   const plans = (ws: WsClient): Plan[] => ws.messages.filter((m) => (m as { type?: string }).type === 'station_plan') as Plan[];
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -163,8 +166,112 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     submit({ order_id: 'O3', lines: [{ order_item_id: 'L4' }, { order_item_id: 'L5', station_id: 'S2' }] });
     await settle();
     expect(plans(staff).map((p) => p.station_id)).toEqual(['S1', 'S1', 'S2']);
-    expect(plans(k1)).toHaveLength(2);
+    expect(plans(k1).map((p) => p.station_id)).toEqual(['S1', 'S1']);
     expect(plans(k2).map((p) => p.station_id)).toEqual(['S2']);
+  });
+
+  // Review I-1: a fold can change a line's plan fields without copying its station; the line's reference names it.
+  it('[03a #83] expediting a frozen line (no station copy): exactly one frame for its station, with mark expedite', async () => {
+    kitchen(config({ freeze_ms: 60 * MIN }));
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    expect(stationPlan(engine(), 'S1', hub.clock.branchNow()).lines).toEqual([expect.objectContaining({ order_item_id: 'L1', frozen: true, mark: null })]);
+    const prevStation = engine().stations.S1;
+    const staff = await socketOf('staff');
+    const k1 = await socketOf('station', 'S1');
+    const k2 = await socketOf('station', 'S2');
+    append([{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemsReleased', schema_version: 1, payload: { order_id: 'O1', alert_id: null, released: [], expedite: ['L1'] }, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: 'hub' }]);
+    await settle();
+    expect(engine().stations.S1).toBe(prevStation); // the case: no station copy
+    for (const ws of [staff, k1]) {
+      expect(plans(ws)).toEqual([{ type: 'station_plan', ...(body('S1', hub.deps.writer.lastSeq()) as object) }]);
+      expect(plans(ws)[0]!.lines).toEqual([expect.objectContaining({ order_item_id: 'L1', mark: 'expedite' })]);
+    }
+    expect(plans(k2)).toEqual([]);
+  });
+
+  it('[03a #83] a StockReleased that makes a from-stock line fresh (deadline_ms changes): one frame for its station', async () => {
+    kitchen();
+    const open = hub.clock.branchNow();
+    append([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 2_000, unit: 'g' } })]);
+    fakeSubmit(
+      hub.deps,
+      { order_id: 'O1', lines: [{ order_item_id: 'L1', item: { stock_time_ms: 300_000, stock_draws: [{ stock_item_id: 'K1', quantity: 500 }] } }] },
+      { dayStartMs: open, stockItems: [{ stock_item_id: 'K1', name: 'Karahi base', stock_unit: 'g', carries_over: true, station_id: 'S1', low_stock_threshold: null }] },
+    );
+    const before = engine().lines.L1!;
+    expect(before.from_stock).toBe(true);
+    const k1 = await socketOf('station', 'S1');
+    append([aStockReleased({ payload: { stock_item_id: 'K1', order_item_id: 'L1', quantity: 500, reason: 'removed' } })]);
+    await settle();
+    expect(engine().lines.L1!.deadline_ms).not.toBe(before.deadline_ms);
+    expect(plans(k1)).toEqual([{ type: 'station_plan', ...(body('S1', hub.deps.writer.lastSeq()) as object) }]);
+  });
+
+  it('[03a #83] a commit that changes no line and no station sends no frame; the after-commit frames add 0 statements', async () => {
+    kitchen();
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    const staff = await socketOf('staff');
+    const k1 = await socketOf('station', 'S1');
+    append([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 2_000, unit: 'g' } })]);
+    await settle();
+    expect(plans(staff)).toEqual([]);
+    expect(plans(k1)).toEqual([]);
+
+    // Statements between the commit (tx.onCommit, before every after-commit hook) and a hook added after the frame
+    // hook: the same for a commit with frames as for one without.
+    const counter = statementCounter(hub.deps.db);
+    let mark = 0;
+    let window = -1;
+    hub.deps.writer.addAfterCommit(() => {
+      window = counter.count - mark;
+    });
+    const windowOf = (drafts: (t: WriterTx) => EventDraft[]): number => {
+      hub.deps.writer.run((tx) => {
+        tx.onCommit(() => {
+          mark = counter.count;
+        });
+        return tx.append(drafts(tx));
+      });
+      return window;
+    };
+    const quiet = windowOf(() => [draftOf(aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 1_000, unit: 'g' } }))]);
+    const framed = windowOf((tx) => fakeSubmitDrafts(tx.state as EngineState, { order_id: 'O2', lines: [{ order_item_id: 'L2' }] }, tx.clock.branchNow()));
+    await settle();
+    expect(plans(k1).map((p) => p.station_id)).toEqual(['S1']);
+    expect(framed).toBe(quiet);
+    expect(framed).toBe(0);
+  });
+
+  it('[03a #83] an alert-mode socket of a staff device gets no station_plan (only the session sockets are sent to)', async () => {
+    kitchen();
+    const c = clientOf('staff');
+    const staff = await connect(c);
+    const alerts = await connect(c, false);
+    expect((alerts.messages[0] as { type: string }).type).toBe('alerts_open');
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    await settle();
+    expect(plans(staff).map((p) => p.station_id)).toEqual(['S1']);
+    expect(plans(alerts)).toEqual([]);
+  });
+
+  it('[03a #83] a station socket that reconnects still gets its frames', async () => {
+    kitchen();
+    const c = clientOf('station', 'S1');
+    const first = await connect(c);
+    first.close();
+    await settle();
+    const again = await connect(c);
+    expect(((again.messages[0] as { state: Record<string, unknown> }).state.station_plan as Plan[]).map((p) => p.station_id)).toEqual(['S1']);
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    await settle();
+    expect(plans(again).map((p) => p.station_id)).toEqual(['S1']);
+  });
+
+  it('[03a #83] a station socket whose station is not in the engine gets its own (empty) body in the catch-up', async () => {
+    kitchen();
+    const k9 = await socketOf('station', 'S9');
+    const frame = k9.messages[0] as { as_of_seq: number; state: Record<string, unknown> };
+    expect(frame.state.station_plan).toEqual([{ station_id: 'S9', as_of_seq: frame.as_of_seq, lines: [] }]);
   });
 
   it('[03a #83] a line entering Next with nothing else due: the frame is sent from due, with no transaction and no statement', async () => {

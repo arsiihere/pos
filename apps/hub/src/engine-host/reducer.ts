@@ -23,9 +23,25 @@ export function touchedStations(prev: EngineState, next: EngineState): string[] 
 
 // §3.6.3, P-7: the stations a committed transaction's fold touched ("the reducer marks touched stations"), for the
 // `station_plan` frames of its after-commit hook. [] when the transaction folded nothing. 0 statements.
+// Task 22b review I-1: some folds change a line's plan fields without copying its station (ItemsReleased.expedite on
+// a frozen or FIFO line, StockReleased's fresh deadline_ms), so the station of every line whose reference changed
+// counts too, from prev and from next (a deleted or an added line included): one reference pass over the lines.
 export function touchedIn(appended: readonly PosEvent[]): string[] {
   const note = notes.get(appended);
-  return note === undefined ? [] : touchedStations(note.prev, note.next);
+  if (note === undefined) return [];
+  const { prev, next } = note;
+  const out = new Set(touchedStations(prev, next));
+  if (prev.lines !== next.lines) {
+    for (const id in next.lines) {
+      const line = next.lines[id]!;
+      const before = prev.lines[id];
+      if (before === line) continue;
+      out.add(line.station_id);
+      if (before !== undefined) out.add(before.station_id);
+    }
+    for (const id in prev.lines) if (next.lines[id] === undefined) out.add(prev.lines[id]!.station_id);
+  }
+  return [...out];
 }
 
 interface FoldNote {
