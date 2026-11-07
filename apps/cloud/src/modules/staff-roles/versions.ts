@@ -30,7 +30,7 @@ export interface RoleRow {
 }
 
 export interface ResponsibilityRow {
-  responsibility: 'count_stock';
+  responsibility: ResponsibilityWire['responsibility']; // 01b v1.5 B-4: count_stock | run_station
   station_id: string;
   subject_kind: 'staff' | 'role';
   subject_id: string;

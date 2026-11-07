@@ -515,15 +515,22 @@ export async function replaceResponsibilities(db: TenantSql, branchId: string, s
     [branchId],
   );
   const rows = set.flatMap((entry) => [
-    ...entry.staff_ids.map((id) => ({ station: entry.station_id, kind: 'staff', id })),
-    ...entry.role_ids.map((id) => ({ station: entry.station_id, kind: 'role', id })),
+    ...entry.staff_ids.map((id) => ({ responsibility: entry.responsibility, station: entry.station_id, kind: 'staff', id })),
+    ...entry.role_ids.map((id) => ({ responsibility: entry.responsibility, station: entry.station_id, kind: 'role', id })),
   ]);
   if (rows.length === 0) return;
   await db.query(
     `INSERT INTO responsibilities (tenant_id, branch_id, responsibility, station_id, subject_kind, subject_id)
-     SELECT t.tenant_id, $2, 'count_stock', x.st, x.k, x.id FROM tenants t, unnest($3::text[], $4::text[], $5::text[]) AS x(st, k, id)
+     SELECT t.tenant_id, $2, x.r, x.st, x.k, x.id
+       FROM tenants t, unnest($3::text[], $4::text[], $5::text[], $6::text[]) AS x(r, st, k, id)
       WHERE t.tenant_id = $1`,
-    [branchId, rows.map((row) => row.station), rows.map((row) => row.kind), rows.map((row) => row.id)],
+    [
+      branchId,
+      rows.map((row) => row.responsibility),
+      rows.map((row) => row.station),
+      rows.map((row) => row.kind),
+      rows.map((row) => row.id),
+    ],
   );
 }
 

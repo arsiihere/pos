@@ -177,13 +177,14 @@ describe('hub migration 0006_alerts', () => {
     for (const [name, hash] of Object.entries(MERGED)) expect(sha256hex(readFileSync(join(migrations, name)))).toBe(hash);
   });
 
-  it('[00 H-5, H-6] the hub migrations are exactly 0001–0008 in order', () => {
+  it('[00 H-5, H-6] [01b B-4] the hub migrations are exactly 0001–0009 in order', () => {
     const files = readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort();
     expect(files).toEqual([
       ...Object.keys(MERGED),
       '0006_alerts.sql',
       '0007_engine.sql',
       '0008_device_point_lane.sql',
+      '0009_run_station.sql',
     ]);
   });
 

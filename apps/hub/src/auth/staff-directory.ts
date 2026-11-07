@@ -1,6 +1,9 @@
 import { PERMISSIONS, type Permission, type Scope } from '@pos/domain';
 import type Database from 'better-sqlite3';
 
+// 01b §3.6 (v1.5 B-4): the responsibility kinds a station is assigned.
+export type Responsibility = 'count_stock' | 'run_station';
+
 // What the hub stores (01b §5.2): the v2 directory without the kept `approver_role_id`, which v2 hubs
 // ignore (B18 a). A DirectoryInput (01b §4.3.1) is assignable to it.
 export interface DirectoryCore {
@@ -20,7 +23,7 @@ export interface DirectoryCore {
     session_idle_ttl_ms: number;
     permissions: { permission: string; grant_type: 'allowed' | 'requires_approval'; approver_role_ids: string[]; scope: Scope }[];
   }[];
-  responsibilities: { responsibility: 'count_stock'; station_id: string; staff_ids: string[]; role_ids: string[] }[];
+  responsibilities: { responsibility: Responsibility; station_id: string; staff_ids: string[]; role_ids: string[] }[];
   // 01b v1.4 B-1: people without a PIN, for targeting only; absent from an older cloud's directory.
   no_pin_staff?: NoPinStaff[];
 }
@@ -153,7 +156,7 @@ export class StaffDirectory {
     }>;
     const responsibilities = db
       .prepare('SELECT responsibility, station_id, subject_kind, subject_id FROM responsibilities')
-      .all() as Array<{ responsibility: 'count_stock'; station_id: string; subject_kind: 'staff' | 'role'; subject_id: string }>;
+      .all() as Array<{ responsibility: Responsibility; station_id: string; subject_kind: 'staff' | 'role'; subject_id: string }>;
     const noPin = db.prepare('SELECT staff_id, display_name, lead_staff_id FROM no_pin_staff').all() as NoPinStaff[];
     const meta = db.prepare('SELECT directory_version FROM staff_directory_meta').get() as
       | { directory_version: number }
@@ -286,7 +289,7 @@ export class StaffDirectory {
   }
 
   // 01b §3.6: stations where the person is listed, or one of their roles is.
-  stationsOf(staffId: string, responsibility: 'count_stock'): string[] {
+  stationsOf(staffId: string, responsibility: Responsibility): string[] {
     const staff = this.staffById.get(staffId);
     if (staff === undefined) return [];
     return this.responsibilities
@@ -295,7 +298,7 @@ export class StaffDirectory {
   }
 
   // 01b §3.6: everyone in the directory who holds the responsibility at the station.
-  responsibilityHolders(stationId: string, responsibility: 'count_stock'): string[] {
+  responsibilityHolders(stationId: string, responsibility: Responsibility): string[] {
     const entry = this.responsibilities.find((e) => e.station_id === stationId && e.responsibility === responsibility);
     if (entry === undefined) return [];
     const holders: string[] = [];

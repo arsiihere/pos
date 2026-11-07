@@ -8,7 +8,7 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 const T = 1_761_000_000_000;
 
 interface Entry {
-  responsibility: 'count_stock';
+  responsibility: 'count_stock' | 'run_station';
   station_id: string;
   staff_ids: string[];
   role_ids: string[];
@@ -86,6 +86,10 @@ describe('responsibilities GET / PUT (01b §6.8, §3.6)', () => {
     station_id: stationId,
     staff_ids: staffIds,
     role_ids: roleIds,
+  });
+  const runEntry = (stationId: string, staffIds: string[], roleIds: string[] = []): Entry => ({
+    ...entry(stationId, staffIds, roleIds),
+    responsibility: 'run_station',
   });
   const directoryOf = async (branchId: string) => {
     const client = await cloud.pool.connect();
@@ -284,5 +288,48 @@ describe('responsibilities GET / PUT (01b §6.8, §3.6)', () => {
     expect(changed.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'responsibilities.1.station_id' } });
     expect(changed.json().error.details).not.toHaveProperty('reason');
     expect(await get(a)).toEqual(stored);
+  });
+
+  it('[01b B-4] a run_station responsibility is created, listed, versioned and synced beside count_stock at the same station', async () => {
+    const a = f.branches[0];
+    const grill = await station(a, 'Grill');
+    const ali = await person('Ali', [a]);
+    const bilal = await person('Bilal', [a]);
+    await cloud.app.inject({ method: 'PUT', url: `/v1/admin/staff/${ali}/pin`, headers: auth(), payload: { pin: '4321' } });
+    await cloud.app.inject({ method: 'PUT', url: `/v1/admin/staff/${bilal}/pin`, headers: auth(), payload: { pin: '4322' } });
+    const cook = await roleId('cook');
+    const empty = await get(a);
+    const counted = await put(a, { expected_version: empty.version, responsibilities: [entry(grill, [ali])] });
+    expect(counted.statusCode, counted.body).toBe(200);
+    const countOnly = counted.json().data.version as string;
+    const v0 = await directoryVersion();
+
+    // One station, two kinds: two entries, not a repeated station.
+    const both = await put(a, { expected_version: countOnly, responsibilities: [entry(grill, [ali]), runEntry(grill, [bilal], [cook])] });
+    expect(both.statusCode, both.body).toBe(200);
+    const listed = await get(a);
+    expect(listed.responsibilities).toEqual([entry(grill, [ali]), runEntry(grill, [bilal], [cook])]);
+    expect(listed.version).toBe(both.json().data.version);
+    expect(listed.version).not.toBe(countOnly);
+    expect(await directoryVersion()).toBe(v0 + 1);
+    expect((await auditRows()).at(-1)).toEqual({
+      entity: 'responsibility',
+      entity_id: a,
+      branch_id: a,
+      action: 'update',
+      before: [entry(grill, [ali])],
+      after: listed.responsibilities,
+    });
+    expect((await directoryOf(a)).responsibilities).toEqual([entry(grill, [ali]), runEntry(grill, [bilal], [cook])]);
+
+    // Dropping run_station leaves count_stock exactly as before.
+    const back = await put(a, { expected_version: listed.version, responsibilities: [entry(grill, [ali])] });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(await get(a)).toEqual({ responsibilities: [entry(grill, [ali])], version: countOnly });
+
+    // Two run_station entries for one station are still a repeated station.
+    const repeated = await put(a, { expected_version: countOnly, responsibilities: [runEntry(grill, [ali]), runEntry(grill, [bilal])] });
+    expect(repeated.statusCode, repeated.body).toBe(422);
+    expect(repeated.json().error.details).toEqual({ field: 'responsibilities.1.station_id' });
   });
 });
