@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCloudAdmin } from '../../../api/cloud-admin';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
@@ -393,6 +393,22 @@ describe('owner station form: Timing group (03a A-2–A-10)', () => {
       pause_enabled: true,
       lane_units: 2,
     });
+  });
+
+  it.each([
+    ['capacity', 'capacity', '99999'],
+    ['name', 'name', 'x'.repeat(200)],
+    ['location_label', 'location_label', 'y'.repeat(300)],
+  ])('[01a §8.1] a refusal of %s shows under its box, not only in the banner', async (path, box, value) => {
+    const { api } = setup(STATIONS, () =>
+      json(400, { error: { code: 'VALIDATION_FAILED', message: 'x', details: { issues: [{ path, message: 'the limit' }] } } }),
+    );
+    await openEditor(api);
+    setValue(input('S1', box), value);
+    await click(button(t('owner.stations.save_station'), station('S1')));
+    const field = input('S1', box)?.closest('label');
+    expect(field?.className).toContain('pos-field--error');
+    expect(field?.textContent).toContain('the limit');
   });
 
   it('[01a §8.1; 03a A-2–A-8] a range error from the server shows under its field and the form keeps the typed value', async () => {

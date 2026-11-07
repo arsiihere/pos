@@ -65,7 +65,7 @@ function plainIssue(path: string, message: string): string {
   if (number !== null) {
     const upper = number[1]!.startsWith('<');
     const limit = Number(number[2]);
-    const hole = (text: string) => (upper ? { max: text } : { min: text });
+    const hole = (text: string): Record<string, string> => (upper ? { max: text } : { min: text });
     if (path.endsWith('_ms')) return fill(t(upper ? 'form.range.max_minutes' : 'form.range.min_minutes'), hole(formatMinutes(limit)));
     if (path.endsWith('_bp')) return fill(t(upper ? 'form.range.max_percent' : 'form.range.min_percent'), hole(String(limit / 100)));
     return fill(t(upper ? 'form.range.max' : 'form.range.min'), hole(String(limit)));

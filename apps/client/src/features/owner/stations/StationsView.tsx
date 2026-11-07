@@ -194,6 +194,8 @@ function StationEditor({
   }
 
   const programs = station.programs.filter((p) => showArchived || p.archived_at === null);
+  const fieldClass = (field: string) => `pos-field${issues[field] !== undefined ? ' pos-field--error' : ''}`;
+  const underBox = (field: string) => issues[field] !== undefined && <span className="pos-field__help">{issues[field]}</span>;
 
   return (
     <section className="pos-section pos-section--open" data-station-id={station.station_id}>
@@ -230,13 +232,15 @@ function StationEditor({
       </div>
       {error !== null && <Banner tone="danger" text={error} />}
       <div className="pos-grid">
-        <label className="pos-field">
+        <label className={fieldClass('name')}>
           <span className="pos-field__label">{t('owner.stations.station_name')}</span>
           <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          {underBox('name')}
         </label>
-        <label className="pos-field">
+        <label className={fieldClass('location_label')}>
           <span className="pos-field__label">{t('owner.stations.location_label')}</span>
           <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          {underBox('location_label')}
         </label>
       </div>
       <div className="pos-field">
@@ -245,12 +249,13 @@ function StationEditor({
         {typeLocked && <span className="pos-field__help">{t('owner.stations.type_locked')}</span>}
       </div>
       <div className="pos-grid pos-grid--3">
-        <label className="pos-field">
+        <label className={fieldClass('capacity')}>
           <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
           <input className="pos-input pos-input--mono" name="capacity" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
+          {underBox('capacity')}
         </label>
         {type === 'batch' && (
-          <label className="pos-field">
+          <label className={fieldClass('freshness_window_ms')}>
             <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
             <input
               className="pos-input pos-input--mono"
@@ -259,6 +264,7 @@ function StationEditor({
               value={freshness}
               onChange={(e) => setFreshness(e.target.value)}
             />
+            {underBox('freshness_window_ms')}
           </label>
         )}
         <label className="pos-field">
