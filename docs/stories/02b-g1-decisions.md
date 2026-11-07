@@ -1,0 +1,51 @@
+# 02b G1: decisions (running record)
+
+| | |
+|---|---|
+| Status | **Working record of the G1 session (developer as the owner's proxy, 2026-11-07).** Rows are developer decisions unless marked. Rows marked *Proposed — needs approval* change README or an approved spec; they land only through 02b's §4.5 and the target's version bump (R26, R34). No approved spec file is edited here. |
+| Inputs | `02b-g0.md` (§3 gaps, §5.4 owner answers), `01d-g0-decisions.md` Z1–Z8, README, and the **03a build branches** read on 2026-11-07: `module-03a` (head `docs/plans/03a-status.md`, AD-8, AD-17, AD-19, AD-29, AD-30, "Carried rows (to README at task 29)", "Open items"), `module-03a-hub2`, `module-03a-hub3`, `module-03a-cloud` (end reports). |
+
+## 1. Other branches (state on 2026-11-07, 17:30 PKT)
+
+| Branch | State | What it means for 02b |
+|---|---|---|
+| `module-03a` | Engine build, tasks 0–22a done (head: 22a `fires_alerts` tick). **Built against 03a v1.0, foundation v1.9, 01a v2.1, 01b v1.5** — it does not contain 02a v1.0, 03a v1.1, 01a v2.2, 01b v1.6, 01d v1.2 or foundation v1.10 (all on `module-02`). Task 29 plans an "as-built **v1.1** draft". | **G1-1.** |
+| `module-03a-hub2` | R1, A14 done and merged into `module-03a`; gate red only on engine wall-clock asserts. | None. |
+| `module-03a-hub3` | R2, R1b, 25, 25b, 26 done; gate green except one snapshot timing assert under load. | `stations-live` audiences and catch-up exist (task 26) — 02b's ordering-screen tiles read them (03a To 02 #9). |
+| `module-03a-cloud` | C1–C9 done (01a v2.1 station fields, points, snapshot V3), gate green. | Snapshot V3 is live in code; 02a's V4 and 02b's zone additions (G1-9, G1-10) land on top. |
+| `product-smart-store` | 11 Smart Store G1 (docs). | None. |
+| `docs-roadmap`, `main` | Roadmap docs (2026-11-02). `main` is behind every module branch. | None. |
+| `review/market-assessment` | Urdu AI phone-ordering research (docs). | None for the pilot. |
+| `ui-pulse` | Old UI merge (2026-10-30). | None. |
+| `module-00`, `module-01`, `module-01b`, `module-01c`, `module-01d` | Done; superseded by `module-02`'s spec set. | None. |
+
+## 2. Decisions
+
+| ID | Decision |
+|---|---|
+| G1-1 | **Version clash, 03a.** `module-02` already has an approved **03a v1.1** (02a §4.5 Q-2: `table_key` = `'dine_in:' + seating_id`). The engine lane's task 29 plans its as-built draft as "v1.1". *Proposed — needs approval:* the as-built becomes **03a v1.2**, written on top of v1.1, and the engine lane takes v1.1's Q-2 before task 29 (merge `module-02` into `module-03a`, or cherry-pick the spec files). 02b's 03a rows (G1-6, G1-11, G1-12) go into the same v1.2, so 03a bumps once. |
+| G1-2 | **Ids (03a To 02, binding, AD-29 Q5, AD-30).** The device mints `order_id` and every `order_item_id` (ULID, `crypto.getRandomValues`) when the order is built, and keeps them for every retry with the same `command_id`. `SubmitOrder` refuses an id already live in the engine or in 02b's projection, or listed twice, **before append**: new code `409 ORDER_ITEM_ID_IN_USE { order_item_id }` (02b §9, appended to F §6.2). A retry of the same `command_id` returns the stored response (D32), so the device never meets this code on a plain resend. |
+| G1-3 | **Routes (AD-17).** `OrderPlaced.lines[]` copies `PlanResult` route fields verbatim. 02b resolves zone routing **before** the engine call: `ProposedOrder.lines[].station_id` = the most specific zone route (leaf zone → parent zone → floor) for the seating's table, else the branch route (01a S11); `alternates` and order-type homes as 01a A-9. 03a is unchanged by zone routing. |
+| G1-4 | **Served and stock (03a To 03b / 02, AD-29 Q7).** `MarkServed` appends `stockEffects` drafted from **folded state**, with the array form when one command serves several lines (never two single-form calls from one state). A from-stock line with no Start consumes at Served. |
+| G1-5 | **Short stock (AD-19, AD-29 Q8).** A line is refused when 0 < available < needed. The client shows "Only 2 left" and caps the stepper at the available units; the hub refuses with `409 ITEM_SOLD_OUT { item_id, available }` (02b code; `available` lets the cart offer "Send 2 instead"). |
+| G1-6 | **Zone-served lines (02b-g0 §3 #3).** The engine already ignores an `ItemAdded` whose id is not in `order_item_ids` (03a task 8b, as built). *Proposed — needs approval, 03a v1.2 row Q-3:* write that rule into §3.3, and add: an `OrderPlaced` with an **empty** `order_item_ids` (a round of zone-served lines only) is never planned and is not an engine order (no exit timer, absent from `ordersByKey`); one 03a test. 02b writes `ItemServed { source: 'tap' }` for zone-served lines in the submit batch, and they never print (To 03b). |
+| G1-7 | **Queued auto-send (02b-g0 §3 #1, owner Q8).** *Proposed — needs approval, 00 row H-1:* a command sent with header `X-Queued: 1` whose `X-Session-Token` is an **ended** session (logout or idle; not revoked, not unknown) **of the same device**, whose staff is still active, is accepted in that staff's name. Permission is checked against the current directory. The stored event's envelope gets `sent_after_reconnect: true`. A queued command older than `queue_auto_send_max_ms` (branch setting, default 4 h, measured from the device's `queued_at` against hub time) is refused with `409 QUEUED_COMMAND_EXPIRED { queued_at }` and stays in the device's queue log for a manager. PIN-bearing commands are never queued (unchanged). **Bump order** *Proposed — needs approval:* 02b's 00 row ships as **00 v1.8** with 02b's approval; 01e (not started) takes the next one. README :16 updated in the same change. |
+| G1-8 | **Lock on a queued replay (02b-g0 §3 #12).** *Proposed — needs approval, 02a v1.1 row P-1b:* `requireLock(…, { queued: true })` never takes a free lock; a lock held by someone else still refuses `TABLE_ALREADY_LOCKED`. Ships with P-1 (the edit-event list, 02b-g0 §3 #13). |
+| G1-9 | **Zone stock config.** *Proposed — needs approval, 01a row:* `zone_stock_items (zone_id, item_id, threshold, source_stock_item_id NULL)` as a nested replace-list on the zone route; snapshot `floors[].zones[].stock_items[]`. Folded into **snapshot V4** (02a's, not yet built) so the cloud ships one breaking flip (R29). |
+| G1-10 | **Zone routing config (owner Q5 = Z3).** Same 01a row adds `zone_item_routes (zone_id, item_id, station_id)` and snapshot `floors[].zones[].routes[]`; a route must name a station of the branch that the item may use. |
+| G1-11 | **Refill = transfer (owner Q1).** `AddZoneStock { zone_id, item_id, quantity }` in one transaction: when the zone item has a `source_stock_item_id`, the source's count goes down by the same quantity; otherwise only the zone count changes. *Proposed — needs approval, 03a v1.2 row:* a stock event **`StockTransferredOut { stock_item_id, quantity, zone_id }`** folded like a negative `StockAdded` (clamped, breach logged as today). Chosen over writing `StockSet` because a count and a transfer must stay apart in 08's reports. Refusal when the source has less than asked: `409 STOCK_INSUFFICIENT { stock_item_id, available }`. `SetZoneStock` (absolute count) never touches the source. |
+| G1-12 | **Partial remove (owner Q3, "happens a lot").** `RemoveItems { lines: [{ order_item_id, units }] }`, units ≤ the line's live units; all units = whole line. *Proposed — needs approval, 03a v1.2 row:* `ItemRemoved { order_item_id, units? }` (absent = whole line) folded through the **same unit-reduction path as `ItemVoided`'s partial void** (already built), plus `stockEffects` releasing that share. 01c's per-unit money rule applies to the removed share. |
+| G1-13 | **Partial comp (owner Q2, any item).** `CompLine { order_item_id, units, reason }` → `LineComped { order_item_id, units, value_minor, reason, alert_id \| null }`. `value_minor` from 01c's per-unit allocation (deal parts and children included). A line may be comped more than once while comped units ≤ live units; removing or voiding comped units first uses uncomped ones (stated in 02b §3, read by 04 / 05). |
+| G1-14 | **No day, no order (owner Q4).** `SubmitOrder` refuses with `409 BUSINESS_DAY_NOT_OPEN` (01a's code, no new code). A queued submit replayed before the day opens gets the same refusal and stays in the queue log. The token counter starts at 1 on `BusinessDayOpened`. |
+| G1-15 | **Non-table served (owner Q6).** *Proposed — needs approval, 01b row:* the `own_tables` scope also covers orders without a table that the person placed (`placed_by`); `MarkServed` and `ReleaseItems` on takeaway / parking check it. No new scope. |
+| G1-16 | **Running totals with 04 (02b-g0 §3 #8, #9).** *To 04:* `ItemVoided` carries `refund_minor` (additive, R29) and every void transaction calls 02b's `orderEmptiedDrafts`. 02b folds `refund_minor` from day one, tested with fixtures. |
+| G1-17 | **Test command halves (03a open item 1, plan P-3).** 03a tests #101 (new order after exit), #103 (return money 0), #107 (`409 RETURN_ALREADY_OPEN`), #114 (return line structure) get their command halves in 02b §10. |
+| G1-18 | **Customer's own wrong order (03a §12.3 Q12).** Not 02b's: a remake at the customer's cost is a bill decision (04 / 05). 02b's `ReturnToKitchen` keeps `fix` / `remake` only. Carried To 04. |
+| G1-19 | **Size.** After G1: 10 commands, 1 tick, 2 kinds, 4 queries, 1 catch-up = 18; build ≈ 55 tasks. One spec. Split line unchanged: zone stock + zone routing → 02c if the plan passes ~60. |
+| G1-20 | **§4.5 rows of the 02b spec (one place, one approval):** F (CANCELLED wording, §5.9 steps 4 and 10, D39 list, §4.2 "adder"); **00 v1.8** H-1 (G1-7); **01a v2.3** zone stock + zone routes in V4 (G1-9, G1-10); **01b v1.7** `set-line-weight`, `manage-zone-stock`, scope `my_zones`, `own_tables` for placed orders (G1-15); **02a v1.1** P-1, P-1b (G1-8); **03a v1.2** Q-3, `ItemRemoved.units`, `StockTransferredOut` (G1-1, G1-6, G1-11, G1-12); To 04, To 05, To 03b carried rows. |
+
+## 3. Next
+
+1. Developer approves the *Proposed* rows (G1-1, G1-6, G1-7, G1-8–G1-12, G1-15, G1-20) or changes them.
+2. Tell the engine lane about G1-1 before task 29.
+3. Spec `docs/specs/02b_Ordering_Spec_v0.1.md` (`anthropic-skills:backend-spec-writer`), then G2 completeness and hostile runs as 02a did.
