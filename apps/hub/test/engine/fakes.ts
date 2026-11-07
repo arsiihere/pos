@@ -4,6 +4,9 @@
 import { checkOrderable, planOrder, reserveStock, stockEffects, type EngineState, type ProposedOrder } from '@pos/engine';
 import type { ConfigStockItem, EventDraft, PosEvent } from '@pos/events';
 import { anItemAdded, anOrderBatch } from '@pos/events/testing';
+import { z } from 'zod';
+import { defineAlertKind, kindOf, unregisterAlertKind } from '../../src/alerts/kinds';
+import { ENGINE_ALERT_KINDS } from '../../src/engine-host/fires-alerts-tick';
 import type { HubDeps } from '../../src/server';
 
 export function draftOf(event: Pick<PosEvent, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'> & Partial<PosEvent>, at?: number): EventDraft {
@@ -29,6 +32,8 @@ export interface FakeOrder {
   order_id: string;
   lines: FakeLine[];
   order?: Partial<ProposedOrder['order']>;
+  /** OrderPlaced's actor_id, i.e. the order's placed_by (§3.3); default null */
+  actor_id?: string | null;
 }
 export interface FakeStock {
   dayStartMs: number;
@@ -80,6 +85,7 @@ export function fakeSubmitDrafts(state: EngineState, o: FakeOrder, now: number, 
     }),
     order: { ...proposed.order, groups: plan.groups },
     reserved: reserved.drafts.map((d) => d.payload),
+    actor_id: o.actor_id ?? null,
   });
   return batch.map((e) => draftOf(e, now));
 }
@@ -112,4 +118,66 @@ export function fakeTap(deps: Pick<HubDeps, 'writer'>, kind: 'start' | 'done', o
     const now = tx.clock.branchNow();
     return tx.append(kind === 'start' ? fakeStartDrafts(state, order_item_id, now) : fakeDoneDrafts(state, order_item_id, now));
   }).appended;
+}
+
+// 03a task 22a: the three kinds `fires_alerts` raises, as 01d test fakes until task 23 registers the real ones
+// (§3.8 slip_warning, §3.10 station_overload, AD-8 engine_line_dropped). The one place their definitions live, so
+// task 23 can move them to src/engine-host/kinds.ts. The slip kind's apply is task 23's (here it returns nothing).
+export function registerEngineKindFakes(): void {
+  if (kindOf(ENGINE_ALERT_KINDS.slip) === undefined) {
+    defineAlertKind({
+      kind: ENGINE_ALERT_KINDS.slip,
+      family: 'action',
+      subject: 'order',
+      steps: [
+        { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'answerer' }] },
+        { at: { value: 'escalate_ms', times: 1 }, escalation: true, to: [{ target: 'raised_target', set: 'answerer' }, { target: { kind: 'managers' }, set: 'informed' }] },
+      ],
+      closes_on: 'owner',
+      // max(64) stands in for "values that fail the kind's schema" (test 76).
+      values_schema: z.object({ table_key: z.string().min(1).max(64), order_ids: z.array(z.string().min(1)).min(1), escalate_ms: z.number().int() }),
+      details_schema: null,
+      lead_fallback: false,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.slip_warning.card', lock: 'alert.slip_warning.lock' },
+      request: { answers: ['accept', 'decline'], right: { mode: 'named' }, needs_pin: 'never', apply: () => [] },
+    });
+  }
+  if (kindOf(ENGINE_ALERT_KINDS.overload) === undefined) {
+    defineAlertKind({
+      kind: ENGINE_ALERT_KINDS.overload,
+      family: 'info',
+      subject: 'station',
+      steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }],
+      closes_on: 'owner',
+      values_schema: z.object({ station_id: z.string().min(1), pressure_bp: z.number().int(), waiting: z.number().int() }),
+      details_schema: null,
+      lead_fallback: false,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.station_overload.card', lock: 'alert.station_overload.lock' },
+      request: null,
+    });
+  }
+  if (kindOf(ENGINE_ALERT_KINDS.lineDropped) === undefined) {
+    defineAlertKind({
+      kind: ENGINE_ALERT_KINDS.lineDropped,
+      family: 'info',
+      subject: 'order',
+      steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }],
+      closes_on: 'owner',
+      values_schema: z.object({ order_id: z.string().min(1), order_item_id: z.string().min(1), reason: z.string().min(1) }),
+      details_schema: null,
+      lead_fallback: false,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.engine_line_dropped.card', lock: 'alert.engine_line_dropped.lock' },
+      request: null,
+    });
+  }
+}
+
+export function resetEngineKindFakes(): void {
+  for (const kind of Object.values(ENGINE_ALERT_KINDS)) unregisterAlertKind(kind);
 }

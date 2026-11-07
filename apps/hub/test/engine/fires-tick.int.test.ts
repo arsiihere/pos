@@ -11,6 +11,7 @@ import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigAp
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alertsTick, registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot-steps';
+import { firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { firesTick, onFreezeEntry, setEngineConfigOf } from '../../src/engine-host/fires-tick';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
@@ -57,6 +58,8 @@ describe('03a task 22: the fires tick', () => {
     // 0006 seeds the no_approver flag dirty (01d's flag pass): start clean, so 01d's tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     log.error.mockClear();
+    // These tests count the fires tick alone; fires_alerts (task 22a: its boot reconcile pass, its slips) has its own file.
+    vi.spyOn(firesAlertsTick, 'due').mockReturnValue(false);
     stop = startTickLoop(hub.deps, log);
   });
 
@@ -130,7 +133,7 @@ describe('03a task 22: the fires tick', () => {
   }
 
   it('[03a §6.2] the fires tick is registered right after 01d\'s alerts tick', () => {
-    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires']);
+    expect(registeredTicks().map((t) => t.name)).toEqual(['alerts', 'fires', 'fires_alerts']);
   });
 
   // ------------------------------------------------------------------------------------------------------ #62 hub

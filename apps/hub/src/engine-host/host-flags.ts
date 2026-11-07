@@ -7,6 +7,21 @@ export interface HostFlags {
   reconcile: boolean; // §6.2a, §3.10: the first fires_alerts pass after boot
   snapshot_loaded: boolean; // §3.12: step 2 loaded a current-version snapshot (read by task 21's fresh-snapshot rule)
   reserve_fallback_logged: Set<string>; // AD-6: a reserve_fallback repeats on every re-plan; logged once per line
+  // §6.2a / §3.8 / §3.10 (task 22a): the fires_alerts tick's host memory, reset at boot (and at bindFiresAlertsTick).
+  skipped: Set<string>; // §3.8: table keys a pass could not raise; one leaves at a commit touching one of its orders
+  red_since: Map<string, number>; // §3.10, P-7: station → since when it is red, as the overload check saw it
+  overload_open: Set<string>; // §3.10: stations with an open station_overload, refreshed by every pass with work
+  overload_skipped: Set<string>; // §3.10: stations whose overload values failed the kind's schema (logged once)
+  dropped_lines: DroppedLine[]; // AD-8: dropped-line facts from the after-commit hook, raised by the next pass
+}
+
+// AD-8 developer condition: one engine_line_dropped alert per fact. `batch`: a refused OrderPlaced / OrderLinesAdded
+// (every line it listed is lost; the diagnostic names its first offending id).
+export interface DroppedLine {
+  order_id: string | null;
+  order_item_id: string | null;
+  reason: string;
+  batch: boolean;
 }
 
 export const hostFlags: HostFlags = fresh();
@@ -20,6 +35,11 @@ function fresh(): HostFlags {
     reconcile: false,
     snapshot_loaded: false,
     reserve_fallback_logged: new Set(),
+    skipped: new Set(),
+    red_since: new Map(),
+    overload_open: new Set(),
+    overload_skipped: new Set(),
+    dropped_lines: [],
   };
 }
 

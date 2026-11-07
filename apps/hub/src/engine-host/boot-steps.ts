@@ -2,6 +2,7 @@ import { getTickIntents, initialEngineState, type EngineState } from '@pos/engin
 import { registerTick } from '../alerts/tick.js';
 import { registerBootStep, type BootContext } from '../lib/boot.js';
 import { setStockVersion } from '../sync/stock-version.js';
+import { firesAlertsTick } from './fires-alerts-tick.js';
 import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
 import { logDiagnostics } from './reducer.js';
@@ -105,4 +106,6 @@ export function registerEngineBootSteps(mono?: () => number): void {
   // not in registerEngineHost: the tick list is process-wide and a name registers once, while every server build calls
   // registerEngineHost (proposed (implementer)).
   registerTick(firesTick);
+  // §6.2a: fires_alerts right after fires.
+  registerTick(firesAlertsTick);
 }

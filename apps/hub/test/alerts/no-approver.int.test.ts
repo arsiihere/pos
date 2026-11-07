@@ -636,8 +636,9 @@ describe('01d no_approver on a booted hub (task 31)', () => {
     cleanups.push(() => second.stop());
     const run = vi.spyOn(second.deps.writer, 'run');
     await vi.advanceTimersByTimeAsync(TICK_MS);
-    // the persisted flag makes the first pass open its transaction (whatever boot did with MGR's session)
-    expect(run).toHaveBeenCalledTimes(1);
+    // the persisted flag makes the first pass open its transaction (whatever boot did with MGR's session); the
+    // second is 03a's fires_alerts reconcile pass, forced once after boot (03a §6.2a)
+    expect(run).toHaveBeenCalledTimes(2);
     expect((second.deps.db.prepare(`SELECT dirty FROM alert_flags`).get() as { dirty: number }).dirty).toBe(0);
     run.mockClear();
     await vi.advanceTimersByTimeAsync(TICK_MS * 3);
