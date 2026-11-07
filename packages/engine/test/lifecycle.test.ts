@@ -16,6 +16,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   applyEvent,
+  applyEvents,
   buildEngineState,
   getTickIntents,
   initialEngineState,
@@ -27,6 +28,7 @@ import {
   type EngineState,
 } from '../src/index';
 import { liveProfile } from '../src/live';
+import { slipDueOf } from '../src/slip';
 
 const T0 = 1_761_000_000_000;
 const M = 60_000;
@@ -367,12 +369,12 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(fold([tickle(t + 4)], released).orders.O1).toBeUndefined();
   });
 
-  it('[03a AD-20] served exit with a from-stock line Done without a Start: kept 30 min on; released by the abandon pass, or by the close', () => {
+  it('[03a AD-20] a log with no consume (a writer that skipped stockEffects; AD-29 Q7 drafts one): the served exit is kept 30 min on; released by the abandon pass, or by the close', () => {
     const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
     const events = [cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
     const s = fold(events);
     expect(s.lines.L1!.stage).toBe('served');
-    expect(s.lines.L1!.reserved_seq).not.toBeNull(); // Done without a Start consumes nothing (§3.7: consume at Start)
+    expect(s.lines.L1!.reserved_seq).not.toBeNull(); // the fold of the Done itself never consumes; only a StockConsumed does
     const exit = at(25) + ORDER_EXIT_AFTER_SERVED_MS;
     const kept = fold([tickle(exit + 1)], s);
     expect(kept.orders.O1).toBeDefined();
@@ -395,6 +397,49 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(b.orders.O1).toBeUndefined();
     expect(b.stock.KB!.reserved).toBe(0);
     expect(noOrderInEngine(b, closeAt)).toBe(true);
+  });
+
+  // AD-29 Q7: the consume is drafted with the cause, so no reservation outlives the serve and the AD-20 keep does not apply.
+  function withEffects(state: EngineState, cause: PosEvent, t: number): EngineState {
+    const drafts = stockEffects(state, { event_type: cause.event_type, payload: cause.payload, occurred_at: t });
+    return fold([cause, ...stamped(drafts, t)], state);
+  }
+
+  it.each([
+    ['a Done without a Start', true],
+    ['a Served with neither', false],
+  ])('[03a AD-29 Q7] %s: the order exits on the served rule, removed at the next listed fold, reserved back to 0', (_name, tapDone) => {
+    const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
+    let s = fold([cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0))]);
+    if (tapDone) s = withEffects(s, done('O1', 'L1', at(20)), at(20));
+    s = withEffects(s, served('O1', ['L1'], at(25)), at(25));
+    expect(s.lines.L1).toMatchObject({ stage: 'served', reserved_seq: null, from_stock: true });
+    expect(s.stock.KB).toMatchObject({ on_hand: 3, reserved: 0 });
+    const exit = at(25) + ORDER_EXIT_AFTER_SERVED_MS;
+    expect(isOrderInEngine(s, 'O1', exit - 1)).toBe(true);
+    expect(noOrderInEngine(s, exit - 1)).toBe(false);
+    expect(noOrderInEngine(s, exit)).toBe(true); // not the 4 h of AD-20: nothing is held
+    expect(getTickIntents(s, exit)).toEqual([]);
+    const gone = fold([tickle(exit)], s);
+    expect(gone.orders.O1).toBeUndefined();
+    expect(gone.lines.L1).toBeUndefined();
+    expect(gone.stock.KB!.reserved).toBe(0);
+    expect(noOrderInEngine(gone, exit)).toBe(true);
+  });
+
+  it('[03a AD-29 Q7] the tick: an inferred Done needs a COOKING line, so it never meets a Start-less reservation; a Done without a Start, then Undo, gets no second consume', () => {
+    const config = anEngineConfigApplied({ recorded_at: at(-60), occurred_at: at(-60), seq: 1, payload: { stations: [{ ...S1, capacity: 1, completion_mode: 'auto_done' }] } });
+    const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
+    const s0 = fold([config, day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0))]);
+    // Fired, never started, far past any planned end: no inferred Done is due, the reservation just stays.
+    expect(getTickIntents(s0, at(600)).filter((d) => d.event_type === 'ItemDone')).toEqual([]);
+    // Done without a Start, then Undo: COOKING again with the consume standing.
+    const undone = fold([ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(2))], withEffects(s0, done('O1', 'L1', at(1)), at(1)));
+    expect(undone.lines.L1).toMatchObject({ stage: 'cooking', reserved_seq: null, started_at: at(1) });
+    const inferred = getTickIntents(undone, at(100)).filter((d) => d.event_type === 'ItemDone');
+    expect(inferred.map((d) => (d.payload as { order_item_id: string }).order_item_id)).toEqual(['L1']);
+    expect(getTickIntents(undone, at(100)).filter((d) => d.event_type === 'StockConsumed')).toEqual([]);
+    expect(stockEffects(undone, { event_type: 'ItemDone', payload: inferred[0]!.payload as unknown as Record<string, unknown>, occurred_at: at(100) })).toEqual([]);
   });
 
   it('[03a AD-20] a kept served-exit order is present: an OrderLinesAdded past its exit re-opens it (§3.3, test 78); its reservation stays', () => {
@@ -572,3 +617,151 @@ describe('@pos/engine lifecycle: carried AD-8 writer-bug checks', () => {
 function b0Line(id: string): Record<string, unknown> {
   return { order_item_id: id, station_id: 'S1', alternates: [], point_id: null, carry_ms: 0, from_stock: false, weight_pct: 100, max_early_ms: 60_000, max_late_ms: null, max_carry_ms: null };
 }
+
+// AD-29 Q5 (developer: "reject a reused order_item_id; the device mints it"), AD-8: an id that already names a line in
+// state.lines, or that one payload lists twice, is a writer bug: strict throws, non-strict one invalid_event, no write.
+describe('@pos/engine lifecycle: a reused order_item_id is refused (AD-29 Q5, AD-8)', () => {
+  const REUSED = /order_item_id_reused/;
+  const placed = (order_id: string, ids: string[], t: number): PosEvent =>
+    anOrderBatch({ order_id, recorded_at: t, seq: nextSeq(ids.length), lines: ids.map((id) => ({ order_item_id: id, item: { cook_time_ms: 20 * M, serve_mode: 'immediate' } })) })[0]!;
+  const addition = (order_id: string, ids: string[], t: number, group_index: number): PosEvent =>
+    anOrderLinesAdded({
+      stream_id: order_id,
+      recorded_at: t,
+      occurred_at: t,
+      seq: nextSeq(),
+      payload: {
+        order_id,
+        order_item_ids: ids,
+        groups: [{ group_id: `${order_id}:${group_index}`, target_land_ms: t + 30 * M, promise_ms: t + 33 * M, order_item_ids: ids }],
+        lines: ids.map((id) => ({ ...b0Line(id), return_of: null, cook_ms_override: null })),
+      },
+    });
+
+  // Strict throws; non-strict changes nothing but one invalid_event, and applyEvents leaves what the per-event fold leaves.
+  function expectRefused(prior: PosEvent[], bad: PosEvent, id: string): EngineState {
+    const s = fold(prior);
+    expect(() => applyEvent(deepFreeze(s), deepFreeze(bad))).toThrow(REUSED);
+    const n = fold([bad], s, { strict: false });
+    expect(n.orders).toEqual(s.orders);
+    expect(n.lines).toEqual(s.lines);
+    expect(n.stations).toEqual(s.stations);
+    expect(n.slip_due).toEqual(s.slip_due);
+    const added = n.diagnostics.slice(s.diagnostics.length);
+    expect(added.map((d) => [d.kind, d.detail.reason, d.detail.order_item_id, d.event_id])).toEqual([['invalid_event', 'order_item_id_reused', id, bad.event_id]]);
+    expect(JSON.stringify(applyEvents(deepFreeze(s), [deepFreeze(bad)], { strict: false }))).toBe(JSON.stringify(n));
+    return n;
+  }
+
+  it('[03a AD-29 Q5] OrderPlaced naming a live line of another order: refused, whatever the line\'s stage', () => {
+    const one = batch('O1', [{ id: 'L1' }], at(0));
+    expectRefused([cfg(), ...one], placed('O2', ['L1', 'N1'], at(1)), 'L1');
+    expectRefused([cfg(), ...one, fire(['L1'], at(1)), start('O1', 'L1', at(1))], placed('O2', ['N1', 'L1'], at(2)), 'L1');
+    expectRefused([cfg(), ...one, voided('O1', 'L1', 1, at(1))], placed('O2', ['L1'], at(2)), 'L1');
+    expectRefused([cfg(), ...servedOrder()], placed('O2', ['L1'], at(31)), 'L1');
+  });
+
+  it('[03a AD-29 Q5] a placeholder of an order still awaiting its ItemAdded is a line too', () => {
+    const [p1] = batch('O1', [{ id: 'L1' }, { id: 'L2' }], at(0)) as [PosEvent, ...PosEvent[]];
+    expectRefused([cfg(), p1], placed('O2', ['L2'], at(0)), 'L2');
+  });
+
+  it('[03a AD-29 Q5] OrderLinesAdded naming a line of its own order, or of another: refused, the order keeps its awaiting and its groups', () => {
+    const prior = [cfg(), ...batch('O1', [{ id: 'L1' }], at(0)), ...batch('O2', [{ id: 'L2' }], at(0))];
+    const own = expectRefused(prior, addition('O1', ['N1', 'L1'], at(1), 1), 'L1');
+    expect(own.orders.O1).toMatchObject({ awaiting: 0, next_group_index: 1 });
+    expectRefused(prior, addition('O1', ['L2'], at(1), 1), 'L2');
+  });
+
+  it('[03a AD-29 Q5] a deal line (no lines[] entry) with a reused id is refused too', () => {
+    const bad = anOrderBatch({
+      order_id: 'O2',
+      seq: nextSeq(3),
+      recorded_at: at(1),
+      lines: [{ order_item_id: 'L1', item: { line_kind: 'deal', item_id: null, deal_id: 'DL1', station_id: null, serve_mode: null, cook_time_ms: null } }, { order_item_id: 'N1' }],
+      order: { lines: [b0Line('N1')] },
+    })[0]!;
+    expectRefused([cfg(), ...batch('O1', [{ id: 'L1' }], at(0))], bad, 'L1');
+  });
+
+  it('[03a AD-29 Q5] an AD-20 kept order (exited, still reserved) still owns its ids', () => {
+    const kept = anOrderBatch({
+      order_id: 'O1',
+      recorded_at: at(0),
+      seq: nextSeq(3),
+      lines: [{ order_item_id: 'L1', item: { cook_time_ms: 20 * M, serve_mode: 'immediate', stock_time_ms: 60_000, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }] }, line: { from_stock: true } }],
+      reserved: [{ stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 }],
+    });
+    const stockSet = aStockSet({ stream_id: 'KB', recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq(), payload: { stock_item_id: 'KB', on_hand: 4, unit: 'piece' } });
+    const prior = [cfg(), stockSet, ...kept, fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
+    const t = at(25) + ORDER_EXIT_AFTER_SERVED_MS + 1;
+    const n = expectRefused([...prior, tickle(t)], placed('O2', ['L1'], t), 'L1');
+    expect(n.orders.O1).toBeDefined();
+    expect(n.lines.L1!.order_id).toBe('O1');
+  });
+
+  it('[03a AD-29 Q5] the same id twice in one payload: order_item_ids, lines[], or two groups', () => {
+    const base = placed('O2', ['A', 'B'], at(1));
+    const pay = base.payload as { order_item_ids: string[]; groups: Array<Record<string, unknown>>; lines: Array<Record<string, unknown>> };
+    const prior = [cfg()];
+    expectRefused(prior, { ...base, payload: { ...pay, order_item_ids: ['A', 'B', 'A'] } }, 'A');
+    expectRefused(prior, { ...base, payload: { ...pay, lines: [...pay.lines, pay.lines[1]!] } }, 'B');
+    const g = pay.groups[0]!;
+    const twoGroups = [{ ...g, order_item_ids: ['A', 'B'] }, { ...g, group_id: 'O2:1', order_item_ids: ['B'] }];
+    expectRefused(prior, { ...base, payload: { ...pay, groups: twoGroups } }, 'B');
+  });
+
+  it('[03a AD-29 Q5] the rest of a refused batch: ItemAdded of a refused OrderPlaced is an absent-order no-op; of a refused OrderLinesAdded, line_not_listed', () => {
+    const prior = [cfg(), ...batch('O1', [{ id: 'L1' }], at(0))];
+    const b = anOrderBatch({ order_id: 'O2', recorded_at: at(1), seq: nextSeq(3), lines: [{ order_item_id: 'L1', item: { cook_time_ms: 20 * M, serve_mode: 'immediate' } }, { order_item_id: 'N1', item: { cook_time_ms: 20 * M, serve_mode: 'immediate' } }] });
+    const s = fold([...prior, ...b], initialEngineState(), { strict: false });
+    expect(s.orders.O2).toBeUndefined();
+    expect(s.lines.N1).toBeUndefined();
+    expect(s.lines.L1!.order_id).toBe('O1');
+    expect(reasons(s)).toEqual(['order_item_id_reused']);
+    const bad = addition('O1', ['N1', 'L1'], at(1), 1);
+    const item = anItemAdded({ stream_id: 'O1', recorded_at: at(1), occurred_at: at(1), seq: nextSeq(), payload: { order_id: 'O1', order_item_id: 'N1' } });
+    const t = fold([...prior, bad, item], initialEngineState(), { strict: false });
+    expect(reasons(t)).toEqual(['order_item_id_reused', 'line_not_listed']);
+    expect(t.lines.N1).toBeUndefined();
+    expect(t.orders.O1!.awaiting).toBe(0);
+  });
+
+  it('[03a AD-29 Q5] an id free again after its order left the state is not reused: the check reads state.lines only', () => {
+    const t = at(30) + ORDER_EXIT_AFTER_SERVED_MS;
+    const s = fold([cfg(), ...servedOrder(), placed('O2', ['L1'], t)]);
+    expect(s.orders.O1).toBeUndefined();
+    expect(s.lines.L1!.order_id).toBe('O2');
+  });
+
+  it('[03a AD-29 Q5, #106] the minimal log of hostile seed 131: refused, and the upkeep equals the full recompute at every fold', () => {
+    const LATE = at(-510);
+    const sync = (id: string, station_id: string, cook_min: number) => ({ order_item_id: id, item: { station_id, cook_time_ms: cook_min * M, serve_mode: 'sync' }, line: { station_id } });
+    const ids = ['L1', 'L2', 'L3', 'L4', 'L5'];
+    const [placedO1, a1, a2, a3, a4, a5] = anOrderBatch({
+      order_id: 'O1',
+      recorded_at: at(0),
+      seq: nextSeq(6),
+      lines: [sync('L1', 'S1', 3), sync('L2', 'S1', 3), sync('L3', 'S2', 20), sync('L4', 'S2', 20), sync('L5', 'S2', 20)],
+      order: { order_type: 'delivery', table_key: 'dine_in:T25', pickup_at_ms: LATE, groups: [{ group_id: 'O1:0', target_land_ms: LATE, promise_ms: LATE + 3 * M, order_item_ids: ids }] },
+    }) as [PosEvent, PosEvent, PosEvent, PosEvent, PosEvent, PosEvent];
+    const warned: PosEvent = { ...ev('SlipWarned', 'H', { table_key: 'dine_in:T25', order_ids: ['O1'], estimated_land_ms: at(10), alert_id: 'AL1' }, at(0)), stream_type: 'audit' };
+    const again = anOrderBatch({
+      order_id: 'O2',
+      recorded_at: at(20),
+      seq: nextSeq(3),
+      lines: [sync('L1', 'S2', 20), sync('R1', 'S2', 20)],
+      order: { table_id: 'T12', table_key: 'dine_in:T12', groups: [{ group_id: 'O2:0', target_land_ms: at(25), promise_ms: at(28), order_item_ids: ['L1', 'R1'] }] },
+    });
+    const log = [cfg(50), placedO1, a1, a2, a3, warned, a4, a5, again[0]!, again[1]!, start('O1', 'L2', at(21)), done('O1', 'L3', at(24)), done('O1', 'L4', at(24)), done('O1', 'L5', at(24)), removed('O2', 'L1', at(24))];
+    let s = initialEngineState();
+    for (const e of log) {
+      s = applyEvent(deepFreeze(s), deepFreeze(e), { strict: false });
+      expect(s.slip_due).toEqual(slipDueOf(s));
+    }
+    expect(s.lines.L1).toMatchObject({ order_id: 'O1', station_id: 'S1' });
+    expect(s.orders.O2).toBeUndefined();
+    expect(reasons(s)).toContain('order_item_id_reused');
+    expect(() => fold(log)).toThrow(REUSED);
+  });
+});

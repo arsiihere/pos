@@ -214,7 +214,28 @@ function checkStream(event: PosEvent, order_id: string, order_item_id: string, s
 // §3.3 deterministic ids: the event's groups are `order_id:(next_group_index + i)` in order (OrderPlaced 0…n−1, an
 // addition from next_group_index), and every lines[] entry is one of order_item_ids — else InvalidEvent (AD-8).
 // An OrderLinesAdded re-opens the order (last_served_at null, §3.3 fold order).
+// AD-29 Q5 (developer; AD-8): the device mints order_item_id. An id that already names a line in state.lines (any order,
+// any stage, an AD-20 kept order's too) or that one payload lists twice is a writer bug: InvalidEvent before any write.
+// Proposed (implementer): "reused" covers every id of order_item_ids (a deal line with no lines[] entry too) and an id
+// listed twice in lines[] or across groups. An id whose order has left the state is free again: only state.lines is read.
 type ListedLine = OrderLinePayload & Partial<Pick<OrderLinesAddedLinePayload, 'return_of' | 'cook_ms_override'>>;
+function checkIdsFresh(state: EngineState, p: { order_item_ids: string[]; groups: OrderGroupPayload[]; lines: ListedLine[] }): void {
+  const once = (ids: Iterable<string>): void => {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) throw new InvalidEvent('order_item_id_reused', id);
+      seen.add(id);
+    }
+  };
+  for (const id of p.order_item_ids) {
+    const line = state.lines[id];
+    if (line !== undefined) throw new InvalidEvent('order_item_id_reused', id, line.station_id);
+  }
+  once(p.order_item_ids);
+  once(p.lines.map((l) => l.order_item_id));
+  once(p.groups.flatMap((g) => g.order_item_ids));
+}
+
 function listLines(
   state: EngineState,
   order: EngineOrder,
@@ -222,6 +243,7 @@ function listLines(
   recorded_at: number,
   o: FoldOptions,
 ): EngineState {
+  checkIdsFresh(state, p);
   const groups = { ...order.groups };
   const next = order.next_group_index + p.groups.length;
   const ids = new Set(p.order_item_ids);

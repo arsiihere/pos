@@ -12,6 +12,8 @@ import {
   anOrderBatch,
   aReturnLinesAdded,
   aStockAdded,
+  aStockConsumed,
+  aStockReleased,
   aStockReserved,
   aStockSet,
 } from '@pos/events/testing';
@@ -380,7 +382,7 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
       ...frozen('O3', [{ id: 'W', draws: kb(), from_stock: true }]),
       fired(['W'], T + 1),
       ...frozen('O4', [{ id: 'S', draws: kb(), from_stock: true }]),
-      orderEv('ItemServed', 'O4', { order_item_ids: ['S'], source: 'tap' }, T + 2), // served without a Start: still reserved
+      orderEv('ItemServed', 'O4', { order_item_ids: ['S'], source: 'tap' }, T + 2), // a log with no consume drafted: still reserved
     ];
     const s0 = fold(head);
     const at = T + 600_000;
@@ -636,5 +638,131 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(() => stockEffects(s0, { ...draftOf(added('KB', 1, T)), occurred_at: T })).toThrow(/stock_ctx/);
     expect(() => stockEffects(s0, { ...draftOf(set('KB', 1, T)), occurred_at: T })).toThrow(/stock_ctx/);
     expect(stockEffects(s0, { ...draftOf(closed(T)), occurred_at: T })).toEqual([]);
+  });
+});
+
+// AD-29 Q7 (developer: "consume at Done (or Served) if there was no Start"): a from-stock line that skips its Start
+// (AD-10 allows Done from `added`) consumes with the cause, exactly as the Start would (§3.7 consume, P-5, AD-6).
+describe('@pos/engine stockEffects: consume at Done or Served without a Start (AD-29 Q7)', () => {
+  const done = (o: string, line: string, at: number): PosEvent => orderEv('ItemDone', o, { order_item_id: line, done_at: at, source: 'tap' }, at);
+  const served = (o: string, lines: string[], at: number): PosEvent => orderEv('ItemServed', o, { order_item_ids: lines, source: 'tap' }, at);
+  const undo = (o: string, line: string, at: number): PosEvent => orderEv('ItemDoneUndone', o, { order_item_id: line }, at);
+  const effects = (s: EngineState, e: PosEvent, at: number) => stockEffects(s, { ...draftOf(e), occurred_at: at }).map(brief);
+  const two: Draw[] = [{ stock_item_id: 'KB', quantity: 2 }, { stock_item_id: 'X', quantity: 3 }];
+  const stocked = (): PosEvent[] => [cfg(), set('KB', 9, DAY), set('X', 9, DAY)];
+
+  it('[03a AD-29 Q7] Done with no Start: one StockConsumed per reserved draw, right after the cause; later taps draft nothing', () => {
+    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'D', draws: two, from_stock: true }]), fired(['D'], T + 1)]);
+    const at = T + 2;
+    const cause = done('O1', 'D', at);
+    const { events, state: s1 } = commit(s0, [cause], at);
+    expect(events.map(brief)).toEqual([{ type: 'ItemDone', line: 'D' }, { type: 'StockConsumed', id: 'KB', line: 'D', q: 2 }, { type: 'StockConsumed', id: 'X', line: 'D', q: 3 }]);
+    expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 7, reserved: 0 });
+    expect(stockOf(s1, 'X')).toMatchObject({ on_hand: 6, reserved: 0 });
+    expect(s1.lines.D).toMatchObject({ stage: 'done', reserved_seq: null, from_stock: true, started_at: null });
+    expect(breaches(s1)).toEqual([]);
+    // Duplicate Done, a late Start, the Served: nothing further.
+    expect(effects(s1, done('O1', 'D', at + 1), at + 1)).toEqual([]);
+    expect(effects(s1, started('O1', 'D', at + 1), at + 1)).toEqual([]);
+    expect(effects(s1, served('O1', ['D'], at + 1), at + 1)).toEqual([]);
+    // Replay = live.
+    expect(replay([...stocked(), ...frozen('O1', [{ id: 'D', draws: two, from_stock: true }]), fired(['D'], T + 1)]).stock).toEqual(s0.stock);
+  });
+
+  it('[03a AD-29 Q7] a hidden, frozen or fired line alike: the single form gives the consume alone; the stations are not re-planned', () => {
+    const p = T + 7_200_000;
+    const s0 = fold([...stocked(), ...hidden('O1', [{ id: 'H', draws: kb(), from_stock: true }], p), ...frozen('O2', [{ id: 'Z', draws: kb(), from_stock: true }]), ...frozen('O3', [{ id: 'W', draws: kb(), from_stock: true }]), fired(['W'], T + 1)]);
+    for (const [o, id] of [['O1', 'H'], ['O2', 'Z'], ['O3', 'W']] as const) {
+      expect(effects(s0, done(o, id, T + 2), T + 2)).toEqual([{ type: 'StockConsumed', id: 'KB', line: id, q: 1 }]);
+    }
+    const { events } = commit(s0, [done('O1', 'H', T + 2)], T + 2);
+    const afterDone = fold([events[0]!], s0);
+    expect(fold([events[1]!], afterDone).stations).toBe(afterDone.stations);
+  });
+
+  it('[03a AD-29 Q7] Served with neither: every listed line that was not started, with the cause first; absent, repeated, started, ended lines and lines with no reservation draft nothing', () => {
+    const lines: LineSpec[] = [{ id: 'A', draws: kb(), from_stock: true }, { id: 'B', draws: kb(2), from_stock: true }, { id: 'C', draws: kb(), from_stock: true }, { id: 'F' }, { id: 'V', draws: kb(), from_stock: true }];
+    const s0 = fold([...stocked(), ...frozen('O1', lines), fired(['C'], T + 1), started('O1', 'C', T + 2), stamp(aStockConsumed({ stream_id: 'KB', payload: { stock_item_id: 'KB', order_item_id: 'C', quantity: 1 } }), T + 2), orderEv('ItemVoided', 'O1', { order_item_id: 'V', units: 1 }, T + 3)]);
+    expect(s0.lines.V!.reserved_seq).not.toBeNull(); // this log skipped the void's release: a closed line never consumes
+    const at = T + 4;
+    const cause = served('O1', ['A', 'A', 'B', 'C', 'F', 'V', 'NOPE'], at);
+    const { events, state: s1 } = commit(s0, [cause], at);
+    expect(events.map(brief)).toEqual([{ type: 'ItemServed' }, { type: 'StockConsumed', id: 'KB', line: 'A', q: 1 }, { type: 'StockConsumed', id: 'KB', line: 'B', q: 2 }]);
+    expect(s1.lines.A).toMatchObject({ stage: 'served', reserved_seq: null });
+    expect(s1.lines.B).toMatchObject({ stage: 'served', reserved_seq: null });
+    expect(effects(s1, served('O1', ['A', 'B'], at + 1), at + 1)).toEqual([]);
+  });
+
+  it('[03a AD-29 Q7] a Start consumes; its Done and Served draft nothing. A line already released, or fresh, drafts nothing', () => {
+    const p = T + 7_200_000;
+    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'A', draws: kb(), from_stock: true }]), fired(['A'], T + 1), ...hidden('O2', [{ id: 'R', draws: kb(), from_stock: true }], p), ...frozen('O3', [{ id: 'F', draws: kb() }])]);
+    const { state: s1 } = commit(s0, [started('O1', 'A', T + 2)], T + 2);
+    expect(stockOf(s1, 'KB').reserved).toBe(1);
+    expect(effects(s1, done('O1', 'A', T + 3), T + 3)).toEqual([]);
+    expect(effects(s1, served('O1', ['A'], T + 3), T + 3)).toEqual([]);
+    const released = fold([stamp(aStockReleased({ stream_id: 'KB', payload: { stock_item_id: 'KB', order_item_id: 'R', quantity: 1, reason: 'recount' } }), T + 4)], s1);
+    expect(released.lines.R!.reserved_seq).toBeNull();
+    expect(effects(released, done('O2', 'R', T + 5), T + 5)).toEqual([]);
+    expect(effects(released, served('O2', ['R'], T + 5), T + 5)).toEqual([]);
+    expect(effects(s1, done('O3', 'F', T + 5), T + 5)).toEqual([]);
+    expect(effects(s1, served('O3', ['F'], T + 5), T + 5)).toEqual([]);
+  });
+
+  it('[03a AD-29 Q7] the partial void left the rest reserved: Done consumes what is still reserved', () => {
+    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'P', quantity: 3, draws: kb(3), from_stock: true }])]);
+    const { state: s1 } = commit(s0, [orderEv('ItemVoided', 'O1', { order_item_id: 'P', units: 1 }, T + 1)], T + 1);
+    expect(s1.lines.P!.draws[0]).toMatchObject({ reserved: 2 });
+    expect(effects(s1, done('O1', 'P', T + 2), T + 2)).toEqual([{ type: 'StockConsumed', id: 'KB', line: 'P', q: 2 }]);
+  });
+
+  // Proposed (implementer): §3.7 has no event that puts a consumed plate back (a release needs a live reservation; only a
+  // move to stock adds, and Undo is neither), and a Start's consume survives an Undo. So Undo reverses the stage only.
+  it('[03a AD-29 Q7] Done then Undo: the consume stands; the second Done and a Start draft nothing; nothing folds twice', () => {
+    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'U', draws: kb(2), from_stock: true }]), fired(['U'], T + 1)]);
+    const { state: s1 } = commit(s0, [done('O1', 'U', T + 2)], T + 2);
+    const { events, state: s2 } = commit(s1, [undo('O1', 'U', T + 3)], T + 3);
+    expect(events.map(brief)).toEqual([{ type: 'ItemDoneUndone', line: 'U' }]);
+    expect(s2.lines.U).toMatchObject({ stage: 'cooking', reserved_seq: null, from_stock: true, started_at: T + 2, done_at: null });
+    expect(stockOf(s2, 'KB')).toMatchObject({ on_hand: 7, reserved: 0 });
+    expect(effects(s2, started('O1', 'U', T + 4), T + 4)).toEqual([]);
+    expect(effects(s2, done('O1', 'U', T + 4), T + 4)).toEqual([]);
+    expect(effects(s2, served('O1', ['U'], T + 4), T + 4)).toEqual([]);
+    const { state: s3 } = commit(s2, [done('O1', 'U', T + 5)], T + 5);
+    expect(stockOf(s3, 'KB')).toMatchObject({ on_hand: 7, reserved: 0 });
+    expect(breaches(s3)).toEqual([]);
+  });
+
+  it('[03a AD-29 Q7, AD-6] a consume past on_hand: strict throws; non-strict clamps at 0 with one breach, as a Start does', () => {
+    const head = [...stocked(), ...frozen('O1', [{ id: 'D', draws: kb(2), from_stock: true }]), fired(['D'], T + 1), set('KB', 1, T + 2)];
+    const s0 = fold(head, initialEngineState(), { strict: false });
+    expect(stockOf(s0, 'KB')).toMatchObject({ on_hand: 1, reserved: 2 });
+    expect(breaches(s0)).toEqual([]);
+    const cause = done('O1', 'D', T + 3);
+    expect(() => commit(s0, [cause], T + 3)).toThrow();
+    const { state: s1 } = commit(s0, [cause], T + 3, { strict: false });
+    expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 0, reserved: 0 });
+    expect(s1.lines.D!.reserved_seq).toBeNull();
+    expect(breaches(s1)).toHaveLength(1);
+    // The same result as the Start.
+    const { state: viaStart } = commit(s0, [started('O1', 'D', T + 3)], T + 3, { strict: false });
+    expect(stockOf(viaStart, 'KB')).toEqual(stockOf(s1, 'KB'));
+  });
+
+  it('[03a AD-29 Q7] the array form: the effect follows its cause and a later cause of the command sees it; replay = live', () => {
+    const head = [...stocked(), ...frozen('O1', [{ id: 'D', draws: kb(), from_stock: true }]), fired(['D'], T + 1)];
+    const s0 = fold(head);
+    const at = T + 2;
+    const { events, state: s1 } = commit(s0, [done('O1', 'D', at), served('O1', ['D'], at)], at);
+    expect(events.map(brief)).toEqual([{ type: 'ItemDone', line: 'D' }, { type: 'StockConsumed', id: 'KB', line: 'D', q: 1 }, { type: 'ItemServed' }]);
+    expect(JSON.stringify(replay([...head, ...events]))).toBe(JSON.stringify(s1));
+  });
+
+  it('[03a AD-29 Q7] a move to stock after a Done without a Start adds the portion back once, net of the consume', () => {
+    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'D', draws: kb(), from_stock: true }]), fired(['D'], T + 1)]);
+    const { state: s1 } = commit(s0, [done('O1', 'D', T + 2)], T + 2);
+    expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 8, reserved: 0 });
+    const { events, state: s2 } = commit(s1, [orderEv('ItemMovedToStock', 'O1', { order_item_id: 'D', units: 1 }, T + 3)], T + 3);
+    expect(events.map(brief)).toEqual([{ type: 'ItemMovedToStock', line: 'D' }, { type: 'StockAdded', id: 'KB', q: 1, reason: 'moved' }]);
+    expect(stockOf(s2, 'KB')).toMatchObject({ on_hand: 9, reserved: 0 });
   });
 });

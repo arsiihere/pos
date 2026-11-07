@@ -9,7 +9,7 @@ import type {
   StockReservedPayload,
 } from '@pos/events';
 import { InvalidEvent } from './invalid-event.js';
-import { closedOrderIds, orderInEngine } from './lifecycle.js';
+import { closedOrderIds, isOpen, orderInEngine } from './lifecycle.js';
 import { isEngineLine, type ProposedLine, type ProposedOrder } from './plan.js';
 import { placedUnderOldType } from './batch.js';
 import { stationPolicy } from './replan.js';
@@ -237,8 +237,8 @@ export function lineReleases(line: Pick<EngineLine, 'order_item_id' | 'draws'>, 
   return line.draws.filter((d) => d.reserved > 0).map((d) => releasedDraft(d.stock_item_id, line.order_item_id, d.reserved, reason));
 }
 
-// §3.7 consume / Q14: one StockConsumed per draw with reserved > 0, quantity = that draw's reserved; only a live
-// reservation (reserved_seq ≠ null, v0.5 G4-1 #6).
+// §3.7 consume / Q14 / AD-29 Q7: one StockConsumed per draw with reserved > 0, quantity = that draw's reserved; only a
+// live reservation (reserved_seq ≠ null, v0.5 G4-1 #6), so a later Start, Done or Served of the line drafts nothing.
 function lineConsumes(line: EngineLine): StockConsumedDraft[] {
   if (line.reserved_seq === null) return [];
   return line.draws.filter((d) => d.reserved > 0).map((d) => consumedDraft(d.stock_item_id, line.order_item_id, d.reserved));
@@ -386,7 +386,8 @@ function unitChangeConsumes(state: EngineState, stock_item_id: string): StockCon
 
 // §3.7 close (v0.6, G4-2 #5, #11): hidden lines of the orders kept over the close, plus every line of an order out of
 // the engine (by the predicate at t, or closed by this close, §3.3 Q13) that still holds a reservation; whole lines,
-// by order_item_id. Frozen and fired lines of kept orders keep theirs (they consume at Start).
+// by order_item_id. Frozen and fired lines of kept orders keep theirs (they consume at Start, or at Done or Served
+// with no Start, AD-29 Q7).
 function closeReleases(state: EngineState, t: number): StockReleasedDraft[] {
   const closing = new Set(closedOrderIds(state));
   const out: StockReleasedDraft[] = [];
@@ -431,10 +432,28 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
   const p = draft.payload;
   const none = { before: [], after: [] };
   switch (draft.event_type) {
-    // §3.7 consume (P-5): appended with the start (03b's StartItem, the tick's inferred start).
-    case 'ItemStarted': {
+    // §3.7 consume (P-5): appended with the start (03b's StartItem, the tick's inferred start). AD-29 Q7 (developer): a
+    // Done from `added` (AD-10) had no Start, so it consumes the same way. A Done from `cooking` follows a Start, or an
+    // Undo of a Done, which consumed already. The tick's inferred Done is only ever from `cooking` (tick.ts doneDue).
+    // Proposed (implementer): Undo does not reverse the consume. §3.7 has no event that puts a consumed plate back, a
+    // Start's consume survives an Undo too, and the line's reserved_seq stays null, so its next Done drafts nothing.
+    case 'ItemStarted':
+    case 'ItemDone': {
       const line = namedLine(state, p);
       return line === undefined || line.stage !== 'added' ? none : { before: [], after: lineConsumes(line) };
+    }
+    // AD-29 Q7 (developer): a Served of a line with no Start consumes what it still holds. ItemServed lists its lines; a
+    // closed line (the fold ignores it, AD-10) and a repeated id draft nothing.
+    // Proposed (implementer): "no Start" is read as started_at null at any open stage, so a `done` line whose Done wrote
+    // no consume still consumes here. Like the Start's, these drafts read the line only: a Done or Served naming a line
+    // of an AD-20 kept order, whose fold is a no-op, still consumes (the plate was taken), before the tick's release.
+    case 'ItemServed': {
+      const after: StockConsumedDraft[] = [];
+      for (const id of new Set(p.order_item_ids as string[])) {
+        const line = namedLine(state, { order_item_id: id });
+        if (line !== undefined && line.started_at === null && isOpen(line)) after.push(...lineConsumes(line));
+      }
+      return { before: [], after };
     }
     // §3.7 per-cause table: the line itself, at any stage before its Start (a started line's units were consumed).
     case 'ItemRemoved': {
