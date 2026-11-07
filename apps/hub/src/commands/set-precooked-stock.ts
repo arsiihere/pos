@@ -1,6 +1,6 @@
 import { DomainError } from '@pos/domain';
-import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockLevel, stockOf, type EngineState } from '@pos/engine';
-import type { ConfigItem, ConfigStockItem } from '@pos/events';
+import { applyEvent, availableStock, dayStockUnit, openDayStartMs, stockEffects, stockLevel, stockOf, type EngineState, type StockCtx } from '@pos/engine';
+import type { ConfigItem, ConfigStockItem, EventDraft } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Resolution, StaffDirectory } from '../auth/staff-directory.js';
@@ -28,23 +28,42 @@ export function registerSetPrecookedStock(app: FastifyInstance): void {
         const stockItems = stockItemsOf(ctx.state, payload.entries);
         requireStockItemsInScope(ctx, stockItems);
         const now = ctx.clock.branchNow();
-        const appended = ctx.tx.append(
-          payload.entries.map((entry, i) => ({
-            stream_type: 'stock' as const,
-            stream_id: entry.stock_item_id,
-            event_type: 'StockSet',
-            schema_version: 2,
-            payload: { stock_item_id: entry.stock_item_id, on_hand: entry.on_hand, unit: dayStockUnit(ctx.state, stockItems[i]!) },
-            occurred_at: now,
-            actor_id: ctx.actor.staffId,
-            device_id: ctx.actor.deviceId,
-          })),
-        );
+        const drafts = payload.entries.map((entry, i) => ({
+          stream_type: 'stock' as const,
+          stream_id: entry.stock_item_id,
+          event_type: 'StockSet',
+          schema_version: 2,
+          payload: { stock_item_id: entry.stock_item_id, on_hand: entry.on_hand, unit: dayStockUnit(ctx.state, stockItems[i]!) },
+          occurred_at: now,
+          actor_id: ctx.actor.staffId,
+          device_id: ctx.actor.deviceId,
+        }));
+        const appended = ctx.tx.append(withStockEffects(ctx, drafts, openDayStockCtx(ctx.state)));
         const next = appended.reduce((s, e) => applyEvent(s, e, { strict: false }), ctx.state);
         return { events: [], result: { stock_items: stockItems.map((stockItem) => stockItemResult(next, stockItem, now)) } };
       },
     }),
   );
+}
+
+// 03a §4.2, §3.7, 01a A-14: the command's drafts with their stockEffects drafts in batch order, one list for one
+// append in the command's transaction. Engine drafts have no envelope; each takes the command's own (§6.1f).
+export function withStockEffects(ctx: CommandCtx, drafts: EventDraft[], stockCtx?: StockCtx): EventDraft[] {
+  const { occurred_at, actor_id, device_id } = drafts[0]!;
+  return stockEffects(ctx.state, drafts, stockCtx).map((draft) => ({ ...draft, occurred_at, actor_id, device_id }));
+}
+
+// 03a §6.1f: what stockEffects needs for a StockAdded or StockSet draft. stockItemsOf has checked both, so a missing one
+// is a caller bug, not a client's error.
+export function openDayStockCtx(state: Readonly<EngineState>): StockCtx {
+  const config = branchConfig();
+  const dayStartMs = openDayStartMs(state);
+  if (config === null || dayStartMs === null) throw new Error('openDayStockCtx requires a branch config and an open day');
+  return {
+    dayStartMs,
+    stockItems: config.stock_items,
+    configStockUnits: Object.fromEntries(config.stock_items.map((stockItem) => [stockItem.stock_item_id, stockItem.stock_unit])),
+  };
 }
 
 // 01c §6.18, C6: a repeated stock_item_id → 400 at entries.N.stock_item_id, N the repeat.

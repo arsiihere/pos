@@ -1,9 +1,10 @@
-import { availableStock, dayDraws, openDayStartMs, saleUnitsAvailable, type EngineState } from '@pos/engine';
-import type { BranchConfig, DirectoryInput } from '@pos/events';
-import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
+import { applyEvent, availableStock, dayDraws, initialEngineState, openDayStartMs, saleUnitsAvailable, type EngineState } from '@pos/engine';
+import { parseEvent, type BranchConfig, type DirectoryInput, type PosEvent } from '@pos/events';
+import { aBranchConfig, aBranchConfigItemStock, aFireDispatched, anEngineConfigApplied, anOrderBatch, aStockSet } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
+import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };
@@ -225,6 +226,189 @@ describe('SetPrecookedStock (§6.17)', () => {
     expect(inside.statusCode, inside.body).toBe(200);
     expect(stockEvents(hub)).toHaveLength(1);
   });
+
+  it('[01a §6.17 A-14] a count below reserved appends StockReleased { recount } for hidden lines, newest reserved_seq first, every draw, before the StockSet; frozen and fired lines keep theirs', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 6);
+    counted(hub, 'I3', 1_000, 'g');
+    hidden(hub, 'O1', [{ id: 'A', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    hidden(hub, 'O2', [{ id: 'B', draws: [{ stock_item_id: 'I1', quantity: 1 }, { stock_item_id: 'I3', quantity: 250 }], from_stock: true }], 100_000);
+    hidden(hub, 'O3', [{ id: 'C', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }], 200_000);
+    frozen(hub, 'O4', [{ id: 'Z', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    frozen(hub, 'O5', [{ id: 'W', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    fired(hub, 'W');
+    expect(engine(hub).stock.I1).toMatchObject({ on_hand: 6, reserved: 5 });
+    hub.clock.advance(1_000);
+    const now = hub.clock.branchNow();
+    const before = lastSeq(hub);
+
+    const res = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 1 }], 'cmd-recount');
+
+    expect(res.statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockReleased', id: 'I1', line: 'C', q: 1, reason: 'recount' },
+      { type: 'StockReleased', id: 'I1', line: 'B', q: 1, reason: 'recount' },
+      { type: 'StockReleased', id: 'I3', line: 'B', q: 250, reason: 'recount' },
+      { type: 'StockReleased', id: 'I1', line: 'A', q: 1, reason: 'recount' },
+      { type: 'StockSet', id: 'I1', on_hand: 1, unit: 'piece' },
+    ]);
+    // The command stamps the envelope of every draft as its own, and event_ids lists the whole batch.
+    const rows = rowsAfter(hub, before);
+    for (const row of rows) expect(row).toMatchObject({ stream_type: 'stock', occurred_at: now, recorded_at: now, actor_id: 'S_MGR', device_id: admin.device.deviceId });
+    expect(rows.map((row) => row.stream_id)).toEqual(['I1', 'I1', 'I3', 'I1', 'I1']);
+    expect(res.json().data.event_ids).toEqual(rows.map((row) => row.event_id));
+    // Result shape unchanged; on_hand < reserved only by the frozen and fired units.
+    expect(res.json().data.result).toEqual({
+      stock_items: [{ stock_item_id: 'I1', on_hand: 1, reserved: 2, unit: 'piece', available: 0, level: 'out', set_at: now }],
+    });
+    expect(engine(hub).stock.I3).toMatchObject({ on_hand: 1_000, reserved: 0 });
+    expect(engine(hub).lines.A).toMatchObject({ from_stock: false, reserved_seq: null, cook_ms: COOK });
+    expect(engine(hub).lines.B).toMatchObject({ from_stock: false, reserved_seq: null, cook_ms: COOK });
+    expect(engine(hub).lines.Z).toMatchObject({ from_stock: true });
+    expect(engine(hub).lines.Z!.reserved_seq).not.toBeNull();
+    expect(engine(hub).lines.W!.reserved_seq).not.toBeNull();
+    expectSameAsReplay(hub);
+
+    const replay = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 1 }], 'cmd-recount');
+    expect(replay.headers['idempotent-replay']).toBe('true');
+    expect(replay.json()).toEqual(res.json());
+    expect(rowsAfter(hub, before)).toHaveLength(5);
+  });
+
+  it('[01a §6.17 A-14] the recount stops once reserved ≤ the count; a count at or above reserved releases nothing', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 6);
+    hidden(hub, 'O1', [{ id: 'A', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    hidden(hub, 'O2', [{ id: 'B', draws: [{ stock_item_id: 'I1', quantity: 2 }], from_stock: true }], 100_000);
+    hidden(hub, 'O3', [{ id: 'C', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }], 200_000);
+    let before = lastSeq(hub);
+    expect((await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 4 }], 'cmd-at')).statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([{ type: 'StockSet', id: 'I1', on_hand: 4, unit: 'piece' }]);
+    before = lastSeq(hub);
+    expect((await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 3 }], 'cmd-below')).statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockReleased', id: 'I1', line: 'C', q: 1, reason: 'recount' },
+      { type: 'StockSet', id: 'I1', on_hand: 3, unit: 'piece' },
+    ]);
+    expect(engine(hub).stock.I1).toMatchObject({ on_hand: 3, reserved: 3 });
+    expectSameAsReplay(hub);
+  });
+
+  it('[01a §6.17 A-14] a unit-changing count with held reservations appends StockConsumed first, every draw of each holding line; held lines are not re-reserved (BF-9 parked, AD-29 Q6, tests #42, #118); a waiting hidden full-cook line gets the BF-8 reserve after the StockSet', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 5);
+    counted(hub, 'I3', 6, 'piece'); // yesterday's unit: the day's frozen unit of I3 is g
+    hidden(hub, 'O1', [{ id: 'H', draws: [{ stock_item_id: 'I3', quantity: 1 }], from_stock: true }]);
+    frozen(hub, 'O2', [{ id: 'Z', draws: [{ stock_item_id: 'I3', quantity: 1 }, { stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    hidden(hub, 'O3', [{ id: 'WAIT', draws: [{ stock_item_id: 'I3', quantity: 100 }] }], 100_000);
+    hub.clock.advance(1_000);
+    const before = lastSeq(hub);
+
+    const res = await setStock(hub, admin, [{ stock_item_id: 'I3', on_hand: 500 }], 'cmd-unit');
+
+    expect(res.statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockConsumed', id: 'I3', line: 'H', q: 1 },
+      { type: 'StockConsumed', id: 'I3', line: 'Z', q: 1 },
+      { type: 'StockConsumed', id: 'I1', line: 'Z', q: 1 },
+      { type: 'StockSet', id: 'I3', on_hand: 500, unit: 'g' },
+      { type: 'StockReserved', id: 'I3', line: 'WAIT', q: 100 },
+    ]);
+    expect(res.json().data.result.stock_items).toEqual([
+      { stock_item_id: 'I3', on_hand: 500, reserved: 100, unit: 'g', available: 400, level: 'ok', set_at: hub.clock.branchNow() },
+    ]);
+    expect(engine(hub).stock.I1).toMatchObject({ on_hand: 4, reserved: 0 });
+    // BF-9 parked: consumed, so their later Start drafts no StockConsumed; no reservation in the new unit.
+    expect(engine(hub).lines.H).toMatchObject({ from_stock: true, reserved_seq: null });
+    expect(engine(hub).lines.Z).toMatchObject({ from_stock: true, reserved_seq: null });
+    expect(engine(hub).lines.WAIT).toMatchObject({ from_stock: true, cook_ms: STOCK_COOK });
+    expectSameAsReplay(hub);
+  });
+
+  it('[01a §6.17 A-14] a count that raises available reserves waiting hidden full-cook lines after the StockSet (BF-8); a frozen line is not a candidate', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 0);
+    frozen(hub, 'O1', [{ id: 'Z', draws: [{ stock_item_id: 'I1', quantity: 1 }] }]);
+    hidden(hub, 'O2', [{ id: 'W1', draws: [{ stock_item_id: 'I1', quantity: 1 }] }]);
+    hidden(hub, 'O3', [{ id: 'W2', draws: [{ stock_item_id: 'I1', quantity: 1 }] }], 100_000);
+    const before = lastSeq(hub);
+    expect((await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 1 }], 'cmd-up')).statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockSet', id: 'I1', on_hand: 1, unit: 'piece' },
+      { type: 'StockReserved', id: 'I1', line: 'W1', q: 1 },
+    ]);
+    expect(engine(hub).lines.Z).toMatchObject({ from_stock: false });
+    expect(engine(hub).lines.W2).toMatchObject({ from_stock: false });
+    expectSameAsReplay(hub);
+  });
+
+  it('[01a §6.17 A-14] two entries in one command thread the batch (BF-8): a line released by the first entry is not released again by the second', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 2);
+    counted(hub, 'I3', 500, 'g');
+    hidden(hub, 'O1', [{ id: 'M', draws: [{ stock_item_id: 'I1', quantity: 1 }, { stock_item_id: 'I3', quantity: 250 }], from_stock: true }]);
+    const before = lastSeq(hub);
+    const res = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }, { stock_item_id: 'I3', on_hand: 0 }], 'cmd-both');
+    expect(res.statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockReleased', id: 'I1', line: 'M', q: 1, reason: 'recount' },
+      { type: 'StockReleased', id: 'I3', line: 'M', q: 250, reason: 'recount' },
+      { type: 'StockSet', id: 'I1', on_hand: 0, unit: 'piece' },
+      { type: 'StockSet', id: 'I3', on_hand: 0, unit: 'g' },
+    ]);
+    expect(engine(hub).stock.I1).toMatchObject({ on_hand: 0, reserved: 0 });
+    expect(engine(hub).stock.I3).toMatchObject({ on_hand: 0, reserved: 0 });
+    expectSameAsReplay(hub);
+  });
+
+  it('[01a §6.17 A-14] the releases and the StockSet are one transaction: a forced COMMIT failure writes none of them and leaves the state; the retry appends the whole batch', async () => {
+    let fail = false;
+    const { hub, admin } = await openDay(undefined, {
+      beforeCommit() {
+        if (fail) throw new Error('forced commit failure');
+      },
+    });
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 2);
+    hidden(hub, 'O1', [{ id: 'A', draws: [{ stock_item_id: 'I1', quantity: 2 }], from_stock: true }]);
+    const state = engine(hub);
+    const before = lastSeq(hub);
+    fail = true;
+    const failed = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }], 'cmd-fail');
+    expect(failed.statusCode).toBe(500);
+    expect(rowsAfter(hub, before)).toEqual([]);
+    expect(engine(hub)).toBe(state);
+    expect(processed(hub, 'cmd-fail')).toBe(0);
+    fail = false;
+    expect((await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }], 'cmd-fail')).statusCode).toBe(200);
+    expect(logAfter(hub, before)).toEqual([
+      { type: 'StockReleased', id: 'I1', line: 'A', q: 2, reason: 'recount' },
+      { type: 'StockSet', id: 'I1', on_hand: 0, unit: 'piece' },
+    ]);
+  });
+
+  it('[01a §6.17 A-14] the statement count changes only by the appends: each effect draft adds one INSERT', async () => {
+    const { hub, admin } = await openDay();
+    seed(hub, [anEngineConfigApplied()]);
+    counted(hub, 'I1', 3);
+    hidden(hub, 'O1', [{ id: 'A', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }]);
+    hidden(hub, 'O2', [{ id: 'B', draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true }], 100_000);
+    const counter = statementCounter(hub.deps.db);
+    await setStock(hub, admin, [{ stock_item_id: 'I2', on_hand: 1 }], 'cmd-warm');
+    counter.reset();
+    await setStock(hub, admin, [{ stock_item_id: 'I2', on_hand: 2 }], 'cmd-plain');
+    const plain = counter.count;
+    counter.reset();
+    const res = await setStock(hub, admin, [{ stock_item_id: 'I1', on_hand: 0 }], 'cmd-effects');
+    const withEffects = counter.count;
+    expect(res.json().data.event_ids).toHaveLength(3);
+    expect(withEffects).toBe(plain + 2);
+  });
 });
 
 // I1 piece, I2 piece (tracked here), I3 g: all stock-tracked, each its own stock item.
@@ -360,4 +544,95 @@ function stockEvents(hub: TestHub): Array<{ event_type: string; schema_version: 
     .prepare("SELECT event_type, schema_version, stream_id, payload FROM events WHERE stream_type = 'stock' ORDER BY seq")
     .all() as Array<{ event_type: string; schema_version: number; stream_id: string; payload: string }>;
   return rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
+}
+
+// 03a lines through a real fold (A-14): the engine config and the §4.2 submit batches go through the hub's event
+// store, so the command's ctx.state is what applyEvent makes of them.
+const COOK = 1_200_000;
+const STOCK_COOK = 60_000;
+type Draw = { stock_item_id: string; quantity: number };
+type LineSpec = { id: string; draws: Draw[]; from_stock?: boolean };
+type Row = { event_id: string; tenant_id: string; branch_id: string; stream_type: PosEvent['stream_type']; stream_id: string; event_type: string; schema_version: number; payload: string; occurred_at: number; recorded_at: number; actor_id: string | null; device_id: string; seq: number };
+
+function seed(hub: TestHub, events: PosEvent[]): void {
+  const occurred_at = hub.clock.branchNow();
+  hub.deps.writer.run((tx) => tx.append(events.map((event) => ({ ...event, occurred_at }))));
+}
+
+function counted(hub: TestHub, stock_item_id: string, on_hand: number, unit: 'piece' | 'g' = 'piece'): void {
+  seed(hub, [aStockSet({ stream_id: stock_item_id, payload: { stock_item_id, on_hand, unit } })]);
+}
+
+function submit(hub: TestHub, order_id: string, lines: LineSpec[], land: number, pickup?: number): void {
+  seed(
+    hub,
+    anOrderBatch({
+      order_id,
+      lines: lines.map((l) => ({
+        order_item_id: l.id,
+        item: { name: 'Seekh kebab', quantity: 1, stock_time_ms: STOCK_COOK, stock_draws: l.draws, out_of_stock_behaviour: 'cook_fresh' },
+        line: { from_stock: l.from_stock ?? false },
+      })),
+      order: {
+        groups: [{ group_id: `${order_id}:0`, target_land_ms: land, promise_ms: land + 180_000, order_item_ids: lines.map((l) => l.id) }],
+        ...(pickup === undefined ? {} : { order_type: 'delivery', pickup_at_ms: pickup }),
+      },
+      reserved: lines.filter((l) => l.from_stock === true).flatMap((l) => l.draws.map((d) => ({ ...d, order_item_id: l.id }))),
+    }),
+  );
+}
+
+// A delivery picked up in an hour or later: its lines are hidden (fire_ms > now + freeze_ms).
+function hidden(hub: TestHub, order_id: string, lines: LineSpec[], later = 0): void {
+  const pickup = hub.clock.branchNow() + 3_600_000 + later;
+  submit(hub, order_id, lines, pickup, pickup);
+}
+
+// A land this close fires at once: frozen (on the chef's Next list).
+function frozen(hub: TestHub, order_id: string, lines: LineSpec[]): void {
+  submit(hub, order_id, lines, hub.clock.branchNow() + COOK + 30_000);
+}
+
+function fired(hub: TestHub, order_item_id: string): void {
+  seed(hub, [aFireDispatched({ payload: { station_id: 'S1', order_item_ids: [order_item_id], load_id: null, due_at: hub.clock.branchNow(), reason: 'scheduled' } })]);
+}
+
+function lastSeq(hub: TestHub): number {
+  return hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get() as number;
+}
+
+function rowsAfter(hub: TestHub, seq: number): Row[] {
+  return hub.deps.db.prepare('SELECT * FROM events WHERE seq > ? ORDER BY seq').all(seq) as Row[];
+}
+
+// The real event log after `seq`, in seq order.
+function logAfter(hub: TestHub, seq: number): Array<Record<string, unknown>> {
+  return rowsAfter(hub, seq).map((row) => {
+    const p = JSON.parse(row.payload) as Record<string, unknown>;
+    return {
+      type: row.event_type,
+      ...(typeof p.stock_item_id === 'string' ? { id: p.stock_item_id } : {}),
+      ...(typeof p.order_item_id === 'string' ? { line: p.order_item_id } : {}),
+      ...(typeof p.quantity === 'number' ? { q: p.quantity } : {}),
+      ...(typeof p.on_hand === 'number' ? { on_hand: p.on_hand } : {}),
+      ...(typeof p.unit === 'string' ? { unit: p.unit } : {}),
+      ...(typeof p.reason === 'string' ? { reason: p.reason } : {}),
+    };
+  });
+}
+
+// Every event of the log folded from nothing: what a restart rebuilds must be what the commit swapped in.
+function replayed(hub: TestHub): EngineState {
+  return rowsAfter(hub, 0).reduce(
+    (state, row) => applyEvent(state, parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] }), { strict: false }),
+    initialEngineState(),
+  );
+}
+
+function expectSameAsReplay(hub: TestHub): void {
+  const live = hub.deps.state.get();
+  const again = replayed(hub);
+  expect(again.stock).toEqual(live.stock);
+  expect(again.lines).toEqual(live.lines);
+  expect(live.diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
 }

@@ -16,7 +16,7 @@ describe('permissions', () => {
     expect(() => assertKnownPermissions(['manage-devices', 'access-hub-admin'])).not.toThrow();
   });
 
-  it('[00 §3.6, 01a S18] catalogue has 20 unique entries', () => {
+  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 22 unique entries', () => {
     expect([...PERMISSIONS]).toEqual([
       'void-item',
       'move-item-to-stock',
@@ -38,8 +38,10 @@ describe('permissions', () => {
       'manage-devices',
       'access-hub-admin',
       'manage-stock',
+      'manage-stations',
+      'mark-served',
     ]);
-    expect(new Set(PERMISSIONS).size).toBe(20);
+    expect(new Set(PERMISSIONS).size).toBe(22);
   });
 
   it('[01b §3.3] PERMISSION_SCOPES', () => {
@@ -48,10 +50,13 @@ describe('permissions', () => {
     expect(PERMISSION_SCOPES['force-release-table-lock']).toEqual(['branch', 'my_floors']);
     expect(PERMISSION_SCOPES['approve-void']).toEqual(['branch', 'my_team']);
     expect(PERMISSION_SCOPES['manage-stock']).toEqual(['branch', 'my_stations']);
-    const special = ['take-order-anywhere', 'force-release-table-lock', 'approve-void', 'manage-stock'];
+    expect(PERMISSION_SCOPES['manage-stations']).toEqual(['branch', 'my_stations']);
+    expect(PERMISSION_SCOPES['mark-served']).toEqual(['branch', 'own_tables', 'my_floors']);
+    const special = ['take-order-anywhere', 'force-release-table-lock', 'approve-void', 'manage-stock', 'manage-stations', 'mark-served'];
     for (const permission of PERMISSIONS) {
       if (!special.includes(permission)) expect(PERMISSION_SCOPES[permission]).toEqual(['branch']);
-      expect(PERMISSION_SCOPES[permission]).not.toContain('own_tables');
+      // 01b B-2: mark-served is the one permission that offers own_tables.
+      if (permission !== 'mark-served') expect(PERMISSION_SCOPES[permission]).not.toContain('own_tables');
     }
     expect(Object.keys(PERMISSION_SCOPES).sort()).toEqual([...PERMISSIONS].sort());
   });
@@ -64,6 +69,21 @@ describe('permissions', () => {
       expect(row.scopes).toEqual(PERMISSION_SCOPES[row.key]);
     }
     expect(new Set(PERMISSION_CATALOGUE.map((row) => row.group))).toEqual(new Set(groups));
+  });
+
+  it('[01b B-1, B-2] manage-stations and mark-served are in PERMISSIONS and the catalogue with their groups and scopes', () => {
+    expect(PERMISSIONS).toContain('manage-stations');
+    expect(PERMISSIONS).toContain('mark-served');
+    expect(PERMISSION_CATALOGUE.find((row) => row.key === 'manage-stations')).toEqual({
+      key: 'manage-stations',
+      group: 'kitchen',
+      scopes: ['branch', 'my_stations'],
+    });
+    expect(PERMISSION_CATALOGUE.find((row) => row.key === 'mark-served')).toEqual({
+      key: 'mark-served',
+      group: 'orders',
+      scopes: ['branch', 'own_tables', 'my_floors'],
+    });
   });
 
   it('[01b B17] DEFAULT_KEYS is the six keys in order', () => {

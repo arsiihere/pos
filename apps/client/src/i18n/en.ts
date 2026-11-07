@@ -939,6 +939,8 @@ export const en = {
   'perm.manage-devices': 'Pair and remove screens',
   'perm.access-hub-admin': 'Open hub admin',
   'perm.manage-stock': 'Count stock and switch items off',
+  'perm.manage-stations': 'Switch lanes off and on, pause a station',
+  'perm.mark-served': 'Mark an item served',
   'errors.ROLE_NOT_FOUND': 'This role no longer exists. The page is refreshed.',
   'errors.STAFF_NAME_TAKEN': 'Someone working at this branch already has this name. Add a surname or an initial.',
   'errors.LAST_ADMIN_REQUIRED': 'Each branch needs someone who can sign in to the hub admin. Give that to someone else first.',
@@ -1160,6 +1162,8 @@ export const en = {
   'roles.scope_help.my_floors': 'floors set on each person',
   'roles.scope_help.my_team': 'people who report to them',
   'roles.scope_help.my_stations': 'stations set in Stock counting',
+  // 01b B-1, B-4: manage-stations resolves my_stations through run_station, which no owner screen assigns yet.
+  'roles.scope_help.manage_stations': 'Their stations: the stations this person runs.',
   'roles.approved_by': 'Approved by',
   'roles.approver_required': 'Pick at least one role to approve.',
   'roles.this_role': 'This role',
