@@ -4,6 +4,7 @@ import { bindFiresAlertsTick, noteAlertFacts } from './fires-alerts-tick.js';
 import { bindFiresTick } from './fires-tick.js';
 import { afterEngineCommit } from './reducer.js';
 import { afterSnapshotCommit, cancelScheduled } from './snapshots.js';
+import { bindStationPlans } from './station-plan.js';
 
 // P-6: what the host wires into the server; called once from buildHubServer.
 export function registerEngineHost(app: FastifyInstance, deps: HubDeps): void {
@@ -18,6 +19,8 @@ export function registerEngineHost(app: FastifyInstance, deps: HubDeps): void {
   bindFiresTick(deps, app.log);
   // §6.2a: the fires_alerts tick likewise (its host memory: skipped, red_since, overload_open, the dropped-line queue).
   bindFiresAlertsTick(deps, app.log);
+  // §3.6.3, §6.4: the station_plan catch-up part and frames (after bindFiresTick: it binds the freeze-entry seam).
+  bindStationPlans(app, deps);
   app.addHook('onClose', async () => {
     cancelScheduled(deps);
   });

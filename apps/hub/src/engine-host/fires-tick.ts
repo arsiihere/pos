@@ -13,7 +13,8 @@ import { checkpointAfterPass, type ErrorLog, type SnapshotDeps } from './snapsho
 // - due(db, state, now): pure and in memory, no statement, no transaction (D44, 01d "idle kitchen"):
 //   `firesDue(state, last_pass_ms, now).intents_due || configStale`. It also schedules the deferred day-close
 //   checkpoint (§3.12; checkpointAfterPass: 0 statements, the write is its own setImmediate) and hands the stations
-//   whose lines entered Next to the frame seam (§3.6.3, task 22b).
+//   whose lines entered Next to the frame seam (§3.6.3, task 22b): sent from due when nothing else is due, else handed
+//   to station-plan's after-commit hook (takeCommittedCrossed), so a station gets one frame per pass.
 // - intents(tx, state, now): `state` is read inside the tick's own transaction (01d race rule, tests 71 and 73).
 //   1. configStale → one EngineConfigApplied and nothing else (§3.11 catch-up, G2 #22); the flag clears after commit.
 //   2–3. getTickIntents(state, now): fires, inferred Start / Done with their StockConsumed (stockEffects), cascade
@@ -26,10 +27,15 @@ import { checkpointAfterPass, type ErrorLog, type SnapshotDeps } from './snapsho
 interface FiresHost {
   deps: SnapshotDeps;
   log?: ErrorLog;
-  // §3.6.3 frame seam: task 22b sends `station_plan` for these stations; a no-op until then.
+  // §3.6.3 frame seam: station-plan.ts (task 22b) sends `station_plan` for these stations; a no-op until bound.
   sendStationPlans: (station_ids: string[]) => void;
   // Stations crossed in a due that also had intents: their frames go out after that pass's commit.
   crossed: string[];
+  // Task 22 review: the last_pass_ms of a due whose pass has not committed yet; null once it has. A next due that
+  // finds it set (the commit failed, or intents never ran) restores it, so that interval's crossings are not lost.
+  since: number | null;
+  // The crossed stations of a committed pass, taken by station-plan's after-commit hook of that same commit.
+  committed: string[];
 }
 
 // Per hub, keyed by its connection (due gets the read-only view; rawDbOf maps it back).
@@ -37,7 +43,7 @@ const hosts = new WeakMap<Database.Database, FiresHost>();
 
 // registerEngineHost (P-6): binds this hub to the tick. §3.6.3: last_pass_ms starts at boot time.
 export function bindFiresTick(deps: SnapshotDeps, log?: ErrorLog): void {
-  hosts.set(deps.db, { deps, log, sendStationPlans: () => undefined, crossed: [] });
+  hosts.set(deps.db, { deps, log, sendStationPlans: () => undefined, crossed: [], since: null, committed: [] });
   hostFlags.last_pass_ms = deps.clock.branchNow();
 }
 
@@ -45,6 +51,16 @@ export function bindFiresTick(deps: SnapshotDeps, log?: ErrorLog): void {
 export function onFreezeEntry(deps: Pick<SnapshotDeps, 'db'>, send: (station_ids: string[]) => void): void {
   const host = hosts.get(deps.db);
   if (host !== undefined) host.sendStationPlans = send;
+}
+
+// §3.6.3: the stations crossed by the pass that has just committed (tx.onCommit runs before the writer's after-commit
+// hooks), once. Task 22b's after-commit hook merges them with the commit's touched stations.
+export function takeCommittedCrossed(deps: Pick<SnapshotDeps, 'db'>): string[] {
+  const host = hosts.get(deps.db);
+  if (host === undefined || host.committed.length === 0) return [];
+  const out = host.committed;
+  host.committed = [];
+  return out;
 }
 
 // §3.11 E(next): the EngineConfigAppliedV1 fields of the applied snapshot. Task 24's engineConfigOf (config-hook.ts)
@@ -92,17 +108,24 @@ export const firesTick: TickDef = {
   due(db, state, now) {
     const host = hosts.get(rawDbOf(db));
     if (host === undefined || !isEngineState(state)) return false;
+    // Task 22 review: the previous pass with intents did not commit; its interval is seen again.
+    if (host.since !== null) {
+      hostFlags.last_pass_ms = host.since;
+      host.since = null;
+      host.crossed = [];
+    }
     // §3.12: a pass with no work can still be the first at which no order is in the engine (an exit by time alone).
     checkpointAfterPass(host.deps, now, host.log);
     // §3.11: the catch-up pass. last_pass_ms is left as it is, so the next pass still sees this interval's crossings.
     if (hostFlags.configStale) return true;
-    const { intents_due, crossed } = firesDue(state, hostFlags.last_pass_ms, now);
+    const since = hostFlags.last_pass_ms;
+    const { intents_due, crossed } = firesDue(state, since, now);
     hostFlags.last_pass_ms = now;
-    if (crossed.length > 0) {
+    if (intents_due) {
       // §3.6.3: one frame per station per pass; with intents, from that pass's after-commit instead.
-      if (intents_due) host.crossed = crossed;
-      else host.sendStationPlans(crossed);
-    }
+      host.crossed = crossed;
+      host.since = since;
+    } else if (crossed.length > 0) host.sendStationPlans(crossed);
     return intents_due;
   },
   intents(tx, state, now) {
@@ -119,10 +142,11 @@ export const firesTick: TickDef = {
     }
     const drafts = getTickIntents(state, now).map((d) => stamp(d, now));
     const crossed = host.crossed;
-    host.crossed = [];
     tx.onCommit(() => {
+      host.crossed = [];
+      host.since = null;
+      host.committed = crossed;
       checkpointAfterPass(host.deps, now, host.log);
-      if (crossed.length > 0) host.sendStationPlans(crossed);
     });
     return drafts;
   },

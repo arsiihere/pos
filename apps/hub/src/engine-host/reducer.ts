@@ -21,6 +21,13 @@ export function touchedStations(prev: EngineState, next: EngineState): string[] 
   return Object.keys(next.stations).filter((id) => prev.stations[id] !== next.stations[id]);
 }
 
+// §3.6.3, P-7: the stations a committed transaction's fold touched ("the reducer marks touched stations"), for the
+// `station_plan` frames of its after-commit hook. [] when the transaction folded nothing. 0 statements.
+export function touchedIn(appended: readonly PosEvent[]): string[] {
+  const note = notes.get(appended);
+  return note === undefined ? [] : touchedStations(note.prev, note.next);
+}
+
 interface FoldNote {
   prev: EngineState;
   next: EngineState;

@@ -2,7 +2,7 @@ import type { EngineState } from '@pos/engine';
 import type { Clock } from '../lib/clock.js';
 import { stationsLiveBody } from '../queries/stations-live.js';
 import { registerEventAudience } from './audience.js';
-import { registerCatchUp, type CatchUpPart } from './catch-up.js';
+import { registerCatchUp, type CatchUpPart, type SocketCtx } from './catch-up.js';
 
 // 03a §6.4: the station-config events go to every staff and every station socket. Order-stream events get no
 // audience here (01d run 3 §4): an event type with no registered audience reaches no socket.
@@ -18,6 +18,12 @@ export function stationsLivePart(clock: Clock): CatchUpPart {
     appliesTo: (socket) => socket.kind === 'staff' || socket.kind === 'station',
     build: (_db, raw, socket) => stationsLiveBody(raw as EngineState, clock.branchNow(), socket.asOfSeq),
   };
+}
+
+// §3.6.3, §6.4 (v0.4 G2 #19): the `station_plan` audience, for the catch-up part and the frame alike: every staff
+// socket, and the station sockets of that station only.
+export function stationPlanAudience(station_id: string, socket: Pick<SocketCtx, 'kind' | 'stationId'>): boolean {
+  return socket.kind === 'staff' || (socket.kind === 'station' && socket.stationId === station_id);
 }
 
 // Returns the unregister function.
