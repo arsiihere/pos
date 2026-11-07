@@ -64,7 +64,7 @@ export function takeCommittedCrossed(deps: Pick<SnapshotDeps, 'db'>): string[] {
 }
 
 // §3.11 E(next): the EngineConfigAppliedV1 fields of the applied snapshot. Task 24's engineConfigOf (config-hook.ts)
-// sets it; until then there is no E() and configStale stays false.
+// sets it at the server build (boot step 5, before step 6 reads it); without one configStale stays false.
 type EngineConfigOf = (snapshot: BranchConfig) => EngineConfig;
 let engineConfigOf: EngineConfigOf | null = null;
 export function setEngineConfigOf(fn: EngineConfigOf | null): void {
@@ -75,6 +75,22 @@ export function setEngineConfigOf(fn: EngineConfigOf | null): void {
 function nextConfig(): EngineConfig | null {
   const snapshot = branchConfig();
   return snapshot === null || engineConfigOf === null ? null : engineConfigOf(snapshot);
+}
+
+// Batch 9 (task 24): a catch-up that keeps failing must not block the fires pass forever.
+// proposed (implementer): a catch-up pass that does not commit (E() throws, the append fails) counts as a failed
+// attempt; after CATCH_UP_ATTEMPTS of them the next due logs once at error, clears configStale and runs an ordinary
+// pass on the replayed config. The catch-up pass still writes only the config; the next config apply's hook
+// re-evaluates the flag and writes E(next) then (§3.11).
+const CATCH_UP_ATTEMPTS = 3;
+const catchUpFailures = new WeakMap<object, number>();
+function abandonCatchUp(host: object, log: ErrorLog | undefined): boolean {
+  const attempts = catchUpFailures.get(host) ?? 0;
+  if (attempts < CATCH_UP_ATTEMPTS) return false;
+  catchUpFailures.delete(host);
+  hostFlags.configStale = false;
+  log?.error({ tick: 'fires', attempts }, 'fires: config catch-up abandoned');
+  return true;
 }
 
 // §3.11, §6.3 step 6: configStale = canonicalJson(E(branchConfig())) ≠ canonicalJson(state.config). Pure, 0 statements.
@@ -117,7 +133,7 @@ export const firesTick: TickDef = {
     // §3.12: a pass with no work can still be the first at which no order is in the engine (an exit by time alone).
     checkpointAfterPass(host.deps, now, host.log);
     // §3.11: the catch-up pass. last_pass_ms is left as it is, so the next pass still sees this interval's crossings.
-    if (hostFlags.configStale) return true;
+    if (hostFlags.configStale && !abandonCatchUp(host, host.log)) return true;
     const since = hostFlags.last_pass_ms;
     const { intents_due, crossed } = firesDue(state, since, now);
     hostFlags.last_pass_ms = now;
@@ -132,7 +148,9 @@ export const firesTick: TickDef = {
     const host = hosts.get(tx.db);
     if (host === undefined || !isEngineState(state)) return [];
     if (hostFlags.configStale) {
+      catchUpFailures.set(host, (catchUpFailures.get(host) ?? 0) + 1);
       tx.onCommit(() => {
+        catchUpFailures.delete(host);
         hostFlags.configStale = false;
       });
       // Re-selected inside the transaction: a config hook that applied it meanwhile leaves nothing to write.

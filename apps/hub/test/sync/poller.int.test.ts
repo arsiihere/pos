@@ -80,7 +80,7 @@ describe('config poller', () => {
     expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV3.parse(raw));
     // the directory part rides the same transaction (S6): one published batch holds both events
     const batch = h.published.find((events) => events.some((e) => e.event_type === 'BranchConfigApplied'));
-    expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'StaffDirectoryApplied']);
+    expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'EngineConfigApplied', 'StaffDirectoryApplied']); // 03a §3.11
     expect(currentDirectory(h.app).ttlFor('S_MGR')).toBe(3_600_000);
     expect(configPoller(h.app).lastPoll()).toEqual({ outcome: 'applied', at: h.clock.branchNow() });
     expect(configPoller(h.app).lastProblem()).toBeNull();

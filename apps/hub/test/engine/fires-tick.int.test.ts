@@ -339,6 +339,7 @@ describe('03a task 22: the fires tick', () => {
     });
 
     it('[03a #79] no E() source yet (task 24) or no applied config: configStale stays false', () => {
+      setEngineConfigOf(null); // the server build wires task 24's E() (config-hook.ts); unset for the no-source case
       kitchen();
       swapBranchConfig(applied());
       step6();

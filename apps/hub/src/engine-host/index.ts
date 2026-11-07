@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { HubDeps } from '../server.js';
+import { registerConfigHook } from './config-hook.js';
 import { bindFiresAlertsTick, noteAlertFacts } from './fires-alerts-tick.js';
 import { bindFiresTick } from './fires-tick.js';
 import { afterEngineCommit } from './reducer.js';
@@ -19,6 +20,8 @@ export function registerEngineHost(app: FastifyInstance, deps: HubDeps): void {
   bindFiresTick(deps, app.log);
   // §6.2a: the fires_alerts tick likewise (its host memory: skipped, red_since, overload_open, the dropped-line queue).
   bindFiresAlertsTick(deps, app.log);
+  // §3.11: the config hook and the E() of configStale, here at the server build (boot step 5, before step 6).
+  registerConfigHook(app, deps);
   // §3.6.3, §6.4: the station_plan catch-up part and frames (after bindFiresTick: it binds the freeze-entry seam).
   bindStationPlans(app, deps);
   app.addHook('onClose', async () => {

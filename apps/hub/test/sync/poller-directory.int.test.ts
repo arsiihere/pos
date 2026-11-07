@@ -38,7 +38,7 @@ describe('config poller: staff directory part (S6)', () => {
     cloud.respondWithSnapshot(snapshot(4), { directory: next });
 
     expect(await configPoller(h.app).pollOnce()).toMatchObject({ outcome: 'applied', config_version: 4, directory_version: 2 });
-    expect(types(h)).toEqual(['BranchConfigApplied', 'DeviceRevoked', 'SessionEnded', 'StaffDirectoryApplied']);
+    expect(types(h)).toEqual(['BranchConfigApplied', 'DeviceRevoked', 'EngineConfigApplied', 'SessionEnded', 'StaffDirectoryApplied']); // 03a §3.11
     const batch = h.published.at(-1)!;
     expect(batch.find((e) => e.event_type === 'DeviceRevoked')).toMatchObject({
       actor_id: null,
@@ -69,7 +69,7 @@ describe('config poller: staff directory part (S6)', () => {
     cloud.respondWithSnapshot(snapshot(4), { directory: next });
 
     expect(await configPoller(h.app).pollOnce()).toMatchObject({ outcome: 'applied', directory_version: 2 });
-    expect(types(h)).toEqual(['BranchConfigApplied', 'StaffDirectoryApplied']);
+    expect(types(h)).toEqual(['BranchConfigApplied', 'EngineConfigApplied', 'StaffDirectoryApplied']); // 03a §3.11
     expect(h.deps.db.prepare('SELECT pin_hash, display_name FROM staff WHERE staff_id = ?').get('S_MGR')).toEqual(kept);
     expect(h.deps.db.prepare('SELECT revoked_at FROM devices WHERE device_id = ?').pluck().get(phone.deviceId)).toBeNull();
     expect(h.deps.db.prepare('SELECT ended_at FROM staff_sessions WHERE session_id = ?').pluck().get(session.sessionId)).toBeNull();

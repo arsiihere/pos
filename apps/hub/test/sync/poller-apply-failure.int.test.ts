@@ -41,7 +41,7 @@ describe('config poller: apply failure (S43)', () => {
     const { h, cloud } = await hub();
     cloud.respondWithSnapshot(snapshot(3), { directory: await aDirectory({ directory_version: 2 }) });
     expect(await configPoller(h.app).pollOnce()).toMatchObject({ outcome: 'applied', config_version: 3, directory_version: 2 });
-    expect(batches(h)).toEqual([['BranchConfigApplied', 'StaffDirectoryApplied']]);
+    expect(batches(h)).toEqual([['BranchConfigApplied', 'EngineConfigApplied', 'StaffDirectoryApplied']]); // 03a §3.11
 
     // forced failure in the config part → the directory applied alone, the config not applied
     const hook = { fail: true };
@@ -76,7 +76,7 @@ describe('config poller: apply failure (S43)', () => {
     cloud2.respondWithSnapshot(snapshot(5), { directory: await aDirectory({ directory_version: 2 }) });
     const second = await poller.pollOnce();
     expect(second).toMatchObject({ outcome: 'rejected', reason: 'apply_failed', config_version: 5, directory_version: 0 });
-    expect(batches(h2)).toEqual([['BranchConfigApplied']]);
+    expect(batches(h2)).toEqual([['BranchConfigApplied', 'EngineConfigApplied']]); // 03a §3.11
     expect(branchConfig()?.config_version).toBe(5);
     expect(count(h2, 'SELECT config_version FROM branch_config')).toBe(5);
     expect(directoryVersion(h2)).toBe(0);

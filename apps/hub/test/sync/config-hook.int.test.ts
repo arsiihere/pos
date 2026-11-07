@@ -55,8 +55,8 @@ describe('onBranchConfigApplied', () => {
     ]);
     const batches = h.published.map((events) => events.map((e) => e.event_type));
     expect(batches).toEqual([
-      ['BranchConfigApplied', 'TestNooped'],
-      ['BranchConfigApplied', 'TestNooped'],
+      ['BranchConfigApplied', 'EngineConfigApplied', 'TestNooped'], // 03a §3.11: the engine's hook, registered first
+      ['BranchConfigApplied', 'EngineConfigApplied', 'TestNooped'], // 03a §3.11: the engine's hook, registered first
     ]);
     const seqs = h.deps.db
       .prepare(`SELECT event_type, seq FROM events WHERE event_type IN ('BranchConfigApplied', 'TestNooped') ORDER BY seq`)
