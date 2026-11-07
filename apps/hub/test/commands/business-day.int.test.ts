@@ -367,8 +367,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       counted(hub, 'I1', 9);
       lines.forEach((line, i) => hidden(hub, `O${i}`, [line], i * 100_000));
       const counter = statementCounter(hub.deps.db);
+      const host = hostSnapshotWrites(hub.deps.db);
       const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
-      const statements = counter.count;
+      // 03a §3.12: the close checkpoint is the host's after-commit write, not the command's; it runs at once in the
+      // plain close (no order in the engine) and is deferred in the close with hidden lines, so it is left out.
+      const statements = counter.count - host.count;
       return { statements, events: (res.json().data.event_ids as string[]).length };
     };
     const line = (id: string): LineSpec => ({ id, draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true });
@@ -379,6 +382,28 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(withReleases.statements).toBe(plain.statements + 2);
   });
 });
+
+// 03a §3.12, D26: the statements of the engine host's snapshot and checkpoint writes (its after-commit hook), told
+// apart by the tables they write, so a command's own statement count leaves them out.
+function hostSnapshotWrites(db: TestHub['deps']['db']): { readonly count: number } {
+  let count = 0;
+  const prepare = db.prepare.bind(db);
+  db.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    if (!/\bengine_(checkpoints|snapshots)\b/.test(sql)) return statement;
+    const run = statement.run.bind(statement);
+    statement.run = ((...args: Parameters<typeof run>) => {
+      count += 1;
+      return run(...args);
+    }) as typeof statement.run;
+    return statement;
+  }) as typeof db.prepare;
+  return {
+    get count() {
+      return count;
+    },
+  };
+}
 
 // aBranchConfigItemStock (01c §5.1): I1 and I3 are stock items under their own ids.
 const STOCK_UNITS = { I1: 'piece', I3: 'g' };
