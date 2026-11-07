@@ -10,19 +10,22 @@ export { readStockVersion, replayEngine } from './replay.js';
 type LogLine = { level: 'info' | 'warn'; obj: Record<string, unknown>; msg: string };
 
 // Steps 2 and 3 run before the server, and its logger, exist (ctx.app is set at step 5). Their lines wait here for step 6;
-// a step that fails writes them to stderr, beside main.ts's boot failure line.
+// a failed boot writes them to stderr from main.ts (flushEngineBootLog), beside its failure line.
 interface BootRun {
   base: LoadedBase;
   fromSeq: number;
   lines: LogLine[];
 }
 const runs = new WeakMap<BootContext, BootRun>();
+// The newest boot's unflushed lines, for main.ts's failure path (a step after 3 can fail before step 6 flushes them).
+let pending: LogLine[] = [];
 
 // §7.2's `ms`: steps 2 and 3 run before the clock exists (step 3a), so main.ts hands in its monotonic source.
 let monoNow: () => number = () => 0;
 
-function flushToStderr(lines: readonly LogLine[]): void {
-  for (const line of lines) process.stderr.write(`${JSON.stringify({ level: line.level, ...line.obj, msg: line.msg })}\n`);
+// main.ts's .catch: the step 2–3 lines a failed boot did not flush (each line at most once).
+export function flushEngineBootLog(write: (text: string) => void = (text) => process.stderr.write(text)): void {
+  for (const line of pending.splice(0)) write(`${JSON.stringify({ level: line.level, ...line.obj, msg: line.msg })}\n`);
 }
 
 // §3.12 step 2: 2 statements. A row this build cannot read is skipped with one log line (Review Focus 5).
@@ -37,6 +40,7 @@ export function engineStep2(ctx: BootContext): void {
   });
   hostFlags.snapshot_loaded = base.snapshot_seq !== null;
   lines.push({ level: 'info', obj: { step: '2', snapshot_seq: base.snapshot_seq, checkpoint_seq: base.checkpoint_seq, events_replayed: 0, ms: monoNow() - start }, msg: 'engine boot' });
+  pending = lines;
   runs.set(ctx, { base, fromSeq: base.snapshot_seq ?? base.checkpoint_seq ?? 0, lines });
 }
 
@@ -51,17 +55,12 @@ export function engineStep3(ctx: BootContext): void {
       run.lines.push({ level: 'warn', obj, msg });
     },
   };
-  try {
-    const { state, replayed } = replayEngine(ctx.db, branchId, run.fromSeq, run.base.state ?? initialEngineState(), (d) => {
-      logDiagnostics([d], log, true);
-    });
-    ctx.initialState = state;
-    setStockVersion(readStockVersion(ctx.db, branchId));
-    run.lines.push({ level: 'info', obj: { step: '3', snapshot_seq: run.base.snapshot_seq, checkpoint_seq: run.base.checkpoint_seq, events_replayed: replayed, ms: monoNow() - start }, msg: 'engine boot' });
-  } catch (error) {
-    flushToStderr(run.lines);
-    throw error;
-  }
+  const { state, replayed } = replayEngine(ctx.db, branchId, run.fromSeq, run.base.state ?? initialEngineState(), (d) => {
+    logDiagnostics([d], log, true);
+  });
+  ctx.initialState = state;
+  setStockVersion(readStockVersion(ctx.db, branchId));
+  run.lines.push({ level: 'info', obj: { step: '3', snapshot_seq: run.base.snapshot_seq, checkpoint_seq: run.base.checkpoint_seq, events_replayed: replayed, ms: monoNow() - start }, msg: 'engine boot' });
 }
 
 // §3.6.2, §3.12 step 6: 0 statements. The dry count goes to step 8 (H-1); boot writes nothing, and the first tick fires

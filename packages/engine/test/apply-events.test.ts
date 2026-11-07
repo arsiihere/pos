@@ -115,7 +115,7 @@ function hostileLog(seed: number, orders = 30, density = 0.15): PosEvent[] {
     (at, line) => [aStockReleased({ recorded_at: at.recorded_at, stream_id: 'K', payload: { stock_item_id: 'K', order_item_id: line?.order_item_id ?? 'GHOST', quantity: 1, reason: 'void' } })],
     (at, line) => [aStockConsumed({ recorded_at: at.recorded_at, stream_id: 'K', payload: { stock_item_id: 'K', order_item_id: line?.order_item_id ?? 'GHOST', quantity: 1 } })],
     (at, line) => [envelope(at, 'SlipWarned', 'H', { table_key: line === undefined ? 'GHOST-KEY' : (state.orders[line.order_id]?.table_key ?? 'GHOST-KEY'), order_ids: line === undefined ? ['GHOST'] : [line.order_id], estimated_land_ms: at.recorded_at, alert_id: `AL${n % 3}` })],
-    () => [anAlertClosed({ payload: { alert_id: `AL${n % 3}`, reason: 'done' } })],
+    (_at, line) => [anAlertClosed({ stream_type: 'order', stream_id: line?.order_id ?? 'GHOST', payload: { alert_id: `AL${n % 3}`, reason: 'done' } })],
     (at, line) => (line === undefined ? [] : [envelope(at, 'StationCapacitySet', line.station_id, { station_id: line.station_id, capacity_override: 1 + Math.floor(r() * 6) })]),
     (at, line) => (line === undefined ? [] : [envelope(at, 'StationPauseSet', line.station_id, { station_id: line.station_id, paused: r() < 0.5 })]),
     // The config path of the upkeep: it walks every order before and after, so it needs the true "before" of `orders`.
@@ -445,5 +445,29 @@ describe('[03a §7.1, AD-28] one copy per batch', () => {
     });
     applyEvents({ ...state, lines }, events.slice(400, 600));
     expect(gets).toBeLessThan(2 * Object.keys(state.lines).length + 500);
+  });
+});
+
+describe('[03a §3.3, §3.12] live = replay at an AlertClosed off the order stream (task 20 review)', () => {
+  it('[03a §3.12] a hub-stream AlertClosed returns state itself and runs no removal step; live and replay remove at the same event', () => {
+    const at = 1_761_000_000_000;
+    const config = { ...anEngineConfigApplied({ recorded_at: at, occurred_at: at }), seq: 1 };
+    const batch = anOrderBatch({ order_id: 'O1', recorded_at: at, seq: 2 });
+    const served: PosEvent = { ...batch[1]!, event_type: 'ItemServed', seq: 10, event_id: 'served', recorded_at: at + 1_000, payload: { order_item_ids: ['L1'], source: 'tap' } };
+    const late = at + 1_000 + 1_800_000 + 60_000;
+    const hubClose: PosEvent = { ...anAlertClosed({ payload: { alert_id: 'AL-other', reason: 'done' } }), stream_type: 'hub', seq: 11, recorded_at: late, occurred_at: late };
+    const log = [config, ...batch, served, hubClose];
+    const before = applyEvents(initialEngineState(), log.slice(0, -1), NON_STRICT);
+    expect(Object.keys(before.orders)).toEqual(['O1']);
+    expect(applyEvent(before, hubClose, NON_STRICT)).toBe(before);
+    const lists = engine.ENGINE_REPLAY_EVENTS as unknown as Record<string, readonly string[]>;
+    const replayed = log.filter((e) => lists[e.stream_type]?.includes(e.event_type) === true);
+    expect(replayed).not.toContain(hubClose);
+    const live = applyEvents(initialEngineState(), log, NON_STRICT);
+    expect(json(live)).toBe(json(applyEvents(initialEngineState(), replayed, NON_STRICT)));
+    expect(json(live)).toBe(json(perEvent(initialEngineState(), log, NON_STRICT)));
+    // the same close on the order stream is a listed fold: its removal step takes the exited order out
+    const orderClose: PosEvent = { ...hubClose, stream_type: 'order', stream_id: 'O1' };
+    expect(applyEvent(before, orderClose, NON_STRICT).orders).toEqual({});
   });
 });

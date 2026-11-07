@@ -11,6 +11,7 @@ import { createSession, endSession, type SessionRow } from '../../src/auth/sessi
 import { openReadOnly } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
+import { hostFlags } from '../../src/engine-host/host-flags';
 import { engineReducer, foldEngineBatch } from '../../src/engine-host/reducer';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter } from '../../src/engine-host/writer';
@@ -52,6 +53,7 @@ export async function createTestHub(o?: {
 }): Promise<TestHub> {
   swapBranchConfig(null);
   setStockVersion(0);
+  hostFlags.reserve_fallback_logged.clear();
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });

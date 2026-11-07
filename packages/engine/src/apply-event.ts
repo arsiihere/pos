@@ -1193,6 +1193,14 @@ const HANDLED: ReadonlySet<string> = new Set([
   ...ENGINE_REPLAY_EVENTS.hub,
 ]);
 
+// §3.12, §3.3 (task 20 review): replay reads AlertClosed from the order stream only (a slip alert's subject is an order),
+// so live folds it only there too: an AlertClosed on another stream returns `state` itself and runs no removal step, and
+// live and replay remove at the same events.
+function handles(event: PosEvent): boolean {
+  if (!HANDLED.has(event.event_type)) return false;
+  return event.event_type !== 'AlertClosed' || event.stream_type === 'order';
+}
+
 // Pure fold (03a §6.1a, AD-6 opts). Handles exactly the ENGINE_REPLAY_EVENTS types; any other type returns
 // `state` itself (S15) and removes nothing. Copies only the touched entry. §3.3 removal step: before every handled
 // fold, at its recorded_at, the orders out of the engine by the predicate leave the state (OrderLinesAdded skips its
@@ -1202,7 +1210,7 @@ const HANDLED: ReadonlySet<string> = new Set([
 // but the removal step (caught here); either way one 'invalid_event' diagnostic is appended. Other throws
 // (OrderLinesAdded on an absent order, §3.3) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
-  if (!HANDLED.has(event.event_type)) return state;
+  if (!handles(event)) return state;
   const { next, named } = foldNamed(state, event, opts);
   // §3.8 (task 15): the slip state and slip_due of the table keys this fold touched (the removal step included).
   return upkeepSlips(state, next, event.recorded_at, named);
@@ -1217,7 +1225,7 @@ export function applyEvents(state: EngineState, events: readonly PosEvent[], opt
   const own = new BatchMaps();
   let s = state;
   for (const event of events) {
-    if (!HANDLED.has(event.event_type)) continue;
+    if (!handles(event)) continue;
     const { next, named } = foldNamed(s, event, opts, own);
     s = upkeepSlips(s, next, event.recorded_at, named);
     own.adopt(state, s);

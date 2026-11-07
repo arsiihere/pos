@@ -152,7 +152,7 @@ function slipWarnedEv(item: AlertIntents['slips'][number], alert_id: string, t: 
     t,
   );
 }
-const alertClosedEv = (alert_id: string, t: number): PosEvent => stamp(anAlertClosed({ payload: { alert_id, reason: 'done', by_staff_id: null, note: null } }), t);
+const alertClosedEv = (alert_id: string, t: number): PosEvent => stamp(anAlertClosed({ stream_type: 'order', stream_id: 'O1', payload: { alert_id, reason: 'done', by_staff_id: null, note: null } }), t);
 
 // The stored profile of a slot station = exactly the bookings of its unfired lines (AD-7).
 function bookedProfile(s: EngineState, sid: string): EngineState['stations'][string]['profile'] {

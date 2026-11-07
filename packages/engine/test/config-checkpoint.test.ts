@@ -1002,7 +1002,7 @@ describe('§3.12 checkpoint (D26)', () => {
     const cut = k.log.length;
     const body = toCheckpoint(k.state, k.log[cut - 1]!.seq);
     expect(JSON.stringify(body)).not.toContain('O1');
-    const closeAlert = stamp(anAlertClosed({ payload: { alert_id: 'AL1', reason: 'done', by_staff_id: null, note: null } }), at + 1);
+    const closeAlert = stamp(anAlertClosed({ stream_type: 'order', stream_id: 'O1', payload: { alert_id: 'AL1', reason: 'done', by_staff_id: null, note: null } }), at + 1);
     k.apply(closeAlert, open(at + 2));
     const boot = k.log.slice(cut).reduce((s, e) => applyEvent(s, e), fromCheckpoint(body));
     expect(comparable(boot)).toEqual(comparable(k.state));

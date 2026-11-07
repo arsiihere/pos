@@ -12,6 +12,7 @@ import {
   anAlertClosed,
   anAlertRaised,
   anEngineConfigApplied,
+  anItemAdded,
   anItemDone,
   anItemMadeAvailable,
   anItemMadeUnavailable,
@@ -25,7 +26,7 @@ import {
 } from '@pos/events/testing';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { engineStep2, engineStep3, engineStep6, readStockVersion, registerEngineBootSteps, replayEngine } from '../../src/engine-host/boot-steps';
+import { engineStep2, engineStep3, engineStep6, flushEngineBootLog, readStockVersion, registerEngineBootSteps, replayEngine } from '../../src/engine-host/boot-steps';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { engineReducer, foldEngineBatch, touchedStations } from '../../src/engine-host/reducer';
 import { runMigrations } from '../../src/db/migrate';
@@ -319,6 +320,21 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(engine(booted).stock.K1).toMatchObject({ on_hand: 5 });
     });
 
+    it.each([
+      ['unfired not a list', { unfired: {} }],
+      ['no loads', { loads: undefined }],
+      ['loads a list', { loads: [] }],
+    ])('[task 20 review] a snapshot station with %s is skipped like a truncated row', async (_name, change) => {
+      const station = { station_id: 'S1', type: 'slot', capacity: 4, capacity_override: null, paused: false, profile: { t: [], u: [] }, unfired: [], loads: {}, ...change };
+      const { booted, logs } = await restart((db, next) => {
+        insertRaw(db, stamped([live], next));
+        insertSnapshot(db, { id: 'bad', taken_at: WALL, last_seq: next, state_json: stateJson({ ...initialEngineState(), stations: { S1: station } } as unknown as EngineState) });
+      });
+      expect(skipLines(logs())).toEqual([expect.objectContaining({ table: 'engine_snapshots', id: 'bad', reason: 'unreadable' })]);
+      expect(engine(booted).stations).toEqual({});
+      expect(engine(booted).stock.K1).toMatchObject({ on_hand: 5 });
+    });
+
     it('[03a §3.12] valid JSON of the wrong shape is skipped too; a loaded state gets diagnostics: []', async () => {
       const db = await migrated();
       insertSnapshot(db, { id: 'shape', taken_at: WALL + 5, last_seq: 0, state_json: '{"stock":[]}' });
@@ -571,6 +587,26 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       await first.stop();
       await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
     });
+
+    it('[task 20 review] a failed boot: flushEngineBootLog writes the step 2 line and the diagnostics folded before the throw, once', async () => {
+      const cfg = writeConfig();
+      cleanups.push(cfg.cleanup);
+      const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
+      insertRaw(first.deps.db, stamped([set, breach, anOrderLinesAdded()], first.deps.writer.lastSeq() + 1));
+      await first.stop();
+      flushEngineBootLog(() => undefined);
+      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
+      const written: string[] = [];
+      flushEngineBootLog((text) => written.push(text));
+      const lines = written.map((text) => JSON.parse(text) as LogLine);
+      expect(lines).toEqual([
+        expect.objectContaining({ step: '2', msg: 'engine boot' }),
+        expect.objectContaining({ kind: 'stock_breach', stock_item_id: 'K1', replay: true }),
+      ]);
+      const again: string[] = [];
+      flushEngineBootLog((text) => again.push(text));
+      expect(again).toEqual([]);
+    });
   });
 
   describe('[03a AD-6, AD-28, P-7] the live fold', () => {
@@ -650,6 +686,20 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(lines).toEqual([expect.objectContaining({ event_type: 'ItemDone', order_id: 'O-gone', order_item_id: 'L-gone' })]);
     });
 
+    it('[task 20 review] an ItemAdded on an absent order is logged, and its line stays absent for a later event of the batch', async () => {
+      await open();
+      append([anEngineConfigApplied()]);
+      append([
+        anItemAdded({ stream_id: 'O-gone', payload: { order_id: 'O-gone', order_item_id: 'L-gone' } }),
+        anItemDone({ stream_id: 'O-gone', payload: { order_item_id: 'L-gone' } }),
+      ]);
+      const absent = warns().filter((l) => l.msg === 'engine fold: absent id');
+      expect(absent).toEqual([
+        expect.objectContaining({ event_type: 'ItemAdded', order_id: 'O-gone', order_item_id: 'L-gone' }),
+        expect.objectContaining({ event_type: 'ItemDone', order_id: 'O-gone', order_item_id: 'L-gone' }),
+      ]);
+    });
+
     it('[03a §3.3] a line added earlier in the same transaction is not absent; a served list logs only its absent ids', async () => {
       await open();
       append([anEngineConfigApplied()]);
@@ -705,7 +755,8 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
 
   it('[03a §6.3] main.ts registers the engine boot steps', () => {
     const source = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8');
-    expect(source).toMatch(/import \{ registerEngineBootSteps \} from '\.\/engine-host\/boot-steps\.js';/);
+    expect(source).toMatch(/import \{ flushEngineBootLog, registerEngineBootSteps \} from '\.\/engine-host\/boot-steps\.js';/);
+    expect(source).toMatch(/\.catch\(\(error: unknown\) => \{\n {2}flushEngineBootLog\(\);/);
     expect(source.indexOf('registerEngineBootSteps(monoNow)')).toBeGreaterThan(-1);
     expect(source.indexOf('registerEngineBootSteps(monoNow)')).toBeLessThan(source.indexOf('boot({'));
   });

@@ -171,7 +171,7 @@ function slipWarnedEv(item: AlertIntents['slips'][number], alert_id: string, t: 
     t,
   );
 }
-const alertClosedEv = (alert_id: string, t: number): PosEvent => stamp(anAlertClosed({ payload: { alert_id, reason: 'done', by_staff_id: null, note: null } }), t);
+const alertClosedEv = (alert_id: string, t: number): PosEvent => stamp(anAlertClosed({ stream_type: 'order', stream_id: 'O1', payload: { alert_id, reason: 'done', by_staff_id: null, note: null } }), t);
 
 const T = (s: EngineState, order_id: string): number => s.orders[order_id]!.groups[`${order_id}:0`]!.target_land_ms;
 

@@ -102,11 +102,16 @@ function logAbsentIds(note: FoldNote, events: readonly PosEvent[], log: WarnLog)
     if (event.stream_type !== 'order') continue;
     const type = event.event_type;
     const p = event.payload as { order_id?: string; order_item_id?: string; order_item_ids?: string[]; lines?: Array<{ order_item_id: string }> };
-    if (type === 'OrderPlaced' || type === 'OrderLinesAdded' || type === 'ItemAdded') {
-      addedOrders.add(p.order_id ?? event.stream_id);
+    if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
+      // Only an OrderPlaced creates an order; OrderLinesAdded on an absent one throws in the fold (§3.3).
+      if (type === 'OrderPlaced') addedOrders.add(p.order_id ?? event.stream_id);
       for (const id of p.order_item_ids ?? []) addedLines.add(id);
       for (const line of p.lines ?? []) addedLines.add(line.order_item_id);
-      if (p.order_item_id !== undefined) addedLines.add(p.order_item_id);
+    } else if (type === 'ItemAdded') {
+      // §3.3: an ItemAdded whose order is absent is an absent-id fold too, and its line is not added.
+      const order_id = p.order_id ?? event.stream_id;
+      if (!has('orders', order_id)) report(event, order_id, p.order_item_id ?? null);
+      else if (p.order_item_id !== undefined) addedLines.add(p.order_item_id);
     } else if (LINE_EVENTS.has(type)) {
       if (p.order_item_id !== undefined && !has('lines', p.order_item_id)) report(event, event.stream_id, p.order_item_id);
     } else if (type === 'ItemServed') {

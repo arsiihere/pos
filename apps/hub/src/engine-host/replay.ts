@@ -1,4 +1,4 @@
-import { applyEvents, ENGINE_REPLAY_EVENTS, ENGINE_STATE_VERSION, fromCheckpoint, REPLAY_CHUNK, type Diagnostic, type EngineCheckpointV1, type EngineState, type Profile } from '@pos/engine';
+import { applyEvent, applyEvents, ENGINE_REPLAY_EVENTS, ENGINE_STATE_VERSION, fromCheckpoint, REPLAY_CHUNK, type Diagnostic, type EngineCheckpointV1, type EngineState, type Profile } from '@pos/engine';
 import { parseEvent, type PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { STOCK_VERSION_HUB_EVENTS, STOCK_VERSION_STOCK_EVENTS } from '../sync/stock-version.js';
@@ -49,7 +49,12 @@ export function replayEngine(
     let replayed = 0;
     let chunk: PosEvent[] = [];
     const fold = (): void => {
-      state = applyEvents(state, chunk, { strict: false });
+      try {
+        state = applyEvents(state, chunk, { strict: false });
+      } catch (error) {
+        reportBeforeThrow(state, chunk, report);
+        throw error;
+      }
       chunk = [];
       if (state.diagnostics.length === 0) return;
       for (const d of state.diagnostics) report(d);
@@ -72,6 +77,20 @@ export function replayEngine(
   } finally {
     for (const cursor of cursors) cursor.return?.();
   }
+}
+
+// A throw inside a chunk (§3.3's plain OrderLinesAdded) would take the diagnostics of the chunk's earlier events with
+// it: fold them one by one up to the throw and report what they noted. The failure path only; boot stops after it.
+function reportBeforeThrow(base: EngineState, chunk: readonly PosEvent[], report: (d: Diagnostic) => void): void {
+  let state = base;
+  for (const event of chunk) {
+    try {
+      state = applyEvent(state, event, { strict: false });
+    } catch {
+      break;
+    }
+  }
+  for (const d of state.diagnostics) report(d);
 }
 
 // §3.12, A-17, §6.19: the newest stock-page event over the whole log, which a replay from a snapshot cannot see.
@@ -125,7 +144,7 @@ function parseSnapshot(json: string): EngineState | null {
     if (config !== null && !isRecord(config)) return null;
     if (next_alert_due_at !== null && typeof next_alert_due_at !== 'number') return null;
     for (const station of Object.values(stations as Record<string, unknown>)) {
-      if (!isRecord(station) || !isCanonicalProfile(station.profile)) return null;
+      if (!isRecord(station) || !isCanonicalProfile(station.profile) || !Array.isArray(station.unfired) || !isRecord(station.loads)) return null;
     }
     return { ...(s as unknown as EngineState), diagnostics: [] };
   } catch {
