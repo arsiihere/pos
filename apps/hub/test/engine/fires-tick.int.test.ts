@@ -248,7 +248,7 @@ describe('03a task 22: the fires tick', () => {
     expect(draftsOf(tick)).toEqual(stamped(getTickIntents(between!, due), due));
     expect(fired().filter((id) => id === 'L1')).toEqual(['L1']);
 
-    // A commit that dispatched L1 between due and intents: the tick does not fire it again.
+    // Later passes: L1 is never dispatched a second time.
     (hub.deps as { testHooks?: unknown }).testHooks = undefined;
     for (let i = 0; i < 4; i += 1) await pass(hub.clock.branchNow() + TICK_MS);
     expect(fired().filter((id) => id === 'L1')).toEqual(['L1']);
