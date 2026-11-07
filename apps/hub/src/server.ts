@@ -46,6 +46,7 @@ import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStationsQuery } from './queries/stations.js';
+import { registerStationsLiveQuery } from './queries/stations-live.js';
 import { registerLockoutsQuery } from './queries/lockouts.js';
 import { registerStaffQuery } from './queries/staff.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
@@ -57,6 +58,8 @@ import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
 import './sync/station-validator.js';
 // §4.5: the restaurant event audiences, registered at module load.
 import './ws/restaurant-audiences.js';
+// 03a §6.4: the station-config event audiences, registered at module load.
+import { registerEngineCatchUp } from './ws/engine-audiences.js';
 import { registerRestaurantCatchUp } from './ws/restaurant-catch-up.js';
 import { registerWs } from './ws/server.js';
 
@@ -179,9 +182,12 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStockQuery(app, deps.clock);
   registerConfigStatusQuery(app, deps.config);
   registerBranchConfigQuery(app, deps.clock);
+  registerStationsLiveQuery(app, deps.writer);
   // The catch-up parts read this server's clock; a closed server removes them.
   const stopCatchUp = registerRestaurantCatchUp(deps.clock);
   app.addHook('onClose', async () => stopCatchUp());
+  const stopEngineCatchUp = registerEngineCatchUp(deps.clock);
+  app.addHook('onClose', async () => stopEngineCatchUp());
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
