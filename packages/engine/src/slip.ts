@@ -45,7 +45,7 @@
 //      a re-plan compares the whole maps): the keys of every changed order and of every changed line's order, every
 //      changed slip key; BF-14 (b) generalised — a changed in-flight line (fired-not-started or COOKING, before or
 //      after) also touches the keys of every fired-not-started line of its station, and an effective-capacity change
-//      every line of that station; a changed slip_threshold_ms or order_abandon_ms (or the first config) touches
+//      counts as a change of every order with a line on that station (its exit time moves); a changed slip_threshold_ms or order_abandon_ms (or the first config) touches
 //      every key. The recompute is O(lines of the touched keys). Two reads remain beyond §7.1's terms, since v3 keeps no
 //      index for them: the fired-not-started lines of a station (one pass over the lines, at most once per fold, only
 //      when an in-flight line changed or a touched key has a fired-not-started line) and a key's orders (one read of
@@ -484,10 +484,17 @@ function touchedKeys(prev: EngineState, next: EngineState, named: FoldScope): { 
     const o = next.orders[l.order_id];
     if (o !== undefined) keys.add(o.table_key);
   };
+  // A capacity change moves the AD-4 cook of the station's lines, so their orders' planned land and exit time, with no
+  // line or order changed: each of those orders counts as a changed order (the keys packed behind its in-flight lines,
+  // on any station).
   if (capChanged.size > 0) {
+    const seen = new Set<string>();
     for (const id in next.lines) {
       const l = next.lines[id]!;
-      if (capChanged.has(l.station_id)) addKey(l);
+      if (!capChanged.has(l.station_id) || seen.has(l.order_id)) continue;
+      seen.add(l.order_id);
+      const o = next.orders[l.order_id];
+      if (o !== undefined) orderFlight(o, (lid) => next.lines[lid]);
     }
   }
   if (flight.size === 0) return { keys, flight: null };

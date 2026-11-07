@@ -420,6 +420,24 @@ describe('03a §3.8 slip estimate and crossing', () => {
     expect(s.slip_due.k2).toBe(f + 15 * M + 1);
   });
 
+  it('[03a #106] a capacity change moves the exit of an order on that station: the keys packed behind it on another station are recomputed', () => {
+    // Abandon 10 min, threshold 15. O1: C (4 units, cook 10) COOKING on A, X fired on B (capacity 1), never tapped. O2 (k2):
+    // Y (cook 20, T = 12:30, level 12:45) pulled on B behind X.
+    let s = kitchen([{ station_id: 'A', capacity: 4 }, { station_id: 'B', capacity: 1 }], { order_abandon_ms: 10 * M, slip_threshold_ms: 15 * M });
+    ({ state: s } = submit(s, 'O1', [{ id: 'C', station: 'A', cook: 10 * M, units: 4 }, { id: 'X', station: 'B', cook: 10 * M, mode: 'immediate' }], at(0), { key: 'k1' }));
+    ({ state: s } = submit(s, 'O2', [{ id: 'Y', station: 'B', cook: 20 * M }], at(0), { key: 'k2' }));
+    const pulled = stamp(aFireDispatched({ stream_id: 'B', payload: { station_id: 'B', order_item_ids: ['Y'], load_id: null, due_at: at(1), reason: 'pulled' } }), at(1));
+    s = fold(s, [fireEv('A', ['C'], at(1)), startEv('O1', 'C', at(1)), fireEv('B', ['X'], at(1)), pulled]);
+    // At capacity 4 C lands at 12:11, so O1 is gone then, Y packs alone, and it would cross only at 12:25, after its own
+    // exit at 12:21: no key.
+    expect(s.slip_due).toEqual({});
+    // At capacity 3 C cooks 20 min: O1 stays until 12:21, Y packs behind X, t + 30 min > 12:45 at 12:15 + 1 ms. Nothing
+    // of O2 or of B changed, and the late-order alert exists only if k2 is recomputed.
+    const cap: PosEvent = stamp({ ...anItemStarted(), event_type: 'StationCapacitySet', stream_id: 'A', payload: { station_id: 'A', capacity_override: 3 } }, at(2));
+    s = fold(s, [cap]);
+    expect(s.slip_due).toEqual({ k2: at(15) + 1 });
+  });
+
   it('[03a §3.8] an EngineConfigApplied that changes slip_threshold_ms recomputes every key', () => {
     const { s, f } = lateLine();
     expect(s.next_alert_due_at).toBe(f + TH + 1);
