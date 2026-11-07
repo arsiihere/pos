@@ -17,6 +17,19 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
         },
       },
+      {
+        // 03a §7.1 (task 22): the hub's timed rows, after the engine's (groupOrder), one file at a time.
+        test: {
+          name: 'perf-hub',
+          root: './apps/hub',
+          include: ['test/**/*.perf.test.ts'],
+          setupFiles: ['./test/helpers/no-cloud-network.ts'],
+          testTimeout: 600_000,
+          maxWorkers: 1,
+          fileParallelism: false,
+          sequence: { groupOrder: 2 },
+        },
+      },
     ],
   },
 });

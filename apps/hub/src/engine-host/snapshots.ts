@@ -43,8 +43,8 @@ function writable(deps: SnapshotDeps): string | null {
 }
 
 // §3.12: the state and writer.lastSeq() read together, in one synchronous step (no commit can run between them), then
-// one transaction of 3 statements: the insert, the delete of other-version rows (D62: after a fresh one is written),
-// the delete beyond the newest 2. diagnostics is never stored (AD-6). Returns the last_seq written, or null.
+// one transaction of 3 statements: the insert, the delete of older-version rows (D62, F §5.8: after a fresh one is
+// written; a newer-version row, left by a rollback, stays), the delete beyond the newest 2 of the current version. diagnostics is never stored (AD-6). Returns the last_seq written, or null.
 // proposed (implementer): "the newest 2" are ranked by last_seq, then taken_at: a clock moved back could give a fresh
 // row an older taken_at, and ranking by taken_at would then delete the row just written. Boot step 2 still picks
 // between the 2 kept by taken_at; each is a whole state at its own last_seq.
@@ -63,12 +63,12 @@ export function writeSnapshotSync(deps: SnapshotDeps): number | null {
     db.prepare(
       'INSERT INTO engine_snapshots (snapshot_id, branch_id, taken_at, last_seq, engine_version, state_json) VALUES (?, ?, ?, ?, ?, ?)',
     ).run(deps.ids.next(), branchId, deps.clock.branchNow(), last_seq, ENGINE_STATE_VERSION, json);
-    db.prepare('DELETE FROM engine_snapshots WHERE branch_id = ? AND engine_version <> ?').run(branchId, ENGINE_STATE_VERSION);
+    db.prepare('DELETE FROM engine_snapshots WHERE branch_id = ? AND engine_version < ?').run(branchId, ENGINE_STATE_VERSION);
     db.prepare(
-      `DELETE FROM engine_snapshots WHERE branch_id = ? AND snapshot_id NOT IN (
-         SELECT snapshot_id FROM engine_snapshots WHERE branch_id = ?
+      `DELETE FROM engine_snapshots WHERE branch_id = ? AND engine_version = ? AND snapshot_id NOT IN (
+         SELECT snapshot_id FROM engine_snapshots WHERE branch_id = ? AND engine_version = ?
          ORDER BY last_seq DESC, taken_at DESC, snapshot_id DESC LIMIT ?)`,
-    ).run(branchId, branchId, SNAPSHOTS_KEPT);
+    ).run(branchId, ENGINE_STATE_VERSION, branchId, ENGINE_STATE_VERSION, SNAPSHOTS_KEPT);
   }).immediate();
   return last_seq;
 }
@@ -89,12 +89,13 @@ export function scheduleSnapshot(deps: SnapshotDeps, log?: ErrorLog): void {
 }
 
 // D26 day-close checkpoint: the body from toCheckpoint (stock, stations, config, business_day; never orders or
-// diagnostics), in its own transaction of 2 statements: the insert and the delete beyond the newest 2.
-export function writeCheckpoint(deps: SnapshotDeps, last_seq: number): void {
+// diagnostics), in its own transaction of 2 statements: the insert and the delete beyond the newest 2. Returns true
+// when a row was written; callers clear checkpoint_pending only then.
+export function writeCheckpoint(deps: SnapshotDeps, last_seq: number): boolean {
   const branchId = writable(deps);
-  if (branchId === null) return;
+  if (branchId === null) return false;
   const state = deps.state.get();
-  if (!isEngineState(state)) return;
+  if (!isEngineState(state)) return false;
   const json = JSON.stringify(toCheckpoint(state, last_seq));
   const db = deps.db;
   db.transaction(() => {
@@ -107,6 +108,7 @@ export function writeCheckpoint(deps: SnapshotDeps, last_seq: number): void {
          ORDER BY last_seq DESC, taken_at DESC, checkpoint_id DESC LIMIT ?)`,
     ).run(branchId, CHECKPOINT_SCHEMA, branchId, CHECKPOINT_SCHEMA, CHECKPOINTS_KEPT);
   }).immediate();
+  return true;
 }
 
 // §3.12 deferred checkpoint, for the fires tick (task 22): called after the pass's fold (AD-20, test 111 "that pass")
@@ -126,8 +128,7 @@ export function checkpointAfterPass(deps: SnapshotDeps, now: number, log?: Error
     const current = deps.state.get();
     if (!isEngineState(current) || !noOrderInEngine(current, Math.max(now, deps.clock.branchNow()))) return;
     try {
-      writeCheckpoint(deps, deps.writer.lastSeq());
-      hostFlags.checkpoint_pending = false;
+      if (writeCheckpoint(deps, deps.writer.lastSeq())) hostFlags.checkpoint_pending = false;
     } catch (err) {
       log?.error({ err }, 'engine checkpoint failed');
     }
@@ -165,9 +166,10 @@ export function afterSnapshotCommit(deps: SnapshotDeps, appended: readonly PosEv
   // last_seq is writer.lastSeq() read with the state.
   if (isEngineState(state) && deps.writer.lastSeq() === last.seq && noOrderInEngine(state, day.recorded_at)) {
     try {
-      writeCheckpoint(deps, last.seq);
-      hostFlags.checkpoint_pending = false;
-      return;
+      if (writeCheckpoint(deps, last.seq)) {
+        hostFlags.checkpoint_pending = false;
+        return;
+      }
     } catch (err) {
       log?.error({ err }, 'engine checkpoint failed');
     }

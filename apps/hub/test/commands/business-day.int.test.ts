@@ -369,8 +369,9 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       const counter = statementCounter(hub.deps.db);
       const host = hostSnapshotWrites(hub.deps.db);
       const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
-      // 03a §3.12: the close checkpoint is the host's after-commit write, not the command's; it runs at once in the
-      // plain close (no order in the engine) and is deferred in the close with hidden lines, so it is left out.
+      // 03a §3.12: the day-close checkpoint (its own transaction after the commit) is written only when no order is in
+      // the engine, so the plain close writes it and the close with hidden lines defers it; it is the host's write, not
+      // the command's, so the host's snapshot / checkpoint statements are left out (counted by table, not by row).
       const statements = counter.count - host.count;
       return { statements, events: (res.json().data.event_ids as string[]).length };
     };

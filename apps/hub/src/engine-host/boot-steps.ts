@@ -1,6 +1,8 @@
 import { getTickIntents, initialEngineState, type EngineState } from '@pos/engine';
+import { registerTick } from '../alerts/tick.js';
 import { registerBootStep, type BootContext } from '../lib/boot.js';
 import { setStockVersion } from '../sync/stock-version.js';
+import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
 import { logDiagnostics } from './reducer.js';
 import { loadEngineBase, readStockVersion, replayEngine, type LoadedBase } from './replay.js';
@@ -85,6 +87,8 @@ export function engineStep6(ctx: BootContext): void {
   const taken = run?.base.checkpoint_taken_at ?? null;
   hostFlags.checkpoint_pending = closedAt !== null && (taken === null || taken < closedAt);
   hostFlags.reconcile = true;
+  // §3.11 catch-up: the first fires pass appends E(branchConfig()) when it differs from the replayed config (0 statements).
+  hostFlags.configStale = configStaleFor(state);
 }
 
 let registered = false;
@@ -97,4 +101,8 @@ export function registerEngineBootSteps(mono?: () => number): void {
   registerBootStep('2', engineStep2);
   registerBootStep('3', engineStep3);
   registerBootStep('6', engineStep6);
+  // §6.2, §3.6: the fires tick runs right after 01d's own `alerts` tick (registered at that module's load). Here and
+  // not in registerEngineHost: the tick list is process-wide and a name registers once, while every server build calls
+  // registerEngineHost (proposed (implementer)).
+  registerTick(firesTick);
 }
