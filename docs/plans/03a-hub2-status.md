@@ -4,7 +4,7 @@ Plan: `docs/plans/03a-plan.md`. Branch `module-03a-hub2`, cut from `origin/modul
 
 | Task | Status | Commits | Review |
 |---|---|---|---|
-| R1 | TODO | | |
+| R1 | DONE | `9d037dd`, `5d7f3ab` | 1 Important (scope help for `manage-stations`) fixed and verified |
 | A14 | TODO | | |
 | R2 | TODO | | |
 | R1b | TODO | | |
