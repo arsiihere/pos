@@ -1,3 +1,4 @@
+import { canonicalJson } from '@pos/domain/hash';
 import { stationPlan, type EngineState } from '@pos/engine';
 import type { StationPlanBody, WsStationPlan } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
@@ -18,6 +19,8 @@ import { touchedIn } from './reducer.js';
 //       pass crossed when that pass also had intents: one frame per station per commit;
 //   (b) from the fires tick's `due` when a line entered Next and nothing else is due (fires-tick onFreezeEntry seam):
 //       a send of committed state, no transaction, no statement.
+//   In both, AD-35 (b): a candidate is sent only when its { station_id, lines } differs from the last frame sent for
+//   that station (a frame with no recipient is not "sent" and records nothing).
 // as_of_seq is writer.lastSeq(), read with the state in one synchronous step.
 
 // 01a §2: a hub with no engine steps holds {}.
@@ -53,6 +56,9 @@ export function bindStationPlans(app: FastifyInstance, deps: HubDeps): void {
   // noted when its catch-up part is built (every staff and station socket builds it) and dropped once the socket is
   // gone; this keeps the frame at 0 statements without changing 00's contract.
   const stationOf = new Map<string, string | null>();
+  // AD-35 (b): station → the canonical { station_id, lines } of the last frame sent for it; host memory, reset at bind
+  // (boot). The catch-up part never writes it (it is per socket).
+  const lastSent = new Map<string, string>();
   // The catch-up registry (ws/catch-up.ts `parts`) is module-global: with two hubs in one process (tests only) each
   // hub's sockets build every registered part: the last one registered sets the `station_plan` key (with its own
   // clock), and the other hub's part notes foreign session ids into its own map, which its send prunes. Production
@@ -79,7 +85,13 @@ export function bindStationPlans(app: FastifyInstance, deps: HubDeps): void {
         .filter((s) => stationPlanAudience(station_id, { kind: s.kind, stationId: stationOf.get(s.sessionId) ?? null }))
         .map((s) => s.sessionId);
       if (to.length === 0) continue;
-      const frame: WsStationPlan = { type: 'station_plan', ...stationPlanBody(state, station_id, now, as_of_seq) };
+      const body = stationPlanBody(state, station_id, now, as_of_seq);
+      // AD-35 (b): the touched / crossed stations are candidates; one whose payload equals the last one sent is
+      // dropped. as_of_seq is left out of the comparison (it moves with every commit): station_id and lines decide.
+      const key = canonicalJson({ station_id: body.station_id, lines: body.lines });
+      if (lastSent.get(station_id) === key) continue;
+      lastSent.set(station_id, key);
+      const frame: WsStationPlan = { type: 'station_plan', ...body };
       ws.sendToSessions(to, frame);
     }
   };

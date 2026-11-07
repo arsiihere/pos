@@ -17,7 +17,7 @@ import { wsHubFor } from '../../src/ws/server';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { draftOf, fakeSubmit, fakeSubmitDrafts, type FakeOrder } from './fakes';
+import { draftOf, fakeSubmit, fakeSubmitDrafts, fakeTap, type FakeOrder } from './fakes';
 
 // As main.ts: the engine steps (the fires tick right after 01d's `alerts`), then the restaurant steps.
 registerEngineBootSteps(() => performance.now());
@@ -187,6 +187,43 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
       expect(plans(ws)[0]!.lines).toEqual([expect.objectContaining({ order_item_id: 'L1', mark: 'expedite' })]);
     }
     expect(plans(k2)).toEqual([]);
+  });
+
+  // AD-35 (b): a frame only when the station's body (station_id, lines; never as_of_seq) differs from the last sent.
+  it('[03a #83, AD-35 b] a commit that changes line references but no field of the plan body sends no frame', async () => {
+    kitchen();
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', station_id: 'S2' }] });
+    const k1 = await socketOf('station', 'S1');
+    const staff = await socketOf('staff');
+    // The fires pass fires L1: S1's plan loses L1 (one frame).
+    await pass(engine().lines.L1!.fire_ms!);
+    await settle();
+    expect(engine().lines.L1!.fired_at).not.toBeNull();
+    expect(plans(k1).map((p) => p.lines.length)).toEqual([0]);
+    const staffBefore = plans(staff).length;
+    // A Start tap on the fired line: the line (and its station) change by reference, the S1 body does not.
+    const prevLine = engine().lines.L1;
+    fakeTap(hub.deps, 'start', 'L1');
+    await settle();
+    expect(engine().lines.L1).not.toBe(prevLine);
+    expect(plans(k1)).toHaveLength(1);
+    expect(plans(staff)).toHaveLength(staffBefore);
+  });
+
+  it('[03a #83, AD-35 b] the same freeze-entry crossing seen twice with an unchanged body: one frame', async () => {
+    kitchen(config({ freeze_ms: 2 * MIN }));
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    const k1 = await socketOf('station', 'S1');
+    const fireAt = engine().lines.L1!.fire_ms!;
+    await pass(fireAt - 2 * MIN - TICK_MS);
+    await pass(fireAt - 2 * MIN);
+    await settle();
+    expect(plans(k1)).toHaveLength(1);
+    // The clock steps back and the same interval is passed again: S1 crosses again, its body is the one sent.
+    await pass(fireAt - 2 * MIN - TICK_MS);
+    await pass(fireAt - 2 * MIN);
+    await settle();
+    expect(plans(k1)).toHaveLength(1);
   });
 
   it('[03a #83] a StockReleased that makes a from-stock line fresh (deadline_ms changes): one frame for its station', async () => {
