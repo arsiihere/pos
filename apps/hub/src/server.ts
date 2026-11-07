@@ -31,6 +31,7 @@ import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
+import { registerSetStationCapacity } from './commands/set-station-capacity.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
 import { CLIENT_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
@@ -163,6 +164,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerSetPrecookedStock(app);
   registerAddPrecookedStock(app);
   registerSetItemAvailability(app);
+  registerSetStationCapacity(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
