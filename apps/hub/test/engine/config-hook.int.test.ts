@@ -53,6 +53,19 @@ describe('03a task 24: the config hook (§3.11)', () => {
   });
 
   const engine = (): EngineState => hub.deps.state.get();
+  // The real tick loop on fake timers; the fires tick alone (fires_alerts has its own file), 01d's alerts tick idle.
+  const startLoop = (): { error: ReturnType<typeof vi.fn<(obj: Record<string, unknown>, msg?: string) => void>> } => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
+    vi.spyOn(firesAlertsTick, 'due').mockReturnValue(false);
+    const log = { error: vi.fn<(obj: Record<string, unknown>, msg?: string) => void>() };
+    cleanups.push(startTickLoop(hub.deps, log));
+    return log;
+  };
+  const pass = async (at?: number): Promise<void> => {
+    if (at !== undefined) hub.clock.set(at);
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+  };
   const apply = async (c: BranchConfig): Promise<void> => {
     cloud.respondWithSnapshot(c as unknown as Record<string, unknown>);
     const result = await configPoller(hub.app).pollOnce();
@@ -189,6 +202,34 @@ describe('03a task 24: the config hook (§3.11)', () => {
       }
     });
 
+    it('edge configs the V3 schema allows: a negative cook time (reference clamped to 0), a repeated station_id (first row kept), zero and negative knobs', () => {
+      const c = aBranchConfig({
+        branch_id: BRANCH,
+        stations: [
+          station({ station_id: 'S1', name: 'First', capacity: 0, freeze_ms: -1, reserve_units: -5, pressure_window_ms: 0, pressure_amber_bp: -1, lane_units: 0 }),
+          station({ station_id: 'S1', name: 'Second', capacity: 9 }),
+          station({ station_id: 'S2', carry_times: [{ point_id: 'P1', carry_ms: -60_000 }] }),
+        ],
+        items: [item({ item_id: 'A', cook_time_ms: -300_000 }), item({ item_id: 'B', cook_time_ms: -100_000, station_id: 'S2' }), item({ item_id: 'C', cook_time_ms: 0, station_id: 'S2' })],
+        engine_settings: { ...aBranchConfig().engine_settings, weight_dine_in_pct: 0, slip_threshold_ms: -1, cascade_step_ms: 0, min_gain_ms: -60_000, order_abandon_ms: 0 },
+      });
+      const parsed = BranchConfigSnapshotSchemaV3.parse(c);
+      const e = engineConfigOf(parsed);
+      expect(e.stations.map((s) => [s.station_id, s.name])).toEqual([
+        ['S1', 'First'],
+        ['S2', 'S2'],
+      ]);
+      expect(e.stations[0]).toMatchObject({ capacity: 0, freeze_ms: -1, reserve_units: -5, reference_cook_ms: 0 });
+      expect(refOf(e, 'S2')).toBe(0); // lower median of -100 000 and 0, clamped
+      expect(EngineConfigAppliedPayload.parse(e)).toEqual(e);
+      let appended: PosEvent[] = [];
+      expect(() => {
+        appended = runHook(parsed);
+      }).not.toThrow();
+      expect(appended.map((x) => x.event_type)).toEqual(['EngineConfigApplied']);
+      expect(engine().config).toEqual(e);
+    });
+
     it('0 extra statements: the hook reads nothing; unchanged → no statement at all; changed → only its append\'s', () => {
       const counter = statementCounter(hub.deps.db);
       const measure = (next: BranchConfig): { hook: number; append: number; events: number } => {
@@ -229,12 +270,17 @@ describe('03a task 24: the config hook (§3.11)', () => {
       engineStep6({ config: hub.deps.config, db: hub.deps.db, initialState: engine(), clock: hub.clock } as BootContext);
     };
 
-    it('E() is wired by the server build (step 5), before boot step 6 reads it', () => {
+    it('[03a #79] E() is wired by the server build (step 5), before boot step 6 reads it; the next fires pass writes E(branchConfig())', async () => {
       swapBranchConfig(entry(aBranchConfig()));
       expect(engine().config).toBeNull();
       step6();
       expect(hostFlags.configStale).toBe(true);
       expect(configStaleFor(engine())).toBe(true);
+      startLoop();
+      await pass();
+      expect(hub.published.map((batch) => batch.map((e) => e.event_type))).toEqual([['EngineConfigApplied']]);
+      expect(hub.published[0]![0]!.payload).toEqual(engineConfigOf(aBranchConfig()));
+      expect(hostFlags.configStale).toBe(false);
     });
 
     it('every hook run re-evaluates it: false after a committed apply; unchanged when the apply rolls back', async () => {
@@ -257,40 +303,67 @@ describe('03a task 24: the config hook (§3.11)', () => {
     });
   });
 
-  // -------------------------------------------------------------------------------------- catch-up give-up (batch 9)
-  describe('a catch-up that throws again and again', () => {
-    it('proposed (implementer): after 3 failed catch-up passes the fires pass logs once and goes on; the fires still run', async () => {
-      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
-      hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
-      vi.spyOn(firesAlertsTick, 'due').mockReturnValue(false);
-      const log = { error: vi.fn<(obj: Record<string, unknown>, msg?: string) => void>() };
-      const stop = startTickLoop(hub.deps, log);
-      cleanups.push(stop);
+  // ------------------------------------------------------------------------------- catch-up back-off (batch 9, review 1)
+  describe('[03a #79] a catch-up that throws again and again', () => {
+    it('proposed (implementer): after 3 failed catch-up passes the fires keep flowing, the catch-up retries once per 60 s, configStale stays true until a retry commits', async () => {
+      const log = startLoop();
       hub.deps.writer.run((tx) => tx.append([draftOf(anEngineConfigApplied()), draftOf(aBusinessDayOpened())]));
       hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
       fakeSubmit(hub.deps, { order_id: 'O1', lines: [{ order_item_id: 'A' }] });
       swapBranchConfig(entry(aBranchConfig({ config_version: 2 })));
       cleanups.push(() => setEngineConfigOf(engineConfigOf));
-      setEngineConfigOf(() => {
-        throw new Error('E() failed');
+      let calls = 0;
+      let failing = true;
+      setEngineConfigOf((snapshot) => {
+        calls += 1;
+        if (failing) throw new Error('E() failed');
+        return engineConfigOf(snapshot);
       });
       hostFlags.configStale = true;
-      hub.clock.set(hub.clock.branchNow() + 60 * 60_000);
+      const t = hub.clock.branchNow() + 60 * 60_000;
       hub.published.length = 0;
-      for (let i = 0; i < 3; i += 1) await vi.advanceTimersByTimeAsync(TICK_MS);
+      const types = (): string[] => hub.published.flat().map((e) => e.event_type);
+      const fired = (): string[] => hub.published.flat().filter((e) => e.event_type === 'FireDispatched').flatMap((e) => (e.payload as { order_item_ids: string[] }).order_item_ids);
+      const backOffLines = (): number => hub.logs().split('fires: config catch-up failed; retrying at a back-off').length - 1;
+
+      // Three catch-up passes, none commits: nothing is written, the fires wait.
+      for (let i = 0; i < 3; i += 1) await pass(t);
+      expect(calls).toBe(3);
       expect(hub.published).toHaveLength(0);
       expect(hostFlags.configStale).toBe(true);
-      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(3);
-      await vi.advanceTimersByTimeAsync(TICK_MS);
+      // The next due sees the third failure: one error line, then an ordinary pass on the replayed config.
+      await pass(t);
+      expect(fired()).toEqual(['A']);
+      expect(types()).not.toContain('EngineConfigApplied');
+      expect(backOffLines()).toBe(1);
+      expect(hostFlags.configStale).toBe(true);
+      // Fires keep flowing during the back-off, and no catch-up runs before t + 60 s.
+      fakeSubmit(hub.deps, { order_id: 'O2', lines: [{ order_item_id: 'B' }] });
+      await pass(t + 30_000);
+      await pass(t + 59_999);
+      expect(fired()).toEqual(['A', 'B']);
+      expect(calls).toBe(3);
+      expect(hostFlags.configStale).toBe(true);
+      // At t + 60 s one retry; it fails again: one more error line, the next retry 60 s after it.
+      await pass(t + 60_000);
+      expect(calls).toBe(4);
+      await pass(t + 60_500);
+      expect(backOffLines()).toBe(2);
+      await pass(t + 119_999);
+      expect(calls).toBe(4);
+      expect(hostFlags.configStale).toBe(true);
+      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(4); // one per failed attempt
+      // E() works again: the retry at or after 60 s writes only the config and clears the flag.
+      failing = false;
+      hub.published.length = 0;
+      await pass(t + 120_500);
+      expect(calls).toBe(5);
+      expect(hub.published.map((batch) => batch.map((e) => e.event_type))).toEqual([['EngineConfigApplied']]);
+      expect(engine().config).toEqual(engineConfigOf(aBranchConfig({ config_version: 2 })));
       expect(hostFlags.configStale).toBe(false);
-      const types = hub.published.flat().map((e) => e.event_type);
-      expect(types).toContain('FireDispatched');
-      expect(types).not.toContain('EngineConfigApplied');
-      const abandoned = (): number => hub.logs().split('fires: config catch-up abandoned').length - 1;
-      expect(abandoned()).toBe(1);
-      for (let i = 0; i < 3; i += 1) await vi.advanceTimersByTimeAsync(TICK_MS);
-      expect(abandoned()).toBe(1);
-      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(3);
+      // Back to ordinary passes: no further catch-up.
+      await pass(t + 300_000);
+      expect(calls).toBe(5);
     });
   });
 });

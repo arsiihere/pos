@@ -1,6 +1,6 @@
 import { canonicalJson } from '@pos/domain/hash';
 import { firesDue, getTickIntents, type EngineState, type TickDraft } from '@pos/engine';
-import type { BranchConfig, EngineConfig, EventDraft } from '@pos/events';
+import { CONFIG_POLL_INTERVAL_MS, type BranchConfig, type EngineConfig, type EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { TickDef } from '../alerts/tick.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
@@ -77,19 +77,38 @@ function nextConfig(): EngineConfig | null {
   return snapshot === null || engineConfigOf === null ? null : engineConfigOf(snapshot);
 }
 
-// Batch 9 (task 24): a catch-up that keeps failing must not block the fires pass forever.
-// proposed (implementer): a catch-up pass that does not commit (E() throws, the append fails) counts as a failed
-// attempt; after CATCH_UP_ATTEMPTS of them the next due logs once at error, clears configStale and runs an ordinary
-// pass on the replayed config. The catch-up pass still writes only the config; the next config apply's hook
-// re-evaluates the flag and writes E(next) then (§3.11).
+// Batch 9 (task 24, review round 1): a catch-up that keeps failing must not block the fires pass forever, and the
+// flag keeps its §3.11 meaning (only a committed catch-up pass or a committed hook run clears it).
+// proposed (implementer): a catch-up pass that does not commit (E() throws, the append fails) is seen as failed at the
+// next due. After CATCH_UP_ATTEMPTS failures in a row, due stops gating on configStale (ordinary fires passes run on
+// the replayed config) and retries the catch-up once per CONFIG_POLL_INTERVAL_MS (01a's poll interval, 60 s), each
+// failed retry logged once at error. The catch-up pass still writes only the config; a commit clears the flag, the
+// count and the back-off. Times are the pass's `now` (the hub clock), never the wall clock.
 const CATCH_UP_ATTEMPTS = 3;
-const catchUpFailures = new WeakMap<object, number>();
-function abandonCatchUp(host: object, log: ErrorLog | undefined): boolean {
-  const attempts = catchUpFailures.get(host) ?? 0;
-  if (attempts < CATCH_UP_ATTEMPTS) return false;
-  catchUpFailures.delete(host);
-  hostFlags.configStale = false;
-  log?.error({ tick: 'fires', attempts }, 'fires: config catch-up abandoned');
+interface CatchUp {
+  failures: number; // catch-up passes in a row that did not commit
+  retry_at: number; // once failures ≥ CATCH_UP_ATTEMPTS: the earliest next attempt
+  pending: boolean; // this due chose a catch-up pass; still true at the next due → it did not commit
+}
+const catchUps = new WeakMap<object, CatchUp>();
+
+// Is this pass a catch-up pass? Pure and in memory (0 statements).
+function catchUpDue(host: object, log: ErrorLog | undefined, now: number): boolean {
+  let c = catchUps.get(host);
+  if (c === undefined) {
+    c = { failures: 0, retry_at: 0, pending: false };
+    catchUps.set(host, c);
+  }
+  if (c.pending) {
+    c.pending = false;
+    c.failures += 1;
+    if (c.failures >= CATCH_UP_ATTEMPTS) {
+      c.retry_at = now + CONFIG_POLL_INTERVAL_MS;
+      log?.error({ tick: 'fires', attempts: c.failures, retry_at: c.retry_at }, 'fires: config catch-up failed; retrying at a back-off');
+    }
+  }
+  if (c.failures >= CATCH_UP_ATTEMPTS && now < c.retry_at) return false;
+  c.pending = true;
   return true;
 }
 
@@ -133,7 +152,8 @@ export const firesTick: TickDef = {
     // §3.12: a pass with no work can still be the first at which no order is in the engine (an exit by time alone).
     checkpointAfterPass(host.deps, now, host.log);
     // §3.11: the catch-up pass. last_pass_ms is left as it is, so the next pass still sees this interval's crossings.
-    if (hostFlags.configStale && !abandonCatchUp(host, host.log)) return true;
+    if (!hostFlags.configStale) catchUps.delete(host);
+    else if (catchUpDue(host, host.log, now)) return true;
     const since = hostFlags.last_pass_ms;
     const { intents_due, crossed } = firesDue(state, since, now);
     hostFlags.last_pass_ms = now;
@@ -147,10 +167,9 @@ export const firesTick: TickDef = {
   intents(tx, state, now) {
     const host = hosts.get(tx.db);
     if (host === undefined || !isEngineState(state)) return [];
-    if (hostFlags.configStale) {
-      catchUpFailures.set(host, (catchUpFailures.get(host) ?? 0) + 1);
+    if (hostFlags.configStale && catchUps.get(host)?.pending === true) {
       tx.onCommit(() => {
-        catchUpFailures.delete(host);
+        catchUps.delete(host);
         hostFlags.configStale = false;
       });
       // Re-selected inside the transaction: a config hook that applied it meanwhile leaves nothing to write.
