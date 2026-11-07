@@ -98,16 +98,16 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | 23 / 223 / 240 (n 5 401). Overload day 39 / 360 / 385 (old day 414 / 1 841 / 1 894) | — |
 | Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | 270 (`ceil(1.2 × 223 / 10) × 10`), asserted since task 18f (`6e92e59`) | — |
 | Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | overload day per AD-27 (125 % for one hour): **pass** max 7 probes (355 searches) / **pass** 8.9 ms (max 55.6) (old definition: 3 / MISS 307.9) | — |
-| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **pass** max 39.8 ms (p50 37.1; n 21; 20 flipped) (old day: MISS 376.5) | — |
-| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | **pass** max 4.8 ms (p50 3.5; 0.90 MB, 1 126 lines at peak) / task 21 (old day 36.5, 4.54 MB) | — |
+| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **pass** max 39.8 ms (p50 37.1; n 21; 20 flipped); batch 8 clean run max 38.7 ms (p50 36.7), so no slowdown from 18d–20 (old day: MISS 376.5) | — |
+| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | **pass** max 4.8 ms (p50 3.5; 0.90 MB, 1 126 lines at peak) / full write (hub, `snapshots.perf.test.ts`, every sample ≤ 50 ms): **pass** in the batch 8 clean run (the value is not printed: the perf-hub setup swallows that `console.info`). Batch 8 serialise max 5.1 ms (old day 36.5, 4.54 MB) | — |
 | Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | **pass** 11.5 s (38 303 events, 0.30 ms per event) (old day, per-event fold: MISS 433.9) | — |
 | 2-day replay (steps 2–3) | ≤ 80 s | — | **pass** 26.0 s (76 457 events; engine fold only, no SQLite read) (old day: MISS 348.7) | — |
 | Events replayed per day | ≈ R6 ± 20 % | 65 876 | pass: 38 304 (−14.9 % on R6's 45k, AD-26) | — |
 | Live = replayed (generated day) | equal | — | pass: end state and 76 mid-day digests equal; `applyEvents` = per-event fold, same value and same text, full day | — |
-| `fires` pass with work p99 | ≤ 20 ms | — | (test 62) | — |
-| `fires_alerts` pass with work p99 | ≤ 20 ms | — | (tests 76, 93) | — |
+| `fires` pass with work p99 | ≤ 20 ms | — | **pass** p99 11.2 ms (p50 9.4; 31 passes; hub write + COMMIT, peak seq 26 609, 475 unfired, 4 drafts/pass), batch 8 clean run. Engine-only `getTickIntents` p99 7.0 ms | — |
+| `fires_alerts` pass with work p99 | ≤ 20 ms | — | **pass** p99 10.6 ms (p50 7.3; 31 raise passes, 10 drafts each); idle `due` p99 2.2 ms (0 statements), batch 8 clean run | — |
 | Crash restart ≤ 500 events (steps 2–3) | ≤ 2 s | — | (test 64) | — |
-| `stations-live` | ≤ 5 ms, 0 statements | — | (test 66) | — |
+| `stations-live` | ≤ 5 ms, 0 statements | — | **pass** max 2.5 ms (p50 0.5; n 21; 98 in flight at the peak), batch 8 clean run; 0 statements (test 66) | — |
 | Boot steps 4–8 | ≈ 10 s budget | — | — | — |
 | `events_branch_stream` build over a month | ≈ 1 s / month | — | — | — |
 
@@ -158,21 +158,21 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | C7 | 7 | NORMAL | TODO | | [01b B-6] | |
 | C8 | 7 | NORMAL | TODO | | UI | |
 | C9 | 7 | NORMAL | TODO | | UI | |
-| 19 | 8 | NORMAL | TODO | | [03a §5.1] | hub `0007_engine.sql` |
-| 20 | 8 | HIGH | TODO | | #57, #58, #64, #85, [00 H-1], RF 5 | |
-| 21 | 8 | HIGH | TODO | | #61, #112 | |
-| 22 | 8 | HIGH | TODO | | #60, #62 hub, #63, #71, #73, #79, #95, #111 hub | |
-| 22a | 8 | HIGH | TODO | | #76, #82, #86, #93, #113, BF-4 hub | |
+| 19 | 8 | NORMAL | DONE | `0403e4a` | [03a §5.1] | hub `0007_engine.sql` |
+| 20 | 8 | HIGH | DONE | `369c508`, `6ff38d2` | #57, #58, #64, #85, [00 H-1], RF 5 | AD-31 |
+| 21 | 8 | HIGH | DONE | `9ebf943`, `7531ec2` | #61, #112 | AD-33 (SIGTERM). The fix also edited hub2's A-14 test in `business-day.int.test.ts` (it subtracts the checkpoint statements) |
+| 22 | 8 | HIGH | DONE | `2569ce7`, `111a906`, `8aaa49c` | #60, #62 hub, #63, #71, #73, #79, #95, #111 hub | AD-33 |
+| 22a | 8 | HIGH | DONE | `f7e04dc`, `804e3b3`, `04284b0` | #76, #82, #86, #93, #113, BF-4 hub | AD-33; I4 (slip `details`) carried to 23 |
 | 22b | 9 | NORMAL | TODO | | #83 | |
 | 23 | 9 | NORMAL | TODO | | #65, #67, #72, #77 hub | |
 | 24 | 9 | NORMAL | TODO | | #70 | |
 | A14 | 9 | HIGH | TODO | | [01a §6.17, §6.17a, §6.18b A-14] | |
-| R2 | 9 | NORMAL | TODO | | [00 H-5, H-6] | hub `0008_device_point_lane.sql` |
-| R1 | 10 | NORMAL | TODO | | [01b B-1, B-2, B-3, B-5] | |
-| R1b | 10 | NORMAL | TODO | | [01b B-4] | cloud `0008`, hub `0009_run_station.sql` |
-| 25 | 10 | NORMAL | TODO | | #68 | |
-| 25b | 10 | NORMAL | TODO | | #69 | |
-| 26 | 10 | NORMAL | TODO | | #66 | |
+| R2 | 9 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | [00 H-5, H-6] | hub `0008_device_point_lane.sql` |
+| R1 | 10 | NORMAL | DONE (hub2 lane, merged `9c7a75d`) | | [01b B-1, B-2, B-3, B-5] | |
+| R1b | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | [01b B-4] | cloud `0008`, hub `0009_run_station.sql` |
+| 25 | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #68 | |
+| 25b | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #69 | |
+| 26 | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #66 | |
 | 27 | 11 | HIGH | TODO | | #59, #74 hub | |
 | 28 | 11 | — | TODO | | manual | needs the pilot mini PC |
 | 29 | 11 | — | TODO | | — | final review, as-built v1.1 draft |
@@ -214,6 +214,8 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | AD-30 | 18d, 18e | Readings inside the AD-29 fixes | per reading | **Proposed (controller and implementers, after AD-29), for the developer:** B3: an immediate line of a boosted pickup order keeps its earliest fit, as at submit. P8: FIFO alternates are offered to a boosted return; with `returns_boost` false a return can wait on every policy (the owner's explicit setting: developer to confirm). P4: rounds stored on a member line when it leaves its stored load (`rounds`, `occupiedCook`); a capacity change after the fire leaves them; a void before the fire or a partial void after it leaves them, so the station can stay booked up to one cook longer than the remaining units need. Q7: Undo after a consume at Done does not reverse it; at Served "no Start" = `started_at` null at any open stage; a Done or Served on an AD-20 kept line still consumes. Q5: "reused" covers every id in `order_item_ids`, an id listed twice in `lines[]` or across groups; an id whose order has left the state is free again; a `StockReserved` on a line past `added` is a writer bug; a fresh or fired line at `added` can't be told from a legal flip (known limit, pinned, closed by the To 02 row) | Keeps the rulings' words | `packages/engine/src/{apply-event,plan,profile,lifecycle,slip,tick,live,stock}.ts` |
 | AD-31 | 20 | An `AlertClosed` on a non-order stream was folded live but never replayed (replay reads it only on the order stream), so live ran the §3.3 removal step at that event and replay did not | (a) fold `AlertClosed` only on `stream_type === 'order'`; (b) replay every stream | (a) — **proposed (controller)**: §3.3 says live and replay remove at the same point; §3.12 lists `AlertClosed` on the order stream; the `slip_warning` kind's subject is the order stream (01d closes on the subject stream) | Live = replay, no cost | `packages/engine/src/apply-event.ts`, task 23 |
 | AD-32 | 22–26, R1b | Developer rulings 2026-11-07 (after the hub2 merge) | — | **Developer rulings:** (1) the stock frames for `StockReserved` / `StockReleased` / `StockConsumed` go to every staff socket of the branch; (2) `mark-served` default scope `'branch'`; (3) AD-2 superseded by AD-29: held lines consumed, not re-reserved; (4) **perf tests out of the normal gate:** the perf project no longer runs in `pnpm -w test`; it runs only as `pnpm test:perf` inside a clean measurement (create `/tmp/pos-perf.running`, trap to delete it); timing asserts on a shared laptop under load are noise; the official §10.6 gate is the clean run; (5) at the next batch checkpoint take one clean measurement and record BF-7 (39.8 ms official; hub2 saw 51–63 ms under load) and `stations-live` (hub2 saw 6.8 ms vs 5); if either misses on an idle machine, find which of 18d–20 slowed it and fix it before continuing | The developer's call | root `package.json`, `vitest.config.ts` |
+| AD-33 | 21, 22, 22a | Host readings in batch 8 | per reading | **Accepted in full (developer, 2026-11-07):** (21) SIGTERM is caught with `process.once('SIGTERM')`, which checkpoints and then closes; the spec names a Fastify `onClose` hook, but the checkpoint needs the writer to still be open, which `onClose` does not guarantee. (22) The fires tick: a config catch-up runs before the fires and in the same transaction; a pass that commits nothing writes no `last_pass_ms`. (22a) (1) "Dropped a line" means an `ItemAdded` dropped for a reason other than `line_not_listed`, an `ItemAdded` refused with `stream_id_mismatch` (its placeholder stalls the order), or any refused `OrderPlaced` / `OrderLinesAdded`. (2) A refused batch gets the key `engine_line_dropped:<order_id>:<order_item_id>`; the drop of a single line keeps the per-id key. (3) The closes are appended before `raiseMany`, so a slip carried over the day close is a new alert (§3.8). (4) **A capped station below amber is not closed**: §3.10's "closed below amber" and its "capped and not open → raise" would otherwise close and re-raise on every pass, against §6.2a "never due again". This needs a spec fold at task 29. (5) A deduped slip key, or a resolved key with no open alert, joins `skipped`. (6) An unregistered kind is logged and skipped, never thrown. (7) The dropped-line alert's subject is the order stream. (8) Dropped-line facts are re-queued at boot from the step-3 replay diagnostics (0 statements). A drop whose alert managers already closed inside the replay window is raised again: noisy, not silent. (M2) The tick's own event on a skipped key gives one extra retry and a second log line. (M4) A station in `overload_skipped` is retried only after a restart. (Review 2) A wrong-stream `ItemAdded` for an absent or unlisted order also raises `engine_line_dropped` (noise, not silence). An open overload of a station deleted from the config closes `done` while it may still be red (it has no thresholds left). On SIGTERM a non-empty dropped-line queue is flushed by one `fires_alerts` pass before the snapshot; if that flush itself throws, the snapshot is still written and the drop stays only in the error log (narrow, logged). A stop without SIGTERM writes no shutdown snapshot, so boot re-queues the drop | Keeps the spec's rules; (4) picks the one consistent reading | `apps/hub/src/engine-host/*`, task 29 |
+| AD-34 | hub3 merge, 29 | Developer rulings 2026-11-07 (after the hub3 merge) | — | **Developer rulings:** (1) commands 25 and 25b stay registered in `server.ts`, and task 26's audiences stay in `ws/engine-audiences.ts`; (2) `appendEvents` returns early when there is nothing to append (no `MAX(seq)` read); (3) `SetStationCapacity`'s statement test is tightened to an exact count; (4) the double re-plan on a capacity change is accepted, with a note for task 29; (5) the snapshot timing check in `snapshots.int.test.ts` moves to `pnpm test:perf` (it hit 60–91 ms under load); (6) for task 29's as-built and release notes: 01b §3.6 "no two entries for one station" applies within each responsibility kind; "upgrade every hub before anyone assigns run_station" | The developer's call | `apps/hub/src/events/*`, `apps/hub/test/engine/snapshots*.test.ts`, task 29 |
 
 Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD rows at the named checkpoint:
 
@@ -347,3 +349,29 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **Tests closed:** #33, #34, #45, #46, #47, #48, #50, #53, #54, #55, #94, #96 shift, #97, #100 (engine), #107 engine, #108, #115 shift; F #11; §10.6 perf asserts (AD-27 floor red); BF-7 measured. Hub clauses of #100 → 25, #107's 409 → 02.
 - **AD rows:** AD-23 – AD-26 proposed (implementer, overnight); AD-27, AD-28 developer rulings.
 - **Carried:** in the MORNING REPORT.
+
+## Batch 8 — Engine host: migration, boot, snapshots, fires, fires_alerts (2026-11-07)
+
+- **Tasks:** 19, 20, 21, 22, 22a; AD-34 follow-ups (developer). Parallel lanes merged in: hub2 (R1, A14) `9c7a75d`, hub3 (R2, R1b, 25, 25b, 26) `d4ee16a`.
+- **Commits:** `0403e4a` (19); `369c508`, `6ff38d2` (20); `9ebf943`, `7531ec2` (21); `2569ce7`, `111a906`, `8aaa49c` (22); `f7e04dc`, `804e3b3`, `04284b0` (22a); `3eee52b` (AD-34: `appendEvents` early return, exact SetStationCapacity count of 16, snapshot timing moved to `snapshots.perf.test.ts`); docs `22ff90a`, `52d5b31`, `a34025d`.
+- **Reviews:** a fresh opus HIGH review for every task.
+  - 22a: Needs fixes. Important: a dropped line was lost on a restart (AD-8), a deviation was not recorded, `due` cost was unmeasured, slip `details` was missing (→ 23).
+  - 22a round 1: boot re-queue, overload computed once, perf row, M1/M3/M5/M6. Re-review Important: a graceful restart still lost the queue.
+  - 22a round 2: flush before the SIGTERM snapshot, state-free drop rule. **Approved.**
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` at `3eee52b`, under the lock.
+  - First run: 3111 tests passed, but **1 unhandled error**: pg `57P01 terminating connection due to administrator command`, from `apps/cloud/test/db/staff-roles-migration.int.test.ts`. The likely cause is the cloud scratch-DB helper's `DROP DATABASE … WITH (FORCE)` hitting an open client. The file passes 3/3 alone. This is a cloud-lane flake and was reported.
+  - Re-run **green**: 355 files passed (1 skipped), 3111 tests passed (1 skipped, 1 todo).
+- **Clean measurement** (`pnpm test:perf`, idle machine, load 2.3 → 2.1, head `3eee52b`): 26 passed, 5 skipped (report-only seeds).
+  - Every row passes. BF-7 max 38.7 ms (≤ 50); stations-live max 2.5 ms (≤ 5): **no 18d–20 slowdown**, so nothing to fix.
+  - Re-plan p99 9.5 ms; replay 11.8 s; 2-day replay 27.0 s; overload day p99 10.2 ms with 7 probes; snapshot serialise max 5.1 ms; capacity drop p99 15.4 ms.
+  - Fires pass p99 11.2 ms; fires_alerts with work p99 10.6 ms; idle `due` p99 2.2 ms.
+  - Raw: `.superpowers/sdd/03a-plan/task-18-numbers-batch8.json`.
+- **Tests closed:** #57, #58, #60, #61, #62 hub, #63, #64, #71, #73, #76, #79, #82, #85, #86, #93, #95, #111 hub, #112, #113; BF-4 hub; [00 H-1].
+- **AD rows:** AD-31 (proposed); AD-32, AD-34 developer rulings; AD-33 accepted in full by the developer.
+- **Carried:**
+  - 22b: restore `host.crossed` and `last_pass_ms` on a failed commit.
+  - 23: the slip `details` (`minutes_late`, `lines`) or `raiseMany` throws every pass; the real kinds `slip_warning`, `station_overload`, `engine_line_dropped`.
+  - 29: the §3.10 at-cap-below-amber wording; the double re-plan on a capacity change; 01b §3.6 per responsibility kind; "upgrade every hub before anyone assigns run_station".
+- **For the developer:**
+  - The cloud lane's `stash@{0}` ("On module-03a-cloud: partial before power cut 2") is no longer in the stash list. Its commit `a621fdc` is intact. Restore it with `git stash store -m "On module-03a-cloud: partial before power cut 2" a621fdc` if it is still needed. The 22a implementer used `git stash push/pop -- apps/hub/src` for its RED run, which is the likely cause.
+  - The cloud pg 57P01 flake (above).
