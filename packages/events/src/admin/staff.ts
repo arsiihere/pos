@@ -58,7 +58,7 @@ export const RoleWire = z.object({
 export type RoleWire = z.infer<typeof RoleWire>;
 
 export const ResponsibilityWire = z.object({
-  responsibility: z.literal("count_stock"),
+  responsibility: z.enum(["count_stock", "run_station"]), // 01b v1.5 B-4
   station_id: z.string(),
   staff_ids: z.array(z.string()),
   role_ids: z.array(z.string()),

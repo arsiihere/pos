@@ -614,8 +614,8 @@ export async function putResponsibilities(
     const merged = toResponsibilitySet(
       branchId,
       body.responsibilities.flatMap((entry) => [
-        ...unique(entry.staff_ids).map((id) => row(entry.station_id, 'staff', id)),
-        ...unique(entry.role_ids).map((id) => row(entry.station_id, 'role', id)),
+        ...unique(entry.staff_ids).map((id) => row(entry.responsibility, entry.station_id, 'staff', id)),
+        ...unique(entry.role_ids).map((id) => row(entry.responsibility, entry.station_id, 'role', id)),
       ]),
     );
     const noop = { responsibilities: before, version: storedVersion, changed_versions: emptyChanged() };
@@ -685,16 +685,18 @@ function setsByBranch(rows: (ResponsibilityRow & { branch_id: string })[]): Map<
   return new Map([...byBranch].map(([branchId, branchRows]) => [branchId, toResponsibilitySet(branchId, branchRows)]));
 }
 
-function row(stationId: string, kind: 'staff' | 'role', id: string) {
-  return { responsibility: 'count_stock' as const, station_id: stationId, subject_kind: kind, subject_id: id, station_archived_at: null };
+function row(responsibility: ResponsibilityWire['responsibility'], stationId: string, kind: 'staff' | 'role', id: string): ResponsibilityRow {
+  return { responsibility, station_id: stationId, subject_kind: kind, subject_id: id, station_archived_at: null };
 }
 
-// §3.6: one entry per station (AD-19), stations of the branch and active, staff working there, roles active.
+// §3.6: one entry per station and kind (AD-19; B-4 adds the kind), stations of the branch and active, staff
+// working there, roles active.
 async function checkResponsibilities(repo: TenantLevelRepository, branchId: string, entries: ResponsibilityWire[]): Promise<void> {
   const seen = new Set<string>();
   entries.forEach((entry, i) => {
-    if (seen.has(entry.station_id)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `responsibilities.${i}.station_id` });
-    seen.add(entry.station_id);
+    const key = JSON.stringify([entry.station_id, entry.responsibility]);
+    if (seen.has(key)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `responsibilities.${i}.station_id` });
+    seen.add(key);
   });
   const stations = await selectStationStates(repo, entries.map((entry) => entry.station_id));
   entries.forEach((entry, i) => {

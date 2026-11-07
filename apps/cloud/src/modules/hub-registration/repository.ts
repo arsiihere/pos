@@ -193,7 +193,7 @@ export async function loadDirectory(
     [tenantId, branchId, staffIds],
   );
   const responsibilities = await client.query<{
-    responsibility: 'count_stock';
+    responsibility: DirectoryInput['responsibilities'][number]['responsibility'];
     station_id: string;
     subject_kind: 'staff' | 'role';
     subject_id: string;

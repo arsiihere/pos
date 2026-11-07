@@ -72,4 +72,18 @@ describe('directory', () => {
     const envelope = { data: { config: null, directory: V2_EXAMPLE } };
     expect(SyncConfigEnvelopeSchemaV1.safeParse(envelope).success).toBe(true);
   });
+
+  it('[01b B-4] DirectorySchema carries run_station rows beside count_stock; any other kind is refused', () => {
+    const both = {
+      ...V2_EXAMPLE,
+      responsibilities: [
+        ...V2_EXAMPLE.responsibilities,
+        { responsibility: 'run_station', station_id: 'ST-grill', staff_ids: [], role_ids: ['R-waiter'] },
+      ],
+    };
+    expect(DirectorySchema.parse(both)).toEqual(both);
+    const bad = structuredClone(V2_EXAMPLE);
+    bad.responsibilities[0]!.responsibility = 'cook';
+    expect(DirectorySchema.safeParse(bad).success).toBe(false);
+  });
 });
