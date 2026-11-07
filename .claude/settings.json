@@ -31,7 +31,8 @@
       "Bash(sqlite3:*)",
       "Bash(psql:*)",
       "Bash(git push origin module-03a)",
-      "Bash(git push origin module-03a-cloud)"
+      "Bash(git push origin module-03a-cloud)",
+      "Bash(git push origin module-03a-hub2)"
     ],
     "deny": [
       "Bash(git reset:*)",
