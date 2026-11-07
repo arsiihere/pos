@@ -10,6 +10,7 @@ import { stationExists } from '../../src/auth/station-validator';
 import { openDb } from '../../src/db/connection';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import type { ConfigFetch } from '../../src/sync/config-client';
@@ -19,6 +20,7 @@ import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cl
 const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
 
+registerEngineBootSteps();
 registerRestaurantBootSteps();
 
 function writeConfig(): { path: string; dataDir: string; cleanup: () => void } {

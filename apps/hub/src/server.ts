@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, LogController } fro
 import { hasZodFastifySchemaValidationErrors, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { HubConfig } from './config/schema.js';
 import type { AuthGeneration } from './engine-host/auth-generation.js';
+import { registerEngineHost } from './engine-host/index.js';
 import type { EngineState } from '@pos/engine';
 import type { StateHolder } from './engine-host/state-holder.js';
 import type { Writer } from './engine-host/writer.js';
@@ -227,6 +228,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
       log: app.log,
     }),
   );
+  registerEngineHost(app, deps);
   return app;
 }
 

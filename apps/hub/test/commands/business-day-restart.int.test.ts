@@ -6,6 +6,7 @@ import { parseEvent, type BranchConfig, type ConfigItem, type PosEvent } from '@
 import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { configPoller } from '../../src/sync/config-poller';
@@ -16,6 +17,7 @@ import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } f
 const BRANCH = 'branch-1';
 const HOST = '192.168.10.2:3000';
 
+registerEngineBootSteps();
 registerRestaurantBootSteps();
 
 type Admin = { device: { deviceId: string; token: string }; session: { sessionId: string; token: string } };

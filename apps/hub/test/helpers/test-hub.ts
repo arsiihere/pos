@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { fileURLToPath } from 'node:url';
 import type { DeviceType, SessionEndReason, SessionKind } from '@pos/domain';
-import { applyEvent, initialEngineState, type EngineState } from '@pos/engine';
+import { initialEngineState, type EngineState } from '@pos/engine';
 import type { DirectoryInput, PosEvent } from '@pos/events';
 import type { InjectOptions } from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -11,6 +11,7 @@ import { createSession, endSession, type SessionRow } from '../../src/auth/sessi
 import { openReadOnly } from '../../src/db/connection';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
+import { engineReducer, foldEngineBatch } from '../../src/engine-host/reducer';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter } from '../../src/engine-host/writer';
 import type { HubConfig } from '../../src/config/schema';
@@ -56,9 +57,9 @@ export async function createTestHub(o?: {
   await runMigrations(fx.db, { dir: migrationsDir, clock });
   const readDb = openReadOnly(fx.path);
   const config = testConfig(fx.dir, o);
-  // As boot with the step-3 fold over an empty log (S15).
+  // As boot with the step-3 replay over an empty log (03a §3.12).
   const state = createStateHolder<EngineState>(initialEngineState());
-  state.setReducer((s, e) => applyEvent(s, e, { strict: false }));
+  state.setReducer(engineReducer, (s, events) => foldEngineBatch(s, events, () => clock.branchNow()));
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);
