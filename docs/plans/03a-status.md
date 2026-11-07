@@ -225,6 +225,8 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 | To | Row | Source |
 |---|---|---|
 | 03b | The engine's fold ignores a stage event from the wrong stage (AD-10: duplicate taps never fail a log). That does **not** replace 03b's command-level check: `StartItem` / `DoneItem` / `UndoDone` / `MarkServed` still answer `409 ITEM_WRONG_STAGE` from the current stage before appending (foundation §4.2 stage guard). | AD-10, developer 2026-11-06 |
+| 02 | **Binding:** the device mints `order_item_id`; 02 refuses a reused live id **before append**. The engine refuses it too (AD-29 Q5), but a refused batch's `StockReserved` carries no `order_id`, so on a fresh or fired line at `added` the fold cannot tell it from a legal flip (pinned as a known limit, task 18e). `OrderPlaced.lines[]` copies `PlanResult` route fields verbatim (AD-17). | AD-29 Q5, task 18e review |
+| 03b, 02 | `DoneItem`, `MarkServed` append `stockEffects` too: a from-stock line consumes at Done or Served if there was no Start (AD-29 Q7). Draft from folded state, or use the array form for several causes in one command (two single-form calls from one state would double-draft). Fire a whole load before a Start or pull on one of its lines; `GiveMeMore` on a `single_tap` line writes the inferred start; `pullEarly` can answer `null` inside the limit. | AD-29 Q7, Q12, tasks 14, 18e |
 
 ## Open items
 
