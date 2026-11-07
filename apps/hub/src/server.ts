@@ -32,6 +32,7 @@ import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
 import { registerSetStationCapacity } from './commands/set-station-capacity.js';
+import { registerSetStationPause } from './commands/set-station-pause.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
 import { CLIENT_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
@@ -165,6 +166,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerAddPrecookedStock(app);
   registerSetItemAvailability(app);
   registerSetStationCapacity(app);
+  registerSetStationPause(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
