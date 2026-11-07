@@ -336,6 +336,7 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 6. **BF-9 / AD-2 (developer question, see the batch 4 entry):** not built; `it.todo('[03a BF-9]')`.
 7. **Done or Served without a Start on a from-stock line (developer question):** no consume is written, so its units stay reserved until the abandon pass (up to `order_abandon_ms`, default 4 h) or the next close; the spec has no consume at Done.
 8. **For 01a's next bump:** the §9 intro "the only allowed foundation edit" is stale (R34 lets a module append its §9 codes to F §6.2) — developer note 2026-11-05.
+9. **Task 29 reminder (owner, 2026-11-07):** 03a v1.0 is locked (`.claude/settings.json`). The 03a **v1.0.1** as-built (not v1.1; 02p task 0 later writes 03a v1.2 on top) must carry, on §3.8 `slip_warning` `details_schema`: "⚠️ Changed by 01d v1.1.2: `minutes_late` and `lines` are now in 01d §3.12 `AlertDetailsBase`; `AlertRaised` v2 (AD-36)". It must also fold the owner rulings AD-35 (a) into §3.6.3, (b) into the test 83 wording, (c) into §6.2, and 24-1's test 70 note.
 
 ## Batch entries
 
