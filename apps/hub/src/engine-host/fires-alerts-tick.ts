@@ -225,6 +225,9 @@ export const firesAlertsTick: TickDef = {
       if (slipKind === undefined) break;
       const details = slipDetails(state, slip, facts);
       // proposed (implementer): details failing the kind's schema are skipped like values that fail it (§3.8).
+      // Defensive, unreachable after review I3: minutes_late is a clamped int, quantity the engine units (≥ 1 on a filled
+      // line), state a stage name, and an empty ItemAdded name falls back to the line id; only a line whose name and id
+      // are both empty (which the schemas allow but no writer mints) would reach it.
       if (slipKind.details_schema === null || !slipKind.details_schema.safeParse(details).success) {
         skips.push({ kind: ENGINE_ALERT_KINDS.slip, table_key: slip.table_key, reason: 'details_invalid' });
         continue;

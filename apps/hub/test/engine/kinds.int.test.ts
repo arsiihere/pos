@@ -300,6 +300,29 @@ describe('03a task 23: the engine alert kinds', () => {
     expect((raised[0]!.payload as { request: unknown }).request).toMatchObject({ right_mode: 'named', receiver_staff_id: WAITER, needs_pin: 'never', answers: ['accept', 'decline'] });
   });
 
+  it('[03a #65] the card quantity is the line\'s engine units: a partial void shows what is left, a g / ml line shows 1', async () => {
+    kitchen();
+    submit({
+      order_id: 'O1',
+      lines: [
+        { order_item_id: 'L1', item: { quantity: 3 } },
+        { order_item_id: 'L2', item: { name: 'Mutton (500 g)', sale_unit: 'g', quantity: 500 } },
+      ],
+    });
+    // BF-12: 04 voids 1 of the 3 units (a partial void; the line stays with 2 units)
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemVoided', schema_version: 1, payload: { order_item_id: 'L1', units: 1 }, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: 'hub' }]),
+    );
+    expect(engine().lines.L1!.units).toBe(2);
+    await pass(hub.clock.branchNow());
+    await pass(engine().next_alert_due_at!);
+    const [row] = slipAlerts();
+    expect((row!.details as { lines: unknown }).lines).toEqual([
+      { name: 'Mutton Karahi', quantity: 2, state: 'added' },
+      { name: 'Mutton (500 g)', quantity: 1, state: 'added' },
+    ]);
+  });
+
   it('[03a #65] takeaway, delivery and parking slips go to the order\'s placed_by; placed_by = null is skipped and logged', async () => {
     kitchen();
     const types = [

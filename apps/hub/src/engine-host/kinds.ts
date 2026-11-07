@@ -32,16 +32,15 @@ export type SlipWarningValues = z.infer<typeof SlipWarningValues>;
 export const SlipWarningDetails = AlertDetailsBase.pick({ minutes_late: true, lines: true }).required();
 export type SlipWarningDetails = z.infer<typeof SlipWarningDetails>;
 
-/** One line's ItemAdded facts the engine state does not keep: its card name and quantity, its goes-with keys. */
+/** One line's ItemAdded facts the engine state does not keep: its card name and its goes-with keys. */
 export interface LineFacts extends GoesWithLine {
   name: string;
-  quantity: number | null;
 }
 
 /**
  * The ItemAdded facts of the given orders' lines: ONE statement (events_stream index), whatever the number of orders.
- * proposed (implementer): the engine state keeps no line name, quantity, item_id or category_id, so the slip's card
- * `details` (§3.8) and the accept's goes-with pre-ticks (AD-22: "ItemAdded.item_id / category_id") read them from the
+ * proposed (implementer): the engine state keeps no line name, item_id or category_id, so the slip's card name
+ * (§3.8 `details`) and the accept's goes-with pre-ticks (AD-22: "ItemAdded.item_id / category_id") read them from the
  * order streams. A line refused by the engine (AD-8) may have a second ItemAdded under another order: only the row on
  * the line's own order stream counts, the first by seq.
  */
@@ -49,7 +48,7 @@ export function readLineFacts(db: Database.Database, state: EngineState, order_i
   const rows = db
     .prepare(
       `SELECT stream_id, json_extract(payload, '$.order_item_id') AS order_item_id, json_extract(payload, '$.name') AS name,
-              json_extract(payload, '$.quantity') AS quantity, json_extract(payload, '$.item_id') AS item_id,
+              json_extract(payload, '$.item_id') AS item_id,
               json_extract(payload, '$.category_id') AS category_id
        FROM events
        WHERE stream_type = 'order' AND event_type = 'ItemAdded' AND stream_id IN (SELECT value FROM json_each(?))
@@ -59,14 +58,13 @@ export function readLineFacts(db: Database.Database, state: EngineState, order_i
     stream_id: string;
     order_item_id: string;
     name: string;
-    quantity: number | null;
     item_id: string | null;
     category_id: string;
   }>;
   const out = new Map<string, LineFacts>();
   for (const r of rows) {
     if (out.has(r.order_item_id) || state.lines[r.order_item_id]?.order_id !== r.stream_id) continue;
-    out.set(r.order_item_id, { name: r.name, quantity: r.quantity, item_id: r.item_id, category_id: r.category_id });
+    out.set(r.order_item_id, { name: r.name, item_id: r.item_id, category_id: r.category_id });
   }
   return out;
 }
@@ -91,8 +89,10 @@ function syncLines(state: EngineState, order_ids: readonly string[]): Array<Engi
  * §3.8 the slip card's `details`. proposed (implementer):
  * - minutes_late = the estimate against the promise (D11: "the card shows minutes against the promise"), whole
  *   minutes rounded up, never below 0 (the warning comes before the padded promise is blown);
- * - lines = the slip orders' sync lines that are not served or gone (their groups), each with its ItemAdded name and
- *   quantity (a weighed line has quantity null: 1) and its engine stage (`added`, `cooking`, `done`) as `state`.
+ * - lines = the slip orders' sync lines that are not served or gone (their groups), each with its ItemAdded name, its
+ *   engine `units` as `quantity` (lineUnits: the piece count, 1 for a g / ml or pending-weight line, lowered by a
+ *   partial void, BF-12; always ≥ 1 on a filled line; review I3) and its engine stage (`added`, `cooking`, `done`) as
+ *   `state`.
  */
 export function slipDetails(
   state: EngineState,
@@ -103,7 +103,7 @@ export function slipDetails(
     minutes_late: Math.max(0, Math.ceil((slip.estimate - slip.promise) / MIN)),
     lines: syncLines(state, slip.order_ids).map((l) => {
       const f = facts.get(l.order_item_id);
-      return { name: f?.name || l.order_item_id, quantity: f?.quantity ?? 1, state: l.stage };
+      return { name: f?.name || l.order_item_id, quantity: l.units, state: l.stage };
     }),
   };
 }
