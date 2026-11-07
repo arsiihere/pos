@@ -2,7 +2,7 @@
 
 ## End report: C1–C9 built, gate green
 
-**Result:** all of C1–C9 are built, reviewed and pushed. Full gate at `822a3a2`, under the lock, exit 0: typecheck and lint clean, 2622 tests passed, 1 skipped, 1 todo. No commit after it touches code.
+**Result:** all of C1–C9 are built, reviewed and pushed. Full gate at `96a54bc`, under the lock, exit 0: client build, typecheck and lint clean, 2645 tests passed, 1 skipped, 1 todo. The only commit after it is this report line.
 
 | Task | Commits | Review |
 |---|---|---|
