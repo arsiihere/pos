@@ -241,7 +241,7 @@ B-4 adds `own_tables` to the scope sets of `take-order`, `boost-order`, `mark-it
 | To | Requirement |
 |---|---|
 | 03b | Print and show the takeaway `token` big on ticket and Ready card, with its **date** when it is from an earlier business date (§3.3); parking "PARKING LEB 1234 · SEDAN"; **`order_note` and `kitchen_note` verbatim on the ticket** (E0-ORD AC2); zone-served lines never print or show on KDS; no COMP marker on the kitchen ticket; RETURN marker (03a); a CANCELLED slip when a fired line is removed (O16); write `Handover` for the estimate. |
-| 04 | `ItemVoided` carries `refund_minor` and `comp_voided_minor` computed with §3.4's ledger (`lineShares`; uncomped units first; a `deal_part` against its own refundable amount, a deal void per portion of every part — 01c §3.4.8; additive, R29); every void calls `lineChangeDrafts`; voids never change zone counts; a remade dish is freed only by a comp or a void (O20); 03a §12.3 Q12 is 04's. |
+| 04 | `ItemVoided` carries `refund_minor` and `comp_voided_minor` computed with §3.4's ledger (`lineShares`; uncomped units first; a `deal_part` against its own refundable amount, a deal void per portion of every part — 01c §3.4.8; additive, R29); every void calls `lineChangeDrafts`; voids never change zone counts; a remade dish is freed only by a comp or a void (O20); 03a §12.3 Q12 is 04's.; **owner (2026-11-07): voiding a cooked line (stage 2–3) shows both choices, "Move to stock" pre-selected and "Wastage"**; Move to stock follows F §4.2 (`ItemMovedToStock` + `StockAdded { reason: 'moved' }`), so the next order of any type takes it from stock (02b §3.2 step 8); for an item with no stock tracking the stock choice is shown disabled with "Stock not tracked for this item" |
 | 05 | `OrdersBilled { order_ids, bill_id }` on **every** bill close (dine-in through `seating_orders` at close, takeaway, parking); bill lines from `orderLines` / `ordersOf`; `billed_minor` per line (deal line = total − parts' money out); a comped share shows at its value with a COMP label and is subtracted (owner A, C4); a voided comp (`comp_voided_minor`) reads as a voided comp on the Z report, never as a refund (O21); return lines never billed; refuse bill close while a weight is pending; close the bill's open `comp` requests at bill close and list the rest at day close (`alerts.listOpen`). |
 | 08 | Zone-served lines' `stock_draws` left branch stock at refill (`StockTransferredOut`) up to the transferred quantity; count draws beyond it (zones stocked by Count). |
 
@@ -797,4 +797,5 @@ Delivery and web types; later child additions ("one more naan" attached) with RE
 | Q4 (a) | Every reconnect stamps `device_back_at` (no 120 s minimum); remaining loss reduced to a stuck drain; test 31 |
 | Q4 (b) | Residual accepted |
 | Q3 (2) | Open as Q5 (ready items and table state) |
+| To 04 | Voiding a cooked line defaults to Move to stock, Wastage shown beside it (owner) |
 
