@@ -325,10 +325,12 @@ describe('03a task 24: the config hook (§3.11)', () => {
       const types = (): string[] => hub.published.flat().map((e) => e.event_type);
       const fired = (): string[] => hub.published.flat().filter((e) => e.event_type === 'FireDispatched').flatMap((e) => (e.payload as { order_item_ids: string[] }).order_item_ids);
       const backOffLines = (): number => hub.logs().split('fires: config catch-up failed; retrying at a back-off').length - 1;
+      // AD-35 (c): each backed-off pass's warn line reads E() once too, so the catch-up attempts are the other calls.
+      const attempts = (): number => calls - warnLines(hub).length;
 
       // Three catch-up passes, none commits: nothing is written, the fires wait.
       for (let i = 0; i < 3; i += 1) await pass(t);
-      expect(calls).toBe(3);
+      expect(attempts()).toBe(3);
       expect(hub.published).toHaveLength(0);
       expect(hostFlags.configStale).toBe(true);
       // The next due sees the third failure: one error line, then an ordinary pass on the replayed config.
@@ -342,28 +344,64 @@ describe('03a task 24: the config hook (§3.11)', () => {
       await pass(t + 30_000);
       await pass(t + 59_999);
       expect(fired()).toEqual(['A', 'B']);
-      expect(calls).toBe(3);
+      expect(attempts()).toBe(3);
       expect(hostFlags.configStale).toBe(true);
       // At t + 60 s one retry; it fails again: one more error line, the next retry 60 s after it.
       await pass(t + 60_000);
-      expect(calls).toBe(4);
+      expect(attempts()).toBe(4);
       await pass(t + 60_500);
       expect(backOffLines()).toBe(2);
       await pass(t + 119_999);
-      expect(calls).toBe(4);
+      expect(attempts()).toBe(4);
       expect(hostFlags.configStale).toBe(true);
       expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(4); // one per failed attempt
       // E() works again: the retry at or after 60 s writes only the config and clears the flag.
       failing = false;
       hub.published.length = 0;
       await pass(t + 120_500);
-      expect(calls).toBe(5);
+      expect(attempts()).toBe(5);
       expect(hub.published.map((batch) => batch.map((e) => e.event_type))).toEqual([['EngineConfigApplied']]);
       expect(engine().config).toEqual(engineConfigOf(aBranchConfig({ config_version: 2 })));
       expect(hostFlags.configStale).toBe(false);
       // Back to ordinary passes: no further catch-up.
       await pass(t + 300_000);
-      expect(calls).toBe(5);
+      expect(attempts()).toBe(5);
+    });
+    it('AD-35 (c): every ordinary pass of the back-off logs one warn line (failures, config versions); none on a catch-up pass, none once it commits', async () => {
+      startLoop();
+      hub.deps.writer.run((tx) => tx.append([draftOf(anEngineConfigApplied()), draftOf(aBusinessDayOpened())]));
+      hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
+      const inUse = engine().config!.config_version;
+      swapBranchConfig(entry(aBranchConfig({ config_version: inUse + 1 })));
+      cleanups.push(() => setEngineConfigOf(engineConfigOf));
+      let failing = true;
+      setEngineConfigOf((snapshot) => {
+        if (failing) throw new Error('E() failed');
+        return engineConfigOf(snapshot);
+      });
+      hostFlags.configStale = true;
+      const t = hub.clock.branchNow() + 60 * 60_000;
+      // Three failing catch-up passes: no warn line.
+      for (let i = 0; i < 3; i += 1) await pass(t);
+      expect(warnLines(hub)).toEqual([]);
+      // The back-off: one line per ordinary pass; E() throws, so the wanted version is null.
+      await pass(t);
+      await pass(t + 30_000);
+      await pass(t + 59_999);
+      expect(warnLines(hub)).toEqual(Array.from({ length: 3 }, () => ({ tick: 'fires', failures: 3, config_version: inUse, wanted_config_version: null })));
+      // The retry at t + 60 s is a catch-up pass (no warn); it fails, the next ordinary pass counts 4.
+      await pass(t + 60_000);
+      expect(warnLines(hub)).toHaveLength(3);
+      // E() works again before the next retry: the backed-off pass names the version the catch-up wants.
+      failing = false;
+      await pass(t + 60_500);
+      expect(warnLines(hub).slice(3)).toEqual([{ tick: 'fires', failures: 4, config_version: inUse, wanted_config_version: inUse + 1 }]);
+      // The retry commits: no warn line from then on.
+      await pass(t + 120_500);
+      expect(hostFlags.configStale).toBe(false);
+      await pass(t + 121_000);
+      await pass(t + 200_000);
+      expect(warnLines(hub)).toHaveLength(4);
     });
   });
 });
@@ -462,4 +500,16 @@ function fuzzConfig(random: () => number, n: number): BranchConfig {
       table_lock_ttl_ms: int(60_000, 3_600_000),
     },
   };
+}
+
+// AD-35 (c): the fires tick's per-pass warn lines while the config catch-up is backed off, in log order.
+function warnLines(hub: { logs(): string }): Array<Record<string, unknown>> {
+  return hub
+    .logs()
+    .split('\n')
+    .filter((line) => line.includes('fires: config catch-up backed off'))
+    .map((line) => {
+      const o = JSON.parse(line) as Record<string, unknown>;
+      return { tick: o.tick, failures: o.failures, config_version: o.config_version, wanted_config_version: o.wanted_config_version };
+    });
 }

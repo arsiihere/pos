@@ -26,7 +26,7 @@ import { checkpointAfterPass, type ErrorLog, type SnapshotDeps } from './snapsho
 
 interface FiresHost {
   deps: SnapshotDeps;
-  log?: ErrorLog;
+  log?: HostLog;
   // §3.6.3 frame seam: station-plan.ts (task 22b) sends `station_plan` for these stations; a no-op until bound.
   sendStationPlans: (station_ids: string[]) => void;
   // Stations crossed in a due that also had intents: their frames go out after that pass's commit.
@@ -42,7 +42,10 @@ interface FiresHost {
 const hosts = new WeakMap<Database.Database, FiresHost>();
 
 // registerEngineHost (P-6): binds this hub to the tick. §3.6.3: last_pass_ms starts at boot time.
-export function bindFiresTick(deps: SnapshotDeps, log?: ErrorLog): void {
+// The host's log: errors, and the AD-35 (c) back-off warn line (app.log has both).
+type HostLog = ErrorLog & { warn?(obj: Record<string, unknown>, msg: string): void };
+
+export function bindFiresTick(deps: SnapshotDeps, log?: HostLog): void {
   hosts.set(deps.db, { deps, log, sendStationPlans: () => undefined, crossed: [], since: null, committed: [] });
   hostFlags.last_pass_ms = deps.clock.branchNow();
 }
@@ -112,6 +115,26 @@ function catchUpDue(host: object, log: ErrorLog | undefined, now: number): boole
   return true;
 }
 
+// AD-35 (c), owner ruling: while configStale is still set after the back-off, every ordinary pass logs one warn line
+// with the failure count, the config version in use and the one the catch-up wants (E()'s, or null when there is no
+// E() or it throws). In memory, 0 statements; never throws.
+function warnBackedOff(host: FiresHost, state: EngineState): void {
+  try {
+    let wanted: number | null = null;
+    try {
+      wanted = nextConfig()?.config_version ?? null;
+    } catch {
+      wanted = null;
+    }
+    host.log?.warn?.(
+      { tick: 'fires', failures: catchUps.get(host)?.failures ?? 0, config_version: state.config?.config_version ?? null, wanted_config_version: wanted },
+      'fires: config catch-up backed off; configStale still set',
+    );
+  } catch {
+    // A log failure never stops the pass.
+  }
+}
+
 // §3.11, §6.3 step 6: configStale = canonicalJson(E(branchConfig())) ≠ canonicalJson(state.config). Pure, 0 statements.
 export function configStaleFor(state: EngineState): boolean {
   const next = nextConfig();
@@ -154,6 +177,7 @@ export const firesTick: TickDef = {
     // §3.11: the catch-up pass. last_pass_ms is left as it is, so the next pass still sees this interval's crossings.
     if (!hostFlags.configStale) catchUps.delete(host);
     else if (catchUpDue(host, host.log, now)) return true;
+    else warnBackedOff(host, state);
     const since = hostFlags.last_pass_ms;
     const { intents_due, crossed } = firesDue(state, since, now);
     hostFlags.last_pass_ms = now;
