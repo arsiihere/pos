@@ -166,19 +166,19 @@ function parseCheckpoint(json: string): EngineState | null {
 
 // §3.12 step 2: two statements, each LIMIT 2, whatever is found: step 6 reads the checkpoint's taken_at on a snapshot
 // boot too. proposed (implementer): "latest snapshot with engine_version = 3" and Review Focus 5's logged skip of a
-// v4 row meet in the ORDER BY: rows of this build's version come first, so a row of another version can neither hide a
+// v4 row meet in the ORDER BY (ties broken by last_seq, then taken_at for checkpoints; task 21 review): rows of this build's version come first, so a row of another version can neither hide a
 // usable one nor pass unseen unless two usable rows fill the LIMIT. The same for checkpoint_schema.
 export function loadEngineBase(db: Database.Database, branchId: string, skip: Skip): LoadedBase {
   const snapshots = db
     .prepare(
       `SELECT snapshot_id, last_seq, engine_version, state_json FROM engine_snapshots
-       WHERE branch_id = ? ORDER BY engine_version = ? DESC, taken_at DESC LIMIT 2`,
+       WHERE branch_id = ? ORDER BY engine_version = ? DESC, taken_at DESC, last_seq DESC LIMIT 2`,
     )
     .all(branchId, ENGINE_STATE_VERSION) as Array<{ snapshot_id: string; last_seq: number; engine_version: number; state_json: string }>;
   const checkpoints = db
     .prepare(
       `SELECT checkpoint_id, taken_at, last_seq, checkpoint_schema, body_json FROM engine_checkpoints
-       WHERE branch_id = ? ORDER BY checkpoint_schema = 1 DESC, last_seq DESC LIMIT 2`,
+       WHERE branch_id = ? ORDER BY checkpoint_schema = 1 DESC, last_seq DESC, taken_at DESC LIMIT 2`,
     )
     .all(branchId) as Array<{ checkpoint_id: string; taken_at: number; last_seq: number; checkpoint_schema: number; body_json: string }>;
 

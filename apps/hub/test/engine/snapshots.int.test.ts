@@ -200,7 +200,7 @@ describe('03a task 21: snapshot and checkpoint writers', () => {
       expect(snapshotsOf(hub.deps.db)).toHaveLength(1);
     });
 
-    it('[03a #61] keeps the newest 2 of the current version and deletes every older-version row after a fresh one; other branches untouched', async () => {
+    it('[03a #61] keeps the newest 2 of the current version and deletes every older-version row after a fresh one (F §5.8); a newer-version row stays and takes no slot; other branches untouched', async () => {
       await open();
       append([kSet(1)]);
       insertSnapshot(hub.deps.db, { id: 'v2a', taken_at: WALL - 5, last_seq: 0, engine_version: ENGINE_STATE_VERSION - 1 });
@@ -211,12 +211,32 @@ describe('03a task 21: snapshot and checkpoint writers', () => {
       writeSnapshotSync(hub.deps);
       const ids = (hub.deps.db.prepare('SELECT snapshot_id FROM engine_snapshots ORDER BY snapshot_id').pluck().all() as string[]).sort();
       const fresh = snapshotsOf(hub.deps.db).find((r) => r.last_seq === 1)!.snapshot_id;
-      expect(ids).toEqual([fresh, 'old2', 'other'].sort());
+      expect(ids).toEqual([fresh, 'old2', 'other', 'v4a'].sort());
       // A same-ms second write (a fixed clock) keeps itself and the newest before it.
       append([kSet(2)]);
       writeSnapshotSync(hub.deps);
       expect(snapshotsOf(hub.deps.db).filter((r) => r.last_seq > 0).map((r) => r.last_seq)).toEqual([1, 2]);
       expect(snapshotsOf(hub.deps.db).filter((r) => r.last_seq > 0)).toHaveLength(2);
+      expect(snapshotsOf(hub.deps.db).filter((r) => r.engine_version === ENGINE_STATE_VERSION + 1).map((r) => r.snapshot_id)).toEqual(['v4a']);
+    });
+
+    it('[03a §3.12 step 2] two snapshots with the same taken_at: boot loads the one with the higher last_seq', async () => {
+      await open();
+      append([kSet(1)]);
+      writeSnapshotSync(hub.deps);
+      append([kSet(2)]);
+      writeSnapshotSync(hub.deps);
+      const held = engine();
+      // The newest row first in rowid order would hide an untied ORDER BY; insert order is reversed to be sure.
+      const rows = snapshotsOf(hub.deps.db);
+      expect(rows.map((r) => r.taken_at)).toEqual([rows[0]!.taken_at, rows[0]!.taken_at]);
+      hub.deps.db.exec('CREATE TEMP TABLE keep AS SELECT * FROM engine_snapshots ORDER BY last_seq DESC; DELETE FROM engine_snapshots; INSERT INTO engine_snapshots SELECT * FROM keep ORDER BY last_seq ASC;');
+      for (let i = 0; i < 2; i += 1) {
+        const base = loadEngineBase(hub.deps.db, BRANCH, () => undefined);
+        expect(base.snapshot_seq).toBe(2);
+        expect(base.state).toEqual({ ...held, diagnostics: [] });
+        hub.deps.db.exec('DELETE FROM engine_snapshots; INSERT INTO engine_snapshots SELECT * FROM keep ORDER BY last_seq DESC;');
+      }
     });
 
     it('[03a #61] step 2 falls back to the second row (LIMIT 2) when the newest written row is torn', async () => {
@@ -326,6 +346,35 @@ describe('03a task 21: snapshot and checkpoint writers', () => {
       checkpointAfterPass(hub.deps, closeAt + 60 * MIN);
       await nextImmediate();
       expect(checkpointsOf(hub.deps.db)).toHaveLength(1);
+    });
+
+    it('[03a §3.12 step 2] two checkpoints with the same last_seq: boot loads the later taken_at', async () => {
+      await open();
+      append([kSet(1)]);
+      const db = hub.deps.db;
+      const body = (on_hand: number): string =>
+        JSON.stringify(toCheckpoint({ ...initialEngineState(), stock: { K9: { on_hand, reserved: 0, set_at: WALL, unit: 'piece' } } }, 1));
+      const put = db.prepare('INSERT INTO engine_checkpoints (checkpoint_id, branch_id, taken_at, last_seq, checkpoint_schema, body_json) VALUES (?, ?, ?, 1, 1, ?)');
+      for (const order of [['earlier', 'later'], ['later', 'earlier']] as const) {
+        db.prepare('DELETE FROM engine_checkpoints').run();
+        for (const id of order) put.run(id, BRANCH, id === 'later' ? WALL + 10 : WALL, body(id === 'later' ? 2 : 1));
+        const base = loadEngineBase(db, BRANCH, () => undefined);
+        expect(base.checkpoint_taken_at).toBe(WALL + 10);
+        expect(base.state!.stock.K9).toMatchObject({ on_hand: 2 });
+      }
+    });
+
+    it('[03a §3.12 checkpoint] a write that writes no row (closed database) leaves checkpoint_pending set', async () => {
+      const { servedAt } = await keptOverClose();
+      const at = servedAt + 30 * MIN;
+      hub.clock.set(at);
+      expect(writeCheckpoint(hub.deps, 1)).toBe(true);
+      hub.deps.db.prepare('DELETE FROM engine_checkpoints').run();
+      checkpointAfterPass(hub.deps, at);
+      hub.deps.db.close();
+      await nextImmediate();
+      expect(hostFlags.checkpoint_pending).toBe(true);
+      expect(writeCheckpoint(hub.deps, 1)).toBe(false);
     });
 
     it('[03a §3.12 checkpoint] the checkpoint write is 2 statements in its own transaction and keeps the newest 2', async () => {

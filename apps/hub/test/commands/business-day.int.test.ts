@@ -368,7 +368,11 @@ describe('business day commands (§6.18a, §6.18b)', () => {
       lines.forEach((line, i) => hidden(hub, `O${i}`, [line], i * 100_000));
       const counter = statementCounter(hub.deps.db);
       const res = await post(hub, admin, 'close-business-day', 'CloseBusinessDay', {}, 'cmd-close');
-      const statements = counter.count;
+      // 03a §3.12: the day-close checkpoint (2 statements, its own transaction after the commit) is written only when no
+      // order is in the engine, so the plain close writes it and the close with hidden lines defers it; not the command's.
+      const total = counter.count;
+      const checkpoints = hub.deps.db.prepare('SELECT COUNT(*) FROM engine_checkpoints').pluck().get() as number;
+      const statements = total - 2 * checkpoints;
       return { statements, events: (res.json().data.event_ids as string[]).length };
     };
     const line = (id: string): LineSpec => ({ id, draws: [{ stock_item_id: 'I1', quantity: 1 }], from_stock: true });
