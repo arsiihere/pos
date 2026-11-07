@@ -1,14 +1,14 @@
-// 03a task 21: the snapshot and checkpoint writers (§3.12, §5.1, §7.1; tests #61, #112).
+// 03a task 21: the snapshot and checkpoint writers (§3.12, §5.1, §7.1; tests #61, #112). The §7.1 timing row is in
+// snapshots.perf.test.ts (AD-32, AD-34).
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { ENGINE_STATE_VERSION, initialEngineState, isOrderInEngine, noOrderInEngine, toCheckpoint, type EngineState } from '@pos/engine';
-import { generateDay, runDay } from '@pos/engine/sim';
 import type { EventDraft, PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anItemMadeUnavailable, anOrderBatch, aStockReleased, aStockSet } from '@pos/events/testing';
 import Database from 'better-sqlite3';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { loadEngineBase } from '../../src/engine-host/replay';
@@ -26,9 +26,6 @@ const BRANCH = 'branch-1';
 const TENANT = 'tenant-a';
 const WALL = 1_761_000_000_000;
 const MIN = 60_000;
-// §7.1 snapshot row (P-12): the full write — serialise + insert in its own transaction — on the peak state.
-const SNAPSHOT_MS = 50;
-const SNAPSHOT_SAMPLES = 15;
 
 const nextImmediate = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
@@ -460,46 +457,6 @@ describe('03a task 21: snapshot and checkpoint writers', () => {
       await nextImmediate();
       expect(checkpointsOf(hub.deps.db)).toEqual([]);
       expect(hostFlags.checkpoint_pending).toBe(false);
-    });
-  });
-
-  // ------------------------------------------------------------------------------------------------ §7.1 snapshot
-  describe('[03a §7.1 snapshot] the full write on the peak state', () => {
-    let peak: { state: EngineState; lines: number; seq: number } | null = null;
-    beforeAll(() => {
-      // P-12: the normal peak day of seed 7 (AD-27), its state with the most lines (task 18's snapshot row). States are
-      // immutable, so the peak is kept by reference.
-      let best = -1;
-      runDay(generateDay(7), {
-        watch: (state, seq) => {
-          const n = Object.keys(state.lines).length;
-          if (n > best) {
-            best = n;
-            peak = { state, lines: n, seq };
-          }
-        },
-      });
-    }, 300_000);
-
-    it('[03a §7.1 snapshot] serialise + insert in its own transaction ≤ 50 ms at design size (every sample)', async () => {
-      await open();
-      const p = peak!;
-      expect(p.lines).toBeGreaterThanOrEqual(1_000);
-      hub.deps.state.swap(p.state);
-      const ms: number[] = [];
-      for (let i = 0; i < SNAPSHOT_SAMPLES; i += 1) {
-        hub.clock.advance(1);
-        const a = performance.now();
-        writeSnapshotSync(hub.deps);
-        ms.push(performance.now() - a);
-      }
-      const rows = snapshotsOf(hub.deps.db);
-      expect(rows).toHaveLength(2);
-      const bytes = rows[1]!.state_json.length;
-      const sorted = [...ms].sort((x, y) => x - y);
-      // For the status board's §7.1 row.
-      console.info(`[03a §7.1 snapshot] ${JSON.stringify({ samples: ms.map((x) => Math.round(x * 10) / 10), p50: sorted[Math.floor(sorted.length / 2)], max: sorted[sorted.length - 1], bytes, lines: p.lines, seq: p.seq })}`);
-      expect(Math.max(...ms)).toBeLessThanOrEqual(SNAPSHOT_MS);
     });
   });
 });

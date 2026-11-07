@@ -165,7 +165,7 @@ describe('POST /commands/set-station-capacity (03a §6.6)', () => {
     ]);
   });
 
-  it('[03a §10.5] statements: the handler adds no SQL read; a lane_off costs the route and one append (the TestStation command) plus the route empty append', async () => {
+  it('[03a §10.5] statements: exactly 16 for a lane_off, the 00 pipeline with one appended event (the TestStation command) and 0 handler reads', async () => {
     const hub = await open();
     const kds = stationOn(hub, 'S1');
     const counter = statementCounter(hub.deps.db);
@@ -179,9 +179,16 @@ describe('POST /commands/set-station-capacity (03a §6.6)', () => {
       payload: { command_id: 'cmd-base', tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'TestStation', payload: {}, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: kds.device.deviceId },
     });
     expect(baseline.statusCode, baseline.body).toBe(200);
-    // +1: the route's own tx.append([]) after a handler that appended in handle reads MAX(seq) once more, as for
-    // SetPrecookedStock and SetItemAvailability; the handler itself reads nothing.
-    expect(ours).toBe(counter.count + 1);
+    // 03a §10.5 "commands = 00 pipeline + 0 reads (state in memory)"; AD-34 made this exact. The 16 statements:
+    //   4  00 pipeline reads: device token, idempotency fast path, session, idempotency re-check in the tx (D32);
+    //   1  the route's beforeSeq MAX(seq) read;
+    //   2  the one append in handle: MAX(seq) + INSERT events;
+    //   7  projection checkpoint upserts, one per registered projection;
+    //   2  the route's event_ids read + INSERT processed_commands.
+    // The handler reads nothing (station data from the engine state), and since AD-34 the route's own
+    // tx.append([]) after a handler that appended in handle runs no statement, so it equals TestStation.
+    expect(ours).toBe(16);
+    expect(counter.count).toBe(ours);
   });
 
   it('[03a #68] station session for another station or with reason manager → 403 outside_scope; nothing written', async () => {
