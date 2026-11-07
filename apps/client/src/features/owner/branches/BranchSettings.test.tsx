@@ -193,6 +193,20 @@ describe('[01b §8] branch settings', () => {
     });
   });
 
+  it('[01a v2.1 §8.1; A-12] at phone width the timing boxes are one column: three crushed them to 32 px, hiding the value', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(max-width: 760px)', media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    await render();
+    const group = m.container.querySelector('[data-group="kitchen-timing"]')!;
+    expect(group.querySelector('input[name="min_gain_ms"]')).not.toBeNull();
+    expect(group.querySelector('.pos-grid--3')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('[01a v2.1 §8.1; A-12] on a laptop they stay three across', async () => {
+    await render();
+    expect(m.container.querySelectorAll('[data-group="kitchen-timing"] .pos-grid--3').length).toBe(3);
+  });
+
   it('[01b B23] a stale version shows Changed elsewhere, keeps the draft, and Reload reads the branch again', async () => {
     const calls = await render((call) => (call.method === 'PATCH' ? fail(409, 'CONFIG_STALE') : undefined));
     setValue(field('min_gain_ms'), '2');

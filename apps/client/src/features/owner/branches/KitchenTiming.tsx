@@ -1,4 +1,5 @@
 import type { BranchEngineSettings } from '@pos/events';
+import { usePhone } from '../../../app/phone';
 import { Switch } from '../../../components/Switch';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
@@ -92,6 +93,7 @@ export function KitchenTiming({
   onChange: (next: EngineState) => void;
   errors: Record<string, string>;
 }) {
+  const phone = usePhone();
   const box = (spec: Spec) => (
     <label key={spec.key} className={`pos-field${errors[spec.key] !== undefined ? ' pos-field--error' : ''}`}>
       <span className="pos-field__label">{t(spec.label)}</span>
@@ -114,7 +116,7 @@ export function KitchenTiming({
         <h3>{t(title)}</h3>
         <p>{t(help)}</p>
       </div>
-      <div className="pos-grid pos-grid--3">{specs.map(box)}</div>
+      <div className={phone ? 'pos-stack' : 'pos-grid pos-grid--3'}>{specs.map(box)}</div>
     </div>
   );
   return (
