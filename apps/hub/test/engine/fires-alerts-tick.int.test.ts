@@ -1,9 +1,14 @@
 // 03a task 22a: the `fires_alerts` tick (§6.2a steps 1–6, §3.8 defensive inputs and `skipped`, §3.10 overload check,
 // flags `day_closed` / `reconcile`, BF-4 close; tests #76, #82, #86, #93, #113; AD-8 developer condition
 // `engine_line_dropped`). The three kinds are 01d test fakes (fakes.ts) until task 23.
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { Writable } from 'node:stream';
 import { getAlertIntents, type EngineState } from '@pos/engine';
 import type { EngineConfig, EventDraft, PosEvent } from '@pos/events';
+import Database from 'better-sqlite3';
 import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch } from '@pos/events/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
@@ -14,7 +19,8 @@ import { onFreezeEntry } from '../../src/engine-host/fires-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import type { WriterTx } from '../../src/engine-host/writer';
-import type { BootContext } from '../../src/lib/boot';
+import { boot, type BootContext, type BootHandle } from '../../src/lib/boot';
+import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -216,9 +222,8 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(m.tx).toBe(1);
     expect(slipAlerts().filter((r) => r.state === 'open')).toHaveLength(4);
     expect(m.reads[0]).toBe(single);
-    // 2 listOpen + raiseMany's ≤ 6 + R + T (dedupe 1, fixed reads 5, the person resolver and no route here).
-    expect(single).toBeGreaterThanOrEqual(3);
-    expect(single).toBeLessThanOrEqual(2 + 1 + 6 + 2);
+    // 2 listOpen + raiseMany's 6 (dedupe 1, fixed reads 5; a person target needs no resolver, and no route is registered).
+    expect(single).toBe(2 + 6);
   });
 
   it('[03a §6.2a] the reconcile pass after boot: exactly the 2 listOpen statements, and it is not due again', async () => {
@@ -291,6 +296,26 @@ describe('03a task 22a: the fires_alerts tick', () => {
     append(anOrderBatch({ order_id: 'O3', order: { table_id: 'T6', table_key: 'dine_in:T6' }, lines: [{ order_item_id: 'L7', line: { station_id: 'S9' } }], actor_id: WAITER }));
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(droppedAlerts().map((r) => r.dedupe_key)).toEqual(['engine_line_dropped:O2:L1', 'engine_line_dropped:L7']);
+  });
+
+  it('[03a AD-8] an ItemAdded refused for stream_id_mismatch (its placeholder stays, the order never plans) raises engine_line_dropped', async () => {
+    kitchen();
+    const batch = anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1' }], actor_id: WAITER });
+    append([batch[0]!, { ...batch[1]!, stream_id: 'O-OTHER' }]);
+    expect(engine().orders.O1!.awaiting).toBe(1);
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(droppedAlerts().map((r) => [r.dedupe_key, r.values])).toEqual([
+      ['engine_line_dropped:L1', { order_id: 'O1', order_item_id: 'L1', reason: 'stream_id_mismatch' }],
+    ]);
+  });
+
+  it('[03a AD-8] a dropped-line fact with no order_id or order_item_id is skipped and logged as id_missing', async () => {
+    kitchen();
+    hostFlags.dropped_lines.push({ order_id: null, order_item_id: 'L9', reason: 'group_id_invalid', batch: true });
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(droppedAlerts()).toEqual([]);
+    expect(skipLogs().map((l) => [l.kind, l.order_item_id, l.reason])).toEqual([[ENGINE_ALERT_KINDS.lineDropped, 'L9', 'id_missing']]);
+    expect(hostFlags.dropped_lines).toEqual([]);
   });
 
   // ---------------------------------------------------------------------------------------------------------- #76
@@ -471,6 +496,23 @@ describe('03a task 22a: the fires_alerts tick', () => {
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(overloadAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'done' });
     expect(hostFlags.overload_open.has('S1')).toBe(false);
+    const m = meter();
+    await passes(5);
+    expect(m.tx).toBe(0);
+  });
+
+  it('[03a §3.10] an open overload whose station left the config closes done at the next pass', async () => {
+    kitchen(config({ S1: HOT, S2: { capacity: 8 } }));
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    await pass(hub.clock.branchNow());
+    fakeTap(hub.deps, 'start', 'L1');
+    await passes(MIN / TICK_MS + 4);
+    expect(overloadAlerts()[0]).toMatchObject({ state: 'open', subject_stream_id: 'S1' });
+    // S1 leaves the config (archived): it is no longer red anywhere.
+    append([anEngineConfigApplied({ payload: config({ S2: { capacity: 8 } }) as unknown as Record<string, unknown> })]);
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(overloadAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'done' });
+    expect(hostFlags.overload_open.size).toBe(0);
     const m = meter();
     await passes(5);
     expect(m.tx).toBe(0);
@@ -659,5 +701,104 @@ describe('03a task 22a: the fires_alerts tick', () => {
     const counter = statementCounter(hub.deps.db);
     expect(firesAlertsTick.due(readOnlyDb(hub.deps.db), engine(), hub.clock.branchNow() + HOUR)).toBe(false);
     expect(counter.count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------- AD-8 across a restart
+function writeConfig(): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), 'pos-engine-fires-alerts-'));
+  const dataDir = join(dir, 'data');
+  const backupDir = join(dir, 'backup');
+  mkdirSync(dataDir);
+  mkdirSync(backupDir);
+  const path = join(dir, 'config.json');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      cloud_base_url: 'https://cloud.example',
+      http_port: 3000,
+      data_dir: dataDir,
+      backup_dir: backupDir,
+      min_client_version: '1.0.0',
+      backup_encryption_key: Buffer.alloc(32, 7).toString('base64'),
+      advertised_host: '192.168.10.2',
+      provisioned: { tenant_id: 'tenant-a', branch_id: 'branch-1', branch_name: 'Main', branch_api_key: 'test-branch-api-key', confirmed_at: 1 },
+    }),
+  );
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+const dataDirOf = (path: string): string => (JSON.parse(readFileSync(path, 'utf8')) as { data_dir: string }).data_dir;
+const quiet = (): Writable => new Writable({ write: (_chunk, _enc, done) => done() });
+
+describe('[03a AD-8] a dropped line is never silent across a restart (review I1)', () => {
+  const cleanups: Array<() => Promise<void> | void> = [];
+  beforeAll(() => {
+    registerEngineKindFakes();
+  });
+  afterAll(() => {
+    resetEngineKindFakes();
+  });
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    resetHostFlags();
+  });
+
+  it('[03a AD-8] a drop committed just before a crash is raised by the reconcile pass after boot; a drop whose alert is still open dedupes', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const cfg = writeConfig();
+    cleanups.push(cfg.cleanup);
+    const W = 1_762_000_000_000;
+    const bootAt = (wall: number): Promise<BootHandle> =>
+      boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
+    const rows = (h: BootHandle): Array<{ dedupe_key: string; state: string }> =>
+      h.deps.db.prepare(`SELECT dedupe_key, state FROM alerts WHERE kind = ? ORDER BY raised_seq`).all(ENGINE_ALERT_KINDS.lineDropped) as Array<{ dedupe_key: string; state: string }>;
+    const write = (h: BootHandle, events: readonly PosEvent[]): void => {
+      h.deps.writer.run((tx) => tx.append(events.map((e) => draftOf(e, h.deps.clock.branchNow()))));
+    };
+
+    const h1 = await bootAt(W);
+    let stopped = false;
+    cleanups.push(async () => {
+      if (!stopped) await h1.stop();
+    });
+    write(h1, [anEngineConfigApplied(), aBusinessDayOpened()]);
+    // Drop 1: its alert is raised (the first pass after boot is the reconcile pass) and stays open.
+    write(h1, anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', line: { station_id: 'S9' } }] }));
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(rows(h1)).toEqual([{ dedupe_key: 'engine_line_dropped:L2', state: 'open' }]);
+    // Drop 2, then the crash: no pass runs, and no SIGTERM snapshot (deleted, as a crash writes none).
+    write(h1, anOrderBatch({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'L3', line: { station_id: 'S9' } }] }));
+    expect(hostFlags.dropped_lines).toHaveLength(1);
+    await h1.stop();
+    stopped = true;
+    // A crash writes no SIGTERM snapshot: remove the one stop wrote, so boot replays both drops.
+    const file = new Database(join(dataDirOf(cfg.path), 'hub.sqlite'));
+    file.prepare('DELETE FROM engine_snapshots').run();
+    file.close();
+    const h3 = await bootAt(W + MIN);
+    cleanups.push(() => h3.stop());
+    expect(hostFlags.reconcile).toBe(true);
+    expect(hostFlags.dropped_lines.map((f) => f.order_item_id).sort()).toEqual(['L2', 'L3']);
+    const counter = statementCounter(h3.deps.db);
+    let reads = -1;
+    const real = firesAlertsTick.intents.bind(firesAlertsTick);
+    vi.spyOn(firesAlertsTick, 'intents').mockImplementation((tx, state, now) => {
+      const before = counter.count;
+      const out = real(tx, state, now);
+      reads = counter.count - before;
+      return out;
+    });
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    // L3's alert is raised; L2's alert is still open, so its re-queued fact dedupes (no second alert).
+    expect(rows(h3)).toEqual([
+      { dedupe_key: 'engine_line_dropped:L2', state: 'open' },
+      { dedupe_key: 'engine_line_dropped:L3', state: 'open' },
+    ]);
+    expect(hostFlags.dropped_lines).toEqual([]);
+    expect(hostFlags.reconcile).toBe(false);
+    // The reconcile pass with two re-queued drops: 2 listOpen + raiseMany's dedupe 1 + fixed reads 5.
+    expect(reads).toBe(2 + 6);
   });
 });

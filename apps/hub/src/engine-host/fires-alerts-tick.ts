@@ -1,4 +1,4 @@
-import { getAlertIntents, nextAlertDueAt, pressureBand, type AlertIntents, type EngineState } from '@pos/engine';
+import { getAlertIntents, nextAlertDueAt, pressureBand, type AlertIntents, type Diagnostic, type EngineState } from '@pos/engine';
 import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { kindOf } from '../alerts/kinds.js';
@@ -58,35 +58,47 @@ const isEngineState = (s: unknown): s is EngineState =>
  * - AD-8: each `invalid_event` diagnostic that dropped a line is queued for the next pass (the due sees the queue).
  *   proposed (implementer): "dropped a line" = an ItemAdded whose listed line the fold dropped (reason other than
  *   line_not_listed, and the line is gone from the fold's result), or a refused OrderPlaced / OrderLinesAdded (the whole
- *   batch is refused, so every line it listed is lost; AD-29 Q5's reused id is one such). Other invalid_event folds change
- *   nothing and drop no line. The queue lives in memory: a restart before the next pass (≤ one TICK_MS) loses it — the
- *   fact keeps its warn log line (task 20); a boot does not raise from replayed diagnostics, because a replay repeats
- *   every drop of its window and would re-raise alerts the managers already closed.
+ *   batch is refused, so every line it listed is lost; AD-29 Q5's reused id is one such), or an ItemAdded refused for
+ *   stream_id_mismatch (droppedLineOf). Other invalid_event folds change nothing and drop no line. The queue lives in memory; a restart before the next pass re-queues it from the replay (boot
+ *   steps 3 and 6, review I1): the reconcile pass raises every drop of the replay window again — an open alert dedupes,
+ *   one closed inside the window is raised again (noisy, never silent).
  * - §6.2a: a commit that contains BusinessDayClosed sets `day_closed`.
  * - §3.8: a key leaves `skipped` at the next commit that touches one of its orders.
  */
 export function noteAlertFacts(state: unknown, appended: readonly PosEvent[]): void {
   if (!isEngineState(state)) return;
   for (const d of state.diagnostics) {
-    if (d.kind !== 'invalid_event') continue;
-    const type = d.detail.event_type;
-    const order_id = typeof d.detail.order_id === 'string' ? d.detail.order_id : null;
-    const order_item_id = typeof d.detail.order_item_id === 'string' ? d.detail.order_item_id : null;
-    const reason = String(d.detail.reason);
-    if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
-      hostFlags.dropped_lines.push({ order_id, order_item_id, reason, batch: true });
-    } else if (type === 'ItemAdded' && reason !== 'line_not_listed' && order_item_id !== null && state.lines[order_item_id] === undefined) {
-      hostFlags.dropped_lines.push({ order_id, order_item_id, reason, batch: false });
-    }
+    const fact = droppedLineOf(d, (id) => state.lines[id] !== undefined);
+    if (fact !== null) hostFlags.dropped_lines.push(fact);
   }
   if (appended.some((e) => e.event_type === 'BusinessDayClosed')) hostFlags.day_closed = true;
   if (hostFlags.skipped.size > 0) {
     for (const e of appended) {
       if (e.stream_type !== 'order') continue;
+      // AD-33 (M2): the tick's own event on a skipped key's order (none today) would also count, one extra retry.
       const key = state.orders[e.stream_id]?.table_key;
       if (key !== undefined) hostFlags.skipped.delete(key);
     }
   }
+}
+
+/**
+ * AD-8: the dropped-line fact of one diagnostic, or null. `hasLine`: is the line in the fold's result. The after-commit
+ * hook and boot step 3 / 6 (a replayed drop, re-queued for the reconcile pass) use this one rule:
+ * - a refused OrderPlaced / OrderLinesAdded (every line it listed is lost), `batch`;
+ * - an ItemAdded whose listed line the fold dropped (reason other than line_not_listed, the line gone);
+ * - an ItemAdded refused for `stream_id_mismatch` (review M1): its placeholder stays, so the order never plans.
+ */
+export function droppedLineOf(d: Diagnostic, hasLine: (order_item_id: string) => boolean): DroppedLine | null {
+  if (d.kind !== 'invalid_event') return null;
+  const type = d.detail.event_type;
+  const order_id = typeof d.detail.order_id === 'string' ? d.detail.order_id : null;
+  const order_item_id = typeof d.detail.order_item_id === 'string' ? d.detail.order_item_id : null;
+  const reason = String(d.detail.reason);
+  if (type === 'OrderPlaced' || type === 'OrderLinesAdded') return { order_id, order_item_id, reason, batch: true };
+  if (type !== 'ItemAdded' || reason === 'line_not_listed') return null;
+  if (reason === 'stream_id_mismatch' || order_item_id === null || !hasLine(order_item_id)) return { order_id, order_item_id, reason, batch: false };
+  return null;
 }
 
 // ------------------------------------------------------------------------------------------------- overload (§3.10)
@@ -102,12 +114,16 @@ interface OverloadPlan {
  * proposed (implementer): a capped station below amber is not closed (it would be raised again at the next check, so
  * the pair would open a transaction every pass while it persists); it closes once it is neither capped nor amber+.
  */
-function overloadPlan(state: EngineState, now: number, open: ReadonlySet<string>, raisable: boolean): OverloadPlan {
+// `items`: getAlertIntents(state, now).overload, computed once by the caller (review I3). An open station that is no
+// longer in the state or the config is not red any more: it closes `done` (review M6).
+function overloadPlan(state: EngineState, items: AlertIntents['overload'], now: number, open: ReadonlySet<string>, raisable: boolean): OverloadPlan {
   const plan: OverloadPlan = { raise: [], close: [] };
   const configs = state.config?.stations ?? [];
-  for (const item of getAlertIntents(state, now).overload) {
+  const checked = new Set<string>();
+  for (const item of items) {
     const cfg = configs.find((s) => s.station_id === item.station_id);
     if (cfg === undefined) continue;
+    checked.add(item.station_id);
     const band = pressureBand(item.pressure_bp, cfg);
     if (band !== 'red') hostFlags.red_since.delete(item.station_id);
     else if (!hostFlags.red_since.has(item.station_id)) hostFlags.red_since.set(item.station_id, now);
@@ -116,8 +132,14 @@ function overloadPlan(state: EngineState, now: number, open: ReadonlySet<string>
     if (open.has(item.station_id)) {
       if (band === 'green' && !item.capped) plan.close.push(item.station_id);
     } else if ((red || item.capped) && raisable && !hostFlags.overload_skipped.has(item.station_id)) {
+      // AD-33 (M4): a station in overload_skipped leaves it only at a restart.
       plan.raise.push(item);
     }
+  }
+  for (const station of open) {
+    if (checked.has(station)) continue;
+    hostFlags.red_since.delete(station);
+    plan.close.push(station);
   }
   return plan;
 }
@@ -137,7 +159,7 @@ export const firesAlertsTick: TickDef = {
   due(db, state, now) {
     if (!hosts.has(rawDbOf(db)) || !isEngineState(state)) return false;
     // §3.10: the check runs every pass so red_since follows the station, whatever else makes the pass due.
-    const overload = overloadPlan(state, now, hostFlags.overload_open, kindOf(ENGINE_ALERT_KINDS.overload) !== undefined);
+    const overload = overloadPlan(state, getAlertIntents(state, now).overload, now, hostFlags.overload_open, kindOf(ENGINE_ALERT_KINDS.overload) !== undefined);
     if (hostFlags.reconcile || hostFlags.day_closed || hostFlags.dropped_lines.length > 0) return true;
     if (overload.raise.length > 0 || overload.close.length > 0) return true;
     const at = nextAlertDueAt(state, hostFlags.skipped);
@@ -194,7 +216,7 @@ export const firesAlertsTick: TickDef = {
 
     // 3. Overload (§3.10), against the set just read.
     const overloadKind = kindOf(ENGINE_ALERT_KINDS.overload);
-    const plan = overloadPlan(state, now, new Set(overloadAlert.keys()), overloadKind !== undefined);
+    const plan = overloadPlan(state, intents.overload, now, new Set(overloadAlert.keys()), overloadKind !== undefined);
     for (const item of plan.raise) {
       const values = { station_id: item.station_id, pressure_bp: item.pressure_bp, waiting: item.waiting };
       if (overloadKind === undefined || !overloadKind.values_schema.safeParse(values).success) {
@@ -217,7 +239,8 @@ export const firesAlertsTick: TickDef = {
     for (const fact of dropped) {
       const input = droppedInput(fact, droppedKind);
       if (input === null) {
-        skips.push({ kind: ENGINE_ALERT_KINDS.lineDropped, order_item_id: fact.order_item_id, reason: droppedKind === undefined ? 'kind_not_registered' : 'values_invalid' });
+        const reason = droppedKind === undefined ? 'kind_not_registered' : fact.order_id === null || fact.order_item_id === null ? 'id_missing' : 'values_invalid';
+        skips.push({ kind: ENGINE_ALERT_KINDS.lineDropped, order_item_id: fact.order_item_id, reason });
         continue;
       }
       inputs.push(input);

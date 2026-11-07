@@ -1,8 +1,8 @@
-import { getTickIntents, initialEngineState, type EngineState } from '@pos/engine';
+import { getTickIntents, initialEngineState, type Diagnostic, type EngineState } from '@pos/engine';
 import { registerTick } from '../alerts/tick.js';
 import { registerBootStep, type BootContext } from '../lib/boot.js';
 import { setStockVersion } from '../sync/stock-version.js';
-import { firesAlertsTick } from './fires-alerts-tick.js';
+import { droppedLineOf, firesAlertsTick } from './fires-alerts-tick.js';
 import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
 import { logDiagnostics } from './reducer.js';
@@ -18,6 +18,8 @@ interface BootRun {
   base: LoadedBase;
   fromSeq: number;
   lines: LogLine[];
+  // AD-8 (task 22a review I1): the replayed invalid_event diagnostics, classified at step 6 against the replayed state.
+  invalid: Diagnostic[];
 }
 const runs = new WeakMap<BootContext, BootRun>();
 // The newest boot's unflushed lines, for main.ts's failure path (a step after 3 can fail before step 6 flushes them).
@@ -44,7 +46,7 @@ export function engineStep2(ctx: BootContext): void {
   hostFlags.snapshot_loaded = base.snapshot_seq !== null;
   lines.push({ level: 'info', obj: { step: '2', snapshot_seq: base.snapshot_seq, checkpoint_seq: base.checkpoint_seq, events_replayed: 0, ms: monoNow() - start }, msg: 'engine boot' });
   pending = lines;
-  runs.set(ctx, { base, fromSeq: base.snapshot_seq ?? base.checkpoint_seq ?? 0, lines });
+  runs.set(ctx, { base, fromSeq: base.snapshot_seq ?? base.checkpoint_seq ?? 0, lines, invalid: [] });
 }
 
 // §3.12 step 3: 4 + 2 statements. Replaces 01a's fold (A-15). A replayed diagnostic is logged again, replay: true (§7.2).
@@ -60,6 +62,7 @@ export function engineStep3(ctx: BootContext): void {
   };
   const { state, replayed } = replayEngine(ctx.db, branchId, run.fromSeq, run.base.state ?? initialEngineState(), (d) => {
     logDiagnostics([d], log, true);
+    if (d.kind === 'invalid_event') run.invalid.push(d);
   });
   ctx.initialState = state;
   setStockVersion(readStockVersion(ctx.db, branchId));
@@ -88,6 +91,16 @@ export function engineStep6(ctx: BootContext): void {
   const taken = run?.base.checkpoint_taken_at ?? null;
   hostFlags.checkpoint_pending = closedAt !== null && (taken === null || taken < closedAt);
   hostFlags.reconcile = true;
+  // AD-8 (task 22a review I1): a drop is never silent across a restart. The replayed drops are queued for the reconcile
+  // pass (after step 5's bindFiresAlertsTick reset; 0 statements); an alert still open dedupes. proposed (implementer):
+  // "the line is gone" is read on the replayed state (the fold's own result is not kept per event).
+  if (run !== undefined) {
+    for (const d of run.invalid) {
+      const fact = droppedLineOf(d, (id) => state.lines[id] !== undefined);
+      if (fact !== null) hostFlags.dropped_lines.push(fact);
+    }
+    run.invalid = [];
+  }
   // §3.11 catch-up: the first fires pass appends E(branchConfig()) when it differs from the replayed config (0 statements).
   hostFlags.configStale = configStaleFor(state);
 }
