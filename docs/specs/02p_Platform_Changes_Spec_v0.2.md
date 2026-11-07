@@ -12,6 +12,7 @@
 
 | Version | Change |
 |---|---|
+| v0.2 (targeted-check wording) | `02p_v0.2_targeted_check.md` N-1, n-2–n-8 (§12.5): staff entry files in the acceptance; task 0 patches 02a's stale paths and reader pair; tasks 2, 5, 17 name the tests they update; Urdu to-do list allowed; U-8 deal-header `ItemRemoved` and restart after a checkpoint; U-5 cites 02b tests 2 and 12. |
 | v0.2 | Hostile run 1 (`02p_v0.1_hostile_run1.md`) M-1–M-6, m-1–m-9 (§12.4): real file set in the acceptance; Q-1 reader pair incl. the card label; `zonesOf` directory read for `my_zones`; batch 1 adds ranks and client labels; Q-3 filter tests for all four shapes; test 194's boot-fold clause with Q-5; test 193 split; test 187 bound; old-event parsing; `own_tables` stub dropped; scope sets pinned; assignment cases; D-1 (e) is 02a's; task 0 rewords status lines; F-3 codes stay in 02a / 02b. |
 | v0.1 | First draft (owner request, 2026-11-07): one sprint for every upstream row of 02a v1.0 / v1.1 and 02b v1.0, including 03a v1.1 and v1.2. |
 
@@ -75,7 +76,7 @@ None new. Each task implements the rule in the cited section. Cross-row rules th
 | 02b | 00 M95, `ctx.queuedAt`, CORS; 01a zone routes / stock items, `is_ready_item`, settings, comp chips; 01b `set-line-weight`, `manage-zone-stock`, `view-customer-contact`, `my_zones` with the read **`StaffDirectory.zonesOf(staff_id)`** (the person's assigned zones ∪ their lead's, at this branch, in memory, like `stationsOf`), scope options, defaults; 01c / 03a `ItemAdded` and `OrderPlaced` additive fields (C-1, E-1); 03a Q-3–Q-6, Q-9 |
 
 ### 4.2 Changes to other specs (R26)
-None. This spec only builds approved rows. Schedule notes were added to 02a v1.1.1 §11 and 02b v1.0.1 §11 (text only). Task 0 also makes text-only status patches (m-8): the status lines of 01a v2.3, 01b v1.7, 01d v1.2, 03a v1.1 and the README rows 00, 01d that still say "built with 02a / 02b / 03a" → "built in 02p"; and one export line in 01b §4.2 for `zonesOf` (B-3 already defines the rule, M-3).
+None. This spec only builds approved rows. Schedule notes were added to 02a v1.1.1 §11 and 02b v1.0.1 §11 (text only). Task 0 also makes text-only status patches (m-8): the status lines of 01a v2.3, 01b v1.7, 01d v1.2, 03a v1.1 and the README rows 00, 01d that still say "built with 02a / 02b / 03a" → "built in 02p"; one export line in 01b §4.2 for `zonesOf` (B-3 already defines the rule, M-3); 02a v1.1.1 :262, :655, :675 paths → the acceptance paths (`packages/events/src/events/table/`, `apps/client/src/features/staff/tables/`) (n-2); 02a :654 registers the reader pair `holdersOfOrders` **and** `currentTableOf` (n-3).
 
 ---
 
@@ -125,16 +126,16 @@ The bumped specs' tests, plus the verification tests below where a row lists non
 | U-2 | 01a v2.2 / v2.3 | 01a tests 181–188, 189–195, with three placements: test 187's bound is "+1" after task 4 and **"+2" after task 7** (assignments read, m-2); test 193 is split — "delivered with defaults" in task 4, "written, range-checked" in task 9 (m-1); test 194's "boot fold counts it" clause runs in task 17 with Q-5 (M-6) |
 | U-3 | 01b v1.6 | `take-order`, `clean-table` seeded by `default_key`; assignments (rule 7): one person per zone / table (`already_assigned`), another branch's zone → `wrong_branch`, archived → `archived`; an archived zone drops out of the directory; a leaver frees their assignments; an assignee without `take-order` is stored but `assignedOrderTaker` ignores them; directory v3 carries the lists; `assignedOrderTaker` table → zone → none (m-6). `own_tables` checks are 02a / 02b tests (02a 46, 02b 23, 32; m-4) |
 | U-4 | 01b v1.7 | the three permissions in `PERMISSION_CATALOGUE`; **`PERMISSION_SCOPES` equals 01b v1.7 §3.3's table exactly** for `take-order`, `clean-table`, `mark-served`, `boost-order`, `mark-item-returned`, `set-line-weight`, `manage-zone-stock`, `view-customer-contact` (m-5); `zonesOf`: own zones, lead's zones, no assignment → empty, leaver → empty (M-3); `my_zones` rank as 01b's resolve order; `own_tables` accepted on `take-order`, `boost-order`, `mark-item-returned`; defaults: Cashier `set-line-weight`, `view-customer-contact`, `apply-comp` (approval by Manager); Order taker `boost-order`, `view-customer-contact` (`own_tables`), `apply-comp` (approval); `manage-zone-stock` only Owner, Manager; a `scope = 'my_zones'` row inserts after the expand migration; settings `PATCH` accepts and range-checks the new fields |
-| U-5 | 01c v1.1.2 | `ItemAdded` schema accepts both fields; an event without them parses as `null` / `false` (every logged event and fixture still parses); the producer (02b) always sets them, 02b test 2 (m-3) |
+| U-5 | 01c v1.1.2 | `ItemAdded` schema accepts both fields; an event without them parses as `null` / `false` (every logged event and fixture still parses); the producer (02b) always sets them, 02b tests 2 and 12 (m-3, n-8) |
 | U-6 | 01d v1.2 | 01d test 25 as changed, D-1 (a)–(d) with a fake resolver (`registerTargetResolver`): key includes depth, the resolver set is the full set with the presence filter, absent-owner marker from `owner_staff_id`, `ResolvedTarget.owner_staff_id`; D-1 (e) is 02a test 21 (m-7); D-3: `skip_requester` drops the requester from every set; startup error on a request kind |
 | U-7 | 03a v1.1 | Q-1 with test doubles for the reader pair: receiver = holder of the **oldest** order; two holders (split then handover) → the oldest order's holder; card `display.table_code` from `currentTableOf`, never from `table_key`; takeaway / parking stay `placed_by`; no reader registered → `placed_by`, no label; statement bound ≤ 1 `holdersOfOrders` + ≤ 1 `currentTableOf` per pass (03a v1.1 :878, :1151) (M-2). Q-2: `dine_in` key built from a seating id in 03a's tests |
-| U-8 | 03a v1.2 | Q-3: zone `ItemAdded` and empty-`order_item_ids` `OrderPlaced` change nothing and log nothing; **host filter for all four shapes** — `ItemServed { source: 'zone' }` on a zone line, `ItemRemoved` on a zone line, `ItemVoided` on a zone line and on a `deal` header → no warn line, live and on replay (the id set rebuilt by replay) (M-5); Q-4: partial `ItemRemoved { units }` releases only the units' share; Q-5: `StockTransferredOut` folds as a negative `StockAdded`, replay = live; Q-6: `ItemServed { source: 'zone' }` no-op, `served_at` → `min(served_at, recorded_at)`; Q-9 / E-1 schema fields round-trip, and an `OrderPlaced` / `ItemVoided` without the new fields still parses (m-3) |
+| U-8 | 03a v1.2 | Q-3: zone `ItemAdded` and empty-`order_item_ids` `OrderPlaced` change nothing and log nothing; **host filter for all four shapes** — `ItemServed { source: 'zone' }` on a zone line, `ItemRemoved` on a zone line **and on a `deal` header** (n-6), `ItemVoided` on a zone line and on a `deal` header → no warn line, live, on full replay, and **after a restart whose replay starts at a checkpoint** with an order carried over the day close (id set source per 03a v1.2, n-7) (M-5); Q-4: partial `ItemRemoved { units }` releases only the units' share; Q-5: `StockTransferredOut` folds as a negative `StockAdded`, replay = live; Q-6: `ItemServed { source: 'zone' }` no-op, `served_at` → `min(served_at, recorded_at)`; Q-9 / E-1 schema fields round-trip, and an `OrderPlaced` / `ItemVoided` without the new fields still parses (m-3) |
 | U-9 | Regression | full gate `pnpm -w typecheck && pnpm -w lint && pnpm -w test` green; 03a simulator gate within §7.1 |
 
 ### Acceptance
 02p is done when U-1–U-9 pass and the 02a and 02b sprints can start editing **only**:
 - their own folders: `apps/hub/src/{tables,orders}/`, `apps/hub/test/{tables,orders}/`, `apps/client/src/features/staff/{tables,orders}/` (and their tests), `packages/events/src/events/table/` (02a, and 02b's zone events) and 02b's new files in `packages/events/src/events/order/`;
-- **append-only registration lines** in shared wiring: the module's `register…` call in `apps/hub/src/server.ts`, its exports in `packages/events/src/index.ts`, a new migration file in `apps/hub/src/db/migrations/`, its strings in `apps/client/src/i18n/{en,ur}.ts`, its codes in `@pos/domain/src/errors.ts` and 02a's `TableState` in `@pos/domain`;
+- **append-only registration lines** in shared wiring: the module's `register…` call in `apps/hub/src/server.ts`, its exports in `packages/events/src/index.ts`, a new migration file in `apps/hub/src/db/migrations/`, its strings in `apps/client/src/i18n/{en,ur}.ts`, its route branch and nav entry in 01d's staff entry `apps/client/src/features/staff/StaffApp.tsx` (and 02a §8 Login's change in `StaffApp.tsx`, `SignIn.tsx`, `api.ts`) (N-1), its codes in `@pos/domain/src/errors.ts` and 02a's `TableState` in `@pos/domain`;
 - spec text (Foundation §6.2 append, README rows).
 
 Any other edit in 00, 01a–01d or 03a files is a 02p miss.
@@ -144,16 +145,16 @@ Any other edit in 00, 01a–01d or 03a files is a 02p miss.
 ## §11. Build order (one task per commit, TDD; batches of ~5)
 
 **Batch 0 — spec**
-0. Engine lane: write **03a v1.2** (U2), including the registration name of the Q-1 reader pair (`holdersOfOrders`, `currentTableOf`); targeted check; approve. Text-only patches of §4.2 (status lines, README rows, 01b §4.2 `zonesOf` export line, m-8, M-3). Update README.
+0. Engine lane: write **03a v1.2** (U2), including the registration name of the Q-1 reader pair (`holdersOfOrders`, `currentTableOf`); targeted check; approve. Text-only patches of §4.2 (status lines, README rows, 01b §4.2 `zonesOf` export line, 02a paths and reader pair; m-8, M-3, n-2, n-3). 03a v1.2 also states where the Q-3 id set comes from at boot when replay starts after a checkpoint (n-7). Update README.
 
 **Batch 1 — shared types and schemas**
 1. `@pos/events`: 01c C-1 and 03a E-1 additive fields; Q-4 `ItemRemoved.units?`, Q-6 `ItemServed.source` / `served_at?`, Q-9 `ItemVoided` money fields, Q-5 `StockTransferredOut` (U-5, U-8 schema part).
-2. `@pos/domain`: 01b permission catalogue and scopes (`take-order`, `clean-table`, `set-line-weight`, `manage-zone-stock`, `view-customer-contact`, `own_tables` options, `my_zones`); 01a's `ZONE_NOT_FOUND`. **Same commit, so batch 1 stays green (M-4):** `my_zones` in the hub `SCOPE_RANK` (`auth/staff-directory.ts`) and the client `WIDTH` (`features/owner/staff/people.ts`) with 01b's rank; `perm.<key>` for the five permissions, `staff.scope.my_zones`, `roles.scope.my_zones`, `errors.reference.already_assigned` in `i18n/en.ts` and `ur.ts`.
+2. `@pos/domain`: 01b permission catalogue and scopes (`take-order`, `clean-table`, `set-line-weight`, `manage-zone-stock`, `view-customer-contact`, `own_tables` options, `my_zones`); 01a's `ZONE_NOT_FOUND`. **Same commit, so batch 1 stays green (M-4):** `my_zones` in the hub `SCOPE_RANK` (`auth/staff-directory.ts`) and the client `WIDTH` (`features/owner/staff/people.ts`) with 01b's rank; `perm.<key>` for the five permissions, `staff.scope.my_zones`, `roles.scope.my_zones`, `errors.reference.already_assigned` in `i18n/en.ts` and in `ur.ts` or 01b's Urdu to-do list (`i18n.test.ts:121-124`, n-5). Same commit updates `permissions.test.ts:47-61` ("only `mark-served` offers `own_tables`") to 01b v1.7 §3.3 (U-4 scope-set clauses; n-4).
 
 **Batch 2 — 01a**
 3. Cloud migration zones + routes + stock items + `is_ready_item` + settings columns; admin routes §6.6a / §6.6b with nested lists (U-2).
 4. Snapshot V4 (`zones`, `zone_id`, `routes`, `stock_items`, `is_ready_item`, settings, comp chips); fixtures V3 → V4 once (U5); hub apply (01a tests 187 "+1", 188, 192, 193 "delivered with defaults").
-5. `StockTransferredOut` in `STOCK_VERSION_EVENTS` (`sync/stock-version.ts`) and the stock-frame audience (`ws/restaurant-audiences.ts`) (01a test 194, first two clauses). The boot fold list is the engine's `ENGINE_REPLAY_EVENTS.stock`: task 17 (M-6).
+5. `StockTransferredOut` in `STOCK_VERSION_EVENTS` (`sync/stock-version.ts`) and the stock-frame audience (`ws/restaurant-audiences.ts`) (01a test 194, first two clauses); updates `boot.int.test.ts:450` ("nine types") in the same commit (n-4). The boot fold list is the engine's `ENGINE_REPLAY_EVENTS.stock`: task 17 (M-6).
 6. Owner app: zones, zone routes and stock items, ready-item checkbox, settings fields (01a tests 189–195 client part).
 
 **Batch 3 — 01b**
@@ -171,7 +172,7 @@ Any other edit in 00, 01a–01d or 03a files is a 02p miss.
 14. Q-2 key from seating id; Q-1 receiver **and card label** through one registered reader pair (`holdersOfOrders`, `currentTableOf`), fallback `placed_by` / no label; the tick's statement bound (U-7, M-2).
 15. Q-3 zone lines / empty orders, host `logAbsentIds` filter with the id set for zone lines and `deal` headers, all four event shapes (U-8, M-5).
 16. Q-4 partial `ItemRemoved` fold and share release (U-8).
-17. Q-5 `StockTransferredOut` fold, `ENGINE_REPLAY_EVENTS.stock` and `ReplayEventType`, test 94, and 01a test 194's "boot fold counts it" clause (M-6); Q-6 `ItemServed` fields (U-8).
+17. Q-5 `StockTransferredOut` fold, `ENGINE_REPLAY_EVENTS.stock` and `ReplayEventType`, test 94, and 01a test 194's "boot fold counts it" clause (M-6); updates `state.test.ts:208` (replay list) in the same commit (n-4); Q-6 `ItemServed` fields (U-8).
 18. Simulator gate re-run; full regression gate (U-9). README rows closed.
 
 ---
@@ -222,3 +223,16 @@ U-1–U-9 green; every task's commit cites its row and section (e.g. `feat(01b):
 | m-7 | U-6 cites 01d test 25; D-1 (e) is 02a test 21 |
 | m-8 | Task 0 rewords stale "built with 02a / 02b / 03a" status lines (§4.2) |
 | m-9 | §12.2 F row: F-3 codes stay with 02a / 02b |
+
+### 12.5 Targeted check closure (`02p_v0.2_targeted_check.md`, APPROVE WITH WORDING FIXES)
+
+| # | Fix |
+|---|---|
+| N-1 | Acceptance adds 01d's staff entry files (`StaffApp.tsx` route + nav; 02a Login in `StaffApp.tsx`, `SignIn.tsx`, `api.ts`) as append-only |
+| n-2 | Task 0 patches 02a v1.1.1 :262, :655, :675 paths |
+| n-3 | Task 0 patches 02a :654 to register both readers |
+| n-4 | Tasks 2, 5, 17 name the tests they update (`permissions.test.ts`, `boot.int.test.ts`, `state.test.ts`) |
+| n-5 | Urdu labels in `ur.ts` or 01b's Urdu to-do list |
+| n-6 | U-8 adds `ItemRemoved` on a `deal` header |
+| n-7 | 03a v1.2 states the boot source of the Q-3 id set; U-8 restart-after-checkpoint case |
+| n-8 | U-5 cites 02b tests 2 and 12 |
