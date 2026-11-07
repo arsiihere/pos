@@ -211,7 +211,7 @@ class FoldMap<V> {
 //     maps are never written. A state that came from anywhere else (the input, a re-plan's own copy) is copied first. Inside
 //     applyEvents the batch's private map is written in place instead, with the old values kept (FoldMap). Only the helpers
 //     of apply-event.ts and touchOrder write through it, and they never read an older state of the same fold afterwards:
-//     the one reader of "before" is upkeepSlips, through lineBefore / orderBefore.
+//     the one reader of "before" is upkeepSlips, through lines.before / orders.before.
 //   - lineIds / orderIds: the candidates the fold names for upkeepSlips, which still compares each by reference, so naming
 //     one that did not change costs one comparison and changes no result; only a change left unnamed could.
 //   - whole: a re-plan may move any hidden line, so that fold compares the whole maps. A re-plan is O(lines) itself
