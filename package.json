@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "pnpm --filter @pos/client build && vitest run",
+    "test:perf": "bash tools/test-perf.sh",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck typecheck:tests"
   },

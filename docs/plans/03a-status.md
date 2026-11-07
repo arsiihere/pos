@@ -84,7 +84,7 @@ Open items list below (1–8). Carried to host tasks: 20 log and clear diagnosti
 ## Rules for this board
 
 - One batch entry per checkpoint (format below), committed alone: `docs(03a): checkpoint batch N`, then `git push origin module-03a`.
-- Gate per batch: `pnpm -w typecheck && pnpm -w lint && pnpm -w test` (controller only, one run at a time). From task 18 on the `perf` project is part of `pnpm -w test`, and its numbers are copied into the §7.1 table at every checkpoint.
+- Gate per batch: `pnpm -w typecheck && pnpm -w lint && pnpm -w test` (controller only, one run at a time). The `perf` project is not part of `pnpm -w test`; it runs only via `pnpm test:perf`, inside a clean measurement (AD-32), and its numbers are copied into the §7.1 table at every checkpoint.
 - **The gate (task 18):** no task of batch 6 or later starts until every §7.1 row below that task 18 measures is filled and green. A miss stops the build for a spec bump (03a §7.1, §12.5).
 - Deviations are **proposed** `AD-n` rows here and in `docs/reviews/03a-auto-decisions.md`; folded into the spec only at task 29.
 
