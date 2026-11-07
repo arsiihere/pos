@@ -4,13 +4,52 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **Raat ka aakhri report (2026-11-08):** aapke kehne ke mutabiq sab kuch kar diya: (b) aur (c) fixes, 01d v1.1.2, task 23 (alert v2), task 27 (live = replay, 50 seeds, koi farq nahi mila). Final gate green (3209 tests). Ab ruka hoon; task 29 shuru nahi kiya. Do sawal AD-37 mein aapke liye hain.
+>
 > **Decision 2 check (2026-11-07, der raat):** aapke faislay ke mutabiq AD-35 ke baqi readings check kiye. 6 accept, lekin 3 spec ke text se takrate hain (22b-1 sender, 22b-4 test 83, 24-4 catch-up back-off). Aapke kehne par koi side nahi li aur ruk gaya: 01d bump aur task 23 abhi shuru nahi kiye. Upar MORNING REPORT mein teeno quotes hain.
 >
 > **Batch 9 ke baad (2026-11-07, raat):** tasks 19–22b aur 24 mukammal, gate green, clean §7.1 run poora pass (BF-7 38.7 ms, stations-live 2.5 ms). **Task 23 ruka hua hai:** 03a ka slip `details` (minutes_late, lines) 01d ke `AlertDetailsBase` mein fit nahi hota. Yeh spec ka faisla hai, aapka. Upar MORNING REPORT parhein.
 >
 > **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
 
-## MORNING REPORT (2026-11-07, late night): STOPPED on your Decision 2 check, before the 01d bump
+## MORNING REPORT (2026-11-08): your run is done; STOPPED as instructed before task 29
+
+**Head:** the docs commit at the top of `module-03a`, pushed. Code head `1d098b8`.
+
+**Done, in your order** (each commit cites its §; every task had a fresh opus review):
+1. **(b) `fe40c66`:** `station_plan` frames are sent only when the payload (`station_id` + `lines`, `as_of_seq` left out) differs from the last one sent to that station. The expedite on a frozen line still sends a frame; a Start tap on a fired line sends none.
+2. **(c) `dcaefd5`:** while the catch-up is backed off with `configStale` still set, one warn line per pass with the failure count, the config version in use, and the one wanted. It is built from memory, with 0 statements.
+3. **01d v1.1.2 `f7a16f2`:** `AlertDetailsBase` gains `minutes_late` and `lines`; `AlertRaised` is v2; changelog rows D-1 and D-2; "02p task 0 carries this into 01d v1.2"; README row. The 03a §3.8 note goes into the v1.0.1 as-built (open item 9).
+4. **Task 23, `6b3ddec` + `a556722`:** the real kinds `slip_warning`, `station_overload` and `engine_line_dropped`.
+   - Slip `details`; accept `apply` with goes-with pre-ticks; decline writes nothing.
+   - `AlertRaised` v2: identity upcaster, v1 fixture untouched, a v2 fixture, and the writer writes v2.
+   - Strict card: it accepts the new fields and refuses unknown keys; `details` never reach lock, alert-mode or device frames, or logs.
+   - Review round 1: the card's quantity now comes from the engine's units. **Approved.**
+5. **Gate** at `0b754ab`: green, 3157 tests.
+6. **Task 27, `52ffd43` + `1d098b8`:** live = replay over 50 seeds × 80 dinner-peak orders, with every disturbance on each seed.
+   - Disturbances: late starts, the real tick loop with slips, a recount below reserved, a capacity change, adds, a boost, a return fix or remake, a close with a kept order and the deferred checkpoint, a reopen, and a second part that stops mid-flight.
+   - Compared strictly against boots from seq 0, from a snapshot and from the checkpoint, after every disturbance and every 10th submit. No breach logged. **No divergence found.** Race #74: exactly one reservation; the second order cooks fresh or is refused.
+   - Review: Approved. Round 1 asserts per seed that each disturbance's events exist; 45 of 50 seeds raise a slip, with a floor of 40.
+7. **Final gate** at `1d098b8`: **green**. 360 files passed (1 skipped), 3209 tests passed (1 skipped, 1 todo), 17 m 32 s.
+
+**Questions for you (AD-37):**
+1. **§6.2a statement bound.** The slip details need each line's name, and the engine state holds none, so a slip pass makes one `ItemAdded` read. Today it fits "2 + ≤ 1 (`tableOwners`) + 01d" only because `tableOwners` is stubbed. Once 02 lands, a `dine_in` slip pass is one read over. Options:
+   - fold "+ ≤ 1 line facts" into §6.2a at task 29;
+   - or add `name` to `EngineLine` (a §3.3 change).
+2. **Spec gap: an answered slip silences its table for the day.** 01d closes an answered request through `RequestAnswered`; the engine folds only `AlertClosed`, so `slips[key].alert_id` stays set and §3.8's re-raise never fires. For a `dine_in` table, one "Send what's ready" or "Wait" at lunch silences every later slip of that table that day. The code and test 72 follow the text. Option: fold a `RequestAnswered` on the order stream whose `alert_id` matches as a close (changes to the §3.12 replay list and test 94).
+3. **Card wording (AD-37 (3)).** With the defaults, `minutes_late` is usually 0 when the slip fires, because the threshold of 120 s is below the padding of 180 s.
+
+**For you, not blocking:**
+- **Cloud test flake, twice.** `apps/cloud/test/db/staff-roles-migration.int.test.ts`: once pg `57P01` (batch 8), and once `[01b #89]` timed out at 5 s while two heavy runs overlapped. It passes in every clean gate. This belongs to the cloud lane.
+- **Gate time.** The task 27 property file takes about 95 s idle and about 240 s under load; the gate is now about 17 min.
+- **Not timed at the peak:** the new `ItemAdded` read is not timed in the peak perf run (the sim orders have no `placed_by`; AD-37).
+- **The cloud `stash@{0}`** (commit `a621fdc`) is still restorable; see the batch 8 entry.
+
+**Task 29 to-do (not started; the as-built is 03a v1.0.1):** open item 9 (the §3.8 note, AD-35 a/b/c, the test 70 note); AD-37 per your answers; task 27's Minor 3 (a scoped compare right after the deferred checkpoint); the batch 8 and batch 9 carried rows.
+
+**Exact next step:** answer AD-37 questions 1–3, then say go for task 29 (the final review and the v1.0.1 as-built draft). Task 28 still needs the pilot mini PC.
+
+## Earlier MORNING REPORT (2026-11-07, late night): STOPPED on your Decision 2 check, before the 01d bump
 
 **What happened.** You ruled Decision 1 (widen 01d, v1.1.2) and Decision 2 (24-1 accepted; check the other AD-35 readings and stop on any contradiction). I checked every other AD-35 reading against 03a v1.0 and AD-1..AD-34.
 - **Accepted, nothing contradicts them:** 22b-2, 22b-3, 22b-5, 24-2, 24-3, 24-5.
@@ -264,7 +303,7 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | 25 | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #68 | |
 | 25b | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #69 | |
 | 26 | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | #66 | |
-| 27 | 11 | HIGH | TODO | | #59, #74 hub | |
+| 27 | 11 | HIGH | DONE | `52ffd43`, `1d098b8` | #59, #74 hub | no divergence found; Minor 3 (a scoped compare right after the deferred checkpoint) carried to 29 |
 | 28 | 11 | — | TODO | | manual | needs the pilot mini PC |
 | 29 | 11 | — | TODO | | — | final review, as-built v1.1 draft |
 
@@ -485,3 +524,19 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
   - 23: everything, once the details contract is ruled.
   - 29: the §3.6.3 `sendToSessions` wording; the test 70 note; the over-sending of `station_plan` frames (accepted).
 - **Working-tree incidents:** the two batch 9 implementers worked in parallel. 22b committed only its own hunks of the shared `fires-tick.ts` / `index.ts` with `git hash-object` + `update-index` (reviewed: the committed files are self-consistent). No stash was used.
+
+## Batch 10/11 — owner rulings, 01d v1.1.2, task 23, task 27 (2026-11-08)
+
+- **Tasks:** AD-35 (b) and (c) fixes; 01d v1.1.2; 23; 27. Task 28 needs the pilot box; task 29 was not started (owner).
+- **Commits:** `fe40c66`, `dcaefd5`; `f7a16f2` (spec); `6b3ddec`, `a556722` (23); `52ffd43`, `1d098b8` (27); docs `d24f178`, `0b754ab` and this one.
+- **Reviews:**
+  - 23 (HIGH): Needs fixes. I3: card quantity from `ItemAdded` → fixed to the engine units. **Approved.**
+  - 27 (HIGH): **Approved.** Important: the disturbances were not asserted → fixed.
+  - The (b) and (c) fixes were checked by the controller (owner rulings, small).
+- **Gates:**
+  - `0b754ab`: green, 3157 tests.
+  - `1d098b8` (final): green, 3209 tests, 17 m 32 s.
+  - Two overlapping runs that do not count (the tree changed mid-run): one green; one red only on the cloud `[01b #89]` 5 s timeout.
+- **Tests closed:** #59, #65, #67, #72, #74 hub, #77 hub; #83 (payload filter).
+- **AD rows:** AD-35 (owner rulings a, b, c; 24-1 accepted; the rest accepted after the check); AD-36 accepted; AD-37 proposed (3 owner questions).
+- **Carried to 29:** open item 9; AD-37; task 27 Minor 3.
