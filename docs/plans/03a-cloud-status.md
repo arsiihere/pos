@@ -16,24 +16,37 @@
 | C8 points page, station timing | 36ed5c8, 5c7d68d, 822a3a2 | 7 Important over 2 fix rounds, fixed and verified |
 | C9 kitchen timing, item timing, goes-with | f861e27, 3d4b6a2 | 1 Critical (goes-with data loss), 3 Important, fixed and verified |
 
-**Merge note for the engine lane:** the V3 flip is `8a53778`. Cloud migration 0008 is free for R1b. `apps/hub/src/sync/boot-steps.ts` and non-test files in `packages/engine` were not touched.
+**Follow-up round (developer rulings):**
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Flaky inbox log test | Fixed, `9078fb3`: reads log fields, still catches a real leak |
+| 2 | `MenuView.tsx:385` | Fixed, `985f169`, `226bf7c`: size groups and deals under their own names |
+| 3 | Add-station dialog | §12.4 note below, no code |
+| 4 | Browser check | Done, `49d2229`..`3dfeb94`: 38 screenshots and a table in `docs/reviews/03a-cloud-browser/` |
+| 5 | Whole-branch review | `docs/reviews/03a-cloud-branch-review.md`: 0 Critical, 0 Important, 11 Minor. No code change required |
+| 6 | Urdu table | `docs/reviews/03a-cloud-urdu-strings.md`: 449 strings |
+| 7 | Stash `a621fdc` | Dropped |
+
+**Merge note for the engine lane:** the V3 flip is `8a53778`. Cloud migration 0008 is free for R1b. `apps/hub/src/sync/boot-steps.ts` and non-test files in `packages/engine` were not touched. `git merge-tree` against `origin/module-03a` is clean, but the merged tree was not compiled or tested.
 
 ### Not done or not verified
-- **No browser check.** C8 and C9 are covered by component tests only. To check by eye: Points page, Timing groups at phone width, RTL, the phone nav entry, Reload after a real `409`.
-- **Urdu strings are unreviewed** implementer translations and need a native read.
-- **No whole-branch review.** Reviews were per task or pair, as briefed.
-- **C8's first commit had no RED run:** the implementer wrote code before tests. Both C8 fix rounds did run RED first, and the reviewer judged most of the original tests constrain behaviour.
+- **Browser check gaps:** real phones; cloud-down and failed-menu-read states. `b7cfeef` (station errors under the box) has component tests only, because that browser script was not rerun on the final build.
+- **Urdu:** all 449 strings are unreviewed drafts awaiting the native read. About 760 Urdu keys on other pages (login, stock, staff) remain English, out of scope.
+- **C8's first commit had no RED run:** the implementer wrote code before tests. Both C8 fix rounds did run RED first.
+- **One-commit rule:** the `MenuView` fix is two commits (`985f169`, `226bf7c`), and `65dbb4e` alone fails `tsc`; `b7cfeef` fixes it.
 
 ### Needs a developer look
-1. **Flaky test, outside this lane:** `apps/hub/test/alerts/inbox-catch-up.int.test.ts:493` checks that logs never contain `480000`, and a log's `responseTime` can (seen: `13.025480000000243`). It failed one gate at `5c7d68d`, then passed 3 of 3 alone and in the final gate. It will fail again at random.
-2. **Older defect, not fixed:** `features/owner/menu/MenuView.tsx:385` shows `variant_group` and `deal` in-use answers as items.
+1. **Ruling needed (review Minor 1):** a saved goes-with link to an archived target is deleted when the owner edits that list, so restoring the target does not bring it back. Either accept it in CL-19, or let the server accept an unchanged archived link so the client can resend it. The reviewer leans to the second.
+2. **Same flake in two more files, outside this lane:** `apps/hub/test/alerts/personal-notices.int.test.ts:297` and `apps/hub/test/ws/alert-mode.int.test.ts:347` still search raw logs for `480000`, so gates can still fail at random.
+3. **Remaining review Minors:** see the review for a NUL in a body answering 500, unhelpful messages on a refused station restore or add, the whole-menu read on every edit form open, client range tables repeating the Zod ranges, and a branch-specific permission going to `module-03a` with the merge.
 4. **`set-branch-settings` CLI** audit rows hold 3 fields against the route's 19 (CL-17).
 5. **Unused column:** 0007's `version` columns are never compared (CL-5).
-6. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-11, CL-12, CL-13, CL-16, CL-17 and "Task 29 notes" below.
+6. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-7, CL-8, CL-9, CL-10, CL-11, CL-12, CL-13, CL-15, CL-16, CL-17, CL-18, CL-19, station alternates and carry times being last write wins against §5.2a, and "Task 29 notes" below.
 
 ### Environment notes
 - `pos_test_cloud` did not exist; the controller created it. An implementer hand-reset 0007 in it once.
-- Two power cuts: `pos-pg-test` stayed down both times and the developer started it. The stash `a621fdc` ("partial before power cut 2") holds an abandoned C4 test, is no longer needed, and was left in place.
+- Two power cuts: `pos-pg-test` stayed down both times and the developer started it.
 - One gate went red with 76 failures at `c29594a` because a reviewer ran tests in the same database at the same time. It was the controller's scheduling error, not code: the same failures did not return.
 
 ### AD rows: developer rulings
@@ -73,7 +86,6 @@ Add-station dialog: Timing stays on the Edit form only, because the pilot has on
 - C2/C3 test precision (Minor, reviewer): CL-7 "Pass first" clause untested (`stations-engine.int.test.ts:349`); clearing a nullable to null untested (`:161`); `issue-code.int.test.ts:68` does not prove rollback; another tenant's ids in body references untested; 100 ms race holds; point race test title (`points.int.test.ts:310`).
 - Task 29 notes: §6.8 points lack `version`; §6.0 lacks §6.9a; `points_branch_name_active` is case-sensitive, stations use `lower(name)`; CL-11 alternate `FOR UPDATE` briefly blocks FK key-share writers.
 - C8/C9 owner forms must drop archived targets and alternates before saving, or a resend gets `422`; a category archive path of ruling 7 is untested (`item-timing.int.test.ts:412`, Minor).
-- OPEN (older than 03a): `features/owner/menu/MenuView.tsx:385` passes every `used_by` to `itemNames`, so `variant_group` and `deal` in-use answers read as items (`service.ts:924,1040,1046`). Same defect class as C8's fix; not touched here.
 - C8/C9 Minor (reviewer): a re-added alternate row shows its old refusal until the next Save (`Timing.tsx:375`); stale comments at `BlockedDialog.tsx:14`, `StationsView.tsx:60`; untested failed `listStockItems` and second refused save.
 - C1 test order dependency at `engine-config-migration.int.test.ts:112` (Minor).
 
