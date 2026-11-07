@@ -2,7 +2,7 @@
 // clock (`last_line_fold_at`, `last_served_at`) and the list of orders the removal step takes out. Physical
 // removal itself (unbooking exactly `booked`, AD-7 / AD-6) is in apply-event.ts, inside listed folds only.
 import { effectiveCapacity } from './capacity.js';
-import { occupancy } from './profile.js';
+import { occupiedCook } from './profile.js';
 import type { EngineLine, EngineOrder, EngineState } from './state.js';
 
 // §3.3: an order leaves the engine 30 min after its last line is served (an engine constant in the pilot).
@@ -33,7 +33,7 @@ function plannedLand(state: EngineState, line: EngineLine): number | null {
   if (base === null) return null;
   const station = state.stations[line.station_id];
   const cap = station === undefined ? 0 : effectiveCapacity(station);
-  const cook = cap >= 1 ? occupancy(line.units, cap, line.cook_ms).cook_ms : line.cook_ms;
+  const cook = cap >= 1 ? occupiedCook(line, cap) : line.cook_ms;
   return base + line.prep_ms + cook + line.carry_ms;
 }
 

@@ -158,6 +158,12 @@ export interface EngineLine {
   // §3.5.5 (task 11 review): the routed station (ItemAdded.station_id, the D25 home route, §4.2), never filtered by
   // max_carry_ms; kept because station_id / alternates change when the line moves (route.ts R1).
   routed_station_id: string;
+  // §3.5.2, AD-29 Q11 P9: an ItemsReleased expedite. `mark` changes as §3.4 says (the screen shows why the line moved), so
+  // the follow-up weight reads this and never the mark. Never cleared.
+  expedited: boolean;
+  // AD-4, AD-29 Q11 P4: a fired member's load rounds, from the load's stored booking at the fire (null for a line fired
+  // with no load, and before the fire, when the load's `booked` holds them). profile.ts occupiedCook reads it.
+  rounds: number | null;
 }
 
 // 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).

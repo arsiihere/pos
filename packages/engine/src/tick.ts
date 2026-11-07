@@ -28,7 +28,7 @@ import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
 import { liveProfiles } from './live.js';
 import { bookingAt, type Booking } from './overload.js';
-import { addInterval, earliestFit, occupancy, removeInterval } from './profile.js';
+import { addInterval, earliestFit, occupiedCook, removeInterval } from './profile.js';
 import { combine, stationPolicy, weightOf } from './replan.js';
 import type { EngineLine, EngineOrder, EngineState, Load, Profile, StationRuntime } from './state.js';
 import { lineReleases, stockEffects, type StockConsumedDraft, type StockReleasedDraft } from './stock.js';
@@ -361,11 +361,9 @@ function completionMode(state: EngineState, station_id: string): StationCfg['com
   return configOf(state, station_id)?.completion_mode ?? 'two_tap';
 }
 
-// The cook a COOKING line occupies its station for at effective capacity (live.ts: AD-4 rounds on a slot station; a
-// batch line as its whole load, max(units, cap); a line fired with no load is a slot line, §3.11).
+// The cook a COOKING line occupies its station for at effective capacity (live.ts: occupiedCook, AD-29 Q11 P4).
 function occupancyCook(station: StationRuntime, line: EngineLine): number {
-  const cap = Math.max(1, effectiveCapacity(station));
-  return station.type === 'batch' && line.load_id !== null ? occupancy(Math.max(line.units, cap), cap, line.cook_ms).cook_ms : occupancy(line.units, cap, line.cook_ms).cook_ms;
+  return occupiedCook(line, Math.max(1, effectiveCapacity(station)));
 }
 
 // The planned end of a COOKING line: started_at + prep + cook (F §4.7 D60 doneAt; D33 planned_endsAt).

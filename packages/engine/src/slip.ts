@@ -54,7 +54,7 @@ import { effectiveCapacity } from './capacity.js';
 import { ORDER_EXIT_AFTER_SERVED_MS, orderInEngine, type FoldScope } from './lifecycle.js';
 import { liveProfiles, packStation } from './live.js';
 import { pressureBp, pressureWindowOf } from './pressure.js';
-import { occupancy } from './profile.js';
+import { occupiedCook } from './profile.js';
 import type { ItemsReleasedPayload } from '@pos/events';
 import type { EngineLine, EngineOrder, EngineState, SlipRecord } from './state.js';
 
@@ -214,7 +214,7 @@ function capOf(state: EngineState, line: EngineLine): number {
 }
 
 function cookingLand(state: EngineState, line: EngineLine): number {
-  return line.started_at! + line.prep_ms + occupancy(line.units, capOf(state, line), line.cook_ms).cook_ms + line.carry_ms;
+  return line.started_at! + line.prep_ms + occupiedCook(line, capOf(state, line)) + line.carry_ms;
 }
 
 // An unfired line's planned interval: its booking, or its load's (a batch member, AD-7 for loads).

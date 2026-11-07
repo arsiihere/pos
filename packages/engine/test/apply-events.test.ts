@@ -215,7 +215,9 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
   it('[03a AD-28] the run still writes the same events and reaches the same state (hash of seed 7, 200 orders)', () => {
     const run = runDay(generateDay(7, { orders: 200 }));
     expect(sha(run.events)).toBe('18f0dd7a8446930962642b75d00ef3690a7bc6d4e380a2e7a996417eff4fe289');
-    expect(sha(run.liveState)).toBe('3a7ed3c2d9b117e770d29f25ea592140138a394cefcbf5fa85a788da7730e8a8');
+    // Task 18d: the events are the same; the state hash moved only for the two new line fields (with `expedited` and `rounds`
+    // stripped it is the old 3a7ed3c2…).
+    expect(sha(run.liveState)).toBe('ad0ddb7f155bf36430801facb281e746277e7f7b707f6557e74fe140e0ce70d2');
   }, 120_000);
 });
 

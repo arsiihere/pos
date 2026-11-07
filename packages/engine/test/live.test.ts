@@ -140,7 +140,7 @@ describe('@pos/engine stage folds (§3.4; stage only, stock in task 12)', () => 
     expect(s0.stations.S1!.profile).toEqual({ t: [at(0), at(10)], u: [1, 0] });
 
     const s1 = fold(s0, [fire(['L1', 'NOPE'], at(0), 'S1:L1')]);
-    expect(s1.lines.L1).toEqual({ ...s0.lines.L1, fired_at: at(0), load_id: 'S1:L1', booked: null });
+    expect(s1.lines.L1).toEqual({ ...s0.lines.L1, fired_at: at(0), load_id: 'S1:L1', booked: null, rounds: 1 });
     expect(s1.stations.S1!.unfired).toEqual(['L2']);
     // Only L2's planned booking stays in the profile (AD-7: exactly L1's booked removed).
     expect(s1.stations.S1!.profile).toEqual({ t: [at(5), at(10)], u: [1, 0] });

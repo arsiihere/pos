@@ -24,7 +24,7 @@
 // since become slot is still a load, so it holds the whole station too, as it did unfired (packStation).
 import { effectiveCapacity } from './capacity.js';
 import { orderInEngine } from './lifecycle.js';
-import { addInterval, earliestFit, occupancy } from './profile.js';
+import { addInterval, earliestFit, occupancy, occupiedCook } from './profile.js';
 import type { EngineLine, EngineState, Interval, Profile, StationRuntime } from './state.js';
 
 
@@ -113,13 +113,12 @@ function packBatch(lines: readonly EngineLine[], cap: number, t: number): { pack
   const bookings = new Map<string, Booking>();
   const fired: Array<{ members: EngineLine[]; fire: number; first: string; prep: number; cook: number; width: number }> = [];
   for (const members of groups.values()) {
-    // Task 16 review (AD-4): a load's rounds come from its members' summed units, as its booking did (load units over a
-    // lowered capacity); within the capacity that is one round, whatever the split.
-    const units = members.reduce((n, m) => n + m.units, 0);
-    // §3.11: a line fired with no load was placed as a slot line before a type change; it keeps its own units and cook.
+    // AD-29 Q11 P4 (AD-4): a load's rounds are the ones stored at its fire (occupiedCook), never recounted from the members
+    // still in flight. §3.11: a line fired with no load was placed as a slot line before a type change; it keeps its own
+    // units and cook.
     const single = members[0]!.load_id === null;
-    const cookOf = (l: EngineLine): number => occupancy(single ? l.units : Math.max(units, cap), cap, l.cook_ms).cook_ms;
-    const width = single ? occupancy(units, cap, members[0]!.cook_ms).units : cap;
+    const cookOf = (l: EngineLine): number => occupiedCook(l, cap);
+    const width = single ? occupancy(members[0]!.units, cap, members[0]!.cook_ms).units : cap;
     if (!members.some(isCooking)) {
       fired.push({
         members,

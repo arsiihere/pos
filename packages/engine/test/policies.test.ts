@@ -302,7 +302,9 @@ describe('@pos/engine policies (§3.5.2–§3.5.4, D3, AD-14)', () => {
     expect(weightOf(s, line)).toBe(100); // dine-in 100
     expect(weightOf(s, { ...line, mark: 'return', return_of: { order_item_id: 'Q', mode: 'fix' } })).toBe(300);
     expect(weightOf(s, { ...line, mark: 'moved', return_of: { order_item_id: 'Q', mode: 'remake' } })).toBe(300);
-    expect(weightOf(s, { ...line, mark: 'expedite' })).toBe(300);
+    expect(weightOf(s, { ...line, expedited: true })).toBe(300); // AD-29 Q11 P9: the field, not the mark
+    expect(weightOf(s, { ...line, expedited: true, mark: 'moved' })).toBe(300);
+    expect(weightOf(s, { ...line, mark: 'expedite' })).toBe(100);
     expect(weightOf(s, { ...line, weight_pct: 150 })).toBe(150);
   });
 });

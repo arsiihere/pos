@@ -70,15 +70,15 @@ export function isFifo(state: EngineState, station_id: string): boolean {
 
 // §3.5.2: w(L) = weight_pct × (follow_up ∨ mark ∈ {expedite, return} ? weight_follow_up_pct : weight_<type>_pct) / 100;
 // 100 for every line on an EDF station (D3). Branch weights read from state.config at each re-plan; weight_pct is
-// the line's D25 copy. A return line (return_of set, §3.8a) takes the follow-up weight from its link, so a later
-// mark change (boost, moved) never drops it (task 9).
+// the line's D25 copy. A return line (return_of set, §3.8a) takes the follow-up weight from its link and an expedite line
+// from `expedited` (AD-29 Q11 P9), so a later mark change (boost, moved) never drops it (task 9).
 export function weightOf(state: EngineState, line: EngineLine): number {
   if (stationPolicy(state, line.station_id).policy === 'edf') return 100;
   const order = state.orders[line.order_id];
   const settings = state.config?.settings;
   if (order === undefined || settings === undefined) return line.weight_pct;
   const branch =
-    order.follow_up || line.mark === 'expedite' || line.mark === 'return' || line.return_of !== null
+    order.follow_up || line.expedited || line.return_of !== null
       ? settings.weight_follow_up_pct
       : settings[`weight_${order.order_type}_pct`];
   return (line.weight_pct * branch) / 100;
@@ -724,9 +724,10 @@ export type FrozenStep = Pick<Pass1Result, 'moves' | 'loads' | 'fallbacks'> & {
 // proposed (implementer, overnight) readings:
 //   - a line already past its deadline whose fire did not change was not pushed: it stays out of the late set;
 //   - an overdue line (fire < t, the tick has not fired it yet) stays when it still fits; otherwise it restarts from t;
-//   - FIFO (AD-14 "never re-planned" against §3.10 "no frozen line is booked over the new capacity"; a capacity fold
-//     only, a boost never lands here): every unfired line of the station, hidden too, keeps (fire, id) order and is
-//     pushed later only as far as needed; no late set, no search (FIFO lines have no slack, §3.5.3).
+//   - FIFO (AD-14 "never re-planned" against §3.10 "no frozen line is booked over the new capacity"; a capacity fold, or
+//     a return placed as a boost, AD-29 Q11 P8; an OrderBoosted never lands here, B4): every unfired line of the station,
+//     hidden too, keeps (fire, id) order and is pushed later only as far as needed; no late set, no search (FIFO lines
+//     have no slack, §3.5.3).
 //   - oldType (a capacity fold only, §3.5.3, §3.10; a boost and a flip leave these bookings alone): the bookings placed
 //     under the station's old type (placedUnderOldType), hidden ones too, are placed in the same (fire, id) order by their
 //     shape: a slot booking as a slot line on a batch station, a stored load as a block on a slot station (blockShape). They

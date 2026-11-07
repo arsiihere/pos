@@ -5,9 +5,10 @@
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemStarted, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { addInterval, applyEvent, buildEngineState, earliestFit, getAlertIntents, initialEngineState, latestFit, liveInterval, planOrder, removeInterval, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
+import { addInterval, applyEvent, buildEngineState, earliestFit, getAlertIntents, getTickIntents, initialEngineState, isOrderInEngine, latestFit, liveInterval, nextDueAt, planOrder, removeInterval, stationPlan, type EngineState, type PlanResult, type ProposedOrder, type TickDraft } from '../src/index';
 import { effectiveCapacity } from '../src/capacity';
 import { liveProfile } from '../src/live';
+import { weightOf } from '../src/replan';
 import type { Profile } from '../src/state';
 
 const T0 = 1_761_000_000_000;
@@ -231,8 +232,8 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     // Two other orders frozen at t (freeze 6 min), at t + 30 s and t + 4 min 30 s, by their pickup.
     k.submit('OA', [{ id: 'FA', cook: 10 * M }], t - M, { pickup: t + 30 * S + 10 * M });
     k.submit('OB', [{ id: 'FB', cook: 10 * M }], t - M, { pickup: t + 270 * S + 10 * M });
-    // The boosted order: both units, hidden far behind.
-    k.submit('OX', [{ id: 'X', cook: 5 * M, units: 2 }], t - M, { pickup: t + 60 * M });
+    // The boosted order: both units, hidden behind them (no pickup: AD-29 Q11 B3 would hold it there).
+    k.submit('OX', [{ id: 'X', cook: 5 * M, units: 2 }], t - M);
     const before = k.state;
     expect(before.lines.FA!.fire_ms).toBe(t + 30 * S);
     expect(before.lines.FB!.fire_ms).toBe(t + 270 * S);
@@ -262,7 +263,7 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     const t = T0 + 10 * M;
     const k = new Kitchen([SLOT(1)]);
     k.submit('OA', [{ id: 'A', cook: M }], t - M, { pickup: t + 170 * S + M }); // d = t + 170 s
-    k.submit('OX', [{ id: 'X', cook: 150 * S }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    k.submit('OX', [{ id: 'X', cook: 150 * S }], t - M); // its pass 1 keeps A: fire d − keep
     expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
     const s = k.apply([boost('OX', t)]);
     expect(s.lines.X).toMatchObject({ fire_ms: t, booked: { start: t, end: t + 150 * S, units: 1 } });
@@ -277,7 +278,7 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     k.submit('OF', [{ id: 'CK', cook: 80 * S }], t - M);
     k.apply([fireEv('S1', 'CK', t - M), startEv('OF', 'CK', t - M)]); // one unit until t + 20 s
     k.submit('OA', [{ id: 'A', cook: 15 * S, early: 5 * M }], t - M, { pickup: t + 170 * S + 15 * S });
-    k.submit('OX', [{ id: 'X', cook: 150 * S, units: 2 }], t - M, { pickup: t + 60 * M });
+    k.submit('OX', [{ id: 'X', cook: 150 * S, units: 2 }], t - M);
     expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
     const s = k.apply([boost('OX', t)]);
     expect(s.lines.X).toMatchObject({ fire_ms: t + 20 * S, booked: { end: t + 170 * S } });
@@ -305,7 +306,7 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     const t = T0 + 10 * M;
     const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 4, freeze_ms: 120_000, freshness_window_ms: 0, programs: [{ program_id: 'P1', name: 'P1', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'P2', cook_time_ms: 999_999, is_archived: false }] }]);
     k.submit('OA', [{ id: 'A', program: 'P1', cook: M }], t - M, { pickup: t + 170 * S + M }); // d = t + 170 s
-    k.submit('OX', [{ id: 'X', program: 'P2', cook: 150 * S }], t - M, { pickup: t + 60 * M }); // its pass 1 keeps A: fire d − keep
+    k.submit('OX', [{ id: 'X', program: 'P2', cook: 150 * S }], t - M); // its pass 1 keeps A: fire d − keep
     expect(k.state.lines.A).toMatchObject({ fire_ms: t + 110 * S, deadline_ms: t + 170 * S });
     const s = k.apply([boost('OX', t)]);
     expect(s.lines.X).toMatchObject({ fire_ms: t, mark: 'boost' });
@@ -319,7 +320,7 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     const k = new Kitchen([SLOT(1)]);
     k.submit('OF', [{ id: 'FD', cook: 10 * M }], T0);
     k.apply([fireEv('S1', 'FD', T0)]);
-    k.submit('OX', [{ id: 'X', cook: 5 * M }], T0, { pickup: T0 + 60 * M });
+    k.submit('OX', [{ id: 'X', cook: 5 * M }], T0);
     const before = k.state;
     const s = k.apply([boost('OX', T0 + M)]);
     expect(s.lines.FD).toEqual(before.lines.FD);
@@ -370,8 +371,12 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     k.apply([fireEv('S1', 'Z', T0), startEv('O0', 'Z', T0)]);
     const alt = [{ station_id: 'S2', carry_ms: 0, home: false }];
     k.submit('O1', [{ id: 'H', station: 'S1', cook: 5 * M, alternates: alt }], T0, { pickup: T0 + 60 * M });
-    let s = k.apply([boost('O1', T0)]);
-    expect(s.lines.H).toMatchObject({ station_id: 'S2', fire_ms: T0, mark: 'boost' });
+    // S1 taken by a line fired early over H's slot: at the pickup (AD-29 Q11 B3) only S2 can land it.
+    k.submit('O3', [{ id: 'Q', station: 'S1', cook: 130 * M }], T0, { pickup: T0 + 200 * M });
+    k.apply([fireEv('S1', 'Q', T0 + 10 * M), startEv('O3', 'Q', T0 + 10 * M)]);
+    expect(k.state.lines.H!.station_id).toBe('S1');
+    let s = k.apply([boost('O1', T0 + 10 * M)]);
+    expect(s.lines.H).toMatchObject({ station_id: 'S2', fire_ms: T0 + 55 * M, mark: 'boost' });
     expect(s.stations.S1!.unfired).not.toContain('H');
     expect(s.stations.S2!.unfired).toContain('H');
     expectProfileExact(s);
@@ -381,15 +386,18 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     m.apply([fireEv('S1', 'Z', T0), startEv('O0', 'Z', T0)]);
     m.submit('O1', [{ id: 'H', station: 'S1', cook: 5 * M, alternates: alt }], T0, { pickup: T0 + 15 * M + 3 * M });
     expect(m.state.lines.H!.fire_ms).toBe(T0 + 13 * M);
+    // S1 taken by a line fired over H's slot, S2 free: a hidden line would leave.
+    m.submit('O3', [{ id: 'Q', station: 'S1', cook: 20 * M }], T0, { pickup: T0 + 60 * M });
+    m.apply([fireEv('S1', 'Q', T0 + 9 * M), startEv('O3', 'Q', T0 + 9 * M)]);
     s = m.apply([boost('O1', T0 + 9 * M)]); // fire 13 min ≤ 9 + 5 min: frozen
-    expect(s.lines.H).toMatchObject({ station_id: 'S1', fire_ms: T0 + 10 * M });
+    expect(s.lines.H).toMatchObject({ station_id: 'S1', fire_ms: T0 + 29 * M });
   });
 
   it('[03a §3.9] a boost that displaces a frozen line past its deadline runs §3.5.6 with the hidden lines (weights apply, the frozen line never moves earlier)', () => {
     const k = new Kitchen([SLOT(1, 300_000)]);
     k.submit('OF', [{ id: 'FR', cook: 10 * M }], T0, { pickup: T0 + 12 * M }); // fire 2 min: frozen, deadline 2 min
     k.submit('OH', [{ id: 'HD', cook: 10 * M }], T0, { pickup: T0 + 30 * M }); // fire 20 min: hidden
-    k.submit('OX', [{ id: 'X', cook: 15 * M }], T0, { pickup: T0 + 60 * M });
+    k.submit('OX', [{ id: 'X', cook: 15 * M }], T0);
     const before = k.state;
     expect(before.lines.FR!.fire_ms).toBe(T0 + 2 * M);
     const s = k.apply([boost('OX', T0)]);
@@ -404,20 +412,20 @@ describe('@pos/engine boost (§3.9, D4)', () => {
     expectProfileExact(s);
   });
 
-  it('[03a §3.9] a delivery boost ignores the pickup floor (earliest fit, F "starting now"); the promise stays', () => {
+  it('[03a §3.9, AD-29 Q11 B3] a delivery boost keeps the pickup floor; the promise stays', () => {
     const k = new Kitchen([SLOT(1)]);
     const plan = k.submit('OD', [{ id: 'D', cook: 10 * M }], T0, { pickup: T0 + 60 * M });
     const s = k.apply([boost('OD', T0)]);
-    expect(s.lines.D!.fire_ms).toBe(T0);
-    expect(s.orders.OD!.target_land_ms).toBe(T0 + 10 * M);
+    expect(s.lines.D!.fire_ms).toBe(T0 + 50 * M);
+    expect(s.orders.OD!.target_land_ms).toBe(T0 + 60 * M);
     expect(s.orders.OD!.promise_ms).toBe(plan.groups[0]!.promise_ms);
   });
 
   it('[03a §3.9] a boost folds on a batch station: the boosted lines leave their load, the other members keep it, frozen loads are pushed whole', () => {
-    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 4, freeze_ms: 300_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
-    k.submit('OA', [{ id: 'A', program: 'P1', cook: 10 * M }], T0, { pickup: T0 + 11 * M }); // fire 1 min: frozen
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 4, freeze_ms: 300_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'P2', cook_time_ms: 999_999, is_archived: false }] }]);
+    k.submit('OA', [{ id: 'A', program: 'P2', cook: 10 * M }], T0, { pickup: T0 + 11 * M }); // fire 1 min: frozen
     k.submit('OB', [{ id: 'B', program: 'P1', cook: 10 * M }], T0, { pickup: T0 + 21 * M });
-    k.submit('OC', [{ id: 'C', program: 'P1', cook: 10 * M }], T0, { pickup: T0 + 21 * M }); // joins B's load
+    k.submit('OC', [{ id: 'C', program: 'P1', cook: 10 * M }], T0); // joins B's load
     expect(k.state.lines.C!.load_id).toBe(k.state.lines.B!.load_id);
     const lb = k.state.lines.B!.load_id!;
     const s = k.apply([boost('OC', T0)]);
@@ -576,18 +584,6 @@ describe('@pos/engine returns_boost (§3.8a)', () => {
     expect(s.lines.LR!.fire_ms).toBe(at(21));
     expect(plan.lines[0]!.eta_ms).toBe(at(24));
     expect(s.lines.LR!.mark).toBe('return');
-  });
-
-  it('[03a §3.8a] a return on a FIFO station stays FIFO (AD-14): nothing is pushed', () => {
-    const k = new Kitchen([{ station_id: 'S1', capacity: 1, policy: 'fifo' }], { returns_boost: true });
-    k.submit('OS', [{ id: 'L1', cook: 5 * M }], at(0));
-    k.apply([fireEv('S1', 'L1', at(0)), startEv('OS', 'L1', at(0)), orderEv('ItemDone', 'OS', { order_item_id: 'L1', done_at: at(5), source: 'tap' }, at(5)), orderEv('ItemServed', 'OS', { order_item_ids: ['L1'], source: 'tap' }, at(6))]);
-    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
-    const plan = planOrder(k.state, proposedReturn(k, 3 * M), at(10), {});
-    expect(plan.lines[0]!.eta_ms).toBe(at(23));
-    const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: at(10), target_land_ms: at(23), order_item_id: 'LR', adjust_time_ms: 3 * M }));
-    expect(s.lines.X!.mark).toBeNull();
-    expect(s.lines.LR!.fire_ms).toBe(at(20));
   });
 });
 
@@ -881,6 +877,9 @@ describe('@pos/engine capacity change (§3.10, D37, D15 exception)', () => {
     k.submit('O0', [{ id: 'Z', station: 'S1', cook: 40 * M, units: 3 }], T0);
     k.apply([fireEv('S1', 'Z', T0), startEv('O0', 'Z', T0)]);
     k.submit('O1', [{ id: 'H', station: 'S1', cook: 5 * M, units: 3, alternates: [{ station_id: 'S2', carry_ms: 0, home: false }] }], T0, { pickup: T0 + 60 * M });
+    // S1 taken by a line fired early over H's slot: at the pickup (AD-29 Q11 B3) only S2 can land it.
+    k.submit('O3', [{ id: 'Q', station: 'S1', cook: 130 * M, units: 3 }], T0, { pickup: T0 + 200 * M });
+    k.apply([fireEv('S1', 'Q', T0), startEv('O3', 'Q', T0)]);
     expect(k.state.lines.H!.station_id).toBe('S1');
     const n = k.state.diagnostics.length;
     const s = k.apply([boost('O1', T0)]);
@@ -1092,4 +1091,370 @@ describe('@pos/engine disturbance invariants (§3.9, §3.10, D15)', () => {
       expectRebuild(k);
     }
   }, 120_000);
+});
+
+// ---- task 18d, developer ruling AD-29 Q11 -------------------------------------------------------------------------
+
+describe('@pos/engine task 18d B3: a boost keeps the pickup floor (§3.5.1 step 4, §3.9; AD-29 Q11)', () => {
+  it('[03a AD-29 Q11 B3] a boosted delivery with a far pickup lands at its pickup, not before', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O1', [{ id: 'A', cook: 5 * M }], at(0), { pickup: at(60) });
+    const promise = k.state.orders.O1!.promise_ms;
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.orders.O1).toMatchObject({ boosted: true, target_land_ms: at(60), promise_ms: promise });
+    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(55), booked: { start: at(55), end: at(60), units: 1 } });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 B3] with a near pickup the station cannot meet, the boost lands at the loop result', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('OZ', [{ id: 'Z', cook: 20 * M, mode: 'immediate' }], at(0));
+    k.apply([fireEv('S1', 'Z', at(0)), startEv('OZ', 'Z', at(0))]);
+    k.submit('O1', [{ id: 'A', cook: 5 * M }], at(0), { pickup: at(10) });
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.orders.O1!.target_land_ms).toBe(at(25));
+    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(20) });
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 B3] a boost held to its pickup still re-places first and displaces the line in its way (§3.9)', () => {
+    const k = new Kitchen([SLOT(1)]);
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(0), { pickup: at(30) });
+    k.submit('O1', [{ id: 'A', cook: 10 * M }], at(0), { pickup: at(30) });
+    const before = k.state;
+    expect(before.orders.O1!.target_land_ms).toBeGreaterThan(at(30)); // X had the slot
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.orders.O1!.target_land_ms).toBe(at(30));
+    expect(s.lines.A).toMatchObject({ mark: 'boost', fire_ms: at(20), booked: { start: at(20), end: at(30), units: 1 } });
+    expect(s.lines.X!.booked!.start).toBeGreaterThanOrEqual(at(30));
+    expect(s.orders.O2!.promise_ms).toBe(before.orders.O2!.promise_ms);
+    expectNoOverbooking(s, at(1));
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 B3] proposed reading: an immediate line of a boosted pickup order keeps its earliest fit, as at submit (§3.5.1 step 3)', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'I', cook: 2 * M, mode: 'immediate' }], at(0), { pickup: at(60) });
+    const s = k.apply([boost('O1', at(1))]);
+    expect(s.lines.A!.fire_ms).toBe(at(55));
+    expect(s.lines.I!.fire_ms).toBe(at(1));
+    expectRebuild(k);
+  });
+});
+
+describe('@pos/engine task 18d P8: a return never queues (§3.8a Q15a, AD-29 Q11)', () => {
+  type Pol = 'fifo' | 'edf' | 'waada_guard';
+  function servedKitchen(policy: Pol, settings: Partial<Settings>, capacity_ = 1): Kitchen {
+    const k = new Kitchen([{ station_id: 'S1', capacity: capacity_, policy, freeze_ms: 120_000 }], settings);
+    k.submit('OS', [{ id: 'L1', cook: 5 * M }], at(0));
+    k.apply([fireEv('S1', 'L1', at(0)), startEv('OS', 'L1', at(0)), orderEv('ItemDone', 'OS', { order_item_id: 'L1', done_at: at(5), source: 'tap' }, at(5)), orderEv('ItemServed', 'OS', { order_item_ids: ['L1'], source: 'tap' }, at(6))]);
+    return k;
+  }
+  function sendBack(k: Kitchen, cook: number, t = at(10)): { plan: PlanResult; s: EngineState } {
+    const plan = planOrder(k.state, proposedReturn(k, cook), t, {});
+    const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: t, target_land_ms: plan.groups[0]!.target_land_ms, promise_ms: plan.groups[0]!.promise_ms, order_item_id: 'LR', adjust_time_ms: cook }));
+    return { plan, s };
+  }
+
+  it.each<[Pol]>([['fifo'], ['edf'], ['waada_guard']])('[03a AD-29 Q11 P8] %s: the return goes at t, ahead of the queue; plan = fold; mark, boosted, T and P stay', (policy) => {
+    const k = servedKitchen(policy, { returns_boost: true });
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+    k.submit('O3', [{ id: 'Y', cook: 5 * M }], at(10));
+    const before = k.state;
+    expect(before.lines.X!.fire_ms).toBe(at(10));
+    expect(before.lines.Y!.fire_ms).toBe(at(20));
+    const { plan, s } = sendBack(k, 3 * M);
+    expect(plan.lines[0]!.eta_ms).toBe(at(13));
+    expect(s.lines.LR).toMatchObject({ mark: 'return', fire_ms: at(10), serve_mode: 'immediate', booked: { start: at(10), end: at(13), units: 1 } });
+    expect(s.orders.OS!.boosted).toBe(false);
+    expect(s.orders.OS!.target_land_ms).toBe(before.orders.OS!.target_land_ms);
+    expect(s.orders.OS!.promise_ms).toBe(before.orders.OS!.promise_ms);
+    // Displaced, never over-booked; other orders' T and P stay.
+    expect(s.lines.X!.mark).toBe('moved');
+    expect(s.lines.X!.booked!.start).toBeGreaterThanOrEqual(at(13));
+    expect(s.orders.O2!.target_land_ms).toBe(before.orders.O2!.target_land_ms);
+    expect(s.orders.O2!.promise_ms).toBe(before.orders.O2!.promise_ms);
+    expect(s.orders.O3!.target_land_ms).toBe(before.orders.O3!.target_land_ms);
+    expect(Math.max(...liveProfile(s, 'S1', at(10)).u)).toBeLessThanOrEqual(1);
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it.each<[Pol]>([['fifo'], ['edf'], ['waada_guard']])('[03a AD-29 Q11 P8] %s: an order the return pushes past the threshold slips on the next pass; one pushed less does not', (policy) => {
+    const run = (cook: number): string[] => {
+      const k = servedKitchen(policy, { returns_boost: true });
+      k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+      const { s } = sendBack(k, cook);
+      expect(s.lines.X!.mark).toBe('moved');
+      expect(s.slips).toEqual({});
+      return getAlertIntents(s, at(10) + 1).slips.flatMap((x) => x.order_ids);
+    };
+    expect(run(5 * M)).toEqual(['O2']);
+    expect(run(M)).toEqual([]);
+  });
+
+  it('[03a AD-29 Q11 P8] FIFO: displaced lines keep their order and move later only as far as needed; a hidden one is not marked', () => {
+    const k = servedKitchen('fifo', { returns_boost: true });
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+    k.submit('O3', [{ id: 'Y', cook: 5 * M }], at(10));
+    const { s } = sendBack(k, 3 * M);
+    expect(s.lines.X).toMatchObject({ fire_ms: at(13), deadline_ms: at(13), mark: 'moved' });
+    expect(s.lines.Y).toMatchObject({ fire_ms: at(23), deadline_ms: at(23), mark: null });
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P8] FIFO with room beside the return: a line that still fits does not move', () => {
+    const k = servedKitchen('fifo', { returns_boost: true }, 2);
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+    k.submit('O3', [{ id: 'Y', cook: 10 * M }], at(10));
+    const before = k.state;
+    expect(before.lines.Y!.fire_ms).toBe(at(10));
+    const { s } = sendBack(k, 3 * M);
+    expect(s.lines.LR!.fire_ms).toBe(at(10));
+    expect(s.lines.X).toEqual(before.lines.X);
+    expect(s.lines.Y).toMatchObject({ fire_ms: at(13), deadline_ms: at(13), mark: 'moved' });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P8] FIFO: the fired and COOKING lines stay; the return goes at the first room after them', () => {
+    const k = servedKitchen('fifo', { returns_boost: true });
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(8));
+    k.submit('O3', [{ id: 'Y', cook: 5 * M }], at(8));
+    k.apply([fireEv('S1', 'X', at(8)), startEv('O2', 'X', at(8))]);
+    const { s } = sendBack(k, 3 * M);
+    expect(s.lines.X!.started_at).toBe(at(8));
+    expect(s.lines.LR!.fire_ms).toBe(at(18));
+    expect(s.lines.Y!.fire_ms).toBe(at(21));
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P8] a return may land on a FIFO alternate when that beats its home by min_gain_ms (the old filter left it out)', () => {
+    const k = new Kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'Q', capacity: 1, policy: 'fifo' }], { returns_boost: true, min_gain_ms: 60_000 });
+    k.submit('OS', [{ id: 'L1', cook: 5 * M }], at(0));
+    k.apply([fireEv('S1', 'L1', at(0)), startEv('OS', 'L1', at(0)), orderEv('ItemDone', 'OS', { order_item_id: 'L1', done_at: at(5), source: 'tap' }, at(5)), orderEv('ItemServed', 'OS', { order_item_ids: ['L1'], source: 'tap' }, at(6))]);
+    k.submit('O2', [{ id: 'Z', cook: 30 * M }], at(10));
+    k.apply([fireEv('S1', 'Z', at(10)), startEv('O2', 'Z', at(10))]);
+    const base = proposedReturn(k, 3 * M);
+    const plan = planOrder(k.state, { ...base, lines: base.lines.map((l) => ({ ...l, station_id: 'S1', alternates: [{ station_id: 'Q', carry_ms: 0, home: false }] })) }, at(10), {});
+    expect(plan.lines[0]!.station_id).toBe('Q');
+    expect(plan.lines[0]!.eta_ms).toBe(at(13));
+  });
+
+  it('[03a AD-29 Q11 P8] a batch station on FIFO: the return forms its own load at t; the next load is pushed whole, only as far as needed', () => {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', policy: 'fifo', capacity: 4, freeze_ms: 120_000, freshness_window_ms: 0, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }], { returns_boost: true });
+    k.submit('OS', [{ id: 'L1', program: 'P1', cook: 5 * M }], at(0));
+    k.apply([fireEv('F', 'L1', at(0)), startEv('OS', 'L1', at(0)), orderEv('ItemDone', 'OS', { order_item_id: 'L1', done_at: at(5), source: 'tap' }, at(5)), orderEv('ItemServed', 'OS', { order_item_ids: ['L1'], source: 'tap' }, at(6))]);
+    k.submit('O2', [{ id: 'X', program: 'P1', cook: 10 * M }], at(10));
+    expect(k.state.lines.X!.fire_ms).toBe(at(10));
+    const base = proposedReturn(k, 3 * M);
+    const plan = planOrder(k.state, { ...base, lines: [{ ...base.lines[0]!, station_id: 'F', cook_ms_override: 3 * M }] }, at(10), {});
+    expect(plan.lines[0]!.eta_ms).toBe(at(13));
+    const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: at(10), target_land_ms: at(13), order_item_id: 'LR', adjust_time_ms: 3 * M }));
+    expect(s.lines.LR).toMatchObject({ mark: 'return', fire_ms: at(10) });
+    expect(s.lines.LR!.load_id).not.toBe(s.lines.X!.load_id);
+    expect(s.lines.X).toMatchObject({ fire_ms: at(13), deadline_ms: at(13), mark: 'moved' });
+    expectProfileExact(s);
+    expectRebuild(k);
+  });
+
+  it.each<[Pol]>([['edf'], ['waada_guard']])('[03a AD-29 Q11 P8] %s, returns_boost false: §3.8a expedite stands, nothing is pushed', (policy) => {
+    const k = servedKitchen(policy, { returns_boost: false });
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+    const before = k.state;
+    const { s } = sendBack(k, 3 * M);
+    expect(s.lines.X).toEqual(before.lines.X);
+    expect(s.lines.LR).toMatchObject({ mark: 'return', fire_ms: at(20) });
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P8] FIFO, returns_boost false: proposed reading, an ordinary immediate at its earliest fit; nothing is pushed', () => {
+    const k = servedKitchen('fifo', { returns_boost: false });
+    k.submit('O2', [{ id: 'X', cook: 10 * M }], at(10));
+    const before = k.state;
+    const { plan, s } = sendBack(k, 3 * M);
+    expect(plan.lines[0]!.eta_ms).toBe(at(23));
+    expect(s.lines.X).toEqual(before.lines.X);
+    expect(s.lines.LR).toMatchObject({ mark: 'return', fire_ms: at(20) });
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P8] carried: a return pushed by a capacity drop on FIFO keeps its mark (§3.8a)', () => {
+    const k = servedKitchen('fifo', { returns_boost: true }, 2);
+    k.submit('O2', [{ id: 'Z', cook: 10 * M, mode: 'immediate' }], at(10));
+    k.apply([fireEv('S1', 'Z', at(10)), startEv('O2', 'Z', at(10))]);
+    sendBack(k, 3 * M);
+    expect(k.state.lines.LR!.fire_ms).toBe(at(10));
+    const s = k.apply([capacity('S1', 1, at(10))]);
+    expect(s.lines.LR).toMatchObject({ fire_ms: at(20), mark: 'return' });
+    expectRebuild(k);
+  });
+});
+
+describe('@pos/engine task 18d P9: an expedite line keeps its follow-up weight (§3.5.2, AD-29 Q11)', () => {
+  const released = (order_id: string, expedite: string[], t: number): PosEvent => orderEv('ItemsReleased', order_id, { order_id, alert_id: null, released: [], expedite }, t);
+
+  it('[03a AD-29 Q11 P9] the ItemsReleased fold sets expedited; nothing else does', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('O1', [{ id: 'A', cook: 5 * M }, { id: 'B', cook: 5 * M }], at(0), { pickup: at(40) });
+    expect(k.state.lines.B!.expedited).toBe(false);
+    const s = k.apply([released('O1', ['B'], at(1))]);
+    expect(s.lines.B).toMatchObject({ expedited: true, mark: 'expedite' });
+    expect(s.lines.A!.expedited).toBe(false);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P9] expedite → boost: mark boost for the screen, follow-up weight for the plan; a later re-plan orders it first', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('OZ', [{ id: 'Z1', cook: 30 * M, mode: 'immediate' }, { id: 'Z2', cook: 30 * M, mode: 'immediate' }], at(0));
+    k.apply([fireEv('S1', 'Z1', at(0)), startEv('OZ', 'Z1', at(0)), fireEv('S1', 'Z2', at(0)), startEv('OZ', 'Z2', at(0))]);
+    k.submit('OB', [{ id: 'B', cook: 5 * M }], at(1));
+    k.apply([released('OB', ['B'], at(1)), boost('OB', at(1))]);
+    k.submit('OA', [{ id: 'A', cook: 5 * M }], at(1));
+    const s = k.state;
+    expect(s.lines.B).toMatchObject({ mark: 'boost', expedited: true, fire_ms: at(30), deadline_ms: at(30) });
+    expect(s.lines.A).toMatchObject({ fire_ms: at(30), deadline_ms: at(30), mark: null });
+    expect(weightOf(s, s.lines.B!)).toBe(300);
+    expect(weightOf(s, s.lines.A!)).toBe(100);
+    // The view shows why it moved, unchanged.
+    expect(stationPlan(s, 'S1', at(1)).lines.find((l) => l.order_item_id === 'B')!.mark).toBe('boost');
+    // Same deadline, same wait: the weight decides who keeps the one unit left, not the id.
+    const r = k.apply([capacity('S1', 1, at(2))]);
+    expect(r.lines.B!.fire_ms).toBe(at(30));
+    expect(r.lines.A!.fire_ms).toBe(at(35));
+    expectNoOverbooking(r, at(2));
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P9] expedite → moved by a capacity change: mark moved, weight kept, replay = live', () => {
+    const k = new Kitchen([SLOT(2)]);
+    k.submit('OZ', [{ id: 'Z', cook: 10 * M, mode: 'immediate' }], at(0));
+    k.apply([fireEv('S1', 'Z', at(0)), startEv('OZ', 'Z', at(0))]);
+    k.submit('O1', [{ id: 'B', cook: 5 * M }], at(0));
+    const s0 = k.apply([released('O1', ['B'], at(0))]);
+    expect(s0.lines.B).toMatchObject({ mark: 'expedite', fire_ms: at(0) });
+    const s = k.apply([capacity('S1', 1, at(0))]);
+    expect(s.lines.B).toMatchObject({ mark: 'moved', expedited: true, fire_ms: at(10) });
+    expect(weightOf(s, s.lines.B!)).toBe(300);
+    expectRebuild(k);
+  });
+});
+
+describe('@pos/engine task 18d P4: an oversize load counts its rounds everywhere (AD-4, AD-29 Q11)', () => {
+  // 15 + 15 units at capacity 30, lowered to 20 while frozen: booked [+1, +21), T = +11.
+  function oversize(o: { F?: Partial<StationCfg>; settings?: Partial<Settings> } = {}): { k: Kitchen; id: string; fired: EngineState; cooking: EngineState } {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }], ...o.F }], o.settings ?? {});
+    k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }, { id: 'B', program: 'P1', cook: 10 * M, units: 15 }], T0, { pickup: T0 + 11 * M });
+    const id = k.state.lines.A!.load_id!;
+    const s = k.apply([capacity('F', 20, T0)]);
+    expect(s.stations.F!.loads[id]!.booked).toEqual({ start: T0 + M, end: T0 + 21 * M, units: 20 });
+    const fired = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'B'], load_id: id, due_at: T0 + M, reason: 'scheduled' } }), T0 + M)]);
+    const cooking = k.apply([startEv('O1', 'A', T0 + M), startEv('O1', 'B', T0 + M)]);
+    return { k, id, fired, cooking };
+  }
+  const dones = (s: EngineState, now: number): number[] => getTickIntents(s, now).flatMap((d) => (d.event_type === 'ItemDone' ? [(d.payload as { done_at: number }).done_at] : []));
+
+  it('[03a AD-29 Q11 P4] the fire stores the load\'s rounds on every member, from its booking', () => {
+    const { fired } = oversize();
+    expect(fired.lines.A!.rounds).toBe(2);
+    expect(fired.lines.B!.rounds).toBe(2);
+    expect(fired.stations.F!.profile).toEqual({ t: [], u: [] }); // AD-7: exactly its booking left
+  });
+
+  it('[03a AD-29 Q11 P4] a load within capacity stores one round; a line fired with no load stores none', () => {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }, SLOT(1)]);
+    k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 10 }, { id: 'B', program: 'P1', cook: 10 * M, units: 10 }], T0);
+    k.submit('O2', [{ id: 'S', cook: 5 * M }], T0);
+    const id = k.state.lines.A!.load_id!;
+    const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'B'], load_id: id, due_at: T0, reason: 'scheduled' } }), T0), fireEv('S1', 'S', T0)]);
+    expect(f.lines.A!.rounds).toBe(1);
+    expect(f.lines.S!.rounds).toBeNull();
+  });
+
+  it('[03a AD-29 Q11 P4] 15 + 15, capacity 30 → 20: live interval, slip estimate, inferred Done and the cascade all read +21', () => {
+    const { k, cooking } = oversize({ F: { completion_mode: 'auto_done' } });
+    expect(liveInterval(cooking, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+    // Slip: T = +11, threshold 2 min: the estimate is the booked land, not one round.
+    expect(getAlertIntents(cooking, T0 + 2 * M).slips[0]!.estimate).toBe(T0 + 21 * M);
+    // Inferred Done at +21, not at +11; nextDueAt agrees.
+    expect(dones(cooking, T0 + 21 * M - 1)).toEqual([]);
+    expect(dones(cooking, T0 + 21 * M)).toEqual([T0 + 21 * M, T0 + 21 * M]);
+    expect(nextDueAt(cooking, T0 + 12 * M)).toBe(T0 + 21 * M);
+    expect(k.log.length).toBeGreaterThan(0);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P4] the cascade reads the rounds: no overrun before +21, though a line fired behind the load overlaps a reservation', () => {
+    const { k } = oversize({ F: { programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'P2', cook_time_ms: 999_999, is_archived: false }] } });
+    k.submit('O2', [{ id: 'C', program: 'P1', cook: 5 * M, units: 1 }], T0 + M);
+    k.submit('O3', [{ id: 'D', program: 'P2', cook: 5 * M, units: 1 }], T0 + M);
+    expect(k.state.stations.F!.loads[k.state.lines.C!.load_id!]!.booked.start).toBe(T0 + 21 * M);
+    const loadD = k.state.lines.D!.load_id!;
+    const s = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['D'], load_id: loadD, due_at: T0 + 2 * M, reason: 'pulled' } }), T0 + 2 * M)]);
+    expect(liveInterval(s, 'D', T0 + 12 * M)).toEqual({ start: T0 + 21 * M, end: T0 + 26 * M }); // over C's reservation
+    const shifts = (now: number): TickDraft[] => getTickIntents(s, now).filter((d) => d.event_type === 'ReservationsShifted');
+    expect(shifts(T0 + 12 * M)).toEqual([]);
+    expect(shifts(T0 + 21 * M)).toEqual([]);
+  });
+
+  it('[03a AD-29 Q11 P4] a member Done at +11 leaves +21 for the other (estimate, Done, a new placement)', () => {
+    const { k } = oversize({ F: { completion_mode: 'auto_done' } });
+    const s = k.apply([orderEv('ItemDone', 'O1', { order_item_id: 'A', done_at: T0 + 11 * M, source: 'tap' }, T0 + 11 * M)]);
+    expect(liveInterval(s, 'B', T0 + 11 * M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+    expect(dones(s, T0 + 21 * M - 1)).toEqual([]);
+    expect(dones(s, T0 + 21 * M)).toEqual([T0 + 21 * M]);
+    expect(liveProfile(s, 'F', T0 + 11 * M)).toEqual({ t: [T0 + M, T0 + 21 * M], u: [20, 0] });
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P4] a fired, not started member Done at +11 does not shorten the other either', () => {
+    const { k, fired } = oversize();
+    expect(liveInterval(fired, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+    const s = k.apply([orderEv('ItemDone', 'O1', { order_item_id: 'A', done_at: T0 + 11 * M, source: 'tap' }, T0 + 11 * M)]);
+    expect(liveInterval(s, 'B', T0 + 11 * M)!.end).toBe(T0 + 21 * M);
+  });
+
+  it('[03a AD-29 Q11 P4] the abandon clock reads the rounds too: the order stays until +21', () => {
+    const { cooking } = oversize({ settings: { order_abandon_ms: 5 * M } });
+    expect(isOrderInEngine(cooking, 'O1', T0 + 12 * M)).toBe(true);
+    expect(isOrderInEngine(cooking, 'O1', T0 + 21 * M)).toBe(false);
+  });
+
+  it('[03a AD-29 Q11 P4] proposed reading: a capacity change after the fire leaves the stored rounds (fired and COOKING stay fixed, §3.10)', () => {
+    const { k } = oversize();
+    const s = k.apply([capacity('F', 30, T0 + 2 * M)]);
+    expect(s.lines.A!.rounds).toBe(2);
+    expect(liveInterval(s, 'A', T0 + 2 * M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+  });
+
+  it('[03a AD-29 Q11 P4] proposed reading: a partial void after the fire leaves the rounds; a line pulled in on the fire may raise them', () => {
+    const { k } = oversize();
+    const v = k.apply([orderEv('ItemVoided', 'O1', { order_item_id: 'A', units: 10 }, T0 + 2 * M)]);
+    expect(v.lines.A).toMatchObject({ units: 5, rounds: 2 });
+    expect(liveInterval(v, 'A', T0 + 2 * M)!.end).toBe(T0 + 21 * M);
+
+    const p = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
+    p.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }, { id: 'B', program: 'P1', cook: 10 * M, units: 15 }], T0);
+    p.submit('O2', [{ id: 'C', program: 'P1', cook: 10 * M, units: 10 }], T0);
+    const id = p.state.lines.A!.load_id!;
+    expect(p.state.lines.C!.load_id).not.toBe(id);
+    const f = p.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'B', 'C'], load_id: id, due_at: T0, reason: 'scheduled' } }), T0)]);
+    expect(f.lines.C!.rounds).toBe(2);
+    expect(liveInterval(f, 'C', T0)!.end).toBe(T0 + 20 * M);
+    expectRebuild(p);
+  });
+
+  it('[03a AD-29 Q11 P4] proposed reading: a member voided before the fire leaves the booking, so the rounds stay with it', () => {
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
+    k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }, { id: 'B', program: 'P1', cook: 10 * M, units: 15 }], T0, { pickup: T0 + 11 * M });
+    const id = k.state.lines.A!.load_id!;
+    k.apply([capacity('F', 20, T0)]);
+    const v = k.apply([orderEv('ItemVoided', 'O1', { order_item_id: 'A', units: 15 }, T0 + 30 * S)]);
+    const booked = v.stations.F!.loads[id]!.booked;
+    const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['B'], load_id: id, due_at: T0 + M, reason: 'scheduled' } }), T0 + M)]);
+    expect(f.lines.B!.rounds).toBe((booked.end - booked.start) / (10 * M));
+    expect(liveInterval(f, 'B', T0 + M)!.end).toBe(booked.end);
+  });
 });

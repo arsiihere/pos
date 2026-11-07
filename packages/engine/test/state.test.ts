@@ -62,7 +62,7 @@ const KEY_SETS = {
       'units', 'prep_ms', 'cook_ms', 'full_cook_ms', 'from_stock', 'program_id', 'stock_cook_ms', 'stock_program_id',
       'draws', 'reserved_seq', 'weight_pct', 'max_early_ms', 'max_late_ms', 'max_carry_ms', 'stage', 'fire_ms',
       'deadline_ms', 'fired_at', 'started_at', 'done_at', 'mark', 'return_of', 'load_id', 'booked',
-      'capped', 'routed_station_id',
+      'capped', 'routed_station_id', 'expedited', 'rounds',
     ],
     EngineOrderGroup: ['target_land_ms', 'line_ids'],
     EngineLineAlternate: ['station_id', 'carry_ms', 'home'],

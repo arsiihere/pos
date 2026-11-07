@@ -391,7 +391,7 @@ function placeSequence(
   for (const line of all) stationOf(stations, line);
   const options = new Map(all.map((l) => [l.order_item_id, routeOptions(ctx, l, false)]));
   const uses = [...options.values()].flatMap((os) => os.map((x) => x.station_id));
-  const boosted = boostedReturns(state, ctx, immediates, options);
+  const boosted = boostedReturns(state, immediates, options);
   const placed = boosted === null ? null : placeReturnBoost(state, ctx, boosted, uses, t, event_id, o);
   const base = placed?.base ?? state;
   const rest = boosted === null ? all : all.filter((l) => !boosted.has(l.order_item_id));
@@ -443,12 +443,14 @@ function placeSequence(
   return { placements, targets, fifo, moves: p1.moves, loads, fallbacks: p1.fallbacks, base, frozen: placed?.frozen ?? null, observed: { replaced: p1.replaced, probes: p1.probes } };
 }
 
-// §3.8a returns_boost: the return lines of a batch placed as a boost, each with the allowed stations a boost may use.
-// §3.5.3 / AD-14: a FIFO station never lets a line jump its queue, so a return with only FIFO stations stays an
-// ordinary immediate there, and FIFO alternates are left out — proposed (implementer, overnight).
+// §3.8a returns_boost: the return lines of a batch placed as a boost, each with its allowed stations. AD-29 Q11 P8, owner
+// Q15a "a returned plate never queues": on every policy, so §3.5.3 FIFO "no re-plan of older lines" has this one more
+// exception (as boost's D15 and capacity): what it displaces on a FIFO station moves later only as far as needed
+// (placeFrozen). proposed (implementer): with returns_boost false a return on a FIFO station is an ordinary immediate at
+// its earliest fit; FIFO lines have no slack to expedite within (§3.8a), so nothing is pushed.
+// proposed (implementer): a FIFO alternate is offered too, so a return may route onto it when it beats home (§3.5.5).
 function boostedReturns(
   state: EngineState,
-  ctx: ReturnType<typeof routeCtx>,
   immediates: ReadonlyArray<PlanLine & NewLine>,
   options: ReadonlyMap<string, readonly RouteOption[]>,
 ): Map<string, { line: PlanLine & NewLine; opts: RouteOption[] }> | null {
@@ -456,8 +458,7 @@ function boostedReturns(
   const out = new Map<string, { line: PlanLine & NewLine; opts: RouteOption[] }>();
   for (const line of immediates) {
     if ((line.return_of ?? null) === null) continue;
-    const opts = options.get(line.order_item_id)!.filter((x) => !ctx.fifo.has(x.station_id));
-    if (opts.length > 0) out.set(line.order_item_id, { line, opts });
+    out.set(line.order_item_id, { line, opts: [...options.get(line.order_item_id)!] });
   }
   return out.size === 0 ? null : out;
 }
@@ -573,8 +574,9 @@ export function replanCapacity(before: EngineState, after: EngineState, station_
 //      (§3.5.1 step 3, §3.2 "no hold"), its own group's T = its land. Alternative: hold immediates to T_b too.
 //   B2 a line that cannot move (fired, COOKING, FIFO) of those groups floors T_b at its live land (sync lands together,
 //      as AD-11 and AD-14 do); done lines do not. Alternative: T_b below a COOKING sibling's land.
-//   B3 no pickup floor: F §4.7 "earliest fitting interval (starting now)", §3.9 earliestFit(t); a boost is the manager's
-//      call. Alternative: keep the §3.5.1 pickup floor.
+//   B3 (developer ruling AD-29 Q11): T_b = max(pickup_at_ms, loop result), as §3.5.1 step 4: a group with a pickup is held
+//      to it, a boost never lands it before pickup, and still re-places first and may displace others. proposed
+//      (implementer): an immediate line of the order keeps its earliest fit, as at submit (§3.5.1 step 3 has no floor).
 //   B4 FIFO (AD-14; §3.9 does not name FIFO, §3.5.3 "no re-plan of older lines"): a FIFO line of the order stays where
 //      it is, unmarked, and nothing on a FIFO station moves. Alternative: the boosted line jumps the FIFO queue.
 //   B5 a batch line leaves its stored load (which keeps its name and booking while it has members) and forms or joins a
@@ -611,7 +613,7 @@ export function boostOrder(state: EngineState, order_id: string, t: number, even
     placements.set(l.order_item_id, r.placement);
   }
   const groupIds = new Set(sync.map((l) => l.group_id));
-  let floor: number | null = null;
+  let floor: number | null = order.pickup_at_ms;
   for (const gid of groupIds) {
     for (const x of order.groups[gid]?.line_ids ?? []) {
       const l = state.lines[x];

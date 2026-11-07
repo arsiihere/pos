@@ -258,6 +258,8 @@ function withLine(s: EngineState, p: Placed): EngineState {
     booked,
     capped: false,
     routed_station_id: station_id,
+    expedited: false,
+    rounds: null,
   };
   const st = s.stations[station_id]!;
   const order = s.orders[p.order]!;

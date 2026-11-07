@@ -22,6 +22,15 @@ export function occupancy(units: number, cap: number, cook: number): { units: nu
   return { units: cap, cook_ms: cook * rounds, rounds };
 }
 
+// AD-4, AD-29 Q11 P4: the cook an in-flight line occupies its station for. A member of a fired load: its load's stored
+// rounds (EngineLine.rounds), so a done member, a voided share or a later capacity change never shortens the rest and
+// liveInterval, the slip estimate, doneDue, the cascade and the abandon clock agree. Any other line: its own AD-4 rounds.
+// proposed (implementer): a capacity change after the fire and a partial void leave the stored rounds (§3.10 "fired and
+// COOKING lines stay fixed").
+export function occupiedCook(line: { units: number; cook_ms: number; rounds: number | null }, cap: number): number {
+  return line.rounds !== null ? line.cook_ms * line.rounds : occupancy(line.units, cap, line.cook_ms).cook_ms;
+}
+
 // Largest i with t[i] ≤ x, or −1 when x lies before every boundary (binary search).
 function segmentAt(t: readonly number[], x: number): number {
   let lo = 0;

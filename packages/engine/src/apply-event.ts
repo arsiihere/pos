@@ -280,6 +280,8 @@ function listLines(
       booked: null,
       capped: false,
       routed_station_id: l.station_id,
+      expedited: false,
+      rounds: null,
     });
   }
   p.groups.forEach((g, i) => {
@@ -527,12 +529,30 @@ function moveLine(state: EngineState, line: EngineLine, event: PosEvent, o: Fold
 // Task 13 (§3.6.1 item 1, §4.2): a FireDispatched naming an unfired load of its station fires every member of the
 // load as well as the listed lines (a pulled-in line leaves its own load); the load leaves `loads` with its last
 // member, its booking removed exactly once, and every fired line carries the event's load_id.
+// AD-4, AD-29 Q11 P4: the rounds a fired load's members store: its stored booking's length over the members' cook, not a
+// recount of who is left. proposed (implementer): a member voided before the fire leaves the booking, so its rounds stay
+// with it; a pulled-in line (§3.6.1) adds real units, so the units on the fire may raise them, never lower them; a load
+// name with no stored load counts the fired units alone.
+function loadRounds(state: EngineState, station_id: string, load: Load | undefined, ids: readonly string[]): number {
+  const fired = ids.flatMap((id) => {
+    const l = state.lines[id];
+    return l === undefined ? [] : [l];
+  });
+  const station = state.stations[station_id];
+  const cap = station === undefined ? 1 : Math.max(1, effectiveCapacity(station));
+  const counted = occupancy(Math.max(fired.reduce((n, l) => n + l.units, 0), cap), cap, 0).rounds;
+  if (load === undefined) return counted;
+  const cook = Math.max(0, ...load.order_item_ids.map((m) => state.lines[m]?.cook_ms ?? 0));
+  return cook === 0 ? counted : Math.max(counted, Math.ceil((load.booked.end - load.booked.start) / cook));
+}
+
 function foldFireDispatched(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
   const ids = load === undefined ? p.order_item_ids : [...new Set([...p.order_item_ids, ...load.order_item_ids])];
+  const rounds = p.load_id === null ? null : loadRounds(state, p.station_id, load, ids);
   for (const id of ids) {
     const line = activeLine(next, id, event.recorded_at);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
@@ -549,7 +569,7 @@ function foldFireDispatched(state: EngineState, event: PosEvent, o: FoldOptions)
     const fire_ms = Math.min(line.fire_ms ?? event.recorded_at, event.recorded_at);
     // §3.3 D17: Give me more is a human-triggered jump, marked; a return keeps its RETURN marker (§3.8a).
     const mark = p.reason === 'pulled' && line.return_of === null ? { mark: 'pulled' as const } : {};
-    next = moveLine(next, line, event, o, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms, ...mark });
+    next = moveLine(next, line, event, o, { fired_at: event.recorded_at, load_id: p.load_id, fire_ms, rounds, ...mark });
     next = touchOrder(next, line.order_id, event.recorded_at, o.scope);
   }
   return next;
@@ -1050,7 +1070,7 @@ function foldItemsReleased(state: EngineState, event: PosEvent, o: FoldOptions):
   for (const line of expedite) {
     const move = isHidden(state, line, t) && !isFifo(state, line.station_id);
     if (move) movable.push(line.order_item_id);
-    leave(line, { mark: 'expedite' }, !move);
+    leave(line, { mark: 'expedite', expedited: true }, !move);
   }
   for (const gid of sources) if (groups[gid]!.line_ids.length === 0) delete groups[gid];
   let next: EngineState = { ...state, lines, orders: { ...state.orders, [oid]: { ...order, groups, next_group_index: index } } };
