@@ -1,5 +1,5 @@
 // 03a task 22: the `fires` tick and the config catch-up (§6.2, §3.6.1, §3.6.2, §3.11, §3.12; tests #60, #62 hub, #63,
-// #71, #73, #79, #95, #111 hub, §7.1 fires).
+// #71, #73, #79, #95, #111 hub). The §7.1 pass timing is fires-tick.perf.test.ts (the clean perf run, AD-32).
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,14 +31,8 @@ const BRANCH = 'branch-1';
 const TENANT = 'tenant-a';
 const MIN = 60_000;
 const HOUR = 60 * MIN;
-// §7.1: a `fires` pass with work, p99 ≤ 20 ms on the pilot box.
-const PASS_P99_MS = 20;
 
 const nextImmediate = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
-const pctl = (xs: readonly number[], q: number): number => {
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.max(0, Math.ceil(q * s.length) - 1)]!;
-};
 
 // The host's stamp of an engine draft (§3.6.1): the pass's now, no actor, the hub as device.
 const stamped = (drafts: readonly TickDraft[], now: number): EventDraft[] =>
@@ -446,59 +440,6 @@ describe('03a task 22: the fires tick', () => {
     expect(m.statements).toBe(3); // 01d's SELECT, one per pass
   });
 
-  // ----------------------------------------------------------------------------------------------------- §7.1 fires
-  // §7.1 "fires pass with work p99 ≤ 20 ms" is a pilot-box number. AD-32: a wall-clock assert on a shared laptop is
-  // noise (this laptop under load, warm passes: p99 20–22 ms), so the assert runs only on the pilot mini PC
-  // (POS_PILOT_HW=1, as 01d #58); elsewhere the passes are still driven and their numbers printed to stderr.
-  it(`[03a §7.1 fires] passes with work on the fixture (4 stations, 120 lines): due + transaction p99 ≤ ${PASS_P99_MS} ms on the pilot box`, async () => {
-    const stations = ['S1', 'S2', 'S3', 'S4'];
-    kitchen(config({ stations, capacity: 6 }));
-    for (let i = 0; i < 40; i += 1) {
-      hub.clock.advance(MIN);
-      submit({ order_id: `O${i}`, lines: [0, 1, 2].map((k) => ({ order_item_id: `O${i}L${k}`, station_id: stations[(i + k) % 4]! })) });
-    }
-    const run = hub.deps.writer.run.bind(hub.deps.writer);
-    const realDue = firesTick.due.bind(firesTick);
-    const realIntents = firesTick.intents.bind(firesTick);
-    let dueMs = 0;
-    let intentsMs = 0;
-    const passes: Array<{ total: number; due: number; intents: number }> = [];
-    vi.spyOn(firesTick, 'due').mockImplementation((db, state, now) => {
-      const started = performance.now();
-      const out = realDue(db, state, now);
-      dueMs = performance.now() - started;
-      return out;
-    });
-    vi.spyOn(firesTick, 'intents').mockImplementation((tx, state, now) => {
-      const started = performance.now();
-      const out = realIntents(tx, state, now);
-      intentsMs = performance.now() - started;
-      return out;
-    });
-    vi.spyOn(hub.deps.writer, 'run').mockImplementation(((fn: (t: WriterTx) => unknown) => {
-      const started = performance.now();
-      const out = run(fn);
-      passes.push({ total: dueMs + performance.now() - started, due: dueMs, intents: intentsMs });
-      return out;
-    }) as typeof hub.deps.writer.run);
-    for (let guard = 0; guard < 2_000; guard += 1) {
-      const due = nextDueAt(engine(), hub.clock.branchNow());
-      if (due === null) break;
-      await pass(Math.max(hub.clock.branchNow() + TICK_MS, Math.ceil(due / TICK_MS) * TICK_MS));
-    }
-    expect(fired()).toHaveLength(120);
-    expect(passes.length).toBeGreaterThanOrEqual(10);
-    // The first pass runs cold (JIT warm-up of the engine's tick code, ≈ 40 ms here): a once-per-boot cost, not part of
-    // the steady-state p99, so it is left out (proposed (implementer)).
-    const warm = passes.slice(1);
-    const total = warm.map((p) => p.total);
-    const pure = warm.map((p) => p.intents);
-    const dues = warm.map((p) => p.due);
-    process.stderr.write(
-      `[03a §7.1 fires] ${warm.length} warm passes with work: due + transaction p50 ${pctl(total, 0.5).toFixed(2)} / p99 ${pctl(total, 0.99).toFixed(2)} ms; due alone p50 ${pctl(dues, 0.5).toFixed(2)} / p99 ${pctl(dues, 0.99).toFixed(2)} ms; intents alone p50 ${pctl(pure, 0.5).toFixed(2)} / p99 ${pctl(pure, 0.99).toFixed(2)} ms\n`,
-    );
-    if (process.env.POS_PILOT_HW === '1') expect(pctl(total, 0.99)).toBeLessThanOrEqual(PASS_P99_MS);
-  });
 });
 
 // --------------------------------------------------------------------------------------------------------------- #60

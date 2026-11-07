@@ -19,4 +19,4 @@ trap 'exit 143' TERM
 exec 9>/tmp/pos-gate.lock
 flock 9
 
-vitest run --config vitest.perf.config.ts --project perf "$@"
+vitest run --config vitest.perf.config.ts --project perf --project perf-hub "$@"
