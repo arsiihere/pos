@@ -29,20 +29,23 @@ export function registerSetStationPause(app: FastifyInstance): void {
         requireStationInScope(ctx, payload.station_id);
         // Same as current → the same shape with changed false (v0.4 G2 #20).
         if (live.paused === payload.paused) return { events: [], result: pauseResult(payload.station_id, payload.paused, false) };
-        // The writer folds the event and swaps after COMMIT (D45).
-        ctx.tx.append([
-          {
-            stream_type: 'station',
-            stream_id: payload.station_id,
-            event_type: 'StationPauseSet',
-            schema_version: 1,
-            payload: { station_id: payload.station_id, paused: payload.paused },
-            occurred_at: now,
-            actor_id: ctx.actor.staffId,
-            device_id: ctx.actor.deviceId,
-          },
-        ]);
-        return { events: [], result: pauseResult(payload.station_id, payload.paused, true) };
+        // The result does not depend on the post-fold state, so the draft goes back through `events`: the route
+        // appends it once, the writer folds it and swaps after COMMIT (D45), and no extra MAX(seq) read (§10.5).
+        return {
+          events: [
+            {
+              stream_type: 'station',
+              stream_id: payload.station_id,
+              event_type: 'StationPauseSet',
+              schema_version: 1,
+              payload: { station_id: payload.station_id, paused: payload.paused },
+              occurred_at: now,
+              actor_id: ctx.actor.staffId,
+              device_id: ctx.actor.deviceId,
+            },
+          ],
+          result: pauseResult(payload.station_id, payload.paused, true),
+        };
       },
     }),
   );

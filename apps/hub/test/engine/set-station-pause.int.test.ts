@@ -182,20 +182,22 @@ describe('POST /commands/set-station-pause (03a §6.7)', () => {
     expect(counts(hub)).toEqual(before);
   });
 
-  it('[03a §10.5] statements: the handler adds no SQL read; a pause costs the route and one append, as SetStationCapacity', async () => {
+  it('[03a §10.5] statements: a pause costs exactly the pipeline of a staff command with one event (TestNoop); the handler reads nothing', async () => {
     const hub = await open();
     const manager = staffOn(hub, 'S_MGR');
     const counter = statementCounter(hub.deps.db);
     expect((await send(hub, manager, { station_id: 'S1', paused: true }, 'cmd-count')).statusCode).toBe(200);
-    const pause = counter.count;
+    const ours = counter.count;
     counter.reset();
-    // The no-op runs the same route without the append: the difference is the append's statements only.
-    expect((await send(hub, manager, { station_id: 'S1', paused: true }, 'cmd-count-noop')).statusCode).toBe(200);
-    const noop = counter.count;
-    counter.reset();
-    expect((await send(hub, manager, { station_id: 'S2', paused: true }, 'cmd-count-2')).statusCode).toBe(200);
-    expect(counter.count).toBe(pause);
-    expect(noop).toBeLessThan(pause);
+    // S_MGR holds reprint-ticket (fixture R_MGR); TestNoop returns one draft through events, as this command does.
+    const baseline = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/test-noop',
+      headers: { authorization: `Bearer ${manager.device.token}`, 'x-session-token': manager.session.token },
+      payload: { command_id: 'cmd-base', tenant_id: 'tenant-a', branch_id: 'branch-1', command_type: 'TestNoop', payload: {}, occurred_at: hub.clock.branchNow(), actor_id: 'S_MGR', device_id: manager.device.deviceId },
+    });
+    expect(baseline.statusCode, baseline.body).toBe(200);
+    expect(ours).toBe(counter.count);
   });
 });
 
