@@ -1,5 +1,6 @@
 // 03a §10.6, D22: the simulator harness, on a 200-order day of the generated distribution (the 2 000-order day is
 // task 18's perf gate). Everything here drives the real engine; a breach throws (strict folds) and fails the test.
+import { createHash } from 'node:crypto';
 import { parseEvent, type PosEvent } from '@pos/events';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildEngineState } from '../../src/index';
@@ -171,6 +172,29 @@ describe('[03a §10.6, AD-27] the overload day', () => {
     }
     expect(over.orders.filter(inHour).length / day.orders.filter(inHour).length).toBeGreaterThan(1.2);
     expect(over.orders.filter(inHour).length / day.orders.filter(inHour).length).toBeLessThanOrEqual(1.26);
+  });
+
+  // Task 18b review: the search was over the whole day, and took lunch on 8 of these 20 seeds.
+  it('[03a AD-27] the overload hour stays in the dinner rush, also on a seed whose busiest hour is lunch', () => {
+    const inDinner = (seed: number): [number, number] => {
+      const d = generateDay(seed, { overload: true });
+      return [d.overload_hour!.from_ms - d.start_ms, d.overload_hour!.to_ms - d.start_ms];
+    };
+    for (let seed = 1; seed <= 20; seed++) {
+      const [from, to] = inDinner(seed);
+      expect(from, `seed ${seed}`).toBeGreaterThanOrEqual(10.5 * H);
+      expect(to, `seed ${seed}`).toBeLessThanOrEqual(15.5 * H);
+    }
+    // Seed 1's busiest hour of the whole day starts at 5.5 h.
+    const seed1 = generateDay(1);
+    const lunch = seed1.orders.filter((o) => o.at_ms - seed1.start_ms >= 5.5 * H && o.at_ms - seed1.start_ms < 6.5 * H).reduce((n, o) => n + o.lines.length, 0);
+    const [from] = inDinner(1);
+    const dinner = seed1.orders.filter((o) => o.at_ms - seed1.start_ms >= from && o.at_ms - seed1.start_ms < from + H).reduce((n, o) => n + o.lines.length, 0);
+    expect(lunch).toBeGreaterThan(dinner);
+  });
+
+  it('[03a AD-27] seed 7, the day the gate runs: the overload day comes out identical', () => {
+    expect(createHash('sha256').update(JSON.stringify(over)).digest('hex')).toBe('91b960ae6ac28588e0930ae89d4e1c0d1ba6ceeb6600647e31ff33604af3c191');
   });
 
   it('[03a AD-27] live state = replayed state on a small overload day', () => {

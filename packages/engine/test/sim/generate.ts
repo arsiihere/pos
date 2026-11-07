@@ -13,6 +13,9 @@ const START_MS = 1_761_000_000_000;
 const TARGET_EXTRA_MS = 300 * SECOND; // §10.6: target = max cook + 300 s
 const OVERLOAD_EXTRA = 0.25; // AD-27: 125 % for one hour of the rush
 const WINDOWS_PER_HOUR = 6;
+// rush_times' dinner gauss, below: its mean and sd. The dinner rush is one sd either side.
+const DINNER_MEAN_MS = 13 * HOUR;
+const DINNER_SD_MS = 9_000 * SECOND;
 
 export type SimStation = {
   station_id: string;
@@ -48,8 +51,9 @@ export type GenerateOptions = {
 };
 
 // §10.6's stations and cooks, capacities by AD-27 (01a's range 1–100, none above §10.6's value). Karahi, BBQ and tawa keep
-// §10.6's capacity and their demand comes down. Tandoor (60) and degh (100) sit below §10.6's value: at those capacities
-// they were idle at peak (25 %, 50 %), and lowering them raises no demand.
+// §10.6's capacity and their demand comes down. Tandoor (60) and degh (100) sit below §10.6's value, and lowering them
+// raises no demand. At those capacities tandoor's peak was about 50 %, and degh's about 4 % by demand and 64–70 % measured
+// (a load books the whole station); the demand check forced degh's cut.
 // Proposed (implementer, overnight): §10.6 gives degh no freshness window. A load books the whole station, so the 01a
 // default window 0 would give every order its own 60 s load. Window 60 s (= max_early_ms, which caps it per line, = one
 // load's cook) lets one load serve a minute of landings.
@@ -119,7 +123,7 @@ function rushTimes(r: () => number, n: number): number[] {
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
     const u = r();
-    const t = u < 0.65 ? gauss(r, 13 * HOUR, 9_000 * SECOND) : u < 0.9 ? gauss(r, 6 * HOUR, 3_600 * SECOND) : r() * DAY_MS;
+    const t = u < 0.65 ? gauss(r, DINNER_MEAN_MS, DINNER_SD_MS) : u < 0.9 ? gauss(r, 6 * HOUR, 3_600 * SECOND) : r() * DAY_MS;
     out.push(Math.round(Math.min(Math.max(t, 0), DAY_MS)));
   }
   return out.sort((a, b) => a - b);
@@ -176,13 +180,15 @@ function orderOf(kinds: () => number, order_id: string, at_ms: number, lines: Si
   };
 }
 
-// AD-27's overload hour: the hour of the normal day with the most lines (the middle of the dinner rush), and on top of it a
+// AD-27's overload hour: the hour inside the dinner rush with the most lines (the whole day's busiest can be lunch), and on top of it a
 // quarter of that hour's orders, carrying exactly a quarter of its lines per station, at uniform times inside it.
 function withOverload(day: SimDay, seed: number, prefix: string, cookOf: ReadonlyMap<string, number>): SimDay {
   const r = prng(seed ^ 0x2545f491);
   const kinds = prng(seed ^ 0x6c62272e);
   const windows = hourWindows(day.orders, day.start_ms, (o) => o.lines.length);
-  const best = [...windows].reduce((a, b) => (b[1] > a[1] || (b[1] === a[1] && b[0] < a[0]) ? b : a))[0];
+  const first = Math.ceil(((DINNER_MEAN_MS - DINNER_SD_MS) * WINDOWS_PER_HOUR) / HOUR);
+  const last = Math.floor(((DINNER_MEAN_MS + DINNER_SD_MS - HOUR) * WINDOWS_PER_HOUR) / HOUR);
+  const best = [...windows].filter(([k]) => k >= first && k <= last).reduce((a, b) => (b[1] > a[1] || (b[1] === a[1] && b[0] < a[0]) ? b : a), [first, 0])[0];
   const from_ms = day.start_ms + (best * HOUR) / WINDOWS_PER_HOUR;
   const to_ms = from_ms + HOUR;
   const inHour = day.orders.filter((o) => o.at_ms >= from_ms && o.at_ms < to_ms);
