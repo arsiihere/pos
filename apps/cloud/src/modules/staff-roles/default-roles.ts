@@ -42,7 +42,12 @@ export const DEFAULT_ROLES: readonly DefaultRole[] = [
       allowed('reprint-ticket'),
     ],
   },
-  { default_key: 'order_taker', name: 'Order taker', session_idle_ttl_ms: 900_000, grants: [] },
-  { default_key: 'waiter', name: 'Waiter', session_idle_ttl_ms: 300_000, grants: [] },
+  {
+    default_key: 'order_taker',
+    name: 'Order taker',
+    session_idle_ttl_ms: 900_000,
+    grants: [allowed('mark-served'), allowed('mark-item-returned')],
+  },
+  { default_key: 'waiter', name: 'Waiter', session_idle_ttl_ms: 300_000, grants: [allowed('mark-served')] },
   { default_key: 'cook', name: 'Cook', session_idle_ttl_ms: 300_000, grants: [] },
 ];

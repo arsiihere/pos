@@ -209,6 +209,24 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     expect(big.statements).toBe(9);
   });
 
+  it('[01b B-3] manage-stations and mark-served add rows, not statements: the directory statement count is unchanged', async () => {
+    await addRole('R_PLAIN', 'Plain');
+    await addStaff('S_PLAIN', f.branches[0], ['R_PLAIN']);
+    const before = await load(f.branches[0]);
+    expect(before.directory.roles.find((role) => role.role_id === 'R_PLAIN')?.permissions).toEqual([]);
+
+    await grant('R_PLAIN', 'manage-stations', { scope: 'my_stations' });
+    await grant('R_PLAIN', 'mark-served', { scope: 'own_tables' });
+    const after = await load(f.branches[0]);
+
+    expect(after.statements).toBe(before.statements);
+    const parsed = DirectorySchema.parse(after.directory);
+    expect(parsed.roles.find((role) => role.role_id === 'R_PLAIN')?.permissions.map((g) => [g.permission, g.scope]).sort()).toEqual([
+      ['manage-stations', 'my_stations'],
+      ['mark-served', 'own_tables'],
+    ]);
+  });
+
   it('[01b #24] a v1.4 hub parses the v2 poll body: first approver kept, leaver absent, scoped grant still a grant', async () => {
     const branchA = f.branches[0];
     const cashier = await seededRole('Cashier');
@@ -258,8 +276,9 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     expect(rows[0]!.role_ids).toEqual([orderTaker, waiter].sort());
     const permissionsOf = (roleId: string) =>
       directory.roles.find((role) => role.role_id === roleId)!.permissions.map((g) => g.permission);
-    expect(permissionsOf(orderTaker)).toEqual(['take-order-anywhere']);
-    expect(permissionsOf(waiter)).toEqual(['reprint-ticket']);
+    // 01b v1.5 §6.15 (B-2, B-5): the seeded default grants come along with the added ones.
+    expect(permissionsOf(orderTaker)).toEqual(['mark-item-returned', 'mark-served', 'take-order-anywhere']);
+    expect(permissionsOf(waiter)).toEqual(['mark-served', 'reprint-ticket']);
   });
 
   it('[01b #83] a branch with cashiers and no manager still sends the Manager role named as approver', async () => {
