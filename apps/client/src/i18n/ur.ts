@@ -876,4 +876,13 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'errors.UNKNOWN': 'کچھ غلط ہو گیا۔ دوبارہ کوشش کریں۔',
   'errors.CONFIG_STALE': 'آپ کے کھولنے کے بعد کسی نے اسے بدل دیا ہے',
   'errors.IDEMPOTENCY_KEY_MISMATCH': 'یہ فارم پہلے دوسری قدروں سے محفوظ ہو چکا ہے۔ فہرست تازہ کر دی گئی ہے؛ مزید شامل کرنے سے پہلے اسے دیکھ لیں۔',
+  'form.range.max_minutes': '{max} منٹ یا اس سے کم لکھیں۔',
+  'form.range.min_minutes': '{min} منٹ یا اس سے زیادہ لکھیں۔',
+  'form.range.max_percent': '{max} فیصد یا اس سے کم لکھیں۔',
+  'form.range.min_percent': '{min} فیصد یا اس سے زیادہ لکھیں۔',
+  'form.range.max': '{max} یا اس سے کم لکھیں۔',
+  'form.range.min': '{min} یا اس سے زیادہ لکھیں۔',
+  'form.length_max': 'زیادہ سے زیادہ {max} حروف لکھیں۔',
+  'form.above_capacity': 'ایک وقت کی گنجائش سے زیادہ نہیں ہو سکتا۔',
+  'form.amber_below_red': 'سرخ سطح سے کم ہونا چاہیے۔',
 };
