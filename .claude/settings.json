@@ -32,7 +32,8 @@
       "Bash(psql:*)",
       "Bash(git push origin module-03a)",
       "Bash(git push origin module-03a-cloud)",
-      "Bash(git push origin module-03a-hub2)"
+      "Bash(git push origin module-03a-hub2)",
+      "Bash(git push origin module-03a-hub3)"
     ],
     "deny": [
       "Bash(git reset:*)",
