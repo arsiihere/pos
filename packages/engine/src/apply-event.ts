@@ -872,11 +872,15 @@ function drawOf(state: EngineState, p: StockLine): { line: EngineLine | undefine
 // a batch line's program follows by currentProgram, BF-1) and re-plans: BF-7, only this line is re-placed, within
 // its own slack (flipPlacement). Proposed (implementer, overnight): a flipped line that is not hidden at the fold
 // (never a StockAdded candidate; only a writer bug gets here) takes the stock cook and keeps its fire and booking.
+// Task 18e review (AD-8, AD-29 Q5; §3.7: COOKING lines are never candidates): a line past `added` is a writer bug, here a
+// refused batch's reservation (StockReserved has no order_id) naming the other order's line: InvalidEvent, no write.
+// At `added` the fold can't tell such a reservation from a legal one: To 02 closes that (02 refuses a reused id).
 function foldStockReserved(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
   if (line === undefined) return state;
+  if (line.stage !== 'added') throw new InvalidEvent('stock_reserved_past_added', line.order_item_id, line.station_id);
   const draw = line.draws[i]!;
   const take = Math.min(p.quantity, Math.max(0, draw.quantity - draw.reserved));
   const prev = stockOf(state, p.stock_item_id);

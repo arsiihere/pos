@@ -652,7 +652,8 @@ describe('@pos/engine stockEffects: consume at Done or Served without a Start (A
   const stocked = (): PosEvent[] => [cfg(), set('KB', 9, DAY), set('X', 9, DAY)];
 
   it('[03a AD-29 Q7] Done with no Start: one StockConsumed per reserved draw, right after the cause; later taps draft nothing', () => {
-    const s0 = fold([...stocked(), ...frozen('O1', [{ id: 'D', draws: two, from_stock: true }]), fired(['D'], T + 1)]);
+    const head = [...stocked(), ...frozen('O1', [{ id: 'D', draws: two, from_stock: true }]), fired(['D'], T + 1)];
+    const s0 = fold(head);
     const at = T + 2;
     const cause = done('O1', 'D', at);
     const { events, state: s1 } = commit(s0, [cause], at);
@@ -666,7 +667,7 @@ describe('@pos/engine stockEffects: consume at Done or Served without a Start (A
     expect(effects(s1, started('O1', 'D', at + 1), at + 1)).toEqual([]);
     expect(effects(s1, served('O1', ['D'], at + 1), at + 1)).toEqual([]);
     // Replay = live.
-    expect(replay([...stocked(), ...frozen('O1', [{ id: 'D', draws: two, from_stock: true }]), fired(['D'], T + 1)]).stock).toEqual(s0.stock);
+    expect(JSON.stringify(replay([...head, ...events]))).toBe(JSON.stringify(s1));
   });
 
   it('[03a AD-29 Q7] a hidden, frozen or fired line alike: the single form gives the consume alone; the stations are not re-planned', () => {
@@ -691,6 +692,25 @@ describe('@pos/engine stockEffects: consume at Done or Served without a Start (A
     expect(s1.lines.A).toMatchObject({ stage: 'served', reserved_seq: null });
     expect(s1.lines.B).toMatchObject({ stage: 'served', reserved_seq: null });
     expect(effects(s1, served('O1', ['A', 'B'], at + 1), at + 1)).toEqual([]);
+  });
+
+  // Reading 2, proposed (implementer): "no Start" is started_at null at any open stage. None of these is a legal state
+  // after AD-29 Q7 (a writer drafted no consume); the first two consume at the Served, the third had a Start and does not.
+  it('[03a AD-29 Q7] Served: a done line still holding consumes; a Start-less cooking line consumes; a started line still holding does not', () => {
+    const line = (id: string): LineSpec => ({ id, draws: kb(), from_stock: true });
+    const s0 = fold([...stocked(), ...frozen('O1', [line('D'), line('C'), line('S')]), fired(['C', 'S'], T + 1), done('O1', 'D', T + 2), started('O1', 'S', T + 2)]);
+    expect(s0.lines.D).toMatchObject({ stage: 'done', started_at: null });
+    expect(s0.lines.D!.reserved_seq).not.toBeNull();
+    expect(s0.lines.S).toMatchObject({ stage: 'cooking', started_at: T + 2 });
+    expect(s0.lines.S!.reserved_seq).not.toBeNull();
+    const startLess: EngineState = { ...s0, lines: { ...s0.lines, C: { ...s0.lines.C!, stage: 'cooking', started_at: null } } };
+    expect(effects(startLess, served('O1', ['D', 'C', 'S'], T + 3), T + 3)).toEqual([
+      { type: 'StockConsumed', id: 'KB', line: 'D', q: 1 },
+      { type: 'StockConsumed', id: 'KB', line: 'C', q: 1 },
+    ]);
+    // A Done drafts from `added` only: neither that started line nor the Start-less cooking one.
+    expect(effects(startLess, done('O1', 'C', T + 3), T + 3)).toEqual([]);
+    expect(effects(startLess, done('O1', 'S', T + 3), T + 3)).toEqual([]);
   });
 
   it('[03a AD-29 Q7] a Start consumes; its Done and Served draft nothing. A line already released, or fresh, drafts nothing', () => {

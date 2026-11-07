@@ -11,6 +11,7 @@ import {
   anOrderBatch,
   anOrderLinesAdded,
   aReturnLinesAdded,
+  aStockConsumed,
   aStockSet,
 } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
@@ -442,6 +443,28 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(stockEffects(undone, { event_type: 'ItemDone', payload: inferred[0]!.payload as unknown as Record<string, unknown>, occurred_at: at(100) })).toEqual([]);
   });
 
+  // Reading 3, proposed (implementer): the draft reads the line only, as the Start's does. The stage fold is a no-op on a
+  // kept order; the consume still folds, so the tick has no release left and the order leaves at the next listed fold.
+  it.each([
+    ['Done', (t: number): PosEvent => done('O1', 'L1', t)],
+    ['Served', (t: number): PosEvent => served('O1', ['L1'], t)],
+  ])('[03a AD-29 Q7] %s naming a line of an AD-20 kept order: its fold is a no-op, the consume folds, no abandon release is left', (_name, cause) => {
+    const day = aBusinessDayOpened({ recorded_at: at(-60), occurred_at: at(-60), seq: nextSeq() });
+    const s0 = fold([cfg(1), day, kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0))]);
+    const t = at(0) + ABANDON + 5 * M;
+    const kept = fold([tickle(t)], s0);
+    expect(kept.orders.O1).toBeDefined();
+    expect(isOrderInEngine(kept, 'O1', t)).toBe(false);
+    expect(getTickIntents(kept, t).map((d) => d.event_type)).toEqual(['StockReleased']);
+    const s = withEffects(kept, cause(t), t);
+    expect(s.lines.L1).toMatchObject({ stage: 'added', reserved_seq: null, from_stock: true });
+    expect(s.stock.KB).toMatchObject({ reserved: 0 });
+    expect(s.stock.KB!.on_hand).toBe(kept.stock.KB!.on_hand - 1);
+    expect(getTickIntents(s, t + 1)).toEqual([]);
+    expect(noOrderInEngine(s, t + 1)).toBe(true);
+    expect(fold([tickle(t + 1)], s).orders.O1).toBeUndefined();
+  });
+
   it('[03a AD-20] a kept served-exit order is present: an OrderLinesAdded past its exit re-opens it (§3.3, test 78); its reservation stays', () => {
     const events = [cfg(1), kb(4, at(-60)), ...reservedOrder('O1', 'L1', at(0)), fire(['L1'], at(0)), done('O1', 'L1', at(20)), served('O1', ['L1'], at(25))];
     const exit = at(25) + ORDER_EXIT_AFTER_SERVED_MS;
@@ -725,6 +748,66 @@ describe('@pos/engine lifecycle: a reused order_item_id is refused (AD-29 Q5, AD
     expect(reasons(t)).toEqual(['order_item_id_reused', 'line_not_listed']);
     expect(t.lines.N1).toBeUndefined();
     expect(t.orders.O1!.awaiting).toBe(0);
+  });
+
+  // A reused id with `reserved:`. StockReserved carries no order_id, so once the OrderPlaced is refused it names the
+  // other order's line.
+  const KB_DRAW = { stock_time_ms: 60_000, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }] };
+  const stockAt = (t: number): PosEvent => aStockSet({ stream_id: 'KB', recorded_at: t, occurred_at: t, seq: nextSeq(), payload: { stock_item_id: 'KB', on_hand: 9, unit: 'piece' } });
+  const stocked = (order_id: string, from_stock: boolean, t: number, cook_min = 20): PosEvent[] =>
+    anOrderBatch({
+      order_id,
+      recorded_at: t,
+      seq: nextSeq(3),
+      lines: [{ order_item_id: 'L1', item: { cook_time_ms: cook_min * M, serve_mode: 'immediate', ...KB_DRAW }, line: { from_stock } }],
+      ...(from_stock ? { reserved: [{ stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 }] } : {}),
+    });
+  const consumed = (t: number): PosEvent => aStockConsumed({ stream_id: 'KB', recorded_at: t, occurred_at: t, seq: nextSeq(), payload: { stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 } });
+  const NS = { strict: false };
+
+  it.each([
+    ['cooking', (t: number): PosEvent[] => [fire(['L1'], t), start('O1', 'L1', t), consumed(t)]],
+    ['done', (t: number): PosEvent[] => [fire(['L1'], t), start('O1', 'L1', t), consumed(t), done('O1', 'L1', t)]],
+    ['done, no Start', (t: number): PosEvent[] => [done('O1', 'L1', t), consumed(t)]],
+    ['served', (t: number): PosEvent[] => [done('O1', 'L1', t), consumed(t), served('O1', ['L1'], t)]],
+  ])('[03a AD-29 Q5, §3.7] a refused batch with reserved: its StockReserved on a line %s is refused too, no write', (_name, path) => {
+    const s = fold([cfg(), stockAt(at(-60)), ...stocked('O1', true, at(0)), ...path(at(1))]);
+    expect(s.lines.L1!.reserved_seq).toBeNull();
+    const refused = stocked('O2', true, at(2));
+    const n = fold(refused, s, NS);
+    expect(n.stock).toEqual(s.stock);
+    expect(n.lines.L1).toEqual(s.lines.L1);
+    expect(n.orders.O2).toBeUndefined();
+    expect(reasons(n)).toEqual(['order_item_id_reused', 'stock_reserved_past_added']);
+    expect(n.diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
+    expect(JSON.stringify(applyEvents(deepFreeze(s), refused.map(deepFreeze), NS))).toBe(JSON.stringify(n));
+    // The StockReserved alone, strict: AD-8 throws.
+    expect(() => fold([refused[refused.length - 1]!], s)).toThrow(/stock_reserved_past_added/);
+  });
+
+  // KNOWN LIMIT, closed by the To 02 row (02 refuses a reused id before append; the device mints it). A StockReserved has
+  // no order_id, so on a line still at `added` the fold can't tell a refused batch's from a legal StockAdded flip (§3.7).
+  // S2: the other order's fresh line takes the reservation and its stock cook. This pins today's result, not a wanted one.
+  it('[03a AD-29 Q5] known limit, To 02: a refused batch\'s StockReserved flips the other order\'s fresh line at `added`', () => {
+    const s = fold([cfg(), stockAt(at(-60)), ...stocked('O1', false, at(0))]);
+    expect(s.lines.L1).toMatchObject({ from_stock: false, cook_ms: 20 * M, reserved_seq: null });
+    const n = fold(stocked('O2', true, at(1)), s, NS);
+    expect(n.orders.O2).toBeUndefined();
+    expect(n.lines.L1).toMatchObject({ order_id: 'O1', from_stock: true, cook_ms: 60_000 });
+    expect(n.lines.L1!.reserved_seq).not.toBeNull();
+    expect(n.stock.KB!.reserved).toBe(1);
+    expect(reasons(n)).toEqual(['order_item_id_reused']);
+  });
+
+  // S3, also at `added`, so the stage guard does not reach it, and also closed by the To 02 row: the draw is full, so the
+  // fold takes nothing; the only effect is one stock_breach diagnostic beside the invalid_event.
+  it('[03a AD-29 Q5] known limit, To 02: a refused batch\'s StockReserved on a line at `added` already holding changes nothing but one breach', () => {
+    const s = fold([cfg(), stockAt(at(-60)), ...stocked('O1', true, at(0))]);
+    const n = fold(stocked('O2', true, at(1)), s, NS);
+    expect(n.stock).toEqual(s.stock);
+    expect(n.lines.L1!.draws).toEqual(s.lines.L1!.draws);
+    expect(n.lines.L1!.reserved_seq).toBe(s.lines.L1!.reserved_seq);
+    expect(n.diagnostics.map((d) => d.kind)).toEqual(['invalid_event', 'stock_breach']);
   });
 
   it('[03a AD-29 Q5] an id free again after its order left the state is not reused: the check reads state.lines only', () => {
