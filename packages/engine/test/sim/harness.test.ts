@@ -3,29 +3,42 @@
 import { parseEvent, type PosEvent } from '@pos/events';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildEngineState } from '../../src/index';
-import { generateDay, overloadCapacity, peakHourUnits, policyReport, runDay, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
+import { demandPeakPct, generateDay, LINE_RATES, peakHourUnits, policyReport, runDay, TICK_MS, twoDayLog, type PolicyReport, type SimOrder, type SimResult } from './index';
 
 const POLICIES = ['fifo', 'edf', 'waada_guard'] as const;
 const count = (events: readonly PosEvent[], type: string): number => events.filter((e) => e.event_type === type).length;
 
-describe('[03a §10.6 harness] generated day', () => {
-  it('[03a §10.6 harness] the §10.6 stations, 2 000 orders by default, seed 7 gives one day', () => {
-    const day = generateDay(7);
+describe('[03a §10.6, AD-27] the normal peak day', () => {
+  const H = 3_600_000;
+  const day = generateDay(7);
+
+  it('[03a AD-27] seed 7 gives one day, 2 000 orders by default; capacities stay inside 01a\'s range 1–100', () => {
     expect(day.orders).toHaveLength(2_000);
     expect(generateDay(7)).toEqual(day);
     expect(generateDay(8).orders).not.toEqual(day.orders);
-    expect(day.stations).toEqual([
-      { station_id: 'bbq', type: 'slot', capacity: 30, cook_ms: 900_000, freshness_window_ms: null },
-      { station_id: 'degh', type: 'batch', capacity: 100, cook_ms: 60_000, freshness_window_ms: 60_000 },
-      { station_id: 'karahi', type: 'slot', capacity: 50, cook_ms: 1_200_000, freshness_window_ms: null },
-      { station_id: 'tandoor', type: 'slot', capacity: 60, cook_ms: 180_000, freshness_window_ms: null },
-      { station_id: 'tawa', type: 'slot', capacity: 8, cook_ms: 300_000, freshness_window_ms: null },
-    ]);
+    expect(day.stations.map((s) => s.station_id)).toEqual(['bbq', 'degh', 'karahi', 'tandoor', 'tawa']);
+    for (const s of day.stations) {
+      expect(Number.isInteger(s.capacity)).toBe(true);
+      expect(s.capacity).toBeGreaterThanOrEqual(1);
+      expect(s.capacity).toBeLessThanOrEqual(100);
+    }
   });
 
-  it('[03a §10.6 harness] the drill distributions: 65 / 25 / 10 arrivals, MENU line rates, target = max cook + 300 s', () => {
-    const day = generateDay(7);
-    const H = 3_600_000;
+  it('[03a AD-27] no capacity above §10.6\'s value and §10.6\'s cook times', () => {
+    const spec: Record<string, { capacity: number; cook_ms: number }> = {
+      bbq: { capacity: 30, cook_ms: 900_000 },
+      degh: { capacity: 100, cook_ms: 60_000 },
+      karahi: { capacity: 50, cook_ms: 1_200_000 },
+      tandoor: { capacity: 60, cook_ms: 180_000 },
+      tawa: { capacity: 8, cook_ms: 300_000 },
+    };
+    for (const s of day.stations) {
+      expect(s.capacity).toBeLessThanOrEqual(spec[s.station_id]!.capacity);
+      expect(s.cook_ms).toBe(spec[s.station_id]!.cook_ms);
+    }
+  });
+
+  it('[03a AD-27] §10.6\'s arrival shape: 65 % dinner, 25 % lunch, 10 % uniform; target = max cook + 300 s', () => {
     const at = (o: { at_ms: number }): number => o.at_ms - day.start_ms;
     const dinner = day.orders.filter((o) => at(o) >= 13 * H - 2.5 * H && at(o) <= 13 * H + 2.5 * H).length;
     const lunch = day.orders.filter((o) => at(o) >= 6 * H - H && at(o) <= 6 * H + H).length;
@@ -36,14 +49,6 @@ describe('[03a §10.6 harness] generated day', () => {
     expect(lunch).toBeLessThan(420);
     expect(day.orders.every((o) => at(o) >= 0 && at(o) <= 18 * H && Number.isInteger(o.at_ms))).toBe(true);
     expect(day.orders.map((o) => o.at_ms)).toEqual([...day.orders.map((o) => o.at_ms)].sort((a, b) => a - b));
-    // The MENU formula's realised means are not its labels: tandoor ≈ 2.60, karahi ≈ 1.35, bbq ≈ 1.09, degh ≈ 1.21, tawa ≈ 0.99 (the drill's seed 7:
-    // 5 157 / 2 646 / 2 211 / 2 440 / 1 958 of 14 412 lines; §10.6's counts depend on them, so the formula is ported as is).
-    const lines = day.orders.flatMap((o) => o.lines);
-    const per = (s: string): number => lines.filter((l) => l.station_id === s).length / day.orders.length;
-    expect(per('tandoor')).toBeGreaterThan(2.4);
-    expect(per('tandoor')).toBeLessThan(2.8);
-    expect(lines.length).toBeGreaterThan(14_412 * 0.9);
-    expect(lines.length).toBeLessThan(14_412 * 1.1);
     const cook = new Map(day.stations.map((s) => [s.station_id, s.cook_ms]));
     for (const o of day.orders) {
       expect(o.lines.length).toBeGreaterThan(0);
@@ -51,30 +56,39 @@ describe('[03a §10.6 harness] generated day', () => {
     }
   });
 
-  it('[03a §10.6 harness] an overload day puts the tandoor at 125 % of capacity in its peak hour, nothing else changes', () => {
-    const day = generateDay(7);
-    const over = generateDay(7, { overload: true });
-    expect(over.orders).toEqual(day.orders);
-    const t = over.stations.find((s) => s.station_id === 'tandoor')!;
-    expect(t.capacity).toBeLessThan(60);
-    const HOUR = 3_600_000;
-    const perHour = new Map<number, number>();
-    for (const o of day.orders) {
-      const n = o.lines.filter((l) => l.station_id === 'tandoor').length;
-      for (let w = 0; w < 6; w++) {
-        const k = Math.floor((o.at_ms - day.start_ms + (w * HOUR) / 6) / HOUR) * 6 - w;
-        perHour.set(k, (perHour.get(k) ?? 0) + n);
-      }
+  it('[03a AD-27] the stated rates are the rates realised, within ±5 %, and none is above the old day\'s', () => {
+    // What the drill's weights formula really gave (task 18a report, Finding 1): the ruling lowers demand, never raises it.
+    const oldRates: Record<string, number> = { tandoor: 2.6, karahi: 1.35, bbq: 1.09, degh: 1.21, tawa: 0.99 };
+    const lines = day.orders.flatMap((o) => o.lines);
+    expect(Object.keys(LINE_RATES).sort()).toEqual(day.stations.map((s) => s.station_id));
+    for (const s of day.stations) {
+      const realised = lines.filter((l) => l.station_id === s.station_id).length / day.orders.length;
+      expect(realised / LINE_RATES[s.station_id]!, s.station_id).toBeGreaterThanOrEqual(0.95);
+      expect(realised / LINE_RATES[s.station_id]!, s.station_id).toBeLessThanOrEqual(1.05);
+      expect(LINE_RATES[s.station_id]!, s.station_id).toBeLessThanOrEqual(oldRates[s.station_id]!);
     }
-    const peak = Math.max(...perHour.values());
-    const load = (peak * t.cook_ms) / (t.capacity * HOUR);
-    expect(load).toBeGreaterThanOrEqual(1.2);
-    expect(load).toBeLessThanOrEqual(1.3);
+  });
+
+  it('[03a AD-27] from demand, every station\'s busiest hour asks for 90–100 % of what it can cook', () => {
+    const demand = demandPeakPct(day);
+    expect(Object.keys(demand).sort()).toEqual(day.stations.map((s) => s.station_id));
+    for (const s of day.stations) {
+      expect(demand[s.station_id]!, s.station_id).toBeGreaterThanOrEqual(90);
+      expect(demand[s.station_id]!, s.station_id).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('[03a AD-27] R6 volume from the lines alone: the events that do not depend on the plan stay inside 45k ± 20 %', () => {
+    // OrderPlaced + ItemServed per order, ItemAdded + ItemStarted + ItemDone per line. FireDispatched comes on top and is
+    // measured on the full day in the perf project (3 000 – 5 000 on the days run so far).
+    const fixed = 2 * day.orders.length + 3 * day.orders.reduce((n, o) => n + o.lines.length, 0);
+    expect(fixed).toBeGreaterThanOrEqual(36_000 - 5_000);
+    expect(fixed).toBeLessThanOrEqual(54_000 - 3_000);
   });
 });
 
-describe('[03a §10.6 harness] overload sizing, by hand', () => {
-  it('[03a §10.6 harness] 60 + 40 tandoor lines inside one hour, and 50 three hours later: peak 100; 100 × 180 s / 3 600 s = 5 units, 5 / 1.25 = capacity 4', () => {
+describe('[03a §10.6, AD-27] demand, by hand', () => {
+  it('[03a AD-27] 60 + 40 tandoor lines inside one hour, and 50 three hours later: peak 100; 100 × 180 s / (5 × 3 600 s) = 100 %', () => {
     const MIN = 60_000;
     const order = (minute: number, tandoor: number): SimOrder => ({
       order_id: `O${minute}`,
@@ -91,12 +105,71 @@ describe('[03a §10.6 harness] overload sizing, by hand', () => {
     });
     // Minutes 50 and 70 straddle a clock hour, and one of the 10-minute windows holds both; minute 240 is on its own.
     const orders = [order(50, 60), order(70, 40), order(240, 50)];
-    const peak = peakHourUnits(orders, 1_000_000_000_000, 'tandoor');
-    expect(peak).toBe(100);
-    expect(overloadCapacity(peak, 180_000)).toBe(4);
+    expect(peakHourUnits(orders, 1_000_000_000_000, 'tandoor')).toBe(100);
     expect(peakHourUnits(orders, 1_000_000_000_000, 'karahi')).toBe(2);
-    expect(overloadCapacity(0, 180_000)).toBe(1);
+    const stations = [
+      { station_id: 'tandoor', type: 'slot' as const, capacity: 5, cook_ms: 180_000, freshness_window_ms: null },
+      { station_id: 'karahi', type: 'slot' as const, capacity: 1, cook_ms: 900_000, freshness_window_ms: null },
+    ];
+    expect(demandPeakPct({ seed: 0, start_ms: 1_000_000_000_000, stations, orders })).toEqual({ tandoor: 100, karahi: 50 });
   });
+});
+
+describe('[03a §10.6, AD-27] the overload day', () => {
+  const H = 3_600_000;
+  const day = generateDay(7);
+  const over = generateDay(7, { overload: true });
+  const hour = over.overload_hour!;
+  const inHour = (o: SimOrder): boolean => o.at_ms >= hour.from_ms && o.at_ms < hour.to_ms;
+  const units = (orders: readonly SimOrder[], station_id: string): number => orders.filter(inHour).reduce((n, o) => n + o.lines.filter((l) => l.station_id === station_id).length, 0);
+
+  it('[03a AD-27] deterministic; same stations as the normal day; the normal day names no overload hour', () => {
+    expect(generateDay(7, { overload: true })).toEqual(over);
+    expect(over.stations).toEqual(day.stations);
+    expect(day.overload_hour).toBeUndefined();
+  });
+
+  it('[03a AD-27] one contiguous hour of the dinner rush', () => {
+    expect(hour.to_ms - hour.from_ms).toBe(H);
+    expect(hour.from_ms - day.start_ms).toBeGreaterThanOrEqual(13 * H - 2.5 * H);
+    expect(hour.to_ms - day.start_ms).toBeLessThanOrEqual(13 * H + 2.5 * H);
+  });
+
+  it('[03a AD-27] the normal day\'s orders, unchanged, plus extras only inside that hour', () => {
+    const normal = new Set(day.orders.map((o) => o.order_id));
+    const kept = over.orders.filter((o) => normal.has(o.order_id));
+    const extras = over.orders.filter((o) => !normal.has(o.order_id));
+    expect(kept).toEqual(day.orders);
+    expect(extras.length).toBeGreaterThan(0);
+    expect(extras.every(inHour)).toBe(true);
+    expect(over.orders.map((o) => o.at_ms)).toEqual([...over.orders.map((o) => o.at_ms)].sort((a, b) => a - b));
+    const ids = over.orders.flatMap((o) => [o.order_id, ...o.lines.map((l) => l.order_item_id)]);
+    expect(new Set(ids).size).toBe(ids.length);
+    const cook = new Map(day.stations.map((s) => [s.station_id, s.cook_ms]));
+    for (const o of extras) {
+      expect(o.lines.length).toBeGreaterThan(0);
+      expect(o.pickup_at_ms).toBe(o.at_ms + Math.max(...o.lines.map((l) => cook.get(l.station_id)!)) + 300_000);
+    }
+  });
+
+  it('[03a AD-27] that hour\'s demand is 125 % of its normal on every station, to the nearest line', () => {
+    for (const s of day.stations) {
+      const normal = units(day.orders, s.station_id);
+      expect(normal, s.station_id).toBeGreaterThan(0);
+      expect(Math.abs(units(over.orders, s.station_id) - 1.25 * normal), s.station_id).toBeLessThanOrEqual(0.5);
+    }
+    expect(over.orders.filter(inHour).length / day.orders.filter(inHour).length).toBeGreaterThan(1.2);
+    expect(over.orders.filter(inHour).length / day.orders.filter(inHour).length).toBeLessThanOrEqual(1.26);
+  });
+
+  it('[03a AD-27] live state = replayed state on a small overload day', () => {
+    const small = generateDay(7, { orders: 200, overload: true });
+    expect(small.orders.length).toBeGreaterThan(200);
+    const run = runDay(small, {});
+    expect(run.replanMs).toHaveLength(small.orders.length);
+    expect(buildEngineState(run.events)).toEqual(run.liveState);
+    expect(run.liveState.diagnostics.filter((d) => d.kind !== 'over_capacity')).toEqual([]);
+  }, 120_000);
 });
 
 describe('[03a §10.6 harness] a day on the real engine', () => {
@@ -207,9 +280,9 @@ describe('[03a §10.6 harness] a day on the real engine', () => {
 describe('[03a §10.6 harness] twoDayLog on an over-capacity day', () => {
   it('[03a §10.6 harness] a day that cooks past start + 23 h: time never goes back, the close follows every order out, ids are per day', () => {
     const H = 3_600_000;
-    // 60 orders at capacity 1: the lines queue well past the 18 h of orders.
+    // 150 orders at capacity 1: the lines queue well past the 18 h of orders (≈ 87 karahi lines × 20 min alone).
     const shape = (day: ReturnType<typeof generateDay>): ReturnType<typeof generateDay> => ({ ...day, stations: day.stations.map((s) => ({ ...s, capacity: 1 })) });
-    const two = twoDayLog(7, { orders: 60, shape });
+    const two = twoDayLog(7, { orders: 150, shape });
     const times = two.events.map((e) => e.recorded_at);
     expect(times).toEqual([...times].sort((a, b) => a - b));
     expect(two.events.map((e) => e.seq)).toEqual(two.events.map((_, i) => i + 1));
@@ -226,9 +299,9 @@ describe('[03a §10.6 harness] twoDayLog on an over-capacity day', () => {
     expect(opens[1]!.recorded_at).toBeGreaterThan(closes[0]!.recorded_at);
 
     const placed = two.events.filter((e) => e.event_type === 'OrderPlaced').map((e) => e.stream_id);
-    expect(new Set(placed).size).toBe(120);
-    expect(placed.slice(0, 60).every((id) => id.startsWith('D1'))).toBe(true);
-    expect(placed.slice(60).every((id) => id.startsWith('D2'))).toBe(true);
+    expect(new Set(placed).size).toBe(300);
+    expect(placed.slice(0, 150).every((id) => id.startsWith('D1'))).toBe(true);
+    expect(placed.slice(150).every((id) => id.startsWith('D2'))).toBe(true);
     expect(buildEngineState(two.events)).toEqual(two.liveState);
     expect(Object.keys(two.liveState.orders)).toEqual([]);
   }, 120_000);
@@ -258,6 +331,7 @@ describe('[03a §10.6 harness] policy report (D22)', () => {
       expect(u.peak_hour_pct).toBeGreaterThanOrEqual(u.mean_pct);
     }
     expect(r.breaches).toBe(0);
+    expect(r.max_target_ahead_ms).toBeGreaterThan(0);
   });
 
   it('[03a §10.6 harness] hold-and-fire against firing at once: FIFO lands lines colder than Waada Guard (D3, D16)', () => {
@@ -275,5 +349,10 @@ describe('[03a §10.6 harness] policy report (D22)', () => {
     expect(r.max_late_ms).toBe(0);
     expect(Math.abs(r.mean_wait_ms.dine_in! - (1_500_000 - 60_000))).toBeLessThan(TICK_MS);
     expect(r.mean_cold_ms).toBeLessThan(TICK_MS);
+    // 1 200 s of one karahi unit in one hour, of 50 units: 1 200 / (50 × 3 600) per line, on the same windows as demandPeakPct.
+    const karahiLines = mixed.lines.filter((l) => l.station_id === 'karahi').length;
+    expect(r.utilisation.karahi!.peak_window_pct).toBeCloseTo((100 * karahiLines * 1_200) / (50 * 3_600), 1);
+    // T − now at the submit: alone in the kitchen, T is the pickup time.
+    expect(r.max_target_ahead_ms).toBe(1_500_000);
   }, 60_000);
 });

@@ -1,8 +1,8 @@
-// 03a §10.6: the generated day, ported from docs/stories/03a-sim/replay_cost.py (rush_times, the MENU draw) with a
-// seeded PRNG in test code only. Same distributions and same counts as the drill; not Python's Mersenne Twister, so
-// not its exact day (the drill's seed 7 has 14 412 lines; this one is within sampling noise of it). One deliberate
-// difference: the drill draws arrivals and menus from two generators with the same seed, which correlates them; here
-// each has its own stream.
+// 03a §10.6, AD-27: the generated days, from docs/stories/03a-sim/replay_cost.py (rush_times, the MENU draw) with a seeded
+// PRNG in test code only. Developer ruling AD-27 redefined the day: the drill's day asks for about 300 % at peak.
+//   normal peak day (the default): every station's busiest hour asks for 90–100 % of what it can cook, R6's volume;
+//   overload day: the same day, plus demand at 125 % for one hour of the dinner rush, then back to normal.
+// Arrivals and menus draw from separate streams (the drill's two generators share a seed, which correlates them).
 export const TICK_MS = 500; // 01d's tick loop, §3.6
 
 const SECOND = 1_000;
@@ -11,7 +11,8 @@ const DAY_MS = 18 * HOUR;
 // A round instant on the 500 ms grid; every simulated time is an offset of it.
 const START_MS = 1_761_000_000_000;
 const TARGET_EXTRA_MS = 300 * SECOND; // §10.6: target = max cook + 300 s
-const OVERLOAD = 1.25; // §10.6: tandoor at 125 %
+const OVERLOAD_EXTRA = 0.25; // AD-27: 125 % for one hour of the rush
+const WINDOWS_PER_HOUR = 6;
 
 export type SimStation = {
   station_id: string;
@@ -34,10 +35,11 @@ export type SimOrder = {
   lines: SimLine[];
 };
 
-export type SimDay = { seed: number; start_ms: number; stations: SimStation[]; orders: SimOrder[] };
+// overload_hour: only on an overload day, the hour its extra orders fall in, [from_ms, to_ms).
+export type SimDay = { seed: number; start_ms: number; stations: SimStation[]; orders: SimOrder[]; overload_hour?: { from_ms: number; to_ms: number } };
 
 export type GenerateOptions = {
-  overload?: boolean;
+  overload?: boolean; // AD-27's overload day; default the normal peak day
   // Default 2 000 (§10.6); fewer orders of the same distributions for a faster test.
   orders?: number;
   start_ms?: number;
@@ -45,24 +47,28 @@ export type GenerateOptions = {
   id_prefix?: string;
 };
 
-// §10.6, by station id.
-// Proposed (implementer, overnight): §10.6 gives degh "batch 100 × 60 s" and no freshness window. A load books the whole
-// station, so the 01a default window 0 would give every order its own 60 s load: 60 loads/h against ~150 orders/h with a
-// degh line at peak, a queue the drill's 100-a-minute degh never has. Window 60 s (= max_early_ms, which caps it per line,
-// = one load's cook) keeps the stated throughput of 100 units per 60 s.
+// §10.6's stations and cooks, capacities by AD-27 (01a's range 1–100, none above §10.6's value). Tandoor and degh sit below
+// §10.6's value (60, 100): at their rates those capacities would be idle at peak, not at 90–100 %.
+// Proposed (implementer, overnight): §10.6 gives degh no freshness window. A load books the whole station, so the 01a
+// default window 0 would give every order its own 60 s load. Window 60 s (= max_early_ms, which caps it per line, = one
+// load's cook) lets one load serve a minute of landings.
 function stations(): SimStation[] {
   return [
     { station_id: 'bbq', type: 'slot', capacity: 30, cook_ms: 900 * SECOND, freshness_window_ms: null },
-    { station_id: 'degh', type: 'batch', capacity: 100, cook_ms: 60 * SECOND, freshness_window_ms: 60 * SECOND },
+    { station_id: 'degh', type: 'batch', capacity: 4, cook_ms: 60 * SECOND, freshness_window_ms: 60 * SECOND },
     { station_id: 'karahi', type: 'slot', capacity: 50, cook_ms: 1_200 * SECOND, freshness_window_ms: null },
-    { station_id: 'tandoor', type: 'slot', capacity: 60, cook_ms: 180 * SECOND, freshness_window_ms: null },
+    { station_id: 'tandoor', type: 'slot', capacity: 31, cook_ms: 180 * SECOND, freshness_window_ms: null },
     { station_id: 'tawa', type: 'slot', capacity: 8, cook_ms: 300 * SECOND, freshness_window_ms: null },
   ];
 }
 
-// The drill's MENU, in its order, with its weights formula ported as is. The numbers are the drill's labels ("avg lines per
-// order"), not what the formula gives: realised ≈ 2.60 / 1.35 / 1.09 / 1.21 / 0.99 lines per order, which is the drill's
-// 14 412 lines (§10.6). See the task 18a report: at these rates seed 7 asks karahi, BBQ and tawa for 261 / 218 / 250 % in their peak hour.
+// AD-27: lines per order per station, the rates realised. The drill's formula below really gave ≈ 2.60 / 1.35 / 1.09 / 1.21 /
+// 0.99 (its labels were 3.0 / 0.6 / 0.4 / 0.5 / 0.3), so a demand-side number is now stated once, here. No rate is above
+// what the old day realised.
+export const LINE_RATES: Readonly<Record<string, number>> = { tandoor: 2.6, karahi: 0.58, bbq: 0.5, degh: 0.96, tawa: 0.41 };
+
+// The drill's MENU: the shape of an order's lines at a station, its weights formula as is, then each drawn line kept with
+// the probability that gives the stated rate. So an order still comes in lumps, as the drill's do.
 const MENU: ReadonlyArray<readonly [string, number]> = [
   ['tandoor', 3.0],
   ['karahi', 0.6],
@@ -72,6 +78,12 @@ const MENU: ReadonlyArray<readonly [string, number]> = [
 ];
 const LINE_COUNTS = [0, 1, 2, 3, 4, 6];
 const lineWeights = (avg: number): number[] => [Math.max(0.01, 1 - avg / 1.6), 1, avg / 2, avg / 3, avg / 5, avg / 8];
+const MENU_DRAWS = MENU.map(([station_id, label]) => {
+  const weights = lineWeights(label);
+  const total = weights.reduce((a, b) => a + b, 0);
+  const shapeMean = weights.reduce((sum, w, i) => sum + w * LINE_COUNTS[i]!, 0) / total;
+  return { station_id, weights, keep: Math.min(1, LINE_RATES[station_id]! / shapeMean) };
+});
 
 // mulberry32: small, seedable, good enough for arrivals.
 function prng(seed: number): () => number {
@@ -111,22 +123,83 @@ function rushTimes(r: () => number, n: number): number[] {
   return out.sort((a, b) => a - b);
 }
 
-// The most units a station is asked for in any one-hour window (windows every 10 minutes).
-export function peakHourUnits(orders: readonly SimOrder[], start_ms: number, station_id: string): number {
+// Units per one-hour window, windows every 10 minutes: window k is [k × 10 min, k × 10 min + 1 h) from the day's start.
+function hourWindows(orders: readonly SimOrder[], start_ms: number, units: (o: SimOrder) => number): Map<number, number> {
   const perHour = new Map<number, number>();
   for (const o of orders) {
-    const n = o.lines.filter((l) => l.station_id === station_id).length;
-    for (let w = 0; w < 6; w++) {
-      const k = Math.floor((o.at_ms - start_ms + (w * HOUR) / 6) / HOUR) * 6 - w;
+    const n = units(o);
+    for (let w = 0; w < WINDOWS_PER_HOUR; w++) {
+      const k = Math.floor((o.at_ms - start_ms + (w * HOUR) / WINDOWS_PER_HOUR) / HOUR) * WINDOWS_PER_HOUR - w;
       perHour.set(k, (perHour.get(k) ?? 0) + n);
     }
   }
-  return Math.max(0, ...perHour.values());
+  return perHour;
 }
 
-// §10.6 overload day: the capacity at which that peak hour asks for 125 % of what the station can cook.
-export function overloadCapacity(peakUnits: number, cook_ms: number): number {
-  return Math.max(1, Math.round((peakUnits * cook_ms) / (OVERLOAD * HOUR)));
+// The most units a station is asked for in any one-hour window.
+export function peakHourUnits(orders: readonly SimOrder[], start_ms: number, station_id: string): number {
+  return Math.max(0, ...hourWindows(orders, start_ms, (o) => o.lines.filter((l) => l.station_id === station_id).length).values());
+}
+
+// AD-27, from demand alone: a station's busiest hour as a % of what it can cook in an hour, capacity × 1 h / cook. For a
+// batch station this counts full loads; on a real day its loads are not all full, so the % policyReport measures is the
+// time the station is in use, and it can read higher.
+export function demandPeakPct(day: SimDay): Record<string, number> {
+  return Object.fromEntries(day.stations.map((s) => [s.station_id, (100 * peakHourUnits(day.orders, day.start_ms, s.station_id) * s.cook_ms) / (s.capacity * HOUR)]));
+}
+
+function pickupAt(at_ms: number, station_ids: readonly string[], cookOf: ReadonlyMap<string, number>): number {
+  // Proposed (implementer, overnight): §10.6 "target = max cook + 300 s" is the drill's target for every order. The
+  // engine's only input for a target later than its loop result is pickup_at_ms (§3.5.1 step 4: T = max(pickup, loop
+  // result), D3), so every order carries it, whatever its type.
+  return at_ms + Math.max(...station_ids.map((s) => cookOf.get(s)!)) + TARGET_EXTRA_MS;
+}
+
+// Proposed (implementer, overnight): the replay_cost drill has no order types and the policy report (D22) reports by type,
+// so the mix is tandoor_sim.py's: 55 % dine in, 33 % takeaway, 12 % follow-up (a dine-in order). Dine-in tables come from a
+// pool of 60, so table keys are shared as they are on a real floor (slip upkeep, §7.1).
+function orderOf(kinds: () => number, order_id: string, at_ms: number, lines: SimLine[], cookOf: ReadonlyMap<string, number>): SimOrder {
+  const x = kinds();
+  const dine = x < 0.55 || x >= 0.88;
+  const table = dine ? `T${1 + Math.floor(kinds() * 60)}` : null;
+  return {
+    order_id,
+    at_ms,
+    order_type: dine ? 'dine_in' : 'takeaway',
+    follow_up: x >= 0.88,
+    table_id: table,
+    table_key: dine ? `dine_in:${table}` : `takeaway:${order_id}`,
+    pickup_at_ms: pickupAt(at_ms, lines.map((l) => l.station_id), cookOf),
+    lines,
+  };
+}
+
+// AD-27's overload hour: the hour of the normal day with the most lines (the middle of the dinner rush), and on top of it a
+// quarter of that hour's orders, carrying exactly a quarter of its lines per station, at uniform times inside it.
+function withOverload(day: SimDay, seed: number, prefix: string, cookOf: ReadonlyMap<string, number>): SimDay {
+  const r = prng(seed ^ 0x2545f491);
+  const kinds = prng(seed ^ 0x6c62272e);
+  const windows = hourWindows(day.orders, day.start_ms, (o) => o.lines.length);
+  const best = [...windows].reduce((a, b) => (b[1] > a[1] || (b[1] === a[1] && b[0] < a[0]) ? b : a))[0];
+  const from_ms = day.start_ms + (best * HOUR) / WINDOWS_PER_HOUR;
+  const to_ms = from_ms + HOUR;
+  const inHour = day.orders.filter((o) => o.at_ms >= from_ms && o.at_ms < to_ms);
+  const count = Math.round(OVERLOAD_EXTRA * inHour.length);
+  const baskets: string[][] = Array.from({ length: count }, () => []);
+  for (const s of day.stations) {
+    const units = inHour.reduce((n, o) => n + o.lines.filter((l) => l.station_id === s.station_id).length, 0);
+    const extra = Math.round(OVERLOAD_EXTRA * units);
+    for (let i = 0; i < extra; i++) baskets[Math.floor(r() * count)]!.push(s.station_id);
+  }
+  let nextLine = 1;
+  const extras = baskets
+    .filter((names) => names.length > 0)
+    .map((names, i): SimOrder => {
+      const lines = names.map((station_id) => ({ order_item_id: `${prefix}XL${String(nextLine++).padStart(7, '0')}`, station_id }));
+      return orderOf(kinds, `${prefix}XO${String(i + 1).padStart(6, '0')}`, from_ms + Math.floor(r() * HOUR), lines, cookOf);
+    });
+  // Array.prototype.sort is stable: at one instant a normal order keeps its place and an extra follows it.
+  return { ...day, orders: [...day.orders, ...extras].sort((a, b) => a.at_ms - b.at_ms), overload_hour: { from_ms, to_ms } };
 }
 
 export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
@@ -140,42 +213,15 @@ export function generateDay(seed: number, o: GenerateOptions = {}): SimDay {
   const cookOf = new Map(list.map((s) => [s.station_id, s.cook_ms]));
   let nextLine = 1;
   const orders = rushTimes(arrivals, n).map((offset, i): SimOrder => {
-    const order_id = `${prefix}O${String(i + 1).padStart(6, '0')}`;
-    const lines: SimLine[] = [];
     const names: string[] = [];
-    for (const [station_id, avg] of MENU) {
-      const count = LINE_COUNTS[pick(menu, lineWeights(avg))]!;
-      for (let k = 0; k < count; k++) names.push(station_id);
+    for (const { station_id, weights, keep } of MENU_DRAWS) {
+      const count = LINE_COUNTS[pick(menu, weights)]!;
+      for (let k = 0; k < count; k++) if (menu() < keep) names.push(station_id);
     }
     if (names.length === 0) names.push('tandoor');
-    for (const station_id of names) lines.push({ order_item_id: `${prefix}L${String(nextLine++).padStart(7, '0')}`, station_id });
-    const at_ms = start_ms + offset;
-    // Proposed (implementer, overnight): the replay_cost drill has no order types and the policy report (D22) reports
-    // by type, so the mix is tandoor_sim.py's: 55 % dine in, 33 % takeaway, 12 % follow-up (a dine-in order). Dine-in
-    // tables come from a pool of 60, so table keys are shared as they are on a real floor (slip upkeep, §7.1).
-    const x = kinds();
-    const dine = x < 0.55 || x >= 0.88;
-    const table = dine ? `T${1 + Math.floor(kinds() * 60)}` : null;
-    return {
-      order_id,
-      at_ms,
-      order_type: dine ? 'dine_in' : 'takeaway',
-      follow_up: x >= 0.88,
-      table_id: table,
-      table_key: dine ? `dine_in:${table}` : `takeaway:${order_id}`,
-      // Proposed (implementer, overnight): §10.6 "target = max cook + 300 s" is the drill's target for every order. The
-      // engine's only input for a target later than its loop result is pickup_at_ms (§3.5.1 step 4: T = max(pickup, loop
-      // result), D3), so every order carries it, whatever its type. Without it no tandoor order is held at all and the
-      // day has far fewer hidden lines than the drill: it would under-drive the 50 ms gate.
-      pickup_at_ms: at_ms + Math.max(...names.map((s) => cookOf.get(s)!)) + TARGET_EXTRA_MS,
-      lines,
-    };
+    const lines = names.map((station_id) => ({ order_item_id: `${prefix}L${String(nextLine++).padStart(7, '0')}`, station_id }));
+    return orderOf(kinds, `${prefix}O${String(i + 1).padStart(6, '0')}`, start_ms + offset, lines, cookOf);
   });
-  // Proposed (implementer, overnight): "tandoor at 125 %" = the same orders, with the tandoor capacity at which its
-  // busiest hour asks for 125 % of what it can cook (the §10.6 tandoor is sized well above its peak).
-  const sized = o.overload !== true ? list : list.map((s) => {
-    if (s.station_id !== 'tandoor') return s;
-    return { ...s, capacity: overloadCapacity(peakHourUnits(orders, start_ms, 'tandoor'), s.cook_ms) };
-  });
-  return { seed, start_ms, stations: sized, orders };
+  const day: SimDay = { seed, start_ms, stations: list, orders };
+  return o.overload === true ? withOverload(day, seed, prefix, cookOf) : day;
 }

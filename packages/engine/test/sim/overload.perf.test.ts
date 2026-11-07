@@ -1,4 +1,5 @@
-// 03a §10.6, §7.1 "Overload pass", §3.5.6 (task 18): the overload day, tandoor at 125 %. The bounds are the spec's.
+// 03a §10.6, §7.1 "Overload pass", §3.5.6, AD-27 (tasks 18, 18b): the overload day, the normal peak day with demand at 125 %
+// for one hour of the dinner rush, then back to normal. Only the overload targets are asserted on it. The bounds are the spec's.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { dist, step, writeSamples } from './perf-kit';
 import { generateDay, policyReport, runDay, type SimDay, type SimResult } from './index';
@@ -7,7 +8,7 @@ const HOOK_MS = 3_600_000; // a watchdog, not a bound (day.perf.test.ts)
 const PROBES_MAX = 16; // §7.1
 const REPLAN_P99_MS = 50; // §7.1
 
-describe('[03a §10.6] the overload day (seed 7, tandoor at 125 %)', () => {
+describe('[03a §10.6, AD-27] the overload day (seed 7, 125 % for one hour of the rush)', () => {
   let day: SimDay;
   let run: SimResult;
 
@@ -25,7 +26,8 @@ describe('[03a §10.6] the overload day (seed 7, tandoor at 125 %)', () => {
           byStation[station] = row;
         });
         return {
-          tandoor_capacity: day.stations.find((s) => s.station_id === 'tandoor')!.capacity,
+          overload_hour_from_start_h: (day.overload_hour!.from_ms - day.start_ms) / 3_600_000,
+          orders: day.orders.length,
           replan_ms: dist(r.replanMs),
           replaced_lines: dist(r.replacedLines),
           overload_searches: r.overloadProbes.length,

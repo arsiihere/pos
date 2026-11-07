@@ -7,7 +7,8 @@ describe('[03a §10.6 harness] skipping idle passes, saturated', () => {
   it('[03a §10.6 harness] 250 orders from the 13 h peak: skipping through nextDueAt writes exactly what a pass every 500 ms writes', () => {
     const full = generateDay(7);
     const peak = full.orders.findIndex((o) => o.at_ms - full.start_ms >= 13 * 3_600_000);
-    const slice = { ...full, orders: full.orders.slice(peak, peak + 250) };
+    // AD-27: the normal peak day runs below saturation, so this case halves the capacities to keep the kitchen full.
+    const slice = { ...full, stations: full.stations.map((st) => ({ ...st, capacity: Math.ceil(st.capacity / 2) })), orders: full.orders.slice(peak, peak + 250) };
     const lastAt = slice.orders.at(-1)!.at_ms;
     expect(lastAt - slice.orders[0]!.at_ms).toBeGreaterThan(3_600_000);
     const skipping = runDay(slice, {});

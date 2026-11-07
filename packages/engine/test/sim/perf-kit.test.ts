@@ -33,7 +33,7 @@ describe('[03a task 18] perf kit', () => {
     let peak: Peak;
 
     beforeAll(() => {
-      run = runDay(day, { watch: keepEvery(live, 500) });
+      run = runDay(day, { watch: keepEvery(live, 300) });
       peak = peakPass(run.events, live);
     }, 120_000);
 

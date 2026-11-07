@@ -1,9 +1,9 @@
-// 03a §10.6, §7.1, §12.1 DoD 6, BF-7 (task 18): the performance gate on the generated day. The bounds are the spec's and
+// 03a §10.6, §7.1, §12.1 DoD 6, BF-7, AD-27 (tasks 18, 18b): the performance gate on the normal peak day. The bounds are the spec's and
 // a miss stays red (the plan's stop rule). One shared run per describe in beforeAll; each `it` only reads results. Every
 // number is on disk (perf-kit, task-18-numbers.json) before the next step starts.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { applyEvent, ENGINE_REPLAY_EVENTS, initialEngineState, noOrderInEngine, toCheckpoint } from '../../src/index';
-import { generateDay, policyReport, runDay, twoDayLog, type SimResult } from './index';
+import { demandPeakPct, generateDay, LINE_RATES, policyReport, runDay, twoDayLog, type PolicyReport, type SimResult } from './index';
 import { dist, keepEvery, measureAtPeak, peakPass, peakSummary, replayFrom, sameState, step, writeSamples, type AtPeak, type Peak } from './perf-kit';
 
 // A watchdog for a day's work, not a bound. Vitest's default hookTimeout is 10 s and the perf project sets testTimeout only.
@@ -16,6 +16,12 @@ const SNAPSHOT_MS = 50; // §7.1, P-12: the serialise part; task 21 asserts the 
 const BF7_MS = 50; // BF-7: inside the 50 ms
 const R6_REPLAYED_EVENTS = 45_000; // README R6, AD-26
 const R6_TOLERANCE = 0.2; // §10.6
+const FIRES_TICK_P99_MS = 20; // §7.1; test 62 adds the hub's write
+const STATIONS_LIVE_MS = 5; // §7.1; test 66 adds the route
+const UTILISATION_MIN = 90; // AD-27
+const UTILISATION_MAX = 100; // AD-27
+const MEAN_WAIT_MAX_MS = 3_600_000; // task 18b: "under about 1 h"
+const TARGET_AHEAD_MAX_MS = 2 * 3_600_000; // task 18b: "not running away"; the old day reached ≈ 520 min. Proposed (implementer).
 const PEAK_SAMPLES = 21;
 const REPLAYED: ReadonlySet<string> = new Set(Object.values(ENGINE_REPLAY_EVENTS).flat());
 
@@ -29,8 +35,9 @@ const closeSummary = (r: SimResult) => ({
   diagnostics: r.liveState.diagnostics.length,
 });
 
-describe('[03a §10.6] the generated day (seed 7, 2 000 orders)', () => {
+describe('[03a §10.6, AD-27] the normal peak day (seed 7, 2 000 orders)', () => {
   let run: SimResult;
+  let report: PolicyReport;
   let replay: ReturnType<typeof replayFrom>;
   let peak: Peak;
   let at: AtPeak;
@@ -38,7 +45,7 @@ describe('[03a §10.6] the generated day (seed 7, 2 000 orders)', () => {
   beforeAll(() => {
     const day = generateDay(SEED);
     const live = new Map<number, string>();
-    run = step('day_run', () => runDay(day, { watch: keepEvery(live, 500) }), (r) => ({ ...closeSummary(r), orders: day.orders.length, lines: day.orders.reduce((n, o) => n + o.lines.length, 0) }));
+    run = step('day_run', () => runDay(day, { watch: keepEvery(live, 500) }), (r) => ({ ...closeSummary(r), orders: day.orders.length, lines: day.orders.reduce((n, o) => n + o.lines.length, 0), stations: day.stations, line_rates: LINE_RATES, demand_peak_pct: demandPeakPct(day) }));
     writeSamples('day_replan_ms', run.replanMs);
     writeSamples('day_replaced_lines', run.replacedLines);
     // The log's own first event is the config: the checkpoint a previous night would have left (§3.12), no orders in it.
@@ -47,7 +54,7 @@ describe('[03a §10.6] the generated day (seed 7, 2 000 orders)', () => {
     step('day_rebuild_from_seq_0', () => replayFrom({ ...checkpoint, config: null, stations: {}, stock: {}, business_day: null, last_seq: 0 }, run.events, 0), (r) => ({ ms: r.ms, events: r.events, equals_live: sameState(r.state, run.liveState) }));
     peak = step('day_peak_pass', () => peakPass(run.events, live), (p) => ({ by_unfired: peakSummary(p.byUnfired), by_lines: peakSummary(p.byLines), fold_mean_ms: p.fold_mean_ms, fold_by_type: p.fold_by_type, live_compared: p.live_compared, live_mismatches: p.live_mismatches }));
     at = step('day_at_peak', () => measureAtPeak(peak, day, run.events, { samples: PEAK_SAMPLES }), (m) => m);
-    step('day_policy_waada_guard', () => policyReport(run), (r) => r);
+    report = step('day_policy_waada_guard', () => policyReport(run), (r) => r);
   }, HOOK_MS);
 
   it('[03a §10.6] re-plan per submit p99 ≤ 50 ms', () => {
@@ -69,6 +76,29 @@ describe('[03a §10.6] the generated day (seed 7, 2 000 orders)', () => {
     expect(replay.state).toEqual(run.liveState);
     expect(peak.live_compared).toBeGreaterThan(50);
     expect(peak.live_mismatches).toEqual([]);
+  });
+
+  it.each(['bbq', 'degh', 'karahi', 'tandoor', 'tawa'])('[03a AD-27] %s: the busiest hour the kitchen really ran is 90–100 %%', (station_id) => {
+    const peakHour = report.utilisation[station_id]!.peak_hour_pct;
+    expect(peakHour).toBeGreaterThanOrEqual(UTILISATION_MIN);
+    expect(peakHour).toBeLessThanOrEqual(UTILISATION_MAX);
+  });
+
+  it('[03a AD-27] a peak a kitchen can run: mean wait by order type under 1 h, T − now not running away', () => {
+    for (const [type, ms] of Object.entries(report.mean_wait_ms)) expect(ms, type).toBeLessThan(MEAN_WAIT_MAX_MS);
+    expect(report.max_target_ahead_ms).toBeLessThan(TARGET_AHEAD_MAX_MS);
+    expect(report.breaches).toBe(0);
+  });
+
+  it('[03a §7.1 "Fires tick"] getTickIntents at the peak, with work, p99 ≤ 20 ms', () => {
+    expect(at.tick_intents.drafts).toBeGreaterThan(0);
+    expect(at.tick_intents.ms.p99).toBeLessThanOrEqual(FIRES_TICK_P99_MS);
+  });
+
+  // The stricter reading, as the snapshot row below: §7.1 gives this row no percentile.
+  it('[03a §7.1 "stations-live"] stationsLive at the peak ≤ 5 ms', () => {
+    expect(at.stations_live.in_flight).toBeGreaterThan(0);
+    expect(at.stations_live.ms.max).toBeLessThanOrEqual(STATIONS_LIVE_MS);
   });
 
   // The stricter reading: §7.1 gives this row no percentile, so every sample counts.

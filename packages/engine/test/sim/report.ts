@@ -8,13 +8,18 @@
 // line on its grid, up to 499 ms after its planned fire, and FIFO / EDF have padding 0 (§3.5.1), so a literal comparison
 // would count the tick's own rounding as a broken promise. max_late_ms is the raw number, with no such allowance.
 // Utilisation: unit-time in use / (capacity × time), mean over the station's first Start to last Done, and the busiest
-// clock hour of that span. A batch load counts once, as the whole station (§3.3).
+// clock hour of that span (peak_hour_pct, the one AD-27's 90–100 % is asserted on). peak_window_pct is the busiest hour on
+// demandPeakPct's windows, every 10 minutes: reported beside it, because a clock hour can split a rush. A batch load counts
+// once, as the whole station (§3.3).
 import type { EngineConfig } from '@pos/events';
 import { TICK_MS } from './generate';
 import type { Policy, SimResult } from './run';
 
 const HOUR = 3_600_000;
+const WINDOW_STEP = 600_000;
 const round2 = (x: number): number => Math.round(x * 100) / 100;
+
+export type Utilisation = { mean_pct: number; peak_hour_pct: number; peak_window_pct: number };
 
 export type PolicyReport = {
   policy: Policy;
@@ -24,7 +29,8 @@ export type PolicyReport = {
   max_late_ms: number;
   mean_wait_ms: Record<string, number>; // dine_in, takeaway, …, follow_up (the drill's third type)
   mean_cold_ms: number;
-  utilisation: Record<string, { mean_pct: number; peak_hour_pct: number }>;
+  max_target_ahead_ms: number; // AD-27: the largest T − now at a submit, how far ahead the kitchen is promising
+  utilisation: Record<string, Utilisation>;
   breaches: number; // diagnostics other than the over_capacity warning; a strict run throws first
 };
 
@@ -32,8 +38,26 @@ type OrderRow = { type: string; placed_at: number; promise: number; lines: strin
 type LineRow = { station_id: string; units: number; load_id: string | null; started: number | null; done: number | null };
 type Usage = { start: number; end: number; units: number };
 
-function utilisationOf(usage: readonly Usage[], capacity: number): { mean_pct: number; peak_hour_pct: number } {
-  if (usage.length === 0) return { mean_pct: 0, peak_hour_pct: 0 };
+// The busiest hour on a 10-minute grid: steps hold the unit-time of each 10 minutes, a window is 6 steps in a row.
+function peakWindow(usage: readonly Usage[], capacity: number): number {
+  const steps = new Map<number, number>();
+  for (const u of usage) {
+    for (let k = Math.floor(u.start / WINDOW_STEP); k * WINDOW_STEP < u.end; k++) {
+      const overlap = Math.min(u.end, (k + 1) * WINDOW_STEP) - Math.max(u.start, k * WINDOW_STEP);
+      steps.set(k, (steps.get(k) ?? 0) + overlap * u.units);
+    }
+  }
+  let peak = 0;
+  for (const k of steps.keys()) {
+    let used = 0;
+    for (let i = 0; i < 6; i++) used += steps.get(k + i) ?? 0;
+    peak = Math.max(peak, used);
+  }
+  return round2((100 * peak) / (capacity * HOUR));
+}
+
+function utilisationOf(usage: readonly Usage[], capacity: number): Utilisation {
+  if (usage.length === 0) return { mean_pct: 0, peak_hour_pct: 0, peak_window_pct: 0 };
   const first = Math.min(...usage.map((u) => u.start));
   const last = Math.max(...usage.map((u) => u.end));
   const hours = new Map<number, number>();
@@ -51,13 +75,14 @@ function utilisationOf(usage: readonly Usage[], capacity: number): { mean_pct: n
     const span = Math.min(last, (h + 1) * HOUR) - Math.max(first, h * HOUR);
     peak = Math.max(peak, used / (capacity * span));
   }
-  return { mean_pct: round2((100 * busy) / (capacity * (last - first))), peak_hour_pct: round2(100 * peak) };
+  return { mean_pct: round2((100 * busy) / (capacity * (last - first))), peak_hour_pct: round2(100 * peak), peak_window_pct: peakWindow(usage, capacity) };
 }
 
 export function policyReport(result: SimResult): PolicyReport {
   const orders = new Map<string, OrderRow>();
   const lines = new Map<string, LineRow>();
   let config: EngineConfig | null = null;
+  let targetAhead = 0;
   for (const e of result.events) {
     const p = e.payload as Record<string, never>;
     switch (e.event_type) {
@@ -65,7 +90,8 @@ export function policyReport(result: SimResult): PolicyReport {
         config = e.payload as unknown as EngineConfig;
         break;
       case 'OrderPlaced': {
-        const groups = p.groups as unknown as Array<{ promise_ms: number }>;
+        const groups = p.groups as unknown as Array<{ promise_ms: number; target_land_ms: number }>;
+        for (const g of groups) targetAhead = Math.max(targetAhead, g.target_land_ms - e.recorded_at);
         orders.set(p.order_id, {
           type: p.follow_up ? 'follow_up' : p.order_type,
           placed_at: e.recorded_at,
@@ -134,6 +160,7 @@ export function policyReport(result: SimResult): PolicyReport {
     max_late_ms: maxLate,
     mean_wait_ms: Object.fromEntries([...waits].map(([k, v]) => [k, Math.round(v.sum / v.n)])),
     mean_cold_ms: coldLines === 0 ? 0 : Math.round(cold / coldLines),
+    max_target_ahead_ms: targetAhead,
     utilisation,
     breaches: result.liveState.diagnostics.filter((d) => d.kind !== 'over_capacity').length,
   };
