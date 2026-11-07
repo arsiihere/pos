@@ -2,6 +2,12 @@
 
 Plan: `docs/plans/03a-plan.md`. Branch `module-03a-hub3`, cut from `origin/module-03a` at `52d5b31` (includes the hub2 merge `9c7a75d`). Decisions and AD rows of the engine lane stay in `docs/plans/03a-status.md`.
 
+## Merge of `origin/module-03a` (tasks 22 and later), 2026-11-07
+
+**Merge commit `f40fbc3`.** The only conflict was in `apps/hub/test/commands/business-day.int.test.ts`. Both sides had independently left the day-close checkpoint out of the A-14 statement count. The resolution keeps hub3's per-table host-write count, which does not depend on how many statements a checkpoint write takes, with the engine lane's comment facts. The file alone: 11/11 pass.
+
+**Gate at `f40fbc3`, under the lock: green except one timing assert, which is reported, not counted as red.** Typecheck and lint pass. 3084 tests passed, 1 skipped, 1 todo, and 1 failed: `[03a §7.1 snapshot] … ≤ 50 ms` (`snapshots.int.test.ts`) at 90.9 ms. A rerun of the file alone gave 16/17, with the same assert at 60.0 ms, while the engine lane's `tsc` runs in `~/pos` held the load average at 8.9. It is the same wall-clock assert as at `760a0d9`. It passed 14/14 alone on a quieter machine. **Engine lane:** this assert still lives in a hub int file outside `pnpm test:perf` (AD-32).
+
 ## End report: R2, R1b, 25, 25b, 26 done; gate green
 
 **Result:** all five tasks are built, reviewed and pushed on `module-03a-hub3`. No Critical or Important finding is open.
