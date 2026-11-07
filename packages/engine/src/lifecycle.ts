@@ -24,8 +24,8 @@ function isUnfired(line: EngineLine): boolean {
   return line.stage === 'added' && line.fired_at === null;
 }
 
-// BF-6: an open line's planned land at its point — (started_at ?? fire_ms) + prep + the AD-4 occupancy cook at the
-// station's effective capacity + carry. A COOKING line counts from its own Start, so a late Start keeps its cook.
+// BF-6: an open line's planned land at its point — (started_at ?? fire_ms) + prep + the cook it occupies its station for
+// (profile.ts occupiedCook: a fired load's stored rounds, else its AD-4 rounds at effective capacity) + carry. A COOKING line counts from its own Start, so a late Start keeps its cook.
 // Fixed values only: a fired line's live interval slides with t and would never let the order go.
 function plannedLand(state: EngineState, line: EngineLine): number | null {
   if (!isOpen(line)) return null;
@@ -33,7 +33,8 @@ function plannedLand(state: EngineState, line: EngineLine): number | null {
   if (base === null) return null;
   const station = state.stations[line.station_id];
   const cap = station === undefined ? 0 : effectiveCapacity(station);
-  const cook = cap >= 1 ? occupiedCook(line, cap) : line.cook_ms;
+  // No usable capacity: one cook of its own, or its load's stored rounds (as slip.ts capOf).
+  const cook = occupiedCook(line, cap >= 1 ? cap : Math.max(1, line.units));
   return base + line.prep_ms + cook + line.carry_ms;
 }
 

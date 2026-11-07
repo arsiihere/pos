@@ -5,7 +5,7 @@
 import { parseEvent, type EngineConfig, type ItemAddedPayload, type PosEvent } from '@pos/events';
 import { aFireDispatched, anEngineConfigApplied, anItemAdded, anItemStarted, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { addInterval, applyEvent, buildEngineState, earliestFit, getAlertIntents, getTickIntents, initialEngineState, isOrderInEngine, latestFit, liveInterval, nextDueAt, planOrder, removeInterval, stationPlan, type EngineState, type PlanResult, type ProposedOrder, type TickDraft } from '../src/index';
+import { addInterval, applyEvent, buildEngineState, earliestFit, getAlertIntents, getTickIntents, initialEngineState, isOrderInEngine, latestFit, liveInterval, nextDueAt, planOrder, removeInterval, stationPlan, type EngineState, type PlanResult, type ProposedOrder } from '../src/index';
 import { effectiveCapacity } from '../src/capacity';
 import { liveProfile } from '../src/live';
 import { weightOf } from '../src/replan';
@@ -1241,6 +1241,13 @@ describe('@pos/engine task 18d P8: a return never queues (§3.8a Q15a, AD-29 Q11
     const plan = planOrder(k.state, { ...base, lines: base.lines.map((l) => ({ ...l, station_id: 'S1', alternates: [{ station_id: 'Q', carry_ms: 0, home: false }] })) }, at(10), {});
     expect(plan.lines[0]!.station_id).toBe('Q');
     expect(plan.lines[0]!.eta_ms).toBe(at(13));
+    const r = plan.lines[0]!;
+    const s = k.apply(aReturnLinesAdded(k.log.find((e) => e.event_type === 'ItemAdded')!, 'fix', { recorded_at: at(10), target_land_ms: plan.groups[0]!.target_land_ms, promise_ms: plan.groups[0]!.promise_ms, order_item_id: 'LR', adjust_time_ms: 3 * M, line: { station_id: r.station_id, alternates: r.alternates, carry_ms: r.carry_ms } }));
+    expect(s.lines.LR).toMatchObject({ mark: 'return', station_id: 'Q', fire_ms: at(10), booked: { start: at(10), end: at(13), units: 1 } });
+    expect(s.stations.Q!.unfired).toContain('LR');
+    expect(s.lines.Z!.started_at).toBe(at(10));
+    expectProfileExact(s);
+    expectRebuild(k);
   });
 
   it('[03a AD-29 Q11 P8] a batch station on FIFO: the return forms its own load at t; the next load is pushed whole, only as far as needed', () => {
@@ -1382,21 +1389,28 @@ describe('@pos/engine task 18d P4: an oversize load counts its rounds everywhere
     expect(dones(cooking, T0 + 21 * M - 1)).toEqual([]);
     expect(dones(cooking, T0 + 21 * M)).toEqual([T0 + 21 * M, T0 + 21 * M]);
     expect(nextDueAt(cooking, T0 + 12 * M)).toBe(T0 + 21 * M);
-    expect(k.log.length).toBeGreaterThan(0);
+    expect(dones(cooking, T0 + 12 * M)).toEqual([]); // one round would be past its end here
     expectRebuild(k);
   });
 
-  it('[03a AD-29 Q11 P4] the cascade reads the rounds: no overrun before +21, though a line fired behind the load overlaps a reservation', () => {
-    const { k } = oversize({ F: { programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }, { program_id: 'P2', name: 'P2', cook_time_ms: 999_999, is_archived: false }] } });
+  it('[03a AD-29 Q11 P4] the cascade reads the rounds: no overrun before +21, though a line fired behind the load overlaps a reservation; a shift after it', () => {
+    const programs = ['P1', 'P2', 'P3'].map((program_id) => ({ program_id, name: program_id, cook_time_ms: 999_999, is_archived: false }));
+    const { k } = oversize({ F: { programs } });
     k.submit('O2', [{ id: 'C', program: 'P1', cook: 5 * M, units: 1 }], T0 + M);
     k.submit('O3', [{ id: 'D', program: 'P2', cook: 5 * M, units: 1 }], T0 + M);
+    k.submit('O4', [{ id: 'E', program: 'P3', cook: 5 * M, units: 1 }], T0 + M);
     expect(k.state.stations.F!.loads[k.state.lines.C!.load_id!]!.booked.start).toBe(T0 + 21 * M);
+    expect(k.state.stations.F!.loads[k.state.lines.E!.load_id!]!.booked.start).toBe(T0 + 31 * M);
     const loadD = k.state.lines.D!.load_id!;
     const s = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['D'], load_id: loadD, due_at: T0 + 2 * M, reason: 'pulled' } }), T0 + 2 * M)]);
     expect(liveInterval(s, 'D', T0 + 12 * M)).toEqual({ start: T0 + 21 * M, end: T0 + 26 * M }); // over C's reservation
-    const shifts = (now: number): TickDraft[] => getTickIntents(s, now).filter((d) => d.event_type === 'ReservationsShifted');
-    expect(shifts(T0 + 12 * M)).toEqual([]);
-    expect(shifts(T0 + 21 * M)).toEqual([]);
+    const shifted = (now: number): string[] =>
+      getTickIntents(s, now).flatMap((d) => (d.event_type === 'ReservationsShifted' ? (d.payload as { shifts: Array<{ order_item_id: string }> }).shifts.map((x) => x.order_item_id) : []));
+    expect(shifted(T0 + 12 * M)).toEqual([]);
+    expect(shifted(T0 + 21 * M)).toEqual([]);
+    // Past +21 the load overruns: C fires, D and C pack behind it and reach E's reservation.
+    expect(shifted(T0 + 21 * M + 1)).toEqual(['E']);
+    expectRebuild(k);
   });
 
   it('[03a AD-29 Q11 P4] a member Done at +11 leaves +21 for the other (estimate, Done, a new placement)', () => {
@@ -1420,6 +1434,75 @@ describe('@pos/engine task 18d P4: an oversize load counts its rounds everywhere
     const { cooking } = oversize({ settings: { order_abandon_ms: 5 * M } });
     expect(isOrderInEngine(cooking, 'O1', T0 + 12 * M)).toBe(true);
     expect(isOrderInEngine(cooking, 'O1', T0 + 21 * M)).toBe(false);
+  });
+
+  // Review round 1: a Start with no FireDispatched takes the line out of the load, so the rounds are stored there too.
+  describe('a Start before the fire', () => {
+    function unfired(): { k: Kitchen; id: string } {
+      const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 30, freeze_ms: 120_000, freshness_window_ms: 60_000, programs: [{ program_id: 'P1', name: 'P', cook_time_ms: 999_999, is_archived: false }] }]);
+      k.submit('O1', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }, { id: 'B', program: 'P1', cook: 10 * M, units: 15 }], T0, { pickup: T0 + 11 * M });
+      const id = k.state.lines.A!.load_id!;
+      k.apply([capacity('F', 20, T0)]);
+      return { k, id };
+    }
+
+    it('[03a AD-29 Q11 P4] one member started: it stores the rounds, its live end is +21, the other stays in the load', () => {
+      const { k, id } = unfired();
+      const s = k.apply([startEv('O1', 'A', T0 + M)]);
+      expect(s.lines.A).toMatchObject({ stage: 'cooking', rounds: 2, fired_at: null });
+      expect(s.lines.B!.rounds).toBeNull();
+      expect(s.stations.F!.loads[id]!.order_item_ids).toEqual(['B']);
+      expect(liveInterval(s, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+      expectProfileExact(s);
+      expectRebuild(k);
+    });
+
+    it('[03a AD-29 Q11 P4] both members started: the load is gone, the station stays occupied to +21', () => {
+      const { k, id } = unfired();
+      const s = k.apply([startEv('O1', 'A', T0 + M), startEv('O1', 'B', T0 + M)]);
+      expect(s.stations.F!.loads[id]).toBeUndefined();
+      expect(s.lines.A!.rounds).toBe(2);
+      expect(s.lines.B!.rounds).toBe(2);
+      expect(liveInterval(s, 'A', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+      expect(liveInterval(s, 'B', T0 + M)).toEqual({ start: T0 + M, end: T0 + 21 * M });
+      expect(liveProfile(s, 'F', T0 + 12 * M)).toEqual({ t: [T0 + M, T0 + 21 * M], u: [20, 0] });
+      expectRebuild(k);
+    });
+
+    it('[03a AD-29 Q11 P4] a member Done with no Start, then undone: it keeps the load\'s rounds too', () => {
+      const { k } = unfired();
+      k.apply([orderEv('ItemDone', 'O1', { order_item_id: 'A', done_at: T0 + 2 * M, source: 'tap' }, T0 + 2 * M)]);
+      const s = k.apply([orderEv('ItemDoneUndone', 'O1', { order_item_id: 'A' }, T0 + 2 * M)]);
+      expect(s.lines.A).toMatchObject({ stage: 'cooking', rounds: 2 });
+      expect(liveInterval(s, 'A', T0 + 2 * M)!.end).toBe(T0 + 22 * M);
+      expectRebuild(k);
+    });
+
+    it('[03a AD-4] a line with no stored load started before the fire stores no rounds', () => {
+      const k = new Kitchen([SLOT(1)]);
+      k.submit('O1', [{ id: 'A', cook: 5 * M }], T0);
+      expect(k.apply([startEv('O1', 'A', T0)]).lines.A!.rounds).toBeNull();
+    });
+  });
+
+  it('[03a AD-29 Q11 P4] the rounds count only lines the fire really fires: an already-fired line re-listed does not raise them', () => {
+    const programs = ['P1', 'P2'].map((program_id) => ({ program_id, name: program_id, cook_time_ms: 999_999, is_archived: false }));
+    const k = new Kitchen([{ station_id: 'F', station_type: 'batch', capacity: 20, freeze_ms: 120_000, freshness_window_ms: 60_000, programs }]);
+    k.submit('O1', [{ id: 'E', program: 'P2', cook: 10 * M, units: 15 }], T0);
+    k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['E'], load_id: k.state.lines.E!.load_id!, due_at: T0, reason: 'scheduled' } }), T0)]);
+    k.submit('O2', [{ id: 'A', program: 'P1', cook: 10 * M, units: 15 }], T0);
+    const id = k.state.lines.A!.load_id!;
+    const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['A', 'E'], load_id: id, due_at: T0 + M, reason: 'scheduled' } }), T0 + M)]);
+    expect(f.lines.A!.rounds).toBe(1);
+    expect(f.lines.E!.rounds).toBe(1);
+    expectRebuild(k);
+  });
+
+  it('[03a AD-29 Q11 P4] the abandon clock reads the stored rounds at capacity 0 too, as slip and tick do', () => {
+    const { k } = oversize({ settings: { order_abandon_ms: 5 * M } });
+    const s = k.apply([capacity('F', 0, T0 + 2 * M)]);
+    expect(isOrderInEngine(s, 'O1', T0 + 12 * M)).toBe(true);
+    expect(isOrderInEngine(s, 'O1', T0 + 21 * M)).toBe(false);
   });
 
   it('[03a AD-29 Q11 P4] proposed reading: a capacity change after the fire leaves the stored rounds (fired and COOKING stay fixed, §3.10)', () => {
@@ -1454,7 +1537,7 @@ describe('@pos/engine task 18d P4: an oversize load counts its rounds everywhere
     const v = k.apply([orderEv('ItemVoided', 'O1', { order_item_id: 'A', units: 15 }, T0 + 30 * S)]);
     const booked = v.stations.F!.loads[id]!.booked;
     const f = k.apply([stamp(aFireDispatched({ stream_id: 'F', payload: { station_id: 'F', order_item_ids: ['B'], load_id: id, due_at: T0 + M, reason: 'scheduled' } }), T0 + M)]);
-    expect(f.lines.B!.rounds).toBe((booked.end - booked.start) / (10 * M));
+    expect(f.lines.B!.rounds).toBe(2);
     expect(liveInterval(f, 'B', T0 + M)!.end).toBe(booked.end);
   });
 });

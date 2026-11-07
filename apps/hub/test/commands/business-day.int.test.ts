@@ -3,7 +3,7 @@ import { parseEvent, type BranchConfig, type ConfigStockItem, type PosEvent } fr
 import { aBranchConfigItemStock, aFireDispatched, anEngineConfigApplied, anItemStarted, anOrderBatch, aStockSet } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { foldEngineEvents } from '../../src/sync/boot-steps';
+import { replayEngine } from '../../src/engine-host/replay';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -44,7 +44,7 @@ describe('business day commands (§6.18a, §6.18b)', () => {
     expect(eventsOf(hub, 'BusinessDayOpened')).toHaveLength(1);
 
     // Boot step 3 fold of the log gives the same business_day (a real boot() restart is #147).
-    expect(foldEngineEvents(hub.deps.db, 'branch-1').state.business_day).toEqual(engine(hub).business_day);
+    expect(replayEngine(hub.deps.db, 'branch-1', 0, initialEngineState(), () => undefined).state.business_day).toEqual(engine(hub).business_day);
 
     const replay = await post(hub, admin, 'open-business-day', 'OpenBusinessDay', {}, 'cmd-open-1');
     expect(replay.statusCode).toBe(200);

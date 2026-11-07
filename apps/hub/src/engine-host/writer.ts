@@ -75,10 +75,7 @@ export function createWriter<S>(o: {
             },
           };
           const value = fn(tx);
-          if (appended.length > 0) {
-            const reduce = o.state.reducer();
-            for (const event of appended) next = reduce(next, event);
-          }
+          if (appended.length > 0) next = o.state.fold(next, appended);
           o.testHooks?.beforeCommit?.();
           return value;
         })

@@ -4,7 +4,7 @@
 // of those lines (BF-14 (b)); it is pinned at one pass below, not removed. Counted reads on a Proxy over `lines`, never a
 // wall clock. The per-key = full recompute check itself is slip.test.ts #92 / #106.
 import type { PosEvent } from '@pos/events';
-import { aStockReserved, anOrderBatch } from '@pos/events/testing';
+import { aStockConsumed, aStockReserved, aStockSet, anEngineConfigApplied, anOrderBatch } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
 import { foldNamed } from '../src/apply-event';
 import * as engine from '../src/index';
@@ -80,6 +80,11 @@ function expectNamed(prev: EngineState, next: EngineState, named: FoldScope): vo
     if (prev.orders[id] !== next.orders[id]) expect(named.orderIds).toContain(id);
   }
 }
+
+const kitchenAt = (t: number): PosEvent[] => [
+  anEngineConfigApplied({ recorded_at: t - 60_000, occurred_at: t - 60_000, seq: 1 }),
+  aStockSet({ stream_id: 'KB', recorded_at: t - 60_000, occurred_at: t - 60_000, seq: 2, payload: { stock_item_id: 'KB', on_hand: 4, unit: 'piece' } }),
+];
 
 const hiddenOn = (s: EngineState): EngineLine[] => {
   const station = Object.values(s.stations).find((st) => st.type === 'slot' && st.unfired.length >= 3);
@@ -157,6 +162,33 @@ describe('[03a §7.1] fold cost', () => {
     expect(found).not.toBeNull();
     const { prev, next, named } = found!;
     expectNamed(prev, next, named);
+  });
+
+  it('[03a AD-29 Q5, Q7] naming: a refused reused id writes nothing and names nothing it did not change; a Done and its consume name the line', () => {
+    const T = 1_761_000_000_000;
+    const stamp = (e: PosEvent, seq: number): PosEvent => ({ ...e, recorded_at: T, occurred_at: T, seq, event_id: `01K${String(seq).padStart(23, '0')}` });
+    const order = anOrderBatch({
+      order_id: 'O1',
+      recorded_at: T,
+      seq: 1,
+      lines: [{ order_item_id: 'L1', item: { stock_time_ms: 60_000, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }] }, line: { from_stock: true } }],
+      reserved: [{ stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 }],
+    });
+    let state = initialEngineState();
+    for (const e of [...kitchenAt(T), ...order]) state = applyEvent(state, e);
+    const again = stamp(anOrderBatch({ order_id: 'O2', recorded_at: T, seq: 90, lines: [{ order_item_id: 'L1' }] })[0]!, 90);
+    const refused = foldNamed(state, again, { strict: false });
+    expect(refused.next.lines).toBe(state.lines);
+    expect(refused.next.orders).toBe(state.orders);
+    expect(refused.next.diagnostics.map((d) => d.detail.reason)).toEqual(['order_item_id_reused']);
+    expectNamed(state, refused.next, refused.named);
+    const done = envelope(again, 'ItemDone', 'O1', { order_item_id: 'L1', done_at: T, source: 'tap' });
+    const folded = foldNamed(state, done, {});
+    expectNamed(state, folded.next, folded.named);
+    const consume = aStockConsumed({ stream_id: 'KB', recorded_at: T, occurred_at: T, seq: 92, event_id: `01K${String(92).padStart(23, '0')}`, payload: { stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 } });
+    const consumed = foldNamed(folded.next, consume, {});
+    expect(consumed.next.lines.L1!.reserved_seq).toBeNull();
+    expectNamed(folded.next, consumed.next, consumed.named);
   });
 
   it('[03a §7.1] naming: a load shift names every member of the load', () => {

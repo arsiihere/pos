@@ -7,6 +7,7 @@ import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
@@ -15,6 +16,7 @@ const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
 const PROVISIONED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
+registerEngineBootSteps();
 registerRestaurantBootSteps();
 
 function writeConfig(provisioned = true): { path: string; cleanup: () => void } {

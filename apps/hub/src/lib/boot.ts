@@ -3,7 +3,7 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
-import { applyEvent, type EngineState } from '@pos/engine';
+import type { EngineState } from '@pos/engine';
 import '@pos/events';
 import type { EventDraft, PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
@@ -18,6 +18,7 @@ import { openDb, openReadOnly } from '../db/connection.js';
 import { runMigrations } from '../db/migrate.js';
 import { deleteLeftoverPlaintext, makePreMigrateBackup } from '../db/pre-migrate-backup.js';
 import { createAuthGeneration } from '../engine-host/auth-generation.js';
+import { engineReducer, foldEngineBatch } from '../engine-host/reducer.js';
 import { createStateHolder } from '../engine-host/state-holder.js';
 import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
@@ -46,6 +47,10 @@ export interface BootContext {
   app?: FastifyInstance;
   // 01a §2: set by a step-3 fold; createDeps builds the state holder from it.
   initialState?: unknown;
+  // ⚠️ 00 v1.7 H-1: set right after the clock is created at step 3a; later steps read ctx.clock.branchNow().
+  clock?: Clock;
+  // ⚠️ 00 v1.7 H-1: set by 03a's step 6; step 8 writes it as HubStarted.missed_fires.
+  missedFires?: number;
 }
 
 type BootStep = '2' | '3' | '5' | '6';
@@ -142,6 +147,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       row === undefined
         ? { clock: wallClock(opts.wallNow, opts.monoNow), alarm: null }
         : createBranchClock({ wallNow: opts.wallNow, monoNow: opts.monoNow, lastRecordedAt: row.recorded_at });
+    ctx.clock = opened.clock;
     const publishSlot: { current: (events: PosEvent[]) => void } = { current: () => undefined };
     const deps = createDeps(config, db, readDb, opened.clock, opts.ifaces, opts.logStream, publishSlot, ctx.initialState);
     if (opts.configClient !== undefined) deps.configClient = opts.configClient;
@@ -208,7 +214,7 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
             hub_down_at: hubDownAt,
             hub_up_at: hubUpAt,
             events_replayed: eventsReplayed,
-            missed_fires: 0,
+            missed_fires: ctx.missedFires ?? 0,
             boot_ms: Math.max(0, Math.round(opts.monoNow() - startedMono)),
           },
           occurred_at: hubUpAt,
@@ -294,7 +300,7 @@ function createDeps(
   const provisioned = config.provisioned;
   // 01a §2, S15: with no step-3 handler the state is {} as before.
   const state = createStateHolder<EngineState>((initialState ?? {}) as EngineState);
-  state.setReducer((s, e) => applyEvent(s, e, { strict: false }));
+  state.setReducer(engineReducer, (s, events) => foldEngineBatch(s, events, () => clock.branchNow()));
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);

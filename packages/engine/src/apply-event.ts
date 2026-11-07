@@ -214,7 +214,28 @@ function checkStream(event: PosEvent, order_id: string, order_item_id: string, s
 // §3.3 deterministic ids: the event's groups are `order_id:(next_group_index + i)` in order (OrderPlaced 0…n−1, an
 // addition from next_group_index), and every lines[] entry is one of order_item_ids — else InvalidEvent (AD-8).
 // An OrderLinesAdded re-opens the order (last_served_at null, §3.3 fold order).
+// AD-29 Q5 (developer; AD-8): the device mints order_item_id. An id that already names a line in state.lines (any order,
+// any stage, an AD-20 kept order's too) or that one payload lists twice is a writer bug: InvalidEvent before any write.
+// Proposed (implementer): "reused" covers every id of order_item_ids (a deal line with no lines[] entry too) and an id
+// listed twice in lines[] or across groups. An id whose order has left the state is free again: only state.lines is read.
 type ListedLine = OrderLinePayload & Partial<Pick<OrderLinesAddedLinePayload, 'return_of' | 'cook_ms_override'>>;
+function checkIdsFresh(state: EngineState, p: { order_item_ids: string[]; groups: OrderGroupPayload[]; lines: ListedLine[] }): void {
+  const once = (ids: Iterable<string>): void => {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) throw new InvalidEvent('order_item_id_reused', id);
+      seen.add(id);
+    }
+  };
+  for (const id of p.order_item_ids) {
+    const line = state.lines[id];
+    if (line !== undefined) throw new InvalidEvent('order_item_id_reused', id, line.station_id);
+  }
+  once(p.order_item_ids);
+  once(p.lines.map((l) => l.order_item_id));
+  once(p.groups.flatMap((g) => g.order_item_ids));
+}
+
 function listLines(
   state: EngineState,
   order: EngineOrder,
@@ -222,6 +243,7 @@ function listLines(
   recorded_at: number,
   o: FoldOptions,
 ): EngineState {
+  checkIdsFresh(state, p);
   const groups = { ...order.groups };
   const next = order.next_group_index + p.groups.length;
   const ids = new Set(p.order_item_ids);
@@ -546,13 +568,25 @@ function loadRounds(state: EngineState, station_id: string, load: Load | undefin
   return cook === 0 ? counted : Math.max(counted, Math.ceil((load.booked.end - load.booked.start) / cook));
 }
 
+// AD-29 Q11 P4, task 18d review: a member leaving its stored load with no fire (a Start, or a Done that an Undo may take
+// back to COOKING) stores the load's rounds as the fire would, so it never falls back to its own units.
+function leavingRounds(state: EngineState, line: EngineLine): Partial<EngineLine> {
+  const load = line.load_id === null ? undefined : state.stations[line.station_id]?.loads[line.load_id];
+  return load === undefined || line.rounds !== null ? {} : { rounds: loadRounds(state, line.station_id, load, [line.order_item_id]) };
+}
+
 function foldFireDispatched(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as FireDispatchedPayload;
   let next = state;
   const load = p.load_id === null ? undefined : state.stations[p.station_id]?.loads[p.load_id];
   const ids = load === undefined ? p.order_item_ids : [...new Set([...p.order_item_ids, ...load.order_item_ids])];
-  const rounds = p.load_id === null ? null : loadRounds(state, p.station_id, load, ids);
+  // Only the lines the loop below really fires count (a re-listed fired line, an ended one, a writer bug do not).
+  const firing = ids.filter((id) => {
+    const l = activeLine(state, id, event.recorded_at);
+    return l !== undefined && l.stage === 'added' && l.fired_at === null && l.station_id === p.station_id && (state.orders[l.order_id]?.awaiting ?? 0) === 0;
+  });
+  const rounds = p.load_id === null ? null : loadRounds(state, p.station_id, load, firing);
   for (const id of ids) {
     const line = activeLine(next, id, event.recorded_at);
     if (line === undefined || line.stage !== 'added' || line.fired_at !== null) continue;
@@ -694,7 +728,7 @@ function foldItemStarted(state: EngineState, event: PosEvent, o: FoldOptions): E
   const p = event.payload as unknown as ItemStartedPayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'added') return state;
-  const next = moveLine(state, line, event, o, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at) });
+  const next = moveLine(state, line, event, o, { stage: 'cooking', started_at: Math.min(p.started_at, event.recorded_at), ...leavingRounds(state, line) });
   return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
@@ -704,7 +738,7 @@ function foldItemDone(state: EngineState, event: PosEvent, o: FoldOptions): Engi
   const p = event.payload as unknown as ItemDonePayload;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || (line.stage !== 'added' && line.stage !== 'cooking')) return state;
-  const next = moveLine(state, line, event, o, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at) });
+  const next = moveLine(state, line, event, o, { stage: 'done', done_at: Math.min(p.done_at, event.recorded_at), ...leavingRounds(state, line) });
   return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 
@@ -838,11 +872,15 @@ function drawOf(state: EngineState, p: StockLine): { line: EngineLine | undefine
 // a batch line's program follows by currentProgram, BF-1) and re-plans: BF-7, only this line is re-placed, within
 // its own slack (flipPlacement). Proposed (implementer, overnight): a flipped line that is not hidden at the fold
 // (never a StockAdded candidate; only a writer bug gets here) takes the stock cook and keeps its fire and booking.
+// Task 18e review (AD-8, AD-29 Q5; §3.7: COOKING lines are never candidates): a line past `added` is a writer bug, here a
+// refused batch's reservation (StockReserved has no order_id) naming the other order's line: InvalidEvent, no write.
+// At `added` the fold can't tell such a reservation from a legal one: To 02 closes that (02 refuses a reused id).
 function foldStockReserved(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const strict = o.strict;
   const p = event.payload as unknown as StockLine;
   const { line, i } = drawOf(state, p);
   if (line === undefined) return state;
+  if (line.stage !== 'added') throw new InvalidEvent('stock_reserved_past_added', line.order_item_id, line.station_id);
   const draw = line.draws[i]!;
   const take = Math.min(p.quantity, Math.max(0, draw.quantity - draw.reserved));
   const prev = stockOf(state, p.stock_item_id);
