@@ -92,11 +92,10 @@ export function engineStep6(ctx: BootContext): void {
   hostFlags.checkpoint_pending = closedAt !== null && (taken === null || taken < closedAt);
   hostFlags.reconcile = true;
   // AD-8 (task 22a review I1): a drop is never silent across a restart. The replayed drops are queued for the reconcile
-  // pass (after step 5's bindFiresAlertsTick reset; 0 statements); an alert still open dedupes. proposed (implementer):
-  // "the line is gone" is read on the replayed state (the fold's own result is not kept per event).
+  // pass (after step 5's bindFiresAlertsTick reset; 0 statements); an alert still open dedupes.
   if (run !== undefined) {
     for (const d of run.invalid) {
-      const fact = droppedLineOf(d, (id) => state.lines[id] !== undefined);
+      const fact = droppedLineOf(d);
       if (fact !== null) hostFlags.dropped_lines.push(fact);
     }
     run.invalid = [];

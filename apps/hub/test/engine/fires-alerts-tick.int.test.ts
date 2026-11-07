@@ -17,6 +17,7 @@ import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot
 import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { onFreezeEntry } from '../../src/engine-host/fires-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
+import { onSigterm } from '../../src/engine-host/snapshots';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import type { WriterTx } from '../../src/engine-host/writer';
 import { boot, type BootContext, type BootHandle } from '../../src/lib/boot';
@@ -508,7 +509,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
     fakeTap(hub.deps, 'start', 'L1');
     await passes(MIN / TICK_MS + 4);
     expect(overloadAlerts()[0]).toMatchObject({ state: 'open', subject_stream_id: 'S1' });
-    // S1 leaves the config (archived): it is no longer red anywhere.
+    // S1 is removed from the config (deleted, not archived — an archived station stays in it): no longer red anywhere.
     append([anEngineConfigApplied({ payload: config({ S2: { capacity: 8 } }) as unknown as Record<string, unknown> })]);
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(overloadAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'done' });
@@ -800,5 +801,95 @@ describe('[03a AD-8] a dropped line is never silent across a restart (review I1)
     expect(hostFlags.reconcile).toBe(false);
     // The reconcile pass with two re-queued drops: 2 listOpen + raiseMany's dedupe 1 + fixed reads 5.
     expect(reads).toBe(2 + 6);
+  });
+
+  async function bootPair(): Promise<{ bootAt: (wall: number) => Promise<BootHandle>; path: string }> {
+    const cfg = writeConfig();
+    cleanups.push(cfg.cleanup);
+    return {
+      path: cfg.path,
+      bootAt: (wall: number) => boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() }),
+    };
+  }
+  const droppedRows = (h: BootHandle): Array<{ dedupe_key: string; state: string }> =>
+    h.deps.db.prepare(`SELECT dedupe_key, state FROM alerts WHERE kind = ? ORDER BY raised_seq`).all(ENGINE_ALERT_KINDS.lineDropped) as Array<{ dedupe_key: string; state: string }>;
+  const writeTo = (h: BootHandle, events: readonly PosEvent[]): void => {
+    h.deps.writer.run((tx) => tx.append(events.map((e) => draftOf(e, h.deps.clock.branchNow()))));
+  };
+
+  it('[03a AD-8] a graceful stop (SIGTERM) raises a queued drop before its snapshot, so the next boot has the alert', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { bootAt } = await bootPair();
+    const W = 1_762_000_000_000;
+    const h1 = await bootAt(W);
+    let stopped = false;
+    cleanups.push(async () => {
+      if (!stopped) await h1.stop();
+    });
+    writeTo(h1, [anEngineConfigApplied(), aBusinessDayOpened()]);
+    await vi.advanceTimersByTimeAsync(TICK_MS); // the reconcile pass, before the drop
+    writeTo(h1, anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', line: { station_id: 'S9' } }] }));
+    expect(hostFlags.dropped_lines).toHaveLength(1);
+    expect(droppedRows(h1)).toEqual([]);
+    const counter = statementCounter(h1.deps.db);
+    let reads = -1;
+    const real = firesAlertsTick.intents.bind(firesAlertsTick);
+    vi.spyOn(firesAlertsTick, 'intents').mockImplementation((tx, state, now) => {
+      const before = counter.count;
+      const out = real(tx, state, now);
+      reads = counter.count - before;
+      return out;
+    });
+    let code = -1;
+    await onSigterm(h1, (c) => {
+      code = c;
+    });
+    stopped = true;
+    expect(code).toBe(0);
+    expect(reads).toBe(2 + 6); // the flush pass: 2 listOpen + raiseMany's 6 (plus its appends)
+    vi.restoreAllMocks();
+
+    const h2 = await bootAt(W + MIN);
+    cleanups.push(() => h2.stop());
+    expect(droppedRows(h2)).toEqual([{ dedupe_key: 'engine_line_dropped:L2', state: 'open' }]);
+    // The snapshot was taken after the flush: the boot replays past the drop, nothing is re-queued.
+    expect(hostFlags.dropped_lines).toEqual([]);
+  });
+
+  it('[03a AD-8] an empty queue at SIGTERM costs no statement before the snapshot', async () => {
+    const { bootAt } = await bootPair();
+    const h1 = await bootAt(1_762_000_000_000);
+    expect(hostFlags.dropped_lines).toEqual([]);
+    const intents = vi.spyOn(firesAlertsTick, 'intents');
+    const due = vi.spyOn(firesAlertsTick, 'due');
+    await onSigterm(h1, () => undefined);
+    expect(due).not.toHaveBeenCalled();
+    expect(intents).not.toHaveBeenCalled();
+  });
+
+  it('[03a AD-8] a drop whose id is re-added later is still raised after a crash (state-free rule)', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const { bootAt, path } = await bootPair();
+    const W = 1_762_000_000_000;
+    const h1 = await bootAt(W);
+    let stopped = false;
+    cleanups.push(async () => {
+      if (!stopped) await h1.stop();
+    });
+    writeTo(h1, [anEngineConfigApplied(), aBusinessDayOpened()]);
+    writeTo(h1, anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', line: { station_id: 'S9' } }] }));
+    // The same id re-added by a later, valid order: L2 is a live line again.
+    writeTo(h1, anOrderBatch({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'L2' }] }));
+    expect((h1.deps.state.get() as EngineState).lines.L2).toBeDefined();
+    // Crash: no pass ran and no SIGTERM snapshot exists.
+    await h1.stop();
+    stopped = true;
+    const file = new Database(join(dataDirOf(path), 'hub.sqlite'));
+    file.prepare('DELETE FROM engine_snapshots').run();
+    file.close();
+    const h2 = await bootAt(W + MIN);
+    cleanups.push(() => h2.stop());
+    await vi.advanceTimersByTimeAsync(TICK_MS);
+    expect(droppedRows(h2)).toEqual([{ dedupe_key: 'engine_line_dropped:L2', state: 'open' }]);
   });
 });

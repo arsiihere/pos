@@ -5,7 +5,8 @@ import { kindOf } from '../alerts/kinds.js';
 import { alertDirectoryOf, alerts, type CloseItem, type RaiseInput } from '../alerts/raise.js';
 import type { TickDef } from '../alerts/tick.js';
 import { hostFlags, type DroppedLine } from './host-flags.js';
-import { rawDbOf } from './read-only-tx.js';
+import { rawDbOf, readOnlyDb } from './read-only-tx.js';
+import type { Writer } from './writer.js';
 import type { WarnLog } from './reducer.js';
 
 // 03a §6.2a: the `fires_alerts` tick, registered right after `fires` (registerEngineBootSteps).
@@ -68,7 +69,7 @@ const isEngineState = (s: unknown): s is EngineState =>
 export function noteAlertFacts(state: unknown, appended: readonly PosEvent[]): void {
   if (!isEngineState(state)) return;
   for (const d of state.diagnostics) {
-    const fact = droppedLineOf(d, (id) => state.lines[id] !== undefined);
+    const fact = droppedLineOf(d);
     if (fact !== null) hostFlags.dropped_lines.push(fact);
   }
   if (appended.some((e) => e.event_type === 'BusinessDayClosed')) hostFlags.day_closed = true;
@@ -83,13 +84,13 @@ export function noteAlertFacts(state: unknown, appended: readonly PosEvent[]): v
 }
 
 /**
- * AD-8: the dropped-line fact of one diagnostic, or null. `hasLine`: is the line in the fold's result. The after-commit
- * hook and boot step 3 / 6 (a replayed drop, re-queued for the reconcile pass) use this one rule:
+ * AD-8: the dropped-line fact of one diagnostic, or null. Classified on event_type and reason alone (review 2), so the
+ * after-commit hook and boot (a replayed drop, re-queued for the reconcile pass) agree whatever came later:
  * - a refused OrderPlaced / OrderLinesAdded (every line it listed is lost), `batch`;
- * - an ItemAdded whose listed line the fold dropped (reason other than line_not_listed, the line gone);
- * - an ItemAdded refused for `stream_id_mismatch` (review M1): its placeholder stays, so the order never plans.
+ * - an ItemAdded with any reason but line_not_listed: the listed line was dropped (the catch that calls dropListed), or,
+ *   for stream_id_mismatch (review M1), its placeholder stays and the order never plans. Noisy beats silent (AD-33).
  */
-export function droppedLineOf(d: Diagnostic, hasLine: (order_item_id: string) => boolean): DroppedLine | null {
+export function droppedLineOf(d: Diagnostic): DroppedLine | null {
   if (d.kind !== 'invalid_event') return null;
   const type = d.detail.event_type;
   const order_id = typeof d.detail.order_id === 'string' ? d.detail.order_id : null;
@@ -97,8 +98,23 @@ export function droppedLineOf(d: Diagnostic, hasLine: (order_item_id: string) =>
   const reason = String(d.detail.reason);
   if (type === 'OrderPlaced' || type === 'OrderLinesAdded') return { order_id, order_item_id, reason, batch: true };
   if (type !== 'ItemAdded' || reason === 'line_not_listed') return null;
-  if (reason === 'stream_id_mismatch' || order_item_id === null || !hasLine(order_item_id)) return { order_id, order_item_id, reason, batch: false };
-  return null;
+  return { order_id, order_item_id, reason, batch: false };
+}
+
+/**
+ * AD-8 / AD-33 (review 2): at SIGTERM, before the shutdown snapshot (which would move the replay past the drop), one
+ * fires_alerts pass raises the queued dropped-line facts: 01d's tickPass body, `due` on the read-only view, then its own
+ * writer.run. An empty queue: 0 statements. A throw is logged and never stops the snapshot or the stop.
+ */
+export function flushDroppedLines(deps: { db: Database.Database; writer: Writer; state: { get(): unknown }; clock: { branchNow(): number } }, log?: { error(obj: Record<string, unknown>, msg: string): void }): void {
+  if (hostFlags.dropped_lines.length === 0 || !deps.db.open) return;
+  try {
+    const now = deps.clock.branchNow();
+    if (!firesAlertsTick.due(readOnlyDb(deps.db), deps.state.get() as EngineState, now)) return;
+    deps.writer.run((tx) => tx.append(firesAlertsTick.intents(tx, deps.state.get() as EngineState, now)));
+  } catch (err) {
+    log?.error({ tick: 'fires_alerts', err }, 'fires_alerts flush at SIGTERM failed');
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- overload (§3.10)

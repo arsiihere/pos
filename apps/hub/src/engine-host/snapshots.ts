@@ -1,6 +1,7 @@
 import { ENGINE_STATE_VERSION, noOrderInEngine, toCheckpoint, type EngineState } from '@pos/engine';
 import type { PosEvent } from '@pos/events';
 import type { HubDeps } from '../server.js';
+import { flushDroppedLines } from './fires-alerts-tick.js';
 import { hostFlags } from './host-flags.js';
 
 // §3.12, F §5.8: a snapshot every 500 committed events; the newest 2 kept (snapshots of the current version, and
@@ -193,6 +194,8 @@ export async function onSigterm(
   handle: { deps: SnapshotDeps; app: { log: ErrorLog }; stop(): Promise<void> },
   exit: (code: number) => void = (code) => process.exit(code),
 ): Promise<void> {
+  // AD-8 / AD-33: the queued dropped-line alerts first, so the snapshot never moves the replay past an unraised drop.
+  flushDroppedLines(handle.deps, handle.app.log);
   try {
     cancelScheduled(handle.deps);
     writeSnapshotSync(handle.deps);

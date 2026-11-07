@@ -4,16 +4,17 @@
 //
 // Fixture: the AD-27 normal peak day of seed 7, the state with the most lines waiting to fire (as fires-tick.perf.test.ts).
 // - (a) idle: `due` on the read-only view with no flag set and an empty dropped-line queue, at the peak's instant.
-// - (b) with work: the reconcile flag forces the pass (2 listOpen), plus whatever slips, closes and overloads the peak
-//   holds at that instant; one pass = 01d's tickPass body (`due`, then its own writer.run with `intents`).
+// - (b) with work: every sample is a raise pass. Untimed before each: the alerts of the three kinds an earlier sample
+//   raised are deleted (so nothing dedupes), and DROPS dropped-line facts are queued (the simulator's orders have no
+//   placed_by, so its slips are skipped; the facts make the raise deterministic). Plus whatever overloads and closes the
+//   peak holds. One pass = 01d's tickPass body (`due`, then its own writer.run with `intents`).
 // Each sample swaps the same peak state back and rebinds the tick's host memory (skipped, red_since, overload_open), so no
-// sample leans on another's in-memory result. Alerts raised by an earlier sample stay open in the database, so later
-// samples dedupe them: the reads are the same, the appends fewer.
+// sample leans on another's result.
 import { performance } from 'node:perf_hooks';
 import { type EngineState } from '@pos/engine';
 import { generateDay, runDay } from '@pos/engine/sim';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bindFiresAlertsTick, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
+import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
@@ -23,6 +24,7 @@ const SEED = 7;
 const PASS_P99_MS = 20; // §7.1
 const WARM_UP = 3;
 const SAMPLES = 31;
+const DROPS = 5;
 const HOOK_MS = 3_600_000; // a watchdog for the day's simulation, not a bound
 
 const pctl = (xs: readonly number[], q: number): number => {
@@ -93,24 +95,32 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
     hub.clock.set(now);
     const samples: number[] = [];
     const appended: number[] = [];
+    const raised: number[] = [];
     let ran = 0;
+    const kinds = JSON.stringify(Object.values(ENGINE_ALERT_KINDS));
     for (let i = 0; i < WARM_UP + SAMPLES; i += 1) {
       reset();
-      hostFlags.reconcile = true; // forces a pass with work: the two listOpen at least
+      hub.deps.db.prepare('DELETE FROM alerts WHERE kind IN (SELECT value FROM json_each(?))').run(kinds);
+      for (let d = 0; d < DROPS; d += 1) hostFlags.dropped_lines.push({ order_id: `PERF-O${d}`, order_item_id: `PERF-L${d}`, reason: 'station_missing', batch: false });
       const started = performance.now();
       let n = 0;
+      let r = 0;
       if (firesAlertsTick.due(view, hub.deps.state.get(), now)) {
         ran += 1;
-        n = hub.deps.writer.run((tx) => tx.append(firesAlertsTick.intents(tx, hub.deps.state.get(), now))).appended.length;
+        const events = hub.deps.writer.run((tx) => tx.append(firesAlertsTick.intents(tx, hub.deps.state.get(), now))).appended;
+        n = events.length;
+        r = events.filter((e) => e.event_type === 'AlertRaised').length;
       }
       const ms = performance.now() - started;
       if (i >= WARM_UP) {
         samples.push(ms);
         appended.push(n);
+        raised.push(r);
       }
     }
     report('with work', samples, `peak seq ${peak.seq}, drafts first/last sample ${appended[0]}/${appended[appended.length - 1]}`);
     expect(ran).toBe(WARM_UP + SAMPLES); // every sample is a pass with work
+    expect(Math.min(...raised)).toBeGreaterThanOrEqual(DROPS); // and a raise pass, never a dedupe pass
     expect(pctl(samples, 0.99)).toBeLessThanOrEqual(PASS_P99_MS);
   });
 });
