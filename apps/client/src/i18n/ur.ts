@@ -580,4 +580,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.stations.field.carry_times': 'لے جانے کے اوقات',
   'errors.reference.not_slot': 'یہاں صرف ہر آرڈر الگ پکانے والے اسٹیشن استعمال ہو سکتے ہیں۔',
   'errors.reference.self': 'اسٹیشن اپنا ہی متبادل نہیں ہو سکتا۔',
+  'archive.in_use_size_groups': '{n} سائز گروپ ابھی اسے استعمال کرتے ہیں۔ انہیں دوسری کیٹیگری میں لے جائیں یا پہلے آرکائیو کریں۔',
+  'archive.in_use_deals': '{n} ڈیلز ابھی اسے استعمال کرتی ہیں۔ ان کی ترتیب بدلیں یا پہلے آرکائیو کریں۔',
+  'archive.open_size_groups': 'سائز گروپ کھولیں',
+  'archive.open_deals': 'ڈیلز کھولیں',
 };

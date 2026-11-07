@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCloudAdmin } from '../../../api/cloud-admin';
+import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { MenuView } from './MenuView';
 
@@ -283,5 +284,80 @@ describe('owner menu view', () => {
     expect(container.querySelector('[role="dialog"] form[data-form="category"]')).not.toBeNull();
     // The list stays under the dialog.
     expect(container.querySelector('[data-category-id="C1"]')).not.toBeNull();
+  });
+  describe('[01a §6.12, §6.13; 01c V16] archive refused by CONFIG_IN_USE', () => {
+    const blockedBy = (entity: string, ids: string[]) =>
+      json(409, { error: { code: 'CONFIG_IN_USE', details: { entity: 'x', id: 'x', used_by: { entity, ids } } } });
+
+    async function archiveFrom(tab: string, rowAttr: string, label: string, refuse: Response, deals: () => Response = () => json(200, { data: { can_edit_tenant: true, deals: [] } })) {
+      const { api, calls } = fakeApi((call) => {
+        if (call.method === 'PATCH') return refuse;
+        if (call.url.startsWith('/v1/admin/deals')) return deals();
+        const body = page([item('I1', 'Chicken Karahi')], null);
+        return json(200, { data: { ...body.data, variant_groups: [{ variant_group_id: 'V1', category_id: 'C1', name: 'Karahi sizes', archived_at: null }] } });
+      });
+      act(() => root.render(<MenuView api={api} />));
+      await flush();
+      const seg = [...container.querySelectorAll<HTMLButtonElement>('.pos-seg__opt')].find((b) => b.childNodes[0]?.textContent === t(tab as never));
+      await act(async () => seg?.click());
+      const more = container.querySelector<HTMLButtonElement>(`${rowAttr} button.pos-more`);
+      act(() => more?.click());
+      const entry = [...(more?.parentElement?.querySelectorAll<HTMLButtonElement>('[role="menu"] button') ?? [])].find((b) => b.textContent === label);
+      act(() => entry?.click());
+      const confirm = [...container.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.startsWith('Archive '));
+      await act(async () => confirm?.click());
+      await flush();
+      const dialog = container.querySelector('[role="dialog"]');
+      const chips = [...(dialog?.querySelectorAll('[data-in-use] .pos-chip') ?? [])].map((c) => c.textContent);
+      const buttons = [...(dialog?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
+      return { dialog, text: dialog?.textContent ?? '', chips, buttons, calls };
+    }
+
+    const CATEGORY = ['owner.menu.categories', '[data-category-id="C1"]'] as const;
+    const archiveCategory = (refuse: Response, deals?: () => Response) => archiveFrom(CATEGORY[0], CATEGORY[1], 'Archive Karahi', refuse, deals);
+    const archiveTax = (refuse: Response, deals?: () => Response) => archiveFrom('menu.tax_rates', '[data-tax-class-id="X1"]', 'Archive Standard', refuse, deals);
+
+    it('a category refused by a size group names it, says size groups, and opens Size groups', async () => {
+      const r = await archiveCategory(blockedBy('variant_group', ['V1']));
+      expect(r.chips).toEqual(['Karahi sizes']);
+      expect(r.text).toMatch(/1 size group/);
+      expect(r.text).not.toMatch(/items still use/);
+      const open = [...r.dialog!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent !== t('common.close'));
+      act(() => open?.click());
+      expect(window.location.hash).toBe('#/size-groups');
+    });
+
+    it('a category refused by a deal names it, says deals, and opens Deals', async () => {
+      const r = await archiveCategory(blockedBy('deal', ['D1']), () => json(200, { data: { can_edit_tenant: true, deals: [{ deal_id: 'D1', name: 'Family Deal', branches: [] }] } }));
+      expect(r.chips).toEqual(['Family Deal']);
+      expect(r.text).toMatch(/1 deal/);
+      expect(r.text).not.toMatch(/items still use/);
+      const open = [...r.dialog!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent !== t('common.close'));
+      act(() => open?.click());
+      expect(window.location.hash).toBe('#/deals');
+    });
+
+    it('a tax class refused by a deal names it, says deals, and opens Deals', async () => {
+      const r = await archiveTax(blockedBy('deal', ['D1', 'D2']), () => json(200, { data: { can_edit_tenant: true, deals: [{ deal_id: 'D1', name: 'Family Deal', branches: [] }, { deal_id: 'D2', name: 'Lunch Deal', branches: [] }] } }));
+      expect(r.chips).toEqual(['Family Deal', 'Lunch Deal']);
+      expect(r.text).toMatch(/2 deals/);
+      expect(r.text).not.toMatch(/items still use/);
+      expect(r.buttons).toContain(t('archive.open_deals' as never));
+    });
+
+    it('a failed name lookup still gives the deal wording and count, no item wording, no names', async () => {
+      const r = await archiveTax(blockedBy('deal', ['D1', 'D2', 'D3']), () => json(500, { error: { code: 'INTERNAL', details: {} } }));
+      expect(r.chips).toEqual([]);
+      expect(r.text).toMatch(/3 deals/);
+      expect(r.text).not.toMatch(/items still use/);
+      expect(r.text).toContain(fill(t('archive.and_more'), { n: '3' }));
+    });
+
+    it('menu_item is unchanged: item wording, names from the menu, no action button', async () => {
+      const r = await archiveCategory(blockedBy('menu_item', ['I1']));
+      expect(r.chips).toEqual(['Chicken Karahi']);
+      expect(r.text).toContain(fill(t('archive.in_use_body'), { n: '1' }));
+      expect(r.buttons).toEqual([t('common.close')]);
+    });
   });
 });

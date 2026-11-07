@@ -12,7 +12,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
-import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse } from '../BlockedDialog';
+import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse as AnyInUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
 import { errorText, issueMessages } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -46,6 +46,9 @@ function summary(station: Station): string {
     .join(' · ');
 }
 
+// A station is used by items, stock items or other stations only.
+type InUse = AnyInUse & { by?: 'station' | 'stock_item' };
+
 const BLOCKED_BODY = { item: 'archive.station_blocked_body', station: 'archive.station_blocked_by_stations', stock_item: 'archive.station_blocked_by_stock' } as const;
 const HINT_SHORT = { item: 'stations.used_by_short', station: 'stations.used_by_stations_short', stock_item: 'stations.used_by_stock_short' } as const;
 const HINT_NAMES = { item: 'stations.used_by_names', station: 'stations.used_by_stations_names', stock_item: 'stations.used_by_stock_names' } as const;
@@ -57,7 +60,7 @@ function offeredFor(stations: readonly StationRow[], selfId: string): OfferedSta
     .map((s) => ({ station_id: s.station_id, name: s.name }));
 }
 
-// 409 CONFIG_IN_USE names items (routes) or stations (alternates, A-9): name each from what is loaded.
+// 409 CONFIG_IN_USE names items (routes), stock items (01c V16) or stations (alternates, A-9): name each from what is loaded.
 async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
   if (usedEntity(error) === 'station') {
     return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
