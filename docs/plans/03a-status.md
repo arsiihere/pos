@@ -4,7 +4,82 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
-> **Batch 2 ke baad (2026-11-05):** placement core ban gaya — lines, hold-and-fire, target / promise, stage folds, `liveInterval`, re-plan passes, return lines. Gate green. Aapka AD-12 (queued deadline) laga diya; re-plan ab 700 lines par ~6 ms. AD-7 se AD-11 controller ke rulings hain (dekh lein). Batch 3 ke liye "go" ka intezaar hai.
+> **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
+
+## MORNING REPORT (2026-11-07) — batch 5 done, STOPPED as instructed
+
+**Result:** every §7.1 target measured so far passes on the normal peak day and the overload day. §12.5's incremental-insertion trigger did **not** fire. The gate is **red on exactly 2 tests**, both AD-27's measured 90 % utilisation floor: degh 86.24, karahi 89.89 (question 1).
+
+### Simulator gate vs §7.1 (one official run, lanes idle, dev laptop, engine only)
+
+| Target | Limit | Normal peak day | Overload day | Old day (before AD-27 / AD-28) |
+|---|---|---|---|---|
+| Re-plan per submit p99 | ≤ 50 ms | **10.6 ms** | **8.9 ms** | 448.1 ms |
+| Overload probes | ≤ 16 | 7 | **7** (355 searches) | 3 |
+| One day's replay from a checkpoint | ≤ 45 s | **11.5 s** | not asserted | 433.9 s |
+| 2-day replay | ≤ 80 s | **26.0 s** | not asserted | 348.7 s |
+| 20-line `StockAdded` at peak | ≤ 50 ms | **39.8 ms** | not asserted | 376.5 ms |
+| Snapshot serialise | ≤ 50 ms | **4.8 ms** | not asserted | 36.5 ms |
+| Events per day | 36k–54k | 38 304 | 39 181 | 51 134 |
+| Live = replayed | equal | equal | not asserted | equal |
+| Lines re-placed per station p99 | reported | 223 | 360 | 1 841 |
+
+Extra, not gates: `stationsLive` 1.3 ms, `getTickIntents` 4.5 ms at peak (the real rows are tests 66 and 62, with host statements). `applyEvents` = per-event fold on the full day, same value and text.
+
+**What these numbers do not say:**
+- Dev laptop, engine only: no SQLite, WebSocket or alerts. The pilot box is task 28. BF-7's 39.8 ms has the least margin.
+- One seed. A reviewer's slices on seeds 8, 11, 3 gave re-plan p99 12–15 ms and up to 13 probes, but these are slices, not gate numbers.
+- A pass covers a day with one 125 % hour, not sustained overload. The old day (about 2.5× capacity at peak) would still be far slower, and it was not re-measured with `applyEvents`.
+- Replay was measured at 38k events, 15 % below R6, and §7.1's row says ≈ 66k. Fold cost grows with state size, so do not scale 11.5 s linearly. Task 29 has to reconcile that row.
+
+### Batches and commits (head of this report's commit on `module-03a`, pushed)
+- **Batch 3:** `35ffd9d` … `f61ad5d`, **batch 4:** `afb53ef` … `dc92693`, see their entries below.
+- **Batch 5:** 16 `3492171`, `ecc7c24` · 16b `ee9b076`, `83800d8` · 17 `2620148`, `3512fa5` · 18a `92b5965`, `c4bc1b0` · 18p `f22b88e`, `d00b7b3` · 18 `bb8595f`, `5846860`, `12022e5`, `d36375d` · 18b `78b2cdd`, `0caf794`, `7253e9b` · 18c `0e637a0`, `c678d6d` · 18t `91cc555` · docs `61feab3`, `d67dcc5`.
+
+### Review fix rounds
+| Task | Rounds | What the review caught |
+|---|---|---|
+| 8b, 9, 14 | 0 | 14 found two gaps no task owned → 14b |
+| 13, 12, 12b, 15, 15b, 16, 17, 18a, 18p | 1 each | e.g. 15b an expedited plate landing 10+ min later; 16 a frozen line moving earlier; 17 a capacity drop over-booking |
+| 16b | 1 (Minors) | a multi-line pull over-booking |
+| 10, 14b | 2 each | 14b's second round fixed an error in the controller's own instruction |
+| 18b, 18c | 18b 0, 18c 0 | Approved; cleanups went in `7253e9b`, `c678d6d` |
+
+Not reviewed by a separate opus reviewer: **task 18's own commits** (`12022e5`, `d36375d`; the perf tests were read in 18b's review) and **18t's fix** `91cc555` (read by the controller; its fuzz was 6 000 legal seeds, 0 mismatches).
+
+**Worth knowing:** 18t found a real bug legal events reach: a capacity change could lose a late-order alert key (1 seed in 1 000 under tight settings). Fixed.
+
+### Gate
+`flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`: typecheck and lint pass; 336 files passed, 1 failed, 1 skipped; 2 579 tests passed, **2 failed** (the two above), 2 skipped, 1 todo (`[03a BF-9]`); 30 m 43 s. The gate's perf numbers went to a scratch folder, so the official run stands.
+
+### Questions for you
+1. **Utilisation ruler (blocks a green gate).** Keep the clock-hour assert, or use the 10-minute window? Same run: clock hour bbq 90.63, degh **86.24**, karahi **89.89**, tandoor 92.52, tawa 92.13; window 93.43 / 93.61 / 90.78 / 92.53 / 92.13. A reviewer shifted the day's start by 20 min and the clock-hour reds disappeared, so they mostly show where the hour boundary falls. Recommendation: the window, as a ruling; nobody should "fix" this by moving the start.
+2. **Confirm the day.** Degh 100 → 4 and tandoor 60 → 30 are within your ruling's words and make the day harder, but AD-27 names only lower demand. Degh 4 has no field basis (A14 still unknown), and the drill says two tandoors = 60. Only seed 7 of 20 meets the demand band; the mean wait 22 min and T − now < 2 h threshold are the implementer's. Report-only runs on seeds 8 and 11?
+3. **AD-28 literal gap.** Not one copy per call: about 8–9 % of folds still copy `lines` (removal and re-plan). The purpose is met (fold 0.576 → 0.275 ms on a peak slice). Accept, or allow an in-place delete, which changes `slip_due` byte order but no result found (at most about 10 % more)?
+4. **§7.1 upkeep row is still not fully met:** stage folds pass over all lines once (BF-14 (b); no index in v3), `ordersByKey` is O(open orders). Word it into §7.1 at task 29, or a spec-first index? Numbers now pass without it.
+5. **Reused live line id.** Should `listLines` reject one (AD-8: strict throws, non-strict `invalid_event`)? Today it overwrites the line and leaves the state malformed. Recommendation: yes, and 02 should state who mints `order_item_id`.
+6. **BF-9 / AD-2 vs tests #42, #118** (batch 4 entry): not built, `it.todo`. Rewrite those tests for AD-2, or take BF-9's accepted-cost option?
+7. **Done or Served without a Start on a from-stock line:** no consume; units stay reserved up to 4 h. Should it consume?
+8. **`sold_out` line when 0 < available < needed:** refused (AD-19), while 02 greys out only at 0. OK?
+9. **Late-start rounding (AD-24 S1):** 03a §3.3 / F-20 say no rounding, F's pseudocode rounds. Which wins?
+10. **§2 #5 "a config change never alters an open line" vs §3.11's "alternates, carry | from the next re-plan":** built per §3.11 (AD-25). Reconcile at task 29?
+11. **Boost and marks (AD-23):** B3 a boosted delivery can land long before pickup; P8 a return queues on a FIFO station (vs Q15a); P9 a moved expedite line loses its follow-up weight; P4 an oversize load's slip estimate under-counts rounds.
+12. **`pullEarly` returning `null` inside the limit (AD-24 E2):** 03b must handle it. OK?
+
+### AD rows
+- **Developer rulings:** AD-1, AD-2, AD-3, AD-4, AD-6, AD-12, AD-16, AD-27, AD-28.
+- **Controller rulings, before the overnight rule (still proposed):** AD-5, AD-7, AD-8 (developer condition added), AD-9, AD-10 (developer note added), AD-11, AD-13, AD-14, AD-15.
+- **Proposed (implementer, overnight), for you to rule on:** AD-17, AD-18, AD-19, AD-20, AD-21, AD-22, AD-23, AD-24, AD-25, AD-26.
+
+### Open items
+Open items list below (1–8). Carried to host tasks: 20 log and clear diagnostics, fold via `applyEvents` (`REPLAY_CHUNK` not yet exported); 22 check the checkpoint after the pass's fold; 22a `engine_line_dropped`, goes-with pre-ticks, dedupe `reserve_fallback`; 26 `stations-live` with in-flight lines; 29 fold AD rows, §10.6 days, §7.1 replay row, P-11 assert (270). Task 28 needs the pilot mini PC.
+
+### Exact next step
+1. Answer question 1 (the only one blocking a green gate) and tell me if question 2 changes the day.
+2. **Allow the merge:** `.claude/settings.json:38` denies `Bash(git merge:*)`, which blocks your planned `git merge --no-ff origin/module-03a-cloud` before task 23. Allow it or run it yourself.
+3. Say go for batch 8 (19–22a), 22b; before task 23 merge the cloud lane, resolve lockfile / test-registry conflicts only, rerun the gate; if C5 is not pushed yet, do 24 and R2 first.
+
+**Stash note:** `stash@{0}` "partial before power cut 2" is on `module-03a-cloud`, the other lane's; I left it alone.
 
 ## Rules for this board
 
@@ -15,18 +90,20 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 ## §7.1 performance (gate: task 18; pilot box: task 28)
 
+CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 09:23–09:28, head `91cc555`, other lanes idle, load 3.6 → 2.1, i7-4900MQ dev laptop; engine only, seed 7. Old-day figures in brackets are from before AD-27 / AD-28, on a shared machine. Raw: `.superpowers/sdd/03a-plan/task-18-numbers-normal-day-official.json` (its `day_policy_fifo` / `day_policy_edf` sections are stale old-day data: that step is off unless `POS_PERF_POLICY=1`).
+
 | Path | Target | Drill (Python, seed 7) | CI (task 18) | Pilot box (task 28) |
 |---|---|---|---|---|
-| Re-plan per submit p99 | ≤ 50 ms | 641.3 ms (pessimistic, not the gate) | **MISS** 448.1 ms (p50 39.0, max 1 055.0; n 2 000; load 5.3 → 3.4) | — |
-| Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | 414 / 1 841 / 1 894 (n 7 429) | — |
-| Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | not set: gate missed | — |
-| Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | probes pass: max 3 (47 searches: bbq 31, tawa 16, tandoor 0) / **MISS** 307.9 ms (p50 32.6, max 470.6; n 2 000; load 4.3 → 3.9) | — |
-| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **MISS** max 376.5 ms (p50 278.5; n 21; 20 flipped; load 3.8) | — |
-| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | pass: max 36.5 ms (p50 27.0; n 21; 4.54 MB, 5 779 lines; load 3.8) / task 21 | — |
-| Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | **MISS** 433.9 s (51 133 events; load 3.4 → 4.6) | — |
-| 2-day replay (steps 2–3) | ≤ 80 s | — | **MISS** 348.7 s (101 703 events; load 9.1 → 4.3; engine fold only, no SQLite read) | — |
-| Events replayed per day | ≈ R6 ± 20 % | 65 876 | pass: 51 134 (+13.6 % on R6's 45k, AD-26) | — |
-| Live = replayed (generated day) | equal | — | pass: end state and 102 mid-day states equal | — |
+| Re-plan per submit p99 | ≤ 50 ms | 641.3 ms (pessimistic, not the gate) | **pass 10.6 ms** (p50 3.5, max 20.6; n 2 000). Overload day p99 8.9 (old day: MISS 448.1) | — |
+| Lines re-placed per station re-plan p50 / p99 / max | reported; CI bound set by P-11 | 60 / 650 / 685 | 23 / 223 / 240 (n 5 401). Overload day 39 / 360 / 385 (old day 414 / 1 841 / 1 894) | — |
+| Re-placed-lines bound asserted (P-11) | `ceil(1.2 × p99 / 10) × 10` | — | computed 270 (`ceil(1.2 × 223 / 10) × 10`); **not yet asserted**, adding it needs another perf run | — |
+| Overload day (tandoor 125 %): probes / p99 | ≤ 16 / ≤ 50 ms | — | overload day per AD-27 (125 % for one hour): **pass** max 7 probes (355 searches) / **pass** 8.9 ms (max 55.6) (old definition: 3 / MISS 307.9) | — |
+| 20-line `StockAdded` at peak (BF-7) | inside 50 ms | — | **pass** max 39.8 ms (p50 37.1; n 21; 20 flipped) (old day: MISS 376.5) | — |
+| Snapshot serialise (task 18) / full write (task 21) | ≤ 50 ms | — | **pass** max 4.8 ms (p50 3.5; 0.90 MB, 1 126 lines at peak) / task 21 (old day 36.5, 4.54 MB) | — |
+| Full-day replay from a checkpoint | ≤ 45 s | 284.7 s (Python) | **pass** 11.5 s (38 303 events, 0.30 ms per event) (old day, per-event fold: MISS 433.9) | — |
+| 2-day replay (steps 2–3) | ≤ 80 s | — | **pass** 26.0 s (76 457 events; engine fold only, no SQLite read) (old day: MISS 348.7) | — |
+| Events replayed per day | ≈ R6 ± 20 % | 65 876 | pass: 38 304 (−14.9 % on R6's 45k, AD-26) | — |
+| Live = replayed (generated day) | equal | — | pass: end state and 76 mid-day digests equal; `applyEvents` = per-event fold, same value and same text, full day | — |
 | `fires` pass with work p99 | ≤ 20 ms | — | (test 62) | — |
 | `fires_alerts` pass with work p99 | ≤ 20 ms | — | (tests 76, 93) | — |
 | Crash restart ≤ 500 events (steps 2–3) | ≤ 2 s | — | (test 64) | — |
@@ -60,11 +137,15 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 | 14b | 4 | HIGH | DONE | `1eb33e7`, `9e893c9`, `9bcd50a` | #62 boundary clause, F D42, `[03a AD-20]` | added overnight: `ReservationsShifted` fold, exited orders kept while reserved |
 | 15 | 4 | HIGH | DONE | `249f91d`, `663ca0a` | #35, #36, #92, #106, BF-3, BF-4, BF-10, BF-14 | |
 | 15b | 4 | NORMAL | DONE | `4e5fd86`, `dc92693` | #37, #38, #77 engine | |
-| 16 | 5 | HIGH | TODO | | #34, #45, #97, #100, #107 engine, #108, F #11 | |
-| 16b | 5 | NORMAL | TODO | | #33, #46–#48, #50 | |
-| 17 | 5 | HIGH | TODO | | #53–#55, #94 | |
-| 18a | 5 | NORMAL | TODO | | [03a §10.6 harness] | |
-| 18 | 5 | HIGH | TODO | | §10.6 perf asserts | **GATE** |
+| 16 | 5 | HIGH | DONE | `3492171`, `ecc7c24` | #34, #45, #97, #100, #107 engine, #108, F #11 | |
+| 16b | 5 | NORMAL | DONE | `ee9b076`, `83800d8` | #33, #46–#48, #50 | |
+| 17 | 5 | HIGH | DONE | `2620148`, `3512fa5` | #53–#55, #94 | |
+| 18a | 5 | NORMAL | DONE | `92b5965`, `c4bc1b0` | [03a §10.6 harness] | |
+| 18p | 5 | HIGH | DONE | `f22b88e`, `d00b7b3` | `[03a §7.1]` naming guard | added: fold cost per §7.1, no result changed |
+| 18b | 5 | HIGH | DONE | `78b2cdd`, `0caf794`, `7253e9b` | AD-27 days | developer ruling: normal peak day, overload day |
+| 18c | 5 | HIGH | DONE | `0e637a0`, `c678d6d` | `[03a AD-28]` | developer ruling: `applyEvents` |
+| 18t | 5 | HIGH | DONE | `91cc555` | `[03a #106]` capacity touch | added: legal `slip_due` gap fixed (read by the controller, no separate reviewer) |
+| 18 | 5 | HIGH | MEASURED | `bb8595f`, `5846860`, `12022e5`, `d36375d` | §10.6 perf asserts | **GATE**: every §7.1 target measured here passes on the normal peak day (AD-27); 2 AD-27 utilisation asserts red, developer decision |
 | C1 | 6 | NORMAL | TODO | | [01a §5.2a] | cloud `0007_engine_config.sql` |
 | C2 | 6 | NORMAL | TODO | | [01a §6.9 A-2–A-10] | |
 | C3 | 6 | NORMAL | TODO | | [01a §6.9a], Q-v2.1-1, Q-v2.1-2 | |
@@ -248,3 +329,12 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
   3. AD-19: refuse a `sold_out` line when 0 < available < needed? 02 greys an item out only at 0, so a short line looks orderable and is then refused.
 - **Carried to later tasks:** 16 / 16b — `lateStartShift` writes `ReservationsShifted` (`late_start`, the fold exists), `[03a #96 shift]`, `[03a #115 shift]`, reuse `pressureBp`, the bands and #48; 17 — #94 static set; 18 — add a 20-line `StockAdded` at peak (≈ 44 ms at 1 200 hidden lines on the dev box), record upkeep cost (+37 µs per event), memoise packing per (station, t) if re-plan p99 is tight; 20 — log diagnostics and clear; 22 — evaluate `noOrderInEngine` / `checkpoint_pending` after the pass's fold (test 111 "that pass"); 22a — `engine_line_dropped`, dedupe `reserve_fallback`, the D12 goes-with pre-ticks (AD-22); A14 / hub — use the array form of `stockEffects`; 03b — fire a whole load before a Start or pull on one of its lines; `GiveMeMore` on a `single_tap` line writes the inferred start; 29 — §3.7 "no fold throws" per AD-6, an A-row for S14 `StockSet` below reserved / 01a #66, §6.1f wording, Q14 prose, 03a line 340 "fired never moves".
 - **Open items:** see Open items above (6, 7 new).
+
+## Batch 5 — Disturbances, views, config, the simulator gate (2026-11-07)
+
+- **Tasks:** 16, 16b, 17, 18a, 18p (added), 18, 18b, 18c (developer rulings), 18t (added).
+- **Commits, reviews, gate, gate numbers:** see MORNING REPORT and the §7.1 table above.
+- **Power cuts:** two in this batch, none lost committed work; no code was stashed; interrupted reviews resumed or re-briefed.
+- **Tests closed:** #33, #34, #45, #46, #47, #48, #50, #53, #54, #55, #94, #96 shift, #97, #100 (engine), #107 engine, #108, #115 shift; F #11; §10.6 perf asserts (AD-27 floor red); BF-7 measured. Hub clauses of #100 → 25, #107's 409 → 02.
+- **AD rows:** AD-23 – AD-26 proposed (implementer, overnight); AD-27, AD-28 developer rulings.
+- **Carried:** in the MORNING REPORT.

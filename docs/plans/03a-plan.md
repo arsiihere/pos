@@ -641,7 +641,7 @@ BF-9 and BF-10 each name two options; the plan takes the first stated option of 
 - **Done when:** the perf project is green in `pnpm -w test` and the numbers are committed.
 - [ ] **Commit:** `test(03a): task 18 simulator perf gate, bounds recorded [spec §10.6, §7.1, §12.1 DoD 6; BF-7]`
 
-**Simulator bounds** (filled by task 18): re-placed lines per station re-plan — p50 414, p99 1 841, max 1 894; not set: gate missed.
+**Simulator bounds** (task 18, normal peak day, AD-27): re-placed lines per station re-plan — p50 23, p99 223, max 240; P-11 gives p99 ≤ 270, **computed, not yet asserted** (adding it needs a perf run). Old day, before AD-27: 414 / 1 841 / 1 894.
 
 ---
 
