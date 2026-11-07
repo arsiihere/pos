@@ -27,7 +27,6 @@
 ### Needs a developer look
 1. **Flaky test, outside this lane:** `apps/hub/test/alerts/inbox-catch-up.int.test.ts:493` checks that logs never contain `480000`, and a log's `responseTime` can (seen: `13.025480000000243`). It failed one gate at `5c7d68d`, then passed 3 of 3 alone and in the final gate. It will fail again at random.
 2. **Older defect, not fixed:** `features/owner/menu/MenuView.tsx:385` shows `variant_group` and `deal` in-use answers as items.
-3. **Confirm:** the station Timing group is on the Edit form only (CL-18). A new station takes defaults and goes to Pass, so choosing another point takes a second step.
 4. **`set-branch-settings` CLI** audit rows hold 3 fields against the route's 19 (CL-17).
 5. **Unused column:** 0007's `version` columns are never compared (CL-5).
 6. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-11, CL-12, CL-13, CL-16, CL-17 and "Task 29 notes" below.
@@ -47,6 +46,9 @@
 | CL-5 | `version` column vs R30 | Check how R30 writes work and follow the existing pattern; come back only if it means changing the column. **Outcome:** R30 `expected_version` is a content hash built per wire (`menu-variants/versions.ts`, `staff-roles`); 0006's tables have no `version` column. New wires follow the hash. 0007's `version` column stays as §5.2a states and no write compares it, so the column needs no change. Flag the unused column at task 29 | `points`, stations, branch settings wires |
 | CL-6 | Push policy, build | Red mid-batch pushes are fine (engine lane merges at its task 23). Push C1, the board and after every task. Build apps/client once here. Branch must be green at the end | — |
 | CL-14 | C7, C8, C9 need client files outside CL-1's list | Yes: this lane may edit `apps/client/src/api/**` and `apps/client/src/i18n/**` | as listed |
+
+### §12.4 note (developer ruling)
+Add-station dialog: Timing stays on the Edit form only, because the pilot has one point, "Pass". No code. A new station takes the server defaults (CL-18).
 
 ### Proposed AD rows
 - CL-7 (C2): POST with no `point_id` uses the active "Pass", else the active point with the lowest (`sort_order`, `point_id`), else `422 { field: 'point_id' }`.
