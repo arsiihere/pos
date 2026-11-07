@@ -1,16 +1,41 @@
 # 03a cloud lane status (C1–C9)
 
-## Report: in progress (C2 onward), developer rulings received
+## End report: C1–C9 built, gate green
 
-The first stop, at C2, is resolved by the AD rows below.
+**Result:** all of C1–C9 are built, reviewed and pushed. Full gate at `822a3a2`, under the lock, exit 0: typecheck and lint clean, 2622 tests passed, 1 skipped, 1 todo. No commit after it touches code.
 
-| Task | State | Commit | Review |
-|---|---|---|---|
-| C5a (schema half of C5) | done, pushed | fdb0e6f | approved, 4 Minor parked |
-| C1 | committed, NOT pushed | 9d8b930, dcca7a1 | SQL correct, 3 Important open, all need decisions |
-| C2–C4, rest of C5, C6–C9 | not started | | |
+| Task | Commits | Review |
+|---|---|---|
+| C1 migration 0007 | 9d8b930, dcca7a1 | Clean; 3 Important closed by rulings CL-3, CL-4 and the C2 fixture repair |
+| C2 station fields | 99fd486, 1c540fd | Approved |
+| C3 points routes | 1cdf184, 8c951ff, 4227c85 | Approved |
+| C4 knobs, goes-with | 93b713b, caf7c07 | Approved |
+| C5 schema 3 (split: additive, then flip in C6) | fdb0e6f, 8a53778 | Approved |
+| C6 builder, hub, V3 flip | ef3e780, 8a53778 (flip, last), 21996e8 | Approved |
+| C7 branch settings | 7c43232, 2cc5c78, c29594a | 1 Important (stale version race) fixed and verified |
+| C8 points page, station timing | 36ed5c8, 5c7d68d, 822a3a2 | 7 Important over 2 fix rounds, fixed and verified |
+| C9 kitchen timing, item timing, goes-with | f861e27, 3d4b6a2 | 1 Critical (goes-with data loss), 3 Important, fixed and verified |
 
-Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at dcca7a1: 214 failed, 2210 passed, 41 files failed.
+**Merge note for the engine lane:** the V3 flip is `8a53778`. Cloud migration 0008 is free for R1b. `apps/hub/src/sync/boot-steps.ts` and non-test files in `packages/engine` were not touched.
+
+### Not done or not verified
+- **No browser check.** C8 and C9 are covered by component tests only. To check by eye: Points page, Timing groups at phone width, RTL, the phone nav entry, Reload after a real `409`.
+- **Urdu strings are unreviewed** implementer translations and need a native read.
+- **No whole-branch review.** Reviews were per task or pair, as briefed.
+- **C8's first commit had no RED run:** the implementer wrote code before tests. Both C8 fix rounds did run RED first, and the reviewer judged most of the original tests constrain behaviour.
+
+### Needs a developer look
+1. **Flaky test, outside this lane:** `apps/hub/test/alerts/inbox-catch-up.int.test.ts:493` checks that logs never contain `480000`, and a log's `responseTime` can (seen: `13.025480000000243`). It failed one gate at `5c7d68d`, then passed 3 of 3 alone and in the final gate. It will fail again at random.
+2. **Older defect, not fixed:** `features/owner/menu/MenuView.tsx:385` shows `variant_group` and `deal` in-use answers as items.
+3. **Confirm:** the station Timing group is on the Edit form only (CL-18). A new station takes defaults and goes to Pass, so choosing another point takes a second step.
+4. **`set-branch-settings` CLI** audit rows hold 3 fields against the route's 19 (CL-17).
+5. **Unused column:** 0007's `version` columns are never compared (CL-5).
+6. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-11, CL-12, CL-13, CL-16, CL-17 and "Task 29 notes" below.
+
+### Environment notes
+- `pos_test_cloud` did not exist; the controller created it. An implementer hand-reset 0007 in it once.
+- Two power cuts: `pos-pg-test` stayed down both times and the developer started it. The stash `a621fdc` ("partial before power cut 2") holds an abandoned C4 test, is no longer needed, and was left in place.
+- One gate went red with 76 failures at `c29594a` because a reviewer ran tests in the same database at the same time. It was the controller's scheduling error, not code: the same failures did not return.
 
 ### AD rows: developer rulings
 | AD | Problem | Developer ruling | Files |
@@ -34,6 +59,8 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - CL-15 (C6): the snapshot drops alternates with an archived station at either end; goes_with drops only archived ends, so a link to an active item not routed at this branch stays, and consumers must tolerate that id; carry times naming an archived point stay, because the point stays in `points[]`.
 - CL-16 (C7): `expected_version` is new and required on branch settings PATCH, built per B-6 and B23 because the endpoint had no version. 01b §5.3, §9 and `BranchWire` need as-built rows at task 29. A version-only body is `400` per §6.10's "at least one", unlike staff and role PATCH.
 - CL-17 (C7): branch settings and rename lock in one statement and read in a second, because a joined `FOR UPDATE OF b` kept a stale `e` under READ COMMITTED. Write 7 statements, no-op 3. `set-branch-settings` CLI audit rows hold 3 fields against the route's 19 (task 29).
+- CL-18 (C8): station Timing group on the Edit form only; new stations take server defaults. Pressure amber and red are typed as percent and sent as basis points. `/points` is matched in `App.tsx` because `src/app/router.ts` was outside the list.
+- CL-19 (C9): owner forms read the whole menu (at least 2 reads) on open; until it loads, or if it fails, the goes-with picker is off and `goes_with` is never sent; only targets known to be archived are dropped; unknown targets are kept as removable rows.
 - C5a staging: V3 added next to V2, `SNAPSHOT_SCHEMA_VERSION` stays 2 until the flip (pin V2 to `z.literal(2)` or remove it then).
 
 ### Parked for later tasks
@@ -44,6 +71,8 @@ Gate: not run in full (known red). Tests run with `vitest --dir apps/cloud` at d
 - C2/C3 test precision (Minor, reviewer): CL-7 "Pass first" clause untested (`stations-engine.int.test.ts:349`); clearing a nullable to null untested (`:161`); `issue-code.int.test.ts:68` does not prove rollback; another tenant's ids in body references untested; 100 ms race holds; point race test title (`points.int.test.ts:310`).
 - Task 29 notes: §6.8 points lack `version`; §6.0 lacks §6.9a; `points_branch_name_active` is case-sensitive, stations use `lower(name)`; CL-11 alternate `FOR UPDATE` briefly blocks FK key-share writers.
 - C8/C9 owner forms must drop archived targets and alternates before saving, or a resend gets `422`; a category archive path of ruling 7 is untested (`item-timing.int.test.ts:412`, Minor).
+- OPEN (older than 03a): `features/owner/menu/MenuView.tsx:385` passes every `used_by` to `itemNames`, so `variant_group` and `deal` in-use answers read as items (`service.ts:924,1040,1046`). Same defect class as C8's fix; not touched here.
+- C8/C9 Minor (reviewer): a re-added alternate row shows its old refusal until the next Save (`Timing.tsx:375`); stale comments at `BlockedDialog.tsx:14`, `StationsView.tsx:60`; untested failed `listStockItems` and second refused save.
 - C1 test order dependency at `engine-config-migration.int.test.ts:112` (Minor).
 
 ### Notes
