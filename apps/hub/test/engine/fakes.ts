@@ -1,9 +1,9 @@
 // 03a §4.4 stubs, test fakes only (nothing of 02 or 03b is built): a fake `SubmitOrder` that calls checkOrderable,
 // reserveStock and planOrder and appends the §4.2 batch, and the Start / Done drafts a real command would write
 // (with their stock effects from stockEffects, array form, AD-29 Q7).
-import { checkOrderable, planOrder, reserveStock, stockEffects, type EngineState, type ProposedOrder } from '@pos/engine';
+import { checkOrderable, lateStartShift, planOrder, reserveStock, stockEffects, type EngineState, type ProposedOrder } from '@pos/engine';
 import type { ConfigStockItem, EventDraft, PosEvent } from '@pos/events';
-import { anItemAdded, anOrderBatch } from '@pos/events/testing';
+import { anItemAdded, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
 import type { HubDeps } from '../../src/server';
 
 export function draftOf(event: Pick<PosEvent, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'> & Partial<PosEvent>, at?: number): EventDraft {
@@ -115,4 +115,74 @@ export function fakeTap(deps: Pick<HubDeps, 'writer'>, kind: 'start' | 'done', o
     const now = tx.clock.branchNow();
     return tx.append(kind === 'start' ? fakeStartDrafts(state, order_item_id, now) : fakeDoneDrafts(state, order_item_id, now));
   }).appended;
+}
+
+// 02's SubmitOrder refuses an order with a `sold_out` line that stock cannot serve (§3.7, E1 stock AC4): nothing is
+// appended. Otherwise as fakeSubmit. The state is read inside the transaction (race rule, test 74).
+export function fakeSubmitOrRefuse(deps: Pick<HubDeps, 'writer'>, o: FakeOrder, stock?: FakeStock): { refused: string[]; appended: PosEvent[] } {
+  return deps.writer.run((tx) => {
+    const state = tx.state as EngineState;
+    const refused = reserveStock(state, proposedOf(o), stock?.dayStartMs ?? 0, stock?.stockItems ?? [], {}).refused;
+    if (refused.length > 0) return { refused, appended: [] as PosEvent[] };
+    return { refused, appended: tx.append(fakeSubmitDrafts(state, o, tx.clock.branchNow(), stock)) };
+  }).result;
+}
+
+// A Served tap (03b's command, stubbed): ItemServed plus its stock effects (AD-29 Q7).
+export function fakeServedDrafts(state: EngineState, order_id: string, order_item_ids: string[], now: number): EventDraft[] {
+  const served = draftOf({ stream_type: 'order', stream_id: order_id, event_type: 'ItemServed', schema_version: 1, payload: { order_item_ids, source: 'tap' } }, now);
+  return stockEffects(state, [served]).map((d) => stamp(d, now));
+}
+
+// 02's boost (§3.9): OrderBoosted { order_id }.
+export function fakeBoostDrafts(order_id: string, now: number): EventDraft[] {
+  return [draftOf({ stream_type: 'order', stream_id: order_id, event_type: 'OrderBoosted', schema_version: 1, payload: { order_id } }, now)];
+}
+
+// 02's ReturnToKitchen (§3.8a) for a served line, given its ItemAdded: the return line planned by planOrder (as 02
+// would), then aReturnLinesAdded's batch (OrderLinesAdded, ItemAdded, ItemReturned for `remake`).
+export function fakeReturnDrafts(state: EngineState, served: PosEvent, mode: 'fix' | 'remake', now: number): EventDraft[] {
+  const s = served.payload as { order_id: string; order_item_id: string; station_id: string };
+  const order = state.orders[s.order_id]!;
+  const id = `${s.order_item_id}R`;
+  const proposed = {
+    order_id: s.order_id,
+    order: { order_type: order.order_type, table_id: order.table_id, table_key: order.table_key, follow_up: order.follow_up, pickup_at_ms: order.pickup_at_ms },
+    lines: [
+      {
+        ...served.payload,
+        order_item_id: id,
+        line_kind: 'item',
+        options: [],
+        stock_draws: [],
+        alternates: [],
+        point_id: null,
+        carry_ms: 0,
+        weight_pct: 100,
+        max_early_ms: 60_000,
+        max_late_ms: null,
+        max_carry_ms: null,
+        cook_ms_override: mode === 'fix' ? 180_000 : null,
+        return_of: { order_item_id: s.order_item_id, mode },
+      },
+    ],
+  } as unknown as ProposedOrder;
+  const plan = planOrder(state, proposed, now, { [id]: false });
+  const group = plan.groups[0]!;
+  const batch = aReturnLinesAdded(served, mode, {
+    order_item_id: id,
+    recorded_at: now,
+    target_land_ms: group.target_land_ms,
+    promise_ms: group.promise_ms,
+    group_index: order.next_group_index,
+    line: { station_id: plan.lines[0]!.station_id, alternates: plan.lines[0]!.alternates },
+  });
+  return batch.map((e) => draftOf(e, now));
+}
+
+// A late Start tap: as fakeStartDrafts, plus 03b's lateStartShift draft when it gives one (§3.3, F §4.7 D42), drafted
+// on the state before the Start, as the simulator does.
+export function fakeLateStartDrafts(state: EngineState, order_item_id: string, now: number): EventDraft[] {
+  const shift = lateStartShift(state, order_item_id, now);
+  return [...fakeStartDrafts(state, order_item_id, now), ...(shift === null ? [] : [stamp(shift, now)])];
 }
