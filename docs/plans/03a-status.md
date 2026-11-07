@@ -4,9 +4,58 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **Batch 9 ke baad (2026-11-07, raat):** tasks 19–22b aur 24 mukammal, gate green, clean §7.1 run poora pass (BF-7 38.7 ms, stations-live 2.5 ms). **Task 23 ruka hua hai:** 03a ka slip `details` (minutes_late, lines) 01d ke `AlertDetailsBase` mein fit nahi hota. Yeh spec ka faisla hai, aapka. Upar MORNING REPORT parhein.
+>
 > **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
 
-## MORNING REPORT (2026-11-07) — batch 5 done, STOPPED as instructed
+## MORNING REPORT (2026-11-07, night): batches 8 and 9 done except task 23, STOPPED (stop rules 2 and 5)
+
+**Head:** the docs commit at the top of `module-03a`, pushed. Code head `7b45d1b`.
+
+**Stop reason.** Task 23 cannot be built without a spec change that crosses a module contract.
+- 03a §3.8 (spec line 479) gives `slip_warning` `details_schema { minutes_late, lines: [{ name, quantity, state }] }`, citing 01d §3.12.
+- 01d v1.1.1 §3.12 says every kind's `details_schema` "picks and requires fields from" `AlertDetailsBase = { item?, quantity?, amount?, reason? }`.
+- The code enforces 01d. The `AlertRaised` v1 payload `details: AlertDetailsBase.nullable()` silently strips both fields (checked by parse). `ws-frames.ts:42` `StrictCard` (`AlertDetailsBase.strict()`) refuses them, so every slip card would fail `frame_invalid`.
+- No reading keeps both rules. The implementer stopped and made no commit (stop rules 2 and 5).
+
+**Your ruling, pick one:**
+1. **(Recommended) Widen 01d and 03a by a spec bump.** `AlertDetailsBase` gains optional `minutes_late: int ≥ 0` and `lines: [{ name, quantity ≥ 1, state }]` (≤ some cap). They stay signed-in-card only, never in lock, alert-mode, device frames or logs (01d §7). The same change goes into `AlertRaised` v1 and `StrictCard`. You also decide whether adding optional nested fields keeps the event at v1 (old rows still parse) or needs `AlertRaised` v2.
+2. **Re-word 03a §3.8 into the existing base.** `item` = the line names joined (≤ the string limit), `quantity` = the line count, `reason` = "N min late". 01d is untouched, but the per-line `state` is lost from the card.
+
+**Done in batch 8 (19, 20, 21, 22, 22a; AD-34 follow-ups) and batch 9 (22b, 24):** every task passed a fresh opus review. Fix rounds:
+- 22a: 2 rounds (the dropped-line alert across a crash and across a graceful restart).
+- 22b: 1 round (frames for line-only changes).
+- 24: 1 round (the catch-up kept clearing `configStale`).
+- AD-34: none.
+
+**Gate:** green at `7b45d1b`: 357 files passed (1 skipped), 3139 tests passed (1 skipped, 1 todo), 14 m 24 s. The batch 8 gate's first run had one cloud-lane flake (below).
+
+**Clean §7.1 measurement (batch 8, idle machine):** every row passes.
+- BF-7 max 38.7 ms and stations-live max 2.5 ms, so there is no 18d–20 slowdown and nothing to fix.
+- Fires pass p99 11.2 ms; fires_alerts p99 10.6 ms; idle `due` 2.2 ms; re-plan p99 9.5 ms; replay 11.8 s.
+- See the §7.1 table and the batch 8 entry.
+
+**Questions for you:**
+1. **Task 23's details contract** (above): it blocks 23 and therefore 27's full run.
+2. **AD-35 (24-1).** Every forward config apply writes one `EngineConfigApplied`, a price-only one too, because §3.11's E() includes `config_version`. The fold then re-plans nothing and frames nothing. Test 70's "a price change → none" holds only at an equal version.
+   - Recommendation: keep the literal reading and add an editorial note to test 70 at task 29.
+   - Excluding the version would make boot step 6 see "stale" after every price change.
+3. **AD-35 (22b-1).** The `station_plan` frame uses `sendToSessions`, not §3.6.3's `sendToDevices`, which would reach alert-mode sockets (00 H-1). Fold this at task 29?
+4. **The rest of AD-35:** readings 22b-2 … 22b-5 and 24-2 … 24-5, proposed.
+
+**For you, not blocking:**
+- **The cloud lane's `stash@{0}` is gone from the stash list.** It was "On module-03a-cloud: partial before power cut 2". Its commit `a621fdc` is intact (dangling). If it is needed: `git stash store -m "On module-03a-cloud: partial before power cut 2" a621fdc`. The likely cause is the 22a implementer's `git stash push/pop -- apps/hub/src` during its RED run. Batch 9 implementers were told never to stash.
+- **Cloud test flake.** `apps/cloud/test/db/staff-roles-migration.int.test.ts` once raised an unhandled pg `57P01` ("terminating connection due to administrator command"), most likely the scratch-DB helper's `DROP DATABASE … WITH (FORCE)` on an open client. The file passes alone, 3 of 3. It belongs to the cloud lane.
+- **Task 21's fix edited hub2's A-14 test** in `business-day.int.test.ts`: it now subtracts the checkpoint statements.
+- **Task 24 edited 01a's sync tests** (`config-hook`, `poller`, `poller-apply-failure`, `poller-directory`) to expect the new `EngineConfigApplied`. 01a §4.2 / S40 N2 allow the hook's append, so no 01a contract change.
+
+**Exact next step:**
+1. Rule on question 1 and bump the spec(s). Then task 23 runs: the real kinds in `engine-host/kinds.ts`, `details` in the slip input, the accept `apply` with goes-with pre-ticks.
+   - Notes for 23: `test/engine/fakes.ts` kinds are skipped once the real ones register. #76 relies on the fake's `table_key max(64)`. `resetEngineKindFakes()` would unregister the real kinds. Move the fakes into `kinds.ts`.
+2. Then batch 9's gate again, and task 27. The hub3 merge (`d4ee16a`) is present, so 27's precondition is met.
+3. Answer questions 2–4 when convenient.
+
+## Previous MORNING REPORT (2026-11-07, batch 5): answered by AD-29
 
 **Result:** every §7.1 target measured so far passes on the normal peak day and the overload day. §12.5's incremental-insertion trigger did **not** fire. The gate is **red on exactly 2 tests**, both AD-27's measured 90 % utilisation floor: degh 86.24, karahi 89.89 (question 1).
 
@@ -163,9 +212,9 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | 21 | 8 | HIGH | DONE | `9ebf943`, `7531ec2` | #61, #112 | AD-33 (SIGTERM). The fix also edited hub2's A-14 test in `business-day.int.test.ts` (it subtracts the checkpoint statements) |
 | 22 | 8 | HIGH | DONE | `2569ce7`, `111a906`, `8aaa49c` | #60, #62 hub, #63, #71, #73, #79, #95, #111 hub | AD-33 |
 | 22a | 8 | HIGH | DONE | `f7e04dc`, `804e3b3`, `04284b0` | #76, #82, #86, #93, #113, BF-4 hub | AD-33; I4 (slip `details`) carried to 23 |
-| 22b | 9 | NORMAL | TODO | | #83 | |
-| 23 | 9 | NORMAL | TODO | | #65, #67, #72, #77 hub | |
-| 24 | 9 | NORMAL | TODO | | #70 | |
+| 22b | 9 | NORMAL | DONE | `3372391`, `a74fefd` | #83 | AD-35 (22b-1 … 22b-5) |
+| 23 | 9 | NORMAL | **BLOCKED** | | #65, #67, #72, #77 hub | 03a §3.8 details vs 01d §3.12 `AlertDetailsBase`: see the MORNING REPORT |
+| 24 | 9 | NORMAL | DONE | `950bc71`, `7b45d1b` | #70 | AD-35 (24-1 … 24-5); it also edited 01a sync tests |
 | A14 | 9 | HIGH | TODO | | [01a §6.17, §6.17a, §6.18b A-14] | |
 | R2 | 9 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | [00 H-5, H-6] | hub `0008_device_point_lane.sql` |
 | R1 | 10 | NORMAL | DONE (hub2 lane, merged `9c7a75d`) | | [01b B-1, B-2, B-3, B-5] | |
@@ -216,6 +265,7 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | AD-32 | 22–26, R1b | Developer rulings 2026-11-07 (after the hub2 merge) | — | **Developer rulings:** (1) the stock frames for `StockReserved` / `StockReleased` / `StockConsumed` go to every staff socket of the branch; (2) `mark-served` default scope `'branch'`; (3) AD-2 superseded by AD-29: held lines consumed, not re-reserved; (4) **perf tests out of the normal gate:** the perf project no longer runs in `pnpm -w test`; it runs only as `pnpm test:perf` inside a clean measurement (create `/tmp/pos-perf.running`, trap to delete it); timing asserts on a shared laptop under load are noise; the official §10.6 gate is the clean run; (5) at the next batch checkpoint take one clean measurement and record BF-7 (39.8 ms official; hub2 saw 51–63 ms under load) and `stations-live` (hub2 saw 6.8 ms vs 5); if either misses on an idle machine, find which of 18d–20 slowed it and fix it before continuing | The developer's call | root `package.json`, `vitest.config.ts` |
 | AD-33 | 21, 22, 22a | Host readings in batch 8 | per reading | **Accepted in full (developer, 2026-11-07):** (21) SIGTERM is caught with `process.once('SIGTERM')`, which checkpoints and then closes; the spec names a Fastify `onClose` hook, but the checkpoint needs the writer to still be open, which `onClose` does not guarantee. (22) The fires tick: a config catch-up runs before the fires and in the same transaction; a pass that commits nothing writes no `last_pass_ms`. (22a) (1) "Dropped a line" means an `ItemAdded` dropped for a reason other than `line_not_listed`, an `ItemAdded` refused with `stream_id_mismatch` (its placeholder stalls the order), or any refused `OrderPlaced` / `OrderLinesAdded`. (2) A refused batch gets the key `engine_line_dropped:<order_id>:<order_item_id>`; the drop of a single line keeps the per-id key. (3) The closes are appended before `raiseMany`, so a slip carried over the day close is a new alert (§3.8). (4) **A capped station below amber is not closed**: §3.10's "closed below amber" and its "capped and not open → raise" would otherwise close and re-raise on every pass, against §6.2a "never due again". This needs a spec fold at task 29. (5) A deduped slip key, or a resolved key with no open alert, joins `skipped`. (6) An unregistered kind is logged and skipped, never thrown. (7) The dropped-line alert's subject is the order stream. (8) Dropped-line facts are re-queued at boot from the step-3 replay diagnostics (0 statements). A drop whose alert managers already closed inside the replay window is raised again: noisy, not silent. (M2) The tick's own event on a skipped key gives one extra retry and a second log line. (M4) A station in `overload_skipped` is retried only after a restart. (Review 2) A wrong-stream `ItemAdded` for an absent or unlisted order also raises `engine_line_dropped` (noise, not silence). An open overload of a station deleted from the config closes `done` while it may still be red (it has no thresholds left). On SIGTERM a non-empty dropped-line queue is flushed by one `fires_alerts` pass before the snapshot; if that flush itself throws, the snapshot is still written and the drop stays only in the error log (narrow, logged). A stop without SIGTERM writes no shutdown snapshot, so boot re-queues the drop | Keeps the spec's rules; (4) picks the one consistent reading | `apps/hub/src/engine-host/*`, task 29 |
 | AD-34 | hub3 merge, 29 | Developer rulings 2026-11-07 (after the hub3 merge) | — | **Developer rulings:** (1) commands 25 and 25b stay registered in `server.ts`, and task 26's audiences stay in `ws/engine-audiences.ts`; (2) `appendEvents` returns early when there is nothing to append (no `MAX(seq)` read); (3) `SetStationCapacity`'s statement test is tightened to an exact count; (4) the double re-plan on a capacity change is accepted, with a note for task 29; (5) the snapshot timing check in `snapshots.int.test.ts` moves to `pnpm test:perf` (it hit 60–91 ms under load); (6) for task 29's as-built and release notes: 01b §3.6 "no two entries for one station" applies within each responsibility kind; "upgrade every hub before anyone assigns run_station" | The developer's call | `apps/hub/src/events/*`, `apps/hub/test/engine/snapshots*.test.ts`, task 29 |
+| AD-35 | 22b, 24 | Host readings in batch 9 | per reading | **Proposed (controller and implementers), for the developer:** (22b-1) the `station_plan` frame is sent with `sendToSessions` (00 AD-74), not `sendToDevices` as §3.6.3 writes: `sendToDevices` also reaches a device's alert-mode socket, which 00 H-1 / F-6 limits to alert frames; the audience is exactly §3.6.3's (tested). (22b-2) A socket's station is noted when its catch-up part is built (`connectedSessions()` has no `stationId`); 0 statements. (22b-3) The catch-up part is an array of bodies, one per station in `state.stations` sorted by id, archived included; a station socket whose station is unknown gets its own empty body. (22b-4) "Plan changed" = the station's reference changed **or** any of its lines' references changed (a host diff, no engine change). This over-sends a little: a line change outside the plan body (draws, a fired or cooking line) also frames its station. The content is correct and the cost is small, so it is accepted; a filter on body fields is possible later. Open test gap: the StockReleased test does not pin `stations.S1` as unchanged. (22b-5) The frame goes out in the after-commit hook, before that commit's event frames (`writer.addAfterCommit` order): **for 03b**. (24-1) **Developer to confirm:** `config_version` is inside E() and the comparison (§3.11 "exactly the `EngineConfigAppliedV1` fields"), so every forward apply writes one `EngineConfigApplied`, even a price-only one. The fold then re-plans nothing and frames nothing (reviewed). Test 70's "a price change → none" holds only at an equal version; recommend an editorial note on test 70 at task 29. (24-2) `reference_cook_ms`: present in the snapshot, `variant_group_id === null`, `stock_time_ms` not read, lower median, clamped at 0. (24-3) A repeated `station_id` keeps its first row. (24-4) After 3 non-committing catch-up attempts, ordinary fires passes run, and the catch-up retries once per 60 s while `configStale` stays true. Each failed retry logs two error lines (the tick loop's `tick failed` plus the back-off line), bounded to about two a minute. Open test gap: a hook commit during the back-off (the `catchUps.delete` branch). (24-5) Task 24 also edited 01a's sync tests (`config-hook`, `poller`, `poller-apply-failure`, `poller-directory`) to expect the new `EngineConfigApplied`; 01a §4.2 / S40 N2 allow the hook's append, so no 01a contract change | Keeps the spec's rules; (24-1) is the literal §3.11 formula | `apps/hub/src/engine-host/{station-plan,reducer,config-hook,fires-tick}.ts`, test 70 |
 
 Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD rows at the named checkpoint:
 
@@ -375,3 +425,18 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 - **For the developer:**
   - The cloud lane's `stash@{0}` ("On module-03a-cloud: partial before power cut 2") is no longer in the stash list. Its commit `a621fdc` is intact. Restore it with `git stash store -m "On module-03a-cloud: partial before power cut 2" a621fdc` if it is still needed. The 22a implementer used `git stash push/pop -- apps/hub/src` for its RED run, which is the likely cause.
   - The cloud pg 57P01 flake (above).
+
+## Batch 9 — station_plan, config hook; task 23 blocked (2026-11-07)
+
+- **Tasks:** 22b and 24 done; 23 **BLOCKED** (see the MORNING REPORT).
+- **Commits:** `3372391`, `a74fefd` (22b); `950bc71`, `7b45d1b` (24).
+- **Reviews (fresh opus each):**
+  - 22b: Needs fixes. Important: a line-only change (an expedite on a frozen line, a StockReleased deadline) got no frame. Round 1 fixed it with a host line diff. **Approved.**
+  - 24: Needs fixes. Important: the catch-up give-up cleared `configStale` without the append (against §3.11). Round 1 keeps the flag and retries once per 60 s. **Approved.**
+- **Gate:** `pnpm -w typecheck && pnpm -w lint && pnpm -w test` at `7b45d1b`, under the lock: **green**. 357 files passed (1 skipped), 3139 tests passed (1 skipped, 1 todo), 14 m 24 s. No perf re-run: the batch 8 clean run stands, and neither 22b nor 24 is on a measured path except the fires pass (one extra flag check).
+- **Tests closed:** #70, #79 (real E()), #83.
+- **AD rows:** AD-35 (proposed; 24-1 is a developer question).
+- **Carried:**
+  - 23: everything, once the details contract is ruled.
+  - 29: the §3.6.3 `sendToSessions` wording; the test 70 note; the over-sending of `station_plan` frames (accepted).
+- **Working-tree incidents:** the two batch 9 implementers worked in parallel. 22b committed only its own hunks of the shared `fires-tick.ts` / `index.ts` with `git hash-object` + `update-index` (reviewed: the committed files are self-consistent). No stash was used.
