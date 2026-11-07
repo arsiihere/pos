@@ -20,7 +20,7 @@
 
 | # | Item | Result |
 |---|---|---|
-| 1 | Flaky inbox log test | Fixed, `9078fb3`: reads log fields, still catches a real leak |
+| 1 | Flaky log tests | Fixed, `9078fb3` (inbox) and the next test(01d) commit (personal notices, alert mode): read log fields, not raw text |
 | 2 | `MenuView.tsx:385` | Fixed, `985f169`, `226bf7c`: size groups and deals under their own names |
 | 3 | Add-station dialog | §12.4 note below, no code |
 | 4 | Browser check | Done, `49d2229`..`3dfeb94`: 38 screenshots and a table in `docs/reviews/03a-cloud-browser/` |
@@ -34,16 +34,15 @@
 - **Browser check gaps:** real phones; cloud-down and failed-menu-read states. `b7cfeef` (station errors under the box) has component tests only, because that browser script was not rerun on the final build.
 - **Urdu:** all 447 strings are unreviewed drafts awaiting the native read. About 760 Urdu keys on other pages (login, stock, staff) remain English, out of scope.
 - **C8's first commit had no RED run:** the implementer wrote code before tests. Both C8 fix rounds did run RED first.
-- **Two Urdu strings removed:** `errors.OWN_ADMIN_ACCESS` and `errors.OWN_ADMIN_ACCESS_owner_not_linked` were added during the browser check though they are off its pages. They had the number in the wrong word order and broke `apps/client/src/app/support.test.ts`, which relies on that key having no Urdu. They fall back to English as before.
+- **Two Urdu strings removed:** `errors.OWN_ADMIN_ACCESS` and `errors.OWN_ADMIN_ACCESS_owner_not_linked` were added during the browser check though they are off its pages. They had the number in the wrong word order and broke `apps/client/src/app/support.test.ts`, which relies on that key having no Urdu. They fall back to English as before, by developer ruling, and `i18n.test.ts` excludes those two keys from its scan.
 - **One-commit rule:** the `MenuView` fix is two commits (`985f169`, `226bf7c`), and `65dbb4e` alone fails `tsc`; `b7cfeef` fixes it.
 
 ### Needs a developer look
-1. **Ruling needed (review Minor 1):** a saved goes-with link to an archived target is deleted when the owner edits that list, so restoring the target does not bring it back. Either accept it in CL-19, or let the server accept an unchanged archived link so the client can resend it. The reviewer leans to the second.
-2. **Same flake in two more files, outside this lane:** `apps/hub/test/alerts/personal-notices.int.test.ts:297` and `apps/hub/test/ws/alert-mode.int.test.ts:347` still search raw logs for `480000`, so gates can still fail at random.
-3. **Remaining review Minors:** see the review for a NUL in a body answering 500, unhelpful messages on a refused station restore or add, the whole-menu read on every edit form open, client range tables repeating the Zod ranges, and a branch-specific permission going to `module-03a` with the merge.
-4. **`set-branch-settings` CLI** audit rows hold 3 fields against the route's 19 (CL-17).
-5. **Unused column:** 0007's `version` columns are never compared (CL-5).
-6. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-7, CL-8, CL-9, CL-10, CL-11, CL-12, CL-13, CL-15, CL-16, CL-17, CL-18, CL-19, station alternates and carry times being last write wins against §5.2a, and "Task 29 notes" below.
+1. **OPEN, held by the developer (review Minor 1):** a saved goes-with link to an archived target is deleted when the owner edits that list, so restoring the target does not bring it back. The server change that would let the client resend an unchanged archived link is held for later; no code changed for it.
+2. **Remaining review Minors:** see the review for a NUL in a body answering 500, unhelpful messages on a refused station restore or add, the whole-menu read on every edit form open, client range tables repeating the Zod ranges, and a branch-specific permission going to `module-03a` with the merge.
+3. **`set-branch-settings` CLI** audit rows hold 3 fields against the route's 19 (CL-17).
+4. **Unused column:** 0007's `version` columns are never compared (CL-5).
+5. **Task 29 as-built list:** CL-3, CL-4, CL-5, CL-7, CL-8, CL-9, CL-10, CL-11, CL-12, CL-13, CL-15, CL-16, CL-17, CL-18, CL-19, station alternates and carry times being last write wins against §5.2a, and "Task 29 notes" below.
 
 ### Environment notes
 - `pos_test_cloud` did not exist; the controller created it. An implementer hand-reset 0007 in it once.

@@ -163,10 +163,13 @@ const DYNAMIC: readonly string[] = [
   'errors.IDEMPOTENCY_KEY_MISMATCH',
 ];
 
+// Staff-page errors that stay English until the native read; app/support.test.ts relies on that fallback.
+const ENGLISH_FOR_NOW: readonly string[] = ['errors.OWN_ADMIN_ACCESS', 'errors.OWN_ADMIN_ACCESS_owner_not_linked'];
+
 describe('[01a v2.1 §8.1; S49] Urdu on the owner timing pages', () => {
   const named = new Set(Object.values(SOURCES).flatMap((source) => [...source.matchAll(/'([a-zA-Z0-9_.]+)'/g)].map((m) => m[1]!)));
   const keys = (Object.keys(en) as (keyof typeof en)[]).filter(
-    (key) => named.has(key) || key.startsWith('owner.stations.field.') || DYNAMIC.includes(key),
+    (key) => (named.has(key) || key.startsWith('owner.stations.field.') || DYNAMIC.includes(key)) && !ENGLISH_FOR_NOW.includes(key),
   );
 
   it('reads the pages', () => {
