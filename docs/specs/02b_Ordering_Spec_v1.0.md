@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v1.0 — FINAL, awaiting the developer's approval** (2026-11-07; simplified by the owner, §12.14). Review trail: G2, G4 runs 1–3, targeted check, re-check (`docs/reviews/02b_v0.5.1_recheck.md`, verdict **APPROVE WITH WORDING FIXES**, R-1–R-4 applied here, §12.10). On approval the §4.5 rows are applied to their specs (§12.1); not yet built. |
+| Doc | Module spec, **v1.0 — APPROVED** (developer as the owner's proxy, 2026-11-07; simplified by the owner, §12.14; last checks `02b_v1.0_hostile_run4.md` and `02b_v1.0_run4_targeted_check.md`, §12.16–§12.17). §4.5 rows applied by bumps: Foundation v1.11, 00 v1.8, 01a v2.3, 01b v1.7, 01c v1.1.2, 02a v1.1; 03a v1.2 goes with the engine lane's as-built (G1-1). Review trail: G2, G4 runs 1–3, targeted check, re-check (`docs/reviews/02b_v0.5.1_recheck.md`, verdict **APPROVE WITH WORDING FIXES**, R-1–R-4 applied here, §12.10). On approval the §4.5 rows are applied to their specs (§12.1); not yet built. |
 | Depends on | Foundation **v1.10**, 00 Hub Platform & Access **v1.7**, 01a Restaurant Setup **v2.2**, 01b Staff & Roles **v1.6**, 01c Menu Variants **v1.1.1**, 01d Notifications & Requests **v1.2**, **02a Tables v1.0**, **03a Timing Engine v1.1** (and the engine lane's as-built code on `module-03a`, read at `d4ee16a`; engine and event files equal to `f7e04dc`) |
 | Inherits | Shared Standards from Foundation v1.10 §6. Not redefined here. |
 | Inputs | `docs/stories/02b-g0.md` (G0, owner answers §5.4), `docs/stories/02b-g1-decisions.md` (G1-1–G1-20), `docs/stories/02-g0.md` §5.4, `01d-g0-decisions.md` Z1–Z8, C1–C4, G0-6; 03a build carried rows (AD-17, AD-19, AD-29, AD-30). |
@@ -256,7 +256,7 @@ B-4 adds `own_tables` to the scope sets of `take-order`, `boost-order`, `mark-it
 
 `OrderType = 'dine_in' | 'takeaway' | 'parking'` (03a also has `delivery`; refused with `422 VALIDATION_FAILED` path `order_type` until P2). `CarType = 'sedan' | 'mini' | 'large'`. `CompReasonCode` = the branch's chip codes (01a A-1) or `'other'`.
 
-### 4.5 Changes to other specs (R26) — **Proposed, applied on approval**
+### 4.5 Changes to other specs (R26) — **Applied on approval (2026-11-07)**; 03a rows wait for 03a v1.2 (G1-1)
 
 | Row | Spec → version | Change | Cost (R29) |
 |---|---|---|---|
