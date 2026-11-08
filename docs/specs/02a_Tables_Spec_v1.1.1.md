@@ -259,7 +259,7 @@ Commands register `permission: 'take-order'` (or `clean-table`, `force-release-t
 
 ### 4.4 Shared types
 
-Event schemas in `@pos/events/src/tables/*.ts`; `TableState` in `@pos/domain`.
+Event schemas in `packages/events/src/events/table/*.ts`; `TableState` in `@pos/domain`. *(02p task 0, n-2: was `@pos/events/src/tables/*.ts`; the path of 02p §10 Acceptance.)*
 
 ### 4.5 Changes to other specs (R26) — **Applied 2026-11-07** (Foundation v1.10 F-1–F-3; 01a v2.2 A-1; 01b v1.6 B-1–B-3; 01d v1.2 D-1–D-3; 03a v1.1 Q-1, Q-2; README R-1). P-1 stays open until 02b is approved.
 
@@ -651,8 +651,8 @@ Every command: happy path, each error code, D32 retransmit, scope (C8), stale `s
 
 ## §11. Build order (one task per commit, TDD)
 
-1. ~~Approved bumps first (not 02a tasks): 01a A-1, 01b B-1–B-3, 01d D-1 and D-3 (with their tests), 03a Q-1 and Q-2.~~ **Built in 02p** (`02p_Platform_Changes_Spec`, batches 2–5) before this sprint; 02a registers the real readers behind 02p's hooks (`holdersOfOrders` for 03a Q-1, the `table_team` / `zone_order_taker` resolvers for 01d D-1) in steps 6–7. 02a declares `RequestBill`, `CleanTable` `queueable` (00 v1.8) in step 17.
-2. `@pos/events/src/tables/*` (§6.19); `@pos/domain` `TableState`, §9 codes.
+1. ~~Approved bumps first (not 02a tasks): 01a A-1, 01b B-1–B-3, 01d D-1 and D-3 (with their tests), 03a Q-1 and Q-2.~~ **Built in 02p** (`02p_Platform_Changes_Spec`, batches 2–5) before this sprint; 02a registers the real readers behind 02p's hooks (the 03a Q-1 reader pair `holdersOfOrders` **and** `currentTableOf` in one `registerSlipReaders` call, 03a v1.2 §4.4; 02p task 0, n-3: was "`holdersOfOrders` for 03a Q-1" alone; the `table_team` / `zone_order_taker` resolvers for 01d D-1) in steps 6–7. 02a declares `RequestBill`, `CleanTable` `queueable` (00 v1.8) in step 17.
+2. `packages/events/src/events/table/*` (§6.19); `@pos/domain` `TableState`, §9 codes. *(02p task 0, n-2: was `@pos/events/src/tables/*`.)*
 3. Migration `NNNN_tables.sql` (§5).
 4. Projection `tables` (T19) with the state fold (§3.1) and `reset` (tests 31–33, 38).
 5. Lock part of `tables`: activity fold (§3.3; tests 9, 9b).
@@ -672,7 +672,7 @@ Every command: happy path, each error code, D32 retransmit, scope (C8), stale `s
 19. Queries, catch-up, audiences (tests 36, 37).
 20. Client (§8), Playwright flows.
 
-Files: `apps/hub/src/tables/`, `apps/hub/test/tables/`, `packages/events/src/tables/`, `apps/client/src/staff/tables/`.
+Files: `apps/hub/src/tables/`, `apps/hub/test/tables/`, `packages/events/src/events/table/`, `apps/client/src/features/staff/tables/`. *(02p task 0, n-2: was `packages/events/src/tables/`, `apps/client/src/staff/tables/`; the paths of 02p §10 Acceptance.)*
 
 ---
 
