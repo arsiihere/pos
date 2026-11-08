@@ -53,3 +53,11 @@ T2 Production. Justification: real concurrency races exist in P1 (stock reservat
 - New error codes: define them in the module spec, then append them to the foundation §6.2 list and `@pos/domain/src/errors.ts`.
 - No N+1: list/batch endpoints use a fixed number of queries.
 - Small commits, one task per commit. Don't touch files outside the current task.
+
+## Test environment (owner rule, 2026-11-08)
+- The normal gate runs on RAM. Hub SQLite test files go under `TMPDIR=/dev/shm`: `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. These tests check behaviour, not speed or durability.
+- The Postgres test container `pos-pg-test` (port 5433) runs with `fsync=off`, `synchronous_commit=off` and `full_page_writes=off`, set via `ALTER SYSTEM` + `pg_reload_conf()` (no restart). Its data stays on the Docker volume. This is the accepted form for the test-only container. Never stop, restart or `compose down` it.
+- `pnpm test:perf` (the 03a §7.1 numbers) always runs on the real disk, alone on a quiet machine. Never run it with `TMPDIR=/dev/shm` or on tmpfs.
+- Power-loss and crash-durability proof happens only on the pilot hardware (03a task 28 style manual checks), never on a dev laptop.
+- Production never changes: the hub stays SQLite WAL + `synchronous=FULL`, and cloud Postgres keeps fsync on.
+- No timing asserts in the normal gate (03a AD-32). Timing lives in `test:perf`.
