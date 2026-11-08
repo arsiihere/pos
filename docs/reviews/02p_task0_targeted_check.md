@@ -136,7 +136,7 @@ Two MAJOR findings. Both are text-only, but each leaves a current-rule sentence 
 | T-2 | Fixed: test 65 hands its `dine_in` clause to test 120; test 113 says "no holder returned" |
 | T-3, T-4 | Fixed: §1 Version row bumped; "Depends on" row is one cell again, closing pipe added |
 | T-5 | Fixed: "superseded" pointers at §6.2a step 2, the statement line, §10.5; §6.3 names the id-set read; §3.1 #8 reworded |
-| T-6 | **Open for the owner** (it changes R-3's rule). Test 125's fixture now says it writes the previous day's checkpoint and C. Proposed: H = 0 when step 2 reads fewer than two checkpoint rows |
+| T-6 | Fixed by owner ruling 2026-11-08: H = 0 when step 2 finds fewer than two kept checkpoints, else the older one's `last_seq` (§3.12, R-3 row); test 125 covers one and two checkpoints; test 130 |
 | T-7 | Fixed: control clause is live only; replay leg checks the zone `ItemAdded` diagnostic |
 | T-8, T-9 | Fixed: label = primary table of the oldest order; `null` also when `currentTableOf` has no entry; "the name lookup adds 0 statements" |
 | T-10, T-11, T-12, T-13 | Fixed |
