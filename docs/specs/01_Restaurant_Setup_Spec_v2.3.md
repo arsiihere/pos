@@ -12,6 +12,7 @@
 | — | `branch_engine_settings` gains `queue_auto_send_max_ms` (14 400 000; 00 v1.8 M95 cap), `zone_undo_ms` (300 000), `slow_item_threshold_ms` (900 000, E2-SOLD AC2), `served_estimate_ms` (null until 03b) and `comp_reason_chips` (text list, default "Late", "Wrong item", "Quality", "Guest", "Other") | A-12 settings |
 | — | `StockTransferredOut` (03a v1.2 Q-5) added to `STOCK_VERSION_EVENTS` (`sync/stock-version.ts`), the stock-frame audience (`ws/restaurant-audiences.ts`) and the boot fold lists | §6.19 |
 | — | Tests 189–195 | §10.5j |
+| — | *As built, 02p task 3 (owner rulings 2026-11-08, AD-4–AD-7; text only, no bump):* table restore clears a stale archived zone; a zone restore onto an archived floor is refused; archiving an item or station named by an active zone list, or making a zone stock item weighed / not piece, → `409 CONFIG_IN_USE` (`used_by` zone); three new `CONFIG_REFERENCE_INVALID` reasons | §6.6, §6.6b, §6.9, §6.15, §9 |
 
 
 **v2.2 — APPROVED 2026-11-07 (developer as the owner's proxy), with 02a Tables v1.0 (breaking before the pilot, R29).** Change driven by 02a v1.0 §4.5 row A-1 (`docs/specs/02a_Tables_Spec_v1.0.md`): **zones** inside a floor, `dining_tables.zone_id`, two admin routes, snapshot schema 4. **Ships in the same release as 03a's snapshot schema 3, before the pilot; fixtures move V3 → V4 once.** Not yet built: **built in 02p** (02p §11 tasks 3, 4, 6). *(02p task 0, m-8: was "built with 02a".)* Markers "⚠️ Changed by 02a v1.0 (A-1)".
@@ -386,6 +387,8 @@ An item is **stock-tracked** at a branch when its route is at a slot station and
 
 > ⚠️ Changed by 02b v1.0 (A-1): snapshot V4 (same release, R29) adds `floors[].zones[].routes: [{ item_id, station_id }]`, `floors[].zones[].stock_items: [{ item_id, threshold }]` and `items[].is_ready_item: boolean`. See 02b §3.10, §3.3.
 
+> *As built, 02p task 4 (owner rulings 2026-11-08, AD-10–AD-12):* the five `branch_engine_settings` columns of §5.2a (`queue_auto_send_max_ms`, `zone_undo_ms`, `slow_item_threshold_ms`, `served_estimate_ms`, `comp_reason_chips`) are delivered in the top-level `engine_settings` beside the A-12 fields (no new `settings` key, AD-10); an archived zone is delivered with `is_archived: true` and `routes: []`, `stock_items: []` (its cloud rows stay and apply again on restore, AD-9; AD-11); `routes[]` and `stock_items[]` are sorted by `item_id` (AD-12). Zones of an archived floor are not delivered (`floors[]` holds active floors only; such zones are all archived, §6.4; AD-14).
+
 ### 4.4 Requirements carried to other modules
 
 | To | Requirement |
@@ -713,7 +716,7 @@ The "slot station ⇒ no program" and "batch station ⇒ program" rules (§3.3) 
 | A-20 | 01a S14 fold rules | *New in v0.6.2 (G4-3 #3):* "a `StockAdded` whose `unit` differs from the entry's `unit` throws" → the fold leaves the entry unchanged and reports an invariant breach, which the hub logs (03a §3.7); no stock fold throws. The command still never appends such an event (S45), so the case stays a bug signal, now one that cannot fail an unrelated transaction | — | — | S14, S45 |
 | A-19 | `StockAdded` v2 (01c V5 schema, 01a S45 rule) | optional `reason?: 'moved'`, additive within v2; absent = a manual add (v0.2, pre-G2 #13) | — | absent | F-18 |
 
-> ⚠️ Changed by 02b v1.0 (A-1): `branch_engine_settings` gains `queue_auto_send_max_ms` (3 600 000–86 400 000, default 14 400 000; the cap of 00 v1.8 M95), `zone_undo_ms` (0–1 800 000, default 300 000), `slow_item_threshold_ms` (60 000–7 200 000, default 900 000; the "25 min" tile clock, E2-SOLD AC2), `served_estimate_ms` (nullable, until 03b), `comp_reason_chips` (1–10 labels of 1–30 chars, default "Late", "Wrong item", "Quality", "Guest", "Other"; `other` always needs a note, 02b §3.9). Written and read like the other fields (01b's branch settings endpoint, B-6); delivered in V4.
+> ⚠️ Changed by 02b v1.0 (A-1): `branch_engine_settings` gains `queue_auto_send_max_ms` (3 600 000–86 400 000, default 14 400 000; the cap of 00 v1.8 M95), `zone_undo_ms` (0–1 800 000, default 300 000), `slow_item_threshold_ms` (60 000–7 200 000, default 900 000; the "25 min" tile clock, E2-SOLD AC2), `served_estimate_ms` (nullable, until 03b), `comp_reason_chips` (1–10 labels of 1–30 chars, default "Late", "Wrong item", "Quality", "Guest", "Other"; `other` always needs a note, 02b §3.9). Written and read like the other fields (01b's branch settings endpoint, B-6); delivered in V4. *As built, 02p (owner ruling 2026-11-08, AD-20):* `served_estimate_ms` is not writable through the settings endpoint until 03b gives it a range; it stays null and is delivered as null.
 
 The `points` duplicate-name rule is the partial unique index `points_branch_name_active ON points (tenant_id, branch_id, name) WHERE archived_at IS NULL` (serves the duplicate-name check of the points `POST`, a rename `PATCH` and a restore; `409 CONFIG_NAME_TAKEN` as the other named rows). Rows A-17–A-20 are hub and event rows, listed here so the table matches 03a v1.0 §4.5. The pilot values are entered at setup in the owner app (03a v0.3); the defaults above are config defaults only, and `stations.completion_mode` keeps its default `two_tap`.
 
@@ -775,6 +778,8 @@ The reads (§6.2, 6.7b, 6.8, 6.11) write no audit row. **v1.3 (01b B5):** the `P
 
 Returns `{ floors: [{ floor_id, name, sort_order, archived_at, tables: [{ table_id, name, seats, sort_order, archived_at }] }] }`, including archived rows (the page filters). 2 statements. Bounded (one branch), so no pagination.
 
+> *As built, 02p task 6 (owner ruling 2026-11-08, AD-16):* each zone in the floors list also carries its `routes: [{ item_id, station_id }]` and `stock_items: [{ item_id, threshold }]` (sorted by `item_id`, as stored, archived zones included), so the owner app reads a zone's lists here; no zone `GET`. **5 statements** (floors, zones, tables, zone routes, zone stock items), fixed.
+
 > ⚠️ Changed by 02a v1.0 (A-1): each floor also returns `zones: [{ zone_id, name, sort_order, archived_at }]`, and each table `zone_id: string | null`. 3 statements (floors, zones, tables).
 
 #### 6.3 `POST /v1/admin/branches/:branch_id/floors`
@@ -799,17 +804,23 @@ Any of `{ floor_id, name, seats, sort_order, archived }`. `200`. `404 TABLE_NOT_
 
 > ⚠️ Changed by 02a v1.0 (A-1): body adds `zone_id: string | null`. Same check as §6.5 against the table's floor after the patch; changing `floor_id` without a `zone_id` sets `zone_id = NULL` (a zone never crosses floors). A table moved to another zone takes that zone's assigned order taker unless it has its own table assignment (01b v1.6 B-2).
 
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-4):* restoring a table (`archived: false`, including the S50 (b) Undo chip) whose stored `zone_id` names a zone that is now archived sets `zone_id = NULL` in the same write (the table falls back to the floor's implicit zone, as §6.6b does for active tables); the zone check runs only when `zone_id` or `floor_id` changes or the table is restored.
+
 #### 6.6a `POST /v1/admin/branches/:branch_id/zones` (⚠️ Changed by 02a v1.0, A-1)
 
 Body `{ floor_id, name: 1–40, sort_order? }`; `Idempotency-Key` required (S7). Floor active and in this branch → else `422 CONFIG_REFERENCE_INVALID { field: 'floor_id' }`. `201 { data: { zone } }`. `409 CONFIG_NAME_TAKEN` (per floor). Bumps this branch (S8); one `config_audit` row `zone` / `create` (S26). Statements: idempotency row, floor check, insert, audit, bump.
 
 > ⚠️ Changed by 02b v1.0 (A-1): body also takes `routes?: [{ item_id, station_id }]` and `stock_items?: [{ item_id, threshold? }]` (each ≤ 200, unique `item_id`), stored as whole lists. Every `item_id` is an active item, every `station_id` an active station of the branch; a stock item must be `sale_unit 'piece'` and not `requires_weighing` — else `422 CONFIG_REFERENCE_INVALID { field: 'routes.N.…' | 'stock_items.N.item_id' }`. The response returns both lists.
 
+> *As built, 02p (owner ruling 2026-11-08, AD-15):* every `item_id` in `routes[]` and `stock_items[]` must also have an active `item_routes` row at this branch (the item is sold here, so it is in this branch's snapshot `items[]`), else `422 CONFIG_REFERENCE_INVALID { field: 'routes.N.item_id' | 'stock_items.N.item_id', reason: 'not_found' }`; and §6.16 refuses to remove an item's route at a branch while an active zone of that branch names the item → `409 CONFIG_IN_USE { entity: 'menu_item', id, used_by: { entity: 'zone', ids } }` (as AD-6). The same refusal applies to every write that removes an item's route at a branch (owner, 2026-11-08); today §6.16 is the only such write (§6.15 takes item fields only). Only active zones count; a zone restore (§6.6b AD-9) also drops every kept entry whose item has no active `item_routes` row at the branch (recorded in `after.dropped`).
+
 #### 6.6b `PATCH /v1/admin/branches/:branch_id/zones/:zone_id` (⚠️ Changed by 02a v1.0, A-1)
 
 Any of `{ name, sort_order, archived: boolean }` (a zone never changes floor). **Archiving a zone sets `zone_id = NULL` on its active tables in the same transaction** (they fall back to the floor's implicit zone; 01b assignments to the zone stop applying, 01b v1.6 B-2). Restoring checks name uniqueness. `200 { data: { zone } }`. `404 ZONE_NOT_FOUND`; `409 CONFIG_NAME_TAKEN`. Bumps this branch; audit `zone` / `update`, `archive` or `restore`.
 
-> ⚠️ Changed by 02b v1.0 (A-1): `routes` and `stock_items` as in §6.6a; a list sent replaces the stored list (absent = unchanged, `[]` = clear); one `config_audit` row for the zone covers both lists. Archiving a zone keeps its lists (they apply again on restore).
+> ⚠️ Changed by 02b v1.0 (A-1): `routes` and `stock_items` as in §6.6a; a list sent replaces the stored list (absent = unchanged, `[]` = clear); one `config_audit` row for the zone covers both lists. Archiving a zone keeps its lists (they apply again on restore). *As built, 02p task 6 (owner ruling 2026-11-08, AD-17):* the owner app archives a zone only after a confirm dialog that names it and says its active tables go back to the floor (S50 b's confirm-first rule, like a floor); no Undo chip, because a restore does not re-zone the tables.
+
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-5):* restoring a zone whose floor is archived → `422 CONFIG_REFERENCE_INVALID { field: 'floor_id', reason: 'archived' }` (an archived floor has no active zones, §6.4). *As built, 02p task 3 (owner ruling 2026-11-08, AD-9):* restoring a zone drops, in the same write, every stored `routes[]` entry naming an archived item or station and every `stock_items[]` entry naming an archived item or one that is no longer `sale_unit 'piece'` or is `requires_weighing`, and (AD-15, §6.6a) every entry whose item has no active `item_routes` row at the branch (the AD-6 rule; the `config_audit` row records the dropped entries as `after.dropped: { routes, stock_items }`, present only when something was dropped), so an active zone's lists never hold such a reference.
 
 
 #### 6.7 Branch settings: CLI only in 01a (no endpoint)
@@ -843,6 +854,8 @@ Returns `200 { data: { branches: [{ branch_id, name, status, hub_last_seen_at, h
 POST body `{ name, location_label?, station_type, capacity, freshness_window_ms? (batch only, default 0), completion_mode? }`; `201`. PATCH: any of those fields plus `archived`. Changing `station_type`, or archiving while active routes point at the station → `409 CONFIG_IN_USE { used_by: { entity: 'menu_item', ids } }` (served by `item_routes_station`). Station type change with no routes: the service sets or clears `freshness_window_ms` and archives the station's programs when it becomes `slot`. `404 STATION_NOT_FOUND`; `409 CONFIG_NAME_TAKEN`.
 
 > ⚠️ Changed by 01c v1.0 (A10): archiving a station counted by an active `stock_item_branches` row → `409 CONFIG_IN_USE { used_by: { entity: 'stock_item', ids } }` (01c V16); the in-use check is a plain read after the station lock. See 01c §4.5.
+
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-6):* archiving a station that an active zone's `routes[]` names → `409 CONFIG_IN_USE { entity: 'station', id, used_by: { entity: 'zone', ids } }` (the active zones' ids), as for `item_routes` (S22).
 
 > ⚠️ Changed by 03a v1.0 (A-2–A-10): the station `POST` / `PATCH` accept the engine fields A-2–A-8 (ranges and defaults in §5.2a) and two nested **replace-lists**, `alternates` (A-9: both slot, same branch, distinct) and `carry_times` (A-10: missing row = 0) (01a C1, C6), and return them in the `GET`. `point_id` must be an active point of the branch (`422 CONFIG_REFERENCE_INVALID { field: 'point_id' }`).
 
@@ -903,6 +916,8 @@ Any item field plus `archived`. Item fields only; routes use §6.16. A PATCH wit
 > ⚠️ Changed by 01c v1.0 (A10, A11, A17, A18): the PATCH is 01c §6.5: new fields as §6.14; merged-row rules R1–R10 with a stated precedence, including the in-use check on archive (R4, V16: an active option of an active group links the item, or an active deal part offers it → `409 CONFIG_IN_USE`), a `sale_unit` change vs deal parts (R6, D-3) and vs linked options (R10) → `409 CONFIG_IN_USE`, and the weighed-item rules (R7, R8, V18). Last write wins stays (S23); the no-op step runs before the reference checks, as built (01c V13, §12.7 T4). See 01c §4.5.
 
 > ⚠️ Changed by 03a v1.0 (A-11, A-13): the PATCH accepts the five knobs `weight_pct`, `max_early_ms`, `max_carry_ms`, `max_late_ms`, `adjust_time_ms` (ranges and defaults in §5.2a; last write wins, S23 / R30 named divergence) and a `goes_with` list (adds and excludes against the category default, A-13).
+
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-6):* archiving an item that an active zone's `routes[]` or `stock_items[]` names, or a PATCH that makes a zone stock item not `sale_unit 'piece'` or `requires_weighing`, → `409 CONFIG_IN_USE { entity: 'menu_item', id, used_by: { entity: 'zone', ids } }` (the active zones' ids). The zone lists never hold an archived item or station, or a stock item the §6.6a rule refuses.
 
 #### 6.16 `PUT /v1/admin/menu-items/:item_id/routes/:branch_id`
 
@@ -1148,7 +1163,7 @@ Appended to F §6.2 and `@pos/domain/src/errors.ts` in the same change (the only
 | `MENU_ITEM_NOT_FOUND` | 404 | `{ item_id }` | Unknown item on the cloud; hub stock/availability for an item not in the branch config |
 | `CONFIG_NAME_TAKEN` | 409 | `{ entity, name }` | An active row in the same scope has the name (§3.3) |
 | `CONFIG_IN_USE` | 409 | `{ entity, id, used_by: { entity, ids } }` | Archive or station type change while active rows depend on it (S22) |
-| `CONFIG_REFERENCE_INVALID` | 422 | `{ field, reason: 'archived' \| 'not_found' \| 'wrong_branch' \| 'program_required' \| 'program_not_allowed' \| 'program_wrong_station' \| 'stock_time_exceeds_cook_time' }` | A reference breaks §3.3 |
+| `CONFIG_REFERENCE_INVALID` | 422 | `{ field, reason: 'archived' \| 'not_found' \| 'wrong_branch' \| 'program_required' \| 'program_not_allowed' \| 'program_wrong_station' \| 'stock_time_exceeds_cook_time' }` | A reference breaks §3.3; *as built, 02p task 3 (owner ruling 2026-11-08, AD-7):* the zone writes (§6.5, §6.6, §6.6a, §6.6b) add `reason: 'wrong_floor'` (a table's zone on another floor), `'not_piece'` and `'requires_weighing'` (a zone stock item, §6.6a); each has a client text (S50 e) |
 | `IDEMPOTENCY_KEY_MISMATCH` | 422 | `{ idempotency_key }` | Same key, different request hash (S7) |
 | `STOCK_NOT_TRACKED` | 422 | `{ item_id }` | `SetPrecookedStock` or `AddPrecookedStock` for an item that is not stock-tracked at this branch (§4.3) |
 | `BUSINESS_DAY_NOT_OPEN` | 409 | `{}` | `SetPrecookedStock` or `AddPrecookedStock` while no business day is open: none opened yet, or the last one closed (S33; v1.0 adds the closed case) |

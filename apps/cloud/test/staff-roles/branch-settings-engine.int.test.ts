@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { pgCounter } from '../helpers/pg-counter';
 import { restaurantFixture, type RestaurantFixture } from '../helpers/restaurant';
@@ -43,6 +43,15 @@ const RANGES: Array<[string, number, number]> = [
   ['order_abandon_ms', 3_600_000, 86_400_000],
 ];
 const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
+// 01a v2.3 §5.2a (02b A-1): delivered in engine_settings since snapshot V4 (AD-10, 02p task 4), at their defaults;
+// this endpoint writes them from 02p task 9.
+const V4_DEFAULTS = {
+  queue_auto_send_max_ms: 14_400_000,
+  zone_undo_ms: 300_000,
+  slow_item_threshold_ms: 900_000,
+  served_estimate_ms: null,
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+};
 
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b v1.5 §6.10, B-6; 01a v2.1 A-12)', () => {
   let cloud: TestCloud;
@@ -97,8 +106,10 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     );
   });
 
-  it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV3', () => {
-    expect(Object.keys(DEFAULTS).sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV3.shape.engine_settings.shape).sort());
+  it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4, less the five V4 settings (task 9)', () => {
+    expect([...Object.keys(DEFAULTS), ...Object.keys(V4_DEFAULTS)].sort()).toEqual(
+      Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
+    );
   });
 
   it('[01b B-6] a missing settings row on read is an error, not a default', async () => {
@@ -239,9 +250,15 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
 
     const next = await poll();
     expect(next.statusCode, next.body).toBe(200);
-    const snapshot = BranchConfigSnapshotSchemaV3.parse(next.json().data.config.snapshot);
+    const snapshot = BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot);
     expect(snapshot.config_version).toBe(held + 1);
-    expect(snapshot.engine_settings).toEqual({ ...DEFAULTS, order_abandon_ms: 7_200_000, table_lock_ttl_ms: 120_000, returns_boost: false });
+    expect(snapshot.engine_settings).toEqual({
+      ...DEFAULTS,
+      ...V4_DEFAULTS,
+      order_abandon_ms: 7_200_000,
+      table_lock_ttl_ms: 120_000,
+      returns_boost: false,
+    });
   });
 
   // A first writer through the real route, stopped inside its transaction after writing only an A-12 field; `second`

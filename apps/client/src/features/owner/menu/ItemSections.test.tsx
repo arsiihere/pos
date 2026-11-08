@@ -59,7 +59,7 @@ function item(extra: Partial<MenuItem> = {}): MenuItem {
     stock_time_ms: null,
     out_of_stock_behaviour: 'cook_fresh',
     sale_unit: 'piece',
-    requires_weighing: false,
+    requires_weighing: false, is_ready_item: false,
     stock_draws: [],
     availability_windows: [],
     weight_pct: 100,
@@ -295,6 +295,13 @@ describe('01c-S01 item form sections', () => {
     expect(dialog?.textContent).toContain(fill(t('item.in_use_change'), { name: 'Chicken Karahi — Half' }));
     expect(dialog?.textContent).toContain(fill(t('item.in_use_groups'), { n: '2' }));
     expect(dialog?.querySelector('a')?.getAttribute('href')).toBe('#/choice-groups');
+
+    // 02p AD-6/AD-15: an active zone names the item in a list; the row links to the floors page.
+    answer = fail(409, 'CONFIG_IN_USE', { entity: 'menu_item', id: 'I1', used_by: { entity: 'zone', ids: ['Z1'] } });
+    await click(section('weighed')?.querySelector('[role="switch"]') as HTMLElement);
+    await save();
+    expect(q('[data-in-use]')?.textContent).toContain(fill(t('item.in_use_zones'), { n: '1' }));
+    expect(q('[data-in-use]')?.querySelector('a')?.getAttribute('href')).toBe('#/floors');
   });
 });
 

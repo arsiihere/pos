@@ -263,7 +263,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
   - `packages/events/src/config.test.ts`
 
 **Interfaces:**
-- Produces: `snapshot_schema_version = 4`. `BranchConfig` (in memory on the hub through `branchConfig()`) carries `floors[].zones[].{ zone_id, name, is_archived, routes[]: { item_id, station_id }, stock_items[]: { item_id, threshold } }`, `floors[].tables[].zone_id`, `items[].is_ready_item`, `settings.{ queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips }`. Read later by 03a (task 14, `floors[].tables[].name` only), 00 M95 (task 11, `queue_auto_send_max_ms`), 02a / 02b.
+- Produces: `snapshot_schema_version = 4`. `BranchConfig` (in memory on the hub through `branchConfig()`) carries `floors[].zones[].{ zone_id, name, is_archived, routes[]: { item_id, station_id }, stock_items[]: { item_id, threshold } }`, `floors[].tables[].zone_id`, `items[].is_ready_item`, `engine_settings.{ queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips }` (AD-10; beside the A-12 fields). Read later by 03a (task 14, `floors[].tables[].name` only), 00 M95 (task 11, `queue_auto_send_max_ms`), 02a / 02b.
 
 - [ ] **Step 1: Write the failing tests.**
   - 01a #187: the sync poll 200 path takes **one statement more than v2.1**, and the body has `snapshot_schema_version: 4` with `zones[]` and `zone_id`;
@@ -452,7 +452,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 
 ### Task 11: 00 M95 paused idle clock · Lane: platform B · RISK: NORMAL
 
-**Starts after** the owner merges `module-02p` (task 4's `BranchConfig.settings`) into `module-02p-hub`.
+**Starts after** the owner merges `module-02p` (task 4's `BranchConfig.engine_settings` fields, AD-10) into `module-02p-hub`.
 
 **Rows:** 00 v1.8 H-1 (M95). Spec: 00 §3.1 M95, the guard step before M46, the sweeper rules, M5's 15 s save, boot pause from `HubStarted.hub_down_at`.
 
@@ -467,7 +467,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 **Interfaces:**
 - Produces: in memory, per device, `{ open_sockets: number, paused_at: number | null, paused_since: number | null }`.
   - At the next contact, before M46's check, `last_activity_at += now − paused_at`.
-  - The sweeper skips paused devices, and ends `idle_timeout` when `now − paused_since > queue_auto_send_max_ms`. The cap is read from `branchConfig()?.settings.queue_auto_send_max_ms ?? 14_400_000` (02p §3).
+  - The sweeper skips paused devices, and ends `idle_timeout` when `now − paused_since > queue_auto_send_max_ms`. The cap is read from `branchConfig()?.engine_settings.queue_auto_send_max_ms ?? 14_400_000` (02p §3).
   - Re-pause when there is still no socket after the shift.
   - M5's save writes the shifted `last_activity_at` of paused devices.
   - The login response carries `idle_ttl_ms` if it does not already.

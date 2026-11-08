@@ -5,6 +5,7 @@ export interface BIds {
   branchId: string;
   auditId: string;
   floorId: string;
+  zoneId: string;
   tableId: string;
   stationId: string;
   pointId: string;
@@ -40,6 +41,14 @@ export const ROUTE_CASES: Record<string, (ids: BIds) => { url: string; payload?:
   'PATCH /v1/admin/branches/:branch_id/floors/:floor_id': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/floors/${ids.floorId}`,
     payload: { name: 'Ground' },
+  }),
+  'POST /v1/admin/branches/:branch_id/zones': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/zones`,
+    payload: { floor_id: ids.floorId, name: 'Patio' },
+  }),
+  'PATCH /v1/admin/branches/:branch_id/zones/:zone_id': (ids) => ({
+    url: `/v1/admin/branches/${ids.branchId}/zones/${ids.zoneId}`,
+    payload: { name: 'Patio' },
   }),
   'POST /v1/admin/branches/:branch_id/tables': (ids) => ({
     url: `/v1/admin/branches/${ids.branchId}/tables`,

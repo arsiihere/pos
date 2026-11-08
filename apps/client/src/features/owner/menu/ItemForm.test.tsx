@@ -237,6 +237,7 @@ describe('owner item and category forms', () => {
       out_of_stock_behaviour: 'cook_fresh',
       sale_unit: 'g',
       requires_weighing: false,
+      is_ready_item: false,
       stock_draws: [],
       availability_windows: [],
       weight_pct: 100,
@@ -342,5 +343,62 @@ describe('owner item and category forms', () => {
     expect(container.querySelector('aside')?.textContent).toContain('Chicken Karahi');
     expect(container.querySelector('button.pos-more')).toBeNull();
     expect(buttonWith(t('item.archive'))).toBeUndefined();
+  });
+
+  // 01a v2.3 §8.1 (02b A-1): "Ready item (not cooked)" is a checkbox on the item form.
+  it('[01a #195] item form round-trips is_ready_item', async () => {
+    const created = fakeApi();
+    await renderNewItem(created.api);
+    const ready = () => container.querySelector<HTMLButtonElement>('[data-section="ready-item"] [role="switch"]');
+    expect(ready()?.getAttribute('aria-checked')).toBe('false');
+    expect(container.textContent).toContain(t('item.ready_item'));
+    click(ready());
+    await submitForm();
+    expect(posted(created.calls)['is_ready_item']).toBe(true);
+    act(() => root.unmount());
+    root = createRoot(container);
+
+    const item = {
+      item_id: 'I3',
+      category_id: 'C1',
+      tax_class_id: null,
+      name: 'Water',
+      variant_group_id: null,
+      variant_name: null,
+      description: null,
+      sort_order: 0,
+      price_minor: 10_000,
+      serve_mode: 'immediate',
+      prep_buffer_ms: 30_000,
+      cook_time_ms: 60_000,
+      stock_time_ms: null,
+      out_of_stock_behaviour: 'cook_fresh',
+      sale_unit: 'piece',
+      requires_weighing: false,
+      is_ready_item: true,
+      stock_draws: [],
+      availability_windows: [],
+      weight_pct: 100,
+      max_early_ms: 60_000,
+      max_carry_ms: null,
+      max_late_ms: null,
+      adjust_time_ms: 180_000,
+      goes_with: [],
+      archived_at: null,
+      routes: [],
+    } satisfies MenuItem;
+    const edit = fakeApi();
+    act(() =>
+      root.render(
+        <ItemForm api={edit.api} item={item} taxClasses={TAXES} categories={CATEGORIES} branchIds={['B1']} onSaved={() => {}} onCancel={() => {}} />,
+      ),
+    );
+    await flush();
+    expect(ready()?.getAttribute('aria-checked')).toBe('true');
+    await submitForm();
+    expect(edit.calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    click(ready());
+    await submitForm();
+    expect(edit.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ is_ready_item: false });
   });
 });

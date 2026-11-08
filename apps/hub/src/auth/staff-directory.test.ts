@@ -41,6 +41,25 @@ describe('StaffDirectory', () => {
     expect(Object.keys(directory.permissionsOf('S_DENY'))).toEqual([...PERMISSIONS]);
   });
 
+  it('[02p U-4] my_zones ranks with my_floors in SCOPE_RANK', () => {
+    const directory = StaffDirectory.fromInput({
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_Z', name: 'Z', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'my_zones')] },
+        { role_id: 'R_B', name: 'B', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'branch')] },
+        { role_id: 'R_O', name: 'O', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'own_tables')] },
+      ],
+      staff: [
+        staff('S_ZB', 'ZB', 'h1', ['R_Z', 'R_B']),
+        staff('S_OZ', 'OZ', 'h3', ['R_O', 'R_Z']),
+      ],
+      responsibilities: [],
+    });
+    expect(directory.resolve('S_ZB', 'manage-zone-stock')).toEqual({ grant: 'allowed', scope: 'branch' });
+    // my_zones (rank 1) beats own_tables (rank 0).
+    expect(directory.resolve('S_OZ', 'manage-zone-stock')).toEqual({ grant: 'allowed', scope: 'my_zones' });
+  });
+
   it('[00 §3.1 M11] ttlFor is the max across roles', async () => {
     const directory = StaffDirectory.fromInput(truthTable());
     expect(directory.ttlFor('S_WIN')).toBe(5_000);

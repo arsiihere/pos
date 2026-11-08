@@ -14,7 +14,7 @@ import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
-import { BlockedDialog, dealNames, itemNames, usedEntity, usedIds, type InUse } from '../BlockedDialog';
+import { BlockedDialog, dealNames, itemNames, usedEntity, usedIds, zoneNames, type InUse } from '../BlockedDialog';
 import { useBranchName } from '../branch';
 import { sizeLabel } from '../c01';
 import { loadEveryItem } from '../menu-pages';
@@ -241,6 +241,7 @@ const IN_USE_BODY = {
   stock_item: 'archive.in_use_body',
   variant_group: 'archive.in_use_size_groups',
   deal: 'archive.in_use_deals',
+  zone: 'archive.in_use_zones',
 } as const;
 
 type Ask =
@@ -405,6 +406,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
       return { ids, names: ids.flatMap((id) => groups.find((g) => g.variant_group_id === id)?.name ?? []), by: 'variant_group' };
     }
     if (entity === 'deal') return dealNames(api, ids);
+    if (entity === 'zone') return zoneNames(api, branchIds, ids);
     return itemNames(api, ids);
   }
 
@@ -975,13 +977,13 @@ export function MenuView({ api }: { api: CloudAdmin }) {
           inUse={ask.inUse}
           onClose={() => setAsk(null)}
           action={
-            ask.inUse.by === 'variant_group' || ask.inUse.by === 'deal' ? (
+            ask.inUse.by === 'variant_group' || ask.inUse.by === 'deal' || ask.inUse.by === 'zone' ? (
               <button
                 type="button"
                 className="pos-btn pos-btn--primary"
-                onClick={() => leave(() => navigate(ask.inUse.by === 'deal' ? '/deals' : '/size-groups'))}
+                onClick={() => leave(() => navigate(ask.inUse.by === 'deal' ? '/deals' : ask.inUse.by === 'zone' ? '/floors' : '/size-groups'))}
               >
-                {t(ask.inUse.by === 'deal' ? 'archive.open_deals' : 'archive.open_size_groups')}
+                {t(ask.inUse.by === 'deal' ? 'archive.open_deals' : ask.inUse.by === 'zone' ? 'archive.open_floors' : 'archive.open_size_groups')}
               </button>
             ) : undefined
           }

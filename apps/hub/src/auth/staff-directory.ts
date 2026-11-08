@@ -41,8 +41,8 @@ export type Resolution =
   | { grant: 'not_granted' }
   | { grant: 'denied' };
 
-// 01b §3.3: branch > my_floors = my_team = my_stations > own_tables.
-const SCOPE_RANK: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, own_tables: 0 };
+// 01b §3.3: branch > my_floors = my_team = my_stations = my_zones > own_tables.
+const SCOPE_RANK: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, my_zones: 1, own_tables: 0 };
 
 function wider(a: Scope | undefined, b: Scope): Scope {
   return a === undefined || SCOPE_RANK[b] > SCOPE_RANK[a] ? b : a;

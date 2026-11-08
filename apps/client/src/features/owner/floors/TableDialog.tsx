@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CloudAdmin, CloudError, Floor, PatchTableBody, Table } from '../../../api/cloud-admin';
+import type { CloudAdmin, CloudError, FloorWithZones, PatchTableBody, Table } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Dialog } from '../../../components/Dialog';
@@ -11,7 +11,8 @@ import { errorText } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { parseSeats } from './BulkTables';
 
-// 01a-S03 OwnerTableDialog: name, seats, floor (a PATCH can move the table, §6.6) and position. Archive
+// 01a-S03 OwnerTableDialog: name, seats, floor (a PATCH can move the table, §6.6), zone (02a A-1: one of the
+// floor's active zones, or none) and position. Archive
 // sends at once; the view shows the Undo chip (S50 b).
 const INT_RE = /^-?[0-9]+$/;
 
@@ -30,7 +31,7 @@ export function TableDialog({
   branchId: string;
   table: Table;
   floorId: string;
-  floors: readonly Floor[];
+  floors: readonly FloorWithZones[];
   onSaved: () => void;
   onArchive: () => void;
   onRestore: () => void;
@@ -40,6 +41,7 @@ export function TableDialog({
   const [name, setName] = useState(table.name);
   const [seats, setSeats] = useState(table.seats === null ? '' : String(table.seats));
   const [floor, setFloor] = useState(floorId);
+  const [zone, setZone] = useState(table.zone_id ?? '');
   const [sort, setSort] = useState(String(table.sort_order));
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -52,11 +54,14 @@ export function TableDialog({
   const seatsValue = parseSeats(seats);
   if (seatsValue !== undefined && seatsValue !== table.seats) patch.seats = seatsValue;
   if (floor !== floorId) patch.floor_id = floor;
+  // A zone never crosses floors: moving the table to another floor clears its zone (§6.6), so none is sent.
+  else if (zone !== (table.zone_id ?? '')) patch.zone_id = zone === '' ? null : zone;
   if (INT_RE.test(sort.trim()) && Number(sort.trim()) !== table.sort_order) patch.sort_order = Number(sort.trim());
   const changed = [
     ...('name' in patch ? [t('floors.table_name').toLowerCase()] : []),
     ...('seats' in patch ? [t('floors.seats').toLowerCase()] : []),
     ...('floor_id' in patch ? [t('floors.floor').toLowerCase()] : []),
+    ...('zone_id' in patch ? [t('zones.zone').toLowerCase()] : []),
     ...('sort_order' in patch ? [t('floors.position').toLowerCase()] : []),
   ];
   useDirtyForm(changed.length === 0 ? null : { name: table.name, fields: changed });
@@ -124,6 +129,26 @@ export function TableDialog({
                 </option>
               ))}
           </select>
+        </label>
+        <label className="pos-field">
+          <span className="pos-field__label">{t('zones.zone')}</span>
+          <select
+            className="pos-select"
+            name="zone_id"
+            value={floor === floorId ? zone : ''}
+            disabled={floor !== floorId}
+            onChange={(e) => setZone(e.target.value)}
+          >
+            <option value="">{t('zones.none')}</option>
+            {(floors.find((f) => f.floor_id === floor)?.zones ?? [])
+              .filter((z) => z.archived_at === null)
+              .map((z) => (
+                <option key={z.zone_id} value={z.zone_id}>
+                  {z.name}
+                </option>
+              ))}
+          </select>
+          <span className="pos-field__help">{t(floor === floorId ? 'zones.table_help' : 'zones.table_moved_help')}</span>
         </label>
         <label className="pos-field">
           <span className="pos-field__label">{t('floors.position')}</span>

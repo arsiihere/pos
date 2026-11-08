@@ -17,6 +17,41 @@ export const PatchFloorBody = z
   .object({ name: Name.optional(), sort_order: SortOrder.optional(), archived: z.boolean().optional() })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
 
+// 01a v2.2 / v2.3 §6.6a, §6.6b (02a A-1, 02b A-1): zone names 1–40 characters after trimming. `routes` and
+// `stock_items` are whole lists (each at most 200, one entry per item_id); absent = unchanged on a PATCH, [] = clear.
+const ZoneName = z.string().trim().min(1).max(40);
+const ZONE_LIST_MAX = 200;
+const ZoneRoute = z.object({ item_id: z.string().min(1), station_id: z.string().min(1) });
+// threshold: 0 … 5000, default 0 (§5.2 zone_stock_items).
+const ZoneStockItem = z.object({ item_id: z.string().min(1), threshold: z.number().int().min(0).max(5000).default(0) });
+const uniqueItems = (list: ReadonlyArray<{ item_id: string }>) => new Set(list.map((entry) => entry.item_id)).size === list.length;
+const ZoneRoutes = z
+  .array(ZoneRoute)
+  .max(ZONE_LIST_MAX)
+  .refine(uniqueItems, { message: 'at most one entry per item_id' });
+const ZoneStockItems = z
+  .array(ZoneStockItem)
+  .max(ZONE_LIST_MAX)
+  .refine(uniqueItems, { message: 'at most one entry per item_id' });
+
+export const CreateZoneBody = z.object({
+  floor_id: z.string().min(1),
+  name: ZoneName,
+  sort_order: SortOrder.default(0),
+  routes: ZoneRoutes.optional(),
+  stock_items: ZoneStockItems.optional(),
+});
+
+export const PatchZoneBody = z
+  .object({
+    name: ZoneName.optional(),
+    sort_order: SortOrder.optional(),
+    archived: z.boolean().optional(),
+    routes: ZoneRoutes.optional(),
+    stock_items: ZoneStockItems.optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
+
 // §3.3: seats null or 1 … 100.
 const Seats = z.number().int().min(1).max(100).nullable();
 
@@ -25,6 +60,7 @@ export const CreateTableBody = z.object({
   name: Name,
   seats: Seats.default(null),
   sort_order: SortOrder.default(0),
+  zone_id: z.string().min(1).nullable().optional(),
 });
 
 export const PatchTableBody = z
@@ -33,6 +69,7 @@ export const PatchTableBody = z
     name: Name.optional(),
     seats: Seats.optional(),
     sort_order: SortOrder.optional(),
+    zone_id: z.string().min(1).nullable().optional(),
     archived: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'at least one field is required' });
@@ -381,6 +418,7 @@ export const CreateMenuItemBody = z
     out_of_stock_behaviour: OutOfStockBehaviour.default('cook_fresh'),
     sale_unit: Unit.default('piece'),
     requires_weighing: z.boolean().default(false),
+    is_ready_item: z.boolean().default(false),
     stock_draws: StockDraws.default([]),
     availability_windows: AvailabilityWindows.default([]),
     weight_pct: WeightPct.default(100),
@@ -428,6 +466,7 @@ export const PatchMenuItemBody = z
     out_of_stock_behaviour: OutOfStockBehaviour.optional(),
     sale_unit: Unit.optional(),
     requires_weighing: z.boolean().optional(),
+    is_ready_item: z.boolean().optional(),
     stock_draws: StockDraws.optional(),
     availability_windows: AvailabilityWindows.optional(),
     weight_pct: WeightPct.optional(),
@@ -494,6 +533,7 @@ const MenuItem = z.object({
   out_of_stock_behaviour: OutOfStockBehaviour,
   sale_unit: Unit,
   requires_weighing: z.boolean(),
+  is_ready_item: z.boolean(),
   stock_draws: z.array(z.object({ stock_item_id: z.string(), quantity_per_sale_unit: z.number() })),
   availability_windows: z.array(Window),
   weight_pct: z.number(),
@@ -574,12 +614,28 @@ const Table = z.object({
   name: z.string(),
   seats: z.number().nullable(),
   sort_order: z.number(),
+  zone_id: z.string().nullable(),
   archived_at: z.number().nullable(),
 });
 
-export const FloorListResponse = z.object({
-  data: z.object({ floors: z.array(Floor.extend({ tables: z.array(Table) })) }),
+// §6.2 (02a A-1; AD-16): the floors list carries each floor's zones with both their lists, by item_id.
+const ZoneSummary = z.object({
+  zone_id: z.string(),
+  name: z.string(),
+  sort_order: z.number(),
+  archived_at: z.number().nullable(),
+  routes: z.array(z.object({ item_id: z.string(), station_id: z.string() })),
+  stock_items: z.array(z.object({ item_id: z.string(), threshold: z.number() })),
 });
+
+// §6.6a, §6.6b: the zone with both its lists and its floor.
+const Zone = ZoneSummary.extend({ floor_id: z.string() });
+
+export const FloorListResponse = z.object({
+  data: z.object({ floors: z.array(Floor.extend({ zones: z.array(ZoneSummary), tables: z.array(Table) })) }),
+});
+
+export const ZoneResponse = z.object({ data: z.object({ zone: Zone }) });
 
 export const FloorResponse = z.object({ data: z.object({ floor: Floor }) });
 export const TableResponse = z.object({ data: z.object({ table: Table.extend({ floor_id: z.string() }) }) });
@@ -587,6 +643,8 @@ export const TableResponse = z.object({ data: z.object({ table: Table.extend({ f
 // Parsed bodies (defaults filled), for the cloud services.
 export type CreateFloorInput = z.infer<typeof CreateFloorBody>;
 export type PatchFloorInput = z.infer<typeof PatchFloorBody>;
+export type CreateZoneInput = z.infer<typeof CreateZoneBody>;
+export type PatchZoneInput = z.infer<typeof PatchZoneBody>;
 export type CreateTableInput = z.infer<typeof CreateTableBody>;
 export type PatchTableInput = z.infer<typeof PatchTableBody>;
 export type CreateStationInput = z.infer<typeof CreateStationBody>;
@@ -606,6 +664,8 @@ export type PutItemRouteInput = z.infer<typeof PutItemRouteBody>;
 // Request types as the client sends them (defaults optional), for apps/client.
 export type CreateFloorRequest = z.input<typeof CreateFloorBody>;
 export type PatchFloorRequest = z.input<typeof PatchFloorBody>;
+export type CreateZoneRequest = z.input<typeof CreateZoneBody>;
+export type PatchZoneRequest = z.input<typeof PatchZoneBody>;
 export type CreateTableRequest = z.input<typeof CreateTableBody>;
 export type PatchTableRequest = z.input<typeof PatchTableBody>;
 export type CreateStationRequest = z.input<typeof CreateStationBody>;
@@ -627,6 +687,7 @@ export type AdminBranch = z.infer<typeof BranchListResponse>['data']['branches']
 export type AdminFloorList = z.infer<typeof FloorListResponse>['data'];
 export type AdminFloor = z.infer<typeof Floor>;
 export type AdminTable = z.infer<typeof Table>;
+export type AdminZone = z.infer<typeof Zone>;
 export type AdminStationList = z.infer<typeof StationListResponse>['data'];
 export type AdminStation = z.infer<typeof Station>;
 export type AdminPoint = z.infer<typeof Point>;

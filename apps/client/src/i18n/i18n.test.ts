@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { en, fill } from './en';
 import { initLanguage, language, pickLanguage, setLanguage, t, typeClass } from './index';
 import { ur } from './ur';
+import { referenceKey } from '../features/owner/form';
 import todo from '../../../../docs/design/handoff/01b/urdu-todo.md?raw';
 import todo01a from '../../../../docs/design/handoff/01a/urdu-todo.md?raw';
 
@@ -97,7 +98,7 @@ const CODES_01B = [
   'PASSWORD_UNCHANGED',
   'PASSWORD_CHANGE_REQUIRED',
 ];
-const REASONS_01B = ['role_archived', 'not_at_branch', 'loop', 'one_lead_per_branch', 'scope_not_allowed'];
+const REASONS_01B = ['role_archived', 'not_at_branch', 'loop', 'one_lead_per_branch', 'scope_not_allowed', 'already_assigned'];
 
 describe('[01b §8] 01b strings', () => {
   it('en defines every staff.*, roles.*, teams.* view key, perm.<key>, errors.<01b code> and reason; each is in ur or in the 01b Urdu to-do list', () => {
@@ -134,6 +135,29 @@ describe('[01b §8] 01b strings', () => {
     expect(en['roles.approval_help']).toBe(
       'The request goes to people with these roles. They approve on their own device with their PIN.',
     );
+  });
+});
+
+// 01a v2.3 AD-7 (02p): the zone writes add three CONFIG_REFERENCE_INVALID reasons, each with its own text (S50 e).
+const REASONS_01A_ZONES = ['wrong_floor', 'not_piece', 'requires_weighing'];
+
+describe('[01a AD-7] zone reference reasons', () => {
+  it('each new reason has an English and an Urdu text of its own, and form.ts picks it', () => {
+    for (const reason of REASONS_01A_ZONES) {
+      const key = `errors.reference.${reason}` as keyof typeof en;
+      expect(key in en, key).toBe(true);
+      expect(en[key]).not.toBe(en['errors.CONFIG_REFERENCE_INVALID']);
+      expect(key in ur, key).toBe(true);
+      expect(referenceKey({ reason })).toBe(key);
+    }
+  });
+});
+
+describe('[01a v2.3 §8.1] zone strings', () => {
+  it('every zones.* and archive.floor_* key is in ur or in the 01a Urdu to-do list', () => {
+    const ours = Object.keys(en).filter((key) => /^(zones\.|archive\.floor_)/.test(key));
+    expect(ours.length).toBeGreaterThan(20);
+    for (const key of ours) expect(key in ur || todo01a.includes(`\`${key}\``), key).toBe(true);
   });
 });
 

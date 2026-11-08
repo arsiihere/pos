@@ -29,7 +29,7 @@ function dish(id: string, name: string, extra: Partial<MenuItem> = {}): MenuItem
   return {
     item_id: id, category_id: 'C1', tax_class_id: null, name, variant_group_id: null, variant_name: null, description: null,
     sort_order: 0, price_minor: 115_000, serve_mode: 'immediate', prep_buffer_ms: 0, cook_time_ms: 600_000,
-    stock_time_ms: null, out_of_stock_behaviour: 'cook_fresh', sale_unit: 'piece', requires_weighing: false,
+    stock_time_ms: null, out_of_stock_behaviour: 'cook_fresh', sale_unit: 'piece', requires_weighing: false, is_ready_item: false,
     stock_draws: [], availability_windows: [], weight_pct: 100, max_early_ms: 60_000, max_carry_ms: null,
     max_late_ms: null, adjust_time_ms: 180_000, goes_with: [], archived_at: null, routes: [], ...extra,
   };

@@ -29,25 +29,31 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 **Decisions for the owner:** none open.
 
+## PLATFORM A REPORT (2026-11-08): batch 2 done (tasks 3–6), gate green, pushed
+
+> **Hinglish:** Batch 2 mukammal. Tasks 3–6 done, gate green (3317 tests). Spec mein jo baatein nahi thin un par aapke faisle AD-4–AD-20 mein likhe gaye. Engine lane ke liye: `config-hook.int.test.ts` ko V4 import pe le jaayein (AD-13). Agla: batch 3 (tasks 7–10).
+
+**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-8 (proposed: #184 split, recommend accept).
+
 ## Task table
 
 | # | Task | Lane | Risk | Status | Commit |
 |---|---|---|---|---|---|
 | 0 | 03a v1.2, 01d v1.2.1, text patches | engine | — | **done** | `73ff815`…`4bffa9e` |
-| 1 | Event schemas: additive fields, `StockTransferredOut` | platform A | NORMAL | todo | |
-| 2 | Permissions, `my_zones`, ranks, labels | platform A | NORMAL | todo | |
-| 3 | Cloud zones, routes, stock items, `is_ready_item`, settings columns | platform A | HIGH | todo | |
-| 4 | Snapshot V4, hub apply | platform A | HIGH | todo | |
-| 5 | `StockTransferredOut` in `stock_version`, stock frame | platform A | NORMAL | todo | |
-| 6 | Owner app: zones, ready item, settings | platform A | NORMAL (UI) | todo | |
+| 1 | Event schemas: additive fields, `StockTransferredOut` | platform A | NORMAL | **done** (pushed) | `3db9ce1` |
+| 2 | Permissions, `my_zones`, ranks, labels | platform A | NORMAL | **done** | `a4a6f73`, `a49d8cc` |
+| 3 | Cloud zones, routes, stock items, `is_ready_item`, settings columns | platform A | HIGH | **done** | `3539af8`, fixes `af635a6`, `81695c9`, `0dba2ba`, `16ed188` (AD-15), `2bfa4b1` (AD-16) |
+| 4 | Snapshot V4, hub apply | platform A | HIGH | **done** | `a0b85ba` |
+| 5 | `StockTransferredOut` in `stock_version`, stock frame | platform A | NORMAL | **done** | `5442fd0` |
+| 6 | Owner app: zones, ready item, settings | platform A | NORMAL (UI) | **done** | `0d2d7d8`, fix `3d63bfb` |
 | 7 | Assignments, directory v3, `assignedOrderTaker` | platform A | HIGH | todo | |
 | 8 | `my_zones` CHECK expand, `zonesOf` | platform A | HIGH | todo | |
 | 9 | Default grants, re-seed, settings `PATCH` | platform A | NORMAL | todo | |
 | 10 | Owner app: assigned tables | platform A | NORMAL (UI) | todo | |
-| 11 | 00 M95 paused idle clock | platform B | NORMAL | see `02p-status-hub.md` | |
-| 12 | `X-Queued-At`, `queueable`, CORS | platform B | NORMAL | see `02p-status-hub.md` | |
-| 13 | 01d D-1, D-3 | platform B | NORMAL | see `02p-status-hub.md` | |
-| 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | committed; review and gate wait for the task-1 merge (owner) | `4574240` |
+| 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | committed; review and gate next | `4574240` |
 | 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | todo | |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
@@ -59,7 +65,26 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 | # | Task | Reading | Options | Choice | Status |
 |---|---|---|---|---|---|
-| — | | *(none yet)* | | | |
+| AD-1 | 1 | `StockTransferredOut.quantity` is `z.number().positive()` (plan "number > 0"). 01a v2.3 / 02b / 03a give no type; `StockAdded` v2 is `int().min(1).max(1_000_000)`, and 02b's refill is `draw × quantity` of ints | (a) keep `positive()`; (b) `int().min(1)` like `StockAdded` | (b) — fixed in `0205a24` (01a S44) | **ruled (owner, 2026-11-08)** |
+| AD-2 | 2 | Files outside the brief's list, all forced by the task: `people.test.ts` (new, client half of the `WIDTH` test the brief names), `RoleEditor.test.tsx` (orders-group counts 4→9, 3→8: group grew 6→11), `docs/design/handoff/01b/urdu-todo.md` (Urdu goes to the to-do list, n-5); extra label `roles.scope_help.my_zones` (`RoleEditor.tsx` needs it to typecheck). English label wording is ours (no spec text) | (a) keep; (b) revert and re-plan | (a) | **accepted (owner, 2026-11-08)** |
+| AD-3 | 2 | `ZONE_NOT_FOUND` is in `errors.ts` but not yet in the foundation §6.2 404 list (CLAUDE.md: "append them to the foundation §6.2 list"; R34: no bump). 02p task 2's file list names only `errors.ts` | (a) append it to foundation v1.11 §6.2 in a small docs commit now; (b) leave it to task 18's "spec text" | (a) — appended in `b55c7d9` | **accepted (owner, 2026-11-08)** |
+| AD-4 | 3 | Restoring a table whose stored zone was archived meanwhile (incl. the Undo chip): spec silent | (a) clear `zone_id`; (b) 422 `zone_id` | (a) | **ruled (owner, 2026-11-08)**; 01a v2.3 §6.6 marker |
+| AD-5 | 3 | Restoring a zone whose floor is archived: spec silent | (a) 422 `floor_id` `archived`; (b) allow | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-6 | 3 | Archiving an item / station named by an active zone list, or making a zone stock item weighed / not piece: spec silent | (a) `409 CONFIG_IN_USE` `used_by` zone; (b) V4 builder drops them | (a) | **ruled (owner, 2026-11-08)**; 01a §6.9, §6.15 markers |
+| AD-7 | 3 | New `CONFIG_REFERENCE_INVALID` reasons `wrong_floor`, `not_piece`, `requires_weighing` | (a) add to 01a §9 + client texts (task 6); (b) reuse old reasons | (a) | **ruled (owner, 2026-11-08)**; 01a §9 marker |
+| AD-8 | 3 | 01a #184's snapshot clause ("snapshot shows the zone `is_archived: true`") needs V4: task 3 tests the cloud half, task 4 the snapshot half (same number in two tasks) | (a) split as stated; (b) all of #184 in task 4 | (a) | proposed (not yet ruled) |
+| AD-9 | 3 | Restoring a zone whose stored lists name an item / station archived since (AD-6 skips archived zones) | (a) drop stale entries in the same write; (b) 422; (c) allow, builder skips | (a); round 3 allowed (owner) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-10 | 4 | Plan said `BranchConfig.settings.{…}`; 01a §5.2a says the columns are delivered like the other `branch_engine_settings` fields (top-level `engine_settings`) | (a) `engine_settings.*`; (b) new `settings` key | (a); plan tasks 4, 11 text fixed | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
+| AD-11 | 4 | Archived zone's lists in V4: spec silent | (a) `[]`; (b) stored lists | (a) | **ruled (owner, 2026-11-08)** |
+| AD-12 | 4 | Order of `routes[]` / `stock_items[]` (no `sort_order`) | (a) by `item_id`; (b) by item name, then id | (a) | **ruled (owner, 2026-11-08)** |
+| AD-13 | 4 | Engine-owned `apps/hub/test/engine/config-hook.int.test.ts` imports `BranchConfigSnapshotSchemaV3` | (a) deprecated alias `V3 = V4` in `@pos/events` until the engine lane switches; (b) engine lane fixes; (c) keep name | (a); **the engine lane must switch its import, then the alias is removed** | **ruled (owner, 2026-11-08)** |
+| AD-14 | 4 | Zones of an archived floor are not delivered in V4 (only active floors) | (a) accept; (b) deliver | (a) | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
+| AD-15 | 3 (follow-up) | Zone lists could name an item with no `item_routes` row at the branch (not in `items[]`) | (a) zone write requires the route (422 `not_found`), §6.16 route removal refused while a zone names it (409); (b) builder filters; (c) 02b ignores | (a) — follow-up fix after task 5; every route-removing write (only §6.16 exists; §6.15 takes no routes), and the AD-9 restore drops unrouted entries (owner, 2026-11-08) | **ruled (owner, 2026-11-08)**; 01a §6.6a marker |
+| AD-16 | 6 | No API returned a zone's lists (the UI used a no-op PATCH, which can revert a concurrent rename) | (a) §6.2 floors list returns `routes[]`, `stock_items[]` (3 → 5 statements); (b) new `GET` zone | (a) | **ruled (owner, 2026-11-08)**; 01a §6.2 marker |
+| AD-17 | 6 | Zone archive UX: Undo chip restored only the zone, not its tables' `zone_id` | (a) confirm dialog, no Undo; (b) Undo re-zones tables; (c) reword chip | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-18 | 6 | Settings form sends the five fields before task 9's PATCH accepts them (400 / dropped on this branch) | (a) accept, transient until task 9; (b) hide until the wire has them | (a) | **ruled (owner, 2026-11-08)** |
+| AD-19 | 6 | Comp chips help text promised "'Other' asks for a note" (02b ties it to the code `other`); duplicates accepted | (a) neutral help, refuse case-insensitive duplicates; (b) keep | (a) | **ruled (owner, 2026-11-08)** |
+| AD-20 | 9 | `served_estimate_ms` has no range in 01a §5.2a ("nullable, until 03b") | (a) not writable by the settings PATCH yet (stays null, delivered null); (b) accept with a chosen range | (a) | **ruled (owner, 2026-11-08)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -73,6 +98,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-08 | Q-v1.2-2 (absent-id noise on exited orders) left for the 04 spec | 03a v1.2 §12.3 |
 | 2026-11-08 | Gap 4 timing → task 17c, option (b): `placed_by` and staff seeded in `fires-alerts-tick.perf.test.ts` only; no simulator change, no pinned hash moves | plan task 17c |
 | 2026-11-08 | Plan APPROVED; three lanes (platform A 1–10, platform B 11–13, engine 14–17, 17b, 18); `boot.int.test.ts` owned by platform A, engine boot tests in `boot-idset.int.test.ts` | plan |
+| 2026-11-08 | AD-1: `StockTransferredOut.quantity` = `int().min(1)` (01a S44), fixed now (`0205a24`); AD-2 accepted; AD-3 accepted, `ZONE_NOT_FOUND` appended to foundation v1.11 §6.2, no bump (`b55c7d9`); the `my_zones` 500 until task 8 accepted (transient on this branch) | board, foundation §6.2 |
 
 ## Batch entries
 
@@ -89,6 +115,26 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **AD rows (proposed):** …
 - **Carried:** …
 ```
+
+## Batch 1 — shared types and schemas (2026-11-08)
+
+- **Lane / tasks:** platform A, tasks 1, 2.
+- **Commits:** `3db9ce1` (task 1, pushed right away for the engine merge), `a4a6f73` (task 2), `a49d8cc` (task 2 review fix).
+- **Reviews:** both by opus. Task 1: approved, no Critical / Important (minor: the fixture sweep asserts only "parses", a reject test carries the `#129` label, `quantity` type → AD-1). Task 2: approved; one Important, plan-mandated: a `my_zones` grant passes Zod and the service check but hits the old cloud CHECK (`0005_staff_roles.sql:68`) → 500 until task 8's expand migration; closes in batch 3. Fix round 1 (sonnet re-review, approved): `already_assigned` in `REASONS_01B`, `my_zones` help text names the lead.
+- **Gate:** `TMPDIR=/dev/shm DATABASE_URL=…/pos_test_cloud flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` — exit 0; 362 files passed, 1 skipped; 3227 tests passed, 1 skipped, 1 todo; 8 m 44 s.
+- **Tests closed:** U-5 schema part (C-1, E-1, Q-4, Q-6, Q-9, Q-5 schema), 03a #129; U-4 catalogue, scope sets, ranks, labels.
+- **AD rows (proposed):** AD-1, AD-2, AD-3.
+- **Carried:** the `my_zones` 500 until task 8.
+
+## Batch 2 — 01a (2026-11-08)
+
+- **Lane / tasks:** platform A, tasks 3, 4, 5, 6, plus the owner-ruled follow-ups AD-15 and AD-16 to task 3.
+- **Commits:** task 3 `3539af8`, fixes `af635a6` (table-patch lock order), `81695c9` (AD-4–AD-6), `0dba2ba` (AD-9, lock edge; round 3 allowed by the owner), `16ed188` (AD-15), `2bfa4b1` (AD-16); task 4 `a0b85ba`; task 5 `5442fd0`; task 6 `0d2d7d8`, fix `3d63bfb`. Spec text (as-built markers, owner rulings): `e1586b7`, `8a218dd`, `401a748`, `fc59edd`, `f6f8edc`, `0668741`, `3122f19`, `4bf54ed`, `8a76a19`, and AD-20 in this checkpoint.
+- **Reviews:** all by opus. Task 3: needs fixes (deadlock table PATCH × zone archive; four spec-silent rules → AD-4–AD-7; restore with stale lists → AD-9); three rounds, approved. AD-15 and AD-16: approved. Task 4: approved, no Important (NEEDS_CONTEXT first → AD-10–AD-13). Task 5: approved. Task 6: needs fixes (no-op PATCH read could revert a concurrent rename → AD-16; zone Undo did not re-zone tables → AD-17; 200-item pickers; chips → AD-19); one round, approved.
+- **Gate:** `TMPDIR=/dev/shm DATABASE_URL=…/pos_test_cloud flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` — exit 0; 366 files passed, 1 skipped; 3317 tests passed, 1 skipped, 1 todo; 9 m 36 s.
+- **Tests closed:** 01a #181–#186, #189–#191 (cloud), #184 snapshot clause, #187 "+1" (config-only 23 → 24, with directory 32 → 33), #188, #192, #193 (delivered with defaults), #194 first two clauses, #195 and the client parts of #181, #189–#195; U5 (every fixture V4).
+- **AD rows:** AD-4–AD-7, AD-9–AD-20 ruled by the owner; AD-8 (#184 split between tasks 3 and 4) proposed.
+- **Carried:** AD-13 — the engine lane must switch `apps/hub/test/engine/config-hook.int.test.ts` to `BranchConfigSnapshotSchemaV4`, then the alias goes. AD-18 — the five settings fields are not accepted by the cloud PATCH until task 9. Parked minors (no more rounds): a test for "restore resends an equal but stale list → 422"; the lock-edge test hangs instead of failing on a regression; `aStockTransferredOut` builder missing in `@pos/events/testing`; the zone editor's Archive skips the leave guard; urdu-todo header counts.
 
 ## Platform A prompt (for the owner to paste into a new session)
 

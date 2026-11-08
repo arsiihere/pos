@@ -57,6 +57,7 @@ describe('tables', () => {
     expect(table).toEqual({
       table_id: expect.any(String),
       floor_id: floorId,
+      zone_id: null,
       name: 'Takeaway',
       seats: null,
       sort_order: 0,
@@ -66,7 +67,7 @@ describe('tables', () => {
     expect(floors).toEqual([
       expect.objectContaining({
         floor_id: floorId,
-        tables: [{ table_id: table.table_id, name: 'Takeaway', seats: null, sort_order: 0 }],
+        tables: [{ table_id: table.table_id, name: 'Takeaway', seats: null, sort_order: 0, zone_id: null }],
       }),
     ]);
     expect(await auditRows()).toEqual([

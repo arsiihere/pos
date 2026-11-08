@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-186 keys.
+195 keys.
 
 | Key | English |
 |---|---|
@@ -190,3 +190,12 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `perm.manage-stations` | Switch lanes off and on, pause a station |
 | `perm.mark-served` | Mark an item served |
 | `roles.scope_help.manage_stations` | Their stations: the stations this person runs. |
+| `perm.take-order` | Take orders |
+| `perm.clean-table` | Mark a table clean |
+| `perm.set-line-weight` | Enter or correct the weight of a weighed item |
+| `perm.manage-zone-stock` | Refill and count zone stock |
+| `perm.view-customer-contact` | See a customer’s name and phone |
+| `staff.scope.my_zones` | in their zones |
+| `roles.scope.my_zones` | Their zones |
+| `roles.scope_help.my_zones` | zones set on each person or their lead |
+| `errors.reference.already_assigned` | Someone else already has this zone or table at this branch. |

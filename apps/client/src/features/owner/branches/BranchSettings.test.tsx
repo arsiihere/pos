@@ -45,6 +45,12 @@ const STORED = {
   table_lock_ttl_ms: 600_000,
   returns_boost: true,
   order_abandon_ms: 14_400_000,
+  // 01a v2.3 A-1 (02b): the four ordering settings, served_estimate_ms (null until 03b) and the comp chips.
+  queue_auto_send_max_ms: 14_400_000,
+  zone_undo_ms: 300_000,
+  slow_item_threshold_ms: 900_000,
+  served_estimate_ms: null,
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
   version: 'v1',
 };
 
@@ -122,7 +128,10 @@ describe('[01b §8] branch settings', () => {
     const group = m.container.querySelector<HTMLElement>('[data-group="kitchen-timing"]')!;
     expect(group.textContent).toContain(t('branches.timing'));
     const names = [...group.querySelectorAll<HTMLInputElement>('input[name]')].map((i) => i.name);
-    expect(names.sort()).toEqual([...BRANCH_ENGINE_SETTING_KEYS].filter((k) => k !== 'returns_boost').sort());
+    const ordering = ['queue_auto_send_max_ms', 'zone_undo_ms', 'slow_item_threshold_ms'];
+    expect(names.sort()).toEqual(
+      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'served_estimate_ms' && k !== 'comp_reason_chips').sort(),
+    );
     const value = (name: string) => group.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
     expect(value('weight_follow_up_pct')).toBe('300');
     expect(value('promise_padding_parking_ms')).toBe('3');
@@ -204,7 +213,7 @@ describe('[01b §8] branch settings', () => {
 
   it('[01a v2.1 §8.1; A-12] on a laptop they stay three across', async () => {
     await render();
-    expect(m.container.querySelectorAll('[data-group="kitchen-timing"] .pos-grid--3').length).toBe(3);
+    expect(m.container.querySelectorAll('[data-group="kitchen-timing"] .pos-grid--3').length).toBe(4);
   });
 
   it('[01b B23] a stale version shows Changed elsewhere, keeps the draft, and Reload reads the branch again', async () => {
@@ -220,4 +229,83 @@ describe('[01b §8] branch settings', () => {
     expect(m.container.textContent).not.toContain(t('stale.title'));
     expect(field('min_gain_ms')!.value).toBe('1');
   });
+
+  // 01a v2.3 §5.2a (02b A-1): three ordering times in minutes, the comp reason chips as a list.
+  it('[01a #193 client] settings form shows and sends the four settings and the chips', async () => {
+    const calls = await render();
+    const group = m.container.querySelector<HTMLElement>('[data-group="kitchen-timing"]')!;
+    const value = (name: string) => group.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
+    expect(value('queue_auto_send_max_ms')).toBe('240');
+    expect(value('zone_undo_ms')).toBe('5');
+    expect(value('slow_item_threshold_ms')).toBe('15');
+    // served_estimate_ms is "null until 03b": no box for it.
+    expect(m.container.querySelector('input[name="served_estimate_ms"]')).toBeNull();
+    const chips = () => [...m.container.querySelectorAll<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]')].map((i) => i.value);
+    expect(chips()).toEqual(['Late', 'Wrong item', 'Quality', 'Guest', 'Other']);
+
+    setValue(field('queue_auto_send_max_ms'), '120');
+    setValue(field('zone_undo_ms'), '2');
+    setValue(field('slow_item_threshold_ms'), '25');
+    const chipBox = (i: number) => m.container.querySelectorAll<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]')[i];
+    setValue(chipBox(0), 'Slow');
+    await click(m.container.querySelectorAll<HTMLButtonElement>('[data-group="comp-chips"] [data-chip-remove]')[3]!);
+    await click(button(m.container, t('branches.chips.add')));
+    setValue(chipBox(4), 'Spilled');
+    await click(button(m.container, t('branches.save_settings')));
+    const patch = calls.find((c) => c.method === 'PATCH')!;
+    expect(patch.body).toEqual({
+      expected_version: 'v1',
+      queue_auto_send_max_ms: 7_200_000,
+      zone_undo_ms: 120_000,
+      slow_item_threshold_ms: 1_500_000,
+      comp_reason_chips: ['Slow', 'Wrong item', 'Quality', 'Other', 'Spilled'],
+    });
+  });
+
+  it('[01a #193 client] a time or a chip outside its range is refused before sending; unchanged chips are not sent', async () => {
+    const calls = await render();
+    setValue(field('queue_auto_send_max_ms'), '30');
+    setValue(field('zone_undo_ms'), '31');
+    setValue(field('slow_item_threshold_ms'), '0.5');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(m.container.textContent).toContain(fill(t('branches.timing_minutes_range'), { min: '60', max: '1440' }));
+    expect(m.container.textContent).toContain(fill(t('branches.timing_minutes_range'), { min: '0', max: '30' }));
+    expect(m.container.textContent).toContain(fill(t('branches.timing_minutes_range'), { min: '1', max: '120' }));
+
+    setValue(field('queue_auto_send_max_ms'), '240');
+    setValue(field('zone_undo_ms'), '5');
+    setValue(field('slow_item_threshold_ms'), '15');
+    const first = m.container.querySelector<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]');
+    setValue(first, 'x'.repeat(31));
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(m.container.textContent).toContain(fill(t('branches.chips.range'), { max: '30', n: '10' }));
+
+    setValue(first, 'Late');
+    setValue(field('min_gain_ms'), '2');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(['expected_version', 'min_gain_ms']);
+  });
+
+  it('[01a AD-19] the form refuses two chips that differ only in case, with an inline message, and sends nothing', async () => {
+    const calls = await render();
+    const boxes = () => m.container.querySelectorAll<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]');
+    setValue(boxes()[1], 'late');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(m.container.querySelector('[data-group="comp-chips"]')?.textContent).toContain(t('branches.chips.duplicate'));
+    expect(t('branches.chips_help')).not.toContain('note');
+  });
+
+  it('[01a #193 client] a branch whose wire has no ordering settings yet shows the spec defaults and sends nothing for them', async () => {
+    const { queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, ...older } = STORED;
+    void [queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips];
+    const calls = await render(undefined, older);
+    expect(field('queue_auto_send_max_ms')!.value).toBe('240');
+    setValue(field('min_gain_ms'), '2');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(['expected_version', 'min_gain_ms']);
+  });
 });
+

@@ -32,6 +32,11 @@ describe('cross-tenant', () => {
       `INSERT INTO floors (tenant_id, branch_id, floor_id, name, created_at, updated_at) VALUES ($1, $2, $3, 'B floor', 0, 0)`,
       [f.other.tenantId, f.other.branchId, floorId],
     );
+    const zoneId = 'B-ZONE-0000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO zones (tenant_id, branch_id, zone_id, floor_id, name, created_at, updated_at) VALUES ($1, $2, $3, $4, 'B zone', 0, 0)`,
+      [f.other.tenantId, f.other.branchId, zoneId, floorId],
+    );
     const tableId = 'B-TABLE-000000000000000001';
     await cloud.pool.query(
       `INSERT INTO dining_tables (tenant_id, branch_id, table_id, floor_id, name, created_at, updated_at)
@@ -110,6 +115,7 @@ describe('cross-tenant', () => {
       branchId: f.other.branchId,
       auditId,
       floorId,
+      zoneId,
       tableId,
       stationId,
       pointId,
@@ -131,6 +137,7 @@ describe('cross-tenant', () => {
       ids.branchId,
       ids.auditId,
       ids.floorId,
+      ids.zoneId,
       ids.tableId,
       ids.stationId,
       ids.pointId,
@@ -240,6 +247,26 @@ describe('cross-tenant', () => {
       details: { field: 'floor_id', reason: 'not_found' },
     });
     expect(stringsIn(foreignFloor.json())).not.toContain(ids.floorId);
+
+    // 01a §6.6a, §6.6b (02a A-1): B's floor, zone and zone id on A's own branch stop at the tenant-scoped reads.
+    const foreignZoneFloor = await cloud.app.inject({
+      method: 'POST',
+      url: `/v1/admin/branches/${f.branches[0]}/zones`,
+      ...owner(f),
+      payload: { floor_id: ids.floorId, name: 'Patio' },
+    });
+    expect(foreignZoneFloor.statusCode).toBe(422);
+    expect(foreignZoneFloor.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'floor_id' } });
+    expect(stringsIn(foreignZoneFloor.json())).not.toContain(ids.floorId);
+    const foreignZone = await cloud.app.inject({
+      method: 'PATCH',
+      url: `/v1/admin/branches/${f.branches[0]}/zones/${ids.zoneId}`,
+      ...owner(f),
+      payload: { name: 'Patio' },
+    });
+    expect(foreignZone.statusCode).toBe(404);
+    expect(foreignZone.json().error).toMatchObject({ code: 'ZONE_NOT_FOUND', details: { zone_id: ids.zoneId } });
+    expect(stringsIn(foreignZone.json()).filter((s) => bIds.includes(s))).toEqual([ids.zoneId]);
 
     // 01a §12.3 Q-v2.1-1: tenant A's own branch with B's point id stops at the tenant-scoped point lock.
     const foreignPoint = await cloud.app.inject({

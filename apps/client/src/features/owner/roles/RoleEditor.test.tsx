@@ -162,7 +162,7 @@ describe('[01b §8] role editor', () => {
     const toggles = [...m.container.querySelectorAll<HTMLButtonElement>('button.pos-group__toggle')];
     expect(toggles.map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'false', 'false', 'false', 'false']);
     expect(groupToggle('orders').querySelector('small')?.textContent).toBe(
-      `${fill(t('role_editor.count_allowed'), { n: '2' })} · ${fill(t('role_editor.count_not'), { n: '4' })}`,
+      `${fill(t('role_editor.count_allowed'), { n: '2' })} · ${fill(t('role_editor.count_not'), { n: '9' })}`,
     );
     expect(groupToggle('kitchen').querySelector('small')?.textContent).toBe(fill(t('role_editor.count_not'), { n: '4' }));
     expect(m.container.querySelector('.pos-grant__label')?.textContent).toBeTruthy();
@@ -171,7 +171,7 @@ describe('[01b §8] role editor', () => {
     // The summary follows the controls live.
     await click(button(grantRow(t('perm.boost-order')), t('roles.grant.allowed')));
     expect(groupToggle('orders').querySelector('small')?.textContent).toBe(
-      `${fill(t('role_editor.count_allowed'), { n: '3' })} · ${fill(t('role_editor.count_not'), { n: '3' })}`,
+      `${fill(t('role_editor.count_allowed'), { n: '3' })} · ${fill(t('role_editor.count_not'), { n: '8' })}`,
     );
 
     const hint = m.container.querySelector<HTMLButtonElement>('button.pos-hint')!;

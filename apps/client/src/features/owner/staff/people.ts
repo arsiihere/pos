@@ -27,8 +27,8 @@ export type Effective =
   | { grant: 'not_granted' }
   | { grant: 'allowed' | 'requires_approval'; scope: Scope; approver_role_ids: string[]; from_role_ids: string[] };
 
-// Wider first (§3.3): branch > my_floors = my_team = my_stations > own_tables.
-const WIDTH: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, own_tables: 0 };
+// Wider first (§3.3): branch > my_floors = my_team = my_stations = my_zones > own_tables.
+const WIDTH: Record<Scope, number> = { branch: 2, my_floors: 1, my_team: 1, my_stations: 1, my_zones: 1, own_tables: 0 };
 
 // 01b §3.3 resolve(), client side for C02 (§8: "computed client-side with the §3.3 rule from §6.5's roles").
 export function resolve(roles: readonly Role[], denied: readonly Permission[], permission: Permission): Effective {
