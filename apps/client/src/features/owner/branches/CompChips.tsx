@@ -5,6 +5,7 @@ import { t } from '../../../i18n';
 // 01a v2.3 §5.2a (02b A-1, 02b §3.9): the reasons offered when an order taker comps a line, as a list of
 // 1–10 labels of 1–30 characters. The list is replaced as a whole. "Other" is a label like the rest; that a
 // reason called other always needs a note is the order screen's rule, not this form's.
+// TODO(02p task 9): use BranchEngineSettings fields, drop local defaults
 export const DEFAULT_CHIPS = ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'];
 const MAX_CHIPS = 10;
 const MAX_LENGTH = 30;
@@ -17,6 +18,8 @@ export function chipsPatch(chips: readonly string[], base: readonly string[]): {
   if (trimmed.length < 1 || trimmed.length > MAX_CHIPS || trimmed.some((c) => c.length < 1 || c.length > MAX_LENGTH)) {
     return { patch: null, error: fill(t('branches.chips.range'), { max: String(MAX_LENGTH), n: String(MAX_CHIPS) }) };
   }
+  const lower = trimmed.map((c) => c.toLowerCase());
+  if (new Set(lower).size !== lower.length) return { patch: null, error: t('branches.chips.duplicate') };
   return { patch: JSON.stringify(trimmed) === JSON.stringify(base) ? null : trimmed, error: null };
 }
 

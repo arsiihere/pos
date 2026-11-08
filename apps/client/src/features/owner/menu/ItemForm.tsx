@@ -261,6 +261,8 @@ function inUseOf(error: CloudError): InUseRow[] | null {
     return [{ name: fill(t('item.in_use_groups'), { n: String(n) }), href: '#/choice-groups' }];
   }
   if (usedBy?.entity === 'deal') return [{ name: fill(t('item.in_use_deals'), { n: String(n) }), href: '#/deals' }];
+  // 02p AD-6, AD-15: an active zone's route or stock list names the item.
+  if (usedBy?.entity === 'zone') return [{ name: fill(t('item.in_use_zones'), { n: String(n) }), href: '#/floors' }];
   // Any other user: the generic "Still in use…" banner (errorText), never an empty dialog.
   return null;
 }
@@ -1052,13 +1054,13 @@ export function ItemForm({
   // 01a v2.3 §8.1 (02b A-1): "Ready item (not cooked)".
   const readySection = (
     <section className="pos-section" data-section="ready-item">
-      <label className="pos-row">
-        <input type="checkbox" name="is_ready_item" checked={readyItem} onChange={(e) => setReadyItem(e.target.checked)} />
-        <span>
-          <strong>{t('item.ready_item')}</strong>
-          <span className="pos-field__help">{t('item.ready_item_help')}</span>
-        </span>
-      </label>
+      <div className="pos-fold__head pos-itemform__switchhead">
+        <div className="pos-section__head">
+          <h2>{t('item.ready_item')}</h2>
+          <p>{t('item.ready_item_help')}</p>
+        </div>
+        <Switch checked={readyItem} label={t('item.ready_item')} onChange={setReadyItem} />
+      </div>
     </section>
   );
 

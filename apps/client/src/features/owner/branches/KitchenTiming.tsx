@@ -9,6 +9,7 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // percents (sent as typed); every time is typed in minutes and sent as ms (minutes.ts, two decimals, so the
 // 15 s and 30 s minimums are 0.25 and 0.5). The ranges are the cloud's (staff.ts BranchEngineSettings); a box
 // outside its range is refused here, so the cloud's own check is never the first one the owner meets.
+// TODO(02p task 9): use BranchEngineSettings fields, drop local defaults
 // 01a v2.3 §5.2a (02b A-1): three more times beside the A-12 fields. The cloud wire may not carry them yet
 // (task 9 adds them to the settings endpoint), so a missing value reads as the spec default.
 type OrderingKey = 'queue_auto_send_max_ms' | 'zone_undo_ms' | 'slow_item_threshold_ms';

@@ -153,6 +153,14 @@ describe('[01a AD-7] zone reference reasons', () => {
   });
 });
 
+describe('[01a v2.3 §8.1] zone strings', () => {
+  it('every zones.* and archive.floor_* key is in ur or in the 01a Urdu to-do list', () => {
+    const ours = Object.keys(en).filter((key) => /^(zones\.|archive\.floor_)/.test(key));
+    expect(ours.length).toBeGreaterThan(20);
+    for (const key of ours) expect(key in ur || todo01a.includes(`\`${key}\``), key).toBe(true);
+  });
+});
+
 // The owner timing pages (01a v2.1 §8.1) and the shared parts they show: a browser check in Urdu found English
 // on every one of them. Every message key their source names has its Urdu text, with the same placeholders.
 const SOURCES = import.meta.glob(

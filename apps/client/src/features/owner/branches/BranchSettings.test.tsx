@@ -288,6 +288,16 @@ describe('[01b §8] branch settings', () => {
     expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(['expected_version', 'min_gain_ms']);
   });
 
+  it('[01a AD-19] the form refuses two chips that differ only in case, with an inline message, and sends nothing', async () => {
+    const calls = await render();
+    const boxes = () => m.container.querySelectorAll<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]');
+    setValue(boxes()[1], 'late');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(m.container.querySelector('[data-group="comp-chips"]')?.textContent).toContain(t('branches.chips.duplicate'));
+    expect(t('branches.chips_help')).not.toContain('note');
+  });
+
   it('[01a #193 client] a branch whose wire has no ordering settings yet shows the spec defaults and sends nothing for them', async () => {
     const { queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, ...older } = STORED;
     void [queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips];

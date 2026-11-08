@@ -82,11 +82,11 @@ function offeredFor(stations: readonly StationRow[], selfId: string): OfferedSta
 }
 
 // 409 CONFIG_IN_USE names items (routes), stock items (01c V16) or stations (alternates, A-9): name each from what is loaded.
-async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
+async function usersOf(api: CloudAdmin, branchId: string, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
   if (usedEntity(error) === 'station') {
     return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
   }
-  if (usedEntity(error) === 'zone') return zoneNames(api, api.currentUser()?.allowed_branch_ids ?? [], ids);
+  if (usedEntity(error) === 'zone') return zoneNames(api, [branchId], ids);
   if (usedEntity(error) === 'stock_item') {
     const result = await api.listStockItems();
     const byId = new Map(result.ok ? result.data.stock_items.map((item) => [item.stock_item_id, item.name]) : []);
@@ -210,7 +210,7 @@ function StationEditor({
     const ids = usedIds(result.error);
     if (ids !== null && patch.station_type !== undefined) {
       setType(station.station_type);
-      onTypeBlocked(await usersOf(api, result.error, ids, allStations));
+      onTypeBlocked(await usersOf(api, branchId, result.error, ids, allStations));
       return;
     }
     setIssues(resolveRowIssues(issueMessages(result.error), timing, station, type, offeredIds));
@@ -424,7 +424,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       const station = stations?.find((s) => s.station_id === stationId);
-      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, result.error, ids, stations ?? []), type: false });
+      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, branchId, result.error, ids, stations ?? []), type: false });
       else setError(errorText(result.error));
     } else if (archived) setUndo({ stationId, program });
     else setUndo(null);
@@ -437,7 +437,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       if (ids !== null) {
-        const inUse = await usersOf(api, result.error, ids, stations ?? []);
+        const inUse = await usersOf(api, branchId, result.error, ids, stations ?? []);
         setUsedBy((known) => new Map(known).set(station.station_id, inUse));
         setAsk({ kind: 'blocked', station, inUse, type: false });
       } else setError(errorText(result.error));

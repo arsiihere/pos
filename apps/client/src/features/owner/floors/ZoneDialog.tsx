@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CloudAdmin, CloudError, CreateZoneBody, MenuItem, PatchZoneBody, Station, ZoneSummary } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
@@ -9,12 +9,13 @@ import { t } from '../../../i18n';
 import { useCloudDown } from '../cloud';
 import { errorText, isKeyMismatch, issueMessages, useIdempotencyKey } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
+import { loadWholeMenu } from '../menu-pages';
 
 // 01a v2.2 / v2.3 §8.1, §6.6a, §6.6b (02a A-1, 02b A-1): one zone — name, position, the items served from
 // the zone (each with the station that makes it there) and the zone stock items (each with a low-stock
 // threshold). The two lists are replace lists: a list is sent only when it changed (absent = keep), and an
-// emptied list is sent as [] (clear). The floors list does not carry the lists, so an existing zone's lists
-// are read with a PATCH that changes nothing (S26: it writes nothing and answers the stored zone).
+// emptied list is sent as [] (clear). The existing zone's lists
+// come with the floors list (AD-16).
 interface RouteRow {
   item_id: string;
   station_id: string;
@@ -48,16 +49,22 @@ export function ZoneDialog({
   onClose: () => void;
 }) {
   const archived = zone !== null && zone.archived_at !== null;
-  const zoneId = zone?.zone_id;
-  const storedName = zone?.name;
   const key = useIdempotencyKey();
   const [name, setName] = useState(zone?.name ?? '');
   const [sort, setSort] = useState(zone === null ? '' : String(zone.sort_order));
   const [items, setItems] = useState<MenuItem[] | null>(null);
   const [stations, setStations] = useState<Station[] | null>(null);
-  const [base, setBase] = useState<{ routes: RouteRow[]; stock: StockRow[] } | null>(zone === null || archived ? { routes: [], stock: [] } : null);
-  const [routes, setRoutes] = useState<RouteRow[]>([]);
-  const [stock, setStock] = useState<StockRow[]>([]);
+  // AD-16: the floors list carries the zone's lists; nothing is read for the editor but the menu and stations.
+  const base = useMemo(
+    () => ({
+      routes: (zone?.routes ?? []).map((r) => ({ item_id: r.item_id, station_id: r.station_id })),
+      stock: (zone?.stock_items ?? []).map((s) => ({ item_id: s.item_id, threshold: String(s.threshold) })),
+    }),
+    // A reload of the floors list hands over a new `zone` object; only another zone resets the lists.
+    [zone?.zone_id],
+  );
+  const [routes, setRoutes] = useState<RouteRow[]>(base.routes);
+  const [stock, setStock] = useState<StockRow[]>(base.stock);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,37 +76,25 @@ export function ZoneDialog({
     if (archived) return;
     let live = true;
     void (async () => {
-      const [menu, station, stored] = await Promise.all([
-        api.getMenu({ limit: 200 }),
-        api.listStations(branchId),
-        zoneId === undefined || storedName === undefined ? Promise.resolve(null) : api.patchZone(branchId, zoneId, { name: storedName }),
-      ]);
+      // S50 e / pickers: every active menu page, not one page of 200.
+      const [menu, station] = await Promise.all([loadWholeMenu(api, 'active'), api.listStations(branchId)]);
       if (!live) return;
-      const failed = [menu, station, stored].find((r) => r !== null && !r.ok);
-      if (failed !== undefined && failed !== null && !failed.ok) {
+      const failed = [menu, station].find((r) => !r.ok);
+      if (failed !== undefined && !failed.ok) {
         setLoadError(errorText(failed.error));
         return;
       }
       if (menu.ok) setItems(menu.data.items);
       if (station.ok) setStations(station.data.stations);
-      if (stored !== null && stored.ok) {
-        const loaded = {
-          routes: stored.data.zone.routes.map((r) => ({ item_id: r.item_id, station_id: r.station_id })),
-          stock: stored.data.zone.stock_items.map((s) => ({ item_id: s.item_id, threshold: String(s.threshold) })),
-        };
-        setBase(loaded);
-        setRoutes(loaded.routes);
-        setStock(loaded.stock);
-      }
     })();
     return () => {
       live = false;
     };
-    // A reload of the floors list hands over a new `zone` object; only another zone starts the read again.
-  }, [api, branchId, zoneId, archived]);
+  }, [api, branchId, archived]);
 
-  const ready = archived || (items !== null && stations !== null && base !== null);
-  const itemName = (id: string) => items?.find((i) => i.item_id === id)?.name ?? id;
+  const ready = archived || (items !== null && stations !== null);
+  // S50 e: a stored row whose item is not in the menu (archived or not sold here any more) never shows its id.
+  const itemName = (id: string) => items?.find((i) => i.item_id === id)?.name ?? t('zones.unknown_item');
   const activeStations = (stations ?? []).filter((s) => s.archived_at === null);
   // Only an active item that is sold at this branch can be named (AD-15); a zone stock item must also be a
   // piece item that is not weighed (§6.6a, AD-6).
@@ -110,8 +105,8 @@ export function ZoneDialog({
   const trimmed = name.trim();
   const sortValid = sort.trim() === '' ? zone === null : /^-?[0-9]+$/.test(sort.trim());
   const thresholdsValid = stock.every((s) => INT_RE.test(s.threshold.trim()) && Number(s.threshold.trim()) <= 5000);
-  const routesChanged = base !== null && !sameRoutes(routes, base.routes);
-  const stockChanged = base !== null && !sameStock(stock.map((s) => ({ ...s, threshold: s.threshold.trim() })), base.stock);
+  const routesChanged = !sameRoutes(routes, base.routes);
+  const stockChanged = !sameStock(stock.map((s) => ({ ...s, threshold: s.threshold.trim() })), base.stock);
   const nameChanged = zone === null || trimmed !== zone.name;
   const sortChanged = zone === null ? sort.trim() !== '' : sort.trim() !== String(zone.sort_order);
   const changed = [

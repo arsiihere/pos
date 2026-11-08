@@ -40,11 +40,12 @@ export async function dealNames(api: CloudAdmin, ids: readonly string[]): Promis
   return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []), by: 'deal' };
 }
 
-// Zones are named from the floors list of each branch asked (an item can be named by zones of several branches).
+// Zones are named from the floors list of each branch asked (an item can be named by zones of several branches; one
+// read each, in parallel). A station belongs to one branch, so its view asks only for its own.
 export async function zoneNames(api: CloudAdmin, branchIds: readonly string[], ids: readonly string[]): Promise<InUse> {
   const byId = new Map<string, string>();
-  for (const branchId of branchIds) {
-    const result = await api.listFloors(branchId);
+  const results = await Promise.all(branchIds.map((branchId) => api.listFloors(branchId)));
+  for (const result of results) {
     if (result.ok) for (const floor of result.data.floors) for (const zone of floor.zones) byId.set(zone.zone_id, zone.name);
   }
   return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []), by: 'zone' };

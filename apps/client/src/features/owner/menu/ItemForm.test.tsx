@@ -349,11 +349,10 @@ describe('owner item and category forms', () => {
   it('[01a #195] item form round-trips is_ready_item', async () => {
     const created = fakeApi();
     await renderNewItem(created.api);
-    const box = field('is_ready_item') as HTMLInputElement;
-    expect(box.type).toBe('checkbox');
-    expect(box.checked).toBe(false);
+    const ready = () => container.querySelector<HTMLButtonElement>('[data-section="ready-item"] [role="switch"]');
+    expect(ready()?.getAttribute('aria-checked')).toBe('false');
     expect(container.textContent).toContain(t('item.ready_item'));
-    click(box);
+    click(ready());
     await submitForm();
     expect(posted(created.calls)['is_ready_item']).toBe(true);
     act(() => root.unmount());
@@ -395,10 +394,10 @@ describe('owner item and category forms', () => {
       ),
     );
     await flush();
-    expect((field('is_ready_item') as HTMLInputElement).checked).toBe(true);
+    expect(ready()?.getAttribute('aria-checked')).toBe('true');
     await submitForm();
     expect(edit.calls.filter((c) => c.method === 'PATCH')).toEqual([]);
-    click(field('is_ready_item'));
+    click(ready());
     await submitForm();
     expect(edit.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ is_ready_item: false });
   });

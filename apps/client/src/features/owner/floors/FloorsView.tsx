@@ -265,6 +265,7 @@ function FirstFloorForm({
 type Ask =
   | { kind: 'archive-floor'; floor: FloorRow }
   | { kind: 'floor-blocked'; floor: FloorRow; tables: string[]; zones: string[] }
+  | { kind: 'archive-zone'; zone: ZoneSummary; floorId: string }
   | null;
 
 // What keeps a floor from being archived: its active tables (§6.4) and its active zones (02a A-1, AD-6).
@@ -308,7 +309,7 @@ export function FloorsView({
   const [addingFloor, setAddingFloor] = useState(false);
   const [editing, setEditing] = useState<{ table: Table; floorId: string } | null>(null);
   const [ask, setAsk] = useState<Ask>(null);
-  const [undo, setUndo] = useState<{ table?: Table; zone?: ZoneSummary; floorId: string } | null>(null);
+  const [undo, setUndo] = useState<{ table: Table; floorId: string } | null>(null);
   const [zoneEdit, setZoneEdit] = useState<{ zone: ZoneSummary | null; floorId: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const saved = useFlash();
@@ -360,9 +361,15 @@ export function FloorsView({
     setAsk(null);
     const failed = await patchFloor(floor.floor_id, { archived: true });
     if (failed?.kind === 'api' && failed.code === 'CONFIG_IN_USE') {
-      // The used_by ids are tables or zones (AD-6); the dialog names both from what is loaded.
-      setError(null);
-      setAsk(blockedAsk(floor));
+      // The used_by ids are tables or zones (AD-6). The view's copy of the floor may be older than the cloud's, so the
+      // dialog names the blockers from a fresh read; if none shows, the generic in-use text is the answer.
+      const fresh = await api.listFloors(branchId);
+      const now = fresh.ok ? fresh.data.floors.find((f) => f.floor_id === floor.floor_id) : undefined;
+      const next = blockedAsk(now ?? floor);
+      if (next?.kind === 'floor-blocked') {
+        setError(null);
+        setAsk(next);
+      } else setError(errorText(failed));
     }
   }
 
@@ -401,14 +408,13 @@ export function FloorsView({
     }
   }
 
+  // AD-17: confirm first (S50 b), no Undo: a restore does not put the tables back in the zone.
   async function archiveZone(zone: ZoneSummary, floorId: string) {
-    setZoneEdit(null);
-    const failed = await save(floorId, api.patchZone(branchId, zone.zone_id, { archived: true }));
-    if (failed === null) setUndo({ zone, floorId });
+    setAsk(null);
+    await save(floorId, api.patchZone(branchId, zone.zone_id, { archived: true }));
   }
 
   async function restoreZone(zone: ZoneSummary, floorId: string) {
-    setUndo(null);
     setZoneEdit(null);
     await save(floorId, api.patchZone(branchId, zone.zone_id, { archived: false }));
   }
@@ -534,7 +540,7 @@ export function FloorsView({
                 {undo?.floorId === id && (
                   <UndoChip
                     paused={down}
-                    onUndo={() => void (undo.zone !== undefined ? restoreZone(undo.zone, id) : restoreTable(undo.table as Table, id))}
+                    onUndo={() => void restoreTable(undo.table, id)}
                     onDone={() => setUndo(null)}
                   />
                 )}
@@ -673,8 +679,22 @@ export function FloorsView({
             flashSaved(floorId);
             void load();
           }}
-          onArchive={() => zoneEdit.zone !== null && void archiveZone(zoneEdit.zone, zoneEdit.floorId)}
+          onArchive={() => {
+            if (zoneEdit.zone === null) return;
+            setAsk({ kind: 'archive-zone', zone: zoneEdit.zone, floorId: zoneEdit.floorId });
+            setZoneEdit(null);
+          }}
           onRestore={() => zoneEdit.zone !== null && void restoreZone(zoneEdit.zone, zoneEdit.floorId)}
+        />
+      )}
+      {ask?.kind === 'archive-zone' && (
+        <ConfirmDialog
+          title={fill(t('archive.item_title'), { name: ask.zone.name })}
+          body={t('zones.archive_confirm_body')}
+          confirmLabel={fill(t('archive.archive_name'), { name: ask.zone.name })}
+          tone="danger"
+          onConfirm={() => void archiveZone(ask.zone, ask.floorId)}
+          onCancel={() => setAsk(null)}
         />
       )}
       {ask?.kind === 'archive-floor' && (

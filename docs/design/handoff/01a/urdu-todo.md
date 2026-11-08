@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show in English on an Urdu page until translated. The translated keys came from the frames `OwnerMenuUrdu` and `StockUrdu`.
 
-447 of 476 keys.
+468 keys listed below (02p task 6 fix round: 21 zone keys added; en.ts 1691 keys, 889 with an Urdu text).
 
 | Key | English |
 |---|---|
@@ -472,3 +472,5 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `archive.floor_zones_body` | It still has {n} zones. Archive them first; their tables go back to the floor. |
 | `archive.floor_zones_then_floor` | Archive all {n} zones, then the floor |
 | `archive.floor_all_then_floor` | Archive all {tables} tables and {zones} zones, then the floor |
+| `zones.archive_confirm_body` | Its active tables go back to the floor with no zone, and restoring the zone does not put them back. Its item lists are kept. |
+| `zones.unknown_item` | Unknown item |
