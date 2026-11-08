@@ -48,7 +48,7 @@
 | # | Status |
 |---|---|
 | R-1 | Fixed: §2, §4.2 `ItemReturned` and §4.3 To 04 now say wastage and audit, with Q-8 markers; Q-8 "Where" widened |
-| R-2 | **Open for the owner**: whether a torn or unparsable checkpoint row counts toward "two kept checkpoints" (it extends the T-6 ruling) |
+| R-2 | Fixed by owner ruling 2026-11-08: only readable checkpoint rows count; torn newer row → read from seq 0 (§3.12, R-3 row, tests 125, 130) |
 | R-3 | Fixed: single ⚠️ in §12.2 row 6.2a |
 
-03a v1.2 and 01d v1.2.1 stay DRAFT: one MINOR (R-2) is open (owner rule 3 of 2026-11-08).
+Both specs APPROVED by the owner 2026-11-08 after this closure (no further re-check).
