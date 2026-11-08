@@ -3,7 +3,7 @@
 import { performance } from 'node:perf_hooks';
 import { canonicalJson } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV3, EngineConfigAppliedPayload, type BranchConfig, type ConfigItem, type ConfigStation, type EngineConfig, type PosEvent } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, EngineConfigAppliedPayload, type BranchConfig, type ConfigItem, type ConfigStation, type EngineConfig, type PosEvent } from '@pos/events';
 import { aBranchConfig, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
@@ -190,7 +190,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
     it('never throws over a fuzz of 200 valid V3 configs; each E() is a valid strict payload and is what the engine folds', () => {
       const random = mulberry32(24);
       for (let n = 0; n < 200; n += 1) {
-        const c = BranchConfigSnapshotSchemaV3.parse(fuzzConfig(random, n));
+        const c = BranchConfigSnapshotSchemaV4.parse(fuzzConfig(random, n));
         let appended: PosEvent[] = [];
         expect(() => {
           appended = runHook(c);
@@ -215,7 +215,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
         items: [item({ item_id: 'A', cook_time_ms: -300_000 }), item({ item_id: 'B', cook_time_ms: -100_000, station_id: 'S2' }), item({ item_id: 'C', cook_time_ms: 0, station_id: 'S2' })],
         engine_settings: { ...aBranchConfig().engine_settings, weight_dine_in_pct: 0, slip_threshold_ms: -1, cascade_step_ms: 0, min_gain_ms: -60_000, order_abandon_ms: 0 },
       });
-      const parsed = BranchConfigSnapshotSchemaV3.parse(c);
+      const parsed = BranchConfigSnapshotSchemaV4.parse(c);
       const e = engineConfigOf(parsed);
       expect(e.stations.map((s) => [s.station_id, s.name])).toEqual([
         ['S1', 'First'],

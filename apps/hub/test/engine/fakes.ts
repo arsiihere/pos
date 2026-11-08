@@ -4,6 +4,8 @@
 import { checkOrderable, lateStartShift, planOrder, reserveStock, stockEffects, type EngineState, type ProposedOrder } from '@pos/engine';
 import type { ConfigStockItem, EventDraft, PosEvent } from '@pos/events';
 import { anItemAdded, anOrderBatch, aReturnLinesAdded } from '@pos/events/testing';
+import type Database from 'better-sqlite3';
+import type { CurrentTableOf, HoldersOfOrders } from '../../src/engine-host/slip-readers';
 import type { HubDeps } from '../../src/server';
 
 export function draftOf(event: Pick<PosEvent, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'> & Partial<PosEvent>, at?: number): EventDraft {
@@ -185,4 +187,44 @@ export function fakeReturnDrafts(state: EngineState, served: PosEvent, mode: 'fi
 export function fakeLateStartDrafts(state: EngineState, order_item_id: string, now: number): EventDraft[] {
   const shift = lateStartShift(state, order_item_id, now);
   return [...fakeStartDrafts(state, order_item_id, now), ...(shift === null ? [] : [stamp(shift, now)])];
+}
+
+// 03a v1.2 §4.4 (Q-1, R-1): 02a's slip reader pair is not built; these doubles stand in for it. Each makes exactly one
+// statement on the view it is given (a json_each read of the ids, so the statement counter sees it, as 02a's real read
+// would), records its ids and its db, and answers from the maps (mutable, so a test can move or hand over).
+export interface FakeTableEntry {
+  seating_id: string;
+  primary_table_id: string;
+  table_ids: string[];
+}
+export interface FakeSlipReaders {
+  holders: Map<string, string>;
+  tables: Map<string, FakeTableEntry>;
+  calls: { holdersOfOrders: string[][]; currentTableOf: string[][] };
+  dbs: Database.Database[];
+  readers: { holdersOfOrders: HoldersOfOrders; currentTableOf: CurrentTableOf };
+}
+export function fakeSlipReaders(o: { holders?: Record<string, string>; tables?: Record<string, FakeTableEntry> } = {}): FakeSlipReaders {
+  const fake: FakeSlipReaders = {
+    holders: new Map(Object.entries(o.holders ?? {})),
+    tables: new Map(Object.entries(o.tables ?? {})),
+    calls: { holdersOfOrders: [], currentTableOf: [] },
+    dbs: [],
+    readers: {
+      holdersOfOrders: (db, order_ids) => answer(db, order_ids, fake.calls.holdersOfOrders, fake.holders),
+      currentTableOf: (db, order_ids) => answer(db, order_ids, fake.calls.currentTableOf, fake.tables),
+    },
+  };
+  function answer<V>(db: Database.Database, order_ids: readonly string[], calls: string[][], source: Map<string, V>): Map<string, V> {
+    calls.push([...order_ids]);
+    fake.dbs.push(db);
+    const rows = db.prepare('SELECT value AS order_id FROM json_each(?)').all(JSON.stringify(order_ids)) as Array<{ order_id: string }>;
+    const out = new Map<string, V>();
+    for (const { order_id } of rows) {
+      const v = source.get(order_id);
+      if (v !== undefined) out.set(order_id, v);
+    }
+    return out;
+  }
+  return fake;
 }

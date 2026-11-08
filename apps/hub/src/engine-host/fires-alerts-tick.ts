@@ -7,6 +7,8 @@ import type { TickDef } from '../alerts/tick.js';
 import { hostFlags, type DroppedLine } from './host-flags.js';
 import { ENGINE_ALERT_KINDS, readLineFacts, slipDetails } from './kinds.js';
 import { rawDbOf, readOnlyDb } from './read-only-tx.js';
+import { slipReaders } from './slip-readers.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import type { Writer } from './writer.js';
 import type { WarnLog } from './reducer.js';
 
@@ -22,10 +24,10 @@ import type { WarnLog } from './reducer.js';
 //   4. closes: resolved slips `done` by their alert_id; with day_closed every open slip_warning `obsolete`.
 //   5. one closeMany, then one raiseMany; one SlipWarned per raised slip from the returned alert_id, none when deduped.
 //   6. the drafts: this tick's own transaction (a throw rolls back only this tick, 01d isolation).
-// Statements with work: 2 + 0 (tableOwners is stubbed by placed_by, §4.4) + ≤ 1 (the slips' ItemAdded facts for their
-// details, kinds.ts readLineFacts; only in a pass with a slip to raise) + closeMany's 1 + raiseMany's ≤ 6 + R + T, plus
-// the appends. proposed (implementer): §6.2a / §10.5 state "2 + ≤ 1 + 01d bounds"; the §3.8 details (line name and
-// quantity) are not in the engine state, so they cost this one extra read, whatever the number of slips.
+// Statements with work (03a v1.2 §6.2a, §10.5; R-1, test 121): 2 + ≤ 2 (02a's holdersOfOrders and currentTableOf, one
+// each over every dine_in slip of the pass; 0 while unregistered, §4.4, or with no dine_in slip) + ≤ 1 (the slips'
+// ItemAdded facts for their details, kinds.ts readLineFacts; only in a pass with a slip to raise) + closeMany's 1 +
+// raiseMany's ≤ 6 + R + T, plus the appends.
 
 // The kinds this tick raises, registered in kinds.ts (task 23, §6.4); re-exported for the tick's callers.
 export { ENGINE_ALERT_KINDS };
@@ -163,10 +165,44 @@ function overloadPlan(state: EngineState, items: AlertIntents['overload'], now: 
 
 type Skip = { kind: string; table_key?: string; station_id?: string; order_item_id?: string | null; reason: string };
 
-// §3.8 receiver: dine_in → 02's tableOwners (stubbed until 02 lands: the order's placed_by, §4.4; no owner → placed_by,
-// v0.6 G4-2 #17); takeaway / delivery / parking → placed_by. A group mixing types uses its oldest order's rule.
-function receiverOf(state: EngineState, oldest: string): string | null {
-  return state.orders[oldest]?.placed_by ?? null;
+// 03a v1.2 §3.8 (Q-1, R-1, R-2): per oldest order of each dine_in slip, its holder and its current table, read once for
+// the pass. A group mixing types uses its oldest order's rule (its order_type, never a prefix of table_key).
+interface SlipSeats {
+  holders: ReadonlyMap<string, string>;
+  tables: ReadonlyMap<string, { primary_table_id: string }>;
+}
+const NO_SEATS: SlipSeats = { holders: new Map(), tables: new Map() };
+
+// The distinct oldest dine_in orders of the slips to raise: one holdersOfOrders and one currentTableOf call over them,
+// none when there is none or the readers are not registered (§4.4 stub). `db` is the tick's read-only view.
+function readSlipSeats(db: Database.Database, state: EngineState, oldest: readonly string[]): SlipSeats {
+  const readers = slipReaders();
+  if (readers === null) return NO_SEATS;
+  const ids = [...new Set(oldest.filter((id) => state.orders[id]?.order_type === 'dine_in'))];
+  if (ids.length === 0) return NO_SEATS;
+  const view = readOnlyDb(db);
+  return { holders: readers.holdersOfOrders(view, ids), tables: readers.currentTableOf(view, ids) };
+}
+
+// §3.8 receiver: dine_in → the holder of the oldest order (no holder, or readers stubbed → placed_by, G4-2 #17);
+// takeaway / delivery / parking → placed_by.
+function receiverOf(state: EngineState, seats: SlipSeats, oldest: string): string | null {
+  const order = state.orders[oldest];
+  if (order === undefined) return null;
+  return (order.order_type === 'dine_in' ? seats.holders.get(oldest) : undefined) ?? order.placed_by ?? null;
+}
+
+// R-2: display.table_code = the config `name` of the oldest order's primary table (0 statements: the in-memory branch
+// config); null when stubbed, with no currentTableOf entry, when the table is not in the config, or not dine_in.
+function tableCodeOf(state: EngineState, seats: SlipSeats, oldest: string): string | null {
+  if (state.orders[oldest]?.order_type !== 'dine_in') return null;
+  const table_id = seats.tables.get(oldest)?.primary_table_id;
+  if (table_id === undefined) return null;
+  for (const floor of branchConfig()?.floors ?? []) {
+    const table = floor.tables.find((t) => t.table_id === table_id);
+    if (table !== undefined) return table.name;
+  }
+  return null;
 }
 
 export const firesAlertsTick: TickDef = {
@@ -204,9 +240,11 @@ export const firesAlertsTick: TickDef = {
     const directory = alertDirectoryOf(tx);
     const slipKind = kindOf(ENGINE_ALERT_KINDS.slip);
     const raisable: Array<{ slip: AlertIntents['slips'][number]; receiver: string; values: Record<string, unknown> }> = [];
-    for (const slip of intents.slips) {
-      if (hostFlags.skipped.has(slip.table_key)) continue;
-      const receiver = receiverOf(state, slip.order_ids[0] as string);
+    const toRaise = intents.slips.filter((slip) => !hostFlags.skipped.has(slip.table_key));
+    // Q-1, R-1: ≤ 2 statements for every dine_in slip of the pass (none without the kind: nothing would be raised).
+    const seats = slipKind === undefined ? NO_SEATS : readSlipSeats(tx.db, state, toRaise.map((slip) => slip.order_ids[0] as string));
+    for (const slip of toRaise) {
+      const receiver = receiverOf(state, seats, slip.order_ids[0] as string);
       const values = { table_key: slip.table_key, order_ids: slip.order_ids, escalate_ms: state.config?.settings.slip_escalate_ms ?? 0 };
       let reason: string | null = null;
       if (slipKind === undefined) reason = 'kind_not_registered';
@@ -237,7 +275,7 @@ export const firesAlertsTick: TickDef = {
         subject: { stream_type: 'order', stream_id: slip.order_ids[0] as string }, // §3.8: the oldest order of the group
         target: { kind: 'person', staff_id: receiver },
         values,
-        display: { kind_label_key: slipKind.labels.lock },
+        display: { kind_label_key: slipKind.labels.lock, table_code: tableCodeOf(state, seats, slip.order_ids[0] as string) },
         details,
         dedupe_key: `slip:${slip.table_key}`,
         request: { receiver_staff_id: receiver },
