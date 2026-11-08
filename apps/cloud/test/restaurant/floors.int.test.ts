@@ -43,7 +43,7 @@ describe('floors', () => {
       [f.tenantId, branchId, tableId, floorId, archivedAt],
     );
 
-  it('[01a §10 #16] create floor; list returns it with its zones and nested tables in 3 statements', async () => {
+  it('[01a §10 #16] create floor; list returns it with its zones and nested tables in 5 statements', async () => {
     const created = await createFloor(f.branches[0], { name: 'Ground', sort_order: 2 });
     expect(created.statusCode).toBe(201);
     const floor = created.json().data.floor;
@@ -56,7 +56,7 @@ describe('floors', () => {
     );
 
     const listed = await cloud.app.inject({ method: 'GET', url: floorsUrl(f.branches[0]), ...owner(f) });
-    expect(counter.count).toBe(3);
+    expect(counter.count).toBe(5);
     expect(listed.statusCode).toBe(200);
     expect(listed.json()).toEqual({
       data: {

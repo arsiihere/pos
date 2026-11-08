@@ -190,11 +190,20 @@ export async function listFloors(deps: RestaurantDeps, tenant: TenantContext, br
   const floors = await selectFloors(repo, branchId);
   const zones = await selectZones(repo, branchId);
   const tables = await selectTables(repo, branchId);
+  // AD-16: the zones' lists, two statements for any number of zones; by item_id.
+  const lists = await selectZoneLists(repo, branchId, zones.map((zone) => zone.zone_id));
   return floors.map((floor) => ({
     ...floor,
     zones: zones
       .filter((zone) => zone.floor_id === floor.floor_id)
-      .map(({ zone_id, name, sort_order, archived_at }) => ({ zone_id, name, sort_order, archived_at })),
+      .map(({ zone_id, name, sort_order, archived_at }) => ({
+        zone_id,
+        name,
+        sort_order,
+        archived_at,
+        routes: lists.routes.filter((r) => r.zone_id === zone_id).map(({ item_id, station_id }) => ({ item_id, station_id })),
+        stock_items: lists.stock_items.filter((s) => s.zone_id === zone_id).map(({ item_id, threshold }) => ({ item_id, threshold })),
+      })),
     tables: tables
       .filter((table) => table.floor_id === floor.floor_id)
       .map((table) => ({

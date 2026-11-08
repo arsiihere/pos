@@ -618,20 +618,18 @@ const Table = z.object({
   archived_at: z.number().nullable(),
 });
 
-// §6.2 (02a A-1): the floors list carries each floor's zones, without their lists.
+// §6.2 (02a A-1; AD-16): the floors list carries each floor's zones with both their lists, by item_id.
 const ZoneSummary = z.object({
   zone_id: z.string(),
   name: z.string(),
   sort_order: z.number(),
   archived_at: z.number().nullable(),
-});
-
-// §6.6a, §6.6b: the zone with both its lists.
-const Zone = ZoneSummary.extend({
-  floor_id: z.string(),
   routes: z.array(z.object({ item_id: z.string(), station_id: z.string() })),
   stock_items: z.array(z.object({ item_id: z.string(), threshold: z.number() })),
 });
+
+// §6.6a, §6.6b: the zone with both its lists and its floor.
+const Zone = ZoneSummary.extend({ floor_id: z.string() });
 
 export const FloorListResponse = z.object({
   data: z.object({ floors: z.array(Floor.extend({ zones: z.array(ZoneSummary), tables: z.array(Table) })) }),

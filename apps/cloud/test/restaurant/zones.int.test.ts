@@ -212,23 +212,42 @@ describe('zones', () => {
     expect(archived.statusCode).toBe(200);
   });
 
-  it('[01a #186] floors list returns zones and zone_id in 3 statements', async () => {
+  it('[01a #186] floors list returns zones and zone_id in 5 statements', async () => {
     const zoneId = await newZone({ name: 'Patio', sort_order: 2 });
     const archivedZone = await newZone({ name: 'Old patio', sort_order: 1 });
     await patchZone(archivedZone, { archived: true });
     await addTable('Z-T1', zoneId);
     const listed = await cloud.app.inject({ method: 'GET', url: `/v1/admin/branches/${A()}/floors`, ...owner(f) });
-    expect(counter.count).toBe(3);
+    expect(counter.count).toBe(5);
     expect(listed.statusCode).toBe(200);
     const floor = listed.json().data.floors.find((fl: { floor_id: string }) => fl.floor_id === menu.floorId);
     expect(floor.zones).toEqual([
-      { zone_id: archivedZone, name: 'Old patio', sort_order: 1, archived_at: expect.any(Number) },
-      { zone_id: zoneId, name: 'Patio', sort_order: 2, archived_at: null },
+      { zone_id: archivedZone, name: 'Old patio', sort_order: 1, archived_at: expect.any(Number), routes: [], stock_items: [] },
+      { zone_id: zoneId, name: 'Patio', sort_order: 2, archived_at: null, routes: [], stock_items: [] },
     ]);
     expect(floor.tables.find((t: { table_id: string }) => t.table_id === 'Z-T1')).toMatchObject({ zone_id: zoneId });
     expect(floor.tables.find((t: { table_id: string }) => t.table_id === 'TB-1')).toMatchObject({ zone_id: null });
     const empty = listed.json().data.floors.find((fl: { floor_id: string }) => fl.floor_id === menu.archived!.floorId);
     expect(empty.zones).toEqual([]);
+  });
+
+  it('[01a AD-16] floors list carries zone routes and stock items, by item_id, archived zones included, in 5 statements', async () => {
+    const zoneId = await newZone({
+      name: 'Patio',
+      routes: [{ item_id: 'IT-0001', station_id: 'ST-1' }, { item_id: 'IT-0000', station_id: 'ST-2' }],
+      stock_items: [{ item_id: 'IT-0001', threshold: 3 }, { item_id: 'IT-0000' }],
+    });
+    const archived = await newZone({ name: 'Old', routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }] });
+    await patchZone(archived, { archived: true });
+    const listed = await cloud.app.inject({ method: 'GET', url: `/v1/admin/branches/${A()}/floors`, ...owner(f) });
+    expect(counter.count).toBe(5);
+    const floor = listed.json().data.floors.find((fl: { floor_id: string }) => fl.floor_id === menu.floorId);
+    const byId = (id: string) => floor.zones.find((z: { zone_id: string }) => z.zone_id === id);
+    expect(byId(zoneId)).toMatchObject({
+      routes: [{ item_id: 'IT-0000', station_id: 'ST-2' }, { item_id: 'IT-0001', station_id: 'ST-1' }],
+      stock_items: [{ item_id: 'IT-0000', threshold: 0 }, { item_id: 'IT-0001', threshold: 3 }],
+    });
+    expect(byId(archived)).toMatchObject({ archived_at: expect.any(Number), routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }], stock_items: [] });
   });
 
   it('[01a #189] zone with routes and stock_items → stored; PATCH with routes only replaces routes, keeps stock items; [] clears', async () => {
