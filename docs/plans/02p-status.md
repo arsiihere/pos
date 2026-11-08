@@ -29,13 +29,19 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 **Decisions for the owner:** none open.
 
+## PLATFORM A REPORT (2026-11-08): batch 1 done (tasks 1, 2), gate green, pushed
+
+> **Hinglish:** Batch 1 mukammal. Task 1 (`3db9ce1`) pehle push hua — engine lane mein merge kar sakte hain. Task 2 (`a4a6f73`, `a49d8cc`) bhi done. Gate green (3227 tests). Teen AD rows aapke faisle ke liye (AD-1, AD-2, AD-3). Agla: batch 2 (tasks 3–6).
+
+**Head:** `module-02p` (this checkpoint commit). **Blocks:** none. **Decisions for the owner:** AD-1 (recommend int), AD-2 (recommend keep), AD-3 (recommend append to §6.2 now).
+
 ## Task table
 
 | # | Task | Lane | Risk | Status | Commit |
 |---|---|---|---|---|---|
 | 0 | 03a v1.2, 01d v1.2.1, text patches | engine | — | **done** | `73ff815`…`4bffa9e` |
-| 1 | Event schemas: additive fields, `StockTransferredOut` | platform A | NORMAL | todo | |
-| 2 | Permissions, `my_zones`, ranks, labels | platform A | NORMAL | todo | |
+| 1 | Event schemas: additive fields, `StockTransferredOut` | platform A | NORMAL | **done** (pushed) | `3db9ce1` |
+| 2 | Permissions, `my_zones`, ranks, labels | platform A | NORMAL | **done** | `a4a6f73`, `a49d8cc` |
 | 3 | Cloud zones, routes, stock items, `is_ready_item`, settings columns | platform A | HIGH | todo | |
 | 4 | Snapshot V4, hub apply | platform A | HIGH | todo | |
 | 5 | `StockTransferredOut` in `stock_version`, stock frame | platform A | NORMAL | todo | |
@@ -44,9 +50,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 8 | `my_zones` CHECK expand, `zonesOf` | platform A | HIGH | todo | |
 | 9 | Default grants, re-seed, settings `PATCH` | platform A | NORMAL | todo | |
 | 10 | Owner app: assigned tables | platform A | NORMAL (UI) | todo | |
-| 11 | 00 M95 paused idle clock | platform B | NORMAL | see `02p-status-hub.md` | |
-| 12 | `X-Queued-At`, `queueable`, CORS | platform B | NORMAL | see `02p-status-hub.md` | |
-| 13 | 01d D-1, D-3 | platform B | NORMAL | see `02p-status-hub.md` | |
+| 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 17b | 03a carry-over (open item 13: gaps 1, 2, 4, 5, 7) | engine | NORMAL | todo | |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
@@ -58,7 +64,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 | # | Task | Reading | Options | Choice | Status |
 |---|---|---|---|---|---|
-| — | | *(none yet)* | | | |
+| AD-1 | 1 | `StockTransferredOut.quantity` is `z.number().positive()` (plan "number > 0"). 01a v2.3 / 02b / 03a give no type; `StockAdded` v2 is `int().min(1).max(1_000_000)`, and 02b's refill is `draw × quantity` of ints | (a) keep `positive()`; (b) `int().min(1)` like `StockAdded` | (a) built as the plan says; recommend (b) before 02b produces it | proposed (not yet ruled) |
+| AD-2 | 2 | Files outside the brief's list, all forced by the task: `people.test.ts` (new, client half of the `WIDTH` test the brief names), `RoleEditor.test.tsx` (orders-group counts 4→9, 3→8: group grew 6→11), `docs/design/handoff/01b/urdu-todo.md` (Urdu goes to the to-do list, n-5); extra label `roles.scope_help.my_zones` (`RoleEditor.tsx` needs it to typecheck). English label wording is ours (no spec text) | (a) keep; (b) revert and re-plan | (a) | proposed (not yet ruled) |
+| AD-3 | 2 | `ZONE_NOT_FOUND` is in `errors.ts` but not yet in the foundation §6.2 404 list (CLAUDE.md: "append them to the foundation §6.2 list"; R34: no bump). 02p task 2's file list names only `errors.ts` | (a) append it to foundation v1.11 §6.2 in a small docs commit now; (b) leave it to task 18's "spec text" | none yet — needs the owner (foundation file) | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -87,6 +95,16 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **AD rows (proposed):** …
 - **Carried:** …
 ```
+
+## Batch 1 — shared types and schemas (2026-11-08)
+
+- **Lane / tasks:** platform A, tasks 1, 2.
+- **Commits:** `3db9ce1` (task 1, pushed right away for the engine merge), `a4a6f73` (task 2), `a49d8cc` (task 2 review fix).
+- **Reviews:** both by opus. Task 1: approved, no Critical / Important (minor: the fixture sweep asserts only "parses", a reject test carries the `#129` label, `quantity` type → AD-1). Task 2: approved; one Important, plan-mandated: a `my_zones` grant passes Zod and the service check but hits the old cloud CHECK (`0005_staff_roles.sql:68`) → 500 until task 8's expand migration; closes in batch 3. Fix round 1 (sonnet re-review, approved): `already_assigned` in `REASONS_01B`, `my_zones` help text names the lead.
+- **Gate:** `TMPDIR=/dev/shm DATABASE_URL=…/pos_test_cloud flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` — exit 0; 362 files passed, 1 skipped; 3227 tests passed, 1 skipped, 1 todo; 8 m 44 s.
+- **Tests closed:** U-5 schema part (C-1, E-1, Q-4, Q-6, Q-9, Q-5 schema), 03a #129; U-4 catalogue, scope sets, ranks, labels.
+- **AD rows (proposed):** AD-1, AD-2, AD-3.
+- **Carried:** the `my_zones` 500 until task 8.
 
 ## Platform A prompt (for the owner to paste into a new session)
 
