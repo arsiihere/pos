@@ -778,6 +778,8 @@ The reads (§6.2, 6.7b, 6.8, 6.11) write no audit row. **v1.3 (01b B5):** the `P
 
 Returns `{ floors: [{ floor_id, name, sort_order, archived_at, tables: [{ table_id, name, seats, sort_order, archived_at }] }] }`, including archived rows (the page filters). 2 statements. Bounded (one branch), so no pagination.
 
+> *As built, 02p task 6 (owner ruling 2026-11-08, AD-16):* each zone in the floors list also carries its `routes: [{ item_id, station_id }]` and `stock_items: [{ item_id, threshold }]` (sorted by `item_id`, as stored, archived zones included), so the owner app reads a zone's lists here; no zone `GET`. **5 statements** (floors, zones, tables, zone routes, zone stock items), fixed.
+
 > ⚠️ Changed by 02a v1.0 (A-1): each floor also returns `zones: [{ zone_id, name, sort_order, archived_at }]`, and each table `zone_id: string | null`. 3 statements (floors, zones, tables).
 
 #### 6.3 `POST /v1/admin/branches/:branch_id/floors`
@@ -816,7 +818,7 @@ Body `{ floor_id, name: 1–40, sort_order? }`; `Idempotency-Key` required (S7).
 
 Any of `{ name, sort_order, archived: boolean }` (a zone never changes floor). **Archiving a zone sets `zone_id = NULL` on its active tables in the same transaction** (they fall back to the floor's implicit zone; 01b assignments to the zone stop applying, 01b v1.6 B-2). Restoring checks name uniqueness. `200 { data: { zone } }`. `404 ZONE_NOT_FOUND`; `409 CONFIG_NAME_TAKEN`. Bumps this branch; audit `zone` / `update`, `archive` or `restore`.
 
-> ⚠️ Changed by 02b v1.0 (A-1): `routes` and `stock_items` as in §6.6a; a list sent replaces the stored list (absent = unchanged, `[]` = clear); one `config_audit` row for the zone covers both lists. Archiving a zone keeps its lists (they apply again on restore).
+> ⚠️ Changed by 02b v1.0 (A-1): `routes` and `stock_items` as in §6.6a; a list sent replaces the stored list (absent = unchanged, `[]` = clear); one `config_audit` row for the zone covers both lists. Archiving a zone keeps its lists (they apply again on restore). *As built, 02p task 6 (owner ruling 2026-11-08, AD-17):* the owner app archives a zone only after a confirm dialog that names it and says its active tables go back to the floor (S50 b's confirm-first rule, like a floor); no Undo chip, because a restore does not re-zone the tables.
 
 > *As built, 02p task 3 (owner ruling 2026-11-08, AD-5):* restoring a zone whose floor is archived → `422 CONFIG_REFERENCE_INVALID { field: 'floor_id', reason: 'archived' }` (an archived floor has no active zones, §6.4). *As built, 02p task 3 (owner ruling 2026-11-08, AD-9):* restoring a zone drops, in the same write, every stored `routes[]` entry naming an archived item or station and every `stock_items[]` entry naming an archived item or one that is no longer `sale_unit 'piece'` or is `requires_weighing`, and (AD-15, §6.6a) every entry whose item has no active `item_routes` row at the branch (the AD-6 rule; the `config_audit` row records the dropped entries as `after.dropped: { routes, stock_items }`, present only when something was dropped), so an active zone's lists never hold such a reference.
 

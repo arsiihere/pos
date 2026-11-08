@@ -79,6 +79,10 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-13 | 4 | Engine-owned `apps/hub/test/engine/config-hook.int.test.ts` imports `BranchConfigSnapshotSchemaV3` | (a) deprecated alias `V3 = V4` in `@pos/events` until the engine lane switches; (b) engine lane fixes; (c) keep name | (a); **the engine lane must switch its import, then the alias is removed** | **ruled (owner, 2026-11-08)** |
 | AD-14 | 4 | Zones of an archived floor are not delivered in V4 (only active floors) | (a) accept; (b) deliver | (a) | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
 | AD-15 | 3 (follow-up) | Zone lists could name an item with no `item_routes` row at the branch (not in `items[]`) | (a) zone write requires the route (422 `not_found`), §6.16 route removal refused while a zone names it (409); (b) builder filters; (c) 02b ignores | (a) — follow-up fix after task 5; every route-removing write (only §6.16 exists; §6.15 takes no routes), and the AD-9 restore drops unrouted entries (owner, 2026-11-08) | **ruled (owner, 2026-11-08)**; 01a §6.6a marker |
+| AD-16 | 6 | No API returned a zone's lists (the UI used a no-op PATCH, which can revert a concurrent rename) | (a) §6.2 floors list returns `routes[]`, `stock_items[]` (3 → 5 statements); (b) new `GET` zone | (a) | **ruled (owner, 2026-11-08)**; 01a §6.2 marker |
+| AD-17 | 6 | Zone archive UX: Undo chip restored only the zone, not its tables' `zone_id` | (a) confirm dialog, no Undo; (b) Undo re-zones tables; (c) reword chip | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-18 | 6 | Settings form sends the five fields before task 9's PATCH accepts them (400 / dropped on this branch) | (a) accept, transient until task 9; (b) hide until the wire has them | (a) | **ruled (owner, 2026-11-08)** |
+| AD-19 | 6 | Comp chips help text promised "'Other' asks for a note" (02b ties it to the code `other`); duplicates accepted | (a) neutral help, refuse case-insensitive duplicates; (b) keep | (a) | **ruled (owner, 2026-11-08)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
