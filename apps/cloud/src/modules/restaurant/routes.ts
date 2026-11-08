@@ -4,6 +4,7 @@ import {
   CategoryResponse,
   CreateCategoryBody,
   CreateFloorBody,
+  CreateZoneBody,
   CreateMenuItemBody,
   CreatePointBody,
   CreateProgramBody,
@@ -17,6 +18,8 @@ import {
   MenuResponse,
   PatchCategoryBody,
   PatchFloorBody,
+  PatchZoneBody,
+  ZoneResponse,
   PatchMenuItemBody,
   PatchPointBody,
   PatchProgramBody,
@@ -38,6 +41,7 @@ import {
   BranchParams,
   CategoryParams,
   FloorParams,
+  ZoneParams,
   ItemRouteParams,
   MenuItemParams,
   MenuQuery,
@@ -50,6 +54,7 @@ import {
 import {
   createCategory,
   createFloor,
+  createZone,
   createMenuItem,
   createPoint,
   createProgram,
@@ -62,6 +67,7 @@ import {
   listStations,
   patchCategory,
   patchFloor,
+  patchZone,
   patchMenuItem,
   patchPoint,
   patchProgram,
@@ -124,6 +130,33 @@ export function registerRestaurantRoutes(app: FastifyInstance, deps: RestaurantD
       deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/floors/:floor_id');
       const { branch_id, floor_id } = request.params;
       const data = await patchFloor(deps, ownerRequest(app, request), branch_id, floor_id, request.body);
+      return reply.send({ data });
+    },
+  );
+
+  routes.post(
+    '/v1/admin/branches/:branch_id/zones',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: BranchParams, body: CreateZoneBody, response: { 201: ZoneResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('POST /v1/admin/branches/:branch_id/zones');
+      const result = await createZone(deps, ownerRequest(app, request), request.params.branch_id, request.body);
+      return sendIdempotent(reply, result);
+    },
+  );
+
+  routes.patch(
+    '/v1/admin/branches/:branch_id/zones/:zone_id',
+    {
+      config: { tenantScope: 'jwt' },
+      schema: { params: ZoneParams, body: PatchZoneBody, response: { 200: ZoneResponse } },
+    },
+    async (request, reply) => {
+      deps.testHooks?.handlerStart?.('PATCH /v1/admin/branches/:branch_id/zones/:zone_id');
+      const { branch_id, zone_id } = request.params;
+      const data = await patchZone(deps, ownerRequest(app, request), branch_id, zone_id, request.body);
       return reply.send({ data });
     },
   );

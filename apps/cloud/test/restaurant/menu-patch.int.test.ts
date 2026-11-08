@@ -112,6 +112,33 @@ describe('menu item patch', () => {
     expect(unknown.json().error).toMatchObject({ code: 'MENU_ITEM_NOT_FOUND', details: { item_id: 'NO-SUCH-ITEM' } });
   });
 
+  it('[01a #195] is_ready_item: default false; create with true; PATCH round-trips and is audited; a repeat writes nothing', async () => {
+    const plain = await create();
+    expect(plain.is_ready_item).toBe(false);
+    expect((await stored(plain.item_id)).is_ready_item).toBe(false);
+
+    const water = await create({ name: 'Bottled water', is_ready_item: true });
+    expect(water.is_ready_item).toBe(true);
+    expect((await stored(water.item_id)).is_ready_item).toBe(true);
+
+    const before = await versions();
+    const flipped = await patch(plain.item_id, { is_ready_item: true });
+    expect(flipped.statusCode).toBe(200);
+    expect(flipped.json().data.item.is_ready_item).toBe(true);
+    const audit = await itemAudit(plain.item_id);
+    expect(audit.at(-1)).toMatchObject({ action: 'update', before: { is_ready_item: false }, after: { is_ready_item: true } });
+    expect(await versions()).toEqual(before.map((v) => v + 1)); // a menu item is tenant-wide: every branch bumps
+
+    const again = await patch(plain.item_id, { is_ready_item: true });
+    expect(again.statusCode).toBe(200);
+    expect(await versions()).toEqual(before.map((v) => v + 1));
+    expect(await itemAudit(plain.item_id)).toHaveLength(audit.length);
+
+    const off = await patch(plain.item_id, { is_ready_item: false });
+    expect(off.json().data.item.is_ready_item).toBe(false);
+    expect((await patch(plain.item_id, { is_ready_item: 'yes' })).statusCode).toBe(400);
+  });
+
   it('[01a §10 #81] PATCH price_minor 120000 → 130000 writes one menu_item / update row with before and after prices, branch_id null', async () => {
     const item = await create({ price_minor: 120000 });
     const response = await patch(item.item_id, { price_minor: 130000 });

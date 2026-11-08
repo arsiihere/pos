@@ -57,6 +57,7 @@ describe('tables', () => {
     expect(table).toEqual({
       table_id: expect.any(String),
       floor_id: floorId,
+      zone_id: null,
       name: 'Takeaway',
       seats: null,
       sort_order: 0,

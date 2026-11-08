@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 export const BranchParams = z.object({ branch_id: z.string().min(1) });
 export const FloorParams = BranchParams.extend({ floor_id: z.string().min(1) });
+export const ZoneParams = BranchParams.extend({ zone_id: z.string().min(1) });
 export const TableParams = BranchParams.extend({ table_id: z.string().min(1) });
 export const StationParams = BranchParams.extend({ station_id: z.string().min(1) });
 export const PointParams = BranchParams.extend({ point_id: z.string().min(1) });
