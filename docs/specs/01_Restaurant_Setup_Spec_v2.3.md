@@ -387,6 +387,8 @@ An item is **stock-tracked** at a branch when its route is at a slot station and
 
 > ⚠️ Changed by 02b v1.0 (A-1): snapshot V4 (same release, R29) adds `floors[].zones[].routes: [{ item_id, station_id }]`, `floors[].zones[].stock_items: [{ item_id, threshold }]` and `items[].is_ready_item: boolean`. See 02b §3.10, §3.3.
 
+> *As built, 02p task 4 (owner rulings 2026-11-08, AD-10–AD-12):* the five `branch_engine_settings` columns of §5.2a (`queue_auto_send_max_ms`, `zone_undo_ms`, `slow_item_threshold_ms`, `served_estimate_ms`, `comp_reason_chips`) are delivered in the top-level `engine_settings` beside the A-12 fields (no new `settings` key, AD-10); an archived zone is delivered with `is_archived: true` and `routes: []`, `stock_items: []` (its cloud rows stay and apply again on restore, AD-9; AD-11); `routes[]` and `stock_items[]` are sorted by `item_id` (AD-12).
+
 ### 4.4 Requirements carried to other modules
 
 | To | Requirement |

@@ -73,6 +73,10 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-7 | 3 | New `CONFIG_REFERENCE_INVALID` reasons `wrong_floor`, `not_piece`, `requires_weighing` | (a) add to 01a §9 + client texts (task 6); (b) reuse old reasons | (a) | **ruled (owner, 2026-11-08)**; 01a §9 marker |
 | AD-8 | 3 | 01a #184's snapshot clause ("snapshot shows the zone `is_archived: true`") needs V4: task 3 tests the cloud half, task 4 the snapshot half (same number in two tasks) | (a) split as stated; (b) all of #184 in task 4 | (a) | proposed (not yet ruled) |
 | AD-9 | 3 | Restoring a zone whose stored lists name an item / station archived since (AD-6 skips archived zones) | (a) drop stale entries in the same write; (b) 422; (c) allow, builder skips | (a); round 3 allowed (owner) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-10 | 4 | Plan said `BranchConfig.settings.{…}`; 01a §5.2a says the columns are delivered like the other `branch_engine_settings` fields (top-level `engine_settings`) | (a) `engine_settings.*`; (b) new `settings` key | (a); plan tasks 4, 11 text fixed | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
+| AD-11 | 4 | Archived zone's lists in V4: spec silent | (a) `[]`; (b) stored lists | (a) | **ruled (owner, 2026-11-08)** |
+| AD-12 | 4 | Order of `routes[]` / `stock_items[]` (no `sort_order`) | (a) by `item_id`; (b) by item name, then id | (a) | **ruled (owner, 2026-11-08)** |
+| AD-13 | 4 | Engine-owned `apps/hub/test/engine/config-hook.int.test.ts` imports `BranchConfigSnapshotSchemaV3` | (a) deprecated alias `V3 = V4` in `@pos/events` until the engine lane switches; (b) engine lane fixes; (c) keep name | (a); **the engine lane must switch its import, then the alias is removed** | **ruled (owner, 2026-11-08)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
