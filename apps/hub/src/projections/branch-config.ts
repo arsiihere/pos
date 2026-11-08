@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { ConfigEntry } from '../sync/branch-config-holder.js';
 import { itemAvailabilityProjection } from './item-availability.js';
@@ -61,7 +61,7 @@ export function loadBranchConfig(db: Database.Database, branchId: string): Loade
     state: 'APPLIED',
     row,
     entry: {
-      config: BranchConfigSnapshotSchemaV3.parse(raw),
+      config: BranchConfigSnapshotSchemaV4.parse(raw),
       snapshotHash: row.snapshot_hash,
       configVersion: row.config_version,
       snapshotSchemaVersion: row.snapshot_schema_version,

@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, buildSnapshotBody, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { restaurantFixture, seedMenu, type RestaurantFixture } from '../helpers/restaurant';
@@ -81,7 +81,7 @@ describe('buildSnapshotBody: schema 3', () => {
       [linkId, sourceKind, sourceId, targetKind, targetId, excluded],
     );
 
-  it('[01a §4.3 V3] the unparsed body parses as schema 3 once its version is set to 3 (the wire version since the flip), every engine field kept', async () => {
+  it('[01a §4.3 V3] the unparsed body parses as the wire schema (4 since 02p task 4), every engine field kept', async () => {
     await seedSlots();
     await alternate('ST-3', 'ST-4', ['takeaway'], []);
     await sql(`INSERT INTO carry_times (tenant_id, branch_id, station_id, point_id, carry_ms, created_at, updated_at) VALUES ($1, $2, 'ST-3', $3, 15000, 0, 0)`, [
@@ -90,8 +90,9 @@ describe('buildSnapshotBody: schema 3', () => {
     ]);
     await link('L1', 'item', 'IT-0000', 'category', 'CT-2');
     const unparsed = await raw();
-    const parsed = BranchConfigSnapshotSchemaV3.parse({ ...unparsed, snapshot_schema_version: 3 });
-    expect(JSON.parse(JSON.stringify(parsed))).toEqual({ ...unparsed, snapshot_schema_version: 3 });
+    expect(unparsed.snapshot_schema_version).toBe(4);
+    const parsed = BranchConfigSnapshotSchemaV4.parse(unparsed);
+    expect(JSON.parse(JSON.stringify(parsed))).toEqual(unparsed);
     expect(parsed.points.length).toBeGreaterThan(0);
     expect(parsed.stations.find((row) => row.station_id === 'ST-3')).toMatchObject({
       point_id: await pass(),
@@ -190,7 +191,7 @@ describe('buildSnapshotBody: schema 3', () => {
     expect(b.points.find((row) => row.point_id === 'PT-OLD')).toMatchObject({ is_archived: true });
   });
 
-  it('[01a §4.3 V3] engine_settings is this branch’s row with every A-12 key; a missing row is an error, not a default (CL-3)', async () => {
+  it('[01a §4.3 V3, AD-10] engine_settings is this branch’s row with every A-12 key and the five 02b A-1 settings; a missing row is an error, not a default (CL-3)', async () => {
     const [a, other] = f.branches;
     await sql(`UPDATE branch_engine_settings SET returns_boost = false, order_abandon_ms = 7200000, table_lock_ttl_ms = 120000 WHERE tenant_id = $1 AND branch_id = $2`, [a]);
     await sql(`UPDATE branch_engine_settings SET weight_follow_up_pct = 500 WHERE tenant_id = $1 AND branch_id = $2`, [other]);
@@ -211,6 +212,11 @@ describe('buildSnapshotBody: schema 3', () => {
       returns_boost: false,
       order_abandon_ms: 7200000,
       table_lock_ttl_ms: 120000,
+      queue_auto_send_max_ms: 14400000,
+      zone_undo_ms: 300000,
+      slow_item_threshold_ms: 900000,
+      served_estimate_ms: null,
+      comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
     });
     await sql(`DELETE FROM branch_engine_settings WHERE tenant_id = $1 AND branch_id = $2`, [a]);
     await expect(raw()).rejects.toThrow(/engine settings/);

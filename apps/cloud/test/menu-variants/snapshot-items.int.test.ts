@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, type BranchConfig } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
@@ -43,7 +43,7 @@ describe('01c snapshot item contents (§4.6)', () => {
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV4.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }

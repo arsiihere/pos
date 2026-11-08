@@ -401,17 +401,19 @@ function configItem(itemId: string, name: string, sortOrder: number, o: Partial<
     max_carry_ms: null,
     max_late_ms: null,
     adjust_time_ms: 180_000,
+    is_ready_item: false,
     ...o,
   };
 }
 
 // 01c §4.6: slot station "Karahi"; stock item K1 "Karahi pot" counted in g
 // there; Half I1 draws 500 g, Full I3 draws 1 000 g (variant group V1);
-// I2 is not stock-tracked. Schema 3 (01a §4.3): point P1 and the defaults of anEngineConfigApplied (station S1
-// included), so the two builders agree; table_lock_ttl_ms is 02's (A-12 default), not an engine field.
+// I2 is not stock-tracked. Schema 4 (01a §4.3; 02p U5, moved from 3 once): point P1 and the defaults of
+// anEngineConfigApplied (station S1 included), so the two builders agree; table_lock_ttl_ms is 02's (A-12 default)
+// and the five 02b settings (AD-10) are not engine fields. No floors, so no zones.
 export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
   return {
-    snapshot_schema_version: 3,
+    snapshot_schema_version: 4,
     config_version: 1,
     branch_id: envelope.branch_id,
     currency_code: 'PKR',
@@ -496,13 +498,19 @@ export function aBranchConfig(overrides?: Partial<BranchConfig>): BranchConfig {
       returns_boost: true,
       order_abandon_ms: 14_400_000,
       table_lock_ttl_ms: 600_000,
+      // 01a v2.3 §5.2a (02b A-1) defaults, in engine_settings (AD-10).
+      queue_auto_send_max_ms: 14_400_000,
+      zone_undo_ms: 300_000,
+      slow_item_threshold_ms: 900_000,
+      served_estimate_ms: null,
+      comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
     },
     goes_with: [],
     ...overrides,
   };
 }
 
-// 01a's per-item stock fixture in schema 3 (01c §5.1 backfill rule: a tracked item becomes a stock item with
+// 01a's per-item stock fixture in schema 4 (01c §5.1 backfill rule: a tracked item becomes a stock item with
 // the same id, counted at its route station, with one draw): slot station "Karahi"; I1 (pieces, 1 per sale)
 // and I3 (g, 250 g per piece) are stock items; I2 is not stock-tracked. No variant groups.
 export function aBranchConfigItemStock(overrides?: Partial<BranchConfig>): BranchConfig {
