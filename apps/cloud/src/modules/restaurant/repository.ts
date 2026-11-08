@@ -370,6 +370,43 @@ export async function shareZone(
   return rows[0] === undefined ? undefined : withArchivedAt<Shared>(rows[0]);
 }
 
+// AD-6 (§6.9, S22 style): the branch's active zones whose routes[] name the station. One plain read after the
+// station lock; zone_item_routes has no station index, and a branch holds at most 200 rows per zone.
+export async function activeZoneIdsRoutingStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT DISTINCT z.zone_id FROM zone_item_routes r
+       JOIN zones z ON z.tenant_id = r.tenant_id AND z.branch_id = r.branch_id AND z.zone_id = r.zone_id AND z.archived_at IS NULL
+      WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND r.station_id = $4
+      ORDER BY z.zone_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// AD-6 (§6.15): the tenant's active zones whose routes[] or stock_items[] name the item (`stockOnly`: stock_items[]
+// alone, for a change that only a stock item cannot take). One plain read after the item lock, two EXISTS per zone.
+export async function activeZoneIdsNamingItem(
+  repo: TenantLevelRepository,
+  itemId: string,
+  stockOnly: boolean,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT z.zone_id FROM zones z
+      WHERE z.tenant_id = $1 AND z.archived_at IS NULL
+        AND (EXISTS (SELECT 1 FROM zone_stock_items s
+                      WHERE s.tenant_id = z.tenant_id AND s.branch_id = z.branch_id AND s.zone_id = z.zone_id AND s.item_id = $2)
+             OR (NOT $3::boolean AND EXISTS (SELECT 1 FROM zone_item_routes r
+                      WHERE r.tenant_id = z.tenant_id AND r.branch_id = z.branch_id AND r.zone_id = z.zone_id AND r.item_id = $2)))
+      ORDER BY z.zone_id`,
+    [itemId, stockOnly],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
 // §6.6b: the active tables of an archived zone fall back to the floor's implicit zone (index dining_tables_zone).
 export async function clearZoneOfActiveTables(
   repo: TenantScopedRepository,

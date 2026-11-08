@@ -22,6 +22,8 @@ import {
   activeStockItemIdsAt,
   activeTableIds,
   activeZoneIds,
+  activeZoneIdsNamingItem,
+  activeZoneIdsRoutingStation,
   clearZoneOfActiveTables,
   archiveStationPrograms,
   branchExists,
@@ -367,7 +369,7 @@ export async function patchTable(
     const before = await lockTable(scoped, branchId, tableId);
     if (before === undefined) throw new DomainError('TABLE_NOT_FOUND', { table_id: tableId });
     const now = deps.clock.branchNow();
-    const merged: TableRow = {
+    let merged: TableRow = {
       ...before,
       ...(body.floor_id !== undefined ? { floor_id: body.floor_id } : {}),
       // 02a A-1 (§6.6): a zone never crosses floors, so a floor change without a zone_id leaves the zone.
@@ -390,6 +392,11 @@ export async function patchTable(
     // the zone, then updates its tables, so a table that keeps its zone on its floor must not lock the zone after the
     // table (deadlock); only a table entering a zone, changing floor or coming back from the archive reads it.
     const restoring = before.archived_at !== null && merged.archived_at === null;
+    // AD-4 (§6.6): a restore keeping its stored zone falls back to the floor's implicit zone if that zone is archived now.
+    if (restoring && body.zone_id === undefined && merged.zone_id !== null) {
+      const stored = await shareZone(scoped, merged.zone_id);
+      if (stored !== undefined && stored.archived_at !== null) merged = { ...merged, zone_id: null };
+    }
     if (merged.zone_id !== null && (merged.zone_id !== before.zone_id || merged.floor_id !== before.floor_id || restoring)) {
       await assertZoneOfFloor(scoped, branchId, merged.zone_id, merged.floor_id);
     }
@@ -831,6 +838,11 @@ export async function patchStation(
       const naming = await activeStationsNamingAlternate(scoped, branchId, stationId);
       if (naming.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids: naming } });
+      }
+      // AD-6 (§6.9): refused while an active zone's routes[] names it.
+      const zoneIds = await activeZoneIdsRoutingStation(scoped, branchId, stationId);
+      if (zoneIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'zone', ids: zoneIds } });
       }
     }
     if (alternates !== undefined) assertAlternates(lists.alternates, stationType, stationId, locked);
@@ -1545,7 +1557,7 @@ type ItemRule = (p: ItemPatch) => void | Promise<void>;
 const invalidReference = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
 const groupOf = (p: ItemPatch) => p.groups.find((g) => g.variant_group_id === p.merged.variant_group_id);
 const isActive = (p: ItemPatch) => p.merged.archived_at === null;
-const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal', ids: string[]) =>
+const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal' | 'zone', ids: string[]) =>
   new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: p.before.item_id, used_by: { entity, ids } });
 // R4 and R10 share one read (§6.5 R10: "the same read as R4"); read once per attempt.
 const linkingGroups = async (p: ItemPatch) => (p.linkingGroupIds ??= await linkingGroupIds(p.level, p.before.item_id));
@@ -1621,6 +1633,19 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (p.merged.sale_unit === p.before.sale_unit) return;
       const dealIds = await dealsBrokenBySaleUnit(p.level, p.before.item_id, p.merged.sale_unit);
       if (dealIds.length > 0) throw inUse(p, 'deal', dealIds);
+    },
+  ],
+  // AD-6 (§6.15): after R6, still in the 409 group. Archiving an item an active zone's routes[] or stock_items[] name,
+  // or making a zone stock item not 'piece' / weighed, is refused (the zone ids are the active zones').
+  [
+    '409 AD-6 zone lists name the item',
+    async (p) => {
+      const archiving = p.before.archived_at === null && !isActive(p);
+      const awayFromPiece = p.before.sale_unit === 'piece' && p.merged.sale_unit !== 'piece';
+      const weighingOn = !p.before.requires_weighing && p.merged.requires_weighing;
+      if (!archiving && !awayFromPiece && !weighingOn) return;
+      const zoneIds = await activeZoneIdsNamingItem(p.level, p.before.item_id, !archiving);
+      if (zoneIds.length > 0) throw inUse(p, 'zone', zoneIds);
     },
   ],
   // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9

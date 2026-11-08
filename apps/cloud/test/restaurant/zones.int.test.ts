@@ -441,6 +441,96 @@ describe('zones', () => {
     expect(moved.json().data.table.zone_id).toBe(other);
   });
 
+  it('[01a AD-4] restoring a table whose stored zone is now archived sets zone_id NULL; an archived zone given explicitly is still 422', async () => {
+    const zoneId = await newZone();
+    await addTable('Z-T1', zoneId);
+    const url = `/v1/admin/branches/${A()}/tables/Z-T1`;
+    const patchTable = (payload: object) => cloud.app.inject({ method: 'PATCH', url, ...owner(f), payload });
+    expect((await patchTable({ archived: true })).statusCode).toBe(200);
+    expect((await patchZone(zoneId, { archived: true })).statusCode).toBe(200); // an archived table keeps its zone
+    expect((await cloud.pool.query(`SELECT zone_id FROM dining_tables WHERE table_id = 'Z-T1'`)).rows).toEqual([{ zone_id: zoneId }]);
+
+    const explicit = await patchTable({ archived: false, zone_id: zoneId });
+    expect(explicit.statusCode).toBe(422);
+    expect(explicit.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'zone_id', reason: 'archived' } });
+
+    const restored = await patchTable({ archived: false });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().data.table).toMatchObject({ archived_at: null, zone_id: null });
+    expect((await cloud.pool.query(`SELECT zone_id FROM dining_tables WHERE table_id = 'Z-T1'`)).rows).toEqual([{ zone_id: null }]);
+
+    // an active stored zone is kept on restore
+    const live = await newZone({ name: 'Garden' });
+    await addTable('Z-T2', live, menu.floorId, 5);
+    const kept = await cloud.app.inject({ method: 'PATCH', url: `/v1/admin/branches/${A()}/tables/Z-T2`, ...owner(f), payload: { archived: false } });
+    expect(kept.json().data.table).toMatchObject({ archived_at: null, zone_id: live });
+  });
+
+  it('[01a AD-5] restoring a zone whose floor is archived → 422 floor_id archived', async () => {
+    await cloud.pool.query(
+      `INSERT INTO zones (tenant_id, branch_id, zone_id, floor_id, name, archived_at, created_at, updated_at)
+       VALUES ($1, $2, 'Z-OLD', $3, 'Old', 1, 0, 0)`,
+      [f.tenantId, A(), menu.archived!.floorId],
+    );
+    const before = await versionOf(A());
+    const restored = await patchZone('Z-OLD', { archived: false });
+    expect(restored.statusCode).toBe(422);
+    expect(restored.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'floor_id', reason: 'archived' } });
+    expect(await versionOf(A())).toBe(before);
+  });
+
+  describe('[01a AD-6] in-use rules for stations and items named by an active zone list', () => {
+    beforeEach(async () => {
+      await cloud.pool.query(
+        `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+         VALUES ($1, $2, 'ST-Z', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Zone grill', 'slot', 2, 0, 0)`,
+        [f.tenantId, A()],
+      );
+      await cloud.pool.query(
+        `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
+         VALUES ($1, 'IT-Z', 'CT-1', 'Zone item', 100, 'immediate', 60000, 0, 0)`,
+        [f.tenantId],
+      );
+    });
+    const patchStation = (payload: object) =>
+      cloud.app.inject({ method: 'PATCH', url: `/v1/admin/branches/${A()}/stations/ST-Z`, ...owner(f), payload });
+    const patchItem = (payload: object) =>
+      cloud.app.inject({ method: 'PATCH', url: '/v1/admin/menu-items/IT-Z', ...owner(f), payload });
+    const inUse = (res: { statusCode: number; json(): { error: unknown } }, entity: string, id: string, ids: string[]) => {
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatchObject({ code: 'CONFIG_IN_USE', details: { entity, id, used_by: { entity: 'zone', ids } } });
+    };
+
+    it('archiving a station named by an active zone’s routes → 409 (used_by zone); fine once the zone is archived', async () => {
+      const zoneId = await newZone({ routes: [{ item_id: 'IT-Z', station_id: 'ST-Z' }] });
+      const before = await versionOf(A());
+      inUse(await patchStation({ archived: true }), 'station', 'ST-Z', [zoneId]);
+      expect(await versionOf(A())).toBe(before);
+      await patchZone(zoneId, { archived: true });
+      expect((await patchStation({ archived: true })).statusCode).toBe(200);
+    });
+
+    it('archiving an item named by an active zone’s routes or stock_items → 409; stock-only check for sale_unit / weighing', async () => {
+      const routeZone = await newZone({ name: 'R', routes: [{ item_id: 'IT-Z', station_id: 'ST-Z' }] });
+      inUse(await patchItem({ archived: true }), 'menu_item', 'IT-Z', [routeZone]);
+      // a route-only zone does not stop the item leaving 'piece' or being weighed
+      expect((await patchItem({ sale_unit: 'g', requires_weighing: true })).statusCode).toBe(200);
+      expect((await patchItem({ sale_unit: 'piece', requires_weighing: false })).statusCode).toBe(200);
+
+      const stockZone = await newZone({ name: 'S', stock_items: [{ item_id: 'IT-Z' }] });
+      inUse(await patchItem({ archived: true }), 'menu_item', 'IT-Z', [routeZone, stockZone].sort());
+      inUse(await patchItem({ sale_unit: 'g' }), 'menu_item', 'IT-Z', [stockZone]);
+      inUse(await patchItem({ sale_unit: 'g', requires_weighing: true }), 'menu_item', 'IT-Z', [stockZone]);
+      expect((await cloud.pool.query(`SELECT sale_unit, archived_at FROM menu_items WHERE item_id = 'IT-Z'`)).rows).toEqual([
+        { sale_unit: 'piece', archived_at: null },
+      ]);
+      // archived zones do not count
+      await patchZone(routeZone, { archived: true });
+      await patchZone(stockZone, { archived: true });
+      expect((await patchItem({ archived: true })).statusCode).toBe(200);
+    });
+  });
+
   it('[01a §6.6a] no N+1: the statement count does not grow with the list length', async () => {
     const ids = Array.from({ length: 5 }, (_, i) => `BULK-${i}`);
     await cloud.pool.query(
