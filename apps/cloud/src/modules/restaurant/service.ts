@@ -23,6 +23,8 @@ import {
   activeTableIds,
   activeZoneIds,
   activeZoneIdsNamingItem,
+  activeZoneIdsNamingItemAt,
+  shareItemRoutesAt,
   activeZoneIdsRoutingStation,
   clearZoneOfActiveTables,
   archiveStationPrograms,
@@ -458,6 +460,7 @@ async function assertZoneLists(
   const itemIds = [...new Set([...(routes ?? []), ...(stockItems ?? [])].map((entry) => entry.item_id))];
   if (itemIds.length === 0) return;
   const items = new Map((await shareItemsById(level, itemIds)).map((item) => [item.item_id, item]));
+  const routed = await shareItemRoutesAt(scoped, branchId, itemIds); // AD-15, between the items and the stations
   const stationIds = [...new Set((routes ?? []).map((route) => route.station_id))];
   const stations = stationIds.length > 0 ? await shareStationsById(scoped, stationIds) : [];
   const invalid = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
@@ -465,6 +468,7 @@ async function assertZoneLists(
     const item = items.get(route.item_id);
     if (item === undefined) throw invalid(`routes.${i}.item_id`, 'not_found');
     if (item.archived_at !== null) throw invalid(`routes.${i}.item_id`, 'archived');
+    if (!routed.has(route.item_id)) throw invalid(`routes.${i}.item_id`, 'not_found');
     const station = stations.find((s) => s.branch_id === branchId && s.station_id === route.station_id);
     if (station === undefined) {
       throw invalid(`routes.${i}.station_id`, stations.some((s) => s.station_id === route.station_id) ? 'wrong_branch' : 'not_found');
@@ -476,6 +480,7 @@ async function assertZoneLists(
     const field = `stock_items.${i}.item_id`;
     if (item === undefined) throw invalid(field, 'not_found');
     if (item.archived_at !== null) throw invalid(field, 'archived');
+    if (!routed.has(stock.item_id)) throw invalid(field, 'not_found');
     if (item.sale_unit !== 'piece') throw invalid(field, 'not_piece');
     if (item.requires_weighing) throw invalid(field, 'requires_weighing');
   });
@@ -555,8 +560,8 @@ export async function createZone(
   );
 }
 
-// AD-9: the stored lists a zone restore keeps, without the entries that name an archived or missing item or station, or a
-// stock item that is not 'piece' or is weighed (the §6.6a rule). Items, then stations, each FOR SHARE in one statement.
+// AD-9, AD-15: the stored lists a zone restore keeps, without the entries that name an archived or missing item or
+// station, an item with no route at the branch, or a stock item that is not 'piece' or is weighed (the §6.6a rule). Items, then stations, each FOR SHARE in one statement.
 // `dropped` lists what was removed (null when nothing was).
 async function dropStaleEntries(
   level: TenantLevelRepository,
@@ -567,14 +572,15 @@ async function dropStaleEntries(
 ): Promise<{ routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[]; dropped: { routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[] } | null }> {
   const itemIds = [...new Set([...(routes ?? []), ...(stockItems ?? [])].map((entry) => entry.item_id))];
   const items = new Map((itemIds.length > 0 ? await shareItemsById(level, itemIds) : []).map((item) => [item.item_id, item]));
+  const routed = itemIds.length > 0 ? await shareItemRoutesAt(scoped, branchId, itemIds) : new Set<string>(); // AD-15
   const stationIds = [...new Set((routes ?? []).map((route) => route.station_id))];
   const stations = stationIds.length > 0 ? await shareStationsById(scoped, stationIds) : [];
-  const liveItem = (id: string) => items.get(id)?.archived_at === null;
+  const liveItem = (id: string) => items.get(id)?.archived_at === null && routed.has(id);
   const liveStation = (id: string) => stations.some((s) => s.branch_id === branchId && s.station_id === id && s.archived_at === null);
   const keepRoute = (r: ZoneRouteRow) => liveItem(r.item_id) && liveStation(r.station_id);
   const keepStock = (s: ZoneStockItemRow) => {
     const item = items.get(s.item_id);
-    return item !== undefined && item.archived_at === null && item.sale_unit === 'piece' && !item.requires_weighing;
+    return item !== undefined && item.archived_at === null && routed.has(s.item_id) && item.sale_unit === 'piece' && !item.requires_weighing;
   };
   const keptRoutes = (routes ?? []).filter(keepRoute);
   const keptStock = (stockItems ?? []).filter(keepStock);
@@ -1932,6 +1938,11 @@ export async function putItemRoute(
       await deps.testHooks?.afterReferenceLock?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
       route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
     } else if (before !== null) {
+      // AD-15: the route row is locked, so no zone write can add the item now; only active zones count.
+      const zoneIds = await activeZoneIdsNamingItemAt(scoped, branchId, itemId);
+      if (zoneIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: itemId, used_by: { entity: 'zone', ids: zoneIds } });
+      }
       await deleteItemRoute(scoped, branchId, itemId);
     }
     await writeConfigAudit(

@@ -421,6 +421,43 @@ export async function activeZoneIdsNamingItem(
   return rows.map((row) => row.zone_id);
 }
 
+// AD-15 (§6.16): the branch's active zones whose routes[] or stock_items[] name the item. One plain read after the
+// item's route lock (a zone write holds the route row FOR SHARE, so none slips in between).
+export async function activeZoneIdsNamingItemAt(
+  repo: TenantScopedRepository,
+  branchId: string,
+  itemId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT z.zone_id FROM zones z
+      WHERE z.tenant_id = $1 AND z.branch_id = ANY($2) AND z.branch_id = $3 AND z.archived_at IS NULL
+        AND (EXISTS (SELECT 1 FROM zone_stock_items s
+                      WHERE s.tenant_id = z.tenant_id AND s.branch_id = z.branch_id AND s.zone_id = z.zone_id AND s.item_id = $4)
+             OR EXISTS (SELECT 1 FROM zone_item_routes r
+                      WHERE r.tenant_id = z.tenant_id AND r.branch_id = z.branch_id AND r.zone_id = z.zone_id AND r.item_id = $4))
+      ORDER BY z.zone_id`,
+    [branchId, itemId],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// AD-15 (§6.6a, §6.6b): which of the items have an item_routes row at the branch, the rows FOR SHARE in item order
+// (a route PUT removing one waits for the zone write, or the zone write sees it gone). One statement.
+export async function shareItemRoutesAt(
+  repo: TenantScopedRepository,
+  branchId: string,
+  itemIds: readonly string[],
+): Promise<Set<string>> {
+  const rows = await repo.query<{ item_id: string }>(
+    `SELECT item_id FROM item_routes
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND item_id = ANY($4)
+      ORDER BY item_id
+      FOR SHARE`,
+    [branchId, itemIds],
+  );
+  return new Set(rows.map((row) => row.item_id));
+}
+
 // §6.6b: the active tables of an archived zone fall back to the floor's implicit zone (index dining_tables_zone).
 export async function clearZoneOfActiveTables(
   repo: TenantScopedRepository,

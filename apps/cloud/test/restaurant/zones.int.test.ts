@@ -491,6 +491,10 @@ describe('zones', () => {
          VALUES ($1, 'IT-Z', 'CT-1', 'Zone item', 100, 'immediate', 60000, 0, 0)`,
         [f.tenantId],
       );
+      await cloud.pool.query(
+        `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, updated_at) VALUES ($1, $2, 'IT-Z', 'ST-1', 0)`,
+        [f.tenantId, A()],
+      );
     });
     const patchStation = (payload: object) =>
       cloud.app.inject({ method: 'PATCH', url: `/v1/admin/branches/${A()}/stations/ST-Z`, ...owner(f), payload });
@@ -541,6 +545,10 @@ describe('zones', () => {
       `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
        VALUES ($1, 'IT-P', 'CT-1', 'Zone piece', 100, 'immediate', 60000, 0, 0), ($1, 'IT-W', 'CT-1', 'Zone weighed', 100, 'immediate', 60000, 0, 0)`,
       [f.tenantId],
+    );
+    await cloud.pool.query(
+      `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, updated_at) VALUES ($1, $2, 'IT-P', 'ST-1', 0), ($1, $2, 'IT-W', 'ST-1', 0)`,
+      [f.tenantId, A()],
     );
     const zoneId = await newZone({
       routes: [
@@ -596,6 +604,75 @@ describe('zones', () => {
     expect((await auditRows()).at(-1)!.after).not.toHaveProperty('dropped');
   });
 
+  describe('[01a AD-15] zone items must be routed at the branch', () => {
+    const route = (itemId: string, branchId = A()) =>
+      cloud.pool.query(
+        `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, updated_at) VALUES ($1, $2, $3, 'ST-1', 0)`,
+        [f.tenantId, branchId, itemId],
+      );
+    const putRoute = (itemId: string, payload: object, branchId = A()) =>
+      cloud.app.inject({ method: 'PUT', url: `/v1/admin/menu-items/${itemId}/routes/${branchId}`, ...owner(f), payload });
+    beforeEach(async () => {
+      await cloud.pool.query(
+        `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
+         VALUES ($1, 'IT-N', 'CT-1', 'Unrouted', 100, 'immediate', 60000, 0, 0)`,
+        [f.tenantId],
+      );
+    });
+
+    it('POST with an item not routed at the branch → 422 not_found for routes and for stock_items', async () => {
+      const r = await createZone({ floor_id: menu.floorId, name: 'X', routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }, { item_id: 'IT-N', station_id: 'ST-1' }] });
+      expect(r.statusCode).toBe(422);
+      expect(r.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'routes.1.item_id', reason: 'not_found' } });
+      const s = await createZone({ floor_id: menu.floorId, name: 'X', stock_items: [{ item_id: 'IT-0000' }, { item_id: 'IT-B' }] });
+      expect(s.statusCode).toBe(422);
+      expect(s.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'stock_items.1.item_id', reason: 'not_found' } });
+      expect((await createZone({ floor_id: menu.floorId, name: 'X', stock_items: [{ item_id: 'IT-0000' }] })).statusCode).toBe(201);
+    });
+
+    it('PATCH with an item not routed at the branch → 422; once routed → 200', async () => {
+      const zoneId = await newZone();
+      const r = await patchZone(zoneId, { routes: [{ item_id: 'IT-N', station_id: 'ST-1' }] });
+      expect(r.statusCode).toBe(422);
+      expect(r.json().error).toMatchObject({ details: { field: 'routes.0.item_id', reason: 'not_found' } });
+      const s = await patchZone(zoneId, { stock_items: [{ item_id: 'IT-N' }] });
+      expect(s.statusCode).toBe(422);
+      expect(s.json().error).toMatchObject({ details: { field: 'stock_items.0.item_id', reason: 'not_found' } });
+      await route('IT-N');
+      expect((await patchZone(zoneId, { routes: [{ item_id: 'IT-N', station_id: 'ST-1' }], stock_items: [{ item_id: 'IT-N' }] })).statusCode).toBe(200);
+    });
+
+    it('route PUT removing a route an active zone names → 409 CONFIG_IN_USE (used_by zone); an archived zone does not block; other branches do not count', async () => {
+      const zoneId = await newZone({ routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }], stock_items: [{ item_id: 'IT-0001' }] });
+      const before = await versionOf(A());
+      for (const item of ['IT-0000', 'IT-0001']) {
+        const res = await putRoute(item, { station_id: null });
+        expect(res.statusCode).toBe(409);
+        expect(res.json().error).toMatchObject({ code: 'CONFIG_IN_USE', details: { entity: 'menu_item', id: item, used_by: { entity: 'zone', ids: [zoneId] } } });
+      }
+      expect(await versionOf(A())).toBe(before);
+      expect((await cloud.pool.query(`SELECT 1 FROM item_routes WHERE item_id = 'IT-0000' AND branch_id = $1`, [A()])).rowCount).toBe(1);
+      // re-setting the route is not a removal
+      expect((await putRoute('IT-0000', { station_id: 'ST-1' })).statusCode).toBe(200);
+      await patchZone(zoneId, { archived: true });
+      expect((await putRoute('IT-0000', { station_id: null })).statusCode).toBe(200);
+      expect((await putRoute('IT-0001', { station_id: null })).statusCode).toBe(200);
+    });
+
+    it('restoring a zone drops kept entries whose item has no route at the branch; audited in after.dropped', async () => {
+      const zoneId = await newZone({ routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }, { item_id: 'IT-0002', station_id: 'ST-1' }], stock_items: [{ item_id: 'IT-0000' }, { item_id: 'IT-0001' }] });
+      await patchZone(zoneId, { archived: true });
+      await putRoute('IT-0002', { station_id: null });
+      await putRoute('IT-0001', { station_id: null });
+      const restored = await patchZone(zoneId, { archived: false });
+      expect(restored.statusCode).toBe(200);
+      expect(await storedLists(zoneId)).toEqual({ routes: [{ item_id: 'IT-0000', station_id: 'ST-1' }], stock_items: [{ item_id: 'IT-0000', threshold: 0 }] });
+      expect((await auditRows()).at(-1)!.after).toMatchObject({
+        dropped: { routes: [{ item_id: 'IT-0002', station_id: 'ST-1' }], stock_items: [{ item_id: 'IT-0001', threshold: 0 }] },
+      });
+    });
+  });
+
   it('[01a AD-9] a table PATCH to another floor resending its current zone_id answers 422 wrong_floor without locking the zone', async () => {
     const zoneId = await newZone();
     await addTable('Z-T1', zoneId);
@@ -627,6 +704,11 @@ describe('zones', () => {
       `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
        SELECT $1, id, 'CT-1', id, 100, 'immediate', 60000, 0, 0 FROM unnest($2::text[]) AS u (id)`,
       [f.tenantId, ids],
+    );
+    await cloud.pool.query(
+      `INSERT INTO item_routes (tenant_id, branch_id, item_id, station_id, updated_at)
+       SELECT $1, $2, id, 'ST-1', 0 FROM unnest($3::text[]) AS u (id)`,
+      [f.tenantId, A(), ids],
     );
     await createZone({ floor_id: menu.floorId, name: 'One', routes: [{ item_id: ids[0], station_id: 'ST-1' }] });
     const small = counter.count;
