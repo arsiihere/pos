@@ -4,7 +4,7 @@
 
 **Goal:** Build every approved upstream row of 02a v1.0 / v1.1 and 02b v1.0 in 00, 01a, 01b, 01c, 01d and 03a, in one sprint, so the 02a, 02b and 03b sprints touch only their own folders (02p §10 Acceptance).
 
-**Architecture:** Two lanes on two branches. The **platform lane** (`~/pos-cloud`, branch `module-02p`) builds tasks 1–13: shared schemas and permissions, the 01a zone config and snapshot V4, the 01b assignments, `my_zones` and defaults, 00 M95 and `queueable`, and 01d D-1 / D-3. The **engine lane** (`~/pos`, branch `module-02p-engine`) builds tasks 14–17 and the 03a carry-over (17b) against 03a v1.2, then task 18 once the owner has merged both lanes. Consumers that 02a / 02b will write later (`holdersOfOrders`, the `table_team` resolver, `queueable` commands) are built behind their hooks with the spec's fallback and tested with test doubles (02p U3).
+**Architecture:** Three lanes on three branches (owner, 2026-11-08). **Platform A** (`~/pos-cloud`, branch `module-02p`) builds tasks 1–10: shared schemas and permissions, the 01a zone config and snapshot V4, the 01b assignments, `my_zones` and defaults. **Platform B** (its own worktree, branch `module-02p-hub`) builds tasks 11–13: 00 M95 and `queueable`, and 01d D-1 / D-3. The **engine lane** (`~/pos`, branch `module-02p-engine`) builds tasks 14–17 and the 03a carry-over (17b) against 03a v1.2, then task 18 once the owner has merged all three lanes. Consumers that 02a / 02b will write later (`holdersOfOrders`, the `table_team` resolver, `queueable` commands) are built behind their hooks with the spec's fallback and tested with test doubles (02p U3).
 
 **Tech Stack:** the existing stack (CLAUDE.md): Node 22, Fastify 5, better-sqlite3 (hub), PostgreSQL 16 (cloud), React (owner app), Zod, Vitest. **No new dependency.**
 
@@ -25,7 +25,8 @@ If the plan and a bumped spec disagree, the spec wins. Stop and ask (CLAUDE.md).
 
 | Marker | Meaning |
 |---|---|
-| **Lane: platform** | Built in `~/pos-cloud` on `module-02p`, tasks 1–13. Its own session; `DATABASE_URL=postgres://pos:pos@127.0.0.1:5433/pos_test_cloud`. |
+| **Lane: platform A** | Built in `~/pos-cloud` on `module-02p`, tasks 1–10. Its own session; `DATABASE_URL=postgres://pos:pos@127.0.0.1:5433/pos_test_cloud`; board `docs/plans/02p-status.md`. |
+| **Lane: platform B** | Built in its own worktree on `module-02p-hub`, tasks 11–13. Its own session; `DATABASE_URL=postgres://pos:pos@127.0.0.1:5433/pos_test_hub`; board `docs/plans/02p-status-hub.md`. |
 | **Lane: engine** | Built in `~/pos` on `module-02p-engine`, tasks 14–17, 17b, 18. `DATABASE_URL=…/pos_test`. |
 | **RISK: HIGH** | One fresh implementer, then a full review by a fresh **opus** reviewer against the cited sections, the task's tests and the Global Constraints, before the next task. HIGH = every task with a migration (3, 7, 8), task 4 (snapshot V4), task 7 (assignments), tasks 15 and 17. |
 | **RISK: NORMAL** | One fresh implementer, then one fresh reviewer (opus) for the task. |
@@ -46,14 +47,14 @@ Every task implicitly includes these.
 - **Gate (per batch, controller only, one run at a time):** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` (≈ 9 min). Implementers run only their own files: `pnpm vitest run <file> …` and `pnpm --filter <pkg> typecheck`. **No timing asserts in the normal gate** (03a AD-32).
 - **`pnpm test:perf`:** only in task 18, on the real disk, alone on a quiet machine, never with `TMPDIR=/dev/shm`. On this laptop the three SQLite-COMMIT rows (`fires` with work, `fires_alerts` with work, snapshot full write) fail by design (≈ 27 ms per fsync). They are deferred to 03a task 28 and are not a regression; compare against the A/B in 03a v1.0.1 §7.1.
 - **Commit:** one task per commit, only the task's files. Format `feat(<module>): <title> [<spec> <row>; 02p §11 #N]`, for example `feat(01b): my_zones scope [01b v1.7 B-3; 02p §11 #8]`. Review fixes are their own commits: `fix(<module>): task N review …`.
-- **Push:** `git push origin module-02p` (platform) or `git push origin module-02p-engine` (engine) after each batch checkpoint. No merge, force-push, push to main, reset or rebase: merges are the owner's.
+- **Push:** `git push origin module-02p` (platform A), `git push origin module-02p-hub` (platform B) or `git push origin module-02p-engine` (engine) after each batch checkpoint. No merge, force-push, push to main, reset or rebase: merges are the owner's.
 - **Batch checkpoint:** after a batch's last task and its reviews, the controller:
   1. runs the gate;
-  2. appends the batch entry to `docs/plans/02p-status.md` (tasks, commits, reviews, gate counts, tests closed, AD rows) and updates the MORNING REPORT;
+  2. appends the batch entry to its lane's board (`docs/plans/02p-status.md` for platform A and the engine lane, `docs/plans/02p-status-hub.md` for platform B: tasks, commits, reviews, gate counts, tests closed, AD rows) and updates the MORNING REPORT;
   3. commits it alone (`docs(02p): checkpoint batch N`) and pushes.
-- **Readings:** a reading made without stopping is an `AD-n` row in `docs/plans/02p-status.md`, status **"proposed (not yet ruled)"**. Never accept your own reading. Spec and code disagree, two specs disagree, a timeout or bound would change, a file outside the task, or new behaviour → STOP and ask (prompt stop rules 1–5).
+- **Readings:** a reading made without stopping is an `AD-n` row on the lane's board (platform B numbers its rows `AD-H1`, `AD-H2` … so the boards never collide), status **"proposed (not yet ruled)"**. Never accept your own reading. Spec and code disagree, two specs disagree, a timeout or bound would change, a file outside the task, or new behaviour → STOP and ask (prompt stop rules 1–5).
 - **Acceptance (02p §10):** after 02p, 02a / 02b edit only their own folders and append-only wiring lines. Anything a task leaves for them must therefore already exist (hooks, types, catalogue rows, labels).
-- **Merged migrations are never edited.** New forward migrations take the next free number at build time: hub `0010`+, cloud `0009`+. The platform lane owns every migration in this sprint; the engine lane adds none.
+- **Merged migrations are never edited.** New forward migrations take the next free number at build time: hub `0010`+, cloud `0009`+. Platform A owns every migration in this sprint; platform B and the engine lane add none.
 - **Events (03a v1.2 §5.3):** no upcaster and no version bump. Every new field is **optional** at schema version 1, and an event logged without it still parses (U-5, U-8). `StockTransferredOut` is new at v1. `ENGINE_STATE_VERSION` stays **3**.
 - **Statement bounds asserted where the task touches them:**
   - `fires_alerts` with work = 2 (`listOpen`) + ≤ 2 (`holdersOfOrders`, `currentTableOf`) + ≤ 1 line facts + 01d bounds; idle 0 (03a R-1, test 121);
@@ -81,15 +82,20 @@ Five failure modes the spec implies but no named test exercises. Each line names
 | Batch | Lane | Tasks | Starts when |
 |---|---|---|---|
 | 0 | engine | 0 (done, `4bffa9e`) | — |
-| 1 | platform | 1, 2 | plan approved |
-| 2 | platform | 3, 4, 5, 6 | batch 1 green |
-| 3 | platform | 7, 8, 9, 10 | batch 2 green |
-| 4 | platform | 11, 12, 13 | batch 3 green |
+| 1 | platform A | 1, 2 | plan approved |
+| 2 | platform A | 3, 4, 5, 6 | batch 1 green |
+| 3 | platform A | 7, 8, 9, 10 | batch 2 green |
+| 4 | platform B | 12, 13, then 11 | plan approved; task 11 after the owner has merged `module-02p` (with task 4) into `module-02p-hub` |
 | 5a | engine | 17b (03a carry-over; needs no task-1 schema) | plan approved |
 | 5b | engine | 14, 15, 16, 17 | the owner has merged `module-02p` (with task 1) into `module-02p-engine` |
-| 6 | engine | 18 | the owner has merged both lanes (task 18 runs on the merged head) |
+| 6 | engine | 18 | the owner has merged all three lanes (task 18 runs on the merged head) |
 
-The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need task 1's schemas (`ItemAdded.served_from_zone_id`, `ItemServed.source`, `ItemRemoved.units`, `StockTransferredOut`, `OrderPlaced` E-1 fields). Shared files across the lanes: none. The platform lane owns `packages/domain`, `packages/events`, `apps/cloud`, hub `auth/`, `sync/`, `ws/`, `alerts/`, `commands/`, `db/migrations/`, `lib/` and `apps/client`. The engine lane owns `packages/engine` and hub `engine-host/` with `test/engine*/`.
+The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need task 1's schemas (`ItemAdded.served_from_zone_id`, `ItemServed.source`, `ItemRemoved.units`, `StockTransferredOut`, `OrderPlaced` E-1 fields). Platform B's task 11 reads `BranchConfig.settings.queue_auto_send_max_ms`, a type that task 4 adds, so B builds 12 and 13 first and starts 11 after the owner merges `module-02p` (with task 4) into `module-02p-hub`.
+
+**File ownership (no file is edited by two lanes):**
+- **Platform A:** `packages/domain`, `packages/events`, `apps/cloud`, hub `auth/staff-directory.ts`, `auth/apply-directory.ts`, `sync/`, `ws/restaurant-audiences.ts`, `db/migrations/`, `apps/client`. Under `apps/hub/test/engine/`, platform A owns exactly two files: `boot.int.test.ts` (task 5, the `:450` `STOCK_VERSION_EVENTS` assert, n-4) and `stock-audiences.int.test.ts` (task 5).
+- **Platform B:** hub `auth/session-sweeper.ts`, `auth/staff-session.ts`, `auth/session-store.ts`, `ws/server.ts`, `lib/boot.ts`, `commands/registry.ts`, `commands/route.ts`, `server.ts`, `alerts/targets.ts`, `alerts/kinds.ts`, and their tests (`apps/hub/test/auth/`, `test/commands/`, `test/alerts/`, `test/cors.int.test.ts`, `src/alerts/*.test.ts`).
+- **Engine:** `packages/engine` and hub `engine-host/`, with every other file under `apps/hub/test/engine/` and `test/engine-host/`. Its new boot tests go in a new file, `apps/hub/test/engine/boot-idset.int.test.ts` (tasks 15, 17), never in `boot.int.test.ts`.
 
 ## Coverage (test → task)
 
@@ -117,9 +123,9 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 
 ---
 
-## Batch 1 — shared types and schemas (platform)
+## Batch 1 — shared types and schemas (platform A)
 
-### Task 1: event schemas — additive fields and `StockTransferredOut` · Lane: platform · RISK: NORMAL · Shared
+### Task 1: event schemas — additive fields and `StockTransferredOut` · Lane: platform A · RISK: NORMAL · Shared
 
 **Rows:** 01c v1.1.2 C-1; 03a v1.2 E-1, Q-4, Q-5, Q-6, Q-9 (schema part only).
 
@@ -160,7 +166,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run the tests again → PASS. Then `pnpm --filter @pos/events typecheck` and `pnpm vitest run packages/engine apps/hub/test/engine`, so existing fixtures still parse.
 - [ ] **Step 5: Commit.** `feat(events): 02b additive fields and StockTransferredOut [01c v1.1.2 C-1; 03a v1.2 E-1, Q-4–Q-6, Q-9; 02p §11 #1]`. Push right away: the owner merges this into the engine lane.
 
-### Task 2: permissions, scopes, ranks and labels · Lane: platform · RISK: NORMAL · Shared
+### Task 2: permissions, scopes, ranks and labels · Lane: platform A · RISK: NORMAL · Shared
 
 **Rows:** 01b v1.6 B-1, B-3; v1.7 B-1–B-5 (catalogue part); 01a v2.2 `ZONE_NOT_FOUND`; 02p M-4, n-4, n-5, m-9.
 
@@ -212,9 +218,9 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 
 ---
 
-## Batch 2 — 01a (platform)
+## Batch 2 — 01a (platform A)
 
-### Task 3: cloud zones, zone routes, stock items, `is_ready_item`, settings columns · Lane: platform · RISK: HIGH (migration) · needs Docker Postgres
+### Task 3: cloud zones, zone routes, stock items, `is_ready_item`, settings columns · Lane: platform A · RISK: HIGH (migration) · needs Docker Postgres
 
 **Rows:** 01a v2.2 A-1, v2.3 A-1 (cloud part). Spec: 01a §5.2 (`zones`, `dining_tables.zone_id`, `zone_item_routes`, `zone_stock_items`, `menu_items.is_ready_item`, `branch_engine_settings` new columns), §6.6a / §6.6b (zone routes, nested replace lists), §6.2–§6.4 (floors list with zones, tables accept `zone_id`).
 
@@ -239,7 +245,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run again → PASS. Also run `apps/cloud/test/cross-tenant.int.test.ts`, because the new routes need the tenant guard.
 - [ ] **Step 5: Commit.** `feat(01a): zones, zone routes and stock items, is_ready_item [01a v2.2 A-1, v2.3 A-1; 02p §11 #3]`.
 
-### Task 4: snapshot V4 and hub apply · Lane: platform · RISK: HIGH
+### Task 4: snapshot V4 and hub apply · Lane: platform A · RISK: HIGH
 
 **Rows:** 01a v2.2 A-1, v2.3 A-1 (snapshot); 02p U5 (V3 → V4 once).
 
@@ -268,7 +274,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run the config-sync, hub sync and engine boot tests → PASS. The hub engine reads only `floors[].tables[]`, so `apps/hub/test/engine` must stay green.
 - [ ] **Step 5: Commit.** `feat(01a): snapshot V4 [01a v2.2 A-1, v2.3 A-1; 02p §11 #4]`.
 
-### Task 5: `StockTransferredOut` in `stock_version` and the stock frame · Lane: platform · RISK: NORMAL
+### Task 5: `StockTransferredOut` in `stock_version` and the stock frame · Lane: platform A · RISK: NORMAL
 
 **Rows:** 01a v2.3 A-1 (stock lists); 01a test #194, first two clauses.
 
@@ -277,7 +283,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
   - `apps/hub/src/sync/stock-version.ts` (add to `STOCK_VERSION_STOCK_EVENTS`)
   - `apps/hub/src/ws/restaurant-audiences.ts` (the stock-frame audience)
 - Test:
-  - `apps/hub/test/engine/boot.int.test.ts:450`: "nine types" becomes ten, with `StockTransferredOut` (n-4).
+  - `apps/hub/test/engine/boot.int.test.ts:450`: "nine types" becomes ten, with `StockTransferredOut` (n-4). This assert checks `STOCK_VERSION_EVENTS`, which this task changes, so it is green on `module-02p`. Platform A owns this file.
   - `apps/hub/test/engine/stock-audiences.int.test.ts`
 
 **Interfaces:**
@@ -293,7 +299,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5: Commit.** `feat(01a): StockTransferredOut in stock lists [01a v2.3 A-1; 02p §11 #5]`.
 
-### Task 6: owner app — zones, zone routes and stock items, ready-item checkbox, settings fields · Lane: platform · RISK: NORMAL · UI
+### Task 6: owner app — zones, zone routes and stock items, ready-item checkbox, settings fields · Lane: platform A · RISK: NORMAL · UI
 
 **Rows:** 01a v2.2 / v2.3 §8.1; 01a tests #189–#195, client part.
 
@@ -317,9 +323,9 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 
 ---
 
-## Batch 3 — 01b (platform)
+## Batch 3 — 01b (platform A)
 
-### Task 7: assignments — migrations, staff routes, directory v3, `assignedOrderTaker` · Lane: platform · RISK: HIGH (migration, task 7) · needs Docker Postgres
+### Task 7: assignments — migrations, staff routes, directory v3, `assignedOrderTaker` · Lane: platform A · RISK: HIGH (migration, task 7) · needs Docker Postgres
 
 **Rows:** 01b v1.6 B-2 (§3.2 rule 7, §4.2, §4.3.1, §5.1, §5.2, staff routes, `StaffWire`).
 
@@ -356,7 +362,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run → PASS. Also run `apps/hub/test/alerts` and `apps/hub/test/auth`, since the directory feeds alert targets.
 - [ ] **Step 5: Commit.** `feat(01b): staff assignments and assignedOrderTaker [01b v1.6 B-2; 02p §11 #7]`.
 
-### Task 8: `my_zones` CHECK expand and `StaffDirectory.zonesOf` · Lane: platform · RISK: HIGH (migration) · needs Docker Postgres
+### Task 8: `my_zones` CHECK expand and `StaffDirectory.zonesOf` · Lane: platform A · RISK: HIGH (migration) · needs Docker Postgres
 
 **Rows:** 01b v1.7 B-3; 01b §4.2 `zonesOf` export line (02p M-3).
 
@@ -389,7 +395,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5: Commit.** `feat(01b): my_zones scope and zonesOf [01b v1.7 B-3; 02p §11 #8]`.
 
-### Task 9: default grants by `default_key`, re-seed, settings `PATCH` fields · Lane: platform · RISK: NORMAL · needs Docker Postgres
+### Task 9: default grants by `default_key`, re-seed, settings `PATCH` fields · Lane: platform A · RISK: NORMAL · needs Docker Postgres
 
 **Rows:** 01b v1.6 B-1 defaults; v1.7 B-1, B-2, B-4, B-5 defaults; v1.7 settings fields (01a v2.3 A-1); 01a #193 "written, range-checked".
 
@@ -422,7 +428,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5: Commit.** `feat(01b): 02a / 02b default grants and settings fields [01b v1.6 B-1, v1.7 B-1–B-5; 01a v2.3 A-1; 02p §11 #9]`.
 
-### Task 10: owner app — staff form "Assigned tables" · Lane: platform · RISK: NORMAL · UI
+### Task 10: owner app — staff form "Assigned tables" · Lane: platform A · RISK: NORMAL · UI
 
 **Rows:** 01b v1.6 B-2 §8; U-3 client part.
 
@@ -440,9 +446,11 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 
 ---
 
-## Batch 4 — 00 and 01d (platform)
+## Batch 4 — 00 and 01d (platform B, `module-02p-hub`)
 
-### Task 11: 00 M95 paused idle clock · Lane: platform · RISK: NORMAL
+### Task 11: 00 M95 paused idle clock · Lane: platform B · RISK: NORMAL
+
+**Starts after** the owner merges `module-02p` (task 4's `BranchConfig.settings`) into `module-02p-hub`.
 
 **Rows:** 00 v1.8 H-1 (M95). Spec: 00 §3.1 M95, the guard step before M46, the sweeper rules, M5's 15 s save, boot pause from `HubStarted.hub_down_at`.
 
@@ -470,7 +478,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run, plus `apps/hub/test/auth` and `apps/hub/test/ws` → PASS.
 - [ ] **Step 5: Commit.** `feat(00): M95 paused idle clock [00 v1.8 H-1; 02p §11 #11]`.
 
-### Task 12: `X-Queued-At`, `defineCommand({ queueable })`, CORS · Lane: platform · RISK: NORMAL
+### Task 12: `X-Queued-At`, `defineCommand({ queueable })`, CORS · Lane: platform B · RISK: NORMAL
 
 **Rows:** 00 v1.8 H-1 (header, flag, CORS).
 
@@ -495,7 +503,7 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 - [ ] **Step 4:** Run → PASS.
 - [ ] **Step 5: Commit.** `feat(00): X-Queued-At and queueable commands [00 v1.8 H-1; 02p §11 #12]`.
 
-### Task 13: 01d D-1 `table_team` full set keyed by depth; D-3 `skip_requester` · Lane: platform · RISK: NORMAL
+### Task 13: 01d D-1 `table_team` full set keyed by depth; D-3 `skip_requester` · Lane: platform B · RISK: NORMAL
 
 **Rows:** 01d v1.2.1 D-1 (a)–(d), D-3. D-1 (e) is 02a test 21; D-2 is text.
 
@@ -622,7 +630,7 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
   - `apps/hub/src/engine-host/boot-steps.ts`
 - Test:
   - `packages/engine/test/lines.test.ts` (#124)
-  - `apps/hub/test/engine/boot.int.test.ts` (#125 restart clauses, #130)
+  - `apps/hub/test/engine/boot-idset.int.test.ts` (new, engine-owned: #125 restart clauses, #130)
   - `apps/hub/test/engine/live-replay.property.int.test.ts` or a new `apps/hub/test/engine/zone-filter.int.test.ts` (#125 live and replay)
 
 **Interfaces:**
@@ -656,7 +664,7 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
   - `[03a #130]` step 3 = 4 + 2 + 1 statements; the read's bound per the three cases; `EXPLAIN QUERY PLAN` shows `events_branch_stream`.
 - [ ] **Step 2:** Run → FAIL.
 - [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run, plus all of `packages/engine/test`, `apps/hub/test/engine` and the boot tests → PASS. Replay = live (test 94 and the property test) must hold.
+- [ ] **Step 4:** Run, plus all of `packages/engine/test` and `apps/hub/test/engine` (`boot.int.test.ts` included, read-only for this lane) → PASS. Replay = live (test 94 and the property test) must hold.
 - [ ] **Step 5: Commit.** `feat(03a): zone lines, empty orders, absent-id filter and boot id set [03a v1.2 Q-3, R-3; 02p §11 #15]`.
 
 ### Task 16: Q-4 partial `ItemRemoved` · Lane: engine · RISK: NORMAL · Shared
@@ -696,7 +704,7 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
   - `packages/engine/test/replay-events.test.ts` (test 94)
   - `packages/engine/test/stock-folds.test.ts`
   - `packages/engine/test/lifecycle.test.ts` (`served_at`)
-  - `apps/hub/test/engine/boot.int.test.ts` (#194 boot fold)
+  - `apps/hub/test/engine/boot-idset.int.test.ts` (01a #194 "boot fold counts it")
 
 **Interfaces:**
 - `foldStockTransferredOut`: `on_hand −= quantity`, clamped at 0; a breach is appended to `state.diagnostics` (non-strict) or thrown (strict), like `foldStockAdded`'s clamp rule. No reservation and no re-plan.
@@ -726,7 +734,7 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
 
 **Rows:** 02p U-9, §7 regression gate, §12.1 DoD.
 
-- [ ] **Step 1:** On the merged head, run `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` → green. Record files, tests and wall time in the status board.
+- [ ] **Step 1:** On the merged head (all three lanes), run `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` → green. Record files, tests and wall time in the status board.
 - [ ] **Step 2:** On the real disk, alone on a quiet machine, with no `TMPDIR`: `pnpm test:perf`. Record the 03a §7.1 table next to the 03a v1.0.1 A/B. The three SQLite-COMMIT rows are expected to fail on this laptop (deferred to 03a task 28). Any other red row → STOP. Gap 4: the slip raise path is now timed; record the number.
 - [ ] **Step 3:** Check 02p §10 Acceptance: `git diff main..HEAD --stat` touches only 00 / 01a–01d / 03a files and the listed shared files. List every file, and record any surprise as an AD row.
 - [ ] **Step 4:** README: the 02p row becomes "Built" (with the merge sha); the "built in 02p" cells of 00 v1.8, 01a v2.2–v2.3, 01b v1.6–v1.7, 01c v1.1.2, 01d v1.2.1 and 03a v1.2 become "built". Check that the 02a v1.1.1 and 02b v1.0.1 §11 notes are still true (DoD).
@@ -736,6 +744,6 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
 
 ## Self-review (writer, 2026-11-08)
 
-- **Coverage.** Every §11 task 1–18 is here. Every U-n maps to a task in the Coverage table. Every 03a v1.2 test 120–130 and 01a 181–195 is placed. 00 152–158 are in tasks 11 and 12. 01d test 25 is in task 13.
+- **Coverage.** Every §11 task 1–18 is here, in three lanes (owner, 2026-11-08). Every U-n maps to a task in the Coverage table. Every 03a v1.2 test 120–130 and 01a 181–195 is placed. 00 152–158 are in tasks 11 and 12. 01d test 25 is in task 13.
 - **Names and types.** The same across tasks: `registerSlipReaders`, `holdersOfOrders`, `currentTableOf`, `zonesOf`, `assignedOrderTaker`, `queueable`, `ctx.queuedAt`, `untrackedLineIds`, `StockTransferredOut`.
 - **Open for the controller.** The exact cloud file for the branch settings `PATCH` (task 9) and the owner settings form (task 6) are found at build time; the spec fixes the behaviour.
