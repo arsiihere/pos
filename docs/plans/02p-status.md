@@ -72,6 +72,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-6 | 3 | Archiving an item / station named by an active zone list, or making a zone stock item weighed / not piece: spec silent | (a) `409 CONFIG_IN_USE` `used_by` zone; (b) V4 builder drops them | (a) | **ruled (owner, 2026-11-08)**; 01a §6.9, §6.15 markers |
 | AD-7 | 3 | New `CONFIG_REFERENCE_INVALID` reasons `wrong_floor`, `not_piece`, `requires_weighing` | (a) add to 01a §9 + client texts (task 6); (b) reuse old reasons | (a) | **ruled (owner, 2026-11-08)**; 01a §9 marker |
 | AD-8 | 3 | 01a #184's snapshot clause ("snapshot shows the zone `is_archived: true`") needs V4: task 3 tests the cloud half, task 4 the snapshot half (same number in two tasks) | (a) split as stated; (b) all of #184 in task 4 | (a) | proposed (not yet ruled) |
+| AD-9 | 3 | Restoring a zone whose stored lists name an item / station archived since (AD-6 skips archived zones) | (a) drop stale entries in the same write; (b) 422; (c) allow, builder skips | (a); round 3 allowed (owner) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 

@@ -814,7 +814,7 @@ Any of `{ name, sort_order, archived: boolean }` (a zone never changes floor). *
 
 > ⚠️ Changed by 02b v1.0 (A-1): `routes` and `stock_items` as in §6.6a; a list sent replaces the stored list (absent = unchanged, `[]` = clear); one `config_audit` row for the zone covers both lists. Archiving a zone keeps its lists (they apply again on restore).
 
-> *As built, 02p task 3 (owner ruling 2026-11-08, AD-5):* restoring a zone whose floor is archived → `422 CONFIG_REFERENCE_INVALID { field: 'floor_id', reason: 'archived' }` (an archived floor has no active zones, §6.4).
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-5):* restoring a zone whose floor is archived → `422 CONFIG_REFERENCE_INVALID { field: 'floor_id', reason: 'archived' }` (an archived floor has no active zones, §6.4). *As built, 02p task 3 (owner ruling 2026-11-08, AD-9):* restoring a zone drops, in the same write, every stored `routes[]` entry naming an archived item or station and every `stock_items[]` entry naming an archived item or one that is no longer `sale_unit 'piece'` or is `requires_weighing` (the AD-6 rule; the `config_audit` row records the dropped entries), so an active zone's lists never hold such a reference.
 
 
 #### 6.7 Branch settings: CLI only in 01a (no endpoint)
