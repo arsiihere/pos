@@ -946,9 +946,9 @@ The cloud tasks follow 01a's existing patterns (C1 route cases, C6 nested replac
 
 - [ ] **Step 1:** Controller: the gate on a clean checkout (fresh `pnpm install`, Postgres up); coverage script — every `[03a #N]` for N in 16–119 and `[03a F #N]` for 1–15 appears exactly as the Coverage table says (split tags counted once per half); `grep -rn "Date.now\|Math.random\|performance.now" packages/engine/src` empty.
 - [ ] **Step 2:** Fresh opus reviewer on `main..module-03a` against the spec, this plan, the A / B / H rows and every AD row: §12.2 checklist, each BF with its test, each HIGH task's invariants. Findings fixed one commit each.
-- [ ] **Step 3:** As-built spec `docs/specs/03a_Timing_Engine_Spec_v1.1.md` (draft for the developer): AD rows, P-5, the Review Focus 1 rule, BF-9 / BF-10 options taken, BF-11 text (§12.3 rows, To 02 label "no tap on any line for N h", §9 `ORDER_NOT_IN_ENGINE` abandon wording), the re-placed-lines bound; the A / B / H as-built notes for 01a, 01b, 00 if any AD touched them; README module map row. Developer approval before merge.
+- [ ] **Step 3:** As-built spec `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (draft for the developer): AD rows, P-5, the Review Focus 1 rule, BF-9 / BF-10 options taken, BF-11 text (§12.3 rows, To 02 label "no tap on any line for N h", §9 `ORDER_NOT_IN_ENGINE` abandon wording), the re-placed-lines bound; the A / B / H as-built notes for 01a, 01b, 00 if any AD touched them; README module map row. Developer approval before merge.
 - [ ] **Step 4:** Stop for the developer: merge `module-03a` to `main` only after the as-built spec is approved and task 28 is recorded or explicitly deferred.
-- [ ] **Commit:** `docs(03a): v1.0 → v1.1 as built, AD rows, BF-1–BF-14 [spec §12]`
+- [ ] **Commit:** `docs(03a): v1.0 → v1.0.1 as built, AD rows, BF-1–BF-14 [spec §12]`
 
 ---
 
