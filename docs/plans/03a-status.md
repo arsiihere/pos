@@ -4,6 +4,8 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **v1.0.1 APPROVED (2026-11-08, shaam):** A/B se sabit hua ke masla disk ka hai, code ka nahi. Batch 8 ka code bhi aaj usi disk par wohi 3 rows fail karta hai. Yeh teen rows task 28 (pilot box) par chali gayin; wahan pehle `dd` check hoga aur ek flush < 2 ms hona chahiye. README update ho gaya. Merge aapka hai; main ruk gaya hoon.
+>
 > **Aapke faislon ke baad (2026-11-08, dopahar):** sab rulings lag gayin, teen fixes commit hue (warn line ab har 60 s mein zyada se zyada ek, permission test, BF-9 text). **Full gate green** `dbfcf4b` par: 3214 tests, 8 m 55 s (RAM par). `test:perf` mein engine ke saare numbers pass hain. Sirf 3 rows fail hain jo SQLite COMMIT karti hain, kyunke laptop ki disk ka fsync ≈ 27 ms hai. Faisla pilot box par hoga (task 28). Main ruk gaya hoon, merge nahi kiya.
 >
 > **Task 29 ke baad (2026-11-08, subah):** final review (koi Critical nahi), v1.0.1 as-built draft, release notes, aur AD-37 ke teeno faislay commit aur push ho gaye. Ek kami mili aur theek ki: stock frames staff ko nahi jaate thay (`988dbd9`). **Final gate red hai, lekin sirf timeouts:** disk bohot slow thi (ek fsync ≈ 27 ms). Akele chalane par wohi tests pass hote hain. Merge se pehle quiet machine par gate dobara chalana zaroori hai. Main ruk gaya hoon, merge nahi kiya.
@@ -16,7 +18,29 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 >
 > **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
 
-## MORNING REPORT (2026-11-08, afternoon): owner rulings applied, gate GREEN; STOPPED before any merge
+## MORNING REPORT (2026-11-08, evening): 03a v1.0.1 APPROVED; STOPPED before any merge
+
+**Head:** `docs(03a): v1.0.1 APPROVED as built [03a §12.1]`, pushed. Code head `dbfcf4b`. Nothing merged.
+
+**Same-disk A/B** (the owner asked for it; the evidence for deferring the three rows). The three red rows only, on the real disk with no `TMPDIR`, run one after the other on a quiet machine: first the batch-8 code (`3eee52b`, temporary worktree, since removed), then `dbfcf4b`.
+
+| Row (bound) | Batch-8 code, today | `dbfcf4b`, today | Batch-8 code, original run |
+|---|---|---|---|
+| `fires` with work p99 (≤ 20 ms) | 48.9 ms ✗ | 54.3 ms ✗ | 11.2 ms ✓ |
+| `fires_alerts` with work p99 (≤ 20 ms) | 77.3 ms ✗ | 53.3 ms ✗ | 10.6 ms ✓ |
+| Snapshot full write (≤ 50 ms) | max 246.9 ms ✗ | max 276.5 ms ✗ | every sample ≤ 50 ✓ |
+
+- `dd oflag=dsync`: 27.3 ms per flush before, 26.9 ms after.
+- **The disk, not the code.**
+
+**Owner rulings (2026-11-08):**
+- The three rows are **deferred to task 28**.
+- Task 28 step 0 is added to the plan: run the `dd` check first; the box must show **< 2 ms per flush**.
+- **03a v1.0.1 APPROVED**, citing the gate at `dbfcf4b` and the A/B. The README row is updated: v1.0.1 APPROVED, task 28 open.
+
+**Open:** task 28 (pilot mini PC). The merge of `module-03a` is yours.
+
+## Earlier MORNING REPORT (2026-11-08, afternoon): owner rulings applied, gate GREEN; STOPPED before any merge
 
 **Head:** the docs commit at the top of `module-03a`, pushed. Code head `dbfcf4b`. Nothing merged; `main` and the other branches untouched.
 
@@ -503,7 +527,7 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"). **Owner ruling 2
 1. Command halves of #101, #103, #107 (`409 RETURN_ALREADY_OPEN`), #114 → 02 (README "To 02" #1, #8).
 2. No owner-app screen to assign `run_station` (01b v1.5 defines none); API only until specified — **carried to the UI module** (developer, 2026-11-03).
 3. H-5 / H-6 write-time checks → 03b's pairing / binding UI (and 01e).
-4. Task 28 needs the pilot mini PC (like 00 #79; developer, 2026-11-03).
+4. Task 28 needs the pilot mini PC (like 00 #79; developer, 2026-11-03). **Owner ruling 2026-11-08:** the three SQLite-COMMIT perf rows (`fires` with work, `fires_alerts` with work, snapshot full write) are **deferred to task 28** on the same-disk A/B below (MORNING REPORT 2026-11-08, evening). Task 28 checklist step 0: run `dd if=/dev/zero bs=4k count=200 oflag=dsync` first; the pilot box must show **< 2 ms per flush**.
 5. 03a §12.3 Q12 (customer's own wrong order) still open; 02 / 04, not blocking.
 6. **BF-9 / AD-2:** ruled by AD-29 Q6 (BF-9 stays parked; the code follows #42 / #118; AD-2 superseded by AD-29). `it.todo('[03a BF-9]')` stays; owner ruling 2026-11-08 (AD-29 Q6 approved as built): its text was fixed in `d5ad7ac` (v1.0.1 gap 8).
 7. **Done or Served without a Start on a from-stock line:** ruled by AD-29 Q7 (consume at Done, or at Served when there was no Start); built in task 18e.

@@ -936,6 +936,7 @@ The cloud tasks follow 01a's existing patterns (C1 route cases, C6 nested replac
 
 **Spec:** §7.1, §12.1 DoD 2, §5.1 index build note.
 
+- [ ] **Step 0 (owner ruling 2026-11-08, 03a v1.0.1 §7.1 A/B):** on the pilot mini PC, first run `dd if=/dev/zero of=<file on the hub's data disk> bs=4k count=200 oflag=dsync` and record the time per flush. It **must show < 2 ms per flush**; otherwise stop, because the SQLite-COMMIT rows are not measurable. The three rows deferred from the laptop (`fires` with work, `fires_alerts` with work, snapshot full write) are measured here.
 - [ ] **Step 1:** Write `docs/plans/03a-manual-checks.md`: on the pilot mini PC, run the perf project and test 64 (`POS_PILOT_HW=1`), record re-plan p99, fires / fires_alerts pass p99, snapshot write, crash restart, full-day and 2-day replay (steps 2–3 and the whole boot, the ≈ 10 s for steps 4–8), `stations-live`; the `events_branch_stream` build time over a seeded month; a real KDS / admin smoke of capacity, pause and the `station_plan` frame.
 - [ ] **Step 2:** The developer runs it; results recorded there. Open until the hardware is available (not a merge blocker, like 01d #58), unless a number misses: then stop (§7.1).
 - [ ] **Commit:** `docs(03a): task 28 pilot-box manual checks [spec §7.1, §12.1]`

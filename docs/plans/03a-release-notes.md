@@ -1,6 +1,6 @@
-# 03a Timing Engine — release notes (v1.0.1 as built, draft)
+# 03a Timing Engine — release notes (v1.0.1 as built, approved)
 
-Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner approval before merge**; v1.0 kept as history). Branch `module-03a`, code head `dbfcf4b`. **Full gate green at `dbfcf4b`** (3214 tests, 8 m 55 s, on RAM per the owner's test-environment rule). Final `pnpm test:perf` (real disk): every engine row passes. The three SQLite-COMMIT host rows (`fires`, `fires_alerts` with work, snapshot full write) fail on this laptop's ≈ 27 ms-per-fsync disk. They passed in the batch 8 clean run; the pilot box decides (task 28). Date 2026-11-08.
+Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**APPROVED by the owner 2026-11-08**; v1.0 kept as history). Branch `module-03a`, code head `dbfcf4b`. **Full gate green at `dbfcf4b`** (3214 tests, 8 m 55 s, on RAM per the owner's test-environment rule). Final `pnpm test:perf` (real disk): every engine row passes. The three SQLite-COMMIT host rows (`fires`, `fires_alerts` with work, snapshot full write) fail on this laptop's ≈ 27 ms-per-fsync disk. A same-disk A/B shows the batch 8 code fails them the same way today, so it is the disk, not the code. **Deferred to task 28** (owner ruling 2026-11-08): the pilot box first shows < 2 ms per flush (`dd oflag=dsync`). Date 2026-11-08.
 
 ## What 03a v1.0.1 delivers
 
