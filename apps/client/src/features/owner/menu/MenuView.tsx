@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatQuantity } from '@pos/domain';
-import type { Category, CloudAdmin, CloudResult, MenuItem, MenuPage, MenuQuery, StockItem, TaxClass, VariantGroup } from '../../../api/cloud-admin';
+import type { Category, CloudAdmin, CloudError, CloudResult, MenuItem, MenuPage, MenuQuery, StockItem, TaxClass, VariantGroup } from '../../../api/cloud-admin';
 import { navigate, useHashRoute } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
@@ -14,7 +14,7 @@ import { MoreMenu } from '../../../components/MoreMenu';
 import { Segmented } from '../../../components/Segmented';
 import { fill } from '../../../i18n/en';
 import { t, type MessageKey } from '../../../i18n';
-import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
+import { BlockedDialog, dealNames, itemNames, usedEntity, usedIds, type InUse } from '../BlockedDialog';
 import { useBranchName } from '../branch';
 import { sizeLabel } from '../c01';
 import { loadEveryItem } from '../menu-pages';
@@ -235,6 +235,14 @@ function nest(items: readonly MenuItem[], groups: readonly VariantGroup[]): Entr
   return entries;
 }
 
+const IN_USE_BODY = {
+  item: 'archive.in_use_body',
+  station: 'archive.in_use_body',
+  stock_item: 'archive.in_use_body',
+  variant_group: 'archive.in_use_size_groups',
+  deal: 'archive.in_use_deals',
+} as const;
+
 type Ask =
   | { kind: 'archive-category'; category: Category }
   | { kind: 'archive-tax'; taxClass: TaxClass }
@@ -258,6 +266,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
   const [savedId, setSavedId] = useState<string | null>(null);
   const saved = useFlash();
   const phone = usePhone();
+  const leave = useLeave();
   const branchName = useBranchName();
   const down = useCloudDown(api);
   const [editing, setEditing] = useState<
@@ -382,10 +391,21 @@ export function MenuView({ api }: { api: CloudAdmin }) {
     const result = await call();
     if (!result.ok) {
       const ids = usedIds(result.error);
-      if (ids !== null) setAsk({ kind: 'blocked', name, inUse: await itemNames(api, ids) });
+      if (ids !== null) setAsk({ kind: 'blocked', name, inUse: await usersOf(result.error, ids) });
       else setError(errorText(result.error));
     } else flashSaved(id);
     await load();
+  }
+
+  // 409 CONFIG_IN_USE names items, size groups (a category's, from the loaded page) or deals (§6.12, §6.13, 01c V16).
+  async function usersOf(error: CloudError, ids: string[]): Promise<InUse> {
+    const entity = usedEntity(error);
+    if (entity === 'variant_group') {
+      const groups = menu?.variant_groups ?? [];
+      return { ids, names: ids.flatMap((id) => groups.find((g) => g.variant_group_id === id)?.name ?? []), by: 'variant_group' };
+    }
+    if (entity === 'deal') return dealNames(api, ids);
+    return itemNames(api, ids);
   }
 
   async function restore(id: string, call: () => Promise<CloudResult<unknown>>) {
@@ -903,6 +923,7 @@ export function MenuView({ api }: { api: CloudAdmin }) {
         <CategoryForm
           api={api}
           category={editing.category}
+          categories={menu?.categories ?? []}
           onSaved={(notice) => {
             if (editing.category !== null) flashSaved(editing.category.category_id);
             closeForm(notice);
@@ -950,9 +971,20 @@ export function MenuView({ api }: { api: CloudAdmin }) {
       {ask?.kind === 'blocked' && (
         <BlockedDialog
           title={fill(t('archive.blocked_title'), { name: ask.name })}
-          body={fill(t('archive.in_use_body'), { n: String(ask.inUse.ids.length) })}
+          body={fill(t(IN_USE_BODY[ask.inUse.by ?? 'item']), { n: String(ask.inUse.ids.length) })}
           inUse={ask.inUse}
           onClose={() => setAsk(null)}
+          action={
+            ask.inUse.by === 'variant_group' || ask.inUse.by === 'deal' ? (
+              <button
+                type="button"
+                className="pos-btn pos-btn--primary"
+                onClick={() => leave(() => navigate(ask.inUse.by === 'deal' ? '/deals' : '/size-groups'))}
+              >
+                {t(ask.inUse.by === 'deal' ? 'archive.open_deals' : 'archive.open_size_groups')}
+              </button>
+            ) : undefined
+          }
         />
       )}
     </Page>

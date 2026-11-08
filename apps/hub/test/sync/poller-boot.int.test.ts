@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV2, type EventDraft } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type EventDraft } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
 import { openDb } from '../../src/db/connection';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import type { ConfigFetch } from '../../src/sync/config-client';
@@ -19,6 +20,7 @@ import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cl
 const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
 
+registerEngineBootSteps();
 registerRestaurantBootSteps();
 
 function writeConfig(): { path: string; dataDir: string; cleanup: () => void } {
@@ -48,7 +50,7 @@ function snapshot(version: number, o: Record<string, unknown> = {}): Record<stri
   return { ...aBranchConfig({ branch_id: BRANCH, config_version: version }), ...o };
 }
 
-function appliedDraft(version: number, hash: string, schema = 2): EventDraft {
+function appliedDraft(version: number, hash: string, schema = 3): EventDraft {
   return {
     stream_type: 'hub',
     stream_id: BRANCH,
@@ -139,7 +141,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     expect((await configPoller(second.app).pollOnce()).outcome).toBe('applied');
     expect(cloud.calls.at(-1)).toEqual({ config_version: 0, directory_version: 0 });
     expect(loadBranchConfig(second.deps.db, BRANCH).state).toBe('APPLIED');
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV3.parse(raw));
     await second.stop();
 
     // a stored body whose snapshot_schema_version is not ours (after a breaking release)

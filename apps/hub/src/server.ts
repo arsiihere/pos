@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, LogController } fro
 import { hasZodFastifySchemaValidationErrors, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { HubConfig } from './config/schema.js';
 import type { AuthGeneration } from './engine-host/auth-generation.js';
+import { registerEngineHost } from './engine-host/index.js';
 import type { EngineState } from '@pos/engine';
 import type { StateHolder } from './engine-host/state-holder.js';
 import type { Writer } from './engine-host/writer.js';
@@ -30,6 +31,8 @@ import { registerOpenBusinessDay } from './commands/open-business-day.js';
 import { registerRevokeDevice } from './commands/revoke-device.js';
 import { registerSetItemAvailability } from './commands/set-item-availability.js';
 import { registerSetPrecookedStock } from './commands/set-precooked-stock.js';
+import { registerSetStationCapacity } from './commands/set-station-capacity.js';
+import { registerSetStationPause } from './commands/set-station-pause.js';
 import { registerCommandRoutes } from './commands/route.js';
 import { hubTime } from './lib/hub-time.js';
 import { CLIENT_DIST_DIR, registerClientDist, STAFF_DIST_DIR } from './lib/client-dist.js';
@@ -43,6 +46,7 @@ import { registerQueryRoutes } from './queries/registry.js';
 import { registerSessionQuery } from './queries/session.js';
 import { registerSessionsQuery } from './queries/sessions.js';
 import { registerStationsQuery } from './queries/stations.js';
+import { registerStationsLiveQuery } from './queries/stations-live.js';
 import { registerLockoutsQuery } from './queries/lockouts.js';
 import { registerStaffQuery } from './queries/staff.js';
 import { registerStaffRosterQuery } from './queries/staff-roster.js';
@@ -54,6 +58,8 @@ import { bindConfigPoller, createConfigPoller } from './sync/config-poller.js';
 import './sync/station-validator.js';
 // §4.5: the restaurant event audiences, registered at module load.
 import './ws/restaurant-audiences.js';
+// 03a §6.4: the station-config event audiences, registered at module load.
+import { registerEngineCatchUp } from './ws/engine-audiences.js';
 import { registerRestaurantCatchUp } from './ws/restaurant-catch-up.js';
 import { registerWs } from './ws/server.js';
 
@@ -162,6 +168,8 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerSetPrecookedStock(app);
   registerAddPrecookedStock(app);
   registerSetItemAvailability(app);
+  registerSetStationCapacity(app);
+  registerSetStationPause(app);
   registerPairRoutes(app, deps);
   registerPairRequestRoutes(app, deps);
   registerQueryRoutes(app, deps);
@@ -174,9 +182,12 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerStockQuery(app, deps.clock);
   registerConfigStatusQuery(app, deps.config);
   registerBranchConfigQuery(app, deps.clock);
+  registerStationsLiveQuery(app, deps.writer);
   // The catch-up parts read this server's clock; a closed server removes them.
   const stopCatchUp = registerRestaurantCatchUp(deps.clock);
   app.addHook('onClose', async () => stopCatchUp());
+  const stopEngineCatchUp = registerEngineCatchUp(deps.clock);
+  app.addHook('onClose', async () => stopEngineCatchUp());
   registerSessionQuery(app);
   const semaphores = {
     pin: new Semaphore(deps.config.auth.argon2_concurrency),
@@ -227,6 +238,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
       log: app.log,
     }),
   );
+  registerEngineHost(app, deps);
   return app;
 }
 

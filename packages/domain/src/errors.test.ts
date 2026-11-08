@@ -92,6 +92,30 @@ describe('errors', () => {
     expect(statusOf('REQUEST_PIN_REQUIRED')).toBe(422);
   });
 
+  it('[03a §9] 03a codes and 01a POINT_NOT_FOUND have their statuses', () => {
+    expect(statusOf('STATION_PAUSED')).toBe(409);
+    expect(statusOf('STATION_PAUSE_DISABLED')).toBe(409);
+    expect(statusOf('ORDER_NOT_IN_ENGINE')).toBe(409);
+    expect(statusOf('RETURN_ALREADY_OPEN')).toBe(409);
+    expect(statusOf('POINT_NOT_FOUND')).toBe(404);
+  });
+
+  it('[03a §9] ORDER_NOT_IN_ENGINE { order_id } serialises to the F §6.1 envelope', () => {
+    const e = new DomainError('ORDER_NOT_IN_ENGINE', { order_id: '01JBF3Q90A1B2C3D4E5F6G7H8M' });
+    const body = JSON.parse(
+      JSON.stringify({ error: { code: e.code, message: e.message, details: e.details, request_id: 'r1' } }),
+    );
+    expect(statusOf(e.code)).toBe(409);
+    expect(body).toEqual({
+      error: {
+        code: 'ORDER_NOT_IN_ENGINE',
+        message: 'ORDER_NOT_IN_ENGINE',
+        details: { order_id: '01JBF3Q90A1B2C3D4E5F6G7H8M' },
+        request_id: 'r1',
+      },
+    });
+  });
+
   it('[F §6.2] DomainError carries code and details', () => {
     const e = new DomainError('STAFF_NOT_FOUND', { staff_id: 'x' });
     expect(e.code).toBe('STAFF_NOT_FOUND');

@@ -140,4 +140,28 @@ describe('ws', () => {
     ).toBe(true);
     expect(WsServerMessage.safeParse({ type: 'alerts_open', alerts: [] }).success).toBe(false);
   });
+
+  it('[03a §3.6.3] the station_plan frame is in WsServerMessage', () => {
+    const line = { order_item_id: 'L1', order_id: 'O1', fire_ms: 1761900000000, deadline_ms: 1761900060000, mark: null, frozen: true };
+    const frame = { type: 'station_plan', station_id: 'S1', as_of_seq: 42, lines: [line] };
+    expect(WsServerMessage.parse(frame)).toEqual(frame);
+    expect(WsServerMessage.safeParse({ ...frame, lines: [] }).success).toBe(true);
+    // Task 16b: every unfired line listed has a planned fire; deadline_ms is always set.
+    expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, fire_ms: null }] }).success).toBe(false);
+    expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, deadline_ms: null }] }).success).toBe(false);
+    for (const mark of ['expedite', 'boost', 'pulled', 'return', 'moved']) {
+      expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, mark, frozen: false }] }).success, mark).toBe(true);
+    }
+    expect(WsServerMessage.safeParse({ ...frame, lines: [{ ...line, mark: 'rush' }] }).success).toBe(false);
+    for (const key of Object.keys(line)) {
+      const rest: Record<string, unknown> = { ...line };
+      delete rest[key];
+      expect(WsServerMessage.safeParse({ ...frame, lines: [rest] }).success, key).toBe(false);
+    }
+    for (const key of ['station_id', 'as_of_seq', 'lines']) {
+      const rest: Record<string, unknown> = { ...frame };
+      delete rest[key];
+      expect(WsServerMessage.safeParse(rest).success, key).toBe(false);
+    }
+  });
 });

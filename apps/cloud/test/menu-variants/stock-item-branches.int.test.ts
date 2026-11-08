@@ -25,8 +25,8 @@ describe('01c stock item branch rows (§6.9, V16)', () => {
     await seedMenu(cloud.pool, f, { items: 1 });
     // a station at branch A that no item routes to (ST-1 has routes), and an archived one
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, archived_at, created_at, updated_at)
-       VALUES ($1, $2, 'ST-K', 'Karahi pots', 'slot', 4, NULL, 0, 0), ($1, $2, 'ST-X', 'Old grill', 'slot', 4, 7, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, archived_at, created_at, updated_at)
+       VALUES ($1, $2, 'ST-K', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Karahi pots', 'slot', 4, NULL, 0, 0), ($1, $2, 'ST-X', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Old grill', 'slot', 4, 7, 0, 0)`,
       [f.tenantId, f.branches[0]],
     );
   });

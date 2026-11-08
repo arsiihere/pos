@@ -137,3 +137,52 @@ describe('[01b §8] 01b strings', () => {
   });
 });
 
+// The owner timing pages (01a v2.1 §8.1) and the shared parts they show: a browser check in Urdu found English
+// on every one of them. Every message key their source names has its Urdu text, with the same placeholders.
+const SOURCES = import.meta.glob(
+  [
+    '../features/owner/{points,stations,branches,menu}/*.{ts,tsx}',
+    '../features/owner/{Shell,BranchPicker,guard,BlockedDialog}.tsx',
+    '../features/owner/form.ts',
+    '../components/{StaleBanner,FlashChip,Dialog,ErrorSummary,InUseDialog,MoreMenu,QuantityInput,RemovedRows,Gone}.tsx',
+    '!../**/*.test.*',
+  ],
+  { query: '?raw', import: 'default', eager: true },
+) as Record<string, string>;
+
+// Keys built at run time from a cloud answer (form.ts).
+const DYNAMIC: readonly string[] = [
+  'errors.reference.archived',
+  'errors.reference.not_found',
+  'errors.reference.wrong_branch',
+  'errors.reference.program_not_allowed',
+  'errors.reference.program_wrong_station',
+  'errors.reference.stock_time_exceeds_cook_time',
+  'errors.UNKNOWN',
+  'errors.CONFIG_STALE',
+  'errors.IDEMPOTENCY_KEY_MISMATCH',
+];
+
+// Staff-page errors that stay English until the native read; app/support.test.ts relies on that fallback.
+const ENGLISH_FOR_NOW: readonly string[] = ['errors.OWN_ADMIN_ACCESS', 'errors.OWN_ADMIN_ACCESS_owner_not_linked'];
+
+describe('[01a v2.1 §8.1; S49] Urdu on the owner timing pages', () => {
+  const named = new Set(Object.values(SOURCES).flatMap((source) => [...source.matchAll(/'([a-zA-Z0-9_.]+)'/g)].map((m) => m[1]!)));
+  const keys = (Object.keys(en) as (keyof typeof en)[]).filter(
+    (key) => (named.has(key) || key.startsWith('owner.stations.field.') || DYNAMIC.includes(key)) && !ENGLISH_FOR_NOW.includes(key),
+  );
+
+  it('reads the pages', () => {
+    expect(Object.keys(SOURCES).length).toBeGreaterThan(15);
+    expect(keys).toContain('owner.points.add');
+  });
+
+  it('every key the pages name is in ur.ts', () => {
+    expect(keys.filter((key) => ur[key] === undefined)).toEqual([]);
+  });
+
+  it('a text keeps its placeholders', () => {
+    const holes = (text: string) => [...text.matchAll(/\{\w+\}/g)].map((m) => m[0]).sort();
+    expect(keys.filter((key) => ur[key] !== undefined && holes(ur[key]!).join() !== holes(en[key]).join())).toEqual([]);
+  });
+});

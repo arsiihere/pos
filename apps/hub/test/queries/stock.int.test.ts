@@ -1,4 +1,4 @@
-import { availableStock, canServeFromStock, dayDraws, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
+import { availableStock, canServeFromStock, dayDraws, initialEngineState, stockLevel, type EngineState, type StockEntry } from '@pos/engine';
 import {
   AddPrecookedStockResult,
   AdminAuthResponse,
@@ -15,7 +15,7 @@ import {
 import { aBranchConfig, aBranchConfigItemStock } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
-import { foldEngineEvents } from '../../src/sync/boot-steps';
+import { readStockVersion, replayEngine } from '../../src/engine-host/replay';
 import { setStockVersion } from '../../src/sync/stock-version';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -106,6 +106,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     const i1 = stockItem(config, 'I1');
     const entry = (setAt: number | null): StockEntry => ({ on_hand: 4, reserved: 1, set_at: setAt, unit: 'piece' });
     const state = (setAt: number | null, start: number | null): EngineState => ({
+      ...initialEngineState(),
       stock: { I1: entry(setAt) },
       business_day: start === null ? null : { business_date: '2026-10-25', opened_at: start, closed_at: null, stock_units: {}, draws: {} },
     });
@@ -300,7 +301,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
 
     // Restart: the boot step 3 fold sets stock_version from the log (the real boot() path is #147's setup).
     setStockVersion(0);
-    setStockVersion(foldEngineEvents(hub.deps.db, 'branch-1').stockVersion);
+    setStockVersion(readStockVersion(hub.deps.db, 'branch-1'));
     data = (await query(hub, admin)).json().data;
     expect(data.stock_version).toBe(lastStockSeq);
   });
@@ -492,7 +493,7 @@ describe('GET /admin/queries/stock (§6.19)', () => {
     insertV1(hub, 'hub', 'branch-1', 'BusinessDayOpened', { business_date: '2026-10-25', units }, at(25, 6));
     insertV1(hub, 'stock', 'I3', 'StockSet', { item_id: 'I3', on_hand: 1_000, unit: 'g' }, at(25, 7));
     // The upgraded hub's boot step 3 (the real boot() path is #147's setup).
-    hub.deps.state.swap(foldEngineEvents(hub.deps.db, 'branch-1').state);
+    hub.deps.state.swap(replayEngine(hub.deps.db, 'branch-1', 0, initialEngineState(), () => undefined).state);
     expect(engine(hub).business_day).toMatchObject({
       stock_units: { I1: 'piece', I3: 'g' },
       draws: { I3: { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'I3', quantity_per_sale_unit: 250 }] } },

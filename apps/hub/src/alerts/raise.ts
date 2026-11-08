@@ -1,12 +1,13 @@
 import { DomainError, OWNER_CLOSE_REASONS, type REQUEST_DECISIONS } from '@pos/domain';
-import type {
-  AlertClosedPayload,
-  AlertDetails,
-  AlertDisplay,
-  AlertRaisedPayload,
-  AlertTarget,
-  EventDraft,
-  PosEvent,
+import {
+  latestVersion,
+  type AlertClosedPayload,
+  type AlertDetails,
+  type AlertDisplay,
+  type AlertRaisedPayloadV2,
+  type AlertTarget,
+  type EventDraft,
+  type PosEvent,
 } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { StaffDirectory } from '../auth/staff-directory.js';
@@ -137,7 +138,7 @@ interface Pending {
   kind: AlertKind;
   input: RaiseInput;
   row: AlertRow;
-  payload: AlertRaisedPayload;
+  payload: AlertRaisedPayloadV2;
   /** the G1-9d candidate: the kind's first escalation step, for approval kinds */
   escalation: number | null;
 }
@@ -199,7 +200,7 @@ function raiseMany(ctx: AlertCtx, inputs: readonly RaiseInput[]): RaiseResult[] 
     const request = requestPart(kind, input);
     const requester = input.requester_staff_id ?? null;
     const valuesOut = values.data as Record<string, unknown>;
-    const payload: AlertRaisedPayload = {
+    const payload: AlertRaisedPayloadV2 = {
       alert_id,
       kind: kind.kind,
       family: kind.family,
@@ -336,7 +337,8 @@ export function draftOn(
     stream_type: subject.stream_type,
     stream_id: subject.stream_id,
     event_type: eventType,
-    schema_version: 1,
+    // 01d v1.1.2 D-2: each event at its latest version (AlertRaised v2; every other alert event is v1).
+    schema_version: latestVersion(eventType),
     payload,
     occurred_at: env.now,
     actor_id: env.actor_id,

@@ -28,7 +28,7 @@ Monorepo: pnpm + Turborepo
 T2 Production. Justification: real concurrency races exist in P1 (stock reservation, table locking, void approvals); immutable audit log is a story requirement; but scale is small (3 branches, ~10 concurrent devices/branch, ~200 orders/rush) — T3 patterns are not justified until P3/P4.
 
 ## Source of truth
-- The only source of truth is **docs/specs/00_Foundation_Spec_v1.8.md** (APPROVED), extended by the module specs listed in docs/specs/README.md. This file, the stories and the plans summarise it; if anything here disagrees with the spec, the spec wins.
+- The only source of truth is **docs/specs/00_Foundation_Spec_v1.9.md** (APPROVED), extended by the module specs listed in docs/specs/README.md. This file, the stories and the plans summarise it; if anything here disagrees with the spec, the spec wins.
 - The foundation changes only through a version bump approved by the owner, with a changelog and 'Changed by' markers (README R34). Appending an error code that a module spec defines (§6.2) needs no bump.
 - Every module spec follows the Shared Standards in foundation §6 and does not redefine them.
 - If code and spec disagree, STOP and ask; never silently diverge.
@@ -53,3 +53,11 @@ T2 Production. Justification: real concurrency races exist in P1 (stock reservat
 - New error codes: define them in the module spec, then append them to the foundation §6.2 list and `@pos/domain/src/errors.ts`.
 - No N+1: list/batch endpoints use a fixed number of queries.
 - Small commits, one task per commit. Don't touch files outside the current task.
+
+## Test environment (owner rule, 2026-11-08)
+- The normal gate runs on RAM. Hub SQLite test files go under `TMPDIR=/dev/shm`: `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. These tests check behaviour, not speed or durability.
+- The Postgres test container `pos-pg-test` (port 5433) runs with `fsync=off`, `synchronous_commit=off` and `full_page_writes=off`, set via `ALTER SYSTEM` + `pg_reload_conf()` (no restart). Its data stays on the Docker volume. This is the accepted form for the test-only container. Never stop, restart or `compose down` it.
+- `pnpm test:perf` (the 03a §7.1 numbers) always runs on the real disk, alone on a quiet machine. Never run it with `TMPDIR=/dev/shm` or on tmpfs.
+- Power-loss and crash-durability proof happens only on the pilot hardware (03a task 28 style manual checks), never on a dev laptop.
+- Production never changes: the hub stays SQLite WAL + `synchronous=FULL`, and cloud Postgres keeps fsync on.
+- No timing asserts in the normal gate (03a AD-32). Timing lives in `test:perf`.

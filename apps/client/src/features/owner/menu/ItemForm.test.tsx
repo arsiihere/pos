@@ -76,7 +76,7 @@ function fakeApi() {
       calls.push(call);
       if (call.method === 'GET') return json(200, { data: { stations: [SLOT, BATCH, ARCHIVED_STATION] } });
       if (url.startsWith('/v1/admin/categories')) {
-        return json(201, { data: { category: { category_id: 'C9', name: 'x', sort_order: 0, archived_at: null, availability_windows: [] } } });
+        return json(201, { data: { category: { category_id: 'C9', name: 'x', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] } } });
       }
       return json(201, { data: { item: { item_id: 'I9' } } });
     },
@@ -132,8 +132,8 @@ const TAXES: TaxClass[] = [
   { tax_class_id: 'X2', name: 'Old rate', rate_bp: 1700, archived_at: 5 },
 ];
 const CATEGORIES: Category[] = [
-  { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [] },
-  { category_id: 'C2', name: 'Gone', sort_order: 1, archived_at: 5, availability_windows: [] },
+  { category_id: 'C1', name: 'Karahi', sort_order: 0, archived_at: null, availability_windows: [], goes_with: [] },
+  { category_id: 'C2', name: 'Gone', sort_order: 1, archived_at: 5, availability_windows: [], goes_with: [] },
 ];
 
 async function renderNewItem(api: ReturnType<typeof fakeApi>['api'], onSaved = () => {}): Promise<void> {
@@ -239,6 +239,12 @@ describe('owner item and category forms', () => {
       requires_weighing: false,
       stock_draws: [],
       availability_windows: [],
+      weight_pct: 100,
+      max_early_ms: 60_000,
+      max_carry_ms: null,
+      max_late_ms: null,
+      adjust_time_ms: 180_000,
+      goes_with: [],
       archived_at: null,
       routes: [],
     } satisfies MenuItem;

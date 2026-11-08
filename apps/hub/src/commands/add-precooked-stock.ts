@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand } from './registry.js';
 import { commandRegistry } from './route.js';
-import { requireStockItemsInScope, stockItemResult, stockItemsOf, uniqueStockItemIds } from './set-precooked-stock.js';
+import { openDayStockCtx, requireStockItemsInScope, stockItemResult, stockItemsOf, uniqueStockItemIds, withStockEffects } from './set-precooked-stock.js';
 
 const Payload = z.object({
   entries: z
@@ -45,7 +45,7 @@ export function registerAddPrecookedStock(app: FastifyInstance): void {
             device_id: ctx.actor.deviceId,
           };
         });
-        const next = ctx.tx.append(drafts).reduce(applyEvent, ctx.state);
+        const next = ctx.tx.append(withStockEffects(ctx, drafts, openDayStockCtx(ctx.state))).reduce((s, e) => applyEvent(s, e, { strict: false }), ctx.state);
         return {
           events: [],
           result: {

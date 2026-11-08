@@ -74,6 +74,8 @@ export function Shell({
       current: route === '/stations',
       group: restaurant,
     },
+    // 03a D1, A-1: where food is handed over (#/points)
+    { href: '#/points', icon: 'forward', label: t('owner.nav.points'), current: route === '/points', group: restaurant },
     // 01b §8; one entry for Staff, Roles, Teams and Stock counting (owner decision 2026-10-30)
     { href: '#/staff', icon: 'user', label: t('owner.nav.people'), current: isPeopleRoute(route), group: restaurant },
     {

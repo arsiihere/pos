@@ -4,8 +4,8 @@ You are running UNATTENDED inside an automated loop for module {{MOD}}. Nobody w
 Never ask the user anything. Never wait for confirmation. Decide using the policy below, record the decision, and keep going.
 
 ## Sources of truth (in this order; code wins over prose when they disagree on what EXISTS)
-1. docs/specs/00_Foundation_Spec_v1.8.md §6 (Shared Standards) — changes only by an approved version bump (README R34)
-2. The approved spec for {{MOD}} (latest docs/specs/{{MOD}}_*_Spec_v1.*.md)
+1. docs/specs/00_Foundation_Spec_v1.9.md §6 (Shared Standards) — changes only by an approved version bump (README R34)
+2. The approved spec for {{MOD}}: the highest version (`sort -V`) of `docs/specs/{{SPEC_PREFIX}}_*_Spec_v*.md`, any version form (v1.x, v1.x.y, v2.x). `{{SPEC_PREFIX}}` is `{{MOD}}`, except 01a → `01` (`01_Restaurant_Setup_Spec_v*.md`); for 00 the module spec is `00_Hub_Platform_Access_Spec_v*.md` (the Foundation is source 1). The version must be the one docs/specs/README.md lists as approved
 3. docs/plans/{{MOD}}-plan.md (tasks, Interfaces block, coverage table, Global Constraints)
 4. docs/specs/README.md (owner answers, carried requirements)
 5. .cursor/rules/pos.mdc (coding conventions — follow them even though Cursor is not used)

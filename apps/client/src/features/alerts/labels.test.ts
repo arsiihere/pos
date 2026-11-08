@@ -112,6 +112,13 @@ describe('[01d §3.12] labels', () => {
     expect(detailsText({})).toBeNull();
   });
 
+  it('[03a §3.8, AD-37 (3)] a slip card reads "≈ N min late" in EN and UR', () => {
+    expect(detailsText({ minutes_late: 3, lines: [{ name: 'Mutton Karahi', quantity: 1, state: 'added' }] })).toBe('≈ 3 min late');
+    expect(detailsText({ minutes_late: 8, lines: [] })).toBe('≈ 8 min late');
+    setLanguage('ur');
+    expect(detailsText({ minutes_late: 3, lines: [] })).toBe('≈ 3 منٹ دیر');
+  });
+
   it('[01d §3.12] family words, step tags, badge', () => {
     expect([familyText('urgent'), familyText('action'), familyText('info'), familyText('info', true)]).toEqual([
       'Urgent',

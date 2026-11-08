@@ -65,6 +65,29 @@ export type WsAlertClosed = z.infer<typeof WsAlertClosed>;
 export const WsBindingRoute = z.object({ type: z.literal('binding_route'), until: z.number().int().nullable() });
 export type WsBindingRoute = z.infer<typeof WsBindingRoute>;
 
+// 03a §3.6.3 (v0.2 pre-G2 #12): one station's plan — every unfired line, from `stationPlan(state, station_id, now)`.
+// The catch-up part `station_plan` carries the same body per station. mark as in the §3.3 Line; fire_ms narrowed from it
+// to a number (task 16b): a line is listed once placed, and a placed line always has a planned fire.
+export const StationPlanLine = z.object({
+  order_item_id: Id,
+  order_id: Id,
+  fire_ms: z.number().int(),
+  deadline_ms: z.number().int(),
+  mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
+  frozen: z.boolean(),
+});
+export type StationPlanLine = z.infer<typeof StationPlanLine>;
+
+export const StationPlanBody = z.object({
+  station_id: Id,
+  as_of_seq: z.number().int(),
+  lines: z.array(StationPlanLine),
+});
+export type StationPlanBody = z.infer<typeof StationPlanBody>;
+
+export const WsStationPlan = StationPlanBody.extend({ type: z.literal('station_plan') });
+export type WsStationPlan = z.infer<typeof WsStationPlan>;
+
 export const WsServerMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('catch_up'),
@@ -93,6 +116,7 @@ export const WsServerMessage = z.discriminatedUnion('type', [
   WsAlertSeen,
   WsAlertClosed,
   WsBindingRoute,
+  WsStationPlan,
 ]);
 export type WsServerMessage = z.infer<typeof WsServerMessage>;
 

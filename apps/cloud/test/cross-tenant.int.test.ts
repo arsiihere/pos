@@ -40,9 +40,14 @@ describe('cross-tenant', () => {
     );
     const stationId = 'B-STATION-0000000000000001';
     await cloud.pool.query(
-      `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
-       VALUES ($1, $2, $3, 'B station', 'batch', 1, 0, 0, 0)`,
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
+       VALUES ($1, $2, $3, (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'B station', 'batch', 1, 0, 0, 0)`,
       [f.other.tenantId, f.other.branchId, stationId],
+    );
+    const pointId = 'B-POINT-000000000000000001';
+    await cloud.pool.query(
+      `INSERT INTO points (tenant_id, branch_id, point_id, name, created_at, updated_at) VALUES ($1, $2, $3, 'B point', 0, 0)`,
+      [f.other.tenantId, f.other.branchId, pointId],
     );
     const programId = 'B-PROGRAM-0000000000000001';
     await cloud.pool.query(
@@ -107,6 +112,7 @@ describe('cross-tenant', () => {
       floorId,
       tableId,
       stationId,
+      pointId,
       programId,
       taxClassId,
       categoryId,
@@ -127,6 +133,7 @@ describe('cross-tenant', () => {
       ids.floorId,
       ids.tableId,
       ids.stationId,
+      ids.pointId,
       ids.programId,
       ids.taxClassId,
       ids.categoryId,
@@ -233,6 +240,17 @@ describe('cross-tenant', () => {
       details: { field: 'floor_id', reason: 'not_found' },
     });
     expect(stringsIn(foreignFloor.json())).not.toContain(ids.floorId);
+
+    // 01a §12.3 Q-v2.1-1: tenant A's own branch with B's point id stops at the tenant-scoped point lock.
+    const foreignPoint = await cloud.app.inject({
+      method: 'PATCH',
+      url: `/v1/admin/branches/${f.branches[0]}/points/${ids.pointId}`,
+      ...owner(f),
+      payload: { expected_version: 'stale', name: 'Window' },
+    });
+    expect(foreignPoint.statusCode).toBe(404);
+    expect(foreignPoint.json().error).toMatchObject({ code: 'POINT_NOT_FOUND', details: { point_id: ids.pointId } });
+    expect(stringsIn(foreignPoint.json()).filter((s) => bIds.includes(s))).toEqual([ids.pointId]);
 
     // 01a §6.16: B's item on A's own branch stops at the tenant-level item lock; B's station at the scoped read.
     const foreignItem = await cloud.app.inject({

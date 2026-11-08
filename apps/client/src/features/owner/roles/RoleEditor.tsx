@@ -507,7 +507,11 @@ function GrantControl({
                 ))}
               </select>
               {grant.scope !== 'branch' && grant.scope !== 'own_tables' && (
-                <span className="pos-field__help">{t(`roles.scope_help.${grant.scope}`)}</span>
+                <span className="pos-field__help">
+                  {permission === 'manage-stations' && grant.scope === 'my_stations'
+                    ? t('roles.scope_help.manage_stations')
+                    : t(`roles.scope_help.${grant.scope}`)}
+                </span>
               )}
             </label>
           )}

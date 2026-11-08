@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV2, type CreateDealRequest, type DealBranchWire, type DealWire, type PatchDealRequest } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type CreateDealRequest, type DealBranchWire, type DealWire, type PatchDealRequest } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { createDeal } from '../helpers/menu-variants';
@@ -100,7 +100,7 @@ describe('01c deal list (§6.13), create (§6.14) and PATCH (§6.15)', () => {
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }

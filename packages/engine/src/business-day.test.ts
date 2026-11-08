@@ -7,7 +7,6 @@ import {
   buildEngineState,
   dayDraws,
   dayStockUnit,
-  ENGINE_STATE_VERSION,
   initialEngineState,
   openDayStartMs,
   stockLevel,
@@ -32,19 +31,20 @@ function v2Item(config: BranchConfig, id: string): ConfigItem {
 }
 
 function fold(events: readonly PosEvent[]): EngineState {
-  return events.reduce(applyEvent, initialEngineState());
+  return events.reduce((s, e) => applyEvent(s, e), initialEngineState());
 }
 
 describe('@pos/engine business day', () => {
   it('[01a §10 #68] buildEngineState(engine-log.v2.json) equals engine-state.v2.json; the v1 log folds to the same v2 state', () => {
-    expect(ENGINE_STATE_VERSION).toBe(2);
-    const state = fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`);
+    // 03a §3.3: v3 keeps the v2 stock and business_day parts unchanged; engine-state.v2.json is that part.
+    const state = fixture('engine-state.v2.json');
     for (const name of ['engine-log.v2.json', 'engine-log.v1.json']) {
       const log = (fixture(name) as unknown[]).map((e) => parseEvent(e));
       expect(log.map((e) => e.event_type), name).toEqual(
         expect.arrayContaining(['BusinessDayOpened', 'BusinessDayClosed', 'StockAdded', 'HubStarted']),
       );
-      expect(buildEngineState(log), name).toEqual(state);
+      const { stock, business_day } = buildEngineState(log);
+      expect({ stock, business_day }, name).toEqual(state);
     }
   });
 

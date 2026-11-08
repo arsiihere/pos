@@ -101,10 +101,14 @@ describe('cloud restaurant setup schema', () => {
     await expect(
       insertItem({ item_id: 'i2', name: 'Naan', cook_time_ms: 60_000, stock_time_ms: 60_001 }),
     ).rejects.toMatchObject({ code: '23514' });
+    await pool.query(
+      `INSERT INTO points (tenant_id, branch_id, point_id, name, created_at, updated_at) VALUES ('t1', 'b1', 'p1', 'Pass', $1, $1)`,
+      [T],
+    );
     await expect(
       pool.query(
-        `INSERT INTO stations (tenant_id, branch_id, station_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
-         VALUES ('t1', 'b1', 's1', 'Karahi', 'slot', 4, 0, $1, $1)`,
+        `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, freshness_window_ms, created_at, updated_at)
+         VALUES ('t1', 'b1', 's1', 'p1', 'Karahi', 'slot', 4, 0, $1, $1)`,
         [T],
       ),
     ).rejects.toMatchObject({ code: '23514' });

@@ -158,6 +158,17 @@ describe('versions (01b B23, §5.3)', () => {
     expect(toResponsibilitySet('B1', [])).toEqual([]);
   });
 
+  it('[01b B-4] run_station rows form their own entry beside count_stock at the same station, and change the version', () => {
+    const count: ResponsibilityRow = { responsibility: 'count_stock', station_id: 'ST_A', subject_kind: 'staff', subject_id: 'S1', station_archived_at: null };
+    const run: ResponsibilityRow = { responsibility: 'run_station', station_id: 'ST_A', subject_kind: 'role', subject_id: 'R1', station_archived_at: null };
+    const set = toResponsibilitySet('B1', [run, count]);
+    expect(set).toEqual([
+      { responsibility: 'count_stock', station_id: 'ST_A', staff_ids: ['S1'], role_ids: [] },
+      { responsibility: 'run_station', station_id: 'ST_A', staff_ids: [], role_ids: ['R1'] },
+    ]);
+    expect(responsibilitySetVersion('B1', set)).not.toBe(responsibilitySetVersion('B1', toResponsibilitySet('B1', [count])));
+  });
+
   it('[01b §5.3] withVersion adds the version key', () => {
     const wire = toRoleWire(aRoleRow());
     expect(withVersion(wire, 'abc')).toEqual({ ...wire, version: 'abc' });

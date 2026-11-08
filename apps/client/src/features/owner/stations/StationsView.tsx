@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CloudAdmin, CompletionMode, PatchStationBody, Program, Station, StationType } from '../../../api/cloud-admin';
+import type { CloudAdmin, CloudError, CompletionMode, PatchStationBody, Point, Program, Station, StationType } from '../../../api/cloud-admin';
 import { navigate } from '../../../app/router';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
@@ -12,12 +12,13 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
-import { BlockedDialog, itemNames, usedIds, type InUse } from '../BlockedDialog';
+import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse as AnyInUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
-import { errorText } from '../form';
+import { errorText, issueMessages, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { formatMinutes, parseMinutes } from '../minutes';
 import { BranchSelect, Page } from '../Shell';
+import { TimingFields, alternatesEdited, emptyAlternateIssues, resolveRowIssues, timingFieldLabel, timingPatch, timingState, type OfferedStation } from './Timing';
 import { AddStationDialog, COMPLETION_MODES, parseWhole, RecipeDialog, typeOptions } from './StationDialogs';
 
 // §8.1 #/stations (01a-S04): one row per station with a summary; Edit opens it in place with its batch
@@ -43,6 +44,37 @@ function summary(station: Station): string {
   ]
     .filter((part) => part !== null && part !== '')
     .join(' · ');
+}
+
+// A station is used by items, stock items or other stations only.
+type InUse = AnyInUse & { by?: 'station' | 'stock_item' };
+
+const BLOCKED_BODY = { item: 'archive.station_blocked_body', station: 'archive.station_blocked_by_stations', stock_item: 'archive.station_blocked_by_stock' } as const;
+const HINT_SHORT = { item: 'stations.used_by_short', station: 'stations.used_by_stations_short', stock_item: 'stations.used_by_stock_short' } as const;
+const HINT_NAMES = { item: 'stations.used_by_names', station: 'stations.used_by_stations_names', stock_item: 'stations.used_by_stock_names' } as const;
+
+// A-9: the alternates a station can name are the branch's other active slot stations.
+function offeredFor(stations: readonly StationRow[], selfId: string): OfferedStation[] {
+  return stations
+    .filter((s) => s.station_id !== selfId && s.archived_at === null && s.station_type === 'slot')
+    .map((s) => ({ station_id: s.station_id, name: s.name }));
+}
+
+// 409 CONFIG_IN_USE names items (routes), stock items (01c V16) or stations (alternates, A-9): name each from what is loaded.
+async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
+  if (usedEntity(error) === 'station') {
+    return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
+  }
+  if (usedEntity(error) === 'stock_item') {
+    const result = await api.listStockItems();
+    const byId = new Map(result.ok ? result.data.stock_items.map((item) => [item.stock_item_id, item.name]) : []);
+    return { ids, names: ids.flatMap((id) => byId.get(id) ?? []), by: 'stock_item' };
+  }
+  return itemNames(api, ids);
+}
+
+function editorKey(station: StationRow): string {
+  return JSON.stringify({ ...station, programs: undefined });
 }
 
 // Closed stations show as list rows; the open one (one at a time) is its own section between them.
@@ -73,6 +105,9 @@ function StationEditor({
   showArchived,
   inUse,
   chips,
+  points,
+  offered,
+  allStations,
 }: {
   api: CloudAdmin;
   branchId: string;
@@ -87,6 +122,9 @@ function StationEditor({
   showArchived: boolean;
   inUse: InUse | undefined;
   chips: ReactNode;
+  points: readonly Point[];
+  offered: readonly OfferedStation[];
+  allStations: readonly { station_id: string; name: string }[];
 }) {
   const [name, setName] = useState(station.name);
   const [label, setLabel] = useState(station.location_label ?? '');
@@ -94,10 +132,15 @@ function StationEditor({
   const [capacity, setCapacity] = useState(String(station.capacity));
   const [freshness, setFreshness] = useState(formatMinutes(station.freshness_window_ms ?? 0));
   const [mode, setMode] = useState<CompletionMode>(station.completion_mode);
+  const offeredIds = new Set(offered.map((s) => s.station_id));
+  const [timing, setTiming] = useState(() => timingState(station, offeredIds));
+  const [issues, setIssues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const down = useCloudDown(api);
   const leave = useLeave();
+  const here = `[data-station-id="${station.station_id}"]`;
+  useReveal(error, [`${here} .pos-field--error`, `${here} .pos-banner--danger`]);
 
   const patch: PatchStationBody = {};
   if (name.trim() !== station.name) patch.name = name.trim();
@@ -110,11 +153,16 @@ function StationEditor({
     if (ms !== null) patch.freshness_window_ms = ms;
   }
   if (mode !== station.completion_mode) patch.completion_mode = mode;
-  const changed = Object.keys(patch).map((field) => t(`owner.stations.field.${field}` as Parameters<typeof t>[0]));
+  const timingChanges = timingPatch(timing, station, type, offeredIds);
+  if (timingChanges !== null) Object.assign(patch, timingChanges);
+  // A saved alternate that is archived now is dropped from the form (CL-10); that alone is not an edit, but it
+  // goes out with any other save so the cloud does not refuse the archived row.
+  const alternatesDirty = alternatesEdited(timing, station, type, offeredIds);
+  const changed = Object.keys(patch).filter((field) => field !== 'alternates' || alternatesDirty).map((field) => t((timingFieldLabel(field) ?? `owner.stations.field.${field}`) as Parameters<typeof t>[0]));
   useDirtyForm(changed.length === 0 ? null : { name: station.name, fields: changed });
 
   async function save() {
-    if (capacityValue === null || name.trim() === '' || (type === 'batch' && parseMinutes(freshness) === null)) {
+    if (capacityValue === null || name.trim() === '' || timingChanges === null || (type === 'batch' && parseMinutes(freshness) === null)) {
       setError(t('errors.VALIDATION_FAILED'));
       return;
     }
@@ -122,8 +170,15 @@ function StationEditor({
       onClose();
       return;
     }
+    const empty = emptyAlternateIssues(timing, type, offeredIds);
+    if (Object.keys(empty).length > 0) {
+      setIssues(resolveRowIssues(empty, timing, station, type, offeredIds));
+      setError(t('errors.VALIDATION_FAILED'));
+      return;
+    }
     setBusy(true);
     setError(null);
+    setIssues({});
     const result = await api.patchStation(branchId, station.station_id, patch);
     setBusy(false);
     if (result.ok) {
@@ -133,13 +188,16 @@ function StationEditor({
     const ids = usedIds(result.error);
     if (ids !== null && patch.station_type !== undefined) {
       setType(station.station_type);
-      onTypeBlocked(await itemNames(api, ids));
+      onTypeBlocked(await usersOf(api, result.error, ids, allStations));
       return;
     }
+    setIssues(resolveRowIssues(issueMessages(result.error), timing, station, type, offeredIds));
     setError(errorText(result.error));
   }
 
   const programs = station.programs.filter((p) => showArchived || p.archived_at === null);
+  const fieldClass = (field: string) => `pos-field${issues[field] !== undefined ? ' pos-field--error' : ''}`;
+  const underBox = (field: string) => issues[field] !== undefined && <span className="pos-field__help">{issues[field]}</span>;
 
   return (
     <section className="pos-section pos-section--open" data-station-id={station.station_id}>
@@ -176,13 +234,15 @@ function StationEditor({
       </div>
       {error !== null && <Banner tone="danger" text={error} />}
       <div className="pos-grid">
-        <label className="pos-field">
+        <label className={fieldClass('name')}>
           <span className="pos-field__label">{t('owner.stations.station_name')}</span>
           <input className="pos-input" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          {underBox('name')}
         </label>
-        <label className="pos-field">
+        <label className={fieldClass('location_label')}>
           <span className="pos-field__label">{t('owner.stations.location_label')}</span>
           <input className="pos-input" name="location_label" value={label} onChange={(e) => setLabel(e.target.value)} />
+          {underBox('location_label')}
         </label>
       </div>
       <div className="pos-field">
@@ -191,12 +251,13 @@ function StationEditor({
         {typeLocked && <span className="pos-field__help">{t('owner.stations.type_locked')}</span>}
       </div>
       <div className="pos-grid pos-grid--3">
-        <label className="pos-field">
+        <label className={fieldClass('capacity')}>
           <span className="pos-field__label">{t(type === 'batch' ? 'owner.stations.capacity_batch' : 'owner.stations.capacity')}</span>
           <input className="pos-input pos-input--mono" name="capacity" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
+          {underBox('capacity')}
         </label>
         {type === 'batch' && (
-          <label className="pos-field">
+          <label className={fieldClass('freshness_window_ms')}>
             <span className="pos-field__label">{t('owner.stations.freshness_minutes')}</span>
             <input
               className="pos-input pos-input--mono"
@@ -205,6 +266,7 @@ function StationEditor({
               value={freshness}
               onChange={(e) => setFreshness(e.target.value)}
             />
+            {underBox('freshness_window_ms')}
           </label>
         )}
         <label className="pos-field">
@@ -218,6 +280,15 @@ function StationEditor({
           </select>
         </label>
       </div>
+      <TimingFields
+        state={timing}
+        onChange={setTiming}
+        type={type}
+        points={points}
+        offered={offered}
+        issues={issues}
+        currentPointId={station.point_id}
+      />
       {station.station_type === 'batch' && (
         <>
           <div className="pos-section__head pos-section__head--sub">
@@ -258,10 +329,10 @@ function UsedByHint({ inUse }: { inUse: InUse }) {
       type="button"
       className="pos-hint"
       title={names}
-      aria-label={fill(t('stations.used_by_names'), { n, names })}
+      aria-label={fill(t(HINT_NAMES[inUse.by ?? 'item']), { n, names })}
     >
       <Icon name="info" />
-      {fill(t('stations.used_by_short'), { n })}
+      {fill(t(HINT_SHORT[inUse.by ?? 'item']), { n })}
     </button>
   );
 }
@@ -285,6 +356,7 @@ export function StationsView({
 }) {
   const branchName = useBranchName();
   const [stations, setStations] = useState<StationRow[] | null>(null);
+  const [points, setPoints] = useState<Point[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -303,6 +375,7 @@ export function StationsView({
     const result = await api.listStations(branchId);
     if (result.ok) {
       setStations(result.data.stations);
+      setPoints(result.data.points);
       setError(null);
     } else setError(errorText(result.error));
   }, [api, branchId]);
@@ -329,7 +402,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       const station = stations?.find((s) => s.station_id === stationId);
-      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await itemNames(api, ids), type: false });
+      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, result.error, ids, stations ?? []), type: false });
       else setError(errorText(result.error));
     } else if (archived) setUndo({ stationId, program });
     else setUndo(null);
@@ -342,7 +415,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       if (ids !== null) {
-        const inUse = await itemNames(api, ids);
+        const inUse = await usersOf(api, result.error, ids, stations ?? []);
         setUsedBy((known) => new Map(known).set(station.station_id, inUse));
         setAsk({ kind: 'blocked', station, inUse, type: false });
       } else setError(errorText(result.error));
@@ -410,7 +483,7 @@ export function StationsView({
         runs(stations.filter(visible), open).map((run) =>
           run.kind === 'open' ? (
             <StationEditor
-              key={`${run.station.station_id}-${run.station.name}-${run.station.station_type}-${run.station.capacity}-${run.station.completion_mode}-${run.station.freshness_window_ms ?? ''}-${run.station.location_label ?? ''}`}
+              key={editorKey(run.station)}
               api={api}
               branchId={branchId}
               station={run.station}
@@ -418,6 +491,9 @@ export function StationsView({
               typeLocked={typeLocked.has(run.station.station_id)}
               inUse={usedBy.get(run.station.station_id)}
               chips={chips(run.station.station_id)}
+              points={points}
+              offered={offeredFor(stations, run.station.station_id)}
+              allStations={stations}
               onSaved={() => {
                 setOpen(null);
                 flashSaved(run.station.station_id);
@@ -514,13 +590,22 @@ export function StationsView({
       {ask?.kind === 'blocked' && (
         <BlockedDialog
           title={fill(t(ask.type ? 'archive.station_type_blocked' : 'archive.blocked_title'), { name: ask.station.name })}
-          body={fill(t('archive.station_blocked_body'), { n: String(ask.inUse.ids.length), branch: branchName(branchId) })}
+          body={fill(t(BLOCKED_BODY[ask.inUse.by ?? 'item']), {
+            n: String(ask.inUse.ids.length),
+            branch: branchName(branchId),
+          })}
           inUse={ask.inUse}
           onClose={() => setAsk(null)}
           action={
-            <button type="button" className="pos-btn pos-btn--primary" onClick={() => leave(() => navigate('/menu'))}>
-              {t('archive.open_items')}
-            </button>
+            ask.inUse.by === 'station' ? undefined : (
+              <button
+                type="button"
+                className="pos-btn pos-btn--primary"
+                onClick={() => leave(() => navigate(ask.inUse.by === 'stock_item' ? '/stock-items' : '/menu'))}
+              >
+                {t(ask.inUse.by === 'stock_item' ? 'archive.open_stock_items' : 'archive.open_items')}
+              </button>
+            )
           }
         />
       )}

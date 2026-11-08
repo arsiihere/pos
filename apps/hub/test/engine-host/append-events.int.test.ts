@@ -6,6 +6,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { fixedClock, T } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
 import { freshDb } from '../helpers/db';
+import { statementCounter } from '../helpers/statement-counter';
 
 const migrations = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const TENANT = 'tenant-1';
@@ -55,6 +56,15 @@ describe('appendEvents', () => {
       expect(() => appendEvents(db, [draft(1), bad], ctx)).toThrow();
     }).immediate();
     expect(db.prepare('SELECT COUNT(*) FROM events').pluck().get()).toBe(0);
+  });
+
+  it('[03a §10.5; AD-34] an empty append runs no statement (no MAX(seq) read) and returns []', async () => {
+    const { db } = await migrated();
+    const ctx = { clock: fixedClock(T), ids: testIdGen(), tenantId: TENANT, branchId: BRANCH };
+    const counter = statementCounter(db);
+    const appended = db.transaction(() => appendEvents(db, [], ctx)).immediate();
+    expect(counter.count).toBe(0);
+    expect(appended).toEqual([]);
   });
 
   async function migrated() {

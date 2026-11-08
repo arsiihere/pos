@@ -171,10 +171,21 @@ describe('hub migration 0006_alerts', () => {
     ]);
   });
 
-  it('[01d §5.1] merged migrations 0001–0005 are unchanged and 0006 is the only new file', () => {
+  it('[01d §5.1] merged migrations 0001–0005 are unchanged and 0006 follows them', () => {
     const files = readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort();
-    expect(files).toEqual([...Object.keys(MERGED), '0006_alerts.sql']);
+    expect(files.slice(0, 6)).toEqual([...Object.keys(MERGED), '0006_alerts.sql']);
     for (const [name, hash] of Object.entries(MERGED)) expect(sha256hex(readFileSync(join(migrations, name)))).toBe(hash);
+  });
+
+  it('[00 H-5, H-6] [01b B-4] the hub migrations are exactly 0001–0009 in order', () => {
+    const files = readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort();
+    expect(files).toEqual([
+      ...Object.keys(MERGED),
+      '0006_alerts.sql',
+      '0007_engine.sql',
+      '0008_device_point_lane.sql',
+      '0009_run_station.sql',
+    ]);
   });
 
   async function from0005(): Promise<{ db: Database.Database; result: Awaited<ReturnType<typeof runMigrations>> }> {
@@ -187,8 +198,11 @@ describe('hub migration 0006_alerts', () => {
     await runMigrations(db, { dir: upTo5, clock: fixedClock(T) });
     expect(db.pragma('user_version', { simple: true })).toBe(5);
     seed0005(db);
-    // The real directory: the runner re-checks the 0001–0005 checksums before applying 0006.
-    const result = await runMigrations(db, { dir: migrations, clock: fixedClock(T) });
+    // Stops at 0006 (later migrations are not this test's subject): the runner re-checks the 0001–0005 checksums.
+    const upTo6 = join(dir, 'migrations-0006');
+    mkdirSync(upTo6);
+    for (const name of [...Object.keys(MERGED), '0006_alerts.sql']) copyFileSync(join(migrations, name), join(upTo6, name));
+    const result = await runMigrations(db, { dir: upTo6, clock: fixedClock(T) });
     return { db, result };
   }
 });

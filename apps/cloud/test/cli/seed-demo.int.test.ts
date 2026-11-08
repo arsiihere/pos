@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import type { AddressInfo } from 'node:net';
-import { BranchConfigSnapshotSchemaV2, type BranchConfig } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3, type BranchConfig } from '@pos/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { seedDemo } from '../../src/cli/seed-demo';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
@@ -66,7 +66,7 @@ describe('seed-demo', () => {
     try {
       const out: Array<{ name: string; snapshot: BranchConfig }> = [];
       for (const b of branches) {
-        out.push({ name: b.name, snapshot: BranchConfigSnapshotSchemaV2.parse(await buildSnapshot(client, tenant, b.branch_id, HEADER)) });
+        out.push({ name: b.name, snapshot: BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, b.branch_id, HEADER)) });
       }
       return out;
     } finally {
@@ -75,7 +75,7 @@ describe('seed-demo', () => {
   };
 
   it(
-    '[01c §7] variant group Chicken Karahi Half/Full on one Karahi pot counted at Karahi everywhere; Spice level on category Karahi; Bread links Naan; Family karahi deal sold at every branch; snapshots parse as schema 2; a second run is a no-op',
+    '[01c §7] variant group Chicken Karahi Half/Full on one Karahi pot counted at Karahi everywhere; Spice level on category Karahi; Bread links Naan; Family karahi deal sold at every branch; snapshots parse as schema 3; a second run is a no-op',
     async () => {
       const out: string[] = [];
       await seedDemo(base, 'Arif Chatkhara', { pool: cloud.pool, out: (text) => out.push(text) });

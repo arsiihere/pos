@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { StaffDirectory } from '../../src/auth/staff-directory';
 import { PIN, pinHash } from '../helpers/fixtures';
+import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 type Grant = DirectoryInput['roles'][number]['permissions'][number];
@@ -68,6 +69,42 @@ describe('StaffDirectory v2 lookups (01b §3.5, §3.6)', () => {
       expect(directory.responsibilitiesOf('S_G1')).toEqual(['count_stock']);
       expect(directory.responsibilitiesOf('S_MISSING')).toEqual([]);
     }
+  });
+
+  it('[01b B-4] run_station is carried beside count_stock with no new statement; stationsOf(staff, run_station) returns the stations', async () => {
+    const hash = await pinHash(PIN.a);
+    const { applied, reloaded } = await hubWith({
+      directory_version: 1,
+      roles: [role('R_GRILL', 'Grill cook', 300_000, []), role('R_CASH', 'Cashier', 900_000, [])],
+      staff: [
+        person('S_G1', 'Grill one', hash, ['R_GRILL']),
+        person('S_G2', 'Grill two', hash, ['R_GRILL']),
+        person('S_C', 'Counter', hash, ['R_CASH']),
+      ],
+      responsibilities: [
+        { responsibility: 'count_stock', station_id: 'ST_GRILL', staff_ids: ['S_G1'], role_ids: [] },
+        { responsibility: 'run_station', station_id: 'ST_GRILL', staff_ids: [], role_ids: ['R_GRILL'] },
+        { responsibility: 'run_station', station_id: 'ST_BAR', staff_ids: ['S_C'], role_ids: [] },
+        { responsibility: 'run_station', station_id: 'ST_TANDOOR', staff_ids: ['S_G2'], role_ids: [] },
+      ],
+    });
+    for (const directory of [applied, reloaded]) {
+      expect(directory.stationsOf('S_G1', 'run_station')).toEqual(['ST_GRILL']);
+      expect(directory.stationsOf('S_G2', 'run_station')).toEqual(['ST_GRILL', 'ST_TANDOOR']);
+      expect(directory.stationsOf('S_C', 'run_station')).toEqual(['ST_BAR']);
+      expect(directory.stationsOf('S_MISSING', 'run_station')).toEqual([]);
+      expect(directory.responsibilityHolders('ST_GRILL', 'run_station')).toEqual(['S_G1', 'S_G2']);
+      // count_stock is unchanged by the run_station rows at the same station.
+      expect(directory.stationsOf('S_G1', 'count_stock')).toEqual(['ST_GRILL']);
+      expect(directory.stationsOf('S_G2', 'count_stock')).toEqual([]);
+      expect(directory.responsibilityHolders('ST_GRILL', 'count_stock')).toEqual(['S_G1']);
+      expect(directory.responsibilitiesOf('S_G1')).toEqual(['count_stock', 'run_station']);
+      expect(directory.responsibilitiesOf('S_C')).toEqual(['run_station']);
+    }
+    const h = hubs.at(-1)!;
+    const counter = statementCounter(h.deps.db);
+    StaffDirectory.load(h.deps.db);
+    expect(counter.count).toBe(10); // 01b §5.2: unchanged, the rows ride the existing responsibilities read
   });
 
   it('[01b §3.2 rule 6] floorsOf returns the stored floors, sorted', async () => {

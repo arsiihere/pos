@@ -2,15 +2,21 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineState } from '@pos/engine';
+import { initialEngineState, type EngineState } from '@pos/engine';
 import type { EventDraft } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { setStockVersion, stockVersion } from '../../src/sync/stock-version';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 
 const WALL = 1_761_000_000_000;
+// As main.ts (03a A-15: step 3 is the engine's replay).
+function registerSteps(): void {
+  registerEngineBootSteps();
+  registerRestaurantBootSteps();
+}
 const BRANCH = 'branch-1';
 
 function writeConfig(): { path: string; cleanup: () => void } {
@@ -74,11 +80,11 @@ describe('engine state through boot (S15)', () => {
 
   // 01c V5: the stock stream is keyed by stock item (StockSet / StockAdded v2).
   it('[01a §10 #67] restart → boot step 3 rebuilds stock from StockSet events; values equal pre-restart', async () => {
-    registerRestaurantBootSteps();
+    registerSteps();
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
-    expect(engine(first)).toEqual({ stock: {}, business_day: null });
+    expect(engine(first)).toEqual(initialEngineState());
     append(first, [
       draft('stock', 'K1', 'StockSet', { stock_item_id: 'K1', on_hand: 12, unit: 'piece' }, WALL, 2),
       draft('stock', 'K2', 'StockSet', { stock_item_id: 'K2', on_hand: 2500, unit: 'g' }, WALL, 2),
@@ -97,7 +103,7 @@ describe('engine state through boot (S15)', () => {
   });
 
   it('[01c #67] boot fold over a v1 StockSet (item id) then a v2 StockSet (same id) → one entry, latest wins', async () => {
-    registerRestaurantBootSteps();
+    registerSteps();
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
@@ -126,7 +132,7 @@ describe('engine state through boot (S15)', () => {
   });
 
   it('[01a §10 #93] restart after StockSet → set_at equals its value before the restart', async () => {
-    registerRestaurantBootSteps();
+    registerSteps();
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
@@ -146,7 +152,7 @@ describe('engine state through boot (S15)', () => {
   });
 
   it('[01a S33] a BusinessDayOpened and BusinessDayClosed in the log are folded at boot', async () => {
-    registerRestaurantBootSteps();
+    registerSteps();
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);
@@ -177,7 +183,7 @@ describe('engine state through boot (S15)', () => {
   });
 
   it('[01a §6.19] stockVersion after boot equals the last stock-stream or business-day event seq; noteCommitted moves it after a commit and ignores other events', async () => {
-    registerRestaurantBootSteps();
+    registerSteps();
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
     const first = await start(cfg.path, WALL);

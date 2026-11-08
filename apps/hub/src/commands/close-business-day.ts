@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { defineCommand } from './registry.js';
-import { requireBranchScope } from './set-precooked-stock.js';
+import { requireBranchScope, withStockEffects } from './set-precooked-stock.js';
 import { commandRegistry } from './route.js';
 
 const Payload = z.object({}).strict();
@@ -40,19 +40,23 @@ export function registerCloseBusinessDay(app: FastifyInstance): void {
             result: { business_date: day.business_date, opened_at: day.opened_at, closed_at: null, changed: false, reason: 'opened_recently' },
           };
         }
-        // Appended here so the result's closed_at is the event's recorded_at, the day's end.
-        const [closed] = ctx.tx.append([
-          {
-            stream_type: 'hub',
-            stream_id: ctx.branch.branchId,
-            event_type: 'BusinessDayClosed',
-            schema_version: 1,
-            payload: {},
-            occurred_at: now,
-            actor_id: ctx.actor.staffId,
-            device_id: ctx.actor.deviceId,
-          },
-        ]);
+        // Appended here so the result's closed_at is the event's recorded_at, the day's end. A-14: the releases come
+        // first; a close needs no stock context (§6.1f), so it works without a branch config.
+        const appended = ctx.tx.append(
+          withStockEffects(ctx, [
+            {
+              stream_type: 'hub',
+              stream_id: ctx.branch.branchId,
+              event_type: 'BusinessDayClosed',
+              schema_version: 1,
+              payload: {},
+              occurred_at: now,
+              actor_id: ctx.actor.staffId,
+              device_id: ctx.actor.deviceId,
+            },
+          ]),
+        );
+        const closed = appended.find((event) => event.event_type === 'BusinessDayClosed');
         return {
           events: [],
           result: {

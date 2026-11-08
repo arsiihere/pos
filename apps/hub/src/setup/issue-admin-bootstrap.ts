@@ -42,7 +42,7 @@ export async function runIssueAdminBootstrap(o: {
     const ids = ulidGen(clock);
     const projections = createProjectionRegistry();
     const state = createStateHolder<EngineState>(initialEngineState());
-    state.setReducer(applyEvent);
+    state.setReducer((s, e) => applyEvent(s, e, { strict: false }));
     const writer = createWriter({
       db,
       clock,

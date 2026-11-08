@@ -1,5 +1,5 @@
 import { DomainError, type DeviceType, type Permission } from '@pos/domain';
-import type { AlertRaisedPayload, AlertTarget } from '@pos/events';
+import type { AlertRaisedPayloadV2, AlertTarget } from '@pos/events';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import type { WsHub } from '../ws/server.js';
@@ -12,7 +12,7 @@ import { cachedPrepare } from './statements.js';
 // No role name is read anywhere (R5): only permissions, and roles by id.
 
 /** §3.2 `request`, as stored (`alerts.request_json` = the AlertRaised payload's request part). */
-export type AlertRequestPart = NonNullable<AlertRaisedPayload['request']>;
+export type AlertRequestPart = NonNullable<AlertRaisedPayloadV2['request']>;
 
 /** The `alerts` row fields that resolution needs, parsed (task 18 reads it; the tick selects it). */
 export interface AlertRow {

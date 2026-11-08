@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { CloudError } from '../../api/cloud-admin';
 import { supportText } from '../../app/support';
 import { newUlid } from '../../app/ulid';
-import { en, errorKey } from '../../i18n/en';
+import { en, errorKey, fill } from '../../i18n/en';
+import { formatMinutes } from './minutes';
 import { t, type MessageKey } from '../../i18n';
 
 // §8.1, S35 j: a creating POST's Idempotency-Key is made when the form opens and kept across its
@@ -53,4 +54,57 @@ function apiErrorKey(code: string, details: Record<string, unknown>): MessageKey
   if (code === 'CONFIG_REFERENCE_INVALID') return referenceKey(details);
   if (code.endsWith('_NOT_FOUND') && code !== 'ROUTE_NOT_FOUND') return 'errors.NOT_FOUND_stale';
   return errorKey(code);
+}
+
+// The limits stay the cloud's; the words are the owner's. A box typed in minutes or percent says its limit in
+// that unit (the cloud's message names ms or basis points, in English), and an internal name is never shown.
+const NUMBER_LIMIT_RE = /^Too (?:big|small): expected number to be (<=?|>=?)\s*(-?[0-9]+)$/;
+const LENGTH_LIMIT_RE = /^Too big: expected string to have <=?\s*([0-9]+) characters$/;
+function plainIssue(path: string, message: string): string {
+  const number = NUMBER_LIMIT_RE.exec(message);
+  if (number !== null) {
+    const upper = number[1]!.startsWith('<');
+    const limit = Number(number[2]);
+    const hole = (text: string): Record<string, string> => (upper ? { max: text } : { min: text });
+    if (path.endsWith('_ms')) return fill(t(upper ? 'form.range.max_minutes' : 'form.range.min_minutes'), hole(formatMinutes(limit)));
+    if (path.endsWith('_bp')) return fill(t(upper ? 'form.range.max_percent' : 'form.range.min_percent'), hole(String(limit / 100)));
+    return fill(t(upper ? 'form.range.max' : 'form.range.min'), hole(String(limit)));
+  }
+  const length = LENGTH_LIMIT_RE.exec(message);
+  if (length !== null) return fill(t('form.length_max'), { max: length[1]! });
+  if (message.endsWith(' is above capacity')) return t('form.above_capacity');
+  if (message === 'pressure_amber_bp must be below pressure_red_bp') return t('form.amber_below_red');
+  return message;
+}
+
+// 03a A-2–A-10: a 422 CONFIG_REFERENCE_INVALID names its `field`; a 400 VALIDATION_FAILED carries `issues: [{ path, message }]`; the field it names shows the
+// cloud's refusal under it (the ranges are the cloud's, not the client's).
+export function issueMessages(error: CloudError): Record<string, string> {
+  if (error.kind === 'api' && error.code === 'CONFIG_REFERENCE_INVALID' && typeof error.details['field'] === 'string') {
+    return { [error.details['field']]: errorText(error) ?? '' };
+  }
+  if (error.kind !== 'api' || error.code !== 'VALIDATION_FAILED') return {};
+  const issues = error.details['issues'];
+  if (!Array.isArray(issues)) return {};
+  const out: Record<string, string> = {};
+  for (const issue of issues as { path?: unknown; message?: unknown }[]) {
+    if (typeof issue.path === 'string' && typeof issue.message === 'string' && !(issue.path in out)) out[issue.path] = plainIssue(issue.path, issue.message);
+  }
+  return out;
+}
+
+// Save sits in a bar or at the head of a long form, so its answer can land out of sight. When `signal` becomes a
+// new truthy value, the first element matching one of `selectors` (in that order) is brought into view.
+export function useReveal(signal: unknown, selectors: readonly string[]): void {
+  useEffect(() => {
+    if (!signal) return;
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element !== null) {
+        element.scrollIntoView?.({ block: 'center' });
+        return;
+      }
+    }
+    // Only a new answer moves the page; `selectors` are fixed per caller.
+  }, [signal]);
 }

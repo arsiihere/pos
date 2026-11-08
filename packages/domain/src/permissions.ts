@@ -19,6 +19,8 @@ export const PERMISSIONS = [
   'manage-devices',
   'access-hub-admin',
   'manage-stock',
+  'manage-stations',
+  'mark-served',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -43,6 +45,8 @@ const WIDER_SCOPES: Partial<Record<Permission, readonly Scope[]>> = {
   'force-release-table-lock': ['branch', 'my_floors'],
   'approve-void': ['branch', 'my_team'],
   'manage-stock': ['branch', 'my_stations'],
+  'manage-stations': ['branch', 'my_stations'],
+  'mark-served': ['branch', 'own_tables', 'my_floors'],
 };
 
 export const PERMISSION_SCOPES: Record<Permission, readonly Scope[]> = Object.fromEntries(
@@ -73,6 +77,8 @@ const GROUPS: Record<Permission, PermissionGroup> = {
   'manage-devices': 'people',
   'access-hub-admin': 'people',
   'manage-stock': 'menu_stock',
+  'manage-stations': 'kitchen',
+  'mark-served': 'orders',
 };
 
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =

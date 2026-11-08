@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV2 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
@@ -66,7 +66,7 @@ describe('config poller', () => {
     expect(applied).toHaveLength(1);
     expect(JSON.parse(applied[0]!.payload)).toEqual({
       config_version: 3,
-      snapshot_schema_version: 2,
+      snapshot_schema_version: 3,
       snapshot_hash: hash,
       previous_config_version: null,
     });
@@ -75,12 +75,12 @@ describe('config poller', () => {
       { snapshot_hash: hash, config_version: 3, body: canonicalJson(raw) },
     ]);
     expect(h.deps.db.prepare('SELECT * FROM branch_config').all()).toEqual([
-      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 2, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
+      { branch_id: BRANCH, config_version: 3, snapshot_schema_version: 3, snapshot_hash: hash, applied_at: applied[0]!.recorded_at },
     ]);
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV2.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV3.parse(raw));
     // the directory part rides the same transaction (S6): one published batch holds both events
     const batch = h.published.find((events) => events.some((e) => e.event_type === 'BranchConfigApplied'));
-    expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'StaffDirectoryApplied']);
+    expect(batch?.map((e) => e.event_type).sort()).toEqual(['BranchConfigApplied', 'EngineConfigApplied', 'StaffDirectoryApplied']); // 03a §3.11
     expect(currentDirectory(h.app).ttlFor('S_MGR')).toBe(3_600_000);
     expect(configPoller(h.app).lastPoll()).toEqual({ outcome: 'applied', at: h.clock.branchNow() });
     expect(configPoller(h.app).lastProblem()).toBeNull();
@@ -182,7 +182,7 @@ describe('config poller', () => {
   it('[01a §10 #95] hash before parse: a raw hash mismatch whose Zod-stripped form would match is rejected (hash_mismatch)', async () => {
     const { h, cloud } = await hub();
     const raw = snapshot(3, { promo: {} });
-    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV2.parse(raw)));
+    const strippedHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV3.parse(raw)));
     expect(strippedHash).not.toBe(sha256hex(canonicalJson(raw)));
     cloud.next = okText({ snapshot_hash: strippedHash, snapshot: raw });
     const before = writes(h);

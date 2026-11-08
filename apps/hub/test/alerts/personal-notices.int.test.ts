@@ -187,6 +187,28 @@ function eventIdsOf(response: { json(): unknown }): Set<string> {
 
 const SECRET_TEXT = ['Mutton platter', 'customer changed mind', '480000'];
 
+// A secret in a log field, read field by field: a raw search of the log text would also match digits inside a
+// random number such as responseTime 13.025480000000243.
+function logLeaks(logs: string, secrets: readonly string[]): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') found.push(...secrets.filter((secret) => value.includes(secret)));
+    else if (typeof value === 'number') found.push(...secrets.filter((secret) => value === Number(secret)));
+    else if (value !== null && typeof value === 'object') Object.values(value).forEach(walk);
+  };
+  for (const line of logs.split('\n')) {
+    if (line.trim() === '') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      parsed = line;
+    }
+    walk(parsed);
+  }
+  return found;
+}
+
 describe('01d personal notices: approval_receipt, answered_on_requester_device, hidden from the answering seat (task 24)', () => {
   const cleanups: Array<() => Promise<void>> = [];
   const clients: WsClient[] = [];
@@ -294,7 +316,7 @@ describe('01d personal notices: approval_receipt, answered_on_requester_device, 
     const kind = kindOf('approval_receipt');
     expect(kind).toMatchObject({ family: 'info', silent: true, lead_fallback: false, expires_at_day_close: false, closes_on: 'seen', request: null });
     const logs = hub.logs();
-    for (const text of SECRET_TEXT) expect(logs).not.toContain(text);
+    expect(logLeaks(logs, SECRET_TEXT)).toEqual([]);
   });
 
   it('[01d §3.10] an answer on the raising device (any method) → on_requester_device true, answered_on_requester_device and approval_receipt, both hidden from that seat', async () => {

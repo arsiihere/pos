@@ -52,26 +52,37 @@ function stockAdded(stockItemId: string, quantity: number, unit: string, at: num
 }
 
 describe('@pos/engine stock slice', () => {
+  // Re-baselined in 03a task 12 (§3.7 v0.6.2, G4-3 #3; AD-6): a count below reserved is allowed only by the units
+  // of frozen or fired lines. These entries hold reservations no line holds, so the excess is a breach: strict throws;
+  // non-strict (the hub) folds the count as given — the 01a values below — with one 'stock_breach' diagnostic.
   it('[01a §10 #66] StockSet keeps reserved; available never negative; on_hand and reserved never below 0', () => {
     const k1 = stockItem('K1'); // 'g'
+    const loose = { strict: false };
     const s0 = withEntry('K1', { on_hand: 5, reserved: 2, set_at: T0, unit: 'g' });
     const s1 = applyEvent(s0, stockSet('K1', 4, 'g', T1));
     expect(stockOf(s1, 'K1')).toEqual({ on_hand: 4, reserved: 2, set_at: T1, unit: 'g' });
     expect(availableStock(s1, 'K1', T0, k1)).toBe(2);
-    const s2 = applyEvent(s1, stockSet('K1', 1, 'g', T1));
+    expect(s1.diagnostics).toEqual([]);
+    const below = stockSet('K1', 1, 'g', T1);
+    expect(() => applyEvent(s1, below)).toThrow('stock invariant breach');
+    const s2 = applyEvent(s1, below, loose);
     expect(availableStock(s2, 'K1', T0, k1)).toBe(0);
+    expect(s2.diagnostics.map((d) => d.kind)).toEqual(['stock_breach']);
 
     const full = withEntry('K1', { on_hand: 5, reserved: 5, set_at: T0, unit: 'g' });
-    const s3 = applyEvent(full, stockSet('K1', 3, 'g', T1));
+    const s3 = applyEvent(full, stockSet('K1', 3, 'g', T1), loose);
     expect(stockOf(s3, 'K1')).toMatchObject({ on_hand: 3, reserved: 5 });
     expect(availableStock(s3, 'K1', T0, k1)).toBe(0);
+    expect(s3.diagnostics).toHaveLength(1);
     for (const s of [s1, s2, s3]) {
       expect(stockOf(s, 'K1').on_hand).toBeGreaterThanOrEqual(0);
       expect(stockOf(s, 'K1').reserved).toBeGreaterThanOrEqual(0);
     }
   });
 
-  it('[01a §10 #129] StockAdded adds; StockSet resets set_at; unit mismatch; sale units; a mismatched add throws', () => {
+  // Re-baselined in 03a task 12 (BF-13, 03a §4.5 A-20; AD-6): a mismatched add leaves the entry unchanged and is a
+  // breach — non-strict (the hub) one 'stock_breach' diagnostic, never a throw; strict (tests) throws.
+  it('[01a §10 #129] StockAdded adds; StockSet resets set_at; unit mismatch; sale units; a mismatched add leaves the entry unchanged and reports one breach', () => {
     const k1 = stockItem('K1'); // stock_unit 'g'
     const s0 = withEntry('K1', { on_hand: 500, reserved: 0, set_at: T0, unit: 'g' });
     const s1 = applyEvent(s0, stockAdded('K1', 250, 'g', T1));
@@ -88,7 +99,19 @@ describe('@pos/engine stock slice', () => {
     expect(saleUnitsAvailable(750, 250)).toBe(3);
     expect(saleUnitsAvailable(749, 250)).toBe(2);
 
-    expect(() => applyEvent(s1, stockAdded('K1', 1, 'piece', T1))).toThrow('StockAdded unit mismatch');
+    const mismatch = stockAdded('K1', 1, 'piece', T1);
+    const s3 = applyEvent(s1, mismatch, { strict: false });
+    expect(s3.stock).toEqual(s1.stock);
+    expect(stockOf(s3, 'K1')).toEqual({ on_hand: 750, reserved: 0, set_at: T0, unit: 'g' });
+    expect(s3.diagnostics).toEqual([
+      {
+        kind: 'stock_breach',
+        event_id: mismatch.event_id,
+        stock_item_id: 'K1',
+        detail: { event_type: 'StockAdded', quantity: 1, unit: 'piece', entry_unit: 'g', on_hand: 750, reserved: 0 },
+      },
+    ]);
+    expect(() => applyEvent(s1, mismatch)).toThrow('StockAdded unit mismatch');
     expect(stockOf(s1, 'K1')).toEqual({ on_hand: 750, reserved: 0, set_at: T0, unit: 'g' });
   });
 
@@ -142,6 +165,7 @@ describe('@pos/engine stock slice', () => {
     // The config now counts the pot in g with a 1 000 g threshold; the open day froze piece.
     const grams = stockItem('K1', { stock_unit: 'g', low_stock_threshold: 1000 });
     const pieceDay = (onHand: number): EngineState => ({
+      ...initialEngineState(),
       stock: { K1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'piece' } },
       business_day: day('piece', T0),
     });
@@ -150,6 +174,7 @@ describe('@pos/engine stock slice', () => {
 
     // The next open froze g: the threshold applies again.
     const gramDay = (onHand: number): EngineState => ({
+      ...initialEngineState(),
       stock: { K1: { on_hand: onHand, reserved: 0, set_at: T1, unit: 'g' } },
       business_day: day('g', T0),
     });

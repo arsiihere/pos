@@ -33,6 +33,7 @@ import {
   selectActiveAtBranch,
   selectActiveResponsibilities,
   selectBranchIds,
+  lockAndSelectBranchWire,
   selectBranchWire,
   selectOwner,
   selectFloorStates,
@@ -47,6 +48,7 @@ import {
   selectRoleHolders,
   setRoleArchived,
   updateBranchName,
+  updateBranchEngineSettings,
   updateBranchSettings,
   updatePin,
   updateRoleRow,
@@ -57,9 +59,11 @@ import {
   type StaffFilter,
 } from './repository.js';
 import {
+  branchSettingsVersion,
   responsibilitySetVersion,
   roleVersion,
   staffVersion,
+  toBranchSettings,
   toResponsibilitySet,
   toRoleWire,
   toStaffWire,
@@ -471,7 +475,7 @@ export async function renameBranch(
     const repo = new TenantLevelRepository(req.tenant, client);
     const owner = await selectOwner(repo, req.ownerUserId);
     if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
-    const before = await selectBranchWire(repo, branchId, { lock: true });
+    const before = await lockAndSelectBranchWire(repo, branchId);
     if (before === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
     if (before.name === body.name) return { branch: before };
     try {
@@ -503,7 +507,7 @@ export async function renameBranch(
 // §6.10 GET: the path branch among the owner's (no statement), then 1 statement.
 export async function getBranchSettings(deps: StaffRolesDeps, tenant: TenantContext, branchId: string): Promise<{ branch: BranchWire }> {
   assertBranchAllowed(tenant, branchId);
-  const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId, { lock: false });
+  const branch = await selectBranchWire(new TenantLevelRepository(tenant, deps.pool), branchId);
   if (branch === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
   return { branch };
 }
@@ -532,8 +536,9 @@ export async function getTeamTree(
   return { branch_id: branchId, roots };
 }
 
-// §6.10 PATCH: 01a's common write script plus B8: lock the branch row → merge → stale > gap (B16, 01a S33) →
-// no-op → update → audit branch_settings / update → bumpConfigVersion for this branch only.
+// §6.10 PATCH: 01a's common write script plus B8: lock the branch row, then read it → expected_version (v1.5 B-6, B23) → merge →
+// stale > gap (B16, 01a S33) → no-op → update both rows → audit branch_settings / update → bumpConfigVersion for
+// this branch only. 7 statements on a write, 3 on a no-op or a stale version.
 export async function patchBranchSettings(
   deps: StaffRolesDeps,
   req: OwnerRequest,
@@ -545,27 +550,22 @@ export async function patchBranchSettings(
     const repo = new TenantLevelRepository(req.tenant, client);
     const owner = await selectOwner(repo, req.ownerUserId);
     if (owner === undefined || !owner.covers_every_branch) throw new DomainError('PERMISSION_DENIED', { reason: 'tenant_wide_write' });
-    const stored = await selectBranchWire(repo, branchId, { lock: true });
+    const stored = await lockAndSelectBranchWire(repo, branchId);
     if (stored === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
-    const before = settingsOf(stored);
-    const after = {
-      tax_enabled: body.tax_enabled ?? before.tax_enabled,
-      day_stale_after_hours: body.day_stale_after_hours ?? before.day_stale_after_hours,
-      day_min_gap_hours: body.day_min_gap_hours ?? before.day_min_gap_hours,
-    };
+    const { expected_version: expectedVersion, ...changes } = body;
+    if (expectedVersion !== stored.version) throw new DomainError('CONFIG_STALE', { entity: 'branch_settings', id: branchId });
+    const before = toBranchSettings(stored);
+    const after = toBranchSettings({ ...before, ...changes });
     if (after.day_stale_after_hours <= after.day_min_gap_hours) {
       throw new DomainError('VALIDATION_FAILED', {
         issues: [{ path: 'day_min_gap_hours', message: 'day_min_gap_hours must be less than day_stale_after_hours' }],
       });
     }
-    if (
-      after.tax_enabled === before.tax_enabled &&
-      after.day_stale_after_hours === before.day_stale_after_hours &&
-      after.day_min_gap_hours === before.day_min_gap_hours
-    ) {
-      return { branch: stored };
-    }
+    // The version input is every setting, so no field can be left out of the no-op rule.
+    const version = branchSettingsVersion(branchId, after);
+    if (version === stored.version) return { branch: stored };
     await updateBranchSettings(repo, branchId, after);
+    await updateBranchEngineSettings(repo, branchId, after, deps.clock.branchNow());
     await writeConfigAudit(
       repo,
       {
@@ -579,13 +579,10 @@ export async function patchBranchSettings(
       },
       deps,
     );
+    await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(repo, { kind: 'branch', branchId });
-    return { branch: { ...stored, ...after } };
+    return { branch: { ...stored, ...after, version } };
   });
-}
-
-function settingsOf(branch: BranchWire) {
-  return { tax_enabled: branch.tax_enabled, day_stale_after_hours: branch.day_stale_after_hours, day_min_gap_hours: branch.day_min_gap_hours };
 }
 
 type ResponsibilitySet = { responsibilities: ResponsibilityWire[]; version: string };
@@ -617,8 +614,8 @@ export async function putResponsibilities(
     const merged = toResponsibilitySet(
       branchId,
       body.responsibilities.flatMap((entry) => [
-        ...unique(entry.staff_ids).map((id) => row(entry.station_id, 'staff', id)),
-        ...unique(entry.role_ids).map((id) => row(entry.station_id, 'role', id)),
+        ...unique(entry.staff_ids).map((id) => row(entry.responsibility, entry.station_id, 'staff', id)),
+        ...unique(entry.role_ids).map((id) => row(entry.responsibility, entry.station_id, 'role', id)),
       ]),
     );
     const noop = { responsibilities: before, version: storedVersion, changed_versions: emptyChanged() };
@@ -688,16 +685,18 @@ function setsByBranch(rows: (ResponsibilityRow & { branch_id: string })[]): Map<
   return new Map([...byBranch].map(([branchId, branchRows]) => [branchId, toResponsibilitySet(branchId, branchRows)]));
 }
 
-function row(stationId: string, kind: 'staff' | 'role', id: string) {
-  return { responsibility: 'count_stock' as const, station_id: stationId, subject_kind: kind, subject_id: id, station_archived_at: null };
+function row(responsibility: ResponsibilityWire['responsibility'], stationId: string, kind: 'staff' | 'role', id: string): ResponsibilityRow {
+  return { responsibility, station_id: stationId, subject_kind: kind, subject_id: id, station_archived_at: null };
 }
 
-// §3.6: one entry per station (AD-19), stations of the branch and active, staff working there, roles active.
+// §3.6: one entry per station and kind (AD-19; B-4 adds the kind), stations of the branch and active, staff
+// working there, roles active.
 async function checkResponsibilities(repo: TenantLevelRepository, branchId: string, entries: ResponsibilityWire[]): Promise<void> {
   const seen = new Set<string>();
   entries.forEach((entry, i) => {
-    if (seen.has(entry.station_id)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `responsibilities.${i}.station_id` });
-    seen.add(entry.station_id);
+    const key = JSON.stringify([entry.station_id, entry.responsibility]);
+    if (seen.has(key)) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: `responsibilities.${i}.station_id` });
+    seen.add(key);
   });
   const stations = await selectStationStates(repo, entries.map((entry) => entry.station_id));
   entries.forEach((entry, i) => {

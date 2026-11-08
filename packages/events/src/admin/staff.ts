@@ -58,7 +58,7 @@ export const RoleWire = z.object({
 export type RoleWire = z.infer<typeof RoleWire>;
 
 export const ResponsibilityWire = z.object({
-  responsibility: z.literal("count_stock"),
+  responsibility: z.enum(["count_stock", "run_station"]), // 01b v1.5 B-4
   station_id: z.string(),
   staff_ids: z.array(z.string()),
   role_ids: z.array(z.string()),
@@ -72,6 +72,31 @@ export const ResponsibilitySetWire = z.object({
 });
 export type ResponsibilitySetWire = z.infer<typeof ResponsibilitySetWire>;
 
+// 01a v2.1 §5.2a A-12 (01b v1.5 B-6): ranges equal the CHECKs of cloud 0007; the names are engine_settings of
+// BranchConfigSnapshotSchemaV3.
+const WeightPct = z.number().int().min(10).max(1000);
+const PromisePaddingMs = z.number().int().min(0).max(1_800_000);
+export const BranchEngineSettings = z.object({
+  weight_dine_in_pct: WeightPct,
+  weight_takeaway_pct: WeightPct,
+  weight_delivery_pct: WeightPct,
+  weight_parking_pct: WeightPct,
+  weight_follow_up_pct: WeightPct,
+  promise_padding_dine_in_ms: PromisePaddingMs,
+  promise_padding_takeaway_ms: PromisePaddingMs,
+  promise_padding_delivery_ms: PromisePaddingMs,
+  promise_padding_parking_ms: PromisePaddingMs,
+  slip_threshold_ms: z.number().int().min(60_000).max(1_800_000),
+  slip_escalate_ms: z.number().int().min(30_000).max(1_800_000),
+  cascade_step_ms: z.number().int().min(15_000).max(300_000),
+  min_gain_ms: z.number().int().min(0).max(600_000),
+  table_lock_ttl_ms: z.number().int().min(60_000).max(3_600_000),
+  returns_boost: z.boolean(),
+  order_abandon_ms: z.number().int().min(3_600_000).max(86_400_000),
+});
+export type BranchEngineSettings = z.infer<typeof BranchEngineSettings>;
+export const BRANCH_ENGINE_SETTING_KEYS = Object.keys(BranchEngineSettings.shape) as (keyof BranchEngineSettings)[];
+
 export const BranchWire = z.object({
   branch_id: z.string(),
   name: z.string(),
@@ -81,6 +106,8 @@ export const BranchWire = z.object({
   tax_enabled: z.boolean(),
   day_stale_after_hours: z.number().int(),
   day_min_gap_hours: z.number().int(),
+  ...BranchEngineSettings.shape,
+  version: Version,
 });
 export type BranchWire = z.infer<typeof BranchWire>;
 
@@ -169,14 +196,17 @@ export const ResponsibilitiesPutBody = z.object({
 // §6.9
 export const BranchRenameBody = z.object({ name: BranchName });
 
-// §6.10, B16: ranges 1–48 and 0–12; stale > gap is checked on the merged row by the route.
+// §6.10, B16: ranges 1–48 and 0–12; stale > gap is checked on the merged row by the route. v1.5 B-6: the A-12
+// fields, each optional; expected_version as B23. At least one field besides the version.
 export const BranchSettingsPatchBody = z
   .object({
+    expected_version: Version,
     tax_enabled: z.boolean().optional(),
     day_stale_after_hours: z.number().int().min(1).max(48).optional(),
     day_min_gap_hours: z.number().int().min(0).max(12).optional(),
+    ...BranchEngineSettings.partial().shape,
   })
-  .refine((body) => Object.keys(body).length > 0, {
+  .refine((body) => Object.keys(body).length > 1, {
     message: "at least one field is required",
   });
 

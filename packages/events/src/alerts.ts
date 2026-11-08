@@ -63,11 +63,17 @@ export const AlertDisplaySchema = z.object({
 export type AlertDisplay = z.infer<typeof AlertDisplaySchema>;
 
 // §3.12: signed-in-only approver context; a kind's details_schema picks and requires fields from it.
-export const AlertDetailsBase = z.object({
+// The four fields of AlertRaised v1 (01d v1.1.1), kept so the v1 payload schema keeps its shape (F D46).
+export const AlertDetailsBaseV1 = z.object({
   item: z.string().min(1).optional(),
   quantity: int.min(1).optional(),
   amount: int.optional(), // minor units, D47
   reason: z.string().max(200).optional(),
+});
+// ⚠️ Changed by 03a v1.0 (03a AD-36), 01d v1.1.2 D-1: + minutes_late and lines, for 03a's slip_warning card.
+export const AlertDetailsBase = AlertDetailsBaseV1.extend({
+  minutes_late: int.min(0).optional(),
+  lines: z.array(z.object({ name: z.string().min(1), quantity: int.min(1), state: z.string().min(1) })).optional(),
 });
 export type AlertDetails = z.infer<typeof AlertDetailsBase>;
 

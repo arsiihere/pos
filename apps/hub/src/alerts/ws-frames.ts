@@ -39,7 +39,9 @@ import { cachedPrepare } from './statements.js';
 // Logs carry alert ids, kinds, step numbers and error codes only, never card text or details (§7).
 
 const StrictLock = AlertLockSchema.strict();
-const StrictCard = AlertCardSchema.extend({ details: AlertDetailsBase.strict().nullable() }).strict();
+// 01d v1.1.2 D-1: the widened details (minutes_late, lines) pass; an unknown key, also inside a line, is refused.
+const StrictDetails = AlertDetailsBase.extend({ lines: z.array(AlertDetailsBase.shape.lines.unwrap().element.strict()).optional() }).strict();
+const StrictCard = AlertCardSchema.extend({ details: StrictDetails.nullable() }).strict();
 // Built from the named lock-safe view fields (pick, not omit): a field later added to the signed-in view
 // (AD-23's answers / needs_pin / silent) stays refused here (AD-81). AD-82's `outcome` is lock-safe.
 /** The lock-only view (alert-mode sockets, device-target sockets, routes, a station's catch-up rows). */

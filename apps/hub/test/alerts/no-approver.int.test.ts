@@ -13,6 +13,7 @@ import { applyStaffDirectory } from '../../src/auth/apply-directory';
 import { swapDirectory } from '../../src/auth/guards';
 import { activity, createSession } from '../../src/auth/session-store';
 import { boot } from '../../src/lib/boot';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -599,6 +600,7 @@ describe('01d no_approver on a booted hub (task 31)', () => {
 
   const WALL = 1_761_000_000_000;
   // as main.ts: the step-3 engine fold, so the restarted hub knows the business day is open
+  registerEngineBootSteps();
   registerRestaurantBootSteps();
   const bootIt = (path: string) => boot({ configPath: path, wallNow: () => WALL, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
   // the offline cloud makes boot log `hub confirm failed`; these tests do not read the log
@@ -634,8 +636,9 @@ describe('01d no_approver on a booted hub (task 31)', () => {
     cleanups.push(() => second.stop());
     const run = vi.spyOn(second.deps.writer, 'run');
     await vi.advanceTimersByTimeAsync(TICK_MS);
-    // the persisted flag makes the first pass open its transaction (whatever boot did with MGR's session)
-    expect(run).toHaveBeenCalledTimes(1);
+    // the persisted flag makes the first pass open its transaction (whatever boot did with MGR's session); the
+    // second is 03a's fires_alerts reconcile pass, forced once after boot (03a §6.2a)
+    expect(run).toHaveBeenCalledTimes(2);
     expect((second.deps.db.prepare(`SELECT dirty FROM alert_flags`).get() as { dirty: number }).dirty).toBe(0);
     run.mockClear();
     await vi.advanceTimersByTimeAsync(TICK_MS * 3);

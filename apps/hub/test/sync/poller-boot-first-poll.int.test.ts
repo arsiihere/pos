@@ -7,6 +7,7 @@ import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { loadBranchConfig } from '../../src/projections/branch-config';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { branchConfig } from '../../src/sync/branch-config-holder';
 import { stubConfigCloud, type StubConfigCloud } from '../helpers/stub-config-cloud';
@@ -15,6 +16,7 @@ const WALL = 1_761_000_000_000;
 const BRANCH = 'branch-1';
 const PROVISIONED = { tenant_id: 'tenant-a', branch_id: BRANCH, branch_name: 'Main', branch_api_key: 'key-1', confirmed_at: 1 };
 
+registerEngineBootSteps();
 registerRestaurantBootSteps();
 
 function writeConfig(provisioned = true): { path: string; cleanup: () => void } {
@@ -85,7 +87,7 @@ describe('[01c AD-19] first config poll at boot without usable config (01a S28 b
     expect(cloud.calls).toHaveLength(2);
   });
 
-  it('[01c AD-19] a stored body of another snapshot_schema_version → one poll at boot applies the cloud schema-2 snapshot', async () => {
+  it('[01c AD-19] a stored body of another snapshot_schema_version → one poll at boot applies the cloud schema-3 snapshot', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);
@@ -118,10 +120,10 @@ describe('[01c AD-19] first config poll at boot without usable config (01a S28 b
     expect(cloud.calls.slice(calls)).toEqual([{ config_version: 0, directory_version: 0 }]);
     expect(loadBranchConfig(second.deps.db, BRANCH).state).toBe('APPLIED');
     expect(branchConfig()?.config_version).toBe(9);
-    expect(branchConfig()?.snapshot_schema_version).toBe(2);
+    expect(branchConfig()?.snapshot_schema_version).toBe(3);
   });
 
-  it('[01c AD-19] a stored, applied schema-2 config → no poll at boot; the first poll is at CONFIG_POLL_INTERVAL_MS', async () => {
+  it('[01c AD-19] a stored, applied schema-3 config → no poll at boot; the first poll is at CONFIG_POLL_INTERVAL_MS', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const cfg = writeConfig();
     cleanups.push(cfg.cleanup);

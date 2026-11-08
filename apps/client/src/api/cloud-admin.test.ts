@@ -167,6 +167,26 @@ describe('cloud-admin client', () => {
     expect(onLoggedOut).not.toHaveBeenCalled();
   });
 
+  it('[01a §6.9a; 03a A-1] createPoint sends the Idempotency-Key; patchPoint sends expected_version; stations list returns points', async () => {
+    sessionStorage.setItem('owner_access_token', 'A1');
+    const point = { point_id: 'P1', name: 'Pass', sort_order: 0, archived_at: null, version: 'v1' };
+    const { calls, fetchFn } = fakeFetch([
+      json(201, { data: { point } }),
+      json(200, { data: { point } }),
+      json(200, { data: { stations: [], points: [point] } }),
+    ]);
+    const api = createCloudAdmin({ fetch: fetchFn, onLoggedOut: () => {} });
+
+    await api.createPoint('B1', { name: 'Pass' }, 'K1');
+    await api.patchPoint('B1', 'P1', { expected_version: 'v1', archived: true });
+    const list = await api.listStations('B1');
+
+    expect(calls[0]).toMatchObject({ method: 'POST', url: '/v1/admin/branches/B1/points', body: { name: 'Pass' } });
+    expect(calls[0]?.headers['Idempotency-Key']).toBe('K1');
+    expect(calls[1]).toMatchObject({ method: 'PATCH', url: '/v1/admin/branches/B1/points/P1', body: { expected_version: 'v1', archived: true } });
+    expect(list).toEqual({ ok: true, data: { stations: [], points: [point] } });
+  });
+
   it('[01a §6.11] getMenu sends q, category_id, status, cursor and limit', async () => {
     sessionStorage.setItem('owner_access_token', 'A1');
     const page = { can_edit_tenant: true, tax_classes: [], categories: [], items: [], next_cursor: null };
@@ -333,10 +353,10 @@ describe('cloud-admin client', () => {
       { run: (api) => api.renameBranch('B1', { name: 'Gulberg' }), method: 'PATCH', url: '/v1/admin/branches/B1', body: { name: 'Gulberg' } },
       { run: (api) => api.getBranchSettings('B1'), method: 'GET', url: '/v1/admin/branches/B1/settings' },
       {
-        run: (api) => api.patchBranchSettings('B1', { tax_enabled: true }),
+        run: (api) => api.patchBranchSettings('B1', { expected_version: 'v6', tax_enabled: true }),
         method: 'PATCH',
         url: '/v1/admin/branches/B1/settings',
-        body: { tax_enabled: true },
+        body: { expected_version: 'v6', tax_enabled: true },
       },
       { run: (api) => api.getTeamTree('B1'), method: 'GET', url: '/v1/admin/branches/B1/team-tree' },
     ];

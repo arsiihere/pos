@@ -1,0 +1,145 @@
+[
+  {
+    "event_id": "01J00000000000000000000300",
+    "tenant_id": "01J00000000000000000000002",
+    "branch_id": "01J00000000000000000000003",
+    "schema_version": 1,
+    "occurred_at": 1761000000000,
+    "recorded_at": 1761000000000,
+    "actor_id": null,
+    "device_id": "hub",
+    "seq": 1,
+    "stream_type": "station",
+    "stream_id": "01J00000000000000000000003",
+    "event_type": "EngineConfigApplied",
+    "payload": {
+      "config_version": 1,
+      "stations": [
+        {
+          "station_id": "S1",
+          "name": "Karahi",
+          "station_type": "slot",
+          "capacity": 4,
+          "freshness_window_ms": null,
+          "completion_mode": "two_tap",
+          "policy": "waada_guard",
+          "freeze_ms": 120000,
+          "min_slack_keep_ms": 60000,
+          "promise_padding_ms": null,
+          "pressure_window_ms": 900000,
+          "pressure_amber_bp": 8000,
+          "pressure_red_bp": 10000,
+          "pressure_alert_ms": 300000,
+          "pause_enabled": false,
+          "lane_units": null,
+          "reserve_units": 0,
+          "point_id": "P1",
+          "alternates": [],
+          "carry_times": [],
+          "programs": [],
+          "reference_cook_ms": 1200000,
+          "is_archived": false
+        },
+        {
+          "station_id": "S2",
+          "name": "Fryer",
+          "station_type": "batch",
+          "capacity": 2,
+          "freshness_window_ms": 300000,
+          "completion_mode": "two_tap",
+          "policy": "waada_guard",
+          "freeze_ms": 120000,
+          "min_slack_keep_ms": 60000,
+          "promise_padding_ms": null,
+          "pressure_window_ms": 900000,
+          "pressure_amber_bp": 8000,
+          "pressure_red_bp": 10000,
+          "pressure_alert_ms": 300000,
+          "pause_enabled": false,
+          "lane_units": null,
+          "reserve_units": 0,
+          "point_id": "P1",
+          "alternates": [],
+          "carry_times": [],
+          "programs": [
+            {
+              "program_id": "PR1",
+              "name": "Fry 180",
+              "cook_time_ms": 240000,
+              "is_archived": false
+            }
+          ],
+          "reference_cook_ms": 240000,
+          "is_archived": false
+        }
+      ],
+      "settings": {
+        "weight_dine_in_pct": 100,
+        "weight_takeaway_pct": 200,
+        "weight_delivery_pct": 200,
+        "weight_parking_pct": 200,
+        "weight_follow_up_pct": 300,
+        "promise_padding_dine_in_ms": 180000,
+        "promise_padding_takeaway_ms": 180000,
+        "promise_padding_delivery_ms": 180000,
+        "promise_padding_parking_ms": 180000,
+        "slip_threshold_ms": 120000,
+        "slip_escalate_ms": 120000,
+        "cascade_step_ms": 60000,
+        "min_gain_ms": 60000,
+        "returns_boost": true,
+        "order_abandon_ms": 14400000
+      }
+    }
+  },
+  {
+    "event_id": "01J00000000000000000000301",
+    "tenant_id": "01J00000000000000000000002",
+    "branch_id": "01J00000000000000000000003",
+    "schema_version": 2,
+    "occurred_at": 1761000001000,
+    "recorded_at": 1761000001000,
+    "actor_id": "01J00000000000000000000004",
+    "device_id": "01J00000000000000000000005",
+    "seq": 2,
+    "stream_type": "hub",
+    "stream_id": "01J00000000000000000000003",
+    "event_type": "BusinessDayOpened",
+    "payload": {
+      "business_date": "2025-10-20",
+      "stock_units": {
+        "I1": "piece"
+      },
+      "draws": {
+        "I1": {
+          "sale_unit": "piece",
+          "stock_draws": [
+            {
+              "stock_item_id": "I1",
+              "quantity_per_sale_unit": 1
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "event_id": "01J00000000000000000000302",
+    "tenant_id": "01J00000000000000000000002",
+    "branch_id": "01J00000000000000000000003",
+    "schema_version": 2,
+    "occurred_at": 1761000002000,
+    "recorded_at": 1761000002000,
+    "actor_id": "01J00000000000000000000004",
+    "device_id": "01J00000000000000000000005",
+    "seq": 3,
+    "stream_type": "stock",
+    "stream_id": "I1",
+    "event_type": "StockSet",
+    "payload": {
+      "stock_item_id": "I1",
+      "on_hand": 10,
+      "unit": "piece"
+    }
+  }
+]

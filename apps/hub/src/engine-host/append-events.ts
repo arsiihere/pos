@@ -9,6 +9,8 @@ export function appendEvents(
   ctx: { clock: Clock; ids: IdGen; tenantId: string; branchId: string },
 ): PosEvent[] {
   if (!tx.inTransaction) throw new Error('appendEvents requires a transaction');
+  // AD-34: nothing to append → no statement (no MAX(seq) read; 03a §10.5).
+  if (drafts.length === 0) return [];
   const recordedAt = ctx.clock.branchNow();
   const row = tx.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE branch_id = ?').get(ctx.branchId) as {
     seq: number;

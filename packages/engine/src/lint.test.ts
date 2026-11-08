@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
@@ -28,4 +29,13 @@ describe('browser-safe lint', () => {
     const results = await eslint.lintFiles(['packages/engine', 'packages/domain']);
     expect(results.reduce((n, r) => n + r.errorCount, 0)).toBe(0);
   }, 60_000);
+
+  it('[03a P-12] no src file imports the simulator: only test files use @pos/engine/sim', () => {
+    const dir = fileURLToPath(new URL('./', import.meta.url));
+    const sources = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+    expect(sources.length).toBeGreaterThan(0);
+    for (const f of sources) {
+      expect(readFileSync(dir + f, 'utf8'), f).not.toMatch(/from\s+['"][^'"]*(@pos\/engine\/sim|\/sim(\/|['"]))/);
+    }
+  });
 });

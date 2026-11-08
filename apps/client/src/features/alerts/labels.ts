@@ -96,6 +96,8 @@ export function lockText(a: Labelled): string {
 export function detailsText(details: AlertDetails | null | undefined): string | null {
   if (details === null || details === undefined) return null;
   const parts: string[] = [];
+  // 03a §3.8 slip_warning (AD-37 (3)): "≈ N min late", against the engine target
+  if (details.minutes_late !== undefined) parts.push(fill(t('alerts.minutes_late'), { n: String(details.minutes_late) }));
   if (details.item !== undefined) parts.push(details.quantity !== undefined ? `${details.item} ×${details.quantity}` : details.item);
   if (details.amount !== undefined) parts.push(fill(t('alerts.amount'), { amount: shownRupees(details.amount) }));
   if (details.reason !== undefined && details.reason !== '') parts.push(`“${details.reason}”`);
