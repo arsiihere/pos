@@ -197,5 +197,5 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `perm.view-customer-contact` | See a customer’s name and phone |
 | `staff.scope.my_zones` | in their zones |
 | `roles.scope.my_zones` | Their zones |
+| `roles.scope_help.my_zones` | zones set on each person or their lead |
 | `errors.reference.already_assigned` | Someone else already has this zone or table at this branch. |
-| `roles.scope_help.my_zones` | zones set on each person |

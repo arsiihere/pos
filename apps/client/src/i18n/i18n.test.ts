@@ -97,7 +97,7 @@ const CODES_01B = [
   'PASSWORD_UNCHANGED',
   'PASSWORD_CHANGE_REQUIRED',
 ];
-const REASONS_01B = ['role_archived', 'not_at_branch', 'loop', 'one_lead_per_branch', 'scope_not_allowed'];
+const REASONS_01B = ['role_archived', 'not_at_branch', 'loop', 'one_lead_per_branch', 'scope_not_allowed', 'already_assigned'];
 
 describe('[01b §8] 01b strings', () => {
   it('en defines every staff.*, roles.*, teams.* view key, perm.<key>, errors.<01b code> and reason; each is in ur or in the 01b Urdu to-do list', () => {
