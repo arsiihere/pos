@@ -47,6 +47,9 @@ export const ItemAddedPayload = z.object({
   ),
   line_total_minor: z.number().int().nullable(),
   kitchen_note: z.string().max(80).nullable(),
+  // 01c v1.1.2 C-1, 03a v1.2 §4.2: additive at v1, no upcaster; an event logged without them parses as null / false.
+  served_from_zone_id: z.string().nullable().default(null),
+  is_ready_item: z.boolean().default(false),
 });
 export type ItemAddedPayload = z.infer<typeof ItemAddedPayload>;
 

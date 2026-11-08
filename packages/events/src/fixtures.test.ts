@@ -285,4 +285,23 @@ describe("fixtures", () => {
       false,
     );
   });
+
+  it("[03a #129] every existing fixture parses unchanged", () => {
+    const dirs = [
+      fileURLToPath(new URL("../fixtures/", import.meta.url)),
+      fileURLToPath(new URL("../../engine/fixtures/", import.meta.url)),
+    ];
+    let envelopes = 0;
+    for (const dir of dirs) {
+      for (const name of readdirSync(dir).filter((n) => /\.json$/.test(n))) {
+        const body = JSON.parse(readFileSync(join(dir, name), "utf8")) as unknown;
+        if (/^engine-state/.test(name)) continue; // a state snapshot, not an event log
+        for (const stored of Array.isArray(body) ? body : [body]) {
+          expect(() => parseEvent(stored), `${dir}${name}`).not.toThrow();
+          envelopes += 1;
+        }
+      }
+    }
+    expect(envelopes).toBeGreaterThan(38);
+  });
 });
