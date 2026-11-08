@@ -122,3 +122,9 @@ describe('errors', () => {
     expect(e.details).toEqual({ staff_id: 'x' });
   });
 });
+
+describe('[01a A-1] ZONE_NOT_FOUND', () => {
+  it('[01a A-1] ZONE_NOT_FOUND is 404', () => {
+    expect(statusOf('ZONE_NOT_FOUND')).toBe(404);
+  });
+});

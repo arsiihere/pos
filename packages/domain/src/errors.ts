@@ -28,6 +28,7 @@ export const ErrorCatalogue = {
   SESSION_NOT_FOUND: { status: 404 },
   PAIRING_REQUEST_NOT_FOUND: { status: 404 },
   BRANCH_NOT_FOUND: { status: 404 },
+  ZONE_NOT_FOUND: { status: 404 },
   FLOOR_NOT_FOUND: { status: 404 },
   TABLE_NOT_FOUND: { status: 404 },
   PROGRAM_NOT_FOUND: { status: 404 },
