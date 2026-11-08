@@ -213,7 +213,7 @@ describe('@pos/engine EngineState v3', () => {
         'AlertClosed',
       ],
       station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
-      stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed'],
+      stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed', 'StockTransferredOut'],
       hub: ['BusinessDayOpened', 'BusinessDayClosed'],
     });
   });

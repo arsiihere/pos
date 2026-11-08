@@ -18,7 +18,8 @@ export const ENGINE_REPLAY_EVENTS = {
     'AlertClosed',
   ],
   station: ['FireDispatched', 'ReservationsShifted', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet'],
-  stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed'],
+  // 03a v1.2 Q-5: StockTransferredOut (02b zone refill), folded as a negative StockAdded.
+  stock: ['StockSet', 'StockAdded', 'StockReserved', 'StockReleased', 'StockConsumed', 'StockTransferredOut'],
   hub: ['BusinessDayOpened', 'BusinessDayClosed'],
 } as const satisfies { order: readonly string[]; station: readonly string[]; stock: readonly string[]; hub: readonly string[] };
 

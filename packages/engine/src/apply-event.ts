@@ -19,6 +19,7 @@ import type {
   ReservationsShiftedPayload,
   SlipWarnedPayload,
   StationCapacitySetPayload,
+  StockTransferredOutPayload,
 } from '@pos/events';
 import { addInterval, occupancy, removeInterval, type Underflow } from './profile.js';
 import { applyMoves, capacityFor, flipPlacement, isFifo, isHidden, pass1, placementCap, sortUnfired, stationPolicy } from './replan.js';
@@ -772,13 +773,27 @@ function foldItemReturned(state: EngineState, event: PosEvent, o: FoldOptions): 
 
 // §3.4 ItemServed: every listed open line → SERVED; absent ids are skipped (§3.3). The serve that leaves no line
 // open sets last_served_at (touchOrder).
+// 03a v1.2 Q-6 (§4.2): source 'zone' (lines served from a zone, not in the engine) is a no-op returning state itself,
+// with no absent-id log. The served time is min(served_at, recorded_at), as ItemStarted (absent → recorded_at): a
+// queued serve keeps its real time. Proposed (implementer): the engine keeps no per-line served time, so the served
+// time is the order's last_served_at when this serve leaves no line open; last_line_fold_at stays recorded_at (§3.3).
 function foldItemServed(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as ItemServedPayload;
+  if (p.source === 'zone') return state;
+  const t = event.recorded_at;
+  const servedAt = Math.min(p.served_at ?? t, t);
   let next = state;
   for (const id of p.order_item_ids) {
     const line = stageLine(next, event, id);
     if (line === undefined || !isOpen(line)) continue;
-    next = touchOrder(moveLine(next, line, event, o, { stage: 'served' }), line.order_id, event.recorded_at, o.scope);
+    const wasServed = next.orders[line.order_id]?.last_served_at ?? null;
+    next = touchOrder(moveLine(next, line, event, o, { stage: 'served' }), line.order_id, t, o.scope);
+    const order = next.orders[line.order_id];
+    if (servedAt < t && wasServed === null && order !== undefined && order.last_served_at === t) {
+      const orders = o.scope.writableOrders(next);
+      o.scope.setOrder(orders, line.order_id, { ...order, last_served_at: servedAt });
+      next = { ...next, orders };
+    }
   }
   return next;
 }
@@ -1042,6 +1057,18 @@ function foldStockAdded(state: EngineState, event: PosEvent, strict: boolean): E
   return withEntry(state, p.stock_item_id, { ...prev, on_hand: prev.on_hand + p.quantity });
 }
 
+// 03a v1.2 Q-5 (§3.7) StockTransferredOut: a negative StockAdded — on_hand −= quantity, clamped at 0 with a breach
+// (AD-6: strict throws, non-strict one 'stock_breach'); reserved, set_at and unit unchanged; no reservation and no
+// re-plan (stockEffects drafts nothing). Review Focus 5, proposed (implementer): a stock item with no entry reads as
+// { 0, 0, null, 'piece' } (stockOf), so its transfer is a breach that writes no entry (no phantom unit or set_at).
+function foldStockTransferredOut(state: EngineState, event: PosEvent, strict: boolean): EngineState {
+  const p = event.payload as unknown as StockTransferredOutPayload;
+  const prev = stockOf(state, p.stock_item_id);
+  const next = state.stock[p.stock_item_id] === undefined ? state : withEntry(state, p.stock_item_id, { ...prev, on_hand: Math.max(0, prev.on_hand - p.quantity) });
+  if (prev.on_hand >= p.quantity) return next;
+  return stockBreach(next, event, strict, p.stock_item_id, prev, 'StockTransferredOut below 0', { quantity: p.quantity, zone_id: p.zone_id });
+}
+
 // §3.8 applyEvent(ItemsReleased) (D11, D12; task 15b): "released lines leave their group; expedite lines become
 // immediate (mark 'expedite', weight = follow_up weight, D12); unticked lines stay sync with each other at their old
 // T; re-plan." §3.3 absent ids: an absent order (or one out of the engine, AD-20 kept) is a no-op returning state; an
@@ -1303,6 +1330,8 @@ function fold(state: EngineState, event: PosEvent, o: FoldOptions): EngineState 
       return replanStock(foldStockSet(state, event, strict), event, o);
     case 'StockAdded':
       return foldStockAdded(state, event, strict);
+    case 'StockTransferredOut':
+      return foldStockTransferredOut(state, event, strict);
     case 'StockReserved':
       return foldStockReserved(state, event, o);
     case 'StockReleased':

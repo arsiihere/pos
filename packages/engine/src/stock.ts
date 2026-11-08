@@ -510,6 +510,9 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
     }
     case 'BusinessDayClosed':
       return { before: closeReleases(state, t), after: [] };
+    // 03a v1.2 Q-5 (§3.7): a transfer out to a zone drafts nothing (no release, no reserve; its fold only lowers on_hand).
+    case 'StockTransferredOut':
+      return none;
     // §3.7 Q14 / test 42: no unit_changed path at a day open; any other draft needs nothing.
     default:
       return none;

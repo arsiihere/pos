@@ -848,3 +848,54 @@ describe('@pos/engine lifecycle: a reused order_item_id is refused (AD-29 Q5, AD
     expect(() => fold(log)).toThrow(REUSED);
   });
 });
+
+// 03a v1.2 Q-6 (§4.2 ItemServed, test 128): source 'zone' (lines served from a zone, never engine lines) is a no-op; the
+// optional served_at keeps a queued serve's real time: the served time is min(served_at, recorded_at), as ItemStarted.
+describe('@pos/engine lifecycle: ItemServed source zone and served_at (03a v1.2 Q-6)', () => {
+  // O1 / L1 (20 min, immediate) placed at 0, fired, started, done at 20, not served.
+  const doneOrder = (): PosEvent[] => [...batch('O1', [{ id: 'L1' }], at(0)), fire(['L1'], at(0)), start('O1', 'L1', at(0)), done('O1', 'L1', at(20))];
+  const serve = (ids: string[], t: number, payload: Record<string, unknown>): PosEvent => ev('ItemServed', 'O1', { order_item_ids: ids, source: 'tap', ...payload }, t);
+
+  it("[03a #128] source 'zone' is a no-op", () => {
+    const log = [cfg(), ...doneOrder()];
+    const s = fold(log);
+    // Even naming an engine line (a writer would not): the zone serve returns state itself, strict or not, no diagnostic.
+    for (const ids of [['L1'], ['Z9'], ['L1', 'Z9']]) {
+      const zone = serve(ids, at(25), { source: 'zone' });
+      expect(Object.is(applyEvent(s, deepFreeze(zone)), s), ids.join()).toBe(true);
+      const loose = applyEvent(s, deepFreeze(zone), { strict: false });
+      expect(Object.is(loose, s), ids.join()).toBe(true);
+      expect(loose.diagnostics).toEqual([]);
+    }
+    const zone = serve(['L1'], at(25), { source: 'zone', served_at: at(24) });
+    expect(Object.is(applyEvent(s, deepFreeze(zone)), s)).toBe(true);
+    expect(s.lines.L1!.stage).toBe('done');
+    expect(s.orders.O1!.last_served_at).toBeNull();
+    // Replay = live: the log with the zone serve folds as the log without it.
+    expect(buildEngineState([...log, zone].map(deepFreeze))).toEqual(s);
+    // A tap serve of the same line does serve it.
+    expect(fold([serve(['L1'], at(25), {})], s).lines.L1!.stage).toBe('served');
+  });
+
+  it('[03a #128] served_at earlier → served_at; later → recorded_at', () => {
+    const s = fold([cfg(), ...doneOrder()]);
+    // Earlier (a serve queued offline at 26, appended at 30): the order's served time is 26, its fold clock 30.
+    const early = fold([serve(['L1'], at(30), { served_at: at(26) })], s);
+    expect(early.lines.L1!.stage).toBe('served');
+    expect(early.orders.O1).toMatchObject({ last_served_at: at(26), last_line_fold_at: at(30) });
+    expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS - 1)).toBe(true);
+    expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS)).toBe(false);
+    // Later than recorded_at (a device clock ahead): recorded_at.
+    const late = fold([serve(['L1'], at(30), { served_at: at(35) })], s);
+    expect(late.orders.O1).toMatchObject({ last_served_at: at(30), last_line_fold_at: at(30) });
+    // Absent (a log written before v1.2): recorded_at.
+    const absent = fold([serve(['L1'], at(30), {})], s);
+    expect(absent.orders.O1).toMatchObject({ last_served_at: at(30), last_line_fold_at: at(30) });
+    expect(late).toEqual(absent);
+    // A serve that leaves a line open sets no served time, whatever served_at says.
+    const two = fold([cfg(), ...batch('O1', [{ id: 'A' }, { id: 'B' }], at(0)), fire(['A'], at(0)), done('O1', 'A', at(20))]);
+    const partly = fold([serve(['A'], at(30), { served_at: at(26) })], two);
+    expect(partly.lines.A!.stage).toBe('served');
+    expect(partly.orders.O1).toMatchObject({ last_served_at: null, last_line_fold_at: at(30) });
+  });
+});

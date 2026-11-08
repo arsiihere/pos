@@ -10,6 +10,7 @@ import {
   anItemAdded,
   anItemStarted,
   anOrderBatch,
+  aBusinessDayClosed,
   aBusinessDayOpened,
   aStockAdded,
   aStockConsumed,
@@ -18,7 +19,7 @@ import {
   aStockSet,
 } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, initialEngineState, planOrder, reserveStock, stockOf, type EngineState, type ProposedOrder } from '../src/index';
+import { applyEvent, applyEvents, buildEngineState, initialEngineState, planOrder, reserveStock, stockEffects, stockOf, type EngineState, type ProposedOrder } from '../src/index';
 import { batchConfig, fryer, loadOf, submitB, voidB } from './batch-kit';
 
 const T = 1_761_000_000_000; // the builders' T
@@ -74,6 +75,9 @@ const released = (id: string, line: string, quantity: number, at: number, reason
   stamp(aStockReleased({ payload: { stock_item_id: id, order_item_id: line, quantity, reason } }), at);
 const consumed = (id: string, line: string, quantity: number, at: number): PosEvent =>
   stamp(aStockConsumed({ payload: { stock_item_id: id, order_item_id: line, quantity } }), at);
+// 03a v1.2 Q-5: StockTransferredOut v1 (stock / stock_item_id), stock moved from the kitchen to a zone.
+const transferred = (id: string, quantity: number, at: number, zone_id = 'Z1'): PosEvent =>
+  stamp({ ...aStockSet({ stream_id: id }), event_type: 'StockTransferredOut', schema_version: 1, payload: { stock_item_id: id, quantity, zone_id } }, at);
 const orderEv = (event_type: string, order_id: string, payload: Record<string, unknown>, at: number): PosEvent =>
   stamp({ ...anItemStarted(), event_type, stream_id: order_id, payload }, at);
 const started = (order_id: string, line: string, at: number): PosEvent => orderEv('ItemStarted', order_id, { order_item_id: line, started_at: at, source: 'tap' }, at);
@@ -635,5 +639,87 @@ describe('@pos/engine stock folds (§3.7)', () => {
       expect(loose.lines).toEqual(s0.lines);
       expect(loose.diagnostics).toMatchObject([{ kind: 'invalid_event', event_id: e.event_id }]);
     }
+  });
+});
+
+// 03a v1.2 Q-5 (§3.7, §3.12, test 127): StockTransferredOut folds as a negative StockAdded — on_hand −= quantity, clamped at
+// 0 with a breach (AD-6: strict throws, non-strict one 'stock_breach'); no reservation and no re-plan.
+describe('@pos/engine StockTransferredOut fold (03a v1.2 Q-5)', () => {
+  it('[03a #127] lowers on_hand, clamps at 0 with a logged breach', () => {
+    const s0 = fold([cfg(), set('KB', 5, DAY), ...submit('O1', [{ id: 'L', quantity: 2, draws: [{ stock_item_id: 'KB', quantity: 2 }], from_stock: true }])]);
+    expect(stockOf(s0, 'KB')).toEqual({ on_hand: 5, reserved: 2, set_at: DAY, unit: 'piece' });
+    const out = transferred('KB', 2, T + 10);
+    const s1 = fold([out], s0);
+    // on_hand only: reserved, set_at and unit are kept; no line, station or order changes (no reservation, no re-plan).
+    expect(stockOf(s1, 'KB')).toEqual({ on_hand: 3, reserved: 2, set_at: DAY, unit: 'piece' });
+    expect(s1.diagnostics).toEqual([]);
+    expect(s1.lines).toBe(s0.lines);
+    expect(s1.stations).toBe(s0.stations);
+    expect(s1.orders).toBe(s0.orders);
+    expect(fold([out], s0, { strict: false })).toEqual(s1);
+    // Exactly what is on hand: 0, no breach.
+    expect(stockOf(fold([transferred('KB', 3, T + 11)], s1), 'KB').on_hand).toBe(0);
+    expect(fold([transferred('KB', 3, T + 11)], s1).diagnostics).toEqual([]);
+
+    // Past on_hand: strict throws; non-strict clamps at 0 with one breach carrying the values before the fold.
+    const over = transferred('KB', 4, T + 12);
+    expect(() => fold([over], s1)).toThrow(/stock invariant breach/);
+    const loose = fold([over], s1, { strict: false });
+    expect(stockOf(loose, 'KB')).toEqual({ on_hand: 0, reserved: 2, set_at: DAY, unit: 'piece' });
+    expect(loose.diagnostics).toEqual([
+      { kind: 'stock_breach', event_id: over.event_id, stock_item_id: 'KB', detail: { event_type: 'StockTransferredOut', quantity: 4, zone_id: 'Z1', on_hand: 3, reserved: 2 } },
+    ]);
+    expect(loose.lines).toBe(s1.lines);
+    expect(stockEffects(s1, over)).toEqual([]);
+  });
+
+  it('[03a #127] unknown stock item creates no phantom entry beyond the clamp rule', () => {
+    // Review Focus 5: a stock item the hub has never seen reads as { 0, 0, null, 'piece' } (stockOf); the transfer
+    // clamps at 0, writes no entry, and logs one breach; replay = live.
+    const head = [cfg(), set('KB', 5, DAY)];
+    const s0 = fold(head);
+    const ghost = transferred('NEVER_SEEN', 3, T + 10);
+    expect(() => fold([ghost], s0)).toThrow(/stock invariant breach/);
+    const loose = fold([ghost], s0, { strict: false });
+    expect(loose.stock).toEqual(s0.stock);
+    expect(loose.stock.NEVER_SEEN).toBeUndefined();
+    expect(stockOf(loose, 'NEVER_SEEN')).toEqual({ on_hand: 0, reserved: 0, set_at: null, unit: 'piece' });
+    expect(loose.diagnostics).toEqual([
+      { kind: 'stock_breach', event_id: ghost.event_id, stock_item_id: 'NEVER_SEEN', detail: { event_type: 'StockTransferredOut', quantity: 3, zone_id: 'Z1', on_hand: 0, reserved: 0 } },
+    ]);
+    const log = [...head, ghost];
+    expect(buildEngineState(log.map(deepFreeze), { strict: false })).toEqual(loose);
+    expect(applyEvents(initialEngineState(), log.map(deepFreeze), { strict: false })).toEqual(loose);
+  });
+
+  it('[03a #127] replay = live over a day with transfers', () => {
+    const open = stamp(aBusinessDayOpened(), DAY - 30_000);
+    const L = [{ id: 'L', quantity: 2, draws: [{ stock_item_id: 'KB', quantity: 2 }], from_stock: true }];
+    // count 10, reserve 2 → out 3 (7) → add 2 (9) → out 5 (4) → Start consumes 2 (2, reserved 0) → out 4 clamps (0, a
+    // breach) → an unknown item's transfer (a breach, no entry) → close.
+    const log = [
+      cfg(),
+      open,
+      set('KB', 10, DAY),
+      ...submit('O1', L),
+      transferred('KB', 3, T + 10),
+      added('KB', 2, T + 20),
+      transferred('KB', 5, T + 30, 'Z2'),
+      started('O1', 'L', T + 40),
+      consumed('KB', 'L', 2, T + 40),
+      transferred('KB', 4, T + 50),
+      transferred('NEVER_SEEN', 1, T + 60),
+      stamp(aBusinessDayClosed(), T + 70),
+    ].map(deepFreeze);
+    let live = initialEngineState();
+    for (const e of log) live = applyEvent(live, e, { strict: false });
+    expect(stockOf(live, 'KB')).toEqual({ on_hand: 0, reserved: 0, set_at: DAY, unit: 'piece' });
+    expect(live.stock.NEVER_SEEN).toBeUndefined();
+    expect(breaches(live).map((b) => b.event_id)).toEqual([log.at(-3)!.event_id, log.at(-2)!.event_id]);
+    expectInvariants(live);
+    expect(buildEngineState(log, { strict: false })).toEqual(live);
+    expect(applyEvents(initialEngineState(), log, { strict: false })).toEqual(live);
+    // Strict, the first clamp throws.
+    expect(() => buildEngineState(log)).toThrow(/stock invariant breach/);
   });
 });

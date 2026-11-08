@@ -43,6 +43,20 @@ describe('ENGINE_REPLAY_EVENTS', () => {
     expect(union).toContain(first);
   });
 
+  it('[03a #94] the applyEvent cases equal the union of the lists, with StockTransferredOut', () => {
+    // 03a v1.2 Q-5 (§3.12): on the stock list and in ReplayEventType (a name off the union fails tsc here).
+    const moved: ReplayEventType = 'StockTransferredOut';
+    expect(ENGINE_REPLAY_EVENTS.stock).toContain(moved);
+    expect(foldCases()).toContain(moved);
+    expect(foldCases()).toEqual([...union].sort());
+    // Handled, so not the "other" path: a transfer of a counted stock item changes the state.
+    const T = 1_761_000_000_000;
+    const state = buildEngineState([{ ...anEngineConfigApplied(), event_type: 'StockSet', stream_type: 'stock', stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 5, unit: 'piece' }, recorded_at: T, occurred_at: T, seq: 1 } as PosEvent]);
+    const e = { ...anEngineConfigApplied(), event_type: moved, stream_type: 'stock', stream_id: 'K1', payload: { stock_item_id: 'K1', quantity: 2, zone_id: 'Z1' }, recorded_at: T + 1, occurred_at: T + 1, seq: 2 } as PosEvent;
+    expect(Object.is(applyEvent(state, e), state)).toBe(false);
+    expect(applyEvent(state, e).stock.K1!.on_hand).toBe(3);
+  });
+
   it('[03a #94] every listed type is a registered event type', () => {
     const registered = registeredTypes();
     expect(registered.length).toBeGreaterThan(union.length);
