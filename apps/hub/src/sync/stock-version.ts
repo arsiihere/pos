@@ -2,6 +2,7 @@ import type { PosEvent } from '@pos/events';
 
 // §6.19: the seq of the last committed event that changes the stock page, held in memory.
 // ⚠️ 03a A-17: gains StockReserved, StockReleased, StockConsumed. Split by stream for boot's two reads (§3.12).
+// ⚠️ 01a v2.3 A-1 (02b): gains StockTransferredOut.
 export const STOCK_VERSION_STOCK_EVENTS = [
   'StockSet',
   'StockAdded',
@@ -10,6 +11,7 @@ export const STOCK_VERSION_STOCK_EVENTS = [
   'StockReserved',
   'StockReleased',
   'StockConsumed',
+  'StockTransferredOut',
 ] as const;
 export const STOCK_VERSION_HUB_EVENTS = ['BusinessDayOpened', 'BusinessDayClosed'] as const;
 

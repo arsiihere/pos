@@ -8,6 +8,7 @@ for (const eventType of [
   'ItemMadeAvailable',
   'StockSet',
   'StockAdded',
+  'StockTransferredOut',
   'BusinessDayOpened',
   'BusinessDayClosed',
 ]) {

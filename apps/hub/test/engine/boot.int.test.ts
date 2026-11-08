@@ -33,7 +33,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { fixedClock, T } from '../../src/lib/clock';
 import { boot, registerBootStep, type BootContext, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
-import { setStockVersion, STOCK_VERSION_EVENTS, stockVersion } from '../../src/sync/stock-version';
+import { noteCommitted, setStockVersion, STOCK_VERSION_EVENTS, stockVersion } from '../../src/sync/stock-version';
 import { freshDb } from '../helpers/db';
 import { createLogCapture } from '../helpers/log-capture';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
@@ -447,10 +447,20 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
   });
 
   describe('[03a #85, 01a A-17] stock_version', () => {
-    it('[01a A-17] STOCK_VERSION_EVENTS: nine types, and the three new stock events are in it', () => {
+    it('[01a A-17, v2.3 A-1] STOCK_VERSION_EVENTS: ten types, the three new stock events and StockTransferredOut are in it', () => {
       expect([...STOCK_VERSION_EVENTS].sort()).toEqual(
-        ['BusinessDayClosed', 'BusinessDayOpened', 'ItemMadeAvailable', 'ItemMadeUnavailable', 'StockAdded', 'StockConsumed', 'StockReleased', 'StockReserved', 'StockSet'].sort(),
+        ['BusinessDayClosed', 'BusinessDayOpened', 'ItemMadeAvailable', 'ItemMadeUnavailable', 'StockAdded', 'StockConsumed', 'StockReleased', 'StockReserved', 'StockSet', 'StockTransferredOut'].sort(),
       );
+    });
+
+    const aTransferredOut = (): PosEvent =>
+      aStockSet({ event_type: 'StockTransferredOut', schema_version: 1, stream_id: 'K1', payload: { stock_item_id: 'K1', quantity: 2, zone_id: 'Z1' } });
+
+    it('[01a #194] StockTransferredOut moves stock_version', () => {
+      const [event] = [{ ...aTransferredOut(), seq: 42 }];
+      setStockVersion(7);
+      noteCommitted([event]);
+      expect(stockVersion()).toBe(42);
     });
 
     const fullScan = (db: Database.Database): number => {
@@ -468,6 +478,7 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       ['StockReserved', aStockReserved()],
       ['StockReleased', aStockReleased()],
       ['StockConsumed', aStockConsumed()],
+      ['StockTransferredOut', aTransferredOut()],
       ['BusinessDayOpened', aBusinessDayOpened()],
       ['BusinessDayClosed', aBusinessDayClosed()],
     ])('[03a #85] %s newest: a snapshot boot reads the same version as a full scan', async (_type, event) => {

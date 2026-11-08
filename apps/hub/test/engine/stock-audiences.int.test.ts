@@ -1,5 +1,5 @@
 import type { EventDraft, PosEvent } from '@pos/events';
-import { aStockConsumed, aStockReleased, aStockReserved } from '@pos/events/testing';
+import { aStockConsumed, aStockSet, aStockReleased, aStockReserved } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -28,6 +28,22 @@ describe('[03a AD-32] stock frames reach staff sockets, not station sockets', ()
     await staff.untilCount(1 + types.length);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(eventTypes(staff)).toEqual(types);
+    expect(eventTypes(station)).toEqual([]);
+  });
+
+  it('[01a #194] StockTransferredOut sends a stock frame to the stock audience', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    await seedDirectory(hub, await aDirectory());
+    const staff = await staffSocket(hub);
+    const station = await stationSocket(hub);
+
+    const moved = aStockSet({ event_type: 'StockTransferredOut', schema_version: 1, stream_id: 'K1', payload: { stock_item_id: 'K1', quantity: 2, zone_id: 'Z1' } });
+    hub.deps.writer.run((tx) => tx.append([draftOf(moved)]));
+
+    await staff.untilCount(2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(eventTypes(staff)).toEqual(['StockTransferredOut']);
     expect(eventTypes(station)).toEqual([]);
   });
 });
