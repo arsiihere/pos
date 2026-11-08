@@ -481,7 +481,9 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(breaches(s2)).toEqual([]);
   });
 
-  it.todo('[03a BF-9] (AD-2) after a unit-changing StockSet the held lines are re-reserved in the new unit — BLOCKED, see the task 12b report');
+  // AD-29 Q6 (owner ruling 2026-11-08): BF-9 stays parked; AD-2's re-reserve is superseded. A unit-changing StockSet
+  // consumes every holding line first (Q14; tests #42, #118 above), so nothing is re-reserved in the new unit.
+  it.todo('[03a BF-9] parked (AD-29 Q6): no re-reserve after a unit-changing StockSet — held lines are consumed before it (tests #42, #118); AD-2 superseded');
 
   it('[03a #84] move to stock: release moved (if reserved) + StockAdded moved per draw for the moved units; none without a draw; StockAdded without reason parses', () => {
     const s0 = fold([
