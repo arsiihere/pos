@@ -784,9 +784,10 @@ function foldItemServed(state: EngineState, event: PosEvent, o: FoldOptions): En
 }
 
 // §3.4 ItemRemoved / ItemVoided: any stage before served → removed / voided. BF-12: a partial ItemVoided
-// (units < the line's units) is partialVoid below; a void of the whole line ends it. §3.5.3 triggers (D13): the
-// line's station is re-planned at recorded_at and its group's T may move earlier, never later (replanEnded, test
-// 89). The end that leaves no line open sets last_served_at (§3.3).
+// (units < the line's units) is partialVoid below; a void of the whole line ends it. 03a v1.2 Q-4: an ItemRemoved
+// with units < the line's units takes the same path; units absent or ≥ the line's units removes the whole line.
+// §3.5.3 triggers (D13): the line's station is re-planned at recorded_at and its group's T may move earlier, never
+// later (replanEnded, test 89). The end that leaves no line open sets last_served_at (§3.3).
 // Proposed (implementer, overnight): a whole void keeps the line's units and draws[].quantity (BF-12 "voided only
 // when no unit is left": the stage says no unit is left; units 0 would read as an AD-8 placeholder); its releases
 // then take every draw's reserved to 0.
@@ -794,7 +795,7 @@ function foldItemEnded(state: EngineState, event: PosEvent, o: FoldOptions, stag
   const p = event.payload as unknown as { order_item_id: string } & Partial<Pick<ItemVoidedPayload, 'units'>>;
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || !isOpen(line)) return state;
-  if (stage === 'voided' && p.units! < line.units) return touchOrder(partialVoid(state, line, p.units!, event, o), line.order_id, event.recorded_at, o.scope);
+  if (p.units !== undefined && p.units < line.units) return touchOrder(partialVoid(state, line, p.units, event, o), line.order_id, event.recorded_at, o.scope);
   const ended = moveLine(state, line, event, o, { stage });
   return touchOrder(replanEnded(ended, ended.lines[line.order_item_id]!, event.recorded_at, event.event_id, o), line.order_id, event.recorded_at, o.scope);
 }

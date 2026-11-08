@@ -370,6 +370,79 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(v.state.lines.V).toMatchObject({ units: 2, from_stock: true, draws: [{ stock_item_id: 'KB', quantity: 2, reserved: 2 }] });
   });
 
+  // 03a v1.2 Q-4 (§3.7, §4.2): a partial ItemRemoved takes the partial-void unit path; its releases keep reason `removed`.
+  const q4Head = (): PosEvent[] => [
+    cfg(),
+    set('KB', 9, DAY),
+    set('X', 9, DAY),
+    ...hidden('O4', [{ id: 'P', quantity: 3, draws: [...kb(3), { stock_item_id: 'X', quantity: 6 }], from_stock: true }], T + 3_600_000),
+  ];
+
+  it('[03a #126] units 1 on a 3-unit from-stock line → one unit\'s share released per draw, line keeps 2', () => {
+    const head = q4Head();
+    const s0 = fold(head);
+    const at = T + 1_000;
+    const cause = orderEv('ItemRemoved', 'O4', { order_item_id: 'P', units: 1 }, at);
+    expect(stockEffects(s0, { ...draftOf(cause), occurred_at: at }, CTX).map(brief)).toEqual([
+      { type: 'StockReleased', id: 'KB', line: 'P', q: 1, reason: 'removed' },
+      { type: 'StockReleased', id: 'X', line: 'P', q: 2, reason: 'removed' },
+    ]);
+    const { events, state: s1 } = commit(s0, [cause], at);
+    expect(events.map((e) => e.event_type)).toEqual(['ItemRemoved', 'StockReleased', 'StockReleased']);
+    expect(s1.lines.P).toMatchObject({
+      stage: 'added',
+      units: 2,
+      from_stock: true,
+      draws: [
+        { stock_item_id: 'KB', quantity: 2, reserved: 2 },
+        { stock_item_id: 'X', quantity: 4, reserved: 4 },
+      ],
+    });
+    expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 9, reserved: 2 });
+    expect(stockOf(s1, 'X')).toMatchObject({ on_hand: 9, reserved: 4 });
+    expect(breaches(s1)).toEqual([]);
+    expect(replay([...head, ...events])).toEqual(s1);
+  });
+
+  it('[03a #126] units absent → whole line (test 88 holds)', () => {
+    const head = q4Head();
+    const s0 = fold(head);
+    const at = T + 1_000;
+    const { events, state: s1 } = commit(s0, [orderEv('ItemRemoved', 'O4', { order_item_id: 'P' }, at)], at);
+    expect(events.map(brief)).toEqual([
+      { type: 'ItemRemoved', line: 'P' },
+      { type: 'StockReleased', id: 'KB', line: 'P', q: 3, reason: 'removed' },
+      { type: 'StockReleased', id: 'X', line: 'P', q: 6, reason: 'removed' },
+    ]);
+    expect(s1.lines.P).toMatchObject({ stage: 'removed', units: 3 });
+    expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 9, reserved: 0 });
+    expect(stockOf(s1, 'X')).toMatchObject({ on_hand: 9, reserved: 0 });
+    expect(replay([...head, ...events])).toEqual(s1);
+  });
+
+  it('[03a §3.7 Q-4] units ≥ line units removes the whole line once', () => {
+    for (const units of [3, 5]) {
+      const head = q4Head();
+      const s0 = fold(head);
+      const at = T + 1_000;
+      const { events, state: s1 } = commit(s0, [orderEv('ItemRemoved', 'O4', { order_item_id: 'P', units }, at)], at);
+      expect(events.map(brief)).toEqual([
+        { type: 'ItemRemoved', line: 'P' },
+        { type: 'StockReleased', id: 'KB', line: 'P', q: 3, reason: 'removed' },
+        { type: 'StockReleased', id: 'X', line: 'P', q: 6, reason: 'removed' },
+      ]);
+      // The whole line: stage removed, units never negative, every draw released once (no breach).
+      expect(s1.lines.P).toMatchObject({ stage: 'removed', units: 3, draws: [{ quantity: 3, reserved: 0 }, { quantity: 6, reserved: 0 }] });
+      expect(stockOf(s1, 'KB')).toMatchObject({ on_hand: 9, reserved: 0 });
+      expect(stockOf(s1, 'X')).toMatchObject({ on_hand: 9, reserved: 0 });
+      expect(breaches(s1)).toEqual([]);
+      // A second remove of the ended line drafts and folds nothing.
+      const again = orderEv('ItemRemoved', 'O4', { order_item_id: 'P', units }, at + 1);
+      expect(stockEffects(s1, { ...draftOf(again), occurred_at: at + 1 }, CTX).map(brief)).toEqual([]);
+      expect(replay([...head, ...events])).toEqual(s1);
+    }
+  });
+
   it('[03a #88] BusinessDayClosed releases hidden lines of kept orders and exited lines still reserved, before the close; frozen and fired keep theirs and consume at Start; one re-plan at the close', () => {
     const p = T + 3_600_000;
     const head = [
