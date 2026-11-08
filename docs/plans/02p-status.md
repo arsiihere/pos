@@ -136,6 +136,18 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **AD rows:** AD-4–AD-7, AD-9–AD-20 ruled by the owner; AD-8 (#184 split between tasks 3 and 4) proposed.
 - **Carried:** AD-13 — the engine lane must switch `apps/hub/test/engine/config-hook.int.test.ts` to `BranchConfigSnapshotSchemaV4`, then the alias goes. AD-18 — the five settings fields are not accepted by the cloud PATCH until task 9. Parked minors (no more rounds): a test for "restore resends an equal but stale list → 422"; the lock-edge test hangs instead of failing on a regression; `aStockTransferredOut` builder missing in `@pos/events/testing`; the zone editor's Archive skips the leave guard; urdu-todo header counts.
 
+## Batch 5a — 03a carry-over, engine lane (2026-11-09)
+
+- **Tasks:** 17b (gaps 1, 2, 4 EXPLAIN, 5, 7), 17c (gap 4 timing, perf file only).
+- **Commits:** `4574240` (17b, 8 tests), `ff02a82` (17b review minors), `e261f25` (17c).
+- **Reviews:**
+  - 17b: opus, spec ✅ quality ✅, 4 Minor, all fixed in `ff02a82`.
+  - 17c: opus, **spec ❌**. C1: no slip is due at the measured instant `peak.at`. The reviewer rebuilt the seed-7 peak state outside the repo: 0 slips at `peak.at`, the first slip at `peak.at` + 127.6 s, ≈ 10 at + 60 s after that. So the new "slips > 0" assert will fail under `test:perf`, and the slip path is still not timed. I1: the `receiver_not_in_directory` check cannot fail (the tick has no logger in the perf hub). I2: the header comment is wrong. M1, M2 minor. **Parked as decision E-1** (it moves the measured instant). It runs only under `test:perf`, so the normal gate is not affected.
+- **Gate:** `TMPDIR=/dev/shm flock … "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` at `ff02a82`: green. 366 files passed (1 skipped), 3325 tests passed (1 skipped, 1 todo), 540 s.
+- **Tests closed:** 03a open item 13, gaps 1, 2, 4 (EXPLAIN), 5, 7. Gap 4's timing is open (E-1).
+- **AD rows (proposed):** none. Engine-lane AD rows will be numbered **AD-E1, AD-E2 …**, because platform A uses AD-1 upward.
+- **Carried:** AD-13 (owner-ruled): the engine lane switches the `BranchConfigSnapshotSchemaV3` import in `config-hook.int.test.ts` to V4; done in task 14.
+
 ## Platform A prompt (for the owner to paste into a new session)
 
 ```
