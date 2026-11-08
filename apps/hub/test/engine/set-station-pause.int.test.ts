@@ -104,6 +104,18 @@ describe('POST /commands/set-station-pause (03a §6.7)', () => {
     expect((await send(hub, manager, { station_id: 'S2', paused: true }, 'cmd-branch')).statusCode).toBe(200);
   });
 
+  it('[03a #69] 403: a staff session whose roles lack manage-stations (the cashier) → PERMISSION_DENIED { permission: manage-stations }; nothing written', async () => {
+    const hub = await open();
+    const cashier = staffOn(hub, 'S_CASH');
+    const before = counts(hub);
+    const response = await send(hub, cashier, { station_id: 'S1', paused: true }, 'cmd-cashier');
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stations' } });
+    expect(response.json().error.details.reason).not.toBe('outside_scope');
+    expect(counts(hub)).toEqual(before);
+    expect(engine(hub).stations.S1!.paused).toBe(false);
+  });
+
   it('[03a #69] a station session (KDS) → 403 PERMISSION_DENIED from the framework (stationScoped false), even for its own station; nothing written', async () => {
     const hub = await open();
     const kds = stationOn(hub, 'S1');

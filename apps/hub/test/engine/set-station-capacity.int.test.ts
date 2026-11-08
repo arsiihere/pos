@@ -191,6 +191,18 @@ describe('POST /commands/set-station-capacity (03a §6.6)', () => {
     expect(counter.count).toBe(ours);
   });
 
+  it('[03a #68] 403: a staff session whose roles lack manage-stations (the cashier) → PERMISSION_DENIED { permission: manage-stations }; nothing written', async () => {
+    const hub = await open();
+    const cashier = staffOn(hub, 'S_CASH');
+    const before = counts(hub);
+    const response = await send(hub, cashier, { station_id: 'S1', capacity_override: 2, reason: 'manager' }, 'cmd-cashier');
+    expect(response.statusCode, response.body).toBe(403);
+    expect(response.json().error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'manage-stations' } });
+    expect(response.json().error.details.reason).not.toBe('outside_scope');
+    expect(counts(hub)).toEqual(before);
+    expect(engine(hub).stations.S1!.capacity_override).toBeNull();
+  });
+
   it('[03a #68] station session for another station or with reason manager → 403 outside_scope; nothing written', async () => {
     const hub = await open();
     const kds = stationOn(hub, 'S1');
