@@ -423,7 +423,25 @@ describe('zones', () => {
     expect(missing.statusCode).toBeGreaterThanOrEqual(400);
   });
 
-  it('[01a §6.6a] no N+1: a 200-entry list is written in a fixed number of statements', async () => {
+  it('[01a §6.6b] a table PATCH resending its unchanged zone_id reads no zone (lock order: the zone archive locks the zone first)', async () => {
+    const zoneId = await newZone();
+    await addTable('Z-T1', zoneId);
+    const tables = `/v1/admin/branches/${A()}/tables/Z-T1`;
+    const patchTable = (payload: object) => cloud.app.inject({ method: 'PATCH', url: tables, ...owner(f), payload });
+    expect((await patchTable({ name: 'Renamed' })).statusCode).toBe(200);
+    const withoutZone = counter.count;
+    const resent = await patchTable({ name: 'Renamed again', zone_id: zoneId });
+    expect(resent.statusCode).toBe(200);
+    expect(counter.count).toBe(withoutZone);
+    // a zone actually given is still checked
+    const other = await newZone({ name: 'Garden' });
+    const moved = await patchTable({ zone_id: other });
+    expect(moved.statusCode).toBe(200);
+    expect(counter.count).toBe(withoutZone + 1);
+    expect(moved.json().data.table.zone_id).toBe(other);
+  });
+
+  it('[01a §6.6a] no N+1: the statement count does not grow with the list length', async () => {
     const ids = Array.from({ length: 5 }, (_, i) => `BULK-${i}`);
     await cloud.pool.query(
       `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
@@ -438,7 +456,7 @@ describe('zones', () => {
       routes: ids.map((item_id) => ({ item_id, station_id: 'ST-1' })),
       stock_items: ids.map((item_id) => ({ item_id, threshold: 1 })),
     });
-    // two more list inserts at most (stock items: the item read is shared with the routes' own)
-    expect(counter.count).toBeLessThanOrEqual(small + 3);
+    // the stock list adds its delete and insert; the item read is shared with the routes' own
+    expect(counter.count).toBe(small + 2);
   });
 });

@@ -112,7 +112,7 @@ describe('menu item patch', () => {
     expect(unknown.json().error).toMatchObject({ code: 'MENU_ITEM_NOT_FOUND', details: { item_id: 'NO-SUCH-ITEM' } });
   });
 
-  it('[01a #195] is_ready_item: default false; create with true; PATCH round-trips and is audited; a repeat writes nothing', async () => {
+  it('[01a A-1] is_ready_item: default false; create with true; PATCH round-trips and is audited; a repeat writes nothing', async () => {
     const plain = await create();
     expect(plain.is_ready_item).toBe(false);
     expect((await stored(plain.item_id)).is_ready_item).toBe(false);

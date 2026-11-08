@@ -386,8 +386,11 @@ export async function patchTable(
       await assertFloor(scoped, branchId, merged.floor_id, { requireActive: merged.archived_at === null });
     }
     // 02a A-1: a given zone is active, in this branch and on the table's floor (after the patch). A table coming back
-    // from the archive is checked too: its stored zone may have been archived since.
-    if (merged.zone_id !== null && (body.zone_id !== undefined || (before.archived_at !== null && merged.archived_at === null))) {
+    // from the archive is checked too: its stored zone may have been archived since. Lock order: a zone archive locks
+    // the zone, then updates its tables, so a table that keeps its zone on its floor must not lock the zone after the
+    // table (deadlock); only a table entering a zone, changing floor or coming back from the archive reads it.
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    if (merged.zone_id !== null && (merged.zone_id !== before.zone_id || merged.floor_id !== before.floor_id || restoring)) {
       await assertZoneOfFloor(scoped, branchId, merged.zone_id, merged.floor_id);
     }
     const table = await nameTaken('dining_tables_active_name', 'table', merged.name, () =>
