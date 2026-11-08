@@ -334,6 +334,8 @@ export function ItemForm({
   const [sizeName, setSizeName] = useState(item?.variant_name ?? '');
   const [sizeOpen, setSizeOpen] = useState(groupId !== '');
   const [weighed, setWeighed] = useState(item?.requires_weighing ?? false);
+  // 01a v2.3 §8.1 (02b A-1): a ready item (water, a bottle) never turns a table green.
+  const [readyItem, setReadyItem] = useState(item?.is_ready_item ?? false);
   const storedDraw = item?.stock_draws[0];
   const [stockId, setStockId] = useState(storedDraw?.stock_item_id ?? '');
   const [uses, setUses] = useState('');
@@ -591,6 +593,7 @@ export function ItemForm({
       variant_group_id: groupId === '' ? null : groupId,
       variant_name: groupId === '' ? null : sizeName.trim(),
       requires_weighing: weighedOn,
+      is_ready_item: readyItem,
       stock_draws: draws,
       weight_pct: weightPct,
       max_early_ms: knobMs.max_early_ms as number,
@@ -1046,6 +1049,19 @@ export function ItemForm({
     </section>
   );
 
+  // 01a v2.3 §8.1 (02b A-1): "Ready item (not cooked)".
+  const readySection = (
+    <section className="pos-section" data-section="ready-item">
+      <label className="pos-row">
+        <input type="checkbox" name="is_ready_item" checked={readyItem} onChange={(e) => setReadyItem(e.target.checked)} />
+        <span>
+          <strong>{t('item.ready_item')}</strong>
+          <span className="pos-field__help">{t('item.ready_item_help')}</span>
+        </span>
+      </label>
+    </section>
+  );
+
   // 01c-S01 "Stock": picker, uses per sale in the stock item's unit, the summary, the mini-form.
   const stockOptions = [
     { value: '', label: t('item.stock_none') },
@@ -1377,6 +1393,7 @@ export function ItemForm({
 
           {sizeSection}
           {weighedSection}
+          {readySection}
           {drawSection}
 
           <Disclosure

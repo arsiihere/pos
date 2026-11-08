@@ -208,7 +208,8 @@ describe('cloud-admin client', () => {
         floors: [
           {
             ...FLOOR,
-            tables: [{ table_id: 'T1', name: 'T1', seats: 4, sort_order: 1, archived_at: null }],
+            zones: [],
+            tables: [{ table_id: 'T1', name: 'T1', seats: 4, sort_order: 1, zone_id: null, archived_at: null }],
           },
         ],
       },

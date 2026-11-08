@@ -91,6 +91,7 @@ const PAYE: MenuItem = {
   out_of_stock_behaviour: 'sold_out',
   sale_unit: 'piece',
   requires_weighing: false,
+  is_ready_item: false,
   stock_draws: [],
   availability_windows: [],
   weight_pct: 100,
@@ -263,8 +264,8 @@ describe('owner pages (v1.1 design hand-off)', () => {
         return json(200, {
           data: {
             floors: [
-              { floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null, tables: [table] },
-              { floor_id: 'F2', name: 'Roof', sort_order: 1, archived_at: null, tables: [] },
+              { floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null, zones: [], tables: [table] },
+              { floor_id: 'F2', name: 'Roof', sort_order: 1, archived_at: null, zones: [], tables: [] },
             ],
           },
         });
@@ -426,7 +427,7 @@ describe('owner pages (v1.1 design hand-off)', () => {
     vi.useFakeTimers();
     const fl = fakeApi((call) =>
       call.method === 'GET'
-        ? json(200, { data: { floors: [{ floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null, tables: [] }] } })
+        ? json(200, { data: { floors: [{ floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null, zones: [], tables: [] }] } })
         : undefined,
     );
     render(<FloorsView api={fl.api} branchId={B1} />);

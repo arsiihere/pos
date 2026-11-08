@@ -453,3 +453,22 @@ Keys in `apps/client/src/i18n/en.ts` with no entry in `ur.ts` (S49). They show i
 | `errors.UNKNOWN` | Something went wrong. Try again. |
 | `admin_stock.carry.title_one` | 1 count from last night |
 | `quantity.pcs` | pcs |
+| `zones.new` | New zone |
+| `zones.invalid` | Check the zone: a name of 1 to 40 characters, whole-number thresholds from 0 to 5000, and a station for every item. |
+| `zones.routes_title` | Made in this zone |
+| `zones.routes_help` | Items that are made in this zone instead of the kitchen station. Tables in this zone send these items to the station you pick. |
+| `zones.stock_title` | Stock kept in this zone |
+| `zones.stock_help` | Counted items served straight from this zone, such as raita or bottles. Pieces only; a weighed item cannot be kept here. |
+| `zones.add_item` | Add an item made here |
+| `zones.add_stock` | Add an item kept here |
+| `zones.pick_item` | Choose an item |
+| `zones.station_for` | Station for {item} |
+| `zones.threshold` | Warn at or below |
+| `zones.threshold_range` | Type a whole number from 0 to 5000. |
+| `zones.archive` | Archive this zone |
+| `zones.archive_body` | Its tables go back to the floor with no zone. Its items are kept if you restore it. |
+| `zones.table_help` | A table can sit in one zone of its floor. |
+| `zones.table_moved_help` | A table that moves to another floor leaves its zone. Pick the zone after saving. |
+| `archive.floor_zones_body` | It still has {n} zones. Archive them first; their tables go back to the floor. |
+| `archive.floor_zones_then_floor` | Archive all {n} zones, then the floor |
+| `archive.floor_all_then_floor` | Archive all {tables} tables and {zones} zones, then the floor |

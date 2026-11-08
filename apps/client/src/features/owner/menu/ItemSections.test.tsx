@@ -59,7 +59,7 @@ function item(extra: Partial<MenuItem> = {}): MenuItem {
     stock_time_ms: null,
     out_of_stock_behaviour: 'cook_fresh',
     sale_unit: 'piece',
-    requires_weighing: false,
+    requires_weighing: false, is_ready_item: false,
     stock_draws: [],
     availability_windows: [],
     weight_pct: 100,

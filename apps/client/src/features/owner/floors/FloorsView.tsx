@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import type { CloudAdmin, CloudError, CloudResult, Floor, Table } from '../../../api/cloud-admin';
+import type { CloudAdmin, CloudError, CloudResult, FloorWithZones, Table, ZoneSummary } from '../../../api/cloud-admin';
 import { Banner } from '../../../components/Banner';
 import { BusyButton } from '../../../components/BusyButton';
 import { Chip } from '../../../components/Chip';
@@ -16,6 +16,7 @@ import { errorText, isKeyMismatch, useIdempotencyKey } from '../form';
 import { BranchSelect, Page } from '../Shell';
 import { BulkTables, parseSeats, previewText, rangeNames, useBulkAdd, type RangeInput } from './BulkTables';
 import { TableDialog } from './TableDialog';
+import { ZoneDialog } from './ZoneDialog';
 
 // §8.1 #/floors (01a-S03): one section per floor with its tables as tiles; a table opens a dialog
 // (with a floor move); Add tables adds a range (S51); the first floor and its tables come from one form.
@@ -23,7 +24,8 @@ import { TableDialog } from './TableDialog';
 // shows what blocks it; a table archives at once with an 8 s Undo (S50 b). Saves show a Saved chip (S50 d).
 // Pulse (01a hand-off CHANGES §2): Rename / Archive sit in each floor's More menu; Show archived is an
 // app-bar More item, and while archived floors show, the "Archived shown ✕" filter chip hides them.
-type FloorRow = Floor & { tables: Table[] };
+// 01a v2.2 §6.2: each floor also lists its zones (without their item lists, which the zone editor reads).
+type FloorRow = FloorWithZones;
 
 const INT_RE = /^-?[0-9]+$/;
 const active = (row: { archived_at: number | null }) => row.archived_at === null;
@@ -262,8 +264,28 @@ function FirstFloorForm({
 
 type Ask =
   | { kind: 'archive-floor'; floor: FloorRow }
-  | { kind: 'floor-blocked'; floor: FloorRow; names: string[] }
+  | { kind: 'floor-blocked'; floor: FloorRow; tables: string[]; zones: string[] }
   | null;
+
+// What keeps a floor from being archived: its active tables (§6.4) and its active zones (02a A-1, AD-6).
+function blockedAsk(floor: FloorRow): Ask {
+  const tables = floor.tables.filter(active).map((x) => x.name);
+  const zones = floor.zones.filter(active).map((z) => z.name);
+  return tables.length > 0 || zones.length > 0 ? { kind: 'floor-blocked', floor, tables, zones } : { kind: 'archive-floor', floor };
+}
+
+function blockedBody(tables: number, zones: number): string {
+  return [
+    ...(tables > 0 ? [fill(t('archive.floor_blocked_body'), { n: String(tables) })] : []),
+    ...(zones > 0 ? [fill(t('archive.floor_zones_body'), { n: String(zones) })] : []),
+  ].join(' ');
+}
+
+function blockedAction(tables: number, zones: number): string {
+  if (zones === 0) return fill(t('archive.floor_tables_then_floor'), { n: String(tables) });
+  if (tables === 0) return fill(t('archive.floor_zones_then_floor'), { n: String(zones) });
+  return fill(t('archive.floor_all_then_floor'), { tables: String(tables), zones: String(zones) });
+}
 
 export function FloorsView({
   api,
@@ -286,7 +308,8 @@ export function FloorsView({
   const [addingFloor, setAddingFloor] = useState(false);
   const [editing, setEditing] = useState<{ table: Table; floorId: string } | null>(null);
   const [ask, setAsk] = useState<Ask>(null);
-  const [undo, setUndo] = useState<{ table: Table; floorId: string } | null>(null);
+  const [undo, setUndo] = useState<{ table?: Table; zone?: ZoneSummary; floorId: string } | null>(null);
+  const [zoneEdit, setZoneEdit] = useState<{ zone: ZoneSummary | null; floorId: string } | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const saved = useFlash();
   const down = useCloudDown(api);
@@ -337,15 +360,22 @@ export function FloorsView({
     setAsk(null);
     const failed = await patchFloor(floor.floor_id, { archived: true });
     if (failed?.kind === 'api' && failed.code === 'CONFIG_IN_USE') {
-      const ids = (failed.details['used_by'] as { ids?: string[] } | undefined)?.ids ?? [];
-      const names = ids.map((id) => floor.tables.find((x) => x.table_id === id)?.name ?? id);
+      // The used_by ids are tables or zones (AD-6); the dialog names both from what is loaded.
       setError(null);
-      setAsk({ kind: 'floor-blocked', floor, names });
+      setAsk(blockedAsk(floor));
     }
   }
 
-  async function archiveTablesThenFloor(floor: FloorRow) {
+  async function archiveAllThenFloor(floor: FloorRow) {
     setAsk(null);
+    for (const zone of floor.zones.filter(active)) {
+      const result = await api.patchZone(branchId, zone.zone_id, { archived: true });
+      if (!result.ok) {
+        report(result.error);
+        await load();
+        return;
+      }
+    }
     for (const table of floor.tables.filter(active)) {
       const result = await api.patchTable(branchId, table.table_id, { archived: true });
       if (!result.ok) {
@@ -369,6 +399,18 @@ export function FloorsView({
     if (failed?.kind === 'api' && failed.code === 'CONFIG_NAME_TAKEN') {
       setError(fill(t('errors.CONFIG_NAME_TAKEN_table'), { name: table.name, branch: branchName(branchId) }));
     }
+  }
+
+  async function archiveZone(zone: ZoneSummary, floorId: string) {
+    setZoneEdit(null);
+    const failed = await save(floorId, api.patchZone(branchId, zone.zone_id, { archived: true }));
+    if (failed === null) setUndo({ zone, floorId });
+  }
+
+  async function restoreZone(zone: ZoneSummary, floorId: string) {
+    setUndo(null);
+    setZoneEdit(null);
+    await save(floorId, api.patchZone(branchId, zone.zone_id, { archived: false }));
   }
 
   const empty = floors !== null && floors.length === 0;
@@ -492,7 +534,7 @@ export function FloorsView({
                 {undo?.floorId === id && (
                   <UndoChip
                     paused={down}
-                    onUndo={() => void restoreTable(undo.table, id)}
+                    onUndo={() => void (undo.zone !== undefined ? restoreZone(undo.zone, id) : restoreTable(undo.table as Table, id))}
                     onDone={() => setUndo(null)}
                   />
                 )}
@@ -513,18 +555,30 @@ export function FloorsView({
                       icon: 'archive',
                       danger: true,
                       disabled: down,
-                      onSelect: () => {
-                        const live = floor.tables.filter(active);
-                        setAsk(
-                          live.length > 0
-                            ? { kind: 'floor-blocked', floor, names: live.map((x) => x.name) }
-                            : { kind: 'archive-floor', floor },
-                        );
-                      },
+                      onSelect: () => setAsk(blockedAsk(floor)),
                     },
                   ]}
                 />
               </div>
+            </div>
+            <div className="pos-row" data-zones={id}>
+              <span className="pos-field__label">{t('zones.title')}</span>
+              {floor.zones.filter(visible).map((zone) => (
+                <button
+                  key={zone.zone_id}
+                  type="button"
+                  className={`pos-filterchip${zone.archived_at === null ? '' : ' is-muted'}`}
+                  data-zone-id={zone.zone_id}
+                  onClick={() => setZoneEdit({ zone, floorId: id })}
+                >
+                  {zone.name}
+                  {zone.archived_at !== null && <small> {t('owner.common.archived')}</small>}
+                </button>
+              ))}
+              <button type="button" className="pos-btn" disabled={down} onClick={() => setZoneEdit({ zone: null, floorId: id })}>
+                <Icon name="plus" />
+                {t('zones.add')}
+              </button>
             </div>
             <div className="pos-tiles">
               {floor.tables.filter(visible).map((table) => (
@@ -537,6 +591,9 @@ export function FloorsView({
                 >
                   <strong className="pos-ltr">{table.name}</strong>
                   {table.seats !== null && <small>{seatsText(table.seats)}</small>}
+                  {table.zone_id !== null && floor.zones.some((z) => z.zone_id === table.zone_id) && (
+                    <small>{floor.zones.find((z) => z.zone_id === table.zone_id)?.name}</small>
+                  )}
                   {table.archived_at !== null && <small>{t('owner.common.archived')}</small>}
                 </button>
               ))}
@@ -603,6 +660,23 @@ export function FloorsView({
           }}
         />
       )}
+      {zoneEdit !== null && (
+        <ZoneDialog
+          api={api}
+          branchId={branchId}
+          floor={floors?.find((f) => f.floor_id === zoneEdit.floorId) ?? { floor_id: zoneEdit.floorId, name: '' }}
+          zone={zoneEdit.zone}
+          onClose={() => setZoneEdit(null)}
+          onSaved={() => {
+            const floorId = zoneEdit.floorId;
+            setZoneEdit(null);
+            flashSaved(floorId);
+            void load();
+          }}
+          onArchive={() => zoneEdit.zone !== null && void archiveZone(zoneEdit.zone, zoneEdit.floorId)}
+          onRestore={() => zoneEdit.zone !== null && void restoreZone(zoneEdit.zone, zoneEdit.floorId)}
+        />
+      )}
       {ask?.kind === 'archive-floor' && (
         <ConfirmDialog
           title={fill(t('archive.item_title'), { name: ask.floor.name })}
@@ -622,16 +696,16 @@ export function FloorsView({
               <button type="button" className="pos-btn" onClick={() => setAsk(null)}>
                 {t('common.close')}
               </button>
-              <button type="button" className="pos-btn pos-btn--danger" onClick={() => void archiveTablesThenFloor(ask.floor)}>
-                {fill(t('archive.floor_tables_then_floor'), { n: String(ask.names.length) })}
+              <button type="button" className="pos-btn pos-btn--danger" onClick={() => void archiveAllThenFloor(ask.floor)}>
+                {blockedAction(ask.tables.length, ask.zones.length)}
               </button>
             </>
           }
         >
-          <p className="pos-dialog__body">{fill(t('archive.floor_blocked_body'), { n: String(ask.names.length) })}</p>
+          <p className="pos-dialog__body">{blockedBody(ask.tables.length, ask.zones.length)}</p>
           <div className="pos-chipgrid">
-            {ask.names.map((name) => (
-              <Chip key={name}>
+            {[...ask.tables, ...ask.zones].map((name, i) => (
+              <Chip key={`${i}-${name}`}>
                 <span className="pos-ltr">{name}</span>
               </Chip>
             ))}
