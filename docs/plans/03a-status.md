@@ -4,6 +4,8 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **Task 29 ke baad (2026-11-08, subah):** final review (koi Critical nahi), v1.0.1 as-built draft, release notes, aur AD-37 ke teeno faislay commit aur push ho gaye. Ek kami mili aur theek ki: stock frames staff ko nahi jaate thay (`988dbd9`). **Final gate red hai, lekin sirf timeouts:** disk bohot slow thi (ek fsync ≈ 27 ms). Akele chalane par wohi tests pass hote hain. Merge se pehle quiet machine par gate dobara chalana zaroori hai. Main ruk gaya hoon, merge nahi kiya.
+>
 > **Raat ka aakhri report (2026-11-08):** aapke kehne ke mutabiq sab kuch kar diya: (b) aur (c) fixes, 01d v1.1.2, task 23 (alert v2), task 27 (live = replay, 50 seeds, koi farq nahi mila). Final gate green (3209 tests). Ab ruka hoon; task 29 shuru nahi kiya. Do sawal AD-37 mein aapke liye hain.
 >
 > **Decision 2 check (2026-11-07, der raat):** aapke faislay ke mutabiq AD-35 ke baqi readings check kiye. 6 accept, lekin 3 spec ke text se takrate hain (22b-1 sender, 22b-4 test 83, 24-4 catch-up back-off). Aapke kehne par koi side nahi li aur ruk gaya: 01d bump aur task 23 abhi shuru nahi kiye. Upar MORNING REPORT mein teeno quotes hain.
@@ -12,7 +14,62 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 >
 > **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
 
-## MORNING REPORT (2026-11-08): your run is done; STOPPED as instructed before task 29
+## MORNING REPORT (2026-11-08, morning): task 29 done; STOPPED before any merge
+
+**Head:** the docs commit at the top of `module-03a`, pushed. Code head `988dbd9`. Nothing was merged. `main` and the other branches were not touched.
+
+**Done, in your order:**
+1. **AD-37 rulings, `43c9fe5`:**
+   - (1) "+ ≤ 1 line-facts read per pass" is folded into §6.2a of v1.0.1, with no engine-state change. A board item is added for 02p task 0.
+   - (2) "One slip per table per day" is unchanged. A board item is added for 02p U-7.
+   - (3) **`b8cdea1`** (failing test first): `minutes_late = max(0, ceil((estimate − target) / 1 min))`, against the engine target. The card reads "≈ N min late" in en, and `≈ {n} منٹ دیر` in ur. **The ur text is a draft for native review.**
+2. **Final review** against the endpoint checklist and the DoD: **no Critical findings.**
+   - I1, as built per AD-22, for you to confirm: an accept `apply` makes 1 read when goes-with links exist.
+3. **As-built 03a v1.0.1:** draft `0183b97`, fresh-eyes check `docs/reviews/03a_v1.0.1_asbuilt_check.md` with wording fixes `62b7f48`.
+   - It folds AD-1–AD-37, rulings a/b/c, open item 9 (the §3.8 note for 01d v1.1.2) and ruling 1.
+   - Each fold carries its status exactly as on the board. **Proposed rows stay marked "proposed (not yet ruled)".**
+   - Release notes: `docs/plans/03a-release-notes.md`.
+4. **A gap the as-built check found, fixed in `988dbd9`:** the AD-32 (1) stock frames (`StockReserved` / `StockReleased` / `StockConsumed` → every staff socket, no station socket) had never been registered.
+   - The fix has a test that failed first: `apps/hub/test/engine/stock-audiences.int.test.ts`.
+   - It goes in `ws/engine-audiences.ts`, with the same rule as 01a's StockSet.
+5. **`d2a71f5`:** an explicit 30 s timeout for the 200-config E() fuzz (test 70). This is a timeout, not a bound; the test takes about 6.7 s idle.
+
+**⚠️ Final gate at `988dbd9`: RED, on load timeouts only. A green gate is needed before merge.**
+- Typecheck and lint passed.
+- Tests: 36 of 3214 failed, in 23 files (12 cloud, 11 hub).
+  - Every failure is `Test timed out` (5 s, a 10 s hook, or the 30 s fuzz).
+  - There are also 3 "email already exists" seed collisions, which come from timed-out setups.
+  - **No assertion failed.**
+- The run took 61 min (a normal run is 17 min). I/O pressure was 25–35 % full, and `dd oflag=dsync` measured **about 27 ms per fsync**, which is very slow for an SSD.
+- I reran the 23 files under `flock`: 13 files still timed out (380 s). `append-events.int.test.ts` alone passes 4/4 in 22 s.
+- The last green gate was at `1d098b8` (3209 tests). After it came `b8cdea1`, `d2a71f5` and `988dbd9`. Each passed its own tests, but none has had a green full gate.
+- I did not raise any timeouts. Logs:
+  - `/tmp/claude-1000/-home-arslan-pos/2e64158b-1e4f-43e8-8b9d-6972353b0c31/scratchpad/gate-final2.log`
+  - `/tmp/claude-1000/-home-arslan-pos/2e64158b-1e4f-43e8-8b9d-6972353b0c31/scratchpad/rerun-failed.log`
+- **Suggest:** check the disk (SMART, or `fstrim -av`), then re-run `flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` on a quiet machine. Then run `pnpm test:perf`: batches 9–11 changed `fires_alerts` and the frames, and the clean §7.1 run is from batch 8.
+
+**For you (from the final review and the as-built check):**
+- **Warn-line rate (ruling c):** `warnBackedOff` runs in every `due` call (every 500 ms), so the back-off logs about 120 warn lines a minute, not about 2. It is built as ruled (one line per pass). Do you want it rate-limited?
+- **AD-38 (to write):** 5 host readings that the as-built check listed, all as built.
+- **Rows still proposed (not yet ruled)**, for you to accept or rule:
+  - AD-5, 7, 8, 9, 10, 11, 13, 14, 15, 30, 31;
+  - AD-29 Q3, Q6, Q9;
+  - AD-37 (4)–(9);
+  - P-5, P-11, P-12.
+- **Open item 12:** the D46 wording note.
+
+**Not blocking:**
+- **Cloud lane:** `staff-roles-migration.int.test.ts` flaked again under load.
+- **The cloud `stash@{0}` (`a621fdc`)** can still be restored; see the batch 8 entry.
+
+**Task 28** stays open for the pilot mini PC (DoD 2).
+
+**Exact next step:**
+1. Get the gate green at the head on a quiet machine, plus `pnpm test:perf`.
+2. Rule the open items above and approve 03a v1.0.1.
+3. Then the merge, which is yours.
+
+## Earlier MORNING REPORT (2026-11-08): your run is done; STOPPED as instructed before task 29
 
 **Head:** the docs commit at the top of `module-03a`, pushed. Code head `1d098b8`.
 
@@ -279,15 +336,15 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | 18e | 5 | HIGH | DONE | `64880ac`, `f45475d` | Q5, Q7 | developer ruling AD-29 |
 | 18f | 5 | NORMAL | DONE | `6e92e59` | Q1, Q2, P-11 assert | developer ruling AD-29 |
 | 18 | 5 | HIGH | DONE | `bb8595f`, `5846860`, `12022e5`, `d36375d` | §10.6 perf asserts | **GATE**: every §7.1 target measured here passes on the normal peak day (AD-27); floor moved to the window by AD-29 Q1, perf project green at `6e92e59` |
-| C1 | 6 | NORMAL | TODO | | [01a §5.2a] | cloud `0007_engine_config.sql` |
-| C2 | 6 | NORMAL | TODO | | [01a §6.9 A-2–A-10] | |
-| C3 | 6 | NORMAL | TODO | | [01a §6.9a], Q-v2.1-1, Q-v2.1-2 | |
-| C4 | 6 | NORMAL | TODO | | [01a §6.13, §6.15] | |
-| C5 | 6 | NORMAL | TODO | | [01a §4.3 V3] | |
-| C6 | 7 | NORMAL | TODO | | [01b B-8], [01a §4.3 V3] | |
-| C7 | 7 | NORMAL | TODO | | [01b B-6] | |
-| C8 | 7 | NORMAL | TODO | | UI | |
-| C9 | 7 | NORMAL | TODO | | UI | |
+| C1 | 6 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01a §5.2a] | cloud `0007_engine_config.sql` |
+| C2 | 6 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01a §6.9 A-2–A-10] | |
+| C3 | 6 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01a §6.9a], Q-v2.1-1, Q-v2.1-2 | |
+| C4 | 6 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01a §6.13, §6.15] | |
+| C5 | 6 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01a §4.3 V3] | |
+| C6 | 7 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01b B-8], [01a §4.3 V3] | |
+| C7 | 7 | NORMAL | DONE (cloud lane, merged `258812d`) | | [01b B-6] | |
+| C8 | 7 | NORMAL | DONE (cloud lane, merged `258812d`) | | UI | |
+| C9 | 7 | NORMAL | DONE (cloud lane, merged `258812d`) | | UI | |
 | 19 | 8 | NORMAL | DONE | `0403e4a` | [03a §5.1] | hub `0007_engine.sql` |
 | 20 | 8 | HIGH | DONE | `369c508`, `6ff38d2` | #57, #58, #64, #85, [00 H-1], RF 5 | AD-31 |
 | 21 | 8 | HIGH | DONE | `9ebf943`, `7531ec2` | #61, #112 | AD-33 (SIGTERM). The fix also edited hub2's A-14 test in `business-day.int.test.ts` (it subtracts the checkpoint statements) |
@@ -296,7 +353,7 @@ CI column: the one official run on the **normal peak day** (AD-27), 2026-11-07 0
 | 22b | 9 | NORMAL | DONE | `3372391`, `a74fefd` | #83 | AD-35 (22b-1 … 22b-5) |
 | 23 | 9 | NORMAL | DONE | `6b3ddec`, `a556722` | #65, #67, #72, #77 hub | 01d v1.1.2 (`f7a16f2`), AlertRaised v2 (AD-36); AD-37 (two owner questions) |
 | 24 | 9 | NORMAL | DONE | `950bc71`, `7b45d1b` | #70 | AD-35 (24-1 … 24-5); it also edited 01a sync tests |
-| A14 | 9 | HIGH | TODO | | [01a §6.17, §6.17a, §6.18b A-14] | |
+| A14 | 9 | HIGH | DONE (hub2 lane, merged `9c7a75d`) | `56d049d`, `760a0d9` | [01a §6.17, §6.17a, §6.18b A-14] | |
 | R2 | 9 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | [00 H-5, H-6] | hub `0008_device_point_lane.sql` |
 | R1 | 10 | NORMAL | DONE (hub2 lane, merged `9c7a75d`) | | [01b B-1, B-2, B-3, B-5] | |
 | R1b | 10 | NORMAL | DONE (hub3 lane, merged `d4ee16a`) | | [01b B-4] | cloud `0008`, hub `0009_run_station.sql` |
@@ -373,11 +430,12 @@ Plan-time proposals (plan "Plan decisions" and "BF placement"), to become AD row
 3. H-5 / H-6 write-time checks → 03b's pairing / binding UI (and 01e).
 4. Task 28 needs the pilot mini PC (like 00 #79; developer, 2026-11-03).
 5. 03a §12.3 Q12 (customer's own wrong order) still open; 02 / 04, not blocking.
-6. **BF-9 / AD-2 (developer question, see the batch 4 entry):** not built; `it.todo('[03a BF-9]')`.
-7. **Done or Served without a Start on a from-stock line (developer question):** no consume is written, so its units stay reserved until the abandon pass (up to `order_abandon_ms`, default 4 h) or the next close; the spec has no consume at Done.
+6. **BF-9 / AD-2:** ruled by AD-29 Q6 (BF-9 stays parked; the code follows #42 / #118; AD-2 superseded by AD-29). `it.todo('[03a BF-9]')` stays; its todo text still names the AD-2 re-reserve (stale; noted for the as-built).
+7. **Done or Served without a Start on a from-stock line:** ruled by AD-29 Q7 (consume at Done, or at Served when there was no Start); built in task 18e.
 8. **For 01a's next bump:** the §9 intro "the only allowed foundation edit" is stale (R34 lets a module append its §9 codes to F §6.2) — developer note 2026-11-05.
 10. **To 02p task 0 (owner, 2026-11-08, AD-37 (1)):** carry the §6.2a bound into 03a v1.2 next to the Q-1 reader pair: `fires_alerts` with work = 2 (`listOpen`) + ≤ 1 `holdersOfOrders` + ≤ 1 `currentTableOf` + ≤ 1 line facts + 01d's bounds.
 11. **To 02p U-7 (owner, 2026-11-08, AD-37 (2)):** test "a new seating on the same table gets fresh slip warnings after an earlier slip was answered" (02p Q-2 keys `dine_in` by `seating_id`). Within the same seating, one answer closes it (§3.8).
+12. **Next foundation bump (owner, 2026-11-08; candidate for 02p's foundation v1.11):** D46 wording — additive optional fields may stay in the same version when every reader parses them; `AlertRaised` went to v2 because the strict card check rejects unknown fields. 03a v1.0.1 §4.5 A-19 records `StockAdded` v2 `reason` as a named exception until then. Do not edit the foundation now.
 9. **Task 29 reminder (owner, 2026-11-07):** 03a v1.0 is locked (`.claude/settings.json`). The 03a **v1.0.1** as-built (not v1.1; 02p task 0 later writes 03a v1.2 on top) must carry, on §3.8 `slip_warning` `details_schema`: "⚠️ Changed by 01d v1.1.2: `minutes_late` and `lines` are now in 01d §3.12 `AlertDetailsBase`; `AlertRaised` v2 (AD-36)". It must also fold the owner rulings AD-35 (a) into §3.6.3, (b) into the test 83 wording, (c) into §6.2, and 24-1's test 70 note.
 
 ## Batch entries

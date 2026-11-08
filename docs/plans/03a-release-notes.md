@@ -1,6 +1,6 @@
 # 03a Timing Engine — release notes (v1.0.1 as built, draft)
 
-Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner approval before merge**; v1.0 kept as history). Branch `module-03a`, code head `1d098b8`, final gate green (3209 tests). Date 2026-11-08.
+Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner approval before merge**; v1.0 kept as history). Branch `module-03a`, code head `988dbd9`. The last green gate was at `1d098b8` (3209 tests). The gate at `988dbd9` was red on load timeouts only (slow disk), so it must be re-run green before merge. Date 2026-11-08.
 
 ## What 03a v1.0.1 delivers
 
