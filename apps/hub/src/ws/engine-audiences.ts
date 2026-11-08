@@ -10,6 +10,12 @@ for (const eventType of ['EngineConfigApplied', 'StationCapacitySet', 'StationPa
   registerEventAudience(eventType, () => true);
 }
 
+// AD-32 (1), developer ruling 2026-11-07: the stock frames go to every staff socket of the branch (ordering screens'
+// availability), not to station sockets — the same rule as 01a's StockSet / StockAdded (restaurant-audiences.ts).
+for (const eventType of ['StockReserved', 'StockReleased', 'StockConsumed']) {
+  registerEventAudience(eventType, (_event, socket) => socket.kind === 'staff');
+}
+
 // §6.4: catch-up part stations_live for staff and station sockets; body = §6.5 at the catch-up's as_of_seq
 // (the writer's lastSeq read with the state). 0 statements.
 export function stationsLivePart(clock: Clock): CatchUpPart {
