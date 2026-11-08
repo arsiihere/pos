@@ -78,7 +78,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-12 | 4 | Order of `routes[]` / `stock_items[]` (no `sort_order`) | (a) by `item_id`; (b) by item name, then id | (a) | **ruled (owner, 2026-11-08)** |
 | AD-13 | 4 | Engine-owned `apps/hub/test/engine/config-hook.int.test.ts` imports `BranchConfigSnapshotSchemaV3` | (a) deprecated alias `V3 = V4` in `@pos/events` until the engine lane switches; (b) engine lane fixes; (c) keep name | (a); **the engine lane must switch its import, then the alias is removed** | **ruled (owner, 2026-11-08)** |
 | AD-14 | 4 | Zones of an archived floor are not delivered in V4 (only active floors) | (a) accept; (b) deliver | (a) | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
-| AD-15 | 3 (follow-up) | Zone lists could name an item with no `item_routes` row at the branch (not in `items[]`) | (a) zone write requires the route (422 `not_found`), §6.16 route removal refused while a zone names it (409); (b) builder filters; (c) 02b ignores | (a) — follow-up fix after task 5 | **ruled (owner, 2026-11-08)**; 01a §6.6a marker |
+| AD-15 | 3 (follow-up) | Zone lists could name an item with no `item_routes` row at the branch (not in `items[]`) | (a) zone write requires the route (422 `not_found`), §6.16 route removal refused while a zone names it (409); (b) builder filters; (c) 02b ignores | (a) — follow-up fix after task 5; also the §6.15 PATCH path, and the AD-9 restore drops unrouted entries (owner, 2026-11-08) | **ruled (owner, 2026-11-08)**; 01a §6.6a marker |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
