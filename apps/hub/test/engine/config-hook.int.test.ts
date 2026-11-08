@@ -200,7 +200,9 @@ describe('03a task 24: the config hook (§3.11)', () => {
         expect(appended.length).toBeLessThanOrEqual(1);
         expect(canonicalJson(engine().config)).toBe(canonicalJson(e));
       }
-    });
+      // 200 real applies through the writer (parseEvent, projections, fold): ~6–7 s on the dev laptop when warm.
+      // An explicit timeout, as for the other heavy fixtures (975b8d3); a timeout, not a bound (AD-32).
+    }, 30_000);
 
     it('edge configs the V3 schema allows: a negative cook time (reference clamped to 0), a repeated station_id (first row kept), zero and negative knobs', () => {
       const c = aBranchConfig({
