@@ -84,6 +84,14 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-18 | 6 | Settings form sends the five fields before task 9's PATCH accepts them (400 / dropped on this branch) | (a) accept, transient until task 9; (b) hide until the wire has them | (a) | **ruled (owner, 2026-11-08)** |
 | AD-19 | 6 | Comp chips help text promised "'Other' asks for a note" (02b ties it to the code `other`); duplicates accepted | (a) neutral help, refuse case-insensitive duplicates; (b) keep | (a) | **ruled (owner, 2026-11-08)** |
 | AD-20 | 9 | `served_estimate_ms` has no range in 01a §5.2a ("nullable, until 03b") | (a) not writable by the settings PATCH yet (stays null, delivered null); (b) accept with a chosen range | (a) | **ruled (owner, 2026-11-08)** |
+| AD-21 | 7 | Brief named StaffWire fields `assigned_*`; 01b §5.3 / §6.2 say `zone_ids` / `table_ids` (directory keeps `assigned_*`) | spec wins (plan rule) | spec | **ruled (controller, spec wins)**; 01b rule 7 marker |
+| AD-22 | 7 | Staff version input omits `assignments` | (a) include; (b) leave out | (a) | **ruled (owner, 2026-11-08)** |
+| AD-23 | 7 | PATCH semantics for `assignments`, duplicate branch | (a) per sent branch, dup → 400; (b) whole list | (a) | **ruled (owner, 2026-11-08)** |
+| AD-24 | 7 | Table archived after assignment; table vs zone assignee | (a) keep rows, filter, table wins; (b) delete; (c) 409 | (a) | **ruled (owner, 2026-11-08)** |
+| AD-25 | 7 | Hub join table → zone for `assignedOrderTaker` | (a) injected `zoneOfTable` reader; (b) caller passes zone; (c) directory carries it | (a) | **ruled (owner, 2026-11-08)** |
+| AD-26 | 7 | Reasons not in rule 7 (unknown id, branch outside `branch_ids`, field, holder) | (a) `not_found`, `wrong_branch`, plain field, current holder; (b) indexed field | (a) | **ruled (owner, 2026-11-08)** |
+| AD-27 | 7 | Statement counts: admin staff GET 6 → 7, hub directory load 10 → 11 | (a) accept +1 each; (b) fold into one statement | (a) | **ruled (owner, 2026-11-08)** |
+| AD-28 | 7 | Zone archive / restore did not bump `directory_version` | (a) bump; (b) like floors | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
