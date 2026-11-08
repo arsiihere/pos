@@ -92,6 +92,8 @@ interface CatchUp {
   failures: number; // catch-up passes in a row that did not commit
   retry_at: number; // once failures ≥ CATCH_UP_ATTEMPTS: the earliest next attempt
   pending: boolean; // this due chose a catch-up pass; still true at the next due → it did not commit
+  warned_at: number | null; // AD-35 (c) amended: when the last back-off warn line was logged (null: none yet)
+  passes: number; // ordinary backed-off passes since that line
 }
 const catchUps = new WeakMap<object, CatchUp>();
 
@@ -99,7 +101,7 @@ const catchUps = new WeakMap<object, CatchUp>();
 function catchUpDue(host: object, log: ErrorLog | undefined, now: number): boolean {
   let c = catchUps.get(host);
   if (c === undefined) {
-    c = { failures: 0, retry_at: 0, pending: false };
+    c = { failures: 0, retry_at: 0, pending: false, warned_at: null, passes: 0 };
     catchUps.set(host, c);
   }
   if (c.pending) {
@@ -115,10 +117,21 @@ function catchUpDue(host: object, log: ErrorLog | undefined, now: number): boole
   return true;
 }
 
-// AD-35 (c), owner ruling: while configStale is still set after the back-off, every ordinary pass logs one warn line
-// with the failure count, the config version in use and the one the catch-up wants (E()'s, or null when there is no
-// E() or it throws). In memory, 0 statements; never throws.
-function warnBackedOff(host: FiresHost, state: EngineState): void {
+// AD-35 (c), owner ruling, amended by the owner 2026-11-08 (rate limit): while configStale is still set after the
+// back-off, the first ordinary pass logs one warn line, then at most one line per CONFIG_POLL_INTERVAL_MS (so one per
+// retry), with the failure count, the config version in use, the one the catch-up wants (E()'s, or null when there is
+// no E() or it throws) and the ordinary passes run since the last line. Times are the pass's `now`. In memory,
+// 0 statements; never throws.
+function warnBackedOff(host: FiresHost, state: EngineState, now: number): void {
+  const c = catchUps.get(host);
+  if (c === undefined) return;
+  if (c.warned_at !== null && now < c.warned_at + CONFIG_POLL_INTERVAL_MS) {
+    c.passes += 1;
+    return;
+  }
+  const passes = c.passes;
+  c.warned_at = now;
+  c.passes = 0;
   try {
     let wanted: number | null = null;
     try {
@@ -127,7 +140,13 @@ function warnBackedOff(host: FiresHost, state: EngineState): void {
       wanted = null;
     }
     host.log?.warn?.(
-      { tick: 'fires', failures: catchUps.get(host)?.failures ?? 0, config_version: state.config?.config_version ?? null, wanted_config_version: wanted },
+      {
+        tick: 'fires',
+        failures: c.failures,
+        config_version: state.config?.config_version ?? null,
+        wanted_config_version: wanted,
+        passes_since_last_line: passes,
+      },
       'fires: config catch-up backed off; configStale still set',
     );
   } catch {
@@ -177,7 +196,7 @@ export const firesTick: TickDef = {
     // §3.11: the catch-up pass. last_pass_ms is left as it is, so the next pass still sees this interval's crossings.
     if (!hostFlags.configStale) catchUps.delete(host);
     else if (catchUpDue(host, host.log, now)) return true;
-    else warnBackedOff(host, state);
+    else warnBackedOff(host, state, now);
     const since = hostFlags.last_pass_ms;
     const { intents_due, crossed } = firesDue(state, since, now);
     hostFlags.last_pass_ms = now;

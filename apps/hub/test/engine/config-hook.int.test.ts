@@ -369,7 +369,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
       await pass(t + 300_000);
       expect(attempts()).toBe(5);
     });
-    it('AD-35 (c): every ordinary pass of the back-off logs one warn line (failures, config versions); none on a catch-up pass, none once it commits', async () => {
+    it('AD-35 (c), amended by the owner 2026-11-08: one warn line when the back-off starts, then at most one per 60 s (on each retry), with failures, config versions and the passes since the last line; none on a catch-up pass, none once it commits', async () => {
       startLoop();
       hub.deps.writer.run((tx) => tx.append([draftOf(anEngineConfigApplied()), draftOf(aBusinessDayOpened())]));
       hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
@@ -386,24 +386,29 @@ describe('03a task 24: the config hook (§3.11)', () => {
       // Three failing catch-up passes: no warn line.
       for (let i = 0; i < 3; i += 1) await pass(t);
       expect(warnLines(hub)).toEqual([]);
-      // The back-off: one line per ordinary pass; E() throws, so the wanted version is null.
+      // The back-off starts: one line; E() throws, so the wanted version is null. No line before.
       await pass(t);
-      await pass(t + 30_000);
+      expect(warnLines(hub)).toEqual([{ tick: 'fires', failures: 3, config_version: inUse, wanted_config_version: null, passes_since_last_line: 0 }]);
+      // Every ordinary pass within 60 s of that line logs nothing (the tick runs every 500 ms).
+      for (let ms = 500; ms < 60_000; ms += 500) await pass(t + ms);
       await pass(t + 59_999);
-      expect(warnLines(hub)).toEqual(Array.from({ length: 3 }, () => ({ tick: 'fires', failures: 3, config_version: inUse, wanted_config_version: null })));
-      // The retry at t + 60 s is a catch-up pass (no warn); it fails, the next ordinary pass counts 4.
+      expect(warnLines(hub)).toHaveLength(1);
+      // The retry at t + 60 s is a catch-up pass (no warn); it fails. E() works again before the next retry: the next
+      // ordinary pass logs one line, naming the version the catch-up wants and the 120 ordinary passes since the last line.
       await pass(t + 60_000);
-      expect(warnLines(hub)).toHaveLength(3);
-      // E() works again before the next retry: the backed-off pass names the version the catch-up wants.
+      expect(warnLines(hub)).toHaveLength(1);
       failing = false;
       await pass(t + 60_500);
-      expect(warnLines(hub).slice(3)).toEqual([{ tick: 'fires', failures: 4, config_version: inUse, wanted_config_version: inUse + 1 }]);
+      expect(warnLines(hub).slice(1)).toEqual([{ tick: 'fires', failures: 4, config_version: inUse, wanted_config_version: inUse + 1, passes_since_last_line: 120 }]);
+      await pass(t + 61_000);
+      await pass(t + 119_999);
+      expect(warnLines(hub)).toHaveLength(2);
       // The retry commits: no warn line from then on.
       await pass(t + 120_500);
       expect(hostFlags.configStale).toBe(false);
       await pass(t + 121_000);
       await pass(t + 200_000);
-      expect(warnLines(hub)).toHaveLength(4);
+      expect(warnLines(hub)).toHaveLength(2);
     });
   });
 });
@@ -504,7 +509,7 @@ function fuzzConfig(random: () => number, n: number): BranchConfig {
   };
 }
 
-// AD-35 (c): the fires tick's per-pass warn lines while the config catch-up is backed off, in log order.
+// AD-35 (c), amended 2026-11-08: the fires tick's rate-limited warn lines while the config catch-up is backed off, in log order.
 function warnLines(hub: { logs(): string }): Array<Record<string, unknown>> {
   return hub
     .logs()
@@ -512,6 +517,6 @@ function warnLines(hub: { logs(): string }): Array<Record<string, unknown>> {
     .filter((line) => line.includes('fires: config catch-up backed off'))
     .map((line) => {
       const o = JSON.parse(line) as Record<string, unknown>;
-      return { tick: o.tick, failures: o.failures, config_version: o.config_version, wanted_config_version: o.wanted_config_version };
+      return { tick: o.tick, failures: o.failures, config_version: o.config_version, wanted_config_version: o.wanted_config_version, passes_since_last_line: o.passes_since_last_line };
     });
 }
