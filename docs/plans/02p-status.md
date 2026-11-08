@@ -4,13 +4,53 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **Raat ka kaam (2026-11-09, engine lane, unattended):**
+> - Batch 5a aur 5b chal gaye. Gate dono baar green (aakhri: 3348 tests, 519 s). Sab push ho gaya.
+> - Mukammal: 17b (03a ke purane gaps), 14 (slip ka receiver aur table ka naam), 16 (partial remove), 17 (zone ko stock transfer, served_at).
+> - **Do kaam ruke hue hain, aapke faisle chahiye:**
+>   - 15: `boot.int.test.ts` platform A ki file hai (E-2).
+>   - 17c: perf test ka waqt (E-1).
+> - Ek spec text ka sawal: E-3. Aur 18 AD-E rows "proposed" hain; aap batch mein rule karein.
+> - Task 18 dono baaqi merges ke baad.
+
+## MORNING REPORT (2026-11-09): batches 5a and 5b run; 15 and 17c blocked; STOPPED
+
+**Head:** `module-02p-engine` (checkpoint commit). Code head `337d635`. Nothing merged by me.
+
+**Done (each reviewed by a fresh opus reviewer):**
+1. 17b: `4574240`, fix `ff02a82`.
+2. 14: `34ad0ba`. This includes the AD-13 V4 import switch in `config-hook.int.test.ts`; platform A can now remove the `BranchConfigSnapshotSchemaV3` alias.
+3. 16: `15f639f`.
+4. 17: `25b88c9`, fix `337d635`.
+
+**Gates:** green twice, at `ff02a82` (3325 tests) and `337d635` (3348 tests).
+
+**Blocked:**
+- **Task 15:** decision **E-2**. Its one extra boot query breaks the step-3 count in the platform-A-owned `boot.int.test.ts`. The tree is clean; the design is ready in the task-15 report.
+- **Task 17c:** decision **E-1**. No slip is due at the perf test's measured instant. The assert runs only under `test:perf`, so the normal gate is fine.
+
+**Decisions for the owner:**
+1. **E-1 (17c):** add a second perf block, measured at the first slip due time + 60 s, with the same 20 ms bound, and keep the existing row at `peak.at`. Recommend **(b)**.
+2. **E-2 (15):** allow task 15 to edit the three step-3 asserts in `boot.int.test.ts` in its own commit (4 + 2 → 4 + 2 + 1, which R-3 already approved). Recommend **(b)**.
+3. **E-3 (17):** as-built text patch to 03a v1.2 §3.3: `last_served_at` = `min(served_at, recorded_at)`, plus the `state.ts:111` comment. Recommend **(a)**.
+4. **AD-E1–AD-E18:** readings from tasks 14–17, all "proposed". Each reviewer found them consistent with the spec, except AD-E11 (= E-3). AD-E6 is a note for 02a: each real reader must be exactly one statement. Recommend accepting AD-E1–E10 and E12–E18 as listed.
+
+**Next:**
+- After E-2: task 15, then a gate.
+- After E-1: the 17c fix.
+- Task 18 after the platform A and B merges.
+
+<details><summary>Earlier report (2026-11-08)</summary>
+
+> **Short Hinglish summary — padhein yahan se**
+>
 > **Plan likh diya (2026-11-08):**
 > - Task 0 mukammal hai: 03a v1.2 aur 01d v1.2.1 APPROVED.
 > - Plan mein 18 tasks hain, do lanes mein: platform (tasks 1–13) aur engine (14–17, saath mein 03a ke purane gaps, task 17b).
 > - Task 18 dono lanes merge hone ke baad chalega.
 > - Aapki approval ka intezar hai. Approval ke baad platform lane ka prompt neeche hai.
 
-## MORNING REPORT (2026-11-08): task 0 done; plan written; STOPPED for plan approval
+### MORNING REPORT (2026-11-08): task 0 done; plan written; STOPPED for plan approval
 
 **Head:** `module-02p-engine`, plan commit (see the git log). Nothing merged.
 
@@ -28,6 +68,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 4. The engine lane then runs tasks 14–17.
 
 **Decisions for the owner:** none open.
+
+</details>
 
 ## PLATFORM A REPORT (2026-11-08): batch 2 done (tasks 3–6), gate green, pushed
 
@@ -53,12 +95,12 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
-| 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | committed; review and gate next | `4574240` |
-| 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | todo | |
-| 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
-| 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
-| 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | todo (needs task 1 merged) | |
-| 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | todo (needs task 1 merged) | |
+| 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | **done** | `4574240`, fix `ff02a82` |
+| 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | **blocked (E-1)**, committed `e261f25` needs the E-1 fix | `e261f25` |
+| 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | **done** | `34ad0ba` |
+| 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **blocked (E-2)** | |
+| 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | **done** | `15f639f` |
+| 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | **done** | `25b88c9`, fix `337d635` |
 | 18 | Simulator gate, full gate, README | engine | NORMAL | todo (needs all three lanes merged) | |
 
 ## AD rows
@@ -85,6 +127,24 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-18 | 6 | Settings form sends the five fields before task 9's PATCH accepts them (400 / dropped on this branch) | (a) accept, transient until task 9; (b) hide until the wire has them | (a) | **ruled (owner, 2026-11-08)** |
 | AD-19 | 6 | Comp chips help text promised "'Other' asks for a note" (02b ties it to the code `other`); duplicates accepted | (a) neutral help, refuse case-insensitive duplicates; (b) keep | (a) | **ruled (owner, 2026-11-08)** |
 | AD-20 | 9 | `served_estimate_ms` has no range in 01a §5.2a ("nullable, until 03b") | (a) not writable by the settings PATCH yet (stays null, delivered null); (b) accept with a chosen range | (a) | **ruled (owner, 2026-11-08)** |
+| AD-E1 | 14 | The two slip readers run before the per-slip skip checks, because the receiver depends on the holder; with no `slip_warning` kind registered they are not called | (a) as built; (b) run after the checks | (a) | proposed (not yet ruled) |
+| AD-E2 | 14 | A holder returned by `holdersOfOrders` but not in the hub directory takes the `receiver_not_in_directory` skip, not the `placed_by` fallback (§3.8: the fallback is only for "no holder returned") | (a) skip; (b) fall back to `placed_by` | (a) | proposed (not yet ruled) |
+| AD-E3 | 14 | A slip's stored `display` now has `table_code: null` written explicitly (it was absent); frames are unchanged (`ws-frames.ts:294` maps absent to null) | (a) explicit null; (b) omit | (a) | proposed (not yet ruled) |
+| AD-E4 | 14 | Test #123 placed in `kinds.int.test.ts` (it has the answer helpers); the brief named no file | — | as built | proposed (not yet ruled) |
+| AD-E5 | 14 | #122 "after a move": the next raise comes through the day-close carry (#113 pattern); an already raised alert keeps its old label (R-2 accepts a frozen label) | — | as built | proposed (not yet ruled) |
+| AD-E6 | 14 | The fake readers each make one statement; 02a's real `holdersOfOrders` / `currentTableOf` must each be exactly **one** statement or test 121's bound breaks when 02a lands | note for 02a | — | proposed (not yet ruled) |
+| AD-E7 | 14 | 03a v1.2 §3.2 says "tests that build `dine_in` keys use a seating id"; only `slip.test.ts` and the new tests were changed. Other files still build `dine_in:T…` keys (27 in `fires-alerts-tick.int.test.ts`, 8 in `kinds.int.test.ts`, 14 in `release.test.ts`). Behaviour is unaffected (the engine keys on `table_key` as sent) | (a) read §3.2 as the slip tests and new tests only; (b) a mechanical rename later | (a) | proposed (not yet ruled) |
+| AD-E8 | 16 | A partial `ItemRemoved` whose share is not a whole number reuses `InvalidEvent('void_share_not_integer')`, as `ItemVoided` does (G4-3 #2, AD-8) | — | as built | proposed (not yet ruled) |
+| AD-E9 | 16 | A partial `ItemRemoved` has no stage limit beyond the open-line check; on a started line the release is capped at `reserved` (0 after a consume). Which stages allow a remove is 02b's command rule | — | as built | proposed (not yet ruled) |
+| AD-E10 | 16 | Built before 02p, not changed: `stockEffects` finds the line with `namedLine` (no `isOpen` check), so a partial remove or void on an ended line that still holds a reservation releases a share while the fold leaves its units alone. Live and replay still agree | (a) leave; (b) add `isOpen` (behaviour change, spec first) | (a) | proposed (not yet ruled) |
+| AD-E11 | 17 | **Q-6 "served time" = the order's `last_served_at`** (the engine keeps no served time per line). §3.3 and `state.ts:111` still say `last_served_at` = the serve's `recorded_at`: **decision E-3** | — | as built | proposed (not yet ruled) |
+| AD-E12 | 17 | A `StockTransferredOut` for a stock item the hub has never seen writes no stock entry (on_hand stays 0) and logs one breach | — | as built | proposed (not yet ruled) |
+| AD-E13 | 17 | A transfer that takes `on_hand` below `reserved` but not below 0 is not a breach (Q-5 names only the clamp at 0; 02b refuses an over-transfer with `409 STOCK_INSUFFICIENT`) | (a) as built; (b) breach like `StockSet` | (a) | proposed (not yet ruled) |
+| AD-E14 | 17 | `book()` (the array form of `stockEffects`) books a transfer like the fold does (review m1, `337d635`) | — | as built | proposed (not yet ruled) |
+| AD-E15 | 17 | The removal step that runs before every listed event still runs before a zone serve; `foldItemServed` itself returns `state` for `source: 'zone'` | — | as built | proposed (not yet ruled) |
+| AD-E16 | 17 | `stockEffects(ItemServed)` does not check `source: 'zone'`; zone ids are never engine lines, so nothing is drafted (only a writer bug differs) | (a) as built; (b) return none for `'zone'` | (a) | proposed (not yet ruled) |
+| AD-E17 | 15 (blocked) | Test #125's control for `ItemServed`: `{ source: 'zone' }` is skipped by its shape whatever the id, so the control uses `ItemRemoved` / `ItemVoided` on an unknown id plus `ItemServed { source: 'tap' }` on an unknown id | — | proposed for task 15 | proposed (not yet ruled) |
+| AD-E18 | 15 (blocked) | Ready items on an empty order: an `OrderPlaced` with no engine lines creates no engine order, so a later `ItemAdded` / `ItemServed` of a ready item on it still logs `absent id` (the Q-3 filter does not cover it) | (a) keep logging, flag for 02b; (b) widen the filter (spec first) | (a) | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -142,6 +202,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 |---|---|---|---|---|
 | E-1 | 17c | No slip is due at the perf test's measured instant (`peak.at`), so the new "slips > 0" assert fails under `test:perf` and the slip path is still not timed. The reviewer rebuilt the seed-7 peak: 0 slips at `peak.at`, the first at + 127.6 s, ≈ 10 at + 60 s after that. The `receiver_not_in_directory` check also cannot fail (no logger in the perf hub). | (a) Measure the with-work samples at `nextAlertDueAt(peak.state) + 60 000` (≈ 10 slips, overloads unchanged), keep the idle test at `peak.at`, assert `hostFlags.skipped.size === 0` outside the timed part, and fix the comment. This moves the instant of an existing §7.1 row. (b) Keep the existing row at `peak.at` and add a second measured block at the later instant ("with slips"), same 20 ms bound. (c) Drop the slip assert and leave gap 4 timing for task 28. | **(b)**: the existing number stays comparable with the 03a v1.0.1 A/B, and the slip path gets its own number. |
 | E-2 | 15 | 03a v1.2 R-3 adds one boot statement (step 3 = 4 + 2 + 1). The platform-A-owned `apps/hub/test/engine/boot.int.test.ts` pins step 3 = 4 + 2. At `:393`, `toHaveLength(6)` becomes 7. At `:397–398`, the `version` filter (`method !== 'iterate'`) gets 3, not 2. At `:405–409`, the plan-text match fails for the new read, whose plan ends `… AND seq>?)`. The probe was reverted; the tree is clean. | (a) Platform A edits `boot.int.test.ts` (title 4 + 2 + 1, `:393` → 7, `:397` filter matches only the two `stock_version` reads, e.g. by `ORDER BY seq DESC LIMIT 1`), then the engine lane builds task 15. (b) One-time ownership exception: task 15 makes exactly these test edits in `boot.int.test.ts`, in its own commit. | **(b)**: the edit follows a rule you already approved (R-3) and lands in the same task as the code. Platform A has no other change pending in that file. |
+| E-3 | 17 | 03a v1.2 Q-6 says `foldItemServed` uses `min(served_at, recorded_at)`. §3.3 (~:391 "recorded_at of the ItemServed…", ~:438 "`last_served_at` is set from that event's `recorded_at`") and `state.ts:111` were not amended. As built, `last_served_at` = `min(served_at ?? recorded_at, recorded_at)`. The exit predicate (`lifecycle.ts:65`) and `slip.ts:150` now count from the earlier time, which is Q-6's intent. Old logs fold the same, so D62 holds. | (a) A text patch to 03a v1.2 §3.3 (both lines → "min(served_at, recorded_at)") and the `state.ts:111` comment, as an as-built note; (b) a spec bump to 03a v1.2.1 | **(a)**: no rule change; the code follows Q-6. |
 
 ## Batch 5a — 03a carry-over, engine lane (2026-11-09)
 
@@ -154,6 +215,19 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 03a open item 13, gaps 1, 2, 4 (EXPLAIN), 5, 7. Gap 4's timing is open (E-1).
 - **AD rows (proposed):** none. Engine-lane AD rows will be numbered **AD-E1, AD-E2 …**, because platform A uses AD-1 upward.
 - **Carried:** AD-13 (owner-ruled): the engine lane switches the `BranchConfigSnapshotSchemaV3` import in `config-hook.int.test.ts` to V4; done in task 14.
+
+## Batch 5b — 03a v1.2 engine rows (2026-11-09)
+
+- **Tasks:** 14, 16, 17 done; 15 **blocked** (E-2).
+- **Commits:** `34ad0ba` (14), `15f639f` (16), `25b88c9` (17), `337d635` (17 review fix: `book()` books `StockTransferredOut`; `served_at` checks).
+- **Reviews (fresh opus each):**
+  - 14: spec ✅ quality ✅, 5 Minor (optional, not applied).
+  - 16: spec ✅ quality ✅, 3 Minor (optional; Minor 3 → AD-E10).
+  - 17 (HIGH): spec ✅ quality ✅, 5 Minor. m1 and m5 fixed, re-review clean; m2–m4 left (m3 goes with E-3).
+- **Gate:** at `337d635`: green. 367 files passed (1 skipped), 3348 tests passed (1 skipped, 1 todo), 519 s.
+- **Tests closed:** 03a #94 (updated), #120, #121, #122, #123, #126, #127, #128; 01a #194 "boot fold counts it" (in the new `apps/hub/test/engine/boot-idset.int.test.ts`). Open: #124, #125, #130 (task 15).
+- **AD rows (proposed):** AD-E1–AD-E18 (table above).
+- **Statement bound (R-1):** `fires_alerts` with work = 2 + 1 + 1 + 1 + 6 = 11 for 1 and for 3 tables; takeaway only = 9; idle 0 (test 121).
 
 ## Platform A prompt (for the owner to paste into a new session)
 
