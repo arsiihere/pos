@@ -60,9 +60,15 @@ Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner app
 
 - `fires_alerts` has no statement assertion for a pass that closes and raises in one go, for an overload pass, or for the first pass after a day close.
 - There is no hub-level statement test for a `fires` pass that writes Start, Done, `StockConsumed` and `ReservationsShifted` drafts.
-- There is no test for `set-station-capacity` / `set-station-pause` from a session without `manage-stations`.
 - The new slip line-facts read is not timed at the peak (the simulator's orders have no `placed_by`).
 - Task 27 Minor 3: there is no scoped live = replay compare right after the deferred checkpoint is written.
 - DoD 2: the pilot-box measurements (task 28).
-- BF-9 is parked (`it.todo`; its text still names the superseded AD-2 re-reserve).
-- **Many readings are still proposed** (not yet ruled): AD-5, AD-7–AD-11, AD-13–AD-15, AD-30, AD-31, AD-29 Q3 / Q6 / Q9, AD-37 (4)–(9), P-5, P-11, P-12. Approving the v1.0.1 draft rules them. **Owner to confirm:** the slip `apply` read count (§12.2) and A-19 vs foundation D46.
+- BF-9 is parked (`it.todo`, text fixed in `d5ad7ac`; AD-2 superseded).
+- Gaps 1, 2, 4 (with `placed_by` on the simulator's orders), 5 and 7 are carried to 02p batch 5 (engine lane).
+
+## Owner rulings 2026-11-08
+
+- Every reading that was proposed is **approved as built**: AD-5, AD-7, AD-8, AD-9, AD-10, AD-11, AD-13, AD-14, AD-15, AD-30, AD-31; AD-29 Q3, Q6, Q9; AD-37 (4)–(9); P-5, P-11, P-12. The slip `apply` read count (§12.2) is confirmed; A-19 is a named exception to D46.
+- AD-38: five host readings, approved as built (v1.0.1 Changes row 39).
+- The config catch-up back-off warn line is rate-limited: one when it starts, then at most one per 60 s (`72bbed8`).
+- Fixed: the station commands' missing-permission tests (`5a44193`); the stale BF-9 todo text (`d5ad7ac`).
