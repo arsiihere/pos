@@ -312,6 +312,33 @@ describe('@pos/engine stock folds (§3.7)', () => {
     expectInvariants(both);
   });
 
+  // AD-35 22b-4: the host frames a station whose reference changed, so a release that re-plans nothing must leave the
+  // station's object as it was (reference-equal), not a copy.
+  it('[03a AD-35 gap 7] the StockReleased test pins stations.S1 unchanged', () => {
+    // A hidden from-stock line with two draws (a delivery picked up in an hour): booked on S1.
+    const batch = submit('O1', [{ id: 'L', quantity: 2, draws: [{ stock_item_id: 'X', quantity: 2 }, { stock_item_id: 'Y', quantity: 2 }], from_stock: true }], T, undefined, HIDDEN);
+    const s = fold([cfg(), set('X', 5, DAY), set('Y', 5, DAY), ...batch]);
+    expect(s.lines.L!.booked).not.toBeNull();
+    // Releasing one draw keeps the line from stock (its cook time and booking stay): S1 is the same object.
+    const partial = fold([released('X', 'L', 2, T + 10)], s);
+    expect(partial.lines.L).toMatchObject({ from_stock: true, cook_ms: STOCK_COOK, booked: s.lines.L!.booked });
+    expect(stockOf(partial, 'X')).toMatchObject({ reserved: 0 });
+    expect(partial.stations.S1).toBe(s.stations.S1);
+    expectInvariants(partial);
+
+    // The whole-line case of the test above: ItemRemoved re-plans S1; the releases after it (the line goes fresh only
+    // at the last one) leave S1 as the removal left it.
+    const removed = fold([orderEv('ItemRemoved', 'O1', { order_item_id: 'L' }, T + 10)], s);
+    expect(removed.stations.S1).not.toBe(s.stations.S1);
+    const one = fold([released('X', 'L', 2, T + 10, 'removed')], removed);
+    expect(one.stations.S1).toBe(removed.stations.S1);
+    const both = fold([released('Y', 'L', 2, T + 10, 'removed')], one);
+    expect(both.lines.L).toMatchObject({ stage: 'removed', from_stock: false, cook_ms: COOK, reserved_seq: null });
+    expect(both.stations.S1).toBe(one.stations.S1);
+    expect(both.diagnostics).toEqual([]);
+    expectInvariants(both);
+  });
+
   it('[03a #117] partial void: "Seekh kebab × 3" from stock, 1 voided → units 2, draw { 2, 2 }; Start consumes 2; a count of 0 reports nothing', () => {
     const batch = submit('O1', [{ id: 'L', quantity: 3, draws: [{ stock_item_id: 'KB', quantity: 3 }], from_stock: true }], T, undefined, HIDDEN);
     const s0 = fold([cfg(), set('KB', 5, DAY), ...batch]);

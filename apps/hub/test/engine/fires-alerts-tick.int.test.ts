@@ -236,6 +236,103 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(m.dueStatements).toBe(0);
   });
 
+  // ------------------------------------------------------------------------------- §10.5 statement counts (gap 1)
+  // 03a v1.0.1 §6.2a / §10.5: a pass with work = 2 (listOpen) + ≤ 1 (tableOwners, stubbed by placed_by: 0) + ≤ 1 line
+  // facts (only in a pass with a slip to raise) + 01d's closeMany (1 alert read; its request_result raiseMany runs only
+  // for a request with a requester, and a slip_warning has none) and raiseMany (dedupe 1 + the cached fixed reads 5; a
+  // person or managers target needs no resolver, and no route is registered here). `reads` excludes the appends,
+  // including the close drafts appended before raiseMany.
+  it('[03a §10.5 gap 1] a fires_alerts pass that closes and raises in one go: exact statement count', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    const a = await lateSlip({ order_id: 'O1' });
+    await pass(a.due);
+    const [old] = slipAlerts();
+    expect(old).toMatchObject({ state: 'open', dedupe_key: `slip:${KEY}` });
+    // A second table goes late; before its slip is due, O1's line is done (its slip resolves).
+    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'O2-L1' }] });
+    await pass(hub.clock.branchNow());
+    fakeTap(hub.deps, 'start', 'O1-L1');
+    fakeTap(hub.deps, 'done', 'O1-L1');
+    expect(engine().slips[KEY]!.resolved_at).not.toBeNull();
+    const due2 = engine().slip_due['dine_in:T2']!;
+    expect(due2).toBeGreaterThan(hub.clock.branchNow());
+    const m = meter();
+    hub.published.length = 0;
+    await pass(due2);
+    expect(m.tx).toBe(1);
+    // One pass: O1's alert closed done and T2's raised, close first.
+    const rows = slipAlerts();
+    expect(rows.map((r) => [r.dedupe_key, r.state, r.close_reason])).toEqual([
+      [`slip:${KEY}`, 'closed', 'done'],
+      ['slip:dine_in:T2', 'open', null],
+    ]);
+    const types = hub.published.flat().map((e) => e.event_type);
+    expect(types.indexOf('AlertClosed')).toBeLessThan(types.indexOf('AlertRaised'));
+    expect(eventsOf('SlipWarned').map((e) => (e.payload as { table_key: string }).table_key)).toEqual(['dine_in:T2']);
+    // 2 listOpen + 0 tableOwners (stub) + 1 line facts (T2's slip) + closeMany 1 + raiseMany 6 (dedupe 1, fixed 5) = 10.
+    expect(m.reads).toEqual([2 + 0 + 1 + 1 + 6]);
+    expect(m.dueStatements).toBe(0);
+  });
+
+  it('[03a §10.5 gap 1] an overload pass: exact count', async () => {
+    kitchen(config({ S1: HOT }));
+    // S1 red: one 20-minute line on capacity 1, started at once (it never slips).
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    await pass(hub.clock.branchNow());
+    fakeTap(hub.deps, 'start', 'L1');
+    const m = meter();
+    m.reset();
+    // Every pass until pressure_alert_ms has passed: only the raise pass opens a transaction.
+    await passes(MIN / TICK_MS + 4);
+    expect(overloadAlerts().map((r) => [r.dedupe_key, r.state])).toEqual([['station_overload:S1', 'open']]);
+    expect(eventsOf('SlipWarned')).toEqual([]);
+    expect(m.tx).toBe(1);
+    // The raise pass: 2 listOpen + 0 tableOwners + 0 line facts (no slip) + no closeMany (nothing to close) + raiseMany 6
+    // (dedupe 1, fixed 5; the managers target needs no resolver) = 8.
+    expect(m.reads).toEqual([2 + 0 + 0 + 0 + 6]);
+    expect(m.dueStatements).toBe(0);
+    // The close pass (below amber): 2 listOpen + closeMany 1 (the info kind has no request) + no raiseMany = 3.
+    m.reset();
+    fakeTap(hub.deps, 'done', 'L1');
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(overloadAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'done' });
+    expect(m.tx).toBe(1);
+    expect(m.reads).toEqual([2 + 1]);
+    expect(m.dueStatements).toBe(0);
+  });
+
+  it('[03a §10.5 gap 1] the first pass after a day close (obsolete closes): exact count', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    const a = await lateSlip({ order_id: 'O1' });
+    await pass(a.due);
+    const b = await lateSlip({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' } });
+    await pass(b.due);
+    expect(slipAlerts().filter((r) => r.state === 'open')).toHaveLength(2);
+    // Every line done, so no order is late after the close and nothing is raised again (as #82).
+    for (const id of ['O1-L1', 'O2-L1']) {
+      fakeTap(hub.deps, 'start', id);
+      fakeTap(hub.deps, 'done', id);
+    }
+    append([aBusinessDayClosed()]);
+    expect(hostFlags.day_closed).toBe(true);
+    const m = meter();
+    m.reset();
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(m.tx).toBe(1);
+    expect(hostFlags.day_closed).toBe(false);
+    expect(slipAlerts().map((r) => [r.state, r.close_reason])).toEqual([
+      ['closed', 'obsolete'],
+      ['closed', 'obsolete'],
+    ]);
+    // 2 listOpen + one closeMany for both obsolete closes (1 alert read; a slip_warning has no requester, so no
+    // request_result raise) + no line facts, no raiseMany (nothing to raise) = 3, whatever the number of closes.
+    expect(m.reads).toEqual([2 + 1]);
+    expect(m.dueStatements).toBe(0);
+    m.reset();
+    await passes(5);
+    expect(m.tx).toBe(0);
+  });
+
   // ----------------------------------------------------------------------------------------------------------- AD-8
   it('[03a AD-8] a dropped line raises one engine_line_dropped alert to managers with its values; a second fold of the line raises none', async () => {
     kitchen();

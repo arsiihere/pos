@@ -22,7 +22,7 @@ import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { statementCounter } from '../helpers/statement-counter';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
-import { draftOf, fakeSubmit, type FakeOrder } from './fakes';
+import { draftOf, fakeSubmit, fakeTap, type FakeOrder } from './fakes';
 
 // As main.ts: the engine steps (and the fires tick, right after 01d's `alerts`), then the restaurant steps.
 registerEngineBootSteps(() => performance.now());
@@ -185,6 +185,80 @@ describe('03a task 22: the fires tick', () => {
     await pass(due);
     expect(m.tx).toBe(0);
     expect(m.statements).toBe(1);
+  });
+
+  // ------------------------------------------------------------------------------------------- §10.5 gap 2 (hub)
+  it('[03a §10.5 gap 2] a fires pass writing Start, Done, StockConsumed, ReservationsShifted drafts: exact count', async () => {
+    // X two_tap capacity 1 (the overrun cascade), AD auto_done (the inferred Done), ST single_tap (the inferred Start
+    // and its StockConsumed). Every line is immediate, one order each, prep 0.
+    const base = anEngineConfigApplied().payload as unknown as EngineConfig;
+    const s1 = base.stations[0]!;
+    const st = (station_id: string, o: Partial<EngineConfig['stations'][number]>) => ({ ...s1, station_id, name: station_id, ...o });
+    kitchen({ ...base, stations: [st('AD', { capacity: 1, completion_mode: 'auto_done' }), st('ST', { capacity: 2, completion_mode: 'single_tap' }), st('X', { capacity: 1, completion_mode: 'two_tap' })] });
+    const open = hub.clock.branchNow();
+    append([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 5, unit: 'piece' } })]);
+    const line = (order_item_id: string, station_id: string, cook: number, extra: Record<string, unknown> = {}) => ({
+      order_item_id,
+      station_id,
+      item: { station_id, cook_time_ms: cook, prep_buffer_ms: 0, serve_mode: 'immediate', ...extra },
+    });
+    const t0 = hub.clock.branchNow();
+    // On X: A [t0, t0 + 5), B [t0 + 5, t0 + 10), C [t0 + 10, t0 + 15). On AD: D [t0, t0 + 6).
+    submit({ order_id: 'OA', lines: [line('A', 'X', 5 * MIN)] });
+    submit({ order_id: 'OB', lines: [line('B', 'X', 5 * MIN)] });
+    submit({ order_id: 'OC', lines: [line('C', 'X', 5 * MIN)] });
+    submit({ order_id: 'OD', lines: [line('D', 'AD', 6 * MIN)] });
+    expect(engine().lines.C!.booked).toMatchObject({ start: t0 + 10 * MIN });
+    await pass(t0);
+    expect(fired().sort()).toEqual(['A', 'D']);
+    fakeTap(hub.deps, 'start', 'A');
+    fakeTap(hub.deps, 'start', 'D');
+    await pass(t0 + 5 * MIN); // B fires at A's planned end (no overrun yet)
+    expect(fired()).toContain('B');
+    // At t0 + 8: A (never tapped Done) overruns by 3 min, so B packed behind it overlaps C; D is past its auto Done; E,
+    // a from-stock line on ST submitted now, fires at once with its inferred Start and StockConsumed.
+    const P = t0 + 8 * MIN;
+    hub.clock.set(P);
+    fakeSubmit(
+      hub.deps,
+      { order_id: 'OE', lines: [line('E', 'ST', 20 * MIN, { stock_time_ms: MIN, stock_draws: [{ stock_item_id: 'K1', quantity: 1 }] })] },
+      { dayStartMs: open, stockItems: [{ stock_item_id: 'K1', name: 'Kebab', stock_unit: 'piece', carries_over: true, station_id: 'ST', low_stock_threshold: null }] },
+    );
+    expect(engine().lines.E!.from_stock).toBe(true);
+    const before = engine();
+    const expected = stamped(getTickIntents(before, P), P);
+    expect(expected.map((d) => d.event_type)).toEqual(['FireDispatched', 'ItemStarted', 'StockConsumed', 'ItemDone', 'ReservationsShifted']);
+    expect(expected.map((d) => (d.payload as { order_item_id?: string }).order_item_id ?? null)).toEqual([null, 'E', 'E', 'D', null]);
+    expect((expected[4]!.payload as { shifts: Array<{ order_item_id: string }> }).shifts.map((s) => s.order_item_id)).toEqual(['C']);
+    // The registered projections each upsert their checkpoint once per append (projections/registry.ts applyAll); none
+    // handles these five event types.
+    const projections = hub.deps.db.prepare('SELECT COUNT(*) FROM projection_checkpoints WHERE branch_id = ?').pluck().get(BRANCH) as number;
+    expect(projections).toBeGreaterThan(0);
+
+    const m = meter();
+    const realIntents = firesTick.intents.bind(firesTick);
+    let insideIntents = -1;
+    vi.spyOn(firesTick, 'intents').mockImplementation((tx, state, now) => {
+      const start = m.statements;
+      const drafts = realIntents(tx, state, now);
+      insideIntents = m.statements - start;
+      return drafts;
+    });
+    m.reset();
+    hub.published.length = 0;
+    await pass(P);
+    expect(m.tx).toBe(1);
+    expect(hub.published).toHaveLength(1);
+    expect(draftsOf(hub.published[0]!)).toEqual(expected);
+    // §6.2 / §10.5: 0 reads in intents (state in memory). The appends: 1 MAX(seq) + 5 INSERTs + one checkpoint upsert per
+    // projection. The pass: 01d's one indexed SELECT + those. No after-commit statement (no checkpoint pending, no
+    // snapshot multiple crossed; the frames read nothing).
+    expect(insideIntents).toBe(0);
+    expect(m.appendStatements).toBe(1 + 5 + projections);
+    expect(m.statements).toBe(1 + 0 + (1 + 5 + projections));
+    expect(engine().lines.D).toMatchObject({ stage: 'done', done_at: t0 + 6 * MIN });
+    expect(engine().lines.E).toMatchObject({ stage: 'cooking', started_at: P, reserved_seq: null });
+    expect(engine().stock.K1).toMatchObject({ on_hand: 4, reserved: 0 });
   });
 
   // ---------------------------------------------------------------------------------------------------------- #63

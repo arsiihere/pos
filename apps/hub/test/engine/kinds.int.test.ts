@@ -13,7 +13,7 @@ import type { CommandCtx } from '../../src/commands/registry';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { bindFiresAlertsTick, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
-import { ENGINE_ALERT_KINDS, SLIP_WARNING, SlipWarningDetails, slipDetails } from '../../src/engine-host/kinds';
+import { ENGINE_ALERT_KINDS, readLineFacts, SLIP_WARNING, SlipWarningDetails, slipDetails } from '../../src/engine-host/kinds';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import type { WriterTx } from '../../src/engine-host/writer';
 import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -258,6 +258,35 @@ describe('03a task 23: the engine alert kinds', () => {
       lead_fallback: false,
     });
     expect(Object.keys(kindOf(ENGINE_ALERT_KINDS.lineDropped)!.values_schema.shape).sort()).toEqual(['order_id', 'order_item_id', 'reason']);
+  });
+
+  // ----------------------------------------------------------------------------------------------- §6.2a gap 4
+  it('[03a §6.2a gap 4] EXPLAIN QUERY PLAN of the line-facts read uses the events_stream index', () => {
+    kitchen();
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', item: { name: 'Naan', quantity: 3 } }] });
+    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'L3' }] });
+    // The statement readLineFacts really runs (AD-37 (1)): recorded from db.prepare, not copied into the test.
+    const db = hub.deps.db;
+    const prepare = db.prepare;
+    const seen: string[] = [];
+    db.prepare = ((sql: string) => {
+      seen.push(sql);
+      return prepare.call(db, sql);
+    }) as typeof db.prepare;
+    let facts: ReturnType<typeof readLineFacts>;
+    try {
+      facts = readLineFacts(db, engine(), ['O1', 'O2']);
+    } finally {
+      db.prepare = prepare;
+    }
+    expect(seen).toHaveLength(1);
+    expect([...facts.keys()].sort()).toEqual(['L1', 'L2', 'L3']);
+    const sql = seen[0]!;
+    expect(sql).toMatch(/stream_type = 'order' AND event_type = 'ItemAdded' AND stream_id IN/);
+    expect(sql).not.toMatch(/branch_id/); // AD-37 (8): no branch_id predicate
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(JSON.stringify(['O1', 'O2'])) as Array<{ detail: string }>).map((r) => r.detail).join('\n');
+    expect(plan).toMatch(/SEARCH events USING INDEX events_stream \(stream_type=\? AND stream_id=\?\)/);
+    expect(plan).not.toMatch(/SCAN events/);
   });
 
   // ---------------------------------------------------------------------------------------------------------- #65
