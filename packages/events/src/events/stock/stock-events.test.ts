@@ -79,6 +79,7 @@ describe('StockTransferredOut (03a §4.2 Q-5)', () => {
     expect(schema.parse(base)).toEqual(base);
     expect(schema.safeParse({ ...base, quantity: 0 }).success).toBe(false);
     expect(schema.safeParse({ ...base, quantity: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, quantity: 1.5 }).success).toBe(false);
     for (const key of Object.keys(base)) {
       expect(schema.safeParse(without(base, key)).success, key).toBe(false);
     }
