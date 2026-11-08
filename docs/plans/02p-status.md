@@ -33,7 +33,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 > **Hinglish:** Batch 1 mukammal. Task 1 (`3db9ce1`) pehle push hua — engine lane mein merge kar sakte hain. Task 2 (`a4a6f73`, `a49d8cc`) bhi done. Gate green (3227 tests). Teen AD rows aapke faisle ke liye (AD-1, AD-2, AD-3). Agla: batch 2 (tasks 3–6).
 
-**Head:** `module-02p` (this checkpoint commit). **Blocks:** none. **Decisions for the owner:** AD-1 (recommend int), AD-2 (recommend keep), AD-3 (recommend append to §6.2 now).
+**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** none open (AD-1–AD-3 ruled 2026-11-08; AD-1 fix `0205a24`, AD-3 `b55c7d9`). Batch 2 in progress.
 
 ## Task table
 
@@ -64,9 +64,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 | # | Task | Reading | Options | Choice | Status |
 |---|---|---|---|---|---|
-| AD-1 | 1 | `StockTransferredOut.quantity` is `z.number().positive()` (plan "number > 0"). 01a v2.3 / 02b / 03a give no type; `StockAdded` v2 is `int().min(1).max(1_000_000)`, and 02b's refill is `draw × quantity` of ints | (a) keep `positive()`; (b) `int().min(1)` like `StockAdded` | (a) built as the plan says; recommend (b) before 02b produces it | proposed (not yet ruled) |
-| AD-2 | 2 | Files outside the brief's list, all forced by the task: `people.test.ts` (new, client half of the `WIDTH` test the brief names), `RoleEditor.test.tsx` (orders-group counts 4→9, 3→8: group grew 6→11), `docs/design/handoff/01b/urdu-todo.md` (Urdu goes to the to-do list, n-5); extra label `roles.scope_help.my_zones` (`RoleEditor.tsx` needs it to typecheck). English label wording is ours (no spec text) | (a) keep; (b) revert and re-plan | (a) | proposed (not yet ruled) |
-| AD-3 | 2 | `ZONE_NOT_FOUND` is in `errors.ts` but not yet in the foundation §6.2 404 list (CLAUDE.md: "append them to the foundation §6.2 list"; R34: no bump). 02p task 2's file list names only `errors.ts` | (a) append it to foundation v1.11 §6.2 in a small docs commit now; (b) leave it to task 18's "spec text" | none yet — needs the owner (foundation file) | proposed (not yet ruled) |
+| AD-1 | 1 | `StockTransferredOut.quantity` is `z.number().positive()` (plan "number > 0"). 01a v2.3 / 02b / 03a give no type; `StockAdded` v2 is `int().min(1).max(1_000_000)`, and 02b's refill is `draw × quantity` of ints | (a) keep `positive()`; (b) `int().min(1)` like `StockAdded` | (b) — fixed in `0205a24` (01a S44) | **ruled (owner, 2026-11-08)** |
+| AD-2 | 2 | Files outside the brief's list, all forced by the task: `people.test.ts` (new, client half of the `WIDTH` test the brief names), `RoleEditor.test.tsx` (orders-group counts 4→9, 3→8: group grew 6→11), `docs/design/handoff/01b/urdu-todo.md` (Urdu goes to the to-do list, n-5); extra label `roles.scope_help.my_zones` (`RoleEditor.tsx` needs it to typecheck). English label wording is ours (no spec text) | (a) keep; (b) revert and re-plan | (a) | **accepted (owner, 2026-11-08)** |
+| AD-3 | 2 | `ZONE_NOT_FOUND` is in `errors.ts` but not yet in the foundation §6.2 404 list (CLAUDE.md: "append them to the foundation §6.2 list"; R34: no bump). 02p task 2's file list names only `errors.ts` | (a) append it to foundation v1.11 §6.2 in a small docs commit now; (b) leave it to task 18's "spec text" | (a) — appended in `b55c7d9` | **accepted (owner, 2026-11-08)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -79,6 +79,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-08 | R-3 one boot read, step 3 = 4 + 2 + 1, from the older of two **readable** checkpoints, else seq 0 (T-6, re-check R-2) | 03a v1.2 §3.12 |
 | 2026-11-08 | Q-v1.2-2 (absent-id noise on exited orders) left for the 04 spec | 03a v1.2 §12.3 |
 | 2026-11-08 | Plan APPROVED; three lanes (platform A 1–10, platform B 11–13, engine 14–17, 17b, 18); `boot.int.test.ts` owned by platform A, engine boot tests in `boot-idset.int.test.ts` | plan |
+| 2026-11-08 | AD-1: `StockTransferredOut.quantity` = `int().min(1)` (01a S44), fixed now (`0205a24`); AD-2 accepted; AD-3 accepted, `ZONE_NOT_FOUND` appended to foundation v1.11 §6.2, no bump (`b55c7d9`); the `my_zones` 500 until task 8 accepted (transient on this branch) | board, foundation §6.2 |
 
 ## Batch entries
 
