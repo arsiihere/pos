@@ -18,7 +18,7 @@ v1.2 (02a rows D-1–D-3, not yet built) and v1.1.2 (03a AD-36, built) were both
 
 | Row | Change | Where |
 |---|---|---|
-| P-1 | **Table chip:** the client shows `T{table_code}` ("T12") only when `display.table_code` is **all digits**; otherwise it shows `table_code` as-is ("Patio 3"), never "TPatio 3". Reason: 01a has no table code, and 03a v1.2 R-2 sends the primary table's **name** in `table_code`. **Client change only** (`apps/client/src/features/alerts/labels.ts` and the chip in `ui.tsx`), built with **02b's screens**, not in 02p; no wire, schema or 01a change. Client test: `apps/client/src/features/alerts/labels.test.ts`, `[01d v1.2.1 P-1] the table chip shows T{code} for an all-digit table_code and the name as-is otherwise` | §3.12 display note (batch 9a chip), §8 |
+| P-1 | **Table chip:** the client shows `T{table_code}` ("T12") only when `display.table_code` is **all digits**; otherwise it shows `table_code` as-is ("Patio 3"), never "TPatio 3". Reason: 01a has no table code, and 03a v1.2 R-2 sends the primary table's **name** in `table_code`. **Client change only** (`apps/client/src/features/alerts/labels.ts` and the chip in `ui.tsx`), built with **02b's screens**, not in 02p; no wire, schema or 01a change. Client test: `apps/client/src/features/alerts/labels.test.ts`, `[01d v1.2.1 P-1] the table chip shows T{code} for an all-digit table_code and the name as-is otherwise` | §3.12 display note (batch 9a chip) |
 
 The v1.2 and v1.1.2 rows touch different sections (v1.2: §3.4.2, §3.5, §4.2–§4.4, test 25; v1.1.2: §3.12, §5 events table, §5.4 `@pos/events` list), so nothing is merged by hand. The §5.4 export line, which v1.1.2 left at the old four fields, is brought in line with §3.12 (02p task 0, text only).
 
@@ -1036,7 +1036,7 @@ No 01d table and no cloud schema change (v0.3: `pager_ids` moved to 01e). Cloud 
 
 ### 5.4 Wire shapes (`packages/events/src/alerts.ts`)
 
-`AlertTargetSchema` (discriminated union, §3.4), `AlertStepTargetSchema` (step targets incl. `from_value` and `requester_lead`, §3.5), `AlertDisplaySchema` (`{ table_code?, point_code?, requester_name?, device_name?, kind_label_key }`, lock-safe), `AlertDetailsBase` (`{ item?, quantity?, amount?, reason?, minutes_late?, lines? }`; ⚠️ 02p task 0, text only: `minutes_late`, `lines` per v1.1.2 §3.12, was the four fields), signed-in only, §3.12), `AlertViewSchema` (§6.3 frame body; `card` with `details` only under the card rule, §6 batch 3), `ALERT_CONSTANTS` (A14, `@pos/domain`), command payloads (§6.2–6.6).
+`AlertTargetSchema` (discriminated union, §3.4), `AlertStepTargetSchema` (step targets incl. `from_value` and `requester_lead`, §3.5), `AlertDisplaySchema` (`{ table_code?, point_code?, requester_name?, device_name?, kind_label_key }`, lock-safe), `AlertDetailsBase` (`{ item?, quantity?, amount?, reason?, minutes_late?, lines? }`, signed-in only, §3.12; ⚠️ 02p task 0, text only: `minutes_late`, `lines` per v1.1.2, was the four fields), `AlertViewSchema` (§6.3 frame body; `card` with `details` only under the card rule, §6 batch 3), `ALERT_CONSTANTS` (A14, `@pos/domain`), command payloads (§6.2–6.6).
 
 > As built (v1.1): the shapes as built, all additive.
 > - (AD-11, proposed) ids in payloads and views are `z.string().min(1)`, not ULID-checked, because directory staff ids are not ULIDs (e.g. `S_OWNER`); the convention of `packages/events/src/admin/staff.ts`. "`ulid`" in §6.2–§6.6 reads as this.
