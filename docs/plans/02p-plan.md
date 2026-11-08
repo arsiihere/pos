@@ -87,6 +87,7 @@ Five failure modes the spec implies but no named test exercises. Each line names
 | 3 | platform A | 7, 8, 9, 10 | batch 2 green |
 | 4 | platform B | 12, 13, then 11 | plan approved; task 11 after the owner has merged `module-02p` (with task 4) into `module-02p-hub` |
 | 5a | engine | 17b (03a carry-over; needs no task-1 schema) | plan approved |
+| 5a′ | engine | 17c (gap 4 timing, perf file only) | after 17b (owner, 2026-11-08) |
 | 5b | engine | 14, 15, 16, 17 | the owner has merged `module-02p` (with task 1) into `module-02p-engine` |
 | 6 | engine | 18 | the owner has merged all three lanes (task 18 runs on the merged head) |
 
@@ -118,7 +119,8 @@ The engine lane runs 17b first, while it waits for task 1. Tasks 14–17 need ta
 | 03a #124, #125, #130 (U-8 Q-3) | 15 |
 | 03a #126 (U-8 Q-4) | 16 |
 | 03a #127, #128, #94 updated, 01a #194 third clause (U-8 Q-5, Q-6) | 17 |
-| 03a open item 13 gaps 1, 2, 4, 5, 7 | 17b |
+| 03a open item 13 gaps 1, 2, 4 (EXPLAIN), 5, 7 | 17b |
+| 03a open item 13 gap 4 (slip raise path timed) | 17c |
 | U-9 | 18 |
 
 ---
@@ -565,6 +567,18 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
 - [ ] **Step 2:** Run the listed files (not `test:perf`) → PASS. The perf file's numbers are read only in task 18.
 - [ ] **Step 3: Commit.** `test(03a): v1.0.1 gaps 1, 2, 4, 5, 7 [03a v1.0.1 §1; 02p batch 5 carry-over]`.
 
+### Task 17c: gap 4 timing — the slip raise path in the peak perf run · Lane: engine · RISK: NORMAL
+
+Split from 17b (owner ruling 2026-11-08, option (b)). As built, simulator orders have no `placed_by` (`run.ts` submits with no `actor_id`) and the perf hub has no directory, so every slip is skipped and the raise path is never timed. **No simulator change:** `generate.ts`, `run.ts` and the pinned hashes (`harness.test.ts:197`, `apply-events.test.ts:217`, `:220`) stay as they are.
+
+**Files:**
+- Modify: `apps/hub/test/engine/fires-alerts-tick.perf.test.ts` only.
+
+- [ ] **Step 1:** In the perf file, set `placed_by` on the orders of the peak state (one staff id per order taker of the fixture) and seed those staff ids in the hub directory with the same fixture helpers the int tests use. The `fires_alerts` with-work samples then include slip raises.
+- [ ] **Step 2:** Add an assertion that is not a timing, in the same file: the measured passes raised at least one `slip_warning` (`AlertRaised` count > 0) and skipped none for `receiver_not_in_directory`. It runs only under `pnpm test:perf`.
+- [ ] **Step 3:** Typecheck (`pnpm --filter @pos/hub typecheck:tests`) and lint the file. **Do not run `pnpm test:perf`:** its numbers are read in task 18 on the real disk.
+- [ ] **Step 4: Commit.** `test(03a): time the slip raise path in the peak perf run [03a v1.0.1 §1 gap 4; 02p task 17c]`.
+
 ### Task 14: Q-2 seating key; Q-1 reader pair, receiver, label and bound · Lane: engine · RISK: NORMAL
 
 **Rows:** 03a v1.2 Q-1, Q-2, R-1, R-2; U-7; AD-37 (1), (2).
@@ -744,6 +758,6 @@ Runs first in the lane: it needs no task-1 schema. Tests only, plus the simulato
 
 ## Self-review (writer, 2026-11-08)
 
-- **Coverage.** Every §11 task 1–18 is here, in three lanes (owner, 2026-11-08). Every U-n maps to a task in the Coverage table. Every 03a v1.2 test 120–130 and 01a 181–195 is placed. 00 152–158 are in tasks 11 and 12. 01d test 25 is in task 13.
+- **Coverage.** Every §11 task 1–18 is here, plus 17b and 17c (the 03a carry-over), in three lanes (owner, 2026-11-08). Every U-n maps to a task in the Coverage table. Every 03a v1.2 test 120–130 and 01a 181–195 is placed. 00 152–158 are in tasks 11 and 12. 01d test 25 is in task 13.
 - **Names and types.** The same across tasks: `registerSlipReaders`, `holdersOfOrders`, `currentTableOf`, `zonesOf`, `assignedOrderTaker`, `queueable`, `ctx.queuedAt`, `untrackedLineIds`, `StockTransferredOut`.
 - **Open for the controller.** The exact cloud file for the branch settings `PATCH` (task 9) and the owner settings form (task 6) are found at build time; the spec fixes the behaviour.

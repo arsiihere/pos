@@ -47,7 +47,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 11 | 00 M95 paused idle clock | platform B | NORMAL | see `02p-status-hub.md` | |
 | 12 | `X-Queued-At`, `queueable`, CORS | platform B | NORMAL | see `02p-status-hub.md` | |
 | 13 | 01d D-1, D-3 | platform B | NORMAL | see `02p-status-hub.md` | |
-| 17b | 03a carry-over (open item 13: gaps 1, 2, 4, 5, 7) | engine | NORMAL | todo | |
+| 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | committed; review and gate wait for the task-1 merge (owner) | `4574240` |
+| 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | todo | |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
 | 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | todo (needs task 1 merged) | |
@@ -70,6 +71,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-08 | R-2 slip label = the primary table's **name** (field `table_code`); 01d P-1 chip `T…` only for all-digit values | 03a v1.2, 01d v1.2.1 |
 | 2026-11-08 | R-3 one boot read, step 3 = 4 + 2 + 1, from the older of two **readable** checkpoints, else seq 0 (T-6, re-check R-2) | 03a v1.2 §3.12 |
 | 2026-11-08 | Q-v1.2-2 (absent-id noise on exited orders) left for the 04 spec | 03a v1.2 §12.3 |
+| 2026-11-08 | Gap 4 timing → task 17c, option (b): `placed_by` and staff seeded in `fires-alerts-tick.perf.test.ts` only; no simulator change, no pinned hash moves | plan task 17c |
 | 2026-11-08 | Plan APPROVED; three lanes (platform A 1–10, platform B 11–13, engine 14–17, 17b, 18); `boot.int.test.ts` owned by platform A, engine boot tests in `boot-idset.int.test.ts` | plan |
 
 ## Batch entries
