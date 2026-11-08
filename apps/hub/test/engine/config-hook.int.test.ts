@@ -415,7 +415,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
       expect(hostFlags.configStale).toBe(false);
       expect(warnLines(hub)).toHaveLength(1);
       expect(backOffLines()).toBe(1);
-      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(3); // the three first failures only
+      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(3); // the tick loop's "tick failed" for the three failed attempts; the back-off error line goes to hub.logs()
     });
 
     it('AD-35 (c), amended by the owner 2026-11-08: one warn line when the back-off starts, then at most one per 60 s (on each retry), with failures, config versions and the passes since the last line; none on a catch-up pass, none once it commits', async () => {

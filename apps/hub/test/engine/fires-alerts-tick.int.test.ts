@@ -266,8 +266,8 @@ describe('03a task 22a: the fires_alerts tick', () => {
       [`slip:${KEY}`, 'closed', 'done'],
       ['slip:dine_in:T2', 'open', null],
     ]);
-    const types = hub.published.flat().map((e) => e.event_type);
-    expect(types.indexOf('AlertClosed')).toBeLessThan(types.indexOf('AlertRaised'));
+    const types = hub.published.flat().map((e) => e.event_type).filter((t) => t === 'AlertClosed' || t === 'AlertRaised');
+    expect(types).toEqual(['AlertClosed', 'AlertRaised']);
     expect(eventsOf('SlipWarned').map((e) => (e.payload as { table_key: string }).table_key)).toEqual(['dine_in:T2']);
     // 2 listOpen + 0 tableOwners (stub) + 1 line facts (T2's slip) + closeMany 1 + raiseMany 6 (dedupe 1, fixed 5) = 10.
     expect(m.reads).toEqual([2 + 0 + 1 + 1 + 6]);
@@ -281,7 +281,6 @@ describe('03a task 22a: the fires_alerts tick', () => {
     await pass(hub.clock.branchNow());
     fakeTap(hub.deps, 'start', 'L1');
     const m = meter();
-    m.reset();
     // Every pass until pressure_alert_ms has passed: only the raise pass opens a transaction.
     await passes(MIN / TICK_MS + 4);
     expect(overloadAlerts().map((r) => [r.dedupe_key, r.state])).toEqual([['station_overload:S1', 'open']]);
@@ -316,7 +315,6 @@ describe('03a task 22a: the fires_alerts tick', () => {
     append([aBusinessDayClosed()]);
     expect(hostFlags.day_closed).toBe(true);
     const m = meter();
-    m.reset();
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(m.tx).toBe(1);
     expect(hostFlags.day_closed).toBe(false);

@@ -282,8 +282,9 @@ describe('03a task 23: the engine alert kinds', () => {
     expect(seen).toHaveLength(1);
     expect([...facts.keys()].sort()).toEqual(['L1', 'L2', 'L3']);
     const sql = seen[0]!;
-    expect(sql).toMatch(/stream_type = 'order' AND event_type = 'ItemAdded' AND stream_id IN/);
-    expect(sql).not.toMatch(/branch_id/); // AD-37 (8): no branch_id predicate
+    const flat = sql.replace(/\s+/g, ' ').trim(); // a reformat of the SQL does not break the matches
+    expect(flat).toMatch(/stream_type = 'order' AND event_type = 'ItemAdded' AND stream_id IN/);
+    expect(flat).not.toMatch(/branch_id/); // AD-37 (8): no branch_id predicate
     const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(JSON.stringify(['O1', 'O2'])) as Array<{ detail: string }>).map((r) => r.detail).join('\n');
     expect(plan).toMatch(/SEARCH events USING INDEX events_stream \(stream_type=\? AND stream_id=\?\)/);
     expect(plan).not.toMatch(/SCAN events/);
