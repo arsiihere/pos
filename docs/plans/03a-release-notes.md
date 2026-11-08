@@ -1,6 +1,6 @@
 # 03a Timing Engine — release notes (v1.0.1 as built, draft)
 
-Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner approval before merge**; v1.0 kept as history). Branch `module-03a`, code head `988dbd9`. The last green gate was at `1d098b8` (3209 tests). The gate at `988dbd9` was red on load timeouts only (slow disk), so it must be re-run green before merge. Date 2026-11-08.
+Spec: `docs/specs/03a_Timing_Engine_Spec_v1.0.1.md` (**draft, awaiting owner approval before merge**; v1.0 kept as history). Branch `module-03a`, code head `dbfcf4b`. **Full gate green at `dbfcf4b`** (3214 tests, 8 m 55 s, on RAM per the owner's test-environment rule). Final `pnpm test:perf` (real disk): every engine row passes. The three SQLite-COMMIT host rows (`fires`, `fires_alerts` with work, snapshot full write) fail on this laptop's ≈ 27 ms-per-fsync disk. They passed in the batch 8 clean run; the pilot box decides (task 28). Date 2026-11-08.
 
 ## What 03a v1.0.1 delivers
 

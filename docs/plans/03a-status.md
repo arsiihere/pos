@@ -4,6 +4,8 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **Aapke faislon ke baad (2026-11-08, dopahar):** sab rulings lag gayin, teen fixes commit hue (warn line ab har 60 s mein zyada se zyada ek, permission test, BF-9 text). **Full gate green** `dbfcf4b` par: 3214 tests, 8 m 55 s (RAM par). `test:perf` mein engine ke saare numbers pass hain. Sirf 3 rows fail hain jo SQLite COMMIT karti hain, kyunke laptop ki disk ka fsync ≈ 27 ms hai. Faisla pilot box par hoga (task 28). Main ruk gaya hoon, merge nahi kiya.
+>
 > **Task 29 ke baad (2026-11-08, subah):** final review (koi Critical nahi), v1.0.1 as-built draft, release notes, aur AD-37 ke teeno faislay commit aur push ho gaye. Ek kami mili aur theek ki: stock frames staff ko nahi jaate thay (`988dbd9`). **Final gate red hai, lekin sirf timeouts:** disk bohot slow thi (ek fsync ≈ 27 ms). Akele chalane par wohi tests pass hote hain. Merge se pehle quiet machine par gate dobara chalana zaroori hai. Main ruk gaya hoon, merge nahi kiya.
 >
 > **Raat ka aakhri report (2026-11-08):** aapke kehne ke mutabiq sab kuch kar diya: (b) aur (c) fixes, 01d v1.1.2, task 23 (alert v2), task 27 (live = replay, 50 seeds, koi farq nahi mila). Final gate green (3209 tests). Ab ruka hoon; task 29 shuru nahi kiya. Do sawal AD-37 mein aapke liye hain.
@@ -14,7 +16,79 @@ Plan: `docs/plans/03a-plan.md` (53 tasks, batches 0–11). Spec: `docs/specs/03a
 >
 > **Batch 5 ke baad (2026-11-07):** engine core poora (tasks 0–18). Gate ke tamam §7.1 numbers normal peak day par pass: re-plan p99 10.6 ms, replay 11.5 s. Sirf 2 test red hain: AD-27 ka 90 % floor (degh, karahi): yeh aapka faisla hai. Upar MORNING REPORT parhein. Batch 8 ke liye "go" ka intezaar hai.
 
-## MORNING REPORT (2026-11-08, morning): task 29 done; STOPPED before any merge
+## MORNING REPORT (2026-11-08, afternoon): owner rulings applied, gate GREEN; STOPPED before any merge
+
+**Head:** the docs commit at the top of `module-03a`, pushed. Code head `dbfcf4b`. Nothing merged; `main` and the other branches untouched.
+
+**Your rulings, in order:**
+1. **Proposed rows approved as built** (`dbfcf4b`):
+   - The rows: AD-5, 7, 8 (controller rulings), 9, 10, 11, 13, 14, 15, 30, 31; AD-29 Q3, Q6, Q9 (= AD-24 S1); AD-37 (4)–(9); P-5, P-11, P-12.
+   - In v1.0.1 all 71 markers now read "owner ruling 2026-11-08". The board and the decisions log are updated the same way.
+   - Open item 12 (D46) is marked approved under A-19.
+2. **AD-38**, the five host readings approved as built (v1.0.1 Changes row 39):
+   - (a) At boot step 6, a closed day with no readable checkpoint sets `checkpoint_pending`.
+   - (b) A resolved slip whose alert is no longer open is skipped as `alert_not_open` and joins `skipped`.
+   - (c) The §7.1 slow re-plan warning is logged once per transaction, not per re-plan.
+   - (d) The absent-id log line is written live only, not on replay.
+   - (e) A failed catch-up retry also logs at `error`.
+3. **Back-off warn rate limit** (`72bbed8`, test first):
+   - One line when the back-off starts, then at most one per 60 s (one per retry).
+   - Each line carries `failures`, `config_version`, `wanted_config_version` and `passes_since_last_line`.
+   - Before: one line every 500 ms, about 120 a minute.
+   - Folded into Changes row 23 and §3.11, §6.2 and §7.2 (amends ruling c).
+4. **Gaps:**
+   - Gap 3 (`5a44193`): the cashier without `manage-stations` gets 403 `PERMISSION_DENIED` on both commands, and nothing is written. The code already refused this; only tests were missing. A mutation check confirms the tests can fail.
+   - Gap 8 (`d5ad7ac`): the BF-9 todo text now names the AD-29 Q6 parking.
+   - Gaps 1, 2, 4 (with `placed_by` on the simulator's orders), 5 and 7 are on the board as open item 13, for 02p batch 5 (engine lane).
+5. **Test environment:** your rule is now in CLAUDE.md (`2ff489c`), including the accepted `pos-pg-test` form: fsync, synchronous_commit and full_page_writes off via ALTER SYSTEM, data on the volume.
+
+**Gate at `dbfcf4b`: GREEN.**
+- Typecheck and lint are clean.
+- 361 files passed (1 skipped); 3214 tests passed (1 skipped, 1 todo `[03a BF-9]`).
+- Wall time **8 m 55 s**. The earlier disk-backed run took 61 min.
+- It ran with `TMPDIR=/dev/shm`. You switched Postgres to fsync off while it was running.
+- It needed no rerun and no `--maxWorkers` change.
+
+**`pnpm test:perf` at `dbfcf4b`: 23 passed, 3 failed, 410 s.** It ran on the real disk, alone on a quiet machine. §7.1 is filled with these numbers.
+
+Every engine row passes:
+
+| Row | Result |
+|---|---|
+| Re-plan p99 | 8.9 ms |
+| Overload day | p99 8.7 ms, 7 probes |
+| BF-7 | max 36.7 ms |
+| Snapshot serialise | max 4.6 ms |
+| Day replay | 11.9 s |
+| 2-day replay | 25.5 s |
+| stations-live | max 1.2 ms |
+| Tick intents | p99 4.4 ms |
+| `fires_alerts` idle | p99 1.1 ms |
+
+**Red: only the three rows that COMMIT to SQLite** with `synchronous=FULL`:
+
+| Row | At `dbfcf4b` | Batch 8 |
+|---|---|---|
+| `fires` with work p99 | **69.9 ms** (p50 46.8) | 11.2 ms |
+| `fires_alerts` with work p99 | **43.2 ms** (p50 38.1) | 10.6 ms |
+| Snapshot full write | **max 417.5 ms** (p50 86.9) | ≤ 50 ms |
+
+- **Cause, measured:** on the quiet machine, after your fstrim, this laptop's disk still takes **about 27 ms per fsync**. `dd oflag=dsync` (200 × 4 KiB) took 5.3–5.6 s, twice; `/dev/shm` took 0.002 ms. A healthy SSD fsyncs in well under 1 ms.
+- The fstrim and SMART checks don't cover fsync latency.
+- The gate asserts that the §12.2 statement counts are unchanged.
+- **I changed no bound and ran nothing on tmpfs.**
+- These three rows are DoD 2 material, decided on the pilot box (task 28).
+- Log: `/tmp/claude-1000/-home-arslan-pos/2e64158b-1e4f-43e8-8b9d-6972353b0c31/scratchpad/perf-final.log`
+
+**For you:**
+- Is the red perf on the three COMMIT rows acceptable for merge, pending task 28? Or do you want them measured on another disk first?
+- v1.0.1 is still a **DRAFT awaiting your approval**. Every row is now ruled.
+- **Task 28** stays open (pilot mini PC).
+- The cloud `stash@{0}` (`a621fdc`) can still be restored.
+
+**Exact next step:** approve 03a v1.0.1 and decide on the three perf rows. Then the merge, which is yours.
+
+## Earlier MORNING REPORT (2026-11-08, morning): task 29 done; STOPPED before any merge
 
 **Head:** the docs commit at the top of `module-03a`, pushed. Code head `988dbd9`. Nothing was merged. `main` and the other branches were not touched.
 
