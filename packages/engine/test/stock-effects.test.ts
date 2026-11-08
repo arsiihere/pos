@@ -708,6 +708,29 @@ describe('@pos/engine stockEffects (§3.7, §6.1f)', () => {
     expect(stockOf(up.state, 'KB')).toMatchObject({ on_hand: 3, reserved: 3 });
   });
 
+  it('[03a §3.7 Q-5] an array [StockTransferredOut, StockAdded] drafts the same reservations as folding the transfer first', () => {
+    // Task 17 review m1: book() threads a transfer as its fold does (on_hand −= quantity, clamped at 0).
+    const p = T + 3_600_000;
+    const s0 = fold([cfg(), set('KB', 2, DAY), ...hidden('O1', [{ id: 'N1', draws: kb() }], p), ...hidden('O2', [{ id: 'N2', quantity: 2, draws: kb(2) }], p + 60_000)]);
+    const at = T + 1_000;
+    const out = stamp({ ...aStockSet({ stream_id: 'KB' }), event_type: 'StockTransferredOut', schema_version: 1, payload: { stock_item_id: 'KB', quantity: 2, zone_id: 'Z1' } }, at);
+    const add = added('KB', 1, at);
+    const both = commit(s0, [out, add], at);
+    // Folding the transfer first, then the add alone: on_hand 0 + 1 → only N1 fits.
+    const afterOut = fold([out], s0);
+    const alone = [brief(add), ...stockEffects(afterOut, { ...draftOf(add), occurred_at: at }, CTX).map(brief)];
+    expect(alone).toEqual([
+      { type: 'StockAdded', id: 'KB', q: 1 },
+      { type: 'StockReserved', id: 'KB', line: 'N1', q: 1 },
+    ]);
+    expect(both.events.map(brief)).toEqual([{ type: 'StockTransferredOut', id: 'KB', q: 2 }, ...alone]);
+    expect(stockOf(both.state, 'KB')).toMatchObject({ on_hand: 1, reserved: 1 });
+    expect(breaches(both.state)).toEqual([]);
+    // Past on_hand the scratch clamps at 0 as the fold does: a transfer of 5 then an add of 1 still reserves N1 only.
+    const over = stamp({ ...out, payload: { stock_item_id: 'KB', quantity: 5, zone_id: 'Z1' } }, at);
+    expect(stockEffects(s0, [over, add].map((c) => ({ ...draftOf(c), occurred_at: at })), CTX).map(brief).slice(1)).toEqual(alone);
+  });
+
   it('[03a §6.1f] stock_ctx is required for StockAdded, ItemMovedToStock and StockSet; other drafts need none', () => {
     const s0 = fold([cfg(), set('KB', 1, DAY)]);
     expect(() => stockEffects(s0, { ...draftOf(added('KB', 1, T)), occurred_at: T })).toThrow(/stock_ctx/);

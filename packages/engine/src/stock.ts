@@ -319,6 +319,9 @@ function book(state: EngineState, d: { event_type: string; payload: Record<strin
       return withStock({ on_hand: p.on_hand as number, reserved: prev.reserved, set_at: t, unit: p.unit as Unit });
     case 'StockAdded':
       return p.unit === prev.unit ? withStock({ ...prev, on_hand: prev.on_hand + q }) : state;
+    // 03a v1.2 Q-5: as foldStockTransferredOut — on_hand −= quantity, clamped at 0; an item with no entry stays absent.
+    case 'StockTransferredOut':
+      return state.stock[sid] === undefined ? state : withStock({ ...prev, on_hand: Math.max(0, prev.on_hand - q) });
     case 'StockReserved':
       return lineDraws(withStock({ ...prev, reserved: prev.reserved + q }), (r) => r + q, () => ({ from_stock: true, reserved_seq: Number.MAX_SAFE_INTEGER }));
     case 'StockReleased':

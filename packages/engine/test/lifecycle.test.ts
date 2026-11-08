@@ -885,6 +885,25 @@ describe('@pos/engine lifecycle: ItemServed source zone and served_at (03a v1.2 
     expect(early.orders.O1).toMatchObject({ last_served_at: at(26), last_line_fold_at: at(30) });
     expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS - 1)).toBe(true);
     expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS)).toBe(false);
+    // Replay = live for the early-served_at log.
+    const earlyLog = [cfg(), ...doneOrder(), serve(['L1'], at(30), { served_at: at(26) })].map(deepFreeze);
+    const earlyLive = fold(earlyLog);
+    expect(earlyLive.orders.O1).toMatchObject({ last_served_at: at(26), last_line_fold_at: at(30) });
+    expect(buildEngineState(earlyLog)).toEqual(earlyLive);
+    expect(applyEvents(initialEngineState(), earlyLog)).toEqual(earlyLive);
+    // A serve queued past the whole exit window (served_at + ORDER_EXIT_AFTER_SERVED_MS ≤ recorded_at): the order is out
+    // of the engine at its own serve, and the next listed event removes it, live and replay alike.
+    const stale = at(30) + ORDER_EXIT_AFTER_SERVED_MS;
+    const staleLog = [cfg(), ...doneOrder(), serve(['L1'], stale, { served_at: at(30) })].map(deepFreeze);
+    const staleLive = fold(staleLog);
+    expect(staleLive.orders.O1!.last_served_at).toBe(at(30));
+    expect(isOrderInEngine(staleLive, 'O1', stale)).toBe(false);
+    const next = deepFreeze(tickle(stale + 1));
+    const removedLive = fold([next], staleLive);
+    expect(removedLive.orders.O1).toBeUndefined();
+    expect(removedLive.lines.L1).toBeUndefined();
+    expect(buildEngineState([...staleLog, next])).toEqual(removedLive);
+    expect(applyEvents(initialEngineState(), [...staleLog, next])).toEqual(removedLive);
     // Later than recorded_at (a device clock ahead): recorded_at.
     const late = fold([serve(['L1'], at(30), { served_at: at(35) })], s);
     expect(late.orders.O1).toMatchObject({ last_served_at: at(30), last_line_fold_at: at(30) });
