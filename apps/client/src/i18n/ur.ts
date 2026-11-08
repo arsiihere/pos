@@ -462,6 +462,7 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'alerts.family.action': 'کام',
   'alerts.family.info': 'اطلاع',
   'alerts.family.silent': 'رسید',
+  'alerts.minutes_late': '≈ {n} منٹ دیر', // 03a §3.8, AD-37 (3); draft, needs native review (01d urdu-todo)
   'alerts.from': 'از {name}',
   'alerts.waiting': '{n} منٹ سے انتظار',
   'alerts.tag.reminder': 'یاد دہانی',

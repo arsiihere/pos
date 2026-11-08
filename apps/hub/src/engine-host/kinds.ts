@@ -86,21 +86,22 @@ function syncLines(state: EngineState, order_ids: readonly string[]): Array<Engi
 }
 
 /**
- * §3.8 the slip card's `details`. proposed (implementer):
- * - minutes_late = the estimate against the promise (D11: "the card shows minutes against the promise"), whole
- *   minutes rounded up, never below 0 (the warning comes before the padded promise is blown);
- * - lines = the slip orders' sync lines that are not served or gone (their groups), each with its ItemAdded name, its
+ * §3.8 the slip card's `details`.
+ * - minutes_late: owner ruling AD-37 (3), against the engine target; folded into §3.8 at task 29. The estimate (the
+ *   predicted land from the engine's current plan, getAlertIntents) minus the target T, whole minutes rounded up,
+ *   never below 0; never `now`, never the promise. The card reads "≈ N min late".
+ * - proposed (implementer): lines = the slip orders' sync lines that are not served or gone (their groups), each with its ItemAdded name, its
  *   engine `units` as `quantity` (lineUnits: the piece count, 1 for a g / ml or pending-weight line, lowered by a
  *   partial void, BF-12; always ≥ 1 on a filled line; review I3) and its engine stage (`added`, `cooking`, `done`) as
  *   `state`.
  */
 export function slipDetails(
   state: EngineState,
-  slip: { order_ids: readonly string[]; estimate: number; promise: number },
+  slip: { order_ids: readonly string[]; estimate: number; target: number },
   facts: ReadonlyMap<string, LineFacts>,
 ): SlipWarningDetails {
   return {
-    minutes_late: Math.max(0, Math.ceil((slip.estimate - slip.promise) / MIN)),
+    minutes_late: Math.max(0, Math.ceil((slip.estimate - slip.target) / MIN)),
     lines: syncLines(state, slip.order_ids).map((l) => {
       const f = facts.get(l.order_item_id);
       return { name: f?.name || l.order_item_id, quantity: l.units, state: l.stage };

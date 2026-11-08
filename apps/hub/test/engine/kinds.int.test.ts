@@ -13,7 +13,7 @@ import type { CommandCtx } from '../../src/commands/registry';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { bindFiresAlertsTick, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
-import { ENGINE_ALERT_KINDS, SLIP_WARNING, SlipWarningDetails } from '../../src/engine-host/kinds';
+import { ENGINE_ALERT_KINDS, SLIP_WARNING, SlipWarningDetails, slipDetails } from '../../src/engine-host/kinds';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import type { WriterTx } from '../../src/engine-host/writer';
 import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -284,8 +284,12 @@ describe('03a task 23: the engine alert kinds', () => {
       target: { kind: 'person', staff_id: WAITER },
     });
     expect(row!.values).toEqual({ table_key: KEY, order_ids: ['O1'], escalate_ms: engine().config!.settings.slip_escalate_ms });
-    const warned = stored('SlipWarned')[0]!.payload as { estimated_land_ms: number; promise_ms: number };
-    const minutes = Math.max(0, Math.ceil((warned.estimated_land_ms - warned.promise_ms) / MIN));
+    // AD-37 (3), owner ruling: minutes against the engine target T. With the defaults (slip_threshold_ms 120 000,
+    // padding 180 000) the first card is just past T + 2 min, so it reads 3 (never 0: the promise is not yet blown).
+    const warned = stored('SlipWarned')[0]!.payload as { estimated_land_ms: number; target_land_ms: number };
+    const minutes = Math.ceil((warned.estimated_land_ms - warned.target_land_ms) / MIN);
+    expect(engine().config!.settings.slip_threshold_ms).toBe(120_000);
+    expect(minutes).toBe(3);
     expect(row!.details).toEqual({
       minutes_late: minutes,
       lines: [
@@ -298,6 +302,18 @@ describe('03a task 23: the engine alert kinds', () => {
     expect(raised[0]!.schema_version).toBe(2);
     expect((raised[0]!.payload as { details: unknown }).details).toEqual(row!.details);
     expect((raised[0]!.payload as { request: unknown }).request).toMatchObject({ right_mode: 'named', receiver_staff_id: WAITER, needs_pin: 'never', answers: ['accept', 'decline'] });
+  });
+
+  it('[03a §3.8, AD-37 (3)] minutes_late = ceil((estimate − target) / 1 min), never below 0, whatever the promise', () => {
+    const T = 1_000_000;
+    const at = (late_ms: number, promise = T + 3 * MIN): number => {
+      const slip = { order_ids: [], estimate: T + late_ms, target: T, promise }; // the intent carries the promise too
+      return slipDetails(engine(), slip, new Map()).minutes_late;
+    };
+    expect(at(7.5 * MIN)).toBe(8);
+    expect(at(7.5 * MIN, T + 10 * MIN)).toBe(8); // the promise does not count
+    expect(at(2 * MIN + 1)).toBe(3);
+    expect(at(-MIN)).toBe(0);
   });
 
   it('[03a #65] the card quantity is the line\'s engine units: a partial void shows what is left, a g / ml line shows 1', async () => {

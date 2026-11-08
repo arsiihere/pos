@@ -1416,6 +1416,7 @@ export const en = {
   'alerts.kind_fallback': 'request',
   'alerts.table': 'T{code}',
   'alerts.amount': 'Rs {amount}',
+  'alerts.minutes_late': '≈ {n} min late', // 03a §3.8 slip_warning card, AD-37 (3): minutes against the engine target
   'alerts.months': 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec',
   // 01d design hand-off CHANGES §5
   'alerts.family.urgent': 'Urgent',
