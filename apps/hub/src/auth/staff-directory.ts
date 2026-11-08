@@ -1,5 +1,6 @@
 import { PERMISSIONS, type Permission, type Scope } from '@pos/domain';
 import type Database from 'better-sqlite3';
+import { zoneOfTable as zoneOfTableFromConfig } from '../sync/branch-config-holder.js';
 
 // 01b §3.6 (v1.5 B-4): the responsibility kinds a station is assigned.
 export type Responsibility = 'count_stock' | 'run_station';
@@ -16,6 +17,9 @@ export interface DirectoryCore {
     denied_permissions: string[];
     lead_staff_id: string | null;
     floor_ids: string[];
+    // 01b v1.6 B-2 (directory v3, AD-21): absent from an older cloud's directory, read as none.
+    assigned_zone_ids?: string[];
+    assigned_table_ids?: string[];
   }[];
   roles: {
     role_id: string;
@@ -26,6 +30,13 @@ export interface DirectoryCore {
   responsibilities: { responsibility: Responsibility; station_id: string; staff_ids: string[]; role_ids: string[] }[];
   // 01b v1.4 B-1: people without a PIN, for targeting only; absent from an older cloud's directory.
   no_pin_staff?: NoPinStaff[];
+}
+
+// 01b v1.6 B-2 (AD-25): the zone of a table at this branch, or null; production reads the branch config holder.
+export type ZoneOfTable = (tableId: string) => string | null;
+
+export interface DirectoryOptions {
+  zoneOfTable?: ZoneOfTable;
 }
 
 export interface NoPinStaff {
@@ -70,6 +81,8 @@ interface StaffRecord {
   denied: Set<string>;
   lead_staff_id: string | null;
   floor_ids: string[];
+  assigned_zone_ids: string[];
+  assigned_table_ids: string[];
 }
 
 type ResponsibilityRecord = DirectoryCore['responsibilities'][number];
@@ -81,9 +94,12 @@ export class StaffDirectory {
     private readonly roles: Map<string, RoleRecord>,
     private readonly responsibilities: ResponsibilityRecord[],
     private readonly noPinById: Map<string, NoPinStaff>,
+    private readonly zoneOfTable: ZoneOfTable,
+    private readonly tableAssignee: Map<string, string>,
+    private readonly zoneAssignee: Map<string, string>,
   ) {}
 
-  static fromInput(d: DirectoryCore): StaffDirectory {
+  static fromInput(d: DirectoryCore, o: DirectoryOptions = {}): StaffDirectory {
     const roles = new Map<string, RoleRecord>();
     for (const role of d.roles) {
       const permissions: RoleRecord['permissions'] = new Map();
@@ -106,6 +122,8 @@ export class StaffDirectory {
         denied: new Set(staff.denied_permissions),
         lead_staff_id: staff.lead_staff_id,
         floor_ids: sorted(staff.floor_ids),
+        assigned_zone_ids: sorted(staff.assigned_zone_ids ?? []),
+        assigned_table_ids: sorted(staff.assigned_table_ids ?? []),
       });
     }
     const responsibilities = d.responsibilities
@@ -115,11 +133,30 @@ export class StaffDirectory {
     for (const row of d.no_pin_staff ?? []) {
       noPinById.set(row.staff_id, { staff_id: row.staff_id, display_name: row.display_name, lead_staff_id: row.lead_staff_id });
     }
-    return new StaffDirectory(d.directory_version, staffById, roles, responsibilities, noPinById);
+    // One person per zone and per table at a branch (cloud unique index, hub primary key); staff_id order keeps a
+    // malformed input stable.
+    const tableAssignee = new Map<string, string>();
+    const zoneAssignee = new Map<string, string>();
+    for (const staffId of [...staffById.keys()].sort(compare)) {
+      const staff = staffById.get(staffId)!;
+      for (const tableId of staff.assigned_table_ids) if (!tableAssignee.has(tableId)) tableAssignee.set(tableId, staffId);
+      for (const zoneId of staff.assigned_zone_ids) if (!zoneAssignee.has(zoneId)) zoneAssignee.set(zoneId, staffId);
+    }
+    return new StaffDirectory(
+      d.directory_version,
+      staffById,
+      roles,
+      responsibilities,
+      noPinById,
+      o.zoneOfTable ?? zoneOfTableFromConfig,
+      tableAssignee,
+      zoneAssignee,
+    );
   }
 
-  // 01b §5.2: 10 fixed statements (v1.4 B-1 adds no_pin_staff), read whole at boot and after an apply.
-  static load(db: Database.Database): StaffDirectory {
+  // 01b §5.2: 11 fixed statements (v1.4 B-1 adds no_pin_staff, v1.6 B-2 staff_assignments, AD-27), read whole at
+  // boot and after an apply.
+  static load(db: Database.Database, o: DirectoryOptions = {}): StaffDirectory {
     const staff = db.prepare('SELECT staff_id, display_name, pin_hash, lead_staff_id FROM staff').all() as Array<{
       staff_id: string;
       display_name: string;
@@ -154,6 +191,11 @@ export class StaffDirectory {
       staff_id: string;
       floor_id: string;
     }>;
+    const assigned = db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments').all() as Array<{
+      staff_id: string;
+      subject_kind: 'zone' | 'table';
+      subject_id: string;
+    }>;
     const responsibilities = db
       .prepare('SELECT responsibility, station_id, subject_kind, subject_id FROM responsibilities')
       .all() as Array<{ responsibility: Responsibility; station_id: string; subject_kind: 'staff' | 'role'; subject_id: string }>;
@@ -180,6 +222,9 @@ export class StaffDirectory {
     for (const row of denials) push(denialsByStaff, row.staff_id, row.permission);
     const floorsByStaff = new Map<string, string[]>();
     for (const row of floors) push(floorsByStaff, row.staff_id, row.floor_id);
+    const zonesByStaff = new Map<string, string[]>();
+    const tablesByStaff = new Map<string, string[]>();
+    for (const row of assigned) push(row.subject_kind === 'zone' ? zonesByStaff : tablesByStaff, row.staff_id, row.subject_id);
     const sets = new Map<string, ResponsibilityRecord>();
     for (const row of responsibilities) {
       const key = pairKey(row.station_id, row.responsibility);
@@ -206,10 +251,12 @@ export class StaffDirectory {
         denied_permissions: denialsByStaff.get(row.staff_id) ?? [],
         lead_staff_id: row.lead_staff_id,
         floor_ids: floorsByStaff.get(row.staff_id) ?? [],
+        assigned_zone_ids: zonesByStaff.get(row.staff_id) ?? [],
+        assigned_table_ids: tablesByStaff.get(row.staff_id) ?? [],
       })),
       responsibilities: [...sets.values()],
       no_pin_staff: noPin,
-    });
+    }, o);
   }
 
   get version(): number {
@@ -261,6 +308,23 @@ export class StaffDirectory {
   // 01b §3.2 rule 6: the person's floors at this branch (scope `my_floors`).
   floorsOf(staffId: string): string[] {
     return this.staffById.get(staffId)?.floor_ids.slice() ?? [];
+  }
+
+  // 01b v1.6 B-2, 02a §3.6 (AD-24, AD-25): the staff whose assigned tables hold the table, else whose assigned zones
+  // hold its zone (read through the injected reader), else null. Only people holding take-order count (a grant,
+  // allowed or requires_approval; not a denial): an assignee without it is stored but skipped here. In memory.
+  assignedOrderTaker(tableId: string): string | null {
+    const byTable = this.tableAssignee.get(tableId);
+    if (byTable !== undefined && this.takesOrders(byTable)) return byTable;
+    const zoneId = this.zoneOfTable(tableId);
+    if (zoneId === null) return null;
+    const byZone = this.zoneAssignee.get(zoneId);
+    return byZone !== undefined && this.takesOrders(byZone) ? byZone : null;
+  }
+
+  private takesOrders(staffId: string): boolean {
+    const grant = this.resolve(staffId, 'take-order').grant;
+    return grant === 'allowed' || grant === 'requires_approval';
   }
 
   // 01b §3.5: the person's lead at this branch, or null.

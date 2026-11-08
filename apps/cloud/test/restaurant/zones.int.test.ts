@@ -196,6 +196,27 @@ describe('zones', () => {
     expect((await cloud.pool.query(`SELECT archived_at FROM zones WHERE zone_id = $1`, [second])).rows).toEqual([{ archived_at: null }]);
   });
 
+  it('[01a AD-28] archiving or restoring a zone also bumps tenants.directory_version in the same transaction; a rename does not', async () => {
+    const directoryVersion = async () =>
+      Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    const zoneId = await newZone();
+    const d0 = await directoryVersion();
+    expect((await patchZone(zoneId, { name: 'Garden' })).statusCode).toBe(200);
+    expect(await directoryVersion()).toBe(d0);
+    expect((await patchZone(zoneId, { archived: true })).statusCode).toBe(200);
+    expect(await directoryVersion()).toBe(d0 + 1);
+    expect((await patchZone(zoneId, { archived: true })).statusCode).toBe(200); // no-op: nothing bumped
+    expect(await directoryVersion()).toBe(d0 + 1);
+    expect((await patchZone(zoneId, { archived: false })).statusCode).toBe(200);
+    expect(await directoryVersion()).toBe(d0 + 2);
+    // rolled back with the write
+    hooks.beforeBump = async () => {
+      throw new Error('boom');
+    };
+    expect((await patchZone(zoneId, { archived: true })).statusCode).toBe(500);
+    expect(await directoryVersion()).toBe(d0 + 2);
+  });
+
   it('[01a #185] archive a floor with an active zone → 409 CONFIG_IN_USE { used_by: { entity: zone } }', async () => {
     const zoneId = await newZone();
     const floors = `/v1/admin/branches/${A()}/floors`;

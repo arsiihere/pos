@@ -161,14 +161,14 @@ describe('staff list and create (01b §6.1, §6.2)', () => {
     expect(mismatch.json().error.code).toBe('IDEMPOTENCY_KEY_MISMATCH');
   });
 
-  it('[01b §6.1] GET runs 6 statements for 3 and 30 staff; ?branch_id and ?status filter; ordered by name', async () => {
+  it('[01b §6.1, AD-27] GET runs 7 statements (6 + the assignments read) for 3 and 30 staff; ?branch_id and ?status filter; ordered by name', async () => {
     for (const name of ['Zara', 'bilal']) await waiter(name, [f.branches[1]]);
     const left = await waiter('Lee', [f.branches[1]]);
     await leave(left.staff_id);
     counter.reset();
     const small = await list();
     expect(small.statusCode).toBe(200);
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(7);
     const names = small.json().data.staff.map((row: { display_name: string }) => row.display_name);
     expect(names).toEqual(['Ada', 'bilal', 'Zara']);
 
@@ -180,10 +180,10 @@ describe('staff list and create (01b §6.1, §6.2)', () => {
 
     for (let i = 0; i < 27; i += 1) await waiter(`Person ${String(i).padStart(2, '0')}`, [f.branches[2]]);
     const atC = await list(`?branch_id=${f.branches[2]}`);
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(7);
     expect(atC.json().data.staff).toHaveLength(28); // the owner + 27
     await list();
-    expect(counter.count).toBe(6);
+    expect(counter.count).toBe(7);
   });
 
   it('[01b §6.1, AD-11 superseded] ?branch_id outside the owner’s branches → 404 BRANCH_NOT_FOUND, no statement run', async () => {

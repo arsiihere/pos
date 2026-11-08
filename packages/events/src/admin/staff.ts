@@ -16,6 +16,12 @@ const Version = z.string().min(1);
 const GrantType = z.enum(["allowed", "requires_approval"]);
 const ReportsTo = z.array(z.object({ branch_id: Id, lead_staff_id: Id }));
 const Floors = z.array(z.object({ branch_id: Id, floor_ids: z.array(Id) }));
+// 01b v1.6 B-2, §3.2 rule 7 (AD-21, AD-23): one entry per branch (sets, C1); a branch sent twice → 400.
+const Assignments = z
+  .array(z.object({ branch_id: Id, zone_ids: z.array(Id), table_ids: z.array(Id) }))
+  .refine((entries) => new Set(entries.map((entry) => entry.branch_id)).size === entries.length, {
+    message: "one entry per branch",
+  });
 
 export const StaffWire = z.object({
   staff_id: z.string(),
@@ -32,6 +38,14 @@ export const StaffWire = z.object({
   ),
   floors: z.array(
     z.object({ branch_id: z.string(), floor_ids: z.array(z.string()) }),
+  ),
+  // 01b v1.6 B-2 (AD-21): the stored order-taker assignments, per branch with any (archived ones included).
+  assignments: z.array(
+    z.object({
+      branch_id: z.string(),
+      zone_ids: z.array(z.string()),
+      table_ids: z.array(z.string()),
+    }),
   ),
   version: z.string(),
 });
@@ -146,9 +160,11 @@ export const StaffCreateBody = z.object({
   denied_permissions: z.array(PermissionSchema).optional(),
   reports_to: ReportsTo.optional(),
   floors: Floors.optional(),
+  assignments: Assignments.optional(),
 });
 
-// §6.4: expected_version is required; each list is sent whole. A version-only body is a no-op (200, or 409 when stale).
+// §6.4: expected_version is required; each list is sent whole, except `assignments`, whose sent entries each replace
+// that branch (AD-23). A version-only body is a no-op (200, or 409 when stale).
 export const StaffPatchBody = z.object({
   expected_version: Version,
   display_name: StaffName.optional(),
@@ -157,6 +173,7 @@ export const StaffPatchBody = z.object({
   denied_permissions: z.array(PermissionSchema).optional(),
   reports_to: ReportsTo.optional(),
   floors: Floors.optional(),
+  assignments: Assignments.optional(),
   is_active: z.boolean().optional(),
 });
 

@@ -55,6 +55,24 @@ export function applyStaffDirectory(
   }
   const staff: StoredStaff[] = [];
   const seenStaff = new Set<string>();
+  // 01b v1.6 B-2: one person per zone and per table (the hub key). The cloud never sends one twice (its unique
+  // index); if it did, the first holder is kept and the repeat skipped, so the rest still applies (B18).
+  const assignedTo = new Map<string, string>();
+  const keepAssigned = (staffId: string, kind: 'zone' | 'table', ids: readonly string[] | undefined): string[] => {
+    const kept: string[] = [];
+    for (const id of ids ?? []) {
+      const key = JSON.stringify([kind, id]);
+      const holder = assignedTo.get(key);
+      if (holder === staffId) continue; // a repeated id in the person's own list (a set, C1)
+      if (holder !== undefined) {
+        warnSkip(skipped, { kind: 'staff', id: `${staffId}:${kind}:${id}`, reason: 'duplicate assignment' });
+        continue;
+      }
+      assignedTo.set(key, staffId);
+      kept.push(id);
+    }
+    return kept;
+  };
   for (const row of d.staff) {
     if (seenStaff.has(row.staff_id)) {
       warnSkip(skipped, { kind: 'staff', id: row.staff_id, reason: 'duplicate staff' });
@@ -65,7 +83,13 @@ export function applyStaffDirectory(
     const kept = previous.staff.get(row.staff_id);
     if (problem !== null) {
       warnSkip(skipped, { kind: 'staff', id: row.staff_id, reason: problem });
-      if (kept !== undefined) staff.push(kept);
+      if (kept !== undefined) {
+        staff.push({
+          ...kept,
+          assigned_zone_ids: keepAssigned(kept.staff_id, 'zone', kept.assigned_zone_ids),
+          assigned_table_ids: keepAssigned(kept.staff_id, 'table', kept.assigned_table_ids),
+        });
+      }
       continue;
     }
     const role_ids: string[] = [];
@@ -104,6 +128,8 @@ export function applyStaffDirectory(
       denied_permissions,
       lead_staff_id: row.lead_staff_id,
       floor_ids: [...new Set(row.floor_ids)],
+      assigned_zone_ids: keepAssigned(row.staff_id, 'zone', row.assigned_zone_ids),
+      assigned_table_ids: keepAssigned(row.staff_id, 'table', row.assigned_table_ids),
     });
   }
   const retainRole = (roleId: string): void => {
@@ -277,6 +303,11 @@ function readCache(db: Database.Database): { staff: Map<string, StoredStaff>; ro
     staff_id: string;
     floor_id: string;
   }>;
+  const assigned = db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments').all() as Array<{
+    staff_id: string;
+    subject_kind: 'zone' | 'table';
+    subject_id: string;
+  }>;
   const roles = new Map<string, StoredRole>();
   for (const role of roleRows) {
     roles.set(role.role_id, { role_id: role.role_id, name: role.name, session_idle_ttl_ms: role.session_idle_ttl_ms, permissions: [] });
@@ -292,16 +323,23 @@ function readCache(db: Database.Database): { staff: Map<string, StoredStaff>; ro
     });
   }
   const staff = new Map<string, StoredStaff>();
-  for (const row of staffRows) staff.set(row.staff_id, { ...row, role_ids: [], denied_permissions: [], floor_ids: [] });
+  for (const row of staffRows) {
+    staff.set(row.staff_id, { ...row, role_ids: [], denied_permissions: [], floor_ids: [], assigned_zone_ids: [], assigned_table_ids: [] });
+  }
   for (const row of assignments) staff.get(row.staff_id)?.role_ids.push(row.role_id);
   for (const row of denials) staff.get(row.staff_id)?.denied_permissions.push(row.permission);
   for (const row of floors) staff.get(row.staff_id)?.floor_ids.push(row.floor_id);
+  for (const row of assigned) {
+    const entry = staff.get(row.staff_id);
+    (row.subject_kind === 'zone' ? entry?.assigned_zone_ids : entry?.assigned_table_ids)?.push(row.subject_id);
+  }
   return { staff, roles };
 }
 
 function replaceCache(tx: WriterTx, d: DirectoryCore): void {
   tx.db.exec(`
     DELETE FROM role_permission_approvers;
+    DELETE FROM staff_assignments;
     DELETE FROM staff_floors;
     DELETE FROM responsibilities;
     DELETE FROM staff_permission_denials;
@@ -323,6 +361,7 @@ function replaceCache(tx: WriterTx, d: DirectoryCore): void {
   const insertAssignment = tx.db.prepare('INSERT INTO staff_roles (staff_id, role_id) VALUES (?, ?)');
   const insertDenial = tx.db.prepare('INSERT INTO staff_permission_denials (staff_id, permission) VALUES (?, ?)');
   const insertFloor = tx.db.prepare('INSERT INTO staff_floors (staff_id, floor_id) VALUES (?, ?)');
+  const insertAssigned = tx.db.prepare('INSERT INTO staff_assignments (staff_id, subject_kind, subject_id) VALUES (?, ?, ?)');
   const insertResponsibility = tx.db.prepare(
     'INSERT INTO responsibilities (responsibility, station_id, subject_kind, subject_id) VALUES (?, ?, ?, ?)',
   );
@@ -340,6 +379,8 @@ function replaceCache(tx: WriterTx, d: DirectoryCore): void {
     for (const roleId of row.role_ids) insertAssignment.run(row.staff_id, roleId);
     for (const permission of row.denied_permissions) insertDenial.run(row.staff_id, permission);
     for (const floorId of row.floor_ids) insertFloor.run(row.staff_id, floorId);
+    for (const zoneId of row.assigned_zone_ids ?? []) insertAssigned.run(row.staff_id, 'zone', zoneId);
+    for (const tableId of row.assigned_table_ids ?? []) insertAssigned.run(row.staff_id, 'table', tableId);
   }
   const insertNoPin = tx.db.prepare('INSERT INTO no_pin_staff (staff_id, display_name, lead_staff_id) VALUES (?, ?, ?)');
   for (const row of d.no_pin_staff ?? []) insertNoPin.run(row.staff_id, row.display_name, row.lead_staff_id);

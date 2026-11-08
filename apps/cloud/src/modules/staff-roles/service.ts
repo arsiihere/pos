@@ -11,6 +11,7 @@ import { inTransaction, type IdempotentResult } from '../../lib/idempotency.js';
 import {
   addBranches,
   addRoles,
+  deleteAssignments,
   deleteStaffResponsibilities,
   firstNameClash,
   insertGrants,
@@ -23,6 +24,7 @@ import {
   pairKey,
   removeBranches,
   removeRoles,
+  replaceAssignments,
   replaceDenials,
   replaceFloors,
   replaceGrants,
@@ -31,6 +33,8 @@ import {
   roleNameTaken,
   roleUsedBy,
   selectActiveAtBranch,
+  selectAssignmentHolders,
+  selectAssignmentSubjects,
   selectActiveResponsibilities,
   selectBranchIds,
   lockAndSelectBranchWire,
@@ -54,6 +58,7 @@ import {
   updateRoleRow,
   updateStaffRow,
   selectTeamTreeRows,
+  type NewStaff,
   type ResponsibilityRow,
   type RoleFilter,
   type StaffFilter,
@@ -83,7 +88,7 @@ type MovedReport = { staff_id: string; branch_id: string; lead_staff_id: string 
 // 00 M8: argon2id m=19456, t=2, p=1.
 const ARGON = { memoryCost: 19_456, timeCost: 2, parallelism: 1, algorithm: Algorithm.Argon2id, version: Version.V0x13 };
 
-// §6.1: 6 statements; each version built in memory (B23). A foreign `?branch_id` → 404, as 6.8/6.10/6.12 (AD-11 superseded).
+// §6.1: 7 statements (AD-27); each version built in memory (B23). A foreign `?branch_id` → 404, as 6.8/6.10/6.12 (AD-11 superseded).
 export async function listStaff(deps: StaffRolesDeps, tenant: TenantContext, filter: StaffFilter): Promise<StaffWire[]> {
   if ('branchId' in filter && filter.branchId !== undefined) assertBranchAllowed(tenant, filter.branchId);
   const rows = await selectStaff(new TenantLevelRepository(tenant, deps.pool), filter);
@@ -112,9 +117,10 @@ export async function createStaff(
       if (role === undefined) throw referenceInvalid(`role_ids.${i}`, 'not_found');
       if (role.archived) throw referenceInvalid(`role_ids.${i}`, 'role_archived');
     });
-    // (3) reports_to and floors, §3.2 rules 5–6
+    // (3) reports_to, floors and assignments, §3.2 rules 5–7
     await checkReportsTo(ctx.repo, branchIds, reportsTo, null);
     await checkFloors(ctx.repo, branchIds, floors);
+    const assignments = await checkAssignments(ctx.repo, branchIds, body.assignments ?? [], null);
     // (4) B12
     const clash = await firstNameClash(ctx.repo, body.display_name, branchIds, null);
     if (clash !== undefined) throw new DomainError('STAFF_NAME_TAKEN', { display_name: body.display_name, branch_id: clash });
@@ -128,6 +134,7 @@ export async function createStaff(
       deniedPermissions: unique(body.denied_permissions ?? []),
       reportsTo,
       floors: uniquePairs(floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))),
+      assignments,
       now: ctx.deps.clock.branchNow(),
     });
     const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
@@ -215,6 +222,14 @@ export async function updateStaff(
       body.floors === undefined
         ? before.floors.filter(kept).flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))
         : uniquePairs(body.floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id }))));
+    // AD-23: each sent entry replaces that branch; unsent branches keep theirs (a removed branch takes its rows with
+    // it, a leaver frees all, §3.2 rule 7). An entry sent on the PATCH that marks the person as left is ignored, as
+    // reports_to (AD-15).
+    const sentAssignments = leaving ? [] : (body.assignments ?? []);
+    const sentBranches = new Set(sentAssignments.map((entry) => entry.branch_id));
+    const assignments = leaving
+      ? []
+      : [...before.assignments.filter((entry) => kept(entry) && !sentBranches.has(entry.branch_id)), ...sentAssignments];
     const merged = toStaffWire({
       ...stored!,
       display_name: body.display_name ?? before.display_name,
@@ -223,6 +238,7 @@ export async function updateStaff(
       denied_permissions: body.denied_permissions === undefined ? before.denied_permissions : unique(body.denied_permissions),
       reports_to: reportsTo,
       floors: groupFloors(floorPairs),
+      assignments,
       is_active: isActive,
       left_at: leaving ? now : returning ? null : stored!.left_at,
     });
@@ -250,6 +266,7 @@ export async function updateStaff(
     }
     if (body.reports_to !== undefined && !leaving) await checkReportsTo(ctx.repo, branchIds, body.reports_to, staffId);
     if (body.floors !== undefined) await checkFloors(ctx.repo, branchIds, body.floors);
+    const assignmentRows = await checkAssignments(ctx.repo, branchIds, sentAssignments, staffId);
     const added = branchIds.filter((id) => !before.branch_ids.includes(id));
     if (merged.is_active && (returning || merged.display_name !== before.display_name || added.length > 0)) {
       const clash = await firstNameClash(ctx.repo, merged.display_name, merged.branch_ids, staffId);
@@ -279,6 +296,8 @@ export async function updateStaff(
     if (body.denied_permissions !== undefined) await replaceDenials(ctx.repo, staffId, merged.denied_permissions);
     if (body.reports_to !== undefined || leaving) await replaceLeads(ctx.repo, staffId, merged.reports_to);
     if (body.floors !== undefined) await replaceFloors(ctx.repo, staffId, floorPairs);
+    if (leaving) await deleteAssignments(ctx.repo, staffId);
+    else await replaceAssignments(ctx.repo, staffId, [...sentBranches], assignmentRows);
 
     runAdminGuards(adminsBefore, await qualifyingAdmins(ctx.repo), ctx.ownerStaffId);
 
@@ -826,6 +845,57 @@ function groupFloors(pairs: { branch_id: string; floor_id: string }[]): { branch
 
 function emptyChanged(): ChangedVersions {
   return { staff: [], roles: [], responsibilities: [] };
+}
+
+// 01b v1.6 B-2, §3.2 rule 7 (AD-26): per sent entry, the branch is one of the person's; each zone and table is of that
+// branch (unknown id → not_found, another branch's → wrong_branch) and active (→ archived); none is held by another
+// person in the stored rows (→ already_assigned with the holder's staff_id). Field `assignments` throughout. The
+// holder read runs after the tenant lock (B11), so no other directory write stores a holder before this one commits;
+// the unique index staff_assignments_one_person is the backstop. Repeated ids are dropped (sets, C1).
+async function checkAssignments(
+  repo: TenantLevelRepository,
+  branchIds: string[],
+  entries: { branch_id: string; zone_ids: string[]; table_ids: string[] }[],
+  staffId: string | null,
+): Promise<NewStaff['assignments']> {
+  for (const entry of entries) {
+    if (!branchIds.includes(entry.branch_id)) throw referenceInvalid('assignments', 'wrong_branch');
+  }
+  const rows: NewStaff['assignments'] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    for (const [kind, ids] of [['zone', entry.zone_ids], ['table', entry.table_ids]] as const) {
+      for (const id of ids) {
+        const key = JSON.stringify([entry.branch_id, kind, id]);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({ branch_id: entry.branch_id, subject_kind: kind, subject_id: id });
+      }
+    }
+  }
+  if (rows.length === 0) return rows;
+  const subjects = await selectAssignmentSubjects(
+    repo,
+    unique(rows.filter((row) => row.subject_kind === 'zone').map((row) => row.subject_id)),
+    unique(rows.filter((row) => row.subject_kind === 'table').map((row) => row.subject_id)),
+  );
+  for (const row of rows) {
+    const found = subjects.filter((subject) => subject.subject_kind === row.subject_kind && subject.subject_id === row.subject_id);
+    if (found.length === 0) throw referenceInvalid('assignments', 'not_found');
+    const here = found.find((subject) => subject.branch_id === row.branch_id);
+    if (here === undefined) throw referenceInvalid('assignments', 'wrong_branch');
+    if (here.archived) throw referenceInvalid('assignments', 'archived');
+  }
+  const holders = await selectAssignmentHolders(repo, staffId, rows);
+  for (const row of rows) {
+    const holder = holders.find(
+      (h) => h.branch_id === row.branch_id && h.subject_kind === row.subject_kind && h.subject_id === row.subject_id,
+    );
+    if (holder !== undefined) {
+      throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'assignments', reason: 'already_assigned', staff_id: holder.staff_id });
+    }
+  }
+  return rows;
 }
 
 function referenceInvalid(field: string, reason: string): DomainError {

@@ -1,8 +1,9 @@
 import { PERMISSIONS } from '@pos/domain';
-import type { DirectoryInput } from '@pos/events';
+import type { BranchConfig, DirectoryInput } from '@pos/events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { currentDirectory } from '../../src/auth/guards';
 import { StaffDirectory } from '../../src/auth/staff-directory';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { PIN, pinHash } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -14,6 +15,7 @@ describe('StaffDirectory v2 lookups (01b §3.5, §3.6)', () => {
   const hubs: TestHub[] = [];
   afterEach(async () => {
     for (const h of hubs.splice(0)) await h.close();
+    swapBranchConfig(null);
   });
 
   async function hubWith(d: DirectoryInput): Promise<{ applied: StaffDirectory; reloaded: StaffDirectory }> {
@@ -104,7 +106,93 @@ describe('StaffDirectory v2 lookups (01b §3.5, §3.6)', () => {
     const h = hubs.at(-1)!;
     const counter = statementCounter(h.deps.db);
     StaffDirectory.load(h.deps.db);
-    expect(counter.count).toBe(10); // 01b §5.2: unchanged, the rows ride the existing responsibilities read
+    expect(counter.count).toBe(11); // 01b §5.2: the rows ride the existing responsibilities read (11 with B-2's assignments, AD-27)
+  });
+
+  // 02a §3.6, 01b v1.6 B-2 (AD-24, AD-25): the table's assignee, else its zone's, else none; only take-order holders.
+  it('[02p U-3] assignedOrderTaker: table → zone → null', async () => {
+    const hash = await pinHash(PIN.a);
+    const { applied, reloaded } = await hubWith(assignmentDirectory(hash));
+    // the applied directory reads the zone through the branch config holder (AD-25)
+    swapBranchConfig(configWith([['T1', 'Z1'], ['T2', 'Z1'], ['T3', null], ['T4', 'Z2']]));
+    const injected = StaffDirectory.load(hubs.at(-1)!.deps.db, { zoneOfTable: (tableId) => (tableId === 'T3' ? 'Z1' : null) });
+    for (const directory of [applied, reloaded]) {
+      expect(directory.assignedOrderTaker('T1')).toBe('S_TABLE'); // the table's assignee wins over the zone's
+      expect(directory.assignedOrderTaker('T2')).toBe('S_ZONE');
+      expect(directory.assignedOrderTaker('T3')).toBeNull(); // no zone
+      expect(directory.assignedOrderTaker('T4')).toBeNull(); // a zone nobody is assigned
+      expect(directory.assignedOrderTaker('T_UNKNOWN')).toBeNull();
+    }
+    // the reader is current after a config apply: T2 leaves the zone
+    swapBranchConfig(configWith([['T1', 'Z1'], ['T2', null]]));
+    expect(applied.assignedOrderTaker('T2')).toBeNull();
+    swapBranchConfig(null); // no config yet: only table assignments count
+    expect(applied.assignedOrderTaker('T1')).toBe('S_TABLE');
+    expect(applied.assignedOrderTaker('T2')).toBeNull();
+    // an injected reader
+    expect(injected.assignedOrderTaker('T3')).toBe('S_ZONE');
+    expect(injected.assignedOrderTaker('T2')).toBeNull();
+    expect(injected.assignedOrderTaker('T1')).toBe('S_TABLE');
+  });
+
+  it('[02p U-3] an assignee without take-order is stored; assignedOrderTaker ignores them', async () => {
+    const hash = await pinHash(PIN.a);
+    const d = assignmentDirectory(hash);
+    // a waiter (no take-order) holds table T2; an order taker with take-order denied holds zone Z2
+    d.staff.push({ ...person('S_WAITER', 'Waiter', hash, ['R_W']), assigned_zone_ids: [], assigned_table_ids: ['T2'] });
+    d.staff.push({ ...person('S_DENIED', 'Denied', hash, ['R_OT']), denied_permissions: ['take-order'], assigned_zone_ids: ['Z2'], assigned_table_ids: [] });
+    const { applied, reloaded } = await hubWith(d);
+    const db = hubs.at(-1)!.deps.db;
+    expect(db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments ORDER BY subject_kind, subject_id').all()).toEqual([
+      { staff_id: 'S_TABLE', subject_kind: 'table', subject_id: 'T1' },
+      { staff_id: 'S_WAITER', subject_kind: 'table', subject_id: 'T2' },
+      { staff_id: 'S_ZONE', subject_kind: 'zone', subject_id: 'Z1' },
+      { staff_id: 'S_DENIED', subject_kind: 'zone', subject_id: 'Z2' },
+    ]);
+    swapBranchConfig(configWith([['T2', 'Z1'], ['T4', 'Z2']]));
+    for (const directory of [applied, reloaded]) {
+      expect(directory.assignedOrderTaker('T2')).toBe('S_ZONE'); // the waiter's table assignment does not count
+      expect(directory.assignedOrderTaker('T4')).toBeNull(); // nor the denied person's zone
+    }
+  });
+
+  it('[02p U-3] directory v3 carries the lists to the hub: stored, reloaded in 11 statements [01b AD-27]; a v2 directory applies with none', async () => {
+    const hash = await pinHash(PIN.a);
+    const { applied, reloaded } = await hubWith(assignmentDirectory(hash));
+    expect(reloaded).toEqual(applied);
+    const counter = statementCounter(hubs.at(-1)!.deps.db);
+    StaffDirectory.load(hubs.at(-1)!.deps.db);
+    expect(counter.count).toBe(11);
+    // from an older cloud: no assignment keys at all
+    const v2 = assignmentDirectory(hash);
+    for (const row of v2.staff) {
+      delete row.assigned_zone_ids;
+      delete row.assigned_table_ids;
+    }
+    const old = await hubWith(v2);
+    swapBranchConfig(configWith([['T1', 'Z1'], ['T2', 'Z1']]));
+    expect(old.applied.assignedOrderTaker('T1')).toBeNull();
+    expect(old.reloaded.assignedOrderTaker('T2')).toBeNull();
+    expect(hubs.at(-1)!.deps.db.prepare('SELECT count(*) AS n FROM staff_assignments').get()).toEqual({ n: 0 });
+  });
+
+  it('[01b B18] a zone or table listed for two people (never sent by the cloud, unique index) keeps the first, the rest applies', async () => {
+    const hash = await pinHash(PIN.a);
+    const d = assignmentDirectory(hash);
+    d.staff.push({ ...person('S_TWICE', 'Twice', hash, ['R_OT']), assigned_zone_ids: ['Z1', 'Z9', 'Z9'], assigned_table_ids: ['T1'] });
+    const { applied, reloaded } = await hubWith(d);
+    const db = hubs.at(-1)!.deps.db;
+    expect(db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments ORDER BY subject_kind, subject_id').all()).toEqual([
+      { staff_id: 'S_TABLE', subject_kind: 'table', subject_id: 'T1' },
+      { staff_id: 'S_ZONE', subject_kind: 'zone', subject_id: 'Z1' },
+      { staff_id: 'S_TWICE', subject_kind: 'zone', subject_id: 'Z9' },
+    ]);
+    for (const directory of [applied, reloaded]) {
+      swapBranchConfig(configWith([['T9', 'Z9'], ['T2', 'Z1']]));
+      expect(directory.assignedOrderTaker('T9')).toBe('S_TWICE');
+      expect(directory.assignedOrderTaker('T2')).toBe('S_ZONE');
+      expect(directory.assignedOrderTaker('T1')).toBe('S_TABLE');
+    }
   });
 
   it('[01b §3.2 rule 6] floorsOf returns the stored floors, sorted', async () => {
@@ -149,6 +237,25 @@ function teamDirectory(hash: string, withLine: boolean): DirectoryInput {
     ],
     responsibilities: [],
   };
+}
+
+function assignmentDirectory(hash: string): DirectoryInput {
+  const takeOrder: Grant = { permission: 'take-order', grant_type: 'allowed', approver_role_id: null, approver_role_ids: [], scope: 'branch' };
+  return {
+    directory_version: 1,
+    roles: [role('R_OT', 'Order taker', 900_000, [takeOrder]), role('R_W', 'Waiter', 300_000, [])],
+    staff: [
+      { ...person('S_ZONE', 'Zone', hash, ['R_OT']), assigned_zone_ids: ['Z1'], assigned_table_ids: [] },
+      { ...person('S_TABLE', 'Table', hash, ['R_OT']), assigned_zone_ids: [], assigned_table_ids: ['T1'] },
+    ],
+    responsibilities: [],
+  };
+}
+
+// Only what the zone reader looks at (floors[].tables[].zone_id, snapshot V4).
+function configWith(tables: [string, string | null][]) {
+  const config = { floors: [{ floor_id: 'F1', tables: tables.map(([table_id, zone_id]) => ({ table_id, zone_id })) }] } as unknown as BranchConfig;
+  return { config, snapshotHash: 'h', configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 };
 }
 
 function allowedAll(): Grant[] {

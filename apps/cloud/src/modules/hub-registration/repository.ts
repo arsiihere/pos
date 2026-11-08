@@ -98,9 +98,9 @@ export async function consumeCode(
   );
 }
 
-// 01b §4.3.1, §7.3: 9 fixed statements whatever the staff count. Staff with no PIN are sent apart as no_pin_staff (B-1, B-5); the
+// 01b §4.3.1, §7.3: 10 fixed statements whatever the staff count (v1.6 B-2: + the assignments read, directory v3). Staff with no PIN are sent apart as no_pin_staff (B-1, B-5); the
 // role set adds every approver role named by those roles' grants (m3); floors and responsibilities skip
-// archived floors and stations; approver_role_id is the dual-written first approver (B18 a).
+// archived floors and stations, and assignments skip archived zones and tables (01a v2.2 §6.6b, AD-24); approver_role_id is the dual-written first approver (B18 a).
 export async function loadDirectory(
   client: pg.PoolClient,
   tenantId: string,
@@ -204,6 +204,22 @@ export async function loadDirectory(
       WHERE r.tenant_id = $1 AND r.branch_id = $2 AND st.archived_at IS NULL`,
     [tenantId, branchId],
   );
+  // 01b v1.6 B-2 (§4.3.1, AD-24): this branch's assignments of the people sent, active zones and tables only.
+  const assignments = await client.query<{ staff_id: string; subject_kind: 'zone' | 'table'; subject_id: string }>(
+    `SELECT sa.staff_id, sa.subject_kind, sa.subject_id
+       FROM staff_assignments sa
+       LEFT JOIN zones z
+         ON sa.subject_kind = 'zone' AND z.tenant_id = sa.tenant_id AND z.branch_id = sa.branch_id AND z.zone_id = sa.subject_id
+       LEFT JOIN dining_tables dt
+         ON sa.subject_kind = 'table' AND dt.tenant_id = sa.tenant_id AND dt.branch_id = sa.branch_id AND dt.table_id = sa.subject_id
+      WHERE sa.tenant_id = $1 AND sa.branch_id = $2 AND sa.staff_id = ANY($3::text[])
+        AND ((sa.subject_kind = 'zone' AND z.zone_id IS NOT NULL AND z.archived_at IS NULL)
+          OR (sa.subject_kind = 'table' AND dt.table_id IS NOT NULL AND dt.archived_at IS NULL))`,
+    [tenantId, branchId, staffIds],
+  );
+  const zonesByStaff = new Map<string, string[]>();
+  const tablesByStaff = new Map<string, string[]>();
+  for (const row of assignments.rows) push(row.subject_kind === 'zone' ? zonesByStaff : tablesByStaff, row.staff_id, row.subject_id);
   const rolesByStaff = new Map<string, string[]>();
   const denialsByStaff = new Map<string, string[]>();
   for (const link of links.rows) {
@@ -236,6 +252,8 @@ export async function loadDirectory(
         denied_permissions: sorted(denialsByStaff.get(member.staff_id) ?? []),
         lead_staff_id: leadByStaff.get(member.staff_id) ?? null,
         floor_ids: sorted(floorsByStaff.get(member.staff_id) ?? []),
+        assigned_zone_ids: sorted(zonesByStaff.get(member.staff_id) ?? []),
+        assigned_table_ids: sorted(tablesByStaff.get(member.staff_id) ?? []),
       })),
       roles: roles.rows.map((role) => ({
         role_id: role.role_id,

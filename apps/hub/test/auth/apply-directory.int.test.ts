@@ -478,7 +478,7 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
   });
 
-  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 10 statements (01b v1.4 B-1)', async () => {
+  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 11 statements (01b v1.4 B-1; v1.6 B-2, AD-27)', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
     const input: DirectoryInput = {
@@ -539,7 +539,7 @@ describe('applyStaffDirectory', () => {
     // restart: the cache read back equals what the apply handed over
     const counter = statementCounter(db);
     const loaded = Directory.load(db);
-    expect(counter.count).toBe(10);
+    expect(counter.count).toBe(11);
     expect(loaded).toEqual(applied);
     expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'], scope: 'branch' });
   });
@@ -647,7 +647,7 @@ describe('applyStaffDirectory', () => {
     expect(Directory.load(db).noPinStaff()).toEqual([]);
   });
 
-  it('[01b B-1] the no_pin_staff cache is replaced whole and StaffDirectory.load issues 10 statements', async () => {
+  it('[01b B-1] the no_pin_staff cache is replaced whole and StaffDirectory.load issues 11 statements (v1.6 B-2, AD-27)', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
     const v1 = dir(1, hash, ['reprint-ticket'], ['S_ALI']);
@@ -665,7 +665,7 @@ describe('applyStaffDirectory', () => {
     ]);
     const counter = statementCounter(db);
     const loaded = Directory.load(db);
-    expect(counter.count).toBe(10);
+    expect(counter.count).toBe(11);
     expect(loaded).toEqual(applied);
     expect(loaded.noPinStaff()).toEqual([{ staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: 'S_ALI' }]);
 

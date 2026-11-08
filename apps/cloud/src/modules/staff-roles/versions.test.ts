@@ -32,6 +32,10 @@ function aStaffRow(o: Partial<StaffRow> = {}): StaffRow {
       { branch_id: 'B2', floor_ids: ['F3'] },
       { branch_id: 'B1', floor_ids: ['F2', 'F1'] },
     ],
+    assignments: [
+      { branch_id: 'B2', zone_ids: [], table_ids: ['T2', 'T1'] },
+      { branch_id: 'B1', zone_ids: ['Z1'], table_ids: [] },
+    ],
     ...o,
   };
 }
@@ -53,7 +57,7 @@ function aRoleRow(o: Partial<RoleRow> = {}): RoleRow {
 }
 
 describe('versions (01b B23, §5.3)', () => {
-  it('[01b §5.3] staffVersion hashes exactly the eight input keys; pin_set_at and left_at do not change it', () => {
+  it('[01b §5.3, AD-22] staffVersion hashes exactly the nine input keys (assignments too); pin_set_at and left_at do not change it', () => {
     const wire = toStaffWire(aStaffRow());
     expect(staffVersion(wire)).toBe(
       sha256hex(
@@ -71,6 +75,10 @@ describe('versions (01b B23, §5.3)', () => {
             { branch_id: 'B1', floor_ids: ['F1', 'F2'] },
             { branch_id: 'B2', floor_ids: ['F3'] },
           ],
+          assignments: [
+            { branch_id: 'B1', zone_ids: ['Z1'], table_ids: [] },
+            { branch_id: 'B2', zone_ids: [], table_ids: ['T1', 'T2'] },
+          ],
           is_active: true,
         }),
       ),
@@ -79,6 +87,7 @@ describe('versions (01b B23, §5.3)', () => {
     expect(staffVersion(toStaffWire(aStaffRow({ left_at: 5_000 })))).toBe(staffVersion(wire));
     expect(staffVersion(toStaffWire(aStaffRow({ is_active: false })))).not.toBe(staffVersion(wire));
     expect(staffVersion(toStaffWire(aStaffRow({ display_name: 'Bilal K' })))).not.toBe(staffVersion(wire));
+    expect(staffVersion(toStaffWire(aStaffRow({ assignments: [] })))).not.toBe(staffVersion(wire));
   });
 
   it('[01b §5.3] arrays in reverse order and BIGINT strings give the same wire and version', () => {
@@ -89,6 +98,7 @@ describe('versions (01b B23, §5.3)', () => {
       denied_permissions: [...row.denied_permissions].reverse(),
       reports_to: [...row.reports_to].reverse(),
       floors: row.floors.map((entry) => ({ ...entry, floor_ids: [...entry.floor_ids].reverse() })).reverse(),
+      assignments: row.assignments.map((entry) => ({ ...entry, table_ids: [...entry.table_ids].reverse() })).reverse(),
       pin_set_at: '1000' as unknown as number,
     });
     expect(toStaffWire(reversed)).toEqual(toStaffWire(row));

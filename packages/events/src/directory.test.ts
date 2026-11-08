@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DirectorySchemaV1, SyncConfigEnvelopeSchemaV1 } from '../test/fixtures/v1-schemas';
+import { DirectorySchemaV2 } from '../test/fixtures/v2-schemas';
 import { DirectorySchema } from './directory';
 
 // 01b §4.3.1: the directory v2 example from the spec.
@@ -84,6 +85,22 @@ describe('directory', () => {
     expect(DirectorySchema.parse(both)).toEqual(both);
     const bad = structuredClone(V2_EXAMPLE);
     bad.responsibilities[0]!.responsibility = 'cook';
+    expect(DirectorySchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('[02p U-3] directory v3 carries the lists; a v2 reader still parses it', () => {
+    // 01b §4.3.1 (v1.6 B-2, AD-21): assigned_zone_ids and assigned_table_ids per staff entry, additive (M6).
+    const v3 = structuredClone(V2_EXAMPLE) as typeof V2_EXAMPLE & { staff: Record<string, unknown>[] };
+    Object.assign(v3.staff[0]!, { assigned_zone_ids: ['Z-ground-left'], assigned_table_ids: ['T-4'] });
+    expect(DirectorySchema.parse(v3).staff[0]).toMatchObject({ assigned_zone_ids: ['Z-ground-left'], assigned_table_ids: ['T-4'] });
+    // a v2 hub drops the new keys and keeps the v2 meaning of every other field
+    const old = DirectorySchemaV2.parse(v3);
+    expect(old.staff[0]).toEqual(V2_EXAMPLE.staff[0]);
+    expect(DirectorySchemaV1.safeParse(v3).success).toBe(true);
+    // an older cloud omits them: still a valid v3 directory (read as no assignment)
+    expect(DirectorySchema.parse(V2_EXAMPLE).staff[0]).not.toHaveProperty('assigned_zone_ids');
+    const bad = structuredClone(v3);
+    Object.assign(bad.staff[0]!, { assigned_table_ids: 'T-4' });
     expect(DirectorySchema.safeParse(bad).success).toBe(false);
   });
 });

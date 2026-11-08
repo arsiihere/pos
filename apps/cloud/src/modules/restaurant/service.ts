@@ -155,6 +155,7 @@ import type {
   PutItemRouteInput,
 } from '@pos/events';
 import type { MenuQueryInput } from './schemas.js';
+import { bumpDirectoryVersion } from '../staff-roles/repository.js';
 
 export interface RestaurantDeps {
   pool: pg.Pool;
@@ -668,6 +669,10 @@ export async function patchZone(
       },
       deps,
     );
+    // AD-28: an archive or restore also changes the directory (archived zones drop out of it, 01b v1.6 B-2), so hubs
+    // drop or regain the zone within one poll. Before the branch bump: tenant row, then branch row, as every
+    // directory write (B11) and the S8 branch-last order.
+    if ((before.archived_at === null) !== (row.archived_at === null)) await bumpDirectoryVersion(level);
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { zone };
