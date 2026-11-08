@@ -387,7 +387,7 @@ An item is **stock-tracked** at a branch when its route is at a slot station and
 
 > ⚠️ Changed by 02b v1.0 (A-1): snapshot V4 (same release, R29) adds `floors[].zones[].routes: [{ item_id, station_id }]`, `floors[].zones[].stock_items: [{ item_id, threshold }]` and `items[].is_ready_item: boolean`. See 02b §3.10, §3.3.
 
-> *As built, 02p task 4 (owner rulings 2026-11-08, AD-10–AD-12):* the five `branch_engine_settings` columns of §5.2a (`queue_auto_send_max_ms`, `zone_undo_ms`, `slow_item_threshold_ms`, `served_estimate_ms`, `comp_reason_chips`) are delivered in the top-level `engine_settings` beside the A-12 fields (no new `settings` key, AD-10); an archived zone is delivered with `is_archived: true` and `routes: []`, `stock_items: []` (its cloud rows stay and apply again on restore, AD-9; AD-11); `routes[]` and `stock_items[]` are sorted by `item_id` (AD-12).
+> *As built, 02p task 4 (owner rulings 2026-11-08, AD-10–AD-12):* the five `branch_engine_settings` columns of §5.2a (`queue_auto_send_max_ms`, `zone_undo_ms`, `slow_item_threshold_ms`, `served_estimate_ms`, `comp_reason_chips`) are delivered in the top-level `engine_settings` beside the A-12 fields (no new `settings` key, AD-10); an archived zone is delivered with `is_archived: true` and `routes: []`, `stock_items: []` (its cloud rows stay and apply again on restore, AD-9; AD-11); `routes[]` and `stock_items[]` are sorted by `item_id` (AD-12). Zones of an archived floor are not delivered (`floors[]` holds active floors only; such zones are all archived, §6.4; AD-14).
 
 ### 4.4 Requirements carried to other modules
 
@@ -809,6 +809,8 @@ Any of `{ floor_id, name, seats, sort_order, archived }`. `200`. `404 TABLE_NOT_
 Body `{ floor_id, name: 1–40, sort_order? }`; `Idempotency-Key` required (S7). Floor active and in this branch → else `422 CONFIG_REFERENCE_INVALID { field: 'floor_id' }`. `201 { data: { zone } }`. `409 CONFIG_NAME_TAKEN` (per floor). Bumps this branch (S8); one `config_audit` row `zone` / `create` (S26). Statements: idempotency row, floor check, insert, audit, bump.
 
 > ⚠️ Changed by 02b v1.0 (A-1): body also takes `routes?: [{ item_id, station_id }]` and `stock_items?: [{ item_id, threshold? }]` (each ≤ 200, unique `item_id`), stored as whole lists. Every `item_id` is an active item, every `station_id` an active station of the branch; a stock item must be `sale_unit 'piece'` and not `requires_weighing` — else `422 CONFIG_REFERENCE_INVALID { field: 'routes.N.…' | 'stock_items.N.item_id' }`. The response returns both lists.
+
+> *As built, 02p (owner ruling 2026-11-08, AD-15):* every `item_id` in `routes[]` and `stock_items[]` must also have an active `item_routes` row at this branch (the item is sold here, so it is in this branch's snapshot `items[]`), else `422 CONFIG_REFERENCE_INVALID { field: 'routes.N.item_id' | 'stock_items.N.item_id', reason: 'not_found' }`; and §6.16 refuses to remove an item's route at a branch while an active zone of that branch names the item → `409 CONFIG_IN_USE { entity: 'menu_item', id, used_by: { entity: 'zone', ids } }` (as AD-6).
 
 #### 6.6b `PATCH /v1/admin/branches/:branch_id/zones/:zone_id` (⚠️ Changed by 02a v1.0, A-1)
 
