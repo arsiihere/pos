@@ -531,6 +531,96 @@ describe('zones', () => {
     });
   });
 
+  it('[01a AD-9] restoring a zone drops stored entries naming an archived item or station, a non-piece or weighed stock item; audited', async () => {
+    await cloud.pool.query(
+      `INSERT INTO stations (tenant_id, branch_id, station_id, point_id, name, station_type, capacity, created_at, updated_at)
+       VALUES ($1, $2, 'ST-Z', (SELECT point_id FROM points WHERE tenant_id = $1 AND branch_id = $2 AND name = 'Pass'), 'Zone grill', 'slot', 2, 0, 0)`,
+      [f.tenantId, A()],
+    );
+    await cloud.pool.query(
+      `INSERT INTO menu_items (tenant_id, item_id, category_id, name, price_minor, serve_mode, cook_time_ms, created_at, updated_at)
+       VALUES ($1, 'IT-P', 'CT-1', 'Zone piece', 100, 'immediate', 60000, 0, 0), ($1, 'IT-W', 'CT-1', 'Zone weighed', 100, 'immediate', 60000, 0, 0)`,
+      [f.tenantId],
+    );
+    const zoneId = await newZone({
+      routes: [
+        { item_id: 'IT-0000', station_id: 'ST-1' },
+        { item_id: 'IT-0001', station_id: 'ST-Z' },
+        { item_id: 'IT-P', station_id: 'ST-1' },
+      ],
+      stock_items: [{ item_id: 'IT-0000', threshold: 2 }, { item_id: 'IT-0001' }, { item_id: 'IT-P' }, { item_id: 'IT-W' }],
+    });
+    expect((await patchZone(zoneId, { archived: true })).statusCode).toBe(200);
+    // the zone is archived, so none of these is refused as in use
+    await cloud.pool.query(`UPDATE stations SET archived_at = 1 WHERE station_id = 'ST-Z'`);
+    await cloud.pool.query(`UPDATE menu_items SET archived_at = 1 WHERE item_id = 'IT-P'`);
+    await cloud.pool.query(`UPDATE menu_items SET sale_unit = 'g', stock_unit = 'g' WHERE item_id = 'IT-0001'`);
+    await cloud.pool.query(`UPDATE menu_items SET sale_unit = 'g', stock_unit = 'g', requires_weighing = true WHERE item_id = 'IT-W'`);
+    const stale = await storedLists(zoneId);
+    expect(stale.routes).toHaveLength(3);
+    expect(stale.stock_items).toHaveLength(4);
+
+    // sent lists are validated as today: a bad ref is 422 and nothing is restored
+    const bad = await patchZone(zoneId, { archived: false, routes: [{ item_id: 'IT-P', station_id: 'ST-1' }] });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'routes.0.item_id' } });
+    expect(await storedLists(zoneId)).toEqual(stale);
+
+    const restored = await patchZone(zoneId, { archived: false });
+    expect(restored.statusCode).toBe(200);
+    const keptRoutes = [{ item_id: 'IT-0000', station_id: 'ST-1' }];
+    const keptStock = [{ item_id: 'IT-0000', threshold: 2 }];
+    expect(restored.json().data.zone).toMatchObject({ archived_at: null, routes: keptRoutes, stock_items: keptStock });
+    expect(await storedLists(zoneId)).toEqual({ routes: keptRoutes, stock_items: keptStock });
+    const audit = (await auditRows()).at(-1)!;
+    expect(audit).toMatchObject({ action: 'restore', entity_id: zoneId });
+    expect(audit.after).toMatchObject({
+      routes: keptRoutes,
+      stock_items: keptStock,
+      dropped: {
+        routes: [{ item_id: 'IT-0001', station_id: 'ST-Z' }, { item_id: 'IT-P', station_id: 'ST-1' }],
+        stock_items: [{ item_id: 'IT-0001', threshold: 0 }, { item_id: 'IT-P', threshold: 0 }, { item_id: 'IT-W', threshold: 0 }],
+      },
+    });
+    expect((audit.before as { routes: unknown[] }).routes).toHaveLength(3);
+
+    // a restore with one list sent keeps that list as sent and drops from the other only
+    await patchZone(zoneId, { archived: true });
+    await cloud.pool.query(`UPDATE menu_items SET archived_at = 1 WHERE item_id = 'IT-0000'`);
+    const mixed = await patchZone(zoneId, { archived: false, routes: [{ item_id: 'IT-0002', station_id: 'ST-1' }] });
+    expect(mixed.statusCode).toBe(200);
+    expect(await storedLists(zoneId)).toEqual({ routes: [{ item_id: 'IT-0002', station_id: 'ST-1' }], stock_items: [] });
+    // nothing stale: no `dropped` key
+    await patchZone(zoneId, { archived: true });
+    await patchZone(zoneId, { archived: false });
+    expect((await auditRows()).at(-1)!.after).not.toHaveProperty('dropped');
+  });
+
+  it('[01a AD-9] a table PATCH to another floor resending its current zone_id answers 422 wrong_floor without locking the zone', async () => {
+    const zoneId = await newZone();
+    await addTable('Z-T1', zoneId);
+    const upper = (
+      await cloud.app.inject({ method: 'POST', url: `/v1/admin/branches/${A()}/floors`, ...owner(f), payload: { name: 'Upper' } })
+    ).json().data.floor.floor_id as string;
+    // the zone is held FOR UPDATE, as a concurrent archive holds it: a lock-free check still answers
+    const holder = await cloud.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`SELECT 1 FROM zones WHERE zone_id = $1 FOR UPDATE`, [zoneId]);
+      const moved = await cloud.app.inject({
+        method: 'PATCH',
+        url: `/v1/admin/branches/${A()}/tables/Z-T1`,
+        ...owner(f),
+        payload: { floor_id: upper, zone_id: zoneId },
+      });
+      expect(moved.statusCode).toBe(422);
+      expect(moved.json().error).toMatchObject({ code: 'CONFIG_REFERENCE_INVALID', details: { field: 'zone_id', reason: 'wrong_floor' } });
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+  });
+
   it('[01a §6.6a] no N+1: the statement count does not grow with the list length', async () => {
     const ids = Array.from({ length: 5 }, (_, i) => `BULK-${i}`);
     await cloud.pool.query(

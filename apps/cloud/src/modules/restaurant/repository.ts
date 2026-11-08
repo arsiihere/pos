@@ -354,6 +354,20 @@ export async function updateZone(repo: TenantScopedRepository, branchId: string,
   return withArchivedAt<ZoneRow>(rows[0]!);
 }
 
+// A plain read (no lock) of the zone's floor and archive time, for a table that keeps its zone: it must not lock the
+// zone after the table, because a zone archive locks the zone first and then updates its tables.
+export async function readZone(
+  repo: TenantScopedRepository,
+  zoneId: string,
+): Promise<{ branch_id: string; floor_id: string; archived_at: number | null } | undefined> {
+  type Read = { branch_id: string; floor_id: string; archived_at: number | null };
+  const rows = await repo.query<Raw<Read>>(
+    `SELECT branch_id, floor_id, archived_at FROM zones WHERE tenant_id = $1 AND branch_id = ANY($2) AND zone_id = $3`,
+    [zoneId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<Read>(rows[0]);
+}
+
 // A reference check for a table's zone_id (§6.5, §6.6): the zone in any of the caller's branches, FOR SHARE against
 // a concurrent archive (the zone archive locks the zone FOR UPDATE).
 export async function shareZone(

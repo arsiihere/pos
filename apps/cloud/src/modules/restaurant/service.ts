@@ -64,6 +64,7 @@ import {
   selectAllVariantGroups,
   selectAllTaxClasses,
   selectFloors,
+  readZone,
   selectZoneLists,
   selectZones,
   selectBranches,
@@ -393,12 +394,17 @@ export async function patchTable(
     // table (deadlock); only a table entering a zone, changing floor or coming back from the archive reads it.
     const restoring = before.archived_at !== null && merged.archived_at === null;
     // AD-4 (§6.6): a restore keeping its stored zone falls back to the floor's implicit zone if that zone is archived now.
+    // That one read also is the check for a restore that keeps its (active) zone: the table has not changed floor.
+    let zoneChecked = false;
     if (restoring && body.zone_id === undefined && merged.zone_id !== null) {
       const stored = await shareZone(scoped, merged.zone_id);
       if (stored !== undefined && stored.archived_at !== null) merged = { ...merged, zone_id: null };
+      else zoneChecked = merged.floor_id === before.floor_id;
     }
-    if (merged.zone_id !== null && (merged.zone_id !== before.zone_id || merged.floor_id !== before.floor_id || restoring)) {
-      await assertZoneOfFloor(scoped, branchId, merged.zone_id, merged.floor_id);
+    if (merged.zone_id !== null && !zoneChecked && (merged.zone_id !== before.zone_id || merged.floor_id !== before.floor_id || restoring)) {
+      // A table that keeps its zone while changing floor (a doomed request: wrong_floor) reads the zone without a lock.
+      const keepsZone = merged.zone_id === before.zone_id && !restoring;
+      await assertZoneOfFloor(scoped, branchId, merged.zone_id, merged.floor_id, { lock: !keepsZone });
     }
     const table = await nameTaken('dining_tables_active_name', 'table', merged.name, () =>
       updateTable(scoped, branchId, merged, now),
@@ -476,8 +482,14 @@ async function assertZoneLists(
 }
 
 // §6.5, §6.6 (02a A-1): a table's zone is active, in this branch and on the table's floor, else 422 zone_id.
-async function assertZoneOfFloor(scoped: TenantScopedRepository, branchId: string, zoneId: string, floorId: string): Promise<void> {
-  const zone = await shareZone(scoped, zoneId);
+async function assertZoneOfFloor(
+  scoped: TenantScopedRepository,
+  branchId: string,
+  zoneId: string,
+  floorId: string,
+  { lock }: { lock: boolean } = { lock: true },
+): Promise<void> {
+  const zone = lock ? await shareZone(scoped, zoneId) : await readZone(scoped, zoneId);
   const reason =
     zone === undefined
       ? 'not_found'
@@ -543,6 +555,38 @@ export async function createZone(
   );
 }
 
+// AD-9: the stored lists a zone restore keeps, without the entries that name an archived or missing item or station, or a
+// stock item that is not 'piece' or is weighed (the §6.6a rule). Items, then stations, each FOR SHARE in one statement.
+// `dropped` lists what was removed (null when nothing was).
+async function dropStaleEntries(
+  level: TenantLevelRepository,
+  scoped: TenantScopedRepository,
+  branchId: string,
+  routes: readonly ZoneRouteRow[] | undefined,
+  stockItems: readonly ZoneStockItemRow[] | undefined,
+): Promise<{ routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[]; dropped: { routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[] } | null }> {
+  const itemIds = [...new Set([...(routes ?? []), ...(stockItems ?? [])].map((entry) => entry.item_id))];
+  const items = new Map((itemIds.length > 0 ? await shareItemsById(level, itemIds) : []).map((item) => [item.item_id, item]));
+  const stationIds = [...new Set((routes ?? []).map((route) => route.station_id))];
+  const stations = stationIds.length > 0 ? await shareStationsById(scoped, stationIds) : [];
+  const liveItem = (id: string) => items.get(id)?.archived_at === null;
+  const liveStation = (id: string) => stations.some((s) => s.branch_id === branchId && s.station_id === id && s.archived_at === null);
+  const keepRoute = (r: ZoneRouteRow) => liveItem(r.item_id) && liveStation(r.station_id);
+  const keepStock = (s: ZoneStockItemRow) => {
+    const item = items.get(s.item_id);
+    return item !== undefined && item.archived_at === null && item.sale_unit === 'piece' && !item.requires_weighing;
+  };
+  const keptRoutes = (routes ?? []).filter(keepRoute);
+  const keptStock = (stockItems ?? []).filter(keepStock);
+  const droppedRoutes = (routes ?? []).filter((r) => !keepRoute(r));
+  const droppedStock = (stockItems ?? []).filter((s) => !keepStock(s));
+  return {
+    routes: keptRoutes,
+    stock_items: keptStock,
+    dropped: droppedRoutes.length + droppedStock.length === 0 ? null : { routes: droppedRoutes, stock_items: droppedStock },
+  };
+}
+
 // §6.6b: lock → rules on the merged row and the sent lists → write → audit → bump. A list sent replaces the stored
 // list (absent = unchanged, [] = clear); one audit row covers the row and both lists. Archiving clears `zone_id` on
 // the zone's active tables in the same transaction and keeps the lists.
@@ -568,14 +612,27 @@ export async function patchZone(
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
       ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
     };
-    const next = zoneWire(merged, body.routes ?? stored.routes, body.stock_items ?? stored.stock_items);
+    // AD-9 (§6.6b): a restore drops the stored entries (of a list not sent) that name an archived item or station, or a
+    // stock item that is not a piece or is weighed. Their rows are locked FOR SHARE, so no archive slips in.
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    const kept = restoring
+      ? await dropStaleEntries(level, scoped, branchId, body.routes === undefined ? stored.routes : undefined, body.stock_items === undefined ? stored.stock_items : undefined)
+      : { routes: stored.routes, stock_items: stored.stock_items, dropped: null };
+    const next = zoneWire(merged, body.routes ?? kept.routes, body.stock_items ?? kept.stock_items);
     // S26: nothing changes → nothing is written (no row update, no audit row, no bump).
     if (unchangedRow(beforeWire, next)) return { zone: beforeWire };
     const routesChanged = canonicalJson(beforeWire.routes) !== canonicalJson(next.routes);
     const stockChanged = canonicalJson(beforeWire.stock_items) !== canonicalJson(next.stock_items);
-    await assertZoneLists(level, scoped, branchId, routesChanged ? body.routes : undefined, stockChanged ? body.stock_items : undefined);
+    // A list sent with a restore is validated even when it equals the stored one (the stored one may be stale).
+    await assertZoneLists(
+      level,
+      scoped,
+      branchId,
+      routesChanged || restoring ? body.routes : undefined,
+      stockChanged || restoring ? body.stock_items : undefined,
+    );
     // A restored zone needs its floor active (a floor with an active zone cannot be archived, §6.4).
-    if (before.archived_at !== null && merged.archived_at === null) {
+    if (restoring) {
       await assertFloor(scoped, branchId, merged.floor_id, { requireActive: true });
     }
     const row = await nameTaken('zones_active_name', 'zone', merged.name, () => updateZone(scoped, branchId, merged, now));
@@ -592,7 +649,7 @@ export async function patchZone(
         branchId,
         action: auditActionFor(before, row),
         before: beforeWire,
-        after: zone,
+        after: kept.dropped === null ? zone : { ...zone, dropped: kept.dropped },
       },
       deps,
     );
