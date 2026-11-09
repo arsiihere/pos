@@ -1,19 +1,22 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { loadDirectory } from '../../src/modules/hub-registration/repository';
 import { owner, restaurantFixture, type RestaurantFixture } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
 describe('tables', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
+  const hooks: { beforeBump?(): Promise<void> } = {};
 
   beforeAll(async () => {
-    cloud = await createTestCloud({ captureLogs: true });
+    cloud = await createTestCloud({ captureLogs: true, testHooks: hooks });
     await cloud.app.ready();
   });
   afterAll(async () => {
     await cloud.close();
   });
   beforeEach(async () => {
+    delete hooks.beforeBump;
     f = await restaurantFixture(cloud);
   });
 
@@ -241,5 +244,66 @@ describe('tables', () => {
     ]);
     expect(await auditRows()).toHaveLength(auditCount);
     expect(await versionOf(f.branches[0])).toBe(before);
+  });
+  describe('[01b AD-32] table archive and restore bump directory_version', () => {
+    const directoryVersion = async () =>
+      Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    const assignedTables = async () => {
+      const client = await cloud.pool.connect();
+      try {
+        const { directory } = await loadDirectory(client, f.tenantId, f.branches[0]);
+        return directory.staff.find((member) => member.staff_id === 's-ali')?.assigned_table_ids;
+      } finally {
+        client.release();
+      }
+    };
+    const setup = async (): Promise<string> => {
+      const floorId = await createFloor(f.branches[0], 'Ground');
+      const tableId = (await createTable(f.branches[0], { floor_id: floorId, name: 'T1' })).json().data.table.table_id as string;
+      await cloud.pool.query(
+        `INSERT INTO staff (tenant_id, staff_id, display_name, pin_hash, pin_set_at, is_active, left_at, created_at, updated_at)
+         VALUES ($1, 's-ali', 'Ali', 'h', 0, true, NULL, 0, 0)`,
+        [f.tenantId],
+      );
+      await cloud.pool.query(`INSERT INTO staff_branches (tenant_id, branch_id, staff_id) VALUES ($1, $2, 's-ali')`, [f.tenantId, f.branches[0]]);
+      await cloud.pool.query(
+        `INSERT INTO staff_assignments (tenant_id, branch_id, staff_id, subject_kind, subject_id) VALUES ($1, $2, 's-ali', 'table', $3)`,
+        [f.tenantId, f.branches[0], tableId],
+      );
+      return tableId;
+    };
+
+    it('archiving an assigned table bumps directory_version once; the directory drops the assignee; a no-op or rename does not bump', async () => {
+      const tableId = await setup();
+      const d0 = await directoryVersion();
+      expect(await assignedTables()).toEqual([tableId]);
+      expect((await patchTable(f.branches[0], tableId, { name: 'T1b' })).statusCode).toBe(200);
+      expect((await patchTable(f.branches[0], tableId, { name: 'T1b' })).statusCode).toBe(200);
+      expect(await directoryVersion()).toBe(d0);
+      expect((await patchTable(f.branches[0], tableId, { archived: true })).statusCode).toBe(200);
+      expect(await directoryVersion()).toBe(d0 + 1);
+      expect(await assignedTables()).toEqual([]);
+      expect((await patchTable(f.branches[0], tableId, { archived: true })).statusCode).toBe(200); // no-op
+      expect(await directoryVersion()).toBe(d0 + 1);
+    });
+
+    it('restoring it bumps again and the assignee returns', async () => {
+      const tableId = await setup();
+      await patchTable(f.branches[0], tableId, { archived: true });
+      const d1 = await directoryVersion();
+      expect((await patchTable(f.branches[0], tableId, { archived: false })).statusCode).toBe(200);
+      expect(await directoryVersion()).toBe(d1 + 1);
+      expect(await assignedTables()).toEqual([tableId]);
+    });
+
+    it('the bump rolls back with the write', async () => {
+      const tableId = await setup();
+      const d0 = await directoryVersion();
+      hooks.beforeBump = async () => {
+        throw new Error('boom');
+      };
+      expect((await patchTable(f.branches[0], tableId, { archived: true })).statusCode).toBe(500);
+      expect(await directoryVersion()).toBe(d0);
+    });
   });
 });

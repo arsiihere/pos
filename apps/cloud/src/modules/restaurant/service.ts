@@ -434,6 +434,9 @@ export async function patchTable(
       },
       deps,
     );
+    // 01b AD-32 (b): an archive or restore changes the directory (archived tables drop out of the assignee map, as an
+    // archived zone does, AD-28). Lock order: the table row (lockTable), then the tenant row, then the branch row.
+    if ((before.archived_at === null) !== (table.archived_at === null)) await bumpDirectoryVersion(level);
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { table };
