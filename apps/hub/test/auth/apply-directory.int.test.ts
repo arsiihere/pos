@@ -39,6 +39,7 @@ describe('applyStaffDirectory', () => {
       station_id: null,
       device_id: 'dev-1',
       idle_ttl_ms: 1_000,
+      started_at: 1_000,
       last_activity_at: 5_000,
       ended_at: null,
       token_hash: 'hash',
