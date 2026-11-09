@@ -131,8 +131,8 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: { 
 }
 
 // `branch` covers all; `my_floors` the caller's floors (0 statements, config in memory); `own_tables` the caller's own
-// seating, which is moving (the holder's, so both its tables).
-function covers(ctx: CommandCtx, scope: string, actor: string | null, holder: boolean, table_id: string): boolean {
+// seating (`holder`: the table is, or joins, a seating the caller holds; for a move both its tables). MergeTables shares it.
+export function covers(ctx: CommandCtx, scope: string, actor: string | null, holder: boolean, table_id: string): boolean {
   if (scope === 'branch') return true;
   if (scope === 'own_tables') return holder;
   if (scope === 'my_floors') {
