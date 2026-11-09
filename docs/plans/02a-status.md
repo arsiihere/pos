@@ -1,6 +1,6 @@
 # 02a status board
 
-Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.2.md` (APPROVED; v1.1.2 = §3.4 re-sign-in, owner 2026-11-09), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
+Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.3.md` (APPROVED; v1.1.2 = §3.4 re-sign-in, owner 2026-11-09; v1.1.3 = queued calls never move a lock, owner 2026-11-10), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
 
 > **Short Hinglish summary — padhein yahan se**
 >
@@ -64,12 +64,12 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-5 | 12, 18 | Kinds in `apps/hub/src/tables/kinds.ts`, loaded via `tables/index.ts` ← `server.ts` static import before boot step 4 | — | as read | proposed (not yet ruled) |
 | AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | accepted with condition: `registerTables` captures a getter `() => currentDirectory(app)`, never the directory object; `zoneOf` reads it on every call; the `zone_order_taker` resolver keeps reading `alertDirectoryOf(tx)` | **ruled (owner, 2026-11-09)** |
 | AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | **ruled (owner, 2026-11-09)** |
-| AD-8 | 8 (lane 1B) | `requireLock` readings: `not_holder` error in the §9 shape; scope = the one table; `zoneOf` → `floor_id: ''` for a table absent from the config; `locked_by_name: null` when the holder is unknown | — | accepted as read; **change:** a queued call (`ctx.queuedAt !== null`) never takes **and never moves** a lock — the command proceeds, the lock stays where it is (task 8 fix on `module-02a`, test `[02a #60] queued replay does not move the caller's lock from his other device`) | **ruled (owner, 2026-11-09)** |
+| AD-8 | 8 (lane 1B) | `requireLock` readings: `not_holder` error in the §9 shape; scope = the one table; `zoneOf` → `floor_id: ''` for a table absent from the config; `locked_by_name: null` when the holder is unknown | — | accepted as read; **change:** a queued call (`ctx.queuedAt !== null`) never takes **and never moves** a lock — the command proceeds, the lock stays where it is (task 8 fix on `module-02a`, test `[02a #60] queued replay does not move the caller's lock from his other device`); built `7ef4670`; spec **v1.1.3** (`676ad5c`) | **ruled (owner, 2026-11-09; spec 2026-11-10)** |
 | AD-9 | 4, 5 (lane 1A) | `bindTablesProjectionLog` (live-only #55 log line bound in `registerTables`); `last_touch_at` refreshed by a non-holding device's event | — | accepted as is; plan "02a exports" notes `bindTablesProjectionLog`; #9's tick clause checked at the wave 1 checkpoint | **ruled (owner, 2026-11-09)** |
 | AD-10 | 11 (lane 1C) | tick `table_locks` registered once per process, guarded by name; a table without an open seating has no entry | — | accepted | **ruled (owner, 2026-11-09)** |
 | AD-11 | 11 (lane 1C) | Lane 1C blocker 1: §3.4 live session ignores a session that started after the lock's last activity | (a) spec bump; … | (a): spec **v1.1.2** (`451e19d`) — `s.started_at <= l.last_activity_at` in `due` and `intents`; test 8 extended | **ruled (owner, 2026-11-09)** |
-| AD-12 | 11 (lane 1C) | Lane 1C blocker 2: existing tick suites see the new `table_locks` tick | — | allowed (like SG-6): `test/alerts/tick-loop.int.test.ts`, `test/engine/fires-tick.int.test.ts`, `fires-alerts-tick.int.test.ts`, `kinds.int.test.ts` may call `unregisterTick('table_locks')` after `createTestHub`; tests only | **ruled (owner, 2026-11-09)** |
-| AD-13 | 8 | Spec text after AD-8: §4.2 (v1.1.2 :246) still says same actor other device → `[TableLocked { replaced_device_id }]` with P-1b exempting only a free lock; §10 #60 (:634) has no move clause. Code (`7ef4670`) follows AD-8 | (a) spec v1.1.3: P-1b "a free lock is never taken and the caller's lock never moves", #60 + "caller's lock on his other device → stays, no `TableLocked`"; (b) leave the spec, AD-8 on the board is enough | — | proposed (not yet ruled) |
+| AD-12 | 11 (lane 1C) | Lane 1C blocker 2: existing tick suites see the new `table_locks` tick | — | allowed (like SG-6): `test/alerts/tick-loop.int.test.ts`, `test/engine/fires-tick.int.test.ts`, `fires-alerts-tick.int.test.ts`, `kinds.int.test.ts` may call `unregisterTick('table_locks')` after `createTestHub`; tests only. **2026-11-10:** also `test/engine/station-plan.int.test.ts`, and (test-only, not run in the gate) `test/engine/fires-tick.perf.test.ts`, `fires-alerts-tick.perf.test.ts` so the 03a perf numbers keep their old measured surface | **ruled (owner, 2026-11-09; extended 2026-11-10)** |
+| AD-13 | 8 | Spec text after AD-8: §4.2 (v1.1.2 :246) still says same actor other device → `[TableLocked { replaced_device_id }]` with P-1b exempting only a free lock; §10 #60 (:634) has no move clause. Code (`7ef4670`) follows AD-8 | (a) spec v1.1.3; (b) leave the spec, AD-8 on the board is enough | (a): spec **v1.1.3** (`676ad5c`) — §4.2 P-1b "with `ctx.queued` no lock is taken or moved: a free lock stays free and the caller's lock stays on his other device; a lock held by another staff still gives `TABLE_ALREADY_LOCKED`"; §10 #60 extended | **ruled (owner, 2026-11-10)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -88,6 +88,8 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-09 | Lane 1B readings accepted; queued call never takes and never moves a lock (task 8 fix on `module-02a`, opus review) | AD-8 |
 | 2026-11-09 | Lane 1A: `bindTablesProjectionLog` accepted (plan note), non-holder `last_touch_at` accepted; #9 tick clause at the wave 1 checkpoint | AD-9; plan "02a exports" |
 | 2026-11-09 | Lane 1C: `table_locks` registered once per process, guarded by name; no entry for a table without an open seating | AD-10 |
+| 2026-11-10 | AD-13 → (a): spec **v1.1.3** — queued calls never take or move a lock (§4.2 P-1b, §10 #60); AD-8 and AD-13 ruled | `docs/specs/02a_Tables_Spec_v1.1.3.md` (`676ad5c`), README |
+| 2026-11-10 | Lane 1C: `unregisterTick('table_locks')` (test-only) also allowed in `test/engine/station-plan.int.test.ts`, `fires-tick.perf.test.ts`, `fires-alerts-tick.perf.test.ts` | AD-12 |
 
 ## Batch entries
 
@@ -122,6 +124,8 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 
 ## Next
 
-1. **Owner:** review wave 0, then type `wave 1` in the integrator session (it creates worktrees `~/pos-02a-A`…`C`); open the three lane sessions per `docs/plans/02a-parallel-prompts.md` §3.
+1. **Wave 1 in progress:** lanes 1A, 1B landed on `module-02a`; lane 1C (tasks 7, 11) building; then the wave 1 gate and checkpoint (incl. #9's tick clause, AD-9).
 2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
+
+- **Perf note (owner 2026-11-10):** the next `pnpm test:perf` (03a task 28, pilot box) must run `apps/hub/test/engine/fires-tick.perf.test.ts` and `fires-alerts-tick.perf.test.ts` — they now `unregisterTick('table_locks')` (AD-12) and have not been run since.
