@@ -178,7 +178,7 @@ describe('02a slip reader registration (SG-6, §11 step 1)', () => {
         floors: [{ floor_id: 'F1', name: 'Main', sort_order: 0, zones: [], tables: [{ table_id: 'T1', name: 'Window 1', seats: 4, sort_order: 0, zone_id: null }, { table_id: 'T2', name: 'Window 2', seats: 4, sort_order: 1, zone_id: null }] }],
       };
       swapBranchConfig({ config, snapshotHash: 'h', configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
-      seat('SEAT1', 'T1', 'S_CASH', { tables: ['T1', 'T2'], orders: ['O1'] });
+      seat('SEAT1', 'T1', 'S_CASH', { tables: ['T1', 'T2'] });
       fakeSubmit(hub.deps, { order_id: 'O1', actor_id: 'S_WAIT', order: { table_id: 'T2', table_key: 'dine_in:SEAT1' }, lines: [{ order_item_id: 'O1-L1' }] });
       hub.clock.set(hub.clock.branchNow());
       await vi.advanceTimersByTimeAsync(TICK_MS);
