@@ -54,7 +54,10 @@ function callWaiter(ctx: CommandCtx, payload: CallWaiterPayload): { events: Even
   if (raised.deduped) return { events: [], result: { alert_id: raised.alert_id, repeated: true } };
   // §3.13: n = the step-0 recipients of the AttemptSent draft raise returns (0 → "Nobody else is working")
   const sent = raised.events.find((e) => e.event_type === 'AttemptSent');
-  const recipients = (sent?.payload as { recipients?: unknown[] } | undefined)?.recipients?.length ?? 0;
+  const rows = (sent?.payload as { recipients?: unknown } | undefined)?.recipients;
+  // a fresh raise always drafts step 0 as AttemptSent (the kind has no escalation step); anything else is a bug (500)
+  if (!Array.isArray(rows)) throw new Error(`CallWaiter: raise returned no step-0 AttemptSent draft for alert ${raised.alert_id}`);
+  const recipients = rows.length;
   return { events: raised.events, result: { alert_id: raised.alert_id, repeated: false, recipients } };
 }
 

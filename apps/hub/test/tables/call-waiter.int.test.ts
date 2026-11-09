@@ -56,6 +56,7 @@ async function directory(): Promise<DirectoryInput> {
       person('S_BOB', 'R_TAKER'),
       person('S_ZAIN', 'R_FLOOR', null, ['F1']),
       person('S_OMAR', 'R_OWN'),
+      person('S_HOLD', 'R_TAKER', 'S_BOB'), // a holder with a lead (S_BOB) and no reports
     ],
   };
 }
@@ -416,6 +417,21 @@ describe('CallWaiter (02a §6.14, §3.13)', () => {
     expect(attempt(r)).toMatchObject({ step: 0, recipients: [] });
   });
 
+  it('[02a #50b] W = ∅, caller = holder whose lead is working and online → recipients: 0, no "for" rows (D-3 skip_requester with lead_fallback)', async () => {
+    const hold = signIn('S_HOLD');
+    const bob = signIn('S_BOB'); // S_HOLD's lead, live staff session
+    await online(hold);
+    const bobWs = await online(bob);
+    append(opened('T1', 'S1', 'S_HOLD'));
+    const r = await call(hold, 'CallWaiter', { table_id: 'T1', seating_id: 'S1' });
+    expect(r.status).toBe(200);
+    expect(r.result).toEqual({ alert_id: r.result?.alert_id, repeated: false, recipients: 0 });
+    // no recipient row at all: the holder is skipped (01d targets.ts skip_requester), so nobody lacks a route and
+    // lead_fallback has no one to stand in for; the owner marker is skipped for the requester too
+    expect(attempt(r)).toEqual({ alert_id: r.result?.alert_id, step: 0, recipients: [], routes: [] });
+    expect(bobWs.messages.map((m) => (m as { type?: string }).type)).not.toContain('alert');
+  });
+
   it('[02a §6.14] a joined table: subject on the primary, target and values name the table called; table_code the primary name', async () => {
     const bob = signIn('S_BOB');
     append(opened('T1', 'S1'));
@@ -510,7 +526,7 @@ describe('CallWaiter (02a §6.14, §3.13)', () => {
     expect(r.error?.code).toBe('TABLE_NEEDS_CLEANING');
   });
 
-  it('[02a #40 call] an archived seated table (absent from the config): CallWaiter works, table_code falls back to the table id', async () => {
+  it('[02a §3.14] CallWaiter on an archived seated table (absent from the config) works, table_code falls back to the table id', async () => {
     const bob = signIn('S_BOB');
     append(opened('T7', 'S7'));
     const r = await call(bob, 'CallWaiter', { table_id: 'T7', seating_id: 'S7' });
