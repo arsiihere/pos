@@ -377,7 +377,7 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(out.state.stock.K1).toMatchObject({ on_hand: 5 });
     });
 
-    it('[03a #58, §10.5] step 2 = 2, step 3 = 4 + 2, step 6 = 0 statements; the real statements use the index, no sort', async () => {
+    it('[03a #58, §10.5] step 2 = 2, step 3 = 4 + 2 + 1, step 6 = 0 statements; the real statements use the index, no sort', async () => {
       const db = await migrated();
       const ctx = ctxOf(db);
       const rec = recorder(db);
@@ -390,11 +390,11 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       const step6 = rec.calls.splice(0);
       rec.stop();
       expect(step2).toHaveLength(2);
-      expect(step3).toHaveLength(6);
+      expect(step3).toHaveLength(7);
       expect(step6).toHaveLength(0);
       for (const c of step2) expect(c.sql).toMatch(/LIMIT 2/);
       const replay = step3.filter((c) => c.method === 'iterate');
-      const version = step3.filter((c) => c.method !== 'iterate');
+      const version = step3.filter((c) => c.method !== 'iterate' && /ORDER BY seq DESC LIMIT 1/.test(c.sql));
       expect(replay).toHaveLength(4);
       expect(version).toHaveLength(2);
       for (const c of replay) {
