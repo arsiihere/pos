@@ -16,7 +16,7 @@ import { useCloudDown } from '../cloud';
 import { errorText, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
-import { chipsOf, chipsPatch, CompChips } from './CompChips';
+import { chipsPatch, CompChips } from './CompChips';
 import { engineFieldLabel, engineState, enginePatch, KitchenTiming, type EngineState } from './KitchenTiming';
 
 // 01b §8 #/branches/:id/settings (01b-S07, §6.10, B16): tax on or off, the stale-day hours (1–48) and the
@@ -105,7 +105,7 @@ function SettingsForm({
   const [banner, setBanner] = useState<{ tone: 'ok' | 'danger'; text: string } | null>(null);
   const [engine, setEngine] = useState<EngineState>(() => engineState(stored));
   const [engineErrors, setEngineErrors] = useState<Record<string, string>>({});
-  const storedChips = chipsOf(stored as { comp_reason_chips?: string[] });
+  const storedChips = stored.comp_reason_chips;
   const [chips, setChips] = useState<string[]>(storedChips);
   const [chipsError, setChipsError] = useState<string | undefined>(undefined);
   const [changedElsewhere, setChangedElsewhere] = useState(false);

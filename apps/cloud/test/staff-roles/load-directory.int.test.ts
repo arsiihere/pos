@@ -278,9 +278,11 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     expect(rows[0]!.role_ids).toEqual([orderTaker, waiter].sort());
     const permissionsOf = (roleId: string) =>
       directory.roles.find((role) => role.role_id === roleId)!.permissions.map((g) => g.permission);
-    // 01b v1.5 §6.15 (B-2, B-5): the seeded default grants come along with the added ones.
-    expect(permissionsOf(orderTaker)).toEqual(['mark-item-returned', 'mark-served', 'take-order-anywhere']);
-    expect(permissionsOf(waiter)).toEqual(['mark-served', 'reprint-ticket']);
+    // 01b v1.5 / v1.6 / v1.7 §6.15: the seeded default grants come along with the added ones.
+    expect(permissionsOf(orderTaker)).toEqual([
+      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'take-order-anywhere', 'view-customer-contact',
+    ]);
+    expect(permissionsOf(waiter)).toEqual(['clean-table', 'mark-served', 'reprint-ticket']);
   });
 
   it('[01b #83] a branch with cashiers and no manager still sends the Manager role named as approver', async () => {

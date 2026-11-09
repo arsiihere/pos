@@ -297,15 +297,5 @@ describe('[01b §8] branch settings', () => {
     expect(m.container.querySelector('[data-group="comp-chips"]')?.textContent).toContain(t('branches.chips.duplicate'));
     expect(t('branches.chips_help')).not.toContain('note');
   });
-
-  it('[01a #193 client] a branch whose wire has no ordering settings yet shows the spec defaults and sends nothing for them', async () => {
-    const { queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, ...older } = STORED;
-    void [queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips];
-    const calls = await render(undefined, older);
-    expect(field('queue_auto_send_max_ms')!.value).toBe('240');
-    setValue(field('min_gain_ms'), '2');
-    await click(button(m.container, t('branches.save_settings')));
-    expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(['expected_version', 'min_gain_ms']);
-  });
 });
 

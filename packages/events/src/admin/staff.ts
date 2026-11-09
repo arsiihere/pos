@@ -87,7 +87,8 @@ export const ResponsibilitySetWire = z.object({
 export type ResponsibilitySetWire = z.infer<typeof ResponsibilitySetWire>;
 
 // 01a v2.1 §5.2a A-12 (01b v1.5 B-6): ranges equal the CHECKs of cloud 0007; the names are engine_settings of
-// BranchConfigSnapshotSchemaV3.
+// BranchConfigSnapshotSchemaV4. 01a v2.3 §5.2a (02b A-1, 01b v1.7): three more times and the comp chips (CHECKs of
+// 0009). served_estimate_ms is not here: it is not writable until 03b (AD-20), stays null and is delivered as null.
 const WeightPct = z.number().int().min(10).max(1000);
 const PromisePaddingMs = z.number().int().min(0).max(1_800_000);
 export const BranchEngineSettings = z.object({
@@ -107,6 +108,15 @@ export const BranchEngineSettings = z.object({
   table_lock_ttl_ms: z.number().int().min(60_000).max(3_600_000),
   returns_boost: z.boolean(),
   order_abandon_ms: z.number().int().min(3_600_000).max(86_400_000),
+  queue_auto_send_max_ms: z.number().int().min(3_600_000).max(86_400_000),
+  zone_undo_ms: z.number().int().min(0).max(1_800_000),
+  slow_item_threshold_ms: z.number().int().min(60_000).max(7_200_000),
+  // 1–10 labels of 1–30 characters, no two equal ignoring case (owner ruling AD-19); replaced as a whole.
+  comp_reason_chips: z
+    .array(z.string().min(1).max(30))
+    .min(1)
+    .max(10)
+    .refine((chips) => new Set(chips.map((chip) => chip.toLowerCase())).size === chips.length, { message: "labels must be unique ignoring case" }),
 });
 export type BranchEngineSettings = z.infer<typeof BranchEngineSettings>;
 export const BRANCH_ENGINE_SETTING_KEYS = Object.keys(BranchEngineSettings.shape) as (keyof BranchEngineSettings)[];

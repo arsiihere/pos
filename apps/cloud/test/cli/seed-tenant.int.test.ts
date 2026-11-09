@@ -93,11 +93,18 @@ describe('seed-tenant', () => {
     );
     expect(managerGrants.every((grant) => grant.grant_type === 'allowed')).toBe(true);
     expect((byRole.get('Cashier') ?? []).slice().sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'apply-comp', grant_type: 'requires_approval', approver: 'Manager' },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver: 'Manager' },
+      { permission: 'clean-table', grant_type: 'allowed', approver: null },
       { permission: 'reprint-ticket', grant_type: 'allowed', approver: null },
+      { permission: 'set-line-weight', grant_type: 'allowed', approver: null },
+      { permission: 'take-order', grant_type: 'allowed', approver: null },
+      { permission: 'view-customer-contact', grant_type: 'allowed', approver: null },
     ]);
-    expect((byRole.get('Order taker') ?? []).map((grant) => grant.permission).sort()).toEqual(['mark-item-returned', 'mark-served']);
-    expect((byRole.get('Waiter') ?? []).map((grant) => grant.permission)).toEqual(['mark-served']);
+    expect((byRole.get('Order taker') ?? []).map((grant) => grant.permission).sort()).toEqual([
+      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact',
+    ]);
+    expect((byRole.get('Waiter') ?? []).map((grant) => grant.permission).sort()).toEqual(['clean-table', 'mark-served']);
     expect(byRole.get('Cook')).toEqual([]);
 
     const owner = await pool.query<{ password_hash: string; allowed_branch_ids: string[] }>(
@@ -196,24 +203,42 @@ describe('seed-tenant', () => {
     expect(of('owner').every((row) => row.grant_type === 'allowed' && row.scope === 'branch')).toBe(true);
     expect(of('manager').map((row) => row.permission).sort()).toEqual(PERMISSIONS.filter((p) => p !== 'manage-roles').sort());
     expect(of('cashier').map(({ permission, grant_type, approver_role_id }) => ({ permission, grant_type, approver_role_id })).sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'apply-comp', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
       { permission: 'apply-discount', grant_type: 'requires_approval', approver_role_id: roleId('manager') },
+      { permission: 'clean-table', grant_type: 'allowed', approver_role_id: null },
       { permission: 'reprint-ticket', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'set-line-weight', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'take-order', grant_type: 'allowed', approver_role_id: null },
+      { permission: 'view-customer-contact', grant_type: 'allowed', approver_role_id: null },
     ]);
-    // 01b v1.5 §6.15 (B-2, B-5): the seeded grants, scope `branch` (the column's default, no row names another).
+    // 01b v1.5/v1.7 §6.15: the seeded grants; scope `branch` except the Order taker's view-customer-contact (`own_tables`).
     const seeded = (key: string) => of(key).map(({ permission, grant_type, scope }) => ({ permission, grant_type, scope })).sort((a, b) => a.permission.localeCompare(b.permission));
     expect(seeded('order_taker')).toEqual([
+      { permission: 'apply-comp', grant_type: 'requires_approval', scope: 'branch' },
+      { permission: 'boost-order', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-item-returned', grant_type: 'allowed', scope: 'branch' },
       { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'take-order', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'view-customer-contact', grant_type: 'allowed', scope: 'own_tables' },
     ]);
-    expect(seeded('waiter')).toEqual([{ permission: 'mark-served', grant_type: 'allowed', scope: 'branch' }]);
+    expect(seeded('waiter')).toEqual([
+      { permission: 'clean-table', grant_type: 'allowed', scope: 'branch' },
+      { permission: 'mark-served', grant_type: 'allowed', scope: 'branch' },
+    ]);
     expect(of('cook')).toEqual([]);
     const approvers = await pool.query(
       `SELECT role_id, permission, approver_role_id FROM role_permission_approvers WHERE tenant_id = $1`,
       [created.tenant_id],
     );
-    expect(approvers.rows).toEqual([
-      { role_id: roleId('cashier'), permission: 'apply-discount', approver_role_id: roleId('manager') },
-    ]);
+    const approverKey = (row: { role_id: string; permission: string }) => `${row.role_id}/${row.permission}`;
+    expect([...approvers.rows].sort((a, b) => approverKey(a).localeCompare(approverKey(b)))).toEqual(
+      [
+        { role_id: roleId('cashier'), permission: 'apply-comp', approver_role_id: roleId('manager') },
+        { role_id: roleId('cashier'), permission: 'apply-discount', approver_role_id: roleId('manager') },
+        { role_id: roleId('order_taker'), permission: 'apply-comp', approver_role_id: roleId('manager') },
+      ].sort((a, b) => approverKey(a).localeCompare(approverKey(b))),
+    );
 
     const owner = await pool.query<{ staff_id: string }>(`SELECT staff_id FROM owner_users WHERE tenant_id = $1 AND user_id = $2`, [
       created.tenant_id,

@@ -33,14 +33,47 @@ describe('default roles', () => {
     expect(holders('mark-item-returned')).toEqual(['owner', 'manager', 'order_taker']);
   });
 
-  it('[01b §6.15 v1.5] Order taker and Waiter hold only their v1.5 grants, allowed; Cook holds none; boost-order is unchanged (B-7)', () => {
-    expect(grants('order_taker')).toEqual(['mark-served', 'mark-item-returned']);
-    expect(grants('waiter')).toEqual(['mark-served']);
+  it('[02p U-3] take-order, clean-table seeded by default_key', () => {
+    expect(holders('take-order')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
+    expect(holders('clean-table')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter']);
+    expect(grants('waiter')).not.toContain('take-order');
     expect(grants('cook')).toEqual([]);
-    for (const key of ['order_taker', 'waiter']) {
-      for (const grant of DEFAULT_ROLES.find((role) => role.default_key === key)!.grants) expect(grant.grant_type).toBe('allowed');
+  });
+
+  it('[02p U-4] Cashier and Order taker defaults (01b v1.6 B-1; v1.7 B-1, B-5)', () => {
+    const grant = (key: string, permission: string) => DEFAULT_ROLES.find((r) => r.default_key === key)!.grants.find((g) => g.permission === permission);
+    expect([...grants('cashier')].sort()).toEqual(
+      ['apply-comp', 'apply-discount', 'clean-table', 'reprint-ticket', 'set-line-weight', 'take-order', 'view-customer-contact'].sort(),
+    );
+    expect([...grants('order_taker')].sort()).toEqual(
+      ['apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'view-customer-contact'].sort(),
+    );
+    expect(grants('waiter').sort()).toEqual(['clean-table', 'mark-served']);
+    expect(grant('cashier', 'apply-comp')).toMatchObject({ grant_type: 'requires_approval', approver_key: 'manager' });
+    expect(grant('order_taker', 'apply-comp')).toMatchObject({ grant_type: 'requires_approval', approver_key: 'manager' });
+    expect(grant('cashier', 'apply-discount')).toMatchObject({ grant_type: 'requires_approval', approver_key: 'manager' });
+    expect(grant('cashier', 'view-customer-contact')?.scope ?? 'branch').toBe('branch');
+    expect(grant('order_taker', 'view-customer-contact')).toMatchObject({ grant_type: 'allowed', scope: 'own_tables' });
+    expect(grant('order_taker', 'boost-order')?.scope ?? 'branch').toBe('branch');
+    // everything else is allowed at branch scope
+    for (const role of DEFAULT_ROLES) {
+      for (const g of role.grants) {
+        if (g.permission === 'apply-comp' || g.permission === 'apply-discount') continue;
+        expect(g.grant_type, `${role.default_key} ${g.permission}`).toBe('allowed');
+        if (!(role.default_key === 'order_taker' && g.permission === 'view-customer-contact')) expect(g.scope ?? 'branch').toBe('branch');
+      }
     }
-    expect(holders('boost-order')).toEqual(['owner', 'manager']);
+    expect(grants('cook')).toEqual([]);
+  });
+
+  it('[02p U-4] manage-zone-stock only Owner, Manager; mark-served stays branch (03a AD-32); boost-order gains Order taker', () => {
+    expect(holders('manage-zone-stock')).toEqual(['owner', 'manager']);
+    expect(holders('set-line-weight')).toEqual(['owner', 'manager', 'cashier']);
+    expect(holders('view-customer-contact')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
+    expect(holders('boost-order')).toEqual(['owner', 'manager', 'order_taker']);
+    for (const role of DEFAULT_ROLES) {
+      expect(role.grants.find((g) => g.permission === 'mark-served')?.scope ?? 'branch').toBe('branch');
+    }
   });
 
   it('[01b §6.15] one role per default_key; every approver is named by key and exists', () => {
