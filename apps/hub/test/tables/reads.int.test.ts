@@ -1,5 +1,12 @@
-import type { BranchConfig } from '@pos/events';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { performance } from 'node:perf_hooks';
+import type { BranchConfig, EngineConfig } from '@pos/events';
+import { aBranchConfig, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
+import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
+import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { ENGINE_ALERT_KINDS } from '../../src/engine-host/fires-alerts-tick';
+import { draftOf, fakeSubmit } from '../engine/fakes';
 import { swapDirectory } from '../../src/auth/guards';
 import type { StaffDirectory } from '../../src/auth/staff-directory';
 import { registerSlipReaders, resetSlipReaders, slipReaders } from '../../src/engine-host/slip-readers';
@@ -8,6 +15,9 @@ import { currentTableOf, holdersOfOrders, seatingOf, tableOwners, zoneOf } from 
 import { registerTables } from '../../src/tables/index';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
+
+registerEngineBootSteps(() => performance.now());
+registerRestaurantBootSteps();
 
 let hub: TestHub;
 
@@ -83,6 +93,15 @@ describe('02a table reads (§4.2)', () => {
     expect(out.get('O3')).toEqual({ seating_id: 'SEAT2', primary_table_id: 'T3', table_ids: ['T3'] });
   });
 
+  it('[02a §4.2] repeated ids in a batch give one entry each, still one statement', () => {
+    seat('SEAT1', 'T1', 'S_A', { tables: ['T1', 'T2'], orders: ['O1'] });
+    const counter = statementCounter(hub.deps.db);
+    expect(currentTableOf(hub.deps.db, ['O1', 'O1']).get('O1')?.table_ids.slice().sort()).toEqual(['T1', 'T2']);
+    expect(holdersOfOrders(hub.deps.db, ['O1', 'O1']).size).toBe(1);
+    expect(tableOwners(hub.deps.db, ['T1', 'T1']).size).toBe(1);
+    expect(counter.count).toBe(3);
+  });
+
   it('[02a §4.2] seatingOf null for a FREE table', () => {
     seat('SEAT1', 'T1', 'S_A', { tables: ['T1', 'T2'], state: 'ORDERED' });
     const counter = statementCounter(hub.deps.db);
@@ -142,5 +161,39 @@ describe('02a slip reader registration (SG-6, §11 step 1)', () => {
     const readers = slipReaders()!;
     expect(readers.holdersOfOrders(hub.deps.db, ['O1']).get('O1')).toBe('S_A');
     expect(readers.currentTableOf(hub.deps.db, ['O1']).get('O1')?.primary_table_id).toBe('T1');
+  });
+
+  it('[02a §11 step 1] a 03a fires-alerts pass uses the registered pair: receiver = holder, label = primary table name', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const stop = startTickLoop(hub.deps, { error: vi.fn() });
+    try {
+      const base = anEngineConfigApplied().payload as unknown as EngineConfig;
+      const cfg = { ...base, stations: [{ ...base.stations[0]!, station_id: 'S1', name: 'S1', capacity: 8 }] };
+      hub.deps.writer.run((tx) =>
+        tx.append([anEngineConfigApplied({ payload: cfg as unknown as Record<string, unknown> }), aBusinessDayOpened()].map((e) => draftOf(e, hub.clock.branchNow()))),
+      );
+      hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
+      const config = {
+        ...aBranchConfig(),
+        floors: [{ floor_id: 'F1', name: 'Main', sort_order: 0, zones: [], tables: [{ table_id: 'T1', name: 'Window 1', seats: 4, sort_order: 0, zone_id: null }, { table_id: 'T2', name: 'Window 2', seats: 4, sort_order: 1, zone_id: null }] }],
+      };
+      swapBranchConfig({ config, snapshotHash: 'h', configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
+      seat('SEAT1', 'T1', 'S_CASH', { tables: ['T1', 'T2'], orders: ['O1'] });
+      fakeSubmit(hub.deps, { order_id: 'O1', actor_id: 'S_WAIT', order: { table_id: 'T2', table_key: 'dine_in:SEAT1' }, lines: [{ order_item_id: 'O1-L1' }] });
+      hub.clock.set(hub.clock.branchNow());
+      await vi.advanceTimersByTimeAsync(TICK_MS);
+      const due = hub.deps.state.get().next_alert_due_at;
+      expect(due).not.toBeNull();
+      hub.clock.set(due! + 1_000);
+      await vi.advanceTimersByTimeAsync(TICK_MS);
+      const row = hub.deps.db
+        .prepare("SELECT alert_id, json_extract(request_json, '$.receiver_staff_id') AS receiver, display_json FROM alerts WHERE kind = ? AND dedupe_key = 'slip:dine_in:SEAT1'")
+        .get(ENGINE_ALERT_KINDS.slip) as { receiver: string; display_json: string };
+      expect(row.receiver).toBe('S_CASH');
+      expect((JSON.parse(row.display_json) as { table_code: string }).table_code).toBe('Window 1');
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 });

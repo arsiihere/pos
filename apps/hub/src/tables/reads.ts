@@ -9,7 +9,7 @@ export const tableOwners: TableOwners = (db, table_ids) => {
   const rows = db
     .prepare(
       `SELECT st.table_id AS table_id, s.holder_staff_id AS holder
-         FROM json_each(?) j
+         FROM (SELECT DISTINCT value FROM json_each(?)) j
          JOIN seating_tables st ON st.table_id = j.value
          JOIN seatings s ON s.seating_id = st.seating_id`,
     )
@@ -21,7 +21,7 @@ export const holdersOfOrders: HoldersOfOrders = (db, order_ids) => {
   const rows = db
     .prepare(
       `SELECT so.order_id AS order_id, s.holder_staff_id AS holder
-         FROM json_each(?) j
+         FROM (SELECT DISTINCT value FROM json_each(?)) j
          JOIN seating_orders so ON so.order_id = j.value
          JOIN seatings s ON s.seating_id = so.seating_id`,
     )
@@ -33,7 +33,7 @@ export const currentTableOf: CurrentTableOf = (db, order_ids) => {
   const rows = db
     .prepare(
       `SELECT so.order_id AS order_id, s.seating_id AS seating_id, s.primary_table_id AS primary_table_id, st.table_id AS table_id
-         FROM json_each(?) j
+         FROM (SELECT DISTINCT value FROM json_each(?)) j
          JOIN seating_orders so ON so.order_id = j.value
          JOIN seatings s ON s.seating_id = so.seating_id
          JOIN seating_tables st ON st.seating_id = s.seating_id
