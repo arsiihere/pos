@@ -139,7 +139,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **done** | `149c188`, `90e4282`, fix `04d4662` |
 | 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | **done** | `15f639f` |
 | 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | **done** | `25b88c9`, fix `337d635` |
-| 18 | Simulator gate, full gate, README | engine | NORMAL | todo (needs all three lanes merged) | |
+| 18 | Simulator gate, full gate, README | engine | NORMAL | **stopped** — E-7, E-8, E-9 open (Batch 5e) | |
 
 ## AD rows
 
@@ -305,6 +305,10 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | E-3 | 17 | 03a v1.2 Q-6 says `foldItemServed` uses `min(served_at, recorded_at)`. §3.3 (~:391 "recorded_at of the ItemServed…", ~:438 "`last_served_at` is set from that event's `recorded_at`") and `state.ts:111` were not amended. As built, `last_served_at` = `min(served_at ?? recorded_at, recorded_at)`. The exit predicate (`lifecycle.ts:65`) and `slip.ts:150` now count from the earlier time, which is Q-6's intent. Old logs fold the same, so D62 holds. | (a) A text patch to 03a v1.2 §3.3 (both lines → "min(served_at, recorded_at)") and the `state.ts:111` comment, as an as-built note; (b) a spec bump to 03a v1.2.1 | **(a)**: no rule change; the code follows Q-6. |
 | E-4 | 15 / 02b | Found while writing AD-E18: 03a §3.3 says an `OrderLinesAdded` on an order not in the engine **throws**. An order of ready items only has no engine order (Q-3), so if 02b later adds a cooked item to it with `OrderLinesAdded`, the fold throws a plain `Error` (`apply-event.ts:359–366`; not an `InvalidEvent`, so it is rethrown in strict and non-strict mode alike). Live, the **whole command rolls back** (nothing is appended, no diagnostic). If such an event were ever in the log, boot step 3 would stop. No hub code sends `OrderLinesAdded` today (02b is not built). Task 15 review: under (a), the order id stays in the AD-E18 id set (the boot read re-adds it from the first empty `OrderPlaced`), and the order check runs first, so that order's real absent ids would be silenced for good. | (a) 02b sends the first cooked line as a new `OrderPlaced` **and** the host drops the order id from the set on a non-empty `OrderPlaced` (02b spec note + a small 03a rule); (b) 03a creates the engine order on the first `OrderLinesAdded` for an order in the id set (03a spec change, then code) | **(b)**: 03a's own fold handles it, and the id set stays correct with no extra rule. It needs a spec change first. No code is changed until you rule. | **Ruled (owner, 2026-11-09): (b), task 15b.**
 | E-5 | 15b | E-4 (b) turns the absent-order `OrderLinesAdded` throw into `InvalidEvent('order_not_in_engine')`, which the hub's non-strict fold logs and skips. Three tests in the platform-A-owned `apps/hub/test/engine/boot.int.test.ts` pin the old throw. `:593` "OrderLinesAdded on an absent order stops boot" (test 135 now says the boot completes). `:603` "[task 20 review] a failed boot: flushEngineBootLog …" (its only boot-stopping trigger is this throw; after E-4, nothing in a log can make the non-strict fold throw, AD-E24). `:684` "throws in the live fold and rolls the transaction back" (the append now commits with one diagnostic). The implementer stopped before any code; the tree is clean at `308997f`. | (a) An ownership exception like E-2: in its own commit, 15b inverts `:593` and `:684` to the E-4 behaviour and gives `:603` a new trigger that still stops boot (a step-3 read failure from a test stub: the failed-boot log path stays tested). Nothing else in the file changes. (b) Platform A's lane is reopened for these three edits. | **(a)**, as with E-2: the edits follow a rule you approved (E-4), and platform A's lane is finished. | **Ruled (owner, 2026-11-09): (a).**
+| E-6 | 18 | 01d v1.2.1 P-1 said "built with 02b", but 02p §10 Acceptance forbids 02b edits in 01d files | (a) build in 02p; (b) acceptance exception | **Ruled (a), owner 2026-11-09**: built `8319cf0`, 01d wording `6c4e9de` |
+| E-7 | 18 / 02b v1.0.2 | Owner ruling 1 (2026-11-09) asks for a remake on an exited order to re-create the engine order (one indexed `OrderPlaced` read, table from 02a). Approved specs refuse it before any append: 02b §3.8, §6.7, test 25; 03a G4-1 #7, §3.8a, test 101 (`409 ORDER_NOT_IN_ENGINE`, "order closed"). The engine keeps an order 30 min after its last serve, so a remake inside 30 min works today with no safety-net hit. Also AD-E27: a `return_of` line on a re-created order is dropped at its `ItemAdded`, so (b) needs an engine change too | (a) keep the 409; v1.0.2 says so and adds two tests (remake < 30 min reaches the KDS, no alert; > 30 min → 409, nothing appended, no alert); (b) allow it: 03a v1.2.1 (`cp`) for #7, §3.8a, test 101 **and AD-E27's drop**; 02b §3.8, §6.7, test 25 + the one-read bound + the owner's test | (a), unless dishes really come back > 30 min after serving |
+| E-8 | 18 | `test:perf` BF-7 (20-line `StockAdded` at peak, max ≤ 50 ms) is red: run 1 max 83.4 ms (p50 38.3, mean 42.1, n 21), re-run max 50.47 ms (p50 34.9). The p50 matches 03a v1.0.1 (35.4–37.1); one slow sample breaks the max-bound; capacity_drop showed a spike in the same run (max 50.6, p50 13.1). Not one of the three expected SQLite rows. Bound not touched (stop rule 2) | (a) A/B the same seed on `main` (pre-02p engine) to rule out a 02p cost, then decide; (b) treat as laptop jitter and leave for the pilot box (03a task 28); (c) change the bound to p99 (needs a 03a bump) | (a) — one ~4 min run on a worktree of `main`, before calling it jitter |
+| E-9 | 18 (17c) | `test:perf` 17c slip row red, a **test bug**: `withWork` computes `wanted` from the state **after** the pass (the `SlipWarned` folds have resolved the slips, so `wanted` = 0) while `got` = 10 raised, 0 skipped. The hub is right. Timing of that row was p99 34 ms on this disk (COMMIT path) | (a) compute `wanted` before the timed pass, from the reset state; one-line fix in `fires-alerts-tick.perf.test.ts`, no bound change, re-run perf-hub; (b) leave | (a) |
 
 ## Batch 5a — 03a carry-over, engine lane (2026-11-09)
 
@@ -355,6 +359,28 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 03a #131–#139; #78, #101, #130, #135, #137 as changed.
 - **AD rows (proposed):** AD-E26, AD-E27.
 - **For 02b's handover (M-4):** once food creates the engine order, later events on the earlier drinks are logged as absent ids, as for any mixed order. This is expected, not a bug.
+
+
+## Batch 5e — task 18 (2026-11-09)
+
+- **Commits:** `2b91996` (V3 alias removed, AD-13), `3c9a21e` (`createTestHub` resets the Q-3 id set, AD-E23), `0ea09e1` + `fd81485` (02b v1.0.2 DRAFT; **not approved**, owner ruling 1 open as E-7), `6c4e9de` (01d P-1 wording, E-6), `8319cf0` (P-1 chip, `tableLabel`; review sonnet: spec ✅, quality approved, 0 Critical / 0 Important).
+- **Gate:** RAM gate at `3c9a21e` green (374 files, 3466 tests). P-1 commit: alerts folder 128/128, client typecheck and lint clean; full gate not re-run after `8319cf0`.
+- **`test:perf` (real disk, alone, `3c9a21e`, 424 s):** 2 red rows, both new (E-8, E-9); the three SQLite rows expected red **passed** this time.
+
+  | Row | Target | 03a v1.0.1 (`dbfcf4b`) | 02p task 18 |
+  |---|---|---|---|
+  | Re-plan per submit p99 | ≤ 50 ms | 8.9 | 10.05 (p50 3.23, max 17.8) |
+  | Overload probes / p99 | ≤ 16 / ≤ 50 | 7 / 8.7 | 7 / 9.47 |
+  | BF-7 max | ≤ 50 ms | 36.7 (p50 35.4) | **83.4 (p50 38.3); re-run 50.47 (p50 34.9) — red, E-8** |
+  | Snapshot serialise max | ≤ 50 ms | 4.6 | 5.64 |
+  | Day replay from checkpoint | ≤ 45 s | 11.9 s | 12.3 s |
+  | Rebuild from seq 0 = live | equal | 11.3 s, equal | 12.2 s, equal |
+  | `fires` with work p99 | ≤ 20 ms | FAIL 69.9 (disk) | **pass 11.5** |
+  | `fires_alerts` idle / with work p99 | ≤ 20 ms | 1.1 / FAIL 43.2 (disk) | 1.14 / **pass 13.3** |
+  | `fires_alerts` with work and slips (17c) | ≤ 20 ms | — | **red: test bug, E-9** (10 slips raised, 0 skipped) |
+  | Snapshot full write | ≤ 50 ms | FAIL (disk) | pass |
+- **Not done (stopped):** README "built" cells and the 02p row; 02b v1.0.2 approval; E-7, E-8, E-9 open. 02p is **not** marked done.
+- **Lock note:** `tools/test-perf.sh` takes `/tmp/pos-gate.lock` itself; wrapping it in `flock` deadlocks (lost one run).
 
 ## Platform A prompt (for the owner to paste into a new session)
 
