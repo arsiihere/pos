@@ -139,7 +139,7 @@ Failure modes the spec implies; each line names the pinning test and task.
 | 4 — split, bill, clean, call, queries | 16–19 | 16, 17, 18, 19 | 6.11, 6.12, 6.13, 6.14, 6.17, 6.18 | batch 3 green |
 | 5 — client | 20–24 | 20 | §8 flows | **BLOCKED** on the 02a design handoff (`docs/design/handoff/02a/`) |
 
-**Total: 25 tasks in 5 batches** (20 hub tasks in batches 1–4, incl. task 1b from SG-2; 5 client tasks in batch 5).
+**Total: 26 tasks** (21 hub tasks incl. task 1b from SG-2 and task 3b from the parallel waves; 5 client tasks in batch 5). Hub default order: **parallel waves 0–3** (section below); the batches are the fallback.
 
 ## Coverage (§10 test → task)
 
@@ -477,7 +477,66 @@ Each client task gets its full TDD steps when the handoff lands (a short plan pa
 
 ---
 
-## Claude Code kickoff
+## Parallel waves (owner, 2026-11-09) — the default way to build batches 1–4
+
+Same 20 hub tasks (+ task 3b below), same TDD, same one-task-one-commit, same reviews. Only the order changes: independent tasks run at the same time in separate Claude Code sessions ("lanes"), each in its own git worktree. The batch sections above stay the task text; the batch checkpoints are replaced by the **wave checkpoints** below.
+
+### Rules (every lane, every wave)
+
+1. **Contract in code.** Shared signatures live in `apps/hub/src/tables/contracts.ts` (task 3b). A lane implements against it and never changes it. Needing a change → STOP that lane, add an `AD-n` row, the other lanes go on.
+2. **Tests on real tables, never on a mock of another lane's code.** A lane whose code needs rows another lane's code would write seeds them with SQL into the `0012` tables or appends real events through the writer.
+3. **One file, one lane per wave** (the ownership table). Exception: one-line registrations in `apps/hub/src/tables/index.ts`; each lane appends its own lines; the integrator resolves those additive conflicts and nothing else.
+4. **Lanes never push and never merge.** Each lane commits on its local branch `lane-<wave><letter>` in its worktree. The **integrator** cherry-picks each finished, reviewed task commit onto `module-02a` (same repo, so the sha is visible), in the order of the ownership table, runs the lane's files on the integrated head, and pushes `module-02a`. A cherry-pick conflict that is not an additive `index.ts` line → STOP.
+5. **At most 4 lanes.** Implementers run only their own files (`pnpm vitest run <files>`, `pnpm --filter @pos/hub typecheck`). Only the integrator runs the gate, once per wave.
+6. **A lane that needs another lane's finished commit** (wave 2: lanes C, D need task 12's `closeHandover` behaviour for their "handover closed `obsolete`" clauses) cherry-picks that commit from `module-02a` into its own branch once the integrator has landed it. Until then those clauses stay red; the task is not "done" before they pass.
+
+### Task 3b: `tables/contracts.ts` and the `index.ts` skeleton · RISK: NORMAL (wave 0)
+
+**Spec:** §4.2, §3.9, §4.1 (04 guard); plan §"02a exports". **§11 steps 6–8 (contracts only).**
+
+**Files:** Create `apps/hub/src/tables/contracts.ts` (types only: `SeatingRow`, `LockRow`, `TableOwners`, `SeatingOf`, `ZoneOf`, `RequireLock`, `CloseHandover = (ctx: CommandCtx, seating_id: string, note: string) => EventDraft[]`, `MergeGuard`, `WaiterTeam`, plus re-exports of `HoldersOfOrders`, `CurrentTableOf`), `apps/hub/src/tables/index.ts` (`registerTables(app, deps)` and `registerTablesProjection(projections)` with empty bodies), test `apps/hub/test/tables/contracts.test.ts`; append `registerTables(app, deps)` to `apps/hub/src/server.ts`.
+
+**Tests first:** `[02a §4.2] contracts compile` with `expectTypeOf` for each type against the §4.2 shapes; `[02a §4.2] registerTables on a test hub registers nothing yet`.
+
+**Commit:** `feat(02a): table contracts and wiring skeleton [02a §4.2, §3.9; §11 steps 6–8]`
+**Done:** test passes; `pnpm -w typecheck` clean; no behaviour.
+
+### Waves and file ownership
+
+| Wave | Lane | Tasks (in order) | Owns (create / edit) |
+|---|---|---|---|
+| 0 | integrator | 1 → 1b → 2 → 3 → 3b | as in each task |
+| 1 | A | 4 → 5 | `tables/projection.ts`; `lib/boot.ts`, `test/helpers/test-hub.ts` (SG-5 lines); `test/tables/projection*`, `lock-fold*`, `migration*` |
+| 1 | B | 6 → 8 | `tables/reads.ts`, `tables/lock.ts`; 03a "no readers" tests (SG-6); `test/tables/reads*`, `require-lock*` |
+| 1 | C | 7 → 11 | `tables/team.ts`, `tables/resolvers.ts`, `tables/tick.ts`; `test/alerts/fakes.ts` (SG-6); `test/tables/team*`, `resolvers*`, `tick*` |
+| 2 | A | 9 → 10 | `tables/commands/open-table.ts`, `lock-commands.ts`; their tests |
+| 2 | B | 12 → 13 | `tables/kinds.ts` (`table_handover` only), `tables/handover.ts` (`closeHandover`), `commands/request-table-handover.ts`, `holder-commands.ts`; their tests |
+| 2 | C | 14 → 15 → 16 | `commands/move-table.ts`, `tables/merge-guard.ts`, `commands/merge-tables.ts`, `commands/split-seating.ts`; their tests |
+| 2 | D | 17 → 18 | `commands/bill-clean.ts`, `tables/call-waiter-kind.ts` (the `call_waiter` kind, top level, imported by `index.ts` — not in `kinds.ts`, which lane B owns), `commands/call-waiter.ts`; their tests |
+| 3 | integrator | 19 | `tables/queries.ts`, `tables/audiences.ts`; its tests |
+
+Integrator cherry-pick order inside a wave: by lane letter, and inside a lane by task order (wave 2: B's task 12 as soon as it is reviewed, so C and D can pick it up).
+
+### Wave checkpoints (replace the batch checkpoints)
+
+| After | Gate | §12.2 rows | Statement counts asserted |
+|---|---|---|---|
+| Wave 0 | green | none | none |
+| Wave 1 | green | none (no command yet) | reads 1 each, `zoneOf` 0, `table_team` 1 for 40 targets, `requireLock` 1, tick idle 1 / pass 1 + 1; replay identity #38, #9 |
+| Wave 2 | green | 6.1–6.14 | as the batch 2–4 checkpoints say, per command |
+| Wave 3 | green | 6.17, 6.18 (all 16 rows) | `table-map` 3 + 1, `handover-candidates` 2; §12.1 hub DoD |
+
+Each checkpoint: batch entry on `docs/plans/02a-status.md` (call it "Wave N"), commit `docs(02a): checkpoint wave N`, push `module-02a`, STOP for the owner's review.
+
+### Sessions and prompts
+
+The owner opens **one integrator session** (kept for the whole build) and, per wave, **one session per lane** (fresh each wave). The prompts are in `docs/plans/02a-parallel-prompts.md`.
+
+---
+
+## Claude Code kickoff (sequential batches — fallback)
+
+The default is the parallel waves above. Use this prompt only to build one batch at a time in a single session.
 
 Paste this into a fresh Claude Code session in the repo (`~/pos`), after the owner has ruled the SG rows the batch needs:
 

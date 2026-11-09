@@ -1,6 +1,6 @@
 # 02a status board
 
-Plan: `docs/plans/02a-plan.md` (25 tasks, batches 1–5; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.1.md` (APPROVED), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
+Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.1.md` (APPROVED), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
 
 > **Short Hinglish summary — padhein yahan se**
 >
@@ -17,6 +17,7 @@ Plan: `docs/plans/02a-plan.md` (25 tasks, batches 1–5; batch 5 = client, block
 | 1b | Schemas of folded 02b / 05 events (SG-2) | 2 | 1 | NORMAL | todo | |
 | 2 | `TableState`, §9 error codes | 2 | 1 | NORMAL | todo | |
 | 3 | Migration `0012_tables.sql` | 3 | 1 | HIGH | todo | |
+| 3b | `tables/contracts.ts`, `index.ts` skeleton (parallel waves) | 6–8 | wave 0 | NORMAL | todo | |
 | 4 | Projection `tables`, state fold, `reset` | 4 | 1 | HIGH | todo | |
 | 5 | Lock activity fold | 5 | 1 | HIGH | todo | |
 | 6 | Reads + 03a slip reader pair | 6 | 2 | NORMAL | todo | |
@@ -92,6 +93,6 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 
 ## Next
 
-1. **Claude Code:** batch 1 (tasks 1, 1b, 2–5) with the kickoff prompt in `docs/plans/02a-plan.md` §"Claude Code kickoff".
+1. **Claude Code:** wave 0 — open the integrator session with the prompt in `docs/plans/02a-parallel-prompts.md` §1.
 2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
