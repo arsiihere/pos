@@ -14,6 +14,15 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 > - Engine lane ke tasks 14–17, 17b aur 17c mukammal hain. Task 18 baaqi merges ke baad.
 > - Aapke liye: E-4 (khaali order mein baad mein pakne wali cheez) aur AD-E19–E23.
 
+## 02p DONE (owner, 2026-11-09)
+
+> **02p mukammal (owner ne DONE kiya, 2026-11-09).** Platform A (tasks 1–13) aur engine lane (14–18, 15b, 17b, 17c) dono built. Full gate green (`388a8e4`: 374 files, 3467 tests). 02b v1.0.2 APPROVED (har `OrderLinesAdded` mein `order_header`; 30 min ke baad remake = 409, screen par "Send it as a new item"). P-1 chip built. BF-7 aur 17c slip row pilot box par check honge (03a task 28), limits wahi. Merges owner ke hain. Is lane mein ab koi kaam nahi.
+
+- **Built:** platform A tasks 1–13 (`module-02p`, merged by the owner); engine lane tasks 14, 15, 15b, 16, 17, 17b, 17c, 18 (`module-02p-engine`).
+- **Specs:** 02b v1.0.2 APPROVED (owner, 2026-11-09); 01d v1.2.1 P-1 built in 02p; README cells "built in 02p".
+- **Deferred to 03a task 28 (pilot box, limits unchanged):** BF-7 and the `fires_alerts` with-work-and-slips row (E-8, E-9).
+- **Owner's:** the merge of `module-02p-engine`.
+
 ## MORNING REPORT (2026-11-09, day): rulings applied; 15, 17c, AD-E2 done; engine lane done except 18; STOPPED
 
 **Done:**
@@ -139,7 +148,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **done** | `149c188`, `90e4282`, fix `04d4662` |
 | 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | **done** | `15f639f` |
 | 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | **done** | `25b88c9`, fix `337d635` |
-| 18 | Simulator gate, full gate, README | engine | NORMAL | **stopped** — E-7, E-8, E-9 open (Batch 5e) | |
+| 18 | Simulator gate, full gate, README | engine | NORMAL | **done** (Batch 5e; E-6–E-9 ruled) | |
 
 ## AD rows
 
@@ -382,7 +391,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **After the rulings (2026-11-09):** `ae5a7f8` (E-9 fix), `8bf4810` (02b v1.0.2 E-7 text), `388a8e4` (README: 02p-built cells, "merge pending"; 02b draft row). Perf: E-9 file 3/3 pass; E-8 A/B on `main` (worktree removed): BF-7 red on `main` too (p50 43.6 / max 90.6 vs 02p 38.3 / 83.4).
 - **Full gate at `388a8e4`:** green. 374 files passed (1 skipped), 3467 tests passed (1 skipped, 1 todo), 525 s.
 - **Acceptance (02p §10):** the upstream hooks 02a / 02b call exist (`registerSlipReaders`, `registerTargetResolver`, `zonesOf`, `skip_requester`, `ctx.queuedAt` / `X-Queued-At`, C-1 / E-1 fields, `order_header`, `StockTransferredOut`, zone routes and stock items, the new permissions, `holdersOfOrders` / `currentTableOf` hooks); E-6 closed the one miss (P-1). No other miss found.
-- **Open for the owner:** 02b v1.0.2 approval; E-8 (BF-7 red on this laptop, `main` too); the 02p row in the README and "02p done" are the owner's; merges.
+- **Closed (owner, 2026-11-09):** 02b v1.0.2 APPROVED after two text fixes (test 40 vs `EngineOrder`; "Depends on" / "Inherits" to the README versions, incl. 01c v1.1.2 and 02a v1.1.1); BF-7 and the 17c slip row deferred to 03a task 28 Step 1b and the README carried rows; **02p DONE**.
 - **Lock note:** `tools/test-perf.sh` takes `/tmp/pos-gate.lock` itself; wrapping it in `flock` deadlocks (lost one run).
 
 ## Platform A prompt (for the owner to paste into a new session)
