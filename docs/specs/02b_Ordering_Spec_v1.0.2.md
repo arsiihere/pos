@@ -12,7 +12,7 @@
 
 | Version | Change |
 |---|---|
-| v1.0.2 | Owner ruling 2026-11-09 (E-4, 03a v1.2 task 15b): **every `OrderLinesAdded` carries `order_header`** (03a §4.2, To 02 item 11), copied from the order's `EngineOrder` (§3.8, §6.19); O1 restated as 02b's choice under 03a To 02 #1 (a later round is a new `OrderPlaced`; the engine accepts both, 03a test 139); `group_id` is not a stable per-order key (03a §3.3 E-4); test 37; closure §12.18. |
+| v1.0.2 | Owner ruling 2026-11-09 (E-4, 03a v1.2 task 15b): **every `OrderLinesAdded` carries `order_header`** (03a §4.2, To 02 item 11), copied from the order's `EngineOrder` (§3.8, §6.19); O1 restated as 02b's choice under 03a To 02 #1 (a later round is a new `OrderPlaced`; the engine accepts both, 03a test 139); `group_id` is not a stable per-order key (03a §3.3 E-4); test 40; closure §12.18. |
 | v1.0.1 | Schedule only: §11 steps 2, 7, 9, 15, 18 — the 00, 01a, 01b, 01c and 03a rows (H-1, A-1, B-1–B-5, C-1, Q-3–Q-6, Q-9, E-1) are built in `02p_Platform_Changes_Spec`; 02b starts after 02p and 02a. |
 | v0.1 | First draft from G0 + G1. |
 | v0.2 | G2 fixes (`02b_v0.1_g2_completeness.md` #1–#14). |
@@ -581,7 +581,7 @@ Reused: `BUSINESS_DAY_NOT_OPEN`, `ORDER_NOT_IN_ENGINE`, `RETURN_ALREADY_OPEN`, `
 | 34 | Perf | `SubmitOrder` p99 < 60 ms, `eta-preview` p99 < 40 ms at 12 lines on the peak fixture (E2-ETA AC1) |
 | 35 | Client | queue: stored before first send; replay in `queued_at` order (E5 AC2); no "sent" before 2xx; 4xx in the log; frozen cart; own pending `ORDER_ITEM_ID_IN_USE` shown as sent; drafts survive reload; **device idle lock** fires offline after the TTL, drains first, then logs out; "Send again" names the person; late cards grouped by current table (O18): merge after both warnings were raised → one card; split → each warning under its oldest order's table (S-7); offline lock keeps a pending logout, not a queue entry (S-4); **TTL elapses while the app is suspended → the first tap after resume shows the lock, nothing sent as the old person** (m-9); a `426` keeps the command queued (m-7) |
 | 36 | Client | stepper capped; zone-empty flip; slow chip from `slow_item_threshold_ms`; sold-out update from the stock frame within 5 s (E2-SOLD AC3); day-not-started per permission; cart sorted by ETA; table view rounds by time |
-| 37 | Return header | `ReturnToKitchen` (fix and remake) appends `OrderLinesAdded` whose `order_header` equals the order's `OrderPlaced` fields (`order_type`, `table_key`, `table_id`, `follow_up`, `pickup_at_ms`) and `placed_by` = that `OrderPlaced` envelope `actor_id`, also for a return made by another staff member; the statement count of `ReturnToKitchen` is unchanged (⚠️ Changed by owner ruling 2026-11-09 (E-4, 02b v1.0.2)) |
+| 40 | Return header | `ReturnToKitchen` (fix and remake) appends `OrderLinesAdded` whose `order_header` equals the order's `OrderPlaced` fields (`order_type`, `table_key`, `table_id`, `follow_up`, `pickup_at_ms`) and `placed_by` = that `OrderPlaced` envelope `actor_id`, also for a return made by another staff member; the statement count of `ReturnToKitchen` is unchanged (⚠️ Changed by owner ruling 2026-11-09 (E-4, 02b v1.0.2)) |
 
 ### Acceptance
 
@@ -613,7 +613,7 @@ Reused: `BUSINESS_DAY_NOT_OPEN`, `ORDER_NOT_IN_ENGINE`, `RETURN_ALREADY_OPEN`, `
 10. `SetLineWeight` (21).
 11. `MarkServed` (22, 23).
 12. `ReleaseItems`, `BoostOrder` (24).
-13. `ReturnToKitchen` (25).
+13. `ReturnToKitchen` (25, 40).
 14. `CompLine` + kind `comp` (26, 27).
 15. `AddZoneStock`, `SetZoneStock`, zone kinds (14) — 01a A-1, 01b B-2 / B-3, 03a Q-5 built in 02p.
 16. Exports §4.2 (29).
@@ -894,7 +894,7 @@ Delivery and web types; later child additions ("one more naan" attached) with RE
 
 | # | Change |
 |---|---|
-| E-4 | Every `OrderLinesAdded` carries `order_header` from the order's `EngineOrder`, no extra statement (§3.8, §6.19); test 37 |
+| E-4 | Every `OrderLinesAdded` carries `order_header` from the order's `EngineOrder`, no extra statement (§3.8, §6.19); test 40 |
 | To 02 #1 | O1 restated as 02b's choice: a later round is a new `OrderPlaced`; the engine accepts both (03a test 139) |
 | R-2 (15b re-check) | `group_id` is not a stable per-order key after a re-create (03a §3.3 E-4) |
 | M-4 (15b review) | Absent-id log lines after a re-create are expected |
