@@ -711,6 +711,8 @@ OQ1–OQ3 decided (developer, 2026-11-06): bill alert → 05; `clean-table` defa
 |---|---|---|---|
 | **OQ4** | Bilal moves his own party from a ground-floor table to an upstairs table that **nobody is assigned to** (or that is his own). Is that fine without asking anyone? | Whether R23's "another floor" needs a request when no other person is involved | **Decided (developer as the owner's proxy, 2026-11-07): yes, free** — R23's request is needed only when another person is involved (T6). One-line change if the owner rules otherwise. |
 
+> ⚠️ **Note from 02p (owner, 2026-11-09, 03a AD-E6):** 03a test 121 bounds the slip pass at 2 + ≤ 2 + ≤ 1 + 01d. So each real reader 02a registers with `registerSlipReaders`, `holdersOfOrders` and `currentTableOf`, must be **exactly one SQL statement** per call. Text only; no rule change.
+
 ### 12.4 Deferred until needed
 
 Pass pick-up identity (owner round 2); hub-side assignment screen (owner Q1); per-line moves (bill split is 05's); configurable colours and call chips; reservations (P2); moving a merged seating in one step; approval flow for the handler-checked second permissions (§3.15).
