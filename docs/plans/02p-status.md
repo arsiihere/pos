@@ -29,11 +29,11 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 **Decisions for the owner:** none open.
 
-## PLATFORM A REPORT (2026-11-08): batch 2 done (tasks 3–6), gate green, pushed
+## PLATFORM A REPORT (2026-11-09): batch 3 done (tasks 7–10), gate green, pushed
 
-> **Hinglish:** Batch 2 mukammal. Tasks 3–6 done, gate green (3317 tests). Spec mein jo baatein nahi thin un par aapke faisle AD-4–AD-20 mein likhe gaye. Engine lane ke liye: `config-hook.int.test.ts` ko V4 import pe le jaayein (AD-13). Agla: batch 3 (tasks 7–10).
+> **Hinglish:** Batch 3 mukammal. Tasks 7–10 done, gate green (3372 tests). Assignments ke rules aapke faislon (AD-21–AD-32) ke mutabiq. Do naye sawal: AD-33 (chhota), AD-34 (bina PIN wala lead). Agla: batch 4 (tasks 12, 13, 11).
 
-**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-8 (proposed: #184 split, recommend accept).
+**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-8 (recommend accept), AD-33 (recommend accept), AD-34 (recommend accept).
 
 ## Task table
 
@@ -46,10 +46,10 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 4 | Snapshot V4, hub apply | platform A | HIGH | **done** | `a0b85ba` |
 | 5 | `StockTransferredOut` in `stock_version`, stock frame | platform A | NORMAL | **done** | `5442fd0` |
 | 6 | Owner app: zones, ready item, settings | platform A | NORMAL (UI) | **done** | `0d2d7d8`, fix `3d63bfb` |
-| 7 | Assignments, directory v3, `assignedOrderTaker` | platform A | HIGH | todo | |
-| 8 | `my_zones` CHECK expand, `zonesOf` | platform A | HIGH | todo | |
-| 9 | Default grants, re-seed, settings `PATCH` | platform A | NORMAL | todo | |
-| 10 | Owner app: assigned tables | platform A | NORMAL (UI) | todo | |
+| 7 | Assignments, directory v3, `assignedOrderTaker` | platform A | HIGH | **done** | `d53c3b5`, fix `8685f0c` |
+| 8 | `my_zones` CHECK expand, `zonesOf` | platform A | HIGH | **done** | `9d8caca` |
+| 9 | Default grants, re-seed, settings `PATCH` | platform A | NORMAL | **done** | `1fcc535` |
+| 10 | Owner app: assigned tables | platform A | NORMAL (UI) | **done** | `a838ff7`, fix `2ca9e68` |
 | 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
@@ -96,6 +96,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-30 | 7 | `assignedOrderTaker` counted `requires_approval` as holding `take-order` | (a) `allowed` only; (b) both | (a) | **ruled (owner, 2026-11-08)** |
 | AD-31 | 7 | Re-sending an already-held archived zone / table → 422 `archived` | (a) exempt held ids; (b) client filters | (a) | **ruled (owner, 2026-11-08)** |
 | AD-32 | 7 | Table archive / restore does not bump `directory_version` | (a) accept; (b) bump | (a) | **ruled (owner, 2026-11-08)** |
+| AD-33 | 8 | `zonesOf` returns sorted, de-duplicated ids (§4.2 says a union) | (a) sorted + dedup like `floorsOf`; (b) unordered | (a) | proposed (not yet ruled) |
+| AD-34 | 8 | The hub directory holds only staff with a PIN, so a lead without a PIN adds none of their zones to `my_zones` (§3.3 says the lead's zones count); pre-existing behaviour | (a) accept (refillers' leads have PINs); (b) carry lead zones for no-PIN leads | none — needs the owner | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -145,6 +147,17 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 01a #181–#186, #189–#191 (cloud), #184 snapshot clause, #187 "+1" (config-only 23 → 24, with directory 32 → 33), #188, #192, #193 (delivered with defaults), #194 first two clauses, #195 and the client parts of #181, #189–#195; U5 (every fixture V4).
 - **AD rows:** AD-4–AD-7, AD-9–AD-20 ruled by the owner; AD-8 (#184 split between tasks 3 and 4) proposed.
 - **Carried:** AD-13 — the engine lane must switch `apps/hub/test/engine/config-hook.int.test.ts` to `BranchConfigSnapshotSchemaV4`, then the alias goes. AD-18 — the five settings fields are not accepted by the cloud PATCH until task 9. Parked minors (no more rounds): a test for "restore resends an equal but stale list → 422"; the lock-edge test hangs instead of failing on a regression; `aStockTransferredOut` builder missing in `@pos/events/testing`; the zone editor's Archive skips the leave guard; urdu-todo header counts.
+
+## Batch 3 — 01b (2026-11-09)
+
+- **Lane / tasks:** platform A, tasks 7, 8, 9, 10 (8 ‖ 10 and 9 ran in parallel on disjoint files).
+- **Commits:** task 7 `d53c3b5`, fix `8685f0c`; task 8 `9d8caca`; task 9 `1fcc535`; task 10 `a838ff7`, fix `2ca9e68`. Spec text: `d69dc7b` (AD-21–AD-28), `b8e1742` (AD-29–AD-32, bound row 6), and in this checkpoint the 01b §6.10 note for `served_estimate_ms` and `docs/plans/02p-release-notes.md`.
+- **Reviews:** all by opus (task 10's small round by sonnet). Task 7: NEEDS_CONTEXT first (7 questions → AD-21–AD-28); review found an Important hole (a left person could hold assignments that block active staff → AD-29) plus AD-30, AD-31; one round, approved. Task 8: approved (readings AD-33, AD-34). Task 9: approved (minor: cloud does not trim chips). Task 10: approved; small round (section hidden for a left person, held items on archived floors shown).
+- **Gate:** `TMPDIR=/dev/shm DATABASE_URL=…/pos_test_cloud flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"` — 369 files passed, 1 skipped; 3372 tests passed, 1 skipped, 1 todo; 9 m 49 s.
+- **Tests closed:** U-3 (assignments, directory v3, `assignedOrderTaker`, client part); 01a #187 "+2" (with directory 34); U-4 (`zonesOf`, `my_zones` rank and CHECK, defaults by `default_key`, settings PATCH); 01a #193 "written, range-checked".
+- **Closed carries:** the `my_zones` 500 (batch 1) — closed by task 8's CHECK expand; AD-18 (settings fields before task 9) — closed by task 9.
+- **AD rows:** AD-21–AD-32 ruled; AD-33, AD-34 proposed.
+- **Carried / parked:** no route-level test of saving a `my_zones` grant (DB test covers the cause); 02b must intersect with `zonesOf` for `my_zones` (no match without an assignment); cloud does not trim chip labels; AD-13 alias still waits for the engine lane.
 
 ## Platform A prompt (for the owner to paste into a new session)
 

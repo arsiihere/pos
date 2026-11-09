@@ -945,6 +945,8 @@ All under `/v1`, JWT, tenant guard (with 00 §6.24a's owner-row read, B5), owner
 | Response | `200 { data: { branch: BranchWire } }` |
 | Errors | `403 PERMISSION_DENIED`, `404 BRANCH_NOT_FOUND` |
 
+> *As built, 02p task 9 (owner ruling 2026-11-08, 01a AD-20):* `served_estimate_ms` is not part of the owner settings wire yet: the `PATCH` does not accept it (alone → `400 VALIDATION_FAILED`; beside other fields it is dropped, like any unknown key) and the `GET` does not return it; it stays null and is delivered as null in snapshot V4 until 03b gives it a range. `comp_reason_chips` refuses case-insensitive duplicates (AD-19).
+
 #### 6.11 `POST /v1/auth/change-password` (JWT; not idempotent by key)
 
 | | |
