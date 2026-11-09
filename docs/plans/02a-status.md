@@ -13,11 +13,11 @@ Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**,
 
 | # | Task | §11 step | Batch | Risk | Status | Commit |
 |---|---|---|---|---|---|---|
-| 1 | Table event schemas | 2 | 1 | NORMAL | todo | |
-| 1b | Schemas of folded 02b / 05 events (SG-2) | 2 | 1 | NORMAL | todo | |
-| 2 | `TableState`, §9 error codes | 2 | 1 | NORMAL | todo | |
-| 3 | Migration `0012_tables.sql` | 3 | 1 | HIGH | todo | |
-| 3b | `tables/contracts.ts`, `index.ts` skeleton (parallel waves) | 6–8 | wave 0 | NORMAL | todo | |
+| 1 | Table event schemas | 2 | 1 | NORMAL | **done (wave 0)** | `68fb020` |
+| 1b | Schemas of folded 02b / 05 events (SG-2) | 2 | 1 | NORMAL | **done (wave 0)** | `635c73c`, `ad8b1f1` |
+| 2 | `TableState`, §9 error codes | 2 | 1 | NORMAL | **done (wave 0)** | `00dd526` |
+| 3 | Migration `0012_tables.sql` | 3 | 1 | HIGH | **done (wave 0)** | `4bf9f94` |
+| 3b | `tables/contracts.ts`, `index.ts` skeleton (parallel waves) | 6–8 | wave 0 | NORMAL | **done (wave 0)** | `5b03f02`, `85a6688` |
 | 4 | Projection `tables`, state fold, `reset` | 4 | 1 | HIGH | todo | |
 | 5 | Lock activity fold | 5 | 1 | HIGH | todo | |
 | 6 | Reads + 03a slip reader pair | 6 | 2 | NORMAL | todo | |
@@ -62,6 +62,8 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-3 | 12 | `seatingTotals` (02b) absent → handover card leaves `amount` out; no stub | — | as read | proposed (not yet ruled) |
 | AD-4 | 4 | `ItemServed` not in `tables.eventTypes` (P-1d; not in §3.3's activity list) | — | as read | proposed (not yet ruled) |
 | AD-5 | 12, 18 | Kinds in `apps/hub/src/tables/kinds.ts`, loaded via `tables/index.ts` ← `server.ts` static import before boot step 4 | — | as read | proposed (not yet ruled) |
+| AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | as read | proposed (not yet ruled) |
+| AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -91,8 +93,21 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Carried:** …
 ```
 
+## Wave 0 — events, codes, migration, contracts (2026-11-09)
+
+- **Tasks:** 1, 1b, 2, 3, 3b (integrator).
+- **Commits:** `68fb020` (1), `635c73c` (1b), `00dd526` (2), `4bf9f94` (3), `5b03f02` (3b); review fixes `85a6688` (3b), `ad8b1f1` (1b).
+- **Reviews:** one fresh opus reviewer per task. 1, 1b, 2, 3 approved first pass. 3b: two Important findings fixed in `85a6688` — `tables/index.ts` now has real `registerTables` / `registerTablesProjection` functions with one marker comment per lane (wave 1 B, C; wave 2 A–D; projection: wave 1 A), so lane registrations are purely additive (rule 3); `contracts.test.ts` lost its "registers nothing yet" asserts (they would turn red as soon as wave 1 lands, in a file no lane owns) and keeps `[02a §4.2] buildHubServer calls registerTables once with its app and deps` (integrator ruling). 1b: gate lint error (`_omitted` unused) fixed in `ad8b1f1`.
+- **Gate:** TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test" — 379 files (1 skipped), 3486 tests passed (1 skipped, 1 todo), 609 s wall. Green.
+- **§12.2 rows ticked:** none (no command yet).
+- **Statement counts asserted:** none.
+- **Tests closed:** none of §10 (schemas, codes, migration, contracts only).
+- **Also:** `apps/hub/test/db/alerts-migration.int.test.ts` pinned migration list gets `0012_tables.sql` (task 3's "migration list" Done line).
+- **AD rows (proposed):** AD-6 (`zoneOf` directory access), AD-7 (`SeatingRow` literal unions).
+- **Carried (minor, deferred):** `table-events.test.ts` "TableMoved / SeatingSplit on the from table, TablesMerged on the into table" and `BillClosed` "on stream table" only echo their input (the registry has no stream) — the writers' tests (tasks 9, 14–16, 05) pin the stream; `LineComped.reason_code` is `z.string()` vs 02b's command `min(1)` — 02b's call; `CloseHandover` takes `CommandCtx` (§3.9), not `AlertCtx`.
+
 ## Next
 
-1. **Claude Code:** wave 0 — open the integrator session with the prompt in `docs/plans/02a-parallel-prompts.md` §1.
-2. **Owner (any time):** AD-1–AD-5 (proposed readings).
+1. **Owner:** review wave 0, then type `wave 1` in the integrator session (it creates worktrees `~/pos-02a-A`…`C`); open the three lane sessions per `docs/plans/02a-parallel-prompts.md` §3.
+2. **Owner (any time):** AD-1–AD-7 (proposed readings); AD-6 matters for lane B task 6.
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
