@@ -149,3 +149,28 @@ describe('02a table-stream events', () => {
     expect(schema.safeParse({ ...base, reason: 'other' }).success).toBe(false);
   });
 });
+
+describe('02a SG-2: BillClosed', () => {
+  it('[02a SG-2] BillClosed v1 { seating_id } on stream table', () => {
+    const schema = payloadSchema('BillClosed', 1);
+    expect(schema.parse({ seating_id: 'S1' })).toEqual({ seating_id: 'S1' });
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ seating_id: 'S1', bill_id: 'B1' }).success).toBe(false);
+    const parsed = parseEvent({
+      event_id: 'E1',
+      tenant_id: 'TN',
+      branch_id: 'B1',
+      stream_type: 'table',
+      stream_id: 'T1',
+      event_type: 'BillClosed',
+      schema_version: 1,
+      payload: { seating_id: 'S1' },
+      occurred_at: 1,
+      recorded_at: 1,
+      actor_id: 'W1',
+      device_id: 'D1',
+      seq: 1,
+    });
+    expect(parsed.stream_type).toBe('table');
+  });
+});
