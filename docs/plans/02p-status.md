@@ -29,11 +29,11 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 **Decisions for the owner:** none open.
 
-## PLATFORM A REPORT (2026-11-09): batch 3 done (tasks 7–10), gate green, pushed
+## PLATFORM A REPORT (2026-11-09): batch 4 done (tasks 11–13 + AD-32), gate green, pushed — platform A complete
 
-> **Hinglish:** Batch 3 mukammal. Tasks 7–10 done, gate green (3372 tests). Assignments ke rules aapke faislon (AD-21–AD-32) ke mutabiq. Do naye sawal: AD-33 (chhota), AD-34 (bina PIN wala lead). Agla: batch 4 (tasks 12, 13, 11).
+> **Hinglish:** Batch 4 mukammal. Platform A ke saare tasks (1–13) done. Gate green (3395 tests). AD-32 aapke kehne par badla: table archive/restore ab directory bump karta hai. Do sawal: AD-35 (chhota), AD-37. Engine lane: AD-13 (config-hook V4 import).
 
-**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-8 (recommend accept), AD-33 (recommend accept), AD-34 (recommend accept).
+**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-35 (recommend accept), AD-37 (recommend accept; optional log line later).
 
 ## Task table
 
@@ -50,9 +50,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 8 | `my_zones` CHECK expand, `zonesOf` | platform A | HIGH | **done** | `9d8caca` |
 | 9 | Default grants, re-seed, settings `PATCH` | platform A | NORMAL | **done** | `1fcc535` |
 | 10 | Owner app: assigned tables | platform A | NORMAL (UI) | **done** | `a838ff7`, fix `2ca9e68` |
-| 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | todo | |
-| 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
-| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
+| 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | **done** | `cfb5786` |
+| 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | **done** | `faaa2a4`, fixes `b00bb27`, `ec1b771` |
+| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | **done** | `0a9b418`, fixes `e48a26e`, `3a9c849` |
 | 17b | 03a carry-over (open item 13: gaps 1, 2, 4, 5, 7) | engine | NORMAL | todo | |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
@@ -100,6 +100,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-34 | 8 | The hub directory holds only staff with a PIN, so a lead without a PIN adds none of their zones to `my_zones` (§3.3 says the lead's zones count); pre-existing behaviour | (a) accept (refillers' leads have PINs); (b) carry lead zones for no-PIN leads | (a) for the pilot; 01b §12.3 D-18 known limitation; field-visit check 17a | **ruled (owner, 2026-11-09)** |
 | AD-35 | 12 | `X-Queued-At` readings: integer ms epoch; missing / bad header → `null` (no 400, 02b :104, :194); `started_at` = the session's `staff_sessions.started_at` | as built | as built | proposed (not yet ruled) |
 | AD-36 | 13 | `skip_requester` vs the fallback chain; marker when the absent holder is the requester | requester filtered from every fallback level and not counted as covered, chain continues, else no-receiver (logged); no marker | as ruled | **ruled (owner, 2026-11-09)**; 01d D-3 marker |
+| AD-37 | 13 | With `skip_requester`, an absent table holder who is NOT the requester, whose only reachable fallback is the requester: the step gets no row and no log line (a marker never becomes a row, AD-63) — same as the existing "absent owner, chain finds nobody" case, but more frequent now | (a) accept as the existing rule; (b) add a log line / diagnostic for this case | none — needs the owner | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -161,6 +162,16 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Closed carries:** the `my_zones` 500 (batch 1) — closed by task 8's CHECK expand; AD-18 (settings fields before task 9) — closed by task 9.
 - **AD rows:** AD-21–AD-32 ruled; AD-33, AD-34 proposed.
 - **Carried / parked:** no route-level test of saving a `my_zones` grant (DB test covers the cause); 02b must intersect with `zonesOf` for `my_zones` (no match without an assignment); cloud does not trim chip labels; AD-13 alias still waits for the engine lane.
+
+## Batch 4 — 00 and 01d (2026-11-09)
+
+- **Lane / tasks:** platform A (platform B not opened), tasks 12 ‖ 13, then 11; plus the owner's reversed AD-32 fix.
+- **Commits:** task 12 `faaa2a4`, fixes `b00bb27` (`queuedAt` required), `ec1b771` (test fixtures); task 13 `0a9b418`, fixes `e48a26e` (skip_requester in fallbacks), `3a9c849` (test types); task 11 `cfb5786`; AD-32 `1cb04bd` (table archive / restore bumps `directory_version`). Spec text: `68e3d79` (rulings 2026-11-09), `7c9f007` (01d D-3 fallbacks).
+- **Reviews:** all opus (small re-reviews sonnet). Task 12: one Important (optional `queuedAt` would read `undefined` as queued) → fixed. Task 13: one Important (fallback chain could ring the requester) → owner ruling, fixed. Task 11: approved (spec decides all three implementer concerns; no real device is HTTP-only). AD-32: approved.
+- **Gate:** first run failed at `@pos/hub typecheck:tests` (two test files: task 13 round-1 test types, task 12's required `started_at` in fixtures) → fixed `ec1b771`, `3a9c849`. Second run: 371 files passed, 1 skipped; 3395 tests passed, 1 skipped, 1 todo; 10 m 16 s.
+- **Tests closed:** 00 #152–#156 and Review Focus 1 (task 11); 00 #157, #158 (task 12); 01d #25 as changed, D-1 (a)–(d), D-3 (U-6) (task 13); 01b AD-32 (table archive bump).
+- **AD rows:** AD-35 (X-Queued-At readings) and AD-37 proposed; AD-36 ruled.
+- **Carried / parked:** no zone-order-taker-level skip_requester test; after a restart `paused_since` = `hub_down_at` (spec, M95 in memory); AD-13 alias still waits for the engine lane.
 
 ## Platform A prompt (for the owner to paste into a new session)
 
