@@ -12,6 +12,7 @@ import { registeredTicks, registerTick } from '../alerts/tick.js';
 import { tableLocksTick } from './tick.js';
 import './kinds.js'; // §11 step 12 (AD-5): the kinds are defined at this module's load, before boot replays projections
 import { registerRequestTableHandover } from './commands/request-table-handover.js';
+import { registerHolderCommands } from './commands/holder-commands.js';
 import { registerBillClean } from './commands/bill-clean.js';
 import './call-waiter-kind.js'; // §6.14 kind call_waiter, top level (AD-5): exists before boot replay
 import { registerCallWaiter } from './commands/call-waiter.js';
@@ -41,6 +42,7 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
 
   // wave 2 lane B (table_handover kind, handover, holder commands)
   registerRequestTableHandover(app);
+  registerHolderCommands(app);
 
   // wave 2 lane C (move, merge, split)
 
