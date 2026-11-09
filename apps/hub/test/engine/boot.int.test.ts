@@ -53,23 +53,6 @@ registerBootStep('6', (ctx) => {
   lastCtx = ctx;
 });
 
-// E-5 (a), the failed-boot test only: after engine's step 2, step 3's id-set read (the one statement with
-// json_array_length) fails once, as a DB failure would. One-shot: the flag clears when the stub fires.
-let failIdSetRead = false;
-registerBootStep('2', (ctx) => {
-  if (!failIdSetRead) return;
-  const db = ctx.db;
-  const prepare = db.prepare;
-  db.prepare = ((sql: string) => {
-    if (failIdSetRead && /json_array_length/.test(sql)) {
-      failIdSetRead = false;
-      db.prepare = prepare;
-      throw new Error('forced id-set read failure');
-    }
-    return prepare.call(db, sql);
-  }) as typeof db.prepare;
-});
-
 function writeConfig(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'pos-engine-boot-'));
   const dataDir = join(dir, 'data');
@@ -623,12 +606,26 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       cleanups.push(cfg.cleanup);
       const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
       insertRaw(first.deps.db, stamped([set, breach], first.deps.writer.lastSeq() + 1));
+      // E-5 (a): a test-only trigger. Step 3's id-set read (the one statement with json_array_length, after the replay
+      // folded the breach) fails as a DB failure would; the class's prepare is restored in finally.
+      const proto = Object.getPrototypeOf(first.deps.db) as { prepare: (this: Database.Database, sql: string) => unknown };
+      const prepare = proto.prepare;
       await first.stop();
       flushEngineBootLog(() => undefined);
-      // E-5 (a): a test-only trigger. Step 3's id-set read (after the replay folded the breach) fails as a DB failure would.
-      failIdSetRead = true;
-      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('forced id-set read failure');
-      expect(failIdSetRead).toBe(false);
+      let failed = 0;
+      proto.prepare = function (this: Database.Database, sql: string) {
+        if (/json_array_length/.test(sql)) {
+          failed += 1;
+          throw new Error('forced id-set read failure');
+        }
+        return prepare.call(this, sql);
+      };
+      try {
+        await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('forced id-set read failure');
+      } finally {
+        proto.prepare = prepare;
+      }
+      expect(failed).toBe(1);
       const written: string[] = [];
       flushEngineBootLog((text) => written.push(text));
       const lines = written.map((text) => JSON.parse(text) as LogLine);

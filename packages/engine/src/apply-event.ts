@@ -322,6 +322,33 @@ function listLines(
   return touchOrder(setOrder({ ...state, lines }, updated, o), p.order_id, recorded_at, o.scope);
 }
 
+// The order fields an EngineOrder is created with (OrderPlaced, or E-4's order_header), placed at `at`.
+type OrderFields = Pick<EngineOrder, 'order_type' | 'table_key' | 'table_id' | 'follow_up' | 'pickup_at_ms' | 'placed_by'>;
+
+// §3.3: a new EngineOrder before its lines are listed: placed_at = at, no line, nothing awaited, groups from order_id:0;
+// its target / promise are its latest group's (`at` with no group). Shared by foldOrderPlaced and E-4's create path.
+function newOrder(order_id: string, f: OrderFields, groups: readonly OrderGroupPayload[], at: number): EngineOrder {
+  return {
+    order_id,
+    order_type: f.order_type,
+    table_key: f.table_key,
+    table_id: f.table_id,
+    follow_up: f.follow_up,
+    pickup_at_ms: f.pickup_at_ms,
+    placed_at: at,
+    placed_by: f.placed_by,
+    target_land_ms: groups.length === 0 ? at : Math.max(...groups.map((g) => g.target_land_ms)),
+    promise_ms: groups.length === 0 ? at : Math.max(...groups.map((g) => g.promise_ms)),
+    boosted: false,
+    line_ids: [],
+    awaiting: 0,
+    last_served_at: null,
+    last_line_fold_at: at,
+    next_group_index: 0,
+    groups: {},
+  };
+}
+
 // §3.3, §4.2: placed_by = actor_id, placed_at = recorded_at; T and P per group copied, never recomputed
 // (§3.5.1 step 6, P-2). The order's own target / promise are its latest group's (F §4.7: the order lands
 // with its last item); an order with no group (no plannable line) takes recorded_at.
@@ -331,26 +358,7 @@ function foldOrderPlaced(state: EngineState, event: PosEvent, o: FoldOptions): E
   // 03a v1.2 Q-3: an order of zone lines and ready items only is never an EngineOrder.
   if (p.order_item_ids.length === 0) return state;
   const at = event.recorded_at;
-  const order: EngineOrder = {
-    order_id: p.order_id,
-    order_type: p.order_type,
-    table_key: p.table_key,
-    table_id: p.table_id,
-    follow_up: p.follow_up,
-    pickup_at_ms: p.pickup_at_ms,
-    placed_at: at,
-    placed_by: event.actor_id,
-    target_land_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.target_land_ms)),
-    promise_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.promise_ms)),
-    boosted: false,
-    line_ids: [],
-    awaiting: 0,
-    last_served_at: null,
-    last_line_fold_at: at,
-    next_group_index: 0,
-    groups: {},
-  };
-  return listLines(state, order, p, at, o);
+  return listLines(state, newOrder(p.order_id, { ...p, placed_by: event.actor_id }, p.groups, at), p, at, o);
 }
 
 // §3.3, §4.2 (P-10): an addition to an order in the engine. The removal step has skipped this order (applyEvent),
@@ -371,26 +379,7 @@ function foldOrderLinesAdded(state: EngineState, event: PosEvent, o: FoldOptions
   const h = p.order_header;
   if (h === undefined) throw new InvalidEvent('order_not_in_engine', p.order_item_ids[0]!);
   const at = event.recorded_at;
-  const order: EngineOrder = {
-    order_id: p.order_id,
-    order_type: h.order_type,
-    table_key: h.table_key,
-    table_id: h.table_id,
-    follow_up: h.follow_up,
-    pickup_at_ms: h.pickup_at_ms,
-    placed_at: at,
-    placed_by: h.placed_by,
-    target_land_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.target_land_ms)),
-    promise_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.promise_ms)),
-    boosted: false,
-    line_ids: [],
-    awaiting: 0,
-    last_served_at: null,
-    last_line_fold_at: at,
-    next_group_index: 0,
-    groups: {},
-  };
-  return listLines(state, order, p, at, o);
+  return listLines(state, newOrder(p.order_id, h, p.groups, at), p, at, o);
 }
 
 // Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a

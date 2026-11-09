@@ -595,6 +595,19 @@ describe('@pos/engine E-4: the first OrderLinesAdded creates the engine order; t
     }
   });
 
+  it('[03a AD-E26] an empty OrderLinesAdded on the wrong stream is InvalidEvent(stream_id_mismatch), as for an empty OrderPlaced', () => {
+    const base = fold([cfg(), drinks()]);
+    const placedWrong = deepFreeze({ ...drinks('O3'), stream_id: 'OTHER' });
+    for (const header of [undefined, null]) {
+      const wrong = deepFreeze({ ...addition({ ids: [], header }), stream_id: 'OTHER' });
+      for (const e of [wrong, placedWrong]) {
+        expect(() => applyEvent(base, e), e.event_type).toThrow(InvalidEvent);
+        expect(() => applyEvent(base, e), e.event_type).toThrow(/stream_id_mismatch/);
+        expect(applyEvent(base, e, { strict: false }).diagnostics.map((d) => d.detail.reason), e.event_type).toEqual(['stream_id_mismatch']);
+      }
+    }
+  });
+
   it('[03a #135] a refused OrderLinesAdded with order_header (group_id_invalid) is an InvalidEvent: strict throws, non-strict one diagnostic and no EngineOrder', () => {
     const base = fold([cfg(), drinks()]);
     const bad = addition({ group: 5 }); // a created order's groups start at order_id:0

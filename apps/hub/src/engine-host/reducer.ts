@@ -128,7 +128,7 @@ function untrackedOpOf(event: PosEvent): UntrackedOp | null {
   }
   if (event.event_type === 'OrderLinesAdded') {
     const p = event.payload as { order_id?: string; order_item_ids?: readonly string[]; order_header?: unknown };
-    return p.order_header !== undefined && (p.order_item_ids?.length ?? 0) > 0 ? { op: 'remove', id: p.order_id ?? event.stream_id } : null;
+    return p.order_header != null && (p.order_item_ids?.length ?? 0) > 0 ? { op: 'remove', id: p.order_id ?? event.stream_id } : null;
   }
   return null;
 }
