@@ -62,3 +62,11 @@ These work today. Change one only if the owner disagrees.
 |---|---|
 | 00 Q4 | "Add a hub / Replace a hub" in the owner app: module 06. |
 | 00 Q10 | Kitchen screen "stopped" state with a Start button: module 03b. |
+
+## 5. From the 02a plan (owner, 2026-11-09) — later work, not in 02a
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| 02a SG-1 | **One owner per zone.** A table that is inside a zone is never assigned to a person on its own; the zone's order taker owns all its tables. A table with no zone may be assigned directly. To give one table to someone else, make a one-table zone. | Yes (owner). 02a already reads it this way. | 01b bump: cloud refuses a table assignment for a zoned table (`422 CONFIG_REFERENCE_INVALID`, new reason), owner app disables those checkboxes; 01d one-line text ("zone order taker" = the table's assignee). Next platform batch. |
+| 02a SG-4 | **Archive only an empty table.** The cloud cannot see who is seated, so it cannot refuse; the owner app shows a warning on Archive ("Archive only an empty table; bill and clean it first"). The hub keeps a safety net (02a): a seated table that was archived shows in an "Archived tables" group until it is cleaned. | Yes (owner, warning; safety net in 02a). | 01a: owner-app warning text. |
+| 02a-N1 | **On-site table management.** A manager at the restaurant should be able to add or archive a table (and similar small setup) from the hub, without phoning the owner; the owner can override anything. | Wanted (owner). Not designed. | New story → small spec after 02a. Open points: which permission (manager only?), hub → cloud sync (today config flows cloud → hub only), conflict rule (owner / cloud wins), offline edits, which setup items qualify. |

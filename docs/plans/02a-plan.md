@@ -14,7 +14,20 @@
 
 ---
 
-## ⛔ STOP — spec gaps and spec–code mismatches (owner ruling needed before the named tasks)
+## Spec gaps SG-1–SG-6 — ruled (owner, 2026-11-09)
+
+Rulings first; the gap table below is kept as the record.
+
+| # | Ruling | What it changes in this plan |
+|---|---|---|
+| SG-1 | **Owner rule: a zone's tables belong to the zone's order taker; a table inside a zone is never assigned separately.** A table with no zone may be assigned directly; one table for someone else = a one-table zone. Built later as a 01b validation (cloud `422`, owner app disables the checkbox) with a 01d text line — **not in 02a** (OPEN-QUESTIONS §5). Under the rule `assignedOrderTaker(table_id)` *is* the zone's order taker. | `zoneOf` and the `zone_order_taker` resolver read `ctx.directory` / `alertDirectoryOf(tx).assignedOrderTaker(table_id)`; no 01b edit. Tasks 6, 7 unblocked. |
+| SG-2 | **(a)** 02a builds the five 02b schemas (02b v1.0.2 §6, :465–:478, exact shapes, in `packages/events/src/events/order/`) and `BillClosed` v1 `{ seating_id }`, **stream `table`** (the seating's primary table), in `packages/events/src/events/table/` (05 will own it). | New **task 1b** in batch 1. Tasks 4, 5, 12, 17 unblocked. |
+| SG-3 | **(a)** #53 at the `requireLock` level through a test-only command (the "order written" clause moves to 02b); #62 moves to 02b. | Task 8. |
+| SG-4 | **Warning + safety net.** The "archive only an empty table" warning is an owner-app text (01a, later; OPEN-QUESTIONS §5). In 02a: a seated table absent from the config is shown in an **"Archived tables"** group, `name` = `table_id`, `seats: null`, `archived: true`, until it is cleaned. | Tasks 17 (#40), 19 (#36). |
+| SG-5 | **(a)** One append-only line + import in `apps/hub/src/lib/boot.ts` `createDeps` (next to `registerAlertProjections`) and in `apps/hub/test/helpers/test-hub.ts`. | Task 4. |
+| SG-6 | **(a)** `registerTables` registers the resolvers only when `!hasTargetResolver(kind)` and the slip readers only when `slipReaders() === null`; 01d's `registerFakes()` (`apps/hub/test/alerts/fakes.ts`) unregisters `table_team` / `zone_order_taker` before registering its fakes, and 03a's "no readers" tests call `resetSlipReaders()` first. Test files only; no production effect. | Tasks 6, 7. |
+
+### Gap record (as found)
 
 Found while writing this plan (CLAUDE.md: never silently diverge). Each is an **SG** row on `docs/plans/02a-status.md`, status "proposed (not yet ruled)". The plan names the options; it does **not** pick one. A task that depends on an open SG row does not start.
 
@@ -34,7 +47,7 @@ Found while writing this plan (CLAUDE.md: never silently diverge). Each is an **
 - **AD-4:** `ItemServed` is not in `tables.eventTypes` (P-1d removed its fold, and it is not in §3.3's activity list).
 - **AD-5:** kinds `table_handover` / `call_waiter` live in `apps/hub/src/tables/kinds.ts`, imported at module load by `apps/hub/src/tables/index.ts`, which `server.ts` imports (the static import chain `lib/boot.ts → server.ts` loads them before step 4's replay, as `engine-host/index.ts:12` does for 03a's kinds; §11 step 12, G4-3 #13).
 
-**What can start now:** batch 1 tasks 1–3 (no SG). Task 4 needs SG-2 and SG-5 ruled. The kickoff prompt (end of this plan) says so.
+**What can start now:** all of batches 1–4. Batch 5 waits for the design handoff.
 
 ---
 
@@ -61,7 +74,7 @@ Every task implicitly includes these.
 - **Statement counts:** asserted with `statementCounter(db)` (`apps/hub/test/helpers/statement-counter.ts`) wherever §6 states a count; the reader pair and the resolvers are **exactly one statement per call** (§12.3 note, 03a AD-E6, test 121).
 - **Commit:** one task per commit, only the task's files. Format `feat(02a): <title> [02a §x; §11 step N]`. Review fixes: `fix(02a): task N review … [02a §x]`. Author `Arslan Ahmed Arif <arsiiahmi@gmail.com>`.
 - **Push:** `git push origin module-02a` after each batch checkpoint. No merge, no force-push, no push to `main` or any other branch, no reset, no rebase.
-- **Files (02p §10 Acceptance):** own folders `apps/hub/src/tables/`, `apps/hub/test/tables/`, `packages/events/src/events/table/`, `apps/client/src/features/staff/tables/`; append-only lines in `apps/hub/src/server.ts` (`registerTables(app, deps)`), `packages/events/src/index.ts`, `packages/domain/src/errors.ts` and `TableState` in `@pos/domain`, a new migration `apps/hub/src/db/migrations/0012_tables.sql`, i18n strings, `StaffApp.tsx` / `SignIn.tsx` / `api.ts` (§8 Login only). Anything else → STOP (SG-5 / SG-6 are the known cases).
+- **Files (02p §10 Acceptance):** own folders `apps/hub/src/tables/`, `apps/hub/test/tables/`, `packages/events/src/events/table/`, `apps/client/src/features/staff/tables/`; append-only lines in `apps/hub/src/server.ts` (`registerTables(app, deps)`), `packages/events/src/index.ts`, `packages/domain/src/errors.ts` and `TableState` in `@pos/domain`, a new migration `apps/hub/src/db/migrations/0012_tables.sql`, i18n strings, `StaffApp.tsx` / `SignIn.tsx` / `api.ts` (§8 Login only). Allowed by the SG rulings: the five 02b schema files in `packages/events/src/events/order/` (SG-2, task 1b); one line each in `apps/hub/src/lib/boot.ts` and `apps/hub/test/helpers/test-hub.ts` (SG-5, task 4); `apps/hub/test/alerts/fakes.ts` and 03a's "no readers" tests (SG-6, tasks 6, 7). Anything else → STOP.
 - **Readings:** a reading made without stopping is an `AD-n` row on `docs/plans/02a-status.md`, status "proposed (not yet ruled)". Never accept your own reading. Spec and code disagree, two specs disagree, a bound would change, a file outside the list, or new behaviour → STOP and ask.
 - **Events:** schema version 1, stream `table`, **no session ids** (T7); device = envelope `device_id`; times = `recorded_at`.
 - **No hard-coded names** (role, staff) in code (README R5, R18); strings in `apps/client/src/i18n/en.ts` and `ur.ts` or the Urdu to-do list.
@@ -77,7 +90,7 @@ Every task implicitly includes these.
 | Kinds | `defineAlertKind(def)` (`alerts/kinds.ts:103`): `closes_on: 'owner' \| 'seen' \| { after_ms }`, `skip_requester?: boolean` (startup error on a request kind, `:134`), `request.apply(ctx: AlertApplyCtx<V,D>, answer: AnswerFacts) → EventDraft[]` (`answer.answerer_staff_id`, `ctx.alert.values`, `ctx.alert.alert_id`); step target `'raised_target'` / `{ kind: 'requester_lead' }` (`packages/events/src/alerts.ts:33-48`); draft `alert_id` checked by `checkAlertIds` (`alerts/commands/request-row.ts`) |
 | Commands | `defineCommand({ commandType, payloadSchema, sessionKind: 'device', permission, queueable?, handle(ctx, payload, cmd) })` (`commands/registry.ts:50-73`); `ctx.actor.{staffId, deviceId}`, `ctx.directory`, `ctx.permission: Resolution \| null`, `ctx.clock`, `ctx.ids`, `ctx.tx`, `ctx.queuedAt: number \| null` (`:31`) |
 | Queries / catch-up / audiences | `defineQuery({ resource, sessionKind: 'device', session: 'required', deviceTypes, countsAsActivity: false, querySchema, handle(ctx, q) })` (`queries/registry.ts:29-40`, `QueryCtx { db, directory, device, session, branchConfig, now }`); `registerCatchUp({ part: 'tables', appliesTo(socket), build(db, state, socket) })` (`ws/catch-up.ts:15-24`, `SocketCtx { deviceId, deviceType, staffId, kind, asOfSeq }`); `registerEventAudience(eventType, (event, socket) => boolean)` (`ws/audience.ts:8`) |
-| Projection | `{ name: 'tables', eventTypes: string[], apply(tx, e, mode: 'live' \| 'catchup'), reset(tx) }` (`projections/registry.ts:6-11`), registered with `ProjectionRegistry.register` (SG-5 decides where) |
+| Projection | `{ name: 'tables', eventTypes: string[], apply(tx, e, mode: 'live' \| 'catchup'), reset(tx) }` (`projections/registry.ts:6-11`), registered with `ProjectionRegistry.register` in `lib/boot.ts` `createDeps` and `test-hub.ts` (SG-5) |
 | Directory | `StaffDirectory` (`auth/staff-directory.ts`): `resolve(staffId, permission) → Resolution` (`{ grant: 'allowed' \| 'requires_approval' \| 'not_granted' \| 'denied', scope? }`), `floorsOf(staffId)`, `assignedOrderTaker(tableId)` (table wins, `allowed` take-order only, AD-30), `teamOf(staffId)` (direct reports with a PIN), `leadOf`, `get`, `list`. `zonesOf(staffId)` exists but 02a does not use it (02b's `my_zones`). |
 | Config | `branchConfig()` and `zoneOfTable(tableId)` (`sync/branch-config-holder.ts:18, :49`); `engine_settings.table_lock_ttl_ms` (`packages/events/src/config.ts:276`); V4 `floors[].tables[] { table_id, name, seats, sort_order, zone_id }`, `floors[].zones[]` |
 | Sessions | `staff_sessions (session_id, branch_id, kind IN ('staff','admin','station'), staff_id, station_id, device_id, started_at, last_activity_at, ended_at, idle_ttl_ms, …)`; `staff_sessions_active_device (device_id) WHERE ended_at IS NULL AND kind IN ('staff','station')`; `staff_sessions_active (branch_id) WHERE ended_at IS NULL` (`db/migrations/0002_devices_sessions.sql:60-81`) |
@@ -91,7 +104,7 @@ export function tableOwners(db, table_ids: readonly string[]): Map<string, strin
 export const holdersOfOrders: HoldersOfOrders;
 export const currentTableOf: CurrentTableOf;
 export function seatingOf(db, table_id: string): { seating_id; primary_table_id; table_ids: string[]; state: TableState; holder_staff_id } | null;
-export function zoneOf(table_id: string): { floor_id: string; zone_id: string | null; zone_order_taker_staff_id: string | null }; // 0 statements; SG-1
+export function zoneOf(table_id: string): { floor_id: string; zone_id: string | null; zone_order_taker_staff_id: string | null }; // 0 statements; zone_order_taker_staff_id = directory.assignedOrderTaker(table_id) (SG-1 ruling)
 // team.ts (§3.5)
 export function waiterTeam(seating: { assignee: string | null; holder_staff_id: string }, liveStaffIds: ReadonlySet<string>, directory: StaffDirectory): string[];
 // lock.ts (§4.2)
@@ -120,13 +133,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 
 | Batch | Tasks | §11 steps | §12.2 rows closed | Starts when |
 |---|---|---|---|---|
-| 1 — data | 1–5 | 2, 3, 4, 5 | none (no endpoint); replay identity #38 | plan approved; tasks 4–5 also need SG-2, SG-5 |
-| 2 — reads, hooks, lock, open | 6–10 | 6, 7, 8, 9, 10 | 6.1, 6.2, 6.3, 6.4 | batch 1 green; SG-1, SG-6 ruled |
+| 1 — data | 1, 1b, 2–5 | 2, 3, 4, 5 | none (no endpoint); replay identity #38 | plan approved |
+| 2 — reads, hooks, lock, open | 6–10 | 6, 7, 8, 9, 10 | 6.1, 6.2, 6.3, 6.4 | batch 1 green |
 | 3 — tick, holder, move, merge | 11–15 | 11, 12, 13, 14, 15 | 6.5, 6.6, 6.7, 6.8, 6.9, 6.10 | batch 2 green |
-| 4 — split, bill, clean, call, queries | 16–19 | 16, 17, 18, 19 | 6.11, 6.12, 6.13, 6.14, 6.17, 6.18 | batch 3 green; SG-4 for task 19's archived clause |
+| 4 — split, bill, clean, call, queries | 16–19 | 16, 17, 18, 19 | 6.11, 6.12, 6.13, 6.14, 6.17, 6.18 | batch 3 green |
 | 5 — client | 20–24 | 20 | §8 flows | **BLOCKED** on the 02a design handoff (`docs/design/handoff/02a/`) |
 
-**Total: 24 tasks in 5 batches** (19 hub tasks in batches 1–4; 5 client tasks in batch 5).
+**Total: 25 tasks in 5 batches** (20 hub tasks in batches 1–4, incl. task 1b from SG-2; 5 client tasks in batch 5).
 
 ## Coverage (§10 test → task)
 
@@ -136,13 +149,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 | 3 open part / Touch part | 9 / 10 | | 28, 29, 30, 51 | 16 |
 | 7, 41 | 10 | | 31 fold / command | 4 / 17 |
 | 8 | 11 | | 32 fold / `requireLock` / commands | 4 / 8 / 17 |
-| 9, 9b, 59 | 5 (59: SG-2) | | 33 fold / Clean | 4 / 17 |
-| 10, 11, 17, 47 | 13 | | 34, 40, 44, 49 | 17 (40 map part: SG-4) |
+| 9, 9b, 59 | 5 | | 33 fold / Clean | 4 / 17 |
+| 10, 11, 17, 47 | 13 | | 34, 40, 44, 49 | 17 |
 | 12, 14, 15, 16, 48, 52 | 12 | | 35, 50, 50b | 18 |
-| 13 accept / Clean part | 12 (SG-2) / 17 | | 36, 37 | 19 (36 archived: SG-4) |
-| 18, 19, 20, 21 | 7 | | 38, 55, 57, 58 | 4 (57, 58: SG-2) |
-| 22, 23, 42 | 14 | | 45, 46, 53, 60 | 8 (53: SG-3) |
-| 61 | 17 (Bill, Clean) / 18 (CallWaiter) | | 62 | SG-3 (02b) |
+| 13 accept / Clean part | 12 / 17 | | 36, 37 | 19 |
+| 18, 19, 20, 21 | 7 | | 38, 55, 57, 58 | 4 |
+| 22, 23, 42 | 14 | | 45, 46, 53, 60 | 8 (53: `requireLock` part, SG-3) |
+| 61 | 17 (Bill, Clean) / 18 (CallWaiter) | | 62 | moved to 02b (SG-3) |
 
 ---
 
@@ -162,6 +175,22 @@ Failure modes the spec implies; each line names the pinning test and task.
 
 **Commit:** `feat(02a): table event schemas [02a §6.19, §4.4; §11 step 2]`
 **Done:** the new test file and `packages/events` tests pass; `pnpm --filter @pos/events typecheck` clean.
+
+### Task 1b: schemas of the folded 02b / 05 events · RISK: NORMAL · Shared (SG-2 ruling)
+
+**Spec:** 02a §4.1 (02b, 05 rows), §3.1 (P-1d), §3.3 (P-1); shapes from 02b v1.0.2 §6 (:465 `OrderFoodServed`, :466 `OrderFoodCleared`, :475 `OrderCancelled`, :477 `LineWeightSet`, :478 `LineComped`), stream `order`, id `order_id`; `BillClosed` per the SG-2 ruling. **§11 step 2.**
+
+**Files:**
+- Create: `packages/events/src/events/order/{OrderCancelled,OrderFoodServed,OrderFoodCleared,LineWeightSet,LineComped}.v1.ts`, `packages/events/src/events/table/BillClosed.v1.ts`
+- Modify (append only): `packages/events/src/index.ts`
+- Test: `packages/events/src/events/order/order-events.test.ts` (append), `packages/events/src/events/table/table-events.test.ts` (append)
+
+**Tests first:** `[02a SG-2] each of the five 02b events round-trips with its 02b §6 payload`; `[02a SG-2] OrderFoodCleared.food_served is boolean`; `[02a SG-2] BillClosed v1 { seating_id } on stream table`.
+
+**Names:** exactly 02b §6; no field the 02b table does not list. 02b builds no other part of these events here (no producer until 02b / 05).
+
+**Commit:** `feat(02a): schemas of folded 02b and 05 events [02a §4.1; 02b v1.0.2 §6; owner ruling SG-2; §11 step 2]`
+**Done:** both test files pass; `pnpm --filter @pos/events typecheck` clean.
 
 ### Task 2: `TableState` and §9 error codes · RISK: NORMAL · Shared
 
@@ -185,19 +214,19 @@ Failure modes the spec implies; each line names the pinning test and task.
 **Commit:** `feat(02a): tables migration [02a §5; §11 step 3]`
 **Done:** test passes; `apps/hub/test/db` passes (migration list).
 
-### Task 4: projection `tables` with the state fold and `reset` · RISK: HIGH · Wiring · needs SG-2, SG-5
+### Task 4: projection `tables` with the state fold and `reset` · RISK: HIGH · Wiring
 
 **Spec:** §5 bullets, T19, §3.1 (with P-1d), T21, §3.14, §6.19 Fold column. **§11 step 4.**
 
-**Files:** Create `apps/hub/src/tables/projection.ts` (`tablesProjection`, `foldState(seating)`), `apps/hub/src/tables/index.ts` (`registerTablesProjection`); test `apps/hub/test/tables/projection.int.test.ts`. Wiring per SG-5.
+**Files:** Create `apps/hub/src/tables/projection.ts` (`tablesProjection`, `foldState(seating)`), `apps/hub/src/tables/index.ts` (`registerTablesProjection`); test `apps/hub/test/tables/projection.int.test.ts`. Wiring (SG-5): `registerTablesProjection(projections)` + import in `apps/hub/src/lib/boot.ts` `createDeps` after `registerAlertProjections(projections)`, and the same line in `apps/hub/test/helpers/test-hub.ts` after `:68`.
 
 **Tests first:**
 - `[02a #31 fold]` new `OrderPlaced` / `OrderLinesAdded` after `BillRequested` → ORDERED, `bill_requested_at` cleared; `OrderLinesAdded` sets `served_any = 0`.
-- `[02a #32 fold]` `BillClosed { seating_id }` → NEEDS_CLEANING, sticky (SG-2).
-- `[02a #33 fold]` every order cancelled → SEATED; bill requested then every order cancelled → SEATED (SG-2).
+- `[02a #32 fold]` `BillClosed { seating_id }` → NEEDS_CLEANING, sticky.
+- `[02a #33 fold]` every order cancelled → SEATED; bill requested then every order cancelled → SEATED.
 - `[02a #38]` reset + replay → identical four tables.
 - `[02a #55]` takeaway / delivery `OrderPlaced` leaves every row unchanged; `dine_in` with `table_key = 'dine_in:' + S` joins S (prefix stripped, T21); a key naming no open seating is ignored and logged once `{ order_id, table_key }`, **live only**.
-- `[02a #57]`, `[02a #58]` (P-1d `has_food` / `served_any`) (SG-2).
+- `[02a #57]`, `[02a #58]` (P-1d `has_food` / `served_any`).
 - `[02a §3.1]` FOOD_ON_TABLE only over live food orders; `TablesMerged` absorb moves `seating_orders`, closes S2 `merged`; `SeatingSplit` new seating / detach; `TableMoved` re-keys primary and `seating_tables`; `TableCleaned` → CLOSED, tables freed.
 
 **Names:** `eventTypes` = the ten §6.19 types + `OrderPlaced`, `OrderLinesAdded`, `ItemRemoved`, `OrderCancelled`, `OrderFoodServed`, `OrderFoodCleared`, `LineWeightSet`, `LineComped`, `BillClosed` (AD-4: not `ItemServed`).
@@ -205,13 +234,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 **Commit:** `feat(02a): tables projection and state fold [02a §5, §3.1, T19, T21; §11 step 4]`
 **Done:** tests pass; the gate's projection registry and boot tests still pass (`apps/hub/test/boot`, `test/projections`).
 
-### Task 5: lock part of `tables` — activity fold · RISK: HIGH · needs SG-2 (#59 only)
+### Task 5: lock part of `tables` — activity fold · RISK: HIGH
 
 **Spec:** §3.3, T7, T19, §6.19 lock rows. **§11 step 5.**
 
 **Files:** Modify `apps/hub/src/tables/projection.ts`; test `apps/hub/test/tables/lock-fold.int.test.ts`.
 
-**Tests first:** `[02a #9]` 02b `OrderPlaced` by the lock's (staff, device) refreshes `last_activity_at`; the same event from another device does not; reset + replay → identical lock row; `[02a #9b]` refresh by `OrderLinesAdded` on O, then O split to S3; reset + replay → identical; `[02a #59]` `LineWeightSet` / `LineComped` by the holder refresh, by another person do not, no state change (SG-2); `[02a §3.3]` `TableLocked` upsert (device = envelope), `TableLockTouched` sets `last_touch_at`, `TableLockReleased` deletes, `TableMoved` re-keys, `TableCleaned` / absorb delete.
+**Tests first:** `[02a #9]` 02b `OrderPlaced` by the lock's (staff, device) refreshes `last_activity_at`; the same event from another device does not; reset + replay → identical lock row; `[02a #9b]` refresh by `OrderLinesAdded` on O, then O split to S3; reset + replay → identical; `[02a #59]` `LineWeightSet` / `LineComped` by the holder refresh, by another person do not, no state change (`LineWeightSet` / `LineComped` carry no `order_id`: the order is the envelope `stream_id`); `[02a §3.3]` `TableLocked` upsert (device = envelope), `TableLockTouched` sets `last_touch_at`, `TableLockReleased` deletes, `TableMoved` re-keys, `TableCleaned` / absorb delete.
 
 **Commit:** `feat(02a): lock activity fold [02a §3.3, T7, T19; §11 step 5]`
 **Done:** tests pass; task 4's file still passes.
@@ -227,35 +256,35 @@ Failure modes the spec implies; each line names the pinning test and task.
 
 ## Batch 2 — reads, hooks, lock, open (§11 steps 6–10)
 
-### Task 6: reads and the 03a slip reader pair · RISK: NORMAL · Wiring · needs SG-1 (`zoneOf`), SG-6
+### Task 6: reads and the 03a slip reader pair · RISK: NORMAL · Wiring
 
 **Spec:** §4.2 rows `tableOwners`, `holdersOfOrders`, `seatingOf`, `currentTableOf`, `zoneOf`; §11 step 1 (reader pair); §12.3 note (one statement each). **§11 step 6.**
 
 **Files:** Create `apps/hub/src/tables/reads.ts`; modify `apps/hub/src/tables/index.ts` (`registerTables` calls `registerSlipReaders({ holdersOfOrders, currentTableOf })` from `../engine-host/index.js`), append `registerTables(app, deps)` to `apps/hub/src/server.ts`; test `apps/hub/test/tables/reads.int.test.ts`.
 
-**Tests first:** `[02a §4.2] tableOwners → Map<table_id, holder>, one statement for 40 tables`; `[02a §4.2] holdersOfOrders after move / merge / split → current holder, one statement`; `[02a §4.2] currentTableOf → { seating_id, primary_table_id, table_ids }, one statement`; `[02a §4.2] seatingOf null for a FREE table`; `[02a §4.2] zoneOf 0 statements, table without zone → zone_id null` (SG-1 for `zone_order_taker_staff_id`); `[02a §11 step 1] after registerTables, slipReaders() returns 02a's pair` (and an 03a fires-alerts pass uses it: receiver = holder of the oldest order, label = primary table name).
+**Tests first:** `[02a §4.2] tableOwners → Map<table_id, holder>, one statement for 40 tables`; `[02a §4.2] holdersOfOrders after move / merge / split → current holder, one statement`; `[02a §4.2] currentTableOf → { seating_id, primary_table_id, table_ids }, one statement`; `[02a §4.2] seatingOf null for a FREE table`; `[02a §4.2] zoneOf 0 statements, table without zone → zone_id null` `zone_order_taker_staff_id` = `assignedOrderTaker(table_id)` (SG-1 ruling); `[02a SG-6] registerTables does not replace slip readers a test registered first`; `[02a §11 step 1] after registerTables, slipReaders() returns 02a's pair` (and an 03a fires-alerts pass uses it: receiver = holder of the oldest order, label = primary table name).
 
 **Commit:** `feat(02a): table reads and slip reader pair [02a §4.2, §11 step 1, §12.3; §11 step 6]`
-**Done:** tests pass; `apps/hub/test/engine/fires-alerts-tick.int.test.ts` (03a #120–#123) still passes (SG-6 ruling applied).
+**Done:** tests pass; `apps/hub/test/engine/fires-alerts-tick.int.test.ts` (03a #120–#123) still passes; SG-6: 03a's "no readers registered" tests call `resetSlipReaders()` first (test-file edit only).
 
-### Task 7: `waiterTeam` and the resolvers · RISK: NORMAL · needs SG-1, SG-6
+### Task 7: `waiterTeam` and the resolvers · RISK: NORMAL
 
 **Spec:** §3.5, T4, T10, T16, §4.2 resolver rows, §6.16, 01d D-1 (e). **§11 step 7.**
 
 **Files:** Create `apps/hub/src/tables/team.ts`, `apps/hub/src/tables/resolvers.ts`; modify `tables/index.ts` (`registerTargetResolver('table_team', tableTeam)`, `registerTargetResolver('zone_order_taker', zoneOrderTaker)`); tests `apps/hub/test/tables/team.test.ts`, `apps/hub/test/tables/resolvers.int.test.ts`.
 
-**Tests first:** `[02a #18]`, `[02a #19]`, `[02a #20]` (`waiterTeam` unit); `[02a #21]` one batch with `owner` + `direct` for one table → `[holder]` and `W ∪ {holder}`, keyed `targetKey`, one statement for 40 targets (`UNION ALL` of open seatings and live staff sessions via `staff_sessions_active`), `owner_staff_id` = holder, directory via `alertDirectoryOf(tx)`; `[02a §6.16] zone_order_taker 0 statements` (SG-1).
+**Tests first:** `[02a #18]`, `[02a #19]`, `[02a #20]` (`waiterTeam` unit); `[02a #21]` one batch with `owner` + `direct` for one table → `[holder]` and `W ∪ {holder}`, keyed `targetKey`, one statement for 40 targets (`UNION ALL` of open seatings and live staff sessions via `staff_sessions_active`), `owner_staff_id` = holder, directory via `alertDirectoryOf(tx)`; `[02a §6.16] zone_order_taker 0 statements, = assignedOrderTaker(table_id)` (SG-1 ruling); `[02a SG-6] registerTables skips a kind a test registered first`.
 
 **Commit:** `feat(02a): waiter team and table resolvers [02a §3.5, §4.2, §6.16; §11 step 7]`
-**Done:** tests pass; `apps/hub/test/alerts` passes (SG-6 ruling applied).
+**Done:** tests pass; `apps/hub/test/alerts` passes with `registerFakes()` unregistering `table_team` / `zone_order_taker` first (SG-6, `apps/hub/test/alerts/fakes.ts`).
 
-### Task 8: `requireLock` · RISK: HIGH · needs SG-3 (#53 placement)
+### Task 8: `requireLock` · RISK: HIGH
 
 **Spec:** §4.2 `requireLock` (with P-1b), §2 (holder-only re-acquire), §3.15, T18. **§11 step 8.**
 
 **Files:** Create `apps/hub/src/tables/lock.ts`; test `apps/hub/test/tables/require-lock.int.test.ts` (a test-only command through `createTestHub({ testCommands: true })` calls `requireLock`).
 
-**Tests first:** `[02a #32 requireLock]` NEEDS_CLEANING → 409; `[02a #45]` moved order's old table → `TABLE_SEATING_CHANGED`, through `currentTableOf` → passes; `[02a #46]` non-holder without `take-order-anywhere` → 403 (free and held); `[02a #53]` (SG-3 form) after a take-over, Bilal with the permission → no `TableLocked`, lock stays free; `[02a #60]` `ctx.queuedAt !== null` on a free lock → nothing taken (AD-1); `[02a §4.2]` holder: free → `[TableLocked]`, same actor other device → `replaced_device_id`, other staff → `TABLE_ALREADY_LOCKED { locked_by_staff_id, locked_by_name }`; `requires_approval` grant = denied (§3.15); 1 statement.
+**Tests first:** `[02a #32 requireLock]` NEEDS_CLEANING → 409; `[02a #45]` moved order's old table → `TABLE_SEATING_CHANGED`, through `currentTableOf` → passes; `[02a #46]` non-holder without `take-order-anywhere` → 403 (free and held); `[02a #53 requireLock]` (SG-3: the "order written" clause is 02b's) after a take-over, Bilal with the permission → no `TableLocked`, lock stays free; `[02a #60]` `ctx.queuedAt !== null` on a free lock → nothing taken (AD-1); `[02a §4.2]` holder: free → `[TableLocked]`, same actor other device → `replaced_device_id`, other staff → `TABLE_ALREADY_LOCKED { locked_by_staff_id, locked_by_name }`; `requires_approval` grant = denied (§3.15); 1 statement.
 
 **Commit:** `feat(02a): requireLock [02a §4.2, §2, §3.15; §11 step 8]`
 **Done:** tests pass; statement count 1 asserted.
@@ -307,13 +336,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 **Commit:** `feat(02a): table lock tick [02a §3.4, §6.5; §11 step 11]`
 **Done:** tests pass; `due` = 1 statement, pass = 1 read + 1 append asserted.
 
-### Task 12: `closeHandover`, kind `table_handover`, `RequestTableHandover` · RISK: HIGH · needs SG-2 (#13)
+### Task 12: `closeHandover`, kind `table_handover`, `RequestTableHandover` · RISK: HIGH
 
 **Spec:** §3.8, §3.9, §6.7, §6.15, §11 step 12 (kinds at module top level). **§11 step 12.**
 
 **Files:** Create `apps/hub/src/tables/kinds.ts` (top-level `defineAlertKind`, AD-5), `apps/hub/src/tables/handover.ts` (`closeHandover(ctx, seating_id, note)`), `apps/hub/src/tables/commands/request-table-handover.ts`; test `apps/hub/test/tables/handover.int.test.ts`.
 
-**Tests first:** `[02a #12]`, `[02a #13 accept]` (SG-2), `[02a #14]`, `[02a #15]`, `[02a #16]` (fake clock, steps at 60 s and 120 s to `requester_lead`), `[02a #48]` (`details: {}` with no live order), `[02a #52]` (both drafts carry `alert_id`; no 500); `[02a §11 step 12]` a replayed open `table_handover` after restart is a known kind; preamble (retransmit, scope, stale seating, `not_holder`, receiver reasons).
+**Tests first:** `[02a #12]`, `[02a #13 accept]`, `[02a #14]`, `[02a #15]`, `[02a #16]` (fake clock, steps at 60 s and 120 s to `requester_lead`), `[02a #48]` (`details: {}` with no live order), `[02a #52]` (both drafts carry `alert_id`; no 500); `[02a §11 step 12]` a replayed open `table_handover` after restart is a known kind; preamble (retransmit, scope, stale seating, `not_holder`, receiver reasons).
 
 **Commit:** `feat(02a): table handover with acceptance [02a §3.8, §3.9, §6.7, §6.15; §11 step 12]`
 **Done:** tests pass; row 6.7 errors (409×5, 422, 403) covered; statements 1 + 1 + `raise` bound asserted (no `seatingTotals`, AD-3).
@@ -373,13 +402,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 **Commit:** `feat(02a): SplitSeating [02a §3.12, §6.11; §11 step 16]`
 **Done:** tests pass; row 6.11 (404, 409×6, 403) covered; 3 reads + guard + 1 + bound asserted.
 
-### Task 17: `RequestBill`, `CleanTable` (queueable) · RISK: NORMAL · needs SG-2 (#32, #33 clauses), SG-4 (#40 map part)
+### Task 17: `RequestBill`, `CleanTable` (queueable) · RISK: NORMAL
 
 **Spec:** §3.13, §6.12, §6.13, §8 Offline (P-1f), §3.14. **§11 step 17.**
 
 **Files:** Create `apps/hub/src/tables/commands/bill-clean.ts`; test `apps/hub/test/tables/bill-clean.int.test.ts`.
 
-**Tests first:** `[02a #31 command]`, `[02a #32]` (Open / Merge / Handover → 409, Clean → FREE), `[02a #33]` Clean → `left_without_order`, `[02a #34]`, `[02a #13 clean]`, `[02a #40]`, `[02a #44]`, `[02a #49]`, `[02a #61]` (`RequestBill`, `CleanTable` registered `queueable: true`; a queued replay reads `ctx.queuedAt`); Clean closes the handover and `call_waiter` with 2 `byDedupeKey` + one `closeMany`.
+**Tests first:** `[02a #31 command]`, `[02a #32]` (Open / Merge / Handover → 409, Clean → FREE), `[02a #33]` Clean → `left_without_order`, `[02a #34]`, `[02a #13 clean]`, `[02a #40]` (map part: the table sits in the "Archived tables" group, SG-4), `[02a #44]`, `[02a #49]`, `[02a #61]` (`RequestBill`, `CleanTable` registered `queueable: true`; a queued replay reads `ctx.queuedAt`); Clean closes the handover and `call_waiter` with 2 `byDedupeKey` + one `closeMany`.
 
 **Commit:** `feat(02a): RequestBill and CleanTable, queueable [02a §3.13, §6.12, §6.13, P-1f; §11 step 17]`
 **Done:** tests pass; rows 6.12 (409×4, 403), 6.13 (409×3) covered; Clean 1 + 2 + bound asserted.
@@ -395,13 +424,13 @@ Failure modes the spec implies; each line names the pinning test and task.
 **Commit:** `feat(02a): CallWaiter and call_waiter kind [02a §3.13, §6.14; §11 step 18]`
 **Done:** tests pass; row 6.14 (409×3) covered.
 
-### Task 19: queries, catch-up, audiences · RISK: NORMAL · needs SG-4 (archived clause)
+### Task 19: queries, catch-up, audiences · RISK: NORMAL
 
 **Spec:** §6.17, §6.18, catch-up part `tables`, §6.19 Audiences, M59. **§11 step 19.**
 
 **Files:** Create `apps/hub/src/tables/queries.ts` (`table-map`, `handover-candidates`, the shared map builder), `apps/hub/src/tables/audiences.ts`; modify `tables/index.ts`; test `apps/hub/test/tables/queries.int.test.ts`.
 
-**Tests first:** `[02a #36]` 3 + 1 statements at 80 tables / 40 seatings; `mine` per (staff, device); archived seated table shown (SG-4); `[02a #37]`; `[02a §6.17] countsAsActivity: false` (session `last_activity_at` unchanged); `[02a §6.18] unknown table → 404`; `[02a §6.19 audiences]` every table event to staff sockets and cashier kiosks of the branch, `TableMoved` / `TablesMerged` / `SeatingSplit` also to KDS stations; catch-up `tables` = the map builder for the socket's (staff, device).
+**Tests first:** `[02a #36]` 3 + 1 statements at 80 tables / 40 seatings; `mine` per (staff, device); archived seated table shown in an "Archived tables" group (`zone_id: null`, `name` = `table_id`, `seats: null`, `archived: true`) until cleaned (SG-4); `[02a #37]`; `[02a §6.17] countsAsActivity: false` (session `last_activity_at` unchanged); `[02a §6.18] unknown table → 404`; `[02a §6.19 audiences]` every table event to staff sockets and cashier kiosks of the branch, `TableMoved` / `TablesMerged` / `SeatingSplit` also to KDS stations; catch-up `tables` = the map builder for the socket's (staff, device).
 
 **Commit:** `feat(02a): table-map, handover-candidates, catch-up, audiences [02a §6.17, §6.18, §6.19; §11 step 19]`
 **Done:** tests pass; rows 6.17, 6.18 covered.
@@ -458,7 +487,7 @@ Repo: arsiihere/pos. Branch: module-02a (git fetch; git checkout module-02a; git
 Build 02a Tables, BATCH 1 only, from docs/plans/02a-plan.md (spec docs/specs/02a_Tables_Spec_v1.1.1.md, APPROVED).
 Use superpowers:subagent-driven-development with superpowers:test-driven-development: one fresh implementer and one fresh reviewer per task (opus for RISK: HIGH), failing test first, one task per commit, commit message as the task says, author "Arslan Ahmed Arif" <arsiiahmi@gmail.com>.
 
-Before starting, read docs/plans/02a-status.md. If SG-2 or SG-5 is not "ruled", build tasks 1–3 only, then STOP. Never pick an SG option yourself.
+Before starting, read docs/plans/02a-status.md. SG-1–SG-6 are ruled; apply the rulings exactly as the plan's "Spec gaps — ruled" table says. Batch 1 = tasks 1, 1b, 2, 3, 4, 5.
 
 Rules: CLAUDE.md. Spec wins over the plan. Spec–code mismatch, a file outside the plan's list, a changed bound or new behaviour → STOP and add a row to docs/plans/02a-status.md ("proposed (not yet ruled)"). Implementers run only their own files; the controller runs the gate once per batch:
 TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"
@@ -467,13 +496,13 @@ Never run pnpm test:perf. Never stop or restart the pos-pg-test container.
 After the batch: gate green, batch entry in docs/plans/02a-status.md (tasks, commits, reviews, gate counts, tests closed, AD rows), commit it alone as "docs(02a): checkpoint batch 1", git push origin module-02a, then STOP for review. Do not start batch 2.
 ```
 
-For later batches, change "BATCH 1" and the SG precondition line to the batch's row in the Batches table.
+For later batches, change "BATCH 1", the task list line and the checkpoint name to the batch's row in the Batches table.
 
 ---
 
 ## Self-review (writer, 2026-11-09)
 
-- **Coverage.** §11 steps 2–20 are tasks 1–24 (step 2 split into tasks 1 and 2; step 20 into tasks 20–24). Step 1's hooks are registered in tasks 6 (reader pair), 7 (resolvers), 17 (`queueable`). Every §10 test 1–62 (with 9b, 50b, 54b) is placed once, or in parts with a named split, or named under an SG row (#62).
+- **Coverage.** §11 steps 2–20 are tasks 1–24 plus 1b (step 2 split into tasks 1, 1b and 2; step 20 into tasks 20–24). Step 1's hooks are registered in tasks 6 (reader pair), 7 (resolvers), 17 (`queueable`). Every §10 test 1–62 (with 9b, 50b, 54b) is placed once, or in parts with a named split, or named under an SG row (#62).
 - **§12.2.** All 16 rows close across batches 2–4; each checkpoint names its rows.
 - **Names.** Taken from the code at `2fa2db0` (table "Exact names"); 02a's own names are fixed in "02a exports".
-- **Open.** SG-1–SG-6 need the owner; AD-1–AD-5 are proposed readings.
+- **Open.** SG-1–SG-6 ruled by the owner (2026-11-09); AD-1–AD-5 are proposed readings.
