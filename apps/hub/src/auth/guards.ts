@@ -9,7 +9,7 @@ import type { Clock } from '../lib/clock.js';
 import { sha256hex } from '../lib/hash.js';
 import { createHostMatcher, createNetMatcher } from '../lib/net.js';
 import { StaffDirectory } from './staff-directory.js';
-import { activity, endSession, findSessionByToken, isIdleExpired, type SessionRow } from './session-store.js';
+import { activity, endSession, findSessionByToken, idlePause, isIdleExpired, type SessionRow } from './session-store.js';
 
 export type RouteGroup =
   | 'health'
@@ -203,6 +203,8 @@ function requireDevice(request: FastifyRequest, deps: GuardDeps): void {
   if (device === undefined) throw new DomainError('DEVICE_TOKEN_INVALID');
   if (device.revoked_at !== null) throw new DomainError('DEVICE_REVOKED');
   activity.deviceSeen(device.device_id, deps.clock.branchNow());
+  // 00 M95: an authenticated request is contact; the shift runs before any session's M46 check.
+  idlePause.contact(deps.db, device.device_id, deps.clock.branchNow());
   request.device = {
     device_id: device.device_id,
     device_type: device.device_type,
