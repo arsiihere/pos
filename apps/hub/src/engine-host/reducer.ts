@@ -109,7 +109,7 @@ function logSlowFold(note: FoldNote, events: readonly PosEvent[], log: WarnLog):
 // 03a v1.2 §3.3 Q-3, AD-E18: the id an event adds to hostFlags.untrackedLineIds, or null. An ItemAdded served from a
 // zone or a deal header adds its line id; an OrderPlaced with empty order_item_ids (ready items only) adds its order id.
 // Live (afterEngineCommit) and boot step 3 (the replayed events; the id-set read covers the older ones) use it.
-export function untrackedIdOf(event: PosEvent): string | null {
+function untrackedIdOf(event: PosEvent): string | null {
   if (event.stream_type !== 'order') return null;
   if (event.event_type === 'ItemAdded') {
     const p = event.payload as { order_item_id?: string; served_from_zone_id?: string | null; line_kind?: string };

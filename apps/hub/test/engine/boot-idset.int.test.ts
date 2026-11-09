@@ -2,7 +2,7 @@
 // 01a v2.3 #194 third clause (02p M-6): the boot fold counts StockTransferredOut — 03a v1.2 Q-5 puts it on
 // ENGINE_REPLAY_EVENTS.stock, so step 3's stock statement reads it and the replayed state lowers on_hand as live does.
 import { fileURLToPath } from 'node:url';
-import { applyEvents, initialEngineState, ORDER_EXIT_AFTER_SERVED_MS, stockOf, toCheckpoint, type Diagnostic, type EngineState } from '@pos/engine';
+import { applyEvents, ENGINE_STATE_VERSION, initialEngineState, ORDER_EXIT_AFTER_SERVED_MS, stockOf, toCheckpoint, type Diagnostic, type EngineState } from '@pos/engine';
 import type { PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch, aStockSet } from '@pos/events/testing';
 import type Database from 'better-sqlite3';
@@ -134,10 +134,18 @@ describe('03a boot step 3: the engine-lane id sets', () => {
   type Case = 'one' | 'two readable' | 'newer torn';
   // Boot steps 2 and 3 on the log and the case's checkpoint rows, then each later event in its own commit through the
   // host's after-commit hook (the live writer's path): what the absent-id log says.
-  async function restart(kind: Case, later: (log: PosEvent[]) => PosEvent[][]) {
+  // `snapshotAt`: also a current-version snapshot at that seq, which step 2 prefers over the checkpoints.
+  async function restart(kind: Case, later: (log: PosEvent[]) => PosEvent[][], snapshotAt?: number) {
     const db = await migrated();
     const { log, c0, c } = q3Log();
     insertRaw(db, log);
+    if (snapshotAt !== undefined) {
+      const stored: Partial<EngineState> = { ...applyEvents(initialEngineState(), log.slice(0, snapshotAt), { strict: false }) };
+      delete stored.diagnostics;
+      db.prepare(
+        `INSERT INTO engine_snapshots (snapshot_id, branch_id, taken_at, last_seq, engine_version, state_json) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run('s', BRANCH, log[snapshotAt - 1]!.recorded_at, snapshotAt, ENGINE_STATE_VERSION, JSON.stringify(stored));
+    }
     if (kind !== 'one') checkpointRow(db, 'c0', log, c0);
     checkpointRow(db, 'c', log, c, kind === 'newer torn');
     hostFlags.untrackedLineIds.add('from-before-the-restart');
@@ -195,6 +203,15 @@ describe('03a boot step 3: the engine-lane id sets', () => {
       expect((await restart('two readable', older)).warns).toEqual([expect.objectContaining({ event_type: 'ItemVoided', order_id: 'O0', order_item_id: 'Z0' })]);
       expect((await restart('one', older)).warns).toEqual([]);
     });
+  });
+
+  it('[03a #125, §3.12] a snapshot older than H: the replayed ItemAdded rows fill the set (the read starts at C0)', async () => {
+    // The snapshot is at seq 2 (config, day D−1 open); O0 and its zone line Z0 come after it and before C0.
+    const r = await restart('two readable', () => [[voided('O0', 'Z0')]], 2);
+    expect(r.step3.filter((s) => s.method === 'iterate').map((s) => s.args[2])).toEqual([2, 2, 2, 2]);
+    expect(r.read[0]!.args).toEqual([BRANCH, r.c0]);
+    expect(r.ids.has('Z0')).toBe(true);
+    expect(r.warns).toEqual([]);
   });
 
   describe('[03a #130] the boot id-set read (R-3)', () => {
