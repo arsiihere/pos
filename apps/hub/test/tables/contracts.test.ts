@@ -2,15 +2,10 @@ import type { TableState } from '@pos/domain';
 import type { EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { hasTargetResolver } from '../../src/alerts/targets';
-import { kindOf } from '../../src/alerts/kinds';
-import { registeredTicks } from '../../src/alerts/tick';
 import type { StaffDirectory } from '../../src/auth/staff-directory';
 import type { CommandCtx } from '../../src/commands/registry';
-import { commandRegistry } from '../../src/commands/route';
-import { slipReaders, type CurrentTableOf as EngineCurrentTableOf, type HoldersOfOrders as EngineHoldersOfOrders } from '../../src/engine-host/slip-readers';
+import type { CurrentTableOf as EngineCurrentTableOf, HoldersOfOrders as EngineHoldersOfOrders } from '../../src/engine-host/slip-readers';
 import type { WriterTx } from '../../src/engine-host/writer';
-import { queryRegistry } from '../../src/queries/registry';
 import type {
   CloseHandover,
   CurrentTableOf,
@@ -106,39 +101,11 @@ describe('[02a §4.2] wiring skeleton', () => {
     hub = undefined;
   });
 
-  it('[02a §4.2] registerTables on a test hub registers nothing yet', async () => {
+  it('[02a §4.2] buildHubServer calls registerTables once with its app and deps', async () => {
     hub = await createTestHub();
-    // buildHubServer calls it once with the server and its deps.
     expect(tables.registerTables).toHaveBeenCalledTimes(1);
     const [app, deps] = vi.mocked(tables.registerTables).mock.calls[0] ?? [];
     expect(app === hub.app).toBe(true); // identity: a deep compare walks Fastify's address getter
     expect(deps === hub.deps).toBe(true);
-    // No 02a command (§6.1–6.14), query (§6.17–6.18), tick (§6.5), kind (§6.14–6.15), resolver (§6.16) or slip reader pair.
-    const commands = commandRegistry(hub.app);
-    for (const path of [
-      'open-table',
-      'touch-table-lock',
-      'release-table-lock',
-      'force-release-table-lock',
-      'take-over-table',
-      'request-table-handover',
-      'force-move-table',
-      'move-table',
-      'merge-tables',
-      'split-seating',
-      'request-bill',
-      'clean-table',
-      'call-waiter',
-    ]) {
-      expect(commands.byPath(path), path).toBeUndefined();
-    }
-    expect(queryRegistry(hub.app).byResource('table-map')).toBeUndefined();
-    expect(queryRegistry(hub.app).byResource('handover-candidates')).toBeUndefined();
-    expect(registeredTicks().map((t) => t.name)).not.toContain('table_locks');
-    expect(kindOf('table_handover')).toBeUndefined();
-    expect(kindOf('call_waiter')).toBeUndefined();
-    expect(hasTargetResolver('table_team')).toBe(false);
-    expect(hasTargetResolver('zone_order_taker')).toBe(false);
-    expect(slipReaders()).toBeNull();
   });
 });
