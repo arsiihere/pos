@@ -319,9 +319,6 @@ export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV3Shape.ex
   }),
 });
 
-// 02p AD-13: deprecated alias until the engine lane switches config-hook.int.test.ts; remove then.
-export const BranchConfigSnapshotSchemaV3 = BranchConfigSnapshotSchemaV4;
-
 export type BranchConfigSnapshotV4 = z.infer<typeof BranchConfigSnapshotSchemaV4>;
 export type BranchConfig = BranchConfigSnapshotV4;
 export type ConfigItem = BranchConfig['items'][number];

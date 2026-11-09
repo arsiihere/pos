@@ -2,7 +2,6 @@ import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { aBranchConfig, aBranchConfigItemStock, anEngineConfigApplied } from '../testing/index';
 import {
-  BranchConfigSnapshotSchemaV3,
   BranchConfigSnapshotSchemaV4,
   SNAPSHOT_SCHEMA_VERSION,
   SyncConfigEnvelopeSchema,
@@ -678,7 +677,8 @@ describe('BranchConfigSnapshotSchemaV4: the V4 fields (01a v2.2 A-1, v2.3 A-1)',
     expect(exampleV4().snapshot_schema_version).toBe(4);
   });
 
-  it('[02p AD-13] BranchConfigSnapshotSchemaV3 is a deprecated alias of BranchConfigSnapshotSchemaV4', () => {
-    expect(BranchConfigSnapshotSchemaV3).toBe(BranchConfigSnapshotSchemaV4);
+  it('[02p AD-13] the deprecated BranchConfigSnapshotSchemaV3 alias is removed', async () => {
+    const mod: Record<string, unknown> = await import('./config.js');
+    expect('BranchConfigSnapshotSchemaV3' in mod).toBe(false);
   });
 });
