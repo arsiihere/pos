@@ -13,6 +13,8 @@ import { tableLocksTick } from './tick.js';
 import './kinds.js'; // §11 step 12 (AD-5): the kinds are defined at this module's load, before boot replays projections
 import { registerRequestTableHandover } from './commands/request-table-handover.js';
 import { registerBillClean } from './commands/bill-clean.js';
+import './call-waiter-kind.js'; // §6.14 kind call_waiter, top level (AD-5): exists before boot replay
+import { registerCallWaiter } from './commands/call-waiter.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -44,6 +46,7 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
 
   // wave 2 lane D (bill, clean, call_waiter)
   registerBillClean(app); // §6.12, §6.13 (queueable, P-1f)
+  registerCallWaiter(app); // §6.14 (not queueable, P-1f)
 }
 
 // SG-5: the `tables` projection (T19), registered where the hub's projection registry is created (boot, test hub).

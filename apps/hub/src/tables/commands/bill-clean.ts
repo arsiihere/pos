@@ -36,8 +36,8 @@ const SEATING = `SELECT s.seating_id AS seating_id, s.primary_table_id AS primar
     WHERE mine.table_id = ?
     ORDER BY st.joined_at, st.table_id`;
 
-/** §6 Common rules (T18): no seating, or another one, while a `seating_id` was given → TABLE_SEATING_CHANGED. */
-function currentSeating(ctx: CommandCtx, ref: SeatingRef): Seating {
+/** §6 Common rules (T18): no seating, or another one, while a `seating_id` was given → TABLE_SEATING_CHANGED. Shared with CallWaiter (§6.14). */
+export function currentSeating(ctx: CommandCtx, ref: SeatingRef): Seating {
   const rows = ctx.tx.db.prepare(SEATING).all(ref.table_id) as Array<Omit<Seating, 'table_ids'> & { table_id: string }>;
   const first = rows[0];
   if (first === undefined || first.seating_id !== ref.seating_id) {
