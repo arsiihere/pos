@@ -28,7 +28,7 @@ export interface CommandCtx {
   directory: StaffDirectory;
   config: HubConfig;
   /** 00 v1.8 H-1 (b): `X-Queued-At` clamped to `[started_at - 120 000, now]`; null unless the command is queueable with a valid header. */
-  queuedAt?: number | null;
+  queuedAt: number | null;
 }
 
 /** 00 v1.6 §3.7 H-3: the only commands that may declare `permission: 'checked-in-handler'`. */

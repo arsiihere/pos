@@ -372,7 +372,7 @@ function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>
         permission: 'reprint-ticket',
         queueable,
         handle(ctx, _payload, cmd) {
-          return { events: [testEvent(ctx, cmd)], result: { queued_at: ctx.queuedAt ?? null } };
+          return { events: [testEvent(ctx, cmd)], result: { queued_at: ctx.queuedAt } };
         },
       }),
     );

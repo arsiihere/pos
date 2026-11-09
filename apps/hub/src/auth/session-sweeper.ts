@@ -12,7 +12,7 @@ const SEVEN_DAYS_MS = 7 * DAY_MS;
 const BATCH = 500;
 
 const SESSION_COLUMNS =
-  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, last_activity_at, ended_at, token_hash';
+  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash';
 
 let maintenanceHour: number | undefined;
 const retentionDays = new WeakMap<Database.Database, string>();

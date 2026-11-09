@@ -10,7 +10,7 @@ const Payload = z.object({
 });
 
 const SESSION_COLUMNS =
-  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, last_activity_at, ended_at, token_hash';
+  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash';
 
 export function registerForceLogoutSession(app: FastifyInstance): void {
   commandRegistry(app).register(
