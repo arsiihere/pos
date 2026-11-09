@@ -170,7 +170,8 @@ function deviceRoutes(deviceId: string, ws: WsHub): RouteRow[] {
  * lead → (a table owner not signed in anywhere, §3.4.2) the zone's order taker → present managers. At each
  * level only people with a route are used; a level that would reach the person themself or anyone already
  * in this step stops the chain (no loop, no second copy). Owner markers (absent owners, targets.ts) are
- * never rows. `no_route` lists the person recipients with no route (the G1-9d shortcut, receipt view).
+ * never rows. With `kind.skip_requester` the requester (`requesterId`) is left out of every fallback level and
+ * does not count as covered, so the chain goes on (01d D-3, owner ruling 2026-11-09). `no_route` lists the person recipients with no route (the G1-9d shortcut, receipt view).
  */
 export function routeRecipients(
   recipients: readonly Recipient[],
@@ -179,6 +180,7 @@ export function routeRecipients(
   directory: StaffDirectory,
   ws: WsHub,
   now: number,
+  requesterId: string | null = null,
 ): { recipients: RecipientRow[]; routes: RouteRow[]; no_route: string[] } {
   if (routes.size > 0 && reads.routes === undefined) {
     throw new Error('routeRecipients: reads.routes is missing while a route is registered (askRoutes before routing)');
@@ -207,6 +209,7 @@ export function routeRecipients(
   const inStep = new Set<string>();
   for (const r of recipients) if (r.staff_id !== null) inStep.add(r.staff_id);
 
+  const skip = kind.skip_requester === true ? requesterId : null;
   const noRoute: Recipient[] = [];
   for (const r of recipients) {
     if (r.staff_id !== null) {
@@ -230,7 +233,7 @@ export function routeRecipients(
     const forSeen = new Set<string>();
     for (const r of noRoute) {
       const subject = r.staff_id ?? (r.table_team as NonNullable<Recipient['table_team']>).owner_staff_id;
-      for (const leadId of fallbackFor(subject, r, reads, directory, inStep, routesOf)) {
+      for (const leadId of fallbackFor(subject, r, reads, directory, inStep, routesOf, skip)) {
         const key = `${leadId}\u0000${subject}`;
         if (forSeen.has(key)) continue;
         forSeen.add(key);
@@ -254,13 +257,15 @@ function fallbackFor(
   directory: StaffDirectory,
   inStep: ReadonlySet<string>,
   routesOf: (staffId: string) => RouteRow[],
+  skip: string | null,
 ): string[] {
   const lead = leadOf(directory, subject);
   const levels: string[][] = [lead === null ? [] : [lead]];
   const signedInAnywhere = reads.sessions.some((s) => s.staff_id === subject);
   if (recipient.table_team !== undefined && !signedInAnywhere) levels.push(zoneOrderTakers(reads, recipient.table_team.table_id));
   levels.push(presentManagers(reads, directory));
-  for (const level of levels) {
+  for (const all of levels) {
+    const level = all.filter((id) => id !== skip); // D-3: the requester is neither a candidate nor 'covered'
     if (level.some((id) => id === subject || inStep.has(id))) return [];
     const reachable = level.filter((id) => routesOf(id).length > 0);
     if (reachable.length > 0) return reachable;

@@ -557,6 +557,27 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
     expect(resolveRaised(T('direct'), { reads: none })).toEqual([{ staff_id: ALI, device_id: null, set: 'recipient' }]);
   });
 
+  it('[02p U-6] D-1 (c): owner and direct targets for one table in one step, holder absent → exactly one marker', () => {
+    resolver('table_team', () => new Map());
+    const step: StepDef = {
+      at: { ms: 0 },
+      to: [
+        { target: T('owner'), set: 'recipient' },
+        { target: T('direct'), set: 'recipient' },
+      ],
+    };
+    const r = reads({
+      presence: new Map([[KAMRAN, false]]),
+      resolved: new Map([
+        [targetKey(T('owner')), full([KAMRAN], KAMRAN)],
+        [targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)],
+      ]),
+    });
+    const out = resolveStep(step, alert(), r, directory(), ws);
+    expect(out.filter((x) => x.staff_id === null && x.device_id === null)).toHaveLength(1);
+    expect(staffOf(out)).toEqual([ALI]);
+  });
+
   describe('D-3', () => {
     const defined: string[] = [];
     afterEach(() => {
@@ -580,6 +601,19 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
         request: null,
       });
     };
+
+    it('[02p U-6] D-3: no absent-holder marker when the absent holder is the requester', () => {
+      resolver('table_team', () => new Map());
+      kindWith('t_skip_m', true);
+      kindWith('t_keep_m', false);
+      const r = reads({
+        presence: new Map([[KAMRAN, false]]),
+        resolved: new Map([[targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)]]),
+      });
+      const run = (kind: string) => resolveRaised(T('direct'), { reads: r, alert: { kind, requester_staff_id: KAMRAN } });
+      expect(run('t_skip_m')).toEqual([{ staff_id: ALI, device_id: null, set: 'recipient' }]);
+      expect(run('t_keep_m').filter((x) => x.staff_id === null)).toHaveLength(1);
+    });
 
     it('[02p U-6] D-3: skip_requester drops the requester from every step\'s set', () => {
       kindWith('t_skip', true);

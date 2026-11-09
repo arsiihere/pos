@@ -309,7 +309,7 @@ export function routeSteps(
       directory,
     ),
   );
-  return items.map((item, i) => routeRecipients(resolved[i] as Recipient[], item.kind, reads, directory, ws, o.now));
+  return items.map((item, i) => routeRecipients(resolved[i] as Recipient[], item.kind, reads, directory, ws, o.now, item.row.requester_staff_id));
 }
 
 /** A step event payload (AttemptSent / EscalationStepped, §4.2). */
