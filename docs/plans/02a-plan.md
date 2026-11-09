@@ -8,7 +8,7 @@
 
 **Tech Stack:** the existing stack (CLAUDE.md): Node 22, Fastify 5, better-sqlite3, Zod, Vitest, React (client). **No new dependency.** No cloud change, no cloud migration.
 
-**Spec:** `docs/specs/02a_Tables_Spec_v1.1.1.md` (APPROVED; cited "§x", tests "#n"). Context only: `02p_Platform_Changes_Spec_v1.0.md` §1.3, §1.4 U3, §4.1 (what 02p built), `03a_Timing_Engine_Spec_v1.2.md` §4.4 (`registerSlipReaders`), `01d_Notifications_Requests_Spec_v1.2.1.md` §3.4, §4.2 (resolvers, D-1, D-3), `00_Hub_Platform_Access_Spec_v1.8.md` H-1 (`queueable`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. If the plan and the spec disagree, the spec wins: STOP and ask (CLAUDE.md).
+**Spec:** `docs/specs/02a_Tables_Spec_v1.1.2.md` (APPROVED; v1.1.2 owner 2026-11-09: §3.4 re-sign-in releases the lock, test 8; cited "§x", tests "#n"). Context only: `02p_Platform_Changes_Spec_v1.0.md` §1.3, §1.4 U3, §4.1 (what 02p built), `03a_Timing_Engine_Spec_v1.2.md` §4.4 (`registerSlipReaders`), `01d_Notifications_Requests_Spec_v1.2.1.md` §3.4, §4.2 (resolvers, D-1, D-3), `00_Hub_Platform_Access_Spec_v1.8.md` H-1 (`queueable`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. If the plan and the spec disagree, the spec wins: STOP and ask (CLAUDE.md).
 
 **Starting point:** `main` at `2fa2db0` (02p merged). Branch `module-02a`. Next free hub migration: **`0012`** (`0011_scope_my_zones.sql` is the last). Nothing of 02a exists yet: no `apps/hub/src/tables/`, no `packages/events/src/events/table/`, no 02a codes in `errors.ts` (Foundation v1.11 §6.2 already lists them, F-3).
 
@@ -114,6 +114,7 @@ export function registerMergeGuard(fn: (db, q: { seating_ids: string[]; order_id
 // index.ts
 export function registerTables(app: FastifyInstance, deps: HubDeps): void; // commands, queries, catch-up, audiences, tick, hooks (SG-6)
 export function registerTablesProjection(projections: ProjectionRegistry): void; // SG-5
+// projection.ts — owner 2026-11-09 (AD-9): bindTablesProjectionLog(projections, log) binds the live-only #55 log line; called from registerTables
 ```
 
 ## Review Focus

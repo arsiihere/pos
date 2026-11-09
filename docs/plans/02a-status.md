@@ -1,6 +1,6 @@
 # 02a status board
 
-Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.1.md` (APPROVED), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
+Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.2.md` (APPROVED; v1.1.2 = §3.4 re-sign-in, owner 2026-11-09), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
 
 > **Short Hinglish summary — padhein yahan se**
 >
@@ -64,6 +64,11 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-5 | 12, 18 | Kinds in `apps/hub/src/tables/kinds.ts`, loaded via `tables/index.ts` ← `server.ts` static import before boot step 4 | — | as read | proposed (not yet ruled) |
 | AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | accepted with condition: `registerTables` captures a getter `() => currentDirectory(app)`, never the directory object; `zoneOf` reads it on every call; the `zone_order_taker` resolver keeps reading `alertDirectoryOf(tx)` | **ruled (owner, 2026-11-09)** |
 | AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | **ruled (owner, 2026-11-09)** |
+| AD-8 | 8 (lane 1B) | `requireLock` readings: `not_holder` error in the §9 shape; scope = the one table; `zoneOf` → `floor_id: ''` for a table absent from the config; `locked_by_name: null` when the holder is unknown | — | accepted as read; **change:** a queued call (`ctx.queuedAt !== null`) never takes **and never moves** a lock — the command proceeds, the lock stays where it is (task 8 fix on `module-02a`, test `[02a #60] queued replay does not move the caller's lock from his other device`) | **ruled (owner, 2026-11-09)** |
+| AD-9 | 4, 5 (lane 1A) | `bindTablesProjectionLog` (live-only #55 log line bound in `registerTables`); `last_touch_at` refreshed by a non-holding device's event | — | accepted as is; plan "02a exports" notes `bindTablesProjectionLog`; #9's tick clause checked at the wave 1 checkpoint | **ruled (owner, 2026-11-09)** |
+| AD-10 | 11 (lane 1C) | tick `table_locks` registered once per process, guarded by name; a table without an open seating has no entry | — | accepted | **ruled (owner, 2026-11-09)** |
+| AD-11 | 11 (lane 1C) | Lane 1C blocker 1: §3.4 live session ignores a session that started after the lock's last activity | (a) spec bump; … | (a): spec **v1.1.2** (`451e19d`) — `s.started_at <= l.last_activity_at` in `due` and `intents`; test 8 extended | **ruled (owner, 2026-11-09)** |
+| AD-12 | 11 (lane 1C) | Lane 1C blocker 2: existing tick suites see the new `table_locks` tick | — | allowed (like SG-6): `test/alerts/tick-loop.int.test.ts`, `test/engine/fires-tick.int.test.ts`, `fires-alerts-tick.int.test.ts`, `kinds.int.test.ts` may call `unregisterTick('table_locks')` after `createTestHub`; tests only | **ruled (owner, 2026-11-09)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -77,6 +82,11 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-09 | AD-6 accepted with a condition: `registerTables` captures a getter `() => currentDirectory(app)` (never the directory object), `zoneOf` reads it on every call; `zone_order_taker` resolver keeps `alertDirectoryOf(tx)` | board AD-6; lane 1B task 6 |
 | 2026-11-09 | AD-7 accepted (`SeatingRow` literal unions = §5 CHECKs) | board AD-7; `tables/contracts.ts` |
 | 2026-11-09 | Wave 0 integrator decisions accepted: per-lane marker comments in `tables/index.ts`; "registers nothing yet" test replaced by `[02a §4.2] buildHubServer calls registerTables once with its app and deps` | board Wave 0 entry |
+| 2026-11-09 | Spec **v1.1.2**: §3.4 re-sign-in on the same device releases the lock (`s.started_at <= l.last_activity_at` in `due` and `intents`), test 8 extended (lane 1C blocker 1, option (a)) | `docs/specs/02a_Tables_Spec_v1.1.2.md` (`451e19d`), README; AD-11 |
+| 2026-11-09 | Lane 1C blocker 2: four existing tick test files may `unregisterTick('table_locks')` after `createTestHub` (tests only) | AD-12 |
+| 2026-11-09 | Lane 1B readings accepted; queued call never takes and never moves a lock (task 8 fix on `module-02a`, opus review) | AD-8 |
+| 2026-11-09 | Lane 1A: `bindTablesProjectionLog` accepted (plan note), non-holder `last_touch_at` accepted; #9 tick clause at the wave 1 checkpoint | AD-9; plan "02a exports" |
+| 2026-11-09 | Lane 1C: `table_locks` registered once per process, guarded by name; no entry for a table without an open seating | AD-10 |
 
 ## Batch entries
 
