@@ -71,6 +71,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
+    resetSlipReaders(); // SG-6: registerTables registered 02a's pair; these tests rely on the §4.4 stub or register fakes
     await seedDirectory(hub);
     clean();
     log.error.mockClear();
@@ -1106,7 +1107,7 @@ describe('[03a AD-8] a dropped line is never silent across a restart (review I1)
     cleanups.push(cfg.cleanup);
     const W = 1_762_000_000_000;
     const bootAt = (wall: number): Promise<BootHandle> =>
-      boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
+      boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() }).then((h) => (resetSlipReaders(), h)); // SG-6: boot registered 02a's pair; these tests rely on the §4.4 stub
     const rows = (h: BootHandle): Array<{ dedupe_key: string; state: string }> =>
       h.deps.db.prepare(`SELECT dedupe_key, state FROM alerts WHERE kind = ? ORDER BY raised_seq`).all(ENGINE_ALERT_KINDS.lineDropped) as Array<{ dedupe_key: string; state: string }>;
     const write = (h: BootHandle, events: readonly PosEvent[]): void => {
@@ -1162,7 +1163,7 @@ describe('[03a AD-8] a dropped line is never silent across a restart (review I1)
     cleanups.push(cfg.cleanup);
     return {
       path: cfg.path,
-      bootAt: (wall: number) => boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() }),
+      bootAt: (wall: number) => boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() }).then((h) => (resetSlipReaders(), h)),
     };
   }
   const droppedRows = (h: BootHandle): Array<{ dedupe_key: string; state: string }> =>

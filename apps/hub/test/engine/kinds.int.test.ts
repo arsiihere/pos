@@ -72,6 +72,7 @@ describe('03a task 23: the engine alert kinds', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
+    resetSlipReaders(); // SG-6: registerTables registered 02a's pair; these tests rely on the §4.4 stub or register fakes
     await seedDirectory(hub);
     clean();
     log.error.mockClear();

@@ -1,7 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import { currentDirectory } from '../auth/guards.js';
+import { registerSlipReaders } from '../engine-host/index.js';
+import { slipReaders } from '../engine-host/slip-readers.js';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
 import { bindTablesProjectionLog, tablesProjection } from './projection.js';
+import { bindZoneDirectory, currentTableOf, holdersOfOrders } from './reads.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -14,6 +18,8 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
     app.log.warn(line, 'tables projection: dine_in order names no open seating');
   });
   // wave 1 lane B (SG-6 slip readers)
+  bindZoneDirectory(() => currentDirectory(app)); // AD-6: a getter, never the directory object
+  if (slipReaders() === null) registerSlipReaders({ holdersOfOrders, currentTableOf }); // SG-6: never replace a test's readers
 
   // wave 1 lane C (resolvers, tick)
 
