@@ -1,5 +1,8 @@
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { CommandDef } from '../../src/commands/registry';
+import { commandRegistry } from '../../src/commands/route';
+import { statementCounter } from '../helpers/statement-counter';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { holdersOfOrders, currentTableOf } from '../../src/tables/reads';
 import { aDirectory } from '../helpers/fixtures';
@@ -9,7 +12,7 @@ import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } f
 // seeded with SQL or real events appended through the writer; no other lane's command is called.
 
 let hub: TestHub;
-// The pipeline runs its own statements around the handler; the handler's two reads are told apart by their text.
+// statements of the last `handle` call
 const handlerReads = { count: 0 };
 
 type Grant = 'allowed' | 'requires_approval';
@@ -74,16 +77,18 @@ beforeEach(async () => {
   hub = await createTestHub();
   await seedDirectory(hub, await directory());
   installConfig();
-  handlerReads.count = 0;
-  const prepare = hub.deps.db.prepare.bind(hub.deps.db);
-  hub.deps.db.prepare = ((sql: string) => {
-    const statement = prepare(sql);
-    if (/json_group_array\(table_id\)/.test(sql) || /^\s*SELECT seating_id FROM seating_tables WHERE table_id = \?\s*$/.test(sql)) {
-      const get = statement.get.bind(statement);
-      statement.get = ((...a: unknown[]) => ((handlerReads.count += 1), get(...a))) as typeof statement.get;
+  // The repo's pattern (set-presence.int.test.ts countHandle): count the statements of each `handle` call.
+  const def = commandRegistry(hub.app).byPath('move-table') as CommandDef;
+  const counter = statementCounter(hub.deps.db);
+  const original = def.handle;
+  def.handle = (ctx, payload, cmd) => {
+    counter.reset();
+    try {
+      return original.call(def, ctx, payload, cmd);
+    } finally {
+      handlerReads.count = counter.count;
     }
-    return statement;
-  }) as typeof hub.deps.db.prepare;
+  };
 });
 
 afterEach(async () => {
@@ -153,7 +158,7 @@ async function move(
   o: { commandId?: string } = {},
 ): Promise<Res> {
   commandSeq += 1;
-  handlerReads.count = 0;
+  handlerReads.count = -1;
   const res = await hub.app.inject({
     method: 'POST',
     url: '/commands/move-table',
@@ -223,6 +228,7 @@ describe('02a MoveTable (§3.10, §6.9)', () => {
     expect(ev).toMatchObject({ stream_type: 'table', stream_id: 'T1', actor_id: 'S_ALI', device_id: ali.deviceId });
     expect(JSON.parse(ev.payload)).toEqual({ seating_id: 'SEAT1', from_table_id: 'T1', to_table_id: 'T3', by_staff_id: 'S_ALI', note: 'window seat' });
     expect(primaryOf('SEAT1')).toBe('T3');
+    expect(hub.deps.db.prepare('SELECT holder_staff_id FROM seatings WHERE seating_id = ?').pluck().get('SEAT1')).toBe('S_ALI');
     expect(tablesOf('SEAT1')).toEqual(['T3']);
     expect(lockRows()).toMatchObject([{ table_id: 'T3', seating_id: 'SEAT1', staff_id: 'S_ALI', device_id: ali.deviceId }]);
     expect(currentTableOf(hub.deps.db, ['O1']).get('O1')).toEqual({ seating_id: 'SEAT1', primary_table_id: 'T3', table_ids: ['T3'] });
@@ -359,6 +365,15 @@ describe('02a MoveTable (§3.10, §6.9)', () => {
     expect(r.status).toBe(404);
     expect(r.body.error).toEqual({ code: 'TABLE_NOT_FOUND', details: { table_id: 'T9' } });
     expect(primaryOf('SEAT1')).toBe('T1');
+  });
+
+  it('[02a §3.14] no branch config → a free target is not found (fail closed)', async () => {
+    const ali = signIn('S_ALI');
+    seat('SEAT1', 'T1', 'S_ALI');
+    swapBranchConfig(null);
+    const r = await move(ali, mv('SEAT1', 'T1', 'T2'));
+    expect(r.status).toBe(404);
+    expect(r.body.error).toEqual({ code: 'TABLE_NOT_FOUND', details: { table_id: 'T2' } });
   });
 
   it('[02a §3.14] an archived target that still has a seating is busy → TABLE_NOT_FREE, not 404', async () => {

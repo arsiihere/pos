@@ -67,9 +67,9 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: { 
 
   const target = db.prepare('SELECT seating_id FROM seating_tables WHERE table_id = ?').get(p.to_table_id);
   if (target !== undefined) throw new DomainError('TABLE_NOT_FREE', { table_id: p.to_table_id });
-  // §3.14 (AD-2): a free table absent from the branch config is archived (or unknown).
+  // §3.14 (AD-2): a free table absent from the branch config (or no config at all) is archived or unknown: fail closed.
   const config = branchConfig();
-  if (config !== null && !config.floors.some((f) => f.tables.some((t) => t.table_id === p.to_table_id))) {
+  if (config === null || !config.floors.some((f) => f.tables.some((t) => t.table_id === p.to_table_id))) {
     throw new DomainError('TABLE_NOT_FOUND', { table_id: p.to_table_id });
   }
 
@@ -100,7 +100,8 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: { 
   // Scope last (C8) over both tables, for the take-order grant and for the force grant when it was used.
   const named = [p.from_table_id, p.to_table_id];
   const outside = new Set<string>();
-  const takeScope = ctx.permission !== null && ctx.permission.grant !== 'not_granted' && ctx.permission.grant !== 'denied' ? ctx.permission.scope : 'branch';
+  // Fail closed: no granting permission in the context means no scope, which covers nothing.
+  const takeScope = ctx.permission !== null && 'scope' in ctx.permission ? ctx.permission.scope : 'none';
   for (const scope of [takeScope, usedForceScope]) {
     if (scope === null) continue;
     for (const t of named) if (!covers(ctx, scope, actor, holder, t)) outside.add(t);
