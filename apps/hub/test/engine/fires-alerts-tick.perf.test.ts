@@ -109,6 +109,8 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
       reset();
       hub.deps.db.prepare('DELETE FROM alerts WHERE kind IN (SELECT value FROM json_each(?))').run(kinds);
       for (let d = 0; d < DROPS; d += 1) hostFlags.dropped_lines.push({ order_id: `PERF-O${d}`, order_item_id: `PERF-L${d}`, reason: 'station_missing', batch: false });
+      // 02p E-9: the slips due are counted on the reset state, before the pass folds its SlipWarned events.
+      if (slipPath) wanted = getAlertIntents(hub.deps.state.get(), now).slips.length;
       const started = performance.now();
       let n = 0;
       let r = 0;
@@ -120,7 +122,6 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
       }
       const ms = performance.now() - started;
       if (slipPath) {
-        wanted = getAlertIntents(hub.deps.state.get(), now).slips.length;
         const got = (hub.deps.db.prepare('SELECT count(*) AS n FROM alerts WHERE kind = ?').get(ENGINE_ALERT_KINDS.slip) as { n: number }).n;
         expect(hostFlags.skipped.size).toBe(0);
         expect(got).toBeGreaterThanOrEqual(1);
