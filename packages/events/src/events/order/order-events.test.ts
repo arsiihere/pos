@@ -372,7 +372,7 @@ describe('02a SG-2: folded 02b events (02b v1.0.2 §6.19)', () => {
       const schema = payloadSchema(type, 1);
       expect(schema.safeParse({ ...payload, extra: 1 }).success, type).toBe(false);
       for (const key of Object.keys(payload)) {
-        const { [key]: _omitted, ...rest } = payload;
+        const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== key));
         expect(schema.safeParse(rest).success, `${type}.${key}`).toBe(false);
       }
     }
