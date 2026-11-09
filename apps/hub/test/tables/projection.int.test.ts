@@ -32,7 +32,7 @@ interface Harness {
   append(...drafts: EventDraft[]): void;
 }
 
-async function harness(cleanups: Array<() => void>): Promise<Harness> {
+async function harness(cleanups: Array<() => void | Promise<void>>): Promise<Harness> {
   const fx = freshDb();
   cleanups.push(fx.cleanup);
   const clock = fixedClock(T);
@@ -143,9 +143,9 @@ function dump(db: Database.Database): Record<string, unknown[]> {
 }
 
 describe('02a tables projection', () => {
-  const cleanups: Array<() => void> = [];
-  afterEach(() => {
-    for (const cleanup of cleanups.splice(0)) cleanup();
+  const cleanups: Array<() => void | Promise<void>> = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
   it('[02a §5] eventTypes = the ten §6.19 types + the nine 02b / 05 folds; not ItemServed (AD-4)', () => {
@@ -459,6 +459,42 @@ describe('02a tables projection', () => {
     expect(h.db.prepare('SELECT COUNT(*) AS n FROM seatings').get()).toEqual({ n: 3 });
   });
 
+  it('[02a §3.12] SeatingSplit from a seating that is not open writes nothing; split and absorb re-point only the from / absorbed seating\'s orders', async () => {
+    const h = await harness(cleanups);
+    h.append(opened('T1', 'S1'), placed('O1'), billClosed('S1'), cleaned('S1', ['T1']));
+    h.append(opened('T2', 'S2'), placed('O2', { seating: 'S2' }));
+    const before = dump(h.db);
+    h.append(
+      ev('table', 'T1', 'SeatingSplit', { from_seating_id: 'S1', new_seating_id: 'S5', to_table_id: 'T6', order_ids: ['O1'], by_staff_id: ALI }),
+      ev('table', 'T1', 'SeatingSplit', { from_seating_id: 'NOPE', new_seating_id: 'S6', to_table_id: 'T7', order_ids: ['O2'], by_staff_id: ALI }),
+      ev('table', 'T1', 'SeatingSplit', { from_seating_id: 'S1', new_seating_id: null, to_table_id: 'T1', order_ids: [], by_staff_id: ALI }),
+    );
+    expect(dump(h.db)).toEqual(before);
+
+    // a split of S2 naming S3's order O3 does not take it
+    h.append(opened('T3', 'S3'), placed('O3', { seating: 'S3' }), placed('O4', { seating: 'S2' }));
+    h.append(
+      ev('table', 'T2', 'SeatingSplit', { from_seating_id: 'S2', new_seating_id: 'S7', to_table_id: 'T8', order_ids: ['O4', 'O3'], by_staff_id: ALI }),
+    );
+    expect(order(h.db, 'O4')).toMatchObject({ seating_id: 'S7' });
+    expect(order(h.db, 'O3')).toMatchObject({ seating_id: 'S3' });
+
+    // an absorb of S7 into S2 naming S3's order O3 does not take it
+    h.append(
+      ev('table', 'T2', 'TablesMerged', {
+        into_seating_id: 'S2',
+        into_table_id: 'T2',
+        table_ids: ['T8'],
+        absorbed_seating_id: 'S7',
+        order_ids: ['O4', 'O3'],
+        by_staff_id: ALI,
+      }),
+    );
+    expect(order(h.db, 'O4')).toMatchObject({ seating_id: 'S2' });
+    expect(order(h.db, 'O3')).toMatchObject({ seating_id: 'S3' });
+    expect(stateOf(h.db, 'S3')).toBe('ORDERED');
+  });
+
   it('[02a §3.1] TableMoved re-keys primary_table_id and the seating_tables row (joined_at kept); orders follow', async () => {
     const h = await harness(cleanups);
     h.append(opened('T1', 'S1'), placed('O1'));
@@ -534,7 +570,7 @@ describe('02a tables projection', () => {
 
   it('[02a #55] on a test hub the unknown-seating line reaches the server log once (live)', async () => {
     const hub = await createTestHub();
-    cleanups.push(() => void hub.close());
+    cleanups.push(() => hub.close());
     hub.deps.writer.run((tx) => tx.append([placed('O9', { table_key: 'dine_in:NOPE' })]));
     const lines = hub
       .logs()
@@ -546,7 +582,7 @@ describe('02a tables projection', () => {
 
   it('[02a §5 SG-5] wiring: the test hub (as boot createDeps) registers the tables projection', async () => {
     const hub = await createTestHub();
-    cleanups.push(() => void hub.close());
+    cleanups.push(() => hub.close());
     hub.deps.writer.run((tx) => tx.append([opened('T1', 'S1')]));
     expect(stateOf(hub.deps.db, 'S1')).toBe('SEATED');
   });

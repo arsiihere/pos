@@ -263,17 +263,20 @@ function applyMerged(tx: Database.Database, p: TablesMergedPayload, at: number):
   );
   for (const tableId of p.table_ids) join.run(tableId, p.into_seating_id, at);
   if (p.order_ids.length > 0) {
-    tx.prepare('UPDATE seating_orders SET seating_id = ? WHERE order_id IN (SELECT value FROM json_each(?))').run(
+    tx.prepare('UPDATE seating_orders SET seating_id = ? WHERE order_id IN (SELECT value FROM json_each(?)) AND seating_id = ?').run(
       p.into_seating_id,
       JSON.stringify(p.order_ids),
+      p.absorbed_seating_id,
     );
     tx.prepare(`UPDATE seatings SET bill_requested_at = NULL WHERE seating_id = ? AND state <> 'CLOSED'`).run(p.into_seating_id);
   }
   refold(tx, p.into_seating_id);
 }
 
-// §3.12: a new seating on to_table_id with the listed whole orders (holder = S's), or detach (new_seating_id null).
+// §3.12: a new seating on to_table_id with the listed whole orders of S (holder = S's), or detach (new_seating_id null).
+// A from seating that is not open writes nothing.
 function applySplit(tx: Database.Database, p: SeatingSplitPayload, at: number): void {
+  if (tx.prepare(`SELECT 1 FROM seatings WHERE seating_id = ? AND state <> 'CLOSED'`).get(p.from_seating_id) === undefined) return;
   if (p.new_seating_id === null) {
     tx.prepare('DELETE FROM seating_tables WHERE table_id = ? AND seating_id = ?').run(p.to_table_id, p.from_seating_id);
     refold(tx, p.from_seating_id);
@@ -287,9 +290,10 @@ function applySplit(tx: Database.Database, p: SeatingSplitPayload, at: number): 
     `INSERT INTO seating_tables (table_id, seating_id, joined_at) VALUES (?, ?, ?)
      ON CONFLICT (table_id) DO UPDATE SET seating_id = excluded.seating_id, joined_at = excluded.joined_at`,
   ).run(p.to_table_id, p.new_seating_id, at);
-  tx.prepare('UPDATE seating_orders SET seating_id = ? WHERE order_id IN (SELECT value FROM json_each(?))').run(
+  tx.prepare('UPDATE seating_orders SET seating_id = ? WHERE order_id IN (SELECT value FROM json_each(?)) AND seating_id = ?').run(
     p.new_seating_id,
     JSON.stringify(p.order_ids),
+    p.from_seating_id,
   );
   refold(tx, p.from_seating_id);
   refold(tx, p.new_seating_id);
