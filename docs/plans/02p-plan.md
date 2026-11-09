@@ -681,6 +681,20 @@ Split from 17b (owner ruling 2026-11-08, option (b)). As built, simulator orders
 - [ ] **Step 4:** Run, plus all of `packages/engine/test` and `apps/hub/test/engine` (`boot.int.test.ts` included, read-only for this lane) → PASS. Replay = live (test 94 and the property test) must hold.
 - [ ] **Step 5: Commit.** `feat(03a): zone lines, empty orders, absent-id filter and boot id set [03a v1.2 Q-3, R-3; 02p §11 #15]`.
 
+### Task 15b: "drinks first, food later": the first `OrderLinesAdded` creates the engine order; safety net · Lane: engine · RISK: HIGH · Shared
+
+**Rows:** 03a v1.2 E-4 (owner ruling 2026-11-09, pilot blocker): §3.3 (the E-4 block after Q-3), §3.12 (the E-4 note on the boot read), §4.2 `OrderLinesAdded` row, tests 131–138. **Waits for the owner's review of the spec text before any code** (ruling 2026-11-09).
+
+**Files:**
+- Modify:
+  - `packages/events/src/events/order/OrderLinesAdded.v1.ts` (optional `order_header`; platform A's lane is finished, so the owner gives this file to 15b)
+  - `packages/engine/src/apply-event.ts` (`foldOrderLinesAdded`; the safety net)
+  - `apps/hub/src/engine-host/reducer.ts` and `replay.ts` (id-set removal, boot read)
+- Test: `packages/engine/test/lines.test.ts`, `apps/hub/test/engine/zone-filter.int.test.ts`, `apps/hub/test/engine/boot-idset.int.test.ts`, `packages/events/src/events/order/order-events.test.ts`
+
+- [ ] Tests 131–138 first (fail → pass), then the code. Statement bounds unchanged (boot step 3 = 4 + 2 + 1); `ENGINE_STATE_VERSION` 3.
+- [ ] Commit `feat(03a): first OrderLinesAdded creates the engine order; unknown order is an InvalidEvent [03a v1.2 E-4; 02p task 15b]`.
+
 ### Task 16: Q-4 partial `ItemRemoved` · Lane: engine · RISK: NORMAL · Shared
 
 **Rows:** 03a v1.2 Q-4 (§3.7, §4.2).
