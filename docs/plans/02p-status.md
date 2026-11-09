@@ -98,6 +98,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-32 | 7 | Table archive / restore does not bump `directory_version` | (a) accept; (b) bump | **(b) — reversed by the owner 2026-11-09**: table archive / restore bumps `directory_version` like zones; fix after batch 4 tasks, before the batch 4 gate | **ruled (owner, 2026-11-09)** |
 | AD-33 | 8 | `zonesOf` returns sorted, de-duplicated ids (§4.2 says a union) | (a) sorted + dedup like `floorsOf`; (b) unordered | (a) | **ruled (owner, 2026-11-09)** |
 | AD-34 | 8 | The hub directory holds only staff with a PIN, so a lead without a PIN adds none of their zones to `my_zones` (§3.3 says the lead's zones count); pre-existing behaviour | (a) accept (refillers' leads have PINs); (b) carry lead zones for no-PIN leads | (a) for the pilot; 01b §12.3 D-18 known limitation; field-visit check 17a | **ruled (owner, 2026-11-09)** |
+| AD-35 | 12 | `X-Queued-At` readings: integer ms epoch; missing / bad header → `null` (no 400, 02b :104, :194); `started_at` = the session's `staff_sessions.started_at` | as built | as built | proposed (not yet ruled) |
+| AD-36 | 13 | `skip_requester` vs the fallback chain; marker when the absent holder is the requester | requester filtered from every fallback level and not counted as covered, chain continues, else no-receiver (logged); no marker | as ruled | **ruled (owner, 2026-11-09)**; 01d D-3 marker |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
