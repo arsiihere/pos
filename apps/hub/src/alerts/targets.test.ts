@@ -562,8 +562,8 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
     const step: StepDef = {
       at: { ms: 0 },
       to: [
-        { target: T('owner'), set: 'recipient' },
-        { target: T('direct'), set: 'recipient' },
+        { target: { kind: 'table_team', from_value: 'table_id', depth: 'owner' }, set: 'recipient' },
+        { target: { kind: 'table_team', from_value: 'table_id', depth: 'direct' }, set: 'recipient' },
       ],
     };
     const r = reads({
@@ -573,7 +573,7 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
         [targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)],
       ]),
     });
-    const out = resolveStep(step, alert(), r, directory(), ws);
+    const out = resolveStep(step, alert({ values: { table_id: 'T12' } }), r, directory(), ws);
     expect(out.filter((x) => x.staff_id === null && x.device_id === null)).toHaveLength(1);
     expect(staffOf(out)).toEqual([ALI]);
   });
@@ -621,13 +621,13 @@ describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
       const step: StepDef = {
         at: { ms: 0 },
         to: [
-          { target: { kind: 'person', staff_id: ALI }, set: 'recipient' },
-          { target: { kind: 'person', staff_id: HAMZA }, set: 'informed' },
+          { target: { kind: 'managers' }, set: 'recipient' },
+          { target: { kind: 'managers' }, set: 'recipient' },
         ],
       };
-      const run = (kind: string) => staffOf(resolveStep(step, alert({ kind, requester_staff_id: ALI }), reads(), directory(), ws));
-      expect(run('t_skip')).toEqual([HAMZA]);
-      expect(run('t_keep')).toEqual([ALI, HAMZA]);
+      const run = (kind: string) => staffOf(resolveStep(step, alert({ kind, requester_staff_id: IMRAN }), reads(), directory(), ws));
+      expect(run('t_keep')).toEqual([IMRAN, MGR2, OWNER]);
+      expect(run('t_skip')).toEqual([MGR2, OWNER]);
     });
   });
 });
