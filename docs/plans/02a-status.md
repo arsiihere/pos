@@ -62,8 +62,8 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-3 | 12 | `seatingTotals` (02b) absent → handover card leaves `amount` out; no stub | — | as read | proposed (not yet ruled) |
 | AD-4 | 4 | `ItemServed` not in `tables.eventTypes` (P-1d; not in §3.3's activity list) | — | as read | proposed (not yet ruled) |
 | AD-5 | 12, 18 | Kinds in `apps/hub/src/tables/kinds.ts`, loaded via `tables/index.ts` ← `server.ts` static import before boot step 4 | — | as read | proposed (not yet ruled) |
-| AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | as read | proposed (not yet ruled) |
-| AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | proposed (not yet ruled) |
+| AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | accepted with condition: `registerTables` captures a getter `() => currentDirectory(app)`, never the directory object; `zoneOf` reads it on every call; the `zone_order_taker` resolver keeps reading `alertDirectoryOf(tx)` | **ruled (owner, 2026-11-09)** |
+| AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | **ruled (owner, 2026-11-09)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -74,6 +74,9 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-09 | SG-1: zone's tables belong to the zone's order taker; no separate table assignment inside a zone (owner rule; 02a reads `assignedOrderTaker`, 01b / 01d follow-up) | plan, OPEN-QUESTIONS §5 |
 | 2026-11-09 | SG-2 (a), SG-3 (a), SG-5 (a), SG-6 (a) (developer's call, owner delegated) | plan tasks 1b, 4–8 |
 | 2026-11-09 | SG-4: archive warning (01a, later) + 02a safety-net group (developer's call, owner delegated); on-site table management = new story | plan tasks 17, 19; OPEN-QUESTIONS §5 |
+| 2026-11-09 | AD-6 accepted with a condition: `registerTables` captures a getter `() => currentDirectory(app)` (never the directory object), `zoneOf` reads it on every call; `zone_order_taker` resolver keeps `alertDirectoryOf(tx)` | board AD-6; lane 1B task 6 |
+| 2026-11-09 | AD-7 accepted (`SeatingRow` literal unions = §5 CHECKs) | board AD-7; `tables/contracts.ts` |
+| 2026-11-09 | Wave 0 integrator decisions accepted: per-lane marker comments in `tables/index.ts`; "registers nothing yet" test replaced by `[02a §4.2] buildHubServer calls registerTables once with its app and deps` | board Wave 0 entry |
 
 ## Batch entries
 
@@ -109,5 +112,5 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 ## Next
 
 1. **Owner:** review wave 0, then type `wave 1` in the integrator session (it creates worktrees `~/pos-02a-A`…`C`); open the three lane sessions per `docs/plans/02a-parallel-prompts.md` §3.
-2. **Owner (any time):** AD-1–AD-7 (proposed readings); AD-6 matters for lane B task 6.
+2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
