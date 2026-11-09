@@ -2,12 +2,12 @@
 // The host's absent-id log skips zone lines, deal headers and (AD-E18) ready-items-only orders through the host id set.
 import { initialEngineState, type Diagnostic, type EngineState } from '@pos/engine';
 import type { EventDraft, PosEvent } from '@pos/events';
-import { anEngineConfigApplied } from '@pos/events/testing';
+import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
 import { replayEngine } from '../../src/engine-host/replay';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
-import { ABSENT_ID, dealOrder, emptyOrder, readyAdded, readyShapes, removed, served, voided, zoneAdded, zoneAndDealShapes } from './q3-lines';
+import { ABSENT_ID, dealOrder, DIAGNOSTIC, emptyOrder, foodAdded, readyAdded, readyShapes, removed, served, voided, zoneAdded, zoneAndDealShapes } from './q3-lines';
 
 const T0 = 1_761_000_000_000;
 
@@ -91,5 +91,105 @@ describe('[03a #125] Q-3 host filter: live and full replay', () => {
     expect(reported.filter((d) => d.kind === 'invalid_event')).toEqual([]);
     const live = hub.deps.state.get() as EngineState;
     expect({ ...out.state, diagnostics: [] }).toEqual({ ...live, diagnostics: [] });
+  });
+});
+
+// 03a v1.2 §3.3 E-4 (02p task 15b): "drinks first, food later", live through the hub's writer and after-commit hooks.
+describe('[03a E-4] drinks first, food later: live', () => {
+  let hub: TestHub;
+  const cleanups: Array<() => Promise<void>> = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  });
+  async function open(): Promise<TestHub> {
+    resetHostFlags();
+    hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    hostFlags.checkpoint_pending = false;
+    return hub;
+  }
+  const append = (events: PosEvent[]) => hub.deps.writer.run((tx) => tx.append(events.map(draftOf))).appended;
+  const engine = (): EngineState => hub.deps.state.get() as EngineState;
+  const lines = (msg: string): LogLine[] =>
+    hub
+      .logs()
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => JSON.parse(l) as LogLine)
+      .filter((l) => l.msg === msg);
+  const checkpoints = (): number => hub.deps.db.prepare('SELECT COUNT(*) FROM engine_checkpoints').pluck().get() as number;
+
+  it('[03a #131] live: empty OrderPlaced (two drinks), then OrderLinesAdded with order_header and two food lines → an EngineOrder; the id leaves the set; no absent id, no diagnostic', async () => {
+    await open();
+    append([anEngineConfigApplied()]);
+    append([emptyOrder('O2', T0), readyAdded('O2', 'R1'), readyAdded('O2', 'R2')]);
+    expect(engine().orders.O2).toBeUndefined();
+    expect(hostFlags.untrackedLineIds.has('O2')).toBe(true);
+    const [linesAdded] = append(foodAdded('O2', ['F1', 'F2']));
+    const o = engine().orders.O2!;
+    expect(o).toMatchObject({ order_type: 'dine_in', table_key: 'dine_in:T-O2', table_id: 'T-O2', follow_up: false, pickup_at_ms: null, placed_by: null });
+    expect(o.placed_at).toBe(linesAdded!.recorded_at);
+    expect(o.line_ids).toEqual(['F1', 'F2']);
+    expect(engine().lines.F1!.fire_ms).not.toBeNull();
+    expect(hostFlags.untrackedLineIds.has('O2')).toBe(false);
+    expect(lines(ABSENT_ID)).toEqual([]);
+    expect(lines(DIAGNOSTIC)).toEqual([]);
+  });
+
+  it('[03a #135] live safety net: the batch commits; one invalid_event; its ItemAdded events are logged as absent ids unless the order is in the id set', async () => {
+    await open();
+    append([anEngineConfigApplied()]);
+    // An order the engine never saw (not in the id set): the ItemAdded events are logged.
+    append(foodAdded('O7', ['F1', 'F2'], { header: null }));
+    expect(engine().orders.O7).toBeUndefined();
+    expect(lines(DIAGNOSTIC)).toEqual([expect.objectContaining({ kind: 'invalid_event', event_type: 'OrderLinesAdded', order_id: 'O7', order_item_id: 'F1', reason: 'order_not_in_engine' })]);
+    expect(lines(ABSENT_ID)).toEqual([
+      expect.objectContaining({ event_type: 'ItemAdded', order_id: 'O7', order_item_id: 'F1' }),
+      expect.objectContaining({ event_type: 'ItemAdded', order_id: 'O7', order_item_id: 'F2' }),
+    ]);
+    // A ready-items-only order (in the id set, no header so it stays there): quiet.
+    append([emptyOrder('O2', T0)]);
+    append(foodAdded('O2', ['G1'], { header: null }));
+    expect(hostFlags.untrackedLineIds.has('O2')).toBe(true);
+    expect(lines(ABSENT_ID)).toHaveLength(2);
+    expect(lines(DIAGNOSTIC)).toHaveLength(2);
+  });
+
+  it('[03a #135] live empty addition (with and without order_header): no diagnostic, no EngineOrder, the order stays in the id set; a refused one with order_header removes it', async () => {
+    await open();
+    append([anEngineConfigApplied()]);
+    append([emptyOrder('O2', T0)]);
+    const before = engine();
+    append(foodAdded('O2', []));
+    append(foodAdded('O2', [], { header: null }));
+    expect(engine()).toBe(before);
+    expect(hostFlags.untrackedLineIds.has('O2')).toBe(true);
+    expect(lines(DIAGNOSTIC)).toEqual([]);
+    // Refused with order_header (group_id_invalid): its lines are alerted as dropped (AD-8), and the id leaves the set.
+    append(foodAdded('O2', ['F1'], { group: 5 }));
+    expect(engine().orders.O2).toBeUndefined();
+    expect(lines(DIAGNOSTIC)).toEqual([expect.objectContaining({ kind: 'invalid_event', event_type: 'OrderLinesAdded', reason: 'group_id_invalid' })]);
+    expect(hostFlags.untrackedLineIds.has('O2')).toBe(false);
+    expect(lines(ABSENT_ID)).toEqual([expect.objectContaining({ event_type: 'ItemAdded', order_id: 'O2', order_item_id: 'F1' })]);
+  });
+
+  it('[03a #136] an open order of ready items only does not block the day-close checkpoint: written at once', async () => {
+    await open();
+    append([anEngineConfigApplied(), aBusinessDayOpened()]);
+    append([emptyOrder('O2', T0), readyAdded('O2', 'R1')]);
+    append([aBusinessDayClosed()]);
+    expect(checkpoints()).toBe(1);
+    expect(hostFlags.checkpoint_pending).toBe(false);
+  });
+
+  it('[03a #133] with the food added before the close, the day-close checkpoint waits for the order to leave the engine (checkpoint_pending)', async () => {
+    await open();
+    append([anEngineConfigApplied(), aBusinessDayOpened()]);
+    append([emptyOrder('O2', T0), readyAdded('O2', 'R1')]);
+    append(foodAdded('O2', ['F1']));
+    expect(engine().orders.O2).toBeDefined();
+    append([aBusinessDayClosed()]);
+    expect(checkpoints()).toBe(0);
+    expect(hostFlags.checkpoint_pending).toBe(true);
   });
 });

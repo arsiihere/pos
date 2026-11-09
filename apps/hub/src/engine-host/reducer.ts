@@ -54,8 +54,8 @@ interface FoldNote {
 // another after-commit hook cannot take this transaction's.
 const notes = new WeakMap<readonly PosEvent[], FoldNote>();
 
-// AD-28: one transaction's events, one applyEvents call. The writer runs this inside the transaction, so the plain
-// OrderLinesAdded throw on an absent order (§3.3) rolls it back; everything logged waits for afterEngineCommit.
+// AD-28: one transaction's events, one applyEvents call. The writer runs this inside the transaction, so a fold that
+// throws rolls it back; everything logged waits for afterEngineCommit.
 // `now`: the hub's clock (F §6.7's lint forbids performance.now here), whole ms, enough for the 50 ms line of §7.1.
 export function foldEngineBatch(state: EngineState, events: readonly PosEvent[], now: () => number): EngineState {
   const start = now();
@@ -66,7 +66,7 @@ export function foldEngineBatch(state: EngineState, events: readonly PosEvent[],
 
 // AD-6, §7.2: after commit, log what the fold noted and clear the diagnostics. 0 statements.
 export function afterEngineCommit(state: StateHolder<EngineState>, log: WarnLog, appended: readonly PosEvent[]): void {
-  // §3.3 Q-3: a committed event's untracked id joins the host set before this transaction's absent-id log reads it.
+  // §3.3 Q-3, E-4: a committed event's untracked id joins (or leaves) the host set before this transaction's absent-id log reads it.
   for (const event of appended) noteUntrackedId(event);
   const note = notes.get(appended);
   if (note !== undefined) {
@@ -106,25 +106,41 @@ function logSlowFold(note: FoldNote, events: readonly PosEvent[], log: WarnLog):
   }
 }
 
-// 03a v1.2 §3.3 Q-3, AD-E18: the id an event adds to hostFlags.untrackedLineIds, or null. An ItemAdded served from a
-// zone or a deal header adds its line id; an OrderPlaced with empty order_item_ids (ready items only) adds its order id.
-// Live (afterEngineCommit) and boot step 3 (the replayed events; the id-set read covers the older ones) use it.
-function untrackedIdOf(event: PosEvent): string | null {
+// 03a v1.2 §3.3 Q-3, AD-E18: what an event does to hostFlags.untrackedLineIds, or null. An ItemAdded served from a zone
+// or a deal header adds its line id; an OrderPlaced with empty order_item_ids (ready items only) adds its order id.
+// E-4 (15b check S-4, S-10): an OrderLinesAdded with order_header and non-empty order_item_ids removes its order id,
+// committed or refused (a refused one's lines are alerted as dropped, AD-8). One rule live (afterEngineCommit), in the
+// step-3 replay hook and for the rows of the boot id-set read (replay.ts), each applied in seq order.
+export interface UntrackedOp {
+  op: 'add' | 'remove';
+  id: string;
+}
+
+function untrackedOpOf(event: PosEvent): UntrackedOp | null {
   if (event.stream_type !== 'order') return null;
   if (event.event_type === 'ItemAdded') {
     const p = event.payload as { order_item_id?: string; served_from_zone_id?: string | null; line_kind?: string };
-    return p.served_from_zone_id != null || p.line_kind === 'deal' ? (p.order_item_id ?? null) : null;
+    return (p.served_from_zone_id != null || p.line_kind === 'deal') && p.order_item_id !== undefined ? { op: 'add', id: p.order_item_id } : null;
   }
   if (event.event_type === 'OrderPlaced') {
     const p = event.payload as { order_id?: string; order_item_ids?: readonly string[] };
-    return p.order_item_ids?.length === 0 ? (p.order_id ?? event.stream_id) : null;
+    return p.order_item_ids?.length === 0 ? { op: 'add', id: p.order_id ?? event.stream_id } : null;
+  }
+  if (event.event_type === 'OrderLinesAdded') {
+    const p = event.payload as { order_id?: string; order_item_ids?: readonly string[]; order_header?: unknown };
+    return p.order_header !== undefined && (p.order_item_ids?.length ?? 0) > 0 ? { op: 'remove', id: p.order_id ?? event.stream_id } : null;
   }
   return null;
 }
 
+export function applyUntrackedOp(o: UntrackedOp): void {
+  if (o.op === 'add') hostFlags.untrackedLineIds.add(o.id);
+  else hostFlags.untrackedLineIds.delete(o.id);
+}
+
 export function noteUntrackedId(event: PosEvent): void {
-  const id = untrackedIdOf(event);
-  if (id !== null) hostFlags.untrackedLineIds.add(id);
+  const o = untrackedOpOf(event);
+  if (o !== null) applyUntrackedOp(o);
 }
 
 // AD-E18: on an order of ready items only, these events log nothing.
@@ -167,7 +183,8 @@ function logAbsentIds(note: FoldNote, events: readonly PosEvent[], log: WarnLog)
     if (type === 'ItemServed' && p.source === 'zone') continue;
     if (QUIET_ON_UNTRACKED_LINE.has(type) && p.order_item_id !== undefined && untracked.has(p.order_item_id)) continue;
     if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
-      // Only an OrderPlaced creates an order; OrderLinesAdded on an absent one throws in the fold (§3.3).
+      // An OrderPlaced counts as creating its order. E-4: an OrderLinesAdded that creates one is in note.next; a refused
+      // one is not, so the batch's ItemAdded events are logged as absent ids (unless the order is in the id set).
       if (type === 'OrderPlaced') addedOrders.add(p.order_id ?? event.stream_id);
       for (const id of p.order_item_ids ?? []) addedLines.add(id);
       for (const line of p.lines ?? []) addedLines.add(line.order_item_id);

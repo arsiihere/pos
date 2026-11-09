@@ -354,16 +354,43 @@ function foldOrderPlaced(state: EngineState, event: PosEvent, o: FoldOptions): E
 }
 
 // §3.3, §4.2 (P-10): an addition to an order in the engine. The removal step has skipped this order (applyEvent),
-// so a present order is re-opened even when recorded_at is past its window by the append gap; an absent order is a
-// bug (it was removed at a listed event at or after its deadline) and throws in both modes.
+// so a present order is re-opened even when recorded_at is past its window by the append gap, and its order_header is
+// ignored (test 137; also an AD-20-kept order). 03a v1.2 E-4 ("drinks first, food later"), for an order the engine does
+// not hold (absent from state.orders after the removal step):
+//   (a′) order_item_ids = [] → state itself, header or not (no diagnostic, no EngineOrder);
+//   (a)  with order_header → a new EngineOrder from the header (placed_at = recorded_at, next_group_index 0, so the
+//        group ids restart at order_id:0), then listLines as for OrderPlaced; also an order whose earlier food left;
+//   (b)  without it → InvalidEvent('order_not_in_engine', order_item_ids[0]): strict throws, non-strict the event is
+//        skipped with one diagnostic (foldNamed), so boot does not stop on it.
 function foldOrderLinesAdded(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as OrderLinesAddedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
-  const order = state.orders[p.order_id];
-  // §3.3 keys this on presence: an order kept by AD-20 for its reservation is present, so it re-opens like any present
-  // order (test 78); only an absent order throws.
-  if (order === undefined) throw new Error(`OrderLinesAdded for order ${p.order_id}, which is not in the engine`);
-  return listLines(state, order, p, event.recorded_at, o);
+  const held = state.orders[p.order_id];
+  if (held !== undefined) return listLines(state, held, p, event.recorded_at, o);
+  if (p.order_item_ids.length === 0) return state;
+  const h = p.order_header;
+  if (h === undefined) throw new InvalidEvent('order_not_in_engine', p.order_item_ids[0]!);
+  const at = event.recorded_at;
+  const order: EngineOrder = {
+    order_id: p.order_id,
+    order_type: h.order_type,
+    table_key: h.table_key,
+    table_id: h.table_id,
+    follow_up: h.follow_up,
+    pickup_at_ms: h.pickup_at_ms,
+    placed_at: at,
+    placed_by: h.placed_by,
+    target_land_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.target_land_ms)),
+    promise_ms: p.groups.length === 0 ? at : Math.max(...p.groups.map((g) => g.promise_ms)),
+    boosted: false,
+    line_ids: [],
+    awaiting: 0,
+    last_served_at: null,
+    last_line_fold_at: at,
+    next_group_index: 0,
+    groups: {},
+  };
+  return listLines(state, order, p, at, o);
 }
 
 // Removes a listed placeholder from lines, line_ids and its group (a deal / no-station ItemAdded, or a
@@ -1239,8 +1266,8 @@ function handles(event: PosEvent): boolean {
 // own order, which it re-opens); with nothing to remove the state is not copied, so an absent-id no-op still returns
 // `state` itself. AD-6 / AD-8(c): a writer bug an order fold finds (InvalidEvent) throws when strict. Non-strict, a
 // listed bad line is dropped and still decrements awaiting (foldItemAdded), and an unlisted one changes nothing
-// but the removal step (caught here); either way one 'invalid_event' diagnostic is appended. Other throws
-// (OrderLinesAdded on an absent order, §3.3) throw in both modes.
+// but the removal step (caught here); either way one 'invalid_event' diagnostic is appended (03a v1.2 E-4: a headerless
+// OrderLinesAdded on an order the engine does not hold too). Other throws (a plain Error) throw in both modes.
 export function applyEvent(state: EngineState, event: PosEvent, opts?: ApplyOptions): EngineState {
   if (!handles(event)) return state;
   const { next, named } = foldNamed(state, event, opts);

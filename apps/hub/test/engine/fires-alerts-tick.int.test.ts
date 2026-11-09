@@ -9,7 +9,7 @@ import { Writable } from 'node:stream';
 import { getAlertIntents, type EngineState } from '@pos/engine';
 import type { EngineConfig, EventDraft, PosEvent } from '@pos/events';
 import Database from 'better-sqlite3';
-import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch } from '@pos/events/testing';
+import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch, anOrderLinesAdded } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
@@ -632,6 +632,27 @@ describe('03a task 22a: the fires_alerts tick', () => {
     append(anOrderBatch({ order_id: 'O3', order: { table_id: 'T6', table_key: 'dine_in:T6' }, lines: [{ order_item_id: 'L7', line: { station_id: 'S9' } }], actor_id: WAITER }));
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(droppedAlerts().map((r) => r.dedupe_key)).toEqual(['engine_line_dropped:O2:L1', 'engine_line_dropped:L7']);
+  });
+
+  it('[03a #135] E-4 safety net: a headerless OrderLinesAdded on an order the engine does not hold raises engine_line_dropped under engine_line_dropped:<order_id>:<order_item_ids[0]>', async () => {
+    kitchen();
+    const line = (anOrderLinesAdded().payload as { lines: Array<Record<string, unknown>> }).lines[0]!;
+    const g = { group_id: 'O7:0', target_land_ms: hub.clock.branchNow() + HOUR, promise_ms: hub.clock.branchNow() + HOUR, order_item_ids: ['F1', 'F2'] };
+    append([
+      anOrderLinesAdded({ stream_id: 'O7', payload: { order_id: 'O7', order_item_ids: ['F1', 'F2'], groups: [g], lines: [{ ...line, order_item_id: 'F1' }, { ...line, order_item_id: 'F2' }] } }),
+    ]);
+    expect(engine().orders.O7).toBeUndefined();
+    await pass(hub.clock.branchNow() + TICK_MS);
+    const rows = droppedAlerts();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      state: 'open',
+      dedupe_key: 'engine_line_dropped:O7:F1',
+      subject_stream_type: 'order',
+      subject_stream_id: 'O7',
+      target: { kind: 'managers' },
+      values: { order_id: 'O7', order_item_id: 'F1', reason: 'order_not_in_engine' },
+    });
   });
 
   it('[03a AD-8] an ItemAdded refused for stream_id_mismatch (its placeholder stays, the order never plans) raises engine_line_dropped', async () => {

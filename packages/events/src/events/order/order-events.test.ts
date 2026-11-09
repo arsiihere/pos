@@ -302,3 +302,33 @@ describe('02b additive order-event fields (03a v1.2 §4.2; 01c v1.1.2 C-1)', () 
   });
 });
 
+
+describe('03a v1.2 E-4: OrderLinesAdded order_header (§4.2)', () => {
+  const header = { order_type: 'dine_in', table_key: 'dine_in:T12', table_id: 'T12', follow_up: false, pickup_at_ms: null, placed_by: 'S_WAIT' };
+
+  it('[03a #138] OrderLinesAdded with and without order_header round-trips; the header fields take §4.2 types', () => {
+    const schema = payloadSchema('OrderLinesAdded', 1);
+    const bare = examples.OrderLinesAdded!;
+    expect(schema.parse(bare)).toEqual(bare);
+    expect(schema.parse(bare)).not.toHaveProperty('order_header');
+    const withHeader = { ...bare, order_header: header };
+    expect(schema.parse(withHeader)).toEqual(withHeader);
+    const nulls = { ...bare, order_header: { ...header, table_id: null, placed_by: null, pickup_at_ms: 1_700_000_000_000, order_type: 'delivery', follow_up: true } };
+    expect(schema.parse(nulls)).toEqual(nulls);
+    // An empty addition with a header (E-4 a′) parses too.
+    const empty = { order_id: 'O1', order_item_ids: [], groups: [], lines: [], order_header: header };
+    expect(schema.parse(empty)).toEqual(empty);
+  });
+
+  it('[03a #138] order_header is absent, never null; each field refuses a wrong type or a missing key', () => {
+    const schema = payloadSchema('OrderLinesAdded', 1);
+    const bare = examples.OrderLinesAdded!;
+    expect(schema.safeParse({ ...bare, order_header: null }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, order_type: 'counter' } }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, pickup_at_ms: 1.5 } }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, follow_up: 'no' } }).success).toBe(false);
+    for (const key of Object.keys(header)) {
+      expect(schema.safeParse({ ...bare, order_header: without(header, key) }).success, key).toBe(false);
+    }
+  });
+});

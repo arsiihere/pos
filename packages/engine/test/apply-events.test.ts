@@ -276,14 +276,15 @@ describe('[03a AD-28] throws: what the per-event fold throws, at the same event'
     expect(() => applyEvents(initialEngineState(), log.slice(0, index + 1))).toThrow(message);
   }, 120_000);
 
-  it('[03a AD-28, §3.3] the plain OrderLinesAdded throw stays, in both modes', () => {
+  it('[03a AD-28, §3.3 E-4] a headerless OrderLinesAdded on an absent order: strict both throw InvalidEvent(order_not_in_engine); non-strict both skip it with the same diagnostic', () => {
     const events = runDay(generateDay(7, { orders: 5 })).events;
     const added = { ...events[2]!, event_type: 'OrderLinesAdded', stream_id: 'ABSENT', payload: { order_id: 'ABSENT', order_item_ids: ['X'], groups: [], lines: [] } };
     const list = [...events.slice(0, 3), added, ...events.slice(3)];
-    for (const opts of [undefined, NON_STRICT]) {
-      expect(() => perEvent(initialEngineState(), list, opts)).toThrow('OrderLinesAdded for order ABSENT');
-      expect(() => applyEvents(initialEngineState(), list, opts)).toThrow('OrderLinesAdded for order ABSENT');
-    }
+    expect(() => perEvent(initialEngineState(), list)).toThrow('invalid event (order_not_in_engine) for line X');
+    expect(() => applyEvents(initialEngineState(), list)).toThrow('invalid event (order_not_in_engine) for line X');
+    const batch = applyEvents(initialEngineState(), list, NON_STRICT);
+    expect(json(batch)).toBe(json(perEvent(initialEngineState(), list, NON_STRICT)));
+    expect(batch.diagnostics.filter((d) => d.detail.reason === 'order_not_in_engine').map((d) => d.event_id)).toEqual([added.event_id]);
   });
 
   it('[03a AD-28] a throw leaves the input as it was', () => {

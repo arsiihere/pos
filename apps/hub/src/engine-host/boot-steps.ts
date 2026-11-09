@@ -5,7 +5,7 @@ import { setStockVersion } from '../sync/stock-version.js';
 import { droppedLineOf, firesAlertsTick } from './fires-alerts-tick.js';
 import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
-import { logDiagnostics, noteUntrackedId } from './reducer.js';
+import { applyUntrackedOp, logDiagnostics, noteUntrackedId } from './reducer.js';
 import { loadEngineBase, readStockVersion, readUntrackedIds, replayEngine, untrackedIdsFrom, type LoadedBase } from './replay.js';
 
 export { readStockVersion, replayEngine } from './replay.js';
@@ -66,8 +66,8 @@ export function engineStep3(ctx: BootContext): void {
   }, noteUntrackedId);
   ctx.initialState = state;
   setStockVersion(readStockVersion(ctx.db, branchId));
-  // §3.3 Q-3, §3.12 R-3, AD-E18: the replayed ids joined above; the older ones from one read with seq > H.
-  for (const id of readUntrackedIds(ctx.db, branchId, untrackedIdsFrom(run.base))) hostFlags.untrackedLineIds.add(id);
+  // §3.3 Q-3, §3.12 R-3, AD-E18, E-4: the replayed rows applied above; then one read with seq > H, applied in seq order.
+  for (const op of readUntrackedIds(ctx.db, branchId, untrackedIdsFrom(run.base))) applyUntrackedOp(op);
   run.lines.push({ level: 'info', obj: { step: '3', snapshot_seq: run.base.snapshot_seq, checkpoint_seq: run.base.checkpoint_seq, events_replayed: replayed, ms: monoNow() - start }, msg: 'engine boot' });
 }
 

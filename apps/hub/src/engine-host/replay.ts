@@ -2,6 +2,7 @@ import { applyEvent, applyEvents, ENGINE_REPLAY_EVENTS, ENGINE_STATE_VERSION, fr
 import { parseEvent, type PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { STOCK_VERSION_HUB_EVENTS, STOCK_VERSION_STOCK_EVENTS } from '../sync/stock-version.js';
+import type { UntrackedOp } from './reducer.js';
 
 interface EventRow {
   event_id: string;
@@ -33,8 +34,9 @@ ORDER BY seq`;
 
 // §3.12, AD-6, AD-28: the four statements merged by seq, folded non-strict in chunks of REPLAY_CHUNK. Each chunk's
 // diagnostics go to `report` and leave the state, so none survive a boot. proposed (implementer): `report` takes a
-// Diagnostic (the plan's BreachReport became state.diagnostics under AD-6). Only the plain OrderLinesAdded throw on an
-// absent order (§3.3) leaves here as a throw; a failing step stops boot (00 §3.8).
+// Diagnostic (the plan's BreachReport became state.diagnostics under AD-6). A fold's plain Error (not an InvalidEvent)
+// or a DB failure leaves here as a throw; a failing step stops boot (00 §3.8). AD-E24: since 03a v1.2 E-4 a headerless
+// OrderLinesAdded on an absent order is an InvalidEvent (a diagnostic, the event skipped), so it no longer reaches this.
 export function replayEngine(
   db: Database.Database,
   branchId: string,
@@ -82,8 +84,8 @@ export function replayEngine(
   }
 }
 
-// A throw inside a chunk (§3.3's plain OrderLinesAdded) would take the diagnostics of the chunk's earlier events with
-// it: fold them one by one up to the throw and report what they noted. The failure path only; boot stops after it.
+// A throw inside a chunk (a fold's plain Error) would take the diagnostics of the chunk's earlier events with it: fold
+// them one by one up to the throw and report what they noted. The failure path only; boot stops after it.
 function reportBeforeThrow(base: EngineState, chunk: readonly PosEvent[], report: (d: Diagnostic) => void): void {
   let state = base;
   for (const event of chunk) {
@@ -109,15 +111,28 @@ export function readStockVersion(db: Database.Database, branchId: string): numbe
   return Math.max(onStock, onHub);
 }
 
-// 03a v1.2 §3.12 "Q-3 id set at boot" (R-3, AD-E18): one statement on events_branch_stream. The ids of the zone lines
-// and deal headers (ItemAdded) and of the ready-items-only orders (OrderPlaced with empty order_item_ids) after `fromSeq`.
-const UNTRACKED_IDS_SQL = `SELECT CASE event_type WHEN 'ItemAdded' THEN json_extract(payload, '$.order_item_id') ELSE json_extract(payload, '$.order_id') END FROM events
-WHERE branch_id = ? AND stream_type = 'order' AND seq > ? AND event_type IN ('ItemAdded', 'OrderPlaced')
+// 03a v1.2 §3.12 "Q-3 id set at boot" (R-3, AD-E18; E-4, 15b check S-4, S-5): one statement on events_branch_stream,
+// the §3.12 full statement. Rows after `fromSeq` in seq order: the zone lines and deal headers (ItemAdded) and the
+// ready-items-only orders (OrderPlaced with empty order_item_ids) add their id; an OrderLinesAdded with order_header and
+// non-empty order_item_ids removes its order id. ORDER BY seq is the index order (no sort step, test 130).
+const UNTRACKED_IDS_SQL = `SELECT event_type, CASE event_type WHEN 'ItemAdded' THEN json_extract(payload, '$.order_item_id') ELSE json_extract(payload, '$.order_id') END AS id FROM events
+WHERE branch_id = ? AND stream_type = 'order' AND seq > ? AND event_type IN ('ItemAdded', 'OrderPlaced', 'OrderLinesAdded')
   AND ((event_type = 'ItemAdded' AND (json_extract(payload, '$.served_from_zone_id') IS NOT NULL OR json_extract(payload, '$.line_kind') = 'deal'))
-    OR (event_type = 'OrderPlaced' AND json_array_length(payload, '$.order_item_ids') = 0))`;
+    OR (event_type = 'OrderPlaced' AND json_array_length(payload, '$.order_item_ids') = 0)
+    OR (event_type = 'OrderLinesAdded' AND json_extract(payload, '$.order_header') IS NOT NULL AND json_array_length(payload, '$.order_item_ids') > 0))
+ORDER BY seq`;
 
-export function readUntrackedIds(db: Database.Database, branchId: string, fromSeq: number): string[] {
-  return (db.prepare(UNTRACKED_IDS_SQL).pluck().all(branchId, fromSeq) as Array<string | null>).filter((id): id is string => typeof id === 'string');
+// The read's rows as id-set operations, in seq order. Boot step 3 applies them after the replay hook: both passes are in
+// seq order and this read covers every row after H, so the last operation on each id wins as in one ordered pass (the
+// replay alone adds the rows of (fromSeq, H] when a snapshot is older than H).
+export function readUntrackedIds(db: Database.Database, branchId: string, fromSeq: number): UntrackedOp[] {
+  const rows = db.prepare(UNTRACKED_IDS_SQL).all(branchId, fromSeq) as Array<{ event_type: string; id: string | null }>;
+  const ops: UntrackedOp[] = [];
+  for (const row of rows) {
+    if (typeof row.id !== 'string') continue;
+    ops.push({ op: row.event_type === 'OrderLinesAdded' ? 'remove' : 'add', id: row.id });
+  }
+  return ops;
 }
 
 // §3.12 R-3 (T-6, re-check R-2): H = the older last_seq when step 2 read two readable kept checkpoints, else 0.

@@ -1,7 +1,8 @@
 import { parseEvent, type EngineConfig, type PosEvent } from '@pos/events';
-import { anEngineConfigApplied, anOrderBatch, anOrderLinesAdded, anItemAdded, aStockReserved } from '@pos/events/testing';
+import { aFireDispatched, anEngineConfigApplied, anItemDone, anOrderBatch, anOrderLinesAdded, anItemAdded, aStockReserved, aStockSet } from '@pos/events/testing';
 import { describe, expect, it } from 'vitest';
-import { applyEvent, buildEngineState, initialEngineState, type EngineState } from '../src/index';
+import { applyEvent, applyEvents, buildEngineState, ENGINE_STATE_VERSION, getAlertIntents, getTickIntents, initialEngineState, isOrderInEngine, ORDER_EXIT_AFTER_SERVED_MS, type EngineState } from '../src/index';
+import { InvalidEvent } from '../src/invalid-event';
 
 const T0 = 1_761_000_000_000;
 const COOK = 1_200_000;
@@ -475,11 +476,198 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(applyEvent(s, plain, { strict: false }).diagnostics).toEqual([expect.objectContaining({ kind: 'invalid_event' })]);
     expect(applyEvent(s, empty).orders.O2).toBeUndefined();
   });
+});
 
-  it('[03a §3.3] OrderLinesAdded on an absent order throws in both modes (not a diagnostic)', () => {
-    const s = fold([config([{ station_id: 'S1' }])]);
-    const e = deepFreeze(anOrderLinesAdded({ stream_id: 'O9', payload: { order_id: 'O9', groups: [] } }));
-    expect(() => applyEvent(s, e)).toThrow('not in the engine');
-    expect(() => applyEvent(s, e, { strict: false })).toThrow('not in the engine');
+// ---- 03a v1.2 §3.3 E-4 (02p task 15b): "drinks first, food later" ------------------------------------------------------
+describe('@pos/engine E-4: the first OrderLinesAdded creates the engine order; the safety net', () => {
+  const T1 = T0 + 600_000; // the food is ordered 10 min after the drinks
+  const HEADER = { order_type: 'dine_in', table_key: 'dine_in:T12', table_id: 'T12', follow_up: false, pickup_at_ms: null, placed_by: 'S_WAIT' } as const;
+  const LINE = (anOrderLinesAdded().payload as { lines: Array<Record<string, unknown>> }).lines[0]!;
+  let seq = 100;
+  const stamp = (e: PosEvent, t: number): PosEvent => {
+    seq += 1;
+    return deepFreeze({ ...e, recorded_at: t, occurred_at: t, seq, event_id: `01J${String(seq).padStart(23, '0')}` });
+  };
+  const cfg = (): PosEvent => config([{ station_id: 'S1' }]);
+  // Two drinks: an OrderPlaced with empty order_item_ids (Q-3), no EngineOrder.
+  const drinks = (order_id = 'O1', t = T0): PosEvent =>
+    stamp(anOrderBatch({ order_id, lines: [], order: { groups: [], lines: [] }, recorded_at: t })[0]!, t);
+  // The food addition: `ids` in one group order_id:<group>, with or without the header.
+  function addition(o: { order_id?: string; ids?: string[]; header?: Record<string, unknown> | null; group?: number; target?: number; t?: number } = {}): PosEvent {
+    const order_id = o.order_id ?? 'O1';
+    const ids = o.ids ?? ['F1', 'F2'];
+    const t = o.t ?? T1;
+    const target = o.target ?? t + COOK;
+    const payload: Record<string, unknown> = {
+      order_id,
+      order_item_ids: ids,
+      groups: ids.length === 0 ? [] : [{ group_id: `${order_id}:${o.group ?? 0}`, target_land_ms: target, promise_ms: target + 180_000, order_item_ids: ids }],
+      lines: ids.map((id) => ({ ...LINE, order_item_id: id })),
+    };
+    if (o.header !== null) payload.order_header = o.header ?? HEADER;
+    return stamp(anOrderLinesAdded({ stream_id: order_id, payload }), t);
+  }
+  const food = (order_id: string, ids: string[], t = T1): PosEvent[] =>
+    ids.map((id) => stamp(anItemAdded({ stream_id: order_id, payload: { order_id, order_item_id: id } }), t));
+  // The control: the same food as a new order (OrderPlaced) at the same recorded_at, placed by the header's placer.
+  const asNewOrder = (target = T1 + COOK): PosEvent[] =>
+    anOrderBatch({
+      order_id: 'O1',
+      lines: [{ order_item_id: 'F1' }, { order_item_id: 'F2' }],
+      order: { groups: [{ group_id: 'O1:0', target_land_ms: target, promise_ms: target + 180_000, order_item_ids: ['F1', 'F2'] }] },
+      recorded_at: T1,
+      actor_id: 'S_WAIT',
+    }).map((e) => stamp(e, T1));
+
+  it('[03a #131] empty OrderPlaced, then OrderLinesAdded with order_header and two food lines → an EngineOrder from the header, planned and fired as a new order, a slip possible', () => {
+    const late = T1 + 60_000; // a target the kitchen cannot make: 20 min of cook
+    const log = [cfg(), drinks(), addition({ target: late }), ...food('O1', ['F1', 'F2'])];
+    const s = fold(log);
+    expect(s.diagnostics).toEqual([]);
+    const o = s.orders.O1!;
+    expect(o).toMatchObject({ order_type: 'dine_in', table_key: 'dine_in:T12', table_id: 'T12', follow_up: false, pickup_at_ms: null, placed_by: 'S_WAIT' });
+    expect(o.placed_at).toBe(T1);
+    expect(o.next_group_index).toBe(1);
+    expect(o.line_ids).toEqual(['F1', 'F2']);
+    expect(o.boosted).toBe(false);
+    expect(o.awaiting).toBe(0);
+    expect(isOrderInEngine(s, 'O1', T1)).toBe(true);
+    // As for a new order: the same order and lines as the same food in an OrderPlaced at that recorded_at.
+    const control = fold([cfg(), ...asNewOrder(late)]);
+    expect(o).toEqual(control.orders.O1);
+    expect(s.lines).toEqual(control.lines);
+    expect(s.stations).toEqual(control.stations);
+    expect(s.lines.F1!.fire_ms).toBe(T1);
+    const fires = getTickIntents(s, T1).filter((d) => d.event_type === 'FireDispatched');
+    expect(fires.flatMap((d) => (d.payload as { order_item_ids: string[] }).order_item_ids).sort()).toEqual(['F1', 'F2']);
+    // A slip is possible: the table's slip comes due as for the new order.
+    expect(s.slip_due).toEqual(control.slip_due);
+    const due = s.slip_due['dine_in:T12']!;
+    expect(due).toEqual(expect.any(Number));
+    expect(getAlertIntents(s, due).slips.map((x) => x.table_key)).toEqual(['dine_in:T12']);
+  });
+
+  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION stays 3', () => {
+    const log = [cfg(), drinks(), addition(), ...food('O1', ['F1', 'F2']), stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['F1', 'F2'], due_at: T1 } }), T1)];
+    const live = fold(log, initialEngineState(), { strict: false });
+    expect(live.orders.O1).toBeDefined();
+    expect(buildEngineState(log)).toEqual(live);
+    expect(applyEvents(initialEngineState(), log)).toEqual(live);
+    expect(ENGINE_STATE_VERSION).toBe(3);
+  });
+
+  it('[03a #135] safety net: non-empty order_item_ids without order_header on an order the engine does not hold → InvalidEvent(order_not_in_engine) with order_item_ids[0]', () => {
+    const base = fold([cfg(), drinks()]);
+    const bad = addition({ header: null });
+    // Strict: throws InvalidEvent, never a plain Error.
+    let thrown: unknown;
+    try {
+      applyEvent(base, bad);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(InvalidEvent);
+    expect(thrown).toMatchObject({ reason: 'order_not_in_engine', order_item_id: 'F1' });
+    // Non-strict: one invalid_event diagnostic, the event skipped.
+    const next = applyEvent(base, bad, { strict: false });
+    expect(next.diagnostics).toEqual([
+      { kind: 'invalid_event', event_id: bad.event_id, detail: { event_type: 'OrderLinesAdded', order_id: 'O1', order_item_id: 'F1', reason: 'order_not_in_engine' } },
+    ]);
+    expect({ ...next, diagnostics: [] }).toEqual(base);
+    // Its ItemAdded events are absent-order no-ops; the fold of the log equals the log without it, diagnostics aside.
+    const items = food('O1', ['F1', 'F2']);
+    const withIt = fold([bad, ...items], base, { strict: false });
+    expect(withIt.orders.O1).toBeUndefined();
+    expect({ ...withIt, diagnostics: [] }).toEqual(fold(items, base, { strict: false }));
+    expect(buildEngineState([cfg(), drinks(), bad, ...items], { strict: false }).diagnostics).toHaveLength(1);
+  });
+
+  it('[03a #135] empty addition: order_item_ids = [] on an order the engine does not hold → the same state object, header or not; no diagnostic, no EngineOrder', () => {
+    const base = fold([cfg(), drinks()]);
+    for (const header of [undefined, null]) {
+      const empty = addition({ ids: [], header });
+      for (const strict of [true, false]) {
+        const next = applyEvent(base, empty, { strict });
+        expect(next, `header=${String(header)} strict=${strict}`).toBe(base);
+        expect(next.diagnostics).toEqual([]);
+        expect(next.orders.O1).toBeUndefined();
+      }
+    }
+  });
+
+  it('[03a #135] a refused OrderLinesAdded with order_header (group_id_invalid) is an InvalidEvent: strict throws, non-strict one diagnostic and no EngineOrder', () => {
+    const base = fold([cfg(), drinks()]);
+    const bad = addition({ group: 5 }); // a created order's groups start at order_id:0
+    expect(() => applyEvent(base, bad)).toThrow(InvalidEvent);
+    const next = applyEvent(base, bad, { strict: false });
+    expect(next.diagnostics.map((d) => d.detail.reason)).toEqual(['group_id_invalid']);
+    expect(next.orders.O1).toBeUndefined();
+    expect(next.lines.F1).toBeUndefined();
+  });
+
+  it('[03a #137] order_header on an order the engine holds is ignored: folded as today, also past its window and for an AD-20-kept order', () => {
+    const other = { order_type: 'takeaway', table_key: 'takeaway:X', table_id: null, follow_up: true, pickup_at_ms: T0, placed_by: 'SOMEONE' };
+    const L1 = { order_item_id: 'L1', item: { serve_mode: 'immediate' } };
+    const held = (extra: Parameters<typeof anOrderBatch>[0] = {}): PosEvent[] =>
+      anOrderBatch({ order_id: 'O1', lines: [L1], recorded_at: T0, ...extra }).map((e) => stamp(e, T0));
+    const servedAt = T0 + COOK;
+    const doneAndServed = (): PosEvent[] => [
+      stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['L1'], due_at: T0 } }), T0),
+      stamp(anItemDone({ stream_id: 'O1', payload: { order_item_id: 'L1', done_at: servedAt, source: 'tap' } }), servedAt),
+      stamp({ ...anItemDone({ stream_id: 'O1' }), event_type: 'ItemServed', payload: { order_item_ids: ['L1'], source: 'tap' } } as PosEvent, servedAt),
+    ];
+    const past = servedAt + ORDER_EXIT_AFTER_SERVED_MS + 1_000;
+    // (1) held and open; (2) present but past its window, no listed fold since; (3) kept by AD-20 (a live reservation).
+    const open = fold([cfg(), ...held()]);
+    const pastWindow = fold([cfg(), ...held(), ...doneAndServed()]);
+    expect(isOrderInEngine(pastWindow, 'O1', past)).toBe(false);
+    const kb = stamp(aStockSet({ stream_id: 'KB', payload: { stock_item_id: 'KB', on_hand: 4, unit: 'piece' } }), T0 - 60_000);
+    const reservedLine = { order_item_id: 'L1', item: { serve_mode: 'immediate', stock_time_ms: 60_000, stock_draws: [{ stock_item_id: 'KB', quantity: 1 }] }, line: { from_stock: true } };
+    const kept = fold(
+      [stamp(aStockSet({ recorded_at: past - 1 }), past - 1)],
+      fold([cfg(), kb, ...held({ lines: [reservedLine], reserved: [{ stock_item_id: 'KB', order_item_id: 'L1', quantity: 1 }] }), ...doneAndServed()]),
+    );
+    expect(kept.orders.O1).toBeDefined();
+    expect(kept.lines.L1!.reserved_seq).not.toBeNull();
+    expect(isOrderInEngine(kept, 'O1', past)).toBe(false);
+    for (const [name, base, t] of [['open', open, T1], ['past window', pastWindow, past], ['AD-20 kept', kept, past]] as const) {
+      const withHeader = addition({ ids: ['L2'], group: 1, header: other, t });
+      const without = { ...withHeader, payload: { ...withHeader.payload } };
+      delete (without.payload as Record<string, unknown>).order_header;
+      const a = fold([withHeader, ...food('O1', ['L2'], t)], base);
+      const b = fold([deepFreeze(without), ...food('O1', ['L2'], t)], base);
+      expect(a, name).toEqual(b);
+      expect(a.orders.O1!.table_key, name).toBe('dine_in:T12');
+      expect(a.orders.O1!.placed_at, name).toBe(T0);
+      expect(a.orders.O1!.last_served_at, name).toBeNull();
+      expect(a.orders.O1!.line_ids, name).toEqual(['L1', 'L2']);
+      expect(isOrderInEngine(a, 'O1', t), name).toBe(true);
+    }
+  });
+
+  it('[03a #139] re-entry: an order served and removed; then OrderLinesAdded with order_header and one line → a new EngineOrder, same order_id, groups from order_id:0; replay = live', () => {
+    const servedAt = T0 + COOK;
+    const meal = [
+      cfg(),
+      ...anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1', item: { serve_mode: 'immediate' } }], recorded_at: T0 }).map((e) => stamp(e, T0)),
+      stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['L1'], due_at: T0 } }), T0),
+      stamp(anItemDone({ stream_id: 'O1', payload: { order_item_id: 'L1', done_at: servedAt, source: 'tap' } }), servedAt),
+      stamp({ ...anItemDone({ stream_id: 'O1' }), event_type: 'ItemServed', payload: { order_item_ids: ['L1'], source: 'tap' } } as PosEvent, servedAt),
+    ];
+    const removedAt = servedAt + ORDER_EXIT_AFTER_SERVED_MS + 1_000;
+    const log = [...meal, stamp(aStockSet({}), removedAt)];
+    const gone = fold(log);
+    expect(gone.orders.O1).toBeUndefined();
+    expect(gone.lines.L1).toBeUndefined();
+    const naanAt = removedAt + 60_000; // one more naan after the meal
+    const naan = [addition({ ids: ['N1'], t: naanAt, header: { ...HEADER, placed_by: 'S_OTHER' } }), ...food('O1', ['N1'], naanAt)];
+    const s = fold(naan, gone);
+    const o = s.orders.O1!;
+    expect(o).toMatchObject({ ...HEADER, placed_by: 'S_OTHER', placed_at: naanAt, next_group_index: 1, line_ids: ['N1'] });
+    expect(Object.keys(o.groups)).toEqual(['O1:0']);
+    expect(s.lines.N1!.group_id).toBe('O1:0');
+    expect(s.lines.L1).toBeUndefined();
+    expect(s.diagnostics).toEqual([]);
+    expect(buildEngineState([...log, ...naan])).toEqual(s);
   });
 });

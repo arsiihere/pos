@@ -28,6 +28,7 @@ import {
   stockEffects,
   type EngineState,
 } from '../src/index';
+import { InvalidEvent } from '../src/invalid-event';
 import { liveProfile } from '../src/live';
 import { slipDueOf } from '../src/slip';
 
@@ -132,7 +133,7 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     expect(closed.business_day!.closed_at).toBe(at(32));
   });
 
-  it('[03a #78] readers treat it as gone from the deadline; removal at the next listed event only; a return re-opens; absent OrderLinesAdded throws', () => {
+  it('[03a #78] readers treat it as gone from the deadline; removal at the next listed event only; a return re-opens; absent headerless OrderLinesAdded is InvalidEvent(order_not_in_engine)', () => {
     const s = fold([cfg(), ...servedOrder()]);
     const deadline = at(30) + ORDER_EXIT_AFTER_SERVED_MS;
     // An audit receipt and an AlertSeen past the deadline are not handled: state itself, nothing removed.
@@ -160,13 +161,18 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     // Live = replay.
     expect(buildEngineState([cfg(), ...servedOrder(), ...ret])).toEqual({ ...reopened });
 
-    // After removal an OrderLinesAdded for the order throws, strict and non-strict.
+    // E-4 (15b check S-1): after removal, an OrderLinesAdded with non-empty order_item_ids and no order_header is
+    // InvalidEvent('order_not_in_engine'): strict throws; non-strict one diagnostic and the event skipped.
     const add = anOrderLinesAdded({ recorded_at: deadline + 10, seq: nextSeq() });
-    expect(() => applyEvent(after, add)).toThrow(/not in the engine/);
-    expect(() => applyEvent(after, add, { strict: false })).toThrow(/not in the engine/);
+    expect(add.payload).not.toHaveProperty('order_header');
+    expect(() => applyEvent(after, add)).toThrow(InvalidEvent);
+    expect(() => applyEvent(after, add)).toThrow(/order_not_in_engine/);
+    const skipped = applyEvent(after, add, { strict: false });
+    expect(reasons(skipped)).toEqual(['order_not_in_engine']);
+    expect(skipped.orders.O1).toBeUndefined();
   });
 
-  it('[03a #101 engine] minute 35: predicate false; absent → OrderLinesAdded throws; present past the window → it re-opens', () => {
+  it('[03a #101 engine] minute 35: predicate false; absent → a headerless OrderLinesAdded is InvalidEvent (strict throws); present past the window → it re-opens', () => {
     const s = fold([cfg(), ...batch('O1', [{ id: 'L1' }], at(0)), done('O1', 'L1', at(0)), served('O1', ['L1'], at(0))]);
     expect(isOrderInEngine(s, 'O1', at(35))).toBe(false);
     const add = anOrderLinesAdded({ recorded_at: at(35), occurred_at: at(35), seq: nextSeq() });
@@ -175,10 +181,10 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     expect(reopened.orders.O1!.last_served_at).toBeNull();
     expect(isOrderInEngine(reopened, 'O1', at(35))).toBe(true);
     expect(reopened.lines.L2!.fire_ms).toBe(at(35));
-    // Removed at a listed event first → the addition throws.
+    // Removed at a listed event first → the headerless addition is InvalidEvent('order_not_in_engine') (E-4 b).
     const gone = fold([tickle(at(34))], s);
     expect(gone.orders.O1).toBeUndefined();
-    expect(() => applyEvent(gone, add)).toThrow();
+    expect(() => applyEvent(gone, add)).toThrow(InvalidEvent);
   });
 
   it('[03a #99] day close while cooking: only the all-served order exits; later Done / Served commit; absent ids are no-ops', () => {
