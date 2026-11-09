@@ -60,6 +60,88 @@ describe('StaffDirectory', () => {
     expect(directory.resolve('S_OZ', 'manage-zone-stock')).toEqual({ grant: 'allowed', scope: 'my_zones' });
   });
 
+  it('[02p U-4] my_zones resolves with my_floors rank', () => {
+    const directory = StaffDirectory.fromInput({
+      directory_version: 1,
+      roles: [
+        { role_id: 'R_F', name: 'F', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'my_floors')] },
+        { role_id: 'R_Z', name: 'Z', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'my_zones')] },
+        { role_id: 'R_O', name: 'O', session_idle_ttl_ms: 1_000, permissions: [allowed('manage-zone-stock', 'own_tables')] },
+      ],
+      staff: [staff('S_FZ', 'FZ', 'h1', ['R_F', 'R_Z']), staff('S_FO', 'FO', 'h2', ['R_F', 'R_O']), staff('S_ZO', 'ZO', 'h3', ['R_Z', 'R_O'])],
+      responsibilities: [],
+    });
+    // Equal rank: neither widens the other, so the result is one of the two (never own_tables).
+    expect(['my_floors', 'my_zones']).toContain((directory.resolve('S_FZ', 'manage-zone-stock') as { scope: string }).scope);
+    expect(directory.resolve('S_FO', 'manage-zone-stock')).toEqual({ grant: 'allowed', scope: 'my_floors' });
+    expect(directory.resolve('S_ZO', 'manage-zone-stock')).toEqual({ grant: 'allowed', scope: 'my_zones' });
+  });
+
+  describe('zonesOf (01b v1.7 B-3)', () => {
+    const withZones = (rows: Array<[string, string | null, string[]?]>, zonesDropped: string[] = []) =>
+      StaffDirectory.fromInput({
+        directory_version: 1,
+        roles: [],
+        staff: rows.map(([id, lead, zones]) => ({
+          ...staff(id, id, `h-${id}`, []),
+          lead_staff_id: lead,
+          assigned_zone_ids: (zones ?? []).filter((z) => !zonesDropped.includes(z)),
+        })),
+        responsibilities: [],
+      });
+
+    it('[02p U-4] zonesOf: own zones', () => {
+      const d = withZones([['S_A', null, ['Z2', 'Z1']]]);
+      expect(d.zonesOf('S_A')).toEqual(['Z1', 'Z2']);
+    });
+
+    it('[02p U-4] zonesOf: lead\'s zones', () => {
+      const d = withZones([
+        ['S_LEAD', null, ['Z9', 'Z1']],
+        ['S_A', 'S_LEAD', ['Z1', 'Z2']],
+        ['S_B', 'S_LEAD'],
+      ]);
+      expect(d.zonesOf('S_B')).toEqual(['Z1', 'Z9']);
+      // union, sorted, no duplicate (Z1 is held by both)
+      expect(d.zonesOf('S_A')).toEqual(['Z1', 'Z2', 'Z9']);
+      // the lead's report's zones are not the lead's
+      expect(d.zonesOf('S_LEAD')).toEqual(['Z1', 'Z9']);
+    });
+
+    it('[02p U-4] zonesOf: no assignment → []', () => {
+      const d = withZones([['S_A', null], ['S_B', 'S_A']]);
+      expect(d.zonesOf('S_A')).toEqual([]);
+      expect(d.zonesOf('S_B')).toEqual([]);
+      expect(d.zonesOf('S_UNKNOWN')).toEqual([]);
+    });
+
+    it('[02p U-4] zonesOf: leaver → []', () => {
+      // A leaver is not in the directory (01b AD-29): they hold nothing, and as a lead they add nothing.
+      const d = withZones([['S_A', 'S_GONE', ['Z1']]]);
+      expect(d.zonesOf('S_GONE')).toEqual([]);
+      expect(d.zonesOf('S_A')).toEqual(['Z1']);
+    });
+
+    it('[01b B-3] an archived assigned zone drops out of zonesOf', () => {
+      // The cloud leaves an archived zone out of the directory (01a AD-28); the next apply replaces the hub's memory.
+      const before = withZones([['S_LEAD', null, ['Z1', 'Z2']], ['S_A', 'S_LEAD', ['Z3']]]);
+      expect(before.zonesOf('S_A')).toEqual(['Z1', 'Z2', 'Z3']);
+      const after = withZones([['S_LEAD', null, ['Z1', 'Z2']], ['S_A', 'S_LEAD', ['Z3']]], ['Z2', 'Z3']);
+      expect(after.zonesOf('S_A')).toEqual(['Z1']);
+    });
+
+    it('[02p U-4] zonesOf reads the zones the database holds after load', async () => {
+      const handle = freshDb();
+      cleanups.push(handle.cleanup);
+      await runMigrations(handle.db, { dir: migrations, clock: fixedClock(T) });
+      handle.db.exec(`INSERT INTO staff (staff_id, branch_id, display_name, pin_hash, lead_staff_id) VALUES
+          ('S_L','b1','L','h',NULL), ('S_A','b1','A','h','S_L');
+        INSERT INTO staff_assignments (staff_id, subject_kind, subject_id) VALUES ('S_L','zone','Z1'), ('S_A','zone','Z2'), ('S_A','table','T1');`);
+      const d = StaffDirectory.load(handle.db);
+      expect(d.zonesOf('S_A')).toEqual(['Z1', 'Z2']);
+    });
+  });
+
   it('[00 §3.1 M11] ttlFor is the max across roles', async () => {
     const directory = StaffDirectory.fromInput(truthTable());
     expect(directory.ttlFor('S_WIN')).toBe(5_000);

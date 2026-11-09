@@ -327,6 +327,19 @@ export class StaffDirectory {
     return this.resolve(staffId, 'take-order').grant === 'allowed';
   }
 
+  // 01b v1.7 B-3 (§3.3 `my_zones`, §4.2): the zones assigned to the person, plus those assigned to their lead
+  // (`lead_staff_id`), at this hub's branch; sorted, no duplicates. In memory. A leaver is not in the directory
+  // (AD-29), so they hold none and, as a lead, add none; the cloud leaves archived zones out (01a AD-28).
+  zonesOf(staffId: string): string[] {
+    const staff = this.staffById.get(staffId);
+    if (staff === undefined) return [];
+    const zones = new Set(staff.assigned_zone_ids);
+    if (staff.lead_staff_id !== null) {
+      for (const zoneId of this.staffById.get(staff.lead_staff_id)?.assigned_zone_ids ?? []) zones.add(zoneId);
+    }
+    return sorted([...zones]);
+  }
+
   // 01b §3.5: the person's lead at this branch, or null.
   leadOf(staffId: string): string | null {
     return this.staffById.get(staffId)?.lead_staff_id ?? null;
