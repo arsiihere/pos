@@ -2,6 +2,8 @@ import { DomainError } from '@pos/domain';
 import type { AlertView, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { anAlertClosed, anAlertRaised, anAttemptSent, aPresenceSet, aRequestAnswered } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { defineAlertKind, unregisterAlertKind } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { registerRoute, unregisterRoute } from '../../src/alerts/routes';
 import { wsHubFor } from '../../src/ws/server';
@@ -607,5 +609,41 @@ describe('01d ws-frames (task 20)', () => {
     const w = await world(cleanups);
     seedAlert(w, { id: 'AL_OK', rows: [personRow(MGR)], routes: [{ staff_id: MGR, route: 'screen', ref: 'D1' }] });
     expect(noReceiverLines(w)).toEqual([]);
+  });
+
+  it('[02p U-6] AD-37: a real raise whose only candidate is the requester (skip_requester) → one warn line, no recipient row', async () => {
+    const w = await world(cleanups);
+    defineAlertKind({
+      kind: 't_skip_only',
+      family: 'info',
+      subject: 'hub',
+      steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+      closes_on: 'owner',
+      values_schema: z.object({}),
+      details_schema: null,
+      lead_fallback: true,
+      skip_requester: true,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.t_skip_only.card', lock: 'alert.t_skip_only.lock' },
+      request: null,
+    });
+    try {
+      const id = raise(w, {
+        kind: 't_skip_only',
+        subject: { stream_type: 'hub', stream_id: 'B1' },
+        target: { kind: 'person', staff_id: MGR },
+        display: { kind_label_key: 'alert.t_skip_only.lock', table_code: null, requester_name: 'Manager' },
+        dedupe_key: 'skip-only:1',
+        requester_staff_id: MGR,
+      });
+      const lines = noReceiverLines(w) as Array<Record<string, unknown>>;
+      expect(lines.map((l) => ({ alert_id: l.alert_id, kind: l.kind, step: l.step, reason: l.reason }))).toEqual([
+        { alert_id: id, kind: 't_skip_only', step: 0, reason: 'no_receiver' },
+      ]);
+      expect(w.hub.deps.db.prepare('SELECT COUNT(*) AS n FROM alert_recipients WHERE alert_id = ?').get(id)).toEqual({ n: 0 });
+    } finally {
+      unregisterAlertKind('t_skip_only');
+    }
   });
 });
