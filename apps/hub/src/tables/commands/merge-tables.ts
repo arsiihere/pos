@@ -5,17 +5,21 @@ import { z } from 'zod';
 import type { CommandCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
+import { alerts } from '../../alerts/raise.js';
+import type { CloseItem } from '../../alerts/raise.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
+import { HANDOVER_KIND, handoverDedupeKey } from '../handover.js';
 import { checkMergeGuard } from '../merge-guard.js';
 import { covers } from './move-table.js';
 
 // 02a v1.1.3 §3.11, §6.10 `MergeTables` (T6, T17, T18, §3.14, §3.15, §4.1 row 04, C8).
 // `table_id` FREE → joins S; `table_id` with seating S2 → S2 is absorbed (orders and tables move to S, S2 closes
 // `merged`, its lock ends in the fold). Merge takes no lock.
-// Statements: 3 reads (S + lock, the other side + lock, S2's orders; a join needs only 2) + the 04 guard.
+// Statements: 3 reads (S + lock, the other side + lock, S2's orders; a join needs only 2) + the 04 guard
+// + 2 `byDedupeKey` (1 for a join: there is no S2) + one `alerts.closeMany` when a handover is pending.
 // Order of checks: S (T18, NEEDS_CLEANING), holder or force, the other side (T18, NEEDS_CLEANING, FREE and archived),
 // R23, locks on either side, the 04 guard, scope last over every table.
-// The pending-handover close of S and S2 (2 `byDedupeKey` + `alerts.closeMany`) is added after task 12.
+// §3.11 / §6.10: the pending handovers of S and S2 close `obsolete` in the same transaction, drafts after TablesMerged.
 
 const MergeTablesPayload = z
   .object({
@@ -169,7 +173,14 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: Re
     actor_id: actor,
     device_id: ctx.actor.deviceId,
   };
-  return { events: [event], result: { seating_id: into.seating_id, table_ids: [...intoTables, ...otherTables] } };
+  const pending: CloseItem[] = [];
+  const note = `merged: ${p.table_id} into ${p.into_table_id}`;
+  for (const seatingId of seatingIds) {
+    const alertId = alerts.byDedupeKey(db, HANDOVER_KIND, handoverDedupeKey(seatingId));
+    if (alertId !== null) pending.push({ alert_id: alertId, reason: 'obsolete', note });
+  }
+  const closed = pending.length === 0 ? [] : alerts.closeMany(ctx, pending);
+  return { events: [event, ...closed], result: { seating_id: into.seating_id, table_ids: [...intoTables, ...otherTables] } };
 }
 
 function r23Offender(

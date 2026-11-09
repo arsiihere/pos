@@ -171,6 +171,14 @@ function needsCleaning(table_id: string, seating_id: string, order_id: string): 
   tableEvent(table_id, 'BillClosed', { seating_id });
 }
 
+function eventTypesAll(): string[] {
+  return hub.deps.db.prepare('SELECT event_type FROM events ORDER BY seq').pluck().all() as string[];
+}
+
+// Measured: one alerts.closeMany = 7 statements for 1 or 2 pending handovers (one alert read and one batched raiseMany
+// for the request_result raises to the senders).
+const CLOSE_MANY = 7;
+
 function eventCount(): number {
   return hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
 }
@@ -189,6 +197,44 @@ function signIn(staffId: string): Who {
 }
 
 let commandSeq = 0;
+
+// A real pending handover through the RequestTableHandover command; the receiver needs a live session.
+async function requestHandover(who: Who, table_id: string, seating_id: string, to_staff_id: string): Promise<string> {
+  commandSeq += 1;
+  const res = await hub.app.inject({
+    method: 'POST',
+    url: '/commands/request-table-handover',
+    headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken },
+    payload: {
+      command_id: `cmd-handover-${commandSeq}`,
+      tenant_id: 'tenant-a',
+      branch_id: 'branch-1',
+      command_type: 'RequestTableHandover',
+      payload: { table_id, seating_id, to_staff_id },
+      occurred_at: hub.clock.branchNow(),
+      actor_id: who.staffId,
+      device_id: who.deviceId,
+    },
+  });
+  expect(res.statusCode).toBe(200);
+  return (res.json() as { data: { result: { alert_id: string } } }).data.result.alert_id;
+}
+
+function alertState(alert_id: string): unknown {
+  return hub.deps.db.prepare('SELECT state, close_reason FROM alerts WHERE alert_id = ?').get(alert_id);
+}
+
+function closedPayloads(): Array<Record<string, unknown>> {
+  return (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'AlertClosed' ORDER BY seq`).pluck().all() as string[]).map(
+    (j) => JSON.parse(j) as Record<string, unknown>,
+  );
+}
+
+function resultPayloads(): Array<Record<string, unknown>> {
+  return (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'AlertRaised' ORDER BY seq`).pluck().all() as string[])
+    .map((j) => JSON.parse(j) as Record<string, unknown>)
+    .filter((a) => a.kind === 'request_result');
+}
 
 interface Res {
   status: number;
@@ -264,7 +310,7 @@ function mergedPayload(): Record<string, unknown> {
 }
 
 describe('02a MergeTables (§3.11, §6.10)', () => {
-  it('[02a #24] merge a FREE table → joins the seating ("T4 + T5"); TablesMerged on the into table; 2 reads, no guard registered', async () => {
+  it('[02a #24] merge a FREE table → joins the seating ("T4 + T5"); TablesMerged on the into table; no guard registered', async () => {
     const ali = signIn('S_ALI');
     opened('T4', 'SEAT1', 'S_ALI');
     locked('T4', 'SEAT1', 'S_ALI', ali.deviceId);
@@ -290,10 +336,12 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     expect(seatingRow('SEAT1')).toMatchObject({ primary_table_id: 'T4', holder_staff_id: 'S_ALI' });
     // the lock stays on S (merge takes no lock)
     expect(lockRows()).toMatchObject([{ table_id: 'T4', seating_id: 'SEAT1', staff_id: 'S_ALI', device_id: ali.deviceId }]);
-    expect(r.statements).toBe(2);
+    // 2 reads + 1 byDedupeKey (a join: no S2); nothing pending → no close statements, no alert event
+    expect(r.statements).toBe(3);
+    expect(eventTypesAll().filter((t) => t.startsWith('Alert'))).toEqual([]);
   });
 
-  it('[02a #25] merge absorbing own seating → orders move, absorbed CLOSED `merged`, its lock gone; S keeps holder and primary; 3 reads', async () => {
+  it('[02a #25] merge absorbing own seating → orders move, absorbed CLOSED `merged`, its lock gone; S keeps holder and primary', async () => {
     const ali = signIn('S_ALI');
     opened('T1', 'SEAT1', 'S_ALI');
     placed('O1', 'SEAT1');
@@ -319,10 +367,76 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     expect(seatingRow('SEAT1')).toMatchObject({ primary_table_id: 'T1', holder_staff_id: 'S_ALI', state: 'ORDERED' });
     expect(lockRows()).toEqual([]);
     expect(currentTableOf(hub.deps.db, ['O2']).get('O2')).toEqual({ seating_id: 'SEAT1', primary_table_id: 'T1', table_ids: ['T1', 'T2'] });
-    expect(r.statements).toBe(3);
+    // 3 reads + 2 byDedupeKey; nothing pending
+    expect(r.statements).toBe(5);
   });
 
-  it.todo('[02a #25 handover] both pending handovers closed obsolete — after task 12');
+  it('[02a #25 handover] both pending handovers closed obsolete: AlertClosed + request_result to each sender; both alerts closed', async () => {
+    const ali = signIn('S_ALI');
+    signIn('S_SARA');
+    signIn('S_NOOR');
+    opened('T1', 'SEAT1', 'S_ALI');
+    opened('T2', 'SEAT2', 'S_ALI');
+    placed('O2', 'SEAT2');
+    const a1 = await requestHandover(ali, 'T1', 'SEAT1', 'S_SARA');
+    const a2 = await requestHandover(ali, 'T2', 'SEAT2', 'S_NOOR');
+    const before = eventTypesAll().length;
+    const r = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
+    expect(r.status).toBe(200);
+    expect(r.eventTypes).toEqual(['TablesMerged', 'AlertClosed', 'AlertRaised', 'AttemptSent', 'AlertClosed', 'AlertRaised', 'AttemptSent']);
+    expect(eventTypesAll().length).toBe(before + 7);
+    const note = 'merged: T2 into T1';
+    expect(closedPayloads()).toEqual([
+      { alert_id: a1, reason: 'obsolete', by_staff_id: 'S_ALI', note },
+      { alert_id: a2, reason: 'obsolete', by_staff_id: 'S_ALI', note },
+    ]);
+    const results = resultPayloads();
+    expect(results).toHaveLength(2);
+    for (const [i, id] of [a1, a2].entries()) {
+      expect(results[i]).toMatchObject({
+        kind: 'request_result',
+        target: { kind: 'person', staff_id: 'S_ALI' },
+        values: { request_alert_id: id, close_reason: 'obsolete' },
+      });
+    }
+    expect(alertState(a1)).toEqual({ state: 'closed', close_reason: 'obsolete' });
+    expect(alertState(a2)).toEqual({ state: 'closed', close_reason: 'obsolete' });
+    // 3 reads + 2 byDedupeKey + one closeMany for both
+    expect(r.statements).toBe(5 + CLOSE_MANY);
+  });
+
+  it('[02a #25 handover] only S2 pending → that one closed; a join closes S\'s pending handover', async () => {
+    const ali = signIn('S_ALI');
+    signIn('S_SARA');
+    opened('T1', 'SEAT1', 'S_ALI');
+    opened('T2', 'SEAT2', 'S_ALI');
+    const a2 = await requestHandover(ali, 'T2', 'SEAT2', 'S_SARA');
+    const r = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
+    expect(r.status).toBe(200);
+    expect(r.eventTypes).toEqual(['TablesMerged', 'AlertClosed', 'AlertRaised', 'AttemptSent']);
+    expect(closedPayloads()).toEqual([{ alert_id: a2, reason: 'obsolete', by_staff_id: 'S_ALI', note: 'merged: T2 into T1' }]);
+    expect(alertState(a2)).toEqual({ state: 'closed', close_reason: 'obsolete' });
+    expect(r.statements).toBe(5 + CLOSE_MANY);
+    // join: S (now T1 + T2) has a pending handover; T3 joins
+    const a1 = await requestHandover(ali, 'T1', 'SEAT1', 'S_SARA');
+    const j = await merge(ali, mg('T1', 'SEAT1', 'T3', null));
+    expect(j.status).toBe(200);
+    expect(j.eventTypes).toEqual(['TablesMerged', 'AlertClosed', 'AlertRaised', 'AttemptSent']);
+    expect(closedPayloads()[1]).toEqual({ alert_id: a1, reason: 'obsolete', by_staff_id: 'S_ALI', note: 'merged: T3 into T1' });
+    expect(alertState(a1)).toEqual({ state: 'closed', close_reason: 'obsolete' });
+    // 2 reads + 1 byDedupeKey + closeMany for one
+    expect(j.statements).toBe(3 + CLOSE_MANY);
+  });
+
+  it('[02a #25 handover] a refused merge closes nothing', async () => {
+    const ali = signIn('S_ALI');
+    signIn('S_SARA');
+    opened('T1', 'SEAT1', 'S_ALI');
+    const a1 = await requestHandover(ali, 'T1', 'SEAT1', 'S_SARA');
+    const r = await merge(ali, mg('T1', 'SEAT1', 'T9', null));
+    expect(r.status).toBe(404);
+    expect(alertState(a1)).toEqual({ state: 'open', close_reason: null });
+  });
 
   it('[02a §3.11] absorbing a merged seating moves all of its tables; result lists every table of S', async () => {
     const ali = signIn('S_ALI');
@@ -395,7 +509,7 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     expect(calls).toEqual([{ seating_ids: ['SEAT1'] }]);
   });
 
-  it('[02a #27] guard not blocking → merged; 3 reads + the guard (its own statements are the guard\'s)', async () => {
+  it('[02a #27] guard not blocking → merged; 3 reads + the guard (its own statements are the guard\'s) + 2 byDedupeKey', async () => {
     const ali = signIn('S_ALI');
     registerMergeGuard((db) => {
       db.prepare('SELECT 1').get();
@@ -405,7 +519,7 @@ describe('02a MergeTables (§3.11, §6.10)', () => {
     opened('T2', 'SEAT2', 'S_ALI');
     const r = await merge(ali, mg('T1', 'SEAT1', 'T2', 'SEAT2'));
     expect(r.status).toBe(200);
-    expect(r.statements).toBe(3 + 1);
+    expect(r.statements).toBe(3 + 1 + 2);
   });
 
   it('[02a #27] unregistered guard → never blocked; resetMergeGuard removes a stub', async () => {
