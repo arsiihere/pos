@@ -804,7 +804,7 @@ Any of `{ floor_id, name, seats, sort_order, archived }`. `200`. `404 TABLE_NOT_
 
 > ⚠️ Changed by 02a v1.0 (A-1): body adds `zone_id: string | null`. Same check as §6.5 against the table's floor after the patch; changing `floor_id` without a `zone_id` sets `zone_id = NULL` (a zone never crosses floors). A table moved to another zone takes that zone's assigned order taker unless it has its own table assignment (01b v1.6 B-2).
 
-> *As built, 02p task 3 (owner ruling 2026-11-08, AD-4):* restoring a table (`archived: false`, including the S50 (b) Undo chip) whose stored `zone_id` names a zone that is now archived sets `zone_id = NULL` in the same write (the table falls back to the floor's implicit zone, as §6.6b does for active tables); the zone check runs only when `zone_id` or `floor_id` changes or the table is restored.
+> *As built, 02p task 3 (owner ruling 2026-11-08, AD-4):* restoring a table (`archived: false`, including the S50 (b) Undo chip) whose stored `zone_id` names a zone that is now archived sets `zone_id = NULL` in the same write (the table falls back to the floor's implicit zone, as §6.6b does for active tables); the zone check runs only when `zone_id` or `floor_id` changes or the table is restored. *As built, 02p (owner ruling 2026-11-09, 01b AD-32 (b)):* archiving or restoring a table also bumps `tenants.directory_version` in the same transaction (as a zone, AD-28), so the hub's assignee map follows.
 
 #### 6.6a `POST /v1/admin/branches/:branch_id/zones` (⚠️ Changed by 02a v1.0, A-1)
 

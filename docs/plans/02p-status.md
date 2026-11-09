@@ -71,7 +71,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-5 | 3 | Restoring a zone whose floor is archived: spec silent | (a) 422 `floor_id` `archived`; (b) allow | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
 | AD-6 | 3 | Archiving an item / station named by an active zone list, or making a zone stock item weighed / not piece: spec silent | (a) `409 CONFIG_IN_USE` `used_by` zone; (b) V4 builder drops them | (a) | **ruled (owner, 2026-11-08)**; 01a §6.9, §6.15 markers |
 | AD-7 | 3 | New `CONFIG_REFERENCE_INVALID` reasons `wrong_floor`, `not_piece`, `requires_weighing` | (a) add to 01a §9 + client texts (task 6); (b) reuse old reasons | (a) | **ruled (owner, 2026-11-08)**; 01a §9 marker |
-| AD-8 | 3 | 01a #184's snapshot clause ("snapshot shows the zone `is_archived: true`") needs V4: task 3 tests the cloud half, task 4 the snapshot half (same number in two tasks) | (a) split as stated; (b) all of #184 in task 4 | (a) | proposed (not yet ruled) |
+| AD-8 | 3 | 01a #184's snapshot clause ("snapshot shows the zone `is_archived: true`") needs V4: task 3 tests the cloud half, task 4 the snapshot half (same number in two tasks) | (a) split as stated; (b) all of #184 in task 4 | (a) | **ruled (owner, 2026-11-09)** |
 | AD-9 | 3 | Restoring a zone whose stored lists name an item / station archived since (AD-6 skips archived zones) | (a) drop stale entries in the same write; (b) 422; (c) allow, builder skips | (a); round 3 allowed (owner) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
 | AD-10 | 4 | Plan said `BranchConfig.settings.{…}`; 01a §5.2a says the columns are delivered like the other `branch_engine_settings` fields (top-level `engine_settings`) | (a) `engine_settings.*`; (b) new `settings` key | (a); plan tasks 4, 11 text fixed | **ruled (owner, 2026-11-08)**; 01a §4.3 marker |
 | AD-11 | 4 | Archived zone's lists in V4: spec silent | (a) `[]`; (b) stored lists | (a) | **ruled (owner, 2026-11-08)** |
@@ -95,9 +95,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-29 | 7 | A left person could be given assignments that block active staff | (a) ignore sent assignments, holder check active only; (b) 422 | (a) | **ruled (owner, 2026-11-08)** |
 | AD-30 | 7 | `assignedOrderTaker` counted `requires_approval` as holding `take-order` | (a) `allowed` only; (b) both | (a) | **ruled (owner, 2026-11-08)** |
 | AD-31 | 7 | Re-sending an already-held archived zone / table → 422 `archived` | (a) exempt held ids; (b) client filters | (a) | **ruled (owner, 2026-11-08)** |
-| AD-32 | 7 | Table archive / restore does not bump `directory_version` | (a) accept; (b) bump | (a) | **ruled (owner, 2026-11-08)** |
-| AD-33 | 8 | `zonesOf` returns sorted, de-duplicated ids (§4.2 says a union) | (a) sorted + dedup like `floorsOf`; (b) unordered | (a) | proposed (not yet ruled) |
-| AD-34 | 8 | The hub directory holds only staff with a PIN, so a lead without a PIN adds none of their zones to `my_zones` (§3.3 says the lead's zones count); pre-existing behaviour | (a) accept (refillers' leads have PINs); (b) carry lead zones for no-PIN leads | none — needs the owner | proposed (not yet ruled) |
+| AD-32 | 7 | Table archive / restore does not bump `directory_version` | (a) accept; (b) bump | **(b) — reversed by the owner 2026-11-09**: table archive / restore bumps `directory_version` like zones; fix after batch 4 tasks, before the batch 4 gate | **ruled (owner, 2026-11-09)** |
+| AD-33 | 8 | `zonesOf` returns sorted, de-duplicated ids (§4.2 says a union) | (a) sorted + dedup like `floorsOf`; (b) unordered | (a) | **ruled (owner, 2026-11-09)** |
+| AD-34 | 8 | The hub directory holds only staff with a PIN, so a lead without a PIN adds none of their zones to `my_zones` (§3.3 says the lead's zones count); pre-existing behaviour | (a) accept (refillers' leads have PINs); (b) carry lead zones for no-PIN leads | (a) for the pilot; 01b §12.3 D-18 known limitation; field-visit check 17a | **ruled (owner, 2026-11-09)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -109,6 +109,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-08 | R-2 slip label = the primary table's **name** (field `table_code`); 01d P-1 chip `T…` only for all-digit values | 03a v1.2, 01d v1.2.1 |
 | 2026-11-08 | R-3 one boot read, step 3 = 4 + 2 + 1, from the older of two **readable** checkpoints, else seq 0 (T-6, re-check R-2) | 03a v1.2 §3.12 |
 | 2026-11-08 | Q-v1.2-2 (absent-id noise on exited orders) left for the 04 spec | 03a v1.2 §12.3 |
+| 2026-11-09 | Batch 3 review: AD-8 (a), AD-33 (a), AD-34 (a) for the pilot + known limitation; **AD-32 reversed to (b)** (table archive / restore bumps `directory_version`) | board, 01b, 01a, field visit |
 | 2026-11-08 | Plan APPROVED; three lanes (platform A 1–10, platform B 11–13, engine 14–17, 17b, 18); `boot.int.test.ts` owned by platform A, engine boot tests in `boot-idset.int.test.ts` | plan |
 | 2026-11-08 | AD-1: `StockTransferredOut.quantity` = `int().min(1)` (01a S44), fixed now (`0205a24`); AD-2 accepted; AD-3 accepted, `ZONE_NOT_FOUND` appended to foundation v1.11 §6.2, no bump (`b55c7d9`); the `my_zones` 500 until task 8 accepted (transient on this branch) | board, foundation §6.2 |
 
