@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { initialEngineState, type EngineState } from '@pos/engine';
 import type { BranchConfig, EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,7 +55,7 @@ async function harness(cleanups: Array<() => void>): Promise<Harness> {
   await runMigrations(fx.db, { dir: migrations, clock });
   const registry = createProjectionRegistry();
   registerTablesProjection(registry);
-  const state = createStateHolder({});
+  const state = createStateHolder<EngineState>(initialEngineState());
   state.setReducer((current) => current);
   const writer = createWriter({
     db: fx.db,
