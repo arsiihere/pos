@@ -216,15 +216,16 @@ describe('02a tables projection', () => {
     expect(seating(h.db, 'S1')?.holder_staff_id).toBe(BILAL);
   });
 
-  it('[02a §3.1] lock-only events change no seating rows and write no lock in this task', async () => {
+  it('[02a §3.1] lock-only events change no seating rows; they write only the lock row (task 5, lock-fold.int.test.ts)', async () => {
     const h = await harness(cleanups);
     h.append(opened('T1', 'S1'));
     const before = dump(h.db);
     h.append(
       ev('table', 'T1', 'TableLocked', { table_id: 'T1', seating_id: 'S1', staff_id: ALI }),
       ev('table', 'T1', 'TableLockTouched', { table_id: 'T1', seating_id: 'S1' }),
-      ev('table', 'T1', 'TableLockReleased', { table_id: 'T1', seating_id: 'S1', staff_id: ALI, reason: 'released' }),
     );
+    expect(dump(h.db)).toEqual({ ...before, table_locks: [expect.objectContaining({ table_id: 'T1', seating_id: 'S1', staff_id: ALI })] });
+    h.append(ev('table', 'T1', 'TableLockReleased', { table_id: 'T1', seating_id: 'S1', staff_id: ALI, reason: 'released' }));
     expect(dump(h.db)).toEqual(before);
   });
 
@@ -531,9 +532,11 @@ describe('02a tables projection', () => {
     const h = await harness(cleanups);
     h.append(
       opened('T1', 'S1'),
+      ev('table', 'T1', 'TableLocked', { table_id: 'T1', seating_id: 'S1', staff_id: ALI }),
       placed('O1'),
       placed('O2'),
       foodServed('O1'),
+      ev('table', 'T1', 'TableLockTouched', { table_id: 'T1', seating_id: 'S1' }),
       opened('T2', 'S2', BILAL, 2),
       placed('O3', { seating: 'S2', has_food: false }),
       ev('table', 'T1', 'TablesMerged', {
@@ -545,26 +548,37 @@ describe('02a tables projection', () => {
         by_staff_id: ALI,
       }),
       ev('table', 'T1', 'SeatingSplit', { from_seating_id: 'S1', new_seating_id: 'S3', to_table_id: 'T2', order_ids: ['O2'], by_staff_id: ALI }),
+      ev('table', 'T2', 'TableLocked', { table_id: 'T2', seating_id: 'S3', staff_id: ALI }),
       ev('table', 'T2', 'TableMoved', { seating_id: 'S3', from_table_id: 'T2', to_table_id: 'T8', by_staff_id: ALI }),
       billRequested('S1'),
       linesAdded('O1'),
       foodCleared('O1', true),
       billRequested('S1'),
+      ev('table', 'T1', 'TableLockReleased', { table_id: 'T1', seating_id: 'S1', staff_id: ALI, reason: 'released' }),
       billClosed('S1'),
       cleaned('S1', ['T1']),
       opened('T1', 'S4'),
+      ev('table', 'T1', 'TableLocked', { table_id: 'T1', seating_id: 'S4', staff_id: ALI }),
       placed('O4', { seating: 'S4' }),
       cancelled('O4'),
     );
     const live = dump(h.db);
     expect(live.seatings).toHaveLength(4);
+    // the lock of S3 re-keyed to T8; S4's lock refreshed by O4; S1's released
+    expect(live.table_locks).toEqual([
+      expect.objectContaining({ table_id: 'T1', seating_id: 'S4', last_activity_at: h.clock.branchNow() - 1_000 }),
+      expect.objectContaining({ table_id: 'T8', seating_id: 'S3' }),
+    ]);
     // reset must clear rows it does not rebuild from scratch
     h.db.prepare(`INSERT INTO seatings (seating_id, primary_table_id, state, holder_staff_id, opened_at) VALUES ('JUNK', 'TX', 'SEATED', 'X', 0)`).run();
+    h.db
+      .prepare(`INSERT INTO table_locks (table_id, seating_id, staff_id, device_id, locked_at, last_activity_at) VALUES ('TX', 'JUNK', 'X', 'D', 0, 0)`)
+      .run();
     h.db.prepare(`DELETE FROM projection_checkpoints WHERE projection = 'tables'`).run();
     const fresh = createProjectionRegistry();
     registerTablesProjection(fresh);
     const replayed = fresh.catchUp(h.db, BRANCH).replayed.tables;
-    expect(replayed).toBe(18);
+    expect(replayed).toBe(23);
     expect(dump(h.db)).toEqual(live);
   });
 

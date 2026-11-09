@@ -7,6 +7,8 @@ import type {
   SeatingSplitPayload,
   TableCleanedPayload,
   TableHolderChangedPayload,
+  TableLockedPayload,
+  TableLockTouchedPayload,
   TableMovedPayload,
   TableOpenedPayload,
   TablesMergedPayload,
@@ -17,8 +19,7 @@ import type { SeatingRow } from './contracts.js';
 
 // 02a §5 / T19: the one projection `tables`. It writes seatings, seating_tables, seating_orders and table_locks,
 // so every fold sees all four tables as of that event, live and in catch-up. Times are the envelope recorded_at.
-// The lock part (TableLocked / Touched / Released, the lock re-key and delete, the activity refresh, §3.3) is
-// task 5's: the lock-only events are listed here and are no-ops until then.
+// Each event runs its own fold (state and lock rows), then the §3.3 activity refresh of its seating's lock.
 
 // §6.19: the ten `table` stream events.
 const TABLE_EVENTS = [
@@ -106,6 +107,7 @@ export function tablesProjection(projections: ProjectionRegistry): Projection {
     eventTypes: [...TABLES_EVENT_TYPES],
     apply(tx, event, mode) {
       applyState(tx, event, mode === 'live' ? emit : () => undefined);
+      refreshActivity(tx, event);
     },
     reset(tx) {
       tx.prepare('DELETE FROM seatings').run();
@@ -116,8 +118,8 @@ export function tablesProjection(projections: ProjectionRegistry): Projection {
   };
 }
 
-// The state part (this task). Lock-only events (TableLocked, TableLockTouched, TableLockReleased) and the
-// activity-only order events (ItemRemoved, LineWeightSet, LineComped) change no seating row.
+// The event's own fold. Lock-only events (TableLocked, TableLockTouched, TableLockReleased) write only table_locks;
+// the activity-only order events (ItemRemoved, LineWeightSet, LineComped) change no row here (refreshActivity).
 function applyState(tx: Database.Database, event: PosEvent, log: (line: UnknownSeatingLine) => void): void {
   const at = event.recorded_at;
   switch (event.event_type) {
@@ -128,6 +130,28 @@ function applyState(tx: Database.Database, event: PosEvent, log: (line: UnknownS
          VALUES (?, ?, 'SEATED', ?, ?, ?)`,
       ).run(p.seating_id, p.table_id, p.holder_staff_id, p.party_size, at);
       tx.prepare('INSERT INTO seating_tables (table_id, seating_id, joined_at) VALUES (?, ?, ?)').run(p.table_id, p.seating_id, at);
+      return;
+    }
+    case 'TableLocked': {
+      // §6.19 / T15: upsert by the primary table — a fresh row each time (device = envelope device_id).
+      const p = event.payload as TableLockedPayload;
+      tx.prepare(
+        `INSERT INTO table_locks (table_id, seating_id, staff_id, device_id, locked_at, last_activity_at, last_touch_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT (table_id) DO UPDATE SET seating_id = excluded.seating_id, staff_id = excluded.staff_id,
+           device_id = excluded.device_id, locked_at = excluded.locked_at, last_activity_at = excluded.last_activity_at,
+           last_touch_at = NULL`,
+      ).run(p.table_id, p.seating_id, p.staff_id, event.device_id, at, at);
+      return;
+    }
+    case 'TableLockTouched': {
+      const p = event.payload as TableLockTouchedPayload;
+      tx.prepare('UPDATE table_locks SET last_touch_at = ? WHERE seating_id = ?').run(at, p.seating_id);
+      return;
+    }
+    case 'TableLockReleased': {
+      const p = event.payload as { seating_id: string };
+      tx.prepare('DELETE FROM table_locks WHERE seating_id = ?').run(p.seating_id);
       return;
     }
     case 'TableHolderChanged': {
@@ -143,6 +167,7 @@ function applyState(tx: Database.Database, event: PosEvent, log: (line: UnknownS
         p.from_table_id,
         p.seating_id,
       );
+      tx.prepare('UPDATE table_locks SET table_id = ? WHERE table_id = ? AND seating_id = ?').run(p.to_table_id, p.from_table_id, p.seating_id);
       return;
     }
     case 'TablesMerged':
@@ -167,6 +192,7 @@ function applyState(tx: Database.Database, event: PosEvent, log: (line: UnknownS
         `UPDATE seatings SET state = 'CLOSED', closed_at = ?, close_reason = ? WHERE seating_id = ? AND state <> 'CLOSED'`,
       ).run(at, p.reason, p.seating_id);
       tx.prepare('DELETE FROM seating_tables WHERE seating_id = ?').run(p.seating_id);
+      tx.prepare('DELETE FROM table_locks WHERE seating_id = ?').run(p.seating_id);
       return;
     }
     case 'OrderPlaced':
@@ -256,6 +282,7 @@ function applyMerged(tx: Database.Database, p: TablesMergedPayload, at: number):
     tx.prepare(
       `UPDATE seatings SET state = 'CLOSED', closed_at = ?, close_reason = 'merged' WHERE seating_id = ? AND state <> 'CLOSED'`,
     ).run(at, p.absorbed_seating_id);
+    tx.prepare('DELETE FROM table_locks WHERE seating_id = ?').run(p.absorbed_seating_id);
   }
   const join = tx.prepare(
     `INSERT INTO seating_tables (table_id, seating_id, joined_at) VALUES (?, ?, ?)
@@ -320,4 +347,52 @@ function refold(tx: Database.Database, seatingId: string): void {
   if (row === undefined) return;
   const next = foldState(row);
   if (next !== row.state) tx.prepare('UPDATE seatings SET state = ? WHERE seating_id = ?').run(next, seatingId);
+}
+
+// §3.3 / T7: after the event's own fold, `last_activity_at = recorded_at` on the lock of the event's seating when the
+// envelope (actor_id, device_id) is the lock's (staff, device). One statement by table_locks_seating; no state change.
+function refreshActivity(tx: Database.Database, event: PosEvent): void {
+  if (event.actor_id === null) return;
+  const seatingId = activitySeating(tx, event);
+  if (seatingId === null) return;
+  tx.prepare('UPDATE table_locks SET last_activity_at = ? WHERE seating_id = ? AND staff_id = ? AND device_id = ?').run(
+    event.recorded_at,
+    seatingId,
+    event.actor_id,
+    event.device_id,
+  );
+}
+
+// The seating whose lock an event refreshes: §6.19 events by their payload seating; OrderPlaced (dine_in) by its
+// table_key (T21); later order events through seating_orders as of this event. Other folded events are no activity.
+function activitySeating(tx: Database.Database, event: PosEvent): string | null {
+  switch (event.event_type) {
+    case 'TableOpened':
+    case 'TableLocked':
+    case 'TableLockTouched':
+    case 'TableLockReleased':
+    case 'TableHolderChanged':
+    case 'TableMoved':
+    case 'BillRequested':
+    case 'TableCleaned':
+      return (event.payload as { seating_id: string }).seating_id;
+    case 'TablesMerged':
+      return (event.payload as TablesMergedPayload).into_seating_id;
+    case 'SeatingSplit':
+      return (event.payload as SeatingSplitPayload).from_seating_id;
+    case 'OrderPlaced': {
+      const p = event.payload as OrderPlacedPayload;
+      if (p.order_type !== 'dine_in' || !p.table_key.startsWith(DINE_IN_PREFIX)) return null;
+      return p.table_key.slice(DINE_IN_PREFIX.length);
+    }
+    case 'OrderLinesAdded':
+      return orderSeating(tx, (event.payload as { order_id: string }).order_id);
+    // 02b §6.19: no order_id in these payloads — the order is the envelope stream_id (stream `order`).
+    case 'ItemRemoved':
+    case 'LineWeightSet':
+    case 'LineComped':
+      return orderSeating(tx, event.stream_id);
+    default:
+      return null;
+  }
 }
