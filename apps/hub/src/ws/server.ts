@@ -15,7 +15,7 @@ import {
 import websocket from '@fastify/websocket';
 import type Database from 'better-sqlite3';
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
-import { activity, findSessionByToken, isIdleExpired } from '../auth/session-store.js';
+import { activity, findSessionByToken, idlePause, isIdleExpired } from '../auth/session-store.js';
 import { provisionedOf } from '../config/schema.js';
 import type { HubDeps } from '../server.js';
 import { sha256hex } from '../lib/hash.js';
@@ -287,6 +287,8 @@ function accept(
   let live: OpenSocket | undefined;
   let alertLive: AlertSocket | undefined;
   let stopKeepalive = (): void => undefined;
+  // 00 M95: the device whose open-socket count this socket holds, once accepted (session or alert mode).
+  let counted: string | undefined;
   const timer = setTimeout(() => {
     if (decided) return;
     decided = true;
@@ -295,6 +297,7 @@ function accept(
   socket.on('close', () => {
     clearTimeout(timer);
     stopKeepalive();
+    if (counted !== undefined) idlePause.socketClosed(deps.db, counted, deps.clock.branchNow());
     // A replaced or closed-by-hub alert socket already left the map; never remove its successor.
     if (alertLive !== undefined && alerts.open.get(alertLive.deviceId) === alertLive) alerts.open.delete(alertLive.deviceId);
     if (live === undefined) return;
@@ -329,6 +332,8 @@ function accept(
       const accepted = acceptAlertMode(socket, request, deps, alerts, parsed.data.device_token);
       if (accepted === undefined) return;
       alertLive = accepted;
+      counted = accepted.deviceId;
+      idlePause.socketOpened(deps.db, accepted.deviceId);
       // H-13 (§6.17): alert-mode pongs refresh last seen too.
       stopKeepalive = armKeepalive(socket, () => activity.deviceSeen(accepted.deviceId, deps.clock.branchNow()));
       return;
@@ -346,6 +351,8 @@ function accept(
     if (state === undefined) return;
     live = { socket, ctx };
     open.push(live);
+    counted = auth.deviceId;
+    idlePause.socketOpened(deps.db, auth.deviceId);
     // Q8 (§6.17): a pong is a sign of life, so a kitchen screen that only holds its socket stays "seen" (15 s).
     stopKeepalive = armKeepalive(socket, () => activity.deviceSeen(auth.deviceId, deps.clock.branchNow()));
     socket.send(JSON.stringify({ type: 'catch_up', as_of_seq: asOfSeq, state }));
@@ -369,6 +376,8 @@ function acceptAlertMode(
     socket.close(WS_CLOSE.FORBIDDEN);
     return undefined;
   }
+  // 00 M95: a socket connect is contact.
+  idlePause.contact(deps.db, device.device_id, deps.clock.branchNow());
   // Built and checked before the device's current alert socket is touched, so a failure here replaces nothing.
   const frame = buildOrClose(socket, request.log, device.device_id, 'ws alerts_open build failed', () =>
     WsAlertsOpen.parse(alerts.buildOpen(device.device_id)),
@@ -446,6 +455,8 @@ function authenticate(
   const device = findDevice(deps.db, deviceToken);
   if (device === undefined) return { code: WS_CLOSE.CREDENTIALS };
   if (device.revoked_at !== null) return { code: WS_CLOSE.FORBIDDEN };
+  // 00 M95: a socket connect is contact; the shift runs before M46's idle check below.
+  idlePause.contact(deps.db, device.device_id, deps.clock.branchNow());
   const session = findSessionByToken(deps.db, sessionToken);
   if (
     session === undefined ||

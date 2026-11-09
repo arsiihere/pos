@@ -13,6 +13,9 @@ export interface HostFlags {
   overload_open: Set<string>; // §3.10: stations with an open station_overload, refreshed by every pass with work
   overload_skipped: Set<string>; // §3.10: stations whose overload values failed the kind's schema (logged once)
   dropped_lines: DroppedLine[]; // AD-8: dropped-line facts from the after-commit hook, raised by the next pass
+  // 03a v1.2 §3.3 Q-3, AD-E18: ids the absent-id log skips — zone lines, deal headers and the order ids of an OrderPlaced
+  // with empty order_item_ids. Never engine state, never in a snapshot or checkpoint; rebuilt by boot step 3 (R-3).
+  untrackedLineIds: Set<string>;
 }
 
 // AD-8 developer condition: one engine_line_dropped alert per fact. `batch`: a refused OrderPlaced / OrderLinesAdded
@@ -40,6 +43,7 @@ function fresh(): HostFlags {
     overload_open: new Set(),
     overload_skipped: new Set(),
     dropped_lines: [],
+    untrackedLineIds: new Set(),
   };
 }
 

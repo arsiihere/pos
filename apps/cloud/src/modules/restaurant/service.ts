@@ -11,7 +11,7 @@ import { assertTenantWide, bumpConfigVersion, bumpEveryBranch, coversEveryBranch
 import { inTransaction, withIdempotency, type IdempotentResult } from '../../lib/idempotency.js';
 import type { IdGen } from '../../lib/ids.js';
 import type { CloudTestHooks } from '../../server.js';
-import { activeDealIdsWith, activeVariantGroupIdsIn } from '../menu-variants/repository.js';
+import { activeDealIdsWith, activeVariantGroupIdsIn, shareItemsById } from '../menu-variants/repository.js';
 import { assertItemEffectiveSets } from '../menu-variants/service.js';
 import { toVariantGroupWire } from '../menu-variants/versions.js';
 import {
@@ -21,6 +21,12 @@ import {
   activeStationsNamingAlternate,
   activeStockItemIdsAt,
   activeTableIds,
+  activeZoneIds,
+  activeZoneIdsNamingItem,
+  activeZoneIdsNamingItemAt,
+  shareItemRoutesAt,
+  activeZoneIdsRoutingStation,
+  clearZoneOfActiveTables,
   archiveStationPrograms,
   branchExists,
   deleteDrawsOf,
@@ -31,6 +37,7 @@ import {
   insertConfigAuditRows,
   insertDraws,
   insertFloor,
+  insertZone,
   insertItemRoutes,
   insertGoesWith,
   insertMenuItem,
@@ -45,6 +52,7 @@ import {
   linkingGroupIds,
   lockCategory,
   lockFloor,
+  lockZone,
   lockPoint,
   lockItemRoute,
   lockMenuItem,
@@ -58,6 +66,9 @@ import {
   selectAllVariantGroups,
   selectAllTaxClasses,
   selectFloors,
+  readZone,
+  selectZoneLists,
+  selectZones,
   selectBranches,
   selectDrawsOf,
   selectItemRoutes,
@@ -67,6 +78,8 @@ import {
   selectMenuPage,
   selectPrograms,
   replaceAlternates,
+  replaceZoneRoutes,
+  replaceZoneStockItems,
   replaceCarryTimes,
   selectPoints,
   selectStationLists,
@@ -78,6 +91,7 @@ import {
   selectWindowsOf,
   shareCategory,
   shareFloor,
+  shareZone,
   shareProgramsById,
   shareStation,
   shareStationsById,
@@ -87,6 +101,7 @@ import {
   shareVariantGroups,
   updateCategory,
   updateFloor,
+  updateZone,
   updatePoint,
   updateMenuItem,
   updateProgram,
@@ -110,11 +125,15 @@ import {
   type TaxClassRow,
   type WindowRow,
   type WindowTarget,
+  type ZoneRow,
+  type ZoneRouteRow,
+  type ZoneStockItemRow,
 } from './repository.js';
 import { toPointWire } from './versions.js';
 import type {
   AdminMenuItem,
   AdminPoint,
+  AdminZone,
   CreateCategoryInput,
   CreateFloorInput,
   CreateMenuItemInput,
@@ -123,6 +142,7 @@ import type {
   CreateStationInput,
   CreateTableInput,
   CreateTaxClassInput,
+  CreateZoneInput,
   PatchCategoryInput,
   PatchFloorInput,
   PatchMenuItemInput,
@@ -131,9 +151,11 @@ import type {
   PatchStationInput,
   PatchTableInput,
   PatchTaxClassInput,
+  PatchZoneInput,
   PutItemRouteInput,
 } from '@pos/events';
 import type { MenuQueryInput } from './schemas.js';
+import { bumpDirectoryVersion } from '../staff-roles/repository.js';
 
 export interface RestaurantDeps {
   pool: pg.Pool;
@@ -167,9 +189,22 @@ export async function listFloors(deps: RestaurantDeps, tenant: TenantContext, br
   assertBranchAllowed(tenant, branchId);
   const repo = new TenantScopedRepository(tenant, deps.pool);
   const floors = await selectFloors(repo, branchId);
+  const zones = await selectZones(repo, branchId);
   const tables = await selectTables(repo, branchId);
+  // AD-16: the zones' lists, two statements for any number of zones; by item_id.
+  const lists = await selectZoneLists(repo, branchId, zones.map((zone) => zone.zone_id));
   return floors.map((floor) => ({
     ...floor,
+    zones: zones
+      .filter((zone) => zone.floor_id === floor.floor_id)
+      .map(({ zone_id, name, sort_order, archived_at }) => ({
+        zone_id,
+        name,
+        sort_order,
+        archived_at,
+        routes: lists.routes.filter((r) => r.zone_id === zone_id).map(({ item_id, station_id }) => ({ item_id, station_id })),
+        stock_items: lists.stock_items.filter((s) => s.zone_id === zone_id).map(({ item_id, threshold }) => ({ item_id, threshold })),
+      })),
     tables: tables
       .filter((table) => table.floor_id === floor.floor_id)
       .map((table) => ({
@@ -177,6 +212,7 @@ export async function listFloors(deps: RestaurantDeps, tenant: TenantContext, br
         name: table.name,
         seats: table.seats,
         sort_order: table.sort_order,
+        zone_id: table.zone_id,
         archived_at: table.archived_at,
       })),
   }));
@@ -253,6 +289,11 @@ export async function patchFloor(
       if (ids.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'floor', id: floorId, used_by: { entity: 'table', ids } });
       }
+      // 02a A-1 (§6.4): checked after the tables rule.
+      const zoneIds = await activeZoneIds(scoped, branchId, floorId);
+      if (zoneIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'floor', id: floorId, used_by: { entity: 'zone', ids: zoneIds } });
+      }
     }
     const floor = await nameTaken('floors_active_name', 'floor', merged.name, () =>
       updateFloor(scoped, branchId, merged, now),
@@ -291,11 +332,14 @@ export async function createTable(
       const scoped = new TenantScopedRepository(req.tenant, client);
       const level = new TenantLevelRepository(req.tenant, client);
       await assertFloor(scoped, branchId, body.floor_id, { requireActive: true });
+      const zoneId = body.zone_id ?? null;
+      if (zoneId !== null) await assertZoneOfFloor(scoped, branchId, zoneId, body.floor_id);
       const table = await nameTaken('dining_tables_active_name', 'table', body.name, () =>
         insertTable(scoped, {
           branchId,
           tableId: deps.ids.next(),
           floorId: body.floor_id,
+          zoneId,
           name: body.name,
           seats: body.seats,
           sortOrder: body.sort_order,
@@ -338,9 +382,15 @@ export async function patchTable(
     const before = await lockTable(scoped, branchId, tableId);
     if (before === undefined) throw new DomainError('TABLE_NOT_FOUND', { table_id: tableId });
     const now = deps.clock.branchNow();
-    const merged: TableRow = {
+    let merged: TableRow = {
       ...before,
       ...(body.floor_id !== undefined ? { floor_id: body.floor_id } : {}),
+      // 02a A-1 (§6.6): a zone never crosses floors, so a floor change without a zone_id leaves the zone.
+      ...(body.zone_id !== undefined
+        ? { zone_id: body.zone_id }
+        : body.floor_id !== undefined && body.floor_id !== before.floor_id
+          ? { zone_id: null }
+          : {}),
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.seats !== undefined ? { seats: body.seats } : {}),
       ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
@@ -349,6 +399,24 @@ export async function patchTable(
     if (unchangedRow(before, merged)) return { table: before };
     if (body.floor_id !== undefined || merged.archived_at === null) {
       await assertFloor(scoped, branchId, merged.floor_id, { requireActive: merged.archived_at === null });
+    }
+    // 02a A-1: a given zone is active, in this branch and on the table's floor (after the patch). A table coming back
+    // from the archive is checked too: its stored zone may have been archived since. Lock order: a zone archive locks
+    // the zone, then updates its tables, so a table that keeps its zone on its floor must not lock the zone after the
+    // table (deadlock); only a table entering a zone, changing floor or coming back from the archive reads it.
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    // AD-4 (§6.6): a restore keeping its stored zone falls back to the floor's implicit zone if that zone is archived now.
+    // That one read also is the check for a restore that keeps its (active) zone: the table has not changed floor.
+    let zoneChecked = false;
+    if (restoring && body.zone_id === undefined && merged.zone_id !== null) {
+      const stored = await shareZone(scoped, merged.zone_id);
+      if (stored !== undefined && stored.archived_at !== null) merged = { ...merged, zone_id: null };
+      else zoneChecked = merged.floor_id === before.floor_id;
+    }
+    if (merged.zone_id !== null && !zoneChecked && (merged.zone_id !== before.zone_id || merged.floor_id !== before.floor_id || restoring)) {
+      // A table that keeps its zone while changing floor (a doomed request: wrong_floor) reads the zone without a lock.
+      const keepsZone = merged.zone_id === before.zone_id && !restoring;
+      await assertZoneOfFloor(scoped, branchId, merged.zone_id, merged.floor_id, { lock: !keepsZone });
     }
     const table = await nameTaken('dining_tables_active_name', 'table', merged.name, () =>
       updateTable(scoped, branchId, merged, now),
@@ -366,9 +434,251 @@ export async function patchTable(
       },
       deps,
     );
+    // 01b AD-32 (b): an archive or restore changes the directory (archived tables drop out of the assignee map, as an
+    // archived zone does, AD-28). Lock order: the table row (lockTable), then the tenant row, then the branch row.
+    if ((before.archived_at === null) !== (table.archived_at === null)) await bumpDirectoryVersion(level);
     await deps.testHooks?.beforeBump?.();
     await bumpConfigVersion(level, { kind: 'branch', branchId });
     return { table };
+  });
+}
+
+// ------------------------------------------------------------------------------------------------- zones
+
+const byItemId = (a: { item_id: string }, b: { item_id: string }) => byText(a.item_id, b.item_id);
+
+// §6.6a response: the zone with both lists, by item_id (the stored order).
+function zoneWire(zone: ZoneRow, routes: readonly ZoneRouteRow[], stockItems: readonly ZoneStockItemRow[]): AdminZone {
+  return {
+    zone_id: zone.zone_id,
+    floor_id: zone.floor_id,
+    name: zone.name,
+    sort_order: zone.sort_order,
+    archived_at: zone.archived_at,
+    routes: [...routes].sort(byItemId).map(({ item_id, station_id }) => ({ item_id, station_id })),
+    stock_items: [...stockItems].sort(byItemId).map(({ item_id, threshold }) => ({ item_id, threshold })),
+  };
+}
+
+// §6.6a (02b A-1): every item is an active item of the tenant, every station an active station of this branch; a
+// stock item must also be sale_unit 'piece' and not requires_weighing. One statement per kind, however long the
+// lists (items first, then stations, as the item routes lock them). The routes are checked before the stock items.
+async function assertZoneLists(
+  level: TenantLevelRepository,
+  scoped: TenantScopedRepository,
+  branchId: string,
+  routes: readonly ZoneRouteRow[] | undefined,
+  stockItems: readonly ZoneStockItemRow[] | undefined,
+): Promise<void> {
+  const itemIds = [...new Set([...(routes ?? []), ...(stockItems ?? [])].map((entry) => entry.item_id))];
+  if (itemIds.length === 0) return;
+  const items = new Map((await shareItemsById(level, itemIds)).map((item) => [item.item_id, item]));
+  const routed = await shareItemRoutesAt(scoped, branchId, itemIds); // AD-15, between the items and the stations
+  const stationIds = [...new Set((routes ?? []).map((route) => route.station_id))];
+  const stations = stationIds.length > 0 ? await shareStationsById(scoped, stationIds) : [];
+  const invalid = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
+  (routes ?? []).forEach((route, i) => {
+    const item = items.get(route.item_id);
+    if (item === undefined) throw invalid(`routes.${i}.item_id`, 'not_found');
+    if (item.archived_at !== null) throw invalid(`routes.${i}.item_id`, 'archived');
+    if (!routed.has(route.item_id)) throw invalid(`routes.${i}.item_id`, 'not_found');
+    const station = stations.find((s) => s.branch_id === branchId && s.station_id === route.station_id);
+    if (station === undefined) {
+      throw invalid(`routes.${i}.station_id`, stations.some((s) => s.station_id === route.station_id) ? 'wrong_branch' : 'not_found');
+    }
+    if (station.archived_at !== null) throw invalid(`routes.${i}.station_id`, 'archived');
+  });
+  (stockItems ?? []).forEach((stock, i) => {
+    const item = items.get(stock.item_id);
+    const field = `stock_items.${i}.item_id`;
+    if (item === undefined) throw invalid(field, 'not_found');
+    if (item.archived_at !== null) throw invalid(field, 'archived');
+    if (!routed.has(stock.item_id)) throw invalid(field, 'not_found');
+    if (item.sale_unit !== 'piece') throw invalid(field, 'not_piece');
+    if (item.requires_weighing) throw invalid(field, 'requires_weighing');
+  });
+}
+
+// §6.5, §6.6 (02a A-1): a table's zone is active, in this branch and on the table's floor, else 422 zone_id.
+async function assertZoneOfFloor(
+  scoped: TenantScopedRepository,
+  branchId: string,
+  zoneId: string,
+  floorId: string,
+  { lock }: { lock: boolean } = { lock: true },
+): Promise<void> {
+  const zone = lock ? await shareZone(scoped, zoneId) : await readZone(scoped, zoneId);
+  const reason =
+    zone === undefined
+      ? 'not_found'
+      : zone.branch_id !== branchId
+        ? 'wrong_branch'
+        : zone.archived_at !== null
+          ? 'archived'
+          : zone.floor_id !== floorId
+            ? 'wrong_floor'
+            : null;
+  if (reason !== null) throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'zone_id', reason });
+}
+
+// §6.6a on the common write script: key → floor check → list checks → insert → lists → audit → bump.
+export async function createZone(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  body: CreateZoneInput,
+): Promise<IdempotentResult<{ zone: AdminZone }>> {
+  assertBranchAllowed(req.tenant, branchId);
+  return withIdempotency(
+    { pool: deps.pool, clock: deps.clock, tenant: req.tenant, log: req.log, ...hooks(deps) },
+    { key: req.idempotencyKey, method: req.method, path: req.path, body },
+    async (client) => {
+      const scoped = new TenantScopedRepository(req.tenant, client);
+      const level = new TenantLevelRepository(req.tenant, client);
+      await assertFloor(scoped, branchId, body.floor_id, { requireActive: true });
+      const routes = body.routes ?? [];
+      const stockItems = body.stock_items ?? [];
+      await assertZoneLists(level, scoped, branchId, body.routes, body.stock_items);
+      const row = await nameTaken('zones_active_name', 'zone', body.name, () =>
+        insertZone(scoped, {
+          branchId,
+          zoneId: deps.ids.next(),
+          floorId: body.floor_id,
+          name: body.name,
+          sortOrder: body.sort_order,
+          now: deps.clock.branchNow(),
+        }),
+      );
+      if (row === undefined) throw new DomainError('BRANCH_NOT_FOUND', { branch_id: branchId });
+      if (routes.length > 0) await replaceZoneRoutes(scoped, branchId, row.zone_id, routes);
+      if (stockItems.length > 0) await replaceZoneStockItems(scoped, branchId, row.zone_id, stockItems);
+      const zone = zoneWire(row, routes, stockItems);
+      await writeConfigAudit(
+        level,
+        {
+          actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+          entity: 'zone',
+          entityId: row.zone_id,
+          branchId,
+          action: 'create',
+          before: null,
+          after: zone,
+        },
+        deps,
+      );
+      await deps.testHooks?.beforeBump?.();
+      await bumpConfigVersion(level, { kind: 'branch', branchId });
+      return { status: 201, body: { zone } };
+    },
+  );
+}
+
+// AD-9, AD-15: the stored lists a zone restore keeps, without the entries that name an archived or missing item or
+// station, an item with no route at the branch, or a stock item that is not 'piece' or is weighed (the §6.6a rule). Items, then stations, each FOR SHARE in one statement.
+// `dropped` lists what was removed (null when nothing was).
+async function dropStaleEntries(
+  level: TenantLevelRepository,
+  scoped: TenantScopedRepository,
+  branchId: string,
+  routes: readonly ZoneRouteRow[] | undefined,
+  stockItems: readonly ZoneStockItemRow[] | undefined,
+): Promise<{ routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[]; dropped: { routes: ZoneRouteRow[]; stock_items: ZoneStockItemRow[] } | null }> {
+  const itemIds = [...new Set([...(routes ?? []), ...(stockItems ?? [])].map((entry) => entry.item_id))];
+  const items = new Map((itemIds.length > 0 ? await shareItemsById(level, itemIds) : []).map((item) => [item.item_id, item]));
+  const routed = itemIds.length > 0 ? await shareItemRoutesAt(scoped, branchId, itemIds) : new Set<string>(); // AD-15
+  const stationIds = [...new Set((routes ?? []).map((route) => route.station_id))];
+  const stations = stationIds.length > 0 ? await shareStationsById(scoped, stationIds) : [];
+  const liveItem = (id: string) => items.get(id)?.archived_at === null && routed.has(id);
+  const liveStation = (id: string) => stations.some((s) => s.branch_id === branchId && s.station_id === id && s.archived_at === null);
+  const keepRoute = (r: ZoneRouteRow) => liveItem(r.item_id) && liveStation(r.station_id);
+  const keepStock = (s: ZoneStockItemRow) => {
+    const item = items.get(s.item_id);
+    return item !== undefined && item.archived_at === null && routed.has(s.item_id) && item.sale_unit === 'piece' && !item.requires_weighing;
+  };
+  const keptRoutes = (routes ?? []).filter(keepRoute);
+  const keptStock = (stockItems ?? []).filter(keepStock);
+  const droppedRoutes = (routes ?? []).filter((r) => !keepRoute(r));
+  const droppedStock = (stockItems ?? []).filter((s) => !keepStock(s));
+  return {
+    routes: keptRoutes,
+    stock_items: keptStock,
+    dropped: droppedRoutes.length + droppedStock.length === 0 ? null : { routes: droppedRoutes, stock_items: droppedStock },
+  };
+}
+
+// §6.6b: lock → rules on the merged row and the sent lists → write → audit → bump. A list sent replaces the stored
+// list (absent = unchanged, [] = clear); one audit row covers the row and both lists. Archiving clears `zone_id` on
+// the zone's active tables in the same transaction and keeps the lists.
+export async function patchZone(
+  deps: RestaurantDeps,
+  req: OwnerRequest,
+  branchId: string,
+  zoneId: string,
+  body: PatchZoneInput,
+): Promise<{ zone: AdminZone }> {
+  assertBranchAllowed(req.tenant, branchId);
+  return inTransaction(deps.pool, async (client) => {
+    const scoped = new TenantScopedRepository(req.tenant, client);
+    const level = new TenantLevelRepository(req.tenant, client);
+    const before = await lockZone(scoped, branchId, zoneId);
+    if (before === undefined) throw new DomainError('ZONE_NOT_FOUND', { zone_id: zoneId });
+    const now = deps.clock.branchNow();
+    const stored = await selectZoneLists(scoped, branchId, [zoneId]);
+    const beforeWire = zoneWire(before, stored.routes, stored.stock_items);
+    const merged: ZoneRow = {
+      ...before,
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
+      ...(body.archived !== undefined ? { archived_at: body.archived ? (before.archived_at ?? now) : null } : {}),
+    };
+    // AD-9 (§6.6b): a restore drops the stored entries (of a list not sent) that name an archived item or station, or a
+    // stock item that is not a piece or is weighed. Their rows are locked FOR SHARE, so no archive slips in.
+    const restoring = before.archived_at !== null && merged.archived_at === null;
+    const kept = restoring
+      ? await dropStaleEntries(level, scoped, branchId, body.routes === undefined ? stored.routes : undefined, body.stock_items === undefined ? stored.stock_items : undefined)
+      : { routes: stored.routes, stock_items: stored.stock_items, dropped: null };
+    const next = zoneWire(merged, body.routes ?? kept.routes, body.stock_items ?? kept.stock_items);
+    // S26: nothing changes → nothing is written (no row update, no audit row, no bump).
+    if (unchangedRow(beforeWire, next)) return { zone: beforeWire };
+    const routesChanged = canonicalJson(beforeWire.routes) !== canonicalJson(next.routes);
+    const stockChanged = canonicalJson(beforeWire.stock_items) !== canonicalJson(next.stock_items);
+    // A list sent with a restore is validated even when it equals the stored one (the stored one may be stale).
+    await assertZoneLists(
+      level,
+      scoped,
+      branchId,
+      routesChanged || restoring ? body.routes : undefined,
+      stockChanged || restoring ? body.stock_items : undefined,
+    );
+    // A restored zone needs its floor active (a floor with an active zone cannot be archived, §6.4).
+    if (restoring) {
+      await assertFloor(scoped, branchId, merged.floor_id, { requireActive: true });
+    }
+    const row = await nameTaken('zones_active_name', 'zone', merged.name, () => updateZone(scoped, branchId, merged, now));
+    if (before.archived_at === null && row.archived_at !== null) await clearZoneOfActiveTables(scoped, branchId, zoneId, now);
+    if (routesChanged) await replaceZoneRoutes(scoped, branchId, zoneId, next.routes);
+    if (stockChanged) await replaceZoneStockItems(scoped, branchId, zoneId, next.stock_items);
+    const zone = zoneWire(row, next.routes, next.stock_items);
+    await writeConfigAudit(
+      level,
+      {
+        actor: { kind: 'owner', ownerUserId: req.ownerUserId },
+        entity: 'zone',
+        entityId: zoneId,
+        branchId,
+        action: auditActionFor(before, row),
+        before: beforeWire,
+        after: kept.dropped === null ? zone : { ...zone, dropped: kept.dropped },
+      },
+      deps,
+    );
+    // AD-28: an archive or restore also changes the directory (archived zones drop out of it, 01b v1.6 B-2), so hubs
+    // drop or regain the zone within one poll. Before the branch bump: tenant row, then branch row, as every
+    // directory write (B11) and the S8 branch-last order.
+    if ((before.archived_at === null) !== (row.archived_at === null)) await bumpDirectoryVersion(level);
+    await deps.testHooks?.beforeBump?.();
+    await bumpConfigVersion(level, { kind: 'branch', branchId });
+    return { zone };
   });
 }
 
@@ -608,6 +918,11 @@ export async function patchStation(
       const naming = await activeStationsNamingAlternate(scoped, branchId, stationId);
       if (naming.length > 0) {
         throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'station', ids: naming } });
+      }
+      // AD-6 (§6.9): refused while an active zone's routes[] names it.
+      const zoneIds = await activeZoneIdsRoutingStation(scoped, branchId, stationId);
+      if (zoneIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'station', id: stationId, used_by: { entity: 'zone', ids: zoneIds } });
       }
     }
     if (alternates !== undefined) assertAlternates(lists.alternates, stationType, stationId, locked);
@@ -1264,6 +1579,7 @@ function itemFields(
     out_of_stock_behaviour: item.out_of_stock_behaviour,
     sale_unit: item.sale_unit,
     requires_weighing: item.requires_weighing,
+    is_ready_item: item.is_ready_item,
     stock_draws: draws.map(({ stock_item_id, quantity_per_sale_unit }) => ({ stock_item_id, quantity_per_sale_unit })),
     availability_windows: windows.map(({ start_ms, end_ms }) => ({ start_ms, end_ms })),
     weight_pct: item.weight_pct,
@@ -1321,7 +1637,7 @@ type ItemRule = (p: ItemPatch) => void | Promise<void>;
 const invalidReference = (field: string, reason: string) => new DomainError('CONFIG_REFERENCE_INVALID', { field, reason });
 const groupOf = (p: ItemPatch) => p.groups.find((g) => g.variant_group_id === p.merged.variant_group_id);
 const isActive = (p: ItemPatch) => p.merged.archived_at === null;
-const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal', ids: string[]) =>
+const inUse = (p: ItemPatch, entity: 'modifier_group' | 'deal' | 'zone', ids: string[]) =>
   new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: p.before.item_id, used_by: { entity, ids } });
 // R4 and R10 share one read (§6.5 R10: "the same read as R4"); read once per attempt.
 const linkingGroups = async (p: ItemPatch) => (p.linkingGroupIds ??= await linkingGroupIds(p.level, p.before.item_id));
@@ -1397,6 +1713,19 @@ const ITEM_PATCH_RULES: ReadonlyArray<readonly [name: string, rule: ItemRule]> =
       if (p.merged.sale_unit === p.before.sale_unit) return;
       const dealIds = await dealsBrokenBySaleUnit(p.level, p.before.item_id, p.merged.sale_unit);
       if (dealIds.length > 0) throw inUse(p, 'deal', dealIds);
+    },
+  ],
+  // AD-6 (§6.15): after R6, still in the 409 group. Archiving an item an active zone's routes[] or stock_items[] name,
+  // or making a zone stock item not 'piece' / weighed, is refused (the zone ids are the active zones').
+  [
+    '409 AD-6 zone lists name the item',
+    async (p) => {
+      const archiving = p.before.archived_at === null && !isActive(p);
+      const awayFromPiece = p.before.sale_unit === 'piece' && p.merged.sale_unit !== 'piece';
+      const weighingOn = !p.before.requires_weighing && p.merged.requires_weighing;
+      if (!archiving && !awayFromPiece && !weighingOn) return;
+      const zoneIds = await activeZoneIdsNamingItem(p.level, p.before.item_id, !archiving);
+      if (zoneIds.length > 0) throw inUse(p, 'zone', zoneIds);
     },
   ],
   // (3) 422: 01a's first, then R1, R1a, R2, R3, R7 draw part, R8, R9
@@ -1626,6 +1955,11 @@ export async function putItemRoute(
       await deps.testHooks?.afterReferenceLock?.('PUT /v1/admin/menu-items/:item_id/routes/:branch_id');
       route = await upsertItemRoute(scoped, itemId, next, deps.clock.branchNow());
     } else if (before !== null) {
+      // AD-15: the route row is locked, so no zone write can add the item now; only active zones count.
+      const zoneIds = await activeZoneIdsNamingItemAt(scoped, branchId, itemId);
+      if (zoneIds.length > 0) {
+        throw new DomainError('CONFIG_IN_USE', { entity: 'menu_item', id: itemId, used_by: { entity: 'zone', ids: zoneIds } });
+      }
       await deleteItemRoute(scoped, branchId, itemId);
     }
     await writeConfigAudit(

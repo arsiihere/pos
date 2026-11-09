@@ -146,6 +146,7 @@ function preRead(db: Database.Database, payload: Payload, ctx: PreReadCtx): void
     branch: ctx.branch,
     directory: ctx.directory,
     config: ctx.config,
+    queuedAt: null,
   };
   runApply(applyCtx, c, factsOf(payload, c, ctx.actor.deviceId, ctx.clock.branchNow()));
 }

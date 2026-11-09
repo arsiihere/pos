@@ -2,9 +2,9 @@ import type { MenuLineDeal, MenuLineGroup, MenuLineItem } from '@pos/domain';
 import { z } from 'zod';
 import { DirectorySchema } from './directory.js';
 
-// 01a §4.3 (Changed by 03a v1.0), 01c §4.6 (V12): the branch config snapshot is schema 3. NOT .strict(): within a
-// version the cloud may add optional fields, which an older hub drops (S28 c).
-export const SNAPSHOT_SCHEMA_VERSION = 3;
+// 01a §4.3 (Changed by 03a v1.0, 02a v1.0 A-1, 02b v1.0 A-1), 01c §4.6 (V12): the branch config snapshot is schema 4.
+// NOT .strict(): within a version the cloud may add optional fields, which an older hub drops (S28 c).
+export const SNAPSHOT_SCHEMA_VERSION = 4;
 
 // 01a §3.4 (01b B19, D-11): the hub's config poll interval; the cloud derives hub_stale_after_ms from it.
 export const CONFIG_POLL_INTERVAL_MS = 60_000;
@@ -206,13 +206,14 @@ const SnapshotBase = z.object({
 
 // 01a §4.3 (Changed by 03a v1.0), §5.2a A-1..A-13: snapshot schema 3, schema 2 plus the engine configuration. Names
 // and enum values as EngineStationConfig / EngineSettings; reference_cook_ms is not here (the hub derives it, 03a §3.11).
-// NOT .strict() (S28 c). Plain ints: ranges are enforced at the write routes. The only wire schema (S28 b).
+// NOT .strict() (S28 c). Plain ints: ranges are enforced at the write routes. Never a wire schema on its own since
+// schema 4 (below) extends it.
 const orderType = z.enum(['dine_in', 'takeaway', 'delivery', 'parking']);
 const goesWithKind = z.enum(['category', 'item']);
 
 const baseShape = SnapshotBase.shape;
 
-export const BranchConfigSnapshotSchemaV3 = SnapshotBase.extend({
+const BranchConfigSnapshotSchemaV3Shape = SnapshotBase.extend({
   snapshot_schema_version: z.literal(SNAPSHOT_SCHEMA_VERSION),
   points: z.array(
     z.object({
@@ -285,8 +286,41 @@ export const BranchConfigSnapshotSchemaV3 = SnapshotBase.extend({
   ),
 });
 
-export type BranchConfigSnapshotV3 = z.infer<typeof BranchConfigSnapshotSchemaV3>;
-export type BranchConfig = BranchConfigSnapshotV3;
+// 01a §4.3 (Changed by 02a v1.0 A-1, 02b v1.0 A-1; as built, 02p task 4, AD-10–AD-12): snapshot schema 4, schema 3
+// plus floors[].zones[] (archived zones kept with is_archived: true and empty lists, AD-11; routes and stock_items by
+// item_id, AD-12), tables[].zone_id (null when the table has no zone or its zone is archived), items[].is_ready_item,
+// and the five 02b settings in engine_settings beside the A-12 fields (AD-10). NOT .strict() (S28 c). The only wire
+// schema (S28 b).
+const v3Shape = BranchConfigSnapshotSchemaV3Shape.shape;
+
+export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV3Shape.extend({
+  floors: z.array(
+    baseShape.floors.element.extend({
+      zones: z.array(
+        z.object({
+          zone_id: z.string(),
+          name: z.string(),
+          sort_order: int,
+          is_archived: z.boolean(),
+          routes: z.array(z.object({ item_id: z.string(), station_id: z.string() })),
+          stock_items: z.array(z.object({ item_id: z.string(), threshold: int })),
+        }),
+      ),
+      tables: z.array(baseShape.floors.element.shape.tables.element.extend({ zone_id: z.string().nullable() })),
+    }),
+  ),
+  items: z.array(v3Shape.items.element.extend({ is_ready_item: z.boolean() })),
+  engine_settings: v3Shape.engine_settings.extend({
+    queue_auto_send_max_ms: int,
+    zone_undo_ms: int,
+    slow_item_threshold_ms: int,
+    served_estimate_ms: int.nullable(),
+    comp_reason_chips: z.array(z.string()),
+  }),
+});
+
+export type BranchConfigSnapshotV4 = z.infer<typeof BranchConfigSnapshotSchemaV4>;
+export type BranchConfig = BranchConfigSnapshotV4;
 export type ConfigItem = BranchConfig['items'][number];
 export type ConfigStockItem = BranchConfig['stock_items'][number];
 export type ConfigVariantGroup = BranchConfig['variant_groups'][number];
@@ -302,7 +336,7 @@ export function isStockTracked(item: Pick<ConfigItem, 'stock_draws'>): boolean {
 }
 
 // §6.1: the snapshot stays a plain record here; the hub hashes the wire JSON
-// before it parses it with BranchConfigSnapshotSchemaV3 (S27).
+// before it parses it with BranchConfigSnapshotSchemaV4 (S27).
 export const SyncConfigEnvelopeSchema = z.object({
   data: z.object({
     config: z

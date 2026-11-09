@@ -114,6 +114,7 @@ async function runCommand(
   const pinField = pin?.field;
   await deps.testHooks?.betweenGuardAndWriter?.();
 
+  const queuedAt = queuedAtOf(request, commandDef, session, deps.clock.branchNow());
   const commandCtx = (tx: WriterTx, permission: Resolution | null, directory: StaffDirectory): CommandCtx => ({
     tx,
     // R8: the writer's tx.state is the hub's EngineState (HubDeps.state).
@@ -126,6 +127,7 @@ async function runCommand(
     branch: { tenantId: provisioned.tenant_id, branchId: provisioned.branch_id },
     directory,
     config: deps.config,
+    queuedAt,
   });
   // Idempotency re-check, M39 re-check, permission, `handle`: drafts only (00 §3.7).
   type Prepared = { beforeSeq: number; handled: { events: EventDraft[]; result: unknown } };
@@ -231,6 +233,15 @@ function peekSession(request: FastifyRequest, deps: CommandRouteDeps, routeKind:
   const token = headerValue(request, 'x-session-token');
   const session = token === undefined ? undefined : findSessionByToken(deps.db, token);
   return session?.device_id === request.device?.device_id ? session : undefined;
+}
+
+// 00 v1.8 H-1 (b): `X-Queued-At` (ms, hub time) on a queueable command, clamped to [started_at - 120 000, now];
+// ignored (null) on other commands, and when the header is missing or not an integer.
+function queuedAtOf(request: FastifyRequest, def: CommandDef, session: SessionRow, now: number): number | null {
+  if (def.queueable !== true) return null;
+  const raw = headerValue(request, 'x-queued-at');
+  if (raw === undefined || !/^\d{1,15}$/.test(raw)) return null;
+  return Math.min(now, Math.max(session.started_at - 120_000, Number(raw)));
 }
 
 function actorOf(session: SessionRow, deviceId: string): CommandCtx['actor'] {
@@ -351,6 +362,21 @@ function authorize(def: CommandDef, session: SessionRow, directory: StaffDirecto
 
 function registerTestCommands(registry: ReturnType<typeof createCommandRegistry>): void {
   ensureTestNooped();
+  // 00 v1.8 H-1 (b)/(c): test-only pair, one queueable and one not; both echo ctx.queuedAt.
+  for (const queueable of [true, false]) {
+    registry.register(
+      defineCommand({
+        commandType: queueable ? 'TestQueueable' : 'TestNotQueueable',
+        payloadSchema: z.object({}),
+        sessionKind: 'device',
+        permission: 'reprint-ticket',
+        queueable,
+        handle(ctx, _payload, cmd) {
+          return { events: [testEvent(ctx, cmd)], result: { queued_at: ctx.queuedAt } };
+        },
+      }),
+    );
+  }
   registry.register(
     defineCommand({
       commandType: 'TestNoop',

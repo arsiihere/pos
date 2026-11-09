@@ -107,7 +107,9 @@ describe('03a order-stream events', () => {
   it('[03a §4.2] the 14 order events are registered at schema_version 1 and each parses its example', () => {
     expect(ORDER_EVENTS).toHaveLength(14);
     for (const type of ORDER_EVENTS) {
-      expect(payloadSchema(type, 1).parse(examples[type]), type).toEqual(examples[type]);
+      // ItemAdded's two additive fields parse in as null / false (C-1); every other example round-trips unchanged
+      const expected = type === 'ItemAdded' ? { ...examples[type], served_from_zone_id: null, is_ready_item: false } : examples[type];
+      expect(payloadSchema(type, 1).parse(examples[type]), type).toEqual(expected);
     }
   });
 
@@ -236,7 +238,7 @@ describe('03a order-stream events', () => {
     };
     const weighed = { ...itemAdded, order_item_id: 'L4', requires_weighing: true, quantity: null, sale_unit: 'g', line_total_minor: null };
     for (const payload of [itemAdded, deal, dealPart, child, weighed]) {
-      expect(schema.parse(payload), payload.line_kind).toEqual(payload);
+      expect(schema.parse(payload), payload.line_kind).toEqual({ ...payload, served_from_zone_id: null, is_ready_item: false });
     }
     expect(schema.safeParse({ ...itemAdded, line_kind: 'combo' }).success).toBe(false);
     expect(schema.safeParse({ ...itemAdded, sale_unit: 'kg' }).success).toBe(false);
@@ -244,5 +246,89 @@ describe('03a order-stream events', () => {
     expect(schema.safeParse({ ...itemAdded, options: [{ ...itemAdded.options[0], charge_minor: undefined }] }).success).toBe(false);
     expect(schema.safeParse({ ...itemAdded, kitchen_note: 'x'.repeat(81) }).success).toBe(false);
     expect(schema.safeParse({ ...itemAdded, kitchen_note: 'x'.repeat(80) }).success).toBe(true);
+  });
+});
+
+describe('02b additive order-event fields (03a v1.2 §4.2; 01c v1.1.2 C-1)', () => {
+  it('[02p U-5] ItemAdded without served_from_zone_id / is_ready_item parses as null / false', () => {
+    const parsed = payloadSchema('ItemAdded', 1).parse(itemAdded) as Record<string, unknown>;
+    expect(parsed.served_from_zone_id).toBeNull();
+    expect(parsed.is_ready_item).toBe(false);
+  });
+
+  it('[02p U-5] ItemAdded with both fields round-trips', () => {
+    const withBoth = { ...itemAdded, served_from_zone_id: 'Z1', is_ready_item: true };
+    expect(payloadSchema('ItemAdded', 1).parse(withBoth)).toEqual(withBoth);
+    const nullZone = { ...itemAdded, served_from_zone_id: null, is_ready_item: false };
+    expect(payloadSchema('ItemAdded', 1).parse(nullZone)).toEqual(nullZone);
+  });
+
+  it('[03a #129] OrderPlaced, ItemServed, ItemRemoved, ItemVoided round-trip the new fields', () => {
+    const placed = {
+      ...examples.OrderPlaced,
+      business_date: '2026-11-08',
+      token: '42',
+      car_number: 'ABC-123',
+      car_type: 'Corolla',
+      order_note: 'no onions',
+      sent_after_reconnect: true,
+      has_phone: true,
+      has_food: false,
+    };
+    expect(payloadSchema('OrderPlaced', 1).parse(placed)).toEqual(placed);
+    const served = { order_item_ids: ['L1'], source: 'tap', served_at: 1_700_000_000_000 };
+    expect(payloadSchema('ItemServed', 1).parse(served)).toEqual(served);
+    const removed = { order_item_id: 'L1', units: 2 };
+    expect(payloadSchema('ItemRemoved', 1).parse(removed)).toEqual(removed);
+    const voided = { order_item_id: 'L1', units: 1, refund_minor: 5_000, comp_voided_minor: 0 };
+    expect(payloadSchema('ItemVoided', 1).parse(voided)).toEqual(voided);
+    // optional: the bare forms still parse
+    expect(payloadSchema('ItemRemoved', 1).safeParse({ order_item_id: 'L1' }).success).toBe(true);
+    expect(payloadSchema('OrderPlaced', 1).safeParse(examples.OrderPlaced).success).toBe(true);
+  });
+
+  it('[03a #129] the new optional fields refuse a wrong type or value', () => {
+    expect(payloadSchema('ItemRemoved', 1).safeParse({ order_item_id: 'L1', units: 0 }).success).toBe(false);
+    expect(payloadSchema('ItemRemoved', 1).safeParse({ order_item_id: 'L1', units: 1.5 }).success).toBe(false);
+    expect(payloadSchema('ItemServed', 1).safeParse({ ...examples.ItemServed, served_at: 1.5 }).success).toBe(false);
+    expect(payloadSchema('ItemVoided', 1).safeParse({ ...examples.ItemVoided, refund_minor: 1.5 }).success).toBe(false);
+    expect(payloadSchema('ItemVoided', 1).safeParse({ ...examples.ItemVoided, comp_voided_minor: 'x' }).success).toBe(false);
+    expect(payloadSchema('OrderPlaced', 1).safeParse({ ...examples.OrderPlaced, has_phone: 'yes' }).success).toBe(false);
+  });
+
+  it("[03a §4.2 Q-6] ItemServed source 'zone' accepted; 'other' rejected", () => {
+    expect(payloadSchema('ItemServed', 1).safeParse({ ...examples.ItemServed, source: 'zone' }).success).toBe(true);
+    expect(payloadSchema('ItemServed', 1).safeParse({ ...examples.ItemServed, source: 'other' }).success).toBe(false);
+  });
+});
+
+
+describe('03a v1.2 E-4: OrderLinesAdded order_header (§4.2)', () => {
+  const header = { order_type: 'dine_in', table_key: 'dine_in:T12', table_id: 'T12', follow_up: false, pickup_at_ms: null, placed_by: 'S_WAIT' };
+
+  it('[03a #138] OrderLinesAdded with and without order_header round-trips; the header fields take §4.2 types', () => {
+    const schema = payloadSchema('OrderLinesAdded', 1);
+    const bare = examples.OrderLinesAdded!;
+    expect(schema.parse(bare)).toEqual(bare);
+    expect(schema.parse(bare)).not.toHaveProperty('order_header');
+    const withHeader = { ...bare, order_header: header };
+    expect(schema.parse(withHeader)).toEqual(withHeader);
+    const nulls = { ...bare, order_header: { ...header, table_id: null, placed_by: null, pickup_at_ms: 1_700_000_000_000, order_type: 'delivery', follow_up: true } };
+    expect(schema.parse(nulls)).toEqual(nulls);
+    // An empty addition with a header (E-4 a′) parses too.
+    const empty = { order_id: 'O1', order_item_ids: [], groups: [], lines: [], order_header: header };
+    expect(schema.parse(empty)).toEqual(empty);
+  });
+
+  it('[03a #138] order_header is absent, never null; each field refuses a wrong type or a missing key', () => {
+    const schema = payloadSchema('OrderLinesAdded', 1);
+    const bare = examples.OrderLinesAdded!;
+    expect(schema.safeParse({ ...bare, order_header: null }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, order_type: 'counter' } }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, pickup_at_ms: 1.5 } }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, order_header: { ...header, follow_up: 'no' } }).success).toBe(false);
+    for (const key of Object.keys(header)) {
+      expect(schema.safeParse({ ...bare, order_header: without(header, key) }).success, key).toBe(false);
+    }
   });
 });

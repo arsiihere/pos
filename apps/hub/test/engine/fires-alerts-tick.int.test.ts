@@ -9,7 +9,7 @@ import { Writable } from 'node:stream';
 import { getAlertIntents, type EngineState } from '@pos/engine';
 import type { EngineConfig, EventDraft, PosEvent } from '@pos/events';
 import Database from 'better-sqlite3';
-import { aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch } from '@pos/events/testing';
+import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, anOrderBatch, anOrderLinesAdded } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
@@ -18,14 +18,16 @@ import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../
 import { onFreezeEntry } from '../../src/engine-host/fires-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
 import { onSigterm } from '../../src/engine-host/snapshots';
-import { readOnlyDb } from '../../src/engine-host/read-only-tx';
+import { rawDbOf, readOnlyDb } from '../../src/engine-host/read-only-tx';
+import { registerSlipReaders, resetSlipReaders } from '../../src/engine-host/slip-readers';
 import type { WriterTx } from '../../src/engine-host/writer';
 import { boot, type BootContext, type BootHandle } from '../../src/lib/boot';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
-import { draftOf, fakeSubmit, fakeTap, type FakeOrder } from './fakes';
+import { draftOf, fakeSlipReaders, fakeSubmit, fakeTap, type FakeOrder, type FakeSlipReaders, type FakeTableEntry } from './fakes';
 
 registerEngineBootSteps(() => performance.now());
 registerRestaurantBootSteps();
@@ -81,6 +83,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     resetHostFlags();
+    resetSlipReaders();
     await hub.close();
   });
 
@@ -236,6 +239,343 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(m.dueStatements).toBe(0);
   });
 
+  // ------------------------------------------------------------------------------- §10.5 statement counts (gap 1)
+  // 03a v1.0.1 §6.2a / §10.5: a pass with work = 2 (listOpen) + ≤ 1 (tableOwners, stubbed by placed_by: 0) + ≤ 1 line
+  // facts (only in a pass with a slip to raise) + 01d's closeMany (1 alert read; its request_result raiseMany runs only
+  // for a request with a requester, and a slip_warning has none) and raiseMany (dedupe 1 + the cached fixed reads 5; a
+  // person or managers target needs no resolver, and no route is registered here). `reads` excludes the appends,
+  // including the close drafts appended before raiseMany.
+  it('[03a §10.5 gap 1] a fires_alerts pass that closes and raises in one go: exact statement count', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    const a = await lateSlip({ order_id: 'O1' });
+    await pass(a.due);
+    const [old] = slipAlerts();
+    expect(old).toMatchObject({ state: 'open', dedupe_key: `slip:${KEY}` });
+    // A second table goes late; before its slip is due, O1's line is done (its slip resolves).
+    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'O2-L1' }] });
+    await pass(hub.clock.branchNow());
+    fakeTap(hub.deps, 'start', 'O1-L1');
+    fakeTap(hub.deps, 'done', 'O1-L1');
+    expect(engine().slips[KEY]!.resolved_at).not.toBeNull();
+    const due2 = engine().slip_due['dine_in:T2']!;
+    expect(due2).toBeGreaterThan(hub.clock.branchNow());
+    const m = meter();
+    hub.published.length = 0;
+    await pass(due2);
+    expect(m.tx).toBe(1);
+    // One pass: O1's alert closed done and T2's raised, close first.
+    const rows = slipAlerts();
+    expect(rows.map((r) => [r.dedupe_key, r.state, r.close_reason])).toEqual([
+      [`slip:${KEY}`, 'closed', 'done'],
+      ['slip:dine_in:T2', 'open', null],
+    ]);
+    const types = hub.published.flat().map((e) => e.event_type).filter((t) => t === 'AlertClosed' || t === 'AlertRaised');
+    expect(types).toEqual(['AlertClosed', 'AlertRaised']);
+    expect(eventsOf('SlipWarned').map((e) => (e.payload as { table_key: string }).table_key)).toEqual(['dine_in:T2']);
+    // 2 listOpen + 0 tableOwners (stub) + 1 line facts (T2's slip) + closeMany 1 + raiseMany 6 (dedupe 1, fixed 5) = 10.
+    expect(m.reads).toEqual([2 + 0 + 1 + 1 + 6]);
+    expect(m.dueStatements).toBe(0);
+  });
+
+  it('[03a §10.5 gap 1] an overload pass: exact count', async () => {
+    kitchen(config({ S1: HOT }));
+    // S1 red: one 20-minute line on capacity 1, started at once (it never slips).
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
+    await pass(hub.clock.branchNow());
+    fakeTap(hub.deps, 'start', 'L1');
+    const m = meter();
+    // Every pass until pressure_alert_ms has passed: only the raise pass opens a transaction.
+    await passes(MIN / TICK_MS + 4);
+    expect(overloadAlerts().map((r) => [r.dedupe_key, r.state])).toEqual([['station_overload:S1', 'open']]);
+    expect(eventsOf('SlipWarned')).toEqual([]);
+    expect(m.tx).toBe(1);
+    // The raise pass: 2 listOpen + 0 tableOwners + 0 line facts (no slip) + no closeMany (nothing to close) + raiseMany 6
+    // (dedupe 1, fixed 5; the managers target needs no resolver) = 8.
+    expect(m.reads).toEqual([2 + 0 + 0 + 0 + 6]);
+    expect(m.dueStatements).toBe(0);
+    // The close pass (below amber): 2 listOpen + closeMany 1 (the info kind has no request) + no raiseMany = 3.
+    m.reset();
+    fakeTap(hub.deps, 'done', 'L1');
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(overloadAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'done' });
+    expect(m.tx).toBe(1);
+    expect(m.reads).toEqual([2 + 1]);
+    expect(m.dueStatements).toBe(0);
+  });
+
+  it('[03a §10.5 gap 1] the first pass after a day close (obsolete closes): exact count', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    const a = await lateSlip({ order_id: 'O1' });
+    await pass(a.due);
+    const b = await lateSlip({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' } });
+    await pass(b.due);
+    expect(slipAlerts().filter((r) => r.state === 'open')).toHaveLength(2);
+    // Every line done, so no order is late after the close and nothing is raised again (as #82).
+    for (const id of ['O1-L1', 'O2-L1']) {
+      fakeTap(hub.deps, 'start', id);
+      fakeTap(hub.deps, 'done', id);
+    }
+    append([aBusinessDayClosed()]);
+    expect(hostFlags.day_closed).toBe(true);
+    const m = meter();
+    await pass(hub.clock.branchNow() + TICK_MS);
+    expect(m.tx).toBe(1);
+    expect(hostFlags.day_closed).toBe(false);
+    expect(slipAlerts().map((r) => [r.state, r.close_reason])).toEqual([
+      ['closed', 'obsolete'],
+      ['closed', 'obsolete'],
+    ]);
+    // 2 listOpen + one closeMany for both obsolete closes (1 alert read; a slip_warning has no requester, so no
+    // request_result raise) + no line facts, no raiseMany (nothing to raise) = 3, whatever the number of closes.
+    expect(m.reads).toEqual([2 + 1]);
+    expect(m.dueStatements).toBe(0);
+    m.reset();
+    await passes(5);
+    expect(m.tx).toBe(0);
+  });
+
+  // ------------------------------------------------------------------------ 03a v1.2 Q-1, R-1, R-2 (tests 120–122)
+  // 02a's readers are not built: fakeSlipReaders stands in (one statement each). Keys are built from seating ids (Q-2).
+  const HOLDER = 'S_CASH';
+  const seating = (seating_id: string, primary: string, table_ids: string[] = [primary]): FakeTableEntry => ({ seating_id, primary_table_id: primary, table_ids });
+  const dineIn = (order_id: string, seat: string, table_id = 'T4'): FakeOrder => ({ order_id, order: { table_id, table_key: `dine_in:${seat}` }, lines: [{ order_item_id: `${order_id}-L1` }] });
+  const registerFakes = (o: Parameters<typeof fakeSlipReaders>[0] = {}): FakeSlipReaders => {
+    const fake = fakeSlipReaders(o);
+    registerSlipReaders(fake.readers);
+    return fake;
+  };
+  // R-2: the in-memory branch config's floors[].tables[] (table_id, name).
+  function floor(tables: Array<[table_id: string, name: string]>): void {
+    const base = aBranchConfig();
+    const config = {
+      ...base,
+      floors: [{ floor_id: 'F1', name: 'Main', sort_order: 0, zones: [], tables: tables.map(([table_id, name], i) => ({ table_id, name, seats: 4, sort_order: i, zone_id: null })) }],
+    };
+    swapBranchConfig({ config, snapshotHash: 'h', configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
+  }
+  const displayOf = (alert_id: string): Record<string, unknown> =>
+    JSON.parse((hub.deps.db.prepare('SELECT display_json FROM alerts WHERE alert_id = ?').get(alert_id) as { display_json: string }).display_json) as Record<string, unknown>;
+  const slipOf = (key: string): AlertRow => slipAlerts().find((r) => r.dedupe_key === `slip:${key}`)!;
+  // Submit the orders, then one pass at the slips' due (they are all late at the same crossing).
+  async function raiseAll(orders: FakeOrder[]): Promise<void> {
+    for (const o of orders) submit(o);
+    await pass(hub.clock.branchNow());
+    const due = engine().next_alert_due_at;
+    expect(due).not.toBeNull();
+    // + 1 s: an order submitted a second later has crossed too, so its group is in the same slip.
+    await pass(due! + 1_000);
+  }
+
+  it('[03a #120] dine_in receiver = holder of the oldest order', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    const fake = registerFakes({ holders: { O1: HOLDER }, tables: { O1: seating('SEAT1', 'T4') } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row).toMatchObject({ state: 'open', receiver: HOLDER, target: { kind: 'person', staff_id: HOLDER }, subject_stream_id: 'O1' });
+    expect(fake.calls).toEqual({ holdersOfOrders: [['O1']], currentTableOf: [['O1']] });
+    // §4.4: `db` is the tick's read-only view of the hub's connection.
+    for (const db of fake.dbs) {
+      expect(db).not.toBe(hub.deps.db);
+      expect(rawDbOf(db)).toBe(hub.deps.db);
+      expect(() => db.prepare('DELETE FROM alerts')).toThrow(/read-only view/);
+    }
+  });
+
+  it('[03a #120] split then handover: the oldest order\'s holder', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    // One seating, two orders (the bill was split, then one part handed over): O1 is the older.
+    const fake = registerFakes({ holders: { O1: HOLDER, O2: 'S_MGR' }, tables: { O1: seating('SEAT1', 'T4'), O2: seating('SEAT1', 'T4') } });
+    submit(dineIn('O1', 'SEAT1'));
+    hub.clock.set(hub.clock.branchNow() + 1_000);
+    await raiseAll([dineIn('O2', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row.values.order_ids).toEqual(['O1', 'O2']);
+    expect(row.receiver).toBe(HOLDER);
+    // Only the oldest order's id is read: the receiver and the label are both of order_ids[0].
+    expect(fake.calls).toEqual({ holdersOfOrders: [['O1']], currentTableOf: [['O1']] });
+  });
+
+  it('[03a #120] no holder → placed_by', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    const fake = registerFakes({ tables: { O1: seating('SEAT1', 'T4') } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    expect(slipOf('dine_in:SEAT1')).toMatchObject({ receiver: WAITER, target: { kind: 'person', staff_id: WAITER } });
+    expect(fake.calls.holdersOfOrders).toEqual([['O1']]);
+    expect(displayOf(slipOf('dine_in:SEAT1').alert_id).table_code).toBe('4');
+  });
+
+  // Owner ruling 2026-11-09 (AD-E2): a holder not in the hub directory falls back to placed_by (a skip raises no alert,
+  // so the step-1 manager escalation would never happen); skipped only when placed_by is missing or not there either.
+  it('[03a #120] holder not in the directory → placed_by', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    const fake = registerFakes({ holders: { O1: 'S_GHOST' }, tables: { O1: seating('SEAT1', 'T4') } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row).toMatchObject({ state: 'open', receiver: WAITER, target: { kind: 'person', staff_id: WAITER } });
+    expect(displayOf(row.alert_id).table_code).toBe('4');
+    expect(fake.calls.holdersOfOrders).toEqual([['O1']]);
+    expect(skipLogs()).toEqual([]);
+  });
+
+  it('[03a #120] holder and placed_by both not in the directory → skipped receiver_not_in_directory', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    registerFakes({ holders: { O1: 'S_GHOST' }, tables: { O1: seating('SEAT1', 'T4') } });
+    submit({ ...dineIn('O1', 'SEAT1'), actor_id: 'S_GONE' });
+    await pass(hub.clock.branchNow());
+    await pass(engine().next_alert_due_at! + 1_000);
+    expect(slipAlerts()).toEqual([]);
+    expect(eventsOf('SlipWarned')).toEqual([]);
+    expect(skipLogs().map((l) => [l.kind, l.table_key, l.reason])).toEqual([[ENGINE_ALERT_KINDS.slip, 'dine_in:SEAT1', 'receiver_not_in_directory']]);
+    expect(hostFlags.skipped.has('dine_in:SEAT1')).toBe(true);
+  });
+
+  it('[03a #120] takeaway / parking → placed_by, no reader call', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    // The fakes would answer a holder for these ids; they must not be asked.
+    const fake = registerFakes({ holders: { O_T: HOLDER, O_P: HOLDER }, tables: { O_T: seating('SEAT1', 'T4'), O_P: seating('SEAT1', 'T4') } });
+    await raiseAll([
+      { order_id: 'O_T', actor_id: 'S_MGR', order: { order_type: 'takeaway', table_id: null, table_key: 'takeaway:O_T' }, lines: [{ order_item_id: 'O_T-L1' }] },
+      { order_id: 'O_P', order: { order_type: 'parking', table_id: null, table_key: 'parking:O_P' }, lines: [{ order_item_id: 'O_P-L1' }] },
+    ]);
+    expect(slipOf('takeaway:O_T')).toMatchObject({ receiver: 'S_MGR' });
+    expect(slipOf('parking:O_P')).toMatchObject({ receiver: WAITER });
+    for (const r of slipAlerts()) expect(displayOf(r.alert_id).table_code).toBeNull();
+    expect(fake.calls).toEqual({ holdersOfOrders: [], currentTableOf: [] });
+  });
+
+  it('[03a #120] no readers registered → placed_by, table_code null', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row).toMatchObject({ receiver: WAITER, target: { kind: 'person', staff_id: WAITER } });
+    expect(displayOf(row.alert_id)).toMatchObject({ kind_label_key: 'alert.slip_warning.lock', table_code: null });
+  });
+
+  it('[03a #120] three groups, two share a holder, one call with distinct ids', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4'], ['T5', '5'], ['T6', '6']]);
+    const fake = registerFakes({
+      holders: { O1: HOLDER, O2: HOLDER, O3: 'S_MGR' },
+      tables: { O1: seating('SEAT1', 'T4'), O2: seating('SEAT2', 'T5'), O3: seating('SEAT3', 'T6') },
+    });
+    // O1b is a second, younger order of SEAT1: its id is not read (only each group's oldest order).
+    submit(dineIn('O1', 'SEAT1'));
+    hub.clock.set(hub.clock.branchNow() + 1_000);
+    await raiseAll([dineIn('O1b', 'SEAT1'), dineIn('O2', 'SEAT2', 'T5'), dineIn('O3', 'SEAT3', 'T6')]);
+    expect(fake.calls.holdersOfOrders).toHaveLength(1);
+    expect(fake.calls.currentTableOf).toHaveLength(1);
+    expect([...fake.calls.holdersOfOrders[0]!].sort()).toEqual(['O1', 'O2', 'O3']);
+    expect(fake.calls.currentTableOf[0]).toEqual(fake.calls.holdersOfOrders[0]);
+    expect([['SEAT1', HOLDER, '4'], ['SEAT2', HOLDER, '5'], ['SEAT3', 'S_MGR', '6']].map(([s]) => {
+      const r = slipOf(`dine_in:${s}`);
+      return [s, r.receiver, displayOf(r.alert_id).table_code];
+    })).toEqual([['SEAT1', HOLDER, '4'], ['SEAT2', HOLDER, '5'], ['SEAT3', 'S_MGR', '6']]);
+  });
+
+  // 03a v1.2 §6.2a / §10.5 (R-1): a pass with work = 2 (listOpen) + ≤ 2 (holdersOfOrders, currentTableOf; only with a
+  // dine_in slip to raise) + ≤ 1 line facts + 01d's raiseMany (dedupe 1, fixed 5; a person target needs no resolver).
+  it('[03a #121] dine_in slip pass for 1 and 3 tables = 2 + 1 + 1 + 1 + 01d\'s bounds, same count; a takeaway-only pass = 2 + 0 + 0 + 1 + 01d; idle 0', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T1', '1'], ['T2', '2'], ['T3', '3'], ['T4', '4']]);
+    registerFakes({
+      holders: { O1: HOLDER, O2: HOLDER, O3: 'S_MGR', O4: HOLDER },
+      tables: { O1: seating('SEAT1', 'T1'), O2: seating('SEAT2', 'T2'), O3: seating('SEAT3', 'T3'), O4: seating('SEAT4', 'T4') },
+    });
+    submit(dineIn('O1', 'SEAT1', 'T1'));
+    await pass(hub.clock.branchNow());
+    const m = meter();
+    await pass(engine().next_alert_due_at!);
+    expect(m.tx).toBe(1);
+    expect(m.reads).toEqual([2 + 1 + 1 + 1 + 6]);
+    expect(m.dueStatements).toBe(0);
+
+    for (const n of [2, 3, 4]) submit(dineIn(`O${n}`, `SEAT${n}`, `T${n}`));
+    await pass(hub.clock.branchNow());
+    const due = engine().next_alert_due_at!;
+    m.reset();
+    await pass(due);
+    expect(m.tx).toBe(1);
+    expect(slipAlerts().filter((r) => r.state === 'open')).toHaveLength(4);
+    expect(m.reads).toEqual([2 + 1 + 1 + 1 + 6]);
+
+    // Idle: nothing due, no transaction, no statement in due.
+    m.reset();
+    await passes(10);
+    expect(m.tx).toBe(0);
+    expect(m.dueStatements).toBe(0);
+
+    // A takeaway-only pass: no reader statement.
+    submit({ order_id: 'O_T', order: { order_type: 'takeaway', table_id: null, table_key: 'takeaway:O_T' }, lines: [{ order_item_id: 'O_T-L1' }] });
+    await pass(hub.clock.branchNow());
+    const dueT = engine().next_alert_due_at!;
+    m.reset();
+    await pass(dueT);
+    expect(m.tx).toBe(1);
+    expect(slipOf('takeaway:O_T').state).toBe('open');
+    expect(m.reads).toEqual([2 + 0 + 0 + 1 + 6]);
+  });
+
+  it('[03a #122] table_code = the primary table\'s config name, never table_key, never joined; 0 statements for the lookup', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4'], ['T5', 'Patio 5']]);
+    // A merged seating (T4 + T5, primary T5): the label is the primary table's name only.
+    registerFakes({ holders: { O1: HOLDER }, tables: { O1: seating('SEAT1', 'T5', ['T4', 'T5']), O2: seating('SEAT2', 'T9') } });
+    submit(dineIn('O1', 'SEAT1'));
+    submit(dineIn('O2', 'SEAT2', 'T9'));
+    await pass(hub.clock.branchNow());
+    const m = meter();
+    await pass(engine().next_alert_due_at!);
+    // The labelled slip and the unlabelled one (T9 not in the config) cost the same: the lookup is in memory.
+    expect(m.reads).toEqual([2 + 1 + 1 + 1 + 6]);
+    expect(displayOf(slipOf('dine_in:SEAT1').alert_id)).toMatchObject({ kind_label_key: 'alert.slip_warning.lock', table_code: 'Patio 5' });
+    // The primary table is not in the config → null (the key holds no table, and its seating id is never shown).
+    expect(displayOf(slipOf('dine_in:SEAT2').alert_id).table_code).toBeNull();
+  });
+
+  it('[03a #122] no entry → null; readers stubbed → null', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    // currentTableOf returns no entry for O1 (the holder is known).
+    registerFakes({ holders: { O1: HOLDER } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row.receiver).toBe(HOLDER);
+    expect(displayOf(row.alert_id).table_code).toBeNull();
+    // Stubbed readers: a second seating raised after the reset gets null too.
+    resetSlipReaders();
+    await raiseAll([dineIn('O2', 'SEAT2')]);
+    expect(slipOf('dine_in:SEAT2')).toMatchObject({ receiver: WAITER });
+    expect(displayOf(slipOf('dine_in:SEAT2').alert_id).table_code).toBeNull();
+  });
+
+  it('[03a #122] after a move the next raise uses the new primary table', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4'], ['T5', '5']]);
+    const fake = registerFakes({ holders: { O1: HOLDER }, tables: { O1: seating('SEAT1', 'T4') } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const [first] = slipAlerts();
+    expect(displayOf(first!.alert_id).table_code).toBe('4');
+    // The party moves to T5 (same seating, same key); the label frozen at the first raise is not rewritten.
+    fake.tables.set('O1', seating('SEAT1', 'T5'));
+    // The next raise: after a day close the carried, still-late order is raised again as a new alert (#113).
+    clean();
+    append([aBusinessDayClosed()]);
+    await pass(hub.clock.branchNow() + TICK_MS);
+    const rows = slipAlerts();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ alert_id: first!.alert_id, state: 'closed', close_reason: 'obsolete' });
+    expect(displayOf(rows[0]!.alert_id).table_code).toBe('4');
+    expect(rows[1]).toMatchObject({ state: 'open', dedupe_key: 'slip:dine_in:SEAT1' });
+    expect(displayOf(rows[1]!.alert_id).table_code).toBe('5');
+  });
+
   // ----------------------------------------------------------------------------------------------------------- AD-8
   it('[03a AD-8] a dropped line raises one engine_line_dropped alert to managers with its values; a second fold of the line raises none', async () => {
     kitchen();
@@ -292,6 +632,27 @@ describe('03a task 22a: the fires_alerts tick', () => {
     append(anOrderBatch({ order_id: 'O3', order: { table_id: 'T6', table_key: 'dine_in:T6' }, lines: [{ order_item_id: 'L7', line: { station_id: 'S9' } }], actor_id: WAITER }));
     await pass(hub.clock.branchNow() + TICK_MS);
     expect(droppedAlerts().map((r) => r.dedupe_key)).toEqual(['engine_line_dropped:O2:L1', 'engine_line_dropped:L7']);
+  });
+
+  it('[03a #135] E-4 safety net: a headerless OrderLinesAdded on an order the engine does not hold raises engine_line_dropped under engine_line_dropped:<order_id>:<order_item_ids[0]>', async () => {
+    kitchen();
+    const line = (anOrderLinesAdded().payload as { lines: Array<Record<string, unknown>> }).lines[0]!;
+    const g = { group_id: 'O7:0', target_land_ms: hub.clock.branchNow() + HOUR, promise_ms: hub.clock.branchNow() + HOUR, order_item_ids: ['F1', 'F2'] };
+    append([
+      anOrderLinesAdded({ stream_id: 'O7', payload: { order_id: 'O7', order_item_ids: ['F1', 'F2'], groups: [g], lines: [{ ...line, order_item_id: 'F1' }, { ...line, order_item_id: 'F2' }] } }),
+    ]);
+    expect(engine().orders.O7).toBeUndefined();
+    await pass(hub.clock.branchNow() + TICK_MS);
+    const rows = droppedAlerts();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      state: 'open',
+      dedupe_key: 'engine_line_dropped:O7:F1',
+      subject_stream_type: 'order',
+      subject_stream_id: 'O7',
+      target: { kind: 'managers' },
+      values: { order_id: 'O7', order_item_id: 'F1', reason: 'order_not_in_engine' },
+    });
   });
 
   it('[03a AD-8] an ItemAdded refused for stream_id_mismatch (its placeholder stays, the order never plans) raises engine_line_dropped', async () => {
@@ -594,7 +955,9 @@ describe('03a task 22a: the fires_alerts tick', () => {
   });
 
   // --------------------------------------------------------------------------------------------------------- #113
-  it('[03a #113] a dine_in table with no owner goes to placed_by; after a close with a carried late order the old alert is closed obsolete and a new one raised (close first)', async () => {
+  // 03a v1.2 (Q-1): the "no holder returned by holdersOfOrders" clause is test 120; here, with the readers stubbed, a
+  // dine_in slip goes to placed_by.
+  it('[03a #113] with the slip readers stubbed a dine_in slip goes to placed_by (no-holder clause: #120); after a close with a carried late order the old alert is closed obsolete and a new one raised (close first)', async () => {
     kitchen(config({ S1: { capacity: 8 } }));
     const s = await lateSlip({ order_id: 'O1' });
     await pass(s.due);

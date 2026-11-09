@@ -50,6 +50,15 @@ export const OrderPlacedPayload = z
     order_item_ids: z.array(z.string()),
     groups: z.array(OrderGroupPayload),
     lines: z.array(OrderLinePayload),
+    // 02b E-1, 03a v1.2 §4.2: additive and optional at v1 (the engine ignores them). No contact fields (02b O17).
+    business_date: z.string().optional(),
+    token: z.string().optional(),
+    car_number: z.string().optional(),
+    car_type: z.string().optional(),
+    order_note: z.string().optional(),
+    sent_after_reconnect: z.boolean().optional(),
+    has_phone: z.boolean().optional(),
+    has_food: z.boolean().optional(),
   })
   .superRefine(checkGroupIds);
 export type OrderPlacedPayload = z.infer<typeof OrderPlacedPayload>;

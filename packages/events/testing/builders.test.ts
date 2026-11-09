@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseEvent } from '../src/codecs';
-import { BranchConfigSnapshotSchemaV3, isStockTracked } from '../src/config';
+import { BranchConfigSnapshotSchemaV4, isStockTracked } from '../src/config';
 import '../src/index';
 import * as builders from './index';
 
@@ -51,10 +51,10 @@ describe('builders', () => {
     }
   });
 
-  it('[01c §4.6] aBranchConfig is a valid schema-3 snapshot: K1 in g at Karahi, Half I1 500 g, Full I3 1 000 g, I2 untracked', () => {
+  it('[01c §4.6] aBranchConfig is a valid schema-4 snapshot: K1 in g at Karahi, Half I1 500 g, Full I3 1 000 g, I2 untracked', () => {
     const config = builders.aBranchConfig();
-    expect(BranchConfigSnapshotSchemaV3.parse(config)).toEqual(config);
-    expect(config.snapshot_schema_version).toBe(3);
+    expect(BranchConfigSnapshotSchemaV4.parse(config)).toEqual(config);
+    expect(config.snapshot_schema_version).toBe(4);
     const karahi = config.stations.find((s) => s.name === 'Karahi');
     expect(karahi?.station_type).toBe('slot');
     expect(config.stock_items).toEqual([
@@ -85,12 +85,21 @@ describe('builders', () => {
     delete engine.reference_cook_ms; // the hub derives it (03a §3.11)
     expect(config.stations[0]).toMatchObject(engine);
     expect(config.points.map((point) => point.point_id)).toEqual([engine.point_id]);
-    expect(config.engine_settings).toEqual({ ...settings, table_lock_ttl_ms: 600_000 });
+    expect(config.engine_settings).toEqual({
+      ...settings,
+      table_lock_ttl_ms: 600_000,
+      // 01a v2.3 §5.2a (02b A-1) defaults, AD-10
+      queue_auto_send_max_ms: 14_400_000,
+      zone_undo_ms: 300_000,
+      slow_item_threshold_ms: 900_000,
+      served_estimate_ms: null,
+      comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+    });
   });
 
-  it('[01c §5.1] aBranchConfigItemStock is a valid schema-3 snapshot: stock items I1 (piece, 1) and I3 (g, 250) at Karahi, I2 untracked', () => {
+  it('[01c §5.1] aBranchConfigItemStock is a valid schema-4 snapshot: stock items I1 (piece, 1) and I3 (g, 250) at Karahi, I2 untracked', () => {
     const config = builders.aBranchConfigItemStock();
-    expect(BranchConfigSnapshotSchemaV3.parse(config)).toEqual(config);
+    expect(BranchConfigSnapshotSchemaV4.parse(config)).toEqual(config);
     expect(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit, s.station_id])).toEqual([
       ['I1', 'piece', 'S1'],
       ['I3', 'g', 'S1'],

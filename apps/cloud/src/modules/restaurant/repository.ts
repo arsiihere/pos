@@ -15,10 +15,30 @@ export interface FloorRow {
 export interface TableRow {
   table_id: string;
   floor_id: string;
+  zone_id: string | null;
   name: string;
   seats: number | null;
   sort_order: number;
   archived_at: number | null;
+}
+
+// 01a v2.2 §5.2 (02a A-1): a zone inside a floor.
+export interface ZoneRow {
+  zone_id: string;
+  floor_id: string;
+  name: string;
+  sort_order: number;
+  archived_at: number | null;
+}
+
+// 01a v2.3 §5.2 (02b A-1): the zone's two whole lists.
+export interface ZoneRouteRow {
+  item_id: string;
+  station_id: string;
+}
+export interface ZoneStockItemRow {
+  item_id: string;
+  threshold: number;
 }
 
 export type StationType = 'slot' | 'batch';
@@ -89,7 +109,8 @@ export interface CategoryRow {
 type Raw<T> = { [K in keyof T]: K extends 'archived_at' ? string | null : T[K] };
 
 const FLOOR_COLUMNS = 'floor_id, name, sort_order, archived_at';
-const TABLE_COLUMNS = 'table_id, floor_id, name, seats, sort_order, archived_at';
+const TABLE_COLUMNS = 'table_id, floor_id, zone_id, name, seats, sort_order, archived_at';
+const ZONE_COLUMNS = 'zone_id, floor_id, name, sort_order, archived_at';
 const POINT_COLUMNS = 'point_id, name, sort_order, archived_at';
 const STATION_COLUMNS =
   'station_id, name, location_label, station_type, capacity, freshness_window_ms, completion_mode, archived_at, ' +
@@ -222,14 +243,23 @@ export async function shareFloor(
 
 export async function insertTable(
   repo: TenantScopedRepository,
-  input: { branchId: string; tableId: string; floorId: string; name: string; seats: number | null; sortOrder: number; now: number },
+  input: {
+    branchId: string;
+    tableId: string;
+    floorId: string;
+    zoneId: string | null;
+    name: string;
+    seats: number | null;
+    sortOrder: number;
+    now: number;
+  },
 ): Promise<TableRow> {
   const rows = await repo.query<Raw<TableRow>>(
-    `INSERT INTO dining_tables (tenant_id, branch_id, table_id, floor_id, name, seats, sort_order, created_at, updated_at)
-     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9, $9 FROM branches
+    `INSERT INTO dining_tables (tenant_id, branch_id, table_id, floor_id, zone_id, name, seats, sort_order, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $9, $10, $10 FROM branches
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
      RETURNING ${TABLE_COLUMNS}`,
-    [input.branchId, input.tableId, input.floorId, input.name, input.seats, input.sortOrder, input.now],
+    [input.branchId, input.tableId, input.floorId, input.zoneId, input.name, input.seats, input.sortOrder, input.now],
   );
   return tableRow(rows[0]!);
 }
@@ -255,12 +285,255 @@ export async function updateTable(
   now: number,
 ): Promise<TableRow> {
   const rows = await repo.query<Raw<TableRow>>(
-    `UPDATE dining_tables SET floor_id = $5, name = $6, seats = $7, sort_order = $8, archived_at = $9, updated_at = $10
+    `UPDATE dining_tables SET floor_id = $5, zone_id = $6, name = $7, seats = $8, sort_order = $9, archived_at = $10,
+                              updated_at = $11
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND table_id = $4
       RETURNING ${TABLE_COLUMNS}`,
-    [branchId, table.table_id, table.floor_id, table.name, table.seats, table.sort_order, table.archived_at, now],
+    [branchId, table.table_id, table.floor_id, table.zone_id, table.name, table.seats, table.sort_order, table.archived_at, now],
   );
   return tableRow(rows[0]!);
+}
+
+// ---------------------------------------------------------------------------------------------------- zones
+
+// §6.2 (02a A-1): the branch's zones, archived included; one statement, by sort order then id (as floors).
+export async function selectZones(repo: TenantScopedRepository, branchId: string): Promise<ZoneRow[]> {
+  const rows = await repo.query<Raw<ZoneRow>>(
+    `SELECT ${ZONE_COLUMNS} FROM zones
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+      ORDER BY sort_order, zone_id`,
+    [branchId],
+  );
+  return rows.map(withArchivedAt<ZoneRow>);
+}
+
+// §6.4 (02a A-1): the floor's active zones (index zones_floor), for the archive refusal.
+export async function activeZoneIds(repo: TenantScopedRepository, branchId: string, floorId: string): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT zone_id FROM zones
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND floor_id = $4 AND archived_at IS NULL
+      ORDER BY zone_id`,
+    [branchId, floorId],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// Inserts through the branch row, so a branch that does not exist inserts nothing.
+export async function insertZone(
+  repo: TenantScopedRepository,
+  input: { branchId: string; zoneId: string; floorId: string; name: string; sortOrder: number; now: number },
+): Promise<ZoneRow | undefined> {
+  const rows = await repo.query<Raw<ZoneRow>>(
+    `INSERT INTO zones (tenant_id, branch_id, zone_id, floor_id, name, sort_order, created_at, updated_at)
+     SELECT tenant_id, branch_id, $4, $5, $6, $7, $8, $8 FROM branches
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3
+     RETURNING ${ZONE_COLUMNS}`,
+    [input.branchId, input.zoneId, input.floorId, input.name, input.sortOrder, input.now],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<ZoneRow>(rows[0]);
+}
+
+export async function lockZone(repo: TenantScopedRepository, branchId: string, zoneId: string): Promise<ZoneRow | undefined> {
+  const rows = await repo.query<Raw<ZoneRow>>(
+    `SELECT ${ZONE_COLUMNS} FROM zones
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = $4
+      FOR UPDATE`,
+    [branchId, zoneId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<ZoneRow>(rows[0]);
+}
+
+// The zone's name, sort order and archive time change; a zone never changes floor (§6.6b).
+export async function updateZone(repo: TenantScopedRepository, branchId: string, zone: ZoneRow, now: number): Promise<ZoneRow> {
+  const rows = await repo.query<Raw<ZoneRow>>(
+    `UPDATE zones SET name = $5, sort_order = $6, archived_at = $7, updated_at = $8
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = $4
+      RETURNING ${ZONE_COLUMNS}`,
+    [branchId, zone.zone_id, zone.name, zone.sort_order, zone.archived_at, now],
+  );
+  return withArchivedAt<ZoneRow>(rows[0]!);
+}
+
+// A plain read (no lock) of the zone's floor and archive time, for a table that keeps its zone: it must not lock the
+// zone after the table, because a zone archive locks the zone first and then updates its tables.
+export async function readZone(
+  repo: TenantScopedRepository,
+  zoneId: string,
+): Promise<{ branch_id: string; floor_id: string; archived_at: number | null } | undefined> {
+  type Read = { branch_id: string; floor_id: string; archived_at: number | null };
+  const rows = await repo.query<Raw<Read>>(
+    `SELECT branch_id, floor_id, archived_at FROM zones WHERE tenant_id = $1 AND branch_id = ANY($2) AND zone_id = $3`,
+    [zoneId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<Read>(rows[0]);
+}
+
+// A reference check for a table's zone_id (§6.5, §6.6): the zone in any of the caller's branches, FOR SHARE against
+// a concurrent archive (the zone archive locks the zone FOR UPDATE).
+export async function shareZone(
+  repo: TenantScopedRepository,
+  zoneId: string,
+): Promise<{ branch_id: string; floor_id: string; archived_at: number | null } | undefined> {
+  type Shared = { branch_id: string; floor_id: string; archived_at: number | null };
+  const rows = await repo.query<Raw<Shared>>(
+    `SELECT branch_id, floor_id, archived_at FROM zones
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND zone_id = $3
+      FOR SHARE`,
+    [zoneId],
+  );
+  return rows[0] === undefined ? undefined : withArchivedAt<Shared>(rows[0]);
+}
+
+// AD-6 (§6.9, S22 style): the branch's active zones whose routes[] name the station. One plain read after the
+// station lock; zone_item_routes has no station index, and a branch holds at most 200 rows per zone.
+export async function activeZoneIdsRoutingStation(
+  repo: TenantScopedRepository,
+  branchId: string,
+  stationId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT DISTINCT z.zone_id FROM zone_item_routes r
+       JOIN zones z ON z.tenant_id = r.tenant_id AND z.branch_id = r.branch_id AND z.zone_id = r.zone_id AND z.archived_at IS NULL
+      WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND r.station_id = $4
+      ORDER BY z.zone_id`,
+    [branchId, stationId],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// AD-6 (§6.15): the tenant's active zones whose routes[] or stock_items[] name the item (`stockOnly`: stock_items[]
+// alone, for a change that only a stock item cannot take). One plain read after the item lock, two EXISTS per zone.
+export async function activeZoneIdsNamingItem(
+  repo: TenantLevelRepository,
+  itemId: string,
+  stockOnly: boolean,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT z.zone_id FROM zones z
+      WHERE z.tenant_id = $1 AND z.archived_at IS NULL
+        AND (EXISTS (SELECT 1 FROM zone_stock_items s
+                      WHERE s.tenant_id = z.tenant_id AND s.branch_id = z.branch_id AND s.zone_id = z.zone_id AND s.item_id = $2)
+             OR (NOT $3::boolean AND EXISTS (SELECT 1 FROM zone_item_routes r
+                      WHERE r.tenant_id = z.tenant_id AND r.branch_id = z.branch_id AND r.zone_id = z.zone_id AND r.item_id = $2)))
+      ORDER BY z.zone_id`,
+    [itemId, stockOnly],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// AD-15 (§6.16): the branch's active zones whose routes[] or stock_items[] name the item. One plain read after the
+// item's route lock (a zone write holds the route row FOR SHARE, so none slips in between).
+export async function activeZoneIdsNamingItemAt(
+  repo: TenantScopedRepository,
+  branchId: string,
+  itemId: string,
+): Promise<string[]> {
+  const rows = await repo.query<{ zone_id: string }>(
+    `SELECT z.zone_id FROM zones z
+      WHERE z.tenant_id = $1 AND z.branch_id = ANY($2) AND z.branch_id = $3 AND z.archived_at IS NULL
+        AND (EXISTS (SELECT 1 FROM zone_stock_items s
+                      WHERE s.tenant_id = z.tenant_id AND s.branch_id = z.branch_id AND s.zone_id = z.zone_id AND s.item_id = $4)
+             OR EXISTS (SELECT 1 FROM zone_item_routes r
+                      WHERE r.tenant_id = z.tenant_id AND r.branch_id = z.branch_id AND r.zone_id = z.zone_id AND r.item_id = $4))
+      ORDER BY z.zone_id`,
+    [branchId, itemId],
+  );
+  return rows.map((row) => row.zone_id);
+}
+
+// AD-15 (§6.6a, §6.6b): which of the items have an item_routes row at the branch, the rows FOR SHARE in item order
+// (a route PUT removing one waits for the zone write, or the zone write sees it gone). One statement.
+export async function shareItemRoutesAt(
+  repo: TenantScopedRepository,
+  branchId: string,
+  itemIds: readonly string[],
+): Promise<Set<string>> {
+  const rows = await repo.query<{ item_id: string }>(
+    `SELECT item_id FROM item_routes
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND item_id = ANY($4)
+      ORDER BY item_id
+      FOR SHARE`,
+    [branchId, itemIds],
+  );
+  return new Set(rows.map((row) => row.item_id));
+}
+
+// §6.6b: the active tables of an archived zone fall back to the floor's implicit zone (index dining_tables_zone).
+export async function clearZoneOfActiveTables(
+  repo: TenantScopedRepository,
+  branchId: string,
+  zoneId: string,
+  now: number,
+): Promise<void> {
+  await repo.query(
+    `UPDATE dining_tables SET zone_id = NULL, updated_at = $5
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = $4 AND archived_at IS NULL`,
+    [branchId, zoneId, now],
+  );
+}
+
+// §6.6a, §6.6b: the lists of the given zones, two statements for any number of zones; by item_id.
+export async function selectZoneLists(
+  repo: TenantScopedRepository,
+  branchId: string,
+  zoneIds: readonly string[],
+): Promise<{ routes: Array<ZoneRouteRow & { zone_id: string }>; stock_items: Array<ZoneStockItemRow & { zone_id: string }> }> {
+  const routes = await repo.query<ZoneRouteRow & { zone_id: string }>(
+    `SELECT zone_id, item_id, station_id FROM zone_item_routes
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = ANY($4)
+      ORDER BY zone_id, item_id COLLATE "C"`,
+    [branchId, zoneIds],
+  );
+  const stockItems = await repo.query<ZoneStockItemRow & { zone_id: string }>(
+    `SELECT zone_id, item_id, threshold FROM zone_stock_items
+      WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = ANY($4)
+      ORDER BY zone_id, item_id COLLATE "C"`,
+    [branchId, zoneIds],
+  );
+  return { routes, stock_items: stockItems };
+}
+
+// A replace-list is rewritten whole: delete the zone's rows, insert the sent ones (one statement each, any length).
+export async function replaceZoneRoutes(
+  repo: TenantScopedRepository,
+  branchId: string,
+  zoneId: string,
+  routes: readonly ZoneRouteRow[],
+): Promise<void> {
+  await repo.query(
+    `DELETE FROM zone_item_routes WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = $4`,
+    [branchId, zoneId],
+  );
+  if (routes.length === 0) return;
+  await repo.query(
+    `INSERT INTO zone_item_routes (tenant_id, branch_id, zone_id, item_id, station_id)
+     SELECT b.tenant_id, b.branch_id, $4, x.item_id, x.station_id
+       FROM branches b
+      CROSS JOIN jsonb_to_recordset($5::jsonb) AS x (item_id text, station_id text)
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3`,
+    [branchId, zoneId, JSON.stringify(routes)],
+  );
+}
+
+export async function replaceZoneStockItems(
+  repo: TenantScopedRepository,
+  branchId: string,
+  zoneId: string,
+  stockItems: readonly ZoneStockItemRow[],
+): Promise<void> {
+  await repo.query(
+    `DELETE FROM zone_stock_items WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3 AND zone_id = $4`,
+    [branchId, zoneId],
+  );
+  if (stockItems.length === 0) return;
+  await repo.query(
+    `INSERT INTO zone_stock_items (tenant_id, branch_id, zone_id, item_id, threshold)
+     SELECT b.tenant_id, b.branch_id, $4, x.item_id, x.threshold
+       FROM branches b
+      CROSS JOIN jsonb_to_recordset($5::jsonb) AS x (item_id text, threshold int)
+      WHERE b.tenant_id = $1 AND b.branch_id = ANY($2) AND b.branch_id = $3`,
+    [branchId, zoneId, JSON.stringify(stockItems)],
+  );
 }
 
 // §6.8: stations with their lists, archived included; by name, then id (as in the snapshot). One statement, so the
@@ -844,6 +1117,7 @@ export interface MenuItemRow {
   low_stock_threshold: number | null;
   carries_over: boolean;
   requires_weighing: boolean;
+  is_ready_item: boolean;
   weight_pct: number;
   max_early_ms: number;
   max_carry_ms: number | null;
@@ -871,7 +1145,7 @@ const ROUTE_COLUMNS = 'branch_id, station_id, program_id, stock_program_id, pric
 const MENU_ITEM_COLUMNS =
   'item_id, category_id, tax_class_id, name, group_label, variant_group_id, variant_name, description, sort_order, ' +
   'price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms, out_of_stock_behaviour, stock_unit, sale_unit, ' +
-  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, ' +
+  'stock_per_sale_unit, low_stock_threshold, carries_over, requires_weighing, is_ready_item, ' +
   'weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, archived_at';
 
 // 01c §6 lock order 3: an item's variant group FOR SHARE (§6.4 reference), with what §3.3 checks against.
@@ -1004,9 +1278,9 @@ export async function insertMenuItem(
                              description, sort_order, price_minor, serve_mode, prep_buffer_ms, cook_time_ms, stock_time_ms,
                              out_of_stock_behaviour, stock_unit, sale_unit, stock_per_sale_unit, low_stock_threshold,
                              carries_over, requires_weighing, created_at, updated_at,
-                             weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms)
+                             weight_pct, max_early_ms, max_carry_ms, max_late_ms, adjust_time_ms, is_ready_item)
      SELECT tenant_id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23,
-            $24, $25, $26, $27, $28
+            $24, $25, $26, $27, $28, $29
        FROM tenants WHERE tenant_id = $1
      RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1037,6 +1311,7 @@ export async function insertMenuItem(
       item.max_carry_ms,
       item.max_late_ms,
       item.adjust_time_ms,
+      item.is_ready_item,
     ],
   );
   return menuItemRow(rows[0]!);
@@ -1066,7 +1341,8 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
                            stock_time_ms = $13, out_of_stock_behaviour = $14, stock_unit = $15, sale_unit = $16,
                            stock_per_sale_unit = $17, low_stock_threshold = $18, carries_over = $19, archived_at = $20,
                            updated_at = $21, variant_group_id = $22, variant_name = $23, requires_weighing = $24,
-                           weight_pct = $25, max_early_ms = $26, max_carry_ms = $27, max_late_ms = $28, adjust_time_ms = $29
+                           weight_pct = $25, max_early_ms = $26, max_carry_ms = $27, max_late_ms = $28, adjust_time_ms = $29,
+                           is_ready_item = $30
       WHERE tenant_id = $1 AND item_id = $2
       RETURNING ${MENU_ITEM_COLUMNS}`,
     [
@@ -1098,6 +1374,7 @@ export async function updateMenuItem(repo: TenantLevelRepository, item: MenuItem
       item.max_carry_ms,
       item.max_late_ms,
       item.adjust_time_ms,
+      item.is_ready_item,
     ],
   );
   return menuItemRow(rows[0]!);

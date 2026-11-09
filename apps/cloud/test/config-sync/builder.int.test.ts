@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
 import { stockItemBranchVersion } from '../../src/modules/menu-variants/versions';
@@ -89,9 +89,10 @@ describe('buildSnapshot', () => {
       alternates: [],
       carry_times: [],
     };
-    const itemKnobs = { weight_pct: 100, max_early_ms: 60000, max_carry_ms: null, max_late_ms: null, adjust_time_ms: 180000 };
+    // 01a v2.3 §4.3 V4: is_ready_item at its default (false) rides with the knobs.
+    const itemKnobs = { weight_pct: 100, max_early_ms: 60000, max_carry_ms: null, max_late_ms: null, adjust_time_ms: 180000, is_ready_item: false };
     expect(snapshot).toEqual({
-      snapshot_schema_version: 3,
+      snapshot_schema_version: 4,
       config_version: 42,
       branch_id: f.branches[0],
       currency_code: 'PKR',
@@ -103,9 +104,10 @@ describe('buildSnapshot', () => {
           floor_id: 'FL-1',
           name: 'Ground',
           sort_order: 1,
+          zones: [],
           tables: [
-            { table_id: 'TB-1', name: 'T1', seats: 4, sort_order: 1 },
-            { table_id: 'TB-2', name: 'T2', seats: null, sort_order: 2 },
+            { table_id: 'TB-1', name: 'T1', seats: 4, sort_order: 1, zone_id: null },
+            { table_id: 'TB-2', name: 'T2', seats: null, sort_order: 2, zone_id: null },
           ],
         },
       ],
@@ -191,6 +193,11 @@ describe('buildSnapshot', () => {
         returns_boost: true,
         order_abandon_ms: 14400000,
         table_lock_ttl_ms: 600000,
+        queue_auto_send_max_ms: 14400000,
+        zone_undo_ms: 300000,
+        slow_item_threshold_ms: 900000,
+        served_estimate_ms: null,
+        comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
       },
       goes_with: [],
       items: [
@@ -258,11 +265,11 @@ describe('buildSnapshot', () => {
     expect(other.stock_items).toEqual([expect.objectContaining({ stock_item_id: 'SK-4', station_id: 'ST-B' })]);
   });
 
-  it('[01c #57] the built snapshot parses with BranchConfigSnapshotSchemaV3; canonicalJson is stable across two builds', async () => {
+  it('[01c #57] the built snapshot parses with BranchConfigSnapshotSchemaV4; canonicalJson is stable across two builds', async () => {
     await seedMenu(cloud.pool, f, { archived: true });
     await seedVariants();
     const first = await build(f.branches[0]);
-    const parsed = BranchConfigSnapshotSchemaV3.parse(first);
+    const parsed = BranchConfigSnapshotSchemaV4.parse(first);
     expect(parsed).toEqual(first);
     const second = await build(f.branches[0]);
     expect(sha256hex(canonicalJson(second))).toBe(sha256hex(canonicalJson(first)));
@@ -341,7 +348,7 @@ describe('buildSnapshot', () => {
   it('[01c #93] a batch route resolves program_id and stock_program_id in programs[] with cook_time_ms, archived included; a slot route has both null', async () => {
     await seedMenu(cloud.pool, f, { archived: true });
     await sql(`UPDATE batch_programs SET archived_at = 1 WHERE tenant_id = $1 AND program_id = 'PG-2'`);
-    const snapshot = BranchConfigSnapshotSchemaV3.parse(await build(f.branches[0]));
+    const snapshot = BranchConfigSnapshotSchemaV4.parse(await build(f.branches[0]));
     const batch = snapshot.items.find((item) => item.item_id === 'IT-0001')!;
     const programs = snapshot.stations.find((station) => station.station_id === batch.station_id)!.programs;
     expect(programs.find((program) => program.program_id === batch.program_id)).toMatchObject({ cook_time_ms: 360000, is_archived: false });
@@ -367,7 +374,7 @@ describe('buildSnapshot', () => {
     };
     const ten = await countFor(10);
     const threeHundred = await countFor(300);
-    expect(ten).toBe(21); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows; 03a C6: + points, alternates, carry times, engine settings, goes-with
+    expect(ten).toBe(22); // 01c tasks 27, 28, 31: + modifier groups with options, this branch's option rows, links, deals with parts and choices, deal windows, deal branch rows; 03a C6: + points, alternates, carry times, engine settings, goes-with; 01a v2.2 A-1 (02p task 4): + zones
     expect(threeHundred).toBe(ten);
     expect(ten).toBeLessThanOrEqual(22);
   });
@@ -380,7 +387,7 @@ describe('buildSnapshot', () => {
       counter.reset();
       const snapshot = await buildSnapshot(client, tenant(), f.branches[0], HEADER);
       expect(snapshot.items).toHaveLength(5_000);
-      expect(counter.count).toBeLessThanOrEqual(22); // 21 (01c tasks 27, 28, 31; 03a C6): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows, points, alternates, carry times, engine settings, goes-with
+      expect(counter.count).toBeLessThanOrEqual(22); // 22 (01c tasks 27, 28, 31; 03a C6; 02p task 4): 01a's 7 + variant groups, stock items, draws, modifier groups with options, option rows, links, deals with parts and choices, deal windows, deal branch rows, points, alternates, carry times, engine settings, goes-with, zones
     } finally {
       client.release();
     }
@@ -393,7 +400,7 @@ describe('buildSnapshot', () => {
     const cloudHash = sha256hex(canonicalJson(wire));
 
     const body = JSON.stringify(wire);
-    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV3.parse(JSON.parse(body))));
+    const hubHash = sha256hex(canonicalJson(BranchConfigSnapshotSchemaV4.parse(JSON.parse(body))));
     expect(hubHash).toBe(cloudHash);
 
     const raw = await cloud.pool.query<{ price_minor: unknown }>(
@@ -402,7 +409,7 @@ describe('buildSnapshot', () => {
     expect(raw.rows[0]!.price_minor).toBe('120000'); // pg returns BIGINT as a string
     const unconverted = JSON.parse(body) as { items: Array<Record<string, unknown>> };
     unconverted.items[0]!.price_minor = raw.rows[0]!.price_minor;
-    expect(() => BranchConfigSnapshotSchemaV3.parse(unconverted)).toThrow();
+    expect(() => BranchConfigSnapshotSchemaV4.parse(unconverted)).toThrow();
   });
 
   it('[01a S47] two windows with the same start are ordered by end', async () => {

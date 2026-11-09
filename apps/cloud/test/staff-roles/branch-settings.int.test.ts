@@ -23,6 +23,10 @@ const ENGINE_DEFAULTS = {
   table_lock_ttl_ms: 600_000,
   returns_boost: true,
   order_abandon_ms: 14_400_000,
+  queue_auto_send_max_ms: 14_400_000,
+  zone_undo_ms: 300_000,
+  slow_item_threshold_ms: 900_000,
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
 };
 
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)', () => {

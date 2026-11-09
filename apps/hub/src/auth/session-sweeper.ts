@@ -3,16 +3,19 @@ import type Database from 'better-sqlite3';
 import type { HubDeps } from '../server.js';
 import type { WriterTx } from '../engine-host/writer.js';
 import { purgeAlerts } from '../alerts/retention.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import { clearExpiredDeliveryTokens } from './pair-requests.js';
-import { activity, endSession, type SessionRow } from './session-store.js';
+import { activity, endSession, idlePause, type SessionRow } from './session-store.js';
 
 const SWEEP_MS = 15_000;
 const DAY_MS = 86_400_000;
 const SEVEN_DAYS_MS = 7 * DAY_MS;
 const BATCH = 500;
+// 00 M95 cap: 01a v2.3 `queue_auto_send_max_ms`, the default until a branch config is applied (02p §3).
+const QUEUE_AUTO_SEND_MAX_MS = 14_400_000;
 
 const SESSION_COLUMNS =
-  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, last_activity_at, ended_at, token_hash';
+  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash';
 
 let maintenanceHour: number | undefined;
 const retentionDays = new WeakMap<Database.Database, string>();
@@ -23,6 +26,8 @@ export function setMaintenanceHour(hour: number): void {
 }
 
 export function sweepOnce(deps: HubDeps): { ended: string[] } {
+  // M95 / M5: paused devices' shifted last_activity_at is flushed with the touches.
+  idlePause.flush(deps.db, deps.clock.branchNow());
   const touches = activity.drain();
   const devices = activity.drainDevices();
   const ended = deps.writer.run((tx) => {
@@ -43,8 +48,24 @@ export function sweepOnce(deps: HubDeps): { ended: string[] } {
            AND (? - last_activity_at) > idle_ttl_ms`,
       )
       .all(now) as SessionRow[];
+    // M95: a paused device's staff session is skipped; one paused longer than the cap ends idle_timeout.
+    const pausedStaff = (session: SessionRow): boolean =>
+      session.kind === 'staff' && session.device_id !== null && idlePause.isPaused(deps.db, session.device_id);
+    const capMs = branchConfig()?.engine_settings.queue_auto_send_max_ms ?? QUEUE_AUTO_SEND_MAX_MS;
+    const overCap = idlePause.overCap(deps.db, now, capMs);
+    const capped =
+      overCap.size === 0
+        ? []
+        : (
+            tx.db
+              .prepare(
+                `SELECT ${SESSION_COLUMNS} FROM staff_sessions
+                 WHERE ended_at IS NULL AND kind = 'staff' AND device_id IS NOT NULL`,
+              )
+              .all() as SessionRow[]
+          ).filter((session) => overCap.has(session.device_id!));
     const ids: string[] = [];
-    for (const session of idle) {
+    for (const session of [...idle.filter((s) => !pausedStaff(s)), ...capped]) {
       const deviceId = session.kind === 'admin' && session.device_id === null ? 'hub-admin' : (session.device_id ?? 'hub');
       endSession(tx, session, 'idle_timeout', null, null, deviceId);
       ids.push(session.session_id);

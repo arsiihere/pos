@@ -108,7 +108,7 @@ export interface EngineOrder {
   boosted: boolean;
   line_ids: string[];
   awaiting: number; // lines listed but not yet seen
-  last_served_at: number | null; // recorded_at of the ItemServed that left no line open
+  last_served_at: number | null; // min(served_at, recorded_at) of the ItemServed that left no line open (⚠️ Changed by Q-6, owner ruling 2026-11-09: was its recorded_at)
   last_line_fold_at: number; // recorded_at of the latest fold that names the order or one of its lines
   next_group_index: number; // group ids are order_id + ':' + index
   groups: Record<string, { target_land_ms: number; line_ids: string[] }>;

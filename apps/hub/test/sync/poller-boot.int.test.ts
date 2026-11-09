@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV3, type EventDraft } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, type EventDraft } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stationExists } from '../../src/auth/station-validator';
@@ -141,7 +141,7 @@ describe('config at boot (S5, S15) and the poll timer (§7.2)', () => {
     expect((await configPoller(second.app).pollOnce()).outcome).toBe('applied');
     expect(cloud.calls.at(-1)).toEqual({ config_version: 0, directory_version: 0 });
     expect(loadBranchConfig(second.deps.db, BRANCH).state).toBe('APPLIED');
-    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV3.parse(raw));
+    expect(branchConfig()).toEqual(BranchConfigSnapshotSchemaV4.parse(raw));
     await second.stop();
 
     // a stored body whose snapshot_schema_version is not ours (after a breaking release)

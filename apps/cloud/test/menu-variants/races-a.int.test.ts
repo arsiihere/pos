@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3, type BranchConfig, type DealBranchWire, type DealWire } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, type BranchConfig, type DealBranchWire, type DealWire } from '@pos/events';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildSnapshot, type SnapshotHeader } from '../../src/modules/config-sync/builder';
@@ -132,7 +132,7 @@ describe('01c races #73–#76 (§6 lock order)', () => {
     const client = await cloud.pool.connect();
     try {
       const tenant = Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) });
-      return BranchConfigSnapshotSchemaV3.parse(await buildSnapshot(client, tenant, branchId, HEADER));
+      return BranchConfigSnapshotSchemaV4.parse(await buildSnapshot(client, tenant, branchId, HEADER));
     } finally {
       client.release();
     }

@@ -9,8 +9,9 @@ import { t, typeClass } from '../../i18n';
 // are named from one GET /v1/admin/menu?limit=200 (pilot menu < 200 items, §12.7); the rest show as
 // "and N more".
 // Who can use a row: items (the default), stations (alternates, A-9), stock items (01c V16), size groups
-// (a category's variant groups, §6.13) and deals (01c V16: a category or tax class an active deal keeps).
-export type UsedBy = 'station' | 'stock_item' | 'variant_group' | 'deal';
+// (a category's variant groups, §6.13), deals (01c V16: a category or tax class an active deal keeps) and zones
+// (02p AD-6, AD-15: an active zone's route or stock list names the item or station).
+export type UsedBy = 'station' | 'stock_item' | 'variant_group' | 'deal' | 'zone';
 export interface InUse {
   ids: string[];
   names: string[];
@@ -29,7 +30,7 @@ export function usedIds(error: CloudError): string[] | null {
 export function usedEntity(error: CloudError): 'item' | UsedBy {
   const usedBy = error.kind === 'api' ? (error.details['used_by'] as { entity?: unknown } | undefined) : undefined;
   const entity = usedBy?.entity;
-  return entity === 'station' || entity === 'stock_item' || entity === 'variant_group' || entity === 'deal' ? entity : 'item';
+  return entity === 'station' || entity === 'stock_item' || entity === 'variant_group' || entity === 'deal' || entity === 'zone' ? entity : 'item';
 }
 
 // Deals are named from the active deal list (an archived deal never blocks, AD-11); a failed read names none.
@@ -37,6 +38,17 @@ export async function dealNames(api: CloudAdmin, ids: readonly string[]): Promis
   const result = await api.listDeals({ status: 'active' });
   const byId = new Map(result.ok ? result.data.deals.map((deal) => [deal.deal_id, deal.name]) : []);
   return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []), by: 'deal' };
+}
+
+// Zones are named from the floors list of each branch asked (an item can be named by zones of several branches; one
+// read each, in parallel). A station belongs to one branch, so its view asks only for its own.
+export async function zoneNames(api: CloudAdmin, branchIds: readonly string[], ids: readonly string[]): Promise<InUse> {
+  const byId = new Map<string, string>();
+  const results = await Promise.all(branchIds.map((branchId) => api.listFloors(branchId)));
+  for (const result of results) {
+    if (result.ok) for (const floor of result.data.floors) for (const zone of floor.zones) byId.set(zone.zone_id, zone.name);
+  }
+  return { ids: [...ids], names: ids.flatMap((id) => byId.get(id) ?? []), by: 'zone' };
 }
 
 export async function itemNames(api: CloudAdmin, ids: readonly string[]): Promise<InUse & { by?: undefined }> {

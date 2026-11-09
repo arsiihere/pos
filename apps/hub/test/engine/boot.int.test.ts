@@ -33,7 +33,7 @@ import { runMigrations } from '../../src/db/migrate';
 import { fixedClock, T } from '../../src/lib/clock';
 import { boot, registerBootStep, type BootContext, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
-import { setStockVersion, STOCK_VERSION_EVENTS, stockVersion } from '../../src/sync/stock-version';
+import { noteCommitted, setStockVersion, STOCK_VERSION_EVENTS, stockVersion } from '../../src/sync/stock-version';
 import { freshDb } from '../helpers/db';
 import { createLogCapture } from '../helpers/log-capture';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
@@ -377,7 +377,7 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(out.state.stock.K1).toMatchObject({ on_hand: 5 });
     });
 
-    it('[03a #58, §10.5] step 2 = 2, step 3 = 4 + 2, step 6 = 0 statements; the real statements use the index, no sort', async () => {
+    it('[03a #58, §10.5] step 2 = 2, step 3 = 4 + 2 + 1, step 6 = 0 statements; the real statements use the index, no sort', async () => {
       const db = await migrated();
       const ctx = ctxOf(db);
       const rec = recorder(db);
@@ -390,11 +390,11 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       const step6 = rec.calls.splice(0);
       rec.stop();
       expect(step2).toHaveLength(2);
-      expect(step3).toHaveLength(6);
+      expect(step3).toHaveLength(7);
       expect(step6).toHaveLength(0);
       for (const c of step2) expect(c.sql).toMatch(/LIMIT 2/);
       const replay = step3.filter((c) => c.method === 'iterate');
-      const version = step3.filter((c) => c.method !== 'iterate');
+      const version = step3.filter((c) => c.method !== 'iterate' && /ORDER BY seq DESC LIMIT 1/.test(c.sql));
       expect(replay).toHaveLength(4);
       expect(version).toHaveLength(2);
       for (const c of replay) {
@@ -447,10 +447,20 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
   });
 
   describe('[03a #85, 01a A-17] stock_version', () => {
-    it('[01a A-17] STOCK_VERSION_EVENTS: nine types, and the three new stock events are in it', () => {
+    it('[01a A-17, v2.3 A-1] STOCK_VERSION_EVENTS: ten types, the three new stock events and StockTransferredOut are in it', () => {
       expect([...STOCK_VERSION_EVENTS].sort()).toEqual(
-        ['BusinessDayClosed', 'BusinessDayOpened', 'ItemMadeAvailable', 'ItemMadeUnavailable', 'StockAdded', 'StockConsumed', 'StockReleased', 'StockReserved', 'StockSet'].sort(),
+        ['BusinessDayClosed', 'BusinessDayOpened', 'ItemMadeAvailable', 'ItemMadeUnavailable', 'StockAdded', 'StockConsumed', 'StockReleased', 'StockReserved', 'StockSet', 'StockTransferredOut'].sort(),
       );
+    });
+
+    const aTransferredOut = (): PosEvent =>
+      aStockSet({ event_type: 'StockTransferredOut', schema_version: 1, stream_id: 'K1', payload: { stock_item_id: 'K1', quantity: 2, zone_id: 'Z1' } });
+
+    it('[01a #194] StockTransferredOut moves stock_version', () => {
+      const [event] = [{ ...aTransferredOut(), seq: 42 }];
+      setStockVersion(7);
+      noteCommitted([event]);
+      expect(stockVersion()).toBe(42);
     });
 
     const fullScan = (db: Database.Database): number => {
@@ -468,6 +478,7 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       ['StockReserved', aStockReserved()],
       ['StockReleased', aStockReleased()],
       ['StockConsumed', aStockConsumed()],
+      ['StockTransferredOut', aTransferredOut()],
       ['BusinessDayOpened', aBusinessDayOpened()],
       ['BusinessDayClosed', aBusinessDayClosed()],
     ])('[03a #85] %s newest: a snapshot boot reads the same version as a full scan', async (_type, event) => {
@@ -579,23 +590,42 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(bootLine(logs(), '3')).toMatchObject({ step: '3', snapshot_seq: null, checkpoint_seq: null, events_replayed: 0, ms: expect.any(Number) });
     });
 
-    it('[03a §3.3, §3.12] OrderLinesAdded on an absent order stops boot: the spec\'s throw', async () => {
-      const cfg = writeConfig();
-      cleanups.push(cfg.cleanup);
-      const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
-      insertRaw(first.deps.db, stamped([anOrderLinesAdded()], first.deps.writer.lastSeq() + 1));
-      await first.stop();
-      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
+    it('[03a §3.3 E-4, §3.12] OrderLinesAdded without order_header on an absent order no longer stops boot: the boot completes, with the diagnostic', async () => {
+      const { booted, logs } = await restart((db, next) => {
+        insertRaw(db, stamped([anOrderLinesAdded()], next));
+      });
+      expect(logs().filter((l) => l.kind === 'invalid_event')).toEqual([
+        expect.objectContaining({ level: 40, event_type: 'OrderLinesAdded', order_id: 'O1', order_item_id: 'L2', reason: 'order_not_in_engine', replay: true }),
+      ]);
+      expect(engine(booted).orders.O1).toBeUndefined();
+      expect(engine(booted).diagnostics).toEqual([]);
     });
 
     it('[task 20 review] a failed boot: flushEngineBootLog writes the step 2 line and the diagnostics folded before the throw, once', async () => {
       const cfg = writeConfig();
       cleanups.push(cfg.cleanup);
       const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
-      insertRaw(first.deps.db, stamped([set, breach, anOrderLinesAdded()], first.deps.writer.lastSeq() + 1));
+      insertRaw(first.deps.db, stamped([set, breach], first.deps.writer.lastSeq() + 1));
+      // E-5 (a): a test-only trigger. Step 3's id-set read (the one statement with json_array_length, after the replay
+      // folded the breach) fails as a DB failure would; the class's prepare is restored in finally.
+      const proto = Object.getPrototypeOf(first.deps.db) as { prepare: (this: Database.Database, sql: string) => unknown };
+      const prepare = proto.prepare;
       await first.stop();
       flushEngineBootLog(() => undefined);
-      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
+      let failed = 0;
+      proto.prepare = function (this: Database.Database, sql: string) {
+        if (/json_array_length/.test(sql)) {
+          failed += 1;
+          throw new Error('forced id-set read failure');
+        }
+        return prepare.call(this, sql);
+      };
+      try {
+        await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('forced id-set read failure');
+      } finally {
+        proto.prepare = prepare;
+      }
+      expect(failed).toBe(1);
       const written: string[] = [];
       flushEngineBootLog((text) => written.push(text));
       const lines = written.map((text) => JSON.parse(text) as LogLine);
@@ -670,11 +700,17 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(warns().filter((l) => l.kind === 'stock_breach')).toHaveLength(1);
     });
 
-    it('[03a §3.3] OrderLinesAdded on an absent order throws in the live fold and rolls the transaction back', async () => {
+    it('[03a §3.3 E-4] OrderLinesAdded without order_header on an absent order: the live append commits with one invalid_event diagnostic, no rollback', async () => {
       await open();
       const seq = hub.deps.writer.lastSeq();
-      expect(() => append([anOrderLinesAdded()])).toThrow('OrderLinesAdded for order');
-      expect(hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get()).toBe(seq);
+      const [committed] = append([anOrderLinesAdded()]);
+      expect(committed?.seq).toBe(seq + 1);
+      expect(hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get()).toBe(seq + 1);
+      expect(warns().filter((l) => l.kind === 'invalid_event')).toEqual([
+        expect.objectContaining({ event_type: 'OrderLinesAdded', order_id: 'O1', order_item_id: 'L2', reason: 'order_not_in_engine' }),
+      ]);
+      expect(engineNow().orders.O1).toBeUndefined();
+      expect(engineNow().diagnostics).toEqual([]);
     });
 
     it('[03a §3.3] an absent-id fold is logged once { event_type, order_id, order_item_id } and commits', async () => {

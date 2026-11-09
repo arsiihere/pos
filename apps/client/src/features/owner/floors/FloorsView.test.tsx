@@ -114,7 +114,7 @@ async function submit(form: HTMLFormElement): Promise<void> {
   await flush();
 }
 
-const GROUND = { floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null };
+const GROUND = { floor_id: 'F1', name: 'Ground', sort_order: 0, archived_at: null, zones: [] };
 
 describe('owner floors view', () => {
   it('[01a §10 #76] form retry reuses its Idempotency-Key; a newly opened form gets a new one', async () => {
@@ -225,7 +225,7 @@ describe('owner floors view', () => {
           { table_id: 'T2', name: 'Old table', seats: null, sort_order: 1, archived_at: 10 },
         ],
       },
-      { floor_id: 'F2', name: 'Basement', sort_order: 1, archived_at: 20, tables: [] },
+      { floor_id: 'F2', name: 'Basement', sort_order: 1, archived_at: 20, zones: [], tables: [] },
     ];
     const { api, calls } = fakeApi((call) => {
       if (call.method === 'GET') return json(200, { data: { floors } });
@@ -269,7 +269,7 @@ describe('owner floors view', () => {
     let tables = [{ table_id: 'X5', name: 'T5', seats: 2, sort_order: 0, archived_at: null }];
     const floors = () => [
       { ...GROUND, tables },
-      { floor_id: 'F2', name: 'Hall', sort_order: 1, archived_at: null, tables: [] },
+      { floor_id: 'F2', name: 'Hall', sort_order: 1, archived_at: null, zones: [], tables: [] },
     ];
     let failAt: string | null = null;
     const { api, calls } = fakeApi((call) => {
@@ -359,7 +359,7 @@ describe('owner floors view', () => {
   it('[01a hand-off S03] a floor More menu names the floor and its counts; Archive {floor} opens the confirm or the blocked dialog', async () => {
     const floors = [
       { ...GROUND, sort_order: 1, tables: [{ table_id: 'T1', name: 'T1', seats: 4, sort_order: 0, archived_at: null }] },
-      { floor_id: 'F2', name: 'Roof', sort_order: 2, archived_at: null, tables: [] },
+      { floor_id: 'F2', name: 'Roof', sort_order: 2, archived_at: null, zones: [], tables: [] },
     ];
     const { api, calls } = fakeApi((call) => {
       if (call.method === 'GET') return json(200, { data: { floors } });
@@ -395,7 +395,7 @@ describe('owner floors view', () => {
   it('[01a hand-off S03] Show archived (app-bar More) adds the "Archived shown" chip, which hides archived floors again', async () => {
     const floors = [
       { ...GROUND, tables: [] },
-      { floor_id: 'F2', name: 'Rooftop', sort_order: 1, archived_at: 20, tables: [] },
+      { floor_id: 'F2', name: 'Rooftop', sort_order: 1, archived_at: 20, zones: [], tables: [] },
     ];
     const { api } = fakeApi(() => json(200, { data: { floors } }));
     act(() => root.render(<FloorsView api={api} branchId="B1" />));
@@ -426,3 +426,238 @@ describe('owner floors view', () => {
     expect(shown()).toEqual(['F1']);
   });
 });
+
+// 01a v2.2 / v2.3 §8.1 (02a A-1, 02b A-1): zones sit under their floor; a zone has its own routes and stock items.
+describe('owner floors view: zones', () => {
+  // AD-16: the floors list carries each zone's lists.
+  const ZONE = {
+    zone_id: 'Z1',
+    name: 'Garden',
+    sort_order: 0,
+    archived_at: null,
+    routes: [{ item_id: 'I1', station_id: 'S1' }],
+    stock_items: [{ item_id: 'I2', threshold: 3 }],
+  };
+  const OLD_ZONE = { zone_id: 'Z2', name: 'Old', sort_order: 1, archived_at: 5, routes: [], stock_items: [] };
+  const item = (item_id: string, extra: Record<string, unknown> = {}) => ({
+    item_id,
+    name: `Item ${item_id}`,
+    sale_unit: 'piece',
+    requires_weighing: false,
+    archived_at: null,
+    routes: [{ branch_id: 'B1', station_id: 'S1' }],
+    ...extra,
+  });
+  const MENU = {
+    can_edit_tenant: true,
+    tax_classes: [],
+    categories: [],
+    variant_groups: [],
+    items: [
+      item('I1'),
+      item('I2'),
+      item('I3'),
+      item('I4', { sale_unit: 'g' }),
+      item('I5', { requires_weighing: true }),
+      item('I6', { routes: [] }),
+      item('I7', { archived_at: 9 }),
+    ],
+    next_cursor: null,
+  };
+  const STATIONS = {
+    stations: [
+      { station_id: 'S1', name: 'Karahi', archived_at: null, programs: [] },
+      { station_id: 'S2', name: 'Counter', archived_at: null, programs: [] },
+      { station_id: 'S9', name: 'Old grill', archived_at: 5, programs: [] },
+    ],
+    points: [],
+  };
+
+  function zoned(zone = { ...ZONE, floor_id: 'F1' }) {
+    return fakeApi((call) => {
+      if (call.url.endsWith('/floors')) return json(200, { data: { floors: [{ ...GROUND, zones: [ZONE, OLD_ZONE], tables: [] }] } });
+      if (call.url.includes('/menu')) return json(200, { data: MENU });
+      if (call.url.endsWith('/stations')) return json(200, { data: STATIONS });
+      return json(200, { data: { zone } });
+    });
+  }
+
+  const zoneChip = (id: string) => container.querySelector<HTMLButtonElement>(`[data-floor-id="F1"] [data-zone-id="${id}"]`);
+  const dialog = () => container.querySelector<HTMLElement>('[role="dialog"]');
+  const input = (name: string, within: ParentNode = container) => within.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`);
+  function choose(select: HTMLSelectElement | null | undefined, value: string): void {
+    if (!select) throw new Error('select missing');
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    act(() => {
+      setter?.call(select, value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+  async function openZone(): Promise<void> {
+    act(() => zoneChip('Z1')?.click());
+    await flush();
+    await flush();
+  }
+
+  it('[01a #181 client] zones listed under their floor; an archived zone only behind Show archived', async () => {
+    const { api } = zoned();
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    expect(zoneChip('Z1')?.textContent).toBe('Garden');
+    expect(zoneChip('Z2')).toBeNull();
+    const show = menuItem(barMore(), t('owner.common.show_archived'));
+    act(() => show.click());
+    expect(zoneChip('Z2')?.textContent).toContain('Old');
+    expect(zoneChip('Z2')?.className).toContain('is-muted');
+  });
+
+  it('[01a #189 client] zone editor sends routes / stock_items as replace lists, only the list that changed', async () => {
+    const { api, calls } = zoned();
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    await openZone();
+
+    // AD-16: the lists come from the floors list; opening the editor writes nothing.
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    const stock = (id: string) => dialog()?.querySelector<HTMLElement>(`[data-zone-stock="${id}"]`);
+    const route = (id: string) => dialog()?.querySelector<HTMLElement>(`[data-zone-route="${id}"]`);
+    expect((input('threshold', stock('I2') ?? container) as HTMLInputElement).value).toBe('3');
+    expect((input('station_id', route('I1') ?? container) as HTMLSelectElement).value).toBe('S1');
+    // Only active stations; only piece items that are not weighed and are sold at this branch.
+    expect([...(input('station_id', route('I1') ?? container) as HTMLSelectElement).options].map((o) => o.value)).toEqual(['S1', 'S2']);
+    expect([...(input('stock_add') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'I1', 'I3']);
+
+    // Remove the route and save: routes is [] (clear), stock_items is absent (keep).
+    act(() => button(t('zones.remove'), route('I1') ?? container).click());
+    await act(async () => button(t('zones.save'), dialog() ?? container).click());
+    await flush();
+    const patches = () => calls.filter((c) => c.method === 'PATCH');
+    expect(patches()).toHaveLength(1);
+    expect(patches()[0]?.url).toBe('/v1/admin/branches/B1/zones/Z1');
+    expect(patches()[0]?.body).toEqual({ routes: [] });
+
+    // Add a stock item and give it a threshold: the whole stock list is sent, routes are not.
+    await openZone();
+    choose(input('stock_add') as HTMLSelectElement, 'I3');
+    typeInto(input('threshold', dialog()?.querySelector<HTMLElement>('[data-zone-stock="I3"]') ?? container) as HTMLInputElement, '5');
+    await act(async () => button(t('zones.save'), dialog() ?? container).click());
+    await flush();
+    expect(patches().at(-1)?.body).toEqual({
+      stock_items: [
+        { item_id: 'I2', threshold: 3 },
+        { item_id: 'I3', threshold: 5 },
+      ],
+    });
+  });
+
+  it('[01a #189 client] a new zone is created with its floor, name and lists, under an Idempotency-Key', async () => {
+    const { api, calls } = zoned();
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    act(() => button(t('zones.add'), container.querySelector('[data-floor-id="F1"]') ?? container).click());
+    await flush();
+    await flush();
+    typeInto(input('name', dialog() ?? container) as HTMLInputElement, 'Roof');
+    choose(input('route_add') as HTMLSelectElement, 'I3');
+    await act(async () => button(t('zones.save'), dialog() ?? container).click());
+    await flush();
+    const post = calls.find((c) => c.method === 'POST');
+    expect(post?.url).toBe('/v1/admin/branches/B1/zones');
+    expect(post?.key).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(post?.body).toEqual({ floor_id: 'F1', name: 'Roof', routes: [{ item_id: 'I3', station_id: 'S1' }] });
+  });
+
+  it('[01a AD-7] a refused list entry shows the text of its reason on the zone editor', async () => {
+    const { api } = fakeApi((call) => {
+      if (call.url.endsWith('/floors')) return json(200, { data: { floors: [{ ...GROUND, zones: [{ ...ZONE, routes: [], stock_items: [] }], tables: [] }] } });
+      if (call.url.includes('/menu')) return json(200, { data: MENU });
+      if (call.url.endsWith('/stations')) return json(200, { data: STATIONS });
+      if (call.body && (call.body as { stock_items?: unknown }).stock_items !== undefined) {
+        return json(422, { error: { code: 'CONFIG_REFERENCE_INVALID', message: 'x', details: { field: 'stock_items.0.item_id', reason: 'not_piece' } } });
+      }
+      return json(200, { data: { zone: { ...ZONE, floor_id: 'F1', routes: [], stock_items: [] } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    await openZone();
+    choose(input('stock_add') as HTMLSelectElement, 'I3');
+    await act(async () => button(t('zones.save'), dialog() ?? container).click());
+    await flush();
+    expect(dialog()?.textContent).toContain(t('errors.reference.not_piece'));
+  });
+
+  it('[01a AD-17] archiving a zone asks first, naming the zone and its tables; there is no Undo chip', async () => {
+    const { api, calls } = zoned();
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    await openZone();
+    act(() => button(t('owner.common.archive'), dialog() ?? container).click());
+    await flush();
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    const confirm = [...container.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1);
+    expect(confirm?.textContent).toContain('Garden');
+    expect(confirm?.textContent).toContain(t('zones.archive_confirm_body'));
+    await act(async () => button(fill(t('archive.archive_name'), { name: 'Garden' }), confirm ?? container).click());
+    await flush();
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ archived: true }]);
+    expect(container.textContent).not.toContain(t('common.undo'));
+  });
+
+  it('[01a S50 e] pickers read every menu page; a stored row whose item is not in the menu shows a neutral label, never its id', async () => {
+    const gone = { ...ZONE, routes: [{ item_id: 'I1', station_id: 'S1' }, { item_id: 'GONE-ID', station_id: 'S1' }] };
+    const { api, calls } = fakeApi((call) => {
+      if (call.url.endsWith('/floors')) return json(200, { data: { floors: [{ ...GROUND, zones: [gone], tables: [] }] } });
+      if (call.url.includes('/menu')) {
+        return call.url.includes('cursor=c2')
+          ? json(200, { data: { ...MENU, items: [item('I8')], next_cursor: null } })
+          : json(200, { data: { ...MENU, items: [item('I1')], next_cursor: 'c2' } });
+      }
+      return json(200, { data: STATIONS });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    await openZone();
+    expect(calls.filter((c) => c.url.includes('/menu'))).toHaveLength(2);
+    expect([...(input('route_add') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'I8']);
+    expect(dialog()?.textContent).not.toContain('GONE-ID');
+    expect(dialog()?.textContent).toContain(t('zones.unknown_item'));
+  });
+
+  it('[01a AD-6] a floor archive refused with CONFIG_IN_USE reloads and names the real blocker, not a confirm again', async () => {
+    let zonesNow: unknown[] = [];
+    const { api } = fakeApi((call) => {
+      if (call.url.endsWith('/floors')) return json(200, { data: { floors: [{ ...GROUND, zones: zonesNow, tables: [] }] } });
+      zonesNow = [ZONE];
+      return json(409, { error: { code: 'CONFIG_IN_USE', message: 'x', details: { used_by: { entity: 'zone', ids: ['Z1'] } } } });
+    });
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    const archive = menuItem(floorMore('F1'), fill(t('floors.menu_archive'), { floor: 'Ground' }));
+    act(() => archive.click());
+    await act(async () => button(fill(t('archive.archive_name'), { name: 'Ground' }), dialog() ?? container).click());
+    await flush();
+    await flush();
+    expect(dialog()?.textContent).toContain('Garden');
+    expect(dialog()?.textContent).toContain(fill(t('archive.floor_zones_body'), { n: '1' }));
+  });
+
+  it('[01a AD-6] a floor with active zones lists them in the blocked dialog; Archive all archives the zones, then the floor', async () => {
+    const { api, calls } = zoned();
+    act(() => root.render(<FloorsView api={api} branchId="B1" />));
+    await flush();
+    const more = floorMore('F1');
+    const archive = menuItem(more, fill(t('floors.menu_archive'), { floor: 'Ground' }));
+    act(() => archive.click());
+    const blocked = dialog();
+    expect(blocked?.textContent).toContain('Garden');
+    expect(blocked?.textContent).not.toContain('Old');
+    await act(async () => button(fill(t('archive.floor_zones_then_floor'), { n: '1' }), blocked ?? container).click());
+    await flush();
+    const patches = calls.filter((c) => c.method === 'PATCH');
+    expect(patches.map((c) => [c.url, c.body])).toEqual([
+      ['/v1/admin/branches/B1/zones/Z1', { archived: true }],
+      ['/v1/admin/branches/B1/floors/F1', { archived: true }],
+    ]);
+  });
+});
+

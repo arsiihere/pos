@@ -11,7 +11,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { hostFlags } from '../../src/engine-host/host-flags';
-import { loadEngineBase } from '../../src/engine-host/replay';
+import { loadEngineBase, replayEngine } from '../../src/engine-host/replay';
 import { checkpointAfterPass, onSigterm, scheduleSnapshot, SNAPSHOT_EVERY, writeCheckpoint, writeSnapshotSync } from '../../src/engine-host/snapshots';
 import { boot, type BootHandle } from '../../src/lib/boot';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
@@ -433,6 +433,52 @@ describe('03a task 21: snapshot and checkpoint writers', () => {
       checkpointAfterPass(hub.deps, at + MIN);
       await nextImmediate();
       expect(checkpointsOf(hub.deps.db)).toHaveLength(1);
+    });
+
+    // Task 27 review Minor 3. "Scoped": the checkpoint holds only the stock, station and config parts (§3.12, no order
+    // is in the engine when it is written), so live and the boot base from it are compared on that scope, plus "no
+    // order of live is in the engine at the instant" (the base has none at all).
+    it('[03a §3.12 gap 5] a scoped live = replay compare right after the deferred checkpoint is written', async () => {
+      const { servedAt } = await keptOverClose();
+      append([setK1]);
+      const at = servedAt + 30 * MIN; // "23:50": the order kept over the close has left the engine
+      hub.clock.set(at);
+      checkpointAfterPass(hub.deps, at);
+      await nextImmediate();
+      const rows = checkpointsOf(hub.deps.db);
+      expect(rows).toHaveLength(1);
+      const lastSeq = hub.deps.writer.lastSeq();
+      expect(rows[0]!.last_seq).toBe(lastSeq);
+
+      const scoped = (s: EngineState): Record<string, unknown> => {
+        const c = JSON.parse(JSON.stringify(toCheckpoint(s, lastSeq))) as Record<string, unknown>;
+        const stations = Object.fromEntries(
+          Object.entries(s.stations).map(([id, st]) => [id, { station_id: st.station_id, type: st.type, capacity: st.capacity, capacity_override: st.capacity_override, paused: st.paused }]),
+        );
+        return { ...c, stations };
+      };
+      // What boot step 2–3 rebuilds right now: the base from the newest checkpoint (no snapshot is written in this
+      // log), replayed from its last_seq.
+      const replayFrom = (): EngineState => {
+        const base = loadEngineBase(hub.deps.db, BRANCH, () => undefined);
+        expect(base.snapshot_seq).toBeNull();
+        expect(base.checkpoint_seq).toBe(rows[0]!.last_seq);
+        return replayEngine(hub.deps.db, BRANCH, base.checkpoint_seq!, base.state!, () => undefined).state;
+      };
+      const live = engine();
+      const replayed = replayFrom();
+      expect(scoped(replayed)).toEqual(scoped(live));
+      expect(Object.keys(live.orders)).toEqual(['O1']); // still in state.orders (#112) …
+      expect(Object.keys(live.orders).every((id) => !isOrderInEngine(live, id, at))).toBe(true); // … but out of the engine
+      expect(replayed.orders).toEqual({});
+      expect(Object.values(replayed.stations).every((st) => st.unfired.length === 0 && st.profile.t.length === 0)).toBe(true);
+
+      // And after the next commits on top of it: replayed from the checkpoint, still equal on the scope.
+      hub.clock.set(at + MIN);
+      append([aStockSet({ stream_id: 'K1', payload: { stock_item_id: 'K1', on_hand: 1_500, unit: 'g' } }), kSet(2)]);
+      const after = replayFrom();
+      expect(scoped(after)).toEqual(scoped(engine()));
+      expect(after.stock.K1).toMatchObject({ on_hand: 1_500 });
     });
 
     it('[03a §3.12 checkpoint] a BusinessDayOpened commit before the deferred write clears the flag and the previous checkpoint stands', async () => {

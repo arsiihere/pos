@@ -36,6 +36,7 @@ Ask in plain words; the "decides" column is for the developer, not for the resta
 |---|---|---|---|
 | 16 | How are floors and table groups organised? Does each order taker have fixed tables? How many waiters under each order taker? | M | zones, table owner, teams (Z1, Z2, R24) |
 | 17 | Who takes orders: order takers only, or waiters too? | M | take-order permission; default roles |
+| 17a | Check: does every floor lead (the person whose team refills a zone) have a PIN? A lead without a PIN adds no zones to `my_zones` (02p AD-34). | M | give floor leads a PIN |
 | 18 | How often does a table order more after the first round? Do those orders need to be faster? | OT | `follow_up` flag and weight (D7) |
 | 19 | Takeaway and parking: how many per evening? For parking, what identifies the car (number, colour, token)? | M, OT | order types; parking fields (02 Q8, Q9) |
 | 20 | What is placed on the table before ordering (water, raita, salad)? What is always free? | M | zone stock (Z4), standing comp (C1) |

@@ -2,6 +2,10 @@ import type {
   AdminBranch,
   AdminCategory,
   AdminFloor,
+  AdminFloorList,
+  AdminZone,
+  CreateZoneRequest,
+  PatchZoneRequest,
   AdminMenuItem,
   AdminMenuPage,
   AdminPoint,
@@ -90,6 +94,11 @@ export type Branch = AdminBranch;
 export type AvailabilityWindow = AdminWindow;
 export type Table = AdminTable;
 export type Floor = AdminFloor;
+export type Zone = AdminZone;
+export type FloorWithZones = AdminFloorList['floors'][number];
+export type ZoneSummary = FloorWithZones['zones'][number];
+export type CreateZoneBody = CreateZoneRequest;
+export type PatchZoneBody = PatchZoneRequest;
 export type Station = AdminStation;
 export type Point = AdminPoint;
 export type StationType = Station['station_type'];
@@ -388,11 +397,16 @@ export function createCloudAdmin(options: CloudAdminOptions) {
 
     // §6.2–§6.6 floors and tables
     listFloors: (branchId: string) =>
-      call<{ floors: (Floor & { tables: Table[] })[] }>('GET', `${branch(branchId)}/floors`),
+      call<AdminFloorList>('GET', `${branch(branchId)}/floors`),
     createFloor: (branchId: string, body: CreateFloorBody, key: string) =>
       call<{ floor: Floor }>('POST', `${branch(branchId)}/floors`, body, key),
     patchFloor: (branchId: string, floorId: string, body: PatchFloorBody) =>
       call<{ floor: Floor }>('PATCH', `${branch(branchId)}/floors/${id(floorId)}`, body),
+    // §6.6a, §6.6b (02a A-1, 02b A-1) zones; routes / stock_items are replace lists
+    createZone: (branchId: string, body: CreateZoneBody, key: string) =>
+      call<{ zone: Zone }>('POST', `${branch(branchId)}/zones`, body, key),
+    patchZone: (branchId: string, zoneId: string, body: PatchZoneBody) =>
+      call<{ zone: Zone }>('PATCH', `${branch(branchId)}/zones/${id(zoneId)}`, body),
     createTable: (branchId: string, body: CreateTableBody, key: string) =>
       call<{ table: Table & { floor_id: string } }>('POST', `${branch(branchId)}/tables`, body, key),
     patchTable: (branchId: string, tableId: string, body: PatchTableBody) =>

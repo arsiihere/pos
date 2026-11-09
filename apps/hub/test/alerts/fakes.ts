@@ -93,7 +93,11 @@ type PointTarget = Extract<AlertTarget, { kind: 'point' }>;
 type ZoneTarget = Extract<AlertTarget, { kind: 'zone_order_taker' }>;
 
 /** 02-like `tableOwner` (§3.4, §4.4): table_id → owner, set by the test; one statement per call. */
-export const fakeTableOwner: { owners: Map<string, string>; calls: TableTeamTarget[][] } = { owners: new Map(), calls: [] };
+export const fakeTableOwner: { owners: Map<string, string>; reports: Map<string, string[]>; calls: TableTeamTarget[][] } = {
+  owners: new Map(),
+  reports: new Map(),
+  calls: [],
+};
 
 /** 01a-like point tablets (§3.4, §4.4): point_id → bound tablet ids, set by the test; one statement per call. */
 export const fakePoint: { devices: Map<string, string[]>; calls: PointTarget[][] } = { devices: new Map(), calls: [] };
@@ -137,7 +141,16 @@ function fakeTableOwnerResolver(tx: WriterTx, targets: TableTeamTarget[]): Map<s
     table_id: string;
     staff_id: string;
   }>;
-  return new Map(rows.map((row) => [targetKey({ kind: 'table_team', table_id: row.table_id }), { staff_ids: [row.staff_id], device_ids: [] }]));
+  // 01d D-1: the full set per (table, depth); `owner` → [holder], `direct` → [holder, ...reports set by the test]
+  const holders = new Map(rows.map((row) => [row.table_id, row.staff_id]));
+  const out = new Map<string, ResolvedTarget>();
+  for (const t of targets) {
+    const holder = holders.get(t.table_id);
+    if (holder === undefined) continue;
+    const staff_ids = t.depth === 'owner' ? [holder] : [holder, ...(fakeTableOwner.reports.get(holder) ?? [])];
+    out.set(targetKey(t), { staff_ids, device_ids: [], owner_staff_id: holder });
+  }
+  return out;
 }
 
 function fakePointResolver(tx: WriterTx, targets: PointTarget[]): Map<string, ResolvedTarget> {
@@ -381,6 +394,7 @@ export function resetFakes(): void {
   fakePager.calls.length = 0;
   fakePager.sent.length = 0;
   fakeTableOwner.owners.clear();
+  fakeTableOwner.reports.clear();
   fakeTableOwner.calls.length = 0;
   fakePoint.devices.clear();
   fakePoint.calls.length = 0;

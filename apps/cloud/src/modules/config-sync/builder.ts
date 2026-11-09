@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import type pg from 'pg';
 import { TenantLevelRepository } from '../../db/tenant-level-repository.js';
 import { TenantScopedRepository, type TenantContext } from '../../db/tenant-scoped-repository.js';
@@ -82,14 +82,14 @@ interface DrawRow {
   quantity_per_sale_unit: number;
 }
 
-// §6.1 step 3, §4.3 (01c §6.17, §4.6): 21 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
+// §6.1 step 3, §4.3 (01c §6.17, §4.6): 22 fixed statements, one builder (S28): 01a's 7 + variant groups, stock
 // items with this branch's rows, draws, modifier groups with options, this branch's option rows, links, this
-// branch's deal rows, the deals sold here with their active parts and choices, deal windows, and schema 3's points,
-// alternates, carry times, engine settings, goes-with (01b v1.5 B-8). Active rows only, except stations, programs,
-// tax classes (S22) and points.
+// branch's deal rows, the deals sold here with their active parts and choices, deal windows, schema 3's points,
+// alternates, carry times, engine settings, goes-with (01b v1.5 B-8), and schema 4's zones with their lists (01a v2.2
+// A-1 "+1 statement", v2.3 A-1). Active rows only, except stations, programs, tax classes (S22), points and zones.
 // Arrays by sort_order, then id; rows without sort_order (stations, programs, tax classes) by name, then id;
 // stock items by toLowerCase() name, then id, in JS; windows by start_ms, end_ms, window_id (S47); deal choices by
-// sort_order, then item_id (m5). Returns the wire object (S27).
+// sort_order, then item_id (m5); zone routes and stock items by item_id (AD-12). Returns the wire object (S27).
 export async function buildSnapshot(
   client: pg.PoolClient,
   tenant: TenantContext,
@@ -97,7 +97,7 @@ export async function buildSnapshot(
   header: SnapshotHeader,
 ): Promise<Record<string, unknown>> {
   const body = await buildSnapshotBody(client, tenant, branchId, header);
-  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV3.parse(body))) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(BranchConfigSnapshotSchemaV4.parse(body))) as Record<string, unknown>;
 }
 
 // The built body before the schema parse.
@@ -115,8 +115,16 @@ export async function buildSnapshotBody(
     `SELECT floor_id, name, sort_order FROM floors WHERE ${branch} AND archived_at IS NULL ORDER BY sort_order, floor_id`,
     [branchId],
   );
-  const tables = await scoped.query<{ floor_id: string; table_id: string; name: string; seats: number | null; sort_order: number }>(
-    `SELECT floor_id, table_id, name, seats, sort_order FROM dining_tables
+  const tables = await scoped.query<{
+    floor_id: string;
+    table_id: string;
+    name: string;
+    seats: number | null;
+    sort_order: number;
+    zone_id: string | null;
+  }>(
+    // 01a §4.3 V4: zone_id as stored; archiving a zone sets it to NULL on its tables (§6.6b, #184).
+    `SELECT floor_id, table_id, name, seats, sort_order, zone_id FROM dining_tables
       WHERE ${branch} AND archived_at IS NULL ORDER BY sort_order, table_id`,
     [branchId],
   );
@@ -183,7 +191,7 @@ export async function buildSnapshotBody(
             COALESCE(r.price_minor_override, m.price_minor) AS price_minor, -- S57: the branch's effective price
             m.tax_class_id, m.serve_mode, m.prep_buffer_ms, m.cook_time_ms, m.stock_time_ms, m.out_of_stock_behaviour,
             m.sale_unit, m.requires_weighing, r.station_id, r.program_id, r.stock_program_id,
-            m.weight_pct, m.max_early_ms, m.max_carry_ms, m.max_late_ms, m.adjust_time_ms
+            m.weight_pct, m.max_early_ms, m.max_carry_ms, m.max_late_ms, m.adjust_time_ms, m.is_ready_item
        FROM item_routes r
        JOIN menu_items m ON m.tenant_id = r.tenant_id AND m.item_id = r.item_id
       WHERE r.tenant_id = $1 AND r.branch_id = ANY($2) AND r.branch_id = $3 AND m.archived_at IS NULL
@@ -284,6 +292,8 @@ export async function buildSnapshotBody(
   const carryTimes = await selectCarryTimes(scoped, branchId);
   const engineSettings = await selectEngineSettings(scoped, branchId);
   const goesWith = await selectGoesWith(level);
+  // 01a v2.2 / v2.3 §4.3, schema 4: one statement (§6.1 "+1").
+  const zones = await selectZones(scoped, branchId);
 
   // §4.6: by toLowerCase() name, then id, in JavaScript string order (never the database collation).
   stockItems.sort((a, b) => compare(a.name.toLowerCase(), b.name.toLowerCase()) || compare(a.stock_item_id, b.stock_item_id));
@@ -414,11 +424,21 @@ export async function buildSnapshotBody(
     windowsByTarget.set(key, list);
   }
   const windowsOf = (kind: 'item' | 'category', id: string) => windowsByTarget.get(`${kind}:${id}`) ?? [];
-  const tablesByFloor = new Map<string, Array<{ table_id: string; name: string; seats: number | null; sort_order: number }>>();
+  const tablesByFloor = new Map<
+    string,
+    Array<{ table_id: string; name: string; seats: number | null; sort_order: number; zone_id: string | null }>
+  >();
   for (const table of tables) {
     const list = tablesByFloor.get(table.floor_id) ?? [];
-    list.push({ table_id: table.table_id, name: table.name, seats: table.seats, sort_order: table.sort_order });
+    list.push({ table_id: table.table_id, name: table.name, seats: table.seats, sort_order: table.sort_order, zone_id: table.zone_id });
     tablesByFloor.set(table.floor_id, list);
+  }
+  // A zone of an archived floor has no floor here, so it is not delivered (an archived floor has no active zone, §6.4).
+  const zonesByFloor = new Map<string, Array<Omit<ZoneRow, 'floor_id'>>>();
+  for (const { floor_id, ...zone } of zones) {
+    const list = zonesByFloor.get(floor_id) ?? [];
+    list.push(zone);
+    zonesByFloor.set(floor_id, list);
   }
 
   const alternatesByStation = new Map<string, Array<{ station_id: string; order_types: string[]; home_for_order_types: string[] }>>();
@@ -487,7 +507,11 @@ export async function buildSnapshotBody(
     tax_enabled: header.tax_enabled,
     day_stale_after_hours: header.day_stale_after_hours,
     day_min_gap_hours: header.day_min_gap_hours,
-    floors: floors.map((floor) => ({ ...floor, tables: tablesByFloor.get(floor.floor_id) ?? [] })),
+    floors: floors.map((floor) => ({
+      ...floor,
+      zones: zonesByFloor.get(floor.floor_id) ?? [],
+      tables: tablesByFloor.get(floor.floor_id) ?? [],
+    })),
     points,
     stations: stationList,
     tax_classes: taxClasses,
@@ -549,7 +573,8 @@ async function selectEngineSettings(scoped: TenantScopedRepository, branchId: st
   const rows = await scoped.query<Record<string, unknown>>(
     `SELECT weight_dine_in_pct, weight_takeaway_pct, weight_delivery_pct, weight_parking_pct, weight_follow_up_pct,
             promise_padding_dine_in_ms, promise_padding_takeaway_ms, promise_padding_delivery_ms, promise_padding_parking_ms,
-            slip_threshold_ms, slip_escalate_ms, cascade_step_ms, min_gain_ms, returns_boost, order_abandon_ms, table_lock_ttl_ms
+            slip_threshold_ms, slip_escalate_ms, cascade_step_ms, min_gain_ms, returns_boost, order_abandon_ms, table_lock_ttl_ms,
+            queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips -- 02b A-1, AD-10
        FROM branch_engine_settings
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
     [branchId],
@@ -557,6 +582,40 @@ async function selectEngineSettings(scoped: TenantScopedRepository, branchId: st
   const row = rows[0];
   if (row === undefined) throw new Error(`no engine settings row for branch ${branchId}`);
   return row;
+}
+
+interface ZoneRow {
+  floor_id: string;
+  zone_id: string;
+  name: string;
+  sort_order: number;
+  is_archived: boolean;
+  routes: Array<{ item_id: string; station_id: string }>;
+  stock_items: Array<{ item_id: string; threshold: number }>;
+}
+
+// 01a §4.3 V4: every zone of the branch, archived ones included with is_archived: true (like stations) and with empty
+// lists (AD-11; their rows stay and apply again on restore, AD-9). By sort_order, then zone_id; each list by item_id
+// (AD-12), in code-unit order (COLLATE "C"). An active zone's lists never name an archived item or station (AD-6,
+// AD-9), so they are not filtered. One statement: the lists are aggregated in correlated subqueries on their primary keys.
+function selectZones(scoped: TenantScopedRepository, branchId: string) {
+  return scoped.query<ZoneRow>(
+    `SELECT z.floor_id, z.zone_id, z.name, z.sort_order, z.archived_at IS NOT NULL AS is_archived,
+            CASE WHEN z.archived_at IS NOT NULL THEN '[]'::json ELSE COALESCE(
+              (SELECT json_agg(json_build_object('item_id', r.item_id, 'station_id', r.station_id) ORDER BY r.item_id COLLATE "C")
+                 FROM zone_item_routes r
+                WHERE r.tenant_id = z.tenant_id AND r.branch_id = z.branch_id AND r.zone_id = z.zone_id),
+              '[]'::json) END AS routes,
+            CASE WHEN z.archived_at IS NOT NULL THEN '[]'::json ELSE COALESCE(
+              (SELECT json_agg(json_build_object('item_id', s.item_id, 'threshold', s.threshold) ORDER BY s.item_id COLLATE "C")
+                 FROM zone_stock_items s
+                WHERE s.tenant_id = z.tenant_id AND s.branch_id = z.branch_id AND s.zone_id = z.zone_id),
+              '[]'::json) END AS stock_items
+       FROM zones z
+      WHERE z.tenant_id = $1 AND z.branch_id = ANY($2) AND z.branch_id = $3
+      ORDER BY z.sort_order, z.zone_id COLLATE "C"`,
+    [branchId],
+  );
 }
 
 // CL-12: archiving a category or item does not touch its links, so a link with an archived end is left out here.

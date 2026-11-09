@@ -3,7 +3,7 @@
 import { performance } from 'node:perf_hooks';
 import { canonicalJson } from '@pos/domain/hash';
 import type { EngineState } from '@pos/engine';
-import { BranchConfigSnapshotSchemaV3, EngineConfigAppliedPayload, type BranchConfig, type ConfigItem, type ConfigStation, type EngineConfig, type PosEvent } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, EngineConfigAppliedPayload, type BranchConfig, type ConfigItem, type ConfigStation, type EngineConfig, type PosEvent } from '@pos/events';
 import { aBranchConfig, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
@@ -190,7 +190,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
     it('never throws over a fuzz of 200 valid V3 configs; each E() is a valid strict payload and is what the engine folds', () => {
       const random = mulberry32(24);
       for (let n = 0; n < 200; n += 1) {
-        const c = BranchConfigSnapshotSchemaV3.parse(fuzzConfig(random, n));
+        const c = BranchConfigSnapshotSchemaV4.parse(fuzzConfig(random, n));
         let appended: PosEvent[] = [];
         expect(() => {
           appended = runHook(c);
@@ -215,7 +215,7 @@ describe('03a task 24: the config hook (§3.11)', () => {
         items: [item({ item_id: 'A', cook_time_ms: -300_000 }), item({ item_id: 'B', cook_time_ms: -100_000, station_id: 'S2' }), item({ item_id: 'C', cook_time_ms: 0, station_id: 'S2' })],
         engine_settings: { ...aBranchConfig().engine_settings, weight_dine_in_pct: 0, slip_threshold_ms: -1, cascade_step_ms: 0, min_gain_ms: -60_000, order_abandon_ms: 0 },
       });
-      const parsed = BranchConfigSnapshotSchemaV3.parse(c);
+      const parsed = BranchConfigSnapshotSchemaV4.parse(c);
       const e = engineConfigOf(parsed);
       expect(e.stations.map((s) => [s.station_id, s.name])).toEqual([
         ['S1', 'First'],
@@ -369,6 +369,55 @@ describe('03a task 24: the config hook (§3.11)', () => {
       await pass(t + 300_000);
       expect(attempts()).toBe(5);
     });
+    it('[03a AD-35 gap 7] a hook commit during the catch-up back-off takes the catchUps.delete branch', async () => {
+      const log = startLoop();
+      hub.deps.writer.run((tx) => tx.append([draftOf(anEngineConfigApplied()), draftOf(aBusinessDayOpened())]));
+      hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
+      const inUse = engine().config!.config_version;
+      swapBranchConfig(entry(aBranchConfig({ config_version: inUse + 1 })));
+      cleanups.push(() => setEngineConfigOf(engineConfigOf));
+      let calls = 0;
+      let failing = true;
+      setEngineConfigOf((snapshot) => {
+        calls += 1;
+        if (failing) throw new Error('E() failed');
+        return engineConfigOf(snapshot);
+      });
+      hostFlags.configStale = true;
+      const t = hub.clock.branchNow() + 60 * 60_000;
+      const backOffLines = (): number => hub.logs().split('fires: config catch-up failed; retrying at a back-off').length - 1;
+      // Backed off: three failed catch-up passes, then the back-off starts (one error line, one warn line).
+      for (let i = 0; i < 4; i += 1) await pass(t);
+      expect(backOffLines()).toBe(1);
+      expect(warnLines(hub)).toHaveLength(1);
+      expect(hostFlags.configStale).toBe(true);
+      // During the back-off (next retry at t + 60 s), 01a's apply runs the hook: it commits the config and clears the flag.
+      hub.published.length = 0;
+      const hooked = runHook(aBranchConfig({ config_version: inUse + 1 }));
+      expect(hooked.map((e) => e.event_type)).toEqual(['EngineConfigApplied']);
+      expect(engine().config!.config_version).toBe(inUse + 1);
+      expect(hostFlags.configStale).toBe(false);
+      // The next due sees configStale false: catchUps.delete drops the failure count and the retry time. An ordinary
+      // pass: no catch-up attempt (E() is not called), no warn line.
+      const before = calls;
+      await pass(t + 10_000);
+      expect(calls).toBe(before);
+      expect(warnLines(hub)).toHaveLength(1);
+      // A later stale config, still inside the old back-off window (t + 60 s): with the back-off state dropped, the very
+      // next pass is a catch-up attempt and commits; had the state stayed (failures 3, retry_at t + 60 s), it would wait.
+      failing = false;
+      swapBranchConfig(entry(aBranchConfig({ config_version: inUse + 2 })));
+      hostFlags.configStale = true;
+      hub.published.length = 0;
+      await pass(t + 11_000);
+      expect(hub.published.map((batch) => batch.map((e) => e.event_type))).toEqual([['EngineConfigApplied']]);
+      expect(engine().config!.config_version).toBe(inUse + 2);
+      expect(hostFlags.configStale).toBe(false);
+      expect(warnLines(hub)).toHaveLength(1);
+      expect(backOffLines()).toBe(1);
+      expect(log.error.mock.calls.filter(([obj]) => obj.tick === 'fires')).toHaveLength(3); // the tick loop's "tick failed" for the three failed attempts; the back-off error line goes to hub.logs()
+    });
+
     it('AD-35 (c), amended by the owner 2026-11-08: one warn line when the back-off starts, then at most one per 60 s (on each retry), with failures, config versions and the passes since the last line; none on a catch-up pass, none once it commits', async () => {
       startLoop();
       hub.deps.writer.run((tx) => tx.append([draftOf(anEngineConfigApplied()), draftOf(aBusinessDayOpened())]));

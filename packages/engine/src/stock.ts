@@ -319,6 +319,9 @@ function book(state: EngineState, d: { event_type: string; payload: Record<strin
       return withStock({ on_hand: p.on_hand as number, reserved: prev.reserved, set_at: t, unit: p.unit as Unit });
     case 'StockAdded':
       return p.unit === prev.unit ? withStock({ ...prev, on_hand: prev.on_hand + q }) : state;
+    // 03a v1.2 Q-5: as foldStockTransferredOut — on_hand −= quantity, clamped at 0; an item with no entry stays absent.
+    case 'StockTransferredOut':
+      return state.stock[sid] === undefined ? state : withStock({ ...prev, on_hand: Math.max(0, prev.on_hand - q) });
     case 'StockReserved':
       return lineDraws(withStock({ ...prev, reserved: prev.reserved + q }), (r) => r + q, () => ({ from_stock: true, reserved_seq: Number.MAX_SAFE_INTEGER }));
     case 'StockReleased':
@@ -425,6 +428,21 @@ function moveDrafts(state: EngineState, line: EngineLine, units: number, ctx: St
   return [...lineReleases(line, 'moved'), ...adds];
 }
 
+// §3.7 (v0.6.2, G4-3 #2; 03a v1.2 Q-4): the releases of ending `units` of a line. `units` absent or ≥ the line's units
+// → every draw's remaining reserved (lineReleases); fewer → each draw's share = quantity × units ÷ line units (exact,
+// else AD-8), capped at the draw's reserved.
+function shareReleases(line: EngineLine, units: number | undefined, reason: ReleaseReason): StockReleasedDraft[] {
+  if (units === undefined || units >= line.units) return lineReleases(line, reason);
+  const out: StockReleasedDraft[] = [];
+  for (const d of line.draws) {
+    const share = (d.quantity * units) / line.units;
+    if (!Number.isInteger(share)) throw new InvalidEvent('void_share_not_integer', line.order_item_id, line.station_id);
+    const q = Math.min(share, d.reserved);
+    if (q > 0) out.push(releasedDraft(d.stock_item_id, line.order_item_id, q, reason));
+  }
+  return out;
+}
+
 // One cause's drafts, split by where they go in the §4.2 batch: `before` the cause (the releases of a recount or
 // close, the Q14 consumes of a unit-changing StockSet), `after` it (everything else, in order).
 function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefined): { before: StockDraft[]; after: StockDraft[] } {
@@ -456,25 +474,18 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
       return { before: [], after };
     }
     // §3.7 per-cause table: the line itself, at any stage before its Start (a started line's units were consumed).
+    // 03a v1.2 Q-4: `units` absent or ≥ the line's units → the whole line; fewer → only those units' share, as a
+    // partial ItemVoided (shareReleases), with reason `removed`.
     case 'ItemRemoved': {
       const line = namedLine(state, p);
-      return line === undefined ? none : { before: [], after: lineReleases(line, 'removed') };
+      if (line === undefined) return none;
+      return { before: [], after: shareReleases(line, p.units as number | undefined, 'removed') };
     }
     // §3.7 (v0.6.2, G4-3 #2): a void of the whole line releases every draw's remaining reserved; a partial void
-    // only the voided units' share of every draw, share = quantity × voided ÷ units (exact, else AD-8).
+    // only the voided units' share of every draw.
     case 'ItemVoided': {
       const line = namedLine(state, p);
-      if (line === undefined) return none;
-      const units = p.units as number;
-      if (units >= line.units) return { before: [], after: lineReleases(line, 'voided') };
-      const after: StockReleasedDraft[] = [];
-      for (const d of line.draws) {
-        const share = (d.quantity * units) / line.units;
-        if (!Number.isInteger(share)) throw new InvalidEvent('void_share_not_integer', line.order_item_id, line.station_id);
-        const q = Math.min(share, d.reserved);
-        if (q > 0) after.push(releasedDraft(d.stock_item_id, line.order_item_id, q, 'voided'));
-      }
-      return { before: [], after };
+      return line === undefined ? none : { before: [], after: shareReleases(line, p.units as number, 'voided') };
     }
     // §3.7 move to stock (v0.5, G4-1 #13): release + adds, folded in order, then the waiting-line reserve.
     case 'ItemMovedToStock': {
@@ -502,6 +513,9 @@ function effectsOf(state: EngineState, draft: StockCause, ctx: StockCtx | undefi
     }
     case 'BusinessDayClosed':
       return { before: closeReleases(state, t), after: [] };
+    // 03a v1.2 Q-5 (§3.7): a transfer out to a zone drafts nothing (no release, no reserve; its fold only lowers on_hand).
+    case 'StockTransferredOut':
+      return none;
     // §3.7 Q14 / test 42: no unit_changed path at a day open; any other draft needs nothing.
     default:
       return none;

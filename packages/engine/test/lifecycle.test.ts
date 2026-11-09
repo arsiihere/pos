@@ -28,6 +28,7 @@ import {
   stockEffects,
   type EngineState,
 } from '../src/index';
+import { InvalidEvent } from '../src/invalid-event';
 import { liveProfile } from '../src/live';
 import { slipDueOf } from '../src/slip';
 
@@ -132,7 +133,7 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     expect(closed.business_day!.closed_at).toBe(at(32));
   });
 
-  it('[03a #78] readers treat it as gone from the deadline; removal at the next listed event only; a return re-opens; absent OrderLinesAdded throws', () => {
+  it('[03a #78] readers treat it as gone from the deadline; removal at the next listed event only; a return re-opens; absent headerless OrderLinesAdded is InvalidEvent(order_not_in_engine)', () => {
     const s = fold([cfg(), ...servedOrder()]);
     const deadline = at(30) + ORDER_EXIT_AFTER_SERVED_MS;
     // An audit receipt and an AlertSeen past the deadline are not handled: state itself, nothing removed.
@@ -160,13 +161,18 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     // Live = replay.
     expect(buildEngineState([cfg(), ...servedOrder(), ...ret])).toEqual({ ...reopened });
 
-    // After removal an OrderLinesAdded for the order throws, strict and non-strict.
+    // E-4 (15b check S-1): after removal, an OrderLinesAdded with non-empty order_item_ids and no order_header is
+    // InvalidEvent('order_not_in_engine'): strict throws; non-strict one diagnostic and the event skipped.
     const add = anOrderLinesAdded({ recorded_at: deadline + 10, seq: nextSeq() });
-    expect(() => applyEvent(after, add)).toThrow(/not in the engine/);
-    expect(() => applyEvent(after, add, { strict: false })).toThrow(/not in the engine/);
+    expect(add.payload).not.toHaveProperty('order_header');
+    expect(() => applyEvent(after, add)).toThrow(InvalidEvent);
+    expect(() => applyEvent(after, add)).toThrow(/order_not_in_engine/);
+    const skipped = applyEvent(after, add, { strict: false });
+    expect(reasons(skipped)).toEqual(['order_not_in_engine']);
+    expect(skipped.orders.O1).toBeUndefined();
   });
 
-  it('[03a #101 engine] minute 35: predicate false; absent → OrderLinesAdded throws; present past the window → it re-opens', () => {
+  it('[03a #101 engine] minute 35: predicate false; absent → a headerless OrderLinesAdded is InvalidEvent (strict throws); present past the window → it re-opens', () => {
     const s = fold([cfg(), ...batch('O1', [{ id: 'L1' }], at(0)), done('O1', 'L1', at(0)), served('O1', ['L1'], at(0))]);
     expect(isOrderInEngine(s, 'O1', at(35))).toBe(false);
     const add = anOrderLinesAdded({ recorded_at: at(35), occurred_at: at(35), seq: nextSeq() });
@@ -175,10 +181,10 @@ describe('@pos/engine lifecycle: exit by the served rule', () => {
     expect(reopened.orders.O1!.last_served_at).toBeNull();
     expect(isOrderInEngine(reopened, 'O1', at(35))).toBe(true);
     expect(reopened.lines.L2!.fire_ms).toBe(at(35));
-    // Removed at a listed event first → the addition throws.
+    // Removed at a listed event first → the headerless addition is InvalidEvent('order_not_in_engine') (E-4 b).
     const gone = fold([tickle(at(34))], s);
     expect(gone.orders.O1).toBeUndefined();
-    expect(() => applyEvent(gone, add)).toThrow();
+    expect(() => applyEvent(gone, add)).toThrow(InvalidEvent);
   });
 
   it('[03a #99] day close while cooking: only the all-served order exits; later Done / Served commit; absent ids are no-ops', () => {
@@ -846,5 +852,75 @@ describe('@pos/engine lifecycle: a reused order_item_id is refused (AD-29 Q5, AD
     expect(s.orders.O2).toBeUndefined();
     expect(reasons(s)).toContain('order_item_id_reused');
     expect(() => fold(log)).toThrow(REUSED);
+  });
+});
+
+// 03a v1.2 Q-6 (§4.2 ItemServed, test 128): source 'zone' (lines served from a zone, never engine lines) is a no-op; the
+// optional served_at keeps a queued serve's real time: the served time is min(served_at, recorded_at), as ItemStarted.
+describe('@pos/engine lifecycle: ItemServed source zone and served_at (03a v1.2 Q-6)', () => {
+  // O1 / L1 (20 min, immediate) placed at 0, fired, started, done at 20, not served.
+  const doneOrder = (): PosEvent[] => [...batch('O1', [{ id: 'L1' }], at(0)), fire(['L1'], at(0)), start('O1', 'L1', at(0)), done('O1', 'L1', at(20))];
+  const serve = (ids: string[], t: number, payload: Record<string, unknown>): PosEvent => ev('ItemServed', 'O1', { order_item_ids: ids, source: 'tap', ...payload }, t);
+
+  it("[03a #128] source 'zone' is a no-op", () => {
+    const log = [cfg(), ...doneOrder()];
+    const s = fold(log);
+    // Even naming an engine line (a writer would not): the zone serve returns state itself, strict or not, no diagnostic.
+    for (const ids of [['L1'], ['Z9'], ['L1', 'Z9']]) {
+      const zone = serve(ids, at(25), { source: 'zone' });
+      expect(Object.is(applyEvent(s, deepFreeze(zone)), s), ids.join()).toBe(true);
+      const loose = applyEvent(s, deepFreeze(zone), { strict: false });
+      expect(Object.is(loose, s), ids.join()).toBe(true);
+      expect(loose.diagnostics).toEqual([]);
+    }
+    const zone = serve(['L1'], at(25), { source: 'zone', served_at: at(24) });
+    expect(Object.is(applyEvent(s, deepFreeze(zone)), s)).toBe(true);
+    expect(s.lines.L1!.stage).toBe('done');
+    expect(s.orders.O1!.last_served_at).toBeNull();
+    // Replay = live: the log with the zone serve folds as the log without it.
+    expect(buildEngineState([...log, zone].map(deepFreeze))).toEqual(s);
+    // A tap serve of the same line does serve it.
+    expect(fold([serve(['L1'], at(25), {})], s).lines.L1!.stage).toBe('served');
+  });
+
+  it('[03a #128] served_at earlier → served_at; later → recorded_at', () => {
+    const s = fold([cfg(), ...doneOrder()]);
+    // Earlier (a serve queued offline at 26, appended at 30): the order's served time is 26, its fold clock 30.
+    const early = fold([serve(['L1'], at(30), { served_at: at(26) })], s);
+    expect(early.lines.L1!.stage).toBe('served');
+    expect(early.orders.O1).toMatchObject({ last_served_at: at(26), last_line_fold_at: at(30) });
+    expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS - 1)).toBe(true);
+    expect(isOrderInEngine(early, 'O1', at(26) + ORDER_EXIT_AFTER_SERVED_MS)).toBe(false);
+    // Replay = live for the early-served_at log.
+    const earlyLog = [cfg(), ...doneOrder(), serve(['L1'], at(30), { served_at: at(26) })].map(deepFreeze);
+    const earlyLive = fold(earlyLog);
+    expect(earlyLive.orders.O1).toMatchObject({ last_served_at: at(26), last_line_fold_at: at(30) });
+    expect(buildEngineState(earlyLog)).toEqual(earlyLive);
+    expect(applyEvents(initialEngineState(), earlyLog)).toEqual(earlyLive);
+    // A serve queued past the whole exit window (served_at + ORDER_EXIT_AFTER_SERVED_MS ≤ recorded_at): the order is out
+    // of the engine at its own serve, and the next listed event removes it, live and replay alike.
+    const stale = at(30) + ORDER_EXIT_AFTER_SERVED_MS;
+    const staleLog = [cfg(), ...doneOrder(), serve(['L1'], stale, { served_at: at(30) })].map(deepFreeze);
+    const staleLive = fold(staleLog);
+    expect(staleLive.orders.O1!.last_served_at).toBe(at(30));
+    expect(isOrderInEngine(staleLive, 'O1', stale)).toBe(false);
+    const next = deepFreeze(tickle(stale + 1));
+    const removedLive = fold([next], staleLive);
+    expect(removedLive.orders.O1).toBeUndefined();
+    expect(removedLive.lines.L1).toBeUndefined();
+    expect(buildEngineState([...staleLog, next])).toEqual(removedLive);
+    expect(applyEvents(initialEngineState(), [...staleLog, next])).toEqual(removedLive);
+    // Later than recorded_at (a device clock ahead): recorded_at.
+    const late = fold([serve(['L1'], at(30), { served_at: at(35) })], s);
+    expect(late.orders.O1).toMatchObject({ last_served_at: at(30), last_line_fold_at: at(30) });
+    // Absent (a log written before v1.2): recorded_at.
+    const absent = fold([serve(['L1'], at(30), {})], s);
+    expect(absent.orders.O1).toMatchObject({ last_served_at: at(30), last_line_fold_at: at(30) });
+    expect(late).toEqual(absent);
+    // A serve that leaves a line open sets no served time, whatever served_at says.
+    const two = fold([cfg(), ...batch('O1', [{ id: 'A' }, { id: 'B' }], at(0)), fire(['A'], at(0)), done('O1', 'A', at(20))]);
+    const partly = fold([serve(['A'], at(30), { served_at: at(26) })], two);
+    expect(partly.lines.A!.stage).toBe('served');
+    expect(partly.orders.O1).toMatchObject({ last_served_at: null, last_line_fold_at: at(30) });
   });
 });

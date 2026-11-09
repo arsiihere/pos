@@ -24,6 +24,7 @@ const STAFF = {
   left_at: null,
   reports_to: [{ branch_id: "B1", lead_staff_id: "S2" }],
   floors: [{ branch_id: "B1", floor_ids: ["F1"] }],
+  assignments: [{ branch_id: "B1", zone_ids: ["Z1"], table_ids: [] }],
   version: "a".repeat(64),
 };
 const ROLE = {
@@ -129,6 +130,20 @@ describe("[01b §5.3] admin staff wire shapes", () => {
     );
     expect(StaffPatchBody.safeParse({}).success).toBe(false);
     expect(RolePatchBody.safeParse({}).success).toBe(false);
+  });
+
+  it("[01b AD-21, AD-23] StaffWire carries assignments; the bodies take { branch_id, zone_ids, table_ids } entries, one per branch", () => {
+    expect(StaffWire.parse(STAFF).assignments).toEqual([{ branch_id: "B1", zone_ids: ["Z1"], table_ids: [] }]);
+    const { assignments: _dropped, ...noAssignments } = STAFF;
+    void _dropped;
+    expect(StaffWire.safeParse(noAssignments).success).toBe(false);
+    const entry = (branch_id: string) => ({ branch_id, zone_ids: ["Z1"], table_ids: ["T1"] });
+    const create = { display_name: "Bilal", role_ids: ["R1"], branch_ids: ["B1", "B2"] };
+    expect(StaffCreateBody.safeParse({ ...create, assignments: [entry("B1"), entry("B2")] }).success).toBe(true);
+    expect(StaffCreateBody.safeParse({ ...create, assignments: [entry("B1"), entry("B1")] }).success).toBe(false);
+    expect(StaffPatchBody.safeParse({ expected_version: "v1", assignments: [{ branch_id: "B1", zone_ids: [], table_ids: [] }] }).success).toBe(true);
+    expect(StaffPatchBody.safeParse({ expected_version: "v1", assignments: [entry("B2"), entry("B2")] }).success).toBe(false);
+    expect(StaffPatchBody.safeParse({ expected_version: "v1", assignments: [{ branch_id: "B1", zone_ids: [""], table_ids: [] }] }).success).toBe(false);
   });
 
   it("[01b B-4] ResponsibilityWire accepts count_stock and run_station and refuses any other kind", () => {

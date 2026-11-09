@@ -6,6 +6,8 @@ import { bindFiresTick } from './fires-tick.js';
 import { afterEngineCommit } from './reducer.js';
 import { afterSnapshotCommit, cancelScheduled } from './snapshots.js';
 import { bindStationPlans } from './station-plan.js';
+// 03a v1.2 §4.4 (Q-1, R-1): 02a registers its slip reader pair here at startup.
+export { registerSlipReaders, type CurrentTableOf, type HoldersOfOrders } from './slip-readers.js';
 // §6.4: the kinds 03a registers (slip_warning, station_overload, engine_line_dropped), at module load.
 import './kinds.js';
 

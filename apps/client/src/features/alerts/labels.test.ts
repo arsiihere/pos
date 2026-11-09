@@ -16,10 +16,12 @@ import {
   inPersonTitle,
   lockText,
   stepTag,
+  tableLabel,
   timeText,
   waitingText,
 } from './labels';
 import { view } from './test-fakes';
+import { tableOf } from './ui';
 
 afterEach(() => setLanguage('en'));
 
@@ -202,5 +204,22 @@ describe('[01d review fix round 1] labels', () => {
     expect(text).toBe('You approved the request on T12 at Hamza’s tablet');
     expect(text).not.toContain('void');
     expect(text).not.toContain('_');
+  });
+});
+
+describe('[01d v1.2.1 P-1] table chip', () => {
+  it('[01d v1.2.1 P-1] the table chip shows T{code} for an all-digit table_code and the name as-is otherwise', () => {
+    expect(tableLabel('12')).toBe('T12');
+    expect(tableLabel('7')).toBe('T7');
+    expect(tableLabel('Patio 3')).toBe('Patio 3');
+    expect(tableLabel('12A')).toBe('12A');
+    expect(tableLabel('')).toBeNull();
+    expect(tableLabel(null)).toBeNull();
+    const lock = { kind_label_key: 'alert.void_approval.lock', table_code: 'Patio 3', point_code: null, requester_name: 'Hamza' };
+    expect(tableOf({ lock })).toBe('Patio 3');
+    expect(tableOf({ lock: { ...lock, table_code: '12' } })).toBe('T12');
+    const text = alertText(view({ alert_id: 'P1', kind: 'void_approval', lock }));
+    expect(text).toContain('Patio 3');
+    expect(text).not.toContain('TPatio');
   });
 });

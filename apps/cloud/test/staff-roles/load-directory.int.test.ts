@@ -129,7 +129,7 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     }
   }
 
-  it('[01b #21] returns the §4.3.1 shape in 9 statements (01b v1.4 B-5), with 3 and with 30 staff', async () => {
+  it('[01b #21] returns the §4.3.1 shape in 10 statements (01b v1.4 B-5; v1.6 B-2 + the assignments read), with 3 and with 30 staff', async () => {
     const branchB = f.branches[1];
     const branchC = f.branches[2];
     await addRole('r-waiter', 'Bera');
@@ -175,7 +175,7 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     );
 
     const { directory, statements } = await load(branchB);
-    expect(statements).toBe(9); // 01b v1.4 B-5: + the no_pin_staff read
+    expect(statements).toBe(10); // 01b v1.4 B-5: + the no_pin_staff read; v1.6 B-2: + the assignments read
     expect(DirectorySchema.safeParse(directory).success).toBe(true);
     const staffIds = directory.staff.map((member) => member.staff_id);
     expect(staffIds).toHaveLength(3); // owner, Hamza, Bilal; the cook without a PIN is not sent (B3)
@@ -190,6 +190,8 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
       denied_permissions: ['reprint-ticket'],
       lead_staff_id: 's-hamza',
       floor_ids: ['f-ground'],
+      assigned_zone_ids: [],
+      assigned_table_ids: [],
     });
     const hamza = directory.staff.find((member) => member.staff_id === 's-hamza')!;
     expect(hamza.lead_staff_id).toBeNull();
@@ -206,7 +208,7 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     for (let n = 0; n < 27; n += 1) await addStaff(`s-extra-${String(n).padStart(2, '0')}`, branchB, ['r-waiter']);
     const big = await load(branchB);
     expect(big.directory.staff).toHaveLength(30);
-    expect(big.statements).toBe(9);
+    expect(big.statements).toBe(10);
   });
 
   it('[01b B-3] manage-stations and mark-served add rows, not statements: the directory statement count is unchanged', async () => {
@@ -276,9 +278,11 @@ describe('loadDirectory v2 (01b §4.3.1, §7.3)', () => {
     expect(rows[0]!.role_ids).toEqual([orderTaker, waiter].sort());
     const permissionsOf = (roleId: string) =>
       directory.roles.find((role) => role.role_id === roleId)!.permissions.map((g) => g.permission);
-    // 01b v1.5 §6.15 (B-2, B-5): the seeded default grants come along with the added ones.
-    expect(permissionsOf(orderTaker)).toEqual(['mark-item-returned', 'mark-served', 'take-order-anywhere']);
-    expect(permissionsOf(waiter)).toEqual(['mark-served', 'reprint-ticket']);
+    // 01b v1.5 / v1.6 / v1.7 §6.15: the seeded default grants come along with the added ones.
+    expect(permissionsOf(orderTaker)).toEqual([
+      'apply-comp', 'boost-order', 'clean-table', 'mark-item-returned', 'mark-served', 'take-order', 'take-order-anywhere', 'view-customer-contact',
+    ]);
+    expect(permissionsOf(waiter)).toEqual(['clean-table', 'mark-served', 'reprint-ticket']);
   });
 
   it('[01b #83] a branch with cashiers and no manager still sends the Manager role named as approver', async () => {

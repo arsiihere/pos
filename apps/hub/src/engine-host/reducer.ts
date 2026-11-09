@@ -54,8 +54,8 @@ interface FoldNote {
 // another after-commit hook cannot take this transaction's.
 const notes = new WeakMap<readonly PosEvent[], FoldNote>();
 
-// AD-28: one transaction's events, one applyEvents call. The writer runs this inside the transaction, so the plain
-// OrderLinesAdded throw on an absent order (§3.3) rolls it back; everything logged waits for afterEngineCommit.
+// AD-28: one transaction's events, one applyEvents call. The writer runs this inside the transaction, so a fold that
+// throws rolls it back; everything logged waits for afterEngineCommit.
 // `now`: the hub's clock (F §6.7's lint forbids performance.now here), whole ms, enough for the 50 ms line of §7.1.
 export function foldEngineBatch(state: EngineState, events: readonly PosEvent[], now: () => number): EngineState {
   const start = now();
@@ -66,6 +66,8 @@ export function foldEngineBatch(state: EngineState, events: readonly PosEvent[],
 
 // AD-6, §7.2: after commit, log what the fold noted and clear the diagnostics. 0 statements.
 export function afterEngineCommit(state: StateHolder<EngineState>, log: WarnLog, appended: readonly PosEvent[]): void {
+  // §3.3 Q-3, E-4: a committed event's untracked id joins (or leaves) the host set before this transaction's absent-id log reads it.
+  for (const event of appended) noteUntrackedId(event);
   const note = notes.get(appended);
   if (note !== undefined) {
     logAbsentIds(note, appended, log);
@@ -104,6 +106,48 @@ function logSlowFold(note: FoldNote, events: readonly PosEvent[], log: WarnLog):
   }
 }
 
+// 03a v1.2 §3.3 Q-3, AD-E18: what an event does to hostFlags.untrackedLineIds, or null. An ItemAdded served from a zone
+// or a deal header adds its line id; an OrderPlaced with empty order_item_ids (ready items only) adds its order id.
+// E-4 (15b check S-4, S-10): an OrderLinesAdded with order_header and non-empty order_item_ids removes its order id,
+// committed or refused (a refused one's lines are alerted as dropped, AD-8). One rule live (afterEngineCommit), in the
+// step-3 replay hook and for the rows of the boot id-set read (replay.ts), each applied in seq order.
+export interface UntrackedOp {
+  op: 'add' | 'remove';
+  id: string;
+}
+
+function untrackedOpOf(event: PosEvent): UntrackedOp | null {
+  if (event.stream_type !== 'order') return null;
+  if (event.event_type === 'ItemAdded') {
+    const p = event.payload as { order_item_id?: string; served_from_zone_id?: string | null; line_kind?: string };
+    return (p.served_from_zone_id != null || p.line_kind === 'deal') && p.order_item_id !== undefined ? { op: 'add', id: p.order_item_id } : null;
+  }
+  if (event.event_type === 'OrderPlaced') {
+    const p = event.payload as { order_id?: string; order_item_ids?: readonly string[] };
+    return p.order_item_ids?.length === 0 ? { op: 'add', id: p.order_id ?? event.stream_id } : null;
+  }
+  if (event.event_type === 'OrderLinesAdded') {
+    const p = event.payload as { order_id?: string; order_item_ids?: readonly string[]; order_header?: unknown };
+    return p.order_header != null && (p.order_item_ids?.length ?? 0) > 0 ? { op: 'remove', id: p.order_id ?? event.stream_id } : null;
+  }
+  return null;
+}
+
+export function applyUntrackedOp(o: UntrackedOp): void {
+  if (o.op === 'add') hostFlags.untrackedLineIds.add(o.id);
+  else hostFlags.untrackedLineIds.delete(o.id);
+}
+
+export function noteUntrackedId(event: PosEvent): void {
+  const o = untrackedOpOf(event);
+  if (o !== null) applyUntrackedOp(o);
+}
+
+// AD-E18: on an order of ready items only, these events log nothing.
+const QUIET_ON_UNTRACKED_ORDER: ReadonlySet<string> = new Set(['ItemAdded', 'ItemServed', 'ItemRemoved', 'ItemVoided']);
+// §3.3 Q-3: these log nothing when their line id is a zone line or a deal header.
+const QUIET_ON_UNTRACKED_LINE: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided']);
+
 const LINE_EVENTS: ReadonlySet<string> = new Set(['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned']);
 const ORDER_EVENTS: ReadonlySet<string> = new Set(['OrderBoosted', 'ItemsReleased']);
 
@@ -121,12 +165,26 @@ function logAbsentIds(note: FoldNote, events: readonly PosEvent[], log: WarnLog)
   const report = (event: PosEvent, order_id: string, order_item_id: string | null): void => {
     log.warn({ event_type: event.event_type, order_id, order_item_id }, 'engine fold: absent id');
   };
+  const untracked = hostFlags.untrackedLineIds;
   for (const event of events) {
     if (event.stream_type !== 'order') continue;
     const type = event.event_type;
-    const p = event.payload as { order_id?: string; order_item_id?: string; order_item_ids?: string[]; lines?: Array<{ order_item_id: string }> };
+    const p = event.payload as {
+      order_id?: string;
+      order_item_id?: string;
+      order_item_ids?: string[];
+      lines?: Array<{ order_item_id: string }>;
+      served_from_zone_id?: string | null;
+      source?: string;
+    };
+    // 03a v1.2 §3.3 Q-3 host filter, AD-E18: zone lines, deal headers and ready-items-only orders are not engine ids.
+    if (QUIET_ON_UNTRACKED_ORDER.has(type) && untracked.has(p.order_id ?? event.stream_id)) continue;
+    if (type === 'ItemAdded' && p.served_from_zone_id != null) continue;
+    if (type === 'ItemServed' && p.source === 'zone') continue;
+    if (QUIET_ON_UNTRACKED_LINE.has(type) && p.order_item_id !== undefined && untracked.has(p.order_item_id)) continue;
     if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
-      // Only an OrderPlaced creates an order; OrderLinesAdded on an absent one throws in the fold (§3.3).
+      // An OrderPlaced counts as creating its order. E-4: an OrderLinesAdded that creates one is in note.next; a refused
+      // one is not, so the batch's ItemAdded events are logged as absent ids (unless the order is in the id set).
       if (type === 'OrderPlaced') addedOrders.add(p.order_id ?? event.stream_id);
       for (const id of p.order_item_ids ?? []) addedLines.add(id);
       for (const line of p.lines ?? []) addedLines.add(line.order_item_id);

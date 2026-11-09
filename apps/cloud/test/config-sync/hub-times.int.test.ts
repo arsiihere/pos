@@ -70,8 +70,8 @@ describe('hub check-in and up-to-date times (01b B19, D-11, 01a §6.1 step 6, §
       cloud.clock.set(at);
       const stuck = await poll(v.config - 1, v.directory);
       expect(stuck.statusCode).toBe(200);
-      // Config only (the directory is current): AD-16's config-only bound, ≤ 27 (01b v1.5 B-8).
-      expect(counter.count).toBeLessThanOrEqual(27);
+      // Config only (the directory is current): AD-16's config-only bound, ≤ 27 (01b v1.5 B-8); + 1 zones (01a v2.2 A-1) → ≤ 28.
+      expect(counter.count).toBeLessThanOrEqual(28);
       expect(await times(a)).toEqual({ hub_last_seen_at: at, hub_synced_at: t0 });
     }
     // A directory behind is also a 200.

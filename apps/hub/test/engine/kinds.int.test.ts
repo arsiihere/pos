@@ -2,7 +2,7 @@
 // details), station_overload (§3.10), engine_line_dropped (AD-8); 01d v1.1.2 D-1 / D-2 (widened details, AlertRaised
 // v2); tests #65, #67, #72, #77 hub.
 import { performance } from 'node:perf_hooks';
-import { type EngineState } from '@pos/engine';
+import { getAlertIntents, type EngineState } from '@pos/engine';
 import type { BranchConfig, EngineConfig, EventDraft, PosEvent } from '@pos/events';
 import { aBranchConfig, aBusinessDayOpened, anEngineConfigApplied } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,8 +13,9 @@ import type { CommandCtx } from '../../src/commands/registry';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { bindFiresAlertsTick, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { hostFlags, resetHostFlags } from '../../src/engine-host/host-flags';
-import { ENGINE_ALERT_KINDS, SLIP_WARNING, SlipWarningDetails, slipDetails } from '../../src/engine-host/kinds';
+import { ENGINE_ALERT_KINDS, readLineFacts, SLIP_WARNING, SlipWarningDetails, slipDetails } from '../../src/engine-host/kinds';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
+import { resetSlipReaders } from '../../src/engine-host/slip-readers';
 import type { WriterTx } from '../../src/engine-host/writer';
 import { currentConfigEntry, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
@@ -86,6 +87,7 @@ describe('03a task 23: the engine alert kinds', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     resetHostFlags();
+    resetSlipReaders();
     await hub.close();
   });
 
@@ -260,8 +262,40 @@ describe('03a task 23: the engine alert kinds', () => {
     expect(Object.keys(kindOf(ENGINE_ALERT_KINDS.lineDropped)!.values_schema.shape).sort()).toEqual(['order_id', 'order_item_id', 'reason']);
   });
 
+  // ----------------------------------------------------------------------------------------------- §6.2a gap 4
+  it('[03a §6.2a gap 4] EXPLAIN QUERY PLAN of the line-facts read uses the events_stream index', () => {
+    kitchen();
+    submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', item: { name: 'Naan', quantity: 3 } }] });
+    submit({ order_id: 'O2', order: { table_id: 'T2', table_key: 'dine_in:T2' }, lines: [{ order_item_id: 'L3' }] });
+    // The statement readLineFacts really runs (AD-37 (1)): recorded from db.prepare, not copied into the test.
+    const db = hub.deps.db;
+    const prepare = db.prepare;
+    const seen: string[] = [];
+    db.prepare = ((sql: string) => {
+      seen.push(sql);
+      return prepare.call(db, sql);
+    }) as typeof db.prepare;
+    let facts: ReturnType<typeof readLineFacts>;
+    try {
+      facts = readLineFacts(db, engine(), ['O1', 'O2']);
+    } finally {
+      db.prepare = prepare;
+    }
+    expect(seen).toHaveLength(1);
+    expect([...facts.keys()].sort()).toEqual(['L1', 'L2', 'L3']);
+    const sql = seen[0]!;
+    const flat = sql.replace(/\s+/g, ' ').trim(); // a reformat of the SQL does not break the matches
+    expect(flat).toMatch(/stream_type = 'order' AND event_type = 'ItemAdded' AND stream_id IN/);
+    expect(flat).not.toMatch(/branch_id/); // AD-37 (8): no branch_id predicate
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(JSON.stringify(['O1', 'O2'])) as Array<{ detail: string }>).map((r) => r.detail).join('\n');
+    expect(plan).toMatch(/SEARCH events USING INDEX events_stream \(stream_type=\? AND stream_id=\?\)/);
+    expect(plan).not.toMatch(/SCAN events/);
+  });
+
   // ---------------------------------------------------------------------------------------------------------- #65
-  it('[03a #65] a dine_in slip is raised to the order\'s placed_by (tableOwners stub), tick-raised, AlertRaised v2 with the §3.8 details; 2 + 1 + 6 statements', async () => {
+  // 03a v1.2 (Q-1): #65's dine_in receiver clause is replaced by #120 (the holder of the oldest order through
+  // registerSlipReaders, fires-alerts-tick.int.test.ts); here the readers are stubbed (§4.4), so placed_by.
+  it('[03a #65] with the slip readers stubbed a dine_in slip is raised to the order\'s placed_by (§4.4), tick-raised, AlertRaised v2 with the §3.8 details; 2 + 1 + 6 statements', async () => {
     kitchen();
     submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }, { order_item_id: 'L2', item: { name: 'Naan', quantity: 3 } }] });
     await pass(hub.clock.branchNow());
@@ -269,7 +303,7 @@ describe('03a task 23: the engine alert kinds', () => {
     const m = meter();
     await pass(due);
     expect(m.tx).toBe(1);
-    // 2 listOpen + 1 ItemAdded read for the details (proposed reading) + raiseMany's 6; tableOwners is stubbed (0)
+    // 2 listOpen + 0 readers (stubbed, §4.4) + 1 ItemAdded read for the details + raiseMany's 6
     expect(m.reads).toEqual([2 + 1 + 6]);
     const [row] = slipAlerts();
     expect(row).toMatchObject({
@@ -339,7 +373,7 @@ describe('03a task 23: the engine alert kinds', () => {
     ]);
   });
 
-  it('[03a #65] takeaway, delivery and parking slips go to the order\'s placed_by; placed_by = null is skipped and logged', async () => {
+  it('[03a #65] takeaway, delivery and parking slips go to the order\'s placed_by; placed_by = null (readers stubbed) is skipped and logged', async () => {
     kitchen();
     const types = [
       ['O_T', 'takeaway', 'S_CASH'],
@@ -508,6 +542,43 @@ describe('03a task 23: the engine alert kinds', () => {
     expect(closes()).toBe(0);
     expect(hub.deps.writer.lastSeq()).toBe(seq);
     expect(slipAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'answered' });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------- #123
+  // 03a v1.2 Q-2 / AD-37 (2), 02p U-7: dine_in keys are 'dine_in:' + seating_id. An answered slip silences its key for
+  // that seating (RequestAnswered is not folded, so slips[key].alert_id stays set); a new party is a new key.
+  it('[03a #123] a new seating on the same table gets a fresh slip after S1\'s slip was answered "Wait"; a second late group in S1 raises nothing', async () => {
+    kitchen();
+    const S1 = 'dine_in:SEAT_S1';
+    const S2 = 'dine_in:SEAT_S2';
+    const { row } = await raisedSlip({ order_id: 'O1', order: { table_id: 'T4', table_key: S1 } });
+    expect(row.dedupe_key).toBe(`slip:${S1}`);
+    const res = await answer(WAITER, row.alert_id, 'decline');
+    expect(res.status).toBe(200);
+    expect(slipAlerts()[0]).toMatchObject({ state: 'closed', close_reason: 'answered' });
+    expect(engine().slips[S1]!.alert_id).toBe(row.alert_id);
+    clean(); // the answering seat's sign-in marks 01d's no_approver flag dirty
+
+    // A second late group in S1 (a follow-up order of the same party) and a new party S2 seated on T4, both late.
+    submit({ order_id: 'O3', order: { table_id: 'T4', table_key: S1 }, lines: [{ order_item_id: 'O3-L1' }] });
+    submit({ order_id: 'O2', order: { table_id: 'T4', table_key: S2 }, lines: [{ order_item_id: 'O2-L1' }] });
+    await pass(hub.clock.branchNow());
+    // S1 is due only at its BF-4 abandon time (no crossing while its answered alert is held), S2 at its crossing.
+    const due = engine().next_alert_due_at!;
+    expect(due).toBe(engine().slip_due[S2]);
+    expect(engine().slip_due[S1]).toBeGreaterThan(due);
+    await pass(due);
+    const rows = slipAlerts();
+    expect(rows.map((r) => [r.dedupe_key, r.state, r.values.order_ids])).toEqual([
+      [`slip:${S1}`, 'closed', ['O1']],
+      [`slip:${S2}`, 'open', ['O2']],
+    ]);
+    expect(stored('SlipWarned').map((e) => (e.payload as { table_key: string }).table_key)).toEqual([S1, S2]);
+    // O3 crossed with O2 (same submit, same line): nothing for S1, in that pass or later ones.
+    expect(getAlertIntents(engine(), hub.clock.branchNow()).slips.map((x) => x.table_key)).toEqual([]);
+    await passes(5);
+    expect(slipAlerts().filter((r) => r.dedupe_key === `slip:${S1}`)).toHaveLength(1);
+    expect(engine().slips[S1]!.alert_id).toBe(row.alert_id);
   });
 
   // ------------------------------------------------------------------------------------------------------ #77 hub

@@ -9,7 +9,9 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // percents (sent as typed); every time is typed in minutes and sent as ms (minutes.ts, two decimals, so the
 // 15 s and 30 s minimums are 0.25 and 0.5). The ranges are the cloud's (staff.ts BranchEngineSettings); a box
 // outside its range is refused here, so the cloud's own check is never the first one the owner meets.
-type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost'>;
+// 01a v2.3 §5.2a (02b A-1): three more times beside the A-12 fields, now on BranchEngineSettings (task 9).
+type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips'>;
+const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;
   kind: 'pct' | 'ms';
@@ -41,13 +43,19 @@ const OTHERS: Spec[] = [
   { key: 'table_lock_ttl_ms', kind: 'ms', min: 60_000, max: 3_600_000, label: 'branches.timing.table_lock_ttl_ms' },
   { key: 'order_abandon_ms', kind: 'ms', min: 3_600_000, max: 86_400_000, label: 'branches.timing.order_abandon_ms' },
 ];
-const SPECS: Spec[] = [...WEIGHTS, ...PADDINGS, ...OTHERS];
+// §5.2a: the order queue's auto-send cap 60–1440 min, the zone Undo window 0–30 min, the slow-item clock 1–120 min.
+const ORDERING: Spec[] = [
+  { key: 'queue_auto_send_max_ms', kind: 'ms', min: 3_600_000, max: 86_400_000, label: 'branches.timing.queue_auto_send_max_ms' },
+  { key: 'zone_undo_ms', kind: 'ms', min: 0, max: 1_800_000, label: 'branches.timing.zone_undo_ms' },
+  { key: 'slow_item_threshold_ms', kind: 'ms', min: 60_000, max: 7_200_000, label: 'branches.timing.slow_item_threshold_ms' },
+];
+const SPECS: Spec[] = [...WEIGHTS, ...PADDINGS, ...OTHERS, ...ORDERING];
 
 export type EngineState = Record<NumericKey, string> & { returns_boost: boolean };
 
 export function engineState(base: BranchEngineSettings): EngineState {
   const state = { returns_boost: base.returns_boost } as EngineState;
-  for (const spec of SPECS) state[spec.key] = spec.kind === 'pct' ? String(base[spec.key]) : formatMinutes(base[spec.key]);
+  for (const spec of SPECS) state[spec.key] = spec.kind === 'pct' ? String(storedOf(base, spec.key)) : formatMinutes(storedOf(base, spec.key));
   return state;
 }
 
@@ -66,13 +74,14 @@ export function enginePatch(
   const patch: Record<string, number | boolean> = {};
   const errors: Record<string, string> = {};
   for (const spec of SPECS) {
-    const value = valueOf(spec, state[spec.key], base[spec.key]);
+    const stored = storedOf(base, spec.key);
+    const value = valueOf(spec, state[spec.key], stored);
     if (value === null || value < spec.min || value > spec.max) {
       errors[spec.key] =
         spec.kind === 'pct'
           ? fill(t('branches.timing_pct_range'), { min: String(spec.min), max: String(spec.max) })
           : fill(t('branches.timing_minutes_range'), { min: formatMinutes(spec.min), max: formatMinutes(spec.max) });
-    } else if (value !== base[spec.key]) patch[spec.key] = value;
+    } else if (value !== stored) patch[spec.key] = value;
   }
   if (state.returns_boost !== base.returns_boost) patch['returns_boost'] = state.returns_boost;
   return { patch: patch as Partial<BranchEngineSettings>, errors };
@@ -128,6 +137,7 @@ export function KitchenTiming({
       {group('branches.timing.weights', 'branches.timing.weights_help', WEIGHTS)}
       {group('branches.timing.paddings', 'branches.timing.paddings_help', PADDINGS)}
       {group('branches.timing.others', 'branches.timing.others_help', OTHERS)}
+      {group('branches.timing.ordering', 'branches.timing.ordering_help', ORDERING)}
       <div className="pos-field">
         <span className="pos-field__label">{t('branches.timing.returns_boost')}</span>
         <Switch

@@ -2,6 +2,7 @@ import { applyEvent, applyEvents, ENGINE_REPLAY_EVENTS, ENGINE_STATE_VERSION, fr
 import { parseEvent, type PosEvent } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { STOCK_VERSION_HUB_EVENTS, STOCK_VERSION_STOCK_EVENTS } from '../sync/stock-version.js';
+import type { UntrackedOp } from './reducer.js';
 
 interface EventRow {
   event_id: string;
@@ -33,14 +34,16 @@ ORDER BY seq`;
 
 // §3.12, AD-6, AD-28: the four statements merged by seq, folded non-strict in chunks of REPLAY_CHUNK. Each chunk's
 // diagnostics go to `report` and leave the state, so none survive a boot. proposed (implementer): `report` takes a
-// Diagnostic (the plan's BreachReport became state.diagnostics under AD-6). Only the plain OrderLinesAdded throw on an
-// absent order (§3.3) leaves here as a throw; a failing step stops boot (00 §3.8).
+// Diagnostic (the plan's BreachReport became state.diagnostics under AD-6). A fold's plain Error (not an InvalidEvent)
+// or a DB failure leaves here as a throw; a failing step stops boot (00 §3.8). AD-E24: since 03a v1.2 E-4 a headerless
+// OrderLinesAdded on an absent order is an InvalidEvent (a diagnostic, the event skipped), so it no longer reaches this.
 export function replayEngine(
   db: Database.Database,
   branchId: string,
   fromSeq: number,
   base: EngineState,
   report: (d: Diagnostic) => void,
+  seen?: (event: PosEvent) => void,
 ): { state: EngineState; replayed: number } {
   const cursors = STREAMS.map((stream) => db.prepare(replaySql(stream)).iterate(branchId, stream, fromSeq) as IterableIterator<EventRow>);
   try {
@@ -67,7 +70,9 @@ export function replayEngine(
       });
       if (min < 0) break;
       const row = heads[min]!.value as EventRow;
-      chunk.push(parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] }));
+      const event = parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] });
+      seen?.(event);
+      chunk.push(event);
       replayed += 1;
       if (chunk.length === REPLAY_CHUNK) fold();
       heads[min] = cursors[min]!.next();
@@ -79,8 +84,8 @@ export function replayEngine(
   }
 }
 
-// A throw inside a chunk (§3.3's plain OrderLinesAdded) would take the diagnostics of the chunk's earlier events with
-// it: fold them one by one up to the throw and report what they noted. The failure path only; boot stops after it.
+// A throw inside a chunk (a fold's plain Error) would take the diagnostics of the chunk's earlier events with it: fold
+// them one by one up to the throw and report what they noted. The failure path only; boot stops after it.
 function reportBeforeThrow(base: EngineState, chunk: readonly PosEvent[], report: (d: Diagnostic) => void): void {
   let state = base;
   for (const event of chunk) {
@@ -106,6 +111,35 @@ export function readStockVersion(db: Database.Database, branchId: string): numbe
   return Math.max(onStock, onHub);
 }
 
+// 03a v1.2 §3.12 "Q-3 id set at boot" (R-3, AD-E18; E-4, 15b check S-4, S-5): one statement on events_branch_stream,
+// the §3.12 full statement. Rows after `fromSeq` in seq order: the zone lines and deal headers (ItemAdded) and the
+// ready-items-only orders (OrderPlaced with empty order_item_ids) add their id; an OrderLinesAdded with order_header and
+// non-empty order_item_ids removes its order id. ORDER BY seq is the index order (no sort step, test 130).
+const UNTRACKED_IDS_SQL = `SELECT event_type, CASE event_type WHEN 'ItemAdded' THEN json_extract(payload, '$.order_item_id') ELSE json_extract(payload, '$.order_id') END AS id FROM events
+WHERE branch_id = ? AND stream_type = 'order' AND seq > ? AND event_type IN ('ItemAdded', 'OrderPlaced', 'OrderLinesAdded')
+  AND ((event_type = 'ItemAdded' AND (json_extract(payload, '$.served_from_zone_id') IS NOT NULL OR json_extract(payload, '$.line_kind') = 'deal'))
+    OR (event_type = 'OrderPlaced' AND json_array_length(payload, '$.order_item_ids') = 0)
+    OR (event_type = 'OrderLinesAdded' AND json_extract(payload, '$.order_header') IS NOT NULL AND json_array_length(payload, '$.order_item_ids') > 0))
+ORDER BY seq`;
+
+// The read's rows as id-set operations, in seq order. Boot step 3 applies them after the replay hook: both passes are in
+// seq order and this read covers every row after H, so the last operation on each id wins as in one ordered pass (the
+// replay alone adds the rows of (fromSeq, H] when a snapshot is older than H).
+export function readUntrackedIds(db: Database.Database, branchId: string, fromSeq: number): UntrackedOp[] {
+  const rows = db.prepare(UNTRACKED_IDS_SQL).all(branchId, fromSeq) as Array<{ event_type: string; id: string | null }>;
+  const ops: UntrackedOp[] = [];
+  for (const row of rows) {
+    if (typeof row.id !== 'string') continue;
+    ops.push({ op: row.event_type === 'OrderLinesAdded' ? 'remove' : 'add', id: row.id });
+  }
+  return ops;
+}
+
+// §3.12 R-3 (T-6, re-check R-2): H = the older last_seq when step 2 read two readable kept checkpoints, else 0.
+export function untrackedIdsFrom(base: LoadedBase): number {
+  return base.checkpoint_readable_seqs.length >= 2 ? Math.min(...base.checkpoint_readable_seqs) : 0;
+}
+
 export type SkipReason = 'engine_version' | 'checkpoint_schema' | 'unreadable';
 export type Skip = (o: { table: 'engine_snapshots' | 'engine_checkpoints'; id: string; reason: SkipReason; found?: number }) => void;
 
@@ -114,6 +148,8 @@ export interface LoadedBase {
   snapshot_seq: number | null;
   checkpoint_seq: number | null;
   checkpoint_taken_at: number | null;
+  // §3.12 R-3: the last_seq of every readable checkpoint_schema 1 row step 2 read (a torn or unparsable row is not here).
+  checkpoint_readable_seqs: number[];
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -182,7 +218,7 @@ export function loadEngineBase(db: Database.Database, branchId: string, skip: Sk
     )
     .all(branchId) as Array<{ checkpoint_id: string; taken_at: number; last_seq: number; checkpoint_schema: number; body_json: string }>;
 
-  const out: LoadedBase = { state: null, snapshot_seq: null, checkpoint_seq: null, checkpoint_taken_at: null };
+  const out: LoadedBase = { state: null, snapshot_seq: null, checkpoint_seq: null, checkpoint_taken_at: null, checkpoint_readable_seqs: [] };
   for (const row of snapshots) {
     if (row.engine_version !== ENGINE_STATE_VERSION) {
       skip({ table: 'engine_snapshots', id: row.snapshot_id, reason: 'engine_version', found: row.engine_version });
@@ -207,7 +243,11 @@ export function loadEngineBase(db: Database.Database, branchId: string, skip: Sk
       } else {
         out.checkpoint_seq = row.last_seq;
         out.checkpoint_taken_at = row.taken_at;
+        out.checkpoint_readable_seqs.push(row.last_seq);
       }
+    } else if (parseCheckpoint(row.body_json) !== null) {
+      // R-3: the second kept row is parsed only to count it readable (0 statements); not used, so not logged when torn.
+      out.checkpoint_readable_seqs.push(row.last_seq);
     }
   }
   out.state ??= checkpointState;

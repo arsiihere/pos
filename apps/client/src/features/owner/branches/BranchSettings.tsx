@@ -16,6 +16,7 @@ import { useCloudDown } from '../cloud';
 import { errorText, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
 import { Page } from '../Shell';
+import { chipsPatch, CompChips } from './CompChips';
 import { engineFieldLabel, engineState, enginePatch, KitchenTiming, type EngineState } from './KitchenTiming';
 
 // 01b §8 #/branches/:id/settings (01b-S07, §6.10, B16): tax on or off, the stale-day hours (1–48) and the
@@ -104,13 +105,16 @@ function SettingsForm({
   const [banner, setBanner] = useState<{ tone: 'ok' | 'danger'; text: string } | null>(null);
   const [engine, setEngine] = useState<EngineState>(() => engineState(stored));
   const [engineErrors, setEngineErrors] = useState<Record<string, string>>({});
+  const storedChips = stored.comp_reason_chips;
+  const [chips, setChips] = useState<string[]>(storedChips);
+  const [chipsError, setChipsError] = useState<string | undefined>(undefined);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
   const [busy, setBusy] = useState(false);
   const down = useCloudDown(api);
   const leave = useLeave();
   const phone = usePhone();
   useReveal(changedElsewhere || banner, ['[data-stale]', '.pos-banner--danger', '.pos-banner--ok']);
-  useReveal(Object.keys(errors).length + Object.keys(engineErrors).length > 0 ? [errors, engineErrors] : null, ['.pos-settings .pos-field--error']);
+  useReveal(Object.keys(errors).length + Object.keys(engineErrors).length + (chipsError === undefined ? 0 : 1) > 0 ? [errors, engineErrors, chipsError] : null, ['.pos-settings .pos-field--error']);
 
   const staleValue = whole(stale);
   const gapValue = whole(gap);
@@ -120,10 +124,13 @@ function SettingsForm({
   if (gapValue !== stored.day_min_gap_hours) patch.day_min_gap_hours = gapValue;
   const checked = enginePatch(engine, stored);
   Object.assign(patch, checked.patch);
+  const checkedChips = chipsPatch(chips, storedChips);
+  if (checkedChips.patch !== null) Object.assign(patch, { comp_reason_chips: checkedChips.patch });
   const fields: Record<string, string> = {
     tax_enabled: t('branches.tax'),
     day_stale_after_hours: t('branches.stale'),
     day_min_gap_hours: t('branches.gap'),
+    comp_reason_chips: t('branches.chips'),
   };
   const changed = Object.keys(patch).map((k) => fields[k] ?? engineFieldLabel(k) ?? k);
   useDirtyForm(changed.length === 0 ? null : { name: fill(t('branches.settings_title'), { name: stored.name }), fields: changed });
@@ -135,7 +142,8 @@ function SettingsForm({
     else if (found.stale === undefined && !(staleValue > gapValue)) found.gap = fill(t('branches.gap_not_less'), { n: String(staleValue) });
     setErrors(found);
     setEngineErrors(checked.errors);
-    if (Object.keys(found).length > 0 || Object.keys(checked.errors).length > 0) return;
+    setChipsError(checkedChips.error ?? undefined);
+    if (Object.keys(found).length > 0 || Object.keys(checked.errors).length > 0 || checkedChips.error !== null) return;
     if (changed.length === 0) {
       navigate('/branches');
       return;
@@ -220,6 +228,7 @@ function SettingsForm({
         </label>
       </section>
       <KitchenTiming state={engine} onChange={setEngine} errors={engineErrors} />
+      <CompChips chips={chips} onChange={setChips} error={chipsError} />
       {phone && (
         <div className="pos-pagebar">
           <ActionBar>{saveButton}</ActionBar>

@@ -390,7 +390,8 @@ describe('01d §3.4.3 / §3.8 fallbacks, registered routes, devices', () => {
 });
 
 describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
-  const T12 = targetKey({ kind: 'table_team', table_id: 'T12' });
+  const T12 = targetKey({ kind: 'table_team', table_id: 'T12', depth: 'owner' });
+  const T12d = targetKey({ kind: 'table_team', table_id: 'T12' }); // D-1 (a): a missing depth is direct
   const Z12 = targetKey({ kind: 'zone_order_taker', table_id: 'T12' });
   const ownerStep: StepDef = { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] };
   const tableAlert = (depth: 'owner' | 'direct' = 'owner'): AlertRow => ({
@@ -405,7 +406,8 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
   });
   // HAMZA owns T12; his lead ALI has no route; ZONE is the zone's order taker.
   const resolvedWith = (zone: string[] | null): Map<string, ResolvedTarget> => {
-    const out = new Map<string, ResolvedTarget>([[T12, { staff_ids: [HAMZA], device_ids: [] }]]);
+    const holder = { staff_ids: [HAMZA], device_ids: [], owner_staff_id: HAMZA };
+    const out = new Map<string, ResolvedTarget>([[T12, holder], [T12d, holder]]);
     if (zone !== null) out.set(Z12, { staff_ids: zone, device_ids: [] });
     return out;
   };
@@ -489,6 +491,33 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
     const out = run(r, wsWith({ sessions: [zone.socket] }), kind('t_accept'));
     expect(out.recipients).toEqual([{ staff_id: HAMZA, device_id: null, for_staff_id: null, set: 'recipient' }]);
     expect(out.no_route).toEqual([HAMZA]);
+  });
+
+  describe('[02p U-6] D-3 skip_requester in the fallback chain', () => {
+    const skipKind = (): AlertKind => ({ ...kind('t_action'), kind: 't_skip', skip_requester: true });
+    const hamza = (): Recipient[] => [P(HAMZA)];
+
+    it('[02p U-6] D-3: the caller is the lead of a report with no route → the next level rings, his tablet does not', () => {
+      const ali = signedIn(ALI, 'D_A');
+      const imran = signedIn(IMRAN, 'D_I');
+      const r = reads({ sessions: [ali.session, imran.session] });
+      const ws = wsWith({ sessions: [ali.socket, imran.socket] });
+      const out = routeRecipients(hamza(), skipKind(), r, dir, ws, NOW, ALI);
+      expect(out.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([[IMRAN, HAMZA]]);
+      expect(out.routes).toEqual([{ staff_id: IMRAN, route: 'screen', ref: 'D_I' }]);
+      // without the flag the lead takes it (the stop rule is unchanged)
+      const plain = routeRecipients(hamza(), kind('t_action'), r, dir, ws, NOW, ALI);
+      expect(plain.recipients.map((x) => [x.staff_id, x.for_staff_id])).toEqual([[ALI, HAMZA]]);
+    });
+
+    it('[02p U-6] D-3: the caller is the only candidate at every level → the no-receiver path (no_route lists the person)', () => {
+      const ali = signedIn(ALI, 'D_A');
+      const r = reads({ sessions: [ali.session] });
+      const out = routeRecipients(hamza(), skipKind(), r, dir, wsWith({ sessions: [ali.socket] }), NOW, ALI);
+      expect(out.recipients).toEqual([{ staff_id: HAMZA, device_id: null, for_staff_id: null, set: 'recipient' }]);
+      expect(out.routes).toEqual([]);
+      expect(out.no_route).toEqual([HAMZA]);
+    });
   });
 
   it('[01d §3.4.2] fakeZoneOrderTaker resolves table → taker, keyed by targetKey, in one statement', () => {

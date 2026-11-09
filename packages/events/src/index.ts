@@ -70,3 +70,4 @@ export * from './events/station/StationPauseSet.v1.js';
 export * from './events/stock/StockReserved.v1.js';
 export * from './events/stock/StockReleased.v1.js';
 export * from './events/stock/StockConsumed.v1.js';
+export * from './events/stock/StockTransferredOut.v1.js';

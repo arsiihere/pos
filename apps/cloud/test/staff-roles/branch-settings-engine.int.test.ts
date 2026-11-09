@@ -1,4 +1,4 @@
-import { BranchConfigSnapshotSchemaV3 } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4 } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { pgCounter } from '../helpers/pg-counter';
 import { restaurantFixture, type RestaurantFixture } from '../helpers/restaurant';
@@ -24,6 +24,11 @@ const DEFAULTS = {
   table_lock_ttl_ms: 600_000,
   returns_boost: true,
   order_abandon_ms: 14_400_000,
+  // 01a v2.3 §5.2a (02b A-1): written by this endpoint since 02p task 9; served_estimate_ms is not (AD-20), below.
+  queue_auto_send_max_ms: 14_400_000,
+  zone_undo_ms: 300_000,
+  slow_item_threshold_ms: 900_000,
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
 };
 const RANGES: Array<[string, number, number]> = [
   ['weight_dine_in_pct', 10, 1000],
@@ -41,9 +46,11 @@ const RANGES: Array<[string, number, number]> = [
   ['min_gain_ms', 0, 600_000],
   ['table_lock_ttl_ms', 60_000, 3_600_000],
   ['order_abandon_ms', 3_600_000, 86_400_000],
+  ['queue_auto_send_max_ms', 3_600_000, 86_400_000],
+  ['zone_undo_ms', 0, 1_800_000],
+  ['slow_item_threshold_ms', 60_000, 7_200_000],
 ];
 const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
-
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b v1.5 §6.10, B-6; 01a v2.1 A-12)', () => {
   let cloud: TestCloud;
   let f: RestaurantFixture;
@@ -97,8 +104,10 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     );
   });
 
-  it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV3', () => {
-    expect(Object.keys(DEFAULTS).sort()).toEqual(Object.keys(BranchConfigSnapshotSchemaV3.shape.engine_settings.shape).sort());
+  it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4, less the read-only served_estimate_ms (AD-20)', () => {
+    expect([...Object.keys(DEFAULTS), 'served_estimate_ms'].sort()).toEqual(
+      Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
+    );
   });
 
   it('[01b B-6] a missing settings row on read is an error, not a default', async () => {
@@ -124,6 +133,49 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     }
     expect((await audits()).length).toBe(auditCount);
     expect(await configVersion()).toBe(config);
+  });
+
+  const CHIP_REFUSED: Array<[string, unknown]> = [
+    ['no chips', []],
+    ['11 chips', Array.from({ length: 11 }, (_, i) => `Reason ${i}`)],
+    ['an empty label', ['Late', '']],
+    ['a 31-character label', ['x'.repeat(31)]],
+    ['a case-insensitive duplicate (AD-19)', ['Late', 'late']],
+    ['not a list', 'Late'],
+  ];
+
+  it('[01a #193] comp_reason_chips: 1 and 10 labels, a 1 and a 30-character label are written and delivered; the list is replaced whole', async () => {
+    for (const chips of [['x'], Array.from({ length: 10 }, (_, i) => `R${i}`), ['x'.repeat(30), 'Late']]) {
+      const accepted = await patchCurrent({ comp_reason_chips: chips });
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      expect(accepted.json().data.branch.comp_reason_chips).toEqual(chips);
+      expect((await engineRow()).comp_reason_chips).toEqual(chips);
+    }
+  });
+
+  it.each(CHIP_REFUSED)('[01a #193] comp_reason_chips: %s → 400 VALIDATION_FAILED, nothing written', async (_name, chips) => {
+    const config = await configVersion();
+    const refused = await patchCurrent({ comp_reason_chips: chips });
+    expect(refused.statusCode, refused.body).toBe(400);
+    expect(refused.json().error.code).toBe('VALIDATION_FAILED');
+    expect((await engineRow()).comp_reason_chips).toEqual(DEFAULTS.comp_reason_chips);
+    expect(await audits()).toEqual([]);
+    expect(await configVersion()).toBe(config);
+  });
+
+  it('[01a #193] comp_reason_chips: the same list in a different order is a change; the old version goes stale', async () => {
+    const before = await branchOf();
+    const reordered = await patchSettings({ expected_version: before.version, comp_reason_chips: [...DEFAULTS.comp_reason_chips].reverse() });
+    expect(reordered.statusCode, reordered.body).toBe(200);
+    expect(reordered.json().data.branch.version).not.toBe(before.version);
+  });
+
+  it('[01a v2.3 AD-20] served_estimate_ms is not writable: alone it is 400, beside a real field it changes nothing, and GET does not carry it', async () => {
+    expect((await patchCurrent({ served_estimate_ms: 600_000 })).statusCode).toBe(400);
+    const beside = await patchCurrent({ tax_enabled: true, served_estimate_ms: 600_000 });
+    expect(beside.statusCode, beside.body).toBe(200);
+    expect(beside.json().data.branch).not.toHaveProperty('served_estimate_ms');
+    expect((await engineRow()).served_estimate_ms).toBeNull();
   });
 
   it('[01b B-6] returns_boost takes a boolean only', async () => {
@@ -239,9 +291,15 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
 
     const next = await poll();
     expect(next.statusCode, next.body).toBe(200);
-    const snapshot = BranchConfigSnapshotSchemaV3.parse(next.json().data.config.snapshot);
+    const snapshot = BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot);
     expect(snapshot.config_version).toBe(held + 1);
-    expect(snapshot.engine_settings).toEqual({ ...DEFAULTS, order_abandon_ms: 7_200_000, table_lock_ttl_ms: 120_000, returns_boost: false });
+    expect(snapshot.engine_settings).toEqual({
+      ...DEFAULTS,
+      served_estimate_ms: null,
+      order_abandon_ms: 7_200_000,
+      table_lock_ttl_ms: 120_000,
+      returns_boost: false,
+    });
   });
 
   // A first writer through the real route, stopped inside its transaction after writing only an A-12 field; `second`

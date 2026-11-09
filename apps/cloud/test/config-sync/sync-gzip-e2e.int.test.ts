@@ -33,7 +33,7 @@ describe('config sync end to end (S48)', () => {
     for (const h of hubs.splice(0)) await h.close();
   });
 
-  it('[01a §10 #140] 5 000-item branch with a deal sold there: ≤ 32 statements with the directory ([01b B-8]; AD-16; 01b v1.4 B-5); gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
+  it('[01a §10 #140] 5 000-item branch with a deal sold there: ≤ 34 statements with the directory ([01b B-8]; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1; AD-16; 01b v1.4 B-5); gzip 200 decompresses to JSON whose hash matches; the hub poller applies it through real fetch; plain without the header; a 304 has no Content-Encoding', async () => {
     const f = await restaurantFixture(cloud);
     const menu = await seedMenu(cloud.pool, f, { items: 5_000 });
     // 01c §6.14, §6.16: one deal sold at branch A, so the builder's deal reads return rows
@@ -80,8 +80,8 @@ describe('config sync end to end (S48)', () => {
     const applied = await poller.pollOnce();
     expect(applied.outcome).toBe('applied');
     // 01a v1.3 §6.1: ≤ 17 for a 200 (directory v2 is 8 statements, 01b §7.3); + 9 builder statements (01c §4.5, §6.17,
-    // AD-16); measured 26 after 01c task 31 (builder 16); + 1 no_pin_staff read (01b v1.4 B-5, README R32 c) → 27; + 5 builder statements (01b v1.5 B-8) → ≤ 32
-    expect(counter.count).toBeLessThanOrEqual(32);
+    // AD-16); measured 26 after 01c task 31 (builder 16); + 1 no_pin_staff read (01b v1.4 B-5, README R32 c) → 27; + 5 builder statements (01b v1.5 B-8) → ≤ 32; + 1 zones (01a v2.2 A-1) → ≤ 33; + 1 assignments (01b v1.6 B-2) → ≤ 34
+    expect(counter.count).toBeLessThanOrEqual(34);
     expect(seen[0]).toEqual({ status: 200, encoding: 'gzip', acceptEncoding: 'gzip' });
     const config = branchConfig();
     expect(config?.items).toHaveLength(5_000);
@@ -104,7 +104,7 @@ describe('config sync end to end (S48)', () => {
     expect(data.config.snapshot_hash).toBe(stored.snapshot_hash);
   }, 120_000);
 
-  it('[01d #48] [01b B-5] 200 with the directory lists two no-PIN staff with lead_staff_id in ≤ 32 statements; directory-only ≤ 17, config-only ≤ 27, 304 unchanged [01b B-8]; the hub applies it and keeps the PIN holder\'s lead (B-6)', async () => {
+  it('[01d #48] [01b B-5] 200 with the directory lists two no-PIN staff with lead_staff_id in ≤ 34 statements; directory-only ≤ 17, config-only ≤ 28, 304 unchanged [01b B-8; 01a v2.2 A-1 +1; 01b v1.6 B-2 +1]; the hub applies it and keeps the PIN holder\'s lead (B-6)', async () => {
     const f = await restaurantFixture(cloud);
     await seedMenu(cloud.pool, f);
     const branch = f.branches[0];
@@ -145,8 +145,8 @@ describe('config sync end to end (S48)', () => {
       });
     const both = await poll(0, 0);
     expect(both.statusCode, both.body).toBe(200);
-    // 01b v1.5 §4.4 row 6 (B-8, README R32 c): ≤ 32 with the directory
-    expect(counter.count).toBeLessThanOrEqual(32);
+    // 01b v1.5 §4.4 row 6 (B-8, README R32 c): ≤ 32 with the directory; + 1 zones (01a v2.2 A-1) → ≤ 33; + 1 assignments (01b v1.6 B-2) → ≤ 34
+    expect(counter.count).toBeLessThanOrEqual(34);
     const directory = DirectorySchema.parse(both.json().data.directory);
     expect(directory.no_pin_staff).toEqual([
       { staff_id: 's-adil', display_name: 'Adil', lead_staff_id: pinHolder },
@@ -159,11 +159,11 @@ describe('config sync end to end (S48)', () => {
     const directoryOnly = await poll(configVersion, directory.directory_version - 1);
     expect(directoryOnly.statusCode).toBe(200);
     expect(directoryOnly.json().data.config).toBeNull();
-    expect(counter.count).toBeLessThanOrEqual(17); // measured 11 (01b v1.4 B-5: 10 → 11)
+    expect(counter.count).toBeLessThanOrEqual(17); // measured 12 (01b v1.4 B-5: 10 → 11; v1.6 B-2: 11 → 12)
     const configOnly = await poll(configVersion - 1, directory.directory_version);
     expect(configOnly.statusCode).toBe(200);
     expect(configOnly.json().data.directory).toBeNull();
-    expect(counter.count).toBeLessThanOrEqual(27);
+    expect(counter.count).toBeLessThanOrEqual(28); // + 1 zones (01a v2.2 A-1)
     const unchanged = await poll(configVersion, directory.directory_version);
     expect(unchanged.statusCode).toBe(304);
     expect(counter.count).toBe(2);

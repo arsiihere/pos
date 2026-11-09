@@ -92,7 +92,8 @@ function kitchen(stations: Array<Partial<StationCfg> & { station_id: string }>, 
 }
 
 type Item = { id: string; station?: string; cook: number; prep?: number; mode?: 'sync' | 'immediate'; units?: number; carry?: number; early?: number };
-type OrderOpts = { key?: string; order_type?: 'dine_in' | 'takeaway' | 'delivery' | 'parking'; actor?: string | null };
+// 03a v1.2 §3.2 (Q-2): a dine_in key is 'dine_in:' + seating_id (02a's seating, sent by 02b), never the table id.
+type OrderOpts = { key?: string; order_type?: 'dine_in' | 'takeaway' | 'delivery' | 'parking'; actor?: string | null; table?: string };
 
 function itemFields(i: Item): Record<string, unknown> {
   return {
@@ -108,7 +109,7 @@ function proposed(order_id: string, items: Item[], o: OrderOpts = {}): ProposedO
   const base = anItemAdded().payload as unknown as ItemAddedPayload;
   return deepFreeze({
     order_id,
-    order: { order_type: o.order_type ?? 'dine_in', table_id: 'T12', table_key: o.key ?? 'dine_in:T12', follow_up: false, pickup_at_ms: null },
+    order: { order_type: o.order_type ?? 'dine_in', table_id: o.table ?? 'T12', table_key: o.key ?? 'dine_in:SEAT12', follow_up: false, pickup_at_ms: null },
     lines: items.map((i) => ({
       ...base,
       ...(itemFields(i) as Partial<ItemAddedPayload>),
@@ -141,7 +142,7 @@ function submit(state: EngineState, order_id: string, items: Item[], now: number
       item: itemFields(i),
       line: { station_id: plan.lines.find((l) => l.order_item_id === i.id)!.station_id, carry_ms: i.carry ?? 0, max_early_ms: i.early ?? 60_000 },
     })),
-    order: { groups: plan.groups, order_type: o.order_type ?? 'dine_in', table_key: o.key ?? 'dine_in:T12', pickup_at_ms: null },
+    order: { groups: plan.groups, order_type: o.order_type ?? 'dine_in', table_id: o.table ?? 'T12', table_key: o.key ?? 'dine_in:SEAT12', pickup_at_ms: null },
   }).map((e, k) => ({ ...e, event_id: `01S${String(first + k).padStart(23, '0')}` }));
   return { plan, state: fold(state, events, log) };
 }
@@ -193,10 +194,10 @@ describe('03a §3.8 slip estimate and crossing', () => {
     // A fired, never started: its estimate is s + prep + cook with s = max(fire, t) (packed Start, nothing ahead), so
     // it exceeds T + threshold at the first t > f + threshold (never P + threshold = f + 15 min).
     const c = f + TH + 1;
-    expect(s.slip_due).toEqual({ 'dine_in:T12': c });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT12': c });
     expect(s.next_alert_due_at).toBe(c);
     expect(getAlertIntents(s, c - 1).slips).toEqual([]);
-    expect(getAlertIntents(s, c).slips).toEqual([{ table_key: 'dine_in:T12', order_ids: ['O1'], estimate: target + TH + 1, target, promise: target + PAD }]);
+    expect(getAlertIntents(s, c).slips).toEqual([{ table_key: 'dine_in:SEAT12', order_ids: ['O1'], estimate: target + TH + 1, target, promise: target + PAD }]);
     // The estimate keeps growing with t while the line is not started.
     expect(getAlertIntents(s, c + 5 * M).slips[0]!.estimate).toBe(target + TH + 1 + 5 * M);
   });
@@ -228,17 +229,36 @@ describe('03a §3.8 slip estimate and crossing', () => {
 
   it('[03a #36] one slip per table key: the late orders of a key are grouped, other keys apart', () => {
     let s = kitchen([{ station_id: 'S1', capacity: 3 }]);
-    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'dine_in:T1' }));
-    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'dine_in:T1' }));
-    ({ state: s } = submit(s, 'O3', [{ id: 'C', cook: 10 * M }], at(0), { key: 'dine_in:T2' }));
+    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'dine_in:SEAT1' }));
+    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'dine_in:SEAT1' }));
+    ({ state: s } = submit(s, 'O3', [{ id: 'C', cook: 10 * M }], at(0), { key: 'dine_in:SEAT2' }));
     const f = s.lines.A!.fire_ms!;
     s = fold(s, [fireEv('S1', ['A', 'B', 'C'], f)]);
     const c = f + TH + 1;
-    expect(s.slip_due).toEqual({ 'dine_in:T1': c, 'dine_in:T2': c });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT1': c, 'dine_in:SEAT2': c });
     const a = getAlertIntents(s, c);
     expect(a.slips.map((x) => [x.table_key, x.order_ids])).toEqual([
-      ['dine_in:T1', ['O1', 'O2']],
-      ['dine_in:T2', ['O3']],
+      ['dine_in:SEAT1', ['O1', 'O2']],
+      ['dine_in:SEAT2', ['O3']],
+    ]);
+  });
+
+  it('[03a §3.2 Q-2] dine_in keys built from seating ids in the engine slip tests', () => {
+    // Two parties on table T4 one after the other (SEAT_A, SEAT_B) are two keys; a party that moved (SEAT_C: one order
+    // on T5, a later one on T6) keeps one key. The engine keys on table_key as sent, whatever the table_id.
+    let s = kitchen([{ station_id: 'S1', capacity: 8 }]);
+    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'dine_in:SEAT_A', table: 'T4' }));
+    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'dine_in:SEAT_B', table: 'T4' }));
+    ({ state: s } = submit(s, 'O3', [{ id: 'C', cook: 10 * M }], at(0), { key: 'dine_in:SEAT_C', table: 'T5' }));
+    ({ state: s } = submit(s, 'O4', [{ id: 'D', cook: 10 * M }], at(0), { key: 'dine_in:SEAT_C', table: 'T6' }));
+    for (const id of ['A', 'B', 'C', 'D']) s = fold(s, [fireEv('S1', [id], s.lines[id]!.fire_ms!)]);
+    expect(s.orders.O1!.table_key).toBe('dine_in:SEAT_A');
+    expect(Object.keys(s.slip_due).sort()).toEqual(['dine_in:SEAT_A', 'dine_in:SEAT_B', 'dine_in:SEAT_C']);
+    const c = s.next_alert_due_at!;
+    expect(getAlertIntents(s, c).slips.map((x) => [x.table_key, x.order_ids]).sort()).toEqual([
+      ['dine_in:SEAT_A', ['O1']],
+      ['dine_in:SEAT_B', ['O2']],
+      ['dine_in:SEAT_C', ['O3', 'O4']],
     ]);
   });
 
@@ -248,16 +268,16 @@ describe('03a §3.8 slip estimate and crossing', () => {
     const item = getAlertIntents(s0, c).slips[0]!;
     // fires_alerts raises at c: SlipWarned stores the record; an open alert gives no slip item.
     let s = fold(s0, [slipWarnedEv(item, 'AL1', c)]);
-    expect(s.slips['dine_in:T12']).toEqual({ order_ids: ['O1'], last_estimate: item.estimate, alert_id: 'AL1', resolved_at: null });
+    expect(s.slips['dine_in:SEAT12']).toEqual({ order_ids: ['O1'], last_estimate: item.estimate, alert_id: 'AL1', resolved_at: null });
     // An open, unresolved alert contributes only its BF-4 abandon time (f + order_abandon_ms, AD-13).
-    expect(s.slip_due).toEqual({ 'dine_in:T12': f + BASE.settings.order_abandon_ms });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT12': f + BASE.settings.order_abandon_ms });
     // Grown by far more than another threshold while the alert is open: still nothing.
     expect(getAlertIntents(s, c + 30 * M)).toEqual({ slips: [], resolved: [], overload: getAlertIntents(s, c + 30 * M).overload });
     // Another alert's AlertClosed changes nothing (§3.8: state itself).
     expect(applyEvent(s, deepFreeze(alertClosedEv('OTHER', c + M)))).toBe(s);
     // Its own AlertClosed: alert_id null; the level is now last_estimate + threshold.
     s = fold(s, [alertClosedEv('AL1', c + M)]);
-    expect(s.slips['dine_in:T12']!.alert_id).toBeNull();
+    expect(s.slips['dine_in:SEAT12']!.alert_id).toBeNull();
     // estimate(t) = t + 10 min > last_estimate + threshold = T + 2 × threshold + 1 → t = c + threshold + 1.
     const c2 = c + TH + 1;
     expect(s.next_alert_due_at).toBe(c2);
@@ -270,42 +290,42 @@ describe('03a §3.8 slip estimate and crossing', () => {
     const c = f + TH + 1;
     let s = fold(s0, [slipWarnedEv(getAlertIntents(s0, c).slips[0]!, 'AL1', c)]);
     s = fold(s, [startEv('O1', 'A', c + M), doneEv('O1', 'A', c + 11 * M)]);
-    expect(s.slips['dine_in:T12']!.resolved_at).toBe(c + 11 * M);
-    expect(s.slip_due).toEqual({ 'dine_in:T12': c + 11 * M });
+    expect(s.slips['dine_in:SEAT12']!.resolved_at).toBe(c + 11 * M);
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT12': c + 11 * M });
     expect(getAlertIntents(s, c + 11 * M - 1).resolved).toEqual([]);
-    expect(getAlertIntents(s, c + 11 * M).resolved).toEqual([{ table_key: 'dine_in:T12', alert_id: 'AL1' }]);
+    expect(getAlertIntents(s, c + 11 * M).resolved).toEqual([{ table_key: 'dine_in:SEAT12', alert_id: 'AL1' }]);
     // An Undo before the close pass makes it unresolved again: resolved_at cleared, the alert stays open.
     const u = fold(s, [undoEv('O1', 'A', c + 11 * M + S)]);
-    expect(u.slips['dine_in:T12']!.resolved_at).toBeNull();
-    expect(u.slip_due).toEqual({ 'dine_in:T12': u.orders.O1!.last_line_fold_at + BASE.settings.order_abandon_ms }); // BF-4 only
+    expect(u.slips['dine_in:SEAT12']!.resolved_at).toBeNull();
+    expect(u.slip_due).toEqual({ 'dine_in:SEAT12': u.orders.O1!.last_line_fold_at + BASE.settings.order_abandon_ms }); // BF-4 only
     // The close's AlertClosed drops the record.
     s = fold(s, [alertClosedEv('AL1', c + 12 * M)]);
     expect(s.slips).toEqual({});
     expect(s.slip_due).toEqual({});
     // A slip whose alert was closed by someone else (alert_id null) is dropped at resolution.
     let r = fold(s0, [slipWarnedEv(getAlertIntents(s0, c).slips[0]!, 'AL2', c), alertClosedEv('AL2', c + S)]);
-    expect(r.slips['dine_in:T12']!.alert_id).toBeNull();
+    expect(r.slips['dine_in:SEAT12']!.alert_id).toBeNull();
     r = fold(r, [startEv('O1', 'A', c + M), doneEv('O1', 'A', c + 11 * M)]);
     expect(r.slips).toEqual({});
   });
 
   it('[03a BF-14] the crossing of a fired line packs behind the fired lines ahead; a Start of the first recomputes the second key', () => {
     let s = kitchen([{ station_id: 'S1', capacity: 1 }]);
-    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'dine_in:T1' }));
-    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'dine_in:T2' }));
+    ({ state: s } = submit(s, 'O1', [{ id: 'A', cook: 10 * M }], at(0), { key: 'dine_in:SEAT1' }));
+    ({ state: s } = submit(s, 'O2', [{ id: 'B', cook: 10 * M }], at(0), { key: 'dine_in:SEAT2' }));
     const f = s.lines.A!.fire_ms!;
     const tB = T(s, 'O2');
     expect(tB).toBe(f + 20 * M);
     // Both fired at f (B pulled early, AD-9): B packs behind A, so its estimate is t + 20 min, not t + 10 min.
     s = fold(s, [fireEv('S1', ['A', 'B'], f)]);
     expect(liveInterval(s, 'B', f)).toEqual({ start: f + 10 * M, end: f + 20 * M });
-    expect(s.slip_due['dine_in:T2']).toBe(f + TH + 1);
-    expect(s.slip_due['dine_in:T1']).toBe(f + TH + 1);
+    expect(s.slip_due['dine_in:SEAT2']).toBe(f + TH + 1);
+    expect(s.slip_due['dine_in:SEAT1']).toBe(f + TH + 1);
     // A starts at f + 1 min: B now packs from A's fixed end f + 11 min, so its crossing moves to f + 12 min + 1.
     const before = s.slip_due;
     s = fold(s, [startEv('O1', 'A', f + M)]);
     expect(s.slip_due).not.toBe(before);
-    expect(s.slip_due).toEqual({ 'dine_in:T2': f + 12 * M + 1 });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT2': f + 12 * M + 1 });
     expect(getAlertIntents(s, f + 12 * M).slips).toEqual([]);
     expect(getAlertIntents(s, f + 12 * M + 1).slips[0]!.estimate).toBe(tB + TH + 1);
   });
@@ -332,12 +352,12 @@ describe('03a §3.8 slip estimate and crossing', () => {
     // The last line fold is the FireDispatched at f (SlipWarned refreshes nothing, §3.3); the land (f + 10 min) is
     // earlier, so the abandon time is f + order_abandon_ms (AD-13).
     const abandon = f + BASE.settings.order_abandon_ms;
-    expect(s.slip_due).toEqual({ 'dine_in:T12': abandon });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT12': abandon });
     expect(getAlertIntents(s, abandon - 1).resolved).toEqual([]);
-    expect(getAlertIntents(s, abandon)).toMatchObject({ slips: [], resolved: [{ table_key: 'dine_in:T12', alert_id: 'AL1' }] });
+    expect(getAlertIntents(s, abandon)).toMatchObject({ slips: [], resolved: [{ table_key: 'dine_in:SEAT12', alert_id: 'AL1' }] });
     // Without an open alert the key's crossing stops at the abandon time: an abandoned order never slips.
     const n = fold(s, [alertClosedEv('AL1', c + M)]);
-    expect(n.slip_due).toEqual({ 'dine_in:T12': c + TH + 1 });
+    expect(n.slip_due).toEqual({ 'dine_in:SEAT12': c + TH + 1 });
     const late = fold(n, [stamp(aStockSet(), abandon + S)]); // a listed fold after the abandon removes the order
     expect(late.orders.O1).toBeUndefined();
     expect(late.slips).toEqual({});
@@ -346,7 +366,7 @@ describe('03a §3.8 slip estimate and crossing', () => {
 
   it('[03a §3.8] the slip half of #91: a line placed late by the submit gap has next_alert_due_at at its crossing', () => {
     let s = kitchen([{ station_id: 'S1', capacity: 1 }, { station_id: 'S2', capacity: 1 }], { slip_threshold_ms: 10_000 });
-    ({ state: s } = submit(s, 'OX', [{ id: 'X', cook: 5 * M, mode: 'immediate' }], at(0), { key: 'dine_in:TX' }));
+    ({ state: s } = submit(s, 'OX', [{ id: 'X', cook: 5 * M, mode: 'immediate' }], at(0), { key: 'dine_in:SEATX' }));
     s = fold(s, [fireEv('S1', ['X'], at(0))]);
     const now = at(1);
     const rec = at(1) + 30_000;
@@ -354,9 +374,9 @@ describe('03a §3.8 slip estimate and crossing', () => {
     expect(r.state.lines.A!.booked).toEqual({ start: at(6) + 30_000, end: at(9) + 30_000, units: 1 });
     expect(T(r.state, 'ON')).toBe(at(9));
     // Planned land 12:09:30 > T + 10 s at the batch's own fold: due at once (the order's placed_at = recorded_at).
-    expect(r.state.slip_due['dine_in:T12']).toBe(rec);
+    expect(r.state.slip_due['dine_in:SEAT12']).toBe(rec);
     expect(r.state.next_alert_due_at).toBe(rec);
-    expect(getAlertIntents(r.state, rec).slips).toEqual([{ table_key: 'dine_in:T12', order_ids: ['ON'], estimate: at(9) + 30_000, target: at(9), promise: at(9) + PAD }]);
+    expect(getAlertIntents(r.state, rec).slips).toEqual([{ table_key: 'dine_in:SEAT12', order_ids: ['ON'], estimate: at(9) + 30_000, target: at(9), promise: at(9) + PAD }]);
   });
 
   it('[03a §3.8] an immediate line is not a sync group: it never slips', () => {
@@ -391,15 +411,15 @@ describe('03a §3.8 slip estimate and crossing', () => {
     s = fold(s, [startEv('O1', 'A', f + 3 * M)]); // lands T + 3 min > T + threshold
     const item = getAlertIntents(s, f + 3 * M).slips[0]!;
     s = fold(s, [slipWarnedEv(item, 'AL1', f + 3 * M)]);
-    expect(s.slips['dine_in:T12']!.alert_id).toBe('AL1');
+    expect(s.slips['dine_in:SEAT12']!.alert_id).toBe('AL1');
     s = fold(s, [stamp(aBusinessDayClosed(), f + 4 * M)]);
     expect(s.orders.O1).toBeDefined(); // a COOKING line: carried over the close (Q13)
     expect(s.slips).toEqual({});
     const placed = s.orders.O1!.placed_at;
-    expect(s.slip_due).toEqual({ 'dine_in:T12': placed });
+    expect(s.slip_due).toEqual({ 'dine_in:SEAT12': placed });
     const a = getAlertIntents(s, placed);
     expect(a.resolved).toEqual([]);
-    expect(a.slips).toEqual([{ table_key: 'dine_in:T12', order_ids: ['O1'], estimate: T(s, 'O1') + 3 * M, target: T(s, 'O1'), promise: T(s, 'O1') + PAD }]);
+    expect(a.slips).toEqual([{ table_key: 'dine_in:SEAT12', order_ids: ['O1'], estimate: T(s, 'O1') + 3 * M, target: T(s, 'O1'), promise: T(s, 'O1') + PAD }]);
   });
 
   it('[03a §3.8] an order whose only change is its clock (OrderBoosted) moves its abandon time: the keys packed behind it are recomputed', () => {
@@ -442,7 +462,7 @@ describe('03a §3.8 slip estimate and crossing', () => {
     const { s, f } = lateLine();
     expect(s.next_alert_due_at).toBe(f + TH + 1);
     const n = fold(s, [configEvent([{ station_id: 'S1', capacity: 1 }], { slip_threshold_ms: 60_000 }, f + S)]);
-    expect(n.slip_due).toEqual({ 'dine_in:T12': f + 60_001 });
+    expect(n.slip_due).toEqual({ 'dine_in:SEAT12': f + 60_001 });
     // The same config again touches nothing: slip_due keeps its reference.
     const again = applyEvent(n, deepFreeze(configEvent([{ station_id: 'S1', capacity: 1 }], { slip_threshold_ms: 60_000 }, f + 2 * S)));
     expect(Object.is(again.slip_due, n.slip_due)).toBe(true);

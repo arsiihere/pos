@@ -105,6 +105,12 @@ describe('defineAlertKind', () => {
     expect(() => define(requestDef({ lead_fallback: true }))).toThrow(/lead_fallback/);
   });
 
+  it('[02p U-6] D-3: startup error on a request kind', () => {
+    expect(() => define(requestDef({ skip_requester: true }))).toThrow(/skip_requester/);
+    expect(define(infoDef({ kind: 'k_skip', skip_requester: true })).skip_requester).toBe(true);
+    expect(define(infoDef({ kind: 'k_noskip' })).skip_requester).toBeUndefined();
+  });
+
   it('[01d §3.5] expires_at_day_close: false without closes_on seen throws', () => {
     expect(() => define(infoDef({ expires_at_day_close: false, closes_on: 'owner' }))).toThrow(
       /expires_at_day_close/,

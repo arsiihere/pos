@@ -136,6 +136,7 @@ describe('owner menu read', () => {
         out_of_stock_behaviour: 'cook_fresh',
         sale_unit: 'piece',
         requires_weighing: false,
+        is_ready_item: false,
         stock_draws: [],
         availability_windows: [
           { start_ms: 3600000, end_ms: 5400000 },

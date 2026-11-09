@@ -21,6 +21,11 @@ export const PERMISSIONS = [
   'manage-stock',
   'manage-stations',
   'mark-served',
+  'take-order',
+  'clean-table',
+  'set-line-weight',
+  'manage-zone-stock',
+  'view-customer-contact',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -36,9 +41,9 @@ export function assertKnownPermissions(declared: Iterable<string>): void {
 }
 
 // 01b §3.3 (B2): scopes a grant may carry, and which scopes each permission accepts.
-export type Scope = 'branch' | 'own_tables' | 'my_floors' | 'my_team' | 'my_stations';
+export type Scope = 'branch' | 'own_tables' | 'my_floors' | 'my_team' | 'my_stations' | 'my_zones';
 
-export const SCOPES: readonly Scope[] = ['branch', 'own_tables', 'my_floors', 'my_team', 'my_stations'];
+export const SCOPES: readonly Scope[] = ['branch', 'own_tables', 'my_floors', 'my_team', 'my_stations', 'my_zones'];
 
 const WIDER_SCOPES: Partial<Record<Permission, readonly Scope[]>> = {
   'take-order-anywhere': ['branch', 'my_floors'],
@@ -47,6 +52,12 @@ const WIDER_SCOPES: Partial<Record<Permission, readonly Scope[]>> = {
   'manage-stock': ['branch', 'my_stations'],
   'manage-stations': ['branch', 'my_stations'],
   'mark-served': ['branch', 'own_tables', 'my_floors'],
+  // 01b v1.7 §3.3 (B-1..B-5; 02a v1.0 B-1; 02b v1.0 B-1..B-5)
+  'take-order': ['branch', 'my_floors', 'own_tables'],
+  'boost-order': ['branch', 'own_tables', 'my_floors'],
+  'mark-item-returned': ['branch', 'own_tables', 'my_floors'],
+  'manage-zone-stock': ['branch', 'my_zones'],
+  'view-customer-contact': ['branch', 'my_floors', 'own_tables'],
 };
 
 export const PERMISSION_SCOPES: Record<Permission, readonly Scope[]> = Object.fromEntries(
@@ -79,6 +90,11 @@ const GROUPS: Record<Permission, PermissionGroup> = {
   'manage-stock': 'menu_stock',
   'manage-stations': 'kitchen',
   'mark-served': 'orders',
+  'take-order': 'orders',
+  'clean-table': 'orders',
+  'set-line-weight': 'orders',
+  'manage-zone-stock': 'orders',
+  'view-customer-contact': 'orders',
 };
 
 export const PERMISSION_CATALOGUE: readonly { key: Permission; group: PermissionGroup; scopes: readonly Scope[] }[] =

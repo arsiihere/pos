@@ -74,9 +74,9 @@ export async function seedTenant(
           // approver_role_id is dual-written with the first (only) approver (§5.1, B22)
           const approver = grant.approver_key === undefined ? null : keyed(grant.approver_key);
           await ctx.query(
-            `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [tenantId, roleId, grant.permission, grant.grant_type, approver],
+            `INSERT INTO role_permissions (tenant_id, role_id, permission, grant_type, approver_role_id, scope)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [tenantId, roleId, grant.permission, grant.grant_type, approver, grant.scope ?? 'branch'],
           );
           if (approver !== null) {
             await ctx.query(

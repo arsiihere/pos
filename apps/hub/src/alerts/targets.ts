@@ -57,6 +57,8 @@ export interface RecipientRow {
 export interface ResolvedTarget {
   staff_ids: string[];
   device_ids: string[];
+  /** 01d D-1 (d): `table_team` only, the table's holder (the absent-owner marker and the zone fallback key on it). */
+  owner_staff_id?: string;
 }
 
 export interface SessionRead {
@@ -265,13 +267,13 @@ export function hasTargetResolver(kind: ResolverKind): boolean {
 }
 
 /**
- * The key a resolver result is stored under. `table_team` is keyed by table only: the resolver returns the
- * table's owner (`tableOwner`), and 01d adds the direct reports for `depth: 'direct'` (§3.4 table).
+ * The key a resolver result is stored under. `table_team` is keyed by table and depth (a missing depth is
+ * `direct`, D-1 (a)); the resolver returns the full recipient set for that depth (D-1).
  */
 export function targetKey(target: ResolverTarget<ResolverKind>): string {
   switch (target.kind) {
     case 'table_team':
-      return `table_team:${target.table_id}`;
+      return `table_team:${target.table_id}:${target.depth ?? 'direct'}`;
     case 'zone_order_taker':
       return `zone_order_taker:${target.table_id}`;
     case 'point':
@@ -351,23 +353,25 @@ export function resolveStep(step: StepDef, alert: AlertRow, reads: BatchReads, d
     } else if (SET_RANK[recipient.set] > SET_RANK[seen.set]) seen.set = recipient.set;
   };
   const markers = new Set<string>();
+  // 01d D-3: `skip_requester` leaves the requester out of every set (answerer entries always skip him, §3.3 rule 5)
+  const skipRequester = kindOf(alert.kind)?.skip_requester === true;
   for (const { target, set } of stepTargets(step, alert)) {
     const found = resolveTarget(target, alert, reads, directory);
     for (const staffId of found.staff_ids) {
-      if (set === 'answerer' && staffId === alert.requester_staff_id) continue;
+      if ((set === 'answerer' || skipRequester) && staffId === alert.requester_staff_id) continue;
       add(people, staffId, { staff_id: staffId, device_id: null, set });
     }
     for (const deviceId of found.device_ids) add(devices, deviceId, { staff_id: null, device_id: deviceId, set });
-    // §3.4.2: keep each table owner's origin, read before the presence filter.
+    // §3.4.2 / D-1 (c): keep the table holder's origin (`owner_staff_id`), read before the presence filter.
     if (target.kind !== 'table_team') continue;
-    for (const owner of resolved(target, reads).staff_ids) {
-      const origin: TableTeamOrigin = { table_id: target.table_id, owner_staff_id: owner };
-      const recipient = people.get(owner);
-      if (recipient !== undefined) recipient.table_team ??= origin;
-      else if (!isPresent(reads, owner) && !markers.has(`${origin.table_id}\u0000${owner}`)) {
-        markers.add(`${origin.table_id}\u0000${owner}`);
-        out.push({ staff_id: null, device_id: null, set, table_team: origin });
-      }
+    const owner = resolved(target, reads).owner_staff_id;
+    if (owner === undefined) continue;
+    const origin: TableTeamOrigin = { table_id: target.table_id, owner_staff_id: owner };
+    const recipient = people.get(owner);
+    if (recipient !== undefined) recipient.table_team ??= origin;
+    else if (!isPresent(reads, owner) && !(skipRequester && owner === alert.requester_staff_id) && !markers.has(`${origin.table_id}\u0000${owner}`)) {
+      markers.add(`${origin.table_id}\u0000${owner}`);
+      out.push({ staff_id: null, device_id: null, set, table_team: origin });
     }
   }
   return out;
@@ -409,9 +413,9 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
         device_ids: reads.devices.filter((d) => d.device_type === 'cashier_kiosk' || d.device_type === 'kds').map((d) => d.device_id),
       };
     case 'table_team': {
-      const owners = resolved(target, reads).staff_ids;
-      const ids = target.depth === 'owner' ? owners : [...owners, ...owners.flatMap((owner) => directory.teamOf(owner, { includeNoPin: true }))];
-      return { staff_ids: present([...new Set(ids)]), device_ids: resolved(target, reads).device_ids };
+      // D-1 (b): the resolver's staff_ids are the full set for both depths; no teamOf here, presence filter only
+      const found = resolved(target, reads);
+      return { staff_ids: present([...new Set(found.staff_ids)]), device_ids: found.device_ids };
     }
     case 'point':
     case 'zone_order_taker':

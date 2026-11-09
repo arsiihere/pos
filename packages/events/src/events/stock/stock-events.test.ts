@@ -70,3 +70,19 @@ describe('StockAdded v2 (03a §4.5 A-19)', () => {
     }
   });
 });
+
+describe('StockTransferredOut (03a §4.2 Q-5)', () => {
+  const base = { stock_item_id: 'K1', quantity: 500, zone_id: 'Z1' };
+
+  it('[03a §4.2 Q-5] StockTransferredOut v1 parses; quantity 0 or negative → fails', () => {
+    const schema = payloadSchema('StockTransferredOut', 1);
+    expect(schema.parse(base)).toEqual(base);
+    expect(schema.safeParse({ ...base, quantity: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, quantity: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, quantity: 1.5 }).success).toBe(false);
+    for (const key of Object.keys(base)) {
+      expect(schema.safeParse(without(base, key)).success, key).toBe(false);
+    }
+  });
+});
+

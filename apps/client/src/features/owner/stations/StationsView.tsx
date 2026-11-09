@@ -12,7 +12,7 @@ import { Skeleton } from '../../../components/Skeleton';
 import { fill } from '../../../i18n/en';
 import { t } from '../../../i18n';
 import { useBranchName } from '../branch';
-import { BlockedDialog, itemNames, usedEntity, usedIds, type InUse as AnyInUse } from '../BlockedDialog';
+import { BlockedDialog, itemNames, usedEntity, usedIds, zoneNames, type InUse as AnyInUse } from '../BlockedDialog';
 import { useCloudDown } from '../cloud';
 import { errorText, issueMessages, useReveal } from '../form';
 import { useDirtyForm, useLeave } from '../guard';
@@ -46,12 +46,33 @@ function summary(station: Station): string {
     .join(' · ');
 }
 
-// A station is used by items, stock items or other stations only.
-type InUse = AnyInUse & { by?: 'station' | 'stock_item' };
+// A station is used by items, stock items, other stations or zones only.
+type InUse = AnyInUse;
 
-const BLOCKED_BODY = { item: 'archive.station_blocked_body', station: 'archive.station_blocked_by_stations', stock_item: 'archive.station_blocked_by_stock' } as const;
-const HINT_SHORT = { item: 'stations.used_by_short', station: 'stations.used_by_stations_short', stock_item: 'stations.used_by_stock_short' } as const;
-const HINT_NAMES = { item: 'stations.used_by_names', station: 'stations.used_by_stations_names', stock_item: 'stations.used_by_stock_names' } as const;
+const BLOCKED_BODY = {
+  item: 'archive.station_blocked_body',
+  station: 'archive.station_blocked_by_stations',
+  stock_item: 'archive.station_blocked_by_stock',
+  variant_group: 'archive.station_blocked_body',
+  deal: 'archive.station_blocked_body',
+  zone: 'archive.station_blocked_by_zones',
+} as const;
+const HINT_SHORT = {
+  item: 'stations.used_by_short',
+  station: 'stations.used_by_stations_short',
+  stock_item: 'stations.used_by_stock_short',
+  variant_group: 'stations.used_by_short',
+  deal: 'stations.used_by_short',
+  zone: 'stations.used_by_zones_short',
+} as const;
+const HINT_NAMES = {
+  item: 'stations.used_by_names',
+  station: 'stations.used_by_stations_names',
+  stock_item: 'stations.used_by_stock_names',
+  variant_group: 'stations.used_by_names',
+  deal: 'stations.used_by_names',
+  zone: 'stations.used_by_zones_names',
+} as const;
 
 // A-9: the alternates a station can name are the branch's other active slot stations.
 function offeredFor(stations: readonly StationRow[], selfId: string): OfferedStation[] {
@@ -61,10 +82,11 @@ function offeredFor(stations: readonly StationRow[], selfId: string): OfferedSta
 }
 
 // 409 CONFIG_IN_USE names items (routes), stock items (01c V16) or stations (alternates, A-9): name each from what is loaded.
-async function usersOf(api: CloudAdmin, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
+async function usersOf(api: CloudAdmin, branchId: string, error: CloudError, ids: string[], stations: readonly { station_id: string; name: string }[]): Promise<InUse> {
   if (usedEntity(error) === 'station') {
     return { ids, names: ids.flatMap((id) => stations.find((s) => s.station_id === id)?.name ?? []), by: 'station' };
   }
+  if (usedEntity(error) === 'zone') return zoneNames(api, [branchId], ids);
   if (usedEntity(error) === 'stock_item') {
     const result = await api.listStockItems();
     const byId = new Map(result.ok ? result.data.stock_items.map((item) => [item.stock_item_id, item.name]) : []);
@@ -188,7 +210,7 @@ function StationEditor({
     const ids = usedIds(result.error);
     if (ids !== null && patch.station_type !== undefined) {
       setType(station.station_type);
-      onTypeBlocked(await usersOf(api, result.error, ids, allStations));
+      onTypeBlocked(await usersOf(api, branchId, result.error, ids, allStations));
       return;
     }
     setIssues(resolveRowIssues(issueMessages(result.error), timing, station, type, offeredIds));
@@ -402,7 +424,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       const station = stations?.find((s) => s.station_id === stationId);
-      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, result.error, ids, stations ?? []), type: false });
+      if (ids !== null && station !== undefined) setAsk({ kind: 'blocked', station, inUse: await usersOf(api, branchId, result.error, ids, stations ?? []), type: false });
       else setError(errorText(result.error));
     } else if (archived) setUndo({ stationId, program });
     else setUndo(null);
@@ -415,7 +437,7 @@ export function StationsView({
     if (!result.ok) {
       const ids = usedIds(result.error);
       if (ids !== null) {
-        const inUse = await usersOf(api, result.error, ids, stations ?? []);
+        const inUse = await usersOf(api, branchId, result.error, ids, stations ?? []);
         setUsedBy((known) => new Map(known).set(station.station_id, inUse));
         setAsk({ kind: 'blocked', station, inUse, type: false });
       } else setError(errorText(result.error));
@@ -601,9 +623,9 @@ export function StationsView({
               <button
                 type="button"
                 className="pos-btn pos-btn--primary"
-                onClick={() => leave(() => navigate(ask.inUse.by === 'stock_item' ? '/stock-items' : '/menu'))}
+                onClick={() => leave(() => navigate(ask.inUse.by === 'stock_item' ? '/stock-items' : ask.inUse.by === 'zone' ? '/floors' : '/menu'))}
               >
-                {t(ask.inUse.by === 'stock_item' ? 'archive.open_stock_items' : 'archive.open_items')}
+                {t(ask.inUse.by === 'stock_item' ? 'archive.open_stock_items' : ask.inUse.by === 'zone' ? 'archive.open_floors' : 'archive.open_items')}
               </button>
             )
           }
