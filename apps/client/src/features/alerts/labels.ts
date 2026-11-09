@@ -30,10 +30,15 @@ interface Labelled {
 
 const isKey = (key: string): key is MessageKey => key in en;
 
+/** 01d v1.2.1 P-1: "T12" only for an all-digit table_code; a table name ("Patio 3") as-is; empty → null. */
+export function tableLabel(code: string | null | undefined): string | null {
+  if (code === null || code === undefined || code === '') return null;
+  return /^[0-9]+$/.test(code) ? fill(t('alerts.table'), { code }) : code;
+}
+
 function params(d: AlertLock): Record<string, string | null> {
-  const code = d.table_code ?? null;
   return {
-    table: code === null || code === '' ? null : fill(t('alerts.table'), { code }),
+    table: tableLabel(d.table_code),
     point: d.point_code ?? null,
     requester: d.requester_name ?? null,
     device: d.device_name ?? null,

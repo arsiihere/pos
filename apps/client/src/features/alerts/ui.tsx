@@ -4,7 +4,7 @@ import type { AlertCard, AlertLock, RequestOutcome } from '@pos/events';
 import { t } from '../../i18n';
 import { fill } from '../../i18n/en';
 import { shownRupees } from '../owner/money';
-import { closedText, familyText, fromDayText, stepTag, timeText, titleText } from './labels';
+import { closedText, familyText, fromDayText, stepTag, tableLabel, timeText, titleText } from './labels';
 import { isSilent } from './sounds';
 import type { AlertRow } from './store';
 
@@ -251,10 +251,9 @@ export function isRequest(row: { family: AlertFamily; answers?: readonly string[
   return (row.answers?.length ?? 0) > 0 || row.family === 'urgent';
 }
 
-/** The table chip "T12" from the lock-safe display (empty for test alerts and warnings). */
+/** The table chip "T12" (or the table name, 01d v1.2.1 P-1) from the lock-safe display (empty for test alerts and warnings). */
 export function tableOf(row: { lock: AlertLock; card?: AlertCard | undefined }): string | null {
-  const code = (row.card ?? row.lock).table_code ?? null;
-  return code === null || code === '' ? null : fill(t('alerts.table'), { code });
+  return tableLabel((row.card ?? row.lock).table_code);
 }
 
 function requesterOf(row: { lock: AlertLock; card?: AlertCard | undefined }): string | null {
