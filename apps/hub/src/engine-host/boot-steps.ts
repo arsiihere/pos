@@ -5,8 +5,8 @@ import { setStockVersion } from '../sync/stock-version.js';
 import { droppedLineOf, firesAlertsTick } from './fires-alerts-tick.js';
 import { configStaleFor, firesTick } from './fires-tick.js';
 import { hostFlags, resetHostFlags } from './host-flags.js';
-import { logDiagnostics } from './reducer.js';
-import { loadEngineBase, readStockVersion, replayEngine, type LoadedBase } from './replay.js';
+import { logDiagnostics, noteUntrackedId } from './reducer.js';
+import { loadEngineBase, readStockVersion, readUntrackedIds, replayEngine, untrackedIdsFrom, type LoadedBase } from './replay.js';
 
 export { readStockVersion, replayEngine } from './replay.js';
 
@@ -49,7 +49,7 @@ export function engineStep2(ctx: BootContext): void {
   runs.set(ctx, { base, fromSeq: base.snapshot_seq ?? base.checkpoint_seq ?? 0, lines, invalid: [] });
 }
 
-// §3.12 step 3: 4 + 2 statements. Replaces 01a's fold (A-15). A replayed diagnostic is logged again, replay: true (§7.2).
+// §3.12 step 3: 4 + 2 + 1 statements (03a v1.2 R-3: the Q-3 id-set read). Replaces 01a's fold (A-15). A replayed diagnostic is logged again, replay: true (§7.2).
 export function engineStep3(ctx: BootContext): void {
   const branchId = ctx.config.provisioned?.branch_id;
   const run = runs.get(ctx);
@@ -63,9 +63,11 @@ export function engineStep3(ctx: BootContext): void {
   const { state, replayed } = replayEngine(ctx.db, branchId, run.fromSeq, run.base.state ?? initialEngineState(), (d) => {
     logDiagnostics([d], log, true);
     if (d.kind === 'invalid_event') run.invalid.push(d);
-  });
+  }, noteUntrackedId);
   ctx.initialState = state;
   setStockVersion(readStockVersion(ctx.db, branchId));
+  // §3.3 Q-3, §3.12 R-3, AD-E18: the replayed ids joined above; the older ones from one read with seq > H.
+  for (const id of readUntrackedIds(ctx.db, branchId, untrackedIdsFrom(run.base))) hostFlags.untrackedLineIds.add(id);
   run.lines.push({ level: 'info', obj: { step: '3', snapshot_seq: run.base.snapshot_seq, checkpoint_seq: run.base.checkpoint_seq, events_replayed: replayed, ms: monoNow() - start }, msg: 'engine boot' });
 }
 

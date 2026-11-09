@@ -66,6 +66,8 @@ export function foldEngineBatch(state: EngineState, events: readonly PosEvent[],
 
 // AD-6, §7.2: after commit, log what the fold noted and clear the diagnostics. 0 statements.
 export function afterEngineCommit(state: StateHolder<EngineState>, log: WarnLog, appended: readonly PosEvent[]): void {
+  // §3.3 Q-3: a committed event's untracked id joins the host set before this transaction's absent-id log reads it.
+  for (const event of appended) noteUntrackedId(event);
   const note = notes.get(appended);
   if (note !== undefined) {
     logAbsentIds(note, appended, log);
@@ -104,6 +106,32 @@ function logSlowFold(note: FoldNote, events: readonly PosEvent[], log: WarnLog):
   }
 }
 
+// 03a v1.2 §3.3 Q-3, AD-E18: the id an event adds to hostFlags.untrackedLineIds, or null. An ItemAdded served from a
+// zone or a deal header adds its line id; an OrderPlaced with empty order_item_ids (ready items only) adds its order id.
+// Live (afterEngineCommit) and boot step 3 (the replayed events; the id-set read covers the older ones) use it.
+export function untrackedIdOf(event: PosEvent): string | null {
+  if (event.stream_type !== 'order') return null;
+  if (event.event_type === 'ItemAdded') {
+    const p = event.payload as { order_item_id?: string; served_from_zone_id?: string | null; line_kind?: string };
+    return p.served_from_zone_id != null || p.line_kind === 'deal' ? (p.order_item_id ?? null) : null;
+  }
+  if (event.event_type === 'OrderPlaced') {
+    const p = event.payload as { order_id?: string; order_item_ids?: readonly string[] };
+    return p.order_item_ids?.length === 0 ? (p.order_id ?? event.stream_id) : null;
+  }
+  return null;
+}
+
+export function noteUntrackedId(event: PosEvent): void {
+  const id = untrackedIdOf(event);
+  if (id !== null) hostFlags.untrackedLineIds.add(id);
+}
+
+// AD-E18: on an order of ready items only, these events log nothing.
+const QUIET_ON_UNTRACKED_ORDER: ReadonlySet<string> = new Set(['ItemAdded', 'ItemServed', 'ItemRemoved', 'ItemVoided']);
+// §3.3 Q-3: these log nothing when their line id is a zone line or a deal header.
+const QUIET_ON_UNTRACKED_LINE: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided']);
+
 const LINE_EVENTS: ReadonlySet<string> = new Set(['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'ItemRemoved', 'ItemVoided', 'ItemMovedToStock', 'ItemReturned']);
 const ORDER_EVENTS: ReadonlySet<string> = new Set(['OrderBoosted', 'ItemsReleased']);
 
@@ -121,10 +149,23 @@ function logAbsentIds(note: FoldNote, events: readonly PosEvent[], log: WarnLog)
   const report = (event: PosEvent, order_id: string, order_item_id: string | null): void => {
     log.warn({ event_type: event.event_type, order_id, order_item_id }, 'engine fold: absent id');
   };
+  const untracked = hostFlags.untrackedLineIds;
   for (const event of events) {
     if (event.stream_type !== 'order') continue;
     const type = event.event_type;
-    const p = event.payload as { order_id?: string; order_item_id?: string; order_item_ids?: string[]; lines?: Array<{ order_item_id: string }> };
+    const p = event.payload as {
+      order_id?: string;
+      order_item_id?: string;
+      order_item_ids?: string[];
+      lines?: Array<{ order_item_id: string }>;
+      served_from_zone_id?: string | null;
+      source?: string;
+    };
+    // 03a v1.2 §3.3 Q-3 host filter, AD-E18: zone lines, deal headers and ready-items-only orders are not engine ids.
+    if (QUIET_ON_UNTRACKED_ORDER.has(type) && untracked.has(p.order_id ?? event.stream_id)) continue;
+    if (type === 'ItemAdded' && p.served_from_zone_id != null) continue;
+    if (type === 'ItemServed' && p.source === 'zone') continue;
+    if (QUIET_ON_UNTRACKED_LINE.has(type) && p.order_item_id !== undefined && untracked.has(p.order_item_id)) continue;
     if (type === 'OrderPlaced' || type === 'OrderLinesAdded') {
       // Only an OrderPlaced creates an order; OrderLinesAdded on an absent one throws in the fold (§3.3).
       if (type === 'OrderPlaced') addedOrders.add(p.order_id ?? event.stream_id);

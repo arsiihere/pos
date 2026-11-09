@@ -41,6 +41,7 @@ export function replayEngine(
   fromSeq: number,
   base: EngineState,
   report: (d: Diagnostic) => void,
+  seen?: (event: PosEvent) => void,
 ): { state: EngineState; replayed: number } {
   const cursors = STREAMS.map((stream) => db.prepare(replaySql(stream)).iterate(branchId, stream, fromSeq) as IterableIterator<EventRow>);
   try {
@@ -67,7 +68,9 @@ export function replayEngine(
       });
       if (min < 0) break;
       const row = heads[min]!.value as EventRow;
-      chunk.push(parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] }));
+      const event = parseEvent({ ...row, payload: JSON.parse(row.payload) as PosEvent['payload'] });
+      seen?.(event);
+      chunk.push(event);
       replayed += 1;
       if (chunk.length === REPLAY_CHUNK) fold();
       heads[min] = cursors[min]!.next();
@@ -106,6 +109,22 @@ export function readStockVersion(db: Database.Database, branchId: string): numbe
   return Math.max(onStock, onHub);
 }
 
+// 03a v1.2 §3.12 "Q-3 id set at boot" (R-3, AD-E18): one statement on events_branch_stream. The ids of the zone lines
+// and deal headers (ItemAdded) and of the ready-items-only orders (OrderPlaced with empty order_item_ids) after `fromSeq`.
+const UNTRACKED_IDS_SQL = `SELECT CASE event_type WHEN 'ItemAdded' THEN json_extract(payload, '$.order_item_id') ELSE json_extract(payload, '$.order_id') END FROM events
+WHERE branch_id = ? AND stream_type = 'order' AND seq > ? AND event_type IN ('ItemAdded', 'OrderPlaced')
+  AND ((event_type = 'ItemAdded' AND (json_extract(payload, '$.served_from_zone_id') IS NOT NULL OR json_extract(payload, '$.line_kind') = 'deal'))
+    OR (event_type = 'OrderPlaced' AND json_array_length(payload, '$.order_item_ids') = 0))`;
+
+export function readUntrackedIds(db: Database.Database, branchId: string, fromSeq: number): string[] {
+  return (db.prepare(UNTRACKED_IDS_SQL).pluck().all(branchId, fromSeq) as Array<string | null>).filter((id): id is string => typeof id === 'string');
+}
+
+// §3.12 R-3 (T-6, re-check R-2): H = the older last_seq when step 2 read two readable kept checkpoints, else 0.
+export function untrackedIdsFrom(base: LoadedBase): number {
+  return base.checkpoint_readable_seqs.length >= 2 ? Math.min(...base.checkpoint_readable_seqs) : 0;
+}
+
 export type SkipReason = 'engine_version' | 'checkpoint_schema' | 'unreadable';
 export type Skip = (o: { table: 'engine_snapshots' | 'engine_checkpoints'; id: string; reason: SkipReason; found?: number }) => void;
 
@@ -114,6 +133,8 @@ export interface LoadedBase {
   snapshot_seq: number | null;
   checkpoint_seq: number | null;
   checkpoint_taken_at: number | null;
+  // §3.12 R-3: the last_seq of every readable checkpoint_schema 1 row step 2 read (a torn or unparsable row is not here).
+  checkpoint_readable_seqs: number[];
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -182,7 +203,7 @@ export function loadEngineBase(db: Database.Database, branchId: string, skip: Sk
     )
     .all(branchId) as Array<{ checkpoint_id: string; taken_at: number; last_seq: number; checkpoint_schema: number; body_json: string }>;
 
-  const out: LoadedBase = { state: null, snapshot_seq: null, checkpoint_seq: null, checkpoint_taken_at: null };
+  const out: LoadedBase = { state: null, snapshot_seq: null, checkpoint_seq: null, checkpoint_taken_at: null, checkpoint_readable_seqs: [] };
   for (const row of snapshots) {
     if (row.engine_version !== ENGINE_STATE_VERSION) {
       skip({ table: 'engine_snapshots', id: row.snapshot_id, reason: 'engine_version', found: row.engine_version });
@@ -207,7 +228,11 @@ export function loadEngineBase(db: Database.Database, branchId: string, skip: Sk
       } else {
         out.checkpoint_seq = row.last_seq;
         out.checkpoint_taken_at = row.taken_at;
+        out.checkpoint_readable_seqs.push(row.last_seq);
       }
+    } else if (parseCheckpoint(row.body_json) !== null) {
+      // R-3: the second kept row is parsed only to count it readable (0 statements); not used, so not logged when torn.
+      out.checkpoint_readable_seqs.push(row.last_seq);
     }
   }
   out.state ??= checkpointState;

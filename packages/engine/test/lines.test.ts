@@ -454,6 +454,28 @@ describe('@pos/engine order folds: lines, units, cook time, plan at awaiting = 0
     expect(s.lines.L1!.fire_ms).toBe(T0);
   });
 
+  it('[03a #124] Q-3: a zone ItemAdded and an empty OrderPlaced return the same state object, no diagnostic', () => {
+    const s = fold([config([{ station_id: 'S1' }]), ...anOrderBatch({ order_id: 'O1', lines: [{ order_item_id: 'L1' }], recorded_at: T0 })]);
+    // A zone line on a present order (the builder's station S1 would make it an engine line), and one on an absent order.
+    const zone = deepFreeze(anItemAdded({ stream_id: 'O1', recorded_at: T0 + 1_000, payload: { order_id: 'O1', order_item_id: 'Z1', served_from_zone_id: 'ZN1' } }));
+    const zoneAbsent = deepFreeze(anItemAdded({ stream_id: 'O9', recorded_at: T0 + 1_000, payload: { order_id: 'O9', order_item_id: 'Z9', served_from_zone_id: 'ZN1' } }));
+    const empty = deepFreeze(
+      anOrderBatch({ order_id: 'O2', lines: [], order: { groups: [], lines: [] }, recorded_at: T0 + 2_000, seq: 10 })[0]!,
+    );
+    expect(empty.payload).toMatchObject({ order_item_ids: [] });
+    for (const strict of [true, false]) {
+      for (const e of [zone, zoneAbsent, empty]) {
+        const next = applyEvent(s, e, { strict });
+        expect(next, `${e.event_type} strict=${strict}`).toBe(s);
+        expect(next.diagnostics).toEqual([]);
+      }
+    }
+    // Control: without the zone the same ItemAdded is an unlisted engine line (line_not_listed, AD-6).
+    const plain = deepFreeze(anItemAdded({ stream_id: 'O1', recorded_at: T0 + 1_000, payload: { order_id: 'O1', order_item_id: 'Z1' } }));
+    expect(applyEvent(s, plain, { strict: false }).diagnostics).toEqual([expect.objectContaining({ kind: 'invalid_event' })]);
+    expect(applyEvent(s, empty).orders.O2).toBeUndefined();
+  });
+
   it('[03a §3.3] OrderLinesAdded on an absent order throws in both modes (not a diagnostic)', () => {
     const s = fold([config([{ station_id: 'S1' }])]);
     const e = deepFreeze(anOrderLinesAdded({ stream_id: 'O9', payload: { order_id: 'O9', groups: [] } }));

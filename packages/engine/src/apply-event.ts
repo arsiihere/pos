@@ -328,6 +328,8 @@ function listLines(
 function foldOrderPlaced(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as OrderPlacedPayload;
   checkStream(event, p.order_id, p.order_item_ids[0] ?? '');
+  // 03a v1.2 Q-3: an order of zone lines and ready items only is never an EngineOrder.
+  if (p.order_item_ids.length === 0) return state;
   const at = event.recorded_at;
   const order: EngineOrder = {
     order_id: p.order_id,
@@ -427,6 +429,8 @@ function foldItemAdded(state: EngineState, event: PosEvent, o: FoldOptions): Eng
   const p = event.payload as unknown as ItemAddedPayload;
   const id = p.order_item_id;
   checkStream(event, p.order_id, id);
+  // 03a v1.2 Q-3: a line served from a zone is never an engine line; no diagnostic.
+  if (p.served_from_zone_id != null) return state;
   const order = state.orders[p.order_id];
   if (order === undefined || !orderInEngine(state, order, event.recorded_at)) return state; // absent, or AD-20 kept
   const found = state.lines[id];
