@@ -53,6 +53,23 @@ registerBootStep('6', (ctx) => {
   lastCtx = ctx;
 });
 
+// E-5 (a), the failed-boot test only: after engine's step 2, step 3's id-set read (the one statement with
+// json_array_length) fails once, as a DB failure would. One-shot: the flag clears when the stub fires.
+let failIdSetRead = false;
+registerBootStep('2', (ctx) => {
+  if (!failIdSetRead) return;
+  const db = ctx.db;
+  const prepare = db.prepare;
+  db.prepare = ((sql: string) => {
+    if (failIdSetRead && /json_array_length/.test(sql)) {
+      failIdSetRead = false;
+      db.prepare = prepare;
+      throw new Error('forced id-set read failure');
+    }
+    return prepare.call(db, sql);
+  }) as typeof db.prepare;
+});
+
 function writeConfig(): { path: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'pos-engine-boot-'));
   const dataDir = join(dir, 'data');
@@ -590,23 +607,28 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(bootLine(logs(), '3')).toMatchObject({ step: '3', snapshot_seq: null, checkpoint_seq: null, events_replayed: 0, ms: expect.any(Number) });
     });
 
-    it('[03a §3.3, §3.12] OrderLinesAdded on an absent order stops boot: the spec\'s throw', async () => {
-      const cfg = writeConfig();
-      cleanups.push(cfg.cleanup);
-      const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
-      insertRaw(first.deps.db, stamped([anOrderLinesAdded()], first.deps.writer.lastSeq() + 1));
-      await first.stop();
-      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
+    it('[03a §3.3 E-4, §3.12] OrderLinesAdded without order_header on an absent order no longer stops boot: the boot completes, with the diagnostic', async () => {
+      const { booted, logs } = await restart((db, next) => {
+        insertRaw(db, stamped([anOrderLinesAdded()], next));
+      });
+      expect(logs().filter((l) => l.kind === 'invalid_event')).toEqual([
+        expect.objectContaining({ level: 40, event_type: 'OrderLinesAdded', order_id: 'O1', order_item_id: 'L2', reason: 'order_not_in_engine', replay: true }),
+      ]);
+      expect(engine(booted).orders.O1).toBeUndefined();
+      expect(engine(booted).diagnostics).toEqual([]);
     });
 
     it('[task 20 review] a failed boot: flushEngineBootLog writes the step 2 line and the diagnostics folded before the throw, once', async () => {
       const cfg = writeConfig();
       cleanups.push(cfg.cleanup);
       const first = await boot({ configPath: cfg.path, wallNow: () => WALL, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() });
-      insertRaw(first.deps.db, stamped([set, breach, anOrderLinesAdded()], first.deps.writer.lastSeq() + 1));
+      insertRaw(first.deps.db, stamped([set, breach], first.deps.writer.lastSeq() + 1));
       await first.stop();
       flushEngineBootLog(() => undefined);
-      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('OrderLinesAdded for order');
+      // E-5 (a): a test-only trigger. Step 3's id-set read (after the replay folded the breach) fails as a DB failure would.
+      failIdSetRead = true;
+      await expect(boot({ configPath: cfg.path, wallNow: () => WALL + 1_000, monoNow: () => 0, ifaces: ['192.168.10.2'], configClient: stubConfigCloud(), logStream: quiet() })).rejects.toThrow('forced id-set read failure');
+      expect(failIdSetRead).toBe(false);
       const written: string[] = [];
       flushEngineBootLog((text) => written.push(text));
       const lines = written.map((text) => JSON.parse(text) as LogLine);
@@ -681,11 +703,17 @@ describe('03a boot steps 2, 3, 6 and the engine reducer', () => {
       expect(warns().filter((l) => l.kind === 'stock_breach')).toHaveLength(1);
     });
 
-    it('[03a §3.3] OrderLinesAdded on an absent order throws in the live fold and rolls the transaction back', async () => {
+    it('[03a §3.3 E-4] OrderLinesAdded without order_header on an absent order: the live append commits with one invalid_event diagnostic, no rollback', async () => {
       await open();
       const seq = hub.deps.writer.lastSeq();
-      expect(() => append([anOrderLinesAdded()])).toThrow('OrderLinesAdded for order');
-      expect(hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get()).toBe(seq);
+      const [committed] = append([anOrderLinesAdded()]);
+      expect(committed?.seq).toBe(seq + 1);
+      expect(hub.deps.db.prepare('SELECT COALESCE(MAX(seq), 0) FROM events').pluck().get()).toBe(seq + 1);
+      expect(warns().filter((l) => l.kind === 'invalid_event')).toEqual([
+        expect.objectContaining({ event_type: 'OrderLinesAdded', order_id: 'O1', order_item_id: 'L2', reason: 'order_not_in_engine' }),
+      ]);
+      expect(engineNow().orders.O1).toBeUndefined();
+      expect(engineNow().diagnostics).toEqual([]);
     });
 
     it('[03a §3.3] an absent-id fold is logged once { event_type, order_id, order_item_id } and commits', async () => {
