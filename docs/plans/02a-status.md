@@ -69,6 +69,7 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-10 | 11 (lane 1C) | tick `table_locks` registered once per process, guarded by name; a table without an open seating has no entry | — | accepted | **ruled (owner, 2026-11-09)** |
 | AD-11 | 11 (lane 1C) | Lane 1C blocker 1: §3.4 live session ignores a session that started after the lock's last activity | (a) spec bump; … | (a): spec **v1.1.2** (`451e19d`) — `s.started_at <= l.last_activity_at` in `due` and `intents`; test 8 extended | **ruled (owner, 2026-11-09)** |
 | AD-12 | 11 (lane 1C) | Lane 1C blocker 2: existing tick suites see the new `table_locks` tick | — | allowed (like SG-6): `test/alerts/tick-loop.int.test.ts`, `test/engine/fires-tick.int.test.ts`, `fires-alerts-tick.int.test.ts`, `kinds.int.test.ts` may call `unregisterTick('table_locks')` after `createTestHub`; tests only | **ruled (owner, 2026-11-09)** |
+| AD-13 | 8 | Spec text after AD-8: §4.2 (v1.1.2 :246) still says same actor other device → `[TableLocked { replaced_device_id }]` with P-1b exempting only a free lock; §10 #60 (:634) has no move clause. Code (`7ef4670`) follows AD-8 | (a) spec v1.1.3: P-1b "a free lock is never taken and the caller's lock never moves", #60 + "caller's lock on his other device → stays, no `TableLocked`"; (b) leave the spec, AD-8 on the board is enough | — | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
