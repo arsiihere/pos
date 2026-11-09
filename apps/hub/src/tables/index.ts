@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
+import { tablesProjection } from './projection.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -26,4 +27,5 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
 export function registerTablesProjection(projections: ProjectionRegistry): void {
   void projections;
   // wave 1 lane A (tables projection)
+  projections.register(tablesProjection(projections));
 }
