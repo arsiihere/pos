@@ -72,6 +72,7 @@ const CLOSE_EVENTS: ReadonlySet<string> = new Set(['AlertClosed', 'RequestAnswer
 
 export interface FramesLog {
   error(obj: Record<string, unknown>, msg: string): void;
+  warn(obj: Record<string, unknown>, msg: string): void;
 }
 
 /** What the frames need: the hub database (read after commit), its socket hub and directory, a log. */
@@ -152,6 +153,9 @@ export function createAlertFrames(env: FramesEnv): AlertFrames {
       const row = byId.get(payload.alert_id);
       const kind = row === undefined ? undefined : kindOf(row.kind);
       if (row === undefined || kind === undefined) continue; // P-8: an unknown kind never steps
+      // 01d D-3 / AD-37: a step that reaches no receiver (no route) is never silent. One line per committed step
+      // event, which exists once per (alert, step) (the tick advances past it), so it cannot repeat per tick.
+      if (payload.routes.length === 0) env.log.warn({ alert_id: row.alert_id, kind: row.kind, step: payload.step, reason: 'no_receiver' }, 'alert step reaches no receiver');
       guarded('step', () => {
         const views = stepViews(row, kind, payload.step, event.event_type === 'EscalationStepped');
         const request = row.request_json === null ? null : (JSON.parse(row.request_json) as AlertRequestPart);

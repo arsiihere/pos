@@ -576,4 +576,36 @@ describe('01d ws-frames (task 20)', () => {
       unregisterRoute('probe');
     }
   });
+
+  // 01d D-3 AD-37: one warn line per committed (alert, step) that reaches no receiver (no route)
+  const noReceiverLines = (w: World): unknown[] =>
+    w.hub
+      .logs()
+      .split('\n')
+      .filter((l) => l.includes('no_receiver'))
+      .map((l) => JSON.parse(l) as unknown);
+
+  it('[02p U-6] AD-37: a step with no receiver writes exactly one warn line with exactly those keys, and no extra row', async () => {
+    const w = await world(cleanups);
+    seedAlert(w, { id: 'AL_NR', rows: [personRow(MGR)], routes: [] });
+    append(w, [stepEvent('AL_NR', 1, [personRow(MGR)], [])]);
+    const lines = noReceiverLines(w) as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(2); // steps 0 and 1: one line each, never one per recipient or per tick
+    const picked = lines.map((l) => ({ level: l.level, alert_id: l.alert_id, kind: l.kind, step: l.step, reason: l.reason }));
+    expect(picked).toEqual([
+      { level: 40, alert_id: 'AL_NR', kind: 't_two_step', step: 0, reason: 'no_receiver' },
+      { level: 40, alert_id: 'AL_NR', kind: 't_two_step', step: 1, reason: 'no_receiver' },
+    ]);
+    for (const l of lines) {
+      const extra = Object.keys(l).filter((k) => !['level', 'time', 'pid', 'hostname', 'msg', 'alert_id', 'kind', 'step', 'reason', 'name'].includes(k));
+      expect(extra).toEqual([]);
+    }
+    expect(w.hub.deps.db.prepare('SELECT COUNT(*) AS n FROM alert_recipients WHERE alert_id = ?').get('AL_NR')).toEqual({ n: 2 }); // the seeded rows only
+  });
+
+  it('[02p U-6] AD-37: a step that finds a receiver writes no warn line', async () => {
+    const w = await world(cleanups);
+    seedAlert(w, { id: 'AL_OK', rows: [personRow(MGR)], routes: [{ staff_id: MGR, route: 'screen', ref: 'D1' }] });
+    expect(noReceiverLines(w)).toEqual([]);
+  });
 });
