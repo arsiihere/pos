@@ -1,8 +1,9 @@
 import { fileURLToPath } from 'node:url';
-import type { EventDraft } from '@pos/events';
+import type { BranchConfig, EventDraft } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../src/db/migrate';
+import { readOnlyDb } from '../../src/engine-host/read-only-tx';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
 import { createStateHolder } from '../../src/engine-host/state-holder';
 import { createWriter } from '../../src/engine-host/writer';
@@ -11,6 +12,8 @@ import { testIdGen } from '../../src/lib/ids';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import type { LockRow } from '../../src/tables/contracts';
 import { registerTablesProjection } from '../../src/tables/index';
+import { tableLocksTick } from '../../src/tables/tick';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { freshDb } from '../helpers/db';
 
 // 02a §3.3 / T7 / T19: the lock part of the one projection `tables` — table_locks folds and the activity refresh,
@@ -36,6 +39,12 @@ interface Harness {
   append(...drafts: EventDraft[]): void;
   /** deletes the tables checkpoint and replays on a fresh registry (reset + catch-up) */
   replay(): void;
+  /** moves the clock to t */
+  setNow(t: number): void;
+  /** the lock tick's due() at the current clock */
+  tickDue(): boolean;
+  /** one tick pass as the loop runs it: due, then (only if due) its own writer.run with the intents */
+  tickPass(): void;
 }
 
 async function harness(cleanups: Array<() => void>): Promise<Harness> {
@@ -61,6 +70,13 @@ async function harness(cleanups: Array<() => void>): Promise<Harness> {
   return {
     db: fx.db,
     now: () => clock.branchNow(),
+    setNow: (t) => clock.set(t),
+    tickDue: () => tableLocksTick.due(readOnlyDb(fx.db), state.get(), clock.branchNow()),
+    tickPass() {
+      const now = clock.branchNow();
+      if (!tableLocksTick.due(readOnlyDb(fx.db), state.get(), now)) return;
+      writer.run((tx) => tx.append(tableLocksTick.intents(tx, state.get(), now)));
+    },
     append(...drafts) {
       for (const d of drafts) {
         clock.advance(1_000);
@@ -358,5 +374,54 @@ describe('02a tables projection — lock part', () => {
     expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: holderAt });
     h.append(ev('table', 'T1', 'BillClosed', { seating_id: 'S1' }));
     expect(lock(h.db, 'T1')).toMatchObject({ last_activity_at: holderAt });
+  });
+
+  it('[02a #9 tick] after reset + replay a refreshed lock is not released early by the tick', async () => {
+    const TTL = 900_000;
+    swapBranchConfig({
+      config: { engine_settings: { table_lock_ttl_ms: TTL } } as unknown as BranchConfig,
+      snapshotHash: 'h',
+      configVersion: 1,
+      snapshotSchemaVersion: 4,
+      appliedAt: 0,
+    });
+    try {
+      const h = await harness(cleanups);
+      // the holder's live session started before the lock
+      h.db
+        .prepare(
+          `INSERT INTO staff_sessions (session_id, branch_id, token_hash, kind, staff_id, device_id, idle_ttl_ms, started_at, last_activity_at)
+           VALUES ('SES1', ?, 'th1', 'staff', ?, ?, 3600000, ?, ?)`,
+        )
+        .run(BRANCH, ALI, DEV, T, T);
+      h.append(opened('T1', 'S1'), locked('T1', 'S1'));
+      const lockedAt = h.now();
+      h.setNow(lockedAt + 600_000);
+      h.append(placed('O1', 'S1'));
+      const refreshedAt = h.now();
+      expect(lock(h.db, 'T1')).toMatchObject({ locked_at: lockedAt, last_activity_at: refreshedAt });
+
+      h.db.prepare(`UPDATE table_locks SET last_activity_at = 0`).run();
+      h.replay();
+      expect(lock(h.db, 'T1')).toMatchObject({ locked_at: lockedAt, last_activity_at: refreshedAt });
+
+      const releasedEvents = () =>
+        h.db.prepare(`SELECT payload FROM events WHERE event_type = 'TableLockReleased' ORDER BY seq`).all() as Array<{ payload: string }>;
+      // past the original lock time + TTL, still inside refresh + TTL
+      h.setNow(lockedAt + TTL + 1);
+      expect(h.now()).toBeLessThan(refreshedAt + TTL);
+      expect(h.tickDue()).toBe(false);
+      h.tickPass();
+      expect(releasedEvents()).toEqual([]);
+
+      h.setNow(refreshedAt + TTL + 1);
+      expect(h.tickDue()).toBe(true);
+      h.tickPass();
+      expect(releasedEvents().map((r) => JSON.parse(r.payload))).toEqual([
+        { table_id: 'T1', seating_id: 'S1', staff_id: ALI, reason: 'lock_ttl' },
+      ]);
+    } finally {
+      swapBranchConfig(null);
+    }
   });
 });
