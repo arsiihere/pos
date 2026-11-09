@@ -184,12 +184,16 @@ function readSlipSeats(db: Database.Database, state: EngineState, oldest: readon
   return { holders: readers.holdersOfOrders(view, ids), tables: readers.currentTableOf(view, ids) };
 }
 
-// §3.8 receiver: dine_in → the holder of the oldest order (no holder, or readers stubbed → placed_by, G4-2 #17);
-// takeaway / delivery / parking → placed_by.
-function receiverOf(state: EngineState, seats: SlipSeats, oldest: string): string | null {
+// §3.8 receiver: dine_in → the holder of the oldest order (no holder, or readers stubbed → placed_by, G4-2 #17; a holder
+// not in the hub directory → placed_by too, owner ruling 2026-11-09 AD-E2, so the slip is still raised and escalates);
+// takeaway / delivery / parking → placed_by. The caller's defensive check then skips a placed_by that is missing or not
+// in the directory.
+function receiverOf(state: EngineState, seats: SlipSeats, oldest: string, inDirectory: (staff_id: string) => boolean): string | null {
   const order = state.orders[oldest];
   if (order === undefined) return null;
-  return (order.order_type === 'dine_in' ? seats.holders.get(oldest) : undefined) ?? order.placed_by ?? null;
+  const holder = order.order_type === 'dine_in' ? seats.holders.get(oldest) : undefined;
+  if (holder !== undefined && inDirectory(holder)) return holder;
+  return order.placed_by ?? null;
 }
 
 // R-2: display.table_code = the config `name` of the oldest order's primary table (0 statements: the in-memory branch
@@ -244,7 +248,7 @@ export const firesAlertsTick: TickDef = {
     // Q-1, R-1: ≤ 2 statements for every dine_in slip of the pass (none without the kind: nothing would be raised).
     const seats = slipKind === undefined ? NO_SEATS : readSlipSeats(tx.db, state, toRaise.map((slip) => slip.order_ids[0] as string));
     for (const slip of toRaise) {
-      const receiver = receiverOf(state, seats, slip.order_ids[0] as string);
+      const receiver = receiverOf(state, seats, slip.order_ids[0] as string, (id) => directory.get(id) !== undefined);
       const values = { table_key: slip.table_key, order_ids: slip.order_ids, escalate_ms: state.config?.settings.slip_escalate_ms ?? 0 };
       let reason: string | null = null;
       if (slipKind === undefined) reason = 'kind_not_registered';

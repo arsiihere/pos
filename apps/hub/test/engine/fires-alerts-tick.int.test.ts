@@ -407,6 +407,33 @@ describe('03a task 22a: the fires_alerts tick', () => {
     expect(displayOf(slipOf('dine_in:SEAT1').alert_id).table_code).toBe('4');
   });
 
+  // Owner ruling 2026-11-09 (AD-E2): a holder not in the hub directory falls back to placed_by (a skip raises no alert,
+  // so the step-1 manager escalation would never happen); skipped only when placed_by is missing or not there either.
+  it('[03a #120] holder not in the directory → placed_by', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    const fake = registerFakes({ holders: { O1: 'S_GHOST' }, tables: { O1: seating('SEAT1', 'T4') } });
+    await raiseAll([dineIn('O1', 'SEAT1')]);
+    const row = slipOf('dine_in:SEAT1');
+    expect(row).toMatchObject({ state: 'open', receiver: WAITER, target: { kind: 'person', staff_id: WAITER } });
+    expect(displayOf(row.alert_id).table_code).toBe('4');
+    expect(fake.calls.holdersOfOrders).toEqual([['O1']]);
+    expect(skipLogs()).toEqual([]);
+  });
+
+  it('[03a #120] holder and placed_by both not in the directory → skipped receiver_not_in_directory', async () => {
+    kitchen(config({ S1: { capacity: 8 } }));
+    floor([['T4', '4']]);
+    registerFakes({ holders: { O1: 'S_GHOST' }, tables: { O1: seating('SEAT1', 'T4') } });
+    submit({ ...dineIn('O1', 'SEAT1'), actor_id: 'S_GONE' });
+    await pass(hub.clock.branchNow());
+    await pass(engine().next_alert_due_at! + 1_000);
+    expect(slipAlerts()).toEqual([]);
+    expect(eventsOf('SlipWarned')).toEqual([]);
+    expect(skipLogs().map((l) => [l.kind, l.table_key, l.reason])).toEqual([[ENGINE_ALERT_KINDS.slip, 'dine_in:SEAT1', 'receiver_not_in_directory']]);
+    expect(hostFlags.skipped.has('dine_in:SEAT1')).toBe(true);
+  });
+
   it('[03a #120] takeaway / parking → placed_by, no reader call', async () => {
     kitchen(config({ S1: { capacity: 8 } }));
     floor([['T4', '4']]);
