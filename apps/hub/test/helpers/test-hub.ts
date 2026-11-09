@@ -54,6 +54,7 @@ export async function createTestHub(o?: {
   swapBranchConfig(null);
   setStockVersion(0);
   hostFlags.reserve_fallback_logged.clear();
+  hostFlags.untrackedLineIds.clear(); // 02p AD-E23: no ids leak between test hubs
   const fx = freshDb();
   const clock = fixedClock(1_761_000_000_000);
   await runMigrations(fx.db, { dir: migrationsDir, clock });
