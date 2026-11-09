@@ -6,6 +6,8 @@ import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
 import { bindTablesProjectionLog, tablesProjection } from './projection.js';
 import { bindZoneDirectory, currentTableOf, holdersOfOrders } from './reads.js';
+import { hasTargetResolver, registerTargetResolver } from '../alerts/targets.js';
+import { tableTeam, zoneOrderTaker } from './resolvers.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -22,6 +24,9 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
   if (slipReaders() === null) registerSlipReaders({ holdersOfOrders, currentTableOf }); // SG-6: never replace a test's readers
 
   // wave 1 lane C (resolvers, tick)
+  // SG-6: a kind a test registered first (01d fakes) is left alone
+  if (!hasTargetResolver('table_team')) registerTargetResolver('table_team', tableTeam);
+  if (!hasTargetResolver('zone_order_taker')) registerTargetResolver('zone_order_taker', zoneOrderTaker);
 
   // wave 2 lane A (OpenTable, lock commands)
 
