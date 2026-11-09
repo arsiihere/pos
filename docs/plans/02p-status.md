@@ -92,6 +92,10 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-26 | 7 | Reasons not in rule 7 (unknown id, branch outside `branch_ids`, field, holder) | (a) `not_found`, `wrong_branch`, plain field, current holder; (b) indexed field | (a) | **ruled (owner, 2026-11-08)** |
 | AD-27 | 7 | Statement counts: admin staff GET 6 → 7, hub directory load 10 → 11 | (a) accept +1 each; (b) fold into one statement | (a) | **ruled (owner, 2026-11-08)** |
 | AD-28 | 7 | Zone archive / restore did not bump `directory_version` | (a) bump; (b) like floors | (a) | **ruled (owner, 2026-11-08)**; 01a §6.6b marker |
+| AD-29 | 7 | A left person could be given assignments that block active staff | (a) ignore sent assignments, holder check active only; (b) 422 | (a) | **ruled (owner, 2026-11-08)** |
+| AD-30 | 7 | `assignedOrderTaker` counted `requires_approval` as holding `take-order` | (a) `allowed` only; (b) both | (a) | **ruled (owner, 2026-11-08)** |
+| AD-31 | 7 | Re-sending an already-held archived zone / table → 422 `archived` | (a) exempt held ids; (b) client filters | (a) | **ruled (owner, 2026-11-08)** |
+| AD-32 | 7 | Table archive / restore does not bump `directory_version` | (a) accept; (b) bump | (a) | **ruled (owner, 2026-11-08)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
