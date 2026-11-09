@@ -29,11 +29,11 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 **Decisions for the owner:** none open.
 
-## PLATFORM A REPORT (2026-11-09): batch 4 done (tasks 11–13 + AD-32), gate green, pushed — platform A complete
+## PLATFORM A REPORT (2026-11-09): platform A DONE — tasks 1–13, all rulings applied, gate green, pushed
 
-> **Hinglish:** Batch 4 mukammal. Platform A ke saare tasks (1–13) done. Gate green (3395 tests). AD-32 aapke kehne par badla: table archive/restore ab directory bump karta hai. Do sawal: AD-35 (chhota), AD-37. Engine lane: AD-13 (config-hook V4 import).
+> **Hinglish:** Platform A lane mukammal. Tasks 1–13 + owner follow-ups (AD-15, AD-16, AD-32, AD-37) done. Aakhri gate green (3398 tests). V3 alias task 18 mein hatega (AD-13). Koi faisla baaki nahi.
 
-**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** AD-35 (recommend accept), AD-37 (recommend accept; optional log line later).
+**Head:** `module-02p`. **Blocks:** none. **Decisions for the owner:** none open. **For task 18 (engine lane, merged head):** remove the `BranchConfigSnapshotSchemaV3` alias after `config-hook.int.test.ts` imports V4 (AD-13).
 
 ## Task table
 
@@ -52,7 +52,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 10 | Owner app: assigned tables | platform A | NORMAL (UI) | **done** | `a838ff7`, fix `2ca9e68` |
 | 11 | 00 M95 paused idle clock | platform A (batch 4; B not opened) | NORMAL | **done** | `cfb5786` |
 | 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | **done** | `faaa2a4`, fixes `b00bb27`, `ec1b771` |
-| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | **done** | `0a9b418`, fixes `e48a26e`, `3a9c849` |
+| 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | **done** | `0a9b418`, fixes `e48a26e`, `3a9c849`, `32b0c16` + `614006b` (AD-37) |
 | 17b | 03a carry-over (open item 13: gaps 1, 2, 4, 5, 7) | engine | NORMAL | todo | |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | todo (needs task 1 merged) | |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | todo (needs task 1 merged) | |
@@ -173,6 +173,14 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 00 #152–#156 and Review Focus 1 (task 11); 00 #157, #158 (task 12); 01d #25 as changed, D-1 (a)–(d), D-3 (U-6) (task 13); 01b AD-32 (table archive bump).
 - **AD rows:** AD-35 (X-Queued-At readings) and AD-37 proposed; AD-36 ruled.
 - **Carried / parked:** no zone-order-taker-level skip_requester test; after a restart `paused_since` = `hub_down_at` (spec, M95 in memory); AD-13 alias still waits for the engine lane.
+
+## Batch 4 follow-up — owner rulings 2026-11-09 (AD-35, AD-37, AD-13)
+
+- **Commits:** `fc6db00` (01d D-3 marker, board), `32b0c16` (one warn line `{ alert_id, kind, step, reason: 'no_receiver' }` per (alert, step) with no receiver, after commit), `614006b` (real-raise test: caller is the only candidate → one warn line, no recipient row).
+- **Review:** opus — code correct (`routes.length === 0` is the no-receiver test; no repeat: hooks run only after a writer commit, re-checks are StepSkipped); the owner-named real-raise test was missing → added, checked.
+- **Gate:** 371 files passed, 1 skipped; 3398 tests passed, 1 skipped, 1 todo; 10 m 43 s.
+- **AD-13:** the `BranchConfigSnapshotSchemaV3` alias stays on `module-02p`; **task 18 removes it on the merged head** after the engine lane's import switch.
+- **Platform A lane: done.** Open owner items: none.
 
 ## Platform A prompt (for the owner to paste into a new session)
 
