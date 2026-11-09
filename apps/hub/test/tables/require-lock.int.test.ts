@@ -367,6 +367,50 @@ describe('02a requireLock (§4.2)', () => {
     });
   });
 
+  it('[02a §4.2] non-holder with take-order-anywhere, lock on own other device → lock moves (T15)', async () => {
+    const bilal = signIn('S_BILAL');
+    seat('SEAT1', 'T1', 'S_ALI', { tables: ['T1', 'T2'] });
+    lock('T1', 'SEAT1', 'S_BILAL', 'DEV_B_OLD');
+    const r = await call(bilal, { table_id: 'T2', seating_id: 'SEAT1' });
+    expect(r.status).toBe(200);
+    expect(lastStatements).toBe(1);
+    expect(r.drafts).toHaveLength(1);
+    expect(r.drafts[0]).toMatchObject({
+      stream_type: 'table',
+      stream_id: 'T1',
+      event_type: 'TableLocked',
+      payload: { table_id: 'T1', seating_id: 'SEAT1', staff_id: 'S_BILAL', replaced_device_id: 'DEV_B_OLD' },
+      actor_id: 'S_BILAL',
+      device_id: bilal.deviceId,
+    });
+    expect(r.eventTypes).toEqual(['TableLocked']);
+  });
+
+  it('[02a §4.2] non-holder, own other-device lock on a table outside a my_floors scope → 403 outside_scope (scope last)', async () => {
+    const config = { floors: [{ floor_id: 'F2', tables: [{ table_id: 'T9', zone_id: null }] }] } as unknown as BranchConfig;
+    swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
+    const zain = signIn('S_ZAIN');
+    seat('SEAT9', 'T9', 'S_ALI');
+    lock('T9', 'SEAT9', 'S_ZAIN', 'DEV_Z_OLD');
+    const r = await call(zain, { table_id: 'T9', seating_id: 'SEAT9' });
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: ['T9'] } });
+    expect(r.eventTypes).toEqual([]);
+  });
+
+  it('[02a §4.2] TABLE_ALREADY_LOCKED by a locker no longer in the directory → locked_by_name null', async () => {
+    const ali = signIn('S_ALI');
+    seat('SEAT1', 'T1', 'S_ALI');
+    // a staff member removed by a 01b directory apply while his lock row waits for the tick (§3.4)
+    lock('T1', 'SEAT1', 'S_GONE', 'DEV_G');
+    const r = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({
+      code: 'TABLE_ALREADY_LOCKED',
+      details: { table_id: 'T1', locked_by_staff_id: 'S_GONE', locked_by_name: null },
+    });
+  });
+
   it('[02a §3.15] a requires_approval take-order-anywhere grant counts as denied → 403', async () => {
     const sara = signIn('S_SARA');
     seat('SEAT1', 'T1', 'S_ALI');
@@ -415,6 +459,12 @@ describe('02a requireLock (§4.2)', () => {
     const held = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
     expect(held.status).toBe(200);
     expect(held.drafts).toEqual([]);
+    // P-1b is free-only: a queued holder call with the lock on his own other device still moves it (T15)
+    hub.deps.db.prepare("UPDATE table_locks SET device_id = 'DEV_A_OLD'").run();
+    const moved = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
+    expect(moved.status).toBe(200);
+    expect(moved.drafts).toHaveLength(1);
+    expect(moved.drafts[0]).toMatchObject({ event_type: 'TableLocked', payload: { staff_id: 'S_ALI', replaced_device_id: 'DEV_A_OLD' } });
     // the same submit without X-Queued-At takes the free lock
     hub.deps.db.prepare('DELETE FROM table_locks').run();
     const live = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' });

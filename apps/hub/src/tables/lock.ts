@@ -47,9 +47,9 @@ export const requireLock: RequireLock = (tx, ref, ctx) => {
     throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
   }
 
-  // Holder ≠ actor: take-order-anywhere (§3.15: only an `allowed` grant counts), and the lock is never taken.
+  // Holder ≠ actor: take-order-anywhere (§3.15: only an `allowed` grant counts); a free lock is never taken (G4-3 #2).
   const grant = actor === null ? null : ctx.directory.resolve(actor, 'take-order-anywhere');
-  if (grant === null || grant.grant !== 'allowed') {
+  if (actor === null || grant === null || grant.grant !== 'allowed') {
     throw new DomainError('PERMISSION_DENIED', {
       reason: 'not_holder',
       table_id: ref.table_id,
@@ -57,13 +57,17 @@ export const requireLock: RequireLock = (tx, ref, ctx) => {
       holder_staff_id: row.holder_staff_id,
     });
   }
-  // "held by another": any lock that is not (actor, device), including the actor's other device (never moved here).
-  if (row.lock_staff_id !== null && !heldByMe) throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
+  let drafts: EventDraft[] = [];
+  if (row.lock_staff_id === actor && !heldByMe) {
+    drafts = [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // owner ruling R1: moves (T15)
+  } else if (row.lock_staff_id !== null && !heldByMe) {
+    throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
+  }
   // Scope last (C8, §3.15): the grant's scope must cover the table named.
-  if (grant.scope !== 'branch' && !coversFloor(ctx, actor!, ref.table_id)) {
+  if (grant.scope !== 'branch' && !coversFloor(ctx, actor, ref.table_id)) {
     throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', table_ids: [ref.table_id] });
   }
-  return [];
+  return drafts;
 };
 
 function tableLocked(ctx: CommandCtx, staff_id: string, row: SeatingLockRow, replaced_device_id?: string): EventDraft {
@@ -84,6 +88,7 @@ function tableLocked(ctx: CommandCtx, staff_id: string, row: SeatingLockRow, rep
   };
 }
 
+// The locker can be missing from the directory (removed by a 01b apply while his lock waits for the tick): name null.
 function alreadyLocked(ctx: CommandCtx, table_id: string, locked_by_staff_id: string): DomainError {
   return new DomainError('TABLE_ALREADY_LOCKED', {
     table_id,
