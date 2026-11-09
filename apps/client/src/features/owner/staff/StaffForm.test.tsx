@@ -47,6 +47,17 @@ function handler(write: (call: Call) => Response, staff = STAFF) {
               { table_id: 'T9', name: 'Table 9', seats: 2, sort_order: 2, zone_id: null, archived_at: 5 },
             ],
           },
+          {
+            floor_id: 'F2',
+            name: 'Roof',
+            sort_order: 1,
+            archived_at: 5,
+            zones: [{ zone_id: 'Z7', name: 'Roof bar', sort_order: 0, archived_at: null, routes: [], stock_items: [] }],
+            tables: [
+              { table_id: 'T7', name: 'Table 7', seats: 2, sort_order: 0, zone_id: 'Z7', archived_at: null },
+              { table_id: 'T8', name: 'Table 8', seats: 2, sort_order: 1, zone_id: 'Z7', archived_at: null },
+            ],
+          },
         ],
       });
     }
@@ -391,5 +402,53 @@ describe('[01b §8] staff form', () => {
     const field = m.container.querySelector('[data-field="assignments"]');
     expect(field?.textContent).toContain(t('errors.reference.already_assigned'));
     expect(field?.textContent).toContain('Hamza');
+  });
+
+  it('[02p U-3 client] a person who left has no assigned tables section', async () => {
+    const left = STAFF.map((p) => (p.staff_id === 'S4' ? { ...p, is_active: false, left_at: 9 } : p));
+    const { api } = fakeApi(handler(() => ok({}), left));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S4" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect(headings()).not.toContain(t('staff.assigned'));
+  });
+
+  it('[02p U-3 client] held items on an archived floor show marked and can be removed, others are not offered', async () => {
+    const onRoof = STAFF.map((p) => (p.staff_id === 'S2' ? { ...p, assignments: [{ branch_id: 'B1', zone_ids: [], table_ids: ['T7'] }] } : p));
+    const { api, calls } = fakeApi(
+      handler((call) => (call.method === 'PATCH' ? ok({ staff: { ...onRoof[1], version: 'v2' } }) : ok({})), onRoof),
+    );
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    const labels = () => [...m.container.querySelectorAll('button.pos-chip')].map((b) => b.textContent?.trim());
+    expect(labels()).toContain(`Table 7 (${t('staff.assigned_archived')})`);
+    expect(labels().some((l) => l?.startsWith('Table 8') || l?.startsWith('Roof bar'))).toBe(false);
+    await click(button(m.container, `Table 7 (${t('staff.assigned_archived')})`));
+    await click(button(m.container, t('staff.save')));
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
+      expected_version: 'v-S2',
+      assignments: [{ branch_id: 'B1', zone_ids: [], table_ids: [] }],
+    });
+  });
+
+  it('[02p U-3 client] a new person is created with the picked assignments', async () => {
+    const { api, calls } = fakeApi(handler((call) => (call.method === 'POST' ? ok({ staff: { ...STAFF[1], display_name: 'Ali R.' } }) : ok({}))));
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId={null} branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    setValue(m.container.querySelector<HTMLInputElement>('input[name="display_name"]'), 'Ali R.');
+    await click(button(m.container, 'Bera'));
+    await click(button(m.container, 'Gulberg'));
+    await click(button(m.container, 'Table 1'));
+    await click(button(m.container, t('staff.save')));
+    const post = calls.find((c) => c.method === 'POST');
+    expect(post?.body).toMatchObject({ assignments: [{ branch_id: 'B1', zone_ids: [], table_ids: ['T1'] }] });
   });
 });

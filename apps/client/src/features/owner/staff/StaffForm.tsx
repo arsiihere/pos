@@ -573,7 +573,7 @@ function Editor({
             </section>
           )}
 
-          {draft.branchIds.length > 0 && (
+          {draft.branchIds.length > 0 && draft.active && (
             <section className="pos-section" data-field="assignments">
               <div className="pos-section__head">
                 <h2>{t('staff.assigned')}</h2>
@@ -584,8 +584,8 @@ function Editor({
                   const layout = floorLists[b];
                   const mine = draft.assigned[b] ?? { zones: [], tables: [] };
                   // Archived ones show only while the person holds them (AD-31); never as a new choice.
-                  const zones = (layout ?? []).flatMap((f) => (f.archived_at === null ? f.zones : [])).filter((z) => z.archived_at === null || mine.zones.includes(z.zone_id));
-                  const tables = (layout ?? []).flatMap((f) => (f.archived_at === null ? f.tables : [])).filter((x) => x.archived_at === null || mine.tables.includes(x.table_id));
+                  const zones = (layout ?? []).flatMap((f) => f.zones.map((z) => ({ ...z, off: f.archived_at !== null || z.archived_at !== null }))).filter((z) => !z.off || mine.zones.includes(z.zone_id));
+                  const tables = (layout ?? []).flatMap((f) => f.tables.map((x) => ({ ...x, off: f.archived_at !== null || x.archived_at !== null }))).filter((x) => !x.off || mine.tables.includes(x.table_id));
                   const chip = (id: string, label: string, archived: boolean, on: boolean, flip: () => void) => (
                     <button key={id} type="button" className="pos-chip" aria-pressed={on} onClick={flip}>
                       {on && <Icon name="check" />}
@@ -604,7 +604,7 @@ function Editor({
                           {zones.length > 0 && (
                             <div className="pos-row" role="group" aria-label={`${t('staff.assigned_zones')}, ${name(b)}`}>
                               {zones.map((z) =>
-                                chip(z.zone_id, z.name, z.archived_at !== null, mine.zones.includes(z.zone_id), () =>
+                                chip(z.zone_id, z.name, z.off, mine.zones.includes(z.zone_id), () =>
                                   update({ assigned: { ...draft.assigned, [b]: { ...mine, zones: toggle(mine.zones, z.zone_id) } } }),
                                 ),
                               )}
@@ -613,7 +613,7 @@ function Editor({
                           {tables.length > 0 && (
                             <div className="pos-row" role="group" aria-label={`${t('staff.assigned_tables')}, ${name(b)}`}>
                               {tables.map((x) =>
-                                chip(x.table_id, x.name, x.archived_at !== null, mine.tables.includes(x.table_id), () =>
+                                chip(x.table_id, x.name, x.off, mine.tables.includes(x.table_id), () =>
                                   update({ assigned: { ...draft.assigned, [b]: { ...mine, tables: toggle(mine.tables, x.table_id) } } }),
                                 ),
                               )}
