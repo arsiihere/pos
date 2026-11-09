@@ -1,5 +1,6 @@
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { alerts } from '../../src/alerts/raise';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
@@ -45,6 +46,7 @@ async function directory(): Promise<DirectoryInput> {
       person('S_ALI', 'Ali', 'R_TAKER'),
       person('S_ZAIN', 'Zain', 'R_FLOOR', ['F1']),
       person('S_OMAR', 'Omar', 'R_OWN'),
+      person('S_SARA', 'Sara', 'R_TAKER'),
     ],
   };
 }
@@ -526,5 +528,64 @@ describe('archived tables and the offline queue (02a §3.14, §8 P-1f)', () => {
     const r = await call(ali, 'RequestBill', { table_id: 'T1' } as unknown as { table_id: string; seating_id: string });
     expect(r.status).toBe(400);
     expect(r.error?.code).toBe('VALIDATION_FAILED');
+  });
+});
+
+// ------------------------------------------------------------------------------- handover left open by BillClosed
+
+describe('CleanTable and a stale table_handover (02a §3.13, §3.9, §3.8, §6.13)', () => {
+  async function post(who: Who, path: 'request-table-handover' | 'answer-request', command_type: string, payload: Record<string, unknown>) {
+    commandSeq += 1;
+    const res = await hub.app.inject({
+      method: 'POST',
+      url: `/commands/${path}`,
+      headers: { authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken },
+      payload: {
+        command_id: `cmd-${commandSeq}`,
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type,
+        payload,
+        occurred_at: hub.clock.branchNow(),
+        actor_id: who.staffId,
+        device_id: who.deviceId,
+      },
+    });
+    return res.json() as { data?: { result: { alert_id: string } }; error?: { code: string; details: Record<string, unknown> } };
+  }
+
+  it('[02a #13 clean] Clean closes a stale handover obsolete: accept after BillClosed is 409 and leaves it open; statements 1 + 2 byDedupeKey + closeMany bound', async () => {
+    const ali = signIn('S_ALI');
+    const sara = signIn('S_SARA');
+    append(opened('T1', 'S1'), placed('O1', 'S1'));
+    const raised = await post(ali, 'request-table-handover', 'RequestTableHandover', { table_id: 'T1', seating_id: 'S1', to_staff_id: 'S_SARA' });
+    const alertId = raised.data!.result.alert_id;
+
+    append(foodServed('O1'), billClosed('S1', 'T1'));
+    expect(seating('S1').state).toBe('NEEDS_CLEANING');
+
+    // the receiver's accept hits the stale defence (§3.8): 409, nothing written, the request stays open
+    const before = eventCount();
+    const accept = await post(sara, 'answer-request', 'AnswerRequest', { alert_id: alertId, decision: 'accept', method: 'session' });
+    expect(accept.error).toMatchObject({ code: 'TABLE_HANDOVER_STALE', details: { table_id: 'T1', seating_id: 'S1' } });
+    expect(eventCount()).toBe(before);
+    const open = () => alerts.byDedupeKey(hub.deps.db, 'table_handover', 'table_handover:S1');
+    expect(open()).toBe(alertId);
+
+    const clean = await call(ali, 'TestCleanTableCounted', { table_id: 'T1', seating_id: 'S1' });
+    expect(clean.status).toBe(200);
+    expect(clean.result).toEqual({ reason: 'cleaned' });
+    // TableCleaned, AlertClosed(obsolete), then 01d's request_result to the sender (AlertRaised + its AttemptSent)
+    expect(clean.events.map((e) => e.event_type).slice(0, 2)).toEqual(['TableCleaned', 'AlertClosed']);
+    expect(clean.events[0]!.payload).toMatchObject({ seating_id: 'S1', reason: 'cleaned' });
+    expect(clean.events[1]).toMatchObject({ stream_type: 'table', stream_id: 'T1', payload: { alert_id: alertId, reason: 'obsolete', by_staff_id: 'S_ALI' } });
+    const result = clean.events.find((e) => e.event_type === 'AlertRaised');
+    expect(result?.payload).toMatchObject({ kind: 'request_result', target: { kind: 'person', staff_id: 'S_ALI' } });
+    expect(result?.payload.values).toMatchObject({ request_alert_id: alertId, request_kind: 'table_handover', close_reason: 'obsolete', decision: null, by_staff_id: 'S_ALI' });
+    expect(open()).toBeNull();
+    // 1 seating read + 2 byDedupeKey + closeMany's bound for a request closed obsolete: its one alert read and
+    // raiseMany(request_result) = 1 dedupe + 5 fixed reads + R 0 (person route, no extra read) + T 0 (this hub has
+    // no pager; 01d close.int.test counts T 1 for its fake pager: single close = 8) → 1 + 2 + (1 + 1 + 5) = 10
+    expect(lastStatements).toBe(10);
   });
 });
