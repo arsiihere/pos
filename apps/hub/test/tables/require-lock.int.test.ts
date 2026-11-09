@@ -459,15 +459,50 @@ describe('02a requireLock (§4.2)', () => {
     const held = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
     expect(held.status).toBe(200);
     expect(held.drafts).toEqual([]);
-    // P-1b is free-only: a queued holder call with the lock on his own other device still moves it (T15)
-    hub.deps.db.prepare("UPDATE table_locks SET device_id = 'DEV_A_OLD'").run();
-    const moved = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
-    expect(moved.status).toBe(200);
-    expect(moved.drafts).toHaveLength(1);
-    expect(moved.drafts[0]).toMatchObject({ event_type: 'TableLocked', payload: { staff_id: 'S_ALI', replaced_device_id: 'DEV_A_OLD' } });
+    // AD-8: a queued call never moves the lock either (own other device: the test below)
     // the same submit without X-Queued-At takes the free lock
     hub.deps.db.prepare('DELETE FROM table_locks').run();
     const live = await call(ali, { table_id: 'T1', seating_id: 'SEAT1' });
     expect(live.drafts.map((d) => d.event_type)).toEqual(['TableLocked']);
+  });
+
+  it('[02a #60] queued replay does not move the caller\'s lock from his other device (AD-8)', async () => {
+    const queuedAt = hub.clock.branchNow() - 1_000;
+    // Holder = actor: Ali holds the lock on D1; his queued submit from D2 proceeds, the lock stays on D1.
+    const aliD1 = signIn('S_ALI');
+    const aliD2 = signIn('S_ALI');
+    seat('SEAT1', 'T1', 'S_ALI');
+    lock('T1', 'SEAT1', 'S_ALI', aliD1.deviceId);
+    const holder = await call(aliD2, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
+    expect(holder.status).toBe(200);
+    expect(lastStatements).toBe(1);
+    expect(holder.drafts).toEqual([]);
+    expect(holder.eventTypes).toEqual([]);
+    expect(lockRows()).toEqual([{ table_id: 'T1', seating_id: 'SEAT1', staff_id: 'S_ALI', device_id: aliD1.deviceId }]);
+    // Holder ≠ actor with take-order-anywhere: Bilal's lock on his D1 stays there too.
+    const bilalD1 = signIn('S_BILAL');
+    const bilalD2 = signIn('S_BILAL');
+    seat('SEAT2', 'T2', 'S_ALI');
+    lock('T2', 'SEAT2', 'S_BILAL', bilalD1.deviceId);
+    const other = await call(bilalD2, { table_id: 'T2', seating_id: 'SEAT2' }, { queuedAt });
+    expect(other.status).toBe(200);
+    expect(other.drafts).toEqual([]);
+    expect(other.eventTypes).toEqual([]);
+    expect(lockRows()).toEqual([
+      { table_id: 'T1', seating_id: 'SEAT1', staff_id: 'S_ALI', device_id: aliD1.deviceId },
+      { table_id: 'T2', seating_id: 'SEAT2', staff_id: 'S_BILAL', device_id: bilalD1.deviceId },
+    ]);
+    // Someone else's lock: queued changes nothing there (§4.2 P-1b differs only on a free lock) → 409 as live,
+    // on the holder path (Ali holds SEAT2) and the take-order-anywhere path (Bilal on SEAT1).
+    const blocked = await call(aliD2, { table_id: 'T2', seating_id: 'SEAT2' }, { queuedAt });
+    expect(blocked.status).toBe(409);
+    expect(blocked.error?.code).toBe('TABLE_ALREADY_LOCKED');
+    const taken = await call(bilalD2, { table_id: 'T1', seating_id: 'SEAT1' }, { queuedAt });
+    expect(taken.status).toBe(409);
+    expect(taken.error?.code).toBe('TABLE_ALREADY_LOCKED');
+    // The same call without X-Queued-At still moves the lock (T15).
+    const live = await call(aliD2, { table_id: 'T1', seating_id: 'SEAT1' });
+    expect(live.drafts).toHaveLength(1);
+    expect(live.drafts[0]).toMatchObject({ event_type: 'TableLocked', payload: { staff_id: 'S_ALI', replaced_device_id: aliD1.deviceId } });
   });
 });

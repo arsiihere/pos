@@ -36,14 +36,13 @@ export const requireLock: RequireLock = (tx, ref, ctx) => {
   const actor = ctx.actor.staffId;
   const device = ctx.actor.deviceId;
   const heldByMe = row.lock_staff_id === actor && row.lock_device_id === device;
+  // P-1b (AD-1) + owner AD-8: a queued replay never takes AND never moves a lock; the submit proceeds without it.
+  const queued = ctx.queuedAt !== null;
 
   if (actor !== null && row.holder_staff_id === actor) {
     if (heldByMe) return [];
-    if (row.lock_staff_id === null) {
-      // P-1b (AD-1): a queued replay never takes a free lock; the submit proceeds without it.
-      return ctx.queuedAt !== null ? [] : [tableLocked(ctx, actor, row)];
-    }
-    if (row.lock_staff_id === actor) return [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // T15
+    if (row.lock_staff_id === null) return queued ? [] : [tableLocked(ctx, actor, row)];
+    if (row.lock_staff_id === actor) return queued ? [] : [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // T15
     throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
   }
 
@@ -59,7 +58,7 @@ export const requireLock: RequireLock = (tx, ref, ctx) => {
   }
   let drafts: EventDraft[] = [];
   if (row.lock_staff_id === actor && !heldByMe) {
-    drafts = [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // owner ruling R1: moves (T15)
+    if (!queued) drafts = [tableLocked(ctx, actor, row, row.lock_device_id ?? undefined)]; // R1: moves (T15); never queued (AD-8)
   } else if (row.lock_staff_id !== null && !heldByMe) {
     throw alreadyLocked(ctx, ref.table_id, row.lock_staff_id);
   }
