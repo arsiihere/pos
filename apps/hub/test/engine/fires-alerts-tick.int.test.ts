@@ -13,6 +13,7 @@ import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigAp
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import { registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { unregisterTick } from '../../src/alerts/tick';
 import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { onFreezeEntry } from '../../src/engine-host/fires-tick';
@@ -72,6 +73,7 @@ describe('03a task 22a: the fires_alerts tick', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
     resetSlipReaders(); // SG-6: registerTables registered 02a's pair; these tests rely on the §4.4 stub or register fakes
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     await seedDirectory(hub);
     clean();
     log.error.mockClear();

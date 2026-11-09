@@ -8,6 +8,8 @@ import { bindTablesProjectionLog, tablesProjection } from './projection.js';
 import { bindZoneDirectory, currentTableOf, holdersOfOrders } from './reads.js';
 import { hasTargetResolver, registerTargetResolver } from '../alerts/targets.js';
 import { tableTeam, zoneOrderTaker } from './resolvers.js';
+import { registeredTicks, registerTick } from '../alerts/tick.js';
+import { tableLocksTick } from './tick.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -27,6 +29,8 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
   // SG-6: a kind a test registered first (01d fakes) is left alone
   if (!hasTargetResolver('table_team')) registerTargetResolver('table_team', tableTeam);
   if (!hasTargetResolver('zone_order_taker')) registerTargetResolver('zone_order_taker', zoneOrderTaker);
+  // §3.4 (R3): the tick list is process-wide and registerTick throws on a second name; every server build gets here
+  if (!registeredTicks().some((t) => t.name === 'table_locks')) registerTick(tableLocksTick);
 
   // wave 2 lane A (OpenTable, lock commands)
 

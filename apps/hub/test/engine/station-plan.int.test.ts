@@ -5,6 +5,7 @@ import { WsStationPlan, type EngineConfig, type EventDraft, type PosEvent } from
 import { aBusinessDayOpened, anEngineConfigApplied, aStockReleased, aStockSet } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { unregisterTick } from '../../src/alerts/tick';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { firesTick } from '../../src/engine-host/fires-tick';
@@ -43,6 +44,7 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     await seedDirectory(hub);
     // 01d's no_approver flag: start clean, so its tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();

@@ -16,6 +16,7 @@ import { nextDueAt, type EngineState } from '@pos/engine';
 import { generateDay, runDay } from '@pos/engine/sim';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TICK_MS } from '../../src/alerts/tick';
+import { unregisterTick } from '../../src/alerts/tick';
 import { firesTick } from '../../src/engine-host/fires-tick';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
@@ -52,6 +53,7 @@ describe('[03a §7.1 fires] the fires pass with work at the AD-27 normal peak, t
     const b = best!;
     peak = { ...b, at: run.events[b.seq - 1]!.recorded_at };
     hub = await createTestHub();
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
   }, HOOK_MS);
 
   afterAll(async () => {

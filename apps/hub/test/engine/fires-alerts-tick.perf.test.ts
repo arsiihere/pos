@@ -18,6 +18,7 @@ import { performance } from 'node:perf_hooks';
 import { getAlertIntents, nextAlertDueAt, type EngineState } from '@pos/engine';
 import { generateDay, runDay } from '@pos/engine/sim';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { unregisterTick } from '../../src/alerts/tick';
 import { bindFiresAlertsTick, ENGINE_ALERT_KINDS, firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { hostFlags } from '../../src/engine-host/host-flags';
 import { readOnlyDb } from '../../src/engine-host/read-only-tx';
@@ -63,6 +64,7 @@ describe('[03a §7.1 fires_alerts] the fires_alerts due and pass at the AD-27 no
     const orders: EngineState['orders'] = Object.fromEntries(Object.entries(b.state.orders).map(([id, o]) => [id, { ...o, placed_by: ORDER_TAKER }]));
     peak = { ...b, state: { ...b.state, orders }, at: run.events[b.seq - 1]!.recorded_at };
     hub = await createTestHub();
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     await seedDirectory(hub);
   }, HOOK_MS);
 
