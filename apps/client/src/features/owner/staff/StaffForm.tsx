@@ -1,7 +1,7 @@
 import { PERMISSIONS, type Permission } from '@pos/domain';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { StaffPatchRequest } from '@pos/events';
-import type { Branch, CloudAdmin, CloudError, Floor, Role, Staff } from '../../../api/cloud-admin';
+import type { Branch, CloudAdmin, CloudError, FloorWithZones, Role, Staff } from '../../../api/cloud-admin';
 import { usePhone } from '../../../app/phone';
 import { navigate } from '../../../app/router';
 import { ActionBar } from '../../../components/ActionBar';
@@ -44,10 +44,11 @@ interface Draft {
   denied: Permission[];
   leads: Record<string, string>; // branch → lead staff id ('' = nobody)
   floors: Record<string, string[]>; // branch → floor ids
+  assigned: Record<string, { zones: string[]; tables: string[] }>; // branch → order-taker zones and tables (01b §3.2 rule 7)
   active: boolean;
 }
 
-type FieldKey = 'name' | 'roles' | 'branches';
+type FieldKey = 'name' | 'roles' | 'branches' | 'assignments';
 
 function draftOf(person: Staff | null): Draft {
   return {
@@ -57,6 +58,7 @@ function draftOf(person: Staff | null): Draft {
     denied: [...(person?.denied_permissions ?? [])],
     leads: Object.fromEntries((person?.reports_to ?? []).map((r) => [r.branch_id, r.lead_staff_id])),
     floors: Object.fromEntries((person?.floors ?? []).map((f) => [f.branch_id, [...f.floor_ids]])),
+    assigned: Object.fromEntries((person?.assignments ?? []).map((a) => [a.branch_id, { zones: [...a.zone_ids], tables: [...a.table_ids] }])),
     active: person?.is_active ?? true,
   };
 }
@@ -69,6 +71,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const sorted = (list: readonly string[]) => [...list].sort();
 
 function body(draft: Draft) {
+  const given = draft.branchIds.filter((b) => (draft.assigned[b]?.zones.length ?? 0) + (draft.assigned[b]?.tables.length ?? 0) > 0);
   return {
     display_name: draft.name.trim(),
     role_ids: draft.roleIds,
@@ -82,7 +85,13 @@ function body(draft: Draft) {
       const ids = draft.floors[b] ?? [];
       return ids.length === 0 ? [] : [{ branch_id: b, floor_ids: ids }];
     }),
+    ...(given.length === 0 ? {} : { assignments: assignmentsOf(draft, given) }),
   };
+}
+
+// §3.2 rule 7 / AD-23: whole entries, one per branch given, only for branches the person works at.
+function assignmentsOf(draft: Draft, branches: readonly string[]) {
+  return branches.map((b) => ({ branch_id: b, zone_ids: draft.assigned[b]?.zones ?? [], table_ids: draft.assigned[b]?.tables ?? [] }));
 }
 
 // §6.4: only what changed; lists compared as sets (the server stores them as sets).
@@ -97,6 +106,14 @@ function patchOf(person: Staff, draft: Draft): Omit<StaffPatchRequest, 'expected
   if (!same(leads(next.reports_to), leads(person.reports_to))) patch.reports_to = next.reports_to;
   const floors = (list: Staff['floors']) => sorted(list.flatMap((f) => f.floor_ids.map((id) => `${f.branch_id}:${id}`)));
   if (!same(floors(next.floors), floors(person.floors))) patch.floors = next.floors;
+  // AD-23: only the branches the user changed, each as a whole entry; `[]` lists clear a branch.
+  const held = (b: string) => person.assignments.find((a) => a.branch_id === b);
+  const changed = draft.branchIds.filter((b) => {
+    const was = held(b);
+    const now = draft.assigned[b];
+    return !same(sorted(now?.zones ?? []), sorted(was?.zone_ids ?? [])) || !same(sorted(now?.tables ?? []), sorted(was?.table_ids ?? []));
+  });
+  if (changed.length > 0) patch.assignments = assignmentsOf(draft, changed);
   if (draft.active !== person.is_active) patch.is_active = draft.active;
   return patch;
 }
@@ -108,6 +125,7 @@ const FIELD_LABEL: Record<string, MessageKey> = {
   denied_permissions: 'staff.never',
   reports_to: 'staff.reports_to',
   floors: 'staff.floors',
+  assignments: 'staff.assigned',
   is_active: 'staff.status',
 };
 
@@ -225,7 +243,7 @@ function Editor({
   // C02 (hand-off 01b-C02): a collapsed summary card until tapped.
   const [canOpen, setCanOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [floorLists, setFloorLists] = useState<Record<string, Floor[]>>({});
+  const [floorLists, setFloorLists] = useState<Record<string, FloorWithZones[]>>({});
   const { key, renew } = useIdempotencyKey();
   const down = useCloudDown(api);
   const leave = useLeave();
@@ -239,14 +257,15 @@ function Editor({
   const floorRole = floorsRole(roles, draft.roleIds);
   const title = person === null ? t('staff.new_title') : fill(t('staff.edit_title'), { name: person.display_name });
 
-  // Floors are read per branch only once the section shows.
-  const floorBranches = floorRole === null ? '' : draft.branchIds.filter((b) => floorLists[b] === undefined).join(',');
+  // Floors (with their zones and tables, 01a §6.2) are read per branch the person works at; the floors
+  // picker and the assigned-tables picker both use them.
+  const floorBranches = draft.branchIds.filter((b) => floorLists[b] === undefined).join(',');
   useEffect(() => {
     if (floorBranches === '') return;
     let live = true;
     for (const b of floorBranches.split(',')) {
       void api.listFloors(b).then((result) => {
-        if (live && result.ok) setFloorLists((prev) => ({ ...prev, [b]: result.data.floors.filter((f) => f.archived_at === null) }));
+        if (live && result.ok) setFloorLists((prev) => ({ ...prev, [b]: result.data.floors }));
       });
     }
     return () => {
@@ -302,6 +321,15 @@ function Editor({
           setErrors({ name: t('errors.STAFF_NAME_TAKEN') });
           setBanner({ tone: 'danger', text: t('staff.fix_one'), detail: t('staff.name') });
           return;
+        case 'CONFIG_REFERENCE_INVALID':
+          if (error.details['field'] === 'assignments' && error.details['reason'] === 'already_assigned') {
+            const holder = loaded.staff.find((p) => p.staff_id === error.details['staff_id'])?.display_name;
+            const text = t('errors.reference.already_assigned');
+            setErrors({ assignments: holder === undefined ? text : `${text} (${holder})` });
+            setBanner({ tone: 'danger', text: t('staff.fix_one'), detail: t('staff.assigned') });
+            return;
+          }
+          break;
         case 'OWN_ADMIN_ACCESS':
           setErrors({
             roles: ownAdminText(error.details),
@@ -514,7 +542,7 @@ function Editor({
               </div>
               <div className="pos-perbranch">
                 {draft.branchIds.map((b) => {
-                  const floors = floorLists[b];
+                  const floors = floorLists[b]?.filter((f) => f.archived_at === null);
                   return (
                     <div key={b} className="pos-perbranch__row">
                       <span className="pos-field__label">{fill(t('staff.at_branch'), { branch: name(b) })}</span>
@@ -542,6 +570,62 @@ function Editor({
                   );
                 })}
               </div>
+            </section>
+          )}
+
+          {draft.branchIds.length > 0 && (
+            <section className="pos-section" data-field="assignments">
+              <div className="pos-section__head">
+                <h2>{t('staff.assigned')}</h2>
+                <p>{t('staff.assigned_help')}</p>
+              </div>
+              <div className="pos-perbranch">
+                {draft.branchIds.map((b) => {
+                  const layout = floorLists[b];
+                  const mine = draft.assigned[b] ?? { zones: [], tables: [] };
+                  // Archived ones show only while the person holds them (AD-31); never as a new choice.
+                  const zones = (layout ?? []).flatMap((f) => (f.archived_at === null ? f.zones : [])).filter((z) => z.archived_at === null || mine.zones.includes(z.zone_id));
+                  const tables = (layout ?? []).flatMap((f) => (f.archived_at === null ? f.tables : [])).filter((x) => x.archived_at === null || mine.tables.includes(x.table_id));
+                  const chip = (id: string, label: string, archived: boolean, on: boolean, flip: () => void) => (
+                    <button key={id} type="button" className="pos-chip" aria-pressed={on} onClick={flip}>
+                      {on && <Icon name="check" />}
+                      {archived ? `${label} (${t('staff.assigned_archived')})` : label}
+                    </button>
+                  );
+                  return (
+                    <div key={b} className="pos-perbranch__row">
+                      <span className="pos-field__label">{fill(t('staff.at_branch'), { branch: name(b) })}</span>
+                      {layout === undefined ? (
+                        <Skeleton lines={1} />
+                      ) : zones.length === 0 && tables.length === 0 ? (
+                        <p className={typeClass('caption')}>{t('staff.assigned_none')}</p>
+                      ) : (
+                        <>
+                          {zones.length > 0 && (
+                            <div className="pos-row" role="group" aria-label={`${t('staff.assigned_zones')}, ${name(b)}`}>
+                              {zones.map((z) =>
+                                chip(z.zone_id, z.name, z.archived_at !== null, mine.zones.includes(z.zone_id), () =>
+                                  update({ assigned: { ...draft.assigned, [b]: { ...mine, zones: toggle(mine.zones, z.zone_id) } } }),
+                                ),
+                              )}
+                            </div>
+                          )}
+                          {tables.length > 0 && (
+                            <div className="pos-row" role="group" aria-label={`${t('staff.assigned_tables')}, ${name(b)}`}>
+                              {tables.map((x) =>
+                                chip(x.table_id, x.name, x.archived_at !== null, mine.tables.includes(x.table_id), () =>
+                                  update({ assigned: { ...draft.assigned, [b]: { ...mine, tables: toggle(mine.tables, x.table_id) } } }),
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {errors.assignments !== undefined && <span className="pos-field__error">{errors.assignments}</span>}
             </section>
           )}
 

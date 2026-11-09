@@ -29,7 +29,26 @@ function handler(write: (call: Call) => Response, staff = STAFF) {
     if (call.url === '/v1/admin/roles') return ok({ roles: ROLES });
     if (call.url === '/v1/admin/branches') return ok({ branches: BRANCHES, hub_stale_after_ms: 180_000 });
     if (call.url.endsWith('/floors')) {
-      return ok({ floors: [{ floor_id: 'F1', name: 'Ground floor', sort_order: 0, archived_at: null, tables: [] }] });
+      return ok({
+        floors: [
+          {
+            floor_id: 'F1',
+            name: 'Ground floor',
+            sort_order: 0,
+            archived_at: null,
+            zones: [
+              { zone_id: 'Z1', name: 'Patio', sort_order: 0, archived_at: null, routes: [], stock_items: [] },
+              { zone_id: 'Z9', name: 'Old corner', sort_order: 1, archived_at: 5, routes: [], stock_items: [] },
+              { zone_id: 'Z8', name: 'Closed zone', sort_order: 2, archived_at: 5, routes: [], stock_items: [] },
+            ],
+            tables: [
+              { table_id: 'T1', name: 'Table 1', seats: 4, sort_order: 0, zone_id: 'Z1', archived_at: null },
+              { table_id: 'T2', name: 'Table 2', seats: 2, sort_order: 1, zone_id: null, archived_at: null },
+              { table_id: 'T9', name: 'Table 9', seats: 2, sort_order: 2, zone_id: null, archived_at: 5 },
+            ],
+          },
+        ],
+      });
     }
     throw new Error(`unexpected ${call.method} ${call.url}`);
   };
@@ -321,5 +340,56 @@ describe('[01b §8] staff form', () => {
       window.location.hash = '';
     }
   });
-});
 
+  // 01b v1.7 §3.2 rule 7 (AD-21–AD-32): zones and tables per branch.
+  const held = STAFF.map((p) => (p.staff_id === 'S2' ? { ...p, assignments: [{ branch_id: 'B1', zone_ids: ['Z9'], table_ids: [] }] } : p));
+
+  it('[02p U-3 client] the staff form shows zones and tables per branch and sends assignments', async () => {
+    const { api, calls } = fakeApi(
+      handler((call) => {
+        if (call.method === 'PATCH') return ok({ staff: { ...held[1], version: 'v2' } });
+        throw new Error('unexpected write');
+      }, held),
+    );
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    expect(headings()).toContain(t('staff.assigned'));
+    const labels = [...m.container.querySelectorAll('button.pos-chip')].map((b) => b.textContent?.trim());
+    expect(labels).toContain('Patio');
+    expect(labels).toContain('Table 1');
+    // The archived zone the person holds shows, marked; archived ones they do not hold are not offered.
+    expect(labels).toContain(`Old corner (${t('staff.assigned_archived')})`);
+    expect(labels.some((l) => l?.startsWith('Closed zone'))).toBe(false);
+    expect(labels.some((l) => l?.startsWith('Table 9'))).toBe(false);
+
+    await click(button(m.container, 'Table 1'));
+    await click(button(m.container, t('staff.save')));
+    const patch = calls.find((c) => c.method === 'PATCH');
+    // Whole entry for the changed branch (the archived zone kept); the unchanged branch is not sent.
+    expect(patch?.body).toEqual({ expected_version: 'v-S2', assignments: [{ branch_id: 'B1', zone_ids: ['Z9'], table_ids: ['T1'] }] });
+  });
+
+  it('[02p U-3 client] already_assigned shows errors.reference.already_assigned on the field', async () => {
+    const { api } = fakeApi(
+      handler((call) => {
+        if (call.method === 'PATCH') {
+          return fail(422, 'CONFIG_REFERENCE_INVALID', { field: 'assignments', reason: 'already_assigned', staff_id: 'S3' });
+        }
+        throw new Error('unexpected write');
+      }, held),
+    );
+    await m.render(
+      <GuardProvider>
+        <StaffForm api={api} staffId="S2" branchIds={['B1', 'B2']} />
+      </GuardProvider>,
+    );
+    await click(button(m.container, 'Patio'));
+    await click(button(m.container, t('staff.save')));
+    const field = m.container.querySelector('[data-field="assignments"]');
+    expect(field?.textContent).toContain(t('errors.reference.already_assigned'));
+    expect(field?.textContent).toContain('Hamza');
+  });
+});

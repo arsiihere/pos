@@ -2,7 +2,7 @@
 
 Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts`. They show in English on an Urdu page until translated (01a S49 fallback). Task 50b filled `ur.ts` from the 01b `*Urdu.html` screens (`docs/design/handoff/01b/screens`); the keys below have no Urdu in those designs (no error state and no approval help text is drawn in Urdu). `apps/client/src/i18n/i18n.test.ts` checks that every 01b key is either in `ur.ts` or listed here. Tasks 51–55 append their view keys.
 
-195 keys.
+201 keys.
 
 | Key | English |
 |---|---|
@@ -199,3 +199,9 @@ Keys in `apps/client/src/i18n/en.ts` added for 01b (§8) with no entry in `ur.ts
 | `roles.scope.my_zones` | Their zones |
 | `roles.scope_help.my_zones` | zones set on each person or their lead |
 | `errors.reference.already_assigned` | Someone else already has this zone or table at this branch. |
+| `staff.assigned` | Assigned tables |
+| `staff.assigned_help` | The zones and tables this person takes orders for at each branch. A table or zone can belong to one person at a branch. |
+| `staff.assigned_zones` | Zones |
+| `staff.assigned_tables` | Tables |
+| `staff.assigned_none` | This branch has no zones or tables yet. |
+| `staff.assigned_archived` | archived |
