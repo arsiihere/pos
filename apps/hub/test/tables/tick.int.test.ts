@@ -118,10 +118,30 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
     const out = released();
     expect(out.map((e) => e.payload.reason)).toEqual(['session_expired']);
     expect(out[0]).toMatchObject({ actor_id: null, device_id: 'hub' });
-    // past the TTL too: no live session still wins
+  });
+
+  it('[02a #8] session ended and TTL also passed → still session_expired (the session check wins)', () => {
+    const dev = device();
+    const session = signIn(dev);
+    seedLock('T-1', WAITER, dev);
+    endSessionNow(h, session, 'logout');
     h.clock.advance(TTL + 1);
     pass();
-    expect(released().map((e) => e.payload.reason)).toEqual(['session_expired', 'session_expired']);
+    expect(released().map((e) => e.payload.reason)).toEqual(['session_expired']);
+  });
+
+  it('[02a #8] a released lock is folded away: due() is false and the next pass appends nothing', () => {
+    const dev = device();
+    signIn(dev);
+    seedLock('T-1', WAITER, dev);
+    h.clock.advance(TTL + 1);
+    expect(due()).toBe(true);
+    pass();
+    expect(released()).toHaveLength(1);
+    expect(h.deps.db.prepare('SELECT COUNT(*) AS n FROM table_locks').get()).toEqual({ n: 0 });
+    expect(due()).toBe(false);
+    pass();
+    expect(released()).toHaveLength(1);
   });
 
   it('[02a #8] at exactly ttl neither due nor a write; one ms later due', () => {
