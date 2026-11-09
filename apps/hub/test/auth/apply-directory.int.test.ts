@@ -39,6 +39,7 @@ describe('applyStaffDirectory', () => {
       station_id: null,
       device_id: 'dev-1',
       idle_ttl_ms: 1_000,
+      started_at: 1_000,
       last_activity_at: 5_000,
       ended_at: null,
       token_hash: 'hash',
@@ -478,7 +479,7 @@ describe('applyStaffDirectory', () => {
     expect(db.prepare("SELECT staff_id FROM staff WHERE staff_id = 'S_GONE'").get()).toBeUndefined();
   });
 
-  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 10 statements (01b v1.4 B-1)', async () => {
+  it('[01b #22] approver_role_ids and scope round-trip through StaffDirectory.load in 11 statements (01b v1.4 B-1; v1.6 B-2, AD-27)', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
     const input: DirectoryInput = {
@@ -539,7 +540,7 @@ describe('applyStaffDirectory', () => {
     // restart: the cache read back equals what the apply handed over
     const counter = statementCounter(db);
     const loaded = Directory.load(db);
-    expect(counter.count).toBe(10);
+    expect(counter.count).toBe(11);
     expect(loaded).toEqual(applied);
     expect(loaded.resolve('S_BILAL', 'apply-discount')).toEqual({ grant: 'requires_approval', approver_role_ids: ['R_MGR', 'R_OWNER'], scope: 'branch' });
   });
@@ -647,7 +648,7 @@ describe('applyStaffDirectory', () => {
     expect(Directory.load(db).noPinStaff()).toEqual([]);
   });
 
-  it('[01b B-1] the no_pin_staff cache is replaced whole and StaffDirectory.load issues 10 statements', async () => {
+  it('[01b B-1] the no_pin_staff cache is replaced whole and StaffDirectory.load issues 11 statements (v1.6 B-2, AD-27)', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');
     const v1 = dir(1, hash, ['reprint-ticket'], ['S_ALI']);
@@ -665,7 +666,7 @@ describe('applyStaffDirectory', () => {
     ]);
     const counter = statementCounter(db);
     const loaded = Directory.load(db);
-    expect(counter.count).toBe(10);
+    expect(counter.count).toBe(11);
     expect(loaded).toEqual(applied);
     expect(loaded.noPinStaff()).toEqual([{ staff_id: 'S_ZAIN', display_name: 'Zain', lead_staff_id: 'S_ALI' }]);
 
@@ -681,6 +682,30 @@ describe('applyStaffDirectory', () => {
     expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
       { kind: 'staff', id: 'S_ALI', reason: 'duplicate staff' },
       { kind: 'staff', id: 'S_ZAIN', reason: 'duplicate staff' },
+    ]);
+  });
+
+  it('[01b B18, v1.6 B-2] a kept row (bad PIN hash) never beats the cloud\'s current holder of a zone or table', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const v1 = dir(1, hash, ['take-order'], ['S_A', 'S_B']);
+    Object.assign(v1.staff[0]!, { assigned_zone_ids: ['Z1'], assigned_table_ids: ['T1'] });
+    writer.run((tx) => applyStaffDirectory(tx, v1, () => undefined));
+    // v2: S_A's hash is malformed (its v1 row is kept, with Z1 and T1); the cloud moved Z1 and T1 to S_B
+    const v2 = dir(2, hash, ['take-order'], ['S_A', 'S_B']);
+    v2.staff[0]!.pin_hash = 'not-a-hash';
+    Object.assign(v2.staff[1]!, { assigned_zone_ids: ['Z1'], assigned_table_ids: ['T1'] });
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, v2, (next) => (applied = next)));
+    expect(db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments ORDER BY subject_kind').all()).toEqual([
+      { staff_id: 'S_B', subject_kind: 'table', subject_id: 'T1' },
+      { staff_id: 'S_B', subject_kind: 'zone', subject_id: 'Z1' },
+    ]);
+    expect(applied!.assignedOrderTaker('T1')).toBe('S_B');
+    expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
+      { kind: 'staff', id: 'S_A', reason: 'malformed pin_hash' },
+      { kind: 'staff', id: 'S_A:zone:Z1', reason: 'duplicate assignment' },
+      { kind: 'staff', id: 'S_A:table:T1', reason: 'duplicate assignment' },
     ]);
   });
 

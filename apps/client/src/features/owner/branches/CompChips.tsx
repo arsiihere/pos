@@ -5,12 +5,8 @@ import { t } from '../../../i18n';
 // 01a v2.3 §5.2a (02b A-1, 02b §3.9): the reasons offered when an order taker comps a line, as a list of
 // 1–10 labels of 1–30 characters. The list is replaced as a whole. "Other" is a label like the rest; that a
 // reason called other always needs a note is the order screen's rule, not this form's.
-// TODO(02p task 9): use BranchEngineSettings fields, drop local defaults
-export const DEFAULT_CHIPS = ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'];
 const MAX_CHIPS = 10;
 const MAX_LENGTH = 30;
-
-export const chipsOf = (base: { comp_reason_chips?: string[] }): string[] => base.comp_reason_chips ?? DEFAULT_CHIPS;
 
 // The chips as a PATCH value (trimmed), or null when unchanged; `error` is the text to show when a label or the count is out of range.
 export function chipsPatch(chips: readonly string[], base: readonly string[]): { patch: string[] | null; error: string | null } {

@@ -40,3 +40,20 @@ export function onBranchConfigApplied(fn: ConfigHook): () => void {
 export function runBranchConfigHooks(prev: BranchConfig | null, next: BranchConfig, tx: WriterTx): void {
   for (const fn of [...hooks]) fn(prev, next, tx);
 }
+
+// 01b v1.6 B-2 (AD-25): the zone of an active table in the current config (snapshot V4 `tables[].zone_id`), or null
+// (no config yet, an unknown or archived table, or no zone). Read through on every call, so it is current after a
+// config apply; the table index is built once per applied config.
+const zoneIndex = new WeakMap<BranchConfig, Map<string, string | null>>();
+
+export function zoneOfTable(tableId: string): string | null {
+  const config = branchConfig();
+  if (config === null) return null;
+  let index = zoneIndex.get(config);
+  if (index === undefined) {
+    index = new Map();
+    for (const floor of config.floors) for (const table of floor.tables) index.set(table.table_id, table.zone_id ?? null);
+    zoneIndex.set(config, index);
+  }
+  return index.get(tableId) ?? null;
+}

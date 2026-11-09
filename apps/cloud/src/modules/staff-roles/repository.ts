@@ -1,12 +1,14 @@
-import type { Permission } from '@pos/domain';
+import { DomainError, type Permission } from '@pos/domain';
+import type pg from 'pg';
 import type { TenantSql } from '../../lib/config-version.js';
 import { BRANCH_ENGINE_SETTING_KEYS, type BranchEngineSettings, type BranchWire, type GrantWire, type ResponsibilityWire } from '@pos/events';
 import { toBranchWire, type BranchRow, type ResponsibilityRow, type RoleRow, type StaffRow } from './versions.js';
 
 export type { ResponsibilityRow, RoleRow, StaffRow } from './versions.js';
 
-// 01b §6.1: people by status (and branch), or by id. The five child reads are fixed, so the list is
-// 6 statements whatever the staff count; INT / BIGINT go through Number() here (§5.3 rule 5).
+// 01b §6.1: people by status (and branch), or by id. The six child reads are fixed, so the list is
+// 7 statements whatever the staff count (6 + the assignments read, 01b v1.6 B-2, AD-27); INT / BIGINT go through
+// Number() here (§5.3 rule 5).
 export type StaffFilter = { status: 'active' | 'left'; branchId?: string } | { ids: string[] };
 
 export async function selectStaff(db: TenantSql, filter: StaffFilter): Promise<StaffRow[]> {
@@ -45,6 +47,11 @@ export async function selectStaff(db: TenantSql, filter: StaffFilter): Promise<S
     `SELECT staff_id, branch_id, floor_id FROM staff_floors WHERE tenant_id = $1 AND staff_id = ANY($2)`,
     [ids],
   );
+  // 01b v1.6 B-2: the stored rows, archived zones and tables included (the directory leaves those out, AD-24).
+  const assignments = await db.query<{ staff_id: string; branch_id: string; subject_kind: 'zone' | 'table'; subject_id: string }>(
+    `SELECT staff_id, branch_id, subject_kind, subject_id FROM staff_assignments WHERE tenant_id = $1 AND staff_id = ANY($2)`,
+    [ids],
+  );
   const branchesOf = group(branches, (row) => row.branch_id);
   const rolesOf = group(roles, (row) => row.role_id);
   const denialsOf = group(denials, (row) => row.permission);
@@ -56,6 +63,14 @@ export async function selectStaff(db: TenantSql, filter: StaffFilter): Promise<S
     const list = byBranch.get(row.branch_id);
     if (list === undefined) byBranch.set(row.branch_id, [row.floor_id]);
     else list.push(row.floor_id);
+  }
+  const assignmentsOf = new Map<string, Map<string, { zone_ids: string[]; table_ids: string[] }>>();
+  for (const row of assignments) {
+    let byBranch = assignmentsOf.get(row.staff_id);
+    if (byBranch === undefined) assignmentsOf.set(row.staff_id, (byBranch = new Map()));
+    let entry = byBranch.get(row.branch_id);
+    if (entry === undefined) byBranch.set(row.branch_id, (entry = { zone_ids: [], table_ids: [] }));
+    (row.subject_kind === 'zone' ? entry.zone_ids : entry.table_ids).push(row.subject_id);
   }
   return people.map((row) => ({
     staff_id: row.staff_id,
@@ -72,6 +87,9 @@ export async function selectStaff(db: TenantSql, filter: StaffFilter): Promise<S
       branch_id,
       floor_ids,
     })),
+    assignments: [...(assignmentsOf.get(row.staff_id) ?? new Map<string, { zone_ids: string[]; table_ids: string[] }>()).entries()].map(
+      ([branch_id, entry]) => ({ branch_id, ...entry }),
+    ),
   }));
 }
 
@@ -323,6 +341,71 @@ export async function selectFloorStates(
 }
 
 // §3.5: (branch, lead) pairs where the lead is active and works at that branch.
+// 01b v1.6 B-2, §3.2 rule 7: the zones and tables named by an assignment write, with their branch and archived state.
+// Reference rows, read without a lock (B11). Ids are unique per branch, so an id may come back once per branch.
+export async function selectAssignmentSubjects(
+  db: TenantSql,
+  zoneIds: string[],
+  tableIds: string[],
+): Promise<{ subject_kind: 'zone' | 'table'; subject_id: string; branch_id: string; archived: boolean }[]> {
+  if (zoneIds.length === 0 && tableIds.length === 0) return [];
+  return db.query(
+    `SELECT 'zone' AS subject_kind, zone_id AS subject_id, branch_id, archived_at IS NOT NULL AS archived
+       FROM zones WHERE tenant_id = $1 AND zone_id = ANY($2)
+     UNION ALL
+     SELECT 'table', table_id, branch_id, archived_at IS NOT NULL
+       FROM dining_tables WHERE tenant_id = $1 AND table_id = ANY($3)`,
+    [zoneIds, tableIds],
+  );
+}
+
+// §3.2 rule 7: who else holds any of these (branch, kind, id) subjects, in the stored rows. Read after the tenant
+// lock (B11), in the write's transaction, so no other directory write can store a holder in between. AD-29: active
+// staff only (a person who has left holds none); `anyHolder` reads every row, for the index backstop.
+export async function selectAssignmentHolders(
+  db: TenantSql,
+  staffId: string | null,
+  rows: NewStaff['assignments'],
+  o: { anyHolder?: boolean } = {},
+): Promise<{ branch_id: string; subject_kind: 'zone' | 'table'; subject_id: string; staff_id: string }[]> {
+  if (rows.length === 0) return [];
+  return db.query(
+    `SELECT sa.branch_id, sa.subject_kind, sa.subject_id, sa.staff_id
+       FROM staff_assignments sa
+       JOIN unnest($2::text[], $3::text[], $4::text[]) AS x(b, k, id)
+         ON sa.branch_id = x.b AND sa.subject_kind = x.k AND sa.subject_id = x.id
+       JOIN staff s ON s.tenant_id = sa.tenant_id AND s.staff_id = sa.staff_id
+      WHERE sa.tenant_id = $1 AND ($5::text IS NULL OR sa.staff_id <> $5) AND ($6::boolean OR s.is_active)
+      ORDER BY sa.branch_id, sa.subject_kind, sa.subject_id`,
+    [rows.map((row) => row.branch_id), rows.map((row) => row.subject_kind), rows.map((row) => row.subject_id), staffId, o.anyHolder === true],
+  );
+}
+
+// §3.2 rule 7 (l): the unique index staff_assignments_one_person is the backstop of the holder check. Its 23505
+// answers 422 CONFIG_REFERENCE_INVALID { field: 'assignments', reason: 'already_assigned', staff_id } with the
+// holder re-read, never 500. A savepoint keeps the transaction usable for that read; with no rows, no savepoint.
+export async function assignmentBackstop<T>(
+  client: pg.PoolClient,
+  db: TenantSql,
+  staffId: string | null,
+  rows: NewStaff['assignments'],
+  write: () => Promise<T>,
+): Promise<T> {
+  if (rows.length === 0) return write();
+  await client.query('SAVEPOINT staff_assignments_write');
+  try {
+    const out = await write();
+    await client.query('RELEASE SAVEPOINT staff_assignments_write');
+    return out;
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code !== '23505' || pgError.constraint !== 'staff_assignments_one_person') throw error;
+    await client.query('ROLLBACK TO SAVEPOINT staff_assignments_write');
+    const [holder] = await selectAssignmentHolders(db, staffId, rows, { anyHolder: true });
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'assignments', reason: 'already_assigned', staff_id: holder?.staff_id ?? null });
+  }
+}
+
 export async function selectActiveAtBranch(db: TenantSql, staffIds: string[]): Promise<Set<string>> {
   const rows = await db.query<{ staff_id: string; branch_id: string }>(
     `SELECT sb.staff_id, sb.branch_id
@@ -382,6 +465,7 @@ export interface NewStaff {
   deniedPermissions: string[];
   reportsTo: { branch_id: string; lead_staff_id: string }[];
   floors: { branch_id: string; floor_id: string }[];
+  assignments: { branch_id: string; subject_kind: 'zone' | 'table'; subject_id: string }[]; // 01b v1.6 B-2
   now: number;
 }
 
@@ -397,6 +481,7 @@ export async function insertStaff(db: TenantSql, s: NewStaff): Promise<void> {
   await insertDenials(db, s.staffId, s.deniedPermissions);
   await insertLeads(db, s.staffId, s.reportsTo);
   await insertFloors(db, s.staffId, s.floors);
+  await insertAssignments(db, s.staffId, s.assignments);
 }
 
 // §6.4: the person's own row (name, active state, left_at).
@@ -577,6 +662,32 @@ export async function replaceLeads(db: TenantSql, staffId: string, reportsTo: Ne
 export async function replaceFloors(db: TenantSql, staffId: string, floors: NewStaff['floors']): Promise<void> {
   await db.query(`DELETE FROM staff_floors WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
   await insertFloors(db, staffId, floors);
+}
+
+// 01b v1.6 B-2 (AD-23): each sent branch entry replaces that branch's rows; other branches keep theirs.
+export async function replaceAssignments(
+  db: TenantSql,
+  staffId: string,
+  branchIds: string[],
+  rows: NewStaff['assignments'],
+): Promise<void> {
+  if (branchIds.length === 0) return;
+  await db.query(`DELETE FROM staff_assignments WHERE tenant_id = $1 AND staff_id = $2 AND branch_id = ANY($3)`, [staffId, branchIds]);
+  await insertAssignments(db, staffId, rows);
+}
+
+// §3.2 rule 7: a person who leaves frees their assignments.
+export async function deleteAssignments(db: TenantSql, staffId: string): Promise<void> {
+  await db.query(`DELETE FROM staff_assignments WHERE tenant_id = $1 AND staff_id = $2`, [staffId]);
+}
+
+async function insertAssignments(db: TenantSql, staffId: string, rows: NewStaff['assignments']): Promise<void> {
+  if (rows.length === 0) return;
+  await db.query(
+    `INSERT INTO staff_assignments (tenant_id, branch_id, staff_id, subject_kind, subject_id)
+     SELECT t.tenant_id, x.b, $2, x.k, x.id FROM tenants t, unnest($3::text[], $4::text[], $5::text[]) AS x(b, k, id) WHERE t.tenant_id = $1`,
+    [staffId, rows.map((row) => row.branch_id), rows.map((row) => row.subject_kind), rows.map((row) => row.subject_id)],
+  );
 }
 
 async function insertDenials(db: TenantSql, staffId: string, permissions: string[]): Promise<void> {

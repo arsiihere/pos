@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { attachRouteGuards } from '../auth/guards.js';
 import { startTickLoop } from '../alerts/tick.js';
+import { idlePause } from '../auth/session-store.js';
 import { startSweeper } from '../auth/session-sweeper.js';
 import { StaffDirectory } from '../auth/staff-directory.js';
 import { loadHubConfig } from '../config/load.js';
@@ -175,6 +176,9 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
     void StaffDirectory.load(db);
     current = '4b';
     restoreEmptyStaffSessions(db, deps.writer, deps.clock, provisioned.branch_id);
+    // 00 M95: every device starts paused at HubStarted.hub_down_at (boot time on a first boot), before any contact.
+    const hubDownAt = readHeartbeat(db, provisioned.branch_id);
+    idlePause.boot(db, hubDownAt ?? deps.clock.branchNow());
     current = '5';
     const app = buildHubServer(deps);
     const publish = publisherFor(app);
@@ -201,7 +205,6 @@ export async function boot(opts: BootOptions): Promise<BootHandle> {
       });
     }
     if (opts.listen === true) await app.listen({ host: '0.0.0.0', port: config.http_port });
-    const hubDownAt = readHeartbeat(db, provisioned.branch_id);
     const hubUpAt = deps.clock.branchNow();
     deps.writer.run((tx) => {
       tx.append([

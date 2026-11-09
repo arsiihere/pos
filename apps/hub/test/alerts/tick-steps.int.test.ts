@@ -391,6 +391,7 @@ describe('01d alerts tick: steps, superseded skips, restart, answer race (task 2
 
   it("[01d #25] table's team via the registered fake tableOwner: the owner changes between steps → the next step goes to the new team; the old team's inbox shows moved_to", async () => {
     fakeTableOwner.owners.set('T1', OWNER);
+    fakeTableOwner.reports.set(OWNER, [WAIT]);
     const [id] = raiseHub(twoStep(1, { kind: 'table_team', table_id: 'T1' })) as [string];
     // step 0: OWNER and the direct report WAIT (depth 'direct' by default)
     expect(people(stepEvent(id, 0).payload)).toEqual([[OWNER, null, 'recipient'], [WAIT, null, 'recipient']]);

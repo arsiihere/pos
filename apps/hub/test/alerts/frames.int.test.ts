@@ -2,6 +2,8 @@ import { DomainError } from '@pos/domain';
 import type { AlertView, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { anAlertClosed, anAlertRaised, anAttemptSent, aPresenceSet, aRequestAnswered } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { defineAlertKind, unregisterAlertKind } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { registerRoute, unregisterRoute } from '../../src/alerts/routes';
 import { wsHubFor } from '../../src/ws/server';
@@ -574,6 +576,74 @@ describe('01d ws-frames (task 20)', () => {
       expectNoSecret(w.hub.logs());
     } finally {
       unregisterRoute('probe');
+    }
+  });
+
+  // 01d D-3 AD-37: one warn line per committed (alert, step) that reaches no receiver (no route)
+  const noReceiverLines = (w: World): unknown[] =>
+    w.hub
+      .logs()
+      .split('\n')
+      .filter((l) => l.includes('no_receiver'))
+      .map((l) => JSON.parse(l) as unknown);
+
+  it('[02p U-6] AD-37: a step with no receiver writes exactly one warn line with exactly those keys, and no extra row', async () => {
+    const w = await world(cleanups);
+    seedAlert(w, { id: 'AL_NR', rows: [personRow(MGR)], routes: [] });
+    append(w, [stepEvent('AL_NR', 1, [personRow(MGR)], [])]);
+    const lines = noReceiverLines(w) as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(2); // steps 0 and 1: one line each, never one per recipient or per tick
+    const picked = lines.map((l) => ({ level: l.level, alert_id: l.alert_id, kind: l.kind, step: l.step, reason: l.reason }));
+    expect(picked).toEqual([
+      { level: 40, alert_id: 'AL_NR', kind: 't_two_step', step: 0, reason: 'no_receiver' },
+      { level: 40, alert_id: 'AL_NR', kind: 't_two_step', step: 1, reason: 'no_receiver' },
+    ]);
+    for (const l of lines) {
+      const extra = Object.keys(l).filter((k) => !['level', 'time', 'pid', 'hostname', 'msg', 'alert_id', 'kind', 'step', 'reason', 'name'].includes(k));
+      expect(extra).toEqual([]);
+    }
+    expect(w.hub.deps.db.prepare('SELECT COUNT(*) AS n FROM alert_recipients WHERE alert_id = ?').get('AL_NR')).toEqual({ n: 2 }); // the seeded rows only
+  });
+
+  it('[02p U-6] AD-37: a step that finds a receiver writes no warn line', async () => {
+    const w = await world(cleanups);
+    seedAlert(w, { id: 'AL_OK', rows: [personRow(MGR)], routes: [{ staff_id: MGR, route: 'screen', ref: 'D1' }] });
+    expect(noReceiverLines(w)).toEqual([]);
+  });
+
+  it('[02p U-6] AD-37: a real raise whose only candidate is the requester (skip_requester) → one warn line, no recipient row', async () => {
+    const w = await world(cleanups);
+    defineAlertKind({
+      kind: 't_skip_only',
+      family: 'info',
+      subject: 'hub',
+      steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+      closes_on: 'owner',
+      values_schema: z.object({}),
+      details_schema: null,
+      lead_fallback: true,
+      skip_requester: true,
+      expires_at_day_close: true,
+      silent: false,
+      labels: { card: 'alert.t_skip_only.card', lock: 'alert.t_skip_only.lock' },
+      request: null,
+    });
+    try {
+      const id = raise(w, {
+        kind: 't_skip_only',
+        subject: { stream_type: 'hub', stream_id: 'B1' },
+        target: { kind: 'person', staff_id: MGR },
+        display: { kind_label_key: 'alert.t_skip_only.lock', table_code: null, requester_name: 'Manager' },
+        dedupe_key: 'skip-only:1',
+        requester_staff_id: MGR,
+      });
+      const lines = noReceiverLines(w) as Array<Record<string, unknown>>;
+      expect(lines.map((l) => ({ alert_id: l.alert_id, kind: l.kind, step: l.step, reason: l.reason }))).toEqual([
+        { alert_id: id, kind: 't_skip_only', step: 0, reason: 'no_receiver' },
+      ]);
+      expect(w.hub.deps.db.prepare('SELECT COUNT(*) AS n FROM alert_recipients WHERE alert_id = ?').get(id)).toEqual({ n: 0 });
+    } finally {
+      unregisterAlertKind('t_skip_only');
     }
   });
 });

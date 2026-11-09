@@ -1,10 +1,11 @@
 import { DomainError, type Permission, type Scope } from '@pos/domain';
 import type { AlertTarget } from '@pos/events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { StaffDirectory, type DirectoryCore } from '../auth/staff-directory';
 import type { WriterTx } from '../engine-host/writer';
 import type { WsHub } from '../ws/server';
-import type { StepDef } from './kinds';
+import { defineAlertKind, unregisterAlertKind, type StepDef } from './kinds';
 import {
   isPresent,
   mayAnswer,
@@ -17,6 +18,7 @@ import {
   type AlertRequestPart,
   type AlertRow,
   type BatchReads,
+  type ResolvedTarget,
   type ResolverKind,
   type TargetResolver,
 } from './targets';
@@ -206,7 +208,13 @@ describe('01d §3.4 resolveStep (test #1)', () => {
 
   it('[01d #1] table_team depth direct = owner + direct reports; depth owner = owner only', () => {
     resolver('table_team', () => new Map());
-    const r = reads({ resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T12' }), { staff_ids: [KAMRAN], device_ids: [] }]]) });
+    const r = reads({
+      resolved: new Map([
+        [targetKey({ kind: 'table_team', table_id: 'T12', depth: 'direct' }), { staff_ids: [KAMRAN, ALI, RUNNER], device_ids: [], owner_staff_id: KAMRAN }],
+        [targetKey({ kind: 'table_team', table_id: 'T12', depth: 'owner' }), { staff_ids: [KAMRAN], device_ids: [], owner_staff_id: KAMRAN }],
+      ]),
+    });
+    expect(targetKey({ kind: 'table_team', table_id: 'T12' })).toBe('table_team:T12:direct');
     expect(staffOf(resolveRaised({ kind: 'table_team', table_id: 'T12' }, { reads: r }))).toEqual([KAMRAN, ALI, RUNNER]);
     expect(staffOf(resolveRaised({ kind: 'table_team', table_id: 'T12', depth: 'direct' }, { reads: r }))).toEqual([KAMRAN, ALI, RUNNER]);
     expect(staffOf(resolveRaised({ kind: 'table_team', table_id: 'T12', depth: 'owner' }, { reads: r }))).toEqual([KAMRAN]);
@@ -214,13 +222,13 @@ describe('01d §3.4 resolveStep (test #1)', () => {
 
   it('[01d #1] table_team owner with no reports → owner only', () => {
     resolver('table_team', () => new Map());
-    const r = reads({ resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T1' }), { staff_ids: [HAMZA], device_ids: [] }]]) });
+    const r = reads({ resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T1' }), { staff_ids: [HAMZA], device_ids: [], owner_staff_id: HAMZA }]]) });
     expect(staffOf(resolveRaised({ kind: 'table_team', table_id: 'T1' }, { reads: r }))).toEqual([HAMZA]);
   });
 
   it('[01d §3.4] a step table_team target built from values resolves through the resolver result', () => {
     resolver('table_team', () => new Map());
-    const r = reads({ resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T7' }), { staff_ids: [ALI], device_ids: [] }]]) });
+    const r = reads({ resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T7' }), { staff_ids: [ALI, HAMZA], device_ids: [], owner_staff_id: ALI }]]) });
     const out = resolveStep(one({ kind: 'table_team', from_value: 'table_id' }), alert({ values: { table_id: 'T7' } }), r, directory(), ws);
     expect(staffOf(out)).toEqual([ALI, HAMZA]);
   });
@@ -326,7 +334,7 @@ describe('01d §3.4 resolveTargets (batch resolvers)', () => {
       { kind: 'table_team', table_id: 'T2', depth: 'owner' },
     ]);
     expect(point).toHaveBeenCalledTimes(1);
-    expect(out.get(targetKey({ kind: 'table_team', table_id: 'T2' }))).toEqual({ staff_ids: ['owner-of-T2'], device_ids: [] });
+    expect(out.get(targetKey({ kind: 'table_team', table_id: 'T2', depth: 'owner' }))).toEqual({ staff_ids: ['owner-of-T2'], device_ids: [] });
     expect(out.get(targetKey({ kind: 'point', point_id: 'P1' }))).toEqual({ staff_ids: [], device_ids: ['D1'] });
   });
 
@@ -482,7 +490,7 @@ describe('01d §3.4.1 presence filter (test #5, BF-8)', () => {
     resolver('table_team', () => new Map());
     const r = reads({
       presence: new Map([[ALI, false], [RUNNER, false]]),
-      resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T12' }), { staff_ids: [KAMRAN], device_ids: [] }]]),
+      resolved: new Map([[targetKey({ kind: 'table_team', table_id: 'T12' }), { staff_ids: [KAMRAN, ALI, RUNNER], device_ids: [], owner_staff_id: KAMRAN }]]),
     });
     expect(staffOf(resolveRaised({ kind: 'team', lead_staff_id: KAMRAN, depth: 'all' }, { reads: r }))).toEqual([HAMZA]);
     expect(staffOf(resolveRaised({ kind: 'table_team', table_id: 'T12' }, { reads: r }))).toEqual([KAMRAN]);
@@ -509,5 +517,117 @@ describe('01d §3.4.1 presence filter (test #5, BF-8)', () => {
       sessions: [{ session_id: 'ss2', staff_id: KAMRAN, device_id: 'D_KIOSK', last_activity_at: 0 }],
     });
     expect(staffOf(resolveStep(one({ kind: 'answerers' }, 'answerer'), alert(voidAlert(ALI)), r, directory(), ws))).toEqual([IMRAN, KAMRAN]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------ 02p U-6 (D-1, D-3)
+
+describe('[02p U-6] 01d D-1 table_team full set, D-3 skip_requester', () => {
+  const T = (depth?: 'owner' | 'direct') => ({ kind: 'table_team' as const, table_id: 'T12', ...(depth === undefined ? {} : { depth }) });
+  const full = (staff_ids: string[], owner: string): ResolvedTarget => ({ staff_ids, device_ids: [], owner_staff_id: owner });
+
+  it('[02p U-6] D-1 (b): no teamOf(owners) added for table_team; the presence filter still applies', () => {
+    resolver('table_team', () => new Map());
+    // KAMRAN has reports ALI and RUNNER in the directory; the resolver's set is only [KAMRAN, HAMZA]
+    const r = reads({
+      presence: new Map([[HAMZA, false]]),
+      resolved: new Map([[targetKey(T('direct')), full([KAMRAN, HAMZA], KAMRAN)]]),
+    });
+    expect(staffOf(resolveRaised(T('direct'), { reads: r }))).toEqual([KAMRAN]);
+    const all = reads({ resolved: r.resolved });
+    expect(staffOf(resolveRaised(T('direct'), { reads: all }))).toEqual([KAMRAN, HAMZA]);
+  });
+
+  it('[02p U-6] D-1 (c): the absent-owner marker and the zone fallback use owner_staff_id', () => {
+    resolver('table_team', () => new Map());
+    // the holder KAMRAN is absent; ALI (a report, present) is in the set but is not the owner
+    const r = reads({
+      presence: new Map([[KAMRAN, false]]),
+      resolved: new Map([[targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)]]),
+    });
+    const out = resolveRaised(T('direct'), { reads: r });
+    expect(out).toEqual([
+      { staff_id: ALI, device_id: null, set: 'recipient' },
+      { staff_id: null, device_id: null, set: 'recipient', table_team: { table_id: 'T12', owner_staff_id: KAMRAN } },
+    ]);
+    // a present holder: origin attached to the holder only, no marker; a set without owner_staff_id → no origin
+    const present = reads({ resolved: new Map([[targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)]]) });
+    expect(resolveRaised(T('direct'), { reads: present }).filter((x) => x.table_team !== undefined).map((x) => x.staff_id)).toEqual([KAMRAN]);
+    const none = reads({ resolved: new Map([[targetKey(T('direct')), { staff_ids: [ALI], device_ids: [] }]]) });
+    expect(resolveRaised(T('direct'), { reads: none })).toEqual([{ staff_id: ALI, device_id: null, set: 'recipient' }]);
+  });
+
+  it('[02p U-6] D-1 (c): owner and direct targets for one table in one step, holder absent → exactly one marker', () => {
+    resolver('table_team', () => new Map());
+    const step: StepDef = {
+      at: { ms: 0 },
+      to: [
+        { target: { kind: 'table_team', from_value: 'table_id', depth: 'owner' }, set: 'recipient' },
+        { target: { kind: 'table_team', from_value: 'table_id', depth: 'direct' }, set: 'recipient' },
+      ],
+    };
+    const r = reads({
+      presence: new Map([[KAMRAN, false]]),
+      resolved: new Map([
+        [targetKey(T('owner')), full([KAMRAN], KAMRAN)],
+        [targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)],
+      ]),
+    });
+    const out = resolveStep(step, alert({ values: { table_id: 'T12' } }), r, directory(), ws);
+    expect(out.filter((x) => x.staff_id === null && x.device_id === null)).toHaveLength(1);
+    expect(staffOf(out)).toEqual([ALI]);
+  });
+
+  describe('D-3', () => {
+    const defined: string[] = [];
+    afterEach(() => {
+      for (const k of defined.splice(0)) unregisterAlertKind(k);
+    });
+    const kindWith = (kind: string, skip: boolean): void => {
+      defined.push(kind);
+      defineAlertKind({
+        kind,
+        family: 'info',
+        subject: 'hub',
+        steps: [{ at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] }],
+        closes_on: 'owner',
+        values_schema: z.object({}),
+        details_schema: null,
+        lead_fallback: false,
+        ...(skip ? { skip_requester: true } : {}),
+        expires_at_day_close: true,
+        silent: false,
+        labels: { card: `alert.${kind}.card`, lock: `alert.${kind}.lock` },
+        request: null,
+      });
+    };
+
+    it('[02p U-6] D-3: no absent-holder marker when the absent holder is the requester', () => {
+      resolver('table_team', () => new Map());
+      kindWith('t_skip_m', true);
+      kindWith('t_keep_m', false);
+      const r = reads({
+        presence: new Map([[KAMRAN, false]]),
+        resolved: new Map([[targetKey(T('direct')), full([KAMRAN, ALI], KAMRAN)]]),
+      });
+      const run = (kind: string) => resolveRaised(T('direct'), { reads: r, alert: { kind, requester_staff_id: KAMRAN } });
+      expect(run('t_skip_m')).toEqual([{ staff_id: ALI, device_id: null, set: 'recipient' }]);
+      expect(run('t_keep_m').filter((x) => x.staff_id === null)).toHaveLength(1);
+    });
+
+    it('[02p U-6] D-3: skip_requester drops the requester from every step\'s set', () => {
+      kindWith('t_skip', true);
+      kindWith('t_keep', false);
+      const step: StepDef = {
+        at: { ms: 0 },
+        to: [
+          { target: { kind: 'managers' }, set: 'recipient' },
+          { target: { kind: 'managers' }, set: 'recipient' },
+        ],
+      };
+      const run = (kind: string) => staffOf(resolveStep(step, alert({ kind, requester_staff_id: IMRAN }), reads(), directory(), ws));
+      expect(run('t_keep')).toEqual([IMRAN, MGR2, OWNER]);
+      expect(run('t_skip')).toEqual([MGR2, OWNER]);
+    });
   });
 });

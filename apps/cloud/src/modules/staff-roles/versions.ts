@@ -17,6 +17,7 @@ export interface StaffRow {
   left_at: number | null;
   reports_to: { branch_id: string; lead_staff_id: string }[];
   floors: { branch_id: string; floor_ids: string[] }[];
+  assignments: { branch_id: string; zone_ids: string[]; table_ids: string[] }[]; // 01b v1.6 B-2 (AD-21)
 }
 
 export interface RoleRow {
@@ -57,6 +58,7 @@ export function toStaffWire(row: StaffRow): Unversioned<StaffWire> {
     left_at: numberOrNull(row.left_at),
     reports_to: sortedReportsTo(row.reports_to),
     floors: sortedFloors(row.floors),
+    assignments: sortedAssignments(row.assignments),
   };
 }
 
@@ -97,6 +99,7 @@ export function staffVersion(wire: Unversioned<StaffWire>): string {
     denied_permissions: sorted(wire.denied_permissions),
     reports_to: sortedReportsTo(wire.reports_to),
     floors: sortedFloors(wire.floors),
+    assignments: sortedAssignments(wire.assignments), // AD-22: a stale save of assignments → 409 CONFIG_STALE
     is_active: wire.is_active,
   });
 }
@@ -158,6 +161,14 @@ function sortedReportsTo(rows: StaffRow['reports_to']): StaffRow['reports_to'] {
 function sortedFloors(rows: StaffRow['floors']): StaffRow['floors'] {
   return rows
     .map((row) => ({ branch_id: row.branch_id, floor_ids: sorted(row.floor_ids) }))
+    .sort((a, b) => compare(a.branch_id, b.branch_id));
+}
+
+// AD-21: by branch; a branch with no zone and no table has no entry (`[]` lists clear it, AD-23).
+function sortedAssignments(rows: StaffRow['assignments']): StaffRow['assignments'] {
+  return rows
+    .filter((row) => row.zone_ids.length > 0 || row.table_ids.length > 0)
+    .map((row) => ({ branch_id: row.branch_id, zone_ids: sorted([...new Set(row.zone_ids)]), table_ids: sorted([...new Set(row.table_ids)]) }))
     .sort((a, b) => compare(a.branch_id, b.branch_id));
 }
 

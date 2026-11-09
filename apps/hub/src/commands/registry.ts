@@ -27,6 +27,8 @@ export interface CommandCtx {
   branch: { tenantId: string; branchId: string };
   directory: StaffDirectory;
   config: HubConfig;
+  /** 00 v1.8 H-1 (b): `X-Queued-At` clamped to `[started_at - 120 000, now]`; null unless the command is queueable with a valid header. */
+  queuedAt: number | null;
 }
 
 /** 00 v1.6 §3.7 H-3: the only commands that may declare `permission: 'checked-in-handler'`. */
@@ -53,6 +55,8 @@ export interface CommandDef<P extends z.ZodType = z.ZodType> {
   permission: Permission | null | 'checked-in-handler';
   approvable?: boolean;
   stationScoped?: boolean;
+  /** 00 v1.8 H-1 (c): only a queueable command reads `X-Queued-At` as `ctx.queuedAt` (default false). */
+  queueable?: boolean;
   /** 00 v1.6 §3.5 / §4.2 H-3: read-only check after payload Zod, before the PIN step; `db` is the read-only view. */
   preRead?(db: Database.Database, payload: z.infer<P>, ctx: PreReadCtx): void;
   /** 00 v1.6 §3.5 H-3: the PIN to verify; `field` is also omitted from `payload_hash` (H-9). */

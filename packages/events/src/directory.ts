@@ -1,7 +1,7 @@
 import { SCOPES, type Scope } from '@pos/domain';
 import { z } from 'zod';
 
-// 01b §4.3.1 (B18 a): directory v2, additive over v1. Every v1 key keeps its v1 meaning
+// 01b §4.3.1 (B18 a): directory v2, additive over v1 (v3, 01b v1.6 B-2: assigned_zone_ids / assigned_table_ids). Every v1 key keeps its v1 meaning
 // (`approver_role_id` = the first of the sorted `approver_role_ids`, or null), so a v1.4 hub drops the
 // new keys and keeps applying. v2 hubs read `approver_role_ids` and ignore `approver_role_id`.
 export const ScopeSchema = z.enum(SCOPES as [Scope, ...Scope[]]);
@@ -17,6 +17,10 @@ export const DirectorySchema = z.object({
       denied_permissions: z.array(z.string()),
       lead_staff_id: z.string().nullable(),
       floor_ids: z.array(z.string()),
+      // 01b v1.6 B-2 (§4.3.1, AD-21): directory v3, additive; this branch's active zones and tables, sorted.
+      // Optional: an older cloud omits them (B18 a), read as no assignment.
+      assigned_zone_ids: z.array(z.string()).optional(),
+      assigned_table_ids: z.array(z.string()).optional(),
     }),
   ),
   roles: z.array(

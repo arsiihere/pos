@@ -47,6 +47,7 @@ export function person(o: Partial<Staff> & Pick<Staff, 'staff_id' | 'display_nam
     left_at: null,
     reports_to: [],
     floors: [],
+    assignments: [],
     version: `v-${o.staff_id}`,
     ...o,
   };

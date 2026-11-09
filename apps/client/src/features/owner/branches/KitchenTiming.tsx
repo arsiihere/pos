@@ -9,18 +9,9 @@ import { formatMinutes, parseMinutes } from '../minutes';
 // percents (sent as typed); every time is typed in minutes and sent as ms (minutes.ts, two decimals, so the
 // 15 s and 30 s minimums are 0.25 and 0.5). The ranges are the cloud's (staff.ts BranchEngineSettings); a box
 // outside its range is refused here, so the cloud's own check is never the first one the owner meets.
-// TODO(02p task 9): use BranchEngineSettings fields, drop local defaults
-// 01a v2.3 §5.2a (02b A-1): three more times beside the A-12 fields. The cloud wire may not carry them yet
-// (task 9 adds them to the settings endpoint), so a missing value reads as the spec default.
-type OrderingKey = 'queue_auto_send_max_ms' | 'zone_undo_ms' | 'slow_item_threshold_ms';
-export type EngineSettings = BranchEngineSettings & Partial<Record<OrderingKey, number>>;
-export const ORDERING_DEFAULT: Record<OrderingKey, number> = {
-  queue_auto_send_max_ms: 14_400_000,
-  zone_undo_ms: 300_000,
-  slow_item_threshold_ms: 900_000,
-};
-type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost'> | OrderingKey;
-const storedOf = (base: EngineSettings, key: NumericKey): number => base[key] ?? ORDERING_DEFAULT[key as OrderingKey];
+// 01a v2.3 §5.2a (02b A-1): three more times beside the A-12 fields, now on BranchEngineSettings (task 9).
+type NumericKey = Exclude<keyof BranchEngineSettings, 'returns_boost' | 'comp_reason_chips'>;
+const storedOf = (base: BranchEngineSettings, key: NumericKey): number => base[key];
 interface Spec {
   key: NumericKey;
   kind: 'pct' | 'ms';
@@ -62,7 +53,7 @@ const SPECS: Spec[] = [...WEIGHTS, ...PADDINGS, ...OTHERS, ...ORDERING];
 
 export type EngineState = Record<NumericKey, string> & { returns_boost: boolean };
 
-export function engineState(base: EngineSettings): EngineState {
+export function engineState(base: BranchEngineSettings): EngineState {
   const state = { returns_boost: base.returns_boost } as EngineState;
   for (const spec of SPECS) state[spec.key] = spec.kind === 'pct' ? String(storedOf(base, spec.key)) : formatMinutes(storedOf(base, spec.key));
   return state;
@@ -78,8 +69,8 @@ function valueOf(spec: Spec, text: string, stored: number): number | null {
 // The changed fields as a PATCH body part, plus a message per box that is outside its range.
 export function enginePatch(
   state: EngineState,
-  base: EngineSettings,
-): { patch: Partial<EngineSettings>; errors: Record<string, string> } {
+  base: BranchEngineSettings,
+): { patch: Partial<BranchEngineSettings>; errors: Record<string, string> } {
   const patch: Record<string, number | boolean> = {};
   const errors: Record<string, string> = {};
   for (const spec of SPECS) {
@@ -93,7 +84,7 @@ export function enginePatch(
     } else if (value !== stored) patch[spec.key] = value;
   }
   if (state.returns_boost !== base.returns_boost) patch['returns_boost'] = state.returns_boost;
-  return { patch: patch as Partial<EngineSettings>, errors };
+  return { patch: patch as Partial<BranchEngineSettings>, errors };
 }
 
 export const engineFieldLabel = (key: string): string | undefined => {

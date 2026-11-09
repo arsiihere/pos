@@ -8,6 +8,8 @@ import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 // v2.1's config-only sync poll 200 path after the guard's key lookup, measured on this branch before task 4: the
 // header read, the 21 builder statements and the hub_last_seen_at UPDATE (01b v1.5 B-8 bound ≤ 27).
 const V21_CONFIG_ONLY_200 = 23;
+// The same poll with the directory on v2.1: + loadDirectory's 9 statements (01b v1.4 B-5), within 01b v1.5 B-8's ≤ 32.
+const V21_WITH_DIRECTORY_200 = V21_CONFIG_ONLY_200 + 9;
 
 // 01a v2.2 A-1, v2.3 A-1 (02p §11 #4): snapshot schema 4 from the cloud.
 describe('GET /v1/sync/config: snapshot V4', () => {
@@ -61,7 +63,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
   const ground = (snapshot: ReturnType<typeof BranchConfigSnapshotSchemaV4.parse>) =>
     snapshot.floors.find((floor) => floor.floor_id === menu.floorId)!;
 
-  it('[01a #187] Sync poll 200 path: one statement more than v2.1; snapshot `snapshot_schema_version = 4` with `zones[]` and `zone_id`', async () => {
+  it('[01a #187] Sync poll 200 path: config-only one statement more than v2.1 (zones), with the directory "+2" (zones and 01b v1.6 B-2 assignments); snapshot `snapshot_schema_version = 4` with `zones[]` and `zone_id`', async () => {
     const zoneId = await createZone({
       floor_id: menu.floorId,
       name: 'Patio',
@@ -87,6 +89,15 @@ describe('GET /v1/sync/config: snapshot V4', () => {
     const empty = await pollConfig();
     expect(counter.count).toBe(V21_CONFIG_ONLY_200 + 1);
     expect(ground(empty.snapshot).zones).toEqual([]);
+    // with the directory (directory_version 0 is always behind): + the zones read and the assignments read
+    const both = await cloud.app.inject({
+      method: 'GET',
+      url: '/v1/sync/config?config_version=0&directory_version=0',
+      headers: { authorization: `Bearer ${f.branchKey}` },
+    });
+    expect(both.statusCode, both.body).toBe(200);
+    expect(both.json().data.directory).not.toBeNull();
+    expect(counter.count).toBe(V21_WITH_DIRECTORY_200 + 2);
   });
 
   it('[01a #192] Snapshot V4 carries `zones[].routes[]`, `zones[].stock_items[]`, `items[].is_ready_item`', async () => {
