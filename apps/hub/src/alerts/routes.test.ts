@@ -390,7 +390,8 @@ describe('01d §3.4.3 / §3.8 fallbacks, registered routes, devices', () => {
 });
 
 describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
-  const T12 = targetKey({ kind: 'table_team', table_id: 'T12' });
+  const T12 = targetKey({ kind: 'table_team', table_id: 'T12', depth: 'owner' });
+  const T12d = targetKey({ kind: 'table_team', table_id: 'T12' }); // D-1 (a): a missing depth is direct
   const Z12 = targetKey({ kind: 'zone_order_taker', table_id: 'T12' });
   const ownerStep: StepDef = { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] };
   const tableAlert = (depth: 'owner' | 'direct' = 'owner'): AlertRow => ({
@@ -405,7 +406,8 @@ describe('01d §3.4.2 table-team fallback (zone order taker, managers)', () => {
   });
   // HAMZA owns T12; his lead ALI has no route; ZONE is the zone's order taker.
   const resolvedWith = (zone: string[] | null): Map<string, ResolvedTarget> => {
-    const out = new Map<string, ResolvedTarget>([[T12, { staff_ids: [HAMZA], device_ids: [] }]]);
+    const holder = { staff_ids: [HAMZA], device_ids: [], owner_staff_id: HAMZA };
+    const out = new Map<string, ResolvedTarget>([[T12, holder], [T12d, holder]]);
     if (zone !== null) out.set(Z12, { staff_ids: zone, device_ids: [] });
     return out;
   };

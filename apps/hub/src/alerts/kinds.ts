@@ -88,6 +88,8 @@ export interface AlertKindDef<V = Record<string, unknown>, D = AlertDetails> {
   /** a Zod object over AlertDetailsBase, or null */
   details_schema: z.ZodType<D> | null;
   lead_fallback: boolean;
+  /** 01d D-3: leave the requester out of every set of every step (default false; not on a request kind) */
+  skip_requester?: boolean;
   expires_at_day_close: boolean;
   silent: boolean;
   labels: AlertLabels;
@@ -129,6 +131,7 @@ export function defineAlertKind<V extends Record<string, unknown>, D extends Ale
     }
   });
   if (def.lead_fallback && def.request !== null) fail('lead_fallback: true on a request kind');
+  if (def.skip_requester === true && def.request !== null) fail('skip_requester: true on a request kind (requests already skip the requester)');
   // AD-124: requests never expire (§3.3), so such a request would stay due forever and fill the tick's LIMIT
   if (def.request !== null && typeof def.closes_on === 'object') fail('closes_on.after_ms on a request kind (requests never expire)');
   if (!def.expires_at_day_close && def.closes_on !== 'seen') {

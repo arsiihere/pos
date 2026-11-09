@@ -131,10 +131,12 @@ describe('01d targets on the hub database', () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
-  it('[01d #1] table_team via the registered fakeTableOwner: depth direct and owner, one call, one statement', async () => {
+  it('[01d #25] [01d #1] table_team via the registered fakeTableOwner: full set per depth, one call, one statement', async () => {
     const h = await harness(cleanups);
     fakeTableOwner.owners.set('T12', KAMRAN);
     fakeTableOwner.owners.set('T14', HAMZA);
+    fakeTableOwner.reports.set(KAMRAN, [ALI, BILAL, HAMZA]);
+    fakeTableOwner.reports.set(HAMZA, []);
     const counter = statementCounter(h.db);
     const { result } = h.writer.run((tx: WriterTx) => {
       counter.reset();
@@ -150,11 +152,16 @@ describe('01d targets on the hub database', () => {
       const owner = resolveStep(raisedStep, alert({ target: { kind: 'table_team', table_id: 'T12', depth: 'owner' } }), reads, dir, ws);
       const noReports = resolveStep(raisedStep, alert({ target: { kind: 'table_team', table_id: 'T14' } }), reads, dir, ws);
       const unknown = resolveStep(raisedStep, alert({ target: { kind: 'table_team', table_id: 'T99' } }), reads, dir, ws);
-      return { statements, direct, owner, noReports, unknown };
+      const keys = [...resolved.keys()];
+      const lists = [...resolved.values()].map((v) => v.staff_ids);
+      return { statements, direct, owner, noReports, unknown, keys, lists };
     });
     expect(result.statements).toBe(1);
     expect(fakeTableOwner.calls).toHaveLength(1);
-    expect(fakeTableOwner.calls[0]!.map((t) => t.table_id)).toEqual(['T12', 'T14', 'T99']);
+    // D-1 (a): owner and direct for T12 are two targets, two lists; the missing depth on T14 / T99 = direct
+    expect(fakeTableOwner.calls[0]!.map((t) => `${t.table_id}:${t.depth ?? 'direct'}`)).toEqual(['T12:direct', 'T12:owner', 'T14:direct', 'T99:direct']);
+    expect(result.keys).toEqual(['table_team:T12:direct', 'table_team:T12:owner', 'table_team:T14:direct']);
+    expect(result.lists).toEqual([[KAMRAN, ALI, BILAL, HAMZA], [KAMRAN], [HAMZA]]);
     expect(result.direct.map((r) => r.staff_id)).toEqual([KAMRAN, ALI, BILAL, HAMZA]);
     expect(result.owner.map((r) => r.staff_id)).toEqual([KAMRAN]);
     expect(result.noReports.map((r) => r.staff_id)).toEqual([HAMZA]);
