@@ -156,6 +156,21 @@ describe('StaffDirectory v2 lookups (01b §3.5, §3.6)', () => {
     }
   });
 
+  it('[01b AD-30] assignedOrderTaker counts only an allowed take-order grant, not requires_approval', async () => {
+    const hash = await pinHash(PIN.a);
+    const d = assignmentDirectory(hash);
+    const approval: Grant = { permission: 'take-order', grant_type: 'requires_approval', approver_role_id: 'R_OT', approver_role_ids: ['R_OT'], scope: 'branch' };
+    d.roles.push(role('R_TRAINEE', 'Trainee', 300_000, [approval]));
+    d.staff.push({ ...person('S_TRAINEE', 'Trainee', hash, ['R_TRAINEE']), assigned_zone_ids: ['Z2'], assigned_table_ids: ['T5'] });
+    const { applied, reloaded } = await hubWith(d);
+    swapBranchConfig(configWith([['T5', 'Z1'], ['T6', 'Z2']]));
+    for (const directory of [applied, reloaded]) {
+      expect(directory.resolve('S_TRAINEE', 'take-order').grant).toBe('requires_approval');
+      expect(directory.assignedOrderTaker('T5')).toBe('S_ZONE'); // the trainee's table does not count; the zone's allowed holder does
+      expect(directory.assignedOrderTaker('T6')).toBeNull(); // the trainee's zone does not count
+    }
+  });
+
   it('[02p U-3] directory v3 carries the lists to the hub: stored, reloaded in 11 statements [01b AD-27]; a v2 directory applies with none', async () => {
     const hash = await pinHash(PIN.a);
     const { applied, reloaded } = await hubWith(assignmentDirectory(hash));

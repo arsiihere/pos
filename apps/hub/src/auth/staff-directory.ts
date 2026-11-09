@@ -311,8 +311,8 @@ export class StaffDirectory {
   }
 
   // 01b v1.6 B-2, 02a §3.6 (AD-24, AD-25): the staff whose assigned tables hold the table, else whose assigned zones
-  // hold its zone (read through the injected reader), else null. Only people holding take-order count (a grant,
-  // allowed or requires_approval; not a denial): an assignee without it is stored but skipped here. In memory.
+  // hold its zone (read through the injected reader), else null. Only people with an allowed take-order grant count
+  // (AD-30): an assignee without it is stored but skipped here. In memory.
   assignedOrderTaker(tableId: string): string | null {
     const byTable = this.tableAssignee.get(tableId);
     if (byTable !== undefined && this.takesOrders(byTable)) return byTable;
@@ -322,9 +322,9 @@ export class StaffDirectory {
     return byZone !== undefined && this.takesOrders(byZone) ? byZone : null;
   }
 
+  // AD-30: an `allowed` take-order grant at this branch (the directory is this branch's); requires_approval does not count.
   private takesOrders(staffId: string): boolean {
-    const grant = this.resolve(staffId, 'take-order').grant;
-    return grant === 'allowed' || grant === 'requires_approval';
+    return this.resolve(staffId, 'take-order').grant === 'allowed';
   }
 
   // 01b §3.5: the person's lead at this branch, or null.

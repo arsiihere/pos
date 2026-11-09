@@ -1,4 +1,5 @@
-import type { Permission } from '@pos/domain';
+import { DomainError, type Permission } from '@pos/domain';
+import type pg from 'pg';
 import type { TenantSql } from '../../lib/config-version.js';
 import { BRANCH_ENGINE_SETTING_KEYS, type BranchEngineSettings, type BranchWire, type GrantWire, type ResponsibilityWire } from '@pos/events';
 import { toBranchWire, type BranchRow, type ResponsibilityRow, type RoleRow, type StaffRow } from './versions.js';
@@ -359,11 +360,13 @@ export async function selectAssignmentSubjects(
 }
 
 // §3.2 rule 7: who else holds any of these (branch, kind, id) subjects, in the stored rows. Read after the tenant
-// lock (B11), in the write's transaction, so no other directory write can store a holder in between.
+// lock (B11), in the write's transaction, so no other directory write can store a holder in between. AD-29: active
+// staff only (a person who has left holds none); `anyHolder` reads every row, for the index backstop.
 export async function selectAssignmentHolders(
   db: TenantSql,
   staffId: string | null,
   rows: NewStaff['assignments'],
+  o: { anyHolder?: boolean } = {},
 ): Promise<{ branch_id: string; subject_kind: 'zone' | 'table'; subject_id: string; staff_id: string }[]> {
   if (rows.length === 0) return [];
   return db.query(
@@ -371,9 +374,36 @@ export async function selectAssignmentHolders(
        FROM staff_assignments sa
        JOIN unnest($2::text[], $3::text[], $4::text[]) AS x(b, k, id)
          ON sa.branch_id = x.b AND sa.subject_kind = x.k AND sa.subject_id = x.id
-      WHERE sa.tenant_id = $1 AND ($5::text IS NULL OR sa.staff_id <> $5)`,
-    [rows.map((row) => row.branch_id), rows.map((row) => row.subject_kind), rows.map((row) => row.subject_id), staffId],
+       JOIN staff s ON s.tenant_id = sa.tenant_id AND s.staff_id = sa.staff_id
+      WHERE sa.tenant_id = $1 AND ($5::text IS NULL OR sa.staff_id <> $5) AND ($6::boolean OR s.is_active)
+      ORDER BY sa.branch_id, sa.subject_kind, sa.subject_id`,
+    [rows.map((row) => row.branch_id), rows.map((row) => row.subject_kind), rows.map((row) => row.subject_id), staffId, o.anyHolder === true],
   );
+}
+
+// §3.2 rule 7 (l): the unique index staff_assignments_one_person is the backstop of the holder check. Its 23505
+// answers 422 CONFIG_REFERENCE_INVALID { field: 'assignments', reason: 'already_assigned', staff_id } with the
+// holder re-read, never 500. A savepoint keeps the transaction usable for that read; with no rows, no savepoint.
+export async function assignmentBackstop<T>(
+  client: pg.PoolClient,
+  db: TenantSql,
+  staffId: string | null,
+  rows: NewStaff['assignments'],
+  write: () => Promise<T>,
+): Promise<T> {
+  if (rows.length === 0) return write();
+  await client.query('SAVEPOINT staff_assignments_write');
+  try {
+    const out = await write();
+    await client.query('RELEASE SAVEPOINT staff_assignments_write');
+    return out;
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code !== '23505' || pgError.constraint !== 'staff_assignments_one_person') throw error;
+    await client.query('ROLLBACK TO SAVEPOINT staff_assignments_write');
+    const [holder] = await selectAssignmentHolders(db, staffId, rows, { anyHolder: true });
+    throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'assignments', reason: 'already_assigned', staff_id: holder?.staff_id ?? null });
+  }
 }
 
 export async function selectActiveAtBranch(db: TenantSql, staffIds: string[]): Promise<Set<string>> {

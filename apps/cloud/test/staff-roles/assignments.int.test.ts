@@ -1,7 +1,10 @@
 import type { DefaultKey } from '@pos/domain';
 import { DirectorySchema } from '@pos/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DomainError } from '@pos/domain';
+import { TenantLevelRepository } from '../../src/db/tenant-level-repository';
 import { loadDirectory } from '../../src/modules/hub-registration/repository';
+import { assignmentBackstop, replaceAssignments } from '../../src/modules/staff-roles/repository';
 import { owner, restaurantFixture, type RestaurantFixture } from '../helpers/restaurant';
 import { createTestCloud, type TestCloud } from '../helpers/test-cloud';
 
@@ -335,5 +338,70 @@ describe('staff assignments (01b §3.2 rule 7)', () => {
     });
     await cloud.pool.query(`UPDATE dining_tables SET archived_at = NULL WHERE tenant_id = $1 AND table_id = $2`, [f.tenantId, 'TA2']);
     expect(await entry(A())).toMatchObject({ assigned_zone_ids: ['ZA1'], assigned_table_ids: ['TA1', 'TA2'] });
+  });
+
+  it('[01b AD-29] a left person PATCHed with assignments stores none; another person can then take the zone', async () => {
+    await layout();
+    const sara = await create('Sara', [A()]);
+    const left = await patched(sara.staff_id, { expected_version: sara.version, is_active: false });
+    const again = await patch(left.staff_id, { expected_version: left.version, assignments: [{ branch_id: A(), zone_ids: ['ZA1'], table_ids: ['TA2'] }] });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json().data.staff.assignments).toEqual([]);
+    expect(await stored()).toEqual([]);
+    const bilal = await create('Bilal', [A()], { assignments: [{ branch_id: A(), zone_ids: ['ZA1'], table_ids: ['TA2'] }] });
+    expect(bilal.assignments).toEqual([{ branch_id: A(), zone_ids: ['ZA1'], table_ids: ['TA2'] }]);
+    // returning in the same PATCH may take assignments
+    const back = await patched(left.staff_id, { expected_version: left.version, is_active: true, assignments: [{ branch_id: A(), zone_ids: [], table_ids: ['TA1'] }] });
+    expect(back.assignments).toEqual([{ branch_id: A(), zone_ids: [], table_ids: ['TA1'] }]);
+  });
+
+  it('[01b AD-31] a zone or table the person already holds may be re-sent after it is archived and is kept; a newly added archived id → archived', async () => {
+    await layout();
+    let sara = await create('Sara', [A()], { assignments: [{ branch_id: A(), zone_ids: ['ZA1'], table_ids: ['TA1'] }] });
+    await cloud.pool.query(`UPDATE zones SET archived_at = $3 WHERE tenant_id = $1 AND zone_id = $2`, [f.tenantId, 'ZA1', T]);
+    await cloud.pool.query(`UPDATE dining_tables SET archived_at = $3 WHERE tenant_id = $1 AND table_id = $2`, [f.tenantId, 'TA1', T]);
+    sara = await patched(sara.staff_id, { expected_version: sara.version, assignments: [{ branch_id: A(), zone_ids: ['ZA1', 'ZA2'], table_ids: ['TA1'] }] });
+    expect(sara.assignments).toEqual([{ branch_id: A(), zone_ids: ['ZA1', 'ZA2'], table_ids: ['TA1'] }]);
+    for (const assignments of [
+      [{ branch_id: A(), zone_ids: ['ZA1', 'ZA2', 'ZAX'], table_ids: ['TA1'] }],
+      [{ branch_id: A(), zone_ids: ['ZA1', 'ZA2'], table_ids: ['TA1', 'TAX'] }],
+    ]) {
+      expect(reference(await patch(sara.staff_id, { expected_version: sara.version, assignments })).details).toEqual({ field: 'assignments', reason: 'archived' });
+    }
+    // another person may not take Sara's archived zone either way (it is held, and archived for them)
+    const bilal = await create('Bilal', [A()]);
+    expect(reference(await patch(bilal.staff_id, { expected_version: bilal.version, assignments: [{ branch_id: A(), zone_ids: ['ZA1'], table_ids: [] }] })).details).toEqual({
+      field: 'assignments',
+      reason: 'archived',
+    });
+  });
+
+  it('[01b §3.2 rule 7 (l)] a unique-index conflict on staff_assignments_one_person answers 422 already_assigned with the holder, never 500', async () => {
+    await layout();
+    const sara = await create('Sara', [A()], { assignments: [{ branch_id: A(), zone_ids: ['ZA1'], table_ids: [] }] });
+    const bilal = await create('Bilal', [A()]);
+    // a writer that skipped the rule (the backstop path): the insert meets the index
+    const client = await cloud.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const repo = new TenantLevelRepository(Object.freeze({ tenantId: f.tenantId, branchIds: Object.freeze([...f.branches]) }), client);
+      const rows = [{ branch_id: A(), subject_kind: 'zone' as const, subject_id: 'ZA1' }];
+      const error = await assignmentBackstop(client, repo, bilal.staff_id, rows, () => replaceAssignments(repo, bilal.staff_id, [A()], rows)).catch(
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(DomainError);
+      expect(error).toMatchObject({
+        code: 'CONFIG_REFERENCE_INVALID',
+        details: { field: 'assignments', reason: 'already_assigned', staff_id: sara.staff_id },
+      });
+      // the transaction is still usable (rolled back to the savepoint)
+      expect((await client.query('SELECT 1 AS one')).rows).toEqual([{ one: 1 }]);
+      // any other error passes through
+      const other = await assignmentBackstop(client, repo, bilal.staff_id, rows, () => Promise.reject(new Error('boom'))).catch((e: unknown) => e);
+      expect(other).toMatchObject({ message: 'boom' });
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
   });
 });

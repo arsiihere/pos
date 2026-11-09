@@ -684,6 +684,30 @@ describe('applyStaffDirectory', () => {
     ]);
   });
 
+  it('[01b B18, v1.6 B-2] a kept row (bad PIN hash) never beats the cloud\'s current holder of a zone or table', async () => {
+    const { db, writer } = await open();
+    const hash = await pinHash('1234');
+    const v1 = dir(1, hash, ['take-order'], ['S_A', 'S_B']);
+    Object.assign(v1.staff[0]!, { assigned_zone_ids: ['Z1'], assigned_table_ids: ['T1'] });
+    writer.run((tx) => applyStaffDirectory(tx, v1, () => undefined));
+    // v2: S_A's hash is malformed (its v1 row is kept, with Z1 and T1); the cloud moved Z1 and T1 to S_B
+    const v2 = dir(2, hash, ['take-order'], ['S_A', 'S_B']);
+    v2.staff[0]!.pin_hash = 'not-a-hash';
+    Object.assign(v2.staff[1]!, { assigned_zone_ids: ['Z1'], assigned_table_ids: ['T1'] });
+    let applied: StaffDirectory | undefined;
+    writer.run((tx) => applyStaffDirectory(tx, v2, (next) => (applied = next)));
+    expect(db.prepare('SELECT staff_id, subject_kind, subject_id FROM staff_assignments ORDER BY subject_kind').all()).toEqual([
+      { staff_id: 'S_B', subject_kind: 'table', subject_id: 'T1' },
+      { staff_id: 'S_B', subject_kind: 'zone', subject_id: 'Z1' },
+    ]);
+    expect(applied!.assignedOrderTaker('T1')).toBe('S_B');
+    expect(events(db).filter((event) => event.event_type === 'StaffDirectoryApplied').at(-1)?.payload.skipped).toEqual([
+      { kind: 'staff', id: 'S_A', reason: 'malformed pin_hash' },
+      { kind: 'staff', id: 'S_A:zone:Z1', reason: 'duplicate assignment' },
+      { kind: 'staff', id: 'S_A:table:T1', reason: 'duplicate assignment' },
+    ]);
+  });
+
   it('[01b B-6] a lead naming a no_pin_staff person is kept; a lead naming someone in neither list is skipped', async () => {
     const { db, writer } = await open();
     const hash = await pinHash('1234');

@@ -11,6 +11,7 @@ import { inTransaction, type IdempotentResult } from '../../lib/idempotency.js';
 import {
   addBranches,
   addRoles,
+  assignmentBackstop,
   deleteAssignments,
   deleteStaffResponsibilities,
   firstNameClash,
@@ -120,13 +121,13 @@ export async function createStaff(
     // (3) reports_to, floors and assignments, §3.2 rules 5–7
     await checkReportsTo(ctx.repo, branchIds, reportsTo, null);
     await checkFloors(ctx.repo, branchIds, floors);
-    const assignments = await checkAssignments(ctx.repo, branchIds, body.assignments ?? [], null);
+    const assignments = await checkAssignments(ctx.repo, branchIds, body.assignments ?? [], null, []);
     // (4) B12
     const clash = await firstNameClash(ctx.repo, body.display_name, branchIds, null);
     if (clash !== undefined) throw new DomainError('STAFF_NAME_TAKEN', { display_name: body.display_name, branch_id: clash });
     // (5) write, audit
     const staffId = ctx.deps.ids.next();
-    await insertStaff(ctx.repo, {
+    await assignmentBackstop(ctx.client, ctx.repo, staffId, assignments, () => insertStaff(ctx.repo, {
       staffId,
       displayName: body.display_name,
       roleIds,
@@ -136,7 +137,7 @@ export async function createStaff(
       floors: uniquePairs(floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))),
       assignments,
       now: ctx.deps.clock.branchNow(),
-    });
+    }));
     const [row] = await selectStaff(ctx.repo, { ids: [staffId] });
     const wire = toStaffWire(row!);
     await writeConfigAudit(
@@ -223,11 +224,12 @@ export async function updateStaff(
         ? before.floors.filter(kept).flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id })))
         : uniquePairs(body.floors.flatMap((entry) => entry.floor_ids.map((floor_id) => ({ branch_id: entry.branch_id, floor_id }))));
     // AD-23: each sent entry replaces that branch; unsent branches keep theirs (a removed branch takes its rows with
-    // it, a leaver frees all, §3.2 rule 7). An entry sent on the PATCH that marks the person as left is ignored, as
-    // reports_to (AD-15).
-    const sentAssignments = leaving ? [] : (body.assignments ?? []);
+    // it, a leaver frees all, §3.2 rule 7). AD-29: a person who is not active after the PATCH holds none, so the
+    // entries sent on the PATCH that marks them as left, or on any PATCH of a left person, are ignored (as reports_to,
+    // AD-15).
+    const sentAssignments = isActive ? (body.assignments ?? []) : [];
     const sentBranches = new Set(sentAssignments.map((entry) => entry.branch_id));
-    const assignments = leaving
+    const assignments = !isActive
       ? []
       : [...before.assignments.filter((entry) => kept(entry) && !sentBranches.has(entry.branch_id)), ...sentAssignments];
     const merged = toStaffWire({
@@ -266,7 +268,7 @@ export async function updateStaff(
     }
     if (body.reports_to !== undefined && !leaving) await checkReportsTo(ctx.repo, branchIds, body.reports_to, staffId);
     if (body.floors !== undefined) await checkFloors(ctx.repo, branchIds, body.floors);
-    const assignmentRows = await checkAssignments(ctx.repo, branchIds, sentAssignments, staffId);
+    const assignmentRows = await checkAssignments(ctx.repo, branchIds, sentAssignments, staffId, before.assignments);
     const added = branchIds.filter((id) => !before.branch_ids.includes(id));
     if (merged.is_active && (returning || merged.display_name !== before.display_name || added.length > 0)) {
       const clash = await firstNameClash(ctx.repo, merged.display_name, merged.branch_ids, staffId);
@@ -297,7 +299,11 @@ export async function updateStaff(
     if (body.reports_to !== undefined || leaving) await replaceLeads(ctx.repo, staffId, merged.reports_to);
     if (body.floors !== undefined) await replaceFloors(ctx.repo, staffId, floorPairs);
     if (leaving) await deleteAssignments(ctx.repo, staffId);
-    else await replaceAssignments(ctx.repo, staffId, [...sentBranches], assignmentRows);
+    else {
+      await assignmentBackstop(ctx.client, ctx.repo, staffId, assignmentRows, () =>
+        replaceAssignments(ctx.repo, staffId, [...sentBranches], assignmentRows),
+      );
+    }
 
     runAdminGuards(adminsBefore, await qualifyingAdmins(ctx.repo), ctx.ownerStaffId);
 
@@ -848,8 +854,9 @@ function emptyChanged(): ChangedVersions {
 }
 
 // 01b v1.6 B-2, §3.2 rule 7 (AD-26): per sent entry, the branch is one of the person's; each zone and table is of that
-// branch (unknown id → not_found, another branch's → wrong_branch) and active (→ archived); none is held by another
-// person in the stored rows (→ already_assigned with the holder's staff_id). Field `assignments` throughout. The
+// branch (unknown id → not_found, another branch's → wrong_branch) and active (→ archived), except one the person
+// already holds at that branch, which may be re-sent and is kept (AD-31); none is held by another active person in
+// the stored rows (→ already_assigned with the holder's staff_id, AD-29). Field `assignments` throughout. The
 // holder read runs after the tenant lock (B11), so no other directory write stores a holder before this one commits;
 // the unique index staff_assignments_one_person is the backstop. Repeated ids are dropped (sets, C1).
 async function checkAssignments(
@@ -857,7 +864,13 @@ async function checkAssignments(
   branchIds: string[],
   entries: { branch_id: string; zone_ids: string[]; table_ids: string[] }[],
   staffId: string | null,
+  held: StaffWire['assignments'],
 ): Promise<NewStaff['assignments']> {
+  const holds = (row: NewStaff['assignments'][number]) =>
+    held.some(
+      (entry) =>
+        entry.branch_id === row.branch_id && (row.subject_kind === 'zone' ? entry.zone_ids : entry.table_ids).includes(row.subject_id),
+    );
   for (const entry of entries) {
     if (!branchIds.includes(entry.branch_id)) throw referenceInvalid('assignments', 'wrong_branch');
   }
@@ -884,7 +897,7 @@ async function checkAssignments(
     if (found.length === 0) throw referenceInvalid('assignments', 'not_found');
     const here = found.find((subject) => subject.branch_id === row.branch_id);
     if (here === undefined) throw referenceInvalid('assignments', 'wrong_branch');
-    if (here.archived) throw referenceInvalid('assignments', 'archived');
+    if (here.archived && !holds(row)) throw referenceInvalid('assignments', 'archived');
   }
   const holders = await selectAssignmentHolders(repo, staffId, rows);
   for (const row of rows) {

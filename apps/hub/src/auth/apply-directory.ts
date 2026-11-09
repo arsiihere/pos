@@ -58,6 +58,7 @@ export function applyStaffDirectory(
   // 01b v1.6 B-2: one person per zone and per table (the hub key). The cloud never sends one twice (its unique
   // index); if it did, the first holder is kept and the repeat skipped, so the rest still applies (B18).
   const assignedTo = new Map<string, string>();
+  const keptRows: { row: StoredStaff; zones: string[]; tables: string[] }[] = [];
   const keepAssigned = (staffId: string, kind: 'zone' | 'table', ids: readonly string[] | undefined): string[] => {
     const kept: string[] = [];
     for (const id of ids ?? []) {
@@ -84,11 +85,10 @@ export function applyStaffDirectory(
     if (problem !== null) {
       warnSkip(skipped, { kind: 'staff', id: row.staff_id, reason: problem });
       if (kept !== undefined) {
-        staff.push({
-          ...kept,
-          assigned_zone_ids: keepAssigned(kept.staff_id, 'zone', kept.assigned_zone_ids),
-          assigned_table_ids: keepAssigned(kept.staff_id, 'table', kept.assigned_table_ids),
-        });
+        // Its stale assignments are taken after every fresh row, so they never beat the cloud's current holder.
+        const row = { ...kept, assigned_zone_ids: [], assigned_table_ids: [] };
+        staff.push(row);
+        keptRows.push({ row, zones: kept.assigned_zone_ids ?? [], tables: kept.assigned_table_ids ?? [] });
       }
       continue;
     }
@@ -131,6 +131,10 @@ export function applyStaffDirectory(
       assigned_zone_ids: keepAssigned(row.staff_id, 'zone', row.assigned_zone_ids),
       assigned_table_ids: keepAssigned(row.staff_id, 'table', row.assigned_table_ids),
     });
+  }
+  for (const { row, zones, tables } of keptRows) {
+    row.assigned_zone_ids = keepAssigned(row.staff_id, 'zone', zones);
+    row.assigned_table_ids = keepAssigned(row.staff_id, 'table', tables);
   }
   const retainRole = (roleId: string): void => {
     if (roles.some((role) => role.role_id === roleId)) return;
