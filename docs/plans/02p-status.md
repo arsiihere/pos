@@ -4,6 +4,41 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 
 > **Short Hinglish summary — padhein yahan se**
 >
+> **2026-11-09 (din):** Aapke faisle lag gaye.
+> - Pehle spec badli: §3.3 served time, §3.8 placed_by fallback, §3.12 empty orders.
+> - Phir kaam hua:
+>   - 17c ka doosra perf block;
+>   - AD-E2 ka fix;
+>   - task 15 (zone lines, khaali orders, boot id set).
+> - Gate green: 3362 tests, 523 s. Sab push.
+> - Engine lane ke tasks 14–17, 17b aur 17c mukammal hain. Task 18 baaqi merges ke baad.
+> - Aapke liye: E-4 (khaali order mein baad mein pakne wali cheez) aur AD-E19–E23.
+
+## MORNING REPORT (2026-11-09, day): rulings applied; 15, 17c, AD-E2 done; engine lane done except 18; STOPPED
+
+**Done:**
+1. **Spec first** (`bf876a1`): E-3 (§3.3 `last_served_at` = min(served_at, recorded_at), plus the `state.ts:111` comment); AD-E2 (§3.8: a holder not in the directory → `placed_by`); AD-E18 (§3.3 / §3.12: empty orders in the id set, one boot read); Q-v1.2-3 (a note for 04); 02a §12.3 note (each slip reader = one statement).
+2. **17c fix** (`c847a7b`): a second measured block at the first slip due time + 60 s (≈ 10 slips), with the same 20 ms bound; the old row is unchanged. The new asserts run outside the timed part. It is proven only by `test:perf` in task 18.
+3. **AD-E2 fix** (`f02a981`): a holder not in the directory now falls back to `placed_by`; test 120 has two new cases; the bound is unchanged.
+4. **Task 15**:
+   - `149c188`: only the three step-3 checks in `boot.int.test.ts` (E-2).
+   - `90e4282`: zone lines, empty orders, the absent-id filter and the boot id set.
+   - Fix `04d4662`: a replay-fed id-set case.
+   - Tests #124, #125 (all three checkpoint cases plus the ready-items-only order), #130 (4 + 2 + 1, `events_branch_stream`).
+5. **Every task** has a fresh opus review, then a scoped re-review of its fix.
+6. **Gate** at `04d4662`: green, 368 files, 3362 tests, 523 s.
+
+**Blocks:** none in the engine lane. Task 18 waits for the platform A and B merges.
+
+**Decisions for the owner:**
+1. **E-4:** an `OrderLinesAdded` on an order of ready items only. As built (and as §3.3 says), the fold throws and the whole command rolls back; if such an event were ever in the log, boot would stop. Nothing sends it yet (02b is not built). Recommend **(b)**: 03a creates the engine order on the first `OrderLinesAdded` for an order in the id set, spec first. With (a), that order's real absent ids would stay silenced for good.
+2. **AD-E19–AD-E22:** readings from task 15, all consistent per the review. Recommend accepting them.
+3. **AD-E23:** a note for the owner of `test-hub.ts`: reset `untrackedLineIds` in `createTestHub`. Recommend (b), later.
+
+<details><summary>Night report (2026-11-09)</summary>
+
+> **Short Hinglish summary — padhein yahan se**
+>
 > **Raat ka kaam (2026-11-09, engine lane, unattended):**
 > - Batch 5a aur 5b chal gaye. Gate dono baar green (aakhri: 3348 tests, 519 s). Sab push ho gaya.
 > - Mukammal: 17b (03a ke purane gaps), 14 (slip ka receiver aur table ka naam), 16 (partial remove), 17 (zone ko stock transfer, served_at).
@@ -13,7 +48,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 > - Ek spec text ka sawal: E-3. Aur 18 AD-E rows "proposed" hain; aap batch mein rule karein.
 > - Task 18 dono baaqi merges ke baad.
 
-## MORNING REPORT (2026-11-09): batches 5a and 5b run; 15 and 17c blocked; STOPPED
+### MORNING REPORT (2026-11-09, night): batches 5a and 5b run; 15 and 17c blocked; STOPPED
 
 **Head:** `module-02p-engine` (checkpoint commit). Code head `337d635`. Nothing merged by me.
 
@@ -39,6 +74,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 - After E-2: task 15, then a gate.
 - After E-1: the 17c fix.
 - Task 18 after the platform A and B merges.
+
+</details>
 
 <details><summary>Earlier report (2026-11-08)</summary>
 
@@ -96,9 +133,9 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 12 | `X-Queued-At`, `queueable`, CORS | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 13 | 01d D-1, D-3 | platform A (batch 4; B not opened) | NORMAL | todo | |
 | 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | **done** | `4574240`, fix `ff02a82` |
-| 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | **blocked (E-1)**, committed `e261f25` needs the E-1 fix | `e261f25` |
-| 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | **done** | `34ad0ba` |
-| 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **blocked (E-2)** | |
+| 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | **done** (proven at `test:perf`, task 18) | `e261f25`, fix `c847a7b` |
+| 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | **done** | `34ad0ba`, AD-E2 fix `f02a981` |
+| 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **done** | `149c188`, `90e4282`, fix `04d4662` |
 | 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | **done** | `15f639f` |
 | 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | **done** | `25b88c9`, fix `337d635` |
 | 18 | Simulator gate, full gate, README | engine | NORMAL | todo (needs all three lanes merged) | |
@@ -145,6 +182,11 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-E16 | 17 | `stockEffects(ItemServed)` does not check `source: 'zone'`; zone ids are never engine lines, so nothing is drafted (only a writer bug differs) | (a) as built; (b) return none for `'zone'` | (a) | **accepted as built (owner, 2026-11-09)** |
 | AD-E17 | 15 (blocked) | Test #125's control for `ItemServed`: `{ source: 'zone' }` is skipped by its shape whatever the id, so the control uses `ItemRemoved` / `ItemVoided` on an unknown id plus `ItemServed { source: 'tap' }` on an unknown id | — | proposed for task 15 | **accepted as built (owner, 2026-11-09)** |
 | AD-E18 | 15 (blocked) | Ready items on an empty order: an `OrderPlaced` with no engine lines creates no engine order, so a later `ItemAdded` / `ItemServed` of a ready item on it still logs `absent id` (the Q-3 filter does not cover it) | (a) keep logging, flag for 02b; (b) widen the filter (spec first) | (a) | **rejected → (b) (owner, 2026-11-09):** the id set also holds the order ids of empty `OrderPlaced`; one boot read (`IN ('ItemAdded','OrderPlaced')`). Spec §3.3 / §3.12 patched; built in task 15 |
+| AD-E19 | 15 | The ready-items-only rule finds the order from the payload `order_id`, else `stream_id` (the existing convention; `checkStream` makes them equal) | — | as built | proposed (not yet ruled) |
+| AD-E20 | 15 | Step 2 now parses the second kept checkpoint (0 extra statements) only to count it as readable; a torn second row is not logged, so step 2's log lines stay as they were | — | as built | proposed (not yet ruled) |
+| AD-E21 | 15 | The two new early returns (zone `ItemAdded`, empty `OrderPlaced`) come after `checkStream`, so a stream mismatch is still flagged as a writer bug | — | as built | proposed (not yet ruled) |
+| AD-E22 | 15 | New engine-lane test helper `apps/hub/test/engine/q3-lines.ts` (the brief did not list it; the engine lane owns this folder) | — | as built | proposed (not yet ruled) |
+| AD-E23 | 15 | Note for the owner of `apps/hub/test/helpers/test-hub.ts` (not the engine lane): `createTestHub` does not reset `hostFlags.untrackedLineIds`, so ids can leak between test hubs in one file. Production is unaffected; the engine tests reset the set by hand | (a) leave; (b) the helper's owner adds the reset | (b), later | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -207,7 +249,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | E-1 | 17c | No slip is due at the perf test's measured instant (`peak.at`), so the new "slips > 0" assert fails under `test:perf` and the slip path is still not timed. The reviewer rebuilt the seed-7 peak: 0 slips at `peak.at`, the first at + 127.6 s, ≈ 10 at + 60 s after that. The `receiver_not_in_directory` check also cannot fail (no logger in the perf hub). | (a) Measure the with-work samples at `nextAlertDueAt(peak.state) + 60 000` (≈ 10 slips, overloads unchanged), keep the idle test at `peak.at`, assert `hostFlags.skipped.size === 0` outside the timed part, and fix the comment. This moves the instant of an existing §7.1 row. (b) Keep the existing row at `peak.at` and add a second measured block at the later instant ("with slips"), same 20 ms bound. (c) Drop the slip assert and leave gap 4 timing for task 28. | **(b)**: the existing number stays comparable with the 03a v1.0.1 A/B, and the slip path gets its own number. |
 | E-2 | 15 | 03a v1.2 R-3 adds one boot statement (step 3 = 4 + 2 + 1). The platform-A-owned `apps/hub/test/engine/boot.int.test.ts` pins step 3 = 4 + 2. At `:393`, `toHaveLength(6)` becomes 7. At `:397–398`, the `version` filter (`method !== 'iterate'`) gets 3, not 2. At `:405–409`, the plan-text match fails for the new read, whose plan ends `… AND seq>?)`. The probe was reverted; the tree is clean. | (a) Platform A edits `boot.int.test.ts` (title 4 + 2 + 1, `:393` → 7, `:397` filter matches only the two `stock_version` reads, e.g. by `ORDER BY seq DESC LIMIT 1`), then the engine lane builds task 15. (b) One-time ownership exception: task 15 makes exactly these test edits in `boot.int.test.ts`, in its own commit. | **(b)**: the edit follows a rule you already approved (R-3) and lands in the same task as the code. Platform A has no other change pending in that file. |
 | E-3 | 17 | 03a v1.2 Q-6 says `foldItemServed` uses `min(served_at, recorded_at)`. §3.3 (~:391 "recorded_at of the ItemServed…", ~:438 "`last_served_at` is set from that event's `recorded_at`") and `state.ts:111` were not amended. As built, `last_served_at` = `min(served_at ?? recorded_at, recorded_at)`. The exit predicate (`lifecycle.ts:65`) and `slip.ts:150` now count from the earlier time, which is Q-6's intent. Old logs fold the same, so D62 holds. | (a) A text patch to 03a v1.2 §3.3 (both lines → "min(served_at, recorded_at)") and the `state.ts:111` comment, as an as-built note; (b) a spec bump to 03a v1.2.1 | **(a)**: no rule change; the code follows Q-6. |
-| E-4 | 15 / 02b | Found while writing AD-E18: 03a §3.3 says an `OrderLinesAdded` on an order not in the engine **throws**. An order of ready items only has no engine order (Q-3), so if 02b later adds a cooked item to it with `OrderLinesAdded`, the fold refuses it, and in non-strict mode the lines are dropped. | (a) 02b sends such a first cooked line as a new `OrderPlaced` (no 03a change; an 02b spec note); (b) 03a creates the engine order on the first `OrderLinesAdded` for an order in the id set (03a spec change, then code) | **(a)** keeps 03a's rule; it needs an 02b spec check first. No code is changed until you rule. |
+| E-4 | 15 / 02b | Found while writing AD-E18: 03a §3.3 says an `OrderLinesAdded` on an order not in the engine **throws**. An order of ready items only has no engine order (Q-3), so if 02b later adds a cooked item to it with `OrderLinesAdded`, the fold throws a plain `Error` (`apply-event.ts:359–366`; not an `InvalidEvent`, so it is rethrown in strict and non-strict mode alike). Live, the **whole command rolls back** (nothing is appended, no diagnostic). If such an event were ever in the log, boot step 3 would stop. No hub code sends `OrderLinesAdded` today (02b is not built). Task 15 review: under (a), the order id stays in the AD-E18 id set (the boot read re-adds it from the first empty `OrderPlaced`), and the order check runs first, so that order's real absent ids would be silenced for good. | (a) 02b sends the first cooked line as a new `OrderPlaced` **and** the host drops the order id from the set on a non-empty `OrderPlaced` (02b spec note + a small 03a rule); (b) 03a creates the engine order on the first `OrderLinesAdded` for an order in the id set (03a spec change, then code) | **(b)**: 03a's own fold handles it, and the id set stays correct with no extra rule. It needs a spec change first. No code is changed until you rule. |
 
 ## Batch 5a — 03a carry-over, engine lane (2026-11-09)
 
@@ -233,6 +275,18 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 03a #94 (updated), #120, #121, #122, #123, #126, #127, #128; 01a #194 "boot fold counts it" (in the new `apps/hub/test/engine/boot-idset.int.test.ts`). Open: #124, #125, #130 (task 15).
 - **AD rows (proposed):** AD-E1–AD-E18 (table above).
 - **Statement bound (R-1):** `fires_alerts` with work = 2 + 1 + 1 + 1 + 6 = 11 for 1 and for 3 tables; takeaway only = 9; idle 0 (test 121).
+
+## Batch 5c — owner rulings 2026-11-09, task 15, fixes (2026-11-09)
+
+- **Commits:** `bf876a1` (spec: E-3, AD-E2, AD-E18, Q-v1.2-3, 02a note), `c847a7b` (17c, E-1), `f02a981` (14, AD-E2), `149c188` (15, `boot.int.test.ts` step-3 checks only, E-2), `90e4282` (15), `04d4662` (15 review fix).
+- **Reviews:**
+  - 17c fix: re-review ✅.
+  - AD-E2 fix: re-review ✅.
+  - 15 (HIGH): opus, spec ✅ quality ✅, 3 Minor. Minor 1 (replay-fed id set) and Minor 3 fixed, re-review ✅; Minor 2 → AD-E23.
+- **Gate:** at `04d4662`: green. 368 files passed (1 skipped), 3362 tests passed (1 skipped, 1 todo), 523 s.
+- **Tests closed:** 03a #124, #125, #130; #120 with the AD-E2 cases.
+- **AD rows (proposed):** AD-E19–AD-E23.
+- **Open:** E-4 (owner).
 
 ## Platform A prompt (for the owner to paste into a new session)
 
