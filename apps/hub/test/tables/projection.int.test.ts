@@ -532,6 +532,18 @@ describe('02a tables projection', () => {
     expect(dump(h.db)).toEqual(live);
   });
 
+  it('[02a #55] on a test hub the unknown-seating line reaches the server log once (live)', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => void hub.close());
+    hub.deps.writer.run((tx) => tx.append([placed('O9', { table_key: 'dine_in:NOPE' })]));
+    const lines = hub
+      .logs()
+      .split('\n')
+      .filter((l) => l.includes('dine_in:NOPE'));
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ level: 40, order_id: 'O9', table_key: 'dine_in:NOPE' });
+  });
+
   it('[02a §5 SG-5] wiring: the test hub (as boot createDeps) registers the tables projection', async () => {
     const hub = await createTestHub();
     cleanups.push(() => void hub.close());
