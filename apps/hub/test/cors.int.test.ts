@@ -4,7 +4,7 @@ import { createTestHub, type TestHub } from './helpers/test-hub';
 
 const ALLOWED = 'http://localhost';
 const OTHER = 'http://evil.example';
-const ALLOW_HEADERS = 'Authorization, X-Session-Token, X-Client-Version, X-Poll-Secret, Content-Type';
+const ALLOW_HEADERS = 'Authorization, X-Session-Token, X-Client-Version, X-Poll-Secret, Content-Type, X-Queued-At';
 const ALLOW_METHODS = 'GET, POST';
 
 const DEVICE_ROUTES = [
@@ -35,6 +35,23 @@ const cleanups: Array<() => Promise<void>> = [];
 describe('CORS', () => {
   afterEach(async () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  it('[00 #158] preflight from a cors_origins origin requesting X-Queued-At -> allowed', async () => {
+    const hub = await createTestHub();
+    cleanups.push(() => hub.close());
+    const preflight = await hub.app.inject({
+      method: 'OPTIONS',
+      url: '/commands/noop',
+      headers: {
+        origin: ALLOWED,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'x-queued-at',
+      },
+    });
+    expect(preflight.statusCode).toBe(200);
+    expect(preflight.headers['access-control-allow-origin']).toBe(ALLOWED);
+    expect(String(preflight.headers['access-control-allow-headers']).split(', ')).toContain('X-Queued-At');
   });
 
   it('[00 §10 #120] allowed origin gets headers and preflight on device routes and /pair/*; other origins none; /admin/* and /setup never', async () => {

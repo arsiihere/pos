@@ -13,6 +13,7 @@ export interface SessionRow {
   station_id: string | null;
   device_id: string | null;
   idle_ttl_ms: number | null;
+  started_at: number;
   last_activity_at: number;
   ended_at: number | null;
   token_hash: string;
@@ -190,7 +191,7 @@ export function isIdleExpired(s: SessionRow, now: number): boolean {
 }
 
 const SESSION_COLUMNS =
-  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, last_activity_at, ended_at, token_hash';
+  'session_id, kind, staff_id, station_id, device_id, idle_ttl_ms, started_at, last_activity_at, ended_at, token_hash';
 
 function sessionEvent(
   eventType: 'SessionStarted',

@@ -243,7 +243,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
 }
 
 const CORS_GROUPS = new Set<RouteGroup>(['device', 'device-session', 'pair', 'pair-request']);
-const CORS_HEADERS = 'Authorization, X-Session-Token, X-Client-Version, X-Poll-Secret, Content-Type';
+const CORS_HEADERS = 'Authorization, X-Session-Token, X-Client-Version, X-Poll-Secret, Content-Type, X-Queued-At';
 const CORS_METHODS = 'GET, POST';
 
 function installCors(app: FastifyInstance, origins: readonly string[]): void {
