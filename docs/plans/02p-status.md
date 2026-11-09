@@ -135,7 +135,7 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | 17b | 03a carry-over (open item 13: gaps 1, 2, 4 EXPLAIN, 5, 7) | engine | NORMAL | **done** | `4574240`, fix `ff02a82` |
 | 17c | Gap 4 timing: slip raise path in the peak perf run (perf file only) | engine | NORMAL | **done** (proven at `test:perf`, task 18) | `e261f25`, fix `c847a7b` |
 | 14 | Q-1 reader pair, Q-2 key, label, bound | engine | NORMAL | **done** | `34ad0ba`, AD-E2 fix `f02a981` |
-| 15b | E-4: the first `OrderLinesAdded` creates the engine order (`order_header`); safety net | engine | HIGH | **spec approved (check + re-check); build blocked on E-5** | |
+| 15b | E-4: the first `OrderLinesAdded` creates the engine order (`order_header`); safety net | engine | HIGH | **done** | `6da4d82` (E-5), `6d9291d`, fix `3417734` |
 | 15 | Q-3 zone lines, filter, boot id set | engine | HIGH | **done** | `149c188`, `90e4282`, fix `04d4662` |
 | 16 | Q-4 partial `ItemRemoved` | engine | NORMAL | **done** | `15f639f` |
 | 17 | Q-5 `StockTransferredOut` fold, Q-6 `ItemServed` | engine | HIGH | **done** | `25b88c9`, fix `337d635` |
@@ -207,6 +207,8 @@ Plan: `docs/plans/02p-plan.md` (18 tasks + 17b, batches 0–6, three lanes; owne
 | AD-E23 | 15 | Note for the owner of `apps/hub/test/helpers/test-hub.ts` (not the engine lane): `createTestHub` does not reset `hostFlags.untrackedLineIds`, so ids can leak between test hubs in one file. Production is unaffected; the engine tests reset the set by hand | (a) leave; (b) the helper's owner adds the reset | (b), later | **(b) (owner, 2026-11-09): task 18 adds the reset to `createTestHub` on the merged head** |
 | AD-E24 | 15b | The failed-boot path (`reportBeforeThrow`, `flushEngineBootLog`) is no longer reachable via `OrderLinesAdded`; other fold errors or DB failures still reach it. Its test gets a test-only trigger (E-5) | — | keep the path | **accepted with this wording (owner, 2026-11-09)** |
 | AD-E25 | 15b | An empty `OrderLinesAdded` on an order the engine **does** hold keeps today's fold, which re-opens it; E-4 (a′) covers only an order the engine does not hold | — | as built | **accepted (owner, 2026-11-09); outside 15b** |
+| AD-E26 | 15b | The stream check runs first, so an empty `OrderLinesAdded` on the wrong stream is an `InvalidEvent` (`stream_id_mismatch`), as for `OrderPlaced`; side effect: an `engine_line_dropped` alert with an empty item id, as today for an empty `OrderPlaced` (pinned in `lines.test.ts`) | — | as built | proposed (not yet ruled) |
+| AD-E27 | 15b | A `return_of` line on a re-created order is dropped at its `ItemAdded` (`return_of_not_served`): E-4 (a) folds lines "exactly as today", and 02 already refuses `ReturnToKitchen` on such an order with 409 | — | as built | proposed (not yet ruled) |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -340,6 +342,19 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Tests closed:** 03a #124, #125, #130; #120 with the AD-E2 cases.
 - **AD rows (proposed):** AD-E19–AD-E23.
 - **Open:** E-4 (owner).
+
+## Batch 5d — task 15b "drinks first, food later" (2026-11-09)
+
+- **Spec:**
+  - E-4 text, approved.
+  - Targeted check (`docs/reviews/02p_15b_spec_check.md`, NOT YET, 3 MAJOR); the owner ruled S-3, S-4/5, S-7, S-8; all S-n applied (`9afb532`).
+  - Re-check (`docs/reviews/02p_15b_spec_recheck.md`, APPROVE WITH WORDING FIXES); R-1–R-6 applied (`308997f`).
+- **Commits:** `6da4d82` (`boot.int.test.ts` :610, :621, :706 only, E-5), `6d9291d` (15b), `3417734` (review fix: trigger inside its test, `reportBeforeThrow` test, shared order builder, `!= null`, AD-E26 test).
+- **Review:** opus, spec ✅, 2 Important (I-1, I-2) + 4 Minor; I-1, I-2, M-1, M-2 fixed; re-review ✅. M-3 (red middle commit, TDD order) and M-4 (02b handover line) noted.
+- **Gate:** at `3417734`: green. 374 files passed (1 skipped), 3466 tests passed (1 skipped, 1 todo), 462 s.
+- **Tests closed:** 03a #131–#139; #78, #101, #130, #135, #137 as changed.
+- **AD rows (proposed):** AD-E26, AD-E27.
+- **For 02b's handover (M-4):** once food creates the engine order, later events on the earlier drinks are logged as absent ids, as for any mixed order. This is expected, not a bug.
 
 ## Platform A prompt (for the owner to paste into a new session)
 
