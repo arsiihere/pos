@@ -96,6 +96,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-10 | Lane 1B/1C conflict in `test/engine/fires-alerts-tick.int.test.ts`, `kinds.int.test.ts`: keep both — `resetSlipReaders();` then `unregisterTick('table_locks');` | wave 1 entry |
 | 2026-11-10 | AD-14 (b): 03a §10.5 statement bound counts the registered projections; 03a §10.5 text fix in the next platform batch | AD-14 |
 | 2026-11-10 | AD-15: no branch config → no TTL release, only `session_expired` | AD-15 |
+| 2026-11-10 | Lanes also run `pnpm --filter @pos/hub typecheck:tests` (the plain `typecheck` skips test files) | `docs/plans/02a-parallel-prompts.md` §2 |
 
 ## Batch entries
 

@@ -52,7 +52,7 @@ Hard rules:
 - Edit only the files your lane owns in the ownership table, plus your own one-line registrations in apps/hub/src/tables/index.ts.
 - Never edit apps/hub/src/tables/contracts.ts. If you need it changed: STOP, say why, and stop the lane.
 - Tests run on the real 0012 tables (seed rows with SQL or append real events); never mock another lane's code.
-- Run only your own test files and pnpm --filter @pos/hub typecheck. Never run the full gate, never run pnpm test:perf, never stop or restart pos-pg-test.
+- Run only your own test files, pnpm --filter @pos/hub typecheck and pnpm --filter @pos/hub typecheck:tests. Never run the full gate, never run pnpm test:perf, never stop or restart pos-pg-test.
 - Never push, merge, rebase or reset. Commit only on lane-<N><X>. Tags are local only.
 - Spec–code mismatch, a two-spec conflict, a changed bound or new behaviour → STOP and tell me.
 
