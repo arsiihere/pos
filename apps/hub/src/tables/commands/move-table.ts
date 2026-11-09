@@ -5,12 +5,14 @@ import { z } from 'zod';
 import type { CommandCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
+import { closeHandover } from '../handover.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 
 // 02a v1.1.3 §3.10, §6.9 `MoveTable` (T6, T17, T18, §3.14, §3.15, C8).
 // Two statements: the from table's seating + lock (one read) and the target's seating. Order of checks: seating
 // (T18, NEEDS_CLEANING), holder or force, merged, target busy, target archived, R23, lock, scope last.
-// The pending-handover close (§3.8, `closeHandover`) is added with task 12.
+// §6.9 / §3.9: after TableMoved, closeHandover closes the seating's pending table_handover `obsolete` (1 byDedupeKey
+// statement, plus alerts.close when one is pending), drafts in the same transaction.
 
 const MoveTablePayload = z
   .object({
@@ -127,7 +129,8 @@ function handle(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: { 
     actor_id: actor,
     device_id: ctx.actor.deviceId,
   };
-  return { events: [event], result: { primary_table_id: p.to_table_id } };
+  const closed = closeHandover(ctx, from.seating_id, `moved to ${p.to_table_id}`);
+  return { events: [event, ...closed], result: { primary_table_id: p.to_table_id } };
 }
 
 // `branch` covers all; `my_floors` the caller's floors (0 statements, config in memory); `own_tables` the caller's own

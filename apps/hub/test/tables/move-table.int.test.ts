@@ -126,6 +126,13 @@ function append(draft: Omit<EventDraft, 'schema_version' | 'occurred_at'>): void
   hub.deps.writer.run((tx) => tx.append([{ ...draft, schema_version: 1, occurred_at: hub.clock.branchNow() }]));
 }
 
+function eventTypesAll(): string[] {
+  return hub.deps.db.prepare('SELECT event_type FROM events ORDER BY seq').pluck().all() as string[];
+}
+
+// 2 reads + 1 byDedupeKey + 7 for alerts.close (AlertClosed plus the request_result raise to the sender), measured.
+const PENDING_STATEMENTS = 10;
+
 function eventCount(): number {
   return (hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number);
 }
@@ -235,7 +242,9 @@ describe('02a MoveTable (§3.10, §6.9)', () => {
     // a new party opens the old table; the order still belongs to Ali's party
     seat('SEAT2', 'T1', 'S_NOOR');
     expect(holdersOfOrders(hub.deps.db, ['O1']).get('O1')).toBe('S_ALI');
-    expect(r.statements).toBe(2);
+    // 2 reads + 1 byDedupeKey (no pending handover → no close statements)
+    expect(r.statements).toBe(3);
+    expect(eventTypesAll().filter((t) => t.startsWith('Alert'))).toEqual([]);
   });
 
   it('[02a §6.9] reason is optional (no note in the event)', async () => {
@@ -275,7 +284,58 @@ describe('02a MoveTable (§3.10, §6.9)', () => {
     expect(rows[0]!.last_touch_at).not.toBeNull();
   });
 
-  it.todo('[02a #22 handover] pending handover closed obsolete — after task 12');
+  it('[02a #22 handover] pending handover closed obsolete: AlertClosed + request_result to the sender; alert no longer open', async () => {
+    const ali = signIn('S_ALI');
+    signIn('S_SARA'); // the receiver needs a live session
+    append({
+      stream_type: 'table',
+      stream_id: 'T1',
+      event_type: 'TableOpened',
+      payload: { table_id: 'T1', seating_id: 'SEAT1', holder_staff_id: 'S_ALI', party_size: 2 },
+      actor_id: 'S_ALI',
+      device_id: ali.deviceId,
+    });
+    const req = await hub.app.inject({
+      method: 'POST',
+      url: '/commands/request-table-handover',
+      headers: { authorization: `Bearer ${ali.token}`, 'x-session-token': ali.sessionToken },
+      payload: {
+        command_id: 'cmd-handover-1',
+        tenant_id: 'tenant-a',
+        branch_id: 'branch-1',
+        command_type: 'RequestTableHandover',
+        payload: { table_id: 'T1', seating_id: 'SEAT1', to_staff_id: 'S_SARA' },
+        occurred_at: hub.clock.branchNow(),
+        actor_id: 'S_ALI',
+        device_id: ali.deviceId,
+      },
+    });
+    expect(req.statusCode).toBe(200);
+    const alertId = (req.json() as { data: { result: { alert_id: string } } }).data.result.alert_id;
+    const before = eventTypesAll().length;
+    const r = await move(ali, mv('SEAT1', 'T1', 'T3'));
+    expect(r.status).toBe(200);
+    expect(r.eventTypes).toEqual(['TableMoved', 'AlertClosed', 'AlertRaised', 'AttemptSent']);
+    expect(eventTypesAll().length).toBe(before + 4);
+    const closed = JSON.parse(
+      hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'AlertClosed'`).pluck().get() as string,
+    );
+    expect(closed).toMatchObject({ alert_id: alertId, reason: 'obsolete', by_staff_id: 'S_ALI', note: 'moved to T3' });
+    const result = JSON.parse(
+      hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'AlertRaised' ORDER BY seq DESC`).pluck().get() as string,
+    );
+    expect(result).toMatchObject({
+      kind: 'request_result',
+      target: { kind: 'person', staff_id: 'S_ALI' },
+      values: { request_alert_id: alertId, close_reason: 'obsolete' },
+    });
+    expect(hub.deps.db.prepare('SELECT state, close_reason FROM alerts WHERE alert_id = ?').get(alertId)).toEqual({
+      state: 'closed',
+      close_reason: 'obsolete',
+    });
+    // see PENDING_STATEMENTS
+    expect(r.statements).toBe(PENDING_STATEMENTS);
+  });
 
   it('[02a #23] merged seating → 409 TABLE_MERGED { seating_id, table_ids }', async () => {
     const ali = signIn('S_ALI');
