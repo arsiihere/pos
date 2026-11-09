@@ -10,6 +10,8 @@ import { hasTargetResolver, registerTargetResolver } from '../alerts/targets.js'
 import { tableTeam, zoneOrderTaker } from './resolvers.js';
 import { registeredTicks, registerTick } from '../alerts/tick.js';
 import { tableLocksTick } from './tick.js';
+import './kinds.js'; // §11 step 12 (AD-5): the kinds are defined at this module's load, before boot replays projections
+import { registerRequestTableHandover } from './commands/request-table-handover.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -35,6 +37,7 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
   // wave 2 lane A (OpenTable, lock commands)
 
   // wave 2 lane B (table_handover kind, handover, holder commands)
+  registerRequestTableHandover(app);
 
   // wave 2 lane C (move, merge, split)
 
