@@ -181,6 +181,20 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
     expect(h.deps.db.prepare('SELECT COUNT(*) AS n FROM table_locks').get()).toEqual({ n: 1 });
   });
 
+  it('[02a #8] v1.1.2 boundary: session started 1 ms before last_activity_at → kept', () => {
+    const dev = device();
+    const session = signIn(dev);
+    const at = h.clock.branchNow();
+    setSessionStart(session, at - 1);
+    seedLock('T-1', WAITER, dev, at); // started_at < last_activity_at, clock inside the TTL
+    expect(due()).toBe(false);
+    const run = vi.spyOn(h.deps.writer, 'run');
+    pass();
+    expect(run).not.toHaveBeenCalled();
+    run.mockRestore();
+    expect(released()).toEqual([]);
+  });
+
   it('[02a #8] v1.1.2 boundary: session started 1 ms after last_activity_at → session_expired', () => {
     const dev = device();
     const session = signIn(dev);
