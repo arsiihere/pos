@@ -162,6 +162,36 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
     expect(due()).toBe(true);
   });
 
+  function setSessionStart(sessionId: string, startedAt: number): void {
+    h.deps.db.prepare('UPDATE staff_sessions SET started_at = ? WHERE session_id = ?').run(startedAt, sessionId);
+  }
+
+  it('[02a #8] v1.1.2 boundary: session started_at = lock last_activity_at → kept', () => {
+    const dev = device();
+    const session = signIn(dev);
+    const at = h.clock.branchNow();
+    setSessionStart(session, at);
+    seedLock('T-1', WAITER, dev, at); // started_at === last_activity_at, clock well inside the TTL
+    expect(due()).toBe(false);
+    const run = vi.spyOn(h.deps.writer, 'run');
+    pass();
+    expect(run).not.toHaveBeenCalled();
+    run.mockRestore();
+    expect(released()).toEqual([]);
+    expect(h.deps.db.prepare('SELECT COUNT(*) AS n FROM table_locks').get()).toEqual({ n: 1 });
+  });
+
+  it('[02a #8] v1.1.2 boundary: session started 1 ms after last_activity_at → session_expired', () => {
+    const dev = device();
+    const session = signIn(dev);
+    const at = h.clock.branchNow();
+    setSessionStart(session, at);
+    seedLock('T-1', WAITER, dev, at - 1); // session started 1 ms after the lock's last activity, TTL not elapsed
+    expect(due()).toBe(true);
+    pass();
+    expect(released().map((e) => e.payload.reason)).toEqual(['session_expired']);
+  });
+
   it('[02a #8] idle → one statement, no writer.run (through the tick loop)', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
