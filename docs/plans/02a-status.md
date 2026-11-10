@@ -77,7 +77,8 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-18 | 12 (lane 2B) | The `RequestTableHandover` note is accepted and **not stored** | — | accepted for now. **Spec gap for the next 02a text bump:** carry the note to the receiver's card | **ruled (owner, 2026-11-10)** |
 | AD-19 | 12, 13 (lane 2B) | `inactive` checked before `no_permission`; sender scope; the extra `listOpen` statement on the `TABLE_HANDOVER_PENDING` path; and lane 2B's five smaller choices | — | accepted as read. Follow-up (one test-only commit): task 13 tests — holder not the assignee taking over → 403 `not_assigned`; take-over with `own_tables` scope; force move with no lock — and the §11 step 12 boot-replay test moved to its own file (real boot import chain) | **ruled (owner, 2026-11-10)** |
 | AD-20 | 17, 18 (lane 2D) | (1) §12.2 409 counts = stale seating, no seating + each command's own codes (`TABLE_NOT_OPEN` unreachable: `seating_id` required); (2) `own_tables` = holder (T8), Clean has no 403 (`clean-table` branch scope only), CallWaiter has the scope 403; (3) Clean returns `{ reason }`, Bill `{ requested: true }`; (4) #40 split: Bill/Clean in 17, map 19, Move-from 14, Open 404 9; (5) `call_waiter` `display.table_code` = primary table name, `table_id` fallback; (6) i18n keys missing | — | all six accepted as read; CallWaiter's scope 403 follows the §10 preamble — **note for the next §12.2 text fix** (row 6.14 should list it); i18n keys `alert.table_handover.*`, `alert.call_waiter.*` → client batch 5 | **ruled (owner, 2026-11-10)** |
-| AD-21 | wave 2 (integrator) | Lanes 2C / 2D wait for task 12 with `git branch --contains 02a-task12` listing `module-02a`; the integrator lands by cherry-pick (new sha), so that never holds | — | integrator told lanes 2C, 2D that task 12 was landed (`33bff77`); their own task 12 copies (`7f10b89`, `bd51698`) showed as `+` in `git cherry` (index.ts hunk context differs) and were skipped after a manual identity check. §2 wording to be fixed before reuse (`git cherry module-02a 02a-task12` shows `-`) | proposed (not yet ruled) |
+| AD-21 | wave 2 (integrator) | Lanes 2C / 2D wait for task 12 with `git branch --contains 02a-task12` listing `module-02a`; the integrator lands by cherry-pick (new sha), so that never holds | — | integrator told lanes 2C, 2D that task 12 was landed (`33bff77`); their own task 12 copies (`7f10b89`, `bd51698`) showed as `+` in `git cherry` (index.ts hunk context differs) and were skipped after a manual identity check. §2 wait rule now uses `git cherry module-02a 02a-task12` showing `-`; §1 skips a lane's own copy of a shared task that matches by content even if `git cherry` shows `+` | **ruled (owner, 2026-11-10)** |
+| AD-22 | 13 | `own_tables` scope cannot do a real take-over (scope checked last, the caller is not yet the holder; only the no-op passes) | — | intended (T8: `own_tables` = only the seatings you hold; taking over someone else's table is outside it); no code change; owner-app hint → OPEN-QUESTIONS §5 02a-N2 | **ruled (owner, 2026-11-10)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -106,6 +107,8 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-10 | Lane 2C: merge clears the bill request only when it brings a live order (fix commit); other 2C readings and statement counts accepted | AD-16, AD-17 |
 | 2026-11-10 | Lane 2B: handover note not stored (spec gap: carry it to the receiver's card, next 02a text bump); other 2B readings accepted; task 13 test follow-ups + boot-replay test in its own file | AD-18, AD-19 |
 | 2026-11-10 | Lane 2D: six readings accepted; CallWaiter scope 403 per §10 preamble (§12.2 text fix later); i18n keys → client batch 5 | AD-20 |
+| 2026-11-10 | AD-21: hand-off wait uses `git cherry`; integrator skips a lane's content-identical copy of a shared task | AD-21; `02a-parallel-prompts.md` §1, §2 |
+| 2026-11-10 | AD-22: `own_tables` cannot take over — intended (T8); owner-app hint 02a-N2 | AD-22; OPEN-QUESTIONS §5 |
 
 ## Batch entries
 
@@ -170,7 +173,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 
 ## Next
 
-1. **Owner:** review wave 2, close the four lane terminals, rule AD-21 and the `own_tables` take-over question, then type `wave 3` in the integrator session (task 19).
+1. **Owner:** review wave 2, close the four lane terminals, then type `wave 3` in the integrator session (task 19).
 2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
 
