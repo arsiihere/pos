@@ -418,6 +418,36 @@ describe('02a MoveTable (§3.10, §6.9)', () => {
     expect(primaryOf('SEAT1')).toBe('T2');
   });
 
+  it('[02a #40 move-from] MoveTable from an archived seated table to a free table works; the archived group no longer lists it', async () => {
+    const ali = signIn('S_ALI');
+    seat('SEAT9', 'T9', 'S_ALI'); // T9 is absent from the config (archived) but still seated
+    type MapTile = { table_id: string; seating_id: string | null; archived: boolean };
+    const readMap = async () => {
+      const res = await hub.app.inject({
+        method: 'GET',
+        url: '/queries/table-map',
+        headers: { authorization: `Bearer ${ali.token}`, 'x-session-token': ali.sessionToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const floors = (res.json() as { data: { floors: Array<{ floor_id: string; archived: boolean; zones: Array<{ tables: MapTile[] }> }> } }).data.floors;
+      return { floors, tiles: new Map(floors.flatMap((f) => f.zones.flatMap((z) => z.tables.map((t) => [t.table_id, t] as const)))) };
+    };
+    const before = await readMap();
+    const group = before.floors.at(-1)!;
+    expect(group).toMatchObject({ floor_id: '', archived: true });
+    expect(group.zones.flatMap((z) => z.tables.map((t) => t.table_id))).toEqual(['T9']);
+
+    const r = await move(ali, mv('SEAT9', 'T9', 'T2'));
+    expect(r.status).toBe(200);
+    expect(r.body.data?.result.primary_table_id).toBe('T2');
+    expect(primaryOf('SEAT9')).toBe('T2');
+
+    const after = await readMap();
+    expect(after.tiles.has('T9')).toBe(false);
+    expect(after.floors.some((f) => f.archived)).toBe(false); // the only archived group is gone
+    expect(after.tiles.get('T2')).toMatchObject({ seating_id: 'SEAT9', archived: false });
+  });
+
   it('[02a §3.14] archived or unknown free target → 404 TABLE_NOT_FOUND { table_id }', async () => {
     const ali = signIn('S_ALI');
     seat('SEAT1', 'T1', 'S_ALI');
