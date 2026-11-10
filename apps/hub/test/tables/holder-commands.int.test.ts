@@ -27,11 +27,12 @@ const NOOR = 'S_NOOR'; // take-order branch, never signed in
 const FAHAD = 'S_FAHAD'; // take-order + force-release-table-lock my_floors F2
 const ASIF = 'S_ASIF'; // take-order + force-release-table-lock requires_approval
 const KAMI = 'S_KAMI'; // take-order requires_approval only
+const OWEN = 'S_OWEN'; // take-order own_tables; assignee of T3
 const MGR = 'S_MGR'; // aDirectory manager: every permission allowed at branch scope
 const CASH = 'S_CASH'; // aDirectory cashier: no take-order
 
 type GrantType = 'allowed' | 'requires_approval';
-function grant(permission: string, grant_type: GrantType, scope: 'branch' | 'my_floors' = 'branch') {
+function grant(permission: string, grant_type: GrantType, scope: 'branch' | 'my_floors' | 'own_tables' = 'branch') {
   return {
     permission,
     grant_type,
@@ -64,6 +65,7 @@ async function directory(): Promise<DirectoryInput> {
       role('R_FORCE_F2', [grant('take-order', 'allowed'), grant('force-release-table-lock', 'allowed', 'my_floors')]),
       role('R_FORCE_APPROVAL', [grant('take-order', 'allowed'), grant('force-release-table-lock', 'requires_approval')]),
       role('R_TAKER_APPROVAL', [grant('take-order', 'requires_approval')]),
+      role('R_OWN', [grant('take-order', 'allowed', 'own_tables')]),
     ],
     staff: [
       ...base.staff,
@@ -76,6 +78,7 @@ async function directory(): Promise<DirectoryInput> {
       person(FAHAD, 'Fahad', 'R_FORCE_F2', { floors: ['F2'] }),
       person(ASIF, 'Asif', 'R_FORCE_APPROVAL'),
       person(KAMI, 'Kami', 'R_TAKER_APPROVAL'),
+      person(OWEN, 'Owen', 'R_OWN', { tables: ['T3'] }),
     ],
   } as DirectoryInput;
 }
@@ -395,6 +398,43 @@ describe('02a TakeOverTable (§3.7, §6.6)', () => {
     expect(alertRow(pending)).toMatchObject({ state: 'open' });
   });
 
+  it('[02a #11] the holder who is not the assignee taking over → 403 not_assigned naming the assignee and himself as holder; nothing written', async () => {
+    const ali = signIn(ALI);
+    signIn(SARA);
+    open('T1', 'SEAT1', ali);
+    const before = eventCount();
+    const r = await takeOver(ali, { table_id: 'T1', seating_id: 'SEAT1' });
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({
+      code: 'PERMISSION_DENIED',
+      details: { reason: 'not_assigned', table_id: 'T1', assigned_staff_id: SARA, holder_staff_id: ALI },
+    });
+    expect(eventCount()).toBe(before);
+    expect(holderOf('SEAT1')).toBe(ALI);
+    expect(lockOf('SEAT1')).toEqual({ staff_id: ALI, device_id: ali.deviceId });
+  });
+
+  it('[02a #11] take-over with own_tables scope (T8): does not cover a seating someone else holds → 403 outside_scope, rolled back', async () => {
+    const ali = signIn(ALI);
+    const owen = signIn(OWEN);
+    open('T3', 'SEAT3', ali);
+    const before = eventCount();
+    const outside = await takeOver(owen, { table_id: 'T3', seating_id: 'SEAT3' });
+    expect(outside.status).toBe(403);
+    expect(outside.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: ['T3'] } });
+    expect(eventCount()).toBe(before);
+    expect(holderOf('SEAT3')).toBe(ALI);
+    expect(lockOf('SEAT3')).toEqual({ staff_id: ALI, device_id: ali.deviceId });
+  });
+
+  it('[02a #11] take-over with own_tables scope (T8): the assignee already holds it → covered, { changed: false }', async () => {
+    const owen = signIn(OWEN);
+    open('T3', 'SEAT3B', owen, { locked: false });
+    const own = await takeOver(owen, { table_id: 'T3', seating_id: 'SEAT3B' });
+    expect(own.status).toBe(200);
+    expect(own.data!.result).toEqual({ changed: false });
+  });
+
   it('[02a §6.6] T10: a seating’s assignee is its primary table’s — naming the joined table works for Sara; Hina (assignee of the joined T2) → 403 not_assigned naming Sara', async () => {
     const ali = signIn(ALI);
     const sara = signIn(SARA);
@@ -503,6 +543,24 @@ describe('02a ForceMoveTable (§6.8)', () => {
     expect(same.status).toBe(200);
     expect(same.data!.result).toEqual({ changed: false });
     expect(eventCount()).toBe(before);
+  });
+
+  it('[02a §6.8] no lock on the seating → TableHolderChanged only (no TableLockReleased); statements 1 + 1 + 1 byDedupeKey', async () => {
+    const ali = signIn(ALI);
+    const mgr = signIn(MGR);
+    signIn(SARA);
+    open('T1', 'SEAT1', ali, { locked: false });
+    const r = await forceMove(mgr, { table_id: 'T1', seating_id: 'SEAT1', to_staff_id: SARA, reason: 'no lock' });
+    expect(r.status).toBe(200);
+    expect(r.data!.result).toEqual({ changed: true });
+    expect(r.data!.event_ids).toHaveLength(1);
+    expect(events('TableHolderChanged')).toHaveLength(1);
+    expect(events('TableLockReleased')).toEqual([]);
+    expect(events('AlertClosed')).toEqual([]);
+    expect(holderOf('SEAT1')).toBe(SARA);
+    expect(lockOf('SEAT1')).toBeUndefined();
+    expect(closeStatements).toBe(0);
+    expect(handleStatements.ForceMoveTable).toBe(3);
   });
 
   it('[02a §6.8] a manager may move a table to himself (no is_requester); his own lock elsewhere kept', async () => {
