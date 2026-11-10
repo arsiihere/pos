@@ -159,3 +159,49 @@ describe('[02a §9] table codes', () => {
     expect(statusOf('TABLE_LOCK_NOT_HELD')).toBe(409);
   });
 });
+
+describe('[02b §9] ordering codes', () => {
+  it('[02b §9] each new code has its status', () => {
+    const expected: Record<string, number> = {
+      ORDER_NOT_FOUND: 404,
+      ORDER_ITEM_ID_IN_USE: 409,
+      ITEM_UNAVAILABLE: 409,
+      ITEM_OUT_OF_HOURS: 409,
+      ITEM_SOLD_OUT: 409,
+      OPTION_CHOICE_INVALID: 422,
+      ZONE_ITEM_NOT_CONFIGURED: 422,
+      STOCK_INSUFFICIENT: 409,
+      LINE_NOT_WEIGHED: 409,
+      LINE_WEIGHT_PENDING: 409,
+      LINE_ALREADY_SETTLED: 409,
+      COMP_NOT_ALLOWED: 409,
+      COMP_PENDING: 409,
+      ORDER_BILLED: 409,
+    };
+    expect(Object.keys(expected)).toHaveLength(14);
+    for (const [code, status] of Object.entries(expected)) {
+      expect(ErrorCatalogue).toHaveProperty(code);
+      expect(ErrorCatalogue[code as keyof typeof ErrorCatalogue].status).toBe(status);
+    }
+  });
+
+  it('[02b §9] reused codes unchanged', () => {
+    const reused: Record<string, number> = {
+      BUSINESS_DAY_NOT_OPEN: 409,
+      ORDER_NOT_IN_ENGINE: 409,
+      RETURN_ALREADY_OPEN: 409,
+      STATION_PAUSED: 409,
+      ITEM_WRONG_STAGE: 409,
+      MENU_ITEM_NOT_FOUND: 404,
+      DEAL_NOT_FOUND: 404,
+      ZONE_NOT_FOUND: 404,
+      SESSION_EXPIRED: 401,
+      PERMISSION_DENIED: 403,
+      VALIDATION_FAILED: 400,
+    };
+    for (const [code, status] of Object.entries(reused)) {
+      expect(ErrorCatalogue).toHaveProperty(code);
+      expect(ErrorCatalogue[code as keyof typeof ErrorCatalogue].status).toBe(status);
+    }
+  });
+});
