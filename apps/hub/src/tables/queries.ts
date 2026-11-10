@@ -40,7 +40,7 @@ export interface MapTile {
 
 export interface TableMapBody {
   as_of_seq: number;
-  floors: Array<{ floor_id: string; name: string | null; zones: Array<{ zone_id: string | null; name: string | null; tables: MapTile[] }> }>;
+  floors: Array<{ floor_id: string; name: string | null; archived: boolean; zones: Array<{ zone_id: string | null; name: string | null; tables: MapTile[] }> }>;
 }
 
 interface SeatedRow {
@@ -171,11 +171,11 @@ export function tableMapBody(
         .filter((t) => (g.zone_id === null ? t.zone_id === null || !known.has(t.zone_id) : t.zone_id === g.zone_id))
         .map((t) => tile(t.table_id, t.name, t.seats, false)),
     }));
-    floors.push({ floor_id: floor.floor_id, name: floor.name, zones: groups.filter((g) => g.tables.length > 0) });
+    floors.push({ floor_id: floor.floor_id, name: floor.name, archived: false, zones: groups.filter((g) => g.tables.length > 0) });
   }
   const archived = [...seatedByTable.keys()].filter((id) => !names.has(id)).sort();
   if (archived.length > 0) {
-    floors.push({ floor_id: '', name: null, zones: [{ zone_id: null, name: null, tables: archived.map((id) => tile(id, id, null, true)) }] });
+    floors.push({ floor_id: '', name: null, archived: true, zones: [{ zone_id: null, name: null, tables: archived.map((id) => tile(id, id, null, true)) }] });
   }
   return { as_of_seq: o.asOfSeq, floors };
 }

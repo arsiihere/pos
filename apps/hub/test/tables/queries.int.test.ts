@@ -215,7 +215,7 @@ interface Tile {
 }
 interface MapBody {
   as_of_seq: number;
-  floors: Array<{ floor_id: string; name: string | null; zones: Array<{ zone_id: string | null; name: string | null; tables: Tile[] }> }>;
+  floors: Array<{ floor_id: string; name: string | null; archived: boolean; zones: Array<{ zone_id: string | null; name: string | null; tables: Tile[] }> }>;
 }
 
 async function query(who: Who, path: string): Promise<{ status: number; body: { data?: unknown; error?: { code: string; details: unknown } } }> {
@@ -285,9 +285,11 @@ describe('table-map (§6.17)', () => {
     applyConfig(c);
     const body = await tableMap(ali);
     const archived = body.floors.at(-1)!;
+    expect(body.floors.slice(0, -1).map((f) => f.archived)).toEqual([false, false]);
     expect(archived).toEqual({
       floor_id: '',
       name: null,
+      archived: true,
       zones: [
         {
           zone_id: null,
