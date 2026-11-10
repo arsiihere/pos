@@ -117,13 +117,15 @@ export type LineChangeDrafts = (
 /**
  * §3.3 / §3.5 (pure): OrderFoodServed / OrderFoodCleared for an order's lines after a serve, a change or a return.
  * `lines` = the order's lines AFTER the change (served_at set, the return line included).
+ * AD-13: for `served`, `OrderFoodServed` only when `order_item_ids` (the lines this ItemServed served) include a
+ * food line (§3.3); `lines` stays the order's lines after the change.
  * AD-10: drafts without time / actor / device (as engine `StockReservedDraft` / `ItemsReleasedDraft`); the caller
  * adds the envelope (`occurred_at`, `actor_id`, `device_id`).
  */
 export type FoodDrafts = (
   order_id: string,
   lines: readonly LineView[],
-  after: 'served' | 'change' | 'return',
+  after: { kind: 'served'; order_item_ids: readonly string[] } | 'change' | 'return',
 ) => Pick<EventDraft, 'stream_type' | 'stream_id' | 'event_type' | 'schema_version' | 'payload'>[];
 
 /** §3.10: the zone_stock_low / zone_stock_out raise and close drafts for count changes (before → after). */
@@ -165,6 +167,11 @@ export interface SubmitInput {
 export interface BuildSubmitCtx {
   /** hub time (ms) for availability windows (S47) */
   now: number;
+  /**
+   * AD-12: the hub's UTC offset (ms) from `hubTime(clock)` (apps/hub/src/lib/hub-time.ts), passed with `now`; never read
+   * the runtime timezone (packages/domain/src/availability-windows.ts rule, S47).
+   */
+  utc_offset_ms: number;
   /** the item_availability callback, as `isItemOrderable` / `checkOptionChoices` (@pos/domain menu-lines) take it */
   isAvailable: IsAvailable;
   /** the seating's primary table (02a `seatingOf`) for zone routing; null for takeaway / parking */

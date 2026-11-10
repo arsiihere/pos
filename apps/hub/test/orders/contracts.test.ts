@@ -106,7 +106,7 @@ describe('[02b §4.2] contracts', () => {
       (
         order_id: string,
         lines: readonly LineView[],
-        after: 'served' | 'change' | 'return',
+        after: { kind: 'served'; order_item_ids: readonly string[] } | 'change' | 'return',
       ) => Array<{
         stream_type: EventDraft['stream_type'];
         stream_id: string;
@@ -121,6 +121,7 @@ describe('[02b §4.2] contracts', () => {
     // AD-8: hub time, the item_availability callback (@pos/domain IsAvailable), the seating's primary table, follow_up.
     expectTypeOf<BuildSubmitCtx>().toEqualTypeOf<{
       now: number;
+      utc_offset_ms: number;
       isAvailable: IsAvailable;
       primary_table_id: string | null;
       follow_up: boolean;
