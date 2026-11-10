@@ -21,6 +21,8 @@ import { registerSplitSeating } from './commands/split-seating.js';
 import { registerBillClean } from './commands/bill-clean.js';
 import './call-waiter-kind.js'; // §6.14 kind call_waiter, top level (AD-5): exists before boot replay
 import { registerCallWaiter } from './commands/call-waiter.js';
+import './audiences.js'; // §6.19 audiences, once per process at load (like ws/engine-audiences.ts)
+import { registerTableQueries, registerTablesCatchUp } from './queries.js';
 
 // 02a wiring entry (plan "02a exports"): commands, queries, catch-up, audiences, tick and hooks (SG-6).
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -59,6 +61,11 @@ export function registerTables(app: FastifyInstance, deps: HubDeps): void {
   // wave 2 lane D (bill, clean, call_waiter)
   registerBillClean(app); // §6.12, §6.13 (queueable, P-1f)
   registerCallWaiter(app); // §6.14 (not queueable, P-1f)
+
+  // wave 3 (queries, catch-up, audiences)
+  registerTableQueries(app, deps.config.provisioned?.branch_id ?? ''); // §6.17, §6.18 (registerQueryRoutes ran before)
+  const stopCatchUp = registerTablesCatchUp(app); // catch-up part `tables`; removed when this server closes
+  app.addHook('onClose', async () => stopCatchUp());
 }
 
 // SG-5: the `tables` projection (T19), registered where the hub's projection registry is created (boot, test hub).
