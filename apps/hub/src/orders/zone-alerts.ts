@@ -8,7 +8,9 @@ import type { ZoneAlertDrafts } from './contracts.js';
 // item's `threshold` from the zone's config `stock_items`:
 //   before > threshold, after <= threshold -> raise zone_stock_low (dedupe zone_low:<zone_id>:<item_id>)
 //   before > 0, after = 0                  -> raise zone_stock_out (dedupe zone_out:<zone_id>:<item_id>), even if low is open
-//   after > threshold                      -> close that item's open low / out alerts 'done'
+//   after > 0                              -> close that item's open zone_stock_out alert 'done'
+//   after > threshold                      -> close that item's open zone_stock_low alert 'done'  (each closes on its own; v1.0.3 AD-11)
+// Precondition: one call's changes for one item all move in one direction (a raise and a close of the same item never mix).
 // Statements: one alerts.listOpen per zone subject, plus raiseMany / closeMany's own (only when there is something to do).
 // The kind names are strings here on purpose: the kinds are registered by zone-kinds.ts through orders/index.ts.
 
@@ -34,13 +36,11 @@ export const zoneAlertDrafts: ZoneAlertDrafts = (ctx, changes) => {
       raises.push({ kind, subject: subjectOf(zone_id), target: { kind: 'permission', permission: 'manage-zone-stock' }, values, display: { kind_label_key: `alert.${kind}.lock` }, dedupe_key });
     };
     const keys = { [LOW]: `zone_low:${zone_id}:${item_id}`, [OUT]: `zone_out:${zone_id}:${item_id}` };
-    if (after > threshold) {
-      for (const a of open) {
-        if ((a.kind === LOW || a.kind === OUT) && a.dedupe_key === keys[a.kind]) closes.push({ alert_id: a.alert_id, reason: 'done' });
-      }
-      continue;
+    for (const a of open) {
+      if (a.kind === OUT && a.dedupe_key === keys[OUT] && after > 0) closes.push({ alert_id: a.alert_id, reason: 'done' });
+      if (a.kind === LOW && a.dedupe_key === keys[LOW] && after > threshold) closes.push({ alert_id: a.alert_id, reason: 'done' });
     }
-    if (before > threshold) raise(LOW, keys[LOW]);
+    if (before > threshold && after <= threshold) raise(LOW, keys[LOW]);
     if (after === 0 && before > 0) raise(OUT, keys[OUT]);
   }
   const drafts: EventDraft[] = [];

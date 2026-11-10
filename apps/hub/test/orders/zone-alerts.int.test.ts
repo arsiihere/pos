@@ -190,16 +190,42 @@ describe('[02b #14 alerts] zoneAlertDrafts (§3.10 Alerts)', () => {
     ]);
   });
 
-  it('[02b #14 alerts] back above the threshold closes both done; still <= threshold closes nothing', async () => {
+  it('[02b #14 alerts] 0 → 1 closes out, low stays open while ≤ threshold', async () => {
+    const h = await started();
+    run(h, [change(5, 0)]); // low + out open; threshold 2
+    const outId = (h.deps.db.prepare(`SELECT alert_id FROM alerts WHERE state = 'open' AND kind = 'zone_stock_out'`).get() as { alert_id: string }).alert_id;
+    const drafts = run(h, [change(0, 1)]);
+    expect(drafts.map((d) => [d.event_type, d.payload.alert_id, d.payload.reason])).toEqual([['AlertClosed', outId, 'done']]);
+    expect(openRows(h).map((r) => [r.kind, r.dedupe_key])).toEqual([['zone_stock_low', LOW_KEY]]);
+    expect(run(h, [change(1, 2)])).toEqual([]); // still <= threshold: nothing to close, low stays
+  });
+
+  it('[02b #14 alerts] back above the threshold closes low done (out was closed above 0)', async () => {
     const h = await started();
     run(h, [change(5, 0)]);
-    expect(run(h, [change(0, 2)])).toEqual([]);
-    const ids = h.deps.db.prepare(`SELECT alert_id FROM alerts WHERE state = 'open' ORDER BY kind`).all() as Array<{ alert_id: string }>;
-    const drafts = run(h, [change(2, 3)]);
-    expect(drafts.map((d) => [d.event_type, d.payload.alert_id, d.payload.reason])).toEqual(ids.map((r) => ['AlertClosed', r.alert_id, 'done']));
+    run(h, [change(0, 1)]);
+    const lowId = (h.deps.db.prepare(`SELECT alert_id FROM alerts WHERE state = 'open'`).get() as { alert_id: string }).alert_id;
+    const drafts = run(h, [change(1, 3)]);
+    expect(drafts.map((d) => [d.event_type, d.payload.alert_id, d.payload.reason])).toEqual([['AlertClosed', lowId, 'done']]);
     expect(openRows(h)).toEqual([]);
     // a later drop raises a fresh low alert
     expect(raisedOf(run(h, [change(3, 1)])).map((p) => p.kind)).toEqual(['zone_stock_low']);
+  });
+
+  it('[02b #14 alerts] 0 → above threshold in one change closes both done', async () => {
+    const h = await started();
+    run(h, [change(5, 0)]);
+    const ids = h.deps.db.prepare(`SELECT alert_id FROM alerts WHERE state = 'open' ORDER BY kind`).all() as Array<{ alert_id: string }>;
+    const drafts = run(h, [change(0, 9)]);
+    expect(drafts.map((d) => [d.event_type, d.payload.alert_id, d.payload.reason])).toEqual(ids.map((r) => ['AlertClosed', r.alert_id, 'done']));
+    expect(openRows(h)).toEqual([]);
+  });
+
+  it('[02b #14 alerts] display kind_label_key equals the kind lock label', async () => {
+    const h = await started();
+    const drafts = raisedOf(run(h, [change(5, 0)]));
+    expect(drafts).toHaveLength(2);
+    for (const p of drafts) expect((p.display as { kind_label_key: string }).kind_label_key).toBe(kindOf(p.kind as string)!.labels.lock);
   });
 
   it('[02b #14 alerts] one listOpen per zone subject zone:<id>, whatever the number of changes', async () => {
