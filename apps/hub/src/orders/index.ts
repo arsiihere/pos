@@ -1,3 +1,5 @@
+// 02b §6.13 (AD-5 pattern of 02a): the zone stock kinds register at module load, before boot replays the alerts projection.
+import './zone-kinds.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import type { HubDeps } from '../server.js';
