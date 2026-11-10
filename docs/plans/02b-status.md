@@ -1,13 +1,13 @@
 # 02b status board
 
-Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.2.md` (APPROVED), on top of 02a v1.1.3 (hub done, `46f74a6`). Branch: `module-02b`.
+Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.2.md` (APPROVED), on top of `main` `67c84c6` (02a hub merged, v1.1.4). Branch: `module-02b`.
 
 > **Short Hinglish summary**
 >
 > **2026-11-10:** 02b ka plan likh diya, code abhi zero.
 > - Hub: 24 tasks, 5 waves (0–4). Client: 3 tasks, design handoff ka intezaar.
-> - **Aap ke faislay chahiye:** G-1 (handover card par seating ka total kaun jore), G-2 (purane tests jo registered cheezein ginte hain, unki test-only edits ki pehle se ijazat), G-3 (projection boot.ts mein, 02a ki tarah), G-7 (02a pehle `main` mein merge).
-> - Wave 0 G-7 ke baad shuru ho sakti hai.
+> - G-1, G-2, G-3, G-7 ka faisla ho gaya (neeche). 02a `main` mein merge, `module-02b` `main` se dobara bana.
+> - Agla qadam: wave 0.
 
 ## Task table
 
@@ -18,7 +18,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 3 | Migration `0013_orders.sql` | 3 | 0 | HIGH | todo | |
 | 4 | `orders/contracts.ts`, `index.ts` skeleton, test fixtures | — | 0 | NORMAL | todo | |
 | 5 | Zone kinds, `zoneAlertDrafts` | 15 | 0 | NORMAL | todo | |
-| 6 | Projection `orders` | 3 | 1A | HIGH | todo (G-3) | |
+| 6 | Projection `orders` | 3 | 1A | HIGH | todo | |
 | 7 | Exports `seatingTotals`, `orderLines`, `ordersOf` | 16 | 1A | NORMAL | todo | |
 | 8 | Ledger `lineShares`, cascades | 4 | 1B | HIGH | todo | |
 | 9 | Food rules `foodDrafts` | (9, 11, 13) | 1B | HIGH | todo | |
@@ -35,7 +35,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 20 | `AddZoneStock`, `SetZoneStock` | 15 | 2D | NORMAL | todo | |
 | 21 | Queries, catch-up, audiences | 17 | 3A | NORMAL | todo | |
 | 22 | Queued replays (02b's use) | 18 | 3B | HIGH | todo | |
-| 23 | Handover card amount | — | 3C | NORMAL | blocked (G-1) | |
+| 23 | Handover card amount | — | 3C | NORMAL | todo | |
 | 24 | Perf file, acceptance map, README rows | 22 | 4 | NORMAL | todo | |
 | 25 | Client: queue and drafts | 19 | 5 | UI | **blocked (design handoff)** | |
 | 26 | Client: ordering screen, options, preview | 20 | 5 | UI | **blocked (design handoff)** | |
@@ -45,10 +45,10 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 
 | # | Gap | Blocks | Options | Choice | Status |
 |---|---|---|---|---|---|
-| G-1 | Who wires `seatingTotals` into 02a's handover card (`amount`) | 23 | (a) 02a hook `registerSeatingTotals`, 02b registers it; (b) leave out until 05 | — | proposed (not yet ruled) |
-| G-2 | Test-only edits to existing suites that list / count registered kinds, projections, audiences, commands, catch-up parts | none | (a) standing pre-approval, each noted in the wave entry; (b) STOP each time | — | proposed (not yet ruled) |
-| G-3 | `orders` projection registered in `lib/boot.ts` `createDeps` and `test/helpers/test-hub.ts` | 6 | (a) one append-only line + import each (02a SG-5) | — | proposed (not yet ruled) |
-| G-7 | Base branch: merge `module-02a` into `main` first; re-cut `module-02b` from `main` or keep it on `module-02a` | wave 0 | owner | — | proposed (not yet ruled) |
+| G-1 | Who wires `seatingTotals` into 02a's handover card (`amount`) | 23 | (a) 02a hook `registerSeatingTotals`, 02b registers it; (b) leave out until 05 | (a) 02a hook `registerSeatingTotals` | **ruled (owner, 2026-11-10)** |
+| G-2 | Test-only edits to existing suites that list / count registered kinds, projections, audiences, commands, catch-up parts | none | (a) standing pre-approval, each noted in the wave entry; (b) STOP each time | (a) standing pre-approval, test-only, listed per wave | **ruled (owner, 2026-11-10)** |
+| G-3 | `orders` projection registered in `lib/boot.ts` `createDeps` and `test/helpers/test-hub.ts` | 6 | (a) one append-only line + import each (02a SG-5) | (a) same as 02a SG-5 | **ruled (owner, 2026-11-10)** |
+| G-7 | Base branch: merge `module-02a` into `main` first; re-cut `module-02b` from `main` or keep it on `module-02a` | wave 0 | owner | merged `67c84c6`; `module-02b` re-cut from `main` | **ruled (owner, 2026-11-10)** |
 
 ## AD rows
 
@@ -65,7 +65,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 
 | Date | Ruling | Where |
 |---|---|---|
-| | | |
+| 2026-11-10 | G-1 (a), G-2 (a), G-3 (a), G-7 re-cut from `main` | plan "Gaps — ruled" |
 
 ## Wave entries
 
@@ -73,6 +73,6 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 
 ## Next
 
-1. **Owner:** rule G-1, G-2, G-3, G-7 (and AD-1–AD-6 any time).
-2. **Claude Code:** wave 0 with `docs/plans/02b-parallel-prompts.md` §3.
+1. **Claude Code:** wave 0 with `docs/plans/02b-parallel-prompts.md` §3.
+2. **Owner (any time):** AD-1–AD-6.
 3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.

@@ -8,15 +8,24 @@
 
 **Tech Stack:** as CLAUDE.md. **No new dependency.** No cloud change, no cloud migration.
 
-**Spec:** `docs/specs/02b_Ordering_Spec_v1.0.2.md` (APPROVED; cited "§x", tests "#n"). Context only: 02a v1.1.3 (§4.2 reads, `requireLock`, T19, T21), 03a v1.2 §4.2 (`ProposedOrder`, events), 01c v1.1.2 §3.4.8 / §4.3 (deal money, `ItemAdded`), 01d v1.2.1 §3.4 (`alerts.*`, approval), 01a v2.3 A-1 (zones, settings), 01b v1.7 §3.3 (permissions, `my_zones`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. Plan and spec disagree → the spec wins: STOP and ask (CLAUDE.md).
+**Spec:** `docs/specs/02b_Ordering_Spec_v1.0.2.md` (APPROVED; cited "§x", tests "#n"). Context only: 02a v1.1.4 (§4.2 reads, `requireLock`, T19, T21), 03a v1.2 §4.2 (`ProposedOrder`, events), 01c v1.1.2 §3.4.8 / §4.3 (deal money, `ItemAdded`), 01d v1.2.1 §3.4 (`alerts.*`, approval), 01a v2.3 A-1 (zones, settings), 01b v1.7 §3.3 (permissions, `my_zones`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. Plan and spec disagree → the spec wins: STOP and ask (CLAUDE.md).
 
-**Starting point:** `module-02a` at `46f74a6` (02a hub done, not yet merged into `main`). Branch `module-02b` is cut from it (docs only until the owner merges 02a, see G-7). Next free hub migration: **`0013`**. Nothing of 02b exists: no `apps/hub/src/orders/`, no 02b codes in `errors.ts`.
+**Starting point:** `main` at `67c84c6` (02a hub merged, spec v1.1.4). Branch `module-02b` re-cut from it (G-7 ruling). Next free hub migration: **`0013`**. Nothing of 02b exists: no `apps/hub/src/orders/`, no 02b codes in `errors.ts`.
 
 **Already built elsewhere (do not rebuild):** 02a task 1b: `OrderCancelled`, `OrderFoodServed`, `OrderFoodCleared`, `LineWeightSet`, `LineComped` schemas (`packages/events/src/events/order/`), and 02a's fold of them. 02p: `OrderPlaced` E-1 fields (`has_food`, `sent_after_reconnect`, …), `ItemAdded` C-1 fields, `ItemRemoved.units`, `ItemServed.source/served_at`, `ItemVoided.refund_minor/comp_voided_minor`, `StockTransferredOut`, engine Q-3 / Q-5 / Q-6, 00 H-1 (`X-Queued-At`, `ctx.queuedAt`, idle pause; 00 tests 152–158), 01a A-1 (V4 `zones[].routes[]`, `.stock_items[]`, `is_ready_item`, settings), 01b B-1–B-5 (permissions `set-line-weight`, `manage-zone-stock`, `view-customer-contact`, scope `my_zones`).
 
 ---
 
-## ⛔ Gaps for the owner (rule before the named tasks)
+## Gaps — ruled (owner, 2026-11-10)
+
+| # | Ruling |
+|---|---|
+| G-1 | **(a)** 02a hook `registerSeatingTotals(fn)` in `tables/handover.ts` (like `registerMergeGuard`); 02b registers `seatingTotals` in `registerOrders`; task 23 edits those two 02a files and the 02a #12 test. |
+| G-2 | **(a)** standing pre-approval: test-only edits that make an existing test count / reset what is registered (kinds, projections, audiences, commands, catch-up parts, statement bounds that include per-projection upserts); no production code, no assertion weakened; each listed in the wave entry. |
+| G-3 | **(a)** one append-only line + import in `apps/hub/src/lib/boot.ts` `createDeps` and `apps/hub/test/helpers/test-hub.ts`, next to `registerTablesProjection`. |
+| G-7 | `module-02a` merged into `main` (`67c84c6`); `module-02b` re-cut from `main` with the plan commit carried over. |
+
+### Gap record (as found)
 
 Found while writing this plan (CLAUDE.md: never silently diverge). Each is a **G** row on `docs/plans/02b-status.md`, "proposed (not yet ruled)". A task that depends on an open G row does not start.
 
@@ -34,7 +43,7 @@ Found while writing this plan (CLAUDE.md: never silently diverge). Each is a **G
 - **AD-5:** 05 will write both 02b's `OrdersBilled { order_ids, bill_id }` and 02a's `BillClosed { seating_id }` (02a SG-2) on a bill close; task 24 adds it to `docs/OPEN-QUESTIONS.md` §5 for the 05 spec; nothing to build here.
 - **AD-6:** zone events (`ZoneStockAdded`, `ZoneStockSet`) are on stream `table` with id `'zone:' + zone_id` (§6.19); 02a's projection and audiences select by event type, so they never see them. Task 2 asserts the stream; task 21 asserts no 02a reader picks them up.
 
-**G-7 (process, owner):** merge `module-02a` into `main` (after its build review) **before wave 0**; then the integrator re-cuts `module-02b` from `main` (`git checkout -B module-02b origin/main` + cherry-pick these docs commits) or merges nothing and keeps `module-02b` on top of `module-02a` — the owner picks in the kickoff message.
+**G-7 (process):** ruled above.
 
 ---
 
@@ -110,10 +119,10 @@ export function registerOrdersProjection(projections): void;  // G-3
 
 | Wave | Tasks | §11 steps | §12.2 rows closed | Starts when |
 |---|---|---|---|---|
-| 0 — foundation (integrator) | 1, 2, 3, 4, 5 | 1, 2, 3 (migration), 15 (kinds) | 12, 13 (kinds) | G-7 done; plan approved |
-| 1 — data and pure rules (3 lanes) | 6, 7 · 8, 9 · 10 | 3, 4, 5, 16 | — | wave 0 green; G-3 |
+| 0 — foundation (integrator) | 1, 2, 3, 4, 5 | 1, 2, 3 (migration), 15 (kinds) | 12, 13 (kinds) | now |
+| 1 — data and pure rules (3 lanes) | 6, 7 · 8, 9 · 10 | 3, 4, 5, 16 | — | wave 0 green |
 | 2 — commands (4 lanes) | 11, 12, 13 · 14, 15, 16 · 17, 18, 19 · 20 | 6–15 | 1–11 | wave 1 green |
-| 3 — reads, queue, hand-off (3 lanes) | 21 · 22 · 23 | 17, 18 | 14–19 | wave 2 green; G-1 for 23 |
+| 3 — reads, queue, hand-off (3 lanes) | 21 · 22 · 23 | 17, 18 | 14–19 | wave 2 green |
 | 4 — perf file and acceptance (integrator) | 24 | 22 | all 19 | wave 3 green |
 | 5 — client | 25, 26, 27 | 19, 20, 21 | §8 | **BLOCKED** on `docs/design/handoff/02b/` |
 
@@ -162,7 +171,7 @@ export function registerOrdersProjection(projections): void;  // G-3
 
 ## Wave 1 — data and pure rules
 
-### Task 6: projection `orders` with `reset` · RISK: HIGH · Wiring (G-3) — lane 1A
+### Task 6: projection `orders` with `reset` · RISK: HIGH · Wiring (G-3 (a)) — lane 1A
 **Spec:** §5 bullets, §3.3 (billed, day close), §3.4 (ledger columns from events), §3.10 counts, §6.19 Fold column, O17, T19. **§11 step 3.** **Files:** `apps/hub/src/orders/projection.ts`; G-3 lines in `lib/boot.ts`, `test/helpers/test-hub.ts`; `apps/hub/test/orders/projection.int.test.ts`. **Tests first:** `[02b #28]` live = replay over a fixture day, `orders` registered before and after `tables`; `[02b #29 fold]` `OrdersBilled` sets `billed_at` on every listed order; `[02b #30 fold]` day close sets `day_closed_at` only on cancelled / billed / finished orders (deal finished when every part served; billed dine-in with an untapped line leaves; carried order leaves at the next close); `[02b §5]` each event's fold (contact columns only from `OrderContactSet`; `ItemServed` `served_at = min(served_at, recorded_at)`; `LineWeightSet` sets `refundable_minor`; zone `ItemAdded` −, zone `ItemRemoved` + always, `ZoneStockAdded` +, `ZoneStockSet` =; `ItemVoided` uses its `refund_minor` / `comp_voided_minor`); no read of another projection. **Commit:** `feat(02b): orders projection [02b §5, §3.3, §3.10, T19; §11 step 3]`.
 
 ### Task 7: exports `seatingTotals`, `orderLines`, `ordersOf` · RISK: NORMAL — lane 1A
@@ -227,7 +236,7 @@ export function registerOrdersProjection(projections): void;  // G-3
 ### Task 22: queued replays (02b's use) · RISK: HIGH — lane 3B
 **Spec:** §3.12 (hub part), §3.2 step 2, §3.7, O11, AD-1, AD-2. **§11 step 18.** **Files:** `orders/commands/submit-order.ts`, `orders/commands/mark-served.ts` (ownership moves to lane 3B in wave 3); test `queued.int.test.ts`. **Tests first:** `[02b #31 02b]` (AD-2 list), `[02b #13 queued]`, `[02b #22 queued]`. **Commit:** `feat(02b): queued replays for submit and served [02b §3.12; §11 step 18]`.
 
-### Task 23: handover card amount · RISK: NORMAL — lane 3C · **needs G-1**
+### Task 23: handover card amount · RISK: NORMAL — lane 3C (G-1 (a))
 **Spec:** 02a §3.8, 02b §4.2. **Files:** per G-1 (a): `apps/hub/src/tables/handover.ts`, a `registerSeatingTotals` hook in 02a, `orders/index.ts` registration; the 02a #12 test. **Tests first:** `[02a #12 amount]` the card's `details.amount` = `seatingTotals`; 1 statement more on the handover path. **Commit:** `feat(02b): handover card shows the seating total [02a §3.8; 02b §4.2]`.
 
 ### Wave 3 checkpoint
@@ -275,4 +284,4 @@ There is no `docs/design/handoff/02b/` (inventory: `docs/design/inventory/02-ord
 - **Coverage.** §11 steps 1–22 → tasks 1–27 (step 3 → tasks 3 + 6; step 15 → 5 + 20; steps 19–21 → 25–27). Every §10 test 1–40 is placed (table above), #31's 00 clauses mapped at task 24, 02a's #53 / #62 placed (AD-3).
 - **§12.2.** 19 rows close over waves 0–3.
 - **Names.** From the code at `46f74a6`; 02b's own names fixed in "02b exports and contracts".
-- **Open.** G-1–G-3 and G-7 need the owner; AD-1–AD-6 proposed.
+- **Open.** G-1–G-3, G-7 ruled (owner, 2026-11-10); AD-1–AD-6 proposed.

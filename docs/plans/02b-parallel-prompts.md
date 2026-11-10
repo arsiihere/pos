@@ -11,7 +11,7 @@ Plan: `docs/plans/02b-plan.md` §"Parallel waves". Integrator checkout: `~/pos`.
 | Wave 0 | **1** | Integrator (tasks 1–5) |
 | Wave 1 | **4** | Integrator + lanes A, B, C |
 | Wave 2 | **5** | Integrator + lanes A, B, C, D |
-| Wave 3 | **4** | Integrator + lanes A, B, C (C only if G-1 is ruled (a)) |
+| Wave 3 | **4** | Integrator + lanes A, B, C |
 | Wave 4 | **1** | Integrator (task 24) |
 
 ---
@@ -102,9 +102,9 @@ At the integrator's STOP ("checkpoint wave 1"): close the lane terminals, review
 
 Same as wave 1 with `~/pos-02b-A`…`D` and prompts `lane 2A (wave 2, lane A)` … `lane 2D (wave 2, lane D)`.
 
-### Wave 3 — 2 or 3 more terminals
+### Wave 3 — 3 more terminals
 
-Same with `lane 3A`, `lane 3B`, and `lane 3C` only if G-1 was ruled (a).
+Same with `lane 3A`, `lane 3B`, `lane 3C`.
 
 ### Wave 4 — integrator only
 
