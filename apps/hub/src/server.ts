@@ -13,6 +13,7 @@ import type { Clock } from './lib/clock.js';
 import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { registerAlerts } from './alerts/index.js';
+import { registerTables } from './tables/index.js';
 import { registerAppUpdateRoutes } from './app-update/routes.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
@@ -200,6 +201,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerWs(app, deps);
   registerAppUpdateRoutes(app, deps);
   registerAlerts(app, deps);
+  registerTables(app, deps);
   registerUiAssets(app);
   // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });

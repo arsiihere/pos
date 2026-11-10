@@ -128,3 +128,34 @@ describe('[01a A-1] ZONE_NOT_FOUND', () => {
     expect(statusOf('ZONE_NOT_FOUND')).toBe(404);
   });
 });
+
+describe('[02a §9] table codes', () => {
+  it('[02a §9] each new code has its status', () => {
+    const expected: Record<string, number> = {
+      TABLE_NEEDS_CLEANING: 409,
+      TABLE_NOT_OPEN: 409,
+      TABLE_SEATING_CHANGED: 409,
+      TABLE_HANDOVER_PENDING: 409,
+      TABLE_HANDOVER_STALE: 409,
+      HANDOVER_TARGET_INVALID: 422,
+      HANDOVER_TARGET_UNAVAILABLE: 409,
+      TABLE_NOT_FREE: 409,
+      TABLE_MERGED: 409,
+      MERGE_BLOCKED_BY_VOID: 409,
+      SPLIT_INVALID: 409,
+      TABLE_NO_ORDERS: 409,
+      TABLE_HAS_OPEN_ORDERS: 409,
+    };
+    expect(Object.keys(expected)).toHaveLength(13);
+    for (const [code, status] of Object.entries(expected)) {
+      expect(ErrorCatalogue).toHaveProperty(code);
+      expect(ErrorCatalogue[code as keyof typeof ErrorCatalogue].status).toBe(status);
+    }
+  });
+
+  it('[02a §9] TABLE_NOT_FOUND, TABLE_ALREADY_LOCKED, TABLE_LOCK_NOT_HELD unchanged', () => {
+    expect(statusOf('TABLE_NOT_FOUND')).toBe(404);
+    expect(statusOf('TABLE_ALREADY_LOCKED')).toBe(409);
+    expect(statusOf('TABLE_LOCK_NOT_HELD')).toBe(409);
+  });
+});

@@ -27,6 +27,7 @@ import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
 import { createProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
+import { registerTablesProjection } from '../tables/index.js';
 import { publisherFor } from '../ws/server.js';
 import { httpCloudClient, type CloudClient } from '../setup/cloud-client.js';
 import { startConfirmTask } from '../setup/confirm-task.js';
@@ -307,6 +308,7 @@ function createDeps(
   const projections = createProjectionRegistry();
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);
+  registerTablesProjection(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {

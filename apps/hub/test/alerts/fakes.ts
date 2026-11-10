@@ -184,6 +184,9 @@ export const FAKE_STEP_1_MS = 60_000;
 
 export function registerFakes(): void {
   ensureEffectEvent();
+  // 02a SG-6: registerTables (buildHubServer) registered the real resolvers; the fakes replace them
+  unregisterTargetResolver('table_team');
+  unregisterTargetResolver('zone_order_taker');
   registerTargetResolver('table_team', fakeTableOwnerResolver);
   registerTargetResolver('point', fakePointResolver);
   registerTargetResolver('zone_order_taker', fakeZoneOrderTakerResolver);

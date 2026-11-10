@@ -332,3 +332,49 @@ describe('03a v1.2 E-4: OrderLinesAdded order_header (§4.2)', () => {
     }
   });
 });
+
+// 02a SG-2: the five 02b v1.0.2 §6 events 02a folds (shapes from the 02b §6.19 table).
+describe('02a SG-2: folded 02b events (02b v1.0.2 §6.19)', () => {
+  const folded: Record<string, Record<string, unknown>> = {
+    OrderFoodServed: { order_id: 'O1' },
+    OrderFoodCleared: { order_id: 'O1', food_served: true },
+    OrderCancelled: { order_id: 'O1' },
+    LineWeightSet: { order_item_id: 'L1', quantity: 450, line_total_minor: 90_000 },
+    LineComped: {
+      order_item_id: 'L1',
+      units: 2,
+      value_minor: 120_000,
+      reason_code: 'other',
+      note: null,
+      requester_staff_id: 'W1',
+      alert_id: null,
+      approver_staff_id: null,
+    },
+  };
+
+  it('[02a SG-2] each of the five 02b events round-trips with its 02b §6 payload', () => {
+    for (const [type, payload] of Object.entries(folded)) {
+      expect(payloadSchema(type, 1).parse(payload), type).toEqual(payload);
+    }
+    const approved = { ...folded.LineComped!, note: 'cold', alert_id: 'A1', approver_staff_id: 'W2' };
+    expect(payloadSchema('LineComped', 1).parse(approved)).toEqual(approved);
+  });
+
+  it('[02a SG-2] OrderFoodCleared.food_served is boolean', () => {
+    const schema = payloadSchema('OrderFoodCleared', 1);
+    expect(schema.safeParse({ order_id: 'O1', food_served: false }).success).toBe(true);
+    expect(schema.safeParse({ order_id: 'O1', food_served: 'yes' }).success).toBe(false);
+    expect(schema.safeParse({ order_id: 'O1' }).success).toBe(false);
+  });
+
+  it('[02a SG-2] no field beyond the 02b table; every listed field is required', () => {
+    for (const [type, payload] of Object.entries(folded)) {
+      const schema = payloadSchema(type, 1);
+      expect(schema.safeParse({ ...payload, extra: 1 }).success, type).toBe(false);
+      for (const key of Object.keys(payload)) {
+        const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== key));
+        expect(schema.safeParse(rest).success, `${type}.${key}`).toBe(false);
+      }
+    }
+  });
+});

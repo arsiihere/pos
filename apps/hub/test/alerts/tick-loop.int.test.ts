@@ -25,6 +25,7 @@ describe('tick loop (01d §3.5, §4.2 registerTick)', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     registerFakes();
     // 0006 seeds the no_approver flag dirty (cleared by the tick's flag pass, task 31): start clean
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();

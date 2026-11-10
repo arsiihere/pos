@@ -10,6 +10,7 @@ import type { EngineConfig, EventDraft, PosEvent } from '@pos/events';
 import { aBranchConfig, aBusinessDayClosed, aBusinessDayOpened, anEngineConfigApplied, aStockSet } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { alertsTick, registeredTicks, startTickLoop, TICK_MS } from '../../src/alerts/tick';
+import { unregisterTick } from '../../src/alerts/tick';
 import { engineStep6, registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { firesAlertsTick } from '../../src/engine-host/fires-alerts-tick';
 import { firesTick, onFreezeEntry, setEngineConfigOf } from '../../src/engine-host/fires-tick';
@@ -55,6 +56,7 @@ describe('03a task 22: the fires tick', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     hub = await createTestHub();
+    unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     // 0006 seeds the no_approver flag dirty (01d's flag pass): start clean, so 01d's tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     log.error.mockClear();

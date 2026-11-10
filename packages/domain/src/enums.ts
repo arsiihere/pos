@@ -18,3 +18,14 @@ export type GrantType = 'allowed' | 'requires_approval';
 export type Grant = GrantType | 'not_granted' | 'denied';
 
 export type LockoutSubject = 'staff' | 'device' | 'ip';
+
+export const TABLE_STATES = [
+  'FREE',
+  'SEATED',
+  'ORDERED',
+  'FOOD_ON_TABLE',
+  'BILL_REQUESTED',
+  'NEEDS_CLEANING',
+] as const;
+
+export type TableState = (typeof TABLE_STATES)[number];
