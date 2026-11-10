@@ -23,16 +23,16 @@ Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**,
 | 6 | Reads + 03a slip reader pair | 6 | 2 | NORMAL | **done (wave 1)** | `0d38b13`, `a6f6018`, `2777aac` |
 | 7 | `waiterTeam`, `table_team` / `zone_order_taker` resolvers | 7 | 2 | NORMAL | **done (wave 1)** | `939a4e8` |
 | 8 | `requireLock` | 8 | 2 | HIGH | **done (wave 1)** | `06ceaa4`, `009691b`, `7ef4670` |
-| 9 | `OpenTable` | 9 | 2 | HIGH | todo | |
-| 10 | Touch, Release, ForceRelease | 10 | 2 | NORMAL | todo | |
+| 9 | `OpenTable` | 9 | 2 | HIGH | **done (wave 2)** | `18d4d00` |
+| 10 | Touch, Release, ForceRelease | 10 | 2 | NORMAL | **done (wave 2)** | `e677df2`, `221be6b` |
 | 11 | Tick `table_locks` | 11 | 3 | HIGH | **done (wave 1)** | `0db74ee`, `f0c5f73` |
-| 12 | `closeHandover`, kind `table_handover`, `RequestTableHandover` | 12 | 3 | HIGH | todo | |
-| 13 | `TakeOverTable`, `ForceMoveTable` | 13 | 3 | NORMAL | todo | |
-| 14 | `MoveTable` | 14 | 3 | NORMAL | todo | |
-| 15 | `MergeTables`, `registerMergeGuard` | 15 | 3 | HIGH | todo | |
-| 16 | `SplitSeating` | 16 | 4 | HIGH | todo | |
-| 17 | `RequestBill`, `CleanTable` (queueable) | 17 | 4 | NORMAL | todo | |
-| 18 | Kind `call_waiter`, `CallWaiter` | 18 | 4 | NORMAL | todo | |
+| 12 | `closeHandover`, kind `table_handover`, `RequestTableHandover` | 12 | 3 | HIGH | **done (wave 2)** | `33bff77` |
+| 13 | `TakeOverTable`, `ForceMoveTable` | 13 | 3 | NORMAL | **done (wave 2)** | `8da5e3e`, `52a8eab` |
+| 14 | `MoveTable` | 14 | 3 | NORMAL | **done (wave 2)** | `a649158`, `9cee82f`, `9a4c304` |
+| 15 | `MergeTables`, `registerMergeGuard` | 15 | 3 | HIGH | **done (wave 2)** | `fcb09d6`, `d1ae892`, `fa10647` |
+| 16 | `SplitSeating` | 16 | 4 | HIGH | **done (wave 2)** | `ca4967e` |
+| 17 | `RequestBill`, `CleanTable` (queueable) | 17 | 4 | NORMAL | **done (wave 2)** | `4215c31`, `5c97400` |
+| 18 | Kind `call_waiter`, `CallWaiter` | 18 | 4 | NORMAL | **done (wave 2)** | `49b6686`, `90886f4` |
 | 19 | Queries, catch-up, audiences | 19 | 4 | NORMAL | todo | |
 | 20 | Client: login resume | 20 | 5 | UI | **blocked (design handoff)** | |
 | 21 | Client: table map | 20 | 5 | UI | **blocked (design handoff)** | |
@@ -154,9 +154,23 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Carried (minor, deferred):** lane 1C parked test gaps — no tick test has a session that started strictly before `last_activity_at` (a `<=` → `=` change would pass); the T15 tick test does not seed the lock on the first device before the move; task 7's "no open seating" test leaves an impossible `seating_tables` row; no test asserts `table_team`'s query plan uses `staff_sessions_active`. Task 8: `lock.ts:7` header cites v1.1.1; `require-lock` test comment at the "differs only on a free lock" line is stale; `lastStatements` not asserted on the queued take-order-anywhere call. Process: lanes should also run `pnpm --filter @pos/hub typecheck:tests` (the plain `typecheck` skips test files).
 - **Perf:** next `pnpm test:perf` (03a task 28, pilot box) must run `fires-tick.perf.test.ts`, `fires-alerts-tick.perf.test.ts` (AD-12).
 
+## Wave 2 — commands: open, lock, handover, holder, move, merge, split, bill, clean, call waiter (2026-11-10)
+
+- **Lanes and tasks:** 2A tasks 9, 10; 2B tasks 12, 13; 2C tasks 14, 15, 16; 2D tasks 17, 18 — each task with its own implementer and opus reviewer in the lane session. Landed as each lane tagged: task 12 first (`02a-task12`), then 2D, 2B, 2C, 2A.
+- **Commits on `module-02a`:** 2B `33bff77` (12), `8da5e3e` (13) · 2D `4215c31` (17), `49b6686` (18), `90886f4` (18 review), `5c97400` (#13 clean) · 2C `a649158` (14), `9cee82f` (14 review), `fcb09d6` (15), `9a4c304` (14 handover close), `d1ae892` (15 handover close), `ca4967e` (16) · 2A `18d4d00` (9), `e677df2` (10), `221be6b` (10 review).
+- **Owner-ruled follow-ups (integrator, opus review each):** `fa10647` merge of an all-cancelled seating keeps BILL_REQUESTED (AD-16); `52a8eab` task 13 tests (`not_assigned`, `own_tables`, force move with no lock) + boot-replay handover test in `handover-boot.int.test.ts` through the real boot import chain (AD-19).
+- **Task 12 hand-off:** landed as `33bff77` and pushed; lanes 2C, 2D told directly, because `git branch --contains 02a-task12` never lists `module-02a` after a cherry-pick (AD-21, proposed). Their own task 12 copies (`7f10b89`, `bd51698`) showed as `+` in `git cherry` (their `index.ts` hunk context differed) and were **skipped** after checking: identical to task 12 outside `index.ts`, and their `index.ts` additions = task 12's.
+- **Cherry-pick conflicts:** `tables/index.ts` import lines only (2B after 2D, 2C ×3, 2A ×2) — additive, kept in lane order A, B, C, D (standing rule). Registration lines sit under each lane's marker.
+- **Gate:** TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test" — 396 files (1 skipped), 3769 tests passed (1 skipped, 1 todo), 592 s wall at `221be6b`. Green, first run.
+- **§12.2 rows ticked:** 6.1–6.14 (6.5 tick in wave 1).
+- **Statement counts asserted:** per command as the lanes pinned them (accepted as read, AD-17, AD-19, AD-20), e.g. `ForceMoveTable` 3 = 1 + 1 receiver session + 1 `byDedupeKey`; `closeStatements` 0 on a seating with no pending handover.
+- **Tests closed (§10):** all of 1–61 except 36, 37 (task 19, wave 3) and 62 (moved to 02b, SG-3); 53 at the `requireLock` level (SG-3).
+- **AD rows:** AD-16–AD-20 ruled; AD-21 proposed.
+- **Carried (minor, deferred):** `applyMerged` `EXISTS` could also filter `seating_id = into` (no behaviour change today); spec §3.1 (:110) / §3.11 (:198) "an order" → "a live order" at the next 02a text bump; handover note to the receiver's card (AD-18, next 02a text bump); §12.2 row 6.14 to list CallWaiter's scope 403 (AD-20); `holder-commands` test "assignee already holds → covered" title overstates (the no-op returns before scope); `handover-boot` comment "step 0 pending" vs `step: -1`. **Owner question:** under T8 + scope-last, an `own_tables` grant can never allow a real take-over (the caller is not yet the holder when scope is checked), only the no-op — intended?
+
 ## Next
 
-1. **Owner:** review wave 1, close the three lane terminals, then type `wave 2` in the integrator session (worktrees `~/pos-02a-A`…`D`, lanes 2A–2D).
+1. **Owner:** review wave 2, close the four lane terminals, rule AD-21 and the `own_tables` take-over question, then type `wave 3` in the integrator session (task 19).
 2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
 
