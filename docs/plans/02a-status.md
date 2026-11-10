@@ -191,6 +191,12 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Carried (minor, deferred):** `queries.ts:161` comment says "older than snapshot V4" — only the test fixture; `handover-candidates` 404 / scope read the global `branchConfig()` while `table-map` uses `ctx.branchConfig` (same object today); the audience's `cashier_kiosk` clause is redundant (kiosks are `kind 'staff'`); `queries.int.test.ts:487` waits a fixed 30 ms before a negative assertion (prefer a marker frame).
 - **Hub done.** Client = batch 5 (tasks 20–24), blocked on the design handoff.
 
+## Build review closed — ready to merge (2026-11-10)
+
+- **Owner rulings applied:** `b6d41fe` #40 Move-from test; AD-1–AD-5 ruled (AD-5 reworded); `3777b99`, `208ad01` tick boundary tests for `s.started_at <= l.last_activity_at` (equal → kept, 1 ms before → kept, 1 ms after → `session_expired`); spec **v1.1.4** (`1865991`, text only); AD-23 fix `58dfdae`.
+- **Gate at `208ad01`:** 397 files (1 skipped), 3783 tests passed (1 skipped, 1 todo), 607 s. Green.
+- **Review:** `docs/reviews/02a_v1.1.3_build_review.md` §7 verdict "ready to merge". Merge into `main` is the owner's.
+
 ## Next 02a text bump (v1.1.4) — done: `docs/specs/02a_Tables_Spec_v1.1.4.md` (owner, 2026-11-10)
 
 Collected text fixes (owner, 2026-11-10); none changes behaviour already built. Applied in v1.1.4, plus §12.2 rows 6.15, 6.16 (build review G-7); the handover note is stated as accepted-not-stored (carrying it to the card needs a `values_schema` change, later bump):
@@ -204,7 +210,8 @@ Collected text fixes (owner, 2026-11-10); none changes behaviour already built. 
 
 ## Next
 
-1. **Owner:** review wave 3 (hub done); rule AD-23–AD-26 (AD-23 before the client); then the module review against §12 (pipeline step 8) and the design handoff for batch 5. Lane worktrees `~/pos-02a-A`…`D` can be removed.
+1. **Owner:** merge `module-02a` into `main` (hub done, build review: ready to merge).
+2. **Design:** 02a handoff for client batch 5 (tasks 20–24).
 2. **Owner (any time):** AD-1–AD-5 (proposed readings).
 3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
 
