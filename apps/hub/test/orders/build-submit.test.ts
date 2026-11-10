@@ -353,6 +353,82 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
     expect(added(out, 'L1')).toMatchObject({ requires_weighing: true, quantity: null, sale_unit: 'g', line_total_minor: null, stock_draws: [] });
     expect(added(out, 'L2')).toMatchObject({ is_ready_item: true, line_total_minor: 16_000 });
   });
+
+  it('[02b #2] a g part: quantity part qty × deal qty, options and extra once per deal (01c §3.4.2–§3.4.3, B2)', () => {
+    const base = menu();
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    const grams = (item_id: string, name: string, price_minor: number): ConfigItem => ({
+      ...naan,
+      item_id,
+      name,
+      sale_unit: 'g',
+      price_minor, // per kg
+      stock_time_ms: 300_000,
+      stock_draws: [{ stock_item_id: FX.stock, quantity_per_sale_unit: 1 }],
+      modifier_group_ids: ['M_EXTRA'],
+    });
+    const config: BranchConfig = {
+      ...base,
+      items: [...base.items, grams('I_KG_A', 'Chicken karahi (kg)', 400_000), grams('I_KG_B', 'Mutton karahi (kg)', 500_000)],
+      deals: [
+        {
+          deal_id: 'D_KG',
+          category_id: 'C_DEAL',
+          name: 'Half kilo deal',
+          description: null,
+          sort_order: 3,
+          price_minor: 300_000,
+          tax_class_id: 'X1',
+          availability_windows: [],
+          parts: [
+            {
+              deal_part_id: 'P_KG',
+              quantity: 500, // g per deal
+              sort_order: 0,
+              choices: [
+                { item_id: 'I_KG_A', extra_price_minor: 0, sort_order: 0 },
+                { item_id: 'I_KG_B', extra_price_minor: 5_000, sort_order: 1 },
+              ],
+            },
+            { deal_part_id: 'P_BREAD2', quantity: 2, sort_order: 1, choices: [{ item_id: FX.naan, extra_price_minor: 0, sort_order: 0 }] },
+          ],
+        },
+      ],
+    };
+    const out = buildSubmit(
+      config,
+      dineIn([
+        {
+          order_item_id: 'L_DEAL',
+          deal_id: 'D_KG',
+          quantity: 2,
+          deal_choices: [
+            { deal_part_id: 'P_KG', item_id: 'I_KG_B', order_item_id: 'L_KG', options: [{ option_id: 'O_BUTTER', quantity: 1 }] },
+            { deal_part_id: 'P_BREAD2', item_id: FX.naan, order_item_id: 'L_BREAD' },
+          ],
+        },
+      ]),
+      ctx(),
+    );
+    // weights by the reference choice I_KG_A: 400 000 / kg × 1 000 g = 400 000; naan 3 000 × 4 = 12 000 (sum 412 000).
+    // 600 000 allocated: 582 524 / 17 476; the g part's extra 5 000 is once per deal: + 10 000.
+    expect(added(out, 'L_KG')).toMatchObject({
+      line_kind: 'deal_part',
+      item_id: 'I_KG_B',
+      sale_unit: 'g',
+      quantity: 1_000,
+      price_minor: 500_000,
+      extra_price_minor: 5_000,
+      allocated_price_minor: 592_524,
+      stock_draws: [{ stock_item_id: FX.stock, quantity: 1_000 }],
+      // option parent = the deal quantity on a g part: 2 000 × 1 × 2, never per gram
+      options: [{ option_id: 'O_BUTTER', modifier_group_id: 'M_EXTRA', name: 'Butter', price_minor: 2_000, quantity: 1, charge_minor: 4_000 }],
+      line_total_minor: 0,
+    });
+    expect(added(out, 'L_BREAD')).toMatchObject({ quantity: 4, allocated_price_minor: 17_476 });
+    // 600 000 + extra 5 000 × 2 deals + butter 4 000
+    expect(added(out, 'L_DEAL')).toMatchObject({ quantity: 2, line_total_minor: 614_000 });
+  });
 });
 
 describe('buildSubmit — ProposedOrder [02b §3.2 step 7, §3.1]', () => {
@@ -425,7 +501,7 @@ describe('buildSubmit — ProposedOrder [02b §3.2 step 7, §3.1]', () => {
     expect(other.proposed.order.table_key).toBe(out.proposed.order.table_key);
   });
 
-  it('[02b #1] delivery → VALIDATION_FAILED path order_type', () => {
+  it('[02b §3.1] delivery → VALIDATION_FAILED path order_type', () => {
     const input = { order_id: 'O1', order_type: 'delivery', lines: [{ order_item_id: 'L1', item_id: FX.naan, quantity: 1 }] } as unknown as SubmitInput;
     const e = caught(() => buildSubmit(menu(), input, ctx({ primary_table_id: null })));
     expect(e.code).toBe('VALIDATION_FAILED');
@@ -434,7 +510,7 @@ describe('buildSubmit — ProposedOrder [02b §3.2 step 7, §3.1]', () => {
 });
 
 describe('buildSubmit — ids [02b §3.2 step 3, O3]', () => {
-  it('[02b #5] an order_item_id repeated in the payload → VALIDATION_FAILED path lines.N.order_item_id', () => {
+  it('[02b §3.2 step 3] repeated id: an order_item_id repeated in the payload → VALIDATION_FAILED path lines.N.order_item_id', () => {
     const e = caught(() =>
       buildSubmit(menu(), dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 1 }, { order_item_id: 'L1', item_id: FX.naan, quantity: 1 }]), ctx()),
     );
@@ -442,7 +518,7 @@ describe('buildSubmit — ids [02b §3.2 step 3, O3]', () => {
     expect(e.details).toEqual({ issues: [{ path: 'lines.1.order_item_id', message: expect.any(String) }] });
   });
 
-  it('[02b #5] an option child or deal part id repeating a line id → the path of the repeat', () => {
+  it('[02b §3.2 step 3] repeated id: an option child or deal part id repeating a line id → the path of the repeat', () => {
     const option = caught(() =>
       buildSubmit(menu(), dineIn([{ order_item_id: 'L1', item_id: FX.piece, quantity: 1, options: [{ option_id: FX.option, quantity: 1, order_item_id: 'L1' }] }]), ctx()),
     );
