@@ -203,7 +203,7 @@ export interface FixtureOrder {
  * Appends a real submit batch in one writer.run (§3.2 step 10): OrderPlaced → ItemAdded × n (order_item_ids order) →
  * zone-served ItemAdded → StockReserved (reserveStock) → ItemServed { source: 'zone' }. Engine fields come from
  * checkOrderable / reserveStock / planOrder on the live state, so every engine line is held by the engine.
- * Needs openDay first. Takeaway gets the next token of the day (a string, as OrderPlaced's schema has it).
+ * Needs openDay first. Takeaway gets the next token of the day (an int, as OrderPlaced's schema has it).
  */
 export function appendOrder(hub: TestHub, o: FixtureOrder): { order_id: string; events: PosEvent[] } {
   const config = branchConfig();
@@ -276,7 +276,7 @@ function orderFields(tx: WriterTx, config: BranchConfig, o: FixtureOrder, order_
        WHERE event_type = 'OrderPlaced' AND json_extract(payload, '$.business_date') = ?`,
     )
     .get(business_date) as { max: number | null };
-  return { proposed: { ...base, table_id: null, table_key: `takeaway:${order_id}` }, extra: { business_date, token: String((max.max ?? 0) + 1) }, zone_id: null };
+  return { proposed: { ...base, table_id: null, table_key: `takeaway:${order_id}` }, extra: { business_date, token: (max.max ?? 0) + 1 }, zone_id: null };
 }
 
 const NONE = {

@@ -268,9 +268,9 @@ describe('02b additive order-event fields (03a v1.2 §4.2; 01c v1.1.2 C-1)', () 
     const placed = {
       ...examples.OrderPlaced,
       business_date: '2026-11-08',
-      token: '42',
+      token: 42,
       car_number: 'ABC-123',
-      car_type: 'Corolla',
+      car_type: 'sedan',
       order_note: 'no onions',
       sent_after_reconnect: true,
       has_phone: true,
@@ -295,6 +295,24 @@ describe('02b additive order-event fields (03a v1.2 §4.2; 01c v1.1.2 C-1)', () 
     expect(payloadSchema('ItemVoided', 1).safeParse({ ...examples.ItemVoided, refund_minor: 1.5 }).success).toBe(false);
     expect(payloadSchema('ItemVoided', 1).safeParse({ ...examples.ItemVoided, comp_voided_minor: 'x' }).success).toBe(false);
     expect(payloadSchema('OrderPlaced', 1).safeParse({ ...examples.OrderPlaced, has_phone: 'yes' }).success).toBe(false);
+  });
+
+  it('[02b §5] OrderPlaced token is a positive int; a string, 0, or a fraction is refused', () => {
+    const schema = payloadSchema('OrderPlaced', 1);
+    expect(schema.safeParse({ ...examples.OrderPlaced, token: 1 }).success).toBe(true);
+    expect(schema.safeParse({ ...examples.OrderPlaced, token: '42' }).success).toBe(false);
+    expect(schema.safeParse({ ...examples.OrderPlaced, token: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...examples.OrderPlaced, token: 1.5 }).success).toBe(false);
+  });
+
+  it('[02b §4.4] OrderPlaced car_type round-trips sedan/mini/large; an unknown value is refused; both fields stay optional', () => {
+    const schema = payloadSchema('OrderPlaced', 1);
+    for (const car_type of ['sedan', 'mini', 'large']) {
+      const p = { ...examples.OrderPlaced, token: 7, car_type };
+      expect(schema.parse(p)).toEqual(p);
+    }
+    expect(schema.safeParse({ ...examples.OrderPlaced, car_type: 'Corolla' }).success).toBe(false);
+    expect(schema.safeParse(examples.OrderPlaced).success).toBe(true);
   });
 
   it("[03a §4.2 Q-6] ItemServed source 'zone' accepted; 'other' rejected", () => {
