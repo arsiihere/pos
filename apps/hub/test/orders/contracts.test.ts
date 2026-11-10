@@ -1,11 +1,12 @@
+import type { IsAvailable } from '@pos/domain';
 import type { ProposedOrder } from '@pos/engine';
 import type { BranchConfig, EventDraft, ItemAddedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { CommandCtx } from '../../src/commands/registry';
-import type { WriterTx } from '../../src/engine-host/writer';
 import type {
   BuildSubmit,
+  BuildSubmitCtx,
   FoodDrafts,
   LineChangeDrafts,
   LineShares,
@@ -15,6 +16,7 @@ import type {
   OrderView,
   SeatingTotals,
   SubmitInput,
+  SubmitOption,
   ZoneAlertDrafts,
 } from '../../src/orders/contracts';
 import * as orders from '../../src/orders/index';
@@ -97,15 +99,41 @@ describe('[02b §4.2] contracts', () => {
       }) => { next_share_minor(n: number): number; comped_take_back_minor(n: number): number }
     >();
     expectTypeOf<LineChangeDrafts>().toEqualTypeOf<
-      (tx: WriterTx, order_id: string, changes: { order_item_id: string; units_out: number }[]) => EventDraft[]
+      (ctx: CommandCtx, order_id: string, changes: { order_item_id: string; units_out: number }[]) => EventDraft[]
     >();
-    expectTypeOf<FoodDrafts>().toEqualTypeOf<(order_id: string, lines: readonly LineView[], after: 'served' | 'change' | 'return') => EventDraft[]>();
+    // AD-10: envelope-less drafts (no occurred_at / actor_id / device_id); the caller adds the envelope.
+    expectTypeOf<FoodDrafts>().toEqualTypeOf<
+      (
+        order_id: string,
+        lines: readonly LineView[],
+        after: 'served' | 'change' | 'return',
+      ) => Array<{
+        stream_type: EventDraft['stream_type'];
+        stream_id: string;
+        event_type: string;
+        schema_version: number;
+        payload: Record<string, unknown>;
+      }>
+    >();
     expectTypeOf<ZoneAlertDrafts>().toEqualTypeOf<
       (ctx: CommandCtx, changes: { zone_id: string; item_id: string; before: number; after: number }[]) => EventDraft[]
     >();
+    // AD-8: hub time, the item_availability callback (@pos/domain IsAvailable), the seating's primary table, follow_up.
+    expectTypeOf<BuildSubmitCtx>().toEqualTypeOf<{
+      now: number;
+      isAvailable: IsAvailable;
+      primary_table_id: string | null;
+      follow_up: boolean;
+    }>();
+    expectTypeOf<IsAvailable>().toEqualTypeOf<(itemId: string, quantity: number) => boolean>();
     expectTypeOf<BuildSubmit>().toEqualTypeOf<
-      (config: BranchConfig, input: SubmitInput) => { proposed: ProposedOrder; itemAdded: ItemAddedPayload[]; zoneCandidates: string[] }
+      (
+        config: BranchConfig,
+        input: SubmitInput,
+        ctx: BuildSubmitCtx,
+      ) => { proposed: ProposedOrder; itemAdded: ItemAddedPayload[]; zoneCandidates: string[] }
     >();
+    expectTypeOf<SubmitOption>().toEqualTypeOf<{ option_id: string; quantity: number; order_item_id?: string }>();
     // §6.1 SubmitOrder payload.
     expectTypeOf<SubmitInput>().toEqualTypeOf<{
       order_id: string;
