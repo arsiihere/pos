@@ -1,6 +1,6 @@
 # 02a status board
 
-Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.3.md` (APPROVED; v1.1.2 = §3.4 re-sign-in, owner 2026-11-09; v1.1.3 = queued calls never move a lock, owner 2026-11-10), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
+Plan: `docs/plans/02a-plan.md` (26 tasks; hub built in **parallel waves 0–3**, prompts in `docs/plans/02a-parallel-prompts.md`; batches 1–5 as fallback; batch 5 = client, blocked on the design handoff). Spec: `docs/specs/02a_Tables_Spec_v1.1.4.md` (APPROVED; v1.1.4 = text only, owner 2026-11-10; v1.1.2 = §3.4 re-sign-in, owner 2026-11-09; v1.1.3 = queued calls never move a lock, owner 2026-11-10), on top of 02p (merged, `2fa2db0`). Branch: `module-02a`.
 
 > **Short Hinglish summary — padhein yahan se**
 >
@@ -57,11 +57,11 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 
 | # | Task | Reading | Options | Choice | Status |
 |---|---|---|---|---|---|
-| AD-1 | 8 | §4.2 "`ctx.queued`" (P-1b) = `ctx.queuedAt !== null` (`commands/registry.ts:31`) | — | as read | proposed (not yet ruled) |
-| AD-2 | 9, 14–16 | "Archived table" = absent from `branchConfig()` tables (V4 has no table `is_archived`); unknown ids → same `404 TABLE_NOT_FOUND` | — | as read | proposed (not yet ruled) |
-| AD-3 | 12 | `seatingTotals` (02b) absent → handover card leaves `amount` out; no stub | — | as read | proposed (not yet ruled) |
-| AD-4 | 4 | `ItemServed` not in `tables.eventTypes` (P-1d; not in §3.3's activity list) | — | as read | proposed (not yet ruled) |
-| AD-5 | 12, 18 | Kinds in `apps/hub/src/tables/kinds.ts`, loaded via `tables/index.ts` ← `server.ts` static import before boot step 4 | — | as read | proposed (not yet ruled) |
+| AD-1 | 8 | §4.2 "`ctx.queued`" (P-1b) = `ctx.queuedAt !== null` (`commands/registry.ts:31`) | — | as read | **ruled (owner, 2026-11-10)** |
+| AD-2 | 9, 14–16 | "Archived table" = absent from `branchConfig()` tables (V4 has no table `is_archived`); unknown ids → same `404 TABLE_NOT_FOUND` | — | as read | **ruled (owner, 2026-11-10)** |
+| AD-3 | 12 | `seatingTotals` (02b) absent → handover card leaves `amount` out; no stub | — | as read | **ruled (owner, 2026-11-10)** |
+| AD-4 | 4 | `ItemServed` not in `tables.eventTypes` (P-1d; not in §3.3's activity list) | — | as read | **ruled (owner, 2026-11-10)** |
+| AD-5 | 12, 18 | Kind `table_handover` in `apps/hub/src/tables/kinds.ts`, kind `call_waiter` in `apps/hub/src/tables/call-waiter-kind.ts` (lane ownership, wave 2); both loaded at module load by `tables/index.ts` ← `server.ts` static import before boot step 4 (proved by `handover-boot.int.test.ts`) | — | as read (reworded 2026-11-10) | **ruled (owner, 2026-11-10)** |
 | AD-6 | 6 | `zoneOf(table_id)` (§4.2, no directory parameter) reaches the directory via `currentDirectory(app)` captured in `registerTables`; signature unchanged (contracts.ts) | — | accepted with condition: `registerTables` captures a getter `() => currentDirectory(app)`, never the directory object; `zoneOf` reads it on every call; the `zone_order_taker` resolver keeps reading `alertDirectoryOf(tx)` | **ruled (owner, 2026-11-09)** |
 | AD-7 | 3b | `SeatingRow.state = Exclude<TableState,'FREE'> \| 'CLOSED'`, `bill_closed: 0 \| 1`, `close_reason` literal union — the §5 CHECKs verbatim; `seatingOf().state` stays `TableState` | — | as read | **ruled (owner, 2026-11-09)** |
 | AD-8 | 8 (lane 1B) | `requireLock` readings: `not_holder` error in the §9 shape; scope = the one table; `zoneOf` → `floor_id: ''` for a table absent from the config; `locked_by_name: null` when the holder is unknown | — | accepted as read; **change:** a queued call (`ctx.queuedAt !== null`) never takes **and never moves** a lock — the command proceeds, the lock stays where it is (task 8 fix on `module-02a`, test `[02a #60] queued replay does not move the caller's lock from his other device`); built `7ef4670`; spec **v1.1.3** (`676ad5c`) | **ruled (owner, 2026-11-09; spec 2026-11-10)** |
@@ -114,6 +114,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-10 | AD-21: hand-off wait uses `git cherry`; integrator skips a lane's content-identical copy of a shared task | AD-21; `02a-parallel-prompts.md` §1, §2 |
 | 2026-11-10 | AD-22: `own_tables` cannot take over — intended (T8); owner-app hint 02a-N2 | AD-22; OPEN-QUESTIONS §5 |
 | 2026-11-10 | AD-23: archived pseudo-floor accepted + `archived: true` (fix commit); AD-24, AD-26 as read; AD-25 accepted (05 registers the `BillClosed` audience, 02a-N3); lane worktrees, branches and local tags removed | AD-23–AD-26; OPEN-QUESTIONS §5 |
+| 2026-11-10 | Build review rulings: #40 Move-from not waived (test-only commit, opus review); AD-1–AD-5 accepted as read (AD-5 reworded: `call_waiter` in `call-waiter-kind.ts`); tick tests for the v1.1.2 `started_at <= last_activity_at` boundary (equal → kept; 1 ms after → `session_expired`), test-only, opus review; spec **v1.1.4** text only; then the full gate and "ready to merge" | AD-1–AD-5; `docs/reviews/02a_v1.1.3_build_review.md`; spec v1.1.4 |
 
 ## Batch entries
 
@@ -190,9 +191,9 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **Carried (minor, deferred):** `queries.ts:161` comment says "older than snapshot V4" — only the test fixture; `handover-candidates` 404 / scope read the global `branchConfig()` while `table-map` uses `ctx.branchConfig` (same object today); the audience's `cashier_kiosk` clause is redundant (kiosks are `kind 'staff'`); `queries.int.test.ts:487` waits a fixed 30 ms before a negative assertion (prefer a marker frame).
 - **Hub done.** Client = batch 5 (tasks 20–24), blocked on the design handoff.
 
-## Next 02a text bump (v1.1.4)
+## Next 02a text bump (v1.1.4) — done: `docs/specs/02a_Tables_Spec_v1.1.4.md` (owner, 2026-11-10)
 
-Collected text fixes (owner, 2026-11-10); none changes behaviour already built:
+Collected text fixes (owner, 2026-11-10); none changes behaviour already built. Applied in v1.1.4, plus §12.2 rows 6.15, 6.16 (build review G-7); the handover note is stated as accepted-not-stored (carrying it to the card needs a `values_schema` change, later bump):
 
 1. Handover note carried to the receiver's card (AD-18).
 2. §3.1 (:110) and §3.11 (:198): "an order" → "a live order" (AD-16).
