@@ -27,6 +27,7 @@ import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import type { ConfigClient } from '../../src/sync/config-client';
 import { noteCommitted, setStockVersion } from '../../src/sync/stock-version';
 import { buildHubServer, type HubDeps } from '../../src/server';
+import { registerOrdersProjection } from '../../src/orders/index';
 import { registerTablesProjection } from '../../src/tables/index';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
@@ -68,6 +69,7 @@ export async function createTestHub(o?: {
   registerRestaurantProjections(projections);
   registerAlertProjections(projections);
   registerTablesProjection(projections);
+  registerOrdersProjection(projections);
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];

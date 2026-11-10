@@ -2,6 +2,7 @@
 import './zone-kinds.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
+import { ordersProjection } from './projection.js';
 import type { HubDeps } from '../server.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
@@ -36,4 +37,5 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
 export function registerOrdersProjection(projections: ProjectionRegistry): void {
   void projections;
   // wave 1 lane A (projection orders)
+  projections.register(ordersProjection());
 }
