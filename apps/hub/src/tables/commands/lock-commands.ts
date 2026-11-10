@@ -1,5 +1,5 @@
 import { DomainError } from '@pos/domain';
-import type { EventDraft } from '@pos/events';
+import type { EventDraft, TableLockReleasedPayload, TableLockTouchedPayload } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { CommandCtx } from '../../commands/registry.js';
@@ -52,7 +52,7 @@ function heldHere(ctx: CommandCtx, row: LockRow, actor: string): boolean {
   return row.lock_staff_id === actor && row.lock_device_id === ctx.actor.deviceId;
 }
 
-function draft(ctx: CommandCtx, event_type: string, stream_id: string, actor: string, payload: Record<string, unknown>): EventDraft {
+function draft(ctx: CommandCtx, event_type: string, stream_id: string, actor: string, payload: TableLockTouchedPayload | TableLockReleasedPayload): EventDraft {
   return {
     stream_type: 'table',
     stream_id,
@@ -73,7 +73,7 @@ function touch(ctx: CommandCtx, p: z.infer<typeof LockPayload>): { events: Event
   if (row.last_touch_at !== null && ctx.clock.branchNow() - row.last_touch_at < TOUCH_INTERVAL_MS) {
     return { events: [], result: { touched: false } };
   }
-  const payload = { table_id: row.primary_table_id, seating_id: row.seating_id };
+  const payload: TableLockTouchedPayload = { table_id: row.primary_table_id, seating_id: row.seating_id };
   return { events: [draft(ctx, 'TableLockTouched', row.primary_table_id, actor, payload)], result: { touched: true } };
 }
 
@@ -81,7 +81,7 @@ function release(ctx: CommandCtx, p: z.infer<typeof LockPayload>): { events: Eve
   const actor = actorOf(ctx, 'take-order');
   const row = readSeating(ctx, p.table_id, p.seating_id);
   if (!heldHere(ctx, row, actor)) return { events: [], result: { released: false } };
-  const payload = {
+  const payload: TableLockReleasedPayload = {
     table_id: row.primary_table_id,
     seating_id: row.seating_id,
     staff_id: actor,
@@ -101,7 +101,7 @@ function forceRelease(ctx: CommandCtx, p: z.infer<typeof ForcePayload>): { event
     }
   }
   if (row.lock_staff_id === null) return { events: [], result: { released: false } };
-  const payload = {
+  const payload: TableLockReleasedPayload = {
     table_id: row.primary_table_id,
     seating_id: row.seating_id,
     staff_id: row.lock_staff_id,

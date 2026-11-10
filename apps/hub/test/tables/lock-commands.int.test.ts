@@ -43,24 +43,6 @@ async function directory(): Promise<DirectoryInput> {
     roles: [
       ...base.roles,
       { role_id: 'R_TAKER', name: 'Taker', session_idle_ttl_ms: 3_600_000, permissions: [takeOrder] },
-      {
-        role_id: 'R_ANYWHERE',
-        name: 'Anywhere',
-        session_idle_ttl_ms: 3_600_000,
-        permissions: [takeOrder, grant('take-order-anywhere', 'allowed')],
-      },
-      {
-        role_id: 'R_ANY_APPROVAL',
-        name: 'Anywhere with approval',
-        session_idle_ttl_ms: 3_600_000,
-        permissions: [takeOrder, grant('take-order-anywhere', 'requires_approval')],
-      },
-      {
-        role_id: 'R_ANY_FLOOR',
-        name: 'Anywhere on my floors',
-        session_idle_ttl_ms: 3_600_000,
-        permissions: [takeOrder, grant('take-order-anywhere', 'allowed', 'my_floors')],
-      },
       { role_id: 'R_FORCE', name: 'Force', session_idle_ttl_ms: 3_600_000, permissions: [grant('force-release-table-lock', 'allowed')] },
       {
         role_id: 'R_FORCE_FLOOR',
@@ -74,21 +56,12 @@ async function directory(): Promise<DirectoryInput> {
         session_idle_ttl_ms: 3_600_000,
         permissions: [grant('force-release-table-lock', 'requires_approval')],
       },
-      {
-        role_id: 'R_FLOOR_TAKER',
-        name: 'Taker on my floors',
-        session_idle_ttl_ms: 3_600_000,
-        permissions: [grant('take-order', 'allowed', 'my_floors')],
-      },
     ],
     staff: [
       ...base.staff,
       person('S_ALI', 'Ali', 'R_TAKER'),
-      person('S_BILAL', 'Bilal', 'R_ANYWHERE'),
+      person('S_BILAL', 'Bilal', 'R_TAKER'),
       person('S_NOOR', 'Noor', 'R_TAKER'),
-      person('S_SARA', 'Sara', 'R_ANY_APPROVAL'),
-      person('S_ZAIN', 'Zain', 'R_ANY_FLOOR', ['F1']),
-      person('S_FAIZ', 'Faiz', 'R_FLOOR_TAKER', ['F1']),
       person('S_MGR', 'Manager', 'R_FORCE'),
       person('S_FMGR', 'Floor manager', 'R_FORCE_FLOOR', ['F1']),
       person('S_AMGR', 'Approval manager', 'R_FORCE_APPROVAL'),
@@ -526,6 +499,16 @@ describe('02a ForceReleaseTableLock (§6.4)', () => {
     expect(inside.status).toBe(200);
     expect(inside.result).toEqual({ released: true });
     expect(lockRows()).toHaveLength(1);
+  });
+
+  it('[02a §6.4] scope last (C8): out-of-scope my_floors manager on an open seating with NO lock → 403 outside_scope, not released: false', async () => {
+    await setUp();
+    const fmgr = signIn('S_FMGR');
+    seat('SEAT9', 'T9', 'S_ALI');
+    const r = await send(fmgr, 'ForceReleaseTableLock', { table_id: 'T9', seating_id: 'SEAT9', reason: 'x' });
+    expect(r.status).toBe(403);
+    expect(r.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: ['T9'] } });
+    expect(eventsOf('TableLockReleased')).toEqual([]);
   });
 
   it('[02a §6.4] without the permission, or with requires_approval → 403 (no event, lock kept)', async () => {
