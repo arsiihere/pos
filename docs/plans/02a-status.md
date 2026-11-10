@@ -211,8 +211,6 @@ Collected text fixes (owner, 2026-11-10); none changes behaviour already built. 
 ## Next
 
 1. **Owner:** merge `module-02a` into `main` (hub done, build review: ready to merge).
-2. **Design:** 02a handoff for client batch 5 (tasks 20–24).
-2. **Owner (any time):** AD-1–AD-5 (proposed readings).
-3. **Design (parallel):** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
+2. **Design:** 02a handoff in `docs/design/handoff/02a/` from the screen list in plan batch 5; then a short plan patch for tasks 20–24.
 
 - **Perf note (owner 2026-11-10):** the next `pnpm test:perf` (03a task 28, pilot box) must run `apps/hub/test/engine/fires-tick.perf.test.ts` and `fires-alerts-tick.perf.test.ts` — they now `unregisterTick('table_locks')` (AD-12) and have not been run since.
