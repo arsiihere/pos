@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import '../../index';
+import { parseEvent } from '../../codecs';
 import { payloadSchema } from '../../registry';
 
 // 03a §4.2: one example per order-stream event (engine fields only; P-9 lets the writer add its own).
@@ -375,6 +376,76 @@ describe('02a SG-2: folded 02b events (02b v1.0.2 §6.19)', () => {
         const rest = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== key));
         expect(schema.safeParse(rest).success, `${type}.${key}`).toBe(false);
       }
+    }
+  });
+});
+
+// 02b §6.19: the four events 02b adds, plus the O17 and five-schema checks.
+describe('02b §6.19: OrderContactSet, OrdersBilled', () => {
+  const envelope = (stream_type: string, stream_id: string, event_type: string, payload: unknown) => ({
+    event_id: 'E1',
+    tenant_id: 'TN',
+    branch_id: 'B1',
+    stream_type,
+    stream_id,
+    event_type,
+    schema_version: 1,
+    payload,
+    occurred_at: 1,
+    recorded_at: 1,
+    actor_id: 'W1',
+    device_id: 'D1',
+    seq: 1,
+  });
+
+  it('[02b §6.19] OrderContactSet round-trips { order_id, customer_name | null, phone | null }', () => {
+    const schema = payloadSchema('OrderContactSet', 1);
+    const full = { order_id: 'O1', customer_name: 'Ali', phone: '0300' };
+    const nulls = { order_id: 'O1', customer_name: null, phone: null };
+    expect(schema.parse(full)).toEqual(full);
+    expect(schema.parse(nulls)).toEqual(nulls);
+    expect(schema.safeParse({ order_id: 'O1', customer_name: 'Ali' }).success).toBe(false);
+    expect(schema.safeParse({ ...full, extra: 1 }).success).toBe(false);
+  });
+
+  it('[02b §6.19] OrdersBilled round-trips { order_ids, bill_id } on stream order (first order_id)', () => {
+    const schema = payloadSchema('OrdersBilled', 1);
+    const payload = { order_ids: ['O1', 'O2'], bill_id: 'BL1' };
+    expect(schema.parse(payload)).toEqual(payload);
+    expect(schema.safeParse({ order_ids: [], bill_id: 'BL1' }).success).toBe(false);
+    expect(schema.safeParse({ order_ids: ['O1'] }).success).toBe(false);
+    expect(schema.safeParse({ ...payload, extra: 1 }).success).toBe(false);
+    const parsed = parseEvent(envelope('order', 'O1', 'OrdersBilled', payload));
+    expect(parsed.stream_type).toBe('order');
+    expect(parsed.stream_id).toBe(payload.order_ids[0]);
+  });
+
+  it('[02b O17] OrderPlaced has no contact field', () => {
+    const shape = (payloadSchema('OrderPlaced', 1) as unknown as { shape: Record<string, unknown> }).shape;
+    for (const key of ['customer_name', 'phone', 'contact']) expect(shape[key], key).toBeUndefined();
+    expect(shape.has_phone).toBeDefined();
+  });
+
+  it('[02b §6.19] the five schemas 02a built match §6.19 exactly', () => {
+    const exact: Record<string, string[]> = {
+      OrderCancelled: ['order_id'],
+      OrderFoodServed: ['order_id'],
+      OrderFoodCleared: ['order_id', 'food_served'],
+      LineWeightSet: ['order_item_id', 'quantity', 'line_total_minor'],
+      LineComped: [
+        'order_item_id',
+        'units',
+        'value_minor',
+        'reason_code',
+        'note',
+        'requester_staff_id',
+        'alert_id',
+        'approver_staff_id',
+      ],
+    };
+    for (const [type, keys] of Object.entries(exact)) {
+      const shape = (payloadSchema(type, 1) as unknown as { shape: Record<string, unknown> }).shape;
+      expect(Object.keys(shape).sort(), type).toEqual([...keys].sort());
     }
   });
 });
