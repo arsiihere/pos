@@ -79,10 +79,10 @@ Full text: plan §"Spec gaps SG-1–SG-6 — ruled".
 | AD-20 | 17, 18 (lane 2D) | (1) §12.2 409 counts = stale seating, no seating + each command's own codes (`TABLE_NOT_OPEN` unreachable: `seating_id` required); (2) `own_tables` = holder (T8), Clean has no 403 (`clean-table` branch scope only), CallWaiter has the scope 403; (3) Clean returns `{ reason }`, Bill `{ requested: true }`; (4) #40 split: Bill/Clean in 17, map 19, Move-from 14, Open 404 9; (5) `call_waiter` `display.table_code` = primary table name, `table_id` fallback; (6) i18n keys missing | — | all six accepted as read; CallWaiter's scope 403 follows the §10 preamble — **note for the next §12.2 text fix** (row 6.14 should list it); i18n keys `alert.table_handover.*`, `alert.call_waiter.*` → client batch 5 | **ruled (owner, 2026-11-10)** |
 | AD-21 | wave 2 (integrator) | Lanes 2C / 2D wait for task 12 with `git branch --contains 02a-task12` listing `module-02a`; the integrator lands by cherry-pick (new sha), so that never holds | — | integrator told lanes 2C, 2D that task 12 was landed (`33bff77`); their own task 12 copies (`7f10b89`, `bd51698`) showed as `+` in `git cherry` (index.ts hunk context differs) and were skipped after a manual identity check. §2 wait rule now uses `git cherry module-02a 02a-task12` showing `-`; §1 skips a lane's own copy of a shared task that matches by content even if `git cherry` shows `+` | **ruled (owner, 2026-11-10)** |
 | AD-22 | 13 | `own_tables` scope cannot do a real take-over (scope checked last, the caller is not yet the holder; only the no-op passes) | — | intended (T8: `own_tables` = only the seatings you hold; taking over someone else's table is outside it); no code change; owner-app hint → OPEN-QUESTIONS §5 02a-N2 | **ruled (owner, 2026-11-10)** |
-| AD-23 | 19 | Archived seated tables (SG-4) are sent as a trailing pseudo-floor `{ floor_id: '', name: null, zones: [{ zone_id: null, name: null, tables }] }` (client supplies the "Archived tables" label); it is sent **even under a `floor_id` filter** (its floor is unknown); an unknown `floor_id` returns `floors: []` plus that group when one exists | (a) as built; (b) send it only without a filter; (c) a documented floor shape in §6.17 (spec note) | — | proposed (not yet ruled) — wire contract the client (tasks 20+) will rely on |
-| AD-24 | 19 | `handover-candidates`: §6.7 receiver rule, working first, then name, then `staff_id`; a FREE configured table is valid; 404 only when neither configured nor seated; **`tables_held` counts open seatings** (a merged T7+T8 = 1) | — | as read | proposed (not yet ruled) |
-| AD-25 | 19 | `BillClosed` gets no audience in 02a (§6.19 table does not list it; 05 owns it, SG-2): NEEDS_CLEANING reaches clients only via the next map read or catch-up until 05 registers one | — | as read; note for 05 | proposed (not yet ruled) |
-| AD-26 | 19 | Catch-up part `tables` limited to the map's device types (tablet, phone, cashier kiosk); the audience still sends table frames to a staff session on a KDS device, which gets no `tables` catch-up | (a) accept the difference; (b) align the audience to the same device types | — | proposed (not yet ruled) |
+| AD-23 | 19 | Archived seated tables (SG-4) are sent as a trailing pseudo-floor `{ floor_id: '', name: null, zones: [{ zone_id: null, name: null, tables }] }` (client supplies the "Archived tables" label); it is sent **even under a `floor_id` filter** (its floor is unknown); an unknown `floor_id` returns `floors: []` plus that group when one exists | (a) as built; (b) send it only without a filter; (c) a documented floor shape in §6.17 (spec note) | (a) **with one change:** the pseudo-floor also carries `archived: true` (the client keys on that, not on `floor_id ''`); fix commit + test, opus review; shape → next 02a text bump (§6.17) | **ruled (owner, 2026-11-10)** |
+| AD-24 | 19 | `handover-candidates`: §6.7 receiver rule, working first, then name, then `staff_id`; a FREE configured table is valid; 404 only when neither configured nor seated; **`tables_held` counts open seatings** (a merged T7+T8 = 1) | — | as read | **ruled (owner, 2026-11-10)** |
+| AD-25 | 19 | `BillClosed` gets no audience in 02a (§6.19 table does not list it; 05 owns it, SG-2): NEEDS_CLEANING reaches clients only via the next map read or catch-up until 05 registers one | — | accepted; 05 must register the `BillClosed` audience (OPEN-QUESTIONS §5 02a-N3) | **ruled (owner, 2026-11-10)** |
+| AD-26 | 19 | Catch-up part `tables` limited to the map's device types (tablet, phone, cashier kiosk); the audience still sends table frames to a staff session on a KDS device, which gets no `tables` catch-up | (a) accept the difference; (b) align the audience to the same device types | (a) accepted as read | **ruled (owner, 2026-11-10)** |
 
 New rows get status **"proposed (not yet ruled)"**. The owner rules them in batches.
 
@@ -113,6 +113,7 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 | 2026-11-10 | Lane 2D: six readings accepted; CallWaiter scope 403 per §10 preamble (§12.2 text fix later); i18n keys → client batch 5 | AD-20 |
 | 2026-11-10 | AD-21: hand-off wait uses `git cherry`; integrator skips a lane's content-identical copy of a shared task | AD-21; `02a-parallel-prompts.md` §1, §2 |
 | 2026-11-10 | AD-22: `own_tables` cannot take over — intended (T8); owner-app hint 02a-N2 | AD-22; OPEN-QUESTIONS §5 |
+| 2026-11-10 | AD-23: archived pseudo-floor accepted + `archived: true` (fix commit); AD-24, AD-26 as read; AD-25 accepted (05 registers the `BillClosed` audience, 02a-N3); lane worktrees, branches and local tags removed | AD-23–AD-26; OPEN-QUESTIONS §5 |
 
 ## Batch entries
 
@@ -188,6 +189,17 @@ New rows get status **"proposed (not yet ruled)"**. The owner rules them in batc
 - **AD rows (proposed):** AD-23 (archived pseudo-floor shape and filter — **rule before the client relies on it**), AD-24, AD-25, AD-26.
 - **Carried (minor, deferred):** `queries.ts:161` comment says "older than snapshot V4" — only the test fixture; `handover-candidates` 404 / scope read the global `branchConfig()` while `table-map` uses `ctx.branchConfig` (same object today); the audience's `cashier_kiosk` clause is redundant (kiosks are `kind 'staff'`); `queries.int.test.ts:487` waits a fixed 30 ms before a negative assertion (prefer a marker frame).
 - **Hub done.** Client = batch 5 (tasks 20–24), blocked on the design handoff.
+
+## Next 02a text bump (v1.1.4)
+
+Collected text fixes (owner, 2026-11-10); none changes behaviour already built:
+
+1. Handover note carried to the receiver's card (AD-18).
+2. §3.1 (:110) and §3.11 (:198): "an order" → "a live order" (AD-16).
+3. §12.2 row 6.14: list CallWaiter's scope 403 (AD-20).
+4. §6.17: the archived pseudo-floor `{ floor_id: '', name: null, archived: true, zones: [{ zone_id: null, name: null, tables }] }`; configured floors `archived: false`; sent even under a `floor_id` filter (AD-23).
+
+**Next platform batch:** 03a §10.5 "16 statements" → "9 + one checkpoint upsert per registered projection" (AD-14).
 
 ## Next
 
