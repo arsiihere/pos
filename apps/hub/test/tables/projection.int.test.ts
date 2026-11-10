@@ -406,6 +406,50 @@ describe('02a tables projection', () => {
     expect(seating(h.db, 'S2')).toMatchObject({ state: 'CLOSED', close_reason: 'merged' });
   });
 
+  it('[02a §3.11] merge of an all-cancelled seating keeps BILL_REQUESTED', async () => {
+    const h = await harness(cleanups);
+    const merge = (into: string, table: string, absorbed: string, orders: string[]) =>
+      ev('table', 'T1', 'TablesMerged', {
+        into_seating_id: into,
+        into_table_id: 'T1',
+        table_ids: [table],
+        absorbed_seating_id: absorbed,
+        order_ids: orders,
+        by_staff_id: ALI,
+      });
+    h.append(opened('T1', 'S1'), placed('O1'), billRequested('S1'));
+    // S2: its only order is cancelled before the merge
+    h.append(opened('T2', 'S2'), placed('O2', { seating: 'S2' }), cancelled('O2'));
+    h.append(merge('S1', 'T2', 'S2', ['O2']));
+    expect(order(h.db, 'O2')).toMatchObject({ seating_id: 'S1', cancelled: 1 });
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'BILL_REQUESTED' });
+    expect(seating(h.db, 'S1')?.bill_requested_at).not.toBeNull();
+
+    // a merge that brings a live order still clears the bill request
+    h.append(opened('T3', 'S3'), placed('O3', { seating: 'S3' }));
+    h.append(merge('S1', 'T3', 'S3', ['O3']));
+    expect(seating(h.db, 'S1')).toMatchObject({ state: 'ORDERED', bill_requested_at: null });
+
+    // a mix (one cancelled, one live) clears it too
+    h.append(billRequested('S1'));
+    h.append(opened('T4', 'S4'), placed('O4', { seating: 'S4' }), placed('O5', { seating: 'S4' }), cancelled('O4'));
+    h.append(merge('S1', 'T4', 'S4', ['O4', 'O5']));
+    expect(seating(h.db, 'S1')).toMatchObject({ bill_requested_at: null });
+
+    // replay identity for the all-cancelled case
+    const h2 = await harness(cleanups);
+    h2.append(opened('T1', 'S1'), placed('O1'), billRequested('S1'));
+    h2.append(opened('T2', 'S2'), placed('O2', { seating: 'S2' }), cancelled('O2'));
+    h2.append(merge('S1', 'T2', 'S2', ['O2']));
+    const before = dump(h2.db);
+    h2.db.prepare(`DELETE FROM projection_checkpoints WHERE projection = 'tables'`).run();
+    const fresh = createProjectionRegistry();
+    registerTablesProjection(fresh);
+    fresh.catchUp(h2.db, BRANCH);
+    expect(dump(h2.db)).toEqual(before);
+    expect(seating(h2.db, 'S1')).toMatchObject({ state: 'BILL_REQUESTED' });
+  });
+
   it('[02a §3.1] SeatingSplit with new_seating_id: new seating on to_table_id, same holder, orders re-pointed, both folded; detach frees a joined table', async () => {
     const h = await harness(cleanups);
     h.append(opened('T1', 'S1', BILAL), placed('O1'), placed('O2'), foodServed('O1'));

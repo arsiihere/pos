@@ -271,7 +271,7 @@ function applyPlaced(tx: Database.Database, event: PosEvent, log: (line: Unknown
 }
 
 // §3.11: join (FREE tables) or absorb (S2's orders and tables move to S, S2 closes `merged`); S's bill request
-// is cleared when S2 brings an order (order_ids non-empty). S's holder and primary stay.
+// is cleared when S2 brings a live order. S's holder and primary stay.
 function applyMerged(tx: Database.Database, p: TablesMergedPayload, at: number): void {
   if (p.absorbed_seating_id !== null) {
     tx.prepare('UPDATE seating_tables SET seating_id = ?, joined_at = ? WHERE seating_id = ?').run(
@@ -295,7 +295,11 @@ function applyMerged(tx: Database.Database, p: TablesMergedPayload, at: number):
       JSON.stringify(p.order_ids),
       p.absorbed_seating_id,
     );
-    tx.prepare(`UPDATE seatings SET bill_requested_at = NULL WHERE seating_id = ? AND state <> 'CLOSED'`).run(p.into_seating_id);
+    // Only a live (not cancelled) moved order clears the bill request (§3.11, same rule as #33).
+    tx.prepare(
+      `UPDATE seatings SET bill_requested_at = NULL WHERE seating_id = ? AND state <> 'CLOSED'
+         AND EXISTS (SELECT 1 FROM seating_orders WHERE order_id IN (SELECT value FROM json_each(?)) AND cancelled = 0)`,
+    ).run(p.into_seating_id, JSON.stringify(p.order_ids));
   }
   refold(tx, p.into_seating_id);
 }
