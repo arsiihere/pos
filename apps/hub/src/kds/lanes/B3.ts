@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerKdsCatchUp } from '../../ws/kds-catch-up.js';
 import { provideKds } from '../contracts.js';
 import { buildLineDetails, pointOfLine } from '../details.js';
 
@@ -12,8 +13,7 @@ import { buildLineDetails, pointOfLine } from '../details.js';
 provideKds({ buildLineDetails, pointOfLine });
 
 export function register(app: FastifyInstance, deps: HubDeps): void {
-  void app;
-  void deps;
+  registerKdsCatchUp(app, deps); // b18 (§6.14, §6.16): the kds_station part and the kds_lines frame
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {

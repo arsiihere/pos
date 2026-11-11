@@ -1,5 +1,5 @@
 import { DomainError } from '@pos/domain';
-import type { AlertView, DirectoryInput, EventDraft, PosEvent } from '@pos/events';
+import { KdsStationBody, type AlertView, type DirectoryInput, type EventDraft, type PosEvent } from '@pos/events';
 import { anAlertClosed, anAlertRaised, anAttemptSent, aPresenceSet, aRequestAnswered } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -206,6 +206,29 @@ function expectNoSecret(text: string): void {
   expect(text).not.toContain('"details"');
 }
 
+// 03b b18 (§6.14, G-9 class): a KDS station socket's catch-up holds the `kds_station` part, whose `details` key is the
+// KDS line details (03b LineDetail[]), not alert details. Frame texts only (never hub logs): the part must parse as
+// KdsStationBody.strict() (anything that is not a LineDetail still fails), then the "details" key check skips it; the
+// secret values above are still checked on the whole text.
+function withoutKdsStation(text: string): string {
+  const strip = (m: unknown): unknown => {
+    const frame = m as { type?: string; state?: Record<string, unknown> };
+    if (frame?.type !== 'catch_up' || frame.state === undefined || !('kds_station' in frame.state)) return m;
+    // strict() at the top; toEqual catches any key the nested LineDetail objects would strip.
+    expect(KdsStationBody.strict().parse(frame.state.kds_station)).toEqual(frame.state.kds_station);
+    const state = { ...frame.state };
+    delete state.kds_station;
+    return { ...frame, state };
+  };
+  const parsed = JSON.parse(text) as unknown;
+  return JSON.stringify(Array.isArray(parsed) ? parsed.map(strip) : strip(parsed));
+}
+
+function expectNoSecretInFrames(text: string): void {
+  for (const value of SECRET_VALUES) expect(text).not.toContain(value);
+  expect(withoutKdsStation(text)).not.toContain('"details"');
+}
+
 describe('01d ws-frames (task 20)', () => {
   const cleanups: Array<() => Promise<void>> = [];
   beforeEach(() => registerFakes());
@@ -234,7 +257,7 @@ describe('01d ws-frames (task 20)', () => {
     expect(locked[0]).toMatchObject({ alert_id: id, step: 0, set: 'answerer', for_staff_id: null });
     expect(locked[0]).not.toHaveProperty('card');
     expect(locked[0]?.lock).toEqual({ kind_label_key: 'alert.t_approval.lock', table_code: '12', point_code: null, requester_name: 'Order taker' });
-    expectNoSecret(JSON.stringify(mode.messages));
+    expectNoSecretInFrames(JSON.stringify(mode.messages));
   });
 
   it('[01d #49] details reach only the approver staff socket card; alert-mode, KDS station socket and alerts_open carry no details or amount; logs carry none; bad details → details_invalid', async () => {
@@ -278,11 +301,11 @@ describe('01d ws-frames (task 20)', () => {
           expect(a.lock).not.toHaveProperty(key);
         }
       }
-      expectNoSecret(JSON.stringify(client.messages));
+      expectNoSecretInFrames(JSON.stringify(client.messages));
     }
     // alerts_open (default builder until task 32) never carries card or details
     expect(mode.messages[0]).toMatchObject({ type: 'alerts_open' });
-    expectNoSecret(JSON.stringify(mode.messages[0]));
+    expectNoSecretInFrames(JSON.stringify(mode.messages[0]));
     expectNoSecret(w.hub.logs());
 
     const bad = (() => {
