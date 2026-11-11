@@ -3,6 +3,7 @@ import { registeredTicks, registerTick } from '../../alerts/tick.js';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
 import { provideKds } from '../contracts.js';
+import { registerPointCatchUp } from '../../ws/point-catch-up.js';
 import { bindPresence, KDS_PRESENCE_TICK, kdsPresenceTick, stationPresenceOf } from '../presence.js';
 
 // 03b lane B6 (b20, b21, b22, b23): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane B6 edits this file.
@@ -14,6 +15,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   bindPresence(app, deps);
   if (!registeredTicks().some((t) => t.name === KDS_PRESENCE_TICK)) registerTick(kdsPresenceTick);
   provideKds({ stationPresence: () => stationPresenceOf(deps.db) }); // this hub's host, by its db
+  // b21 (§6.15, §6.16): the point_view part and the point_lines frame
+  registerPointCatchUp(app, deps);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
