@@ -72,3 +72,9 @@ These work today. Change one only if the owner disagrees.
 | 02a-N1 | **On-site table management.** A manager at the restaurant should be able to add or archive a table (and similar small setup) from the hub, without phoning the owner; the owner can override anything. | Wanted (owner). Not designed. | New story → small spec after 02a. Open points: which permission (manager only?), hub → cloud sync (today config flows cloud → hub only), conflict rule (owner / cloud wins), offline edits, which setup items qualify. |
 | 02a-N2 | **Owner-app hint: take-over needs a wider scope.** Staff with assigned zones or tables need `take-order` scope `my_floors` or `branch`; `own_tables` (only the seatings you hold, T8) cannot take over someone else's table. | Yes (owner, 2026-11-10; 02a AD-22). | 01b owner app, next platform batch. |
 | 02a-N3 | **05 must register the `BillClosed` audience** (staff sockets + cashier kiosks) so NEEDS_CLEANING reaches the map live; 02a registers none (§6.19 does not list it). | Yes (owner, 2026-11-10; 02a AD-25). | 05 Billing spec / build. |
+
+## 6. From the 02b build (owner, 2026-11-11) — next platform batch
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| 02b AD-26 | **Hub HTTP `maxHeaderSize` = 64 KB.** 02b §6.14's eta-preview draft is GET-encoded and can exceed Node's 16 KB default, which gives `431` before the hub's own 400. Built in 02b as a 00 platform knob. | Yes (owner, 2026-11-11). | The next 00 / platform-batch spec text (00 server setup). |
