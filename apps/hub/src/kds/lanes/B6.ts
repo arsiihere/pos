@@ -3,6 +3,7 @@ import { registeredTicks, registerTick } from '../../alerts/tick.js';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
 import { provideKds } from '../contracts.js';
+import { registerKdsAudiences } from '../../ws/kds-audiences.js';
 import { registerPointCatchUp } from '../../ws/point-catch-up.js';
 import { bindPresence, KDS_PRESENCE_TICK, kdsPresenceTick, stationPresenceOf } from '../presence.js';
 
@@ -17,6 +18,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   provideKds({ stationPresence: () => stationPresenceOf(deps.db) }); // this hub's host, by its db
   // b21 (§6.15, §6.16): the point_view part and the point_lines frame
   registerPointCatchUp(app, deps);
+  // b22 (§6.17): line and Pass event audiences (incl. the takeover set)
+  registerKdsAudiences(app, deps);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
