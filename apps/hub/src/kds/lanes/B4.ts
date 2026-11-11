@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerPassReceiversQuery } from '../../queries/pass-receivers.js';
+import { registerHandoverCommand } from '../commands/handover.js';
 import { registerReadyCommands } from '../commands/ready.js';
 import { bindPassProjectionLog, passProjection } from '../pass-projection.js';
 
@@ -17,6 +19,9 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   });
   // b14 (§6.6, §6.7): MarkReadyToServe, UndoReadyToServe
   registerReadyCommands(app);
+  // b15 (§6.8, §6.11): Handover, GET /queries/pass-receivers
+  registerHandoverCommand(app);
+  registerPassReceiversQuery(app);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
