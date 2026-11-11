@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerSavePrinter } from '../commands/printer.js';
+import { registerSetStationOutput } from '../commands/station-output.js';
 import { printConfigProjection } from '../config-projection.js';
 
 // 03c lane C1 (c4, c5, c7, c8, c9): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane C1 edits this file.
@@ -8,8 +10,9 @@ import { printConfigProjection } from '../config-projection.js';
 // registerProjections(): this lane's projections, in the order print/index.ts calls the lanes (after 03b's).
 
 export function register(app: FastifyInstance, deps: HubDeps): void {
-  void app;
   void deps;
+  registerSavePrinter(app); // c5, 03c §6.2
+  registerSetStationOutput(app); // c5, 03c §6.3
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
