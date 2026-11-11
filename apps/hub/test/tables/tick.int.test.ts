@@ -216,7 +216,7 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
       expect(due()).toBe(false);
       expect(counter.count).toBe(1);
       // the loop: only table_locks and the alerts tick are registered; no dirty alert flag
-      for (const name of ['pass_closures', 'ready_retarget']) unregisterTick(name); // 03b §6.18–6.19 (b16): lane B5 adds both to every test hub too
+      for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
       h.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
       const run = vi.spyOn(h.deps.writer, 'run');
       const log = { error: vi.fn() };

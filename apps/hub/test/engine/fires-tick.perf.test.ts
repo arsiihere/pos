@@ -54,7 +54,7 @@ describe('[03a §7.1 fires] the fires pass with work at the AD-27 normal peak, t
     peak = { ...b, at: run.events[b.seq - 1]!.recorded_at };
     hub = await createTestHub();
     unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
-    for (const name of ['pass_closures', 'ready_retarget']) unregisterTick(name); // 03b §6.18–6.19 (b16): lane B5 adds both to every test hub too
+    for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
   }, HOOK_MS);
 
   afterAll(async () => {
