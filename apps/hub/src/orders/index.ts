@@ -1,5 +1,7 @@
 // 02b §6.13 (AD-5 pattern of 02a): the zone stock kinds register at module load, before boot replays the alerts projection.
 import './zone-kinds.js';
+// 02b §6.12: kind `comp`, the same way (top level, before the boot replay).
+import './comp-kind.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { ordersProjection } from './projection.js';
@@ -9,6 +11,7 @@ import { registerZoneStock } from './commands/zone-stock.js';
 import type { HubDeps } from '../server.js';
 import { registerRemoveItems } from './commands/remove-items.js';
 import { registerSetLineWeight } from './commands/set-line-weight.js';
+import { registerCompLine } from './commands/comp-line.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -29,6 +32,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   // wave 2 lane B (RemoveItems + lineChangeDrafts, SetLineWeight, CompLine, comp kind)
   registerRemoveItems(app); // §6.2 (not queueable, §3.12)
   registerSetLineWeight(app); // §6.3 (not queueable, §3.12)
+  registerCompLine(app); // §6.8 (approvable; online only, §3.12); kind `comp` (§6.12) registers at module load
 
   // wave 2 lane C (MarkServed, ReleaseItems, BoostOrder, ReturnToKitchen)
 
