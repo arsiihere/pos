@@ -574,7 +574,8 @@ async function selectEngineSettings(scoped: TenantScopedRepository, branchId: st
     `SELECT weight_dine_in_pct, weight_takeaway_pct, weight_delivery_pct, weight_parking_pct, weight_follow_up_pct,
             promise_padding_dine_in_ms, promise_padding_takeaway_ms, promise_padding_delivery_ms, promise_padding_parking_ms,
             slip_threshold_ms, slip_escalate_ms, cascade_step_ms, min_gain_ms, returns_boost, order_abandon_ms, table_lock_ttl_ms,
-            queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips -- 02b A-1, AD-10
+            queue_auto_send_max_ms, zone_undo_ms, slow_item_threshold_ms, served_estimate_ms, comp_reason_chips, -- 02b A-1, AD-10
+            ready_window_ms, kds_offline_ms -- 03b A-1
        FROM branch_engine_settings
       WHERE tenant_id = $1 AND branch_id = ANY($2) AND branch_id = $3`,
     [branchId],

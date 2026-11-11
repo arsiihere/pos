@@ -9,6 +9,7 @@ import {
   type ConfigDeal,
   type ConfigItem,
   type ConfigModifierGroup,
+  HUB_ENGINE_SETTING_DEFAULTS,
 } from './config';
 import { EngineSettings, EngineStationConfig } from './events/station/EngineConfigApplied.v1';
 
@@ -550,7 +551,10 @@ describe('BranchConfigSnapshotSchemaV4', () => {
     expect(Object.keys(settings).sort()).toEqual(Object.keys(EngineSettings.shape).sort());
     // On the schema itself: an optional extra key would not show in a parse of the fixture.
     const declared = Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape);
-    expect(declared.sort()).toEqual([...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS)].sort());
+    // 03b A-1 (01a v2.4): + the two optional keys ready_window_ms, kds_offline_ms.
+    expect(declared.sort()).toEqual(
+      [...Object.keys(EngineSettings.shape), 'table_lock_ttl_ms', ...Object.keys(V4_SETTINGS), 'ready_window_ms', 'kds_offline_ms'].sort(),
+    );
   });
 
   it('[01a §4.3 V3] a parsed station, less location_label plus reference_cook_ms, is a valid strict EngineStationConfig', () => {
@@ -680,5 +684,33 @@ describe('BranchConfigSnapshotSchemaV4: the V4 fields (01a v2.2 A-1, v2.3 A-1)',
   it('[02p AD-13] the deprecated BranchConfigSnapshotSchemaV3 alias is removed', async () => {
     const mod: Record<string, unknown> = await import('./config.js');
     expect('BranchConfigSnapshotSchemaV3' in mod).toBe(false);
+  });
+});
+
+describe('[03b §4.5 A-1] ready_window_ms, kds_offline_ms: optional V4 engine_settings keys with hub defaults', () => {
+  it('[03b §4.5 A-1] a V4 snapshot without the two keys parses; the hub default is read with ??', () => {
+    const s = exampleV4();
+    expect(s.engine_settings).not.toHaveProperty('ready_window_ms');
+    const parsed = BranchConfigSnapshotSchemaV4.parse(s);
+    expect(parsed.engine_settings.ready_window_ms).toBeUndefined();
+    expect(parsed.engine_settings.kds_offline_ms).toBeUndefined();
+    expect(parsed.engine_settings.ready_window_ms ?? HUB_ENGINE_SETTING_DEFAULTS.ready_window_ms).toBe(60_000);
+    expect(parsed.engine_settings.kds_offline_ms ?? HUB_ENGINE_SETTING_DEFAULTS.kds_offline_ms).toBe(30_000);
+  });
+
+  it('[03b §4.5 A-1] the delivered values are kept; a non-integer or null is refused', () => {
+    const s = exampleV4();
+    const settings = (o: Row) => ({ ...s, engine_settings: { ...s.engine_settings, ...o } });
+    const parsed = BranchConfigSnapshotSchemaV4.parse(settings({ ready_window_ms: 90_000, kds_offline_ms: 45_000 }));
+    expect(parsed.engine_settings).toMatchObject({ ready_window_ms: 90_000, kds_offline_ms: 45_000 });
+    for (const key of ['ready_window_ms', 'kds_offline_ms']) {
+      expect(refused(settings({ [key]: null })), key).toBe(true);
+      expect(refused(settings({ [key]: 1.5 })), key).toBe(true);
+    }
+  });
+
+  it('[03b §4.5 A-1] HUB_ENGINE_SETTING_DEFAULTS holds the spec values exactly', () => {
+    expect(HUB_ENGINE_SETTING_DEFAULTS).toStrictEqual({ ready_window_ms: 60_000, kds_offline_ms: 30_000 });
+    expect(Object.isFrozen(HUB_ENGINE_SETTING_DEFAULTS)).toBe(true);
   });
 });

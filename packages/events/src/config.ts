@@ -316,8 +316,18 @@ export const BranchConfigSnapshotSchemaV4 = BranchConfigSnapshotSchemaV3Shape.ex
     slow_item_threshold_ms: int,
     served_estimate_ms: int.nullable(),
     comp_reason_chips: z.array(z.string()),
+    // ⚠️ Changed by 03b v1.0.1 A-1 (01a v2.4): two optional keys, no snapshot version bump (R29); absent → the hub
+    // default, read as `branchConfig()?.engine_settings.<key> ?? HUB_ENGINE_SETTING_DEFAULTS.<key>`.
+    ready_window_ms: int.optional(),
+    kds_offline_ms: int.optional(),
   }),
 });
+
+// 03b §4.5 A-1: the hub defaults of the optional engine_settings keys (the cloud columns default to the same values).
+export const HUB_ENGINE_SETTING_DEFAULTS = Object.freeze({
+  ready_window_ms: 60_000,
+  kds_offline_ms: 30_000,
+} as const);
 
 export type BranchConfigSnapshotV4 = z.infer<typeof BranchConfigSnapshotSchemaV4>;
 export type BranchConfig = BranchConfigSnapshotV4;
