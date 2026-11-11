@@ -204,4 +204,17 @@ describe('[02b §9] ordering codes', () => {
       expect(ErrorCatalogue[code as keyof typeof ErrorCatalogue].status).toBe(status);
     }
   });
+
+  it('[03b §9] 03b codes have their statuses', () => {
+    expect(statusOf('ITEM_UNDO_WINDOW_CLOSED')).toBe(409);
+    expect(statusOf('PASS_UNDO_WINDOW_CLOSED')).toBe(409);
+    expect(statusOf('ITEM_DONE_CONFIRM_REQUIRED')).toBe(422);
+    expect(statusOf('PASS_RECEIVER_INVALID')).toBe(422);
+  });
+
+  it('[03c §9] 03c codes have their statuses', () => {
+    expect(statusOf('PRINTER_NOT_FOUND')).toBe(404);
+    expect(statusOf('PRINT_JOB_NOT_FOUND')).toBe(404);
+    expect(statusOf('PRINT_JOB_NOT_PENDING')).toBe(409);
+  });
 });
