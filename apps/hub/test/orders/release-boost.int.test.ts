@@ -311,8 +311,10 @@ describe('ReleaseItems (02b §6.5, §3.8)', () => {
     expect(engine().orders[o2]!.table_key).toBe('dine_in:SEAT2');
     fire(FX.zoneStation, 'PA', 'PB');
     fire(FX.station, 'QA', 'QB');
+    // Both seatings cross at the same instant (the fixed clock, the same plan), so one pass at that due raises both.
+    expect(engine().slip_due['dine_in:SEAT1']).toBe(engine().slip_due['dine_in:SEAT2']);
     raiseSlips();
-    if (slipAlerts().length < 2) raiseSlips(); // the second seating may cross a second later
+    expect(slipAlerts()).toHaveLength(2);
     const slips = slipAlerts();
     expect(slips.map((s) => [s.dedupe_key, s.state])).toEqual([
       ['slip:dine_in:SEAT1', 'open'],
@@ -473,9 +475,35 @@ describe('ReleaseItems (02b §6.5, §3.8)', () => {
     expect(outsiderGone.status).toBe(409);
     expect(outsiderGone.error?.code).toBe('ORDER_NOT_IN_ENGINE');
 
+    // my_floors: a takeaway is the placer's, a dine-in the current table's floor; S_FAR's floor holds neither.
+    const far = await release(signIn('S_FAR'), { order_ids: [take, dine], released: ['TA', 'DA'], expedite: [] });
+    expect(far.status).toBe(403);
+    expect(far.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', order_ids: [take, dine] } });
+
     const own = await release(signIn('S_OWN1'), { order_ids: [take, dine], released: ['TA', 'DA'], expedite: [] });
     expect(own.status).toBe(200);
     expect(own.events.map((e) => e.stream_id)).toEqual([take, dine]);
+  });
+
+  it('[02b §3.14] branch scope releases any order (the default waiter, mark-served branch, AD-32)', async () => {
+    openDay(hub);
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_OWN1' });
+    const take = appendOrder(hub, { order_type: 'takeaway', placed_by: 'S_OWN2', lines: [{ order_item_id: 'TA', item_id: FX.naan }] }).order_id;
+    const dine = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', placed_by: 'S_OWN1', lines: [{ order_item_id: 'DA', item_id: FX.naan }] }).order_id;
+    fire(FX.station, 'TA', 'DA');
+    for (const [o, l] of [
+      [take, 'TA'],
+      [dine, 'DA'],
+    ] as const) {
+      start(o, l);
+      done(o, l);
+    }
+    const reply = await release(signIn('S_WAITER'), { order_ids: [take, dine], released: ['TA', 'DA'], expedite: [] });
+    expect(reply.status).toBe(200);
+    expect(reply.events.map((e) => [e.event_type, e.stream_id])).toEqual([
+      ['ItemsReleased', take],
+      ['ItemsReleased', dine],
+    ]);
   });
 });
 
