@@ -82,6 +82,7 @@ async function directory(): Promise<DirectoryInput> {
       person('S_NOOR', 'Noor', 'R_TAKER'),
       person('S_FAIZ', 'Faiz', 'R_FLOOR', ['F9']),
       person('S_FLOORED', 'Fahad', 'R_FLOOR', [FX.floor]),
+      person('S_ROOF', 'Rafay', 'R_FLOOR', ['F2']),
       person('S_OT', 'Usman', 'R_DEF_TAKER', ['F9']),
       person('S_CASHIER', 'Hina', 'R_DEF_CASH'),
     ],
@@ -355,7 +356,7 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect(eventCount()).toBe(before);
   });
 
-  it('[02b #1] parking: table_key from car_number_norm, car_number as typed; two orders on one plate share a table_key; 3 statements', async () => {
+  it('[02b #1] parking: table_key from car_number_norm, car_number as typed; two orders on one plate share a table_key; 2 statements', async () => {
     await setUp();
     const cashier = signIn('S_CASHIER');
     const counted = countHandle();
@@ -509,6 +510,18 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
       else expect(r.error!.details).toMatchObject({ order_item_id: 'L1', violations: expect.any(Array) });
     }
     expect(eventCount()).toBe(before);
+  });
+
+  it('[02b §3.2 step 4] the manual Off of a linked option item is read (item_availability over the items the payload reaches)', async () => {
+    await setUp();
+    makeUnavailable(FX.optionItem);
+    const cashier = signIn('S_CASHIER');
+    const before = eventCount();
+    const r = await submit(cashier, takeaway('O1', [item('L1', FX.piece, 1, { options: [{ option_id: FX.option, quantity: 1, order_item_id: 'L1o' }] })]));
+    expect(r.status).toBe(422);
+    expect(r.error).toMatchObject({ code: 'OPTION_CHOICE_INVALID', details: { order_item_id: 'L1' } });
+    expect(eventCount()).toBe(before);
+    expect((await submit(cashier, takeaway('O2', [item('L2', FX.piece)]))).status).toBe(200);
   });
 
   it('[02b #7] sold_out with 0 < available < needed → ITEM_SOLD_OUT { available }; two lines of one item, 3 left → the second refused with available 1 (N-7); nothing appended', async () => {
@@ -764,6 +777,31 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SEAT2', holder_staff_id: 'S_FLOORED' });
     const ok = await submit(signIn('S_FLOORED'), dineIn('O2', [item('L2', FX.naan)], { table_id: FX.zoneTable, seating_id: 'SEAT2' }));
     expect(ok.status).toBe(200);
+  });
+
+  it('[02b §3.1] merged seating: naming the secondary table → OrderPlaced.table_id = the primary table; my_floors is checked on the named table', async () => {
+    const menu = fixtureMenu();
+    menu.floors = [...menu.floors, { floor_id: 'F2', name: 'Roof', sort_order: 1, zones: [], tables: [{ table_id: 'T3', name: 'T3', seats: 4, sort_order: 0, zone_id: null }] }];
+    await setUp({ menu });
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ROOF' });
+    append({
+      stream_type: 'table',
+      stream_id: FX.table,
+      event_type: 'TablesMerged',
+      payload: { into_seating_id: 'SEAT1', into_table_id: FX.table, table_ids: ['T3'], absorbed_seating_id: null, order_ids: [], by_staff_id: 'S_ROOF' },
+    });
+    const roof = signIn('S_ROOF');
+    const before = eventCount();
+    // The primary table T2 is on F1, outside Rafay's floors.
+    const primary = await submit(roof, dineIn('O1', [item('L1', FX.naan)]));
+    expect(primary.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
+    expect(eventCount()).toBe(before);
+    // The secondary table T3 is on F2, his floor: allowed, and the order is on the seating's primary table.
+    const secondary = await submit(roof, dineIn('O2', [item('L2', FX.naan)], { table_id: 'T3' }));
+    expect(secondary.status).toBe(200);
+    const placed = secondary.events.find((e) => e.event_type === 'OrderPlaced')!.payload;
+    expect(placed).toMatchObject({ table_id: FX.table, table_key: 'dine_in:SEAT1' });
+    expect(engine().orders.O2).toMatchObject({ table_id: FX.table });
   });
 
   it('[02b §3.2 step 2] a queued submit (X-Queued-At, AD-1) takes no free lock and sets sent_after_reconnect', async () => {

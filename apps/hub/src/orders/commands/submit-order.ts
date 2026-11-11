@@ -135,7 +135,7 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   const follow_up = payload.order_type === 'dine_in' && seatingHasServedFood(ctx, payload.seating_id!);
 
   // Step 4 (and 6, 7): lines from config. AD-21: isAvailable is the manual Off only; sold out is step 8's.
-  const availability = itemAvailability(db, config.items.map((i) => i.item_id));
+  const availability = itemAvailability(db, reachedItemIds(config, payload));
   const configStockUnits = Object.fromEntries(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit]));
   const itemsById = new Map(config.items.map((i) => [i.item_id, i]));
   const { now_ms: now, utc_offset_ms } = hubTime(ctx.clock);
@@ -205,6 +205,7 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
 
   // §7 logs: ids, type, counts and queued only; never names, phones or totals.
   ctx.tx.onCommit(() => {
+    // line_count counts every ItemAdded (option children and deal parts included).
     log.info({ order_id: payload.order_id, command_type: 'SubmitOrder', order_type: payload.order_type, line_count: itemAdded.length, queued: ctx.queuedAt !== null }, 'order submitted');
   });
 
@@ -243,6 +244,24 @@ function requireIdsFree(ctx: CommandCtx, state: EngineState, payload: Payload): 
   const used = new Set(rows.map((r) => r.id));
   const taken = ids.find((id) => used.has(id) || state.lines[id] !== undefined);
   if (taken !== undefined) throw new DomainError('ORDER_ITEM_ID_IN_USE', { order_item_id: taken });
+}
+
+// §3.2 step 4: the item ids whose manual Off buildSubmit can read: the payload's items and deal choices, and the
+// linked items of every option of their modifier groups (chosen options and required-group satisfiability).
+function reachedItemIds(config: BranchConfig, payload: Payload): string[] {
+  const ids = new Set<string>();
+  for (const line of payload.lines) {
+    if (line.item_id !== undefined) ids.add(line.item_id);
+    for (const c of line.deal_choices ?? []) ids.add(c.item_id);
+  }
+  const groups = new Map(config.modifier_groups.map((g) => [g.modifier_group_id, g]));
+  for (const item of config.items) {
+    if (!ids.has(item.item_id)) continue;
+    for (const id of item.modifier_group_ids) {
+      for (const o of groups.get(id)?.options ?? []) if (o.linked_item_id !== null) ids.add(o.linked_item_id);
+    }
+  }
+  return [...ids];
 }
 
 // §3.3: 02a's current seating_orders (P-1c) joined to 02b's own order_lines; 1 statement.
