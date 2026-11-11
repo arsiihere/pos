@@ -152,6 +152,14 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
   let stopped = false;
 
   const now = (): number => o.clock.branchNow();
+  // c15 (review of c14, approved edit): info goes through the same guard; a throwing logger never wedges a printer
+  const logInfo = (obj: Record<string, unknown>, msg: string): void => {
+    try {
+      o.log?.info?.(obj, msg);
+    } catch {
+      // a broken logger never stops printing
+    }
+  };
   const logError = (obj: Record<string, unknown>, msg: string): void => {
     try {
       o.log?.error(obj, msg);
@@ -214,7 +222,7 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
              ON CONFLICT (printer_id) DO UPDATE SET last_ack_at = excluded.last_ack_at, last_error = NULL`,
           )
           .run(sent.printer_id, at);
-        o.log?.info?.({ job_id: sent.job_id, printer_id: sent.printer_id }, 'print.acked');
+        logInfo({ job_id: sent.job_id, printer_id: sent.printer_id }, 'print.acked');
         hook('acked', () => o.hooks?.acked?.(sent, at));
       } else {
         const error = result.detail === null ? result.error : `${result.error}:${result.detail}`;
@@ -232,7 +240,7 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
              ON CONFLICT (printer_id) DO UPDATE SET last_error = excluded.last_error`,
           )
           .run(sent.printer_id, error);
-        o.log?.info?.({ job_id: sent.job_id, printer_id: sent.printer_id, attempts: attempts ?? 0, error: result.error }, 'print.failed');
+        logInfo({ job_id: sent.job_id, printer_id: sent.printer_id, attempts: attempts ?? 0, error: result.error }, 'print.failed');
         backoff = RETRY_DELAYS_MS[Math.min(Math.max((attempts ?? 1) - 1, 0), RETRY_DELAYS_MS.length - 1)]!;
         hook('failed', () => o.hooks?.failed?.(sent, result, at));
       }
@@ -280,7 +288,7 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
       .run(at, row.printer_id, resend ? 1 : 0, row.job_id);
     st.busy = true;
     inFlight.set(row.job_id, row.printer_id);
-    o.log?.info?.({ job_id: row.job_id, printer_id: row.printer_id, bytes: bytes.length }, 'print.sent');
+    logInfo({ job_id: row.job_id, printer_id: row.printer_id, bytes: bytes.length }, 'print.sent');
     const sent: SentJob = { job_id: row.job_id, kind: row.kind, printer_id: row.printer_id, station_id: row.station_id, ticket_id: row.ticket_id };
     let sending: Promise<SendResult>;
     try {
