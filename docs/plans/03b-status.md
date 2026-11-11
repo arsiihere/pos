@@ -3,6 +3,7 @@
 Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-03c-gaps.md`. Integration branch: `module-03b`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-11: gap sweep done, 14 G-rows ruled (a); spec v1.0.1. Next: phase 0.
 > - 2026-11-11: specs 03b v1.0 + 03c v1.0 APPROVED; plans, CI gate and cloud setup ready. Waiting: 02b merge → gap sweep.
 
 ## Owner rulings on how the build runs (2026-11-11, 14:16 PKT: "Sab haan")
@@ -19,7 +20,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 
 | Task | PR | State |
 |---|---|---|
-| P0.1 – P0.13 | — | not started |
+| P0.1 – P0.14 | — | not started |
 
 ## Lanes
 
@@ -28,7 +29,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | B1 | b5, b6, b7, b10 | — | — | not started |
 | B2 | b8, b9a | — | — | not started |
 | B3 | b11, b18 | — | — | not started |
-| B4 | b13, b14, b15, b9b | — | b11 | not started |
+| B4 | b13, b14, b15, b9b | — | b11, P0.14 (b15) | not started |
 | B5 | b16, b17, 0e | — | b13–b15 | not started |
 | B6 | b20, b21, b22, b23 | — | b6, b11, b18 | not started |
 | C1 | c4, c5, c7, c8, c9 | — | — | not started |
