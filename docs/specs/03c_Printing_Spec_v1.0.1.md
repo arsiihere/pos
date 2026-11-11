@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03b v1.0)**. Content = v0.2.1 (+ OQ-C1 answer), unchanged. v0.2.1 was v0.2 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`; §12.6). Split out of 03b by the owner's ruling R-2: screens are 03b's, **the printer is an optional accessory** (R-1). v0.1 carried 03b v0.2's printing rules with run 2's printing findings fixed (§12.4); v0.2 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (§12.5). Re-check done (M-3 partly → fixed in v0.2.1). |
-| Depends on | **03b KDS + Pass v1.0** (`stationPresence`, `buildLineDetails`, `pointOfLine`, `devicePoint`, client slots), Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7** (+ 03b's B-1), 01d **v1.2.1** (+ 03b's D-2), 02a **v1.1.4**, 02b **v1.0.3** (+ `module-02b` after merge), 03a **v1.2**. Target versions: one bump per target, applied by 03b's task 0d, with 03b v0.4.1 §4.5's fallback if 03c is approved separately. |
+| Doc | Module spec, **v1.0.1 — APPROVED (owner, 2026-11-11, 16:23 PKT; gap sweep G-14, wording only)**. v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03b v1.0). Content = v0.2.1 (+ OQ-C1 answer), unchanged, plus v1.0.1's marked wording fix. v0.2.1 was v0.2 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`; §12.6). Split out of 03b by the owner's ruling R-2: screens are 03b's, **the printer is an optional accessory** (R-1). v0.1 carried 03b v0.2's printing rules with run 2's printing findings fixed (§12.4); v0.2 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (§12.5). Re-check done (M-3 partly → fixed in v0.2.1). |
+| Depends on | **03b KDS + Pass v1.0.1** (⚠️ Changed by v1.0.1 (G-14): was v1.0) (`stationPresence`, `buildLineDetails`, `pointOfLine`, `devicePoint`, client slots), Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7** (+ 03b's B-1), 01d **v1.2.1** (+ 03b's D-2), 02a **v1.1.4**, 02b **v1.0.3** (+ `module-02b` after merge), 03a **v1.2**. Target versions: one bump per target, applied by 03b's task 0d, with 03b v0.4.1 §4.5's fallback if 03c is approved separately. |
 | Read by | 05 (print API), 07. |
 | Inherits | Shared Standards from Foundation v1.11 §6. |
 | Inputs | `03b-g0.md` (§6 Q1, Q2, Q3, Q4, Q9, Q10, Q13), `03b-g1-decisions.md` (G1-1–G1-5, G1-14, G1-15, R-1, R-2, R-5, R-6), OQ-1 answer; run 1 and run 2 reviews; 02b v1.0.2 §4.3 To 03b, O16; Foundation §5.8, D24, R8. |
@@ -13,6 +13,7 @@
 
 | Version | Date | Change |
 |---|---|---|
+| **v1.0.1** | 2026-11-11 | (owner-approved G-14, `docs/plans/03b-03c-gaps.md`): alert step targets written as `{ kind: 'managers' }` (was the bare string `'managers'`) in §6.10 (`printer_problem`); no behaviour change. |
 | **v1.0** | 2026-11-11 | **APPROVED by the owner** (with 03b v1.0). No content change from v0.2.1. |
 | v0.2.1 (owner answer) | 2026-11-11 | OQ-C1 answered: the pilot attaches kitchen printers, so 03c is built and checked before go-live (§12.3). No rule changes. |
 | **v0.2.1** | 2026-11-11 | Re-check fixes (§12.6): one suspect rule (Ack line points to §3.5), `COALESCE(last_clean_at, 0)` (N-1); a clean read clears only jobs acked a buffer-drain earlier (N-8); `no_screen` warning (N-3); bumps follow 03b v0.4.1's note. |
@@ -313,7 +314,7 @@ Retention at 00's maintenance hour: acked / cancelled jobs, tickets, ticket line
 ```typescript
 defineAlertKind({
   kind: 'printer_problem', family: 'action', subject: 'hub',          // { stream_type: 'hub', stream_id: branch_id }
-  steps: [{ at: { ms: 0 }, to: [{ target: 'managers', set: 'recipient' }] }],
+  steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }],   // ⚠️ Changed by v1.0.1 (G-14, owner 2026-11-11): was `target: 'managers'`
   closes_on: 'owner',
   values_schema: z.object({ printer_id: z.string().min(1), waiting: z.number().int().min(0) }),
   details_schema: AlertDetailsBase.pick({ printer_name: true, problem: true }),   // 03b D-2
