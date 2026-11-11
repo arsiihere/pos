@@ -31,7 +31,6 @@ jobs:
     env:
       DATABASE_URL: postgres://pos:pos@127.0.0.1:5433/pos_test
       TMPDIR: /dev/shm
-      npm_config_manage_package_manager_versions: 'false'   # pnpm must not switch versions under turbo's parallel spawns
       TURBO_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v7

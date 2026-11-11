@@ -13,18 +13,7 @@ Plans: `docs/plans/03b-plan.md`, `docs/plans/03c-plan.md`. Board: `docs/plans/03
 - Turn on: "Require a pull request before merging" (0 approvals), "Require status checks to pass" → add check **`gate`**, "Block force pushes".
 - Allowed merge methods: **Rebase** only.
 
-**C. claude.ai/code cloud environment** (claude.ai/code → environment selector under the message box → Add environment):
-- Name: `pos`
-- Network access: **Trusted** (default allowlist: GitHub, npm registry)
-- Environment variables:
-  ```
-  npm_config_manage_package_manager_versions=false
-  TURBO_TELEMETRY_DISABLED=1
-  DATABASE_URL=postgres://pos:pos@127.0.0.1:5433/pos_test
-  BASH_MAX_TIMEOUT_MS=1800000
-  ```
-- Setup script: paste the whole of `tools/cloud/environment-setup.sh`.
-- Pick environment `pos` for every session below.
+**C. claude.ai/code cloud environment** — nothing required: the repo's SessionStart hook (`tools/cloud/session-start.sh`) configures Postgres on 5433, pins pnpm 12.15.0 and runs `pnpm install` in any cloud session or remote agent. Optional, for faster session starts: add an environment `pos` (network **Trusted**), variable `BASH_MAX_TIMEOUT_MS=1800000`, and paste `tools/cloud/environment-setup.sh` as its setup script (then the VM is cached with Postgres and pnpm ready).
 
 **D. Check it** — open one session in `pos` on `main` and paste:
 ```

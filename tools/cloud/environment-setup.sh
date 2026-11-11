@@ -4,6 +4,10 @@
 # It configures the pre-installed PostgreSQL 16 like the local pos-pg-test container:
 # port 5433, user/db pos/pos_test, test-only settings (CLAUDE.md "Test environment").
 set -euo pipefail
+# pnpm: the VM ships pnpm 10; the repo pins pnpm@12.15.0 (package.json "packageManager"). Install that exact
+# version so pnpm never self-switches (in a fresh VM the switch races under turbo: "Exec format error").
+PNPM_VERSION=12.15.0
+[ "$(pnpm --version 2>/dev/null)" = "$PNPM_VERSION" ] || npm install -g "pnpm@$PNPM_VERSION" >/dev/null
 SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 CONF=/etc/postgresql/16/main/postgresql.conf
 $SUDO sed -i 's/^#\?port = .*/port = 5433/' "$CONF"
