@@ -537,6 +537,27 @@ describe('[03c §3.7] print worker', () => {
     expect(hub.deps.db.prepare(`SELECT last_error FROM printer_runtime WHERE printer_id = 'PR1'`).pluck().get()).toBeNull();
   });
 
+  it('[03c §3.7, c14 review] a logger whose info throws never wedges a printer (sent, acked, next head)', async () => {
+    printer('PR1');
+    output(FX.station, 'both', 'PR1');
+    order('A', [{ n: 1 }]);
+    order('B', [{ n: 1 }]);
+    fireLines(hub, FX.station, ['A1']);
+    fireLines(hub, FX.station, ['B1']);
+    const t = scripted();
+    const boom = (): never => {
+      throw new Error('log says no');
+    };
+    const w = createPrintWorker({ db: hub.deps.db, state: hub.deps.state, clock: hub.clock, timers: clock, transportFor: () => t, log: { info: boom, error: boom } });
+    cleanups.push(() => w.stop());
+    w.pass();
+    expect(t.sends).toHaveLength(1);
+    t.settle(OK);
+    await turns();
+    expect(job(`${ticketOf('A1')}:kitchen`).acked_at).not.toBeNull();
+    expect(t.sends).toHaveLength(2);
+  });
+
   it('[03c §3.7] idle loop: 1 statement; the loop re-arms on the injected timers; stop clears it', () => {
     printer('PR1');
     output(FX.station, 'both', 'PR1');
