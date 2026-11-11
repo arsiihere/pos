@@ -6,11 +6,11 @@ import { alerts } from '../../alerts/raise.js';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
-import { checkReceiver, HANDOVER_KIND, handoverDedupeKey, scopeCoversFloor, type HandoverValues } from '../handover.js';
+import { checkReceiver, HANDOVER_KIND, handoverDedupeKey, scopeCoversFloor, seatingTotalMinor, type HandoverValues } from '../handover.js';
 import { TABLE_HANDOVER, type HandoverDetails } from '../kinds.js';
 
 // 02a v1.1.3 §6.7 RequestTableHandover (§3.8, §3.15, T18). Statements: 1 (the seating, its tables and its live
-// order count) + 1 (the receiver's live session) + the alerts.raise bound; no seatingTotals (AD-3).
+// order count) + 1 (the receiver's live session) + 1 seatingTotals (02b §4.2 via the registered hook; none registered = 0) + the alerts.raise bound.
 
 export const RequestTableHandoverPayload = z.object({
   table_id: z.string().min(1),
@@ -77,7 +77,10 @@ function handle(ctx: CommandCtx, payload: RequestTableHandoverPayload): { alert_
     table_code: tableCode(JSON.parse(row.table_ids) as string[]),
     requester_name: ctx.directory.get(caller)?.display_name ?? null,
   };
-  const details: HandoverDetails = row.live_orders > 0 ? { quantity: row.live_orders } : {};
+  // §3.8: the card's amount is the seating total; asked on every request when the hook is registered
+  const amount = seatingTotalMinor(ctx.tx.db, seating_id);
+  const details: HandoverDetails =
+    row.live_orders === 0 ? {} : amount === null ? { quantity: row.live_orders } : { quantity: row.live_orders, amount };
   const raised = alerts.raise(ctx, {
     kind: HANDOVER_KIND,
     subject: { stream_type: 'table', stream_id: row.primary_table_id },

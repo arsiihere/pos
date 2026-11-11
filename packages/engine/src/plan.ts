@@ -38,7 +38,7 @@ function required<T>(value: T | null, field: string, order_item_id: string): T {
 // stock_program_cook_time_ms / program_cook_time_ms, never config. full_cook_ms is the fresh cook,
 // stock_cook_ms the copied stock cook (null when none).
 export function lineCookTimes(
-  item: ItemAddedPayload,
+  item: Omit<ItemAddedPayload, 'return_of'>,
   type: StationRuntime['type'],
   from_stock: boolean,
 ): Pick<EngineLine, 'cook_ms' | 'full_cook_ms' | 'stock_cook_ms'> {
@@ -60,7 +60,7 @@ export function lineCookTimes(
 // fresh cook on `remake`; ItemAdded's serve_mode, stock time and from_stock are not taken. Any other line: §3.2.
 export type ReturnLink = { return_of: EngineLine['return_of']; cook_ms_override: number | null };
 export function lineShape(
-  item: ItemAddedPayload,
+  item: Omit<ItemAddedPayload, 'return_of'>,
   link: ReturnLink,
   type: StationRuntime['type'],
   from_stock: boolean,
@@ -1051,7 +1051,8 @@ export function placeExpedites(state: EngineState, ids: readonly string[], t: nu
 type OrderType = 'dine_in' | 'takeaway' | 'delivery' | 'parking';
 
 // 03a §4.2 (v0.2, pre-G2 #8): the input of planOrder, calculateETA, checkOrderable and reserveStock, built by 02.
-export type ProposedLine = ItemAddedPayload & {
+// 02b AD-15: ItemAddedPayload gained an optional string return_of; the engine's own object form replaces it here.
+export type ProposedLine = Omit<ItemAddedPayload, 'return_of'> & {
   alternates: Array<{ station_id: string; carry_ms: number; home: boolean }>; // allowed for this order type (D8)
   point_id: string | null;
   carry_ms: number; // home station → point

@@ -174,3 +174,49 @@ describe('02a SG-2: BillClosed', () => {
     expect(parsed.stream_type).toBe('table');
   });
 });
+
+describe('02b §6.19: zone stock events (AD-6)', () => {
+  const zoneEnvelope = (event_type: string, payload: unknown) => ({
+    event_id: 'E1',
+    tenant_id: 'TN',
+    branch_id: 'B1',
+    stream_type: 'table',
+    stream_id: 'zone:Z1',
+    event_type,
+    schema_version: 1,
+    payload,
+    occurred_at: 1,
+    recorded_at: 1,
+    actor_id: 'W1',
+    device_id: 'D1',
+    seq: 1,
+  });
+
+  it('[02b §6.19] ZoneStockAdded round-trips on stream table, id zone:<zone_id>', () => {
+    const schema = payloadSchema('ZoneStockAdded', 1);
+    const payload = {
+      zone_id: 'Z1',
+      item_id: 'I1',
+      quantity: 6,
+      transfers: [{ stock_item_id: 'SI1', quantity: 6 }],
+    };
+    expect(schema.parse(payload)).toEqual(payload);
+    expect(schema.parse({ ...payload, transfers: [] })).toEqual({ ...payload, transfers: [] });
+    expect(schema.safeParse({ ...payload, transfers: undefined }).success).toBe(false);
+    expect(schema.safeParse({ ...payload, extra: 1 }).success).toBe(false);
+    const parsed = parseEvent(zoneEnvelope('ZoneStockAdded', payload));
+    expect(parsed.stream_type).toBe('table');
+    expect(parsed.stream_id).toBe(`zone:${payload.zone_id}`);
+  });
+
+  it('[02b §6.19] ZoneStockSet round-trips on stream table, id zone:<zone_id>', () => {
+    const schema = payloadSchema('ZoneStockSet', 1);
+    const payload = { zone_id: 'Z1', item_id: 'I1', on_hand: 4, previous: 9 };
+    expect(schema.parse(payload)).toEqual(payload);
+    expect(schema.safeParse({ zone_id: 'Z1', item_id: 'I1', on_hand: 4 }).success).toBe(false);
+    expect(schema.safeParse({ ...payload, extra: 1 }).success).toBe(false);
+    const parsed = parseEvent(zoneEnvelope('ZoneStockSet', payload));
+    expect(parsed.stream_type).toBe('table');
+    expect(parsed.stream_id).toBe('zone:Z1');
+  });
+});

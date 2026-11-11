@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BranchConfig, DirectoryInput } from '@pos/events';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
 import { swapDirectory } from '../../src/auth/guards';
 import { activity, createSession, idlePause } from '../../src/auth/session-store';
@@ -21,6 +21,7 @@ const MIN = 60_000;
 const SWEEP = 15_000;
 const CAP = 14_400_000; // 4 h, the 01a default of queue_auto_send_max_ms
 const HOST = '192.168.10.2:3000';
+const PONG_MS = 30_000; // ws/server.ts: no pong for 30 s → the hub terminates the socket (00 §6.17 Q8)
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -36,6 +37,7 @@ interface Session {
 
 describe('00 M95 paused idle clock', () => {
   afterEach(async () => {
+    vi.useRealTimers();
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
     activity.drain();
     activity.drainDevices();
@@ -59,6 +61,44 @@ describe('00 M95 paused idle clock', () => {
     expect(idlePause.state(hub.deps.db, device.deviceId)).toEqual({ open_sockets: 1, paused_at: null, paused_since: null });
     expect(endReason(hub, session.sessionId)).toBeNull();
 
+    sweepFor(hub, 3 * MIN);
+    expect(endReason(hub, session.sessionId)).toBeNull();
+    hub.clock.advance(1);
+    expect(sweepOnce(hub.deps).ended).toEqual([session.sessionId]);
+    expect(endReason(hub, session.sessionId)).toBe('idle_timeout');
+  });
+
+  it('[00 §10 #152 terminate] [00 #31 missed pong] a socket that stops answering pings is terminated at PONG_MS → the device is paused at the terminate; 15 min off with a 5 min TTL → still active; on reconnect the shift applies (ends 3 min later if idle)', async () => {
+    const hub = await open();
+    const { device, session } = waiterOn(hub);
+    // The hub's own keepalive timers (setTimeout / setInterval in ws/server.ts armKeepalive) run on vitest's fake timers,
+    // so PONG_MS passes without a wall-clock wait; idle time moves only on the hub test clock (03a AD-32: no timing asserts).
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const ws = await connectWs(hub.app);
+    cleanups.push(() => ws.close());
+    ws.raw._autoPong = false; // the device stops answering pings (a dropped Wi-Fi link): no clean close
+    ws.send({ type: 'auth', device_token: device.token, session_token: session.token });
+    await ws.untilCount(1);
+    expect(ws.messages[0]).toMatchObject({ type: 'catch_up' });
+    expect(idlePause.state(hub.deps.db, device.deviceId)).toEqual({ open_sockets: 1, paused_at: null, paused_since: null });
+
+    hub.clock.advance(2 * MIN); // 2 min of the 5 min TTL used before the link drops
+    const terminatedAt = hub.clock.branchNow();
+    await vi.advanceTimersByTimeAsync(PONG_MS - 1);
+    expect(idlePause.state(hub.deps.db, device.deviceId)?.open_sockets).toBe(1); // not yet: pings sent, no pong
+    await vi.advanceTimersByTimeAsync(1);
+    const closed = await ws.untilClose();
+    expect(closed.code).toBe(1006); // terminated by the hub, not a clean close
+    vi.useRealTimers();
+    await waitUntil(() => idlePause.state(hub.deps.db, device.deviceId)?.open_sockets === 0);
+    expect(idlePause.state(hub.deps.db, device.deviceId)).toEqual({ open_sockets: 0, paused_at: terminatedAt, paused_since: terminatedAt });
+
+    sweepFor(hub, 15 * MIN); // idle time does not advance while disconnected
+    expect(endReason(hub, session.sessionId)).toBeNull();
+
+    const again = await sessionSocket(hub, device, session);
+    expect(again.messages[0]).toMatchObject({ type: 'catch_up' });
+    expect(idlePause.state(hub.deps.db, device.deviceId)).toEqual({ open_sockets: 1, paused_at: null, paused_since: null });
     sweepFor(hub, 3 * MIN);
     expect(endReason(hub, session.sessionId)).toBeNull();
     hub.clock.advance(1);

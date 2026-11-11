@@ -8,6 +8,7 @@ import {
   calculateETA,
   checkOrderable,
   initialEngineState,
+  isEngineLine,
   planOrder,
   type EngineState,
   type PlanResult,
@@ -342,5 +343,15 @@ describe('@pos/engine planOrder / calculateETA / checkOrderable: hold-and-fire, 
         if (Math.max(0, ...before.u) <= cap) expect(Math.max(0, ...prof.u)).toBeLessThanOrEqual(cap);
       }
     }
+  });
+});
+
+describe('@pos/engine isEngineLine (§3.2)', () => {
+  it('[03a §3.2] exported from the package index: a station and line_kind ≠ deal (02b §3.3 food rules import it)', () => {
+    expect(isEngineLine({ station_id: 'st-1', line_kind: 'item' })).toBe(true);
+    expect(isEngineLine({ station_id: 'st-1', line_kind: 'deal_part' })).toBe(true);
+    expect(isEngineLine({ station_id: 'st-1', line_kind: 'option_child' })).toBe(true);
+    expect(isEngineLine({ station_id: null, line_kind: 'item' })).toBe(false);
+    expect(isEngineLine({ station_id: 'st-1', line_kind: 'deal' })).toBe(false);
   });
 });

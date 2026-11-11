@@ -50,6 +50,9 @@ export const ItemAddedPayload = z.object({
   // 01c v1.1.2 C-1, 03a v1.2 §4.2: additive at v1, no upcaster; an event logged without them parses as null / false.
   served_from_zone_id: z.string().nullable().default(null),
   is_ready_item: z.boolean().default(false),
+  // 02b AD-15, owner 2026-11-11; 03a §4.2 / 02b §6.19 text bump pending. On a return line's ItemAdded (02b §3.8
+  // ReturnToKitchen, fix and remake): the order_item_id of the line it returns; absent on every other line.
+  return_of: z.string().optional(),
 });
 export type ItemAddedPayload = z.infer<typeof ItemAddedPayload>;
 

@@ -14,6 +14,7 @@ import type { IdGen } from './lib/ids.js';
 import type { SecretGen } from './lib/secrets.js';
 import { registerAlerts } from './alerts/index.js';
 import { registerTables } from './tables/index.js';
+import { registerOrders } from './orders/index.js';
 import { registerAppUpdateRoutes } from './app-update/routes.js';
 import { registerAdminBootstrapRoutes } from './auth/admin-bootstrap.js';
 import { registerAdminRoutes } from './auth/admin-session.js';
@@ -125,6 +126,8 @@ export interface BuildHubOptions {
 
 export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): FastifyInstance {
   const app = Fastify({
+    // 02b §6.14 / AD-26: eta-preview drafts ride in the GET query string; Node default 16 KB gives 431.
+    http: { maxHeaderSize: 65_536 },
     logger: {
       level: 'info',
       stream: deps.logStream,
@@ -202,6 +205,7 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
   registerAppUpdateRoutes(app, deps);
   registerAlerts(app, deps);
   registerTables(app, deps);
+  registerOrders(app, deps);
   registerUiAssets(app);
   // §7.1: the built /admin/stock page; no credentials, like 00's admin pages (M79).
   registerClientDist(app, { prefix: '/admin/stock/', dir: CLIENT_DIST_DIR, routeConfig: { group: 'admin-page' } });
