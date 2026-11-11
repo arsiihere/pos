@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v1.0.1 — APPROVED (owner, 2026-11-11, 16:23 PKT; gap sweep G-14, wording only)**. v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03b v1.0). Content = v0.2.1 (+ OQ-C1 answer), unchanged, plus v1.0.1's marked wording fix. v0.2.1 was v0.2 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`; §12.6). Split out of 03b by the owner's ruling R-2: screens are 03b's, **the printer is an optional accessory** (R-1). v0.1 carried 03b v0.2's printing rules with run 2's printing findings fixed (§12.4); v0.2 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (§12.5). Re-check done (M-3 partly → fixed in v0.2.1). |
+| Doc | Module spec, **v1.0.1 — APPROVED (owner, 2026-11-11, 16:23 PKT; gap-sweep rulings G-7, G-8, G-14, `docs/plans/03b-03c-gaps.md`)**. v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03b v1.0). Content = v0.2.1 (+ OQ-C1 answer), unchanged, plus v1.0.1's marked wording fix. v0.2.1 was v0.2 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`; §12.6). Split out of 03b by the owner's ruling R-2: screens are 03b's, **the printer is an optional accessory** (R-1). v0.1 carried 03b v0.2's printing rules with run 2's printing findings fixed (§12.4); v0.2 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (§12.5). Re-check done (M-3 partly → fixed in v0.2.1). |
 | Depends on | **03b KDS + Pass v1.0.1** (⚠️ Changed by v1.0.1 (G-14): was v1.0) (`stationPresence`, `buildLineDetails`, `pointOfLine`, `devicePoint`, client slots), Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7** (+ 03b's B-1), 01d **v1.2.1** (+ 03b's D-2), 02a **v1.1.4**, 02b **v1.0.3** (+ `module-02b` after merge), 03a **v1.2**. Target versions: one bump per target, applied by 03b's task 0d, with 03b v0.4.1 §4.5's fallback if 03c is approved separately. |
 | Read by | 05 (print API), 07. |
 | Inherits | Shared Standards from Foundation v1.11 §6. |
@@ -13,7 +13,7 @@
 
 | Version | Date | Change |
 |---|---|---|
-| **v1.0.1** | 2026-11-11 | (owner-approved G-14, `docs/plans/03b-03c-gaps.md`): alert step targets written as `{ kind: 'managers' }` (was the bare string `'managers'`) in §6.10 (`printer_problem`); no behaviour change. |
+| **v1.0.1** | 2026-11-11 | Owner-approved gap-sweep rulings (`docs/plans/03b-03c-gaps.md`, all Rec (a)), each marked "⚠️ Changed by v1.0.1 (G-n)". **G-14** §6.10: alert step targets written as `{ kind: 'managers' }` (was the bare string `'managers'`); no behaviour change. **G-7** §2, §3.7, §4.4 H-11, §11 task 16: boot wiring as the code does it — `registerPrintBootSteps()` from `main.ts`, the worker started next to `startTickLoop` after listen (`lib/boot.ts:209`, `:236`); no behaviour change. **G-8** §5, §11 task 22: retention runs from 00's sweeper `purge()` (one call line, like 01d's alerts); no behaviour change. |
 | **v1.0** | 2026-11-11 | **APPROVED by the owner** (with 03b v1.0). No content change from v0.2.1. |
 | v0.2.1 (owner answer) | 2026-11-11 | OQ-C1 answered: the pilot attaches kitchen printers, so 03c is built and checked before go-live (§12.3). No rule changes. |
 | **v0.2.1** | 2026-11-11 | Re-check fixes (§12.6): one suspect rule (Ack line points to §3.5), `COALESCE(last_clean_at, 0)` (N-1); a clean read clears only jobs acked a buffer-drain earlier (N-8); `no_screen` warning (N-3); bumps follow 03b v0.4.1's note. |
@@ -61,7 +61,7 @@ Screens and presence (03b); receipt / bill / Z content and template (05); Urdu-s
 
 ## §2. Existing architecture that must not change
 
-- Everything in 03b v0.3 §2, plus: Foundation §5.8 boot steps (step 5 resumes the print queue; F §3 "Print queue … (none)": never synced); D24; R8; 00's `apps/hub/src/lib/boot.ts` boot sequence (listen at `:208`); 00 route groups (`/admin/...` with `config: { group: 'admin' }`).
+- Everything in 03b v0.3 §2, plus: Foundation §5.8 boot steps (step 5 resumes the print queue; F §3 "Print queue … (none)": never synced); D24; R8; 00's `apps/hub/src/lib/boot.ts` boot sequence (listen at `:209`; ⚠️ Changed by v1.0.1 (G-7, owner 2026-11-11): was `:208`); 00 route groups (`/admin/...` with `config: { group: 'admin' }`).
 - 03b v0.3: `stationPresence()`, `buildLineDetails`, `pointOfLine`, `devicePoint`, `LineDetail`, `Identifier`; the KDS and Pass clients; projection registration order (02b `orders` → 03b → 03c).
 - 01d: `printer_alert_ms` joins `ALERT_CONSTANTS` (row D-3); `AlertDetailsBase.printer_name` / `problem` (03b's row D-2).
 
@@ -157,7 +157,7 @@ Print worker, every 1 s (started after listen):
 - **Status reads:** LAN only by default (USB only if its test print proved status), at most once per 10 s per printer, plus right after a failure and while the printer has an open `printer_problem`. Status timeout 2 s, never blocking the FIFO.
 - **Failure before a full write:** `attempts + 1`, `last_error`, `is_reprint = 1` if any byte went out, `sent_at = NULL`; retry 2 s, 5 s, then every 10 s, no limit. (A removal folded while `sent_at` was set already queued a CANCELLED slip; the retry then prints the ticket without those units plus the slip — harmless.) Kitchen and slip jobs drain as their lines finish; `document` jobs wait or are cancelled by a manager.
 - **`printer_problem`:** raised (dedupe `printer_problem:<printer_id>`) when the head job has failed for ≥ `printer_alert_ms` (30 000), a status error bit appears, or a `print_fold_skips` row names the printer's station; details `{ printer_name, problem }` (03b's D-2). Closed `done` at the next ack with clean **or unknown** status; `obsolete` on archive or when nothing is pending and the status is clean or unknown.
-- **Restart (F §5.8 step 5):** 03c registers `registerBootStep('5', resumePrintQueue)` (existing 00 hook, `lib/boot.ts:58-68`, no 00 code change): `sent_at` set and `acked_at` null → `is_reprint = 1, sent_at = NULL`. Row **H-11** covers only the one 00 code change: start the print worker **after listen** (`lib/boot.ts` after `:208`). The worker drains in `created_at` order.
+- **Restart (F §5.8 step 5):** 03c registers `registerBootStep('5', resumePrintQueue)` (existing 00 hook, `lib/boot.ts:59-70`; ⚠️ Changed by v1.0.1 (G-7, owner 2026-11-11): registered by a once-guarded `registerPrintBootSteps()` called from `main.ts`, as 01a and 03a register theirs; was "`lib/boot.ts:58-68`, no 00 code change"): `sent_at` set and `acked_at` null → `is_reprint = 1, sent_at = NULL`. Row **H-11** covers only the one 00 code change: start the print worker **after listen** (`lib/boot.ts` after `:209`, next to `startTickLoop` at `:236`, its stop joined in `beat.stop`; ⚠️ Changed by v1.0.1 (G-7, owner 2026-11-11): was "after `:208`"; with the `main.ts` line above and `registerPrint(app, deps)` in `server.ts`, H-11's 00 code change). The worker drains in `created_at` order.
 - **Writes outside transactions:** `print_jobs`, `printer_runtime`, `print_fold_skips` updates by the worker are plain statements between transactions; never events, never synced.
 - **Cost:** idle loop ≤ 2 statements + 1 per dark station.
 
@@ -216,7 +216,7 @@ Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their p
 |---|---|---|---|
 | F-1 | Foundation → **v1.12** §5.8 | `print_jobs` DDL replaced by §5; step 5: sent-not-acked → `is_reprint = 1`, `sent_at = NULL`, re-send in order; ack = D4 (flushed within timeout; suspect recovery). D24 kept. | D2, D4 |
 | F-2 | Foundation → **v1.12** OQ14 | Answered (P14): USB via a child process and a udev symlink, LAN preferred, no library. | P14 |
-| H-11 | 00 → **v1.9** (with 03b's H-9, H-10) + code (`apps/hub/src/lib/boot.ts`, R-4) | Start the print worker after listen. Resume uses the existing `registerBootStep('5')` (no change). | §3.7; check n-4 |
+| H-11 | 00 → **v1.9** (with 03b's H-9, H-10) + code (`apps/hub/src/lib/boot.ts`, R-4) | Start the print worker after listen. Resume uses the existing `registerBootStep('5')` (no change). ⚠️ Changed by v1.0.1 (G-7, owner 2026-11-11): code sites `lib/boot.ts` (worker start / stop after listen), `main.ts` (`registerPrintBootSteps()`), `server.ts` (`registerPrint`), all written once by 03b's phase 0. | §3.7; check n-4 |
 | D-3 | 01d → **v1.2.2** (with 03b's D-2; code in 03b task 0c) | `ALERT_CONSTANTS.printer_alert_ms = 30_000`. | §3.7 |
 | Q-1 | 02b → **v1.0.4** §4.3 To 03b (text; v1.0.3 is already APPROVED, 2026-11-10) | "a CANCELLED slip for every `ItemRemoved` on a fired line" → "… on a fired line **whose ticket was printed** (03c §3.3)"; "03b" → "03c" for ticket rows. | run 2 m-14 |
 
@@ -292,7 +292,7 @@ CREATE INDEX print_jobs_suspect ON print_jobs (station_id) WHERE suspect_at IS N
 CREATE INDEX print_jobs_acked_by_printer ON print_jobs (sent_printer_id, acked_at) WHERE acked_at IS NOT NULL AND suspect_at IS NULL; -- suspect marking
 ```
 
-Retention at 00's maintenance hour: acked / cancelled jobs, tickets, ticket lines and resolved skips older than 7 days.
+Retention at 00's maintenance hour: acked / cancelled jobs, tickets, ticket lines and resolved skips older than 7 days. ⚠️ Changed by v1.0.1 (G-8, owner 2026-11-11): run from 00's sweeper (`auth/session-sweeper.ts` `purge()`, one call line to `print/retention.ts`, as 01d's `purgeAlerts`); 00 has no retention registry.
 
 ---
 
@@ -436,13 +436,13 @@ Config and API
 | 13 | USB child process transport + blocking fake device | `apps/hub/src/print/transport/usb-child.ts`, `usb.ts` | §3.7 |
 | 14 | Worker: FIFO, synchronous render + `sent_at`, ack, timeouts, retry, stale / empty cancel | `apps/hub/src/print/worker.ts` | §3.7 |
 | 15 | Status reads, suspect marking and recovery, `printer_problem` raise / close, skip alerts | `apps/hub/src/print/status.ts` | §3.5, §3.7 |
-| 16 | `resumePrintQueue` via `registerBootStep('5')`; H-11 worker start after listen | `apps/hub/src/print/boot.ts`, `apps/hub/src/lib/boot.ts` | §3.7 |
+| 16 | `resumePrintQueue` via `registerBootStep('5')`; H-11 worker start after listen | `apps/hub/src/print/boot.ts` (⚠️ Changed by v1.0.1 (G-7, owner 2026-11-11): the `lib/boot.ts`, `main.ts`, `server.ts` lines are written by 03b's phase 0; this task fills them) | §3.7 |
 | 17 | Paper fallback over `stationPresence()` | `apps/hub/src/print/fallback.ts` | §3.4 |
 | 18 | `printDocument` | `apps/hub/src/print/api.ts` | §3.9 |
 | 19 | Admin routes test / cancel | `apps/hub/src/print/routes.ts` | §6.4–6.5 |
 | 20 | Queries print-config, print-queue, order-tickets | `apps/hub/src/queries/` | §6.6–6.8 |
 | 21 | `kds_printed` catch-up + `printed_lines` frame | `apps/hub/src/ws/print-catch-up.ts` | §3.8 |
-| 22 | Retention | `apps/hub/src/print/retention.ts` | §5 |
+| 22 | Retention (⚠️ Changed by v1.0.1 (G-8, owner 2026-11-11): called from the sweeper's `purge()`) | `apps/hub/src/print/retention.ts` | §5 |
 | 23–25 | Hub admin Printers page: printers + test, outputs, queue + suspects | `apps/client/src/features/admin/printers/` | §8 |
 | 26 | `printed` tag through 03b's line-tag slot | `apps/client/src/features/print/` | §8 |
 | 27 | Reprint action through 03b's slots (KDS, Pass card) | `apps/client/src/features/print/` | §8 |
