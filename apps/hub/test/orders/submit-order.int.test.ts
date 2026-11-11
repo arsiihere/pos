@@ -13,9 +13,9 @@ import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, fixtureMenu, openDay, openSeating } from './fixtures';
 
-// 02b v1.0.3 §6.1 SubmitOrder, §3.2 steps 1–4 and 6–11 (step 5, zone-served lines, is task 12: a from_zone line is a
-// kitchen line here), §3.1, §3.3 follow_up, §3.11 token, §3.14 scope; §10 #1, #2 (order_note), #4, #5, #7, #8, #9,
-// #10, #16, #23 (submit); 02a #53 (order half, AD-3); the §6 preamble (retransmit, scope last, stale seating_id).
+// 02b v1.0.3 §6.1 SubmitOrder, §3.2 steps 1–4 and 6–11 (step 5, zone-served lines, is submit-zone.int.test.ts), §3.1,
+// §3.3 follow_up, §3.11 token, §3.14 scope; §10 #1, #2 (order_note), #4, #5, #7, #8, #9, #10, #16, #23 (submit);
+// 02a #53 (order half, AD-3); the §6 preamble (retransmit, scope last, stale seating_id).
 
 let hub: TestHub;
 
@@ -258,7 +258,7 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     counted.restore();
     expect(r.status).toBe(200);
     // §3.2 Statements: 1 seating + lock (02a requireLock, 1) + 1 ids + 1 follow_up + 1 item_availability = 5. The spec's
-    // 7 also counts the zone counts (step 5, task 12, not issued here) and the token (takeaway only).
+    // 7 also counts the zone counts (step 5, only with a zone candidate) and the token (takeaway only).
     expect(counted.calls).toEqual([5]);
     const ids = ['L1', 'L1o', 'L2', 'L3', 'D1', 'D1a', 'D1b'];
     expect(r.events.map((e) => e.event_type)).toEqual(['TableLocked', 'OrderPlaced', ...ids.map(() => 'ItemAdded'), 'StockReserved', 'StockReserved']);
@@ -816,7 +816,7 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect(lockRows()).toEqual([]);
   });
 
-  it('[02b §3.2 step 5] a from_zone line is a kitchen line until task 12 (zone_served: false, routed per step 6)', async () => {
+  it('[02b §3.2 step 5] a from_zone line with no zone count is a kitchen line (zone_served: false, routed per step 6)', async () => {
     await setUp();
     openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
     const r = await submit(signIn('S_ALI'), dineIn('O1', [item('L1', FX.zoneItem, 1, { from_zone: true }), item('L2', FX.naan)], { table_id: FX.zoneTable }));

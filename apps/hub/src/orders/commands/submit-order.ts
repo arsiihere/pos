@@ -1,6 +1,6 @@
 import { DomainError } from '@pos/domain';
 import { availableStock, checkOrderable, dayDraws, openDayStartMs, planOrder, reserveStock, saleUnitsAvailable, type EngineState } from '@pos/engine';
-import type { BranchConfig, EventDraft, OrderPlacedPayload } from '@pos/events';
+import type { BranchConfig, EventDraft, ItemAddedPayload, OrderPlacedPayload } from '@pos/events';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
@@ -9,14 +9,16 @@ import { hubTime } from '../../lib/hub-time.js';
 import { itemAvailability } from '../../projections/item-availability.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { requireLock } from '../../tables/lock.js';
-import { seatingOf } from '../../tables/reads.js';
+import { seatingOf, zoneOf } from '../../tables/reads.js';
 import { buildSubmit } from '../build-submit.js';
 import type { SubmitInput } from '../contracts.js';
 import { isFoodLine } from '../food.js';
+import { zoneAlertDrafts } from '../zone-alerts.js';
 
 // 02b v1.0.3 §6.1 SubmitOrder (queueable), §3.2 script, §3.1 identity, §3.3 follow_up, §3.11 token, §3.14 scope.
 // Statements (§3.2): seatingOf 1 + requireLock 1 (dine-in) + ids 1 + follow_up 1 (dine-in) + token 1 (takeaway) +
-// item_availability 1; the zone counts statement is step 5's (task 12). Engine checks run in memory on ctx.state.
+// item_availability 1 + zone counts 1 (only with a zone candidate, step 5) + 01d's alert bound (zone alert drafts, only
+// with a zone-served line). Engine checks run in memory on ctx.state.
 
 const Option = z.object({ option_id: z.string().min(1), quantity: z.number().int().min(1), order_item_id: z.string().min(1).optional() }).strict();
 // §3.1: phone 10–13 digits, stored digits only (spaces, dashes and a leading + are dropped).
@@ -139,7 +141,7 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   const configStockUnits = Object.fromEntries(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit]));
   const itemsById = new Map(config.items.map((i) => [i.item_id, i]));
   const { now_ms: now, utc_offset_ms } = hubTime(ctx.clock);
-  const { proposed, itemAdded } = buildSubmit(config, input, {
+  const built = buildSubmit(config, input, {
     now,
     utc_offset_ms,
     isAvailable: (item_id) => availability.get(item_id) !== false,
@@ -148,7 +150,12 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     follow_up,
   });
 
-  // Step 5 (zone-served lines, O5) slots in here: task 12. Until then a from_zone line is a kitchen line.
+  // Step 5 (O5, §3.10, AD-8): the candidates the zone count covers are zone-served, the rest stay kitchen lines.
+  const zone = zoneServe(ctx, primary_table_id, built.itemAdded, built.zoneCandidates);
+  const itemAdded = built.itemAdded.map((a) => (zone.served.has(a.order_item_id) ? { ...a, served_from_zone_id: zone.zone_id } : a));
+  const proposed = { ...built.proposed, lines: built.proposed.lines.filter((l) => !zone.served.has(l.order_item_id)) };
+  const kitchenAdded = itemAdded.filter((a) => !zone.served.has(a.order_item_id));
+  const zoneAdded = itemAdded.filter((a) => zone.served.has(a.order_item_id));
 
   // Step 8: engine checks, in memory.
   checkOrderable(state, proposed);
@@ -195,12 +202,18 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
     has_phone: phone !== null,
     has_food: itemAdded.some(isFoodLine),
   };
+  const zoneIds = zoneAdded.map((a) => a.order_item_id);
   const events: EventDraft[] = [
     ...lockDrafts,
     onOrder('OrderPlaced', placed),
-    ...itemAdded.map((a) => onOrder('ItemAdded', a)),
+    ...kitchenAdded.map((a) => onOrder('ItemAdded', a)),
+    ...zoneAdded.map((a) => onOrder('ItemAdded', a)),
     ...reserved.drafts.map((d) => ({ ...d, payload: d.payload as Record<string, unknown>, ...envelope })),
+    // O5 / 03a Q-6: served in the submit batch; never printed, never food (no OrderFoodServed).
+    ...(zoneIds.length === 0 ? [] : [onOrder('ItemServed', { order_item_ids: zoneIds, source: 'zone' })]),
     ...(customer_name === null && phone === null ? [] : [onOrder('OrderContactSet', { order_id: payload.order_id, customer_name, phone })]),
+    // §3.10 Alerts: zone_stock_low / zone_stock_out for the counts this batch lowers, last.
+    ...(zone.changes.length === 0 ? [] : zoneAlertDrafts(ctx, zone.changes)),
   ];
 
   // §7 logs: ids, type, counts and queued only; never names, phones or totals.
@@ -221,10 +234,47 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
         order_item_id: a.order_item_id,
         eta_ms: eta.get(a.order_item_id) ?? null,
         from_stock: reserved.from_stock[a.order_item_id] === true,
-        zone_served: false,
+        zone_served: zone.served.has(a.order_item_id),
       })),
     },
   };
+}
+
+interface ZoneServe {
+  zone_id: string | null;
+  served: Set<string>;
+  changes: Array<{ zone_id: string; item_id: string; before: number; after: number }>;
+}
+
+// §3.2 step 5 (O5, §3.10): a candidate (from_zone, line_kind 'item', no options, dine-in, the primary table's zone lists
+// the item: buildSubmit's zoneCandidates) is zone-served when on_hand − claimed ≥ quantity, claims counted across the
+// payload in line order (as reserveStock counts draws); a failing line stays a kitchen line, never a refusal (run 4 M-4).
+// 1 statement (the zone counts of the candidates' items), none without a candidate. A zone without a count row holds 0.
+function zoneServe(ctx: CommandCtx, primary_table_id: string | null, itemAdded: readonly ItemAddedPayload[], candidates: readonly string[]): ZoneServe {
+  const none: ZoneServe = { zone_id: null, served: new Set(), changes: [] };
+  if (candidates.length === 0 || primary_table_id === null) return none;
+  const zone_id = zoneOf(primary_table_id).zone_id;
+  if (zone_id === null) return none;
+  const ids = new Set(candidates);
+  const lines = itemAdded.filter((a) => ids.has(a.order_item_id) && a.item_id !== null);
+  const itemIds = [...new Set(lines.map((a) => a.item_id!))];
+  const rows = ctx.tx.db
+    .prepare('SELECT item_id, on_hand FROM zone_stock WHERE zone_id = ? AND item_id IN (SELECT value FROM json_each(?))')
+    .all(zone_id, JSON.stringify(itemIds)) as Array<{ item_id: string; on_hand: number }>;
+  const before = new Map(itemIds.map((id) => [id, rows.find((r) => r.item_id === id)?.on_hand ?? 0]));
+  const left = new Map(before);
+  const served = new Set<string>();
+  for (const a of lines) {
+    const have = left.get(a.item_id!)!;
+    // A weighed line (quantity null) has no count to take: it stays a kitchen line.
+    if (a.quantity === null || have < a.quantity) continue;
+    left.set(a.item_id!, have - a.quantity);
+    served.add(a.order_item_id);
+  }
+  const changes = itemIds
+    .filter((id) => left.get(id) !== before.get(id))
+    .map((item_id) => ({ zone_id, item_id, before: before.get(item_id)!, after: left.get(item_id)! }));
+  return { zone_id, served, changes };
 }
 
 // §3.2 step 3 (O3): 1 statement over orders ∪ order_lines; then EngineState. The order id is reported first, then the
