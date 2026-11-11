@@ -174,6 +174,14 @@ Readings already accepted in code that the next 02b text patch writes into the s
   - §6.16: `abandoned=true` is managers only (§12.2 row 16 says staff: fix it), and an order with no engine lines is never abandoned.
   - §6.15: lines carry `fired: boolean`.
   - R3–R7 and R9–R11 are written down as read.
+    - R3: in ready n / m, deal headers are left out and return lines count in m; a line is ready when served or at engine stage done / served (§6.16).
+    - R4: the open-orders promise = `EngineOrder.promise_ms` while in the engine, else null; null sorts last (§6.16).
+    - R5: `from_date` is set when `business_date` ≠ the open day's date; with no open day, every order (§6.16).
+    - R6: the `OrderContactSet` placer = the envelope `actor_id` (§6.19 audiences).
+    - R7: "holds `apply-comp`" includes a `requires_approval` grant (§6.19 audiences).
+    - R9: order-contact checks permission → order → scope (§6.18).
+    - R10: the catch-up part goes to every staff socket and kiosk, every order type, no `stage` (catch-up part `orders`).
+    - R11: `zone-stock` with an unknown or archived `zone_id` → `404 ZONE_NOT_FOUND`; rows whose item left the config are hidden (§6.17).
 - **AD-31–AD-35:** the §6.7 `ReturnToKitchen` error list gains:
   - `409 STATION_PAUSED` (paused station, no alternate);
   - `404 MENU_ITEM_NOT_FOUND` (`fix` with the item gone);
