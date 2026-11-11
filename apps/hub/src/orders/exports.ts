@@ -10,7 +10,7 @@ const BILLED = `CASE l.line_kind
     WHEN 'deal_part' THEN 0
     WHEN 'deal' THEN COALESCE(l.line_total_minor, 0) - COALESCE(
       (SELECT SUM(p.comp_minor + p.comp_voided_minor + p.removed_minor + p.refund_minor)
-         FROM order_lines p WHERE p.parent_order_item_id = l.order_item_id AND p.line_kind = 'deal_part'), 0)
+         FROM order_lines p WHERE p.order_id = l.order_id AND p.parent_order_item_id = l.order_item_id AND p.line_kind = 'deal_part'), 0)
     ELSE l.refundable_minor - l.comp_minor - l.comp_voided_minor - l.removed_minor - l.refund_minor
   END`;
 

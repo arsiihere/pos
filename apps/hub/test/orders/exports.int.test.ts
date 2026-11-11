@@ -38,6 +38,8 @@ async function start(): Promise<void> {
   openDay(hub, { stock: { [FX.stock]: 100_000 } });
 }
 
+const on = (order_id: string, event_type: string, payload: object) => ({ stream_id: order_id, event_type, payload });
+
 const lineRow = (id: string) => hub.deps.db.prepare('SELECT * FROM order_lines WHERE order_item_id = ?').get(id) as Record<string, number | null>;
 
 describe('[02b #29 exports] seating exports through 02a seating_orders', () => {
@@ -68,7 +70,29 @@ describe('[02b #29 exports] seating exports through 02a seating_orders', () => {
 });
 
 describe('[02b #37 totals] seatingTotals / billed_minor', () => {
-  it('[02b #37 totals] untouched deal: seatingTotals = deal line total, every part billed_minor 0; pending weight and return lines 0', async () => {
+  // The spec's family deal (320 000) is not in the fixture menu; the fixture deal D_COMBO (120 000) is the stand-in.
+  it('[02b #37 totals] untouched fixture deal x1 (stand-in for the family deal): seatingTotals = deal line_total_minor, every part billed_minor 0', async () => {
+    await start();
+    openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
+    const d = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'S1',
+      lines: [
+        { order_item_id: 'D', deal_id: FX.deal, quantity: 1 },
+        { order_item_id: 'Da', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D' },
+        { order_item_id: 'Db', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'D' },
+      ],
+    });
+    const dealTotal = lineRow('D')!.line_total_minor!;
+    expect(dealTotal).toBe(120_000);
+    expect(seatingTotals(hub.deps.db, 'S1')).toEqual({ total_minor: dealTotal, order_count: 1 });
+    const by = Object.fromEntries(orderLines(hub.deps.db, [d.order_id]).get(d.order_id)!.map((l) => [l.order_item_id, l]));
+    expect(by.D).toMatchObject({ billed_minor: dealTotal, line_kind: 'deal' });
+    expect(by.Da!.billed_minor).toBe(0);
+    expect(by.Db!.billed_minor).toBe(0);
+  });
+
+  it('[02b #37 totals] deal x2 with a pending weight: part money out (real ItemRemoved / ItemVoided / LineComped) reduces the deal line only; LineWeightSet sets the weighed total', async () => {
     await start();
     openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
     const d = appendOrder(hub, {
@@ -83,52 +107,77 @@ describe('[02b #37 totals] seatingTotals / billed_minor', () => {
     });
     const dealTotal = lineRow('D')!.line_total_minor!;
     expect(dealTotal).toBe(240_000);
-    expect(seatingTotals(hub.deps.db, 'S1')).toEqual({ total_minor: dealTotal, order_count: 1 });
-    const lines = orderLines(hub.deps.db, [d.order_id]).get(d.order_id)!;
-    const by = Object.fromEntries(lines.map((l) => [l.order_item_id, l]));
-    expect(by.D).toMatchObject({ billed_minor: dealTotal, line_kind: 'deal' });
-    expect(by.Da!.billed_minor).toBe(0);
-    expect(by.Db!.billed_minor).toBe(0);
-    expect(by.W).toMatchObject({ billed_minor: 0, quantity: null, line_total_minor: null });
+    expect(seatingTotals(hub.deps.db, 'S1')).toEqual({ total_minor: dealTotal, order_count: 1 }); // pending weight 0
+    const w = orderLines(hub.deps.db, [d.order_id]).get(d.order_id)!.find((l) => l.order_item_id === 'W')!;
+    expect(w).toMatchObject({ billed_minor: 0, quantity: null, line_total_minor: null });
 
-    // money out of a part reduces the deal line, never the part's own billed_minor
-    hub.deps.db.prepare('UPDATE order_lines SET refund_minor = 1000, removed_minor = 500, comp_minor = 200 WHERE order_item_id = ?').run('Db');
+    append(
+      on(d.order_id, 'ItemRemoved', { order_item_id: 'Db', units: 1 }),
+      on(d.order_id, 'ItemVoided', { order_item_id: 'Db', units: 1, refund_minor: 700 }),
+      on(d.order_id, 'LineComped', { order_item_id: 'Da', units: 1, value_minor: 200, reason_code: 'late', note: null, requester_staff_id: STAFF, alert_id: null, approver_staff_id: null }),
+    );
+    const db = lineRow('Db')!;
+    const da = lineRow('Da')!;
+    expect(db.removed_minor).toBeGreaterThan(0);
+    expect(db.refund_minor).toBe(700);
+    expect(da.comp_minor).toBe(200);
+    const out = (db.removed_minor as number) + 700 + 200;
     const after = orderLines(hub.deps.db, [d.order_id]).get(d.order_id)!;
-    expect(after.find((l) => l.order_item_id === 'D')!.billed_minor).toBe(dealTotal - 1_700);
+    expect(after.find((l) => l.order_item_id === 'D')!.billed_minor).toBe(dealTotal - out);
+    expect(after.find((l) => l.order_item_id === 'Da')!.billed_minor).toBe(0);
     expect(after.find((l) => l.order_item_id === 'Db')!.billed_minor).toBe(0);
-    expect(seatingTotals(hub.deps.db, 'S1').total_minor).toBe(dealTotal - 1_700);
+    expect(seatingTotals(hub.deps.db, 'S1').total_minor).toBe(dealTotal - out);
+
+    append(on(d.order_id, 'LineWeightSet', { order_item_id: 'W', quantity: 1_000, line_total_minor: 400_000 }));
+    expect(orderLines(hub.deps.db, [d.order_id]).get(d.order_id)!.find((l) => l.order_item_id === 'W')!.billed_minor).toBe(400_000);
+    expect(seatingTotals(hub.deps.db, 'S1').total_minor).toBe(dealTotal - out + 400_000);
   });
 
-  it('[02b #37 totals] item / option_child billed_minor = refundable − comp − comp_voided − removed − refund; cancelled orders excluded, billed ones counted; return lines 0', async () => {
+  it('[02b #37 totals] item / option_child billed_minor = refundable − comp − comp_voided − removed − refund (real events); cancelled orders excluded, billed ones counted; return lines 0', async () => {
     await start();
     openSeating(hub, { table_id: FX.table, seating_id: 'S1' });
     const a = appendOrder(hub, {
       order_type: 'dine_in',
       seating_id: 'S1',
       lines: [
-        { order_item_id: 'A1', item_id: FX.piece, quantity: 2 },
+        { order_item_id: 'N', item_id: FX.naan, quantity: 4 },
+        { order_item_id: 'A1', item_id: FX.piece },
         { order_item_id: 'A1o', item_id: FX.optionItem, option_id: FX.option, parent_order_item_id: 'A1' },
       ],
     });
     const c = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'C1', item_id: FX.naan }] });
-    const before = seatingTotals(hub.deps.db, 'S1');
-    expect(before.order_count).toBe(2);
-    hub.deps.db.prepare('UPDATE order_lines SET comp_minor = 100, comp_voided_minor = 50, removed_minor = 25, refund_minor = 10 WHERE order_item_id = ?').run('A1o');
-    const a1 = lineRow('A1')!;
+    expect(seatingTotals(hub.deps.db, 'S1').order_count).toBe(2);
+
+    // naan x4 = 12 000 (3 000 a unit): remove 1 (3 000), void 1 with refund 3 000, comp 1 (3 000) -> 3 000 left billed
+    append(
+      on(a.order_id, 'ItemRemoved', { order_item_id: 'N', units: 1 }),
+      on(a.order_id, 'ItemVoided', { order_item_id: 'N', units: 1, refund_minor: 3_000 }),
+      on(a.order_id, 'LineComped', { order_item_id: 'N', units: 1, value_minor: 3_000, reason_code: 'late', note: null, requester_staff_id: STAFF, alert_id: null, approver_staff_id: null }),
+      on(a.order_id, 'LineComped', { order_item_id: 'A1o', units: 1, value_minor: 4_000, reason_code: 'late', note: null, requester_staff_id: STAFF, alert_id: null, approver_staff_id: null }),
+    );
+    const n = lineRow('N')!;
+    expect(n).toMatchObject({ removed_minor: 3_000, refund_minor: 3_000, comp_minor: 3_000, units: 4 });
     const a1o = lineRow('A1o')!;
     const lines = orderLines(hub.deps.db, [a.order_id]).get(a.order_id)!;
-    expect(lines.find((l) => l.order_item_id === 'A1o')!.billed_minor).toBe((a1o.refundable_minor as number) - 185);
-    expect(lines.find((l) => l.order_item_id === 'A1')!.billed_minor).toBe(a1.refundable_minor);
+    expect(lines.find((l) => l.order_item_id === 'N')!.billed_minor).toBe(3_000);
+    expect(lines.find((l) => l.order_item_id === 'A1o')!.billed_minor).toBe((a1o.refundable_minor as number) - 4_000);
+    expect(lines.find((l) => l.order_item_id === 'A1')!.billed_minor).toBe(lineRow('A1')!.refundable_minor);
 
-    // a return line (refundable 0, return_of set) contributes 0
-    hub.deps.db.prepare("UPDATE order_lines SET return_of = 'A1', refundable_minor = 0 WHERE order_item_id = 'C1'").run();
-    expect(orderLines(hub.deps.db, [c.order_id]).get(c.order_id)![0]).toMatchObject({ billed_minor: 0, return_of: 'A1' });
+    // a void of a comped unit moves comp money to comp_voided_minor (O21): still not billed
+    append(on(a.order_id, 'ItemVoided', { order_item_id: 'A1o', units: 1, comp_voided_minor: 4_000 }));
+    expect(orderLines(hub.deps.db, [a.order_id]).get(a.order_id)!.find((l) => l.order_item_id === 'A1o')!.billed_minor).toBe((a1o.refundable_minor as number) - 4_000);
+
+    // return lines: the projection never sets return_of yet (open spec question, escalated to the owner, lane 1A STOP
+    // item 1), so this one column is set directly; a return line has refundable 0.
+    hub.deps.db.prepare("UPDATE order_lines SET return_of = 'N', refundable_minor = 0 WHERE order_item_id = 'C1'").run();
+    expect(orderLines(hub.deps.db, [c.order_id]).get(c.order_id)![0]).toMatchObject({ billed_minor: 0, return_of: 'N' });
 
     // billed orders still count; cancelled ones do not
-    hub.deps.db.prepare('UPDATE orders SET billed_at = 5 WHERE order_id = ?').run(a.order_id);
+    append(on(a.order_id, 'OrdersBilled', { order_ids: [a.order_id], bill_id: 'B1' }));
     expect(seatingTotals(hub.deps.db, 'S1').order_count).toBe(2);
-    hub.deps.db.prepare('UPDATE orders SET cancelled_at = 9 WHERE order_id = ?').run(a.order_id);
+    append(on(a.order_id, 'OrderCancelled', { order_id: a.order_id }));
     expect(seatingTotals(hub.deps.db, 'S1')).toEqual({ total_minor: 0, order_count: 1 });
+    expect(ordersOf(hub.deps.db, 'S1').find((o) => o.order_id === a.order_id)).toMatchObject({ cancelled: true, billed: true });
   });
 });
 
@@ -148,7 +197,10 @@ describe('[02b §4.2] one statement each; row shapes', () => {
       });
       ids.push(o.order_id);
     }
-    hub.deps.db.prepare("UPDATE orders SET phone = '0300', billed_at = 7 WHERE order_id = ?").run(ids[0]);
+    append(
+      on(ids[0]!, 'OrderContactSet', { order_id: ids[0], customer_name: 'Sara', phone: '03211234567' }),
+      on(ids[0]!, 'OrdersBilled', { order_ids: [ids[0]], bill_id: 'B1' }),
+    );
     const counter = statementCounter(hub.deps.db);
 
     const totals = seatingTotals(hub.deps.db, 'S1');
