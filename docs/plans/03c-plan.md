@@ -4,7 +4,7 @@
 
 **Goal:** 03c v1.0.1 on the hub: printer config, kitchen tickets (forward-only, live-only jobs, total fold), slips, suspect recovery, paper fallback for dark screens, reprint, ESC/POS + LAN + USB child process, the print worker, `printer_problem`, `printed` tag data, print API for 05. Clients after the design handoff.
 
-**Spec:** `docs/specs/03c_Printing_Spec_v1.0.1.md` (APPROVED 2026-11-11; v1.0.1 = v1.0 + G-14 wording, owner 2026-11-11; "§x", tests "#n"). The pilot attaches kitchen printers (OQ-C1), so 03c is needed before go-live; manual checks run on the pilot's printers.
+**Spec:** `docs/specs/03c_Printing_Spec_v1.0.1.md` (APPROVED 2026-11-11; v1.0.1 = v1.0 + the gap-sweep wording G-7, G-8, G-14, owner 2026-11-11; "§x", tests "#n"). The pilot attaches kitchen printers (OQ-C1), so 03c is needed before go-live; manual checks run on the pilot's printers.
 
 ## 03c lanes
 
