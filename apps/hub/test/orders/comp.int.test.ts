@@ -1,5 +1,6 @@
 import { stockEffects, type EngineState } from '@pos/engine';
 import type { BranchConfig, DirectoryInput, EventDraft } from '@pos/events';
+import { aBusinessDayClosed } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { kindOf, type AlertApplyCtx } from '../../src/alerts/kinds';
 import { alerts } from '../../src/alerts/raise';
@@ -119,6 +120,22 @@ function compEvents(): Array<Record<string, unknown>> {
   return (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'LineComped' ORDER BY seq`).all() as Array<{ payload: string }>).map(
     (r) => JSON.parse(r.payload) as Record<string, unknown>,
   );
+}
+
+/** 01d closeMany's own statements for closing `alert_id` obsolete, counted in a writer transaction that is rolled back. */
+function closeManyStatements(alert_id: string): number {
+  let n = -1;
+  try {
+    hub.deps.writer.run((tx) => {
+      counter.reset();
+      alerts.closeMany(ctxOf(tx), [{ alert_id, reason: 'obsolete', note: 'measure' }]);
+      n = counter.count;
+      throw new Error('rollback');
+    });
+  } catch (e) {
+    if ((e as Error).message !== 'rollback') throw e;
+  }
+  return n;
 }
 
 /** Seeds an 04 void as real ItemVoided events (fixture ItemVoided from the ledger's planVoid / lineShares). */
@@ -334,7 +351,7 @@ describe('CompLine (02b §6.8, §3.9)', () => {
       details: { item: 'Naan', quantity: 2, amount: 6_666 },
       request: { right_mode: 'approval', base_permission: 'apply-comp', approver_role_ids: ['R_MGR'], needs_pin: 'always' },
     });
-    expect(typeof (raised.details as { reason?: unknown }).reason).toBe('string');
+    expect((raised.details as { reason?: unknown }).reason).toBe('other: birthday'); // R-2: reason_code, then the note
     expect(alertRow(alert_id)).toMatchObject({ kind: 'comp', state: 'open', requester_staff_id: 'S_OMAR' });
     expect(compEvents()).toEqual([]);
     expect(line('N1')).toMatchObject({ comped_units: 0, comp_minor: 0 });
@@ -350,6 +367,32 @@ describe('CompLine (02b §6.8, §3.9)', () => {
     expect(second.status).toBe(409);
     expect(second.error).toEqual({ code: 'COMP_PENDING', details: { alert_id: first.result!.alert_id } });
     expect(eventCount()).toBe(n);
+  });
+
+  it('[02b #26] D32 on the approval path: the same command_id → the same { alert_id, pending }, no second raise, not 409', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    takeaway([NAANS]);
+    const first = await compLine(omar, quality('N1', 1), { commandId: 'ask-1' });
+    expect(first.result).toMatchObject({ pending: true });
+    const n = eventCount();
+    const again = await compLine(omar, quality('N1', 1), { commandId: 'ask-1' });
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(first.body);
+    expect(eventCount()).toBe(n);
+    expect(alerts.listOpen(hub.deps.db, { kind: 'comp' })).toHaveLength(1);
+  });
+
+  it('[02b §6.12] a comp request does not expire at day close (C-1: expires_at_day_close has no effect on a request kind)', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    takeaway([NAANS]);
+    const alert_id = (await compLine(omar, quality('N1', 1))).result!.alert_id as string;
+    const day = aBusinessDayClosed();
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: day.stream_type, stream_id: day.stream_id, event_type: day.event_type, schema_version: day.schema_version, payload: day.payload, occurred_at: hub.clock.branchNow(), actor_id: null, device_id: 'hub' }]),
+    );
+    expect(hub.deps.db.prepare('SELECT state, expire_due FROM alerts WHERE alert_id = ?').get(alert_id)).toEqual({ state: 'open', expire_due: 0 });
   });
 
   it('[02b #26] approve → LineComped { alert_id, approver_staff_id, requester_staff_id } with value_minor recomputed from the current ledger', async () => {
@@ -425,8 +468,7 @@ describe('CompLine (02b §6.8, §3.9)', () => {
     voidUnits(order_id, 'V1', 1);
     await notAllowed('V1', 'not_live');
 
-    const d = dineIn([{ order_item_id: 'Z1', item_id: FX.zoneItem, quantity: 1, from_zone: true }], { table_id: FX.zoneTable, seating_id: 'SEATZ' });
-    void d;
+    dineIn([{ order_item_id: 'Z1', item_id: FX.zoneItem, quantity: 1, from_zone: true }], { table_id: FX.zoneTable, seating_id: 'SEATZ' });
     await notAllowed('Z1', 'zone_line');
     hub.clock.advance(300_001); // zone_undo_ms (default 300 000) has passed: no undo is pending
     expect((await compLine(ali, quality('Z1', 1))).status).toBe(200);
@@ -523,11 +565,14 @@ describe('CompLine stale requests and notes (02b §3.9)', () => {
     const stale = (await compLine(omar, quality('N1', 2))).result!.alert_id as string;
     const kept = (await compLine(omar, quality('N2', 1))).result!.alert_id as string;
 
+    // closeMany's own statements (01d bounds) for this one close, measured in a transaction that is rolled back
+    const closeCost = closeManyStatements(stale);
+    expect(closeCost).toBeGreaterThan(0);
     const r = await compLine(ali, quality('N1', 2), { counted: true });
     expect(r.status).toBe(200);
     expect(types(r)).toEqual(expect.arrayContaining(['LineComped', 'AlertClosed']));
     expect(ofType(r, 'AlertClosed')).toEqual([expect.objectContaining({ alert_id: stale, reason: 'obsolete' })]);
-    expect(lastStatements).toBeGreaterThanOrEqual(2);
+    expect(lastStatements).toBe(2 + closeCost); // §6.8: 2 + 01d's closeMany
     expect(alertRow(stale)).toMatchObject({ state: 'closed', close_reason: 'obsolete' });
 
     const k = await compLine(ali, quality('N2', 2));

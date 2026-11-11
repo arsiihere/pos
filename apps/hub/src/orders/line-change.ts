@@ -17,7 +17,30 @@ export interface LineChange {
 }
 
 /** §3.9: the comp request kind (defined in orders/comp-kind.ts, §6.12); a string here, as zone-alerts.ts does. */
-const COMP_KIND = 'comp';
+export const COMP_KIND = 'comp';
+
+/**
+ * §3.9 Stale requests, the one rule: every open `comp:<order_item_id>` request of the order whose line is left with
+ * `live_units − comped_units` (`freeOf`) < its requested units closes `obsolete` with a note; 01d tells the requester.
+ * `freeOf` returns undefined for a line the caller's write does not judge (that request is skipped).
+ * 1 statement: `alerts.listOpen({ kind: 'comp', subject: order })` (+ closeMany's own when a request closes).
+ */
+export function staleCompCloses(
+  ctx: CommandCtx,
+  order_id: string,
+  freeOf: (order_item_id: string) => number | undefined,
+): { drafts: EventDraft[]; closed: string[] } {
+  const closes: CloseItem[] = [];
+  for (const a of alerts.listOpen(ctx.tx.db, { kind: COMP_KIND, subject: { stream_type: 'order', stream_id: order_id } })) {
+    const values = a.values as { order_item_id?: unknown; units?: unknown };
+    if (typeof values.order_item_id !== 'string' || typeof values.units !== 'number') continue;
+    const free = freeOf(values.order_item_id);
+    if (free !== undefined && free < values.units) {
+      closes.push({ alert_id: a.alert_id, reason: 'obsolete', note: `stale: ${values.order_item_id} has ${free} of ${values.units} units left to comp` });
+    }
+  }
+  return { drafts: closes.length === 0 ? [] : alerts.closeMany(ctx, closes), closed: closes.map((c) => c.alert_id) };
+}
 
 /**
  * §3.4: a line after `units_out` of its live units leave billing, by the ledger's own rule (`removeUnits`: uncomped
@@ -51,17 +74,12 @@ export function changeDrafts(
 ): { drafts: EventDraft[]; cancelled: boolean; comp_requests_closed: string[] } {
   const after = linesAfter(before, changes);
   const byId = new Map(after.map((l) => [l.order_item_id, l]));
-  const closes: CloseItem[] = [];
-  for (const a of alerts.listOpen(ctx.tx.db, { kind: COMP_KIND, subject: { stream_type: 'order', stream_id: order_id } })) {
-    const values = a.values as { order_item_id?: unknown; units?: unknown };
-    if (typeof values.order_item_id !== 'string' || typeof values.units !== 'number') continue;
-    const line = byId.get(values.order_item_id);
-    const free = line === undefined ? 0 : line.live_units - line.comped_units;
-    if (free < values.units) {
-      closes.push({ alert_id: a.alert_id, reason: 'obsolete', note: `stale: ${values.order_item_id} has ${free} of ${values.units} units left to comp` });
-    }
-  }
-  const drafts: EventDraft[] = closes.length === 0 ? [] : alerts.closeMany(ctx, closes);
+  // A request on a line the order no longer has counts as 0 free (closed).
+  const stale = staleCompCloses(ctx, order_id, (id) => {
+    const line = byId.get(id);
+    return line === undefined ? 0 : line.live_units - line.comped_units;
+  });
+  const drafts: EventDraft[] = stale.drafts;
   const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   const cancelled = !after.some((l) => l.line_kind !== 'deal' && l.live_units > 0);
   if (cancelled) {
@@ -71,7 +89,7 @@ export function changeDrafts(
     // AD-10: foodDrafts has no envelope; the caller adds it.
     for (const d of foodDrafts(order_id, after, 'change')) drafts.push({ ...d, ...envelope });
   }
-  return { drafts, cancelled, comp_requests_closed: closes.map((c) => c.alert_id) };
+  return { drafts, cancelled, comp_requests_closed: stale.closed };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { AlertDetailsBase } from '@pos/events';
 import { APPROVAL_TIER_STEPS, defineAlertKind } from '../alerts/kinds.js';
-import { applyComp, COMP_KIND, COMP_LABELS, CompValues } from './commands/comp-line.js';
+import { applyComp, COMP_LABELS, CompValues } from './commands/comp-line.js';
+import { COMP_KIND } from './line-change.js';
 
 // 02b v1.0.3 §6.12: kind `comp` (§3.9). Defined at the top level of this module; orders/index.ts imports it statically
 // (server.ts -> orders/index.ts), so the kind exists before boot replays the `alerts` projection (01d §3.5 / P-8).

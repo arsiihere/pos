@@ -3,12 +3,13 @@ import type { AlertDetails, AlertDisplay, EventDraft, LineCompedPayload } from '
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AlertApplyCtx, AnswerFacts } from '../../alerts/kinds.js';
-import { alerts, type CloseItem } from '../../alerts/raise.js';
+import { alerts } from '../../alerts/raise.js';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import type { LineView } from '../contracts.js';
 import { liveUnits, planComp, type CompMeta, type LedgerParent, type LedgerRef } from '../ledger.js';
+import { COMP_KIND, staleCompCloses } from '../line-change.js';
 
 // 02b §6.8 CompLine, §3.9 (rules, value, approval, stale requests), §3.4 (comp takes the next free shares; deal actions;
 // cascades capped; one LineComped per line), §3.14 (scope `branch`). `approvable: true` (00 :470); online only (§3.12).
@@ -19,8 +20,7 @@ import { liveUnits, planComp, type CompMeta, type LedgerParent, type LedgerRef }
 // (alerts.listOpen, on the `allowed` path, where the comp is written); 01d's own bounds (raise, closeMany) and the
 // append excluded. The kind's `apply` (orders/comp-kind.ts) re-runs the same read and checks, read-only.
 
-/** §6.12 kind name and labels (the kind itself is defined in orders/comp-kind.ts). */
-export const COMP_KIND = 'comp';
+/** §6.12 labels (the kind itself is defined in orders/comp-kind.ts; its name is line-change.ts COMP_KIND). */
 export const COMP_LABELS = { card: 'alert.comp.card', lock: 'alert.comp.lock' } as const;
 
 export const CompLinePayload = z
@@ -147,26 +147,6 @@ function compDrafts(ctx: CommandCtx, r: Read, units: number, meta: CompMeta): { 
   return { events, value_minor: plan.value_minor, after };
 }
 
-/**
- * §3.9 Stale requests (the direct `allowed` comp): an open `comp:<order_item_id>` request of the order whose line is
- * left with live − comped < its requested units closes `obsolete` with a note; 01d tells the requester.
- * 1 statement: alerts.listOpen({ kind: 'comp', subject: order }) (+ closeMany's own when one closes).
- */
-function staleCloses(ctx: CommandCtx, order_id: string, after: ReadonlyMap<string, LineRow>): EventDraft[] {
-  const closes: CloseItem[] = [];
-  for (const a of alerts.listOpen(ctx.tx.db, { kind: COMP_KIND, subject: { stream_type: 'order', stream_id: order_id } })) {
-    const values = a.values as { order_item_id?: unknown; units?: unknown };
-    if (typeof values.order_item_id !== 'string' || typeof values.units !== 'number') continue;
-    const line = after.get(values.order_item_id);
-    if (line === undefined) continue; // a line this comp did not touch keeps what it had
-    const free = liveUnits(line) - line.comped_units;
-    if (free < values.units) {
-      closes.push({ alert_id: a.alert_id, reason: 'obsolete', note: `stale: ${values.order_item_id} has ${free} of ${values.units} units left to comp` });
-    }
-  }
-  return closes.length === 0 ? [] : alerts.closeMany(ctx, closes);
-}
-
 /** §3.12 lock-safe label: the primary table's config name (its id when the config does not know it). */
 function tableCode(table_id: string | null): string | null {
   if (table_id === null) return null;
@@ -212,7 +192,12 @@ function compLine(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: 
   }
 
   // Grant `allowed`: the comp now, then the requests it leaves stale (§3.9).
-  const events = [...comp.events, ...staleCloses(ctx, r.line.order_id, comp.after)];
+  // §3.9 (line-change.ts staleCompCloses): only the lines this comp touched are judged; others keep what they had.
+  const stale = staleCompCloses(ctx, r.line.order_id, (id) => {
+    const line = comp.after.get(id);
+    return line === undefined ? undefined : liveUnits(line) - line.comped_units;
+  });
+  const events = [...comp.events, ...stale.drafts];
   return { events, result: { comped: true, value_minor: comp.value_minor } };
 }
 
