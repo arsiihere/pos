@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v0.1 — DRAFT (developer, 2026-11-11)**. Split out of 03b by the owner's ruling R-2 (`docs/stories/03b-g1-decisions.md` §4): screens are 03b's, **the printer is an optional accessory** (R-1). Carries every printing rule of 03b v0.2 (`3baab71`) with G4 run 2's printing findings fixed (§12.4). Next: **targeted check** with 03b v0.3 (run 2's advice), not a full run. |
-| Depends on | **03b KDS + Pass v0.3** (`stationPresence`, `buildLineDetails`, `pointOfLine`, `devicePoint`, Pass client), Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7**, 01d **v1.2.1** (+ 03b's D-2), 02a **v1.1.4**, 02b **v1.0.2** (+ `module-02b` after merge), 03a **v1.2**. |
+| Doc | Module spec, **v0.2 — DRAFT (developer, 2026-11-11)**. Split out of 03b by the owner's ruling R-2: screens are 03b's, **the printer is an optional accessory** (R-1). v0.1 carried 03b v0.2's printing rules with run 2's printing findings fixed (§12.4); v0.2 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (§12.5). Next: re-check of its M rows and m-1, m-5, m-6 only. |
+| Depends on | **03b KDS + Pass v0.4** (`stationPresence`, `buildLineDetails`, `pointOfLine`, `devicePoint`, client slots), Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7** (+ 03b's B-1), 01d **v1.2.1** (+ 03b's D-2), 02a **v1.1.4**, 02b **v1.0.3** (+ `module-02b` after merge), 03a **v1.2**. Target versions: one bump per target, applied by 03b's task 0d (03b §4.5 note). |
 | Read by | 05 (print API), 07. |
 | Inherits | Shared Standards from Foundation v1.11 §6. |
 | Inputs | `03b-g0.md` (§6 Q1, Q2, Q3, Q4, Q9, Q10, Q13), `03b-g1-decisions.md` (G1-1–G1-5, G1-14, G1-15, R-1, R-2, R-5, R-6), OQ-1 answer; run 1 and run 2 reviews; 02b v1.0.2 §4.3 To 03b, O16; Foundation §5.8, D24, R8. |
@@ -13,7 +13,8 @@
 
 | Version | Date | Change |
 |---|---|---|
-| **v0.1** | 2026-11-11 | Split from 03b v0.2 §3.6–§3.10, §3.14–§3.15 and their tables, commands, kinds and tests (R-2). Run 2 fixes: write timeout and USB isolation (M-1), suspect jobs reprinted when the printer recovers (M-2, R-5), `printer_problem` details via 03b's D-2 (M-3), "clean or unknown" close (m-1), cancelled kitchen jobs and skipped folds (m-2), admin paths (m-9), Reprint on the Pass card (m-12, R-6), FIFO advances at ack (m-13), 02b v1.0.3 row (m-14), slip units at send + registration order (m-15), n-4, n-7, n-8, n-12. Closure §12.4. |
+| **v0.2** | 2026-11-11 | **Targeted check closure (§12.5):** every job acked since the printer's last clean status turns suspect on a bad read (M-3, R-5); recovery re-queues the same kind, one job per ticket (n-9); skips recorded at any station with a printer, alerted when it matters (m-9); Cook can reprint (03b B-1) and `order-tickets` returns `has_printer` (m-6); bumps shared with 03b, Q-1 → 02b v1.0.4 (m-5); no timing asserts (m-7); client additions through 03b's slots (m-10); H-11 narrowed to the post-listen start (n-4); hard write timer (n-5); lost lines and tests restored (n-6). |
+| v0.1 | 2026-11-11 | Split from 03b v0.2 §3.6–§3.10, §3.14–§3.15 and their tables, commands, kinds and tests (R-2). Run 2 fixes: write timeout and USB isolation (M-1), suspect jobs reprinted when the printer recovers (M-2, R-5), `printer_problem` details via 03b's D-2 (M-3), "clean or unknown" close (m-1), cancelled kitchen jobs and skipped folds (m-2), admin paths (m-9), Reprint on the Pass card (m-12, R-6), FIFO advances at ack (m-13), 02b v1.0.3 row (m-14), slip units at send + registration order (m-15), n-4, n-7, n-8, n-12. Closure §12.4. |
 
 ---
 
@@ -48,7 +49,9 @@ Screens and presence (03b); receipt / bill / Z content and template (05); Urdu-s
 | D1 | Tickets are a forward-only projection; **`print_jobs` only in `live` mode**; the fold is **total**; a skipped fire at a printer station is recorded and alerted. | G1-1; runs 1–2 |
 | D2 | Jobs store references; bytes rendered at send. | G1-2 |
 | D3 | An async print worker outside every writer transaction and every tick; **USB I/O in a child process per printer**, never on the hub's thread pool. | G1-3, G1-4; run 2 M-1 |
-| D4 | **Ack = whole document written and flushed within the write timeout.** A job acked while the printer reported an error is **suspect** and is re-queued as REPRINT when the printer next reports clean (a duplicate is acceptable, a missing ticket is not, D24). | R-5; run 2 M-2 |
+| D4 | **Ack = whole document written and flushed within the write timeout.** When a status read shows an error, **every job of that printer acked since its last clean status** is suspect; suspects are re-queued (same kind, REPRINT header) when the printer next reports clean (a duplicate is acceptable, a missing ticket is not, D24). | R-5; run 2 M-2; check M-3 |
+| D8 | `printer_problem` is an `action` kind (a manager must fix paper, power or cable). | run 1 M-1 |
+| D12 | 03c's screen additions (`printed` tag, Reprint) go through 03b's client slots (03b D12); 03c never edits 03b's folders. | check m-10 |
 
 ---
 
@@ -67,18 +70,19 @@ Screens and presence (03b); receipt / bill / Z content and template (05); Urdu-s
 - **Ticket** = lines of one order fired at one station by one `FireDispatched`. `ticket_id = fire_event_id + ':' + order_id`.
 - **Job** kinds: `kitchen`, `reprint`, `cancel`, `first`, `coming_up`, `document`, `test`.
 - **Has a live kitchen job** = an uncancelled `kitchen` job exists for the ticket (fallback test). **Printed** = an uncancelled `kitchen` or `reprint` job with `sent_at` set (slip test, `printed` tag).
-- **Suspect** job = acked while the printer's status showed offline / paper-end / cover-open / error (read before the write within 10 s, or right after it).
+- **Suspect** job = acked after the printer's **last clean status** (`printer_runtime.last_clean_at`) and before a status read that shows offline / paper-end / cover-open / error. Paper running out between two reads is therefore caught at the next read.
 
 ### 3.2 Station output and printers (P3, admin session)
 
 - **Printer** (`SavePrinter`): name 1–40 (unique among active); `lan` (`host:port`, IPv4 in 10/8, 172.16/12, 192.168/16; port default 9100) or `usb` (`/dev/usb/lp[0-9]` or a udev symlink `/dev/pos-printer-[a-z0-9-]{1,30}`; install doc: udev rule by USB serial, service user in group `lp`); `paper_width_mm` 58 | 80. Archive refused while a station output uses it (`409 CONFIG_IN_USE`).
 - **Station output** (`SetStationOutput`): `mode` `screen` | `both` | `printer`, `printer_id` (used by `both`, `printer`, and by `screen` for paper fallback), toggles `show_taker`, `show_order_id`. `both` / `printer` without a printer → `400 VALIDATION_FAILED { field: 'printer_id' }`. No row = `screen`, no printer.
 - Hub admin warnings (`print-config`): `printer` station that also has a screen paired ("screen unused"), a name that loses characters in PC437, skipped fires (§3.3), suspect tickets waiting.
-- Config is hub-local: events on `hub` / `branch_id`, projection `print_config` (reset); worker facts in `printer_runtime` (outside the projection).
+- Config is hub-local: events on `hub` / `branch_id`, projection `print_config` (reset); worker facts in `printer_runtime` (outside the projection, so a `print_config` rebuild keeps them).
+- **Station output / printer change:** pending jobs of a station follow its **current** printer at send (`print_jobs.station_id`); `document` and `test` jobs keep their own `printer_id`.
 
 ### 3.3 Kitchen tickets (P1, P2, D1)
 
-Projection **`kitchen_tickets`** (forward-only), registered **after** 02b's `orders` and 03b's projections (boot assertion). Folds write `tickets` / `ticket_lines` in both modes (`INSERT OR IGNORE`); `print_jobs` **only when `mode === 'live'`**. **Total**: any unexpected shape → skip, log `print.fold_skipped`, and in `live` mode, when the station's output prints at fire, insert a `print_fold_skips` row (`event_id`, `station_id`, `order_ids`, `reason`) — the worker raises `printer_problem { problem: 'ticket_not_built' }` and the print-config page lists it, so a skip is never silent at a printer station.
+Projection **`kitchen_tickets`** (forward-only), registered **after** 02b's `orders` and 03b's projections (boot assertion). Folds write `tickets` / `ticket_lines` in both modes (`INSERT OR IGNORE`); `print_jobs` **only when `mode === 'live'`**. **Total**: any unexpected shape → skip, log `print.fold_skipped`, and in `live` mode, when the station has **any** printer (`both`, `printer`, or `screen` with a fallback printer), insert a `print_fold_skips` row (`event_id`, `station_id`, `order_ids`, `reason`). The worker raises `printer_problem { problem: 'ticket_not_built' }` at once for a station that prints at fire, and for a `screen` station when it is (or becomes) dark; the print-config page lists every skip. A skip is never silent where paper could be needed.
 
 *02b T19 exception (recorded):* the fold reads `order_lines.order_id` (immutable after `ItemAdded`) for the fired ids; 02b's projection applies first in both modes (registration order, `projections/registry.ts:47-50, :89-111`).
 
@@ -115,7 +119,7 @@ Content from 03b's `buildLineDetails` (identifier, names, notes, return, order t
 
 Print worker, every 1 s (started after listen):
 
-1. Stations with mode `screen` and a printer, and `stationPresence().get(station).dark === true` (03b §3.6: no screen for `kds_offline_ms` with lines in Now / Next).
+1. Stations with mode `screen` and a printer, and `stationPresence().get(station).dark === true` (03b §3.6: a screen station with no connected screen for `kds_offline_ms` and lines in Now / Next; screenless stations are never dark — they use mode `printer`).
 2. While dark, each loop (1 statement per dark station): every ticket of the station holding a line in `stationView(state, station_id, now).now` with **no live kitchen job** → insert a kitchen job (`INSERT OR IGNORE`); on the first loop of an outage also one `coming_up` job (`station_id + ':coming_up:' + offline_since`) rendered at send from `stationPlan`.
 3. Screen back (`dark` false) → stop; nothing printed is cancelled; 03c's `printed` frame tags the lines.
 4. `both` / `printer` stations print at fire anyway. A `screen` station without a printer relies on 03b's Pass takeover and alert.
@@ -126,9 +130,10 @@ Print worker, every 1 s (started after listen):
 - **FIRST:** "FIRST  T12  2 x Roghni (boost)".
 - **REPRINT header** on `reprint` jobs, on restart re-sends, on retries after a partially written job (`is_reprint = 1`), and on suspect re-queues.
 - **Stale:** `cancel` / `first` render empty (→ cancelled `stale`) when their line is done / served / gone; `coming_up` older than 10 min at send → cancelled `stale`; `reprint` with no live line → empty.
-- **Suspect recovery (R-5):** when a printer's status turns clean after a bad reading (or a test print prints), the worker inserts one `reprint` job (`job_id + ':suspect'`, `INSERT OR IGNORE`) for every suspect `kitchen` / `reprint` / `cancel` job whose ticket still has a live, not-done line, and marks them `suspect_resolved_at`. A printer whose status is **unknown** (no DLE EOT answer, USB without proven status) cannot produce suspects: a ticket lost in a power-cycled buffer there is not detected — the print-config page recommends LAN printers with status, and the Pass / KDS reprint covers it by hand.
-- **`ReprintTicket { ticket_id? , order_id? }`** (exactly one): station session → own station's tickets; staff → `reprint-ticket`. Writes `TicketReprinted { order_id, station_id | null, ticket_ids }` → `reprint` jobs (live). Nothing live → `result.skipped`.
-- **Where the button is:** KDS (`both` stations, own tickets); **Pass card** (03b's Pass client, task here), shown per station of the order that has a printer, by order (`reprint-ticket`). Reprint on 02b's screens: 02b follow-up (R-6).
+- **Suspect marking (R-5, D4):** on a status read with an error bit, `UPDATE print_jobs SET suspect_at = now WHERE printer = p AND acked_at > last_clean_at AND suspect_at IS NULL` (1 statement; the printer of a station job is the one it was sent to, stored at send in `sent_printer_id`). A clean read sets `last_clean_at = now`.
+- **Suspect recovery:** when the status turns clean after a bad reading (or a test print prints), for each ticket with suspect jobs and a live, not-done line the worker inserts **one** recovery job of the **same kind** as the ticket's latest suspect (`kitchen` / `reprint` → `reprint`; `cancel` → `cancel`, so a lost CANCELLED slip comes back as a CANCELLED slip), id `ticket_id + ':recover:' + last_clean_at`, `INSERT OR IGNORE`, REPRINT header; then marks the suspects `suspect_resolved_at`. A printer whose status is **unknown** (no DLE EOT answer, USB without proven status) cannot produce suspects: a ticket lost in a power-cycled buffer there is not detected — the print-config page recommends LAN printers with status, and the Pass / KDS reprint covers it by hand.
+- **`ReprintTicket { ticket_id? , order_id? }`** (exactly one): station session → own station's tickets (by `order_id`, only its station's tickets of that order); staff → `reprint-ticket` (Cook has it by default, 03b B-1). Writes `TicketReprinted { order_id, station_id | null, ticket_ids }` → `reprint` jobs (live). Nothing live → `result.skipped`.
+- **Where the button is:** KDS (`both` stations, own tickets); **Pass card** — registered through 03b's `registerPassCardAction` slot from 03c's own folder, shown when `order-tickets` reports a ticket with `has_printer`, by order (`reprint-ticket`). Reprint on 02b's screens: 02b follow-up (R-6).
 
 ### 3.6 Rendering and ESC/POS
 
@@ -142,19 +147,19 @@ Print worker, every 1 s (started after listen):
 - **Never blocks service:** no command waits; folds only insert, live only, never throw; network and USB I/O never run on the main thread's libuv pool.
 - **One FIFO per printer**, advancing **at ack** (never waits for a status read). `test` jobs bypass the FIFO.
 - **Send:** render and set `sent_at` in one synchronous step, then:
-  - **LAN:** `net.Socket`, connect timeout 3 s, **write timeout 10 s** from first byte to `drain` (`socket.setTimeout`; on expiry `destroy()` → failure path).
+  - **LAN:** `net.Socket`, connect timeout 3 s, **hard write timer 10 s** from the first byte to `drain` (a `setTimeout` that is not reset by progress — `socket.setTimeout` is an idle timer and a slowly reading printer would never trip it); on expiry `destroy()` → failure path. Timeouts are injected (tests use a fake clock).
   - **USB:** one **child process per USB printer** (`apps/hub/src/print/transport/usb-child.ts`, `child_process.fork`) does the blocking device writes; the parent sends bytes over IPC and waits ≤ 10 s; on timeout it kills the child (`SIGKILL`) and respawns it → failure path. The hub process never opens the device.
 - **Ack:** whole document flushed within the timeout → `acked_at`. Suspect when the printer's status (read ≤ 10 s before, or just after) has an error bit.
 - **Status reads:** LAN only by default (USB only if its test print proved status), at most once per 10 s per printer, plus right after a failure and while the printer has an open `printer_problem`. Status timeout 2 s, never blocking the FIFO.
 - **Failure before a full write:** `attempts + 1`, `last_error`, `is_reprint = 1` if any byte went out, `sent_at = NULL`; retry 2 s, 5 s, then every 10 s, no limit. (A removal folded while `sent_at` was set already queued a CANCELLED slip; the retry then prints the ticket without those units plus the slip — harmless.) Kitchen and slip jobs drain as their lines finish; `document` jobs wait or are cancelled by a manager.
 - **`printer_problem`:** raised (dedupe `printer_problem:<printer_id>`) when the head job has failed for ≥ `printer_alert_ms` (30 000), a status error bit appears, or a `print_fold_skips` row names the printer's station; details `{ printer_name, problem }` (03b's D-2). Closed `done` at the next ack with clean **or unknown** status; `obsolete` on archive or when nothing is pending and the status is clean or unknown.
-- **Restart (F §5.8 step 5, `lib/boot.ts`, row H-11):** before the worker starts, `sent_at` set and `acked_at` null → `is_reprint = 1, sent_at = NULL`; the worker starts after listen and drains in `created_at` order.
+- **Restart (F §5.8 step 5):** 03c registers `registerBootStep('5', resumePrintQueue)` (existing 00 hook, `lib/boot.ts:58-68`, no 00 code change): `sent_at` set and `acked_at` null → `is_reprint = 1, sent_at = NULL`. Row **H-11** covers only the one 00 code change: start the print worker **after listen** (`lib/boot.ts` after `:208`). The worker drains in `created_at` order.
 - **Writes outside transactions:** `print_jobs`, `printer_runtime`, `print_fold_skips` updates by the worker are plain statements between transactions; never events, never synced.
 - **Cost:** idle loop ≤ 2 statements + 1 per dark station.
 
 ### 3.8 `printed` tag on screens
 
-Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their point's stations) `{ order_item_ids }` of printed tickets with lines in Now (1 statement), and frame `printed_lines { station_id, order_item_ids }` after each ack of a `kitchen` / `reprint` job. 03b's clients render the tag.
+Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their point's stations) `{ order_item_ids }` of printed tickets with lines in Now (1 statement), and frame `printed_lines { station_id, order_item_ids }` after each ack of a `kitchen` / `reprint` job. 03c registers the tag through 03b's `registerLineTag` slot (D12).
 
 ### 3.9 Print API for 05
 
@@ -198,17 +203,18 @@ Catch-up part `kds_printed` (station sockets: its station; Pass sockets: their p
 |---|---|
 | 05 | Bills, receipts and Z through `printDocument` in the bill-close transaction; template and preview (R12); printer choice from 03c's list; a receipt printer outage never blocks bill close (R8). With no printer attached, 05 decides what the customer gets (screen / no paper). |
 | 02b | Reprint on order-taker / cashier screens (follow-up, R-6). |
+| 07 | Reprint counts from `TicketReprinted`; print history is hub state, not events. |
 | 01e | A station with buttons and no screen: mode `printer`. |
 
-### 4.4 Changes to other specs (R26) — *Proposed — needs approval*
+### 4.4 Changes to other specs (R26) — *Proposed — needs approval*; applied with 03b's rows, one bump per target (03b §4.5 note, task 0d)
 
 | Row | Target → version | Change | Why |
 |---|---|---|---|
 | F-1 | Foundation → **v1.12** §5.8 | `print_jobs` DDL replaced by §5; step 5: sent-not-acked → `is_reprint = 1`, `sent_at = NULL`, re-send in order; ack = D4 (flushed within timeout; suspect recovery). D24 kept. | D2, D4 |
 | F-2 | Foundation → **v1.12** OQ14 | Answered (P14): USB via a child process and a udev symlink, LAN preferred, no library. | P14 |
-| H-11 | 00 → **v1.9** §5.8-side boot + code (`apps/hub/src/lib/boot.ts`, R-4) | Boot calls 03c's `resumePrintQueue(db)` at step 5 and starts the print worker after listen. | §3.7 |
-| D-3 | 01d → **v1.2.2** (same bump as 03b D-2) | `ALERT_CONSTANTS.printer_alert_ms = 30_000`. | §3.7 |
-| Q-1 | 02b → **v1.0.3** §4.3 To 03b (text) | "a CANCELLED slip for every `ItemRemoved` on a fired line" → "… on a fired line **whose ticket was printed** (03c §3.3)"; "03b" → "03c" for ticket rows. | run 2 m-14 |
+| H-11 | 00 → **v1.9** (with 03b's H-9, H-10) + code (`apps/hub/src/lib/boot.ts`, R-4) | Start the print worker after listen. Resume uses the existing `registerBootStep('5')` (no change). | §3.7; check n-4 |
+| D-3 | 01d → **v1.2.2** (with 03b's D-2; code in 03b task 0c) | `ALERT_CONSTANTS.printer_alert_ms = 30_000`. | §3.7 |
+| Q-1 | 02b → **v1.0.4** §4.3 To 03b (text; v1.0.3 is already APPROVED, 2026-11-10) | "a CANCELLED slip for every `ItemRemoved` on a fired line" → "… on a fired line **whose ticket was printed** (03c §3.3)"; "03b" → "03c" for ticket rows. | run 2 m-14 |
 
 ---
 
@@ -240,7 +246,7 @@ CREATE INDEX station_outputs_printer ON station_outputs (printer_id);           
 CREATE TABLE printer_runtime (
   printer_id TEXT PRIMARY KEY,
   supports_status INTEGER CHECK (supports_status IN (0,1)),   -- NULL unknown; learned at test print / first LAN answer
-  last_status TEXT, last_status_at INTEGER, last_ack_at INTEGER, last_error TEXT,
+  last_status TEXT, last_status_at INTEGER, last_clean_at INTEGER, last_ack_at INTEGER, last_error TEXT,
   problem_alert_id TEXT
 );
 CREATE TABLE print_fold_skips (
@@ -268,7 +274,7 @@ CREATE TABLE print_jobs (                        -- F-1; hub state, never synced
   kind TEXT NOT NULL CHECK (kind IN ('kitchen','reprint','cancel','first','coming_up','document','test')),
   printer_id TEXT, station_id TEXT, ticket_id TEXT, order_id TEXT,
   payload TEXT NOT NULL,
-  created_at INTEGER NOT NULL, sent_at INTEGER, acked_at INTEGER, cancelled_at INTEGER,
+  created_at INTEGER NOT NULL, sent_at INTEGER, sent_printer_id TEXT, acked_at INTEGER, cancelled_at INTEGER,
   suspect_at INTEGER, suspect_resolved_at INTEGER,
   attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
   is_reprint INTEGER NOT NULL DEFAULT 0 CHECK (is_reprint IN (0,1)),
@@ -279,6 +285,7 @@ CREATE INDEX print_jobs_ticket ON print_jobs (ticket_id) WHERE ticket_id IS NOT 
 CREATE UNIQUE INDEX print_jobs_one_live_kitchen ON print_jobs (ticket_id)
   WHERE kind = 'kitchen' AND cancelled_at IS NULL;                                                          -- at-fire vs fallback never double
 CREATE INDEX print_jobs_suspect ON print_jobs (station_id) WHERE suspect_at IS NOT NULL AND suspect_resolved_at IS NULL; -- recovery
+CREATE INDEX print_jobs_acked_by_printer ON print_jobs (sent_printer_id, acked_at) WHERE acked_at IS NOT NULL AND suspect_at IS NULL; -- suspect marking
 ```
 
 Retention at 00's maintenance hour: acked / cancelled jobs, tickets, ticket lines and resolved skips older than 7 days.
@@ -296,7 +303,7 @@ Retention at 00's maintenance hour: acked / cancelled jobs, tickets, ticket line
 ### 6.5 `POST /admin/print/jobs/:job_id/cancel` — Errors `404 PRINT_JOB_NOT_FOUND`, `409 PRINT_JOB_NOT_PENDING`.
 ### 6.6 `GET /admin/queries/print-config` — `{ printers, station_outputs, warnings: [{ station_id?, item_id?, kind: 'lossy_name' | 'fold_skipped' | 'suspect_waiting' | 'screen_unused' }] }`. Statements 4.
 ### 6.7 `GET /admin/queries/print-queue` — `{ printers: [{ printer_id, name, status, waiting, suspect, head_error, last_ack_at }], jobs: [...pending, newest 100] }`. Statements 2.
-### 6.8 `GET /queries/order-tickets?order_id` — `reprint-ticket`. `{ tickets: [{ ticket_id, station_name, fired_at, printed }] }`. Statements 1.
+### 6.8 `GET /queries/order-tickets?order_id` — `reprint-ticket`. `{ tickets: [{ ticket_id, station_id, station_name, fired_at, printed, has_printer }] }` (`has_printer` = the station's current output has a printer). Statements 2.
 ### 6.9 Catch-up `kds_printed`, frame `printed_lines` — §3.8.
 ### 6.10 Kind `printer_problem`
 
@@ -340,8 +347,8 @@ WS frame `printed_lines` joins `WsServerMessage`.
 ## §8. Client contract
 
 - **Hub admin "Printers"** (`apps/client/src/features/admin/printers/`, admin session): printers (add, edit, archive, test), station outputs + toggles, print queue (cancel, suspects), warnings.
-- **KDS** (03b's entry): Reprint on `both` stations' own tickets; `printed` tag from `printed_lines`.
-- **Pass card** (03b's Pass screen): Reprint by order, per station with a printer; `printed` tag.
+- **KDS** (03b's entry): Reprint on `both` stations' own tickets and the `printed` tag, both through 03b's slots from `apps/client/src/features/print/`.
+- **Pass card** (03b's Pass screen): Reprint by order where `has_printer`, and the `printed` tag, through the same slots.
 
 ---
 
@@ -365,20 +372,21 @@ Tickets and slips
 5. Boost on a printed ticket at a `printer` station → FIRST; `both` / `screen` → none; a pull never yields FIRST.
 6. Done before send → empty render → cancelled; then `UndoDone` during fallback → a new kitchen job `…:kitchen:2` prints.
 7. 500 historical fires with no checkpoint → boot → tickets folded, 0 jobs; same after a restore.
-8. Corrupt `station_outputs` or a fire id missing from `order_lines` → fire still commits; `print_fold_skips` row; `printer_problem { problem: 'ticket_not_built' }` at a `both` station.
-9. `ReprintTicket` from a KDS / Pass card; REPRINT header; current table; exited order prints from `order_lines`.
+8. Corrupt `station_outputs` or a fire id missing from `order_lines` → fire still commits; `print_fold_skips` row; `printer_problem { problem: 'ticket_not_built' }` at once at a `both` station; at a `screen` station with a printer only when it goes dark.
+9. `ReprintTicket` from a KDS (own station only, by order → its station's tickets) and by a **Cook** on a Pass tablet (default grant); REPRINT header; current table; exited order prints from `order_lines`; `order-tickets` reports `has_printer`.
+9b. **Render vs removal race:** fake printer whose connect is delayed; a removal committed after the render sees the ticket printed and queues the CANCELLED slip.
 10. Projection registration order: 02b `orders` → 03b → 03c (boot assertion).
 Worker
 20. LAN fake printer: written + drained → acked; FIFO advances without waiting for status.
-21. **LAN printer that stops reading: the job fails at 10 s, retries, `printer_problem` at 30 s.**
-22. **USB fake device that blocks writes: the child is killed at 10 s and respawned; a PIN login on the hub still answers within 1 s meanwhile.**
+21. **LAN printer that stops reading** (and one that reads 1 byte a second): with an injected clock, the job fails at the hard 10 s timer, retries, `printer_problem` at 30 s.
+22. **USB fake device that blocks writes:** the child is killed at the injected timeout and respawned; a PIN login on the hub **resolves** while the child is blocked (no latency number in the gate; latency is a manual check, task 28).
 23. Two printers: one down never delays the other.
 24. Restart with sent-not-acked → resent once with REPRINT.
-25. **Paper-end status before a write → job acked + suspect; status clean again → one REPRINT of the ticket; a done line's ticket is not reprinted.**
+25. **Suspect window:** clean read → 3 jobs acked → paper-end read → all 3 suspect; status clean again → one REPRINT per ticket with a live line (a done line's ticket is not reprinted); a suspect CANCELLED slip comes back as a CANCELLED slip; two suspects on one ticket → one recovery job.
 26. Unknown-status printer: acks on flush; never suspect; alert closes on ack.
 27. Test print bypasses a stuck head; a clean test triggers suspect recovery.
 28. Stale `cancel` / `first` / `coming_up` cancelled when the printer returns.
-29. Station output changed → pending station jobs follow; `document` stays.
+29. Station output changed → pending station jobs follow; `document` stays; a `print_config` rebuild keeps `printer_runtime`.
 30. Encoder bytes; partial write → retry with REPRINT.
 Fallback
 40. `screen` + printer, 03b marks dark: Now tickets + COMING UP; new fires print; screen back → stop; `printed_lines` tags.
@@ -408,15 +416,14 @@ Config and API
 
 | # | Task | Files | Spec |
 |---|---|---|---|
-| 0a | D-3 `printer_alert_ms` | `packages/domain/src/alert-constants.ts` | §4.4 |
-| 0b | Spec bumps: Foundation v1.12 (F-1, F-2), 00 v1.9 text (H-11), 02b v1.0.3 (Q-1); README | `docs/specs/*` | §4.4 |
+| — | Upstream rows: applied by 03b's tasks 0c (D-3 code) and 0d (every bump); none here. | — | §4.4 |
 | 1 | Error codes | `packages/domain/src/errors.ts` | §9 |
 | 2 | Events (3), `printed_lines` frame, `Doc` type | `packages/events/src/`, `packages/domain/src/print.ts` | §6.11, §3.6 |
 | 3 | Migration | `apps/hub/src/db/migrations/NNNN_print.sql` | §5 |
 | 4 | Projection `print_config` | `apps/hub/src/print/config-projection.ts` | §3.2 |
 | 5 | `SavePrinter`, `SetStationOutput` | `apps/hub/src/print/commands/` | §6.2–6.3 |
 | 6 | Kind `printer_problem` (module top level) | `apps/hub/src/print/kinds.ts` | §6.10 |
-| 7 | Projection `kitchen_tickets`: tickets, live-only jobs, total fold, skips | `apps/hub/src/print/tickets-projection.ts` | §3.3 |
+| 7 | Projection `kitchen_tickets`: tickets, live-only jobs, total fold, skips (registration line after 03b's in `lib/boot.ts`) | `apps/hub/src/print/tickets-projection.ts`, `apps/hub/src/lib/boot.ts` | §3.3 |
 | 8 | Slips (cancel, first), kitchen re-create ids | same | §3.3, §3.5 |
 | 9 | `ReprintTicket` | `apps/hub/src/print/commands/` | §3.5 |
 | 10 | Doc, mapping, `renderText`, ticket / slip / coming-up builders | `apps/hub/src/print/render/` | §3.3, §3.6 |
@@ -425,7 +432,7 @@ Config and API
 | 13 | USB child process transport + blocking fake device | `apps/hub/src/print/transport/usb-child.ts`, `usb.ts` | §3.7 |
 | 14 | Worker: FIFO, synchronous render + `sent_at`, ack, timeouts, retry, stale / empty cancel | `apps/hub/src/print/worker.ts` | §3.7 |
 | 15 | Status reads, suspect marking and recovery, `printer_problem` raise / close, skip alerts | `apps/hub/src/print/status.ts` | §3.5, §3.7 |
-| 16 | H-11: `resumePrintQueue` at boot step 5, worker after listen | `apps/hub/src/print/boot.ts`, `apps/hub/src/lib/boot.ts` | §3.7 |
+| 16 | `resumePrintQueue` via `registerBootStep('5')`; H-11 worker start after listen | `apps/hub/src/print/boot.ts`, `apps/hub/src/lib/boot.ts` | §3.7 |
 | 17 | Paper fallback over `stationPresence()` | `apps/hub/src/print/fallback.ts` | §3.4 |
 | 18 | `printDocument` | `apps/hub/src/print/api.ts` | §3.9 |
 | 19 | Admin routes test / cancel | `apps/hub/src/print/routes.ts` | §6.4–6.5 |
@@ -433,11 +440,11 @@ Config and API
 | 21 | `kds_printed` catch-up + `printed_lines` frame | `apps/hub/src/ws/print-catch-up.ts` | §3.8 |
 | 22 | Retention | `apps/hub/src/print/retention.ts` | §5 |
 | 23–25 | Hub admin Printers page: printers + test, outputs, queue + suspects | `apps/client/src/features/admin/printers/` | §8 |
-| 26 | KDS reprint + `printed` tag | `apps/client/src/features/kds/` | §8 |
-| 27 | Pass card reprint + `printed` tag | `apps/client/src/features/pass/` | §8 |
+| 26 | `printed` tag through 03b's line-tag slot | `apps/client/src/features/print/` | §8 |
+| 27 | Reprint action through 03b's slots (KDS, Pass card) | `apps/client/src/features/print/` | §8 |
 | 28 | Manual checks on real printers: LAN + USB, cut, PC437, udev symlink, paper out mid-rush → suspect reprint, pull a KDS cable → fallback, restart mid-print | `docs/plans/03c-manual-checks.md` | §3 |
 
-≈ 30 tasks.
+≈ 28 tasks.
 
 ---
 
@@ -458,7 +465,7 @@ Gate green; every §10 test passes; §12.2 ticked; §4.4 bumps approved and appl
 | 5 | `POST /admin/print/jobs/:id/cancel` | admin · `manage-devices` | 1 | 52 |
 | 6 | `print-config` | admin | 4 | 50 |
 | 7 | `print-queue` | admin | 2 | 23 |
-| 8 | `order-tickets` | `reprint-ticket` | 1 | 9 |
+| 8 | `order-tickets` | `reprint-ticket` | 2 | 9 |
 | 9 | `kds_printed` + `printed_lines` | station / point staff | 1 | 40 |
 | 10 | Kind `printer_problem` | — | — | 54 |
 | 11 | Projections ×2 | — | ≤ 3 reads / event | 2–8 |
@@ -490,3 +497,20 @@ Gate green; every §10 test passes; §12.2 ticked; §4.4 bumps approved and appl
 | n-8 fallback step 4 | Fixed: one query per loop (§3.4). |
 | n-12 retention / per-station cost | Fixed: `tickets_fired` index; cost stated (§3.7). |
 | Run 1 printing rows left "partly" (M-3 total fold, M-6) | Closed by m-2 and M-1 / M-2 above. |
+
+### 12.5 Targeted check closure (`03b_v0.3_03c_v0.1_targeted_check.md`, verdict FIX) — 03c part
+
+| Finding | Resolution |
+|---|---|
+| M-3 suspect window misses paper-out between reads | Fixed: `last_clean_at`, every job acked since it turns suspect on a bad read (§3.1, §3.5, D4); test 25. |
+| m-5 version collisions | Fixed: Q-1 → 02b v1.0.4; D-3 and H-11 ride 03b's 01d v1.2.2 / 00 v1.9 bumps (one bump per target, 03b task 0d); 03c tasks 0a, 0b dropped. |
+| m-6 Pass reprint for the Cook; printer flag | Fixed: Cook default via 03b B-1; `order-tickets.has_printer` (§6.8); test 9. |
+| m-7 timing asserts | Fixed: injected clock and timeouts; test 22 asserts the login resolves, latency is a manual check. |
+| m-9 skip at a `screen` station with a printer | Fixed: skips recorded at any station with a printer; alerted when it prints at fire or when the station is dark (§3.3); test 8. |
+| m-10 editing 03b's client folders | Fixed: 03b's slots (D12, §8, tasks 26–27 in `features/print/`). |
+| n-4 H-11 overstated | Fixed: resume via `registerBootStep('5')`; H-11 = worker after listen only. |
+| n-5 idle vs hard timer | Fixed: hard timer from first byte (§3.7); test 21 slow reader. |
+| n-6 lost tests / lines | 03c part fixed: render vs removal race (test 9b), `print_config` rebuild keeps runtime (test 29), D8, pending jobs follow the printer (§3.2), To 07 row (§4.3), station session reprint by order (§3.5). |
+| n-9 suspect recovery kind / duplicates | Fixed: same kind, one recovery job per ticket (§3.5); test 25. |
+| M-1, M-2, m-1–m-4, m-8, m-11, m-12, n-2, n-3, n-7, n-8, n-10 | 03b v0.4 §12.7. |
+
