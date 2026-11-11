@@ -3,6 +3,7 @@ import './zone-kinds.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { ordersProjection } from './projection.js';
+import { registerSubmitOrder } from './commands/submit-order.js';
 import { registerZoneStock } from './commands/zone-stock.js';
 import type { HubDeps } from '../server.js';
 
@@ -19,6 +20,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   // wave 1 lane C (buildSubmit, zone routing)
 
   // wave 2 lane A (SubmitOrder, zone-served submit, eta-preview)
+  registerSubmitOrder(app); // §6.1 (queueable, §3.12)
 
   // wave 2 lane B (RemoveItems + lineChangeDrafts, SetLineWeight, CompLine, comp kind)
 
