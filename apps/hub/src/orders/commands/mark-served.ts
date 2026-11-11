@@ -102,6 +102,7 @@ type Payload = z.infer<typeof MarkServedPayload>;
  * unfired (`added`, no fire) → ITEM_WRONG_STAGE { stage: 'added' }. An order that has left the engine (O16) serves
  * any live line, with no stockEffects. Scope last (C8). Batch: per order ItemServed { source: 'tap' } →
  * OrderFoodServed (when it serves a food line, §3.3) → its stockEffects (array form across the command, AD-29 Q7).
+ * Queued (§3.12): `served_at` = `ctx.queuedAt` on each ItemServed.
  */
 function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; result: { served: number; skipped: string[] } } {
   const db = ctx.tx.db;
@@ -143,8 +144,10 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   checkOrderScope(ctx, orderIds.map((id) => orders.get(id)!));
 
   const envelope = { occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
+  // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
+  const servedTime = ctx.queuedAt ?? now;
   const servedDrafts = serves.map((s): EventDraft => {
-    const p: ItemServedPayload = { order_item_ids: s.ids, source: 'tap' };
+    const p: ItemServedPayload = { order_item_ids: s.ids, source: 'tap', ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }) };
     return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...envelope };
   });
   // AD-29 Q7: one stockEffects call over the in-engine serves, split back per ItemServed. The split relies on engine
@@ -163,7 +166,7 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   const events: EventDraft[] = [];
   serves.forEach((s, i) => {
     const itemServed = servedDrafts[i]!;
-    const after = lines.get(s.order_id)!.map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: now, served_source: 'tap' as const } : l));
+    const after = lines.get(s.order_id)!.map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: servedTime, served_source: 'tap' as const } : l));
     const food = foodDrafts(s.order_id, after, { kind: 'served', order_item_ids: s.ids }).map((d): EventDraft => ({ ...d, ...envelope }));
     events.push(itemServed, ...food, ...(effects.get(itemServed) ?? []));
   });
