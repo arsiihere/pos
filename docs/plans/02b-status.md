@@ -546,6 +546,12 @@ Not a GAP: estimated Served (G0-6 fallback, §6.11) is O14, registered when 03b'
 
 ## Next
 
-1. **Claude Code:** the 02b build review (pipeline step 8), `docs/reviews/02b_v1.0.4_build_review.md`.
+1. **Owner:** read `docs/reviews/02b_v1.0.4_build_review.md`. Its verdict is **ready to merge after the listed fixes**.
+   - Rule the 3 merge blockers:
+     - G-1: R5 `from_date` between a close and the next open. The code and the spec disagree.
+     - G-2: AD-40.
+     - G-4: the #29 merge test (add it or waive it).
+   - Rule AD-36: the single `my_floors` rule. The review recommends 02a's rule for both, via spec v1.0.5.
+   - Merging into `main` is the owner's call.
 2. **Owner:** run `pnpm test:perf` on the real disk, alone.
 3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
