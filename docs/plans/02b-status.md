@@ -65,12 +65,12 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 
 | # | Task | Reading | Status |
 |---|---|---|---|
-| AD-1 | 11, 22 | §3.2 `{ ...ctx, queued }` = 02a's `ctx.queuedAt !== null`; queued never takes or moves a lock (02a v1.1.3) | proposed (not yet ruled) |
-| AD-2 | 22, 24 | #31: 02b writes only its own clauses; 00 clauses map to 00 tests 152–158 | proposed (not yet ruled) |
-| AD-3 | 11, 17 | 02a #53 "order written" and 02a #62 are built here | proposed (not yet ruled) |
-| AD-4 | 24 | #34 perf file written, not run; owner runs `pnpm test:perf` | proposed (not yet ruled) |
-| AD-5 | — | 05 writes both `OrdersBilled` and `BillClosed`; note for 05 | proposed (not yet ruled) |
-| AD-6 | 2, 21 | zone events on stream `table`, id `zone:`; no 02a reader sees them | proposed (not yet ruled) |
+| AD-1 | 11, 22 | §3.2 `{ ...ctx, queued }` = 02a's `ctx.queuedAt !== null`; queued never takes or moves a lock (02a v1.1.3) | **ruled (owner, 2026-11-11): accepted as read** |
+| AD-2 | 22, 24 | #31: 02b writes only its own clauses; 00 clauses map to 00 tests 152–158 | **ruled (owner, 2026-11-11): accepted as read** |
+| AD-3 | 11, 17 | 02a #53 "order written" and 02a #62 are built here | **ruled (owner, 2026-11-11): accepted as read** |
+| AD-4 | 24 | #34 perf file written, not run; owner runs `pnpm test:perf` | **ruled (owner, 2026-11-11): accepted as read** |
+| AD-5 | — | 05 writes both `OrdersBilled` and `BillClosed`; note for 05 | **ruled (owner, 2026-11-11): accepted as read** |
+| AD-6 | 2, 21 | zone events on stream `table`, id `zone:`; no 02a reader sees them | **ruled (owner, 2026-11-11): accepted as read** |
 | AD-7 | 6, 11 | **Spec–code mismatch.** `OrderPlaced.token` is `z.string()` (02p `3db9ce1`), but 02b §5 has `token INTEGER` and §3.2 step 9 "1 + MAX(token)"; `car_type` is `z.string()` vs §5's CHECK. Options: (a) change the schema to `z.number().int()` / an enum (a Shared change, so do it before wave 1, as integrator fix commit); (b) keep string events; the projection stores `Number(token)` and `SubmitOrder` validates `car_type`. Recommendation: (b), because it changes no event schema that is already written; (a) only if the owner wants the event typed. | **ruled (owner, 2026-11-10): (a) tighten the schema** — `token` = `z.number().int().min(1).optional()`, `car_type` = `z.enum(['sedan','mini','large']).optional()`; `631b336` |
 | AD-8 | 4 → 10, 11, 12 | **Contract.** `BuildSubmit(config, input)` can't do §3.2 step 4 (Off needs `item_availability`, out of hours needs hub `now`), `follow_up` (DB read), or routing by the seating's **primary** table (`seatingOf`). Zone candidates: does `proposed` include them or not (M-4 fallback)? Options: (a) add `ctx: { now; isAvailable; primary_table_id \| null; follow_up }`; `proposed` / `itemAdded` treat candidates as kitchen lines, and the caller drops the ones that pass the count and sets `served_from_zone_id`; (b) keep it as written, and lane 2A does those checks outside. Recommendation: (a). | **ruled (owner, 2026-11-10): (a)** — `f8b9e85`; amended by AD-12 (`876dfdc`) |
 | AD-9 | 4 → 14 | **Contract.** `LineChangeDrafts(tx, …)` (§4.2 says `tx`) can't close stale comp requests with the caller's actor: `alerts.closeMany` needs an `AlertCtx`, and a bare `tx` forces `tickCtx` (actor null, device `hub`) into the audit log. Options: (a) `(ctx: CommandCtx, order_id, changes)` (ctx.tx is the tx; 02a `RequireLock` precedent), reading §4.2's `tx` as a name; (b) keep `tx`. Recommendation: (a). | **ruled (owner, 2026-11-10): (a)** — `f8b9e85` |
@@ -87,7 +87,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-20 | 10 | Lane 1C S-5: a `kitchen_note` on a deal line lands on the header, which no slip shows | **ruled (owner, 2026-11-11): (b)** copied to every engine part (text bump) |
 | AD-21 | 10, 11 | Lane 1C readings (task 10 review leftovers): deal parts in snapshot order, not `sort_order`; a weighed `from_zone` candidate cannot occur (01a A-1: zone stock items are piece); `isAvailable` = manual Off only, task 11 must not fold sold out into it; `order_note` of #2 tested in task 11 | **ruled (owner, 2026-11-11): accepted**; plan patch on task 11 |
 | AD-22 | 9 | `isEngineLine` is not exported from `@pos/engine` (plan "Exact names" row wrong); task 9 copied it in `food.ts` | **ruled (owner, 2026-11-11):** re-export from `packages/engine/src/index.ts`, `food.ts` imports it (fix commit, opus review) |
-| AD-23 | fixtures (test-only) | `appendOrder` weights deal parts by `lineTotalMinor(chosen price, qty, 'piece')`. 01c V11 c / M9 weight by the g/ml line total of the **reference** choice (first by `sort_order`, then `item_id`). No current assertion depends on it: every deal in use has piece parts and one choice each, and the new G3 test does not assert `allocated_price_minor` (fix G review). Options: (a) fix the fixture to the 01c rule (test-only); (b) leave it and document it. Recommendation: (a). | proposed (not yet ruled) |
+| AD-23 | fixtures (test-only) | `appendOrder` weights deal parts by `lineTotalMinor(chosen price, qty, 'piece')`. 01c V11 c / M9 weight by the g/ml line total of the **reference** choice (first by `sort_order`, then `item_id`). No current assertion depends on it: every deal in use has piece parts and one choice each, and the new G3 test does not assert `allocated_price_minor` (fix G review). Options: (a) fix the fixture to the 01c rule (test-only); (b) leave it and document it. Recommendation: (a). | **ruled (owner, 2026-11-11): (a)** — test-only, with a two-choice g/ml deal `allocated_price_minor` test; `6e7bc46` (opus review approved; the fixture still writes deal-part `extra_price_minor` 0, so lanes must not seed extras through it) |
 
 ## Owner rulings (this sprint)
 
@@ -97,6 +97,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 2026-11-10 | AD-7 tighten `OrderPlaced` `token` / `car_type` schemas; AD-8, AD-9, AD-10 accepted (one contracts commit); AD-11 spec change → 02b v1.0.3 APPROVED; the plan's migration-list path (`test/alerts/` → really `test/db/`) noted here, no plan edit | AD rows, "Next 02b text bump", Wave 0 entry |
 | 2026-11-10 | AD-12 (a) `utc_offset_ms` in `BuildSubmitCtx`; AD-13 (a) `after: { kind: 'served'; order_item_ids } \| 'change' \| 'return'` | AD rows, "Next 02b text bump" |
 | 2026-11-11 | AD-14 keep as built; AD-15 (A) `ItemAdded.return_of`; AD-16 (a) draws resolver; AD-17 keep 400; AD-18 ignore `variant_id`; AD-19 `{ deal_id, opens_at_ms }`; AD-20 (b) note to every engine part; AD-21 lane 1C readings accepted, plus a plan patch for task 11; AD-22 `isEngineLine` re-export. Test-only: the ledger comp-then-weight test starts from a weighed line; the property test never comps a weight-pending g line; in the fixtures, a g/ml deal part's quantity = part quantity × deal count (01c §3.4.2) | AD-14–AD-22, "Next 02b text bump", plan task 11 |
+| 2026-11-11 | AD-1–AD-6 accepted as read; AD-23 (a) fixture deal weights by the 01c V11 c / M9 reference choice (test-only) | AD rows |
 
 ## Next 02b text bump
 
@@ -215,6 +216,5 @@ Readings already accepted in code that the next 02b text patch writes into the s
 
 ## Next
 
-1. **Owner:** review wave 1, then type `wave 2`. Rule AD-23 any time; it is test-only and blocks nothing.
-2. **Owner (any time):** AD-1–AD-6.
-3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
+1. **Claude Code:** wave 2. Lanes 2A–2D are cut after the AD-23 fixture fix.
+2. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
