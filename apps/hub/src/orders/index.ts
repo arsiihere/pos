@@ -3,6 +3,7 @@ import './zone-kinds.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { ordersProjection } from './projection.js';
+import { registerZoneStock } from './commands/zone-stock.js';
 import type { HubDeps } from '../server.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
@@ -24,6 +25,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   // wave 2 lane C (MarkServed, ReleaseItems, BoostOrder, ReturnToKitchen)
 
   // wave 2 lane D (AddZoneStock, SetZoneStock)
+  registerZoneStock(app);
 
   // wave 3 lane A (queries, catch-up, audiences)
 
