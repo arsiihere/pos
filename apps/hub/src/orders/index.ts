@@ -8,6 +8,7 @@ import { registerEtaPreviewQuery } from './queries/eta-preview.js';
 import { registerZoneStock } from './commands/zone-stock.js';
 import type { HubDeps } from '../server.js';
 import { registerRemoveItems } from './commands/remove-items.js';
+import { registerSetLineWeight } from './commands/set-line-weight.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -27,6 +28,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
 
   // wave 2 lane B (RemoveItems + lineChangeDrafts, SetLineWeight, CompLine, comp kind)
   registerRemoveItems(app); // §6.2 (not queueable, §3.12)
+  registerSetLineWeight(app); // §6.3 (not queueable, §3.12)
 
   // wave 2 lane C (MarkServed, ReleaseItems, BoostOrder, ReturnToKitchen)
 
