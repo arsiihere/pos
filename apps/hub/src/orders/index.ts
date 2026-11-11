@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
 import { registerMarkServed } from './commands/mark-served.js';
 import { registerReleaseBoost } from './commands/release-boost.js';
+import { registerReturnToKitchen } from './commands/return-to-kitchen.js';
 import { ordersProjection } from './projection.js';
 import { registerSubmitOrder } from './commands/submit-order.js';
 import { registerEtaPreviewQuery } from './queries/eta-preview.js';
@@ -39,6 +40,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   // wave 2 lane C (MarkServed, ReleaseItems, BoostOrder, ReturnToKitchen)
   registerMarkServed(app);
   registerReleaseBoost(app);
+  registerReturnToKitchen(app);
 
   // wave 2 lane D (AddZoneStock, SetZoneStock)
   registerZoneStock(app);
