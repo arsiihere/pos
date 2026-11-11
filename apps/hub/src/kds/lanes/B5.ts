@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
 import { registeredTicks, registerTick } from '../../alerts/tick.js';
+import { provideKds } from '../contracts.js';
+import { handoversDue } from '../exports.js';
 import { passClosuresTick, readyRetargetTick } from '../ticks.js';
 
 // 03b lane B5 (b16, b17, 0e): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane B5 edits this file.
@@ -16,6 +18,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   for (const tick of [passClosuresTick, readyRetargetTick]) {
     if (!registeredTicks().some((t) => t.name === tick.name)) registerTick(tick);
   }
+  // b17 (§4.2): handoversDue for 02b's served_estimate tick (0e); per server build (a test that cleared it gets it back)
+  provideKds({ handoversDue });
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
