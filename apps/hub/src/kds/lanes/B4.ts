@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerReadyCommands } from '../commands/ready.js';
 import { bindPassProjectionLog, passProjection } from '../pass-projection.js';
 
 // 03b lane B4 (b13, b14, b15, b9b): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane B4 edits this file.
@@ -14,6 +15,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   bindPassProjectionLog(deps.projections, (line) => {
     app.log.warn(line, 'kds.fold_skipped');
   });
+  // b14 (§6.6, §6.7): MarkReadyToServe, UndoReadyToServe
+  registerReadyCommands(app);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
