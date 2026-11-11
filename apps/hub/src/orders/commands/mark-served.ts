@@ -5,7 +5,9 @@ import type { EventDraft, ItemServedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { Resolution } from '../../auth/staff-directory.js';
 import type { CommandCtx } from '../../commands/registry.js';
+import type { CurrentTableOf } from '../../engine-host/slip-readers.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
@@ -44,30 +46,48 @@ export function scopedOrders(db: Database.Database, order_ids: readonly string[]
 }
 
 /**
+ * §3.14 "as MarkServed", pure (⚠️ Changed by 03b v1.0.1 G-3, owner 2026-11-11; 02b v1.0.6 note): is order `o` inside the
+ * scope of `who.resolution` (the staff's resolved right, e.g. `mark-served`) for `who.staffId`? `branch` → yes. Dine-in:
+ * the current table — `own_tables` = the staff holds the order's open seating; `my_floors` = a table of the seating
+ * (`tables`, 02a `currentTableOf`, read once by the caller; null → none) is on one of `floorsOf(staffId)`. Takeaway /
+ * parking: `own_tables` and `my_floors` = placed by the staff (01b B-4). No staff or no scope → no. 0 statements.
+ * 03b's Handover receiver and `pass-receivers` call it for staff other than the caller with one shared `tables`.
+ */
+export function orderCovered(
+  o: ScopedOrder,
+  who: { staffId: string | null; resolution: Resolution | null },
+  tables: ReturnType<CurrentTableOf> | null,
+  floorsOf: (staffId: string) => string[],
+): boolean {
+  const { staffId, resolution } = who;
+  if (staffId === null) return false;
+  const scope = resolution !== null && 'scope' in resolution ? resolution.scope : null;
+  if (scope === 'branch') return true;
+  if (scope !== 'own_tables' && scope !== 'my_floors') return false;
+  if (o.order_type !== 'dine_in') return o.placed_by === staffId;
+  if (scope === 'own_tables') return o.holder_staff_id === staffId;
+  const myFloors = new Set(floorsOf(staffId));
+  const floors = branchConfig()?.floors ?? [];
+  return (tables?.get(o.order_id)?.table_ids ?? []).some((table_id) => {
+    const floor = floors.find((f) => f.tables.some((t) => t.table_id === table_id));
+    return floor !== undefined && myFloors.has(floor.floor_id);
+  });
+}
+
+/**
  * §3.14 "as MarkServed" (C8, call it last), on the scope of the command's own registered permission (`ctx.permission`:
- * `mark-served`, `boost-order`, `mark-item-returned`, …). `branch` → any order (0 statements). Dine-in: the current
- * table — `own_tables` = the caller holds the order's open seating; `my_floors` = a table of that seating is on one of
- * the caller's floors (02a `currentTableOf`, 1 statement, only then). Takeaway / parking: `own_tables` and `my_floors`
- * = placed by the caller (01b B-4). Else 403 PERMISSION_DENIED { reason: 'outside_scope', order_ids }.
+ * `mark-served`, `boost-order`, `mark-item-returned`, …), for the caller. `branch` → any order (0 statements); `my_floors`
+ * with a dine-in order reads 02a `currentTableOf` once (1 statement). The rule is `orderCovered` (G-3). Else
+ * 403 PERMISSION_DENIED { reason: 'outside_scope', order_ids }.
  */
 export function checkOrderScope(ctx: CommandCtx, orders: readonly ScopedOrder[]): void {
-  const staffId = ctx.actor.staffId;
+  const who = { staffId: ctx.actor.staffId, resolution: ctx.permission };
   const scope = ctx.permission !== null && 'scope' in ctx.permission ? ctx.permission.scope : null;
-  if (scope === 'branch' && staffId !== null) return;
+  if (scope === 'branch' && who.staffId !== null) return;
   const dineIn = orders.filter((o) => o.order_type === 'dine_in');
   const tables = scope === 'my_floors' && dineIn.length > 0 ? currentTableOf(ctx.tx.db, dineIn.map((o) => o.order_id)) : null;
-  const myFloors = scope === 'my_floors' && staffId !== null ? new Set(ctx.directory.floorsOf(staffId)) : new Set<string>();
-  const onMyFloor = (table_id: string): boolean => {
-    const floor = branchConfig()?.floors.find((f) => f.tables.some((t) => t.table_id === table_id));
-    return floor !== undefined && myFloors.has(floor.floor_id);
-  };
-  const covered = (o: ScopedOrder): boolean => {
-    if (staffId === null || (scope !== 'own_tables' && scope !== 'my_floors')) return false;
-    if (o.order_type !== 'dine_in') return o.placed_by === staffId;
-    if (scope === 'own_tables') return o.holder_staff_id === staffId;
-    return (tables?.get(o.order_id)?.table_ids ?? []).some(onMyFloor);
-  };
-  const outside = orders.filter((o) => !covered(o)).map((o) => o.order_id);
+  const floorsOf = (staffId: string): string[] => ctx.directory.floorsOf(staffId);
+  const outside = orders.filter((o) => !orderCovered(o, who, tables, floorsOf)).map((o) => o.order_id);
   if (outside.length > 0) throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', order_ids: outside });
 }
 
