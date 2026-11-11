@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { hasTargetResolver, registerTargetResolver } from '../../alerts/targets.js';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerSetDeviceRole } from '../commands/device-role.js';
+import { registerSetStationScreen } from '../commands/screen.js';
 import { registerKdsConfigProjection } from '../config-projection.js';
 import { provideKds } from '../contracts.js';
 import { devicePointOf, deviceRolesProjection, loadDeviceMaps, pointResolver, refreshDeviceMapsAfter } from '../device-roles.js';
@@ -11,13 +13,15 @@ import { devicePointOf, deviceRolesProjection, loadDeviceMaps, pointResolver, re
 // registerProjections(): this lane's projections, in the order kds/index.ts calls the lanes (after 02b's orders).
 
 export function register(app: FastifyInstance, deps: HubDeps): void {
-  void app;
   // b6, §3.8: memory maps built at server build (after boot's catch-up), refreshed after device commits
   loadDeviceMaps(deps.db);
   deps.writer.addAfterCommit(refreshDeviceMapsAfter(deps.db));
   provideKds({ devicePoint: devicePointOf });
   // b6, G-1: 01d's `point` target; a resolver a test registered first (01d fakes) is left alone (02a SG-6)
   if (!hasTargetResolver('point')) registerTargetResolver('point', pointResolver);
+  // b7, §6.9–6.10: admin commands
+  registerSetStationScreen(app);
+  registerSetDeviceRole(app);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
