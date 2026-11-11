@@ -1,6 +1,6 @@
 # 02b status board
 
-Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.3.md` (APPROVED; v1.0.3 = AD-11, owner 2026-11-10), on top of `main` `67c84c6` (02a hub merged, v1.1.4). Branch: `module-02b`.
+Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.4.md` (APPROVED; v1.0.4 = the build rulings AD-8–AD-39 text bump, owner 2026-11-11; v1.0.3 = AD-11, owner 2026-11-10), on top of `main` `67c84c6` (02a hub merged, v1.1.4). Branch: `module-02b`.
 
 > **Short Hinglish summary**
 >
@@ -141,6 +141,8 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 | 2026-11-11 | AD-37 (d) order-level promise; AD-38 (a) order-contact 1 / 2 statements; AD-39 lane 3A readings, R2 and R8 changed. **"Next 02b text bump" becomes spec v1.0.4, written in wave 4, APPROVED now** | AD-37–AD-39, "Next 02b text bump" |
 
 ## Next 02b text bump
+
+**Applied in v1.0.4 (`<sha>` filled by the controller)**
 
 **Owner, 2026-11-11: wave 4 writes this list as `02b_Ordering_Spec_v1.0.4.md` (APPROVED now), with "⚠️ Changed by v1.0.4" markers and the README row.**
 

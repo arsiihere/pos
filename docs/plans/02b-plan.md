@@ -8,7 +8,7 @@
 
 **Tech Stack:** as CLAUDE.md. **No new dependency.** No cloud change, no cloud migration.
 
-**Spec:** `docs/specs/02b_Ordering_Spec_v1.0.3.md` (APPROVED; v1.0.3 = v1.0.2 + the AD-11 zone-alert close rule, owner 2026-11-10; cited "§x", tests "#n"). Context only: 02a v1.1.4 (§4.2 reads, `requireLock`, T19, T21), 03a v1.2 §4.2 (`ProposedOrder`, events), 01c v1.1.2 §3.4.8 / §4.3 (deal money, `ItemAdded`), 01d v1.2.1 §3.4 (`alerts.*`, approval), 01a v2.3 A-1 (zones, settings), 01b v1.7 §3.3 (permissions, `my_zones`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. Plan and spec disagree → the spec wins: STOP and ask (CLAUDE.md).
+**Spec:** `docs/specs/02b_Ordering_Spec_v1.0.4.md` (APPROVED; v1.0.4 = v1.0.3 + the build rulings AD-8–AD-39 text bump, owner 2026-11-11; v1.0.3 = v1.0.2 + the AD-11 zone-alert close rule, owner 2026-11-10; cited "§x", tests "#n"). Context only: 02a v1.1.4 (§4.2 reads, `requireLock`, T19, T21), 03a v1.2 §4.2 (`ProposedOrder`, events), 01c v1.1.2 §3.4.8 / §4.3 (deal money, `ItemAdded`), 01d v1.2.1 §3.4 (`alerts.*`, approval), 01a v2.3 A-1 (zones, settings), 01b v1.7 §3.3 (permissions, `my_zones`). **Read the cited section before each task**; the plan does not repeat the spec's tables, SQL or rule text. Plan and spec disagree → the spec wins: STOP and ask (CLAUDE.md).
 
 **Starting point:** `main` at `67c84c6` (02a hub merged, spec v1.1.4). Branch `module-02b` re-cut from it (G-7 ruling). Next free hub migration: **`0013`**. Nothing of 02b exists: no `apps/hub/src/orders/`, no 02b codes in `errors.ts`.
 
