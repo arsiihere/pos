@@ -285,14 +285,14 @@ describe('[03c §3.5, §3.6] render at send: slips, REPRINT, empty, stale, fallb
     const partial = cancelJob(t.ticket_id, 'N1', 1);
     expect(slip(partial)).toEqual(['CANCELLED  T4 + T5  - 1 x Naan', '3 left']);
     // 02b M-5: Naan 4 → remove 1 → remove the rest. The whole-line job (§3.3 payload units null) prints the units
-    // still to cancel: 4 ordered − 1 of the earlier cancel job = 3; the earlier partial slip, sent only now, shows the
-    // units left at send.
+    // still to cancel: 4 ordered − 1 of the earlier cancel job = 3.
     removeLine(hub, order_id, 'N1');
     const whole = cancelJob(t.ticket_id, 'N1', null);
     const counter = statementCounter(hub.deps.db);
     expect(slip(whole)).toEqual(['CANCELLED  T4 + T5  3 x Naan']);
     expect(counter.count, 'a cancel job render: ticket read (+ earlier cancels) 1, buildLineDetails 2').toBe(3);
-    expect(slip(partial)).toEqual(['CANCELLED  T4 + T5  - 1 x Naan', '0 left']);
+    // C1-2 (a): sent only now, with no live units left, the earlier partial job prints the whole form with its units.
+    expect(slip(partial)).toEqual(['CANCELLED  T4 + T5  1 x Naan']);
     removeLine(hub, order_id, 'K1');
     expect(slip(cancelJob(t.ticket_id, 'K1', null))).toEqual(['CANCELLED  T4 + T5  1 x Chicken', 'Karahi']);
     expect(slip({ kind: 'first', ticket_id: t.ticket_id, order_item_ids: ['N1', 'K1', 'DM', 'DB'], reason: 'boost', is_reprint: false })).toEqual([
@@ -305,6 +305,30 @@ describe('[03c §3.5, §3.6] render at send: slips, REPRINT, empty, stale, fallb
     expect(slip({ kind: 'first', ticket_id: t.ticket_id, order_item_ids: ['N1', 'DM', 'DB'], reason: 'expedite', is_reprint: false })).toBeNull();
     expect(slip(cancelJob(t.ticket_id, 'GONE', null)), 'gone').toBeNull();
     expect(renderJob(ctx(32, off), kitchen('NOPE:NOPE')), 'no ticket').toBeNull();
+  });
+
+  it('[03c §3.5] a cancel with units that leaves no live units prints the whole form (C1-2): Naan 4, 1 removed before print, RemoveItems the rest', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N1', item_id: FX.naan, quantity: 4 }] });
+    removeLine(hub, order_id, 'N1', 1); // before the ticket printed: no cancel job
+    const t = fireTicket(FX.station, order_id, ['N1']);
+    const slip = (job: RenderJob): string[] => renderText(renderJob(ctx(32, 0), job)!, 32).split('\n').slice(1);
+    // 02b's real RemoveItems without units writes ItemRemoved { units: live units } = 3 (the §3.3 payload carries 3).
+    await command('RemoveItems', '/commands/remove-items', { order_id, lines: [{ order_item_id: 'N1' }] });
+    const removed = hub.deps.db.prepare("SELECT payload FROM events WHERE event_type = 'ItemRemoved' ORDER BY seq DESC LIMIT 1").pluck().get() as string;
+    expect(JSON.parse(removed)).toMatchObject({ order_item_id: 'N1', units: 3 });
+    expect(slip(cancelJob(t.ticket_id, 'N1', 3))).toEqual(['CANCELLED  #1  3 x Naan']);
+  });
+
+  it('[03c §3.5] a partial cancel that leaves units keeps "- n x <name>  k left"; units null keeps ordered − earlier', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N1', item_id: FX.naan, quantity: 4 }] });
+    const t = fireTicket(FX.station, order_id, ['N1']);
+    const slip = (job: RenderJob): string[] => renderText(renderJob(ctx(48, 0), job)!, 48).split('\n').slice(1);
+    removeLine(hub, order_id, 'N1', 1);
+    expect(slip(cancelJob(t.ticket_id, 'N1', 1))).toEqual(['CANCELLED  #1  - 1 x Naan  3 left']);
+    removeLine(hub, order_id, 'N1');
+    expect(slip(cancelJob(t.ticket_id, 'N1', null))).toEqual(['CANCELLED  #1  3 x Naan']);
   });
 
   it('[03c §3.5] a re-sent CANCELLED slip (is_reprint) is not counted again by the whole-line slip', async () => {

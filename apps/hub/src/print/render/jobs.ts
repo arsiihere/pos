@@ -358,10 +358,14 @@ export function renderJob(ctx: RenderCtx, job: RenderJob): Doc | null {
     if (l === undefined || l.done) return null;
     // §3.5: a partial slip names its units, the units left are read at send (D2); a whole-line slip (units null)
     // names the units still to cancel = ordered units − the units of the line's earlier cancel jobs (02b M-5).
+    // C1-2 (a), 03c v1.0.4 §3.5: a cancel with units that leaves no live units at send prints the whole form with
+    // the job's units (a removal before the print made no cancel job, so "ordered − earlier" would overcount).
     const text =
       job.units === null
         ? `CANCELLED  ${ident}  ${Math.max(0, l.units - l.earlier_cancelled)} x ${l.name}`
-        : `CANCELLED  ${ident}  - ${job.units} x ${l.name}  ${l.live_units} left`;
+        : l.live_units === 0
+          ? `CANCELLED  ${ident}  ${job.units} x ${l.name}`
+          : `CANCELLED  ${ident}  - ${job.units} x ${l.name}  ${l.live_units} left`;
     return slipDoc(t, [text], ctx, job.is_reprint);
   }
   const ids = new Set(job.order_item_ids);
