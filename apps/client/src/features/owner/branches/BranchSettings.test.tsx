@@ -45,12 +45,15 @@ const STORED = {
   table_lock_ttl_ms: 600_000,
   returns_boost: true,
   order_abandon_ms: 14_400_000,
-  // 01a v2.3 A-1 (02b): the four ordering settings, served_estimate_ms (null until 03b) and the comp chips.
+  // 01a v2.3 A-1 (02b): the ordering settings and the comp chips.
   queue_auto_send_max_ms: 14_400_000,
   zone_undo_ms: 300_000,
   slow_item_threshold_ms: 900_000,
-  served_estimate_ms: null,
   comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+  // 03b v1.0.2 §4.5 A-1 / B-2 (01a v2.4.2): writable on the owner page; 180 000 on rows existing at 0012.
+  served_estimate_ms: 180_000,
+  ready_window_ms: 60_000,
+  kds_offline_ms: 30_000,
   version: 'v1',
 };
 
@@ -130,7 +133,7 @@ describe('[01b §8] branch settings', () => {
     const names = [...group.querySelectorAll<HTMLInputElement>('input[name]')].map((i) => i.name);
     const ordering = ['queue_auto_send_max_ms', 'zone_undo_ms', 'slow_item_threshold_ms'];
     expect(names.sort()).toEqual(
-      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'served_estimate_ms' && k !== 'comp_reason_chips').sort(),
+      [...new Set([...BRANCH_ENGINE_SETTING_KEYS, ...ordering])].filter((k) => k !== 'returns_boost' && k !== 'comp_reason_chips').sort(),
     );
     const value = (name: string) => group.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
     expect(value('weight_follow_up_pct')).toBe('300');
@@ -156,6 +159,60 @@ describe('[01b §8] branch settings', () => {
     expect(Object.keys(calls.find((c) => c.method === 'PATCH')!.body as object).sort()).toEqual(
       ['cascade_step_ms', 'expected_version', 'promise_padding_dine_in_ms', 'returns_boost', 'weight_delivery_pct'],
     );
+  });
+
+  // 03b §4.5 B-2 (owner ruling (a), 2026-11-11): Ready window, KDS offline, Served estimate (1–30 min or Off).
+  const servedSwitch = () => m.container.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t('branches.timing.served_estimate_switch')}"]`)!;
+
+  it('[03b §4.5 B-2] kitchen screens: the three boxes show the stored values; changes are sent as ms', async () => {
+    const calls = await render();
+    const group = m.container.querySelector<HTMLElement>('[data-group="kitchen-timing"]')!;
+    expect(group.textContent).toContain(t('branches.timing.kds'));
+    expect(field('ready_window_ms')!.value).toBe('1');
+    expect(field('kds_offline_ms')!.value).toBe('0.5');
+    expect(field('served_estimate_ms')!.value).toBe('3');
+    expect(servedSwitch().getAttribute('aria-checked')).toBe('true');
+    setValue(field('ready_window_ms'), '1.5');
+    setValue(field('kds_offline_ms'), '0.25');
+    setValue(field('served_estimate_ms'), '5');
+    await click(button(m.container, t('branches.save_settings')));
+    const patch = calls.find((c) => c.method === 'PATCH')!;
+    expect(patch.body).toEqual({ expected_version: 'v1', ready_window_ms: 90_000, kds_offline_ms: 15_000, served_estimate_ms: 300_000 });
+  });
+
+  it('[03b §4.5 B-2] served estimate Off sends null; the box is not checked while Off', async () => {
+    const calls = await render();
+    await click(servedSwitch());
+    expect(servedSwitch().getAttribute('aria-checked')).toBe('false');
+    expect(field('served_estimate_ms')!.disabled).toBe(true);
+    setValue(field('served_estimate_ms'), '99');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', served_estimate_ms: null });
+  });
+
+  it('[03b §4.5 B-2] served estimate stored Off: the switch is off; On with a value sends it', async () => {
+    const calls = await render(undefined, { ...STORED, served_estimate_ms: null });
+    expect(servedSwitch().getAttribute('aria-checked')).toBe('false');
+    expect(field('served_estimate_ms')!.disabled).toBe(true);
+    await click(servedSwitch());
+    setValue(field('served_estimate_ms'), '2');
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', served_estimate_ms: 120_000 });
+  });
+
+  it.each([
+    ['ready_window_ms', '0.24', '0.25', '5'],
+    ['ready_window_ms', '5.01', '0.25', '5'],
+    ['kds_offline_ms', '0.16', '0.17', '5'],
+    ['kds_offline_ms', '5.01', '0.17', '5'],
+    ['served_estimate_ms', '0.99', '1', '30'],
+    ['served_estimate_ms', '30.01', '1', '30'],
+  ])('[03b §4.5 B-2] %s = %s min is refused before sending (%s to %s)', async (name, typed, min, max) => {
+    const calls = await render();
+    setValue(field(name), typed);
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(m.container.textContent).toContain(fill(t('branches.timing_minutes_range'), { min, max }));
   });
 
   it('[01a A-12] kitchen timing refuses a value outside the range before sending', async () => {
@@ -213,7 +270,8 @@ describe('[01b §8] branch settings', () => {
 
   it('[01a v2.1 §8.1; A-12] on a laptop they stay three across', async () => {
     await render();
-    expect(m.container.querySelectorAll('[data-group="kitchen-timing"] .pos-grid--3').length).toBe(4);
+    // 03b §4.5 B-2: + the kitchen screens group → 5.
+    expect(m.container.querySelectorAll('[data-group="kitchen-timing"] .pos-grid--3').length).toBe(5);
   });
 
   it('[01b B23] a stale version shows Changed elsewhere, keeps the draft, and Reload reads the branch again', async () => {
@@ -238,8 +296,7 @@ describe('[01b §8] branch settings', () => {
     expect(value('queue_auto_send_max_ms')).toBe('240');
     expect(value('zone_undo_ms')).toBe('5');
     expect(value('slow_item_threshold_ms')).toBe('15');
-    // served_estimate_ms is "null until 03b": no box for it.
-    expect(m.container.querySelector('input[name="served_estimate_ms"]')).toBeNull();
+    // served_estimate_ms has its own box since 03b B-2 (tests above).
     const chips = () => [...m.container.querySelectorAll<HTMLInputElement>('[data-group="comp-chips"] input[name="comp_reason_chips"]')].map((i) => i.value);
     expect(chips()).toEqual(['Late', 'Wrong item', 'Quality', 'Guest', 'Other']);
 
