@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { commandRegistry } from '../../commands/route.js';
+import { giveMeMoreCommand } from '../commands/give-me-more.js';
 import { registerStartDone } from '../commands/start-done.js';
+import { undoDoneCommand } from '../commands/undo-done.js';
 
 // 03b lane B2 (b8, b9a): this lane's wiring lines go here and only here (phase 0 P0.11). Only lane B2 edits this file.
 // register(): commands, queries, catch-ups, audiences, ticks, provideKds(...) — called once per server by registerKds.
@@ -10,6 +13,8 @@ import { registerStartDone } from '../commands/start-done.js';
 export function register(app: FastifyInstance, deps: HubDeps): void {
   void deps;
   registerStartDone(app); // b8: StartItem, DoneItem (§6.1–6.2)
+  commandRegistry(app).register(undoDoneCommand); // b9a: §6.3 (line part)
+  commandRegistry(app).register(giveMeMoreCommand); // b9a: §6.4
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
