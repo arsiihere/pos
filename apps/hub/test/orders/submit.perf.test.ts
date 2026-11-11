@@ -8,9 +8,12 @@
 // to the day's slot stations (tandoor, karahi, bbq, tawa) under the same ids, so planOrder plans against the peak queues.
 // The business day is the day's own (state.business_day). The hub clock stands at the peak's instant.
 //
-// The cart: 11 cart lines + 1 linked option child = 12 ItemAdded, every one an engine line, no stock draws (the sim day
-// counts no stock), dine-in on a seating the person holds (requireLock, follow_up read, 02a fold) — the heaviest
-// normal submit. One sample = one POST /commands/submit-order through Fastify inject (schema, pipeline, BEGIN IMMEDIATE,
+// The cart (AD-40 (1) as amended by the owner, 2026-11-11): 9 cart lines + 1 linked option child + 2 deal parts = 12
+// ItemAdded — one deal (the fixture combo: its header and its 2 parts, so deal allocation is on the timed path) and one
+// line served from stock (a stock-tracked seekh on bbq, so reserveStock and planOrder(from_stock) are on the timed
+// path), dine-in on a seating the person holds (requireLock, follow_up read, 02a fold) — the heaviest normal submit.
+// The sim day counts no stock, so after each swap the seekh's stock item is counted with a StockSet through the hub
+// writer (untimed): the event AddPrecookedStock writes onto an uncounted entry (01c §6.19, S45), as fixtures.openDay. One sample = one POST /commands/submit-order through Fastify inject (schema, pipeline, BEGIN IMMEDIATE,
 // the append, the folds, COMMIT with WAL + synchronous=FULL, the reply). Before each sample the peak state is swapped
 // back, so every sample plans on the same peak and none leans on another's orders; the log and the projections keep
 // growing, which only makes later samples a little heavier.
@@ -42,6 +45,10 @@ const SEAT = 'SEAT_PERF';
 const SEAT_READ = 'SEAT_PERF_READ';
 const TABLE_READ = 'T_PERF_READ';
 const TAKER = 'S_PERF';
+const STOCK_ITEM = 'K_SEEKH'; // the from-stock line's stock item (piece, bbq)
+const STOCK_ON_HAND = 1_000; // pieces counted after each swap: never the limit
+const SEEKH = 'I_SEEKH';
+const STOCK_LINE = '08'; // the cart's from-stock line
 
 const pctl = (xs: readonly number[], q: number): number => {
   const s = [...xs].sort((a, b) => a - b);
@@ -50,7 +57,10 @@ const pctl = (xs: readonly number[], q: number): number => {
 const summary = (xs: readonly number[]): string =>
   `p50 ${pctl(xs, 0.5).toFixed(2)} / p99 ${pctl(xs, 0.99).toFixed(2)} / max ${Math.max(...xs).toFixed(2)} ms`;
 
-/** fixtureMenu() with the sim day's slot stations (same ids) and the cart's items routed to them; no stock, no zones. */
+/**
+ * fixtureMenu() with the sim day's slot stations (same ids) and the cart's items routed to them; the fixture deal
+ * (karahi + 2 naan); one stock item (K_SEEKH, piece, bbq) drawn by the seekh; no zones.
+ */
 function perfMenu(): BranchConfig {
   const base = fixtureMenu();
   const s1 = base.stations[0]!;
@@ -68,7 +78,7 @@ function perfMenu(): BranchConfig {
   return {
     ...base,
     stations: [station('tandoor', 30), station('karahi', 50), station('bbq', 30), station('tawa', 8)],
-    stock_items: [],
+    stock_items: [{ stock_item_id: STOCK_ITEM, name: 'Seekh tray', stock_unit: 'piece', carries_over: false, station_id: 'bbq', low_stock_threshold: null }],
     floors: [
       {
         floor_id: FX.floor,
@@ -90,12 +100,16 @@ function perfMenu(): BranchConfig {
       item('I_PARATHA', 'tawa', 300_000, 6, { price_minor: 5_000 }),
       item(FX.optionItem, 'tawa', 60_000, 7, { price_minor: 10_000 }),
       item(FX.ready, 'tawa', 60_000, 8, { price_minor: 8_000, is_ready_item: true }),
+      item(SEEKH, 'bbq', 900_000, 9, { price_minor: 6_000, stock_time_ms: 120_000, stock_draws: [{ stock_item_id: STOCK_ITEM, quantity_per_sale_unit: 1 }] }),
     ],
-    deals: [],
+    deals: base.deals, // D_COMBO: DP_MAIN 1 × karahi (karahi station), DP_BREAD 2 × naan (tandoor)
   };
 }
 
-/** 11 cart lines + the karahi's linked raita = 12 lines; `id` is the key (preview) or the order_item_id (submit). */
+/**
+ * 9 cart lines + the karahi's linked raita + the deal's 2 parts = 12 lines (ItemAdded); line 08 is served from stock,
+ * line 09 is the deal. `id` is the key (preview) or the order_item_id (submit).
+ */
 function cart(id: 'key' | 'order_item_id', prefix: string): Array<Record<string, unknown>> {
   const line = (n: number, item_id: string, quantity = 1, o: Record<string, unknown> = {}) => ({ [id]: `${prefix}${String(n).padStart(2, '0')}`, item_id, quantity, ...o });
   return [
@@ -103,13 +117,19 @@ function cart(id: 'key' | 'order_item_id', prefix: string): Array<Record<string,
     line(2, 'I_MUTTON'),
     line(3, FX.naan, 4),
     line(4, 'I_ROTI', 2),
-    line(5, FX.naan, 2),
-    line(6, 'I_TIKKA'),
-    line(7, 'I_TIKKA', 2),
-    line(8, 'I_PARATHA', 2),
-    line(9, 'I_PARATHA'),
-    line(10, FX.ready, 4),
-    line(11, 'I_ROTI'),
+    line(5, 'I_TIKKA', 2),
+    line(6, 'I_PARATHA', 2),
+    line(7, FX.ready, 4),
+    line(8, SEEKH, 2), // from stock
+    {
+      [id]: `${prefix}09`,
+      deal_id: FX.deal,
+      quantity: 1,
+      deal_choices: [
+        { deal_part_id: FX.dealParts[0], item_id: FX.piece, [id]: `${prefix}09a` },
+        { deal_part_id: FX.dealParts[1], item_id: FX.naan, [id]: `${prefix}09b` },
+      ],
+    },
   ];
 }
 
@@ -135,8 +155,32 @@ describe('[02b #34] SubmitOrder, eta-preview and seating-orders at 12 lines on t
 
   const headers = () => ({ authorization: `Bearer ${who.token}`, 'x-session-token': who.sessionToken });
 
-  /** One SubmitOrder of the cart on `seating_id`; returns the wall time, the status and the ItemAdded count. */
-  async function submit(table_id: string, seating_id: string): Promise<{ ms: number; status: number; lines: number }> {
+  /**
+   * Counts the from-stock line's stock item on the live (just swapped) state, untimed: a StockSet through the hub writer,
+   * as AddPrecookedStock writes onto an uncounted entry (the sim day has none) and fixtures.openDay seeds stock.
+   */
+  function seedStock(): void {
+    hub.deps.writer.run((tx) =>
+      tx.append([
+        {
+          stream_type: 'stock',
+          stream_id: STOCK_ITEM,
+          event_type: 'StockSet',
+          schema_version: 2,
+          payload: { stock_item_id: STOCK_ITEM, on_hand: STOCK_ON_HAND, unit: 'piece' },
+          occurred_at: hub.clock.branchNow(),
+          actor_id: null,
+          device_id: 'hub',
+        },
+      ]),
+    );
+  }
+
+  /**
+   * One SubmitOrder of the cart on `seating_id`; returns the wall time, the status, the ItemAdded count and whether the
+   * stock line was served from stock.
+   */
+  async function submit(table_id: string, seating_id: string): Promise<{ ms: number; status: number; lines: number; fromStock: boolean }> {
     orderSeq += 1;
     const order_id = `PERF_O${String(orderSeq).padStart(4, '0')}`;
     const payload = { order_id, order_type: 'dine_in', table_id, seating_id, lines: cart('order_item_id', `${order_id}_L`) };
@@ -158,7 +202,9 @@ describe('[02b #34] SubmitOrder, eta-preview and seating-orders at 12 lines on t
     });
     const ms = performance.now() - started;
     const added = hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE event_type = 'ItemAdded' AND stream_id = ?").pluck().get(order_id) as number;
-    return { ms, status: res.statusCode, lines: added };
+    const result = (res.json() as { data?: { result: { lines: Array<{ order_item_id: string; from_stock: boolean }> } } }).data?.result;
+    const fromStock = result?.lines.find((l) => l.order_item_id === `${order_id}_L${STOCK_LINE}`)?.from_stock === true;
+    return { ms, status: res.statusCode, lines: added, fromStock };
   }
 
   async function timedGet(url: string): Promise<{ ms: number; status: number; body: unknown }> {
@@ -199,9 +245,11 @@ describe('[02b #34] SubmitOrder, eta-preview and seating-orders at 12 lines on t
     const samples: number[] = [];
     for (let i = 0; i < WARM_UP + SAMPLES; i += 1) {
       hub.deps.state.swap(peak.state);
+      seedStock();
       const r = await submit(FX.table, SEAT);
       expect(r.status).toBe(200);
       expect(r.lines).toBe(CART_LINES);
+      expect(r.fromStock).toBe(true);
       if (i >= WARM_UP) samples.push(r.ms);
     }
     process.stderr.write(`[02b #34 submit] peak seq ${peak.seq}, ${peak.lines} lines in the engine; ${SAMPLES} submits of ${CART_LINES} lines: ${summary(samples)}\n`);
@@ -210,13 +258,16 @@ describe('[02b #34] SubmitOrder, eta-preview and seating-orders at 12 lines on t
 
   it(`[02b #34 preview] eta-preview of the same 12-line cart on the peak engine, p99 < ${PREVIEW_P99_MS} ms`, async () => {
     hub.deps.state.swap(peak.state);
+    seedStock();
     const draft = { order_type: 'dine_in', table_id: FX.table, seating_id: SEAT, lines: cart('key', 'k') };
     const url = `/queries/eta-preview?draft=${encodeURIComponent(JSON.stringify(draft))}`;
     const samples: number[] = [];
     for (let i = 0; i < WARM_UP + SAMPLES; i += 1) {
       const r = await timedGet(url);
       expect(r.status).toBe(200);
-      expect((r.body as { data: { lines: unknown[] } }).data.lines).toHaveLength(CART_LINES);
+      const lines = (r.body as { data: { lines: Array<{ key: string; from_stock: boolean }> } }).data.lines;
+      expect(lines).toHaveLength(CART_LINES);
+      expect(lines.find((l) => l.key === `k${STOCK_LINE}`)?.from_stock).toBe(true);
       if (i >= WARM_UP) samples.push(r.ms);
     }
     process.stderr.write(`[02b #34 preview] ${SAMPLES} previews of ${CART_LINES} lines: ${summary(samples)}\n`);
@@ -225,6 +276,7 @@ describe('[02b #34] SubmitOrder, eta-preview and seating-orders at 12 lines on t
 
   it(`[02b §7 seating-orders] seating-orders of a table with ${ROUNDS} rounds of 12 lines on the peak engine, p99 < ${SEATING_ORDERS_P99_MS} ms`, async () => {
     hub.deps.state.swap(peak.state);
+    seedStock();
     for (let i = 0; i < ROUNDS; i += 1) expect((await submit(TABLE_READ, SEAT_READ)).status).toBe(200);
     const samples: number[] = [];
     for (let i = 0; i < WARM_UP + SAMPLES; i += 1) {
