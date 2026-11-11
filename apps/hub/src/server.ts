@@ -126,6 +126,8 @@ export interface BuildHubOptions {
 
 export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): FastifyInstance {
   const app = Fastify({
+    // 02b §6.14 / AD-26: eta-preview drafts ride in the GET query string; Node default 16 KB gives 431.
+    http: { maxHeaderSize: 65_536 },
     logger: {
       level: 'info',
       stream: deps.logStream,
