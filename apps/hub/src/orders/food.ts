@@ -1,16 +1,17 @@
 // 02b §3.3 (P-1d, owner Q5) with §3.5, §3.7, §3.8: the food rules behind table state, pure (0 statements).
 // AD-10: drafts without time / actor / device; the caller adds the envelope. AD-13: a serve names the lines it served.
+import { isEngineLine } from '@pos/engine';
 import type { ItemAddedPayload, OrderFoodClearedPayload, OrderFoodServedPayload } from '@pos/events';
 import type { FoodDrafts, LineView } from './contracts.js';
 
 type FoodLineInput = Pick<ItemAddedPayload, 'station_id' | 'line_kind' | 'served_from_zone_id' | 'is_ready_item'>;
 
 /**
- * §3.3 food line (the stored `order_lines.is_food`): an engine line (03a `isEngineLine`, `plan.ts:17`: a station, not a
- * `deal`; not exported by @pos/engine, so mirrored here) that is not zone-served and whose item is not a ready item.
+ * §3.3 food line (the stored `order_lines.is_food`): an engine line (03a `isEngineLine`: a station, not a `deal`;
+ * owner 2026-11-11 AD-22) that is not zone-served and whose item is not a ready item.
  */
 export function isFoodLine(l: FoodLineInput): boolean {
-  return l.station_id !== null && l.line_kind !== 'deal' && l.served_from_zone_id === null && !l.is_ready_item;
+  return isEngineLine(l) && l.served_from_zone_id === null && !l.is_ready_item;
 }
 
 /** §3.4 deal headers: a `deal` line's live state is derived from its parts, so "live line" looks at parts only. */
