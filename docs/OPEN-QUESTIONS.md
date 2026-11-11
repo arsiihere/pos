@@ -72,6 +72,7 @@ These work today. Change one only if the owner disagrees.
 | 02a-N1 | **On-site table management.** A manager at the restaurant should be able to add or archive a table (and similar small setup) from the hub, without phoning the owner; the owner can override anything. | Wanted (owner). Not designed. | New story → small spec after 02a. Open points: which permission (manager only?), hub → cloud sync (today config flows cloud → hub only), conflict rule (owner / cloud wins), offline edits, which setup items qualify. |
 | 02a-N2 | **Owner-app hint: take-over needs a wider scope.** Staff with assigned zones or tables need `take-order` scope `my_floors` or `branch`; `own_tables` (only the seatings you hold, T8) cannot take over someone else's table. | Yes (owner, 2026-11-10; 02a AD-22). | 01b owner app, next platform batch. |
 | 02a-N3 | **05 must register the `BillClosed` audience** (staff sockets + cashier kiosks) so NEEDS_CLEANING reaches the map live; 02a registers none (§6.19 does not list it). | Yes (owner, 2026-11-10; 02a AD-25). | 05 Billing spec / build. |
+| 02b AD-31 | **03b G0: should a remake (`ReturnToKitchen`) bypass a station pause?** Today a return to a paused station with no allowed alternate is refused with `409 STATION_PAUSED` (02b AD-31), so a sent-back dish gets no ticket until the station is unpaused. | Open (owner, 2026-11-11: refuse for now). | 03b G0 / spec. |
 
 ## 6. From the 02b build (owner, 2026-11-11) — next platform batch
 

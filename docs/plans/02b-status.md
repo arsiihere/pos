@@ -90,10 +90,16 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-23 | fixtures (test-only) | `appendOrder` weights deal parts by `lineTotalMinor(chosen price, qty, 'piece')`. 01c V11 c / M9 weight by the g/ml line total of the **reference** choice (first by `sort_order`, then `item_id`). No current assertion depends on it: every deal in use has piece parts and one choice each, and the new G3 test does not assert `allocated_price_minor` (fix G review). Options: (a) fix the fixture to the 01c rule (test-only); (b) leave it and document it. Recommendation: (a). | **ruled (owner, 2026-11-11): (a)** — test-only, with a two-choice g/ml deal `allocated_price_minor` test; `6e7bc46` (opus review approved; the fixture still writes deal-part `extra_price_minor` 0, so lanes must not seed extras through it) |
 | AD-24 | 20, 21 | Lane 2D STOP: the "order taker receives `ZoneStockAdded`" clause needs the zone audience, which is task 21's (`orders/audiences.ts`); `audienceAllows` is false for an unregistered type | **ruled (owner, 2026-11-11): (a)** — clause moves to task 21 (plan patch); task 20 asserts `403` for an order taker without `manage-zone-stock` |
 | AD-25 | 20 | §6.9 "1 branch stock read" = the in-memory engine state (`dayDraws` / `saleUnitsAvailable` on `ctx.state`), 0 SQL statements | **ruled (owner, 2026-11-11): accepted** (text bump: say "in memory") |
-| AD-26 | 13 | Lane 2A STOP: the ≤ 8 KB eta-preview draft travels in a GET query string. URL-encoded, it can exceed Node's 16 KB `maxHeaderSize`, and Node then returns `431` before the hub's 400 check (Urdu notes grow about 6×) | **ruled (owner, 2026-11-11): (a)** hub `maxHeaderSize` 64 KB in `server.ts`, with a real-socket test (00 platform knob; integrator commit, fix I — SHA at the wave 2 checkpoint) |
+| AD-26 | 13 | Lane 2A STOP: the ≤ 8 KB eta-preview draft travels in a GET query string. URL-encoded, it can exceed Node's 16 KB `maxHeaderSize`, and Node then returns `431` before the hub's 400 check (Urdu notes grow about 6×) | **ruled (owner, 2026-11-11): (a)** hub `maxHeaderSize` 64 KB in `server.ts`, with a real-socket test (00 platform knob; integrator commit `b23e42f`) |
 | AD-27 | 15, 19 | Lane 2B S-1: `SetLineWeight` on a return line (it copies `requires_weighing`) would give the return line money through the `LineWeightSet` fold | **ruled (owner, 2026-11-11): (a)** `409 LINE_NOT_WEIGHED { order_item_id }` (text bump §3.6) |
 | AD-28 | 15, 16 | Lane 2B S-2: a command keyed only by line (`SetLineWeight`, `CompLine`) gets an unknown `order_item_id`. §9 lists `ORDER_NOT_FOUND` with `{ order_id }` | **ruled (owner, 2026-11-11): (a)** `ORDER_NOT_FOUND { order_item_id }` (text bump §9: `{ order_id } \| { order_item_id }`) |
 | AD-29 | 17 | Lane 2C S-1: `MarkServed` on lines that are never in `EngineState`, where the fired check can't apply | **ruled (owner, 2026-11-11): H-b** a deal header → `400 VALIDATION_FAILED` (path `lines[i].order_item_ids[j]`); **N-a** a no-station line can be marked served, with no fired check (text bump §3.7) |
+| AD-30 | 13 | Lane 2A `b67ede5` edited `server.ts` (outside its files). It duplicated fix I `b23e42f` at another spot, which would make a second `http` key | **ruled (owner, 2026-11-11): (a)** only `eta-preview-socket.int.test.ts` lands, as integrator commit `c2e40fc`; the `server.ts` hunk is dropped |
+| AD-31 | 19 | Lane 2C S-2a: `ReturnToKitchen` to a paused station with no allowed alternate | **ruled (owner, 2026-11-11): (b)** `409 STATION_PAUSED` (text bump §6.7; 03b G0 question in `docs/OPEN-QUESTIONS.md` §5) |
+| AD-32 | 19 | Lane 2C S-2b: `fix` when the item is no longer in config (`adjust_time_ms` needed) | **ruled (owner, 2026-11-11): accepted** `404 MENU_ITEM_NOT_FOUND { item_id }` (text bump §6.7) |
+| AD-33 | 19 | Lane 2C S-2c: unknown `order_item_id` | **ruled (owner, 2026-11-11): accepted** `404 ORDER_NOT_FOUND { order_item_id }` (as AD-28) |
+| AD-34 | 19 | Lane 2C S-2d: a zone-served line | **ruled (owner, 2026-11-11): accepted** `ITEM_WRONG_STAGE { stage: 'zone_served' }` (text bump) |
+| AD-35 | 19 | Lane 2C S-2e: a deal header, or a line the engine doesn't hold, on an order still in the engine | **ruled (owner, 2026-11-11):** a distinct stage word `'not_engine_line'` (not `'out_of_engine'`), with a test (text bump) |
 
 ## Owner rulings (this sprint)
 
@@ -106,6 +112,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 2026-11-11 | AD-1–AD-6 accepted as read; AD-23 (a) fixture deal weights by the 01c V11 c / M9 reference choice (test-only) | AD rows |
 | 2026-11-11 | AD-24 (a) zone-audience clause → task 21, task 20 asserts 403; AD-25 §6.9 branch stock read = in memory, 0 SQL | AD rows, plan tasks 20 / 21 |
 | 2026-11-11 | AD-26 hub `maxHeaderSize` 64 KB; AD-27 return line weight → 409 `LINE_NOT_WEIGHED`; AD-28 `ORDER_NOT_FOUND { order_item_id }`; AD-29 H-b header → 400, N-a no-station line can be served | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §6 |
+| 2026-11-11 | AD-30 land only lane 2A's socket test; AD-31 return to a paused station → 409 `STATION_PAUSED`; AD-32–AD-34 accepted; AD-35 stage `'not_engine_line'` | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §5 |
 
 ## Next 02b text bump
 
@@ -127,6 +134,11 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **AD-27:** §3.6 says `SetLineWeight` on a return line → `409 LINE_NOT_WEIGHED`.
 - **AD-28:** §9 `ORDER_NOT_FOUND` details become `{ order_id } | { order_item_id }`.
 - **AD-29:** §3.7 / §3.4 say `MarkServed` naming a deal header → `400 VALIDATION_FAILED`, and a no-station line is served with no fired check.
+- **AD-31–AD-35:** the §6.7 `ReturnToKitchen` error list gains:
+  - `409 STATION_PAUSED` (paused station, no alternate);
+  - `404 MENU_ITEM_NOT_FOUND` (`fix` with the item gone);
+  - `404 ORDER_NOT_FOUND { order_item_id }`;
+  - `ITEM_WRONG_STAGE` stages `'zone_served'` and `'not_engine_line'`.
 
 ## Wave entries
 
