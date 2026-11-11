@@ -82,6 +82,7 @@ const screen = (staffId: string, deviceId: string, sessionId = `ss_${staffId}`):
   deviceId,
   sessionId,
   kind: 'staff',
+  stationId: null, // 03b H-9
 });
 /** A staff signed in on a device: read (3) row + its staff-session socket. */
 const signedIn = (staffId: string, deviceId: string) => ({
@@ -372,7 +373,7 @@ describe('01d §3.4.3 / §3.8 fallbacks, registered routes, devices', () => {
 
   it('[01d §3.4.3] a device recipient: connected → its routes (staff_id null); offline → listed with no route', () => {
     const ws = wsWith({
-      sessions: [{ staffId: null, deviceId: 'D_KDS', sessionId: 'st1', kind: 'station' }],
+      sessions: [{ staffId: null, deviceId: 'D_KDS', sessionId: 'st1', kind: 'station', stationId: 'S1' }],
       alert: [{ deviceId: 'D_KIOSK', deviceType: 'cashier_kiosk' }],
     });
     const out = routeRecipients([D('D_KDS'), D('D_KIOSK'), D('D_OFF')], kind('t_info'), reads(), dir, ws, NOW);

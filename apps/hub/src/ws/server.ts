@@ -38,6 +38,8 @@ export interface ConnectedSession {
   deviceId: string;
   sessionId: string;
   kind: 'staff' | 'station';
+  // ⚠️ Changed by 03b v1.0.1 H-9 (00 v1.9): copied from SocketCtx; null on a staff socket.
+  stationId: string | null;
 }
 
 export interface WsHub {
@@ -157,6 +159,7 @@ export function registerWs(app: FastifyInstance, deps: HubDeps): WsHub {
         deviceId: ctx.deviceId,
         sessionId: ctx.sessionId,
         kind: ctx.kind,
+        stationId: ctx.stationId,
       }));
     },
     alertSockets() {

@@ -229,7 +229,7 @@ describe('websocket alert mode', () => {
     await session.untilCount(1);
     const wsHub = wsHubFor(hub.app);
     expect(wsHub.connectedSessions()).toEqual([
-      { staffId: 'S_MGR', deviceId: device.deviceId, sessionId: staff.sessionId, kind: 'staff' },
+      { staffId: 'S_MGR', deviceId: device.deviceId, sessionId: staff.sessionId, kind: 'staff', stationId: null }, // 03b H-9
     ]);
     const before = hub.published.length;
     hub.deps.writer.run((tx) => {

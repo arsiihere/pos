@@ -203,7 +203,7 @@ describe('websocket publish', () => {
     expect((bystanderWs.raw as { readyState?: number }).readyState).toBe(1);
   });
 
-  it('[00 H-4] connectedSessions lists open session sockets with kind and no statement; sendToStaff reaches only that staff; sendToDevices every socket of the device; a closed socket leaves the list', async () => {
+  it('[00 H-4, 03b H-9] connectedSessions lists open session sockets with kind and stationId (a station socket lists its stationId) and no statement; sendToStaff reaches only that staff; sendToDevices every socket of the device; a closed socket leaves the list', async () => {
     const hub = await open(cleanups);
     await seedDirectory(hub);
     const tablet = pairDevice(hub, { type: 'tablet' });
@@ -232,9 +232,10 @@ describe('websocket publish', () => {
     expect(sessions).toHaveLength(3);
     expect(sessions).toEqual(
       expect.arrayContaining([
-        { staffId: 'S_CASH', deviceId: tablet.deviceId, sessionId: cash.sessionId, kind: 'staff' },
-        { staffId: 'S_WAIT', deviceId: other.deviceId, sessionId: wait.sessionId, kind: 'staff' },
-        { staffId: null, deviceId: kds.deviceId, sessionId: stationLogin.session_id, kind: 'station' },
+        // 03b H-9 (00 v1.9): + stationId, copied from SocketCtx (null on a staff socket).
+        { staffId: 'S_CASH', deviceId: tablet.deviceId, sessionId: cash.sessionId, kind: 'staff', stationId: null },
+        { staffId: 'S_WAIT', deviceId: other.deviceId, sessionId: wait.sessionId, kind: 'staff', stationId: null },
+        { staffId: null, deviceId: kds.deviceId, sessionId: stationLogin.session_id, kind: 'station', stationId: 'station-1' },
       ]),
     );
 
