@@ -14,8 +14,8 @@ import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, 
 
 // 03c §3.3 (ticket layout), §3.5 (slips, REPRINT), §3.6 (Doc, mapping, renderText, render at send), task c10.
 // Orders, fires, merges, serves, returns and removals are real events (02b / 03b fixtures, real routes for
-// SubmitOrder and ReturnToKitchen). The `tickets` / `ticket_lines` / `station_outputs` rows are inserted here: their
-// projections (c4 / c7) are another lane's task and not merged yet.
+// SubmitOrder and ReturnToKitchen). The `tickets` / `ticket_lines` rows are c7's fold (owner ruling C1-3); the
+// `station_outputs` rows are inserted here.
 
 let hub: TestHub;
 afterEach(async () => {
@@ -60,15 +60,18 @@ async function start(o: { readyRaita?: boolean } = {}): Promise<void> {
 /** The preview centres a size-2 line as the printer does: 2 columns per character. */
 const centre2 = (text: string, cols: number): string => ' '.repeat(Math.floor((cols - 2 * text.length) / 2)) + text;
 
-/** Fires `ids` at `station` (real FireDispatched) and writes the ticket rows c7 would fold from it. */
+/** Fires `ids` at `station` (real FireDispatched); c7's `kitchen_tickets` folds the ticket rows (owner ruling C1-3). */
 function fireTicket(station: string, order_id: string, ids: string[], reason: 'scheduled' | 'pulled' = 'pulled'): { ticket_id: string; fired_at: number } {
   const fire = fireLines(hub, station, ids, reason).find((e: PosEvent) => e.event_type === 'FireDispatched')!;
   const ticket_id = `${fire.event_id}:${order_id}`;
-  hub.deps.db
-    .prepare("INSERT INTO tickets (ticket_id, station_id, order_id, fire_event_id, fired_at, reason) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(ticket_id, station, order_id, fire.event_id, fire.recorded_at, reason);
-  const line = hub.deps.db.prepare('INSERT INTO ticket_lines (order_item_id, ticket_id, station_id, done_at) VALUES (?, ?, ?, NULL)');
-  for (const id of ids) line.run(id, ticket_id, station);
+  expect(hub.deps.db.prepare('SELECT station_id, order_id, fire_event_id, fired_at, reason FROM tickets WHERE ticket_id = ?').get(ticket_id)).toEqual({
+    station_id: station,
+    order_id,
+    fire_event_id: fire.event_id,
+    fired_at: fire.recorded_at,
+    reason,
+  });
+  expect(hub.deps.db.prepare('SELECT order_item_id FROM ticket_lines WHERE ticket_id = ? ORDER BY order_item_id').pluck().all(ticket_id)).toEqual([...ids].sort());
   return { ticket_id, fired_at: fire.recorded_at };
 }
 
