@@ -97,7 +97,8 @@ type Payload = z.infer<typeof MarkServedPayload>;
 /**
  * §3.7 / §6.4. Statements: 1 orders (+ holder), 1 lines (`orderLines`), + `currentTableOf` for a `my_floors` dine-in
  * (2–3). Per order in payload order: unknown → 404 ORDER_NOT_FOUND (also for a line id the order does not have);
- * a served line → skipped; removed / voided → 409 ITEM_WRONG_STAGE; an order in the engine whose engine line is
+ * a deal header → 400 VALIDATION_FAILED (owner S-1 H-b); a served line → skipped; a line the engine does not hold
+ * (no station) → no fired check (owner S-1 N-a); removed / voided → 409 ITEM_WRONG_STAGE; an order in the engine whose engine line is
  * unfired (`added`, no fire) → ITEM_WRONG_STAGE { stage: 'added' }. An order that has left the engine (O16) serves
  * any live line, with no stockEffects. Scope last (C8). Batch: per order ItemServed { source: 'tap' } →
  * OrderFoodServed (when it serves a food line, §3.3) → its stockEffects (array form across the command, AD-29 Q7).
@@ -111,17 +112,21 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
 
   const skipped: string[] = [];
   const serves: Array<{ order_id: string; ids: string[]; inEngine: boolean }> = [];
-  for (const entry of payload.lines) {
+  payload.lines.forEach((entry, i) => {
     if (!orders.has(entry.order_id)) throw new DomainError('ORDER_NOT_FOUND', { order_id: entry.order_id });
     const byId = new Map(lines.get(entry.order_id)!.map((l) => [l.order_item_id, l]));
     const inEngine = isOrderInEngine(ctx.state, entry.order_id, now);
     const ids: string[] = [];
-    for (const id of entry.order_item_ids) {
+    entry.order_item_ids.forEach((id, k) => {
       const line = byId.get(id);
       if (line === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_id: entry.order_id });
+      // §3.4 (owner 2026-11-11 S-1 H-b): a deal header is never served (its parts are); 400 at the id's path, as C6.
+      if (line.line_kind === 'deal') {
+        throw new DomainError('VALIDATION_FAILED', { issues: [{ path: `lines.${i}.order_item_ids.${k}`, message: 'deal header line' }] });
+      }
       if (line.served_at !== null) {
         skipped.push(id);
-        continue;
+        return;
       }
       if (line.live_units === 0) {
         throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: id, stage: line.voided_units > 0 ? 'voided' : 'removed' });
@@ -131,9 +136,9 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
         throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: id, stage: 'added' });
       }
       ids.push(id);
-    }
+    });
     if (ids.length > 0) serves.push({ order_id: entry.order_id, ids, inEngine });
-  }
+  });
 
   checkOrderScope(ctx, orderIds.map((id) => orders.get(id)!));
 

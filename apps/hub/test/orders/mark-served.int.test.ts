@@ -374,6 +374,52 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
     expect(eventCount()).toBe(before);
   });
 
+  it('[02b §3.4] MarkServed naming a deal header → 400 VALIDATION_FAILED, nothing written (owner 2026-11-11 S-1 H-b)', async () => {
+    openDay(hub, { stock: { [FX.stock]: 10_000 } });
+    const o1 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'N1', item_id: FX.naan }] }).order_id;
+    const o2 = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'D1', deal_id: FX.deal },
+        { order_item_id: 'D1a', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D1' },
+        { order_item_id: 'D1b', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'D1' },
+      ],
+    }).order_id;
+    fire(FX.station, 'N1', 'D1a', 'D1b');
+    const waiter = signIn('S_WAITER');
+    const before = eventCount();
+    const reply = await serve(waiter, [
+      { order_id: o1, order_item_ids: ['N1'] },
+      { order_id: o2, order_item_ids: ['D1a', 'D1'] },
+    ]);
+    expect(reply.status).toBe(400);
+    expect(reply.error).toEqual({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'lines.1.order_item_ids.1', message: 'deal header line' }] } });
+    expect(eventCount()).toBe(before);
+    // the parts are what is served
+    expect((await serve(waiter, [{ order_id: o2, order_item_ids: ['D1a', 'D1b'] }])).result).toEqual({ served: 2, skipped: [] });
+  });
+
+  it('[02b §3.7] a no-station line is served with no fired check (owner 2026-11-11 S-1 N-a)', async () => {
+    openDay(hub);
+    // The config schema gives every item a station, so a no-station line exists only as ItemAdded.station_id null
+    // (01c §4.3); the fixture's documented ItemAdded override builds one. The engine never holds it.
+    const o1 = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'N1', item_id: FX.naan },
+        { order_item_id: 'X1', item_id: FX.ready, item: { station_id: null } },
+      ],
+    }).order_id;
+    expect(isOrderInEngine(engine(), o1, hub.clock.branchNow())).toBe(true);
+    expect(engine().lines.X1).toBeUndefined();
+    expect(engine().lines.N1).toMatchObject({ stage: 'added', fired_at: null });
+    const reply = await serve(signIn('S_WAITER'), [{ order_id: o1, order_item_ids: ['X1'] }]);
+    expect(reply.status).toBe(200);
+    expect(reply.result).toEqual({ served: 1, skipped: [] });
+    expect(reply.events.map((e) => e.event_type)).toEqual(['ItemServed']);
+    expect(servedAt('X1').served_source).toBe('tap');
+  });
+
   it('[02b §3.3] a served ready item (water) → ItemServed with no OrderFoodServed; the table stays ORDERED', async () => {
     openDay(hub);
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
@@ -426,7 +472,7 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
       { order_id: 'O2', order_item_ids: ['B', 'A'] },
     ]);
     expect(repeatedLine.status).toBe(400);
-    expect(repeatedLine.error?.code).toBe('VALIDATION_FAILED');
+    expect(repeatedLine.error).toEqual({ code: 'VALIDATION_FAILED', details: { issues: [{ path: 'lines.1.order_item_ids.1', message: 'duplicate order_item_id' }] } });
     const noLines = await serve(waiter, [{ order_id: 'O1', order_item_ids: [] }]);
     expect(noLines.status).toBe(400);
   });
