@@ -71,10 +71,10 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
     expect(kds.undoReadyForLines({} as never, ['L1'])).toEqual({ events: [], ready_undone: [] });
   });
 
-  it('[03c §4.2] printDocument / renderText throw "not built"; the boot, worker and retention hooks are no-ops', async () => {
+  it('[03c §4.2] printDocument throws "not built"; the boot, worker and retention hooks are no-ops', async () => {
     const print = await import('../../src/print/contracts');
     expect(() => print.printDocument({} as never, 'PR1', { blocks: [] })).toThrow(/not built/);
-    expect(() => print.renderText({ blocks: [] }, 32)).toThrow(/not built/);
+    // renderText: built by c10 (test/print/render.int.test.ts).
     const hooks = await import('../../src/print/boot');
     expect(() => hooks.resumePrintQueue({} as never)).not.toThrow();
     const stop = hooks.startPrintWorker({} as never, { error: () => undefined });
