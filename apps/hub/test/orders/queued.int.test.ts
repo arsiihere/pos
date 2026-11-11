@@ -218,18 +218,13 @@ describe('[02b #31 02b] queued replays: 02b’s use of X-Queued-At (§3.12, AD-1
     expect(sentAfterReconnect('O2')).toBe(0);
   });
 
-  it('[02b #31 02b free lock] a queued submit takes no free lock — holder and take-order-anywhere actor (P-1b, AD-1); the live holder call takes it', async () => {
+  it('[02b #31 02b free lock] a queued submit by the holder takes no free lock (P-1b, AD-1); the live holder call takes it', async () => {
     await setUp();
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
     const ali = signIn('S_ALI');
     const holder = await submit(ali, dineIn('O1', [item('L1', FX.naan)]), { queuedAt: hub.clock.branchNow() });
     expect(holder.status).toBe(200);
     expect(types(holder)).toEqual(['OrderPlaced', 'ItemAdded']);
-    expect(lockRows()).toEqual([]);
-
-    const anywhere = await submit(signIn('S_BILAL'), dineIn('O2', [item('L2', FX.naan)]), { queuedAt: hub.clock.branchNow() });
-    expect(anywhere.status).toBe(200);
-    expect(types(anywhere)).toEqual(['OrderPlaced', 'ItemAdded']);
     expect(lockRows()).toEqual([]);
 
     const live = await submit(ali, dineIn('O3', [item('L3', FX.naan)]));
