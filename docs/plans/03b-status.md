@@ -48,6 +48,10 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | P0.14 | #16 | merged `0432673` |
 | P0.F | #22 | in review (review fixes, owner rulings 2026-11-11) |
 | P0.15 | #29 | in review (B-2 ruling (a): kitchen timing settings writable + owner page boxes) |
+| P0.16 | — | not started — B3-2 plain options on KDS / tickets (02b `order_lines.options_json`, migration 0016). Needs: spec batch #42, c10 (#33) |
+| P0.17 | — | not started — B2-2 `auto_done` undo (03a `EngineLine.done_undone`, `ENGINE_STATE_VERSION` 4). Needs: spec batch #42 |
+| P0.18 | — | not started — B1-1 `SendTestAlert` point id → 404 `POINT_NOT_FOUND`; B1-2 `always_on` reaches point-bound tablets (01d v1.2.3). Needs: spec batch #42, b6 (#32) |
+| P0.19 | — | not started — P15-1 Ready window / KDS offline boxes in seconds (01a v2.4.3; client only). Needs: spec batch #42 (P0.15 merged) |
 
 ## Lanes
 
@@ -85,6 +89,16 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | AD-6 | P0.3 | Tests that pin the permission list, Cook = [] or the kitchen group count follow B-1 (G-9 class): `packages/domain/src/permissions.test.ts`, `apps/cloud/test/default-roles.test.ts`, `apps/cloud/test/cli/seed-tenant.int.test.ts`, `apps/client/src/features/owner/roles/RoleEditor.test.tsx`; #60's hub half is a new `apps/hub/test/auth/run-pass-default.int.test.ts`. | accepted (owner 2026-11-11) |
 | AD-16 | all P0 | No subagent tool in the integrator session: every P0 task was self-reviewed, not by fresh reviewer subagents (two for HIGH: P0.9, P0.11). | owner informed; integrator now runs fresh reviewers before each merge |
 | AD-17 | P0.13 | CLAUDE.md still names Foundation v1.11 as the source of truth; owner to point it at v1.12. | done |
+| AD-18 | b13 (B4-1) | 03b §7 "folds ≤ 2 statements per event" vs the pass folds that need 3. | **ruled (a)** (owner 2026-11-11): 03b v1.0.3 §7 — pass `ReadyToServe` 3, `Handover` 3, a settle 3, every other fold ≤ 2; R-3: a rebuild may set `settled_at` earlier for partial-unit settles, read only with `IS NULL` |
+| AD-19 | b9a (B2-2) | At an `auto_done` station the fires tick re-infers Done after `ItemDoneUndone`. | **ruled (a)** (owner 2026-11-11): 03a v1.2.2 `EngineLine.done_undone`, the inference skips flagged lines; 03b v1.0.3 §3.2; code P0.17 |
+| AD-20 | b11 (B3-2) | `LineDetail.options` had only option children; plain `ItemAdded.options` were not stored. | **ruled (a)** (owner 2026-11-11): 02b v1.0.7 `order_lines.options_json` (0016), 03b v1.0.3 §4.4, 03c v1.0.3 §3.3; code P0.16 |
+| AD-21 | c5 (C1-1) | A later save of an archived printer: keep or overwrite `archived_at`? | **ruled (a)** (owner 2026-11-11): keeps its first `archived_at`; un-archive clears it (03c v1.0.3 §3.2) |
+| AD-22 | b8 (B2-1) | At a batch station, does Done mark the whole load or only the tapped line? | **ruled (a)** (owner 2026-11-11): Done marks every line of the load that step 3's rule admits (cooking, or fired added from stock / at an `auto_done` station), the load is one unit (03a D14); 03b v1.0.3 §3.2 step 5; matches b8 as built (#19, reading 6) |
+| AD-23 | b15 (B4-3) | Handover receiver "active": in the directory only, or also signed in? | **ruled (a)** (owner 2026-11-11): also an open staff session, else 422 `PASS_RECEIVER_INVALID`; §6.8 statements 5 dine-in / 4 otherwise (03b v1.0.3); code in b15 (#35) |
+| AD-24 | b6 (B1-1) | `SendTestAlert` to a point id that is not a point. | **ruled (a)** (owner 2026-11-11): checked against active `branchConfig().points` → 404 `POINT_NOT_FOUND` (01d v1.2.3); code P0.18 |
+| AD-25 | b6 (B1-2) | `always_on` and Pass tablets. | **ruled (a)** (owner 2026-11-11): `always_on` also reaches unrevoked tablets with `devices.point_id` (01d v1.2.3 §3.4); code P0.18 |
+| AD-26 | P0.15 (P15-1) | KDS offline's 10 s floor cannot be typed in two-decimal minutes. | **ruled (a)** (owner 2026-11-11): Ready window and KDS offline in seconds, Served estimate in minutes (01a v2.4.3); code P0.19 |
+| AD-27 | b15 (B4-2) | Handover with no list when more than 40 done lines wait at the point. | **ruled (a)** (owner 2026-11-11): take at most 40 in line order (`added_at`, `order_item_id`), result `remaining`, a second call takes the rest; named lists 1–40 as today (03b v1.0.3 §3.5 step 3, §6.8, test 24a); code in b15 (#35) |
 
 ## Gate times (CI, for the record)
 

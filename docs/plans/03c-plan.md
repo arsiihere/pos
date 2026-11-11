@@ -2,9 +2,9 @@
 
 > Same rules, branch, CI, board and prompts as `docs/plans/03b-plan.md` (read its "Global rules", "Hub API names" and "Markers" first). Exact names: `docs/plans/03b-03c-gaps.md` §1. 03c shares **phase 0** with 03b (P0.2 D-3, P0.6 codes, P0.7 `Doc`, P0.8 events / `printed_lines`, P0.9 migration `0015_print.sql`, P0.10 `printer_problem` with `{ target: { kind: 'managers' } }` (G-14), P0.11 `print/contracts.ts`, `print/lanes/C1–C4.ts`, `registerPrint` in `server.ts`, `registerPrintProjections` after 03b's, `print/boot.ts` `registerPrintBootSteps()` called from `main.ts` (boot step 5), the worker start / stop next to `startTickLoop` in `lib/boot.ts`, the retention call in `auth/session-sweeper.ts` `purge()` (G-7, G-8), P0.12 print fixtures, P0.13 bumps). Commits `feat(03c): … [03c §x]`.
 
-**Goal:** 03c v1.0.2 on the hub: printer config, kitchen tickets (forward-only, live-only jobs, total fold), slips, suspect recovery, paper fallback for dark screens, reprint, ESC/POS + LAN + USB child process, the print worker, `printer_problem`, `printed` tag data, print API for 05. Clients after the design handoff.
+**Goal:** 03c v1.0.3 on the hub: printer config, kitchen tickets (forward-only, live-only jobs, total fold), slips, suspect recovery, paper fallback for dark screens, reprint, ESC/POS + LAN + USB child process, the print worker, `printer_problem`, `printed` tag data, print API for 05. Clients after the design handoff.
 
-**Spec:** `docs/specs/03c_Printing_Spec_v1.0.2.md` (APPROVED 2026-11-11; v1.0.1 = v1.0 + the gap-sweep wording G-7, G-8, G-14, owner 2026-11-11; v1.0.2 = v1.0.1 + wording only, AD-15; "§x", tests "#n"). The pilot attaches kitchen printers (OQ-C1), so 03c is needed before go-live; manual checks run on the pilot's printers.
+**Spec:** `docs/specs/03c_Printing_Spec_v1.0.3.md` (APPROVED 2026-11-11; v1.0.3 = owner rulings B3-2, C1-1 (a); v1.0.1 = v1.0 + the gap-sweep wording G-7, G-8, G-14, owner 2026-11-11; v1.0.2 = v1.0.1 + wording only, AD-15 (03b v1.0.2 also carries AD-9: 0012 bumps config_version); "§x", tests "#n"). The pilot attaches kitchen printers (OQ-C1), so 03c is needed before go-live; manual checks run on the pilot's printers.
 
 ## 03c lanes
 
