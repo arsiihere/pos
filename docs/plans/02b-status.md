@@ -23,6 +23,9 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 > **2026-11-11 (wave 2):** saare 10 commands ban gaye (submit, remove, weight, comp, served, release/boost, return, zone stock). Gate green (4106 tests).
 > - Lanes 4 dafa ruke, owner ne faisle diye (AD-24 se AD-35). AD-36 (lanes ki readings ka bundle) khula hai, kuch nahi rokta.
 > - Agla qadam: wave 3.
+>
+> **2026-11-11 (wave 3):** queries, catch-up, audiences, queued replays aur handover ka amount ban gaye. Gate green (4135 tests). Saari 19 §12.2 rows ho gayin.
+> - Agla qadam: wave 4 (perf file, acceptance map, spec v1.0.4).
 
 ## Task table
 
@@ -48,9 +51,9 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 18 | `ReleaseItems`, `BoostOrder` | 12 | 2C | NORMAL | **done (wave 2)** | `9e5801c`, `420f3cd` |
 | 19 | `ReturnToKitchen` | 13 | 2C | HIGH | **done (wave 2)** | `f725fb3`, `9645f4f`, `7831279` |
 | 20 | `AddZoneStock`, `SetZoneStock` | 15 | 2D | NORMAL | **done (wave 2)** | `f3d3ccd` |
-| 21 | Queries, catch-up, audiences | 17 | 3A | NORMAL | todo | |
-| 22 | Queued replays (02b's use) | 18 | 3B | HIGH | todo | |
-| 23 | Handover card amount | — | 3C | NORMAL | todo | |
+| 21 | Queries, catch-up, audiences | 17 | 3A | NORMAL | **done (wave 3)** | `ffdc43f`, `ce0410f`, `9e5d7ae` |
+| 22 | Queued replays (02b's use) | 18 | 3B | HIGH | **done (wave 3)** | `39452dc`, `84859dc` |
+| 23 | Handover card amount | — | 3C | NORMAL | **done (wave 3)** | `b3e984f` |
 | 24 | Perf file, acceptance map, README rows | 22 | 4 | NORMAL | todo | |
 | 25 | Client: queue and drafts | 19 | 5 | UI | **blocked (design handoff)** | |
 | 26 | Client: ordering screen, options, preview | 20 | 5 | UI | **blocked (design handoff)** | |
@@ -323,7 +326,40 @@ Readings already accepted in code that the next 02b text patch writes into the s
     - the frame wait loop could use a `until*` helper.
   - Fix I: assert the exact 401, not "not 431"; possible ECONNRESET on the 70 KB case.
 
+## Wave 3 — queries, catch-up, audiences, queued replays, handover amount (2026-11-11)
+
+- **Lanes:** 3A (task 21), 3B (22), 3C (23), all cut from `32d0d03`.
+- **STOPs:** 3A only, S-1 and S-2 plus readings R1–R12, ruled as AD-37–AD-39 (owner, 2026-11-11). 3B and 3C finished with no STOP.
+- **Landed (cherry-picked, no conflicts):**
+  - 3C: `b3e984f`.
+  - 3B: `39452dc`, `84859dc`.
+  - 3A: `ffdc43f`, `ce0410f`, `9e5d7ae`.
+- **Files outside `orders/`:**
+  - 3C (G-1 (a)): `tables/handover.ts` (the `registerSeatingTotals` hook) and `tables/commands/request-table-handover.ts`, where the card is built and the plan's "1 statement more on the handover path" lives. That is within the G-1 ruling.
+  - 3A (G-2 (a), test-only): `test/engine/stations-live.int.test.ts`. Staff sockets now get the 02b order-stream events (02b §6.19). The KDS assertion stays exact ("no order event"), so nothing is weakened.
+- **Reviews:** one fresh implementer and an opus reviewer per task.
+  - 21: approved (5 minors), then the owner-ruling fix and the R2 fix, both reviewed.
+  - 22: approved (1 minor fixed, 3 parked with no change).
+  - 23: approved (3 minors carried).
+- **Gate:** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. 420 files (1 skipped), 4135 tests passed (1 skipped, 1 todo), 577 s wall. Green.
+- **§12.2 rows ticked:** 14 (`eta-preview`, built in wave 2 and its row closed here with the queries), 15 `seating-orders`, 16 `open-orders`, 17 `zone-stock`, 18 `order-contact`, 19 catch-up `orders`. All 19 rows are now ticked.
+- **Statement counts asserted:**
+  - `[02b #33 queries]`: seating-orders 2, open-orders 2, zone-stock 1, order-contact 1 (2 under `my_floors` dine-in, AD-38), catch-up part `orders` 3.
+  - Handover: +1 (`seatingTotals`, 02a #12 amount).
+- **Also closed:**
+  - `[02b #33 zone audience]` (moved here by AD-24);
+  - `[02b AD-6]` zone events reach no 02a reader;
+  - `[02b #31 02b]`, `[02b #13 queued]`, `[02b #22 queued]` (task 22);
+  - `[02a #12 amount]` (task 23).
+- **Carried (minor, deferred):**
+  - 3B, parked with no change:
+    - the hard-coded 10-path registry list in `queued.int.test.ts`;
+    - a misplaced comment;
+    - the clamp may put `served_at` before `placed_at` (the spec allows it).
+  - 3A: 3 minors (lane notes).
+  - 3C: 3 minors (lane notes). Its reading: `seatingTotals` is called whenever the hook is registered, and `amount` appears only when `live_orders > 0`.
+
 ## Next
 
-1. **Claude Code:** wave 3. Lanes 3A (task 21), 3B (22) and 3C (23).
+1. **Owner:** review wave 3, then type `wave 4`. Task 24 adds the perf file (written, never run), the acceptance map and the README rows, and turns "Next 02b text bump" into spec v1.0.4 (approved). After that the owner runs `pnpm test:perf` on the real disk, alone.
 2. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
