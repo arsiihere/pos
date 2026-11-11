@@ -1,5 +1,6 @@
 import { PERMISSION_CATALOGUE, PERMISSION_SCOPES, PERMISSIONS } from '@pos/domain';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_ROLES } from '../../../cloud/src/modules/staff-roles/default-roles';
 import { currentDirectory } from '../../src/auth/guards';
 import { aDirectory } from '../helpers/fixtures';
 import { createTestHub, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -23,16 +24,18 @@ describe('[03b #60] run-pass on the hub', () => {
   it('[03b #60] a directory apply with the default Cook grants: Cook resolves run-pass and reprint-ticket, Owner and Manager run-pass', async () => {
     hub = await createTestHub({ provisioned: true });
     const base = await aDirectory();
-    const grant = (permission: 'run-pass' | 'reprint-ticket') => ({
-      permission,
-      grant_type: 'allowed' as const,
+    // The Cook role as the cloud seeds it (01b §6.15 DEFAULT_ROLES, default_key 'cook'), not hand-written grants.
+    const cook = DEFAULT_ROLES.find((r) => r.default_key === 'cook')!;
+    const permissions = cook.grants.map((g) => ({
+      permission: g.permission,
+      grant_type: g.grant_type,
       approver_role_id: null,
       approver_role_ids: [],
-      scope: 'branch' as const,
-    });
+      scope: g.scope ?? ('branch' as const),
+    }));
     await seedDirectory(hub, {
       ...base,
-      roles: [...base.roles, { role_id: 'R_COOK', name: 'Cook', session_idle_ttl_ms: 300_000, permissions: [grant('run-pass'), grant('reprint-ticket')] }],
+      roles: [...base.roles, { role_id: 'R_COOK', name: cook.name, session_idle_ttl_ms: cook.session_idle_ttl_ms, permissions }],
       staff: [
         ...base.staff,
         { staff_id: 'S_COOK', display_name: 'Cook', pin_hash: base.staff[0]!.pin_hash, role_ids: ['R_COOK'], denied_permissions: [], lead_staff_id: null, floor_ids: [] },

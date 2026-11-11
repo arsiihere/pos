@@ -54,13 +54,16 @@ describe('[03c P0.12] fake LAN printer', () => {
     const { socket } = await client(p);
     await until(() => p.connections() === 1);
     p.stall();
-    const big = Buffer.alloc(64 * 1024 * 1024, 0x41);
+    // 16 MB: well above the loopback socket buffers (send + receive, a few MB with autotuning), small enough to move
+    // fast once read again. The fake's byte counter is polled, never a concatenation of everything received.
+    const big = Buffer.alloc(16 * 1024 * 1024, 0x41);
     socket.write(big);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(socket.writableLength).toBeGreaterThan(0);
-    expect(p.received().length).toBeLessThan(big.length);
+    expect(p.receivedLength()).toBeLessThan(big.length);
     p.resume();
-    await until(() => p.received().length === big.length);
+    await until(() => p.receivedLength() === big.length);
+    expect(p.received().length).toBe(big.length);
   });
 
   it('[03c P0.12, #21] slowRead(1): one byte per tick', async () => {

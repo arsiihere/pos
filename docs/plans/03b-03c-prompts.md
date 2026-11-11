@@ -29,7 +29,7 @@ Expected: Postgres running, `fsync` = off, 1 test passed.
 I'm Arslan Ahmed Arif. Restaurant POS, repo arsiihere/pos. Reply in Hinglish, short and direct.
 
 Job: GAP SWEEP before building 03b + 03c. Read only; write one file.
-Read CLAUDE.md, docs/plans/03b-plan.md, docs/plans/03c-plan.md, docs/specs/03b_KDS_Pass_Spec_v1.0.1.md, docs/specs/03c_Printing_Spec_v1.0.1.md.
+Read CLAUDE.md, docs/plans/03b-plan.md, docs/plans/03c-plan.md, docs/specs/03b_KDS_Pass_Spec_v1.0.2.md, docs/specs/03c_Printing_Spec_v1.0.2.md.
 For EVERY name the plans' tasks use — functions, exports, signatures, event types and fields, tables and columns, config / settings keys, registry hooks (defineCommand, registerProjection order, registerBootStep, registerTick, registerCatchUp, registerEventAudience, WsHub), test helpers (createTestHub, statementCounter, fixtures), 02b exports (scopedOrders, checkOrderScope, registerOrdersProjection, its tick file), 03a engine exports, 01d alert APIs, next free migration number — find it in the code on main (file:line) and check it matches the spec.
 Write docs/plans/03b-03c-gaps.md:
 1) "Exact names" table: need → name and file:line (the plans use it).
@@ -51,7 +51,7 @@ Owner rulings on docs/plans/03b-03c-gaps.md: <paste my answer>. Record them in t
 ```
 I'm Arslan Ahmed Arif. Restaurant POS, repo arsiihere/pos. Reply in Hinglish, short and direct.
 
-You are the 03b/03c INTEGRATOR. Read CLAUDE.md, docs/plans/03b-plan.md (all of it: global rules, phase 0, lanes, launch schedule), docs/plans/03c-plan.md, docs/plans/03b-03c-gaps.md (rulings), the specs 03b v1.0.1 and 03c v1.0.1.
+You are the 03b/03c INTEGRATOR. Read CLAUDE.md, docs/plans/03b-plan.md (all of it: global rules, phase 0, lanes, launch schedule), docs/plans/03c-plan.md, docs/plans/03b-03c-gaps.md (rulings), the specs 03b v1.0.2 and 03c v1.0.2.
 1. Task P0.1: create branch module-03b from origin/main and push it; create the GitHub labels; create docs/plans/03b-status.md from the template in that file if missing.
 2. Then tasks P0.2 … P0.13 in order. Each: branch lane-P0/<task> from module-03b, TDD (failing test first), a fresh reviewer subagent (opus; two for HIGH), one commit, PR into module-03b with the plan's PR body, wait for the gate check, rebase-merge it yourself, update the board. Run only the touched files' tests and typechecks locally; CI runs the full gate.
 3. Never push to main. Never force-push anything but your own lane-P0/* branches.

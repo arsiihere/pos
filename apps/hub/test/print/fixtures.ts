@@ -28,6 +28,8 @@ export interface FakeLanPrinter {
   address: string;
   /** every byte received, status requests included */
   received(): Buffer;
+  /** how many bytes were received so far, without concatenating them (cheap to poll) */
+  receivedLength(): number;
   /** the answer to the next DLE EOT requests (one byte per request); `null` = no answer (a printer that never replies) */
   setStatus(byte: number | null): void;
   /** stop reading: the kernel buffers fill and a large write never drains (03c #21) */
@@ -44,12 +46,14 @@ export interface FakeLanPrinter {
 
 export async function fakeLanPrinter(o: { status?: number | null } = {}): Promise<FakeLanPrinter> {
   const chunks: Buffer[] = [];
+  let receivedBytes = 0;
   const sockets = new Set<Socket>();
   let status: number | null = o.status === undefined ? STATUS.online : o.status;
   let mode: { kind: 'full' } | { kind: 'stalled' } | { kind: 'slow'; bytes: number } = { kind: 'full' };
 
   const take = (socket: Socket, data: Buffer): void => {
     chunks.push(data);
+    receivedBytes += data.length;
     for (let i = 0; i + 1 < data.length; i += 1) {
       if (data[i] === DLE && data[i + 1] === EOT && status !== null) socket.write(Buffer.from([status]));
     }
@@ -77,6 +81,7 @@ export async function fakeLanPrinter(o: { status?: number | null } = {}): Promis
     port,
     address: `127.0.0.1:${port}`,
     received: () => Buffer.concat(chunks),
+    receivedLength: () => receivedBytes,
     setStatus(byte) {
       status = byte;
     },
