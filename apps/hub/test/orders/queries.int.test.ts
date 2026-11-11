@@ -263,6 +263,79 @@ describe('seating-orders (§6.15)', () => {
   });
 });
 
+// ------------------------------------------------------------------------------------------- #29 merge
+
+describe('[02b #29 merge] grouping after a merge (§3.3: 02a\'s current seating_orders)', () => {
+  // T4 = FX.zoneTable (surviving seating S_T4), T5 = FX.table (absorbed seating S_T5); the merge is 02a's real
+  // TablesMerged event through the hub writer (as exports.int.test.ts `[02b #29 exports]`).
+  const merge = () =>
+    append(
+      draft('table', FX.zoneTable, 'TablesMerged', {
+        into_seating_id: 'S_T4',
+        into_table_id: FX.zoneTable,
+        table_ids: [FX.table],
+        absorbed_seating_id: 'S_T5',
+        order_ids: ['O5'],
+        by_staff_id: OT1,
+      }, OT1),
+    );
+  const round = (order_id: string, order_item_id: string) => ({
+    order_id,
+    order_type: 'dine_in',
+    table_id: FX.zoneTable,
+    seating_id: 'S_T4',
+    lines: [{ order_item_id, item_id: FX.naan, quantity: 1 }],
+  });
+  const followUp = (order_id: string) =>
+    (hub.deps.db.prepare('SELECT follow_up FROM orders WHERE order_id = ?').get(order_id) as { follow_up: number }).follow_up;
+
+  it('[02b #29 merge] merge T5 into T4: seating-orders for T4\'s seating lists T5\'s order; T5\'s seating lists none', async () => {
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'S_T4', holder_staff_id: OT1 });
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T5', holder_staff_id: OT2 });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'S_T4', order_id: 'O4', placed_by: OT1, lines: [{ order_item_id: 'A1', item_id: FX.naan }] });
+    hub.clock.advance(5_000);
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'S_T5', order_id: 'O5', placed_by: OT2, lines: [{ order_item_id: 'B1', item_id: FX.piece }, { order_item_id: 'B2', item_id: FX.naan }] });
+    const who = signIn(WAITER);
+    expect((await query<Seating>(who, 'seating-orders?seating_id=S_T4')).data.orders.map((o) => o.order_id)).toEqual(['O4']);
+
+    merge();
+
+    const t4 = (await query<Seating>(who, 'seating-orders?seating_id=S_T4')).data;
+    expect(t4.orders.map((o) => o.order_id)).toEqual(['O4', 'O5']);
+    expect(t4.orders[1]!.placed_by).toEqual({ staff_id: OT2, name: 'Omar' });
+    expect(t4.orders[1]!.lines.map((l) => l.order_item_id)).toEqual(['B1', 'B2']);
+    expect(t4.total_minor).toBe(seatingTotals(hub.deps.db, 'S_T4').total_minor);
+    expect(seatingTotals(hub.deps.db, 'S_T4').order_count).toBe(2);
+    expect((await query<Seating>(who, 'seating-orders?seating_id=S_T5')).data).toEqual({ orders: [], total_minor: 0 });
+  });
+
+  it('[02b #29 merge] follow_up of a round on the merged seating is true from a served food line of the absorbed seating\'s order (§3.3)', async () => {
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'S_T4', holder_staff_id: OT1 });
+    openSeating(hub, { table_id: FX.table, seating_id: 'S_T5', holder_staff_id: OT2 });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'S_T4', order_id: 'O4', placed_by: OT1, lines: [{ order_item_id: 'A1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'S_T5', order_id: 'O5', placed_by: OT2, lines: [{ order_item_id: 'B1', item_id: FX.piece }] });
+    fire('B1');
+    served('O5', 'B1'); // the karahi of T5's order: a food line, served
+    const ot1 = signIn(OT1);
+
+    // before the merge: T4's own orders have no served food line → false
+    const before = await command(ot1, 'submit-order', 'SubmitOrder', round('O4b', 'A2'));
+    expect(before.status).toBe(200);
+    expect(followUp('O4b')).toBe(0);
+
+    merge();
+
+    const after = await command(ot1, 'submit-order', 'SubmitOrder', round('O4c', 'A3'));
+    expect(after.status).toBe(200);
+    expect(followUp('O4c')).toBe(1);
+    expect(engine().orders.O4c!.follow_up).toBe(true);
+    const placed = hub.deps.db
+      .prepare("SELECT payload FROM events WHERE event_type = 'OrderPlaced' AND stream_id = 'O4c'")
+      .get() as { payload: string };
+    expect(JSON.parse(placed.payload)).toMatchObject({ follow_up: true, table_key: 'dine_in:S_T4' });
+  });
+});
+
 // ------------------------------------------------------------------------------------------- §6.16
 
 describe('open-orders (§6.16)', () => {
