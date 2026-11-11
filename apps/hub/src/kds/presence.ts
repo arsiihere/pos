@@ -8,6 +8,7 @@ import { rawDbOf } from '../engine-host/read-only-tx.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { kdsStationBody } from '../ws/kds-catch-up.js';
+import { markPointGiven } from '../ws/point-catch-up.js';
 import { wsHubFor, type ConnectedSession, type WsHub } from '../ws/server.js';
 import type { StationPresence } from './contracts.js';
 import { devicePointOf, screenStations } from './device-roles.js';
@@ -239,7 +240,10 @@ export const kdsPresenceTick: TickDef = {
           try {
             const sessions = passSessions(host, point_id);
             if (sessions.length > 0 && isEngineState(after)) {
-              host.ws().sendToSessions(sessions, { type: 'station_takeover', station_id: id, active: true, view: kdsStationBody(host.db, after, id, now) });
+              const view = kdsStationBody(host.db, after, id, now);
+              host.ws().sendToSessions(sessions, { type: 'station_takeover', station_id: id, active: true, view });
+              // b21 §6.16: the view carried these details; point_lines does not send them again
+              markPointGiven(host.db, sessions, [...view.now, ...view.details].map((l) => l.order_item_id));
             }
           } catch (err) {
             host.log?.error({ station_id: id, err }, 'kds.takeover.start: frame skipped');
