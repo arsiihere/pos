@@ -3,6 +3,7 @@
 Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-03c-gaps.md`. Integration branch: `module-03b`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-11: phase 0 shuru — `module-03b` cut, labels ban gaye, P0.1 (CI hygiene G-11 / G-12) PR mein. Owner: 03c poora rakhna hai (USB + LAN, suspect recovery, paper fallback), HIGH pe do reviewers (W-6).
 > - 2026-11-11: gap sweep done, 14 G-rows ruled (a); spec v1.0.1. Next: phase 0.
 > - 2026-11-11: specs 03b v1.0 + 03c v1.0 APPROVED; plans, CI gate and cloud setup ready. Waiting: 02b merge → gap sweep.
 
@@ -15,12 +16,14 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | W-3 | The integrator opens `spec-03b` → `main` and merges it when `gate` is green. The final `module-03b` → `main` merge stays the owner's. |
 | W-4 | Lanes run as remote agents launched from the integrator chat, at most 5 at once. |
 | W-5 | Repo visibility: **public** (owner, 2026-11-11), so GitHub Actions minutes are free. Never commit a secret. |
+| W-6 | (2026-11-11 16:38 PKT: "Pilot mein dono rakhni hain USB aur LAN; sab rakho") 03c stays as specced: suspect recovery, USB **and** LAN transports, paper fallback for dark screens — nothing cut for the pilot. RISK HIGH tasks keep two fresh reviewers. |
 
 ## Phase 0
 
 | Task | PR | State |
 |---|---|---|
-| P0.1 – P0.14 | — | not started |
+| P0.1 | (this PR) | in review |
+| P0.2 – P0.14 | — | not started |
 
 ## Lanes
 

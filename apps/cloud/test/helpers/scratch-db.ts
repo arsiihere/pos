@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { copyFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,8 +21,18 @@ const dirs: string[] = [];
 let counter = 0;
 let swept = false;
 
+// G-12: a server-side kill (57P01, e.g. another run's DROP … WITH (FORCE)) of an idle pooled
+// connection must not become an unhandled 'error' event. Log the code only and go on; the pool
+// replaces the client on the next query.
+function onPoolError(error: Error): void {
+  console.warn(`scratch-db pool error ${(error as Error & { code?: string }).code ?? 'unknown'} (ignored)`);
+}
+
 function adminPool(): pg.Pool {
-  admin ??= new pg.Pool({ connectionString: baseUrl, max: 1 });
+  if (admin === null) {
+    admin = new pg.Pool({ connectionString: baseUrl, max: 1, application_name: `pos_scratch_admin_${process.pid}` });
+    admin.on('error', onPoolError);
+  }
   return admin;
 }
 
@@ -51,7 +62,8 @@ async function sweepDeadRuns(): Promise<void> {
     `SELECT datname FROM pg_database WHERE datname LIKE 'pos\\_test\\_0005\\_%'`,
   );
   for (const { datname } of rows) {
-    const match = /^pos_test_0005_(\d+)_\d+$/.exec(datname);
+    // Current form pos_test_0005_<pid>_<counter>_<random>; the older pos_test_0005_<pid>_<counter> too.
+    const match = /^pos_test_0005_(\d+)_\d+(?:_[0-9a-f]+)?$/.exec(datname);
     if (match !== null && !pidAlive(Number(match[1]))) await adminPool().query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`);
   }
 }
@@ -62,14 +74,16 @@ export async function scratchDatabaseAt(lastVersion: number): Promise<{ url: str
     await sweepDeadRuns();
   }
   counter += 1;
-  const name = `pos_test_0005_${process.pid}_${counter}`;
-  await adminPool().query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+  // G-12: a random suffix, so a second instance of this module in the same process (same pid,
+  // counter from 1 again) can never pick, and drop, a name another instance still uses.
+  const name = `pos_test_0005_${process.pid}_${counter}_${randomBytes(4).toString('hex')}`;
   await adminPool().query(`CREATE DATABASE ${name}`);
   created.push(name);
   const parsed = new URL(baseUrl);
   parsed.pathname = `/${name}`;
   const url = parsed.toString();
   const pool = createPool(url);
+  pool.on('error', onPoolError);
   pools.push(pool);
   await migrate(pool, migrationsUpTo(lastVersion), clock);
   return { url, pool };
