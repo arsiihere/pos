@@ -13,6 +13,7 @@
 | Version | Date | Change |
 |---|---|---|
 | v0.1 | 2026-11-11 | First draft from G0 + G1 (owner accepted every G0 recommendation, 2026-11-11). Adds `DONE_CONFIRM_REQUIRED` and `PRINT_JOB_NOT_FOUND` to G1-18's error list (§9). |
+| v0.1 (owner answers) | 2026-11-11 | Owner answered OQ-1 (generic thermal ESC/POS printers, USB **and** LAN; no model named) and OQ-2 ("bana do": the upstream rows and 02b's `served_estimate` registration are **approved cross-module tasks inside 03b's plan**, owner ruling for 03b only, overriding the README build-order note "a domain sprint does not edit another module's files" for exactly these rows). §4.3 To 02b, §4.5 F-2, §11 task 0 → 0a–0e, §12.3 updated. Not a version bump: the draft has not been reviewed. |
 
 ---
 
@@ -303,7 +304,7 @@ New permission **`run-pass`** (group `kitchen`, scopes `branch`; default grant b
 
 | To | Requirement |
 |---|---|
-| 02b | Register tick `served_estimate` (02b §3.7, §6.11, O14) with `due` = `handoversDue(db, now, served_estimate_ms)` (1 statement) and `intents` = `ItemServed { source: 'estimated' }` per order + `stockEffects` + `OrderFoodServed` when it serves a food line. **Built in the next platform sprint (02p pattern)**, not from a 03b branch (README build-order note). Until then no estimate runs (O14 allows it). |
+| 02b | Register tick `served_estimate` (02b §3.7, §6.11, O14) with `due` = `handoversDue(db, now, served_estimate_ms)` (1 statement) and `intents` = `ItemServed { source: 'estimated' }` per order + `stockEffects` + `OrderFoodServed` when it serves a food line. **Owner ruling 2026-11-11 (OQ-2): built by 03b's plan as task 0e, an approved cross-module task in 02b's files, after `module-02b` merges into main**; 02b's spec text (§6.11 "registered with 03b's `Handover`") already allows it, so no 02b version bump. Until then no estimate runs (O14). |
 | 04 | Nothing new: 03b folds `ItemVoided` itself for CANCELLED slips (P9 a). 04's void screens may show `handedOverLines` ("handed to Bilal"). |
 | 05 | Print bills, receipts and the Z report with `printDocument` / `kickDrawer` in the bill-close transaction; own the receipt template (R12) and its preview over `renderText`; choose the cashier's printer (05 config) from 03b's printer list; a receipt printer outage never blocks bill close (R8). |
 | 01e | Button stations: a station with no screen uses mode `printer`, or `screen` with a printer for fallback; headless point devices and lane buttons bind through 03b's `DeviceRoleSet` columns (or 01e's own pairing writes the same H-5 / H-6 columns); lane **claims** (K7) are 01e's, on button devices. |
@@ -340,7 +341,7 @@ type Doc = { width_cols?: 32 | 48; blocks: DocBlock[] };     // §3.10
 | Row | Target | Change | Why |
 |---|---|---|---|
 | F-1 | Foundation §5.8 "Print queue schema" + step 5 text | Replace the `print_jobs` DDL with 03b §5's (kind, `station_id`, `ticket_id`, `order_id`, JSON `payload`, `cancelled_at`, `attempts`, `last_error`; `printer_url` and `branch_id` dropped: the printer is resolved at send, the hub is one branch). Step 5 reads "sent and not acked → `is_reprint = 1`, `sent_at = NULL`, re-send in `created_at` order with a REPRINT line"; acked = §3.14's rule. D24 unchanged. | G1-2, G1-5 |
-| F-2 | Foundation OQ14 | "Printer connectivity": LAN raw TCP 9100 and Linux `usblp` device files, no ESC/POS library; still confirm the model before the pilot install (status support, code page). | §3.10 |
+| F-2 | Foundation OQ14 | Answered (owner, 2026-11-11): **generic thermal ESC/POS printers, USB and LAN** both supported; the model is chosen at install. LAN raw TCP 9100 is preferred in the kitchen (foundation OQ14 preference, no cable runs to the hub); USB through Linux `usblp` (`/dev/usb/lp0`…); a printer with both ports is configured on one. No ESC/POS library. Status support and code page are **detected per printer at its test print** (§3.14, §6.13), never assumed from a model. | §3.10, §3.14 |
 | B-1 | 01b `PERMISSION_CATALOGUE`, CHECK, default grants | New `run-pass` (group `kitchen`, scope `branch`); defaults by `default_key`: `owner`, `manager`, `cook` allowed; CHECK-expand migration; seeded tenants re-seeded (R29). | P8 |
 | A-1 | 01a branch settings (endpoint, snapshot `settings`) | `ready_window_ms` (60 000; 15 000–300 000) and `kds_offline_print_ms` (30 000; 10 000–300 000), additive keys as 02b's settings rows. | G1-10, P4 |
 | H-1 | 00 §5.1 notes on H-5 / H-6 | "Written by 03b's `DeviceRoleSet` projection (and 01e's pairing when built)"; no code change in 00. | G1-8 |
@@ -688,7 +689,11 @@ Client
 
 | # | Task | Files | Spec |
 |---|---|---|---|
-| 0 | Upstream rows land first (platform sprint or approved cross-module task): B-1 `run-pass`, A-1 settings, D-1 constants, F-1 doc text | `packages/domain`, 01a settings, 01b migration | §4.5 |
+| 0a | B-1: `run-pass` in `PERMISSION_CATALOGUE`, CHECK-expand migration, `default_key` grants, re-seed (R29) — approved cross-module task (OQ-2) | `packages/domain/src/permissions.ts`, `apps/hub` + `apps/cloud` migrations | §4.5 B-1 |
+| 0b | A-1: settings `ready_window_ms`, `kds_offline_print_ms` on 01a's branch settings endpoint and snapshot `settings` (additive) | 01a settings files | §4.5 A-1 |
+| 0c | D-1: `ready_to_serve_attempts`, `printer_alert_ms` in `ALERT_CONSTANTS` | `packages/domain/src/alert-constants.ts` | §4.5 D-1 |
+| 0d | F-1, F-2, H-1, S-1: doc text in their targets with "Changed by 03b" markers (applied with 03b's approval, R34) | foundation, 00, `stories-refined.md` | §4.5 |
+| 0e | To 02b: register tick `served_estimate` over `handoversDue` (after task 29; needs `module-02b` merged) | 02b's `apps/hub/src/orders/` tick file | §4.3 To 02b |
 | 1 | Error codes | `packages/domain/src/errors.ts` | §9 |
 | 2 | Shared types `kds.ts` (`LineDetail`, `Doc`, `Identifier`) | `packages/domain/src/kds.ts` | §4.4 |
 | 3 | Event schemas (9) | `packages/events/src/events/{order,station,hub}/` | §6.25 |
@@ -730,7 +735,7 @@ Client
 | 53 | Reprint on the order screen | `apps/client/src/features/ordering/` (02b's, after merge) | §8 |
 | 54 | Manual pilot checks: real printer (status, cut, PC437), USB, fallback by pulling a KDS cable, restart mid-print | `docs/plans/03b-manual-checks.md` | §3.8, §3.14 |
 
-≈ 54 tasks (G0 §8 budget). Split watch-line unchanged: if review adds claims or raster printing, split **03c Pass** (tasks 24–33 hub, 45–49 client).
+≈ 58 tasks (54 + upstream 0a–0e; G0 §8 budget ~60). Split watch-line unchanged: if review adds claims or raster printing, split **03c Pass** (tasks 24–33 hub, 45–49 client).
 
 ---
 
@@ -773,8 +778,8 @@ Gate green (`TMPDIR=/dev/shm … typecheck, lint, test`); every §10 test passes
 
 | # | Question | Owner of the answer |
 |---|---|---|
-| OQ-1 | Printer model for the pilot (OQ14): does it answer DLE EOT over LAN, does its USB driver return status, is PC437 its default? Decides `supports_status` defaults and the manual checks. | Owner (buy / name the model) |
-| OQ-2 | Build-order: task 0's upstream rows (01b, 01a, 01d, F) and 02b's `served_estimate` registration go into a platform sprint before 03b's build, or as approved cross-module tasks inside 03b's plan? | Owner at plan time |
+| OQ-1 | ~~Printer model~~ **Answered (owner, 2026-11-11):** generic thermal printers that connect by wire (USB) and over the network (LAN); no model fixed. Spec handles both transports; status support and code page are detected per printer at its test print; manual checks (task 54) run on whatever printer is bought. | closed |
+| OQ-2 | ~~Where upstream rows are built~~ **Answered (owner, 2026-11-11, "bana do"):** inside 03b's plan as approved cross-module tasks 0a–0e (§11). | closed |
 | OQ-3 | `DONE_CONFIRM_REQUIRED` uses the planned cook time; a `fix` return uses its override (03a §3.8a). Confirm no confirm at `auto_done` stations (the tick writes Done there). Proposed: the check applies to taps at every mode. | Review |
 
 ### 12.4 Deferred until needed
