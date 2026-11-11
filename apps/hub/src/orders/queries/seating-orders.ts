@@ -8,16 +8,20 @@ import type { LineView } from '../contracts.js';
 import { ordersOf, seatingTotals } from '../exports.js';
 
 // 02b v1.0.3 §6.15 GET /queries/seating-orders: the seating's orders (02a seating_orders, current, P-1c) by placed_at,
-// with their lines (LineView, §4.2) and each line's engine stage, and the seating's total (§3.13). Statements: 2
-// (ordersOf, seatingTotals); names from the directory and stages from EngineState, in memory. No contact (O17).
+// with their lines (LineView, §4.2) and each line's engine stage and `fired`, and the seating's total (§3.13).
+// Statements: 2 (ordersOf, seatingTotals); names from the directory, promise / stage / fired from EngineState, in memory.
+// No contact (O17).
 //
-// `groups: [{ promise_ms }]` is NOT built: EngineState keeps no per-group promise (03a §3.3 EngineOrder.groups has
-// target_land_ms only; slip.ts:40) and a third statement would break the count of 2 — STOP, task 21 report.
+// Owner 2026-11-11 S-1 (d): each order carries the order-level `promise_ms` (EngineOrder.promise_ms, the max over its
+// groups, never moved) while the order is in the engine (the predicate, 03a §3.3), else null — as open-orders; no
+// per-group list (EngineState keeps no per-group promise). R8 (owner): `fired` per line, MarkServed's own predicate.
 
 /**
  * A line's stage for the screens. `null`: a deal header or a zone-served line (never in the engine, 03a :245, O5), or a
- * line the engine does not hold. `out_of_engine`: the order has left the engine (abandon or exit, O16; the stage
- * name RemoveItems already uses). Else the EngineState stage.
+ * line the engine does not hold. `out_of_engine`: the order has left the engine (O16; the stage name RemoveItems
+ * already uses) — any exit: abandoned, the normal exit 30 min after its last serve, or an order the engine never held
+ * (only no-station lines); the line's own `served_at` tells a served line apart (reading R8, accepted). Else the
+ * EngineState stage.
  */
 export type LineStage = EngineLine['stage'] | 'out_of_engine' | null;
 
@@ -25,6 +29,18 @@ export function lineStage(state: Readonly<EngineState>, line: LineView, inEngine
   if (line.line_kind === 'deal' || line.zone_served) return null;
   if (!inEngine) return 'out_of_engine';
   return state.lines[line.order_item_id]?.stage ?? null;
+}
+
+/**
+ * R8 (owner 2026-11-11): the line may be marked served as far as firing goes — MarkServed's check (§3.7, O16,
+ * commands/mark-served.ts): unfired only when the order is in the engine and its engine line is `added` with no fire.
+ * A line the engine does not hold (no station, zone-served) and every line of an order out of the engine count as
+ * fired; a deal header is never served (its parts are, §3.4), so false.
+ */
+export function lineFired(state: Readonly<EngineState>, line: LineView, inEngine: boolean): boolean {
+  if (line.line_kind === 'deal') return false;
+  const engineLine = inEngine ? state.lines[line.order_item_id] : undefined;
+  return !(engineLine !== undefined && engineLine.stage === 'added' && engineLine.fired_at === null);
 }
 
 export interface SeatingOrder {
@@ -35,7 +51,9 @@ export interface SeatingOrder {
   cancelled: boolean;
   billed: boolean;
   has_phone: boolean;
-  lines: Array<LineView & { stage: LineStage }>;
+  /** S-1 (d): EngineOrder.promise_ms while the order is in the engine, else null */
+  promise_ms: number | null;
+  lines: Array<LineView & { stage: LineStage; fired: boolean }>;
 }
 
 export function seatingOrdersBody(
@@ -58,7 +76,8 @@ export function seatingOrdersBody(
         cancelled: o.cancelled,
         billed: o.billed,
         has_phone: o.has_phone,
-        lines: o.lines.map((l) => ({ ...l, stage: lineStage(state, l, inEngine) })),
+        promise_ms: inEngine ? state.orders[o.order_id]!.promise_ms : null,
+        lines: o.lines.map((l) => ({ ...l, stage: lineStage(state, l, inEngine), fired: lineFired(state, l, inEngine) })),
       };
     }),
     total_minor,

@@ -27,8 +27,9 @@ const OT2 = 'S_OT2'; // default order taker
 const WAITER = 'S_WAITER'; // default waiter: mark-served only
 const CASHIER = 'S_CASHIER'; // default cashier: view-customer-contact branch, apply-comp with approval
 const MGR = 'S_MGR'; // aDirectory's manager: every permission at branch (a 01d `managers` member)
+const FLOOR = 'S_FLOOR'; // view-customer-contact my_floors, floor F1
 
-type Scope = 'branch' | 'own_tables';
+type Scope = 'branch' | 'own_tables' | 'my_floors';
 function grant(permission: string, grant_type: 'allowed' | 'requires_approval' = 'allowed', scope: Scope = 'branch') {
   return {
     permission,
@@ -43,14 +44,14 @@ function grant(permission: string, grant_type: 'allowed' | 'requires_approval' =
 async function directory(): Promise<DirectoryInput> {
   const base = await aDirectory();
   const pin = base.staff[0]!.pin_hash;
-  const person = (staff_id: string, display_name: string, role_id: string) => ({
+  const person = (staff_id: string, display_name: string, role_id: string, floor_ids: string[] = []) => ({
     staff_id,
     display_name,
     pin_hash: pin,
     role_ids: [role_id],
     denied_permissions: [],
     lead_staff_id: null,
-    floor_ids: [],
+    floor_ids,
   });
   const role = (role_id: string, permissions: ReturnType<typeof grant>[]) => ({ role_id, name: role_id, session_idle_ttl_ms: 3_600_000, permissions });
   return {
@@ -66,6 +67,7 @@ async function directory(): Promise<DirectoryInput> {
         grant('apply-comp', 'requires_approval'),
       ]),
       role('R_DEF_WAITER', [grant('mark-served')]),
+      role('R_FLOOR_CONTACT', [grant('take-order'), grant('view-customer-contact', 'allowed', 'my_floors')]),
       role('R_DEF_CASH', [grant('take-order'), grant('set-line-weight'), grant('apply-comp', 'requires_approval'), grant('view-customer-contact')]),
     ],
     staff: [
@@ -74,6 +76,7 @@ async function directory(): Promise<DirectoryInput> {
       person(OT2, 'Omar', 'R_DEF_TAKER'),
       person(WAITER, 'Wasim', 'R_DEF_WAITER'),
       person(CASHIER, 'Hina', 'R_DEF_CASH'),
+      person(FLOOR, 'Fahad', 'R_FLOOR_CONTACT', [FX.floor]),
     ],
   };
 }
@@ -215,7 +218,7 @@ describe('seating-orders (§6.15)', () => {
     hub.clock.advance(5_000);
     appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'O3', placed_by: OT1, lines: [{ order_item_id: 'C1', item_id: FX.naan }] });
     append(draft('order', 'O3', 'OrderCancelled', { order_id: 'O3' }));
-    fire('A1');
+    fire('A1', 'B1a');
     start('O1', 'A1');
 
     const who = signIn(WAITER);
@@ -227,10 +230,15 @@ describe('seating-orders (§6.15)', () => {
     expect(body.orders[1]!.placed_by).toEqual({ staff_id: OT2, name: 'Omar' });
     expect(body.orders[2]!.cancelled).toBe(true);
     const lines = new Map(body.orders.flatMap((o) => o.lines.map((l) => [l.order_item_id, l] as const)));
-    expect(lines.get('A1')).toMatchObject({ order_id: 'O1', line_kind: 'item', stage: 'cooking', live_units: 1 });
-    expect(lines.get('A2')).toMatchObject({ stage: 'added', units: 2 });
-    expect(lines.get('B1')).toMatchObject({ line_kind: 'deal', stage: null }); // a deal header is never in the engine
-    expect(lines.get('B1a')!.stage).toBe('added');
+    expect(lines.get('A1')).toMatchObject({ order_id: 'O1', line_kind: 'item', stage: 'cooking', fired: true, live_units: 1 });
+    expect(lines.get('A2')).toMatchObject({ stage: 'added', fired: false, units: 2 });
+    expect(lines.get('B1')).toMatchObject({ line_kind: 'deal', stage: null, fired: false }); // a deal header is never in the engine (never served)
+    expect(lines.get('B1a')).toMatchObject({ stage: 'added', fired: true }); // fired, not started
+    expect(lines.get('B1b')).toMatchObject({ stage: 'added', fired: false });
+    // S-1 (d): the order-level promise (EngineOrder.promise_ms), no per-group list
+    expect(body.orders[0]!.promise_ms).toBe(engine().orders.O1!.promise_ms);
+    expect(body.orders[1]!.promise_ms).toBe(engine().orders.O2!.promise_ms);
+    expect(body.orders[0]).not.toHaveProperty('groups');
     // total = seatingTotals (live orders only: the cancelled O3 is out)
     expect(body.total_minor).toBe(seatingTotals(hub.deps.db, 'SEAT1').total_minor);
     expect(body.total_minor).toBeGreaterThan(0);
@@ -249,6 +257,9 @@ describe('seating-orders (§6.15)', () => {
     hub.clock.advance(5 * 3_600_000); // past order_abandon_ms (4 h) and the planned land
     const r = await query<Seating>(signIn(OT1), 'seating-orders?seating_id=SEAT1');
     expect(r.data.orders[0]!.lines[0]!.stage).toBe('out_of_engine');
+    // O16: a line of an order that left the engine counts as fired (Mark served allowed); no promise out of the engine
+    expect(r.data.orders[0]!.lines[0]!.fired).toBe(true);
+    expect(r.data.orders[0]!.promise_ms).toBeNull();
   });
 });
 
@@ -286,12 +297,45 @@ describe('open-orders (§6.16)', () => {
 
     // day close: the served TB leaves; TA (a line still cooking) and PC (unserved) stay, shown under the next day with their date
     closeDay();
+    // R5 (M4): between the close and the next open the engine keeps the closed day (closed_at set), so nothing is "from" yet
+    expect(engine().business_day).toMatchObject({ business_date: day.business_date });
+    const closed = (await query<Open>(who, 'open-orders')).data.orders;
+    expect(closed.find((o) => o.order_id === 'TA')!.from_date).toBeNull();
     hub.clock.advance(24 * 3_600_000);
     const next = openDay(hub);
     expect(next.business_date).not.toBe(day.business_date);
     const after = (await query<Open>(signIn(CASHIER), 'open-orders')).data.orders;
     expect(after.map((o) => o.order_id).sort()).toEqual(['PC', 'TA']);
     expect(after.find((o) => o.order_id === 'TA')).toMatchObject({ business_date: day.business_date, from_date: day.business_date });
+  });
+
+  it('[02b §6.16 R2] an order with no engine lines (only no-station / ready / zone-served lines) is never in the abandoned list', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SEAT2' });
+    setZoneStock(hub, FX.zone, FX.zoneItem, 5);
+    const noStation = { station_id: null }; // a counter item with no station: never in the engine
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'RDY', lines: [{ order_item_id: 'R1', item_id: FX.ready }] });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'NOS', lines: [{ order_item_id: 'N1', item_id: FX.naan, item: noStation }] });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT2', order_id: 'ZON', lines: [{ order_item_id: 'Z1', item_id: FX.zoneItem, from_zone: true }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TRDY', lines: [{ order_item_id: 'TR1', item_id: FX.ready }] });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    fire('R1', 'TR1', 'DI1');
+    hub.clock.advance(5 * 3_600_000); // every engine order fired, never tapped: out of the engine with unserved lines
+    const all = (await query<Open>(signIn(MGR), 'open-orders?abandoned=true')).data.orders;
+    expect(all.filter((o) => o.abandoned).map((o) => o.order_id)).toEqual(['DI']); // the karahi order still shows
+    expect(all.map((o) => o.order_id).sort()).toEqual(['DI', 'TRDY']); // the ready takeaway is listed as a takeaway, not abandoned
+  });
+
+  it('[02b §6.16 R12] abandoned: true with an order_type adds the abandoned orders of every type', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', lines: [{ order_item_id: 'TA1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TB', lines: [{ order_item_id: 'TB1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'parking', order_id: 'PC', lines: [{ order_item_id: 'PC1', item_id: FX.naan }] });
+    fire('DI1', 'TA1');
+    hub.clock.advance(5 * 3_600_000);
+    const rows = (await query<Open>(signIn(MGR), 'open-orders?abandoned=true&order_type=parking')).data.orders;
+    expect(rows.map((o) => o.order_id).sort()).toEqual(['DI', 'PC', 'TA']); // TB (takeaway, not abandoned) stays out
   });
 
   it('[02b §6.16 abandoned] abandoned: true (managers) adds orders of any type with no tap for order_abandon_ms; others → 403', async () => {
@@ -358,6 +402,9 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
     expect(await count(mgr, 'order-contact?order_id=T1')).toBe(1); // branch scope
     expect(await count(ot, 'order-contact?order_id=T1')).toBe(1); // own_tables, placed by the caller
     expect(await count(ot, 'order-contact?order_id=D1')).toBe(1); // own_tables, holder of the seating
+    // S-2 (a), owner 2026-11-11: my_floors on a dine-in order adds 02a currentTableOf → 2; otherwise 1
+    const floor = signIn(FLOOR);
+    expect(await count(floor, 'order-contact?order_id=D1')).toBe(2); // D1 is on T2, floor F1
 
     const part = ordersCatchUpPart();
     const db = statementCounter(hub.deps.db);
@@ -365,6 +412,9 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
     expect(db.count).toBe(3);
     expect(built.orders).toHaveLength(12);
     expect(built.orders.every((o) => o.lines.length === 2)).toBe(true);
+
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TF', placed_by: FLOOR, lines: [{ order_item_id: 'TFa', item_id: FX.naan }] });
+    expect(await count(floor, 'order-contact?order_id=TF')).toBe(1); // my_floors on a non-table order: placed by the caller
   });
 });
 

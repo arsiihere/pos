@@ -8,8 +8,9 @@ import { checkOrderScope, type ScopedOrder } from '../commands/mark-served.js';
 
 // 02b v1.0.3 §6.18 GET /queries/order-contact, O17, §7 Privacy: `view-customer-contact` with the order's scope "as
 // MarkServed" (§3.14; the shared check of commands/mark-served.ts), countsAsActivity true (a deliberate tap). Logged
-// `info { order_id, staff_id }`, never the values. Statements: 1 (the order, its contact and its open seating's holder;
-// `my_floors` on a dine-in order adds 02a currentTableOf, as for MarkServed). Order: permission → order → scope (C8).
+// `info { order_id, staff_id }`, never the values. Statements (owner 2026-11-11 S-2 (a)): 1 (the order, its contact and
+// its open seating's holder), 2 for `my_floors` on a dine-in order (+ 02a currentTableOf, as for MarkServed).
+// Order: permission → order → scope (C8).
 
 const ORDER_CONTACT = `SELECT o.order_id AS order_id, o.order_type AS order_type, o.placed_by AS placed_by,
        s.holder_staff_id AS holder_staff_id, o.customer_name AS customer_name, o.phone AS phone

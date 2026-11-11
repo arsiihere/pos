@@ -14,8 +14,11 @@ import { orderLines } from '../exports.js';
 // promise and stages from EngineState, the manager check from the directory, in memory.
 //
 // Readings (task 21 report): `managers` = 01d §3.4's target set (branch-scope `force-release-table-lock`, as
-// alerts/targets.ts `managers`); a caller outside it asking `abandoned: true` → 403. Abandoned = 03a §4.3 To 02 #1
-// verbatim: `isOrderInEngine` false while the projection still shows an unserved live line. Ready = a live line (deal
+// alerts/targets.ts `managers`, owner R1); a caller outside it asking `abandoned: true` → 403. Abandoned = 03a §4.3
+// To 02 #1 (`isOrderInEngine` false while the projection still shows an unserved live line), narrowed by owner R2
+// (2026-11-11): the unserved line must be an engine food line (`order_lines.is_food` = engine line ∧ not zone-served ∧
+// not ready, §3.3), so an order of only no-station / ready / zone-served lines is never abandoned. With an order_type,
+// `abandoned: true` still adds the abandoned orders of every type (owner R12). Ready = a live line (deal
 // headers left out, §3.4) served (`served_at`) or at engine stage done / served. promise_ms = the EngineOrder's
 // promise while the order is in the engine (the predicate, 03a §3.3), else null (sorted last).
 
@@ -108,7 +111,7 @@ export function openOrdersBody(db: Database.Database, state: Readonly<EngineStat
   for (const r of rows) {
     const own = lines.get(r.order_id)!;
     const inEngine = isOrderInEngine(state, r.order_id, now);
-    const abandoned = !inEngine && own.some((l) => counted(l) && l.served_at === null);
+    const abandoned = !inEngine && own.some((l) => counted(l) && l.is_food && l.served_at === null);
     if (!types.includes(r.order_type) && !abandoned) continue; // `abandoned: true` adds the other types' abandoned orders only
     const live = own.filter(counted);
     const ready = live.filter((l) => {
