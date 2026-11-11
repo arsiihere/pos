@@ -326,6 +326,16 @@ describe('open-orders (§6.16)', () => {
     expect(all.map((o) => o.order_id).sort()).toEqual(['DI', 'TRDY']); // the ready takeaway is listed as a takeaway, not abandoned
   });
 
+  it('[02b §6.16 R2] an order with a food line stays abandoned on any live unserved line: karahi served, water fired never tapped → listed', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'MIX', lines: [{ order_item_id: 'M1', item_id: FX.piece }, { order_item_id: 'M2', item_id: FX.ready }] });
+    fire('M1', 'M2');
+    served('MIX', 'M1');
+    hub.clock.advance(5 * 3_600_000); // the water is never tapped: the order leaves the engine with it unserved
+    const all = (await query<Open>(signIn(MGR), 'open-orders?abandoned=true')).data.orders;
+    expect(all.find((o) => o.order_id === 'MIX')).toMatchObject({ order_type: 'dine_in', abandoned: true });
+  });
+
   it('[02b §6.16 R12] abandoned: true with an order_type adds the abandoned orders of every type', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
     appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
