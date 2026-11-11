@@ -36,7 +36,7 @@ function undoDone(ctx: CommandCtx, payload: z.infer<typeof UndoDonePayload>): { 
   const inWindow = (l: EngineLine): boolean => l.stage === 'done' && l.done_at !== null && now - l.done_at <= UNDO_DONE_MS;
   if (!inWindow(line)) throw new DomainError('ITEM_UNDO_WINDOW_CLOSED', { order_item_id: line.order_item_id });
 
-  const candidates = loadMembers(ctx.state, line, inWindow);
+  const candidates = loadMembers(ctx.state, line, inWindow, now);
   const handed = handedOver(ctx.tx.db, candidates.map((l) => l.order_item_id));
   if (handed.has(line.order_item_id)) throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: line.order_item_id, stage: 'handed_over' });
   const members = candidates.filter((l) => !handed.has(l.order_item_id));

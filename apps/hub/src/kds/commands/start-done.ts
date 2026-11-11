@@ -15,11 +15,12 @@ type CompletionMode = 'two_tap' | 'single_tap' | 'auto_done';
 /**
  * §3.2 common steps 1–2 (shared with UndoDone): `state.lines[id]` absent → 404 ORDER_NOT_FOUND { order_item_id,
  * order_id: null }; its order out of the engine → 409 ITEM_WRONG_STAGE { stage: 'out_of_engine' }; a station session
- * on another station's line → 403 PERMISSION_DENIED. 0 statements.
+ * on another station's line → 403 PERMISSION_DENIED. 0 statements. A placeholder (AD-8: listed by OrderPlaced, its
+ * ItemAdded not seen yet) is not a line, so it is absent.
  */
 export function stationLine(ctx: CommandCtx, order_item_id: string, now: number): EngineLine {
   const line = ctx.state.lines[order_item_id];
-  if (line === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_item_id, order_id: null });
+  if (line === undefined || isPlaceholder(line)) throw new DomainError('ORDER_NOT_FOUND', { order_item_id, order_id: null });
   if (!isOrderInEngine(ctx.state as EngineState, line.order_id, now)) throw new DomainError('ITEM_WRONG_STAGE', { order_item_id, stage: 'out_of_engine' });
   requireOwnStation(ctx, line.station_id);
   return line;
@@ -37,13 +38,22 @@ export function completionMode(state: Readonly<EngineState>, station_id: string)
   return state.config?.stations.find((s) => s.station_id === station_id)?.completion_mode ?? 'two_tap';
 }
 
-/** §3.2 step 4 (AD-18): the line and, on a load, every line of the same station and load_id that `pick` admits. */
-export function loadMembers(state: Readonly<EngineState>, line: EngineLine, pick: (l: EngineLine) => boolean): EngineLine[] {
+// AD-8 (engine lifecycle.ts isPlaceholder, not in the package index): a listed line not yet filled by its ItemAdded.
+function isPlaceholder(line: EngineLine): boolean {
+  return line.units === 0 && line.fire_ms === null && line.booked === null;
+}
+
+/**
+ * §3.2 step 4 (AD-18): the line and, on a load, every line of the same station and load_id that `pick` admits and that
+ * passes step 1 itself (its order in the engine at `now`; a member of an exited order is left out, never written).
+ */
+export function loadMembers(state: Readonly<EngineState>, line: EngineLine, pick: (l: EngineLine) => boolean, now: number): EngineLine[] {
   if (line.load_id === null) return [line];
   const out: EngineLine[] = [];
   for (const id in state.lines) {
     const l = state.lines[id]!;
-    if (l.load_id === line.load_id && l.station_id === line.station_id && (l === line || pick(l))) out.push(l);
+    if (l === line) out.push(l);
+    else if (l.load_id === line.load_id && l.station_id === line.station_id && pick(l) && isOrderInEngine(state as EngineState, l.order_id, now)) out.push(l);
   }
   return out.sort((a, b) => (a.order_item_id < b.order_item_id ? -1 : a.order_item_id > b.order_item_id ? 1 : 0));
 }
@@ -71,7 +81,7 @@ function startItem(ctx: CommandCtx, payload: z.infer<typeof StartItemPayload>): 
   if (!fired(line)) throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: line.order_item_id, stage: line.stage });
   if (completionMode(ctx.state, line.station_id) === 'single_tap') throw new DomainError('ITEM_WRONG_STAGE', { order_item_id: line.order_item_id, stage: 'cooking' });
 
-  const members = loadMembers(ctx.state, line, fired);
+  const members = loadMembers(ctx.state, line, fired, now);
   const envelope = envelopeOf(ctx, now);
   const starts = members.map(
     (l): EventDraft => ({
@@ -132,7 +142,7 @@ function doneItem(ctx: CommandCtx, payload: z.infer<typeof DoneItemPayload>): { 
     }
   }
 
-  const members = loadMembers(ctx.state, line, doneable);
+  const members = loadMembers(ctx.state, line, doneable, now);
   const envelope = envelopeOf(ctx, now);
   const dones = members.map(
     (l): EventDraft => ({

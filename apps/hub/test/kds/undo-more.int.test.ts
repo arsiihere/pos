@@ -32,7 +32,13 @@ function menu(): BranchConfig {
       { ...s1, station_id: B, name: 'Tandoor', station_type: 'batch', programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: 8 * MIN, is_archived: false }] },
       { ...s1, station_id: 'S_ARCH', name: 'Old', is_archived: true },
     ],
-    items: [...base.items, item('I_ST', ST), item('I_B', B, { program_id: 'PR', cook_time_ms: 8 * MIN })],
+    items: [
+      ...base.items,
+      item('I_ST', ST),
+      // single_tap, drawn from stock (K1, 1 per piece): its Start consumes (03a P-5)
+      item('I_STS', ST, { stock_time_ms: 2 * MIN, stock_draws: [{ stock_item_id: FX.stock, quantity_per_sale_unit: 1 }] }),
+      item('I_B', B, { program_id: 'PR', cook_time_ms: 8 * MIN }),
+    ],
   };
 }
 
@@ -334,6 +340,27 @@ describe('[03b §6.4] GiveMeMore', () => {
     expect(r.events.map((e) => e.event_type)).toEqual(['FireDispatched', 'ItemStarted']);
     expect(r.events[1]).toMatchObject({ stream_type: 'order', actor_id: COOK.staff, payload: { order_item_id: 'W1', started_at: now, source: 'inferred' } });
     expect(engine().lines.W1!.stage).toBe('cooking');
+  });
+
+  it('[03b #9, 03a P-5] single_tap pull of a reserved line: StockConsumed right after its inferred ItemStarted', async () => {
+    const station = kds(ST);
+    // a count of K1, as openDay's StockSet (nothing waits, so no reserve runs)
+    const at = hub.clock.branchNow();
+    hub.deps.writer.run((tx) =>
+      tx.append([{ stream_type: 'stock', stream_id: FX.stock, event_type: 'StockSet', schema_version: 2, payload: { stock_item_id: FX.stock, on_hand: 5_000, unit: 'g' }, occurred_at: at, actor_id: null, device_id: 'hub' }]),
+    );
+    waitingLine('W1', 'I_STS');
+    expect(engine().lines.W1!.from_stock).toBe(true);
+    expect(engine().lines.W1!.reserved_seq).not.toBeNull();
+    intoPullWindow(['W1']);
+    const r = await more(station, ST);
+    expect(r.status).toBe(200);
+    expect(r.events.map((e) => [e.event_type, e.payload.order_item_id ?? null])).toEqual([
+      ['FireDispatched', null],
+      ['ItemStarted', 'W1'],
+      ['StockConsumed', 'W1'],
+    ]);
+    expect(r.events[2]).toMatchObject({ stream_type: 'stock', stream_id: FX.stock, actor_id: null, device_id: station.deviceId });
   });
 
   it('[03b #9] batch: the whole load is pulled', async () => {
