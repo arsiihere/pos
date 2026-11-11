@@ -1,4 +1,4 @@
-import type { EngineState } from '@pos/engine';
+import { isOrderInEngine, type EngineState } from '@pos/engine';
 import type { BranchConfig, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registeredTicks } from '../../src/alerts/tick';
@@ -36,6 +36,17 @@ function cook(order_id: string, ids: string[]): void {
   fireLines(hub, engine().lines[ids[0]!]!.station_id, ids);
   append(hub, ids.map((order_item_id) => on(order_id, 'ItemStarted', { order_item_id, started_at: hub.clock.branchNow() + 1_000, source: 'tap' })));
   append(hub, ids.map((order_item_id) => on(order_id, 'ItemDone', { order_item_id, done_at: hub.clock.branchNow() + 1_000, source: 'tap' })));
+}
+/**
+ * ItemDone with no Start and no stock drafts (a Done that wrote no consume; 03a stock.ts ItemServed row: "a `done`
+ * line whose Done wrote no consume still consumes here"), so the line still holds its draw when it is served.
+ */
+function doneWithoutConsume(order_id: string, order_item_id: string): void {
+  hub.clock.advance(1_000);
+  const now = hub.clock.branchNow();
+  hub.deps.writer.run((tx) =>
+    tx.append([{ ...on(order_id, 'ItemDone', { order_item_id, done_at: now, source: 'tap' }), schema_version: 1, occurred_at: now, actor_id: 'S_WAIT', device_id: 'D_FIXTURE' }]),
+  );
 }
 const takeaway = (lines: Array<{ order_item_id: string; item_id: string }>) => appendOrder(hub, { order_type: 'takeaway', lines }).order_id;
 const naans = (ids: string[]) => ids.map((order_item_id) => ({ order_item_id, item_id: FX.naan }));
@@ -188,5 +199,54 @@ describe('02b tick served_estimate (§3.7, §6.11; 03b §4.3 task 0e)', () => {
     const run = pass();
     expect(run.events.filter((e) => e.event_type === 'ItemServed').map((e) => e.payload)).toEqual([{ order_item_ids: ['A1', 'A2'], source: 'estimated' }]);
     expect(run.events.filter((e) => e.event_type === 'OrderFoodServed')).toHaveLength(1);
+  });
+
+  it('[02b O16] an order that has left the engine → ItemServed { estimated } with no stock effects', async () => {
+    openDay(hub, { menu: menu(ESTIMATE), stock: { [FX.stock]: 10_000 } });
+    const who = await seed();
+    const a = takeaway([{ order_item_id: 'K1', item_id: FX.piece }]);
+    fireLines(hub, FX.station, ['K1']);
+    doneWithoutConsume(a, 'K1'); // K1 still holds its draw: in the engine, a serve would consume it (case below)
+    await handover(who, a);
+    hub.clock.advance(14_400_000 + 60_000); // past order_abandon_ms (03a §3.3)
+    expect(isOrderInEngine(engine(), a, hub.clock.branchNow())).toBe(false);
+    const run = pass();
+    expect(run.events.map((e) => e.event_type)).toEqual(['ItemServed', 'OrderFoodServed']);
+    expect(run.events[0]!.payload).toEqual({ order_item_ids: ['K1'], source: 'estimated' });
+  });
+
+  it('[02b §3.3] an order with no food line (a ready item) → ItemServed, no OrderFoodServed', async () => {
+    openDay(hub, { menu: menu(ESTIMATE) });
+    const who = await seed();
+    const a = takeaway([{ order_item_id: 'W1', item_id: FX.ready }]);
+    cook(a, ['W1']);
+    await handover(who, a);
+    hub.clock.advance(ESTIMATE);
+    const run = pass();
+    expect(run.events.map((e) => e.event_type)).toEqual(['ItemServed']);
+    expect(run.events[0]!.payload).toEqual({ order_item_ids: ['W1'], source: 'estimated' });
+  });
+
+  it('[02b §3.7] a handed line never started → its StockConsumed right after its ItemServed (AD-29 Q7 split), tick envelope', async () => {
+    openDay(hub, { menu: menu(ESTIMATE), stock: { [FX.stock]: 10_000 } });
+    const who = await seed();
+    const a = takeaway([{ order_item_id: 'K1', item_id: FX.piece }]);
+    const b = takeaway(naans(['N1']));
+    fireLines(hub, FX.station, ['K1']);
+    doneWithoutConsume(a, 'K1');
+    cook(b, ['N1']);
+    await handover(who, a);
+    await handover(who, b);
+    expect(engine().lines.K1).toMatchObject({ stage: 'done', started_at: null });
+    hub.clock.advance(ESTIMATE);
+    const run = pass();
+    expect(run.events.map((e) => [e.event_type, e.stream_id])).toEqual([
+      ['ItemServed', a],
+      ['OrderFoodServed', a],
+      ['StockConsumed', FX.stock],
+      ['ItemServed', b],
+      ['OrderFoodServed', b],
+    ]);
+    expect(run.events[2]).toMatchObject({ actor_id: null, device_id: 'hub', payload: { stock_item_id: FX.stock, order_item_id: 'K1' } });
   });
 });
