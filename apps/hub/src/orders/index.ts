@@ -4,6 +4,7 @@ import './zone-kinds.js';
 import './comp-kind.js';
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../projections/registry.js';
+import { registerMarkServed } from './commands/mark-served.js';
 import { ordersProjection } from './projection.js';
 import { registerSubmitOrder } from './commands/submit-order.js';
 import { registerEtaPreviewQuery } from './queries/eta-preview.js';
@@ -35,6 +36,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   registerCompLine(app); // §6.8 (approvable; online only, §3.12); kind `comp` (§6.12) registers at module load
 
   // wave 2 lane C (MarkServed, ReleaseItems, BoostOrder, ReturnToKitchen)
+  registerMarkServed(app);
 
   // wave 2 lane D (AddZoneStock, SetZoneStock)
   registerZoneStock(app);
