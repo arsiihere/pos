@@ -232,8 +232,11 @@ describe('03a task 22: the fires tick', () => {
     expect(expected.map((d) => d.event_type)).toEqual(['FireDispatched', 'ItemStarted', 'StockConsumed', 'ItemDone', 'ReservationsShifted']);
     expect(expected.map((d) => (d.payload as { order_item_id?: string }).order_item_id ?? null)).toEqual([null, 'E', 'E', 'D', null]);
     expect((expected[4]!.payload as { shifts: Array<{ order_item_id: string }> }).shifts.map((s) => s.order_item_id)).toEqual(['C']);
-    // The registered projections each upsert their checkpoint once per append (projections/registry.ts applyAll); none
-    // handles these five event types.
+    // The registered projections each upsert their checkpoint once per append (projections/registry.ts applyAll). Of
+    // these five event types only 03c's `kitchen_tickets` folds two (03c §3.3, ≤ 3 reads + multi-row inserts per event):
+    // FireDispatched = 1 read (order_lines / ticket_lines) + tickets + ticket_lines inserts + 1 live station_outputs read
+    // (no printer: no job); ItemDone = 1 ticket_lines update. 5 statements.
+    const KITCHEN_TICKETS_FOLDS = 5;
     const projections = hub.deps.db.prepare('SELECT COUNT(*) FROM projection_checkpoints WHERE branch_id = ?').pluck().get(BRANCH) as number;
     expect(projections).toBeGreaterThan(0);
 
@@ -252,12 +255,12 @@ describe('03a task 22: the fires tick', () => {
     expect(m.tx).toBe(1);
     expect(hub.published).toHaveLength(1);
     expect(draftsOf(hub.published[0]!)).toEqual(expected);
-    // §6.2 / §10.5: 0 reads in intents (state in memory). The appends: 1 MAX(seq) + 5 INSERTs + one checkpoint upsert per
-    // projection. The pass: 01d's one indexed SELECT + those. No after-commit statement (no checkpoint pending, no
+    // §6.2 / §10.5: 0 reads in intents (state in memory). The appends: 1 MAX(seq) + 5 INSERTs + 03c's folds + one
+    // checkpoint upsert per projection. The pass: 01d's one indexed SELECT + those. No after-commit statement (no checkpoint pending, no
     // snapshot multiple crossed; the frames read nothing).
     expect(insideIntents).toBe(0);
-    expect(m.appendStatements).toBe(1 + 5 + projections);
-    expect(m.statements).toBe(1 + 0 + (1 + 5 + projections));
+    expect(m.appendStatements).toBe(1 + 5 + KITCHEN_TICKETS_FOLDS + projections);
+    expect(m.statements).toBe(1 + 0 + (1 + 5 + KITCHEN_TICKETS_FOLDS + projections));
     expect(engine().lines.D).toMatchObject({ stage: 'done', done_at: t0 + 6 * MIN });
     expect(engine().lines.E).toMatchObject({ stage: 'cooking', started_at: P, reserved_seq: null });
     expect(engine().stock.K1).toMatchObject({ on_hand: 4, reserved: 0 });
