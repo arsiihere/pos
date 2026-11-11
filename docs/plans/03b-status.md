@@ -5,6 +5,16 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 > **Status (owner summary, Hinglish, newest first):**
 > - 2026-11-11: specs 03b v1.0 + 03c v1.0 APPROVED; plans, CI gate and cloud setup ready. Waiting: 02b merge → gap sweep.
 
+## Owner rulings on how the build runs (2026-11-11, 14:16 PKT: "Sab haan")
+
+| # | Ruling |
+|---|---|
+| W-1 | The author chat (claude.ai, this build's integrator) creates the GitHub ruleset for `module-03b` via the API: PR required, check `gate` required, rebase merge only, no force push. **`module-02b` is excluded** (its own integrator pushes directly). |
+| W-2 | The integrator merges green PRs into `module-03b` itself. |
+| W-3 | The integrator opens `spec-03b` → `main` and merges it when `gate` is green. The final `module-03b` → `main` merge stays the owner's. |
+| W-4 | Lanes run as remote agents launched from the integrator chat, at most 5 at once. |
+| W-5 | Repo visibility: **public** (owner, 2026-11-11), so GitHub Actions minutes are free. Never commit a secret. |
+
 ## Phase 0
 
 | Task | PR | State |
