@@ -17,6 +17,12 @@ import { registerSetLineWeight } from './commands/set-line-weight.js';
 import { registerSeatingTotals } from '../tables/handover.js';
 import { seatingTotals } from './exports.js';
 import { registerCompLine } from './commands/comp-line.js';
+import { registerLineCompedAudience } from './audiences.js'; // §6.19: its fixed audiences register at this module's load
+import { registerOrdersCatchUp } from './catch-up.js';
+import { registerOpenOrdersQuery } from './queries/open-orders.js';
+import { registerOrderContactQuery } from './queries/order-contact.js';
+import { registerSeatingOrdersQuery } from './queries/seating-orders.js';
+import { registerZoneStockQuery } from './queries/zone-stock.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -48,6 +54,16 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   registerZoneStock(app);
 
   // wave 3 lane A (queries, catch-up, audiences)
+  registerSeatingOrdersQuery(app); // §6.15
+  registerOpenOrdersQuery(app); // §6.16
+  registerZoneStockQuery(app); // §6.17
+  registerOrderContactQuery(app); // §6.18 (countsAsActivity true)
+  const stopOrdersCatchUp = registerOrdersCatchUp(); // catch-up part `orders`; removed when this server closes
+  const stopCompAudience = registerLineCompedAudience(app); // §6.19 LineComped (directory per server)
+  app.addHook('onClose', async () => {
+    stopOrdersCatchUp();
+    stopCompAudience();
+  });
 
   // wave 3 lane B (queued replays)
 

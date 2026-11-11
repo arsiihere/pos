@@ -99,7 +99,8 @@ describe('stations-live query, catch-up part and audiences (03a §6.4, §6.5)', 
     expect(median).toBeLessThanOrEqual(5);
   });
 
-  it('[03a §6.4] EngineConfigApplied, StationCapacitySet, StationPauseSet reach every staff and station socket; order-stream events reach none', async () => {
+  // G-2 (a), 02b task 21: 02b §6.19 registers the order-stream audiences (staff sockets and cashier kiosks, never KDS).
+  it('[03a §6.4] EngineConfigApplied, StationCapacitySet, StationPauseSet reach every staff and station socket; order-stream events reach no station socket (staff: 02b §6.19)', async () => {
     const hub = await open();
     const staff = await socketOf(hub, staffOn(hub, 'S_MGR'));
     const kds = await socketOf(hub, stationOn(hub, 'S2'));
@@ -109,12 +110,11 @@ describe('stations-live query, catch-up part and audiences (03a §6.4, §6.5)', 
       stationEvent('StationCapacitySet', 'S1', { station_id: 'S1', capacity_override: 2, previous: null, reason: 'manager' }),
       stationEvent('StationPauseSet', 'S1', { station_id: 'S1', paused: true }),
     ]);
-    await staff.untilCount(4);
+    await staff.untilCount(6);
     await kds.untilCount(4);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    for (const ws of [staff, kds]) {
-      expect(eventTypes(ws)).toEqual(['EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet']);
-    }
+    expect(eventTypes(staff)).toEqual(['OrderPlaced', 'ItemAdded', 'EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet']);
+    expect(eventTypes(kds)).toEqual(['EngineConfigApplied', 'StationCapacitySet', 'StationPauseSet']);
   });
 
   it('[03a §6.4] catch-up part stations_live: staff and station sockets get the §6.5 body at the catch-up seq; its build runs 0 statements', async () => {
