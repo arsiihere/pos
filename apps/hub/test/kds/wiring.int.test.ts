@@ -65,7 +65,7 @@ describe('[03b #53, 03c #10] 03b / 03c wiring (phase 0 skeleton)', () => {
 describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => {
   it('[03b §4.2] every 03b export throws "not built" until its task', async () => {
     const kds = await import('../../src/kds/contracts');
-    expect(() => kds.stationPresence()).toThrow(/not built/);
+    // stationPresence: built by b20, provided by lane B6's register (test/kds/presence.int.test.ts).
     // buildLineDetails, pointOfLine: built by b11 (test/kds/details.int.test.ts).
     expect(() => kds.devicePoint('D1')).toThrow(/not built/);
     // handoversDue: built by b17, provided by lane B5's register (test/pass/handovers-due.int.test.ts).
