@@ -233,6 +233,38 @@ describe('SetLineWeight (02b §6.3, §3.6)', () => {
     expect(eventCount()).toBe(before);
   });
 
+  it('[02b #21] a g line without requires_weighing (quantity fixed at order) → 409 LINE_NOT_WEIGHED, nothing appended', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    takeaway([{ order_item_id: 'G1', item_id: FX.gram, quantity: 1_000, item: { requires_weighing: false } }]);
+    expect(line('G1')).toMatchObject({ sale_unit: 'g', quantity: 1_000 });
+    const before = eventCount();
+    const r = await weigh(ali, { order_item_id: 'G1', quantity: 1_500 });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'LINE_NOT_WEIGHED', details: { order_item_id: 'G1' } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[02b §3.6] a return line → LINE_NOT_WEIGHED (owner S-1); nothing appended, statements still 1', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([fish()]);
+    expect((await weigh(ali, { order_item_id: 'W1', quantity: 1_500 })).status).toBe(200);
+    // The return line as a real ItemAdded with return_of (AD-15): the weighed line's copy, weight included.
+    const copy = JSON.parse(
+      (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'ItemAdded' AND json_extract(payload, '$.order_item_id') = 'W1'`).get() as { payload: string }).payload,
+    ) as Record<string, unknown>;
+    append([on(order_id, 'ItemAdded', { ...copy, order_item_id: 'R1', quantity: 1_500, line_total_minor: copyTotal(1_500), return_of: 'W1' })]);
+    expect(line('R1')).toMatchObject({ return_of: 'W1', refundable_minor: 0 });
+    const before = eventCount();
+    const r = await weigh(ali, { order_item_id: 'R1', quantity: 2_000 }, { counted: true });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'LINE_NOT_WEIGHED', details: { order_item_id: 'R1' } });
+    expect(lastStatements).toBe(1);
+    expect(eventCount()).toBe(before);
+    expect(line('R1')).toMatchObject({ refundable_minor: 0 });
+  });
+
   it('[02b #21] ORDER_BILLED on a weight (m-10), nothing appended', async () => {
     await start();
     const ali = signIn('S_ALI');

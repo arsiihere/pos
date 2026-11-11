@@ -8,7 +8,8 @@ import { hasUnitOutOfBilling } from '../ledger.js';
 
 // 02b §6.3 SetLineWeight, §3.6 (pending, correction, total from the ItemAdded copy, 01c M7), §3.4 Weights
 // (LINE_ALREADY_SETTLED; the LineWeightSet fold sets refundable_minor), §3.14 (scope `branch`). Not queueable (§3.12).
-// Order of checks: payload (Zod: S59 steps of 50, 50–50 000) → line (404) → billed → weighed → settled → scope last (C8).
+// Order of checks: payload (Zod: S59 steps of 50, 50–50 000) → line (404) → billed → weighed (not a return line, owner
+// S-1) → settled → scope last (C8). An unknown line → 404 ORDER_NOT_FOUND { order_item_id } (owner S-2).
 // Statements: 1 (the line, its order and its ItemAdded copy); the append excluded.
 
 export const SetLineWeightPayload = z.object({
@@ -37,7 +38,7 @@ const READ = `SELECT l.order_id, o.billed_at, l.comped_units, l.removed_units, l
   JOIN orders o ON o.order_id = l.order_id
  WHERE l.order_item_id = ?`;
 
-type Copy = Pick<ItemAddedPayload, 'line_kind' | 'requires_weighing' | 'price_minor' | 'sale_unit' | 'options'>;
+type Copy = Pick<ItemAddedPayload, 'line_kind' | 'requires_weighing' | 'price_minor' | 'sale_unit' | 'options' | 'return_of'>;
 
 function setLineWeight(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: unknown } {
   const row = ctx.tx.db.prepare(READ).get(p.order_item_id) as Row | undefined;
@@ -46,6 +47,8 @@ function setLineWeight(ctx: CommandCtx, p: Payload): { events: EventDraft[]; res
   const copy = row.added === null ? null : (JSON.parse(row.added) as Copy);
   // §3.6: a weighed line is an item line with requires_weighing (01c V18: never a deal part, never a linked option).
   if (copy === null || copy.line_kind !== 'item' || !copy.requires_weighing) throw new DomainError('LINE_NOT_WEIGHED', { order_item_id: p.order_item_id });
+  // Owner 2026-11-11 S-1 (a): a return line (§3.8, AD-15 return_of) carries no money (§3.4) → never weighed.
+  if (copy.return_of !== undefined) throw new DomainError('LINE_NOT_WEIGHED', { order_item_id: p.order_item_id });
   // §3.4 Weights / §3.6: a correction is refused once any unit left billing (comped, removed or voided).
   if (hasUnitOutOfBilling(row)) throw new DomainError('LINE_ALREADY_SETTLED', { order_item_id: p.order_item_id });
 
