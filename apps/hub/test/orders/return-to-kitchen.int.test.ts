@@ -3,9 +3,12 @@ import type { DirectoryInput, EventDraft } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
+import { buildLineDetails } from '../../src/kds/details';
 import { returnToKitchenCommand } from '../../src/orders/commands/return-to-kitchen';
 import { orderLines } from '../../src/orders/exports';
 import { voidUnits } from '../../src/orders/ledger';
+import { renderJob } from '../../src/print/render/jobs';
+import { renderText } from '../../src/print/render/text';
 import { branchConfig, runBranchConfigHooks, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -531,7 +534,7 @@ describe('ReturnToKitchen (02b §6.7, §3.8)', () => {
     expect(waiter.error).toEqual({ code: 'PERMISSION_DENIED', details: { permission: 'mark-item-returned', grant: 'not_granted' } });
   });
 
-  it('[02b §6.7] statements: 2 (line, return_order_item_id id check + the line copy) at branch; 3 with the holder (own_tables dine-in) or currentTableOf (my_floors dine-in)', async () => {
+  it('[02b §6.7] statements: 3 (line, return_order_item_id id check + the line copy; the order\'s lines; the option children, v1.0.8 B3-4) at branch; 4 with the holder (own_tables dine-in) or currentTableOf (my_floors dine-in)', async () => {
     open();
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_OWN1' });
     const o1 = appendOrder(hub, {
@@ -548,14 +551,105 @@ describe('ReturnToKitchen (02b §6.7, §3.8)', () => {
     cookAndServe(t1, 'T1');
 
     expect((await ret(signIn('S_TAKER'), { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'fix' }, { counted: true })).status).toBe(200);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(3);
     expect((await ret(signIn('S_OWN1'), { order_item_id: 'N2', return_order_item_id: 'R2', mode: 'remake' }, { counted: true })).status).toBe(200);
-    expect(lastStatements).toBe(3);
+    expect(lastStatements).toBe(4);
     expect((await ret(signIn('S_FLOOR'), { order_item_id: 'N3', return_order_item_id: 'R3', mode: 'fix' }, { counted: true })).status).toBe(200);
-    expect(lastStatements).toBe(3);
+    expect(lastStatements).toBe(4);
     // takeaway own_tables: placed_by from the engine's order, no holder read
     expect((await ret(signIn('S_OWN1'), { order_item_id: 'T1', return_order_item_id: 'R4', mode: 'fix' }, { counted: true })).status).toBe(200);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements).toBe(3);
+  });
+});
+
+describe('ReturnToKitchen return line options (02b v1.0.8 §3.8, §6.7; 03a v1.2.3 §3.8a, #114; owner 2026-11-11, B3-4)', () => {
+  const plain = (name: string, quantity: number, price_minor = 0) => ({
+    option_id: `O_${name}`,
+    modifier_group_id: 'G_PLAIN',
+    name,
+    price_minor,
+    quantity,
+    charge_minor: price_minor * quantity,
+  });
+  /** A takeaway karahi K1 with "No onion" and a paid "Extra gravy", a station-less child "Extra butter" × 2, a stationed
+   * child (Raita, its own engine line), a station-less child "Lemon" removed; K1 cooked and served. */
+  function servedKarahi(): string {
+    const o1 = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K1', item_id: FX.piece, item: { options: [plain('No onion', 1), plain('Extra gravy', 1, 5_000)] } },
+        { order_item_id: 'C1', option_id: FX.option, parent_order_item_id: 'K1', quantity: 2, item: { name: 'Extra butter', station_id: null } },
+        { order_item_id: 'C2', option_id: FX.option, parent_order_item_id: 'K1' },
+        { order_item_id: 'C3', option_id: FX.option, parent_order_item_id: 'K1', item: { name: 'Lemon', station_id: null } },
+      ],
+    }).order_id;
+    remove(o1, 'C3');
+    cookAndServe(o1, 'K1');
+    return o1;
+  }
+  /** Children first (as the served line's KDS row and ticket), then the plain options; every price / charge 0. */
+  const COPIED = [
+    { option_id: FX.option, modifier_group_id: FX.optionGroup, name: 'Extra butter', price_minor: 0, quantity: 2, charge_minor: 0 },
+    { option_id: 'O_No onion', modifier_group_id: 'G_PLAIN', name: 'No onion', price_minor: 0, quantity: 1, charge_minor: 0 },
+    { option_id: 'O_Extra gravy', modifier_group_id: 'G_PLAIN', name: 'Extra gravy', price_minor: 0, quantity: 1, charge_minor: 0 },
+  ];
+
+  it('[03a #114, 02b §3.8 B3-4] fix and remake: ItemAdded.options = the live station-less option children (option_quantity, group from config) + the plain options, money 0; a stationed or removed child is not copied; 3 statements', async () => {
+    open();
+    const o1 = servedKarahi();
+    expect(engine().lines.C2, 'the stationed child is its own engine line').toBeDefined();
+    expect(engine().lines.C1, 'the station-less child is not').toBeUndefined();
+    const taker = signIn('S_TAKER');
+
+    const fix = await ret(taker, { order_item_id: 'K1', return_order_item_id: 'R1', mode: 'fix' }, { counted: true });
+    expect(fix.status).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(fix.events[1]!.payload).toMatchObject({ ...RETURN_LINKS, line_total_minor: 0, price_minor: 0, return_of: 'K1', options: COPIED });
+    expect(lineOf(o1, 'R1')).toMatchObject({ refundable_minor: 0, billed_minor: 0, line_total_minor: 0 });
+    // The served line's own options are untouched (still billed, O20).
+    expect(itemAddedOf('K1').options).toEqual([plain('No onion', 1), plain('Extra gravy', 1, 5_000)]);
+
+    cookAndServe(o1, 'R1');
+    const remake = await ret(taker, { order_item_id: 'K1', return_order_item_id: 'R2', mode: 'remake' }, { counted: true });
+    expect(remake.status).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(remake.events.map((e) => e.event_type)).toEqual(['OrderLinesAdded', 'ItemAdded', 'ItemReturned']);
+    expect(remake.events[1]!.payload).toMatchObject({ ...RETURN_LINKS, line_total_minor: 0, return_of: 'K1', options: COPIED });
+  });
+
+  it('[03b v1.0.4 §4.4, 03c §3.3 B3-4] the remake\'s KDS LineDetail.options and kitchen ticket show the copied options (via P0.16)', async () => {
+    open();
+    const o1 = servedKarahi();
+    const taker = signIn('S_TAKER');
+    expect((await ret(taker, { order_item_id: 'K1', return_order_item_id: 'R2', mode: 'remake' })).status).toBe(200);
+
+    // KDS: the return line has no option children of its own; its options come from order_lines.options_json.
+    expect(buildLineDetails(hub.deps.db, engine(), ['R2']).get('R2')!.options).toEqual(['2 x Extra butter', 'No onion', 'Extra gravy']);
+
+    // Ticket: fire the remake (real FireDispatched); c7 folds the ticket; the kitchen ticket prints the options.
+    fire('R2');
+    const ticket = hub.deps.db
+      .prepare('SELECT t.ticket_id FROM tickets t JOIN ticket_lines l ON l.ticket_id = t.ticket_id WHERE t.order_id = ? AND l.order_item_id = ?')
+      .get(o1, 'R2') as { ticket_id: string };
+    const text = renderText(
+      renderJob({ db: hub.deps.db, state: engine(), now: hub.clock.branchNow(), utc_offset_ms: 0, width_cols: 48 }, { kind: 'kitchen', ticket_id: ticket.ticket_id, is_reprint: false })!,
+      48,
+    ).split('\n');
+    const at = text.indexOf('1 x Chicken Karahi');
+    expect(text.find((l) => l.startsWith('** RETURN - REMAKE'))).toBeDefined();
+    expect(text.slice(at)).toEqual(['1 x Chicken Karahi', '    + 2 x Extra butter', '    + No onion', '    + Extra gravy']);
+  });
+
+  it('[02b §3.8 B3-4, reading] a station-less child whose option has left the config since submit is still copied, modifier_group_id \'\'', async () => {
+    open();
+    servedKarahi();
+    const old = branchConfig()!;
+    const next = { ...old, config_version: old.config_version + 1, modifier_groups: [] };
+    hub.deps.writer.run((tx) => runBranchConfigHooks(old, next, tx));
+    swapBranchConfig({ config: next, snapshotHash: 'e'.repeat(64), configVersion: next.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    const remake = await ret(signIn('S_TAKER'), { order_item_id: 'K1', return_order_item_id: 'R2', mode: 'remake' });
+    expect(remake.status).toBe(200);
+    expect((remake.events[1]!.payload as { options: unknown[] }).options).toEqual([{ ...COPIED[0], modifier_group_id: '' }, COPIED[1], COPIED[2]]);
   });
 });
 
@@ -647,12 +741,12 @@ describe('ReturnToKitchen order_header (02b #40, E-4)', () => {
     expect(fix.status).toBe(200);
     expect(fix.events[0]!.actor_id).toBe('S_TAKER');
     expect(fix.events[0]!.payload.order_header).toEqual(header);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements, 'the E-4 header adds none; 3 = 02b v1.0.8 §6.7 at branch (B3-4)').toBe(3);
 
     const remake = await ret(signIn('S_TAKER'), { order_item_id: 'N2', return_order_item_id: 'R2', mode: 'remake' }, { counted: true });
     expect(remake.status).toBe(200);
     expect(remake.events[0]!.payload.order_header).toEqual(header);
-    expect(lastStatements).toBe(2);
+    expect(lastStatements, 'the E-4 header adds none; 3 = 02b v1.0.8 §6.7 at branch (B3-4)').toBe(3);
   });
 
   it('[02b #40] takeaway: order_header from the EngineOrder (table_id null, takeaway key)', async () => {
