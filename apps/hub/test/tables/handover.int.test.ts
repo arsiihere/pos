@@ -7,6 +7,9 @@ import type { CommandDef } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
+import { seatingTotals } from '../../src/orders/exports';
+import { resetSeatingTotals } from '../../src/tables/handover';
+import { appendOrder, FX, openDay } from '../orders/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, endSessionNow, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 
@@ -282,7 +285,7 @@ function stepsOf(alert_id: string): PosEvent[] {
 // ---------------------------------------------------------------------------------------------- tests
 
 describe('02a RequestTableHandover (§6.7) and kind table_handover (§6.15)', () => {
-  it('[02a §6.7] happy path: AlertRaised to the receiver, values / display / details, dedupe key, result { alert_id }; 1 + 1 + raise statements', async () => {
+  it('[02a §6.7] happy path: AlertRaised to the receiver, values / display / details, dedupe key, result { alert_id }; 1 + 1 + 1 seatingTotals + raise statements', async () => {
     const ali = signIn(ALI);
     signIn(SARA);
     open('T1', 'SEAT1', ali, { joined: ['T2'] });
@@ -291,7 +294,7 @@ describe('02a RequestTableHandover (§6.7) and kind table_handover (§6.15)', ()
     expect(r.status).toBe(200);
     const alertId = r.data!.result.alert_id;
     expect(r.data!.result).toEqual({ alert_id: alertId });
-    expect(handleStatements - raiseStatements).toBe(2);
+    expect(handleStatements - raiseStatements).toBe(3);
     expect(raiseStatements).toBeGreaterThan(0);
     const raised = events('AlertRaised').find((e) => (e.payload as { alert_id: string }).alert_id === alertId)!;
     expect(raised).toMatchObject({ stream_type: 'table', stream_id: 'T1', actor_id: ALI, device_id: ali.deviceId });
@@ -308,7 +311,6 @@ describe('02a RequestTableHandover (§6.7) and kind table_handover (§6.15)', ()
       details: { quantity: 2 },
       request: { answers: ['accept', 'decline'], right_mode: 'named', receiver_staff_id: SARA },
     });
-    expect(raised.payload).not.toHaveProperty('details.amount'); // AD-3: no seatingTotals yet
     const step0 = stepsOf(alertId)[0]!;
     expect(step0.payload).toMatchObject({ step: 0 });
     expect((step0.payload as { recipients: Array<{ staff_id: string; set: string }> }).recipients).toContainEqual(
@@ -317,6 +319,35 @@ describe('02a RequestTableHandover (§6.7) and kind table_handover (§6.15)', ()
     // no 02a event: the holder is unchanged until the receiver accepts
     expect(events('TableHolderChanged')).toEqual([]);
     expect(holderOf('SEAT1')).toBe(ALI);
+  });
+
+  it('[02a #12 amount] the card details.amount = 02b seatingTotals of the seating; 1 more statement than without the hook', async () => {
+    const ali = signIn(ALI);
+    signIn(SARA);
+    openDay(hub); // fixture menu: FX.table is on floor F1 and no zone
+    open(FX.table, 'SEAT_AMT', ali);
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT_AMT', lines: [{ order_item_id: 'N1', item_id: FX.naan, quantity: 2 }] });
+    const total = seatingTotals(hub.deps.db, 'SEAT_AMT').total_minor;
+    expect(total).toBe(6_000);
+    const r = await handover(ali, { table_id: FX.table, seating_id: 'SEAT_AMT', to_staff_id: SARA });
+    expect(r.status).toBe(200);
+    const alertId = r.data!.result.alert_id;
+    const raised = events('AlertRaised').find((e) => (e.payload as { alert_id: string }).alert_id === alertId)!;
+    expect((raised.payload as { details: unknown }).details).toEqual({ quantity: 1, amount: total });
+    expect(handleStatements - raiseStatements).toBe(3);
+  });
+
+  it('[02a §6.7] without a registered seatingTotals hook (02a standalone): no amount, 0 extra statements', async () => {
+    resetSeatingTotals();
+    const ali = signIn(ALI);
+    signIn(SARA);
+    open('T1', 'SEAT1', ali);
+    liveOrders('SEAT1', 2);
+    const r = await handover(ali, { table_id: 'T1', seating_id: 'SEAT1', to_staff_id: SARA });
+    expect(r.status).toBe(200);
+    const raised = events('AlertRaised').find((e) => (e.payload as { alert_id: string }).alert_id === r.data!.result.alert_id)!;
+    expect((raised.payload as { details: unknown }).details).toEqual({ quantity: 2 });
+    expect(handleStatements - raiseStatements).toBe(2);
   });
 
   it('[02a #12] handover accept → TableHolderChanged { handover }, to_staff_id = answerer; holder changes; request closed answered', async () => {

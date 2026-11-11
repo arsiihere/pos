@@ -14,6 +14,8 @@ import { registerZoneStock } from './commands/zone-stock.js';
 import type { HubDeps } from '../server.js';
 import { registerRemoveItems } from './commands/remove-items.js';
 import { registerSetLineWeight } from './commands/set-line-weight.js';
+import { registerSeatingTotals } from '../tables/handover.js';
+import { seatingTotals } from './exports.js';
 import { registerCompLine } from './commands/comp-line.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
@@ -50,6 +52,7 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
   // wave 3 lane B (queued replays)
 
   // wave 3 lane C (handover card amount, G-1)
+  registerSeatingTotals(seatingTotals);
 }
 
 // G-3: the `orders` projection (§5), registered where the hub's projection registry is created (boot, test hub).

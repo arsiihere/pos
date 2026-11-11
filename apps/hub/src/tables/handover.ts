@@ -21,6 +21,28 @@ export interface HandoverValues extends Record<string, unknown> {
   from_staff_id: string;
 }
 
+// ------------------------------------------------------------------------------------------- §3.8 card amount
+
+/** 02b §4.2 `seatingTotals`, declared here because 02a may not import 02b (G-1 (a)). */
+export type SeatingTotalsHook = (db: Database.Database, seating_id: string) => { total_minor: number; order_count: number };
+
+let seatingTotalsHook: SeatingTotalsHook | null = null;
+
+/** 02b registers `seatingTotals`; the handover card's `details.amount` is its total (02a §3.8). One per process; the last wins. */
+export function registerSeatingTotals(fn: SeatingTotalsHook): void {
+  seatingTotalsHook = fn;
+}
+
+/** Tests only: back to "no hook registered". */
+export function resetSeatingTotals(): void {
+  seatingTotalsHook = null;
+}
+
+/** The seating's total in minor units: 1 statement with a hook, null (0 statements) without one. */
+export function seatingTotalMinor(db: Database.Database, seating_id: string): number | null {
+  return seatingTotalsHook === null ? null : seatingTotalsHook(db, seating_id).total_minor;
+}
+
 // ------------------------------------------------------------------------------------------- §3.9 close
 
 /** §3.9: `byDedupeKey` (1 statement) → if found, `alerts.close(…, 'obsolete', note)` drafts for the same transaction. */
