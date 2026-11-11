@@ -28,7 +28,7 @@ Monorepo: pnpm + Turborepo
 T2 Production. Justification: real concurrency races exist in P1 (stock reservation, table locking, void approvals); immutable audit log is a story requirement; but scale is small (3 branches, ~10 concurrent devices/branch, ~200 orders/rush) — T3 patterns are not justified until P3/P4.
 
 ## Source of truth
-- The only source of truth is **docs/specs/00_Foundation_Spec_v1.9.md** (APPROVED), extended by the module specs listed in docs/specs/README.md. This file, the stories and the plans summarise it; if anything here disagrees with the spec, the spec wins.
+- The only source of truth is **docs/specs/00_Foundation_Spec_v1.11.md** (APPROVED), extended by the module specs listed in docs/specs/README.md. This file, the stories and the plans summarise it; if anything here disagrees with the spec, the spec wins.
 - The foundation changes only through a version bump approved by the owner, with a changelog and 'Changed by' markers (README R34). Appending an error code that a module spec defines (§6.2) needs no bump.
 - Every module spec follows the Shared Standards in foundation §6 and does not redefine them.
 - If code and spec disagree, STOP and ask; never silently diverge.
@@ -61,3 +61,8 @@ T2 Production. Justification: real concurrency races exist in P1 (stock reservat
 - Power-loss and crash-durability proof happens only on the pilot hardware (03a task 28 style manual checks), never on a dev laptop.
 - Production never changes: the hub stays SQLite WAL + `synchronous=FULL`, and cloud Postgres keeps fsync on.
 - No timing asserts in the normal gate (03a AD-32). Timing lives in `test:perf`.
+
+## Cloud sessions and CI (owner rule, 2026-11-11)
+- **CI:** `.github/workflows/gate.yml` runs the normal gate on every PR into `main` or a `module-*` branch and on every push to them: a `postgres:16` service on port 5433 with the same three test-only settings, SQLite under `TMPDIR=/dev/shm`. A PR merges only with the gate green.
+- **claude.ai/code cloud sessions:** the environment's setup script is `tools/cloud/environment-setup.sh` (pre-installed PostgreSQL 16 moved to port 5433, user `pos`, db `pos_test`, the same three settings); the repo's SessionStart hook `tools/cloud/session-start.sh` starts Postgres and runs `pnpm install` (cloud only; it does nothing locally). This is the cloud form of `pos-pg-test`; the local container rules above stay as they are. The hook also runs the setup script itself when the environment has not, so any cloud session or remote agent works without environment settings. Both install the exact pnpm of `package.json` "packageManager": the cloud VM ships pnpm 10, and pnpm's own version switch races under turbo's parallel spawns ("Exec format error").
+- **Never in the cloud or CI:** `pnpm test:perf`, printer and hardware checks, power-loss checks. They run on the owner's machine or the pilot hardware.
