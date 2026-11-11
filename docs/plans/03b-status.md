@@ -8,6 +8,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 > - CI needs nothing (fresh `postgres:16` service per run).
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-11: owner ruling B3-5 (a) — 0016 ab options_json SQL se backfill karti hai (checkpoint delete nahi; 02b v1.0.9).
 > - 2026-11-11: owner rulings B3-3 (a), B3-4 (a) — 03b v1.0.4: units badalne pe KDS details dobara; return line options copy karti hai (03a v1.2.3, 02b v1.0.8; task P0.20).
 > - 2026-11-11: owner rulings C1-2 (a), C1-3 (a), C3-1 (yes) — 03c v1.0.4 (cancel slip 0 left → whole form), c7 test edit approved, c15 / c19 USB child file open.
 > - 2026-11-11: phase 0 done except P0.F / P0.15; lanes run in parallel (integrator call, owner informed 2026-11-11).
@@ -50,7 +51,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | P0.14 | #16 | merged `0432673` |
 | P0.F | #22 | in review (review fixes, owner rulings 2026-11-11) |
 | P0.15 | #29 | in review (B-2 ruling (a): kitchen timing settings writable + owner page boxes) |
-| P0.16 | — | not started — B3-2 plain options on KDS / tickets (02b `order_lines.options_json`, migration 0016). Needs: spec batch #42, c10 (#33) |
+| P0.16 | — | not started — B3-2 plain options on KDS / tickets (02b `order_lines.options_json`, migration 0016, SQL backfill per B3-5). Needs: spec batch #42, c10 (#33) |
 | P0.17 | — | not started — B2-2 `auto_done` undo (03a `EngineLine.done_undone`, `ENGINE_STATE_VERSION` 4). Needs: spec batch #42 |
 | P0.18 | — | not started — B1-1 `SendTestAlert` point id → 404 `POINT_NOT_FOUND`; B1-2 `always_on` reaches point-bound tablets (01d v1.2.3). Needs: spec batch #42, b6 (#32) |
 | P0.19 | — | not started — P15-1 Ready window / KDS offline boxes in seconds (01a v2.4.3; client only). Needs: spec batch #42 (P0.15 merged) |
@@ -107,6 +108,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | AD-30 | c15 / c19 (C3-1) | The USB status read-back needs `print/transport/usb-child.ts` (c13's file). | **ruled yes** (owner 2026-11-11): c15 and c19 may edit `apps/hub/src/print/transport/usb-child.ts` (open for the status read-back, 03c §3.7 "only if its test print proved status"); added to both plan rows' Files |
 | AD-31 | b18 / P0.16 (B3-3) | `kds_lines` sends a line's details once per id; a partial removal / void or a weight change leaves the scaled options stale. | **ruled (a)** (owner 2026-11-11): details are re-sent whenever live units change (`ItemRemoved` / `ItemVoided` with units, `LineWeightSet`), budget unchanged (03b v1.0.4 §6.16); code in P0.16 (#47), approved edit of `ws/kds-catch-up.ts` |
 | AD-32 | 02b return (B3-4) | A return line had `options: []`, so the remake ticket lost "No onion". | **ruled (a)** (owner 2026-11-11): the return line copies plain options and option children with no station, money 0 (03a v1.2.3 §3.8a, 02b v1.0.8 §3.8, §6.7 3–4 statements); code P0.20 |
+| AD-33 | P0.16 (B3-5) | 0016 deleted the `orders` checkpoint to force a rebuild, but a `ClockAlarm` at boot step 3a recreates it before catch-up (#47 review). | **ruled (a)** (owner 2026-11-11): 0016 backfills `order_lines.options_json` once in SQL from the stored `ItemAdded` events (same JSON as the live fold, `NULL` when none) and leaves the checkpoint alone (02b v1.0.9 §5); code in P0.16 (#47) |
 
 ## Gate times (CI, for the record)
 
