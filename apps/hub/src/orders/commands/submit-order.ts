@@ -163,8 +163,8 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   // Step 9: token (O12), takeaway only.
   const token = payload.order_type === 'takeaway' ? nextToken(ctx, business_date) : null;
 
-  // §3.14 scope last (C8): dine-in `my_floors` must cover the table; holder / take-order-anywhere is requireLock's.
-  if (payload.order_type === 'dine_in') requireFloorScope(ctx, payload.table_id!);
+  // §3.14 scope (v1.0.5 AD-36): dine-in is 02a's rule, decided by requireLock at step 2 (holder, or take-order-anywhere
+  // covering the floor); no extra take-order `my_floors` check. Takeaway / parking: none.
 
   // Step 10: the batch, in 03a :615 order.
   const envelope = { occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
@@ -399,17 +399,6 @@ export function soldOutDetails(
     }),
   );
   return { item_id: line.item_id, available };
-}
-
-// §3.14 (C8, last): take-order `my_floors` must cover the named table's floor; `branch` any; `own_tables` is the holder
-// rule requireLock already applied. 0 statements (config and directory in memory).
-function requireFloorScope(ctx: CommandCtx, table_id: string): void {
-  const permission = ctx.permission;
-  if (permission?.grant !== 'allowed' || permission.scope !== 'my_floors') return;
-  const floor = branchConfig()?.floors.find((f) => f.tables.some((t) => t.table_id === table_id))?.floor_id;
-  const staffId = ctx.actor.staffId;
-  if (floor !== undefined && staffId !== null && ctx.directory.floorsOf(staffId).includes(floor)) return;
-  throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', table_ids: [table_id] });
 }
 
 export function registerSubmitOrder(app: FastifyInstance): void {

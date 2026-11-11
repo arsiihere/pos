@@ -225,32 +225,20 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
 }
 
 /**
- * §3.14 RemoveItems scope (C8, last), 0 statements. Dine-in: requireLock has passed (holder, or take-order-anywhere),
- * so `own_tables` is covered; `my_floors` → the current table's floor is one of the caller's; `branch` any.
+ * §3.14 RemoveItems scope (C8, last), 0 statements. Dine-in (v1.0.5 AD-36): as SubmitOrder on the current table — 02a's
+ * rule, decided by requireLock (holder, or take-order-anywhere covering the floor); no extra `my_floors` check.
  * Takeaway / parking: `own_tables` and `my_floors` = placed by the caller; `branch` any.
  */
 function checkScope(ctx: CommandCtx, order: OrderHead): void {
+  if (order.order_type === 'dine_in') return;
   const staffId = ctx.actor.staffId;
   const scope = ctx.permission !== null && 'scope' in ctx.permission ? ctx.permission.scope : null;
   let covered = false;
   if (staffId !== null && scope !== null) {
     if (scope === 'branch') covered = true;
-    else if (order.order_type === 'dine_in') {
-      if (scope === 'own_tables') covered = true;
-      else if (scope === 'my_floors') {
-        const floor = branchConfig()?.floors.find((f) => f.tables.some((t) => t.table_id === order.primary_table_id));
-        covered = floor !== undefined && ctx.directory.floorsOf(staffId).includes(floor.floor_id);
-      }
-    } else if (scope === 'own_tables' || scope === 'my_floors') {
-      covered = order.placed_by === staffId;
-    }
+    else if (scope === 'own_tables' || scope === 'my_floors') covered = order.placed_by === staffId;
   }
-  if (!covered) {
-    throw new DomainError(
-      'PERMISSION_DENIED',
-      order.order_type === 'dine_in' ? { reason: 'outside_scope', table_ids: [order.primary_table_id] } : { reason: 'outside_scope', order_id: order.order_id },
-    );
-  }
+  if (!covered) throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', order_id: order.order_id });
 }
 
 export const removeItemsCommand = defineCommand({

@@ -55,6 +55,9 @@ async function directory(): Promise<DirectoryInput> {
       role('R_TAKER', [grant('take-order')]),
       role('R_ANYWHERE', [grant('take-order'), grant('take-order-anywhere')]),
       role('R_FLOOR', [grant('take-order', 'allowed', 'my_floors')]),
+      // AD-36: take-order my_floors plus take-order-anywhere at branch / at my_floors.
+      role('R_FLOOR_ANYWHERE', [grant('take-order', 'allowed', 'my_floors'), grant('take-order-anywhere')]),
+      role('R_FLOOR_ANYWHERE_FLOORS', [grant('take-order', 'allowed', 'my_floors'), grant('take-order-anywhere', 'allowed', 'my_floors')]),
       // 01b §6.15 v1.7 defaults (cloud default-roles.ts), as the hub receives them: order_taker and cashier.
       role('R_DEF_TAKER', [
         grant('mark-served'),
@@ -83,6 +86,8 @@ async function directory(): Promise<DirectoryInput> {
       person('S_FAIZ', 'Faiz', 'R_FLOOR', ['F9']),
       person('S_FLOORED', 'Fahad', 'R_FLOOR', [FX.floor]),
       person('S_ROOF', 'Rafay', 'R_FLOOR', ['F2']),
+      person('S_FARAH', 'Farah', 'R_FLOOR_ANYWHERE', ['F9']),
+      person('S_FAWAD', 'Fawad', 'R_FLOOR_ANYWHERE_FLOORS', ['F9']),
       person('S_OT', 'Usman', 'R_DEF_TAKER', ['F9']),
       person('S_CASHIER', 'Hina', 'R_DEF_CASH'),
     ],
@@ -761,25 +766,46 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
     expect(eventCount()).toBe(before);
   });
 
-  it('[02b §3.14] scope last (C8): take-order my_floors on a table of another floor → 403 outside_scope after every other check; nothing appended', async () => {
+  it('[02b §3.14 AD-36] dine-in scope is 02a requireLock: a take-order my_floors holder on a table of another floor → 200; no extra my_floors check', async () => {
     await setUp();
+    // FX.table is on F1; Faiz's floors are F9 only. He is the holder, so requireLock passes and the submit is written.
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_FAIZ' });
     const faiz = signIn('S_FAIZ');
-    const before = eventCount();
-    const missing = await submit(faiz, dineIn('O1', [item('L1', 'I_NOPE')]));
-    expect(missing.error!.code).toBe('MENU_ITEM_NOT_FOUND');
     const r = await submit(faiz, dineIn('O1', [item('L1', FX.naan)]));
-    expect(r.status).toBe(403);
-    expect(r.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
-    expect(eventCount()).toBe(before);
-    expect(lockRows()).toEqual([]);
-    // my_floors covering the table's floor → allowed.
-    openSeating(hub, { table_id: FX.zoneTable, seating_id: 'SEAT2', holder_staff_id: 'S_FLOORED' });
-    const ok = await submit(signIn('S_FLOORED'), dineIn('O2', [item('L2', FX.naan)], { table_id: FX.zoneTable, seating_id: 'SEAT2' }));
-    expect(ok.status).toBe(200);
+    expect(r.status).toBe(200);
+    expect(r.events.map((e) => e.event_type)).toEqual(['TableLocked', 'OrderPlaced', 'ItemAdded']);
+    expect(lockRows()).toEqual([{ table_id: FX.table, seating_id: 'SEAT1', staff_id: 'S_FAIZ', device_id: faiz.deviceId }]);
   });
 
-  it('[02b §3.1] merged seating: naming the secondary table → OrderPlaced.table_id = the primary table; my_floors is checked on the named table', async () => {
+  it('[02b §3.14 AD-36] take-order-anywhere (branch) with take-order my_floors outside the table\'s floor, not the holder → 200 (02a rule)', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const r = await submit(signIn('S_FARAH'), dineIn('O1', [item('L1', FX.naan)]));
+    expect(r.status).toBe(200);
+    // A free lock is never taken by a non-holder (02a G4-3 #2).
+    expect(r.events.map((e) => e.event_type)).toEqual(['OrderPlaced', 'ItemAdded']);
+    expect(r.events[0]!.actor_id).toBe('S_FARAH');
+    expect(lockRows()).toEqual([]);
+  });
+
+  it('[02b §3.14 AD-36] a non-holder is refused by requireLock as 02a refuses: no take-order-anywhere → 403 not_holder; take-order-anywhere my_floors off the floor → 403 outside_scope; nothing appended', async () => {
+    await setUp();
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: 'S_ALI' });
+    const fahadWho = signIn('S_FLOORED');
+    const fawadWho = signIn('S_FAWAD');
+    const before = eventCount();
+    // Fahad's take-order my_floors covers F1, but he is not the holder and has no take-order-anywhere.
+    const fahad = await submit(fahadWho, dineIn('O1', [item('L1', FX.naan)]));
+    expect(fahad.status).toBe(403);
+    expect(fahad.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'not_holder', table_id: FX.table, holder_staff_id: 'S_ALI' } });
+    const fawad = await submit(fawadWho, dineIn('O2', [item('L2', FX.naan)]));
+    expect(fawad.status).toBe(403);
+    expect(fawad.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
+    expect(eventCount()).toBe(before);
+    expect(lockRows()).toEqual([]);
+  });
+
+  it('[02b §3.1] merged seating: naming the secondary table → OrderPlaced.table_id = the primary table; AD-36: no my_floors check on either named table', async () => {
     const menu = fixtureMenu();
     menu.floors = [...menu.floors, { floor_id: 'F2', name: 'Roof', sort_order: 1, zones: [], tables: [{ table_id: 'T3', name: 'T3', seats: 4, sort_order: 0, zone_id: null }] }];
     await setUp({ menu });
@@ -791,11 +817,9 @@ describe('02b SubmitOrder (§6.1, §3.2)', () => {
       payload: { into_seating_id: 'SEAT1', into_table_id: FX.table, table_ids: ['T3'], absorbed_seating_id: null, order_ids: [], by_staff_id: 'S_ROOF' },
     });
     const roof = signIn('S_ROOF');
-    const before = eventCount();
-    // The primary table T2 is on F1, outside Rafay's floors.
+    // The primary table T2 is on F1, outside Rafay's floors: he holds the seating, so 02a's rule allows it (AD-36).
     const primary = await submit(roof, dineIn('O1', [item('L1', FX.naan)]));
-    expect(primary.error).toEqual({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope', table_ids: [FX.table] } });
-    expect(eventCount()).toBe(before);
+    expect(primary.status).toBe(200);
     // The secondary table T3 is on F2, his floor: allowed, and the order is on the seating's primary table.
     const secondary = await submit(roof, dineIn('O2', [item('L2', FX.naan)], { table_id: 'T3' }));
     expect(secondary.status).toBe(200);

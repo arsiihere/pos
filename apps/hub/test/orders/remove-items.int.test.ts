@@ -54,6 +54,8 @@ async function directory(): Promise<DirectoryInput> {
       role('R_TAKER', [grant('take-order')]),
       role('R_FLOOR', [grant('take-order', 'my_floors')]),
       role('R_OWN', [grant('take-order', 'own_tables')]),
+      // AD-36: take-order my_floors plus take-order-anywhere at branch.
+      role('R_FLOOR_ANYWHERE', [grant('take-order', 'my_floors'), grant('take-order-anywhere')]),
     ],
     staff: [
       ...base.staff,
@@ -64,6 +66,7 @@ async function directory(): Promise<DirectoryInput> {
       person('S_ZAIN', 'R_FLOOR', [FX.floor]),
       person('S_NOOR', 'R_FLOOR', [FX.floor]),
       person('S_NOFLOOR', 'R_FLOOR'),
+      person('S_FARAH', 'R_FLOOR_ANYWHERE', ['F9']),
     ],
   };
 }
@@ -493,18 +496,35 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
     expect(eventCount()).toBe(before);
   });
 
-  it('[02b §3.14] dine-in scope last: my_floors without the table\'s floor → 403 outside_scope, nothing appended', async () => {
+  it('[02b §3.14 AD-36] dine-in scope is 02a requireLock: a take-order my_floors holder whose table is on another floor → 200', async () => {
     await start();
     const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }], { holder: 'S_NOFLOOR' });
-    const noFloor = signIn('S_NOFLOOR');
-    const before = eventCount();
-    const r = await remove(noFloor, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1' }] });
-    expect(r.status).toBe(403);
-    expect(r.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'outside_scope' } });
-    expect(eventCount()).toBe(before);
+    const r = await remove(signIn('S_NOFLOOR'), { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1' }] });
+    expect(r.status).toBe(200);
+    expect(line('L1').removed_units).toBe(2);
     const zain = dineIn([{ order_item_id: 'M1', item_id: FX.naan, quantity: 2 }], { holder: 'S_ZAIN', seating_id: 'SEAT2', table_id: FX.zoneTable });
     const ok = await remove(signIn('S_ZAIN'), { order_id: zain.order_id, seating_id: zain.seating_id, lines: [{ order_item_id: 'M1' }] });
     expect(ok.status).toBe(200);
+  });
+
+  it('[02b §3.14 AD-36] take-order-anywhere (branch) with take-order my_floors outside the table\'s floor, not the holder → 200 (02a rule)', async () => {
+    await start();
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const r = await remove(signIn('S_FARAH'), { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1', units: 1 }] });
+    expect(r.status).toBe(200);
+    expect(line('L1').removed_units).toBe(1);
+  });
+
+  it('[02b §3.14 AD-36] a non-holder without take-order-anywhere is refused by requireLock as 02a refuses (403 not_holder), even with my_floors covering the floor; nothing appended', async () => {
+    await start();
+    const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const zain = signIn('S_ZAIN');
+    const before = eventCount();
+    const r = await remove(zain, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1' }] });
+    expect(r.status).toBe(403);
+    expect(r.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { reason: 'not_holder', table_id: FX.table, holder_staff_id: 'S_ALI' } });
+    expect(eventCount()).toBe(before);
+    expect(line('L1').removed_units).toBe(0);
   });
 
   it('[02b §3.14] scope is checked last (C8): an outside-scope caller naming a started line gets ITEM_WRONG_STAGE, not 403', async () => {
