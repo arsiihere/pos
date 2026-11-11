@@ -116,7 +116,7 @@ Duplication carried for the integrator:
 - `requireFloorScope` repeats 02a `tables/lock.ts` `coversFloor`;
 - the takeaway / parking scope helper is built in both 2B and 2C.
 
-Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or a later clean-up; (b) rule item by item. | proposed (not yet ruled) |
+Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or a later clean-up; (b) rule item by item. | **ruled (owner, 2026-11-11): (a) accepted as read**; text bump for 12, 18 and the scope note; dedupe carried |
 
 ## Owner rulings (this sprint)
 
@@ -130,6 +130,7 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 | 2026-11-11 | AD-24 (a) zone-audience clause → task 21, task 20 asserts 403; AD-25 §6.9 branch stock read = in memory, 0 SQL | AD rows, plan tasks 20 / 21 |
 | 2026-11-11 | AD-26 hub `maxHeaderSize` 64 KB; AD-27 return line weight → 409 `LINE_NOT_WEIGHED`; AD-28 `ORDER_NOT_FOUND { order_item_id }`; AD-29 H-b header → 400, N-a no-station line can be served | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §6 |
 | 2026-11-11 | AD-30 land only lane 2A's socket test; AD-31 return to a paused station → 409 `STATION_PAUSED`; AD-32–AD-34 accepted; AD-35 stage `'not_engine_line'` | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §5 |
+| 2026-11-11 | AD-36 (a) wave 2 lane readings accepted as read; the SubmitOrder / OpenTable scope note goes in the text bump; the three duplicates are carried | AD-36, "Next 02b text bump", Wave 2 entry |
 
 ## Next 02b text bump
 
@@ -151,6 +152,10 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **AD-27:** §3.6 says `SetLineWeight` on a return line → `409 LINE_NOT_WEIGHED`.
 - **AD-28:** §9 `ORDER_NOT_FOUND` details become `{ order_id } | { order_item_id }`.
 - **AD-29:** §3.7 / §3.4 say `MarkServed` naming a deal header → `400 VALIDATION_FAILED`, and a no-station line is served with no fired check.
+- **AD-36:**
+  - §3.14 / §6.1: write down how `SubmitOrder`'s scope `my_floors` applies to a named table, and align the text with 02a `OpenTable` Q1 (02a §3.x). 02a and 02b must say the same thing. If they differ, the next text bump of each (02a and 02b) states one rule.
+  - §3.10 / §6.1: the zone statement count includes 01d's `listOpen`.
+  - §6.5: `ReleaseItems` / `BoostOrder` statements are 1–2.
 - **AD-31–AD-35:** the §6.7 `ReturnToKitchen` error list gains:
   - `409 STATION_PAUSED` (paused station, no alternate);
   - `404 MENU_ITEM_NOT_FOUND` (`fix` with the item gone);
@@ -280,6 +285,10 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **Statement counts asserted (`statementCounter`):** every command test file (`submit-order`, `submit-zone`, `eta-preview`, `remove-items`, `set-line-weight`, `comp`, `mark-served`, `release-boost`, `return-to-kitchen`, `zone-stock`), with the numbers as read in AD-36 and AD-25.
 - **Files outside `orders/`:** `server.ts` (`b23e42f`, integrator). G-2 edits: none.
 - **Carried (minor, deferred):**
+  - Duplicate code (AD-36, owner 2026-11-11: carry, dedupe later):
+    - `remove-items.ts` copies the `exports.ts` row → `LineView` / `billed` rule;
+    - `requireFloorScope` repeats 02a `tables/lock.ts` `coversFloor`;
+    - the takeaway / parking scope helper is built in both 2B (`remove-items.ts`) and 2C.
   - 2A:
     - empty-string name / phone (AD-36);
     - no merged-secondary-table preview test;
@@ -304,5 +313,5 @@ Readings already accepted in code that the next 02b text patch writes into the s
 
 ## Next
 
-1. **Owner:** review wave 2; rule AD-36 (a bundle of lane readings; blocks nothing); then type `wave 3`.
+1. **Claude Code:** wave 3. Lanes 3A (task 21), 3B (22) and 3C (23).
 2. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
