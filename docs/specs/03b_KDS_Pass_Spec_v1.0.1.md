@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03c v1.0)**. Content = v0.4.1, unchanged. v0.4.1 was v0.4 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`, APPROVE WITH WORDING FIXES; §12.8). Screen first (owner R-1–R-6, `docs/stories/03b-g1-decisions.md` §4); printing is **03c** (`03c_Printing_Spec_v0.2.md`). v0.3 closed G4 run 2 (§12.6); v0.4 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (verdict FIX) in §12.7. Re-check done (5 of 6 rows closed; M-3 is 03c's). |
+| Doc | Module spec, **v1.0.1 — APPROVED (owner, 2026-11-11, 16:23 PKT; gap sweep G-14, wording only)**. v1.0 — APPROVED (owner, 2026-11-11, 13:40 PKT; approved together with 03c v1.0). Content = v0.4.1, unchanged, plus v1.0.1's marked wording fix. v0.4.1 was v0.4 + the re-check's wording fixes (`docs/reviews/03b_v0.4_03c_v0.2_recheck.md`, APPROVE WITH WORDING FIXES; §12.8). Screen first (owner R-1–R-6, `docs/stories/03b-g1-decisions.md` §4); printing is **03c** (`03c_Printing_Spec_v0.2.md`). v0.3 closed G4 run 2 (§12.6); v0.4 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (verdict FIX) in §12.7. Re-check done (5 of 6 rows closed; M-3 is 03c's). |
 | Was | `03b_KDS_Printing_Spec_v0.2.md` → `03b_KDS_Pass_Spec_v0.3.md` (history in git: `401ab58`, `3baab71`, `1c4f9ee`). |
 | Depends on | Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7**, 01c **v1.1.2**, 01d **v1.2.1**, 02a **v1.1.4**, 02b **v1.0.3** (APPROVED 2026-11-10 on `module-02b`; + its code once merged), 03a **v1.2**. Target versions after approval: §4.5 (one bump per target, shared with 03c). |
 | Read by | 03c Printing (presence, station view, device roles, Pass client), 05, 07. |
@@ -17,6 +17,7 @@
 | v0.1 | 2026-11-11 | First draft (KDS + Printing) from G0 + G1. |
 | v0.1 (owner answers) | 2026-11-11 | OQ-1 printers USB + LAN; OQ-2 upstream rows as tasks 0a–0e. |
 | v0.2 | 2026-11-11 | G4 run 1 closure (14 M · 23 m · 15 n). |
+| **v1.0.1** | 2026-11-11 | (owner-approved G-14, `docs/plans/03b-03c-gaps.md`): alert step targets written as `{ kind: 'managers' }` (was the bare string `'managers'`) in §6.21 (`ready_to_serve`, `kds_offline`); no behaviour change. |
 | **v1.0** | 2026-11-11 | **APPROVED by the owner** (with 03c v1.0, so task 0d applies one bump per target for both). No content change from v0.4.1. |
 | v0.4.1 | 2026-11-11 | Re-check wording fixes (§12.8): a dark station whose last KDS is revoked ends its takeover and closes its alert `obsolete` (N-2); lane mirror rule restated by append order (N-4); the "approved later" sentence replaced by an explicit fallback (N-5); the 02b v1.0.4 bump waits for `module-02b` (N-6); Cook `reprint-ticket` in task 0a and test 60 (N-7). |
 | v0.4 | 2026-11-11 | **Targeted check closure (§12.7):** settle folds idempotent, `open_lines` counted, never below 0 (M-1); **dark only for a station with a paired screen**, screenless stations never alert (M-2); `LanesSet` kept for 03b's own lane changes, tie rule for foreign ones (m-1); takeover frames by the fires-tick `tx.onCommit` pattern (m-2); `GiveMeMore` open to `run-pass` (m-3); D-2 freezes `AlertDetailsBaseV2` (m-4); one bump per target shared with 03c, 02b dependency v1.0.3 (m-5); Cook gets `reprint-ticket` by default (m-6, for 03c's Pass reprint); task 0b split, 20 before 18 (m-8); client slots for 03c (m-10); `handoversDue` returns unsettled lines (m-11); catch-up note corrected (m-12); n-2, n-3, n-6, n-7, n-8, n-10. |
@@ -406,7 +407,7 @@ defineAlertKind({
     { at: { value: 'window_ms', times: 1 }, to: [{ target: 'raised_target', set: 'recipient' }] },
     { at: { value: 'window_ms', times: 2 }, escalation: true,
       to: [{ target: { kind: 'point', from_value: 'point_id' }, set: 'recipient' },
-           { target: 'managers', set: 'recipient' }] },
+           { target: { kind: 'managers' }, set: 'recipient' }] },   // ⚠️ Changed by v1.0.1 (G-14, owner 2026-11-11): was `target: 'managers'`
   ],
   closes_on: 'owner',
   values_schema: z.object({ order_id: z.string().min(1), point_id: z.string().min(1),
@@ -426,7 +427,7 @@ defineAlertKind({
 });
 defineAlertKind({
   kind: 'kds_offline', family: 'action', subject: 'hub',            // { stream_type: 'hub', stream_id: branch_id } (01d A3)
-  steps: [{ at: { ms: 0 }, to: [{ target: 'managers', set: 'recipient' }] }],
+  steps: [{ at: { ms: 0 }, to: [{ target: { kind: 'managers' }, set: 'recipient' }] }],   // ⚠️ Changed by v1.0.1 (G-14, owner 2026-11-11): was `target: 'managers'`
   closes_on: 'owner',                                               // kds_presence: 'done' after 60 s back
   values_schema: z.object({ station_id: z.string().min(1) }),
   details_schema: AlertDetailsBase.pick({ station_name: true }),

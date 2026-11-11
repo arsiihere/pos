@@ -2,7 +2,7 @@
 
 > **For agentic workers:** every task is TDD (failing test first, record the failure, then implement). One task = one branch = one PR into `module-03b` = one commit after review. Lanes run in **claude.ai/code cloud sessions**, the gate runs in **GitHub Actions** (`.github/workflows/gate.yml`). Prompts: `docs/plans/03b-03c-prompts.md`. Board: `docs/plans/03b-status.md`. 03c's lanes are in `docs/plans/03c-plan.md`; both modules share phase 0 and one integration branch.
 
-**Goal:** build 03b v1.0 on the hub (station commands, KDS station view data, Pass / assembler data, Ready to serve / Handover / Served card, lanes, presence + Pass takeover, device roles, config reactions) and the upstream rows 0a–0g, then the clients once the design handoff exists.
+**Goal:** build 03b v1.0.1 on the hub (station commands, KDS station view data, Pass / assembler data, Ready to serve / Handover / Served card, lanes, presence + Pass takeover, device roles, config reactions) and the upstream rows 0a–0g, then the clients once the design handoff exists.
 
 **Spec:** `docs/specs/03b_KDS_Pass_Spec_v1.0.1.md` (APPROVED 2026-11-11; v1.0.1 = v1.0 + G-14 wording, owner 2026-11-11; cited "§x", tests "#n"). Context: 03c v1.0.1 (shares phase 0), 02b v1.0.3 + its merged code, 03a v1.2, 01d v1.2.1, 00 v1.8. Read the cited section before each task; the plan never repeats spec rules. **Names:** `docs/plans/03b-03c-gaps.md` §1 "Exact names" is the truth for every function, signature, table, file and line; its G-rows (all ruled (a), owner 2026-11-11) are patched into the rows below.
 
