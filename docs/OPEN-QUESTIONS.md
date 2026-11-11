@@ -81,3 +81,9 @@ These work today. Change one only if the owner disagrees.
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
 | 02b AD-26 | **Hub HTTP `maxHeaderSize` = 64 KB.** 02b §6.14's eta-preview draft is GET-encoded and can exceed Node's 16 KB default, which gives `431` before the hub's own 400. Built in 02b as a 00 platform knob. | Yes (owner, 2026-11-11). | The next 00 / platform-batch spec text (00 server setup). |
+
+## 7. From the 03b build (owner, 2026-11-11) — after the pilot
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| 03b-N1 | **Kitchen timing set on the hub, synced both ways.** Ready window, KDS offline and served estimate (03b §4.5 A-1, B-2) are per-branch owner settings: the owner app edits them, the cloud delivers them to the hub (F §3.3, one-way), the hub keeps the last delivered value and falls back to its defaults (60 s / 30 s / 3 min). Wanted later: a manager changes them on the hub too (also offline) and the owner app shows the change. | Keep one-way for the pilot (owner, 2026-11-11); look again after the pilot. | Same design as 02a-N1 (hub → cloud config sync, conflict rule, offline edits, permission) — one foundation bump for both. |
