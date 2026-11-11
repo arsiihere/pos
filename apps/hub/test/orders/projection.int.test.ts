@@ -184,6 +184,26 @@ describe('[02b §5] orders projection folds', () => {
     expect(line('Z')).toMatchObject({ is_food: 0, served_from_zone_id: FX.zone, served_source: 'zone' });
   });
 
+  it('[02b v1.0.7 §5] ItemAdded writes options_json = ItemAdded.options as [{ name, quantity }] in order; [] → NULL (B3-2)', async () => {
+    await dineIn();
+    const plain = (name: string, quantity: number, price_minor = 0) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor, quantity, charge_minor: price_minor * quantity });
+    appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SEAT1',
+      lines: [
+        { order_item_id: 'K', item_id: FX.piece, quantity: 2, item: { options: [plain('No onion', 2), plain('Extra butter', 1, 5_000)] } },
+        { order_item_id: 'N', item_id: FX.naan },
+        { order_item_id: 'D', deal_id: FX.deal },
+        { order_item_id: 'Da', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D', item: { options: [plain('Less spicy', 1)] } },
+      ],
+    });
+    // Only name and quantity are stored (no ids, prices or charges), in the event's order.
+    expect(line('K')!.options_json).toBe('[{"name":"No onion","quantity":2},{"name":"Extra butter","quantity":1}]');
+    expect(line('N')!.options_json).toBeNull();
+    expect(line('D')!.options_json).toBeNull();
+    expect(line('Da')!.options_json).toBe('[{"name":"Less spicy","quantity":1}]');
+  });
+
   it('[02b §5] a repeated ItemAdded of a known id changes nothing (first copy stays, no second zone −; as 03a AD-8)', async () => {
     await dineIn();
     setZoneStock(hub, FX.zone, FX.zoneItem, 5);
@@ -409,7 +429,13 @@ function fixtureDay(): void {
     order_type: 'dine_in',
     seating_id: 'SEAT1',
     lines: [
-      { order_item_id: 'A1', item_id: FX.piece, quantity: 2 },
+      // B3-2: plain options ride on options_json (02b v1.0.7); a replay fills it as live did.
+      {
+        order_item_id: 'A1',
+        item_id: FX.piece,
+        quantity: 2,
+        item: { options: [{ option_id: 'O_NO_ONION', modifier_group_id: 'G_PLAIN', name: 'No onion', price_minor: 0, quantity: 2, charge_minor: 0 }] },
+      },
       { order_item_id: 'A1o', item_id: FX.optionItem, option_id: FX.option, parent_order_item_id: 'A1' },
       { order_item_id: 'A2', item_id: FX.gram },
       { order_item_id: 'A3', item_id: FX.naan, quantity: 3, item: { line_total_minor: 10_001 } },
@@ -422,7 +448,7 @@ function fixtureDay(): void {
     order_type: 'parking',
     lines: [
       { order_item_id: 'D', deal_id: FX.deal },
-      { order_item_id: 'Da', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D' },
+      { order_item_id: 'Da', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D', item: { options: [{ option_id: 'O_MILD', modifier_group_id: 'G_PLAIN', name: 'Mild', price_minor: 0, quantity: 1, charge_minor: 0 }] } },
       { order_item_id: 'Db', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'D' },
     ],
   });
@@ -456,6 +482,10 @@ describe('[02b #28] replay', () => {
     expect(live.orders.length).toBe(4);
     expect(live.order_lines.length).toBe(12);
     expect(live.order_lines.find((l) => (l as { order_item_id: string }).order_item_id === 'A1r')).toMatchObject({ return_of: 'A1', refundable_minor: 0 });
+    const byId = (id: string) => live.order_lines.find((l) => (l as { order_item_id: string }).order_item_id === id);
+    expect(byId('A1')).toMatchObject({ options_json: '[{"name":"No onion","quantity":2}]' });
+    expect(byId('Da')).toMatchObject({ options_json: '[{"name":"Mild","quantity":1}]' });
+    expect(byId('A1r')).toMatchObject({ options_json: null });
 
     const replayWith = (register: Array<(r: ReturnType<typeof createProjectionRegistry>) => void>) => {
       hub.deps.db.prepare(`DELETE FROM projection_checkpoints WHERE projection IN ('orders', 'tables')`).run();
