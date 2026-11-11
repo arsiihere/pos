@@ -6,7 +6,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { returnToKitchenCommand } from '../../src/orders/commands/return-to-kitchen';
 import { orderLines } from '../../src/orders/exports';
 import { voidUnits } from '../../src/orders/ledger';
-import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { branchConfig, runBranchConfigHooks, swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -556,6 +556,59 @@ describe('ReturnToKitchen (02b §6.7, §3.8)', () => {
     // takeaway own_tables: placed_by from the engine's order, no holder read
     expect((await ret(signIn('S_OWN1'), { order_item_id: 'T1', return_order_item_id: 'R4', mode: 'fix' }, { counted: true })).status).toBe(200);
     expect(lastStatements).toBe(2);
+  });
+});
+
+describe('ReturnToKitchen owner rulings S-2 (02b §6.7, §3.8; owner 2026-11-11)', () => {
+  it('[02b §6.7, owner S-2a AD-31] a return to a paused station with no alternate → 409 STATION_PAUSED { station_id }, nothing appended', async () => {
+    open();
+    servedNaan();
+    expect(engine().lines.N1!.alternates).toEqual([]);
+    append(draft('station', FX.station, 'StationPauseSet', { station_id: FX.station, paused: true }));
+    expect(engine().stations[FX.station]!.paused).toBe(true);
+    const taker = signIn('S_TAKER');
+    const before = eventCount();
+    const reply = await ret(taker, { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'fix' });
+    expect(reply.status).toBe(409);
+    expect(reply.error).toEqual({ code: 'STATION_PAUSED', details: { station_id: FX.station } });
+    expect(eventCount()).toBe(before);
+  });
+
+  it('[02b §6.7, owner S-2b AD-32] fix when the item has left the config since submit → 404 MENU_ITEM_NOT_FOUND { item_id }, nothing appended; remake still accepted', async () => {
+    open();
+    const o1 = servedNaan([{ order_item_id: 'N2', item_id: FX.naan }]);
+    cookAndServe(o1, 'N2');
+    const old = branchConfig()!;
+    const next = { ...old, config_version: old.config_version + 1, items: old.items.filter((i) => i.item_id !== FX.naan) };
+    hub.deps.writer.run((tx) => runBranchConfigHooks(old, next, tx));
+    swapBranchConfig({ config: next, snapshotHash: 'e'.repeat(64), configVersion: next.config_version, snapshotSchemaVersion: 4, appliedAt: hub.clock.branchNow() });
+    const taker = signIn('S_TAKER');
+    const before = eventCount();
+    const fix = await ret(taker, { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'fix' });
+    expect(fix.status).toBe(404);
+    expect(fix.error).toEqual({ code: 'MENU_ITEM_NOT_FOUND', details: { item_id: FX.naan } });
+    expect(eventCount()).toBe(before);
+    expect((await ret(taker, { order_item_id: 'N2', return_order_item_id: 'R2', mode: 'remake' })).status).toBe(200);
+  });
+
+  it('[02b §3.8, owner S-2e AD-35] a deal header of an order in the engine → ITEM_WRONG_STAGE { stage: not_engine_line }, nothing appended', async () => {
+    open();
+    const o1 = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'D1', deal_id: FX.deal },
+        { order_item_id: 'DP1', deal_part_id: FX.dealParts[0], parent_order_item_id: 'D1' },
+        { order_item_id: 'DP2', deal_part_id: FX.dealParts[1], parent_order_item_id: 'D1' },
+      ],
+    }).order_id;
+    cookAndServe(o1, 'DP1');
+    expect(engine().lines.D1).toBeUndefined();
+    const taker = signIn('S_TAKER');
+    const before = eventCount();
+    const reply = await ret(taker, { order_item_id: 'D1', return_order_item_id: 'R1', mode: 'fix' });
+    expect(reply.status).toBe(409);
+    expect(reply.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'D1', stage: 'not_engine_line' } });
+    expect(eventCount()).toBe(before);
   });
 });
 

@@ -61,7 +61,8 @@ function lineCopy(db: Database.Database, order_item_id: string, return_order_ite
 /**
  * §3.8 checks in the spec's order, each → 409 with nothing appended: removed / voided (task 17's stages); zone-served
  * (the zone rule before any engine check, as §3.5); the order out of the engine (abandon, or 30 min after its last
- * serve, E-7) → ORDER_NOT_IN_ENGINE; not served → ITEM_WRONG_STAGE { stage: the engine stage }; already remade
+ * serve, E-7) → ORDER_NOT_IN_ENGINE; not served → ITEM_WRONG_STAGE { stage: the engine stage, or 'not_engine_line'
+ * for a line the engine does not hold on an order still in it, e.g. a deal header (owner S-2e, AD-35) }; already remade
  * (`returned_units > 0`) → { stage: 'returned' }; an open return (a live unserved line with `return_of` = it) →
  * RETURN_ALREADY_OPEN.
  */
@@ -74,12 +75,12 @@ function checkReturnable(state: EngineState, now: number, line: LineView, lines:
   if (line.zone_served) stage('zone_served');
   if (!isOrderInEngine(state, line.order_id, now)) throw new DomainError('ORDER_NOT_IN_ENGINE', { order_id: line.order_id });
   const engineLine = state.lines[id];
-  if (line.served_at === null) stage(engineLine?.stage ?? 'out_of_engine');
+  if (line.served_at === null) stage(engineLine?.stage ?? 'not_engine_line');
   if (line.returned_units > 0) stage('returned');
   const open = lines.find((l) => l.return_of === id && l.live_units > 0 && l.served_at === null);
   if (open !== undefined) throw new DomainError('RETURN_ALREADY_OPEN', { order_item_id: id, return_order_item_id: open.order_item_id });
   // 03a §3.8a: the engine takes a return only of a line it holds as served (a deal header is never an engine line).
-  if (engineLine?.stage !== 'served') stage(engineLine?.stage ?? 'out_of_engine');
+  if (engineLine?.stage !== 'served') stage(engineLine?.stage ?? 'not_engine_line');
 }
 
 /**
