@@ -30,6 +30,8 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 > **2026-11-11 (wave 4):** perf file likh di (chalai nahi), acceptance map ban gaya, spec v1.0.4 aa gayi. Gate green.
 > - 2 hub gaps: #29 (merge ke baad follow_up) aur 00 ka missed-pong test. Client ke 15 gaps wave 5 mein.
 > - Owner: `pnpm test:perf` khud chalaayein, real disk par, akele.
+>
+> **2026-11-11 (build review):** review ke 5 gaps owner ke faislon se band (G-1 code fix, AD-40, #29 test, AD-36 → spec v1.0.5, 00 test). Gate green (4142). Verdict: ready to merge. Client (wave 5) aur test:perf abhi baaqi.
 
 ## Task table
 
@@ -127,7 +129,11 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 | AD-37 | 21 | Lane 3A S-1: §6.15 `seating-orders` `groups: [{ promise_ms }]` has no source in `EngineState` (only `EngineOrder.promise_ms`; per-group promises are only in `OrderPlaced`) | **ruled (owner, 2026-11-11): (d)** returns the order-level `promise_ms` (`EngineOrder.promise_ms`), no per-group list (text bump §6.15) |
 | AD-38 | 21 | Lane 3A S-2: §6.18 `order-contact` says "Statements: 1", but the shared MarkServed scope check reads `currentTableOf` under `my_floors` dine-in | **ruled (owner, 2026-11-11): (a)** 2 statements for `my_floors` + dine-in, 1 otherwise (text bump §6.18) |
 | AD-39 | 21 | Lane 3A readings R1–R12 (opus-reviewed) | **ruled (owner, 2026-11-11):** R1 (`abandoned=true` is managers only) accepted. **R2 changed:** an order with no engine lines (only no-station / ready / zone-served lines) is **never** in the abandoned list, since it isn't waiting on the kitchen; with a test. R12 (`abandoned` + `order_type` = any type) accepted. **R8 changed:** `seating-orders` adds `fired: boolean` per line from the engine state (0 statements), so the client can enable Mark served; with a test. R3–R7, R9–R11 accepted as read. (Text bump §6.15, §6.16, §12.2 row 16) |
-| AD-40 | 24 | #34 perf file readings: (1) "12 lines" = 12 `ItemAdded` (11 cart lines + 1 linked option child), dine-in on a held seating, no deal, no stock draws (the sim day counts no stock); (2) "peak engine" = the AD-27 normal peak day of seed 7, its state with the most lines (the 03a snapshot row's fixture), swapped in before each submit sample; the hub config routes the cart to the day's slot stations under the same ids; (3) one sample = one Fastify `inject` round trip; (4) §7's third row (`seating-orders` < 30 ms) is timed too, as a p99, on a table with 4 rounds of the cart; (5) 3 untimed warm-ups, 31 samples, as `fires-tick.perf.test.ts` | proposed (not yet ruled) |
+| AD-40 | 24 | #34 perf file readings: (1) "12 lines" = 12 `ItemAdded` (11 cart lines + 1 linked option child), dine-in on a held seating, no deal, no stock draws (the sim day counts no stock); (2) "peak engine" = the AD-27 normal peak day of seed 7, its state with the most lines (the 03a snapshot row's fixture), swapped in before each submit sample; the hub config routes the cart to the day's slot stations under the same ids; (3) one sample = one Fastify `inject` round trip; (4) §7's third row (`seating-orders` < 30 ms) is timed too, as a p99, on a table with 4 rounds of the cart; (5) 3 untimed warm-ups, 31 samples, as `fires-tick.perf.test.ts` | **ruled (owner, 2026-11-11): yes**, with a deal and a from-stock line added (`7125c76`; written, not run) |
+| AD-41 | review G-1 | open-orders `from_date` with no open day: the code gave null between a close and the next open; v1.0.4 §6.16 says every order has a date | **ruled (owner, 2026-11-11): fix the code** (§6.16 stands); `3926e68` |
+| AD-42 | review G-4 | §10 #29 had no test for `follow_up` / `seating-orders` after a merge | **ruled (owner, 2026-11-11): add it**, not waived; `e588fbf` |
+| AD-43 | review G-3 / AD-36 | `SubmitOrder` checked `take-order` `my_floors` on every submit, blocking a `take-order-anywhere` holder that 02a let in | **ruled (owner, 2026-11-11): 02a's rule** (holder, or `take-order-anywhere` within its scope, through `requireLock`); spec **v1.0.5 APPROVED** `677c324`; code `e4b363a` (SubmitOrder; RemoveItems too, through §3.14's "as SubmitOrder on the current table") |
+| AD-44 | review G-5 | 00: a missed-pong terminate pausing the idle clock had no test | **ruled (owner, 2026-11-11): add it** (test-only); `7bef4c0` |
 
 ## Owner rulings (this sprint)
 
@@ -143,6 +149,7 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 | 2026-11-11 | AD-30 land only lane 2A's socket test; AD-31 return to a paused station → 409 `STATION_PAUSED`; AD-32–AD-34 accepted; AD-35 stage `'not_engine_line'` | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §5 |
 | 2026-11-11 | AD-36 (a) wave 2 lane readings accepted as read; the SubmitOrder / OpenTable scope note goes in the text bump; the three duplicates are carried | AD-36, "Next 02b text bump", Wave 2 entry |
 | 2026-11-11 | AD-37 (d) order-level promise; AD-38 (a) order-contact 1 / 2 statements; AD-39 lane 3A readings, R2 and R8 changed. **"Next 02b text bump" becomes spec v1.0.4, written in wave 4, APPROVED now** | AD-37–AD-39, "Next 02b text bump" |
+| 2026-11-11 | After the build review: G-1 fix the code (AD-41); AD-40 yes; G-4 add the #29 test (AD-42); AD-36 / G-3 02a's rule, spec v1.0.5 APPROVED (AD-43); G-5 add the 00 test (AD-44) | AD-40–AD-44, build review |
 
 ## Next 02b text bump
 
@@ -546,12 +553,6 @@ Not a GAP: estimated Served (G0-6 fallback, §6.11) is O14, registered when 03b'
 
 ## Next
 
-1. **Owner:** read `docs/reviews/02b_v1.0.4_build_review.md`. Its verdict is **ready to merge after the listed fixes**.
-   - Rule the 3 merge blockers:
-     - G-1: R5 `from_date` between a close and the next open. The code and the spec disagree.
-     - G-2: AD-40.
-     - G-4: the #29 merge test (add it or waive it).
-   - Rule AD-36: the single `my_floors` rule. The review recommends 02a's rule for both, via spec v1.0.5.
-   - Merging into `main` is the owner's call.
-2. **Owner:** run `pnpm test:perf` on the real disk, alone.
+1. **Owner:** the build review's verdict is **ready to merge** (`docs/reviews/02b_v1.0.4_build_review.md` §8, updated at `7bef4c0`). The full gate at the head is green: 420 files, 4142 tests, 581 s. Merging into `main` is the owner's call.
+2. **Owner:** run `pnpm test:perf` on the real disk, alone (G-7).
 3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
