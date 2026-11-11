@@ -164,9 +164,12 @@ export interface EngineLine {
   // AD-4, AD-29 Q11 P4: a fired member's load rounds, from the load's stored booking at the fire (null for a line fired
   // with no load, and before the fire, when the load's `booked` holds them). profile.ts occupiedCook reads it.
   rounds: number | null;
+  // 03a v1.2.2 (owner 2026-11-11, B2-2): false at ItemAdded, set by ItemDoneUndone's fold, cleared by nothing. The
+  // auto_done inference (tick.ts doneDue) skips a flagged line: after an Undo Done it waits for a tapped Done.
+  done_undone: boolean;
 }
 
-// 03a §3.3: EngineState v3 (ENGINE_STATE_VERSION = 3, D62).
+// 03a §3.3: EngineState v4 (ENGINE_STATE_VERSION = 4, D62; v1.2.2 B2-2: v4 adds EngineLine.done_undone).
 export interface EngineState {
   stock: Record<string, StockEntry>; // unchanged (01a S14, 01c V5)
   business_day: BusinessDay | null; // unchanged (01a S33, 01c §3.5.3)

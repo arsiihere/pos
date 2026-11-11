@@ -399,8 +399,10 @@ function inferredStarts(state: EngineState, fired: readonly Fire[], now: number)
 }
 
 // An auto_done COOKING line's inferred Done time (its planned end), when its order is in the engine at max(t, end).
+// 03a v1.2.2 (owner 2026-11-11, B2-2) §3.6.1 step 3: null for a line with done_undone (an Undo Done stays undone until
+// a tapped Done), so inferredDones and the nextDueAt bound both skip it.
 function doneDue(c: Ctx, line: EngineLine, t: number): number | null {
-  if (line.stage !== 'cooking' || completionMode(c.state, line.station_id) !== 'auto_done') return null;
+  if (line.stage !== 'cooking' || line.done_undone || completionMode(c.state, line.station_id) !== 'auto_done') return null;
   const end = plannedEnd(c.state, line);
   if (end === null || !inEngineAt(c, line.order_id, Math.max(t, end))) return null;
   return end;

@@ -260,6 +260,7 @@ function withLine(s: EngineState, p: Placed): EngineState {
     routed_station_id: station_id,
     expedited: false,
     rounds: null,
+    done_undone: false,
   };
   const st = s.stations[station_id]!;
   const order = s.orders[p.order]!;
@@ -508,6 +509,52 @@ describe('@pos/engine getTickIntents — inferred completion (§3.6.1 item 3, D6
     const tapped = fold(s2, [done('O1', 'A', at(6))]);
     expect(getTickIntents(tapped, at(9))).toEqual([]);
     expect(nextDueAt(tapped, at(9))).toBeNull();
+  });
+
+  it('[03a §3.6.1 step 3, v1.2.2 B2-2] auto_done: inferred Done → ItemDoneUndone → no second inferred Done at any later pass, no nextDueAt for it; a tapped Done works', () => {
+    const k = kitchen([{ station_id: 'AD', capacity: 2, completion_mode: 'auto_done' }]);
+    const { state: s0 } = submit(k, 'O1', [{ id: 'A', station: 'AD', cook: 5 * M }, { id: 'B', station: 'AD', cook: 5 * M }], at(0));
+    expect(s0.lines.A!.done_undone).toBe(false);
+    const fired = pass(s0, at(0)).state;
+    // A started at 12:01 (planned end 12:06), B at 12:03 (planned end 12:08).
+    const s1 = fold(fired, [start('O1', 'A', at(1)), start('O1', 'B', at(3))]);
+    const p1 = pass(s1, at(6));
+    expect(p1.drafts).toEqual([{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemDone', schema_version: 1, payload: { order_item_id: 'A', done_at: at(6), source: 'inferred' } }]);
+    const undo = stamp({ ...anItemDone(), event_type: 'ItemDoneUndone', stream_id: 'O1', payload: { order_item_id: 'A' } }, at(6) + 10 * S);
+    const s2 = fold(p1.state, [undo]);
+    expect(s2.lines.A).toMatchObject({ stage: 'cooking', done_at: null, started_at: at(1), done_undone: true });
+    expect(s2.lines.B!.done_undone).toBe(false);
+    // A is past its planned end, but nothing is due for it: the next term is B's planned end.
+    expect(getTickIntents(s2, at(7))).toEqual([]);
+    expect(nextDueAt(s2, at(7))).toBe(at(8));
+    expect(firesDue(s2, at(7) - 500, at(7)).intents_due).toBe(false);
+    // B (not undone) is still inferred, and only B.
+    const p2 = pass(s2, at(8));
+    expect(p2.drafts).toEqual([{ stream_type: 'order', stream_id: 'O1', event_type: 'ItemDone', schema_version: 1, payload: { order_item_id: 'B', done_at: at(8), source: 'inferred' } }]);
+    for (const t of [at(9), at(30), at(240)]) {
+      expect(getTickIntents(p2.state, t)).toEqual([]);
+      expect(nextDueAt(p2.state, t)).toBeNull();
+    }
+    expect(p2.state.lines.A).toMatchObject({ stage: 'cooking', done_undone: true });
+    // The tapped Done: done, the flag stays (cleared by nothing), and still nothing is inferred.
+    const s3 = fold(p2.state, [done('O1', 'A', at(12))]);
+    expect(s3.lines.A).toMatchObject({ stage: 'done', done_at: at(12), done_undone: true });
+    expect(getTickIntents(s3, at(13))).toEqual([]);
+  });
+
+  it('[03a §3.6.1 step 3, v1.2.2 B2-2] the flag only stops the auto_done inference: a two_tap line undone keeps its other passes; an unflagged auto_done line is inferred as before', () => {
+    const k = kitchen([
+      { station_id: 'AD', capacity: 1, completion_mode: 'auto_done' },
+      { station_id: 'TT', capacity: 1, completion_mode: 'two_tap' },
+    ]);
+    const { state: s0 } = submit(k, 'O1', [{ id: 'A', station: 'AD', cook: 5 * M }, { id: 'T', station: 'TT', cook: 5 * M }], at(0));
+    const s1 = fold(pass(s0, at(0)).state, [start('O1', 'A', at(1)), start('O1', 'T', at(1)), done('O1', 'T', at(2))]);
+    const undoT = stamp({ ...anItemDone(), event_type: 'ItemDoneUndone', stream_id: 'O1', payload: { order_item_id: 'T' } }, at(2) + S);
+    const s2 = fold(s1, [undoT]);
+    expect(s2.lines.T).toMatchObject({ stage: 'cooking', done_undone: true });
+    expect(s2.lines.A!.done_undone).toBe(false);
+    expect(nextDueAt(s2, at(3))).toBe(at(6));
+    expect(getTickIntents(s2, at(6)).map((d) => (d.payload as { order_item_id?: string }).order_item_id)).toEqual(['A']);
   });
 
   it('[03a #119] single_tap variant: the fires pass with the inferred starts commits (consumes clamp with breaches), and the next pass fires other stations', () => {

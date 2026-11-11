@@ -442,11 +442,62 @@ describe('@pos/engine lifecycle: an exited order is kept while it holds a reserv
     expect(getTickIntents(s0, at(600)).filter((d) => d.event_type === 'ItemDone')).toEqual([]);
     // Done without a Start, then Undo: COOKING again with the consume standing.
     const undone = fold([ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(2))], withEffects(s0, done('O1', 'L1', at(1)), at(1)));
-    expect(undone.lines.L1).toMatchObject({ stage: 'cooking', reserved_seq: null, started_at: at(1) });
-    const inferred = getTickIntents(undone, at(100)).filter((d) => d.event_type === 'ItemDone');
-    expect(inferred.map((d) => (d.payload as { order_item_id: string }).order_item_id)).toEqual(['L1']);
-    expect(getTickIntents(undone, at(100)).filter((d) => d.event_type === 'StockConsumed')).toEqual([]);
-    expect(stockEffects(undone, { event_type: 'ItemDone', payload: inferred[0]!.payload as unknown as Record<string, unknown>, occurred_at: at(100) })).toEqual([]);
+    expect(undone.lines.L1).toMatchObject({ stage: 'cooking', reserved_seq: null, started_at: at(1), done_undone: true });
+    // 03a v1.2.2 (owner 2026-11-11, B2-2): the undone line is never inferred Done again; its tapped Done drafts no second consume.
+    expect(getTickIntents(undone, at(100))).toEqual([]);
+    const tapped = { order_item_id: 'L1', done_at: at(100), source: 'tap' };
+    expect(stockEffects(undone, { event_type: 'ItemDone', payload: tapped, occurred_at: at(100) })).toEqual([]);
+  });
+
+  it('[03a §3.3, v1.2.2 B2-2] done_undone: false at ItemAdded (and on a return line), set by ItemDoneUndone, cleared by nothing; a no-op Undo sets nothing', () => {
+    const config = anEngineConfigApplied({ recorded_at: at(-60), occurred_at: at(-60), seq: 1, payload: { stations: [{ ...S1, capacity: 2, completion_mode: 'auto_done' }] } });
+    const lines = batch('O1', [{ id: 'L1', cook_min: 5 }, { id: 'L2', cook_min: 5 }], at(0));
+    const added = fold([config, ...lines]);
+    expect([added.lines.L1!.done_undone, added.lines.L2!.done_undone]).toEqual([false, false]);
+    // An Undo of a line that is not done is a no-op: the flag stays false.
+    const fired = fold([fire(['L1', 'L2'], at(0)), start('O1', 'L1', at(0)), ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(1))], added);
+    expect(fired.lines.L1).toMatchObject({ stage: 'cooking', done_undone: false });
+    const undone = fold([done('O1', 'L1', at(2)), ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(3))], fired);
+    expect(undone.lines.L1).toMatchObject({ stage: 'cooking', done_undone: true });
+    expect(undone.lines.L2!.done_undone).toBe(false);
+    // Every later stage event keeps it: Done, Undo again, Done, Served.
+    const later = fold([done('O1', 'L1', at(4)), ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(5)), done('O1', 'L1', at(6)), done('O1', 'L2', at(6)), served('O1', ['L1', 'L2'], at(7))], undone);
+    expect(later.lines.L1).toMatchObject({ stage: 'served', done_undone: true });
+    expect(later.lines.L2).toMatchObject({ stage: 'served', done_undone: false });
+    // A remake return line of the undone line starts unflagged.
+    const servedL1 = lines.find((e) => e.event_type === 'ItemAdded' && e.payload.order_item_id === 'L1')!;
+    const ret = fold(aReturnLinesAdded({ ...servedL1, seq: nextSeq(3) }, 'remake', { recorded_at: at(8), order_item_id: 'R1' }), later);
+    expect(ret.lines.R1).toMatchObject({ stage: 'added', done_undone: false });
+  });
+
+  it('[03a #132, v1.2.2 B2-2] replay = live: inferred Done → Undo → later passes → tapped Done; buildEngineState = applyEvents = the live fold, flag included', () => {
+    const config = anEngineConfigApplied({ recorded_at: at(-60), occurred_at: at(-60), seq: 1, payload: { stations: [{ ...S1, capacity: 2, completion_mode: 'auto_done' }] } });
+    const log: PosEvent[] = [config, ...batch('O1', [{ id: 'L1', cook_min: 5 }, { id: 'L2', cook_min: 8 }], at(0)), fire(['L1', 'L2'], at(0)), start('O1', 'L1', at(0)), start('O1', 'L2', at(0))];
+    let live = fold(log);
+    // The host's passes: each pass's drafts become events at its now (the inferred Dones), folded in order.
+    const passAt = (t: number): void => {
+      for (const d of getTickIntents(live, t)) {
+        const e = ev(d.event_type, d.stream_id, d.payload as unknown as Record<string, unknown>, t);
+        log.push(e);
+        live = fold([e], live);
+      }
+    };
+    passAt(at(5));
+    expect(live.lines.L1).toMatchObject({ stage: 'done', done_at: at(5) });
+    const undo = ev('ItemDoneUndone', 'O1', { order_item_id: 'L1' }, at(5) + 20_000);
+    log.push(undo);
+    live = fold([undo], live);
+    for (const t of [at(6), at(8), at(9), at(30)]) passAt(t);
+    expect(live.lines.L1).toMatchObject({ stage: 'cooking', done_undone: true });
+    expect(live.lines.L2).toMatchObject({ stage: 'done', done_at: at(8), done_undone: false });
+    expect(log.filter((e) => e.event_type === 'ItemDone').map((e) => e.payload.order_item_id)).toEqual(['L1', 'L2']);
+    const tap = done('O1', 'L1', at(31));
+    log.push(tap);
+    live = fold([tap], live);
+    expect(live.lines.L1).toMatchObject({ stage: 'done', done_at: at(31), done_undone: true });
+    expect(live.diagnostics).toEqual([]);
+    expect(buildEngineState(log)).toEqual(live);
+    expect(applyEvents(initialEngineState(), log)).toEqual(live);
   });
 
   // Reading 3, proposed (implementer): the draft reads the line only, as the Start's does. The stage fold is a no-op on a

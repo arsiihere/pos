@@ -547,13 +547,13 @@ describe('@pos/engine E-4: the first OrderLinesAdded creates the engine order; t
     expect(getAlertIntents(s, due).slips.map((x) => x.table_key)).toEqual(['dine_in:T12']);
   });
 
-  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION stays 3', () => {
+  it('[03a #132] the log of #131 → buildEngineState = applyEvents = live; ENGINE_STATE_VERSION 4 (03a v1.2.2 B2-2: was 3)', () => {
     const log = [cfg(), drinks(), addition(), ...food('O1', ['F1', 'F2']), stamp(aFireDispatched({ payload: { station_id: 'S1', order_item_ids: ['F1', 'F2'], due_at: T1 } }), T1)];
     const live = fold(log, initialEngineState(), { strict: false });
     expect(live.orders.O1).toBeDefined();
     expect(buildEngineState(log)).toEqual(live);
     expect(applyEvents(initialEngineState(), log)).toEqual(live);
-    expect(ENGINE_STATE_VERSION).toBe(3);
+    expect(ENGINE_STATE_VERSION).toBe(4);
   });
 
   it('[03a #135] safety net: non-empty order_item_ids without order_header on an order the engine does not hold → InvalidEvent(order_not_in_engine) with order_item_ids[0]', () => {

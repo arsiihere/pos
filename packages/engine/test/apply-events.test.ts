@@ -216,8 +216,9 @@ describe('[03a AD-28] applyEvents = the per-event fold', () => {
     const run = runDay(generateDay(7, { orders: 200 }));
     expect(sha(run.events)).toBe('18f0dd7a8446930962642b75d00ef3690a7bc6d4e380a2e7a996417eff4fe289');
     // Task 18d: the events are the same; the state hash moved only for the two new line fields (with `expedited` and `rounds`
-    // stripped it is the old 3a7ed3c2…).
-    expect(sha(run.liveState)).toBe('ad0ddb7f155bf36430801facb281e746277e7f7b707f6557e74fe140e0ce70d2');
+    // stripped it is the old 3a7ed3c2…). 03a v1.2.2 (B2-2): moved again only for `done_undone` (false on every line, the
+    // run has no Undo); with it stripped it is the old ad0ddb7f….
+    expect(sha(run.liveState)).toBe('38138ee7070d874fcb3e1285389efaa666bc6c72c63e7993b370180a53588c0a');
   }, 120_000);
 });
 
