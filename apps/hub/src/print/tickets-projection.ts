@@ -1,4 +1,15 @@
-import type { FireDispatchedPayload, ItemDonePayload, ItemDoneUndonePayload, ItemServedPayload, PosEvent } from '@pos/events';
+import type {
+  FireDispatchedPayload,
+  ItemDonePayload,
+  ItemDoneUndonePayload,
+  ItemRemovedPayload,
+  ItemServedPayload,
+  ItemsReleasedPayload,
+  ItemVoidedPayload,
+  OrderBoostedPayload,
+  PosEvent,
+  TicketReprintedPayload,
+} from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { Projection, ProjectionRegistry } from '../projections/registry.js';
 
@@ -46,7 +57,17 @@ class FoldSkip extends Error {
 /** Logs a skipped fold and, live, records a `print_fold_skips` row for a station with a printer. Never throws. */
 type Skip = (error: unknown, station_id: string | null) => void;
 
-export const TICKETS_EVENT_TYPES = ['FireDispatched', 'ItemDone', 'ItemServed', 'ItemDoneUndone'] as const;
+export const TICKETS_EVENT_TYPES = [
+  'FireDispatched',
+  'ItemDone',
+  'ItemServed',
+  'ItemDoneUndone',
+  'ItemRemoved',
+  'ItemVoided',
+  'OrderBoosted',
+  'ItemsReleased',
+  'TicketReprinted',
+] as const;
 
 export function ticketsProjection(projections: ProjectionRegistry): Projection {
   const slot: LogSlot = { log: null, pending: [] };
@@ -102,7 +123,154 @@ function applyEvent(tx: Database.Database, event: PosEvent, mode: 'live' | 'catc
       tx.prepare('UPDATE ticket_lines SET done_at = NULL WHERE order_item_id = ?').run(p.order_item_id);
       return;
     }
+    // c8: slip and reprint jobs are jobs, so live only (D1)
+    case 'ItemRemoved':
+    case 'ItemVoided':
+      if (mode === 'live') applyCancel(tx, event, skip);
+      return;
+    case 'OrderBoosted':
+    case 'ItemsReleased':
+      if (mode === 'live') applyFirst(tx, event, skip);
+      return;
+    case 'TicketReprinted':
+      if (mode === 'live') applyReprint(tx, event, skip);
+      return;
   }
+}
+
+/**
+ * §3.3 "a skip is never silent where paper could be needed": a failed slip / reprint job insert (one statement, so it
+ * leaves nothing half-written) is logged and recorded as a `print_fold_skips` row naming the ticket's station; the
+ * row is written when that station has a printer (recordSkip). A failure before the station is known logs only.
+ */
+function insertJobs(skip: Skip, station_id: string | null, insert: () => void): void {
+  try {
+    insert();
+  } catch (error) {
+    skip(error, station_id);
+  }
+}
+
+/** §3.1 "printed": an uncancelled `kitchen` or `reprint` job of the ticket with `sent_at` set (SQL, ticket alias `t`). */
+const PRINTED = `EXISTS (SELECT 1 FROM print_jobs j WHERE j.ticket_id = t.ticket_id AND j.kind IN ('kitchen', 'reprint')
+                 AND j.cancelled_at IS NULL AND j.sent_at IS NOT NULL)`;
+
+// §3.3 ItemRemoved { order_item_id, units? } / ItemVoided { order_item_id, units } on a not-done line of a printed
+// ticket (1 read) → a `cancel` job `{ ticket_id, order_item_id, units: p.units ?? null }` (null = the whole line). Units
+// left are rendered at send from order_lines (D2), so the fold never reads order_lines and fold order never changes them.
+function applyCancel(tx: Database.Database, event: PosEvent, skip: Skip): void {
+  const p = event.payload as ItemRemovedPayload | ItemVoidedPayload;
+  const ticket = tx
+    .prepare(
+      `SELECT t.ticket_id, t.station_id, t.order_id FROM ticket_lines tl JOIN tickets t ON t.ticket_id = tl.ticket_id
+       WHERE tl.order_item_id = ? AND tl.done_at IS NULL AND ${PRINTED}`,
+    )
+    .get(p.order_item_id) as { ticket_id: string; station_id: string; order_id: string } | undefined;
+  if (ticket === undefined) return;
+  insertJobs(skip, ticket.station_id, () =>
+    tx
+      .prepare(
+        `INSERT OR IGNORE INTO print_jobs (job_id, kind, printer_id, station_id, ticket_id, order_id, payload, created_at)
+         VALUES (?, 'cancel', NULL, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `${event.event_id}:cancel:1`,
+        ticket.station_id,
+        ticket.ticket_id,
+        ticket.order_id,
+        JSON.stringify({ ticket_id: ticket.ticket_id, order_item_id: p.order_item_id, units: p.units ?? null }),
+        event.recorded_at,
+      ),
+  );
+}
+
+// §3.3 OrderBoosted / ItemsReleased { expedite } → a `first` job per printed ticket with a not-done affected line, at a
+// `printer` station only (1 read). Boost affects every line of the order; a release only its `expedite` ids (a pull is a
+// FireDispatched of an unfired line, so it never yields FIRST, P9).
+function applyFirst(tx: Database.Database, event: PosEvent, skip: Skip): void {
+  const boost = event.event_type === 'OrderBoosted';
+  const p = event.payload as OrderBoostedPayload | ItemsReleasedPayload;
+  const expedite = boost ? null : (p as ItemsReleasedPayload).expedite;
+  if (expedite !== null && expedite.length === 0) return;
+  const tickets = tx
+    .prepare(
+      `SELECT t.ticket_id, t.station_id, t.order_id, json_group_array(tl.order_item_id) AS order_item_ids
+       FROM tickets t
+       JOIN ticket_lines tl ON tl.ticket_id = t.ticket_id AND tl.done_at IS NULL
+       JOIN station_outputs so ON so.station_id = t.station_id AND so.mode = 'printer'
+       WHERE t.order_id = ? AND (? IS NULL OR tl.order_item_id IN (SELECT value FROM json_each(?))) AND ${PRINTED}
+       GROUP BY t.ticket_id ORDER BY t.ticket_id`,
+    )
+    .all(p.order_id, expedite === null ? null : 1, JSON.stringify(expedite ?? [])) as Array<{
+    ticket_id: string;
+    station_id: string;
+    order_id: string;
+    order_item_ids: string;
+  }>;
+  if (tickets.length === 0) return;
+  const reason = boost ? 'boost' : 'expedite';
+  const jobs = tickets.map((t, i) => ({
+    job_id: `${event.event_id}:first:${i + 1}`,
+    station_id: t.station_id,
+    ticket_id: t.ticket_id,
+    order_id: t.order_id,
+    payload: JSON.stringify({ ticket_id: t.ticket_id, order_item_ids: (JSON.parse(t.order_item_ids) as string[]).sort(), reason }),
+  }));
+  insertJobs(skip, tickets[0]!.station_id, () =>
+    tx
+      .prepare(
+        `INSERT OR IGNORE INTO print_jobs (job_id, kind, printer_id, station_id, ticket_id, order_id, payload, created_at)
+         SELECT json_extract(value, '$.job_id'), 'first', NULL, json_extract(value, '$.station_id'), json_extract(value, '$.ticket_id'),
+                json_extract(value, '$.order_id'), json_extract(value, '$.payload'), ?
+         FROM json_each(?)`,
+      )
+      .run(event.recorded_at, JSON.stringify(jobs)),
+  );
+}
+
+// §3.3 TicketReprinted { ticket_ids } → a `reprint` job per known ticket (1 multi-row insert), id event_id:reprint:n in
+// payload order. ReprintTicket (c9) only names existing tickets; an unknown id is passed over.
+function applyReprint(tx: Database.Database, event: PosEvent, skip: Skip): void {
+  const p = event.payload as TicketReprintedPayload;
+  try {
+    tx.prepare(
+      `INSERT OR IGNORE INTO print_jobs (job_id, kind, printer_id, station_id, ticket_id, order_id, payload, created_at)
+       SELECT ? || ':reprint:' || (CAST(r.key AS INTEGER) + 1), 'reprint', NULL, t.station_id, t.ticket_id, t.order_id,
+              json_object('ticket_id', t.ticket_id), ?
+       FROM json_each(?) r JOIN tickets t ON t.ticket_id = r.value
+       ORDER BY r.key`,
+    ).run(event.event_id, event.recorded_at, JSON.stringify(p.ticket_ids));
+  } catch (error) {
+    // the station of the first named ticket (failure path only; the happy path stays 1 statement)
+    let station_id: string | null = p.station_id ?? null;
+    try {
+      station_id ??= (tx
+        .prepare('SELECT t.station_id FROM json_each(?) r JOIN tickets t ON t.ticket_id = r.value ORDER BY r.key LIMIT 1')
+        .pluck()
+        .get(JSON.stringify(p.ticket_ids)) ?? null) as string | null;
+    } catch {
+      station_id = null;
+    }
+    skip(error, station_id);
+  }
+}
+
+/**
+ * §3.3 re-creating a kitchen job (paper fallback, c17): the unique index counts only uncancelled kitchen jobs; a new one
+ * after a cancel takes `ticket_id:kitchen:n` (n = earlier kitchen jobs + 1; the first is `ticket_id:kitchen`).
+ * INSERT OR IGNORE, 1 statement; returns the job id, or null when the ticket still has a live kitchen job.
+ */
+export function queueKitchenJob(tx: Database.Database, ticket: { ticket_id: string; station_id: string; order_id: string }, at: number): string | null {
+  const row = tx
+    .prepare(
+      `INSERT OR IGNORE INTO print_jobs (job_id, kind, printer_id, station_id, ticket_id, order_id, payload, created_at)
+       SELECT CASE WHEN n = 0 THEN @ticket_id || ':kitchen' ELSE @ticket_id || ':kitchen:' || (n + 1) END, 'kitchen', NULL,
+              @station_id, @ticket_id, @order_id, json_object('ticket_id', @ticket_id), @at
+       FROM (SELECT COUNT(*) AS n FROM print_jobs WHERE ticket_id = @ticket_id AND kind = 'kitchen')
+       RETURNING job_id`,
+    )
+    .get({ ticket_id: ticket.ticket_id, station_id: ticket.station_id, order_id: ticket.order_id, at }) as { job_id: string } | undefined;
+  return row?.job_id ?? null;
 }
 
 // §3.3 FireDispatched: group by order (1 read); one `tickets` row per order, one `ticket_lines` row per id (multi-row
