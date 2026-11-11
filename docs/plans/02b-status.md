@@ -1,6 +1,6 @@
 # 02b status board
 
-Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.4.md` (APPROVED; v1.0.4 = the build rulings AD-8–AD-39 text bump, owner 2026-11-11; v1.0.3 = AD-11, owner 2026-11-10), on top of `main` `67c84c6` (02a hub merged, v1.1.4). Branch: `module-02b`.
+Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, prompts in `docs/plans/02b-parallel-prompts.md`; wave 5 = client, blocked on the design handoff). Spec: `docs/specs/02b_Ordering_Spec_v1.0.5.md` (APPROVED; v1.0.5 = AD-36: SubmitOrder's take-order scope follows 02a `requireLock`, owner 2026-11-11; v1.0.4 = the build rulings AD-8–AD-39 text bump, owner 2026-11-11; v1.0.3 = AD-11, owner 2026-11-10), on top of `main` `67c84c6` (02a hub merged, v1.1.4). Branch: `module-02b`.
 
 > **Short Hinglish summary**
 >
