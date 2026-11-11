@@ -13,6 +13,7 @@
 
 | Version | Date | Change |
 |---|---|---|
+| v0.2.1 (owner answer) | 2026-11-11 | OQ-C1 answered: the pilot attaches kitchen printers, so 03c is built and checked before go-live (§12.3). No rule changes. |
 | **v0.2.1** | 2026-11-11 | Re-check fixes (§12.6): one suspect rule (Ack line points to §3.5), `COALESCE(last_clean_at, 0)` (N-1); a clean read clears only jobs acked a buffer-drain earlier (N-8); `no_screen` warning (N-3); bumps follow 03b v0.4.1's note. |
 | v0.2 | 2026-11-11 | **Targeted check closure (§12.5):** every job acked since the printer's last clean status turns suspect on a bad read (M-3, R-5); recovery re-queues the same kind, one job per ticket (n-9); skips recorded at any station with a printer, alerted when it matters (m-9); Cook can reprint (03b B-1) and `order-tickets` returns `has_printer` (m-6); bumps shared with 03b, Q-1 → 02b v1.0.4 (m-5); no timing asserts (m-7); client additions through 03b's slots (m-10); H-11 narrowed to the post-listen start (n-4); hard write timer (n-5); lost lines and tests restored (n-6). |
 | v0.1 | 2026-11-11 | Split from 03b v0.2 §3.6–§3.10, §3.14–§3.15 and their tables, commands, kinds and tests (R-2). Run 2 fixes: write timeout and USB isolation (M-1), suspect jobs reprinted when the printer recovers (M-2, R-5), `printer_problem` details via 03b's D-2 (M-3), "clean or unknown" close (m-1), cancelled kitchen jobs and skipped folds (m-2), admin paths (m-9), Reprint on the Pass card (m-12, R-6), FIFO advances at ack (m-13), 02b v1.0.3 row (m-14), slip units at send + registration order (m-15), n-4, n-7, n-8, n-12. Closure §12.4. |
@@ -476,7 +477,7 @@ Gate green; every §10 test passes; §12.2 ticked; §4.4 bumps approved and appl
 
 | # | Question | Owner |
 |---|---|---|
-| OQ-C1 | Does the pilot (Arif Chatkhara) attach any kitchen printer at go-live? If none, task 28 runs on a bench printer and 03c can ship after the pilot's first weeks, before 05's receipts. | Owner |
+| OQ-C1 | ~~Pilot printers at go-live~~ **Answered (owner, 2026-11-11): yes, the pilot attaches kitchen printers.** 03c is needed **before go-live** (milestone A, 2027-02-28), not only before 05; manual checks (task 28) run on the pilot's own printers. | closed |
 
 ### 12.4 Run 2 closure (printing part of `03b_v0.2_hostile_run2.md`)
 
