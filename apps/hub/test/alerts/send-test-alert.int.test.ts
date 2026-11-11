@@ -13,8 +13,8 @@ import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } f
 import { fakePoint, registerFakes, resetFakes } from './fakes';
 
 // 01d task 33: the `test_alert` kind (§3.10, §3.5 `closes_on.after_ms` 600 000) and `SendTestAlert` (§6.5):
-// a manager (`manage-devices`) sends a test to a person, a team (default depth 'direct') or a device; a point
-// is stubbed until 01a (422 points_not_available, §4.4). Tests #17, #52 and Review Focus 5. The receipt view
+// a manager (`manage-devices`) sends a test to a person, a team (default depth 'direct'), a device or a point
+// (03b G-1 registers the point resolver; was 422 points_not_available while stubbed, §4.4). Tests #17, #52 and Review Focus 5. The receipt view
 // (`alert-receipts`) is task 36, so delivery is asserted on the events and the DB only.
 
 const OWNER = 'S_OWNER'; // a lead: S_WAIT reports to the owner, S_CASH to S_WAIT
@@ -226,16 +226,17 @@ describe('01d SendTestAlert and test_alert (task 33)', () => {
     expect(JSON.parse(alertRow(hub, deviceId).display_json as string)).toMatchObject({ device_name: 'Tablet 3' });
   });
 
-  it('[01d #17] to a point → 422 CONFIG_REFERENCE_INVALID { field: target.point_id, reason: points_not_available }, nothing written', async () => {
+  it('[01d #17, 03b G-1] to a point → raised to the point’s Pass tablets and the staff signed in on them (03b registers the point resolver)', async () => {
     const mgr = seat(hub, MGR);
-    const before = counts(hub);
+    const pass = pairDevice(hub, { type: 'tablet', name: 'Pass tablet' });
+    hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(pass.deviceId);
+    openSession(hub, { kind: 'staff', staffId: WAIT, deviceId: pass.deviceId });
     const res = await send(hub, mgr, { kind: 'point', point_id: 'P1' });
-    expect(res.statusCode).toBe(422);
-    expect(res.json().error).toMatchObject({
-      code: 'CONFIG_REFERENCE_INVALID',
-      details: { field: 'target.point_id', reason: 'points_not_available' },
-    });
-    expect(counts(hub)).toEqual(before);
+    expect(res.statusCode, res.body).toBe(200);
+    const id = (res.json() as { data: { result: { alert_id: string } } }).data.result.alert_id;
+    const rows = recipientRows(hub, id);
+    expect(rows.map((r) => r.device_id).filter((d) => d !== null)).toEqual([pass.deviceId]);
+    expect(rows.map((r) => r.staff_id).filter((s) => s !== null)).toEqual([WAIT]);
   });
 
   it('[01d #17] without manage-devices → 403 PERMISSION_DENIED, nothing written', async () => {

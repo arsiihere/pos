@@ -4,7 +4,8 @@
 import { stockEffects, type EngineState } from '@pos/engine';
 import type { DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { aDirectory } from '../helpers/fixtures';
-import { openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
+import { loadDeviceMaps } from '../../src/kds/device-roles';
+import { openSession, pairDevice as pairDeviceRow, seedDirectory, type TestHub } from '../helpers/test-hub';
 
 export { FX, appendOrder, fixtureMenu, openDay, openSeating } from '../orders/fixtures';
 
@@ -47,11 +48,22 @@ export async function signInCook(hub: TestHub, o: { deviceId?: string; pointId?:
   return { ...device, sessionId: session.sessionId, sessionToken: session.token };
 }
 
+/**
+ * 00's pairDevice (a direct row, no DevicePaired event) followed by a rebuild of 03b's device maps (b6), so
+ * `devicePoint` and the screen-station map see the device at once. Use this one in 03b / 03c tests.
+ */
+export function pairDevice(hub: TestHub, o: Parameters<typeof pairDeviceRow>[1]): { deviceId: string; token: string } {
+  const device = pairDeviceRow(hub, o);
+  loadDeviceMaps(hub.deps.db);
+  return device;
+}
+
 /** A paired `kds` device on `stationId`; with `laneLabel` it is a lane of that station (00 H-6). */
 export function pairKds(hub: TestHub, o: { stationId: string; laneLabel?: string; name?: string }): { deviceId: string; token: string } {
   const device = pairDevice(hub, { type: 'kds', stationId: o.stationId, name: o.name });
   if (o.laneLabel !== undefined) {
     hub.deps.db.prepare('UPDATE devices SET lane_label = ? WHERE device_id = ?').run(o.laneLabel, device.deviceId);
+    loadDeviceMaps(hub.deps.db);
   }
   return device;
 }
@@ -60,6 +72,7 @@ export function pairKds(hub: TestHub, o: { stationId: string; laneLabel?: string
 export function pairPassTablet(hub: TestHub, o: { pointId: string; name?: string }): { deviceId: string; token: string } {
   const device = pairDevice(hub, { type: 'tablet', name: o.name });
   hub.deps.db.prepare('UPDATE devices SET point_id = ? WHERE device_id = ?').run(o.pointId, device.deviceId);
+  loadDeviceMaps(hub.deps.db);
   return device;
 }
 
