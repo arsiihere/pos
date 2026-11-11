@@ -120,4 +120,53 @@ describe('[02b fixtures] shared order fixtures', () => {
     expect(added.get('D2c')).toMatchObject({ line_kind: 'deal_part', sale_unit: 'g', quantity: 1_000 });
     expect(engine().diagnostics).toEqual([]);
   });
+
+  it('[02b fixtures] 01c V11 c (M9): deal parts are weighted by the reference choice, not the chosen item (two-choice g part)', async () => {
+    hub = await createTestHub();
+    const base = fixtureMenu();
+    const naan = base.items.find((i) => i.item_id === FX.naan)!;
+    const rice = (item_id: string, price_minor: number, sort_order: number) => ({ ...naan, item_id, name: item_id, sort_order, sale_unit: 'g' as const, price_minor });
+    // I_RICE_A is first in the array and first by item_id, but I_RICE_B is first by choice sort_order: B is the reference.
+    const menu = {
+      ...base,
+      items: [...base.items, rice('I_RICE_A', 200_000, 7), rice('I_RICE_B', 300_000, 8)],
+      deals: [
+        {
+          ...base.deals[0]!,
+          deal_id: 'D_RICE',
+          price_minor: 120_000,
+          parts: [
+            {
+              deal_part_id: 'DP_RICE',
+              quantity: 500,
+              sort_order: 0,
+              choices: [
+                { item_id: 'I_RICE_A', extra_price_minor: 0, sort_order: 1 },
+                { item_id: 'I_RICE_B', extra_price_minor: 0, sort_order: 0 },
+              ],
+            },
+            { deal_part_id: 'DP_NAAN', quantity: 2, sort_order: 1, choices: [{ item_id: FX.naan, extra_price_minor: 0, sort_order: 0 }] },
+          ],
+        },
+      ],
+    };
+    openDay(hub, { menu, stock: { [FX.stock]: 10_000 } });
+    const placed = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'R1', deal_id: 'D_RICE', quantity: 2 },
+        { order_item_id: 'R1a', deal_id: 'D_RICE', deal_part_id: 'DP_RICE', item_id: 'I_RICE_A', parent_order_item_id: 'R1' },
+        { order_item_id: 'R1b', deal_id: 'D_RICE', deal_part_id: 'DP_NAAN', item_id: FX.naan, parent_order_item_id: 'R1' },
+      ],
+    });
+    const added = new Map(logged(placed.order_id).filter((e) => e.type === 'ItemAdded').map((e) => [e.payload.order_item_id, e.payload]));
+    // Deal total 120 000 × 2 = 240 000. Weights (V11 c): rice part = lineTotalMinor(I_RICE_B 300 000 / kg, 500 g × 2 = 1 000 g, 'g')
+    // = 300 000; naan part = lineTotalMinor(3 000, 2 × 2 = 4, 'piece') = 12 000; sum 312 000.
+    // Rice: floor(240 000 × 300 000 / 312 000) = floor(230 769.23) = 230 769; naan (last): 240 000 − 230 769 = 9 231.
+    // (Weighting by the chosen I_RICE_A, 200 000, would give 226 415 / 13 585.)
+    expect(added.get('R1')).toMatchObject({ line_kind: 'deal', line_total_minor: 240_000 });
+    expect(added.get('R1a')).toMatchObject({ line_kind: 'deal_part', item_id: 'I_RICE_A', sale_unit: 'g', quantity: 1_000, allocated_price_minor: 230_769 });
+    expect(added.get('R1b')).toMatchObject({ line_kind: 'deal_part', item_id: FX.naan, quantity: 4, allocated_price_minor: 9_231 });
+    expect(engine().diagnostics).toEqual([]);
+  });
 });

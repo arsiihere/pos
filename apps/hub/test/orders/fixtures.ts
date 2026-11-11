@@ -302,7 +302,7 @@ const NONE = {
   is_ready_item: false,
 };
 
-// The ItemAdded payloads (01c §4.3 + C-1), money per 01c §3.4 (deal allocation pro rata by part totals, V11 c).
+// The ItemAdded payloads (01c §4.3 + C-1), money per 01c §3.4 (deal allocation pro rata by the reference choice's part total, V11 c / M9).
 function buildLines(state: EngineState, config: BranchConfig, o: FixtureOrder, order_id: string, zone_id: string | null): ItemAddedPayload[] {
   const out: ItemAddedPayload[] = [];
   const itemOf = (id: string | undefined): ConfigItem => {
@@ -358,11 +358,16 @@ function buildLines(state: EngineState, config: BranchConfig, o: FixtureOrder, o
       if (parent === undefined || parent.deal_id === null) throw new Error(`appendOrder: part ${l.order_item_id} needs its deal line first`);
       const deal = config.deals.find((d) => d.deal_id === parent.deal_id)!;
       const dealQty = parent.quantity ?? 1;
-      const chosen = (partId: string): ConfigItem => {
-        const given = o.lines.find((x) => x.parent_order_item_id === parent.order_item_id && x.deal_part_id === partId)?.item_id;
-        return itemOf(given ?? deal.parts.find((p) => p.deal_part_id === partId)!.choices[0]!.item_id);
-      };
-      const weights = deal.parts.map((p) => lineTotalMinor(chosen(p.deal_part_id).price_minor, p.quantity * dealQty, 'piece'));
+      // 01c V11 c (M9): a part's weight is its reference choice's (first in this snapshot by choice sort_order, then
+      // item_id), never the chosen item: lineTotalMinor(price, part qty × deal qty, the reference item's sale_unit).
+      const weights = deal.parts.map((p) => {
+        const ref = p.choices
+          .filter((c) => config.items.some((i) => i.item_id === c.item_id))
+          .sort((a, b) => a.sort_order - b.sort_order || (a.item_id < b.item_id ? -1 : a.item_id > b.item_id ? 1 : 0))[0];
+        if (ref === undefined) return 0;
+        const ri = itemOf(ref.item_id);
+        return lineTotalMinor(ri.price_minor, p.quantity * dealQty, ri.sale_unit);
+      });
       const index = deal.parts.findIndex((p) => p.deal_part_id === l.deal_part_id);
       const part = deal.parts[index]!;
       const ci = itemOf(l.item_id ?? part.choices[0]!.item_id);
