@@ -94,7 +94,7 @@ export interface OpenOrder {
   has_phone: boolean;
   placed_at: number;
   business_date: string;
-  /** "from <date>": the order's business date when it is not the engine's current business day (a carried order) */
+  /** "from <date>": the order's business date when it is not the open day's date (a carried order); every order while no day is open (§6.16 R5) */
   from_date: string | null;
   ready: { n: number; m: number };
   promise_ms: number | null;
@@ -107,7 +107,10 @@ export function openOrdersBody(db: Database.Database, state: Readonly<EngineStat
   const types: OrderType[] = filter.order_type === 'all' ? ['takeaway', 'parking'] : [filter.order_type];
   const rows = openOrderRows(db, filter.abandoned ? 'all' : types);
   const lines = orderLines(db, rows.map((r) => r.order_id));
-  const today = state.business_day?.business_date ?? null;
+  // §6.16 R5 (v1.0.4; owner 2026-11-11 G-1): "today" is the open day's date only; after BusinessDayClosed the engine keeps
+  // the closed day (closed_at set), and with no open day every order gets from_date = its business_date.
+  const day = state.business_day;
+  const today = day !== null && day.closed_at === null ? day.business_date : null;
   const out: OpenOrder[] = [];
   for (const r of rows) {
     const own = lines.get(r.order_id)!;

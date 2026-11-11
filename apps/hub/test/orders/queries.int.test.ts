@@ -266,7 +266,7 @@ describe('seating-orders (§6.15)', () => {
 // ------------------------------------------------------------------------------------------- §6.16
 
 describe('open-orders (§6.16)', () => {
-  it('[02b #30 open-orders] a carried takeaway shows under the next day with its date; finished ones leave at the close; ready n / m; by promise', async () => {
+  it('[02b #30 open-orders] [02b §6.16 R5] a carried takeaway shows under the next day with its date (and with no open day, every order has its date); finished ones leave at the close; ready n / m; by promise', async () => {
     appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', lines: [{ order_item_id: 'TA1', item_id: FX.piece }, { order_item_id: 'TA2', item_id: FX.naan }] });
     appendOrder(hub, { order_type: 'takeaway', order_id: 'TB', lines: [{ order_item_id: 'TB1', item_id: FX.naan }] });
     appendOrder(hub, { order_type: 'parking', order_id: 'PC', car_number: 'LEB-77', lines: [{ order_item_id: 'PC1', item_id: FX.naan }] });
@@ -297,10 +297,13 @@ describe('open-orders (§6.16)', () => {
 
     // day close: the served TB leaves; TA (a line still cooking) and PC (unserved) stay, shown under the next day with their date
     closeDay();
-    // R5 (M4): between the close and the next open the engine keeps the closed day (closed_at set), so nothing is "from" yet
+    // [02b §6.16 R5] (v1.0.4; owner 2026-11-11 G-1): while no day is open, every order gets from_date = its business_date,
+    // although the engine still holds the closed day (closed_at set)
     expect(engine().business_day).toMatchObject({ business_date: day.business_date });
+    expect(engine().business_day!.closed_at).not.toBeNull();
     const closed = (await query<Open>(who, 'open-orders')).data.orders;
-    expect(closed.find((o) => o.order_id === 'TA')!.from_date).toBeNull();
+    expect(closed.map((o) => o.order_id).sort()).toEqual(['PC', 'TA']);
+    for (const o of closed) expect(o).toMatchObject({ business_date: day.business_date, from_date: day.business_date });
     hub.clock.advance(24 * 3_600_000);
     const next = openDay(hub);
     expect(next.business_date).not.toBe(day.business_date);
