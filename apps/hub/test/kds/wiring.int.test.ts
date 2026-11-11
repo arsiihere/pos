@@ -68,7 +68,7 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
     expect(() => kds.stationPresence()).toThrow(/not built/);
     // buildLineDetails, pointOfLine: built by b11 (test/kds/details.int.test.ts).
     expect(() => kds.devicePoint('D1')).toThrow(/not built/);
-    expect(() => kds.handoversDue({} as never, WALL, 180_000)).toThrow(/not built/);
+    // handoversDue: built by b17, provided by lane B5's register (test/pass/handovers-due.int.test.ts).
     // undoReadyForLines: built by b9b, provided by lane B4's register (test/pass/undo-ready.int.test.ts).
   });
 
