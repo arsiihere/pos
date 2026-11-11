@@ -70,6 +70,35 @@ const KEY_SETS = {
     EngineLineReturnOf: ['order_item_id', 'mode'],
     EngineLineBooked: ['start', 'end', 'units'],
   },
+  // 03a v1.2.2 (owner 2026-11-11, B2-2): v4 adds EngineLine.done_undone; every other set is v3's.
+  4: {
+    EngineState: ['stock', 'business_day', 'config', 'stations', 'orders', 'lines', 'slips', 'next_alert_due_at', 'slip_due'],
+    StockEntry: ['on_hand', 'reserved', 'set_at', 'unit'],
+    BusinessDay: ['business_date', 'opened_at', 'closed_at', 'stock_units', 'draws'],
+    DayDraws: ['sale_unit', 'stock_draws'],
+    SlipRecord: ['order_ids', 'last_estimate', 'alert_id', 'resolved_at'],
+    StationRuntime: ['station_id', 'type', 'capacity', 'capacity_override', 'paused', 'profile', 'unfired', 'loads'],
+    Profile: ['t', 'u'],
+    Load: ['load_id', 'program_id', 'order_item_ids', 'fire_ms', 'booked'],
+    LoadBooked: ['start', 'end', 'units'],
+    EngineOrder: [
+      'order_id', 'order_type', 'table_key', 'table_id', 'follow_up', 'pickup_at_ms', 'placed_at', 'placed_by',
+      'target_land_ms', 'promise_ms', 'boosted', 'line_ids', 'awaiting', 'last_served_at', 'last_line_fold_at',
+      'next_group_index', 'groups',
+    ],
+    EngineLine: [
+      'order_item_id', 'order_id', 'group_id', 'serve_mode', 'station_id', 'alternates', 'point_id', 'carry_ms',
+      'units', 'prep_ms', 'cook_ms', 'full_cook_ms', 'from_stock', 'program_id', 'stock_cook_ms', 'stock_program_id',
+      'draws', 'reserved_seq', 'weight_pct', 'max_early_ms', 'max_late_ms', 'max_carry_ms', 'stage', 'fire_ms',
+      'deadline_ms', 'fired_at', 'started_at', 'done_at', 'mark', 'return_of', 'load_id', 'booked',
+      'capped', 'routed_station_id', 'expedited', 'rounds', 'done_undone',
+    ],
+    EngineOrderGroup: ['target_land_ms', 'line_ids'],
+    EngineLineAlternate: ['station_id', 'carry_ms', 'home'],
+    EngineLineDraw: ['stock_item_id', 'quantity', 'reserved'],
+    EngineLineReturnOf: ['order_item_id', 'mode'],
+    EngineLineBooked: ['start', 'end', 'units'],
+  },
 } as const;
 
 type Current = (typeof KEY_SETS)[typeof ENGINE_STATE_VERSION];
@@ -127,14 +156,26 @@ function configEvent(stations: Array<Partial<EngineConfig['stations'][number]>>,
   return anEngineConfigApplied({ recorded_at, occurred_at: recorded_at, payload: { stations: stations.map((s) => ({ ...S1, ...s })) } });
 }
 
-describe('@pos/engine EngineState v3', () => {
-  it('[03a #56] buildEngineState(engine-log.v3.json) deep-equals engine-state.v3.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
-    expect(ENGINE_STATE_VERSION).toBe(3);
+describe('@pos/engine EngineState v4', () => {
+  it('[03a #56] buildEngineState(engine-log.v4.json) deep-equals engine-state.v4.json; the key set is snapshotted per ENGINE_STATE_VERSION', () => {
+    // 03a v1.2.2 (owner 2026-11-11, B2-2): v4 (was 3) adds EngineLine.done_undone.
+    expect(ENGINE_STATE_VERSION).toBe(4);
     const log = (fixture(`engine-log.v${ENGINE_STATE_VERSION}.json`) as unknown[]).map((e) => parseEvent(e));
-    expect(log.map((e) => e.event_type)).toEqual(['EngineConfigApplied', 'BusinessDayOpened', 'StockSet']);
+    expect(log.map((e) => e.event_type)).toEqual([
+      'EngineConfigApplied', 'BusinessDayOpened', 'StockSet', 'OrderPlaced', 'ItemAdded', 'ItemAdded', 'FireDispatched',
+      'ItemStarted', 'ItemStarted', 'ItemDone', 'ItemDoneUndone',
+    ]);
     const { diagnostics, ...state } = buildEngineState(deepFreeze(log));
     expect(diagnostics).toEqual([]);
     expect(state).toEqual(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`));
+    // The fixture holds both values of the new key: L1 was inferred Done at the auto_done S1, then undone.
+    expect(state.lines.L1).toMatchObject({ stage: 'cooking', done_at: null, done_undone: true });
+    expect(state.lines.L2).toMatchObject({ stage: 'cooking', done_undone: false });
+    for (const line of Object.values(state.lines)) expect(Object.keys(line).sort()).toEqual([...KEY_SETS[4].EngineLine].sort());
+    // The v3 files stay as written: the v3 log (no line) still folds to the v3 state.
+    const { diagnostics: v3Diagnostics, ...v3 } = buildEngineState(deepFreeze((fixture('engine-log.v3.json') as unknown[]).map((e) => parseEvent(e))));
+    expect(v3Diagnostics).toEqual([]);
+    expect(v3).toEqual(fixture('engine-state.v3.json'));
 
     const keys = KEY_SETS[ENGINE_STATE_VERSION];
     expect(Object.values(keysMatch).every(Boolean)).toBe(true);
@@ -149,11 +190,11 @@ describe('@pos/engine EngineState v3', () => {
   });
 
   it('[03a AD-6] the key-set guard ignores diagnostics and still fails at compile time when a real key is added', () => {
-    // A new real key breaks the v3 set (checked by typecheck:tests).
-    // @ts-expect-error extra is not in the v3 EngineState key set
+    // A new real key breaks the current set (checked by typecheck:tests).
+    // @ts-expect-error extra is not in the current EngineState key set
     const added: SameKeys<Omit<EngineState, 'diagnostics'> & { extra: number }, Current['EngineState']> = true;
-    // diagnostics itself is outside the v3 set: comparing the full EngineState fails.
-    // @ts-expect-error diagnostics is not in the v3 EngineState key set
+    // diagnostics itself is outside the current set: comparing the full EngineState fails.
+    // @ts-expect-error diagnostics is not in the current EngineState key set
     const full: SameKeys<EngineState, Current['EngineState']> = true;
     expect([added, full]).toEqual([true, true]);
     expect(fixture(`engine-state.v${ENGINE_STATE_VERSION}.json`)).not.toHaveProperty('diagnostics');

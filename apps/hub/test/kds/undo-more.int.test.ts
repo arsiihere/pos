@@ -2,7 +2,7 @@
 // tests #7, #9). Orders through 02b's shared fixtures, fires / Dones through real events, the commands through the
 // real route with real station / staff sessions. Handler statements counted on the real handlers under test names.
 import { UNDO_DONE_MS } from '@pos/domain';
-import { pullEarly, type EngineState } from '@pos/engine';
+import { nextDueAt, pullEarly, type EngineState } from '@pos/engine';
 import type { BranchConfig, ConfigItem } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineCommand } from '../../src/commands/registry';
@@ -10,6 +10,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { provideKds } from '../../src/kds/contracts';
 import { giveMeMoreCommand } from '../../src/kds/commands/give-me-more';
 import { undoDoneCommand } from '../../src/kds/commands/undo-done';
+import { firesTick } from '../../src/engine-host/fires-tick';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -18,6 +19,7 @@ import { COOK, FX, append, appendOrder, cookDirectory, fireLines, fixtureMenu, o
 const MIN = 60_000;
 const ST = 'S_ST'; // single_tap
 const B = 'S_B'; // batch, program PR
+const AD = 'S_AD'; // auto_done
 
 function menu(): BranchConfig {
   const base = fixtureMenu();
@@ -31,6 +33,7 @@ function menu(): BranchConfig {
       { ...s1, station_id: ST, name: 'Tawa', completion_mode: 'single_tap' },
       { ...s1, station_id: B, name: 'Tandoor', station_type: 'batch', programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: 8 * MIN, is_archived: false }] },
       { ...s1, station_id: 'S_ARCH', name: 'Old', is_archived: true },
+      { ...s1, station_id: AD, name: 'Grill', completion_mode: 'auto_done' },
     ],
     items: [
       ...base.items,
@@ -38,6 +41,7 @@ function menu(): BranchConfig {
       // single_tap, drawn from stock (K1, 1 per piece): its Start consumes (03a P-5)
       item('I_STS', ST, { stock_time_ms: 2 * MIN, stock_draws: [{ stock_item_id: FX.stock, quantity_per_sale_unit: 1 }] }),
       item('I_B', B, { program_id: 'PR', cook_time_ms: 8 * MIN }),
+      item('I_AD', AD, { cook_time_ms: 5 * MIN }),
     ],
   };
 }
@@ -119,6 +123,7 @@ interface Reply {
 }
 const URLS: Record<string, string> = {
   UndoDone: 'undo-done',
+  DoneItem: 'done-item',
   GiveMeMore: 'give-me-more',
   TestUndoDoneCounted: 'test-undo-done-counted',
   TestGiveMeMoreCounted: 'test-give-me-more-counted',
@@ -173,6 +178,13 @@ function takeaway(lines: Array<{ order_item_id: string; item_id: string; item?: 
   return appendOrder(hub, { order_type: 'takeaway', lines }).order_id;
 }
 const bake = { program_cook_time_ms: 8 * MIN };
+
+/** One fires-tick pass at the hub clock's now, as the tick loop runs it (03a §3.6.1): its drafts appended in one transaction. */
+function tickPass(): Stored[] {
+  const now = hub.clock.branchNow();
+  const { appended } = hub.deps.writer.run((tx) => tx.append(firesTick.intents(tx, hub.deps.state.get(), now)));
+  return appended.map((e) => ({ event_type: e.event_type, stream_type: e.stream_type, stream_id: e.stream_id, actor_id: e.actor_id, device_id: e.device_id, payload: e.payload }));
+}
 
 // ------------------------------------------------------------------------------------------- UndoDone
 
@@ -263,6 +275,42 @@ describe('[03b §6.3] UndoDone', () => {
       ['ItemDoneUndone', 'B1'],
       ['ItemDoneUndone', 'B2'],
     ]);
+  });
+
+  it('[03b §3.2, v1.0.3 B2-2] auto_done: the tick infers Done, UndoDone undoes it, later ticks never infer it again; a tapped Done works', async () => {
+    const station = kds(AD);
+    const order_id = takeaway([{ order_item_id: 'A1', item_id: 'I_AD' }]);
+    fireLines(hub, AD, ['A1']);
+    startLine(order_id, 'A1');
+    const end = engine().lines.A1!.started_at! + 5 * MIN;
+    hub.clock.set(end);
+    const inferred = tickPass().filter((e) => e.event_type === 'ItemDone');
+    expect(inferred).toEqual([
+      { event_type: 'ItemDone', stream_type: 'order', stream_id: order_id, actor_id: null, device_id: 'hub', payload: { order_item_id: 'A1', done_at: end, source: 'inferred' } },
+    ]);
+    expect(engine().lines.A1).toMatchObject({ stage: 'done', done_at: end, done_undone: false });
+
+    hub.clock.set(end + 10_000);
+    const r = await undo(station, 'A1');
+    expect(r.status).toBe(200);
+    expect(r.result).toEqual({ undone: ['A1'], ready_undone: [] });
+    expect(engine().lines.A1).toMatchObject({ stage: 'cooking', done_at: null, done_undone: true });
+
+    // Any later pass: no second inferred Done, and no nextDueAt term for it.
+    for (const t of [end + 10_500, end + MIN, end + 30 * MIN]) {
+      hub.clock.set(t);
+      expect(nextDueAt(engine(), t)).toBeNull();
+      expect(tickPass().filter((e) => e.event_type === 'ItemDone')).toEqual([]);
+      expect(engine().lines.A1!.stage).toBe('cooking');
+    }
+    const inferredCount = hub.deps.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE event_type = 'ItemDone'`).get() as { n: number };
+    expect(inferredCount.n).toBe(1);
+
+    // The tapped Done.
+    const tapped = await send(station, 'DoneItem', { order_item_id: 'A1' });
+    expect(tapped.status).toBe(200);
+    expect(tapped.events.map((e) => [e.event_type, e.payload.order_item_id, e.payload.source])).toEqual([['ItemDone', 'A1', 'tap']]);
+    expect(engine().lines.A1).toMatchObject({ stage: 'done', done_undone: true });
   });
 
   it('[03b §3.2 step 5] the Ready part goes through the undoReadyForLines contract with the undone lines, inside the command', async () => {
