@@ -3,6 +3,7 @@
 Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-03c-gaps.md`. Integration branch: `module-03b`. Only the integrator edits this file.
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-11: **phase 0 done** (P0.1–P0.14 merged). Ab lanes B1, B2, B3, B4, C1 khol sakte hain. Open: P0.4 ka B-2 STOP (#6, needs-ruling); CLAUDE.md ko Foundation v1.12 pe point karna owner ka kaam.
 > - 2026-11-11: phase 0 P0.1–P0.11 merged; P0.4 ka B-2 (owner settings wire) STOP pe — ruling chahiye (rec (b)). Spec bumps P0.13 PR mein.
 > - 2026-11-11: phase 0 shuru — `module-03b` cut, labels ban gaye, P0.1 (CI hygiene G-11 / G-12) PR mein. Owner: 03c poora rakhna hai (USB + LAN, suspect recovery, paper fallback), HIGH pe do reviewers (W-6).
 > - 2026-11-11: gap sweep done, 14 G-rows ruled (a); spec v1.0.1. Next: phase 0.
@@ -34,21 +35,21 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | P0.9 | #11 | merged `78c8b02` |
 | P0.10 | #12 | merged `6f748ad` |
 | P0.11 | #13 | merged `c6f2656` |
-| P0.12 | #14 | in review |
-| P0.13 | #15 | in review |
-| P0.14 | — | not started |
+| P0.12 | #14 | merged `491f549` |
+| P0.13 | #15 | merged `9ac8bd5` |
+| P0.14 | #16 | merged `0432673` |
 
 ## Lanes
 
 | Lane | Task | PR | Needs | State |
 |---|---|---|---|---|
-| B1 | b5, b6, b7, b10 | — | — | not started |
-| B2 | b8, b9a | — | — | not started |
-| B3 | b11, b18 | — | — | not started |
-| B4 | b13, b14, b15, b9b | — | b11, P0.14 (b15) | not started |
+| B1 | b5, b6, b7, b10 | — | — | ready to open |
+| B2 | b8, b9a | — | — | ready to open |
+| B3 | b11, b18 | — | — | ready to open |
+| B4 | b13, b14, b15, b9b | — | b11, P0.14 (b15) | ready to open (b13 first) |
 | B5 | b16, b17, 0e | — | b13–b15 | not started |
 | B6 | b20, b21, b22, b23 | — | b6, b11, b18 | not started |
-| C1 | c4, c5, c7, c8, c9 | — | — | not started |
+| C1 | c4, c5, c7, c8, c9 | — | — | ready to open |
 | C2 | c11, c10 | — | b11 | not started |
 | C3 | c12, c13, c14, c15, c16 | — | c10, c11, c7 | not started |
 | C4 | c17–c22 | — | b20, c7, c14 | not started |
@@ -70,6 +71,8 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | AD-12 | P0.8 | Event value rules taken from the cited sections (Handover 1–40, sound 0–100, lane_label 1–20, printer name 1–40, paper 58 \| 80); `KdsStationBody.lanes.lanes_on` nullable (custom). | proposed |
 | AD-13 | P0.9 | `alerts-migration.int.test.ts` pins the migration list; now 0001–0015. | proposed |
 | AD-14 | P0.11 | Contracts filled by `provideKds` / `providePrint` from the lane file; `undoReadyForLines` a no-op until b9b (b9a calls it first); slots hold data (`{ key, label }`, `{ key, label, run }`); hook homes `print/boot.ts` (c16), `print/retention.ts` (c22). | proposed |
+| AD-16 | all P0 | No subagent tool in the integrator session: every P0 task was self-reviewed, not by fresh reviewer subagents (two for HIGH: P0.9, P0.11). | proposed |
+| AD-17 | P0.13 | CLAUDE.md still names Foundation v1.11 as the source of truth; owner to point it at v1.12. | needs owner |
 | AD-15 | P0.13 | 02b's bump is **v1.0.6** (the specs named v1.0.4; 02b took v1.0.4 and v1.0.5 itself). | proposed |
 | AD-6 | P0.3 | Tests that pin the permission list, Cook = [] or the kitchen group count follow B-1 (G-9 class): `packages/domain/src/permissions.test.ts`, `apps/cloud/test/default-roles.test.ts`, `apps/cloud/test/cli/seed-tenant.int.test.ts`, `apps/client/src/features/owner/roles/RoleEditor.test.tsx`; #60's hub half is a new `apps/hub/test/auth/run-pass-default.int.test.ts`. | proposed |
 
