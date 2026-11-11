@@ -74,6 +74,15 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-11 | 5, 20 | **Spec gap.** §3.10 closes `zone_stock_low` and `zone_stock_out` only when the count goes back **above** the threshold, so 0 → 1 (threshold 2) leaves `zone_stock_out` open. Built literally. Options: (a) keep it; (b) close `out` as soon as the count is > 0 (spec bump). | **ruled (owner, 2026-11-10): (b), spec v1.0.3 APPROVED** — `b9b3167`, `7273015`; code `602a7a4` |
 | AD-12 | 4 → 10, 11, 13 | **Contract gap in the AD-8 ruling (fix B review, Critical).** S47 checks windows on **hub local time**. Both `isOrderableByTime(item, category, now, utc_offset_ms)` and `ITEM_OUT_OF_HOURS.opens_at_ms` need the hub's UTC offset. `BranchConfig` has no offset field, and `availability-windows.ts` says "never read from the runtime". The hub gets the offset from `hubTime(clock) → { now_ms, utc_offset_ms }`. Options: (a) add `utc_offset_ms: number` to `BuildSubmitCtx` (the caller passes `hubTime`); (b) replace `now` with `time: { now_ms; utc_offset_ms }` (the `hubTime` shape). Recommendation: (a). | **ruled (owner, 2026-11-10): (a)** — `utc_offset_ms` from `hubTime()`, never the runtime timezone; `876dfdc` |
 | AD-13 | 4 → 9, 17, 19 | **Contract gap in the AD-10 ruling (fix B review, Important).** §3.7 says `OrderFoodServed` follows "every `ItemServed` that serves at least one food line". `FoodDrafts(order_id, lines, 'served')` gets only the lines after the change, so it can't tell which lines this `ItemServed` served. A failing case: a karahi is returned and its replacement is cooking, then a water is tap-served. The old karahi still has `served_at`, so the function would emit `OrderFoodServed` and the table would go green too early. Options: (a) `after: { kind: 'served'; order_item_ids: readonly string[] } \| 'change' \| 'return'`; (b) add a 4th parameter `served_ids`; (c) keep it, with a doc line. Recommendation: (a). | **ruled (owner, 2026-11-10): (a)** — `OrderFoodServed` only when the served ids include a food line (§3.3); `876dfdc` |
+| AD-14 | 9 | `OrderFoodCleared.food_served` counts served food lines with no live filter: a void after the serve still gives `true` (task 9 review Important #1; spec silent; built literally) | **ruled (owner, 2026-11-11): keep as built** (text bump) |
+| AD-15 | 6, 19 | Lane 1A STOP: `order_lines.return_of` has no event the projection may fold (`OrderLinesAdded` Fold "—"; `ItemReturned` remake only). Engine order is `OrderLinesAdded` → `ItemAdded` (03a placeholders), so an UPDATE at `OrderLinesAdded` finds no row | **ruled (owner, 2026-11-11): (A)** optional `return_of: string` on `ItemAdded` v1 (additive); task 19 writes it, the projection folds it from `ItemAdded`; `a3399b2` (also a types-only `Omit<ItemAddedPayload, 'return_of'>` in engine `plan.ts` `ProposedLine` for the name clash; opus review: behaviour-neutral) |
+| AD-16 | 10, 11 | Lane 1C S-1: line `stock_draws` must be the day-frozen draws (01c V20, `dayDraws`); `BuildSubmitCtx` had no state | **ruled (owner, 2026-11-11): (a)** `BuildSubmitCtx.draws` resolver (item_id → `dayDraws`); `5d2773e` |
+| AD-17 | 10, 14 | Lane 1C S-2: 02b says `422 VALIDATION_FAILED` (§4.4, §10 #1, §3.4, §3.5); foundation §6.2 / `errors.ts` = 400 | **ruled (owner, 2026-11-11): (a) keep 400** (foundation wins; text bump) |
+| AD-18 | 10 | Lane 1C S-3: §6.1 `variant_id` has no meaning (01c V2: a variant is its own item) | **ruled (owner, 2026-11-11): (a) accepted and ignored** (text bump) |
+| AD-19 | 10 | Lane 1C S-4: a deal outside its windows | **ruled (owner, 2026-11-11): (a)** `ITEM_OUT_OF_HOURS { deal_id, opens_at_ms }` (text bump) |
+| AD-20 | 10 | Lane 1C S-5: a `kitchen_note` on a deal line lands on the header, which no slip shows | **ruled (owner, 2026-11-11): (b)** copied to every engine part (text bump) |
+| AD-21 | 10, 11 | Lane 1C readings (task 10 review leftovers): deal parts in snapshot order, not `sort_order`; a weighed `from_zone` candidate cannot occur (01a A-1: zone stock items are piece); `isAvailable` = manual Off only, task 11 must not fold sold out into it; `order_note` of #2 tested in task 11 | **ruled (owner, 2026-11-11): accepted**; plan patch on task 11 |
+| AD-22 | 9 | `isEngineLine` is not exported from `@pos/engine` (plan "Exact names" row wrong); task 9 copied it in `food.ts` | **ruled (owner, 2026-11-11):** re-export from `packages/engine/src/index.ts`, `food.ts` imports it (fix commit, opus review) |
 
 ## Owner rulings (this sprint)
 
@@ -82,6 +91,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 2026-11-10 | G-1 (a), G-2 (a), G-3 (a), G-7 re-cut from `main` | plan "Gaps — ruled" |
 | 2026-11-10 | AD-7 tighten `OrderPlaced` `token` / `car_type` schemas; AD-8, AD-9, AD-10 accepted (one contracts commit); AD-11 spec change → 02b v1.0.3 APPROVED; the plan's migration-list path (`test/alerts/` → really `test/db/`) noted here, no plan edit | AD rows, "Next 02b text bump", Wave 0 entry |
 | 2026-11-10 | AD-12 (a) `utc_offset_ms` in `BuildSubmitCtx`; AD-13 (a) `after: { kind: 'served'; order_item_ids } \| 'change' \| 'return'` | AD rows, "Next 02b text bump" |
+| 2026-11-11 | AD-14 keep as built; AD-15 (A) `ItemAdded.return_of`; AD-16 (a) draws resolver; AD-17 keep 400; AD-18 ignore `variant_id`; AD-19 `{ deal_id, opens_at_ms }`; AD-20 (b) note to every engine part; AD-21 lane 1C readings accepted, plus a plan patch for task 11; AD-22 `isEngineLine` re-export. Test-only: the ledger comp-then-weight test starts from a weighed line; the property test never comps a weight-pending g line; in the fixtures, a g/ml deal part's quantity = part quantity × deal count (01c §3.4.2) | AD-14–AD-22, "Next 02b text bump", plan task 11 |
 
 ## Next 02b text bump
 
@@ -91,6 +101,13 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **AD-9:** §4.2 / §3.5 — `lineChangeDrafts(ctx: CommandCtx, order_id, changes)`; read the spec's `tx` as `ctx.tx`. The closes carry the caller's actor and device (02a `requireLock` precedent).
 - **AD-10:** §4.2 / §3.3 — `foodDrafts` returns drafts without time / actor / device (`{ stream_type, stream_id, event_type, schema_version, payload }`), and the caller adds the envelope. `lines` = the order's lines after the change. AD-13: `after` = `{ kind: 'served'; order_item_ids } | 'change' | 'return'`; `OrderFoodServed` only when the served ids include a food line (§3.3).
 - (AD-1 from the plan: cite 02a v1.1.3 in the header and §3.2 step 2.)
+- **AD-14:** §3.3 / §3.5: `food_served` counts served food lines, including one voided after it was served.
+- **AD-15:** 03a §4.2 (ItemAdded fields) and 02b §6.19 / §3.8: `ItemAdded.return_of?` is set on a return line's `ItemAdded` (fix and remake). 02b §5 folds it into `order_lines.return_of`.
+- **AD-16:** §3.2 / §4.2: `BuildSubmitCtx.draws` takes the day-frozen draws from `dayDraws` (01c V20).
+- **AD-17:** every mention of "422 `VALIDATION_FAILED`" becomes **400** (§4.4, §10 #1, §3.4 `gml_deal_part_partial`, §3.5 `units > live_units`).
+- **AD-18:** §6.1: drop `variant_id` from the payload, or mark it "accepted and ignored".
+- **AD-19:** §9: `ITEM_OUT_OF_HOURS { item_id | deal_id, opens_at_ms | null }`.
+- **AD-20:** §3.2 / 01c §4.3 row: a deal's `kitchen_note` is copied to every engine part.
 
 ## Wave entries
 
