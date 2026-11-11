@@ -8,6 +8,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 > - CI needs nothing (fresh `postgres:16` service per run).
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-11: owner rulings B3-3 (a), B3-4 (a) — 03b v1.0.4: units badalne pe KDS details dobara; return line options copy karti hai (03a v1.2.3, 02b v1.0.8; task P0.20).
 > - 2026-11-11: owner rulings C1-2 (a), C1-3 (a), C3-1 (yes) — 03c v1.0.4 (cancel slip 0 left → whole form), c7 test edit approved, c15 / c19 USB child file open.
 > - 2026-11-11: phase 0 done except P0.F / P0.15; lanes run in parallel (integrator call, owner informed 2026-11-11).
 > - 2026-11-11: owner rulings aa gayi — B-2 (a): teeno boxes ab owner page pe (P0.15); review fixes P0.F mein (0012 ab config_version bump karta hai, AlertRaisedPayloadV3, specs 03b / 03c v1.0.2 sirf wording). P0.12–P0.14 merged.
@@ -53,6 +54,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | P0.17 | — | not started — B2-2 `auto_done` undo (03a `EngineLine.done_undone`, `ENGINE_STATE_VERSION` 4). Needs: spec batch #42 |
 | P0.18 | — | not started — B1-1 `SendTestAlert` point id → 404 `POINT_NOT_FOUND`; B1-2 `always_on` reaches point-bound tablets (01d v1.2.3). Needs: spec batch #42, b6 (#32) |
 | P0.19 | — | not started — P15-1 Ready window / KDS offline boxes in seconds (01a v2.4.3; client only). Needs: spec batch #42 (P0.15 merged) |
+| P0.20 | — | not started — B3-4 return lines copy plain options + no-station option children (02b v1.0.8, 03a v1.2.3). Needs: this spec PR, P0.16 (#47) |
 
 ## Lanes
 
@@ -103,6 +105,8 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 | AD-28 | c8 (C1-2) | A cancel slip whose units leave 0 live units: "- n x Naan  0 left" or the whole form? | **ruled (a)** (owner 2026-11-11): whole form `CANCELLED  T7  <n> x Naan`, n = the job's units (02b sends `min(units, live)`); `units: null` and partials unchanged (03c v1.0.4 §3.5, test 3) |
 | AD-29 | c7 / c10 (C1-3) | c10's `render.int.test.ts` inserts tickets by hand. | **ruled (a)** (owner 2026-11-11): c7 removes the manual ticket inserts from `apps/hub/test/print/render.int.test.ts` and asserts c7's `tickets` row exists — approved cross-lane test edit, done in c7 (#34) |
 | AD-30 | c15 / c19 (C3-1) | The USB status read-back needs `print/transport/usb-child.ts` (c13's file). | **ruled yes** (owner 2026-11-11): c15 and c19 may edit `apps/hub/src/print/transport/usb-child.ts` (open for the status read-back, 03c §3.7 "only if its test print proved status"); added to both plan rows' Files |
+| AD-31 | b18 / P0.16 (B3-3) | `kds_lines` sends a line's details once per id; a partial removal / void or a weight change leaves the scaled options stale. | **ruled (a)** (owner 2026-11-11): details are re-sent whenever live units change (`ItemRemoved` / `ItemVoided` with units, `LineWeightSet`), budget unchanged (03b v1.0.4 §6.16); code in P0.16 (#47), approved edit of `ws/kds-catch-up.ts` |
+| AD-32 | 02b return (B3-4) | A return line had `options: []`, so the remake ticket lost "No onion". | **ruled (a)** (owner 2026-11-11): the return line copies plain options and option children with no station, money 0 (03a v1.2.3 §3.8a, 02b v1.0.8 §3.8, §6.7 3–4 statements); code P0.20 |
 
 ## Gate times (CI, for the record)
 
