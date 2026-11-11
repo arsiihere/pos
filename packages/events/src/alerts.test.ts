@@ -11,6 +11,7 @@ import {
 } from '../testing/index';
 import {
   AlertDetailsBase,
+  AlertDetailsBaseV2,
   AlertLockSchema,
   AlertStepTargetSchema,
   AlertTargetSchema,
@@ -59,8 +60,8 @@ describe('01d alert events', () => {
       const parsed = parseEvent(fixture(type));
       expect(parsed.event_type, type).toBe(type);
       expect(parsed.stream_type, type).toBe(stream);
-      // 01d v1.1.2 D-2: AlertRaised's latest is v2 (its v1 fixture upcasts); every other alert event is v1.
-      expect(parsed.schema_version, type).toBe(type === 'AlertRaised' ? 2 : 1);
+      // 01d v1.1.2 D-2, v1.2.2 D-2 (03b): AlertRaised's latest is v3 (its v1 fixture upcasts); every other alert event is v1.
+      expect(parsed.schema_version, type).toBe(type === 'AlertRaised' ? 3 : 1);
     }
   });
 
@@ -88,7 +89,7 @@ describe('01d alert events', () => {
     expect(v1.details).toEqual({});
     const stored = fixture('AlertRaised');
     const upcast = parseEvent(stored);
-    expect(upcast.schema_version).toBe(2);
+    expect(upcast.schema_version).toBe(3);
     expect(upcast.payload).toEqual(stored.payload);
     const withDetails = parseEvent({ ...stored, payload: { ...stored.payload, details: { item: 'Mutton platter', quantity: 1 } } });
     expect(withDetails.payload.details).toEqual({ item: 'Mutton platter', quantity: 1 });
@@ -452,5 +453,53 @@ describe('01d wire shapes', () => {
     expect(SetPresencePayload.safeParse({ staff_ids: ids(101), present: true }).success).toBe(false);
     expect(SetPresencePayload.safeParse({ staff_ids: [], present: true }).success).toBe(false);
     expect(SetPresencePayload.safeParse({ staff_ids: ids(1) }).success).toBe(false);
+  });
+});
+
+const fixtureAt = (type: string, version: number): Record<string, unknown> & { payload: Record<string, unknown> } => {
+  const dir = fileURLToPath(new URL('../fixtures/', import.meta.url));
+  return JSON.parse(readFileSync(join(dir, `${type}.v${version}.json`), 'utf8')) as Record<string, unknown> & {
+    payload: Record<string, unknown>;
+  };
+};
+
+describe('[03b §4.5 D-2] AlertDetailsBase widened, AlertRaised v3', () => {
+  const four = { identifier: 'T4', station_name: 'Tandoor', printer_name: 'Kitchen 1', problem: 'paper_out' };
+
+  it('[03b §4.5 D-2] AlertDetailsBase takes optional identifier, station_name, printer_name, problem (each <= 40)', () => {
+    expect(AlertDetailsBase.safeParse(four).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({}).success).toBe(true);
+    for (const key of Object.keys(four)) {
+      expect(AlertDetailsBase.safeParse({ [key]: 'x'.repeat(40) }).success, key).toBe(true);
+      expect(AlertDetailsBase.safeParse({ [key]: 'x'.repeat(41) }).success, key).toBe(false);
+    }
+  });
+
+  it('[03b §4.5 D-2, F D46] AlertDetailsBaseV2 is frozen: it strips the four new fields, keeps minutes_late and lines', () => {
+    const details = { ...four, minutes_late: 2, lines: [{ name: 'Karahi', quantity: 1, state: 'cooking' }] };
+    expect(AlertDetailsBaseV2.parse(details)).toEqual({ minutes_late: 2, lines: details.lines });
+    expect(Object.keys(AlertDetailsBaseV2.shape).sort()).toEqual(['amount', 'item', 'lines', 'minutes_late', 'quantity', 'reason']);
+  });
+
+  it('[03b §4.5 D-2] a stored v2 AlertRaised still parses to the old shape at v2', () => {
+    const v2 = fixtureAt('AlertRaised', 2);
+    const parsed = payloadSchema('AlertRaised', 2).parse({ ...v2.payload, details: { ...four, minutes_late: 1 } }) as { details: unknown };
+    expect(parsed.details).toEqual({ minutes_late: 1 });
+  });
+
+  it('[03b §4.5 D-2] AlertRaised v3 keeps the four fields', () => {
+    const base = fixtureAt('AlertRaised', 2).payload;
+    const v3 = payloadSchema('AlertRaised', 3).parse({ ...base, details: four }) as { details: unknown };
+    expect(v3.details).toEqual(four);
+  });
+
+  it('[03b §4.5 D-2] the upcaster v2 -> v3 is the identity; the v3 fixture is the latest', () => {
+    const stored = fixtureAt('AlertRaised', 2);
+    const upcast = parseEvent(stored);
+    expect(upcast.schema_version).toBe(3);
+    expect(upcast.payload).toEqual(stored.payload);
+    const v3 = parseEvent(fixtureAt('AlertRaised', 3));
+    expect(v3.schema_version).toBe(3);
+    expect(v3.payload).toEqual(fixtureAt('AlertRaised', 3).payload);
   });
 });

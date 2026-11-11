@@ -18,7 +18,7 @@ describe("fixtures", () => {
         version: Number(match[2]),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    expect(versioned).toHaveLength(38);
+    expect(versioned).toHaveLength(39);
     for (const { name, type } of versioned) {
       const stored = JSON.parse(
         readFileSync(join(dir, name), "utf8"),

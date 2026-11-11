@@ -37,6 +37,7 @@ export * from './admin/menu-variants.js';
 export * from './alerts.js';
 export * from './events/alert/AlertRaised.v1.js';
 export * from './events/alert/AlertRaised.v2.js';
+export * from './events/alert/AlertRaised.v3.js';
 export * from './events/alert/AttemptSent.v1.js';
 export * from './events/alert/EscalationStepped.v1.js';
 export * from './events/alert/StepSkipped.v1.js';
