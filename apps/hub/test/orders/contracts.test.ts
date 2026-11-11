@@ -1,5 +1,5 @@
 import type { IsAvailable } from '@pos/domain';
-import type { ProposedOrder } from '@pos/engine';
+import type { dayDraws, ProposedOrder } from '@pos/engine';
 import type { BranchConfig, EventDraft, ItemAddedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
@@ -123,6 +123,7 @@ describe('[02b §4.2] contracts', () => {
       now: number;
       utc_offset_ms: number;
       isAvailable: IsAvailable;
+      draws: (item_id: string) => ReturnType<typeof dayDraws>;
       primary_table_id: string | null;
       follow_up: boolean;
     }>();

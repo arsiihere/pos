@@ -1,7 +1,7 @@
 // 02b v1.0.3 contracts (§4.2, §3.2–§3.5, §3.10, §5, §6.1; owner 2026-11-10 AD-8–AD-10). Types only: the wave-1+
 // lanes implement against them.
 import type { IsAvailable } from '@pos/domain';
-import type { ProposedOrder } from '@pos/engine';
+import type { dayDraws, ProposedOrder } from '@pos/engine';
 import type { BranchConfig, EventDraft, ItemAddedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { CommandCtx } from '../commands/registry.js';
@@ -174,6 +174,12 @@ export interface BuildSubmitCtx {
   utc_offset_ms: number;
   /** the item_availability callback, as `isItemOrderable` / `checkOptionChoices` (@pos/domain menu-lines) take it */
   isAvailable: IsAvailable;
+  /**
+   * 01c V20 (owner 2026-11-11 S-1): the day-frozen sale unit and stock draws of an item. The caller passes
+   * `id => dayDraws(ctx.state, configItem(id), configStockUnits)`; buildSubmit copies these into
+   * `ItemAdded.stock_draws` / `ProposedLine`. Every stock path uses dayDraws; never the config's own draws.
+   */
+  draws: (item_id: string) => ReturnType<typeof dayDraws>;
   /** the seating's primary table (02a `seatingOf`) for zone routing; null for takeaway / parking */
   primary_table_id: string | null;
   /** §3.3, computed by the caller (dine-in only; false for takeaway / parking) */
