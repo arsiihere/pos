@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerOrderTicketsQuery } from '../../queries/order-tickets.js';
 import { registerSavePrinter } from '../commands/printer.js';
+import { registerReprintTicket } from '../commands/reprint.js';
 import { registerSetStationOutput } from '../commands/station-output.js';
 import { printConfigProjection } from '../config-projection.js';
 import { bindTicketsLog, ticketsProjection } from '../tickets-projection.js';
@@ -15,6 +17,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   bindTicketsLog(deps.projections, (line) => app.log.warn(line, 'print.fold_skipped'));
   registerSavePrinter(app); // c5, 03c §6.2
   registerSetStationOutput(app); // c5, 03c §6.3
+  registerReprintTicket(app); // c9, 03c §6.1
+  registerOrderTicketsQuery(app); // c9, 03c §6.8
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
