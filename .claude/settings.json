@@ -80,5 +80,18 @@
       "Bash(git push * --delete*)",
       "Bash(git push * +*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash tools/cloud/session-start.sh",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
   }
 }
