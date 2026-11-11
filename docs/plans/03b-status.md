@@ -22,8 +22,10 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 
 | Task | PR | State |
 |---|---|---|
-| P0.1 | (this PR) | in review |
-| P0.2 – P0.14 | — | not started |
+| P0.1 | #3 | merged `42bc184` |
+| P0.2 | #4 | merged `8573511` |
+| P0.3 | #5 | in review |
+| P0.4 – P0.14 | — | not started |
 
 ## Lanes
 
@@ -44,6 +46,12 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 
 | # | Task | Reading | State |
 |---|---|---|---|
+| AD-1 | P0.1 | The new scratch-db tests sit in `apps/cloud/test/helpers/scratch-db.int.test.ts` (the helper's own test file, not in the row). | proposed |
+| AD-2 | P0.1 | G-12 "log, ignore 57P01": every scratch / admin pool error is logged by code only and never rethrown. | proposed |
+| AD-3 | P0.2 | Tests that pin AlertRaised's latest version / the fixture count follow the row (G-9 class): `packages/events/src/alerts.test.ts`, `fixtures.test.ts` (38 → 39), `apps/hub/test/engine/kinds.int.test.ts:339` (2 → 3). | proposed |
+| AD-4 | P0.2 | The four new detail fields are `max(40)` only, no `min(1)`. | proposed |
+| AD-5 | P0.2 | `alerts/raise.ts` keeps its `AlertRaisedPayloadV2` type (plan: no hub change). | proposed |
+| AD-6 | P0.3 | Tests that pin the permission list, Cook = [] or the kitchen group count follow B-1 (G-9 class): `packages/domain/src/permissions.test.ts`, `apps/cloud/test/default-roles.test.ts`, `apps/cloud/test/cli/seed-tenant.int.test.ts`, `apps/client/src/features/owner/roles/RoleEditor.test.tsx`; #60's hub half is a new `apps/hub/test/auth/run-pass-default.int.test.ts`. | proposed |
 
 ## Gate times (CI, for the record)
 

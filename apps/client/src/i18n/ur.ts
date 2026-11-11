@@ -364,6 +364,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.manage-devices': 'اسکرینیں جوڑنا اور ہٹانا',
   'perm.access-hub-admin': 'ہب ایڈمن کھولنا',
   'perm.manage-stock': 'اسٹاک گننا اور آئٹم بند کرنا',
+  // 03b B-1 (01b v1.8), G-6 — Urdu draft — needs native review
+  'perm.run-pass': 'پاس چلانا: آرڈر تیار بتانا اور حوالے کرنا',
   // 01c task 20: stock page per stock item (§8)
   'admin_stock.badge.unused': 'یہاں کسی ڈش میں استعمال نہیں',
   // Pulse 01a hand-off CHANGES §3 (stock page), 01c-B02 — Urdu draft — needs native review

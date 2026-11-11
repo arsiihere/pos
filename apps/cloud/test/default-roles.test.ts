@@ -14,6 +14,16 @@ function holders(permission: string): string[] {
 }
 
 describe('default roles', () => {
+  it('[03b #60] run-pass defaults to Owner, Manager and Cook; Cook also gets reprint-ticket; both allowed at branch scope', () => {
+    expect(holders('run-pass')).toEqual(['owner', 'manager', 'cook']);
+    expect(holders('reprint-ticket')).toEqual(['owner', 'manager', 'cashier', 'cook']);
+    const cook = DEFAULT_ROLES.find((r) => r.default_key === 'cook')!;
+    expect([...cook.grants].sort((a, b) => a.permission.localeCompare(b.permission))).toEqual([
+      { permission: 'reprint-ticket', grant_type: 'allowed' },
+      { permission: 'run-pass', grant_type: 'allowed' },
+    ]);
+  });
+
   it('[01a S18] Owner and Manager grant manage-stock; Cashier and Order taker do not', () => {
     expect(grants('owner')).toContain('manage-stock');
     expect(grants('manager')).toContain('manage-stock');
@@ -37,7 +47,8 @@ describe('default roles', () => {
     expect(holders('take-order')).toEqual(['owner', 'manager', 'cashier', 'order_taker']);
     expect(holders('clean-table')).toEqual(['owner', 'manager', 'cashier', 'order_taker', 'waiter']);
     expect(grants('waiter')).not.toContain('take-order');
-    expect(grants('cook')).toEqual([]);
+    // 03b B-1 (01b v1.8): Cook is no longer empty (overrides M29 / B17 "Cook has no permissions"), see #60.
+    expect([...grants('cook')].sort()).toEqual(['reprint-ticket', 'run-pass']);
   });
 
   it('[02p U-4] Cashier and Order taker defaults (01b v1.6 B-1; v1.7 B-1, B-5)', () => {
@@ -63,7 +74,7 @@ describe('default roles', () => {
         if (!(role.default_key === 'order_taker' && g.permission === 'view-customer-contact')) expect(g.scope ?? 'branch').toBe('branch');
       }
     }
-    expect(grants('cook')).toEqual([]);
+    expect([...grants('cook')].sort()).toEqual(['reprint-ticket', 'run-pass']); // 03b B-1, #60
   });
 
   it('[02p U-4] manage-zone-stock only Owner, Manager; mark-served stays branch (03a AD-32); boost-order gains Order taker', () => {
