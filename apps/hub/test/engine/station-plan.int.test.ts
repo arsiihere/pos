@@ -246,7 +246,7 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     expect(plans(k1)).toEqual([{ type: 'station_plan', ...(body('S1', hub.deps.writer.lastSeq()) as object) }]);
   });
 
-  it('[03a #83] a commit that changes no line and no station sends no frame; the after-commit frames add 0 statements', async () => {
+  it('[03a #83] a commit that changes no line and no station sends no frame; the station_plan frames add 0 statements (03b kds_lines adds its 2)', async () => {
     kitchen();
     submit({ order_id: 'O1', lines: [{ order_item_id: 'L1' }] });
     const staff = await socketOf('staff');
@@ -277,8 +277,10 @@ describe('[03a #83] station_plan catch-up part and frame', () => {
     const framed = windowOf((tx) => fakeSubmitDrafts(tx.state as EngineState, { order_id: 'O2', lines: [{ order_item_id: 'L2' }] }, tx.clock.branchNow()));
     await settle();
     expect(plans(k1).map((p) => p.station_id)).toEqual(['S1']);
-    expect(framed).toBe(quiet);
-    expect(framed).toBe(0);
+    // 03b b18 (§6.16, G-9 class): the window also holds 03b's kds_lines hook, which reads L2's details for the S1
+    // station socket (buildLineDetails, 2 statements); 03a's station_plan hook still adds 0.
+    expect(framed).toBe(quiet + 2);
+    expect(quiet).toBe(0);
   });
 
   it('[03a #83] an alert-mode socket of a staff device gets no station_plan (only the session sockets are sent to)', async () => {
