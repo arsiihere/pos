@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Doc | Module spec, **v0.3 — DRAFT (developer, 2026-11-11)**. Screen-first rewrite after the owner's rulings R-1–R-6 (`docs/stories/03b-g1-decisions.md` §4): **printing moved to 03c** (`03c_Printing_Spec_v0.1.md`). Fixes G4 run 2 (`docs/reviews/03b_v0.2_hostile_run2.md`, verdict FIX) for everything that stays in 03b; closure in §12.7. Next: **targeted check** of the v0.2 → v0.3 diff (with 03c v0.1), not a full run 3 (run 2's advice). |
-| Was | `03b_KDS_Printing_Spec_v0.2.md` (v0.1, v0.2 history in git: `401ab58`, `3baab71`). |
-| Depends on | Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7**, 01c **v1.1.2**, 01d **v1.2.1**, 02a **v1.1.4**, 02b **v1.0.2** (+ `module-02b` code once merged), 03a **v1.2**. Target versions after approval: §4.5. |
+| Doc | Module spec, **v0.4 — DRAFT (developer, 2026-11-11)**. Screen first (owner R-1–R-6, `docs/stories/03b-g1-decisions.md` §4); printing is **03c** (`03c_Printing_Spec_v0.2.md`). v0.3 closed G4 run 2 (§12.6); v0.4 closes the targeted check `docs/reviews/03b_v0.3_03c_v0.1_targeted_check.md` (verdict FIX) in §12.7. Next: re-check **only** its M rows and m-1, m-5, m-6 (the check's advice). |
+| Was | `03b_KDS_Printing_Spec_v0.2.md` → `03b_KDS_Pass_Spec_v0.3.md` (history in git: `401ab58`, `3baab71`, `1c4f9ee`). |
+| Depends on | Foundation **v1.11**, 00 **v1.8**, 01a **v2.3**, 01b **v1.7**, 01c **v1.1.2**, 01d **v1.2.1**, 02a **v1.1.4**, 02b **v1.0.3** (APPROVED 2026-11-10 on `module-02b`; + its code once merged), 03a **v1.2**. Target versions after approval: §4.5 (one bump per target, shared with 03c). |
 | Read by | 03c Printing (presence, station view, device roles, Pass client), 05, 07. |
 | Inherits | Shared Standards from Foundation v1.11 §6. Not redefined here. |
 | Inputs | `03b-g0.md`; `03b-g1-decisions.md` (Q1–Q13, G1-1–G1-18, owner rulings R-1–R-6); run 1 and run 2 reviews; 03a v1.2 §4.3 To 03b; 02b v1.0.2 §4.3 To 03b, O14; 02a v1.1.4 §4.3 To 03b; 01d v1.2.1 D-2, N-2, A3, A12, A14; `01d-g0-decisions.md` K1–K13. |
@@ -17,7 +17,8 @@
 | v0.1 | 2026-11-11 | First draft (KDS + Printing) from G0 + G1. |
 | v0.1 (owner answers) | 2026-11-11 | OQ-1 printers USB + LAN; OQ-2 upstream rows as tasks 0a–0e. |
 | v0.2 | 2026-11-11 | G4 run 1 closure (14 M · 23 m · 15 n). |
-| **v0.3** | 2026-11-11 | **Owner R-1–R-6:** screen first, printer optional; **split** — every printing rule, table, command, kind and test moves to **03c Printing v0.1**; a dark screen hands its station to the Pass tablet (§3.6). **Run 2 fixes kept in 03b:** M-3 alert details (01d row D-2, `AlertRaised` v3); m-3 lanes mirror every `StationCapacitySet`, no 03a file edit; m-4 receiver scope = 02b's `checkOrderScope`; m-5 Ready closes on its own lines; m-6 `closeMany` / `raiseMany`; m-7 settings in `engine_settings`, optional with hub defaults; m-8 config names; m-9 admin paths; m-10 hub-minted `handover_id`; m-11 task order; n-2, n-3, n-5, n-6, n-9, n-10, n-11. Closure §12.7. |
+| **v0.4** | 2026-11-11 | **Targeted check closure (§12.7):** settle folds idempotent, `open_lines` counted, never below 0 (M-1); **dark only for a station with a paired screen**, screenless stations never alert (M-2); `LanesSet` kept for 03b's own lane changes, tie rule for foreign ones (m-1); takeover frames by the fires-tick `tx.onCommit` pattern (m-2); `GiveMeMore` open to `run-pass` (m-3); D-2 freezes `AlertDetailsBaseV2` (m-4); one bump per target shared with 03c, 02b dependency v1.0.3 (m-5); Cook gets `reprint-ticket` by default (m-6, for 03c's Pass reprint); task 0b split, 20 before 18 (m-8); client slots for 03c (m-10); `handoversDue` returns unsettled lines (m-11); catch-up note corrected (m-12); n-2, n-3, n-6, n-7, n-8, n-10. |
+| v0.3 | 2026-11-11 | **Owner R-1–R-6:** screen first, printer optional; **split** — every printing rule, table, command, kind and test moves to **03c Printing v0.1**; a dark screen hands its station to the Pass tablet (§3.6). **Run 2 fixes kept in 03b:** M-3 alert details (01d row D-2, `AlertRaised` v3); m-3 lanes mirror every `StationCapacitySet`, no 03a file edit; m-4 receiver scope = 02b's `checkOrderScope`; m-5 Ready closes on its own lines; m-6 `closeMany` / `raiseMany`; m-7 settings in `engine_settings`, optional with hub defaults; m-8 config names; m-9 admin paths; m-10 hub-minted `handover_id`; m-11 task order; n-2, n-3, n-5, n-6, n-9, n-10, n-11. Closure §12.6. |
 
 ---
 
@@ -56,7 +57,9 @@ Everything printed (03c); the engine (03a); `MarkServed`, release / boost / retu
 | D6 | Re-target with a table-scoped dedupe key; one `closeMany` + one `raiseMany` per pass. | G1-11; run 1 M-7, run 2 m-6 |
 | D7 | A line's point = `EngineLine.point_id`; Now and every "open line" read the engine. | run 1 M-8, M-14 |
 | D9 | **Presence** is computed once, by 03b's `kds_presence` tick, and exported (`stationPresence()`) — 03c's paper fallback reads it. | R-2, R-3 |
-| D10 | `station_lanes` mirrors **every** `StationCapacitySet` (lane reasons by inverse, manager = custom); 03b never edits 03a code. | run 2 m-3 |
+| D10 | `station_lanes` mirrors **every** `StationCapacitySet`: exact from 03b's own `LanesSet`, by inverse with a tie rule for a foreign lane change, `custom` for a manager override; 03b never edits 03a code. (G1-7's `LanesSet` stays.) | run 2 m-3; check m-1 |
+| D11 | **Screenless station** = no paired, unrevoked `kds` device. It is never dark: no alert, no takeover; its lines live on the Pass (§3.4). | check M-2 |
+| D12 | 03c extends 03b's clients only through two **slots** 03b exposes (line tag, card action); 03c's code stays in its own folders. | check m-10 |
 
 ---
 
@@ -80,7 +83,8 @@ Everything printed (03c); the engine (03a); `MarkServed`, release / boost / retu
 - **Line** = an engine line (03a §3.3).
 - **Point of a line** = `EngineLine.point_id`; `null` → the point of the line's station. **Pass tablet** = a `tablet` device with `devices.point_id` set.
 - **Identifier:** dine-in → the current tables' names (ids from `currentTableOf`, names from `floors[].tables[]`), primary first, each prefixed "T" only when the name is all digits (01d P-1): "T4 + T5", "Family 2"; takeaway → `#` + token, with the business date when from an earlier date ("#12 10 Nov"); parking → "PARKING LEB 1234 SEDAN".
-- **Dark station** = a station with no connected screen (no station session socket with its `stationId`) for `kds_offline_ms` (§3.6).
+- **Screen station** = a station with at least one paired, unrevoked `kds` device (`devices.station_id`; memory set built at boot with 1 statement, refreshed on pairing approval and `DeviceRevoked`). **Screenless station** = none (03c `printer` mode, 01e button stations).
+- **Dark station** = a **screen station** with no connected screen (no station session socket with its `stationId`) for `kds_offline_ms` while it has lines in Now or Next (§3.6). A screenless station is never dark.
 
 ### 3.2 Station commands (`StartItem`, `DoneItem`, `UndoDone`, `GiveMeMore`)
 
@@ -104,7 +108,7 @@ Caller: a **station session** for a line of its own station, or a **staff sessio
 5. Drafts `ItemDoneUndone` per line; if the line is in an **open Ready** (1 statement, `pass_ready_lines` ⋈ `pass_orders`): `ReadyToServeUndone { order_id, point_id, alert_id }` + `alerts.close(…, 'undone')`.
 6. Append. Result `{ undone, ready_undone }`.
 
-**`GiveMeMore { station_id, n?: 1–10 }`**: station session own station only; unknown / archived → `404 STATION_NOT_FOUND`; `pullEarly(state, station_id, n ?? 1, now)`; `null` → `{ pulled: null }`, nothing written; else the `FireDispatched { reason: 'pulled' }` draft (+ inferred `ItemStarted` at `single_tap`). Result `{ pulled }`.
+**`GiveMeMore { station_id, n?: 1–10 }`**: a station session for its own station only, or a `run-pass` staff session for any station (the Pass, a takeover); unknown / archived → `404 STATION_NOT_FOUND`; `pullEarly(state, station_id, n ?? 1, now)`; `null` → `{ pulled: null }`, nothing written; else the `FireDispatched { reason: 'pulled' }` draft (+ inferred `ItemStarted` at `single_tap`). Result `{ pulled }`.
 
 All four: not queueable; station-session events carry `actor_id = null` and the KDS `device_id`.
 
@@ -124,7 +128,7 @@ All four: not queueable; station-session events carry `actor_id = null` and the 
 
 - Every open order with a live engine line whose point is this point; one card per order, oldest first, identifier big; per line: station name, item × units, stage (waiting / cooking / done / handed over). Served / removed / voided / returned lines drop off; the card drops off when none is left or the order leaves the engine.
 - **Readiness:** `groupReadiness(state, order_id, now)` filtered to this point's lines: "Ready" (green) when no sync line here is `added` / `cooking`; HOLD AT PASS hint (amber) when a done line waits for a sibling — never a block (K4).
-- Buttons: Ready to serve, Hand over (receiver tiles), Undo (30 s), Start / Done for lines of stations without a connected screen, Lane Off / On. 03c adds Reprint where a station has a printer.
+- Buttons: Ready to serve, Hand over (receiver tiles), Undo (30 s), Start / Done for lines of **screenless** stations, Lane Off / On. A card has an action **slot** (D12): 03c fills it with Reprint where a station has a printer.
 - **Takeover sections** (§3.6): one per dark station of this point.
 - Data: catch-up `point_view` (§6.15), frame `point_lines` (§6.16), event frames (§6.17).
 
@@ -154,7 +158,7 @@ All four: not queueable; station-session events carry `actor_id = null` and the 
 
 **Closing (tick `pass_closures`, §6.19):** an open **Ready** closes `done` when every line of **its own** `order_item_ids` (`pass_ready_lines`) is settled — served by any source (a waiter's own `MarkServed` with no Handover included), removed, voided, returned, or its order cancelled — or when the order has left the engine (memory check). Lines added to the order after the Ready do not keep it open. An open **Served card** closes `done` when its hand-over has no unsettled line (`handovers.open_lines = 0`).
 
-**Settling** (projection `pass`, §5): `ItemServed`, `ItemReturned`, `OrderCancelled`, `ItemRemoved` with no `units` → settle the lines; `ItemRemoved { units }` / `ItemVoided { units }` → settle when the line's live units (`order_lines`, read after 02b's projection, §5 note) reach 0. Settling marks `pass_ready_lines.settled_at`, `handover_lines.settled_at` and decrements `handovers.open_lines`.
+**Settling** (projection `pass`, §5): `ItemServed`, `ItemReturned`, `OrderCancelled`, `ItemRemoved` with no `units` → settle the lines; `ItemRemoved { units }` / `ItemVoided { units }` → settle when the line's live units (`order_lines`, §5 note) reach 0. **Settling is idempotent:** it touches only rows with `settled_at IS NULL`, and `handovers.open_lines` is decremented by the number of `handover_lines` rows that statement actually changed — so a served line later returned or voided (settled twice by events) changes nothing the second time and never drives `open_lines` below 0. A fold that would still break the `CHECK` logs `kds.fold_skipped` and skips (total fold, R8).
 
 **Re-target (tick `ready_retarget`, §6.18):** open Readies whose stored `table_id` is not the order's current primary table → one `alerts.closeMany(…, 'obsolete')` and one `alerts.raiseMany` (new table in the dedupe key) for the whole pass, then `ReadyRetargeted` per row. The new alert restarts its steps (accepted).
 
@@ -164,26 +168,27 @@ All four: not queueable; station-session events carry `actor_id = null` and the 
 
 **Tick `kds_presence`** (01d `registerTick`; `due` and the frame sends are memory only):
 1. Presence: `connectedSessions()` filtered to `kind: 'station'`, grouped by `stationId` (00 row **H-9**: `ConnectedSession.stationId`, copied from `SocketCtx`) → connected stations. `offline_since[station]` in memory, initialised at server listen (screens can only reconnect after listen). Detection of a dead screen can take up to `PONG_MS` (30 s) plus `kds_offline_ms`; a socket alive with a dead display is not detected (accepted).
-2. A station with lines in Now or Next (engine) whose `now − offline_since ≥ kds_offline_ms` becomes **dark**:
+2. Only **screen stations** (§3.1) are watched. A screen station with lines in Now or Next (engine) whose `now − offline_since ≥ kds_offline_ms` becomes **dark**:
    - `intents`: `alerts.raise` kind `kds_offline` (dedupe `kds_offline:<station_id>`, details `{ station_name }`) to managers.
-   - After commit: **takeover start** — frame `station_takeover { station_id, active: true, view: <kds_station body for that station> }` to the staff sockets whose device's point is the station's point (`stations.point_id`); from then on 03b's audiences also deliver that station's line events to those sockets (memory set `takeover_stations`).
-3. A dark station's screen connects → takeover **ends at once** (frame `station_takeover { station_id, active: false }`; the screen is the truth again). The `kds_offline` alert closes `done` only after the screen has stayed connected for 60 s (one alert per outage, not per Wi-Fi blip; n-6).
-4. A station with nothing in Now or Next never goes dark (no alert at an idle station at night).
-5. Export **`stationPresence()`** → `Map<station_id, { connected: boolean, offline_since: number | null, dark: boolean }>` (memory) — 03c's paper fallback reads it.
+   - **Takeover start** by the fires-tick pattern (`engine-host/fires-tick.ts:200-225`): inside `intents`, `tx.onCommit` adds the station to the memory set `takeover_stations` and sends `station_takeover { station_id, active: true, view: <kds_station body> }` to the staff sockets whose device's point is the station's point — so nothing is sent if the raise rolls back. From then on 03b's audiences also deliver that station's line events to those sockets.
+3. A dark station's screen connects → takeover **ends at once**; this transition writes nothing, so `due` sends `station_takeover { station_id, active: false }` and clears the set directly. The `kds_offline` alert closes `done` only after the screen has stayed connected for 60 s (one alert per outage; run 2 n-6).
+4. A screen station with nothing in Now or Next never goes dark. A dark station whose Now / Next empties (every line done) **ends its takeover** (nothing to show) but keeps its alert until the screen is back 60 s or the day closes — the screen is still broken.
+5. Screenless stations are never dark, never alert and never take over: their lines are already on the Pass (§3.4).
+6. Export **`stationPresence()`** → `Map<station_id, { screenless: boolean, connected: boolean, offline_since: number | null, dark: boolean }>` (memory) — 03c's paper fallback reads it.
 
 **On the Pass tablet:** a section "Tandoor screen offline" with that station's Now / Next (same rows as the KDS), Start / Done / Undo / Give me more under `run-pass`. If the point has no Pass tablet signed in, the alert is the only signal (and 03c's paper, if a printer is attached).
 
 ### 3.7 Lanes
 
 - `lane_count` = `kds` devices of the station with a `lane_label`, not revoked (H-6), else 1.
-- **`SetLaneState { station_id, lanes_on }`** (station session own station, or `run-pass` staff): `lanes_on` 1…`lane_count` → else `400 VALIDATION_FAILED`. Uses 03a's exported `liveStation` and `requireStationInScope` and the same 4-line station-session cap check as `SetStationCapacity` (no 03a file edit); appends `StationCapacitySet { capacity_override: capacityForLanes(station, lanes_on, lane_count) (null when all on), previous, reason: 'lane_off' | 'lane_on' }`. Same as current → no-op. Row **T-1** records 03b as a second writer for lane reasons and `run-pass` as a second right for those reasons only.
-- **Mirror (`station_lanes`, projection `kds_config`):** every `StationCapacitySet` folds: lane reasons → `lanes_on` = the `k` in 1…`lane_count` with `capacityForLanes(station, k, lane_count) = capacity_override` (null override = all on), no match → `custom`; `manager` → `custom`; `BusinessDayOpened` → all rows deleted (03a clears overrides). Station data from `branchConfig()` (memory); the fold is total. So a KDS calling 03a's `SetStationCapacity` directly (03a To 03b #4) or 01e's lane buttons stay in sync.
+- **`SetLaneState { station_id, lanes_on }`** (station session own station, or `run-pass` staff): `lanes_on` 1…`lane_count` → else `400 VALIDATION_FAILED`. Uses 03a's exported `liveStation` (engine numbers) and the same 4-line station-session cap check as `SetStationCapacity` (no 03a file edit). `requireStationInScope` is called only for a station session's own-station check; it reads the `my_stations` scope of `manage-stations` and is not used for `run-pass` (scope `branch`). Appends `StationCapacitySet { capacity_override: capacityForLanes(station, lanes_on, lane_count) (null when all on), previous, reason: 'lane_off' | 'lane_on' }` **and** `LanesSet { station_id, lanes_on, lane_count }` (G1-7, exact). Same `lanes_on` as stored → no-op. Row **T-1** records 03b as a second writer for lane reasons and `run-pass` as a second right for those reasons only.
+- **Mirror (`station_lanes`, projection `kds_config`):** `LanesSet` sets `lanes_on` exactly. A `StationCapacitySet` **not** accompanied by a `LanesSet` in the same commit (a KDS calling 03a's `SetStationCapacity` directly, 03a To 03b #4; 01e lane buttons): lane reasons → `lanes_on` = a `k` in 1…`lane_count` with `capacityForLanes(station, k, lane_count) = capacity_override` — `capacityForLanes` clamps, so several `k` can match: **ties → smallest `k` for `lane_off`, largest for `lane_on`**; no match → `custom`; `manager` → `custom`; null override → all on. `BusinessDayOpened` → all rows deleted. Station numbers from `branchConfig()` (memory; during a pending config apply the mirror may show `custom` until the next lane change — accepted). The fold is total.
 
 ### 3.8 Screen settings and device roles (admin session)
 
 - **`SetStationScreen { station_id, sound_volume: 0–100 }`** → `StationScreenSet`; default 70 when no row.
 - **`SetDeviceRole { device_id, point_id?: string | null, lane_label?: string | null }`** → `DeviceRoleSet`; projection `device_roles` updates `devices.point_id` / `devices.lane_label` (H-6 rules: `lane_label` only on a `kds` device with a `station_id`, else `400 VALIDATION_FAILED`); unknown device → `404 DEVICE_NOT_FOUND`; unknown point → `404 POINT_NOT_FOUND`.
-- **Memory map** `device_id → point_id`: built at boot (1 statement), refreshed after `DeviceRoleSet`, pairing approval and `DeviceRevoked` commits.
+- **Memory maps** `device_id → point_id` and `station_id → paired kds devices` (screen stations, §3.1): built at boot (1 statement), refreshed after `DeviceRoleSet`, pairing approval and `DeviceRevoked` commits.
 - **Hub admin "Kitchen screens" page:** stations with their screens (connected / signed out / offline — signed-out Pass tablets from `alertSockets()`), lanes, sound volume; Pass tablets and their points; warnings (archived station with open lines; dark stations).
 
 ### 3.9 Permissions and scopes
@@ -221,11 +226,12 @@ All four: not queueable; station-session events carry `actor_id = null` and the 
 
 | Export | Shape | Statements | Used by |
 |---|---|---|---|
-| `stationPresence()` | `Map<station_id, { connected, offline_since, dark }>` | 0 | 03c fallback, 07 |
+| `stationPresence()` | `Map<station_id, { screenless, connected, offline_since, dark }>` | 0 | 03c fallback, 07 |
 | `buildLineDetails(db, state, order_item_ids)` | `Map<order_item_id, LineDetail>` | 2 (order lines + orders, `currentTableOf`) | 03c tickets and render |
 | `pointOfLine(state, order_item_id)` | `string \| null` | 0 | 03c |
 | `devicePoint(device_id)` | `string \| null` (memory map) | 0 | 03c audiences |
-| `handoversDue(db, now, older_than_ms)` | `Array<{ handover_id, order_id, order_item_ids }>` — hand-overs with `open_lines > 0` handed at or before `now − older_than_ms`, `LIMIT 200` | 2 | 02b `served_estimate` (task 0e) |
+| `handoversDue(db, now, older_than_ms)` | `Array<{ handover_id, order_id, order_item_ids }>` — hand-overs with `open_lines > 0` handed at or before `now − older_than_ms`, `LIMIT 200`; `order_item_ids` = that hand-over's **unsettled** lines only (`handover_lines.settled_at IS NULL`) | 2 | 02b `served_estimate` (task 0e) |
+| Client slots `registerLineTag(fn)`, `registerPassCardAction(fn)` | `apps/client/src/features/kds/slots.ts` (browser) | — | 03c (D12) |
 | Types `LineDetail`, `Identifier`, `UNDO_DONE_MS` | §4.4 | — | 03c, clients |
 | Events, kinds, catch-up parts, frames | §6 | — | 03c, 02b, 05, 07 |
 
@@ -233,9 +239,9 @@ All four: not queueable; station-session events carry `actor_id = null` and the 
 
 | To | Requirement |
 |---|---|
-| 02b | Tick `served_estimate` (02b §3.7, §6.11, O14): `due` = `handoversDue(db, now, served_estimate_ms)` when the setting is not null; `intents` = `ItemServed { source: 'estimated' }` per order + `stockEffects` + `OrderFoodServed`. **Task 0e** (OQ-2), after `module-02b` merges and after tasks 0b and 26. |
+| 02b | Tick `served_estimate` (02b §3.7, §6.11, O14): `due` = `handoversDue(db, now, served_estimate_ms)` when the setting is not null; `intents` = `ItemServed { source: 'estimated' }` per order + `stockEffects` + `OrderFoodServed`. **Task 0e** (OQ-2), after `module-02b` merges and after tasks 0b-2 and 17. |
 | 02b | Reprint on the order-taker / cashier screens: 02b follow-up (R-6); 03c puts Reprint on the Pass card. |
-| 03c | Reads `stationPresence()`, `buildLineDetails`, `pointOfLine`, `devicePoint`; adds the `printed` tag and Reprint button to 03b's clients through its own frames and tasks. |
+| 03c | Reads `stationPresence()`, `buildLineDetails`, `pointOfLine`, `devicePoint`; adds the `printed` tag and the Reprint action through 03b's client slots (D12) from its own folders. |
 | 01e | Lane buttons / headless point devices write the H-5 / H-6 columns (through `DeviceRoleSet` or 01e's pairing); lane changes through `SetStationCapacity` stay mirrored (§3.7); claims (K7) are 01e's. |
 | 07 | Pass timings from `ReadyToServe`, `Handover`; dark-station history from `kds_offline` alerts. |
 
@@ -269,14 +275,14 @@ export interface LineDetail {
 |---|---|---|---|
 | H-9 | 00 → **v1.9** §4.2 `WsHub` + code (`apps/hub/src/ws/server.ts`, R-4) | `ConnectedSession.stationId: string \| null`, copied from `SocketCtx` (additive). | §3.6 |
 | H-10 | 00 → **v1.9** §5.1 notes on H-5 / H-6 | Writers: 03b's `device_roles` projection (`DeviceRoleSet`) and 01e's pairing when built. | §3.8 |
-| B-1 | 01b → **v1.8** | `run-pass` (group `kitchen`, scope `branch`); `default_key` grants `owner`, `manager`, `cook` (cloud `default-roles.ts`, hub seed); CHECK-expand migration; re-seed (R29); overrides M29 / B17 "Cook has no permissions". | P8 |
+| B-1 | 01b → **v1.8** | `run-pass` (group `kitchen`, scope `branch`); `default_key` grants `owner`, `manager`, `cook` (cloud `default-roles.ts`, hub seed); **Cook also gets `reprint-ticket` (`branch`) by default** (the Pass card reprint, 03c R-6); CHECK-expand migration; re-seed (R29); overrides M29 / B17 "Cook has no permissions". | P8; check m-6 |
 | B-2 | 01b → **v1.8** owner settings wire | `served_estimate_ms` writable on the settings PATCH and returned on GET (`packages/events/src/admin/staff.ts`), range per A-1; plus the two new keys. | 02b O14 |
 | A-1 | 01a → **v2.4** branch settings, snapshot V4 `engine_settings` | New **optional** keys with hub defaults (no snapshot version bump, R29): `ready_window_ms` (60 000; 15 000–300 000), `kds_offline_ms` (30 000; 10 000–300 000). `served_estimate_ms` gets its range (60 000–1 800 000; `null` = off); the cloud migration (after `module-02b`'s `0009_zones` column) sets **180 000 on existing branch rows** so the pilot runs with the estimate on. | G1-10, R-3, O14 |
-| D-2 | 01d → **v1.2.2** `AlertDetailsBase`, `AlertRaised` | Optional `identifier` (≤ 40), `station_name` (≤ 40), `printer_name` (≤ 40), `problem` (≤ 40) on `AlertDetailsBase`; `AlertRaised` **v3** with an identity upcaster and one fixture (F D46), as 03a AD-36. Kinds use `AlertDetailsBase.pick(...)`. 03c's `printer_problem` uses the last two. | run 2 M-3 |
+| D-2 | 01d → **v1.2.2** `AlertDetailsBase`, `AlertRaised` | **Freeze** today's base as `AlertDetailsBaseV2` and point `AlertRaised.v2` at it (so v2's shape never changes, F D46, as 03a AD-36 froze `AlertDetailsBaseV1`); widen `AlertDetailsBase` with optional `identifier`, `station_name`, `printer_name`, `problem` (each ≤ 40); `AlertRaised` **v3** over the widened base, identity upcaster v2 → v3, one fixture. Kinds use `AlertDetailsBase.pick(...)`. | run 2 M-3; check m-4 |
 | T-1 | 03a → **v1.2.1** §3.10, §6.6, To 03b #4 (text only) | 03b's `SetLaneState` also writes `StationCapacitySet` (`lane_off` / `lane_on`) with `SetStationCapacity`'s checks; `run-pass` is a second right for those two reasons. | §3.7 |
 | S-1 | `stories-refined.md` E3 (editorial) | AC1 → assembler view per point; AC2–AC3 → 03a contract; AC5 volume on the hub admin; screen-first note (R-1). | G0 §3, R-1 |
 
-03c v0.1 adds F-1, F-2 (Foundation v1.12), H-11 (00 boot), 02b v1.0.3 (CANCELLED text) and `printer_alert_ms` (01d v1.2.2, same bump as D-2).
+**One bump per target, shared with 03c (check m-5):** 03b and 03c are approved together and task 0d applies **both** specs' rows in one bump each: 00 **v1.9** = H-9, H-10 (03b) + H-11 (03c); 01d **v1.2.2** = D-2 (03b) + D-3 `printer_alert_ms` (03c); Foundation **v1.12** = F-1, F-2 (03c); 02b **v1.0.4** = Q-1 (03c; v1.0.3 is already taken); 01a v2.4, 01b v1.8, 03a v1.2.1 as above. If 03c is approved later, its rows take the next free version of each target instead.
 
 ### 4.6 Carried rows (README) and where they land
 
@@ -341,7 +347,7 @@ CREATE TABLE handovers (
   point_id             TEXT NOT NULL,
   receiver_staff_id    TEXT NOT NULL,
   handed_at            INTEGER NOT NULL,
-  open_lines           INTEGER NOT NULL CHECK (open_lines >= 0),
+  open_lines           INTEGER NOT NULL CHECK (open_lines >= 0),   -- decremented by rows actually settled (§3.5)
   served_card_alert_id TEXT,
   card_closed_at       INTEGER
 );
@@ -358,7 +364,7 @@ CREATE INDEX handover_lines_handover ON handover_lines (handover_id);           
 ```
 
 - Projections: `kds_config` (reset), `pass` (reset), `device_roles` (forward-only; `DeviceRoleSet` → `UPDATE devices`; refreshes the memory map after commit).
-- **Order of registration:** 03b's projections register **after** 02b's `orders` (the `pass` fold reads `order_lines` live units for partial removals / voids, the 02b T19 exception: `order_lines` is updated by 02b's fold of the same event first, in both `live` and `catchup`, `projections/registry.ts:47-50, :89-111`). A boot test asserts the order. Every 03b fold is total (never throws).
+- **Order of registration:** 03b's projections register **after** 02b's `orders` (registration lines next to `registerOrdersProjection` in `lib/boot.ts`; a boot test asserts the order). The `pass` fold reads `order_lines` live units for partial removals / voids (02b T19 exception). **Live:** 02b's fold of the same event ran first, so the units are that event's. **Catch-up:** registry runs each projection over the whole range in turn (`projections/registry.ts:89-111`), so `pass` reads `order_lines` at the **tip** — a partial removal may settle a line earlier than it did live; because settling is idempotent (§3.5), the end state equals the live one (rebuild test 30). Every 03b fold is total (never throws).
 - Times are `recorded_at`. No session ids.
 
 ---
@@ -371,10 +377,10 @@ CREATE INDEX handover_lines_handover ON handover_lines (handover_id);           
 ### 6.2 `DoneItem` — `{ order_item_id, confirm? }`. Result `{ done }`. Statements 0. Errors as 6.1 + `ITEM_DONE_CONFIRM_REQUIRED`.
 ### 6.3 `UndoDone` — `{ order_item_id }`. Result `{ undone, ready_undone }`. Statements 2. Errors as 6.1 + `ITEM_UNDO_WINDOW_CLOSED`.
 ### 6.4 `GiveMeMore` — `{ station_id, n? }`. Result `{ pulled }`. Statements 0. Errors `STATION_NOT_FOUND`, `PERMISSION_DENIED`.
-### 6.5 `SetLaneState` — `{ station_id, lanes_on }`. Result `{ lanes_on, lane_count, capacity }`. Statements 1 (lane devices). Errors `STATION_NOT_FOUND`, `VALIDATION_FAILED`, `PERMISSION_DENIED`.
+### 6.5 `SetLaneState` — `{ station_id, lanes_on }`. Result `{ lanes_on, lane_count, capacity }`. Statements 1 (lane devices). Errors `STATION_NOT_FOUND`, `VALIDATION_FAILED`, `PERMISSION_DENIED`. Writes `StationCapacitySet` + `LanesSet`.
 ### 6.6 `MarkReadyToServe` — `{ order_id, point_id }`; `run-pass`. Result `{ alert_id, already? }`. Statements 4 (`handover_lines`, `pass_orders`, `orders`, `currentTableOf`). Errors `POINT_NOT_FOUND`, `ORDER_NOT_IN_ENGINE`, `ITEM_WRONG_STAGE`, `PERMISSION_DENIED`.
 ### 6.7 `UndoReadyToServe` — `{ order_id, point_id }`; `run-pass`. Statements 2. Errors `PASS_UNDO_WINDOW_CLOSED`, `POINT_NOT_FOUND`, `PERMISSION_DENIED`.
-### 6.8 `Handover` — `{ order_id, point_id, receiver_staff_id, order_item_ids? (1–40) }`; `run-pass`. Result `{ handover_id, served_card_alert_id }`. Statements 4 (`handover_lines`, `pass_ready_lines` + `pass_orders`, `scopedOrders`, `currentTableOf` only for `my_floors`). Errors `POINT_NOT_FOUND`, `ORDER_NOT_IN_ENGINE`, `ITEM_WRONG_STAGE`, `PASS_RECEIVER_INVALID`, `PERMISSION_DENIED`.
+### 6.8 `Handover` — `{ order_id, point_id, receiver_staff_id, order_item_ids? (1–40) }`; `run-pass`. Result `{ handover_id, served_card_alert_id }`. Statements 4 (`handover_lines`, `pass_ready_lines` + `pass_orders`, `scopedOrders`, `currentTableOf` for every dine-in order — identifier and `table_code`, and the `my_floors` check). Errors `POINT_NOT_FOUND`, `ORDER_NOT_IN_ENGINE`, `ITEM_WRONG_STAGE`, `PASS_RECEIVER_INVALID`, `PERMISSION_DENIED`.
 ### 6.9 `SetStationScreen` — admin; `{ station_id, sound_volume }`; writes `StationScreenSet`. Statements 0. Errors `STATION_NOT_FOUND`, `VALIDATION_FAILED`.
 ### 6.10 `SetDeviceRole` — admin; `{ device_id, point_id?, lane_label? }`; writes `DeviceRoleSet`. Statements 1. Errors `DEVICE_NOT_FOUND`, `POINT_NOT_FOUND`, `VALIDATION_FAILED`.
 ### 6.11 `GET /queries/pass-receivers?order_id` — `run-pass`. `{ receivers: [{ staff_id, name, table_team }] }`: staff with an open session whose `mark-served` covers the order (§3.5 step 2), table team first. Statements 3.
@@ -386,7 +392,7 @@ CREATE INDEX handover_lines_handover ON handover_lines (handover_id);           
 ### 6.17 Event audiences — line events (`ItemStarted`, `ItemDone`, `ItemDoneUndone`, `ItemRemoved`, `ItemVoided`, `ItemServed`, `OrderBoosted`, `ItemsReleased`, `FireDispatched`, `StationCapacitySet`): station sockets of the line's station; staff sockets whose `devicePoint` is the line's point; staff sockets of the station's point while the station is in `takeover_stations`. `ReadyToServe`, `ReadyToServeUndone`, `Handover`, `ReadyRetargeted`: staff sockets of that point. All memory, 0 statements.
 ### 6.18 Tick `ready_retarget` — `due`: open dine-in Ready rows (1, `pass_orders_open`) + `currentTableOf` (1); due when a stored `ready_table_id` ≠ the current primary table. `intents`: the same two reads inside `writer.run`, then **one** `alerts.closeMany('obsolete')` + **one** `alerts.raiseMany` + `ReadyRetargeted` per row. Statements 2 + 2 + 01d's fixed bounds.
 ### 6.19 Tick `pass_closures` — `due`: open Readies whose ready lines are all settled or whose order left the engine (1, `pass_orders_open` ⋈ `pass_ready_lines` + memory) and open cards with `open_lines = 0` (1, `handovers_card_open`). `intents`: same reads inside `writer.run`, one `alerts.closeMany(…, 'done')`. Statements 2 + 2.
-### 6.20 Tick `kds_presence` — §3.6. `due`: memory only (presence, engine Now / Next, open `kds_offline` state from 1 statement on 01d's open alerts by kind, cached per tick). `intents`: `alerts.raiseMany` / `closeMany` for stations crossing the thresholds. Frames from the `due` wrapper outside any transaction (as 03a's time-driven `station_plan`).
+### 6.20 Tick `kds_presence` — §3.6. `due`: memory only (presence of screen stations, engine Now / Next, open `kds_offline` state from 1 statement on 01d's open alerts by kind, cached per tick). `intents`: `alerts.raiseMany` / `closeMany` for stations crossing the thresholds; takeover **start** frames in `tx.onCommit`. Takeover **end** (no write) is sent from `due` directly. Same split as `engine-host/fires-tick.ts:200-225`.
 
 ### 6.21 Kinds (registered at module top level, imported before boot step 4)
 
@@ -435,6 +441,7 @@ defineAlertKind({
 | `ReadyToServeUndone` | order / order_id | `{ order_id, point_id, alert_id \| null }` | `UndoReadyToServe`, `UndoDone` |
 | `Handover` | order / order_id | `{ handover_id, order_id, point_id, receiver_staff_id, order_item_ids, alert_id, ready_alert_closed: string \| null }` | `Handover` |
 | `ReadyRetargeted` | order / order_id | `{ order_id, point_id, table_id, alert_id, previous_alert_id }` | tick `ready_retarget` |
+| `LanesSet` | station / station_id | `{ station_id, lanes_on, lane_count }` | `SetLaneState` (G1-7) |
 | `StationScreenSet` | hub / branch_id | `{ station_id, sound_volume }` | `SetStationScreen` |
 | `DeviceRoleSet` | hub / branch_id | `{ device_id, point_id \| null, lane_label \| null }` | `SetDeviceRole` |
 
@@ -455,7 +462,8 @@ The engine's replay filter lists none of these. WS frames `kds_lines`, `point_li
 
 ## §8. Client contract (`apps/client`, ui-kit only)
 
-- **KDS entry** (`apps/client` entry `kds`, station session): §3.3; big targets, no modal; inline Done-early and "Tap Start first"; Undo 30 s; Give me more; Lane Off / On on a lane KDS; sounds per P7 at `sound_volume`; "Reconnecting…" banner and taps disabled while the socket is down; "Day not started"; archived banner; coming-up strip; config refetch. Renders 03c's `printed` tag when its frame arrives.
+- **Slots (D12):** `apps/client/src/features/kds/slots.ts` exports `registerLineTag(fn: (line) => Tag | null)` (KDS rows and Pass lines) and `registerPassCardAction(fn: (order) => Action | null)`; 03b renders whatever is registered. 03c registers its `printed` tag and Reprint action from its own folder.
+- **KDS entry** (`apps/client` entry `kds`, station session): §3.3; big targets, no modal; inline Done-early and "Tap Start first"; Undo 30 s; Give me more; Lane Off / On on a lane KDS; sounds per P7 at `sound_volume`; "Reconnecting…" banner and taps disabled while the socket is down; "Day not started"; archived banner; coming-up strip; config refetch. 03c's `printed` tag arrives through the line-tag slot.
 - **Pass screen** (01d's `/staff/` entry on a device with a point): §3.4 cards, Ready / Hand over / Undo, receiver tiles, Start / Done for stations without a screen, lanes, **takeover sections** (§3.6); offline banner, taps disabled.
 - **Hub admin "Kitchen screens"** (`apps/client/src/features/admin/kitchen-screens/`, admin session): §3.8.
 - 12-hour times everywhere (01d AD-167).
@@ -491,28 +499,29 @@ Station commands
 Lanes
 11. `SetLaneState` 2 → 1 of 2: `StationCapacitySet { reason: 'lane_off' }` with `capacityForLanes`; station-session cap check; no-op on same value; 3 of 2 → `VALIDATION_FAILED`.
 12. `lane_count` from labelled, unrevoked `kds` devices; none → 1.
-13. Mirror: lane Off at night → `BusinessDayOpened` → all on; a KDS calling 03a's `SetStationCapacity { reason: 'lane_off' }` directly → `station_lanes.lanes_on` follows; manager override → `custom`.
+13. Mirror: lane Off at night → `BusinessDayOpened` → all on; `SetLaneState(1)` at capacity 4, `lane_units` 4, 2 lanes (clamped: k = 1 and k = 2 both give 4) → `LanesSet` stores 1 exactly, the next Lane On is accepted; a KDS calling 03a's `SetStationCapacity { reason: 'lane_off' }` directly on the same station → tie → smallest k; manager override → `custom`.
 Pass
 20. `MarkReadyToServe` dine-in → `table_team direct` on the current primary table, `window_ms` from settings; **the stored alert row and the card frame carry `details.identifier`** (D-2); second tap `{ already: true }`.
 21. Takeaway → `placed_by`; card shows "#12".
-22. Re-target: `TableMoved` → old alert `obsolete`, a new open alert id on the new table; a merge moving 3 Readies uses one `closeMany` + one `raiseMany`.
+22. Re-target: `TableMoved` → old alert `obsolete`, a new open alert id on the new table; move back to the first table → a third, open alert; a merge moving 3 Readies uses one `closeMany` + one `raiseMany`.
 23. `UndoReadyToServe` ≤ 30 s → `undone`; later → `PASS_UNDO_WINDOW_CLOSED`.
-24. `Handover` without Ready → `ReadyToServe { alert_id: null }` + `Handover` (hub-minted id) + `served_card` to the receiver.
+24. `Handover` without Ready → `ReadyToServe { alert_id: null }` + `Handover` (hub-minted id) + `served_card` to the receiver; a **partial** hand-over keeps the Ready open, the last one closes it `done`.
 25. **Receiver parity with 02b `MarkServed`:** for each scope (`branch`, `own_tables`, `my_floors`) × order type (dine-in, takeaway, parking): `Handover` accepts the receiver iff 02b's `checkOrderScope` would let that receiver mark the order served; else `PASS_RECEIVER_INVALID`.
 26. Ready → waiter's own `MarkServed` (no Handover) → `pass_closures` closes `done` before step 1; Ready → **a new round at the same point** → `MarkServed` of the ready lines → closed `done` (new lines do not hold it); last ready line removed / voided / order cancelled → closed; order left the engine → closed.
-27. Served card closes at `open_lines = 0`; `handoversDue` (2 statements, `LIMIT 200`) returns only hand-overs with unsettled lines older than the cut-off, **also after the card expired at day close**.
+27. Served card closes at `open_lines = 0`; `handoversDue` (2 statements, `LIMIT 200`) returns only hand-overs with unsettled lines older than the cut-off, and **only their unsettled `order_item_ids`**, also after the card expired at day close.
 28. Station session calling `Handover` → `PERMISSION_DENIED { session_kind: 'station' }`.
 29. Point membership: a line cooked at an alternate on another point shows on its home point's Pass and Ready.
+30. **Settling idempotent:** hand over → serve → 02b remake return → the return command **succeeds**, `open_lines` stays 0; hand over → serve → void → same; `ItemRemoved { units }` to 0 then a whole-line event → no change; a `pass` rebuild from seq 0 equals the live tables.
 Presence and takeover
-40. Station screen closed, lines in Now: nothing before `kds_offline_ms`; then `kds_offline` to managers once (details `station_name` survives append) and `station_takeover { active: true, view }` to the point's Pass sockets; its line events reach the Pass; Start from the Pass under `run-pass` works.
+40. Screen station, screen closed, lines in Now: nothing before `kds_offline_ms`; then `kds_offline` to managers once (details `station_name` survives append) and, **after the commit**, `station_takeover { active: true, view }` to the point's Pass sockets (an `intents` failure sends no frame); its line events reach the Pass; Start and Give me more from the Pass under `run-pass` work.
 41. Screen reconnects → takeover ends at once; alert closes `done` after 60 s connected; a blip of 10 s off and on twice → one alert.
-42. Idle station (nothing in Now / Next) never goes dark.
+42. Idle screen station never goes dark; a dark station whose lines all finish ends its takeover, keeps its alert. **Screenless station** (no paired `kds` device) with lines in Now for 10 min → no alert, no takeover frame, `stationPresence().screenless = true`.
 43. Grace starts at server listen; screens reconnecting inside it → no alert, no takeover.
 44. `stationPresence()` matches the tick's view (03c contract).
 Config
 50. `SetStationScreen`, `SetDeviceRole` via `/admin/commands/` only (device route → `ROUTE_NOT_FOUND`); lane label on a non-`kds` device → `VALIDATION_FAILED`; memory map refreshed on `DeviceRoleSet`, pairing, revoke.
 51. `kds-config` presence states incl. `signed_out` Pass tablets (alert mode).
-52. Archived station with open lines: `station_notice` to its sockets and its Pass; warning clears when the lines are gone; hook never throws on an odd config.
+52. Archived station with open lines: `station_notice` to its sockets and its Pass; its tickets / lines still render; warning clears when the lines are gone; hook never throws on an odd config.
 53. Kinds register at boot without throwing (all three); projections register after 02b's `orders` (boot assertion).
 60. `run-pass` default grants by `default_key` (hub + cloud) after migration (B-1).
 Catch-up and frames
@@ -546,8 +555,9 @@ Client
 | # | Task | Files | Spec |
 |---|---|---|---|
 | 0a | B-1 `run-pass` | `packages/domain/src/permissions.ts`, `apps/cloud/src/modules/staff-roles/default-roles.ts`, hub + cloud migrations | §4.5 B-1 |
-| 0c | D-2 `AlertDetailsBase` fields + `AlertRaised` v3 + upcaster + fixture | `packages/events/src/alerts.ts`, `packages/events/src/events/alert/` | §4.5 D-2 |
-| 0d | Spec bumps with markers: 00 v1.9 (H-9, H-10), 01a v2.4, 01b v1.8, 01d v1.2.2, 03a v1.2.1 (T-1); README; S-1 | `docs/specs/*`, `docs/stories/stories-refined.md` | §4.5 |
+| 0c | D-2: freeze `AlertDetailsBaseV2`, widen the base, `AlertRaised` v3 + upcaster + fixture; D-3 `printer_alert_ms` (03c) | `packages/events/src/alerts.ts`, `packages/events/src/events/alert/`, `packages/domain/src/alert-constants.ts` | §4.5 D-2 |
+| 0b-1 | A-1 hub side: `ready_window_ms`, `kds_offline_ms` optional in the snapshot `engine_settings` schema + hub defaults | `packages/events/src/config.ts`, hub settings reader | §4.5 A-1 |
+| 0d | Spec bumps with markers, **one per target, carrying 03c's rows too** (§4.5 note): 00 v1.9 (H-9, H-10, H-11), 01a v2.4, 01b v1.8, 01d v1.2.2 (D-2, D-3), 03a v1.2.1 (T-1), Foundation v1.12 (F-1, F-2), 02b v1.0.4 (Q-1); README; S-1 | `docs/specs/*`, `docs/stories/stories-refined.md` | §4.5 |
 | 0g | H-9 code: `ConnectedSession.stationId` | `apps/hub/src/ws/server.ts` | §4.5 H-9 |
 | 1 | Error codes | `packages/domain/src/errors.ts` | §9 |
 | 2 | `kds.ts` (`UNDO_DONE_MS`, `LineDetail`, `Identifier`) | `packages/domain/src/kds.ts` | §4.4 |
@@ -561,26 +571,26 @@ Client
 | 10 | `SetLaneState` (imports `liveStation`, `requireStationInScope`) | same | §3.7 |
 | 11 | `buildLineDetails`, `pointOfLine`, identifier rules | `apps/hub/src/kds/details.ts` | §3.1, §4.2 |
 | 12 | Kinds `ready_to_serve`, `served_card`, `kds_offline` (module top level) | `apps/hub/src/kds/kinds.ts` | §6.21 |
-| 13 | Projection `pass` (incl. settling folds, registration after 02b) | `apps/hub/src/kds/pass-projection.ts` | §5 |
+| 13 | Projection `pass` (idempotent settling, registration after 02b) | `apps/hub/src/kds/pass-projection.ts`, registration line in `apps/hub/src/lib/boot.ts` | §3.5, §5 |
 | 14 | `MarkReadyToServe`, `UndoReadyToServe` | `apps/hub/src/kds/commands/` | §3.5 |
 | 15 | `Handover` (02b scope parity) | same | §3.5 |
 | 9b | `UndoDone` Ready part | same | §3.2 |
 | 16 | Ticks `ready_retarget`, `pass_closures` | `apps/hub/src/kds/ticks.ts` | §6.18–6.19 |
 | 17 | `handoversDue` | `apps/hub/src/kds/exports.ts` | §4.2 |
-| 18 | Tick `kds_presence`, `stationPresence()`, takeover frames | `apps/hub/src/kds/presence.ts` | §3.6 |
+| 18 | Catch-up `kds_station` (body builder reused by takeover), frame `kds_lines` | `apps/hub/src/ws/kds-catch-up.ts` | §6.14, §6.16 |
 | 19 | `pass-receivers`, `kds-config` queries | `apps/hub/src/queries/` | §6.11–6.12 |
-| 20 | Catch-up `kds_station`, frame `kds_lines` | `apps/hub/src/ws/kds-catch-up.ts` | §6.14, §6.16 |
+| 20 | Tick `kds_presence`, screen-station map, `stationPresence()`, takeover frames (`tx.onCommit` / `due`) | `apps/hub/src/kds/presence.ts` | §3.6 |
 | 21 | Catch-up `point_view`, frames `point_lines`, `station_takeover` | same | §6.15–6.16 |
 | 22 | Event audiences (incl. takeover set) | `apps/hub/src/ws/kds-audiences.ts` | §6.17 |
 | 23 | Config hook (archived) + `station_notice` | `apps/hub/src/kds/config-hook.ts` | §3.10 |
-| 0b | A-1 + B-2 settings (needs `module-02b` merged: cloud column) | 01a / 01b settings files, `packages/events/src/admin/staff.ts`, cloud migration | §4.5 A-1, B-2 |
-| 0e | **To 02b:** tick `served_estimate` over `handoversDue` (after 0b, 17) | 02b's `apps/hub/src/orders/` tick file | §4.3 |
-| 24–32 | KDS client: shell + session, station view, line row + timers, marks / moved / placeholders, Start / Done / Undo / Give me more, sounds, banners + config refetch, coming-up strip, lane screen | `apps/client/src/features/kds/` | §3.3, §8 |
+| 0b-2 | A-1 cloud + B-2 wire: settings endpoint / PATCH for the three keys, `served_estimate_ms` range and the 180 000 migration on existing rows (needs `module-02b` merged: cloud column) | 01a / 01b settings files, `packages/events/src/admin/staff.ts`, cloud migration | §4.5 A-1, B-2 |
+| 0e | **To 02b:** tick `served_estimate` over `handoversDue` (after 0b-2, 17) | 02b's `apps/hub/src/orders/` tick file | §4.3 |
+| 24–32 | KDS client: shell + session, **slots** (D12), station view, line row + timers, marks / moved / placeholders, Start / Done / Undo / Give me more, sounds, banners + config refetch, coming-up strip, lane screen | `apps/client/src/features/kds/` | §3.3, §8 |
 | 33–38 | Pass screen: cards, readiness, Ready / Undo, hand-over tiles, screenless Start / Done + lanes, takeover sections | `apps/client/src/features/pass/` | §3.4, §3.6, §8 |
 | 39–40 | Hub admin Kitchen screens: stations + sound + lanes, devices + roles + presence | `apps/client/src/features/admin/kitchen-screens/` | §3.8 |
 | 41 | Manual pilot checks: pull a KDS cable mid-rush → Pass takeover + alert; reconnect; lanes at day open | `docs/plans/03b-manual-checks.md` | §3.6, §3.7 |
 
-≈ 50 tasks (incl. 0a–0g). Well under the ~60 split line; 03c is its own module (≈ 40 tasks).
+≈ 49 tasks (incl. 0a–0g, 0b split). Well under the ~60 split line; 03c is its own module (≈ 28 tasks).
 
 ---
 
@@ -668,3 +678,32 @@ v0.2 §12.6 (git `3baab71`) closed every run 1 row; run 2 checked it (37 closed,
 | n-11 config hook total | Fixed (§3.10). |
 | n-12 retention / per-station cost | → 03c (printing tables). |
 | Run 1 "partly" rows M-9, M-10, M-11, m-3, m-4, m-21, m-22 | Closed by m-5, m-3, m-7, m-9, m-8, m-4, m-6 above. Printing "partly" rows (M-3, M-6, m-18 part) → 03c. |
+
+### 12.7 Targeted check closure (`03b_v0.3_03c_v0.1_targeted_check.md`, verdict FIX) — 03b part
+
+| Finding | Resolution |
+|---|---|
+| M-1 settle fold double-decrement throws | Fixed: idempotent settling, `open_lines` decremented by rows changed, total fold (§3.5, §5); test 30 incl. rebuild. |
+| M-2 screenless stations "dark" all day | Fixed: dark only for screen stations (paired `kds` device), D11, `screenless` in `stationPresence()` (§3.1, §3.6); test 42. |
+| M-3 suspect window | → 03c v0.2. |
+| m-1 lane inverse not unique; `LanesSet` dropped | Fixed: `LanesSet` kept for `SetLaneState` (G1-7), tie rule for foreign changes (§3.7, D10); test 13 clamped case. |
+| m-2 takeover frame timing contradiction | Fixed: fires-tick pattern — start in `tx.onCommit`, end from `due` (§3.6, §6.20); test 40. |
+| m-3 `GiveMeMore` scope | Fixed: `run-pass` staff for any station (§3.2); test 40. |
+| m-4 v3 widens v2 too | Fixed: freeze `AlertDetailsBaseV2` (D-2). |
+| m-5 version collisions | Fixed: one bump per target carrying both specs' rows; 02b dependency v1.0.3, Q-1 → v1.0.4 (§4.5 note, task 0d). |
+| m-6 Cook cannot reprint; Pass lacks printer flag | Fixed here: Cook default `reprint-ticket` (B-1); printer flag → 03c `order-tickets.has_printer`. |
+| m-7 timing asserts | → 03c v0.2. |
+| m-8 task order | Fixed: 0b-1 before 14, 0b-2 after the merge; `kds_station` builder (18) before presence (20); §4.3 "after 0b-2 and 17". |
+| m-9 skip at `screen` station with a printer | → 03c v0.2. |
+| m-10 03c editing 03b's client folders | Fixed: client slots (D12, §8); 03c registers from its own folder. |
+| m-11 `handoversDue` line set | Fixed: unsettled lines only (§4.2); test 27. |
+| m-12 catch-up claim | Fixed: live vs tip stated, idempotency makes them equal (§5); test 30. |
+| n-1 CLAUDE.md v1.9 | Owner's file (still open). |
+| n-2 closure reference | Fixed (header). |
+| n-3 03c task count | Fixed (≈ 28). |
+| n-4, n-5, n-9 | → 03c v0.2. |
+| n-6 lost tests / lines | 03b part fixed: partial hand-over (24), move back → third alert (22), archived tickets still render (52); 03c part → 03c v0.2. |
+| n-7 `currentTableOf` for dine-in | Fixed (§6.8). |
+| n-8 `requireStationInScope` under `run-pass` | Fixed: station sessions only (§3.7). |
+| n-10 dark station turning idle | Fixed: takeover ends, alert stays (§3.6 step 4); test 42. |
+
