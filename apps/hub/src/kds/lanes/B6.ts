@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { registeredTicks, registerTick } from '../../alerts/tick.js';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerKdsConfigQuery } from '../../queries/kds-config.js';
+import { registerKdsConfigHook } from '../config-hook.js';
 import { provideKds } from '../contracts.js';
 import { registerKdsAudiences } from '../../ws/kds-audiences.js';
 import { registerPointCatchUp } from '../../ws/point-catch-up.js';
@@ -20,6 +22,9 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   registerPointCatchUp(app, deps);
   // b22 (§6.17): line and Pass event audiences (incl. the takeover set)
   registerKdsAudiences(app, deps);
+  // b23 (§3.10, §6.12): the archived-station hook + station_notice; GET /admin/queries/kds-config
+  registerKdsConfigHook(app);
+  registerKdsConfigQuery(app);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
