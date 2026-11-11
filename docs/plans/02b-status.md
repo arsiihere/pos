@@ -19,6 +19,10 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 > **2026-11-11 (wave 1):** projection, exports, ledger, food rules, buildSubmit ban gaye. Gate green (3909 tests).
 > - Lane 1A aur 1C ruke, owner ne faisle diye (AD-14 se AD-22). AD-23 (fixture ka deal weight) abhi khula hai, kuch nahi rokta.
 > - Agla qadam: wave 2.
+>
+> **2026-11-11 (wave 2):** saare 10 commands ban gaye (submit, remove, weight, comp, served, release/boost, return, zone stock). Gate green (4106 tests).
+> - Lanes 4 dafa ruke, owner ne faisle diye (AD-24 se AD-35). AD-36 (lanes ki readings ka bundle) khula hai, kuch nahi rokta.
+> - Agla qadam: wave 3.
 
 ## Task table
 
@@ -34,16 +38,16 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 8 | Ledger `lineShares`, cascades | 4 | 1B | HIGH | **done (wave 1)** | `48905b8`, `fd8433d` |
 | 9 | Food rules `foodDrafts` | (9, 11, 13) | 1B | HIGH | **done (wave 1)** | `7fe766f`, `559cb2f` |
 | 10 | `buildSubmit`, zone routing | 5 | 1C | NORMAL | **done (wave 1)** | `3109fe8`, `8b513ac`, `575af53` |
-| 11 | `SubmitOrder` | 6 | 2A | HIGH | todo | |
-| 12 | Zone-served submit | 7 | 2A | HIGH | todo | |
-| 13 | `eta-preview` | 8 | 2A | NORMAL | todo | |
-| 14 | `RemoveItems`, `lineChangeDrafts` | 9 | 2B | HIGH | todo | |
-| 15 | `SetLineWeight` | 10 | 2B | NORMAL | todo | |
-| 16 | `CompLine`, kind `comp` | 14 | 2B | HIGH | todo | |
-| 17 | `MarkServed` | 11 | 2C | NORMAL | todo | |
-| 18 | `ReleaseItems`, `BoostOrder` | 12 | 2C | NORMAL | todo | |
-| 19 | `ReturnToKitchen` | 13 | 2C | HIGH | todo | |
-| 20 | `AddZoneStock`, `SetZoneStock` | 15 | 2D | NORMAL | todo | |
+| 11 | `SubmitOrder` | 6 | 2A | HIGH | **done (wave 2)** | `89ece74`, `2ee6b18` |
+| 12 | Zone-served submit | 7 | 2A | HIGH | **done (wave 2)** | `0cc7633` |
+| 13 | `eta-preview` | 8 | 2A | NORMAL | **done (wave 2)** | `fd76194`, `5a39c29`, `c2e40fc` |
+| 14 | `RemoveItems`, `lineChangeDrafts` | 9 | 2B | HIGH | **done (wave 2)** | `240a163`, `46e9528` |
+| 15 | `SetLineWeight` | 10 | 2B | NORMAL | **done (wave 2)** | `46156a2`, `8c65d16` |
+| 16 | `CompLine`, kind `comp` | 14 | 2B | HIGH | **done (wave 2)** | `7659232`, `2a7056d` |
+| 17 | `MarkServed` | 11 | 2C | NORMAL | **done (wave 2)** | `80c07b5`, `193fa17`, `23af410` |
+| 18 | `ReleaseItems`, `BoostOrder` | 12 | 2C | NORMAL | **done (wave 2)** | `9e5801c`, `420f3cd` |
+| 19 | `ReturnToKitchen` | 13 | 2C | HIGH | **done (wave 2)** | `f725fb3`, `9645f4f`, `7831279` |
+| 20 | `AddZoneStock`, `SetZoneStock` | 15 | 2D | NORMAL | **done (wave 2)** | `f3d3ccd` |
 | 21 | Queries, catch-up, audiences | 17 | 3A | NORMAL | todo | |
 | 22 | Queued replays (02b's use) | 18 | 3B | HIGH | todo | |
 | 23 | Handover card amount | — | 3C | NORMAL | todo | |
@@ -100,6 +104,19 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-33 | 19 | Lane 2C S-2c: unknown `order_item_id` | **ruled (owner, 2026-11-11): accepted** `404 ORDER_NOT_FOUND { order_item_id }` (as AD-28) |
 | AD-34 | 19 | Lane 2C S-2d: a zone-served line | **ruled (owner, 2026-11-11): accepted** `ITEM_WRONG_STAGE { stage: 'zone_served' }` (text bump) |
 | AD-35 | 19 | Lane 2C S-2e: a deal header, or a line the engine doesn't hold, on an order still in the engine | **ruled (owner, 2026-11-11):** a distinct stage word `'not_engine_line'` (not `'out_of_engine'`), with a test (text bump) |
+| AD-36 | 11–19 | **Wave 2 lane readings (bundle, built as read; reviewed by opus in the lanes).**
+- 11: phone separators are stripped, then 10–13 digits; an empty-string name or phone → 400; `follow_up` has no live filter; scope `my_floors` on a named table (02a `OpenTable` Q1 differs: owner note); SubmitOrder statements are dine-in 5, takeaway 3, parking 2.
+- 12: the zone statement count of 7 includes 01d's `listOpen`, which is stricter than "exclude 01d bounds".
+- 14: an expired zone undo → `ITEM_WRONG_STAGE { stage: 'served' }`; a foreign line → 400 `lines.N.order_item_id`; a no-engine line in an engine order can be removed while unserved; cascaded option children must be at stage 1.
+- 18: statements 1–2 (spec says 2–3: text bump); unknown released / expedite ids are dropped (`planRelease`); no `order_ids` cap.
+- 19: a remake that is still open → `returned`; `stock_draws []`; `kitchen_note` is copied.
+
+Duplication carried for the integrator:
+- `remove-items.ts` copies the `exports.ts` row → `LineView` / `billed` rule;
+- `requireFloorScope` repeats 02a `tables/lock.ts` `coversFloor`;
+- the takeaway / parking scope helper is built in both 2B and 2C.
+
+Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or a later clean-up; (b) rule item by item. | proposed (not yet ruled) |
 
 ## Owner rulings (this sprint)
 
@@ -239,7 +256,53 @@ Readings already accepted in code that the next 02b text patch writes into the s
     - deal parts in snapshot order (AD-21);
     - `plan.ts:1054` comment could cite 03a §4.2.
 
+## Wave 2 — commands (2026-11-11)
+
+- **Lanes:** 2A (tasks 11–13), 2B (14–16), 2C (17–19), 2D (20), all cut from `0bfa729`.
+- **STOPs:**
+  - 2D → AD-24, AD-25.
+  - 2A → AD-26 (`maxHeaderSize`).
+  - 2B → AD-27, AD-28.
+  - 2C → AD-29 (S-1) and AD-31–AD-35 (S-2).
+  - All ruled by the owner, 2026-11-11.
+- **Landed (cherry-picked):**
+  - 2D: `f3d3ccd`.
+  - 2A: `89ece74`, `2ee6b18`, `0cc7633`, `fd76194`, `5a39c29`. Its `b67ede5` was not landed (AD-30); its test is in as `c2e40fc`.
+  - 2B: `240a163`, `46e9528`, `46156a2`, `7659232`, `2a7056d`, `8c65d16`.
+  - 2C: `80c07b5`, `193fa17`, `9e5801c`, `420f3cd`, `f725fb3`, `9645f4f`, `23af410`, `7831279`.
+- **Conflicts:** two in `orders/index.ts`, both additive import lines (2A's `registerSubmitOrder` and `registerEtaPreviewQuery` against 2D's `registerZoneStock`). Kept every line, in lane order A before D (02a standing rule). No other conflict.
+- **Integrator commits:** `6e7bc46` (AD-23 fixture weights), `b23e42f` (AD-26 `maxHeaderSize`, opus review), `c2e40fc` (AD-30), plus the board / plan rulings.
+- **Reviews:** a fresh implementer and an opus reviewer per task, in the lanes.
+  - Fix rounds: 11 (minors), 13 (1 Important: false sold-out after a sold-out deal part), 14 (1 Important: duplicated ledger rule), 16, 17, 18, 19.
+  - Every owner-ruling fix was re-reviewed.
+- **Gate:** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. 418 files (1 skipped), 4106 tests passed (1 skipped, 1 todo), about 583 s wall. Green.
+- **§12.2 rows ticked:** 1–10 (commands `submit-order` … `set-zone-stock`) and 11 (kind `comp`). Rows 12 and 13 were ticked at wave 0.
+- **Statement counts asserted (`statementCounter`):** every command test file (`submit-order`, `submit-zone`, `eta-preview`, `remove-items`, `set-line-weight`, `comp`, `mark-served`, `release-boost`, `return-to-kitchen`, `zone-stock`), with the numbers as read in AD-36 and AD-25.
+- **Files outside `orders/`:** `server.ts` (`b23e42f`, integrator). G-2 edits: none.
+- **Carried (minor, deferred):**
+  - 2A:
+    - empty-string name / phone (AD-36);
+    - no merged-secondary-table preview test;
+    - `rows.find` O(n²) in `zoneServe`;
+    - `OrderContactSet` placement next to the zone `ItemServed`;
+    - the 64 KB limit applies to all routes;
+    - `afterEach` close guard and a duplicated `directory()` test helper.
+  - 2B:
+    - `remove-items.ts` message for 0 live units;
+    - a `?? 0` fallback (spec default 300 000);
+    - no test for a g/ml line without `requires_weighing` → `LINE_NOT_WEIGHED`;
+    - no test for a deal_part / option_child target.
+  - 2C: the O16 unfired-line branch can't be reached by real events (it's tested on the reachable side).
+  - 2D (task 20 review):
+    - the D32 count-retransmit test doesn't prove "no new event";
+    - the `ZONE_NOT_FOUND` test doesn't assert that nothing was appended;
+    - the 403 test is tagged `#33` (retag `§3.14`);
+    - archived zone → 404 is untested;
+    - the lead's zone (B-3) is untested;
+    - the frame wait loop could use a `until*` helper.
+  - Fix I: assert the exact 401, not "not 431"; possible ECONNRESET on the 70 KB case.
+
 ## Next
 
-1. **Claude Code:** wave 2. Lanes 2A–2D are cut after the AD-23 fixture fix.
+1. **Owner:** review wave 2; rule AD-36 (a bundle of lane readings; blocks nothing); then type `wave 3`.
 2. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
