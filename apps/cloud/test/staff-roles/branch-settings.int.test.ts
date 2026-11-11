@@ -27,6 +27,10 @@ const ENGINE_DEFAULTS = {
   zone_undo_ms: 300_000,
   slow_item_threshold_ms: 900_000,
   comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+  // 03b §4.5 B-2 (P0.15): on the owner wire; a row written after 0012 has served_estimate_ms null.
+  served_estimate_ms: null,
+  ready_window_ms: 60_000,
+  kds_offline_ms: 30_000,
 };
 
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings (01b §6.10, B16)', () => {
