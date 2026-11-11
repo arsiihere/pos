@@ -49,3 +49,14 @@
 ## 3. Next
 
 Spec `docs/specs/03b_KDS_Printing_Spec_v0.1.md` (DRAFT) from these rows; then hostile review in a fresh chat (pipeline step 4).
+
+## 4. Owner rulings after G4 run 2 (2026-11-11, 13:00–13:04 PKT)
+
+| # | Ruling | Lands in |
+|---|---|---|
+| R-1 | **Screen first; the printer is an optional accessory.** Every station runs on a screen; a restaurant may attach a thermal printer to any station or none, and the system works fully either way. (Owner's pitch: a restaurant can save the thermal-printer expense.) | 03b v0.3 P16; 03c v0.1 |
+| R-2 | **Split the module:** **03b KDS + Pass** (screens; built first) and **03c Printing** (print queue, tickets, slips, paper fallback, printer config, reprint, print API for 05; built after 03b). Both stay in milestone A (05 prints receipts through 03c). Replaces the earlier proposal to split "03c Pass". | README module map; 03b v0.3; 03c v0.1 |
+| R-3 | **A dark station screen hands over to the Pass tablet:** after `kds_offline_ms` the station's Now / Next show on the Pass tablet(s) of its point in a "<station> screen offline" section with Start / Done, and managers get an alert; paper also prints if a printer is attached (03c). | 03b v0.3 §3.6 |
+| R-4 | **OQ-2 list extended** with: 00 `apps/hub/src/ws/server.ts` (`ConnectedSession.stationId`), 01d `AlertDetailsBase` fields + `AlertRaised` v3 (03a AD-36 pattern), 00 `apps/hub/src/lib/boot.ts` (print queue resume, worker after listen; 03c). | 03b §4.5 H-9, D-2; 03c §4.5 H-11 |
+| R-5 | **Suspect tickets reprint by themselves:** a job acked while the printer reported an error is marked suspect and re-queued as REPRINT when the printer reports clean (a duplicate is acceptable, a missing ticket is not, D24). | 03c v0.1 D4 |
+| R-6 | **OQ-4:** Reprint lives on the Pass card (only where the station has a printer); reprint on 02b's order screens stays a 02b follow-up (no task 0f). | 03c v0.1 §3.9 |
