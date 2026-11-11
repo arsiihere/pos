@@ -12,8 +12,16 @@ const PKT = 5 * 3_600_000;
 const NOW = Date.UTC(2026, 10, 10, 4, 0);
 const ON: IsAvailable = () => true;
 
+/** A day-draws resolver (S-1, 01c V20) that freezes `config`'s own sale units and draws, as dayDraws does for a day opened on it. */
+function drawsFrom(config: BranchConfig): BuildSubmitCtx['draws'] {
+  return (item_id) => {
+    const item = config.items.find((i) => i.item_id === item_id);
+    return { sale_unit: item?.sale_unit ?? 'piece', stock_draws: (item?.stock_draws ?? []).map((d) => ({ ...d })) };
+  };
+}
+
 function ctx(o: Partial<BuildSubmitCtx> = {}): BuildSubmitCtx {
-  return { now: NOW, utc_offset_ms: PKT, isAvailable: ON, primary_table_id: FX.table, follow_up: false, ...o };
+  return { now: NOW, utc_offset_ms: PKT, isAvailable: ON, draws: drawsFrom(menu()), primary_table_id: FX.table, follow_up: false, ...o };
 }
 
 const dineIn = (lines: SubmitInput['lines'], o: Partial<SubmitInput> = {}): SubmitInput => ({
@@ -408,7 +416,7 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
           ],
         },
       ]),
-      ctx(),
+      ctx({ draws: drawsFrom(config) }),
     );
     // weights by the reference choice I_KG_A: 400 000 / kg × 1 000 g = 400 000; naan 3 000 × 4 = 12 000 (sum 412 000).
     // 600 000 allocated: 582 524 / 17 476; the g part's extra 5 000 is once per deal: + 10 000.
@@ -428,6 +436,41 @@ describe('buildSubmit — 01c §4.3 copies [02b #2]', () => {
     expect(added(out, 'L_BREAD')).toMatchObject({ quantity: 4, allocated_price_minor: 17_476 });
     // 600 000 + extra 5 000 × 2 deals + butter 4 000
     expect(added(out, 'L_DEAL')).toMatchObject({ quantity: 2, line_total_minor: 614_000 });
+  });
+
+  it('[02b §3.2] S-1 (01c V20): sale_unit and stock_draws come from the day-frozen draws, never the config', () => {
+    // the config now draws 500 g of K1 per karahi; the day opened with 250 g of K2
+    const frozen: BuildSubmitCtx['draws'] = (item_id) =>
+      item_id === FX.piece ? { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K2', quantity_per_sale_unit: 250 }] } : drawsFrom(menu())(item_id);
+    const out = buildSubmit(menu(), dineIn([{ order_item_id: 'L1', item_id: FX.piece, quantity: 3 }, familyDeal(FX.naan)]), ctx({ draws: frozen }));
+    expect(added(out, 'L1')).toMatchObject({ sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K2', quantity: 750 }] });
+    expect(out.proposed.lines.find((l) => l.order_item_id === 'L1')!.stock_draws).toEqual([{ stock_item_id: 'K2', quantity: 750 }]);
+    // a deal part draws through its item's frozen draws too
+    const parts = buildSubmit(
+      menu(),
+      dineIn([familyDeal(FX.naan)]),
+      ctx({ draws: (id) => (id === 'I_FULL' ? { sale_unit: 'piece', stock_draws: [{ stock_item_id: 'K2', quantity_per_sale_unit: 1_000 }] } : drawsFrom(menu())(id)) }),
+    );
+    expect(added(parts, 'L_MAIN').stock_draws).toEqual([{ stock_item_id: 'K2', quantity: 1_000 }]);
+  });
+
+  it('[02b §3.2] S-5: a deal kitchen_note is on the header and every engine part; an option child gets none', () => {
+    const out = buildSubmit(
+      menu(),
+      dineIn([
+        { ...familyDeal(FX.naan), kitchen_note: 'no chilli' },
+        { order_item_id: 'L1', item_id: FX.piece, quantity: 1, kitchen_note: 'less oil', options: [{ option_id: FX.option, quantity: 1, order_item_id: 'L1_R' }] },
+      ]),
+      ctx(),
+    );
+    expect(out.itemAdded.map((a) => [a.order_item_id, a.kitchen_note])).toEqual([
+      ['L_DEAL', 'no chilli'],
+      ['L_MAIN', 'no chilli'],
+      ['L_NAAN', 'no chilli'],
+      ['L_LASSI', 'no chilli'],
+      ['L1', 'less oil'],
+      ['L1_R', null],
+    ]);
   });
 });
 
@@ -587,6 +630,18 @@ describe('buildSubmit — config checks [02b #6, §3.2 step 4]', () => {
       code: 'ITEM_OUT_OF_HOURS',
       details: { item_id: 'I_BREAKFAST', opens_at_ms: null },
     });
+  });
+
+  it('[02b #6] S-4: a deal outside its windows → ITEM_OUT_OF_HOURS { deal_id, opens_at_ms }', () => {
+    const base = menu();
+    const config: BranchConfig = {
+      ...base,
+      deals: base.deals.map((d) => (d.deal_id === 'D_FAMILY' ? { ...d, availability_windows: [{ start_ms: 18 * 3_600_000, end_ms: 23 * 3_600_000 }] } : d)),
+    };
+    // 09:00 hub time; the deal opens at 18:00 PKT = 13:00 UTC
+    const e = caught(() => buildSubmit(config, dineIn([familyDeal(FX.naan)]), ctx()));
+    expect(e.code).toBe('ITEM_OUT_OF_HOURS');
+    expect(e.details).toEqual({ deal_id: 'D_FAMILY', opens_at_ms: Date.UTC(2026, 10, 10, 13, 0) });
   });
 
   it('[02b #6] a required group that cannot be satisfied → ITEM_UNAVAILABLE', () => {

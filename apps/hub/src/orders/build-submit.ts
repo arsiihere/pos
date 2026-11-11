@@ -142,11 +142,16 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
   };
   const optionOf = (c: ChosenOption) => groupsById[c.modifier_group_id]!.options.find((o) => o.option_id === c.option_id)!;
 
+  // 01c V20 (owner 2026-11-11 S-1): an item's sale unit and draws are the day-frozen ones (ctx.draws = dayDraws),
+  // never the config's own; every quantity and money rule of the line reads that sale unit.
+  const unitOf = (item: ConfigItem): ConfigItem['sale_unit'] => ctx.draws(item.item_id).sale_unit;
+
   // §3.10 / O4: the zone route of the primary table's zone (dine-in only), else the branch route.
   const routeOf = (item: ConfigItem): string => zone?.routes.find((r) => r.item_id === item.item_id)?.station_id ?? item.station_id;
   // 01c §4.3: the D25 copies of the line's item; B1: program cook times from the routed station's programs[] (batch only).
   const fromItem = (item: ConfigItem, quantity: number | null) => {
     const station_id = routeOf(item);
+    const day = ctx.draws(item.item_id);
     const station = stations.get(station_id);
     const programCook = (program_id: string | null): number | null =>
       station?.station_type !== 'batch' || program_id === null ? null : (station.programs.find((p) => p.program_id === program_id)?.cook_time_ms ?? null);
@@ -156,7 +161,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       variant_group_name: item.variant_group_id === null ? null : (variantGroups.get(item.variant_group_id) ?? null),
       variant_name: item.variant_name,
       name: item.name,
-      sale_unit: item.sale_unit,
+      sale_unit: day.sale_unit,
       price_minor: item.price_minor,
       station_id,
       program_id: item.program_id,
@@ -169,7 +174,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       stock_time_ms: item.stock_time_ms,
       out_of_stock_behaviour: item.out_of_stock_behaviour,
       // 01c §3.5.2: stock units for the whole line; a weight still pending has none (a weighed item has no draws, V18).
-      stock_draws: quantity === null ? [] : item.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity_per_sale_unit * quantity })),
+      stock_draws: quantity === null ? [] : day.stock_draws.map((d) => ({ stock_item_id: d.stock_item_id, quantity: d.quantity_per_sale_unit * quantity })),
       is_ready_item: item.is_ready_item,
     };
   };
@@ -185,13 +190,14 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
     served_from_zone_id: null,
   };
 
+  // owner 2026-11-11 S-3 (a): `variant_id` is ignored; a variant is an item with its own item_id (01c V2, §3.4.1).
   const itemLines = (line: Line, n: number, item_id: string): ItemAddedPayload[] => {
     const item = itemOf(item_id);
     if (line.deal_choices !== undefined) invalid(`lines.${n}.deal_choices`, 'deal_choices only on a deal line');
     const quantity = line.quantity ?? (item.requires_weighing ? null : invalid(`lines.${n}.quantity`, 'quantity required'));
     checkSellable(item, quantity ?? 1, 'line');
     const options = line.options ?? [];
-    const chosen = checkOptions(line.order_item_id, item, options, 'line', { quantity, sale_unit: item.sale_unit });
+    const chosen = checkOptions(line.order_item_id, item, options, 'line', { quantity, sale_unit: unitOf(item) });
     const plain: ItemAddedPayload['options'] = [];
     const children: ItemAddedPayload[] = [];
     chosen.forEach((c, k) => {
@@ -199,13 +205,13 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       const given = options[k]!;
       if (option.linked_item_id === null) {
         if (given.order_item_id !== undefined) invalid(`lines.${n}.options.${k}.order_item_id`, 'a plain option is not a line');
-        const charge_minor = optionChargeMinor(option.price_minor, c.quantity, quantity ?? 0, item.sale_unit);
+        const charge_minor = optionChargeMinor(option.price_minor, c.quantity, quantity ?? 0, unitOf(item));
         plain.push({ option_id: option.option_id, modifier_group_id: c.modifier_group_id, name: option.name, price_minor: option.price_minor, quantity: c.quantity, charge_minor });
         return;
       }
       if (given.order_item_id === undefined) invalid(`lines.${n}.options.${k}.order_item_id`, 'a linked option needs its order_item_id');
       // 01c §3.4.2: piece parent → option qty × parent qty; g / ml parent → option qty (its quantity is not read).
-      const childQty = childQuantity(c.quantity, quantity ?? 0, item.sale_unit);
+      const childQty = childQuantity(c.quantity, quantity ?? 0, unitOf(item));
       const linked = itemOf(option.linked_item_id);
       children.push({
         ...none,
@@ -242,7 +248,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         line_kind: 'item',
         price_minor: item.price_minor,
         quantity,
-        sale_unit: item.sale_unit,
+        sale_unit: unitOf(item),
         option_charges_minor: plain.map((o) => o.charge_minor),
       }),
       kitchen_note: line.kitchen_note ?? null,
@@ -271,9 +277,9 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
       // 01c §3.4.2: a part's quantity = part quantity × deal quantity (in the item's sale_unit).
       const quantity = part.quantity * dealQty;
       checkSellable(item, quantity, 'child');
-      const chosen = checkOptions(choice.order_item_id, item, choice.options ?? [], 'child', { quantity, sale_unit: item.sale_unit });
+      const chosen = checkOptions(choice.order_item_id, item, choice.options ?? [], 'child', { quantity, sale_unit: unitOf(item) });
       // §3.4.3 (B2): a piece part's options per piece of the part; a g / ml part's once per deal.
-      const optionParent = item.sale_unit === 'piece' ? quantity : dealQty;
+      const optionParent = unitOf(item) === 'piece' ? quantity : dealQty;
       const options = chosen.map((c) => {
         const o = optionOf(c);
         return { option_id: o.option_id, modifier_group_id: c.modifier_group_id, name: o.name, price_minor: o.price_minor, quantity: c.quantity, charge_minor: optionChargeMinor(o.price_minor, c.quantity, optionParent, 'piece') };
@@ -283,9 +289,9 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         .filter((c) => itemsById[c.item_id] !== undefined)
         .sort((a, b) => a.sort_order - b.sort_order || (a.item_id < b.item_id ? -1 : a.item_id > b.item_id ? 1 : 0))[0];
       const refItem = reference === undefined ? undefined : itemsById[reference.item_id]!;
-      const weight = refItem === undefined ? 0 : lineTotalMinor(refItem.price_minor, quantity, refItem.sale_unit);
+      const weight = refItem === undefined ? 0 : lineTotalMinor(refItem.price_minor, quantity, unitOf(refItem));
       // B2: piece part extra × part qty × deal qty; g / ml part extra × deal qty.
-      const extraMinor = offered.extra_price_minor * (item.sale_unit === 'piece' ? quantity : dealQty);
+      const extraMinor = offered.extra_price_minor * (unitOf(item) === 'piece' ? quantity : dealQty);
       return { part, choice, item, quantity, options, weight, extra: offered.extra_price_minor, extraMinor };
     });
     const shares = allocateDealMinor(
@@ -326,7 +332,7 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
         price_minor: deal.price_minor,
         quantity: dealQty,
         parts: parts.map((p) => ({
-          sale_unit: p.item.sale_unit,
+          sale_unit: unitOf(p.item),
           quantity: p.part.quantity,
           extra_price_minor: p.extra,
           option_charges_minor: p.options.map((o) => o.charge_minor),
@@ -337,10 +343,11 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
     };
     return [
       header,
-      ...parts.map(
-        (p, i): ItemAddedPayload => ({
+      ...parts.map((p, i): ItemAddedPayload => {
+        const copied = fromItem(p.item, p.quantity);
+        return {
           ...none,
-          ...fromItem(p.item, p.quantity),
+          ...copied,
           order_id: input.order_id,
           order_item_id: p.choice.order_item_id,
           parent_order_item_id: line.order_item_id,
@@ -356,8 +363,10 @@ export const buildSubmit: BuildSubmit = (config, input, ctx) => {
           tax_class_id: deal.tax_class_id,
           options: p.options,
           line_total_minor: 0,
-        }),
-      ),
+          // owner 2026-11-11 S-5 (b): the deal's kitchen note reaches every engine part (the header keeps it too).
+          kitchen_note: copied.station_id === null ? null : (line.kitchen_note ?? null),
+        };
+      }),
     ];
   };
 
