@@ -8,6 +8,7 @@ import type { CommandCtx } from '../commands/registry.js';
 import type { LineChangeDrafts, LineView } from './contracts.js';
 import { orderLines } from './exports.js';
 import { foodDrafts } from './food.js';
+import { liveUnits, removeUnits } from './ledger.js';
 
 /** One line's units leaving billing (a removal or a void; cascaded parts and children are their own entries). */
 export interface LineChange {
@@ -19,13 +20,14 @@ export interface LineChange {
 const COMP_KIND = 'comp';
 
 /**
- * §3.4: a line after `units_out` of its live units leave billing. Remove and void take uncomped units first, so
- * comped units leave only past the uncomped ones (`live − comped` after = max(0, live − comped − units_out)).
+ * §3.4: a line after `units_out` of its live units leave billing, by the ledger's own rule (`removeUnits`: uncomped
+ * units first, then comped ones). Remove and void move the same units out of `live` and `comped`, so the after state
+ * used here (live_units, comped_units) is the same for a void (04).
  */
 function afterChange(l: LineView, units_out: number): LineView {
   if (units_out === 0) return l;
-  const comped_out = Math.max(0, units_out - (l.live_units - l.comped_units));
-  return { ...l, live_units: l.live_units - units_out, comped_units: l.comped_units - comped_out };
+  const after = { ...l, ...removeUnits(l, units_out).after };
+  return { ...after, live_units: liveUnits(after) };
 }
 
 /** The order's lines as they are after `changes` (several entries of one line add up). */

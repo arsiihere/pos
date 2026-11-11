@@ -479,9 +479,12 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
     await start();
     const ali = signIn('S_ALI');
     const d = dineIn([{ order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const beforeStale = eventCount();
     const stale = await remove(ali, { order_id: d.order_id, seating_id: 'SEAT_OLD', lines: [{ order_item_id: 'L1' }] });
     expect(stale.status).toBe(409);
-    expect(stale.error?.code).toBe('TABLE_SEATING_CHANGED');
+    expect(stale.error).toEqual({ code: 'TABLE_SEATING_CHANGED', details: { table_id: FX.table, seating_id: 'SEAT_OLD' } });
+    expect(eventCount()).toBe(beforeStale);
+    expect(line('L1').removed_units).toBe(0);
     append([{ stream_type: 'table', stream_id: FX.table, event_type: 'TableLocked', payload: { table_id: FX.table, seating_id: d.seating_id, staff_id: 'S_SARA' } }], 'S_SARA');
     const before = eventCount();
     const locked = await remove(ali, { order_id: d.order_id, seating_id: d.seating_id, lines: [{ order_item_id: 'L1' }] });
@@ -502,6 +505,18 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
     const zain = dineIn([{ order_item_id: 'M1', item_id: FX.naan, quantity: 2 }], { holder: 'S_ZAIN', seating_id: 'SEAT2', table_id: FX.zoneTable });
     const ok = await remove(signIn('S_ZAIN'), { order_id: zain.order_id, seating_id: zain.seating_id, lines: [{ order_item_id: 'M1' }] });
     expect(ok.status).toBe(200);
+  });
+
+  it('[02b §3.14] scope is checked last (C8): an outside-scope caller naming a started line gets ITEM_WRONG_STAGE, not 403', async () => {
+    await start();
+    const omars = takeaway([{ order_item_id: 'L1', item_id: FX.naan, quantity: 1 }], 'S_OMAR');
+    append([fire(FX.station, ['L1']), started(omars, 'L1')]);
+    const asif = signIn('S_ASIF');
+    const before = eventCount();
+    const r = await remove(asif, { order_id: omars, lines: [{ order_item_id: 'L1' }] });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'L1', stage: 'cooking' } });
+    expect(eventCount()).toBe(before);
   });
 
   // ----------------------------------------------------------------------------------------- #23

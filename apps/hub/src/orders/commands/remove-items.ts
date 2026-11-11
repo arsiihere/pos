@@ -9,7 +9,7 @@ import { withStockEffects } from '../../commands/set-precooked-stock.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { requireLock } from '../../tables/lock.js';
 import type { LineView, OrderType } from '../contracts.js';
-import { billedMinor, gmlDealPartPartial, planRemove } from '../ledger.js';
+import { billedMinor, gmlDealPartPartial, liveUnits, planRemove } from '../ledger.js';
 import { changeDrafts, type LineChange } from '../line-change.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
 
@@ -89,7 +89,7 @@ function readOrder(ctx: CommandCtx, order_id: string): { order: OrderHead; lines
       sale_unit: r.sale_unit,
       quantity: r.quantity,
       units: r.units,
-      live_units: r.units - r.removed_units - r.voided_units,
+      live_units: liveUnits(r),
       comped_units: r.comped_units,
       removed_units: r.removed_units,
       voided_units: r.voided_units,
@@ -183,7 +183,8 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
       const touched = work.get(planned.order_item_id)!;
       // §3.4: removing deal units only when every part it touches is at stage 1; a cascaded child likewise.
       if (touched !== line) stageCheck(touched);
-      Object.assign(touched, planned.after, { live_units: touched.live_units - planned.units });
+      Object.assign(touched, planned.after);
+      touched.live_units = liveUnits(touched);
       removed.set(planned.order_item_id, (removed.get(planned.order_item_id) ?? 0) + planned.units);
     }
   });
