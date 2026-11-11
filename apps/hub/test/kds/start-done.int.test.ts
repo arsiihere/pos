@@ -1,11 +1,13 @@
 // 03b b8: StartItem, DoneItem (§3.2, §6.1–6.2; tests #1–#6, #10). Orders through 02b's shared fixtures (real submit
 // batches); fires through the 03b fixture's real FireDispatched; the commands through the real route with real
 // station / staff sessions. Statement counts on the real handlers under test-only names (02a R-2D-6 pattern).
-import { lateStartShift, type EngineState } from '@pos/engine';
+import { applyEvents, initialEngineState, isOrderInEngine, lateStartShift, type EngineState } from '@pos/engine';
+import type { PosEvent } from '@pos/events';
 import type { BranchConfig, ConfigItem } from '@pos/events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
+import { replayEngine } from '../../src/engine-host/replay';
 import { doneItemCommand, startItemCommand } from '../../src/kds/commands/start-done';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { statementCounter } from '../helpers/statement-counter';
@@ -19,6 +21,9 @@ const ST = 'S_ST';
 const AD = 'S_AD';
 const ONE = 'S_ONE';
 const B = 'S_B';
+const BL = 'S_BL'; // batch, capacity 2: one load of two at a time
+const PROGRAM = { program_id: 'PR', name: 'Bake', cook_time_ms: 8 * MIN, is_archived: false };
+const WARM = { program_id: 'PRW', name: 'Warm', cook_time_ms: 2 * MIN, is_archived: false };
 
 function menu(): BranchConfig {
   const base = fixtureMenu();
@@ -32,7 +37,8 @@ function menu(): BranchConfig {
       { ...s1, station_id: ST, name: 'Tawa', completion_mode: 'single_tap' },
       { ...s1, station_id: AD, name: 'Fryer', completion_mode: 'auto_done' },
       { ...s1, station_id: ONE, name: 'Grill', capacity: 1 },
-      { ...s1, station_id: B, name: 'Tandoor', station_type: 'batch', programs: [{ program_id: 'PR', name: 'Bake', cook_time_ms: 8 * MIN, is_archived: false }] },
+      { ...s1, station_id: B, name: 'Tandoor', station_type: 'batch', programs: [PROGRAM, WARM] },
+      { ...s1, station_id: BL, name: 'Oven', station_type: 'batch', capacity: 2, programs: [PROGRAM] },
     ],
     items: [
       ...base.items,
@@ -40,6 +46,8 @@ function menu(): BranchConfig {
       item('I_AD', AD),
       item('I_ONE', ONE, { cook_time_ms: 5 * MIN, serve_mode: 'immediate' }),
       item('I_B', B, { program_id: 'PR', cook_time_ms: 8 * MIN }),
+      item('I_BS', B, { program_id: 'PR', stock_program_id: 'PRW', cook_time_ms: 8 * MIN, stock_time_ms: 2 * MIN, stock_draws: [{ stock_item_id: FX.stock, quantity_per_sale_unit: 1 }] }),
+      item('I_BL', BL, { program_id: 'PR', cook_time_ms: 8 * MIN }),
     ],
   };
 }
@@ -389,5 +397,105 @@ describe('[03b §6.2] DoneItem', () => {
       expect(c).toMatchObject({ sessionKind: 'device', permission: 'run-pass', stationScoped: true });
       expect(c.queueable ?? false).toBe(false);
     }
+  });
+});
+
+// ------------------------------------------------------------------------------------------- b8 review fixes
+
+/** §2.1 #1 (as engine/races.int.test.ts): the log rebuilds the live engine state. */
+function expectRebuildEqualsLive(): void {
+  const kinds: string[] = [];
+  const replayed = replayEngine(hub.deps.db, 'branch-1', 0, initialEngineState(), (d) => kinds.push(d.kind));
+  expect({ ...replayed.state, diagnostics: [] }).toStrictEqual({ ...engine(), diagnostics: [] });
+}
+
+/** Fires a planned load whole, with its load_id (as the fires tick fires a load). */
+function fireLoad(station_id: string, ids: string[]): void {
+  const load_id = engine().lines[ids[0]!]!.load_id;
+  expect(load_id).not.toBeNull();
+  for (const id of ids) expect(engine().lines[id]!.load_id, id).toBe(load_id);
+  append(hub, [{ stream_type: 'station', stream_id: station_id, event_type: 'FireDispatched', payload: { station_id, order_item_ids: ids, load_id, due_at: hub.clock.branchNow(), reason: 'pulled' } }]);
+}
+
+/** The scratch PosEvent of an ItemStarted at `now` (as the engine's own scratch folds). */
+function startedAt(state: EngineState, ids: string[], now: number): EngineState {
+  const events = ids.map(
+    (order_item_id, i): PosEvent => ({
+      event_id: `x${i}`,
+      tenant_id: '',
+      branch_id: '',
+      stream_type: 'order',
+      stream_id: state.lines[order_item_id]!.order_id,
+      event_type: 'ItemStarted',
+      schema_version: 1,
+      payload: { order_item_id, started_at: now, source: 'tap' },
+      occurred_at: now,
+      recorded_at: now,
+      actor_id: null,
+      device_id: '',
+      seq: 0,
+    }),
+  );
+  return applyEvents(state, events, { strict: false });
+}
+
+describe('[03b §3.2] b8 review fixes', () => {
+  it('[03b §3.2 step 1, AD-18] a load member whose order left the engine is not started and draws no StockConsumed', async () => {
+    const station = kds(B);
+    const warm = { program_cook_time_ms: 8 * MIN, stock_program_cook_time_ms: 2 * MIN };
+    const o1 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'G1', item_id: 'I_BS', item: warm }] }).order_id;
+    const o2 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'G2', item_id: 'I_BS', item: warm }] }).order_id;
+    expect(engine().lines.G1!.from_stock).toBe(true);
+    fireLoad(B, ['G1', 'G2']);
+    // O1 is abandoned (03a §3.3: order_abandon_ms 4 h after its last fold); a boost keeps O2's clock fresh.
+    hub.clock.advance(4 * 60 * MIN - 5 * MIN);
+    append(hub, [{ stream_type: 'order', stream_id: o2, event_type: 'OrderBoosted', payload: { order_id: o2 } }]);
+    hub.clock.advance(10 * MIN);
+    const now = hub.clock.branchNow();
+    expect(isOrderInEngine(engine(), o1, now)).toBe(false);
+    expect(isOrderInEngine(engine(), o2, now)).toBe(true);
+    expect(engine().lines.G1).toBeDefined();
+
+    const r = await start(station, 'G2');
+    expect(r.status).toBe(200);
+    expect(r.result).toEqual({ started: ['G2'] });
+    expect(r.events.filter((e) => e.event_type === 'ItemStarted').map((e) => e.payload.order_item_id)).toEqual(['G2']);
+    expect(r.events.filter((e) => e.event_type === 'StockConsumed').map((e) => e.payload.order_item_id)).toEqual(['G2']);
+    expectRebuildEqualsLive();
+  });
+
+  it('[03b §3.2 step 1, AD-8] a placeholder line (listed by OrderPlaced, no ItemAdded yet) is absent → 404 ORDER_NOT_FOUND', async () => {
+    const station = kds(FX.station);
+    const placed = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'L0', item_id: FX.naan }] }).events.find((e) => e.event_type === 'OrderPlaced')!;
+    const payload = JSON.parse(JSON.stringify(placed.payload).replaceAll(placed.stream_id, 'O_PH').replaceAll('"L0"', '"PH"')) as Record<string, unknown>;
+    append(hub, [{ stream_type: 'order', stream_id: 'O_PH', event_type: 'OrderPlaced', payload: { ...payload, token: 99 } }]);
+    const ph = engine().lines.PH!;
+    expect(ph).toMatchObject({ units: 0, fire_ms: null, booked: null });
+    for (const r of [await start(station, 'PH'), await done(station, 'PH')]) {
+      expect(r.status).toBe(404);
+      expect(r.error).toEqual({ code: 'ORDER_NOT_FOUND', details: { order_item_id: 'PH', order_id: null } });
+    }
+  });
+
+  it('[03b #4] batch late Start: one ReservationsShifted = lateStartShift on the state with every member started; rebuild = live', async () => {
+    const station = kds(BL);
+    const bake = { program_cook_time_ms: 8 * MIN };
+    appendOrder(hub, { order_type: 'takeaway', lines: ['C1', 'C2'].map((order_item_id) => ({ order_item_id, item_id: 'I_BL', item: bake })) });
+    appendOrder(hub, { order_type: 'takeaway', lines: ['C3', 'C4'].map((order_item_id) => ({ order_item_id, item_id: 'I_BL', item: bake })) });
+    expect(engine().lines.C3!.load_id).not.toBe(engine().lines.C1!.load_id);
+    fireLoad(BL, ['C1', 'C2']);
+    // the second load is booked (a batch booking is the load's, 03a AD-4), unfired
+    expect(engine().lines.C3!.fired_at).toBeNull();
+    expect(engine().stations[BL]!.loads[engine().lines.C3!.load_id!]!.booked).toBeDefined();
+    hub.clock.advance(2 * MIN);
+    const now = hub.clock.branchNow();
+    const expected = lateStartShift(startedAt(engine(), ['C1', 'C2'], now), 'C1', now);
+    expect(expected).not.toBeNull();
+    const r = await start(station, 'C1', true);
+    expect(r.status).toBe(200);
+    expect(lastStatements).toBe(0);
+    expect(r.events.map((e) => e.event_type)).toEqual(['ItemStarted', 'ItemStarted', 'ReservationsShifted']);
+    expect(r.events[2]).toMatchObject({ stream_type: 'station', stream_id: BL, payload: expected!.payload });
+    expectRebuildEqualsLive();
   });
 });
