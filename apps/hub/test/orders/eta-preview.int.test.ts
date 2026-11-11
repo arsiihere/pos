@@ -201,6 +201,9 @@ describe('02b eta-preview (§6.14)', () => {
     const ali = signIn();
     expect((await submitDraft(ali, 'O1', dineIn([line('r1', FX.piece)]))).status).toBe(200);
     serve('O1', ['r1']); // the karahi: a food line
+    // 03a as built: planOrder does not read proposed.order.follow_up for a new order (weightOf reads state.orders,
+    // which has no entry for it yet), so this equality cannot tell follow_up apart. The follow_up read itself is
+    // proven by the statement counts (3 / 2 / 1) in the statements test.
     const round2 = dineIn([line('r2', FX.piece), line('r3', FX.naan)]);
     const p = await preview(ali, round2);
     expect(p.status).toBe(200);
@@ -314,6 +317,38 @@ describe('02b eta-preview (§6.14)', () => {
     append({ stream_type: 'hub', stream_id: 'branch-1', event_type: 'BusinessDayClosed', payload: {} });
     const closed = await preview(ali, takeaway([line('l7_naan', FX.naan)]));
     expect([closed.status, closed.error!.code]).toEqual([409, 'BUSINESS_DAY_NOT_OPEN']);
+  });
+
+  it('[02b §6.14] a sold-out deal part refuses its deal; a later line sharing the other part\'s stock is not refused for that part\'s claim (one refusal per pass, then re-reserve)', async () => {
+    const menu = fixtureMenu();
+    const karahi = menu.items.find((i) => i.item_id === FX.piece)!;
+    menu.items = [...menu.items, { ...karahi, item_id: 'I_PAYE', name: 'Paye', out_of_stock_behaviour: 'sold_out' as const }]; // K1 500 g each
+    const combo = menu.deals[0]!;
+    menu.deals = [
+      ...menu.deals,
+      {
+        ...combo,
+        deal_id: 'D_PAYE',
+        name: 'Paye combo',
+        parts: [
+          { deal_part_id: 'DP_K', quantity: 1, sort_order: 0, choices: [{ item_id: FX.piece, extra_price_minor: 0, sort_order: 0 }] }, // claims the last 500 g
+          { deal_part_id: 'DP_P', quantity: 2, sort_order: 1, choices: [{ item_id: 'I_PAYE', extra_price_minor: 0, sort_order: 0 }] }, // needs 1 000 g: sold out
+        ],
+      },
+    ];
+    await setUp({ menu, stock: { [FX.stock]: 500 } });
+    const ali = signIn();
+    const deal = { key: 'a1', deal_id: 'D_PAYE', quantity: 1, deal_choices: [{ deal_part_id: 'DP_K', item_id: FX.piece, key: 'a1k' }, { deal_part_id: 'DP_P', item_id: 'I_PAYE', key: 'a1p' }] };
+    const r = await preview(ali, takeaway([deal, line('a2', 'I_PAYE')]));
+    expect(r.status).toBe(200);
+    const by = (key: string) => r.data!.lines.find((l) => l.key === key)!;
+    // The deal is refused as the submit would refuse it (its first refused line, available after the earlier part's claim).
+    expect(by('a1').refused).toEqual({ code: 'ITEM_SOLD_OUT', details: { item_id: 'I_PAYE', available: 0 } });
+    expect(by('a1k').refused).toEqual(by('a1').refused);
+    // Without the deal the last 500 g is free: the later Paye fits from stock.
+    expect(by('a2')).toEqual({ key: 'a2', eta_ms: expect.any(Number), from_stock: true, zone_served: false });
+    const s = await submitDraft(ali, 'O1', takeaway([line('a2', 'I_PAYE')]));
+    expect({ groups: r.data!.groups, lines: [by('a2')] }).toEqual(s.asPreview);
   });
 
   it('[02b #3] config applied between preview and submit → the submit uses the config at submit (D25); a new preview reads it too', async () => {

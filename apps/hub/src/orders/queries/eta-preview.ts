@@ -163,14 +163,16 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
   let zoneServed = new Set<string>();
   let fromStock: Record<string, boolean> = {};
   if (accepted.length > 0) {
-    // Steps 4–7 on the accepted lines, step 5's zone counts (1 statement with a candidate), as SubmitOrder does.
+    // Steps 4–7 on the accepted lines, step 5's zone counts (1 statement with a candidate), as SubmitOrder does. Each
+    // line passed buildSubmit alone; a cross-line rule raising here (none exists today) would be a whole-request error.
     const built = buildSubmit(config, { ...input, lines: accepted }, buildCtx);
     itemAdded = built.itemAdded;
     zoneServed = zoneServe(ctx.db, primary_table_id, built.itemAdded, built.zoneCandidates).served;
     const proposed = { ...built.proposed, lines: built.proposed.lines.filter((l) => !zoneServed.has(l.order_item_id)) };
     const ofLine = (n: number): ProposedLine[] => proposed.lines.filter((l) => lineOf.get(l.order_item_id) === n);
 
-    // Step 8: STATION_PAUSED per line (checkOrderable reads each line on its own).
+    // Step 8: STATION_PAUSED per line (checkOrderable reads each line on its own). Any other error, or a future
+    // cross-line rule raising here, is a whole-request error.
     for (const n of new Set(proposed.lines.map((l) => lineOf.get(l.order_item_id)!))) {
       try {
         checkOrderable(state, { ...proposed, lines: ofLine(n) });
@@ -179,16 +181,16 @@ function handle(ctx: QueryCtx, draft: Draft, clock: Clock, asOfSeq: number): Eta
         else throw e;
       }
     }
-    // Step 8: reserveStock in line order; a sold-out line is refused (its available counted as SubmitOrder does) and the
-    // draft is re-reserved without it (a refused deal's other parts free their claims; leaving lines out only frees).
+    // Step 8: reserveStock in line order; the FIRST refused line is refused (its available counted as SubmitOrder does)
+    // and the draft is re-reserved without it, one refusal per pass: reserveStock still claims for the other parts of a
+    // deal whose part is refused (each part is its own proposed line), so a later refusal in the same pass may be due
+    // only to a claim that dropping the deal frees. Leaving lines out only frees stock, so the loop ends.
     const configStockUnits = stockUnitsOf(config);
     let live = proposed.lines.filter((l) => !refused.has(lineOf.get(l.order_item_id)!));
     let reserved = reserveStock(state, { ...proposed, lines: live }, dayStart, config.stock_items, configStockUnits);
     while (reserved.refused.length > 0) {
-      for (const refusedId of reserved.refused) {
-        const n = lineOf.get(refusedId)!;
-        if (!refused.has(n)) refused.set(n, { code: 'ITEM_SOLD_OUT', details: soldOutDetails(state, config, live, reserved, dayStart, configStockUnits, refusedId) });
-      }
+      const refusedId = reserved.refused[0]!;
+      refused.set(lineOf.get(refusedId)!, { code: 'ITEM_SOLD_OUT', details: soldOutDetails(state, config, live, reserved, dayStart, configStockUnits, refusedId) });
       live = live.filter((l) => !refused.has(lineOf.get(l.order_item_id)!));
       reserved = reserveStock(state, { ...proposed, lines: live }, dayStart, config.stock_items, configStockUnits);
     }
