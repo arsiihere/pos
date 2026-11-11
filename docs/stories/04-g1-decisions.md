@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Working record of the G1 session (developer, 2026-11-11).** §1 holds the owner's rulings on G0 §3 (K-1–K-8, 2026-11-11 18:31 PKT). §2 holds the decisions that follow from them. **Open:** K-8 follow-up (§3) and G0 §6 Q2–Q12, Q14–Q16 (Q1 answered through K-7, Q13 through K-8). No spec until these are answered and the owner says "go spec". |
+| Status | **G1 COMPLETE (owner, 2026-11-11 19:31 PKT). Waiting for "go spec".** Working record of the G1 session (developer, 2026-11-11). §1 holds the owner's rulings on G0 §3 (K-1–K-8, 2026-11-11 18:31 PKT). §2 holds the decisions that follow from them. Every K and Q is answered (§1, §4, §6); K-8 is superseded by §6. |
 | Base | `spec-04` from `origin/main` @ `45828a7`; G0 = `docs/stories/04-g0.md` (`ad374fc`). |
 
 ## 1. Owner rulings on G0 §3 (2026-11-11 18:31 PKT)
@@ -70,3 +70,12 @@
 ## 5. Still open after §4
 
 K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
+
+## 6. Final answers (2026-11-11 19:31 PKT)
+
+| # | Owner said | Ruling |
+|---|---|---|
+| Q3 | "ok" | Dispositions confirmed: `moved` (pre-cooked stock; stage 2–3, stock-tracked items only, else disabled "Stock not tracked for this item"), `wastage`, `staff_meal`, `other` (+ note). |
+| Q9 | "jab tak approve nahi ho, close nahi ho sakta; permission based kaam kiya hai; manager nahi to uski sar dard; hub access ho to permission de de order taker ko" | **No override in 04.** A pending void ends only by approve, reject or withdraw; the bill stays blocked until then. Coverage is configuration: the owner / manager grants `approve-void` (or `void-item` as `allowed`) to whoever is on duty. F §4.5 OVERRIDDEN is **not built**; recorded in 04 §12 Deferred and as a foundation v1.13 note. |
+| Q16 | a | Card: table / token, item × units, amount, reason, disposition, stage, requester. |
+| K-8 (revised) | "isko module 6 mein rakh lete, log kar do ke module 6 mein karna hai; abhi module 4 ban raha hai" | **Supersedes §1 K-8 and §3.** 04 builds the **hub** audit log view only (LAN, `view-audit-log`, CSV in the browser). The **cloud / remote** audit view moves to **06** (hub → cloud event sync, F §5.5) with a cloud `audit_entries` projection built from the same curated action list; 04 §4.3 carries a row **To 06** and README gets that carried row. Whether 06's sync joins milestone A is 06's G0. G1-9 (timeline risk) is dropped from 04. |
