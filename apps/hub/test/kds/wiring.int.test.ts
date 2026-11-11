@@ -33,7 +33,8 @@ describe('[03b #53, 03c #10] 03b / 03c wiring (phase 0 skeleton)', () => {
     const hub = await createTestHub({ provisioned: true });
     cleanups.push(() => hub.close());
     const order = Object.keys(hub.deps.projections.catchUp(hub.deps.db, hub.deps.config.provisioned!.branch_id).replayed);
-    expect(order.slice(order.indexOf('orders'))).toEqual(['orders', 'probe_kds', 'probe_print']);
+    // b13: lane B4's `pass` (not mocked) registers after B1's probe, before 03c
+    expect(order.slice(order.indexOf('orders'))).toEqual(['orders', 'probe_kds', 'pass', 'probe_print']);
   });
 
   it('[03b §5, 03c §3.7, H-11] a booted hub with every stub registers in that order, starts, listens and stops', async () => {
@@ -53,7 +54,7 @@ describe('[03b #53, 03c #10] 03b / 03c wiring (phase 0 skeleton)', () => {
     });
     const order = Object.keys(booted.deps.projections.catchUp(booted.deps.db, 'branch-1').replayed);
     // boot registers 00's access_reconcile after createDeps; 03b / 03c sit right after 02b's orders
-    expect(order.slice(order.indexOf('orders'), order.indexOf('orders') + 3)).toEqual(['orders', 'probe_kds', 'probe_print']);
+    expect(order.slice(order.indexOf('orders'), order.indexOf('orders') + 4)).toEqual(['orders', 'probe_kds', 'pass', 'probe_print']);
     expect(booted.app.server.listening).toBe(true);
     await booted.stop();
     stopped = true;
