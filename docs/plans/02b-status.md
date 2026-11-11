@@ -26,6 +26,10 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 >
 > **2026-11-11 (wave 3):** queries, catch-up, audiences, queued replays aur handover ka amount ban gaye. Gate green (4135 tests). Saari 19 §12.2 rows ho gayin.
 > - Agla qadam: wave 4 (perf file, acceptance map, spec v1.0.4).
+>
+> **2026-11-11 (wave 4):** perf file likh di (chalai nahi), acceptance map ban gaya, spec v1.0.4 aa gayi. Gate green.
+> - 2 hub gaps: #29 (merge ke baad follow_up) aur 00 ka missed-pong test. Client ke 15 gaps wave 5 mein.
+> - Owner: `pnpm test:perf` khud chalaayein, real disk par, akele.
 
 ## Task table
 
@@ -142,7 +146,7 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 
 ## Next 02b text bump
 
-**Applied in v1.0.4 (`<sha>` filled by the controller)**
+**Applied in v1.0.4 (`2589c78`, `7e711f5`)**, except AD-36's single 02a / 02b `my_floors` rule (needs an owner decision; see the build review). Parts for other modules' next bumps: 03a §4.2 `ItemAdded.return_of?` (AD-15), 00 `maxHeaderSize` 64 KB (AD-26), 02a §3.2 scope rule (AD-36), 01c §4.3 deal `kitchen_note` to engine parts (AD-20).
 
 **Owner, 2026-11-11: wave 4 writes this list as `02b_Ordering_Spec_v1.0.4.md` (APPROVED now), with "⚠️ Changed by v1.0.4" markers and the README row.**
 
@@ -515,7 +519,33 @@ Status words: **green** = hub tests exist and passed in the wave 3 gate (4135 te
 
 Not a GAP: estimated Served (G0-6 fallback, §6.11) is O14, registered when 03b's `Handover` exists; printing of notes (E0-ORD AC2) is 03b; the comp's bill line (C3, E0 AC3 "COMP" label) is 05.
 
+## Wave 4 — perf file, acceptance map, spec v1.0.4 (2026-11-11)
+
+- **Task 24:** `aa4ec9c`.
+  - **Perf file:** `apps/hub/test/orders/submit.perf.test.ts`. It times SubmitOrder at 12 lines (p99 < 60 ms), eta-preview (< 40 ms) and seating-orders (< 30 ms), per §7 / #34.
+    - Kept out of the gate by the `test/**/*.perf.test.ts` exclude in `apps/hub/vitest.config.ts`; picked up by the `perf-hub` project.
+    - Typechecked and linted, but **not run** (AD-4).
+  - **Acceptance map:** in the "Acceptance map" section of this board.
+  - **README:** 4 carried rows closed and 6 hub halves marked built.
+  - **OPEN-QUESTIONS §5:** AD-5 added.
+  - **Review:** opus, approved, with 3 minors:
+    - the README 02a "To 02b" row still lists `CallWaiter` as open, but §3.12 already settles it (never queued);
+    - acceptance AC2 should add `[02b #3]`, and AC5's immutable-log citation is weak;
+    - the perf `openDay` comment.
+- **Spec v1.0.4 (APPROVED, owner 2026-11-11):** `2589c78`, `7e711f5`.
+  - It applies 25 of 26 text-bump items, with 42 "⚠️ Changed by v1.0.4" markers.
+  - The one item not applied is AD-36's single rule (see the build review).
+  - It also updates the README 02b row and the plan and board Spec lines.
+- **Gate:** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. 420 files (1 skipped), 4135 tests passed (1 skipped, 1 todo), 579 s wall. Green. The perf file was not executed.
+- **GAPs (acceptance map, confirmed by the review):**
+  - 15 client-side items: §10 #35 and #36, and the client halves of the E2 / E0 / E5 story ACs. These are wave 5, blocked on the design handoff.
+  - **§10 #29:** no test for `seating-orders` / `follow_up` after a merge. The plan placed #29 with only `seatingTotals` / `ordersOf`.
+  - **#31, 00 clause:** a missed-pong terminate pausing the idle clock has no test.
+- **AD rows:** AD-40 (proposed): the perf cart has no deal and no stock draws.
+- **Next:** the owner runs `pnpm test:perf` on the real disk, alone (CLAUDE.md). It may first fail on the fixture setup rather than on time.
+
 ## Next
 
-1. **Owner:** review wave 3, then type `wave 4`. Task 24 adds the perf file (written, never run), the acceptance map and the README rows, and turns "Next 02b text bump" into spec v1.0.4 (approved). After that the owner runs `pnpm test:perf` on the real disk, alone.
-2. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
+1. **Claude Code:** the 02b build review (pipeline step 8), `docs/reviews/02b_v1.0.4_build_review.md`.
+2. **Owner:** run `pnpm test:perf` on the real disk, alone.
+3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
