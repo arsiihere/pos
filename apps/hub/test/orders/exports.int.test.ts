@@ -145,7 +145,12 @@ describe('[02b #37 totals] seatingTotals / billed_minor', () => {
         { order_item_id: 'A1o', item_id: FX.optionItem, option_id: FX.option, parent_order_item_id: 'A1' },
       ],
     });
-    const c = appendOrder(hub, { order_type: 'dine_in', seating_id: 'S1', lines: [{ order_item_id: 'C1', item_id: FX.naan }] });
+    // C1: a return line of N (§3.8, AD-15): a real ItemAdded with return_of and money 0
+    const c = appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'S1',
+      lines: [{ order_item_id: 'C1', item_id: FX.naan, item: { return_of: 'N', price_minor: 0, line_total_minor: 0 } }],
+    });
     expect(seatingTotals(hub.deps.db, 'S1').order_count).toBe(2);
 
     // naan x4 = 12 000 (3 000 a unit): remove 1 (3 000), void 1 with refund 3 000, comp 1 (3 000) -> 3 000 left billed
@@ -167,9 +172,7 @@ describe('[02b #37 totals] seatingTotals / billed_minor', () => {
     append(on(a.order_id, 'ItemVoided', { order_item_id: 'A1o', units: 1, comp_voided_minor: 4_000 }));
     expect(orderLines(hub.deps.db, [a.order_id]).get(a.order_id)!.find((l) => l.order_item_id === 'A1o')!.billed_minor).toBe((a1o.refundable_minor as number) - 4_000);
 
-    // return lines: the projection never sets return_of yet (open spec question, escalated to the owner, lane 1A STOP
-    // item 1), so this one column is set directly; a return line has refundable 0.
-    hub.deps.db.prepare("UPDATE order_lines SET return_of = 'N', refundable_minor = 0 WHERE order_item_id = 'C1'").run();
+    // a return line contributes 0
     expect(orderLines(hub.deps.db, [c.order_id]).get(c.order_id)![0]).toMatchObject({ billed_minor: 0, return_of: 'N' });
 
     // billed orders still count; cancelled ones do not

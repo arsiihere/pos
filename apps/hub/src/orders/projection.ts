@@ -22,8 +22,8 @@ import type { Projection } from '../projections/registry.js';
 // registration order, test 28). Times are the envelope recorded_at. Folds never cascade (§3.4): every cascaded line
 // has its own event.
 
-// §5 projection bullet. OrderLinesAdded is listed there but carries no column of these tables today (return_of is
-// an open spec gap, escalated to the owner), so it is not folded; ItemAdded writes return lines like any line.
+// §5 projection bullet. OrderLinesAdded is listed there but carries no column of these tables: return_of comes from
+// ItemAdded.return_of (owner 2026-11-11 AD-15), so OrderLinesAdded is not folded.
 export const ORDERS_EVENT_TYPES: readonly string[] = [
   'OrderPlaced',
   'ItemAdded',
@@ -180,9 +180,9 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   // A repeated ItemAdded of a known id changes nothing (as the engine's fold, 03a AD-8): the first copy stays.
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
-                              quantity, units, line_total_minor, refundable_minor, served_from_zone_id, added_at, is_food,
-                              kitchen_note)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
+                              is_food, kitchen_note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -197,6 +197,7 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     units,
     p.line_total_minor,
     refundableMinor(p),
+    p.return_of ?? null, // §3.8, AD-15: the returned line of a return line (fix and remake); absent on every other line
     p.served_from_zone_id,
     at,
     isFood ? 1 : 0,
@@ -219,9 +220,9 @@ function lineUnits(tx: Database.Database, p: ItemAddedPayload): number {
 }
 
 // §3.4 Refundable amount: line_total_minor for item / option_child (0 while a weight is pending, LineWeightSet sets
-// it); a deal_part's allocated_price_minor + its option charges; 0 for a deal line. A return line's total is 0.
+// it); a deal_part's allocated_price_minor + its option charges; 0 for a deal line and for a return line (§3.8).
 function refundableMinor(p: ItemAddedPayload): number {
-  if (p.line_kind === 'deal') return 0;
+  if (p.line_kind === 'deal' || p.return_of !== undefined) return 0;
   if (p.line_kind === 'deal_part') return (p.allocated_price_minor ?? 0) + p.options.reduce((sum, o) => sum + o.charge_minor, 0);
   return p.line_total_minor ?? 0;
 }

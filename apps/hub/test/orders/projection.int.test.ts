@@ -195,6 +195,22 @@ describe('[02b §5] orders projection folds', () => {
     expect(zoneCount(FX.zone, FX.zoneItem)).toBe(3);
   });
 
+  it('[02b §5] ItemAdded return_of sets order_lines.return_of (fix and remake); absent → NULL', async () => {
+    await dineIn();
+    const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', lines: [{ order_item_id: 'K', item_id: FX.piece }, { order_item_id: 'N', item_id: FX.naan }] });
+    append(served(o.order_id, ['K', 'N']));
+    const copy = (id: string) =>
+      JSON.parse((hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'ItemAdded' AND json_extract(payload, '$.order_item_id') = ?`).get(id) as { payload: string }).payload) as object;
+    // §3.8: a return line is a new line, money 0, return_of = the returned line (AD-15: ItemAdded.return_of, fix and remake)
+    const returnLine = (id: string, of: string) => on(o.order_id, 'ItemAdded', { ...copy(of), order_item_id: id, price_minor: 0, line_total_minor: 0, return_of: of });
+    append(returnLine('Kfix', 'K'));
+    append(returnLine('Nre', 'N'), on(o.order_id, 'ItemReturned', { order_item_id: 'N', mode: 'remake', replacement_order_item_id: 'Nre' }));
+    expect(line('Kfix')).toMatchObject({ return_of: 'K', refundable_minor: 0, line_total_minor: 0 });
+    expect(line('Nre')).toMatchObject({ return_of: 'N', refundable_minor: 0, line_total_minor: 0 });
+    expect(line('K')).toMatchObject({ return_of: null });
+    expect(line('N')).toMatchObject({ return_of: null, returned_units: 1 });
+  });
+
   it('[02b §5] ItemServed sets served_at = min(served_at, recorded_at) and served_source; a served line keeps its first serve', async () => {
     await dineIn();
     const o = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', lines: [{ order_item_id: 'A', item_id: FX.naan }, { order_item_id: 'B', item_id: FX.naan }, { order_item_id: 'C', item_id: FX.naan }] });
@@ -417,7 +433,13 @@ function fixtureDay(): void {
   append(removed(a.order_id, 'AZ', 1));
   append(voided(a.order_id, 'A1', 1, { refund_minor: 1_000 }));
   append(served(a.order_id, ['A1', 'A1o'], { served_at: hub.clock.branchNow() - 5_000 }));
-  append(on(a.order_id, 'ItemReturned', { order_item_id: 'A1', mode: 'remake', replacement_order_item_id: 'A1r' }));
+  const a1 = JSON.parse(
+    (hub.deps.db.prepare(`SELECT payload FROM events WHERE event_type = 'ItemAdded' AND json_extract(payload, '$.order_item_id') = 'A1'`).get() as { payload: string }).payload,
+  ) as object;
+  append(
+    on(a.order_id, 'ItemAdded', { ...a1, order_item_id: 'A1r', quantity: 1, price_minor: 0, line_total_minor: 0, options: [], stock_draws: [], return_of: 'A1' }),
+    on(a.order_id, 'ItemReturned', { order_item_id: 'A1', mode: 'remake', replacement_order_item_id: 'A1r' }),
+  );
   append({ stream_type: 'table', stream_id: `zone:${FX.zone}`, event_type: 'ZoneStockAdded', payload: { zone_id: FX.zone, item_id: FX.zoneItem, quantity: 4, transfers: [] } });
   append({ stream_type: 'table', stream_id: `zone:${FX.zone}`, event_type: 'ZoneStockSet', payload: { zone_id: FX.zone, item_id: FX.zoneItem, on_hand: 7, previous: 9 } });
   append(removed(b.order_id, 'B1'), removed(b.order_id, 'B2'), on(b.order_id, 'OrderCancelled', { order_id: b.order_id }));
@@ -432,7 +454,8 @@ describe('[02b #28] replay', () => {
     fixtureDay();
     const live = dump();
     expect(live.orders.length).toBe(4);
-    expect(live.order_lines.length).toBe(11);
+    expect(live.order_lines.length).toBe(12);
+    expect(live.order_lines.find((l) => (l as { order_item_id: string }).order_item_id === 'A1r')).toMatchObject({ return_of: 'A1', refundable_minor: 0 });
 
     const replayWith = (register: Array<(r: ReturnType<typeof createProjectionRegistry>) => void>) => {
       hub.deps.db.prepare(`DELETE FROM projection_checkpoints WHERE projection IN ('orders', 'tables')`).run();
