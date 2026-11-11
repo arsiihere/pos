@@ -105,7 +105,9 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
   });
 
   it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4, less the read-only served_estimate_ms (AD-20)', () => {
-    expect([...Object.keys(DEFAULTS), 'served_estimate_ms'].sort()).toEqual(
+    // 03b A-1: ready_window_ms, kds_offline_ms are in the snapshot; like served_estimate_ms they are not on the
+    // owner wire until 03b B-2 (01b v1.8) is built (P0.4 STOP: the owner page's KitchenTiming types).
+    expect([...Object.keys(DEFAULTS), 'served_estimate_ms', 'ready_window_ms', 'kds_offline_ms'].sort()).toEqual(
       Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
     );
   });
@@ -296,6 +298,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(snapshot.engine_settings).toEqual({
       ...DEFAULTS,
       served_estimate_ms: null,
+      ready_window_ms: 60_000, // 03b A-1
+      kds_offline_ms: 30_000, // 03b A-1
       order_abandon_ms: 7_200_000,
       table_lock_ttl_ms: 120_000,
       returns_boost: false,

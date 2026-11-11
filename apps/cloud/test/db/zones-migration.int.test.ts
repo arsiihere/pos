@@ -72,7 +72,7 @@ describe('[01a §5.2] cloud migration 0009_zones.sql', () => {
         queue_auto_send_max_ms: 14_400_000,
         zone_undo_ms: 300_000,
         slow_item_threshold_ms: 900_000,
-        served_estimate_ms: null,
+        served_estimate_ms: 180_000, // 0012 (03b A-1) sets 180 000 on existing rows; 0009 left it null
         comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
       });
     }
