@@ -14,8 +14,12 @@ import { wsHubFor } from './server.js';
 // - Frame: after every commit, per connected station socket, the details of the lines its station shows (Now and every
 //   planned line) that this socket has not been given yet (by its catch-up or an earlier frame): once per id per socket.
 //   The record is per session id and each catch-up (a new socket) replaces it.
-//   One buildLineDetails (2 statements) per commit that adds lines; 0 statements otherwise. Registered after the engine
-//   host's hook, so a commit's `station_plan` goes first and the KDS shows a placeholder until the details arrive (§3.3).
+//   ⚠️ Changed by v1.0.4 (owner 2026-11-11, B3-3): a line whose live units changed in the commit (ItemRemoved,
+//   ItemVoided, LineWeightSet) is sent again to the sockets that already hold it, so its units and options
+//   ("2 x No onion", §4.4) follow a partial removal.
+//   One buildLineDetails (2 statements) per commit that adds or changes shown lines; 0 statements otherwise. Registered
+//   after the engine host's hook, so a commit's `station_plan` goes first and the KDS shows a placeholder until the
+//   details arrive (§3.3).
 
 /** §3.8: sound volume of a station with no StationScreenSet. */
 export const DEFAULT_SOUND_VOLUME = 70;
@@ -58,6 +62,9 @@ export function kdsStationBody(db: Database.Database, state: EngineState, statio
   };
 }
 
+/** B3-3: the events that change a line's live units (02b §3.4: units − removed − voided; LineWeightSet re-reads it). */
+const UNIT_CHANGES: ReadonlySet<string> = new Set(['ItemRemoved', 'ItemVoided', 'LineWeightSet']);
+
 /** The lines a station shows or will show: Now and every planned (unfired) line, in memory. */
 function stationLineIds(state: EngineState, station_id: string): Set<string> {
   const ids = new Set<string>();
@@ -94,7 +101,7 @@ export function registerKdsCatchUp(app: FastifyInstance, deps: HubDeps): void {
   );
   app.addHook('onClose', async () => stopPart());
 
-  deps.writer.addAfterCommit(() => {
+  deps.writer.addAfterCommit((appended) => {
     const sessions = wsHubFor(app)
       .connectedSessions()
       .filter((s) => s.kind === 'station' && s.stationId !== null);
@@ -103,6 +110,12 @@ export function registerKdsCatchUp(app: FastifyInstance, deps: HubDeps): void {
     if (sessions.length === 0) return;
     const state = deps.state.get();
     if (!isEngineState(state)) return;
+
+    // B3-3: lines whose live units changed in this commit (in memory, no statement).
+    const changed = new Set<string>();
+    for (const e of appended) {
+      if (UNIT_CHANGES.has(e.event_type)) changed.add((e.payload as { order_item_id: string }).order_item_id);
+    }
 
     const byStation = new Map<string, Set<string>>();
     const missing = new Map<string, string[]>(); // sessionId → ids to send
@@ -115,10 +128,13 @@ export function registerKdsCatchUp(app: FastifyInstance, deps: HubDeps): void {
       // Keep only what the station still shows, so the memory stays bounded by the engine's lines.
       for (const id of had) if (!shown.has(id)) had.delete(id);
       given.set(s.sessionId, had);
-      const gained = [...shown].filter((id) => !had.has(id)).sort();
-      if (gained.length === 0) continue;
-      missing.set(s.sessionId, gained);
-      for (const id of gained) all.add(id);
+      const gained = [...shown].filter((id) => !had.has(id));
+      // Held and still shown (pruned above) with changed units → sent again.
+      const resend = [...changed].filter((id) => had.has(id));
+      const send = [...gained, ...resend].sort();
+      if (send.length === 0) continue;
+      missing.set(s.sessionId, send);
+      for (const id of send) all.add(id);
     }
     if (all.size === 0) return;
 

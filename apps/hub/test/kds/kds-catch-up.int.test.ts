@@ -10,7 +10,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { FX, appendOrder, fireLines, openDay, pairKds, removeLine, voidLine } from './fixtures';
+import { FX, append, appendOrder, fireLines, openDay, pairKds, removeLine, voidLine } from './fixtures';
 
 // 03b §6.14 (`kds_station` catch-up part, 3 statements), §6.16 (`kds_lines` frame, once per id, 2 statements per
 // commit that adds lines); tests #65 (kds half), #66; task b18. Real submit batches, fires, removals, voids, moves to
@@ -256,6 +256,53 @@ describe('[03b §6.16] kds_lines frame (b18)', () => {
     await settle();
     const got = new Set([...fromCatchUp, ...ids(kdsLines(second)).flat()]);
     expect([...got].sort()).toEqual(lines.map((l) => l.order_item_id).sort());
+  });
+
+  it('[03b v1.0.4 §6.16] a line whose live units change (partial ItemRemoved / ItemVoided, LineWeightSet) is re-sent to sockets that hold it; 2 statements per commit (B3-3)', async () => {
+    await start();
+    const plain = (name: string, quantity: number) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+    const kds = await socketOf('station');
+    const other = await socketOf('station', FX.zoneStation);
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K1', item_id: FX.piece, quantity: 3, item: { options: [plain('No onion', 1)] } },
+        { order_item_id: 'N1', item_id: FX.naan, quantity: 4 },
+        { order_item_id: 'F1', item_id: FX.gram },
+      ],
+    });
+    await settle();
+    const lastOf = (id: string) => kdsLines(kds).flatMap((f) => f.lines).filter((l) => l.order_item_id === id).at(-1);
+    expect(lastOf('K1')).toMatchObject({ units: 3, options: ['3 x No onion'] });
+    const frames = kdsLines(kds).length;
+
+    const counter = detailsCounter(hub.deps.db);
+    removeLine(hub, order_id, 'K1', 1);
+    expect(counter.count, 'one buildLineDetails for the re-sent line').toBe(2);
+    await settle();
+    expect(ids(kdsLines(kds).slice(frames))).toEqual([['K1']]);
+    expect(lastOf('K1')).toMatchObject({ units: 2, options: ['2 x No onion'] });
+
+    counter.reset();
+    voidLine(hub, order_id, 'N1', 1);
+    expect(counter.count).toBe(2);
+    await settle();
+    expect(ids(kdsLines(kds).slice(frames))).toEqual([['K1'], ['N1']]);
+    expect(lastOf('N1')).toMatchObject({ units: 3 });
+
+    counter.reset();
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'LineWeightSet', payload: { order_item_id: 'F1', quantity: 750, line_total_minor: 300_000 } }]);
+    expect(counter.count).toBe(2);
+    await settle();
+    expect(ids(kdsLines(kds).slice(frames))).toEqual([['K1'], ['N1'], ['F1']]);
+
+    // A whole-line removal takes the line off the station: nothing re-sent, no read; the other station never gets it.
+    counter.reset();
+    removeLine(hub, order_id, 'N1');
+    expect(counter.count).toBe(0);
+    await settle();
+    expect(ids(kdsLines(kds).slice(frames))).toEqual([['K1'], ['N1'], ['F1']]);
+    expect(kdsLines(other)).toEqual([]);
   });
 
   it('[03b #66] no station socket connected → no read at all', async () => {

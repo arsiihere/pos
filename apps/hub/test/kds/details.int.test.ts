@@ -149,6 +149,52 @@ describe('[03b §3.1, §4.2] buildLineDetails / pointOfLine (b11)', () => {
     expect(got.get('DB')).toMatchObject({ line_kind: 'deal_part', item_name: 'Naan', deal_name: 'Karahi combo', units: 1 });
   });
 
+  it('[03b v1.0.3 §4.4] options = live station-less option children, then plain options (options_json); "<q> x name" when > 1, scaled to live units (B3-2)', async () => {
+    await start();
+    const plain = (name: string, quantity: number) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+    appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        // 1 karahi: a child of option quantity 2 (2 units), plain "No onion" × 2 and "Less salt" × 1.
+        { order_item_id: 'K1', item_id: FX.piece, item: { options: [plain('No onion', 2), plain('Less salt', 1)] } },
+        { order_item_id: 'C1', option_id: FX.option, parent_order_item_id: 'K1', quantity: 2, item: { name: 'Extra butter', station_id: null } },
+        // 3 karahi, "No onion" × 1 per piece → 3; one karahi (and its child unit) removed → 2.
+        { order_item_id: 'K2', item_id: FX.piece, quantity: 3, item: { options: [plain('No onion', 1)] } },
+        { order_item_id: 'C2', option_id: FX.option, parent_order_item_id: 'K2', item: { name: 'Extra butter', station_id: null } },
+        // 2 karahi, "No onion" × 1, one removed → 1 → the bare name.
+        { order_item_id: 'K3', item_id: FX.piece, quantity: 2, item: { options: [plain('No onion', 1)] } },
+        // A g line (fish, weight pending): its options are once per line (01c childQuantity), never per gram.
+        { order_item_id: 'F1', item_id: FX.gram, item: { options: [plain('Grilled', 2)] } },
+        // No plain options at all → only the children (none here).
+        { order_item_id: 'N1', item_id: FX.naan, quantity: 2 },
+        // Deal × 2: a piece part (1 per deal → 2 units) and a g part (units = deal quantity), options per deal portion.
+        { order_item_id: 'DL', deal_id: FX.deal, quantity: 2 },
+        { order_item_id: 'DM', deal_part_id: FX.dealParts[0], parent_order_item_id: 'DL', item: { options: [plain('Mild', 1)] } },
+        { order_item_id: 'DB', deal_part_id: FX.dealParts[1], parent_order_item_id: 'DL', item: { sale_unit: 'g', options: [plain('Butter', 1)] } },
+      ],
+    });
+    const order_id = engine().lines.K1!.order_id;
+    removeLine(hub, order_id, 'K2', 1);
+    removeLine(hub, order_id, 'C2', 1);
+    removeLine(hub, order_id, 'K3', 1);
+    const ids = ['K1', 'K2', 'K3', 'F1', 'N1', 'DM', 'DB'];
+    const counter = statementCounter(hub.deps.db);
+    const got = details(ids);
+    expect(counter.count, 'still 2 statements: options_json is on the order_lines row already read').toBe(2);
+    expect(Object.fromEntries(ids.map((id) => [id, got.get(id)?.options]))).toEqual({
+      K1: ['2 x Extra butter', '2 x No onion', 'Less salt'],
+      K2: ['2 x Extra butter', '2 x No onion'],
+      K3: ['No onion'],
+      F1: ['2 x Grilled'],
+      N1: [],
+      DM: ['2 x Mild'],
+      DB: ['2 x Butter'],
+    });
+    // options_json NULL (no plain options in its ItemAdded) → its children only.
+    hub.deps.db.prepare("UPDATE order_lines SET options_json = NULL WHERE order_item_id = 'K1'").run();
+    expect(details(['K1']).get('K1')!.options).toEqual(['2 x Extra butter']);
+  });
+
   it('[03b §4.4] return_of: the returned line, the mode from the engine and its order identifier; the order taker', async () => {
     await start();
     openSeating(hub, { table_id: 'T3', seating_id: 'SE3' });

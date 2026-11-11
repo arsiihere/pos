@@ -434,3 +434,45 @@ describe('[03c §3.5, §3.6] render at send: slips, REPRINT, empty, stale, fallb
     expect(renderTextContract({ blocks: [{ text: 'a\nb' }] }, 32), 'a newline breaks the line, as in encodeDoc').toBe('a\nb');
   });
 });
+
+describe('[03c v1.0.3 §3.3, §3.6, #9] plain options on tickets (B3-2, task P0.16)', () => {
+  it('[03c v1.0.3 §3.3] plain options print under their line after the option children ("    + 2 x No onion"), scaled to live units; still 3 statements', async () => {
+    await start();
+    const plain = (name: string, quantity: number) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K1', item_id: FX.piece, item: { kitchen_note: 'less spicy', options: [plain('No onion', 2), plain('Less salt', 1)] } },
+        { order_item_id: 'C2', option_id: FX.option, parent_order_item_id: 'K1', item: { name: 'Extra butter', station_id: null } },
+        { order_item_id: 'K2', item_id: FX.piece, quantity: 3, item: { options: [plain('Mild', 1)] } },
+      ],
+    });
+    const t = fireTicket(FX.station, order_id, ['K1', 'K2']);
+    removeLine(hub, order_id, 'K2', 1);
+    const counter = statementCounter(hub.deps.db);
+    const text = renderText(renderJob(ctx(32, offsetFor(t.fired_at)), kitchen(t.ticket_id))!, 32).split('\n');
+    expect(counter.count, 'ticket read 1 + buildLineDetails 2').toBe(3);
+    expect(text.slice(5)).toEqual(['1 x Chicken Karahi', '    + Extra butter', '    + 2 x No onion', '    + Less salt', '    NOTE: less spicy', '2 x Chicken Karahi', '    + 2 x Mild']);
+  });
+
+  it('[03c v1.0.3 #9] a reprint of an order no longer in the engine prints its plain options from order_lines.options_json', async () => {
+    await start();
+    const plain = (name: string, quantity: number) => ({ option_id: `O_${name}`, modifier_group_id: 'G_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K1', item_id: FX.piece, item: { options: [plain('No onion', 2)] } },
+        { order_item_id: 'C2', option_id: FX.option, parent_order_item_id: 'K1', quantity: 2, item: { name: 'Extra butter', station_id: null } },
+        { order_item_id: 'N1', item_id: FX.naan, quantity: 2 },
+      ],
+    });
+    const t = fireTicket(FX.station, order_id, ['K1', 'N1']);
+    const off = offsetFor(t.fired_at);
+    const body = ['1 x Chicken Karahi', '    + 2 x Extra butter', '    + 2 x No onion', '2 x Naan'];
+    const reprint: RenderJob = { kind: 'reprint', ticket_id: t.ticket_id, is_reprint: false };
+    expect(renderText(renderJob(ctx(32, off), reprint)!, 32).split('\n').slice(6)).toEqual(body);
+    const exited: EngineState = { ...engine(), orders: {}, lines: {} };
+    expect(renderText(renderJob(ctx(32, off, exited), reprint)!, 32).split('\n').slice(6)).toEqual(body);
+    expect(renderText(renderJob(ctx(32, off, exited), kitchen(t.ticket_id))!, 32).split('\n').slice(5)).toEqual(body);
+  });
+});

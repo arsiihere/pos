@@ -1,4 +1,4 @@
-import type { Identifier, LineDetail } from '@pos/domain';
+import { childQuantity, type Identifier, type LineDetail } from '@pos/domain';
 import type { EngineState } from '@pos/engine';
 import type Database from 'better-sqlite3';
 import { branchConfig } from '../sync/branch-config-holder.js';
@@ -26,8 +26,10 @@ interface Row {
   order_id: string;
   line_kind: 'item' | 'option_child' | 'deal' | 'deal_part';
   name: string;
+  sale_unit: 'piece' | 'g' | 'ml';
   live_units: number;
   kitchen_note: string | null;
+  options_json: string | null; // 02b v1.0.7: the plain options [{ name, quantity }], NULL = none
   order_type: OrderType;
   business_date: string;
   token: number | null;
@@ -49,8 +51,8 @@ interface Row {
 }
 
 const SQL = `
-SELECT l.order_item_id, l.order_id, l.line_kind, l.name, l.units - l.removed_units - l.voided_units AS live_units,
-       l.kitchen_note, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.order_note,
+SELECT l.order_item_id, l.order_id, l.line_kind, l.name, l.sale_unit, l.units - l.removed_units - l.voided_units AS live_units,
+       l.kitchen_note, l.options_json, o.order_type, o.business_date, o.token, o.car_number, o.car_type, o.order_note,
        s.display_name AS placed_by_name,
        p.line_kind AS parent_kind, p.name AS parent_name,
        (SELECT json_group_array(json_object('id', c.order_item_id, 'name', c.name, 'live', c.units - c.removed_units - c.voided_units))
@@ -79,6 +81,28 @@ export function pointOfLine(state: EngineState, order_item_id: string): string |
 /** 01d P-1: a table name gets the "T" prefix only when it is all digits ("4" → "T4", "Family 2" as is). */
 export function tableLabel(name: string): string {
   return /^[0-9]+$/.test(name) ? `T${name}` : name;
+}
+
+/** §4.4 (v1.0.3, B3-2): an option entry, "name", or "<q> x name" when the quantity is > 1. */
+export function optionText(name: string, quantity: number): string {
+  return quantity > 1 ? `${quantity} x ${name}` : name;
+}
+
+/**
+ * §4.4 (v1.0.3, B3-2): a line's plain options (02b v1.0.7 `order_lines.options_json`) as option entries, each quantity
+ * scaled to the line's live units with 01c childQuantity: a piece line → quantity × live units; a g / ml item line →
+ * the quantity once (never per gram). A deal part scales as a piece (its units are its portions, the g / ml part's
+ * = the deal quantity), as 02b's option charges and cascade do (build-submit B2, ledger cascadeUnits).
+ */
+export function plainOptionTexts(
+  options_json: string | null,
+  line: { line_kind: string; sale_unit: 'piece' | 'g' | 'ml'; live_units: number },
+): string[] {
+  if (options_json === null) return [];
+  const unit = line.line_kind === 'deal_part' ? 'piece' : line.sale_unit;
+  return (JSON.parse(options_json) as Array<{ name: string; quantity: number }>).map((o) =>
+    optionText(o.name, childQuantity(Math.max(0, o.quantity), Math.max(0, line.live_units), unit)),
+  );
 }
 
 /** §4.2: details of the engine lines among `order_item_ids`; 2 statements (none for an empty list). */
@@ -146,8 +170,12 @@ export function buildLineDetails(db: Database.Database, state: EngineState, orde
       // A child at its own station shows its parent ("3 x Naan - for Chicken Karahi"); a deal part its deal.
       for_parent: r.line_kind === 'option_child' ? r.parent_name : null,
       deal_name: r.line_kind === 'deal_part' && r.parent_kind === 'deal' ? r.parent_name : null,
-      // §4.4: option children with no station (never engine lines) ride on their parent's row; live ones only.
-      options: children.filter((c) => state.lines[c.id] === undefined && c.live > 0).map((c) => c.name),
+      // §4.4: option children with no station (never engine lines) ride on their parent's row, live ones only, with
+      // their live units; then the plain options (v1.0.3, B3-2).
+      options: [
+        ...children.filter((c) => state.lines[c.id] === undefined && c.live > 0).map((c) => optionText(c.name, c.live)),
+        ...plainOptionTexts(r.options_json, r),
+      ],
       kitchen_note: r.kitchen_note,
       order_note: r.order_note,
       return_of,

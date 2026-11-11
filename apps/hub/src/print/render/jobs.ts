@@ -2,7 +2,7 @@ import type { Doc, DocBlock, Identifier, LineDetail } from '@pos/domain';
 import { stationPlan, type EngineState } from '@pos/engine';
 import type Database from 'better-sqlite3';
 import { buildLineDetails } from '../../kds/contracts.js';
-import { tableLabel } from '../../kds/details.js';
+import { optionText, plainOptionTexts, tableLabel } from '../../kds/details.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { mapText } from '../escpos.js';
 
@@ -72,9 +72,11 @@ interface Row {
   done_at: number | null;
   line_kind: 'item' | 'option_child' | 'deal' | 'deal_part';
   name: string;
+  sale_unit: 'piece' | 'g' | 'ml';
   units: number;
   live_units: number;
   kitchen_note: string | null;
+  options_json: string | null; // 02b v1.0.7: the line's plain options [{ name, quantity }], NULL = none (B3-2)
   parent_kind: Row['line_kind'] | null;
   parent_name: string | null;
   options: string; // JSON [{ name, live }] of the live option children with no ticket line of their own
@@ -112,7 +114,8 @@ interface OrderPart {
 const TICKET_SQL = `
 SELECT t.ticket_id, t.station_id, t.order_id, t.fired_at, so.show_taker, so.show_order_id,
        tl.order_item_id, tl.done_at,
-       l.line_kind, l.name, l.units, l.units - l.removed_units - l.voided_units AS live_units, l.kitchen_note,
+       l.line_kind, l.name, l.sale_unit, l.units, l.units - l.removed_units - l.voided_units AS live_units, l.kitchen_note,
+       l.options_json,
        p.line_kind AS parent_kind, p.name AS parent_name,
        (SELECT json_group_array(json_object('name', c.name, 'live', c.live))
           FROM (SELECT c0.name, c0.units - c0.removed_units - c0.voided_units AS live FROM order_lines c0
@@ -246,9 +249,13 @@ function readTicket(db: Database.Database, state: EngineState, ticket_id: string
         earlier_cancelled: r.earlier_cancelled,
         text: lineText(r.live_units, name, for_parent, deal_name),
         name,
-        // Options always from this read (live, station-less, not zone-served, no own ticket line), with their units
-        // ("+ 2 x Raita"): LineDetail.options are names only and also list zone-served children. Plain options: B3-2.
-        options: (JSON.parse(r.options) as Array<{ name: string; live: number }>).map((c) => (c.live > 1 ? `${c.live} x ${c.name}` : c.name)),
+        // Options always from this read, with or without the engine (live, station-less, not zone-served, no own ticket
+        // line), with their units ("+ 2 x Raita"): LineDetail.options also lists zone-served children. ⚠️ Changed by
+        // v1.0.3 (owner 2026-11-11, B3-2): then the plain options from order_lines.options_json, scaled as 03b §4.4.
+        options: [
+          ...(JSON.parse(r.options) as Array<{ name: string; live: number }>).map((c) => optionText(c.name, c.live)),
+          ...plainOptionTexts(r.options_json, r),
+        ],
         kitchen_note: d !== undefined ? d.kitchen_note : r.kitchen_note,
         return_of: d !== undefined ? d.return_of : fallbackReturn(r, state),
         first: mark === 'boost' || mark === 'expedite',
