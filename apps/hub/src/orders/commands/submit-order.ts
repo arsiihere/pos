@@ -1,6 +1,7 @@
 import { DomainError } from '@pos/domain';
 import { availableStock, checkOrderable, dayDraws, openDayStartMs, planOrder, reserveStock, saleUnitsAvailable, type EngineState } from '@pos/engine';
 import type { BranchConfig, EventDraft, ItemAddedPayload, OrderPlacedPayload } from '@pos/events';
+import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { defineCommand, type CommandCtx } from '../../commands/registry.js';
@@ -11,7 +12,7 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 import { requireLock } from '../../tables/lock.js';
 import { seatingOf, zoneOf } from '../../tables/reads.js';
 import { buildSubmit } from '../build-submit.js';
-import type { SubmitInput } from '../contracts.js';
+import type { BuildSubmitCtx, SubmitInput } from '../contracts.js';
 import { isFoodLine } from '../food.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
 
@@ -20,14 +21,14 @@ import { zoneAlertDrafts } from '../zone-alerts.js';
 // item_availability 1 + zone counts 1 (only with a zone candidate, step 5) + 01d's alert bound (zone alert drafts, only
 // with a zone-served line). Engine checks run in memory on ctx.state.
 
-const Option = z.object({ option_id: z.string().min(1), quantity: z.number().int().min(1), order_item_id: z.string().min(1).optional() }).strict();
+export const Option = z.object({ option_id: z.string().min(1), quantity: z.number().int().min(1), order_item_id: z.string().min(1).optional() }).strict();
 // §3.1: phone 10–13 digits, stored digits only (spaces, dashes and a leading + are dropped).
 const Phone = z
   .string()
   .regex(/^\+?[\d\s-]+$/)
   .transform((p) => p.replace(/\D/g, ''))
   .refine((p) => p.length >= 10 && p.length <= 13, 'phone must have 10–13 digits');
-const Line = z
+export const Line = z
   .object({
     order_item_id: z.string().min(1),
     item_id: z.string().min(1).optional(),
@@ -47,7 +48,7 @@ const Line = z
   })
   .strict();
 
-const PayloadObject = z
+export const PayloadObject = z
   .object({
     order_id: z.string().min(1),
     order_type: z.enum(['dine_in', 'takeaway', 'parking']),
@@ -65,8 +66,19 @@ const PayloadObject = z
 const Payload = PayloadObject.superRefine(checkShape);
 type Payload = z.infer<typeof PayloadObject>;
 
-// §3.1 / §3.2 step 2: each order type carries only its own fields; dine-in needs both table_id and seating_id.
 function checkShape(p: Payload, rc: z.RefinementCtx): void {
+  checkOrderFields(p, rc);
+  // §3.2 step 3 (O3, C6): an id repeated inside the payload → 400 at its path, before any read (step order).
+  const seen = new Set<string>([p.order_id]);
+  for (const { id, path } of payloadIds(p.lines)) {
+    if (seen.has(id)) rc.addIssue({ code: 'custom', path, message: 'id repeated in the payload' });
+    seen.add(id);
+  }
+}
+
+// §3.1 / §3.2 step 2: each order type carries only its own fields; dine-in needs both table_id and seating_id.
+// Shared with eta-preview's draft (§6.14).
+export function checkOrderFields(p: Pick<Payload, 'order_type' | 'table_id' | 'seating_id' | 'takeaway' | 'parking'>, rc: z.RefinementCtx): void {
   const issue = (path: string, message: string): void => rc.addIssue({ code: 'custom', path: [path], message });
   const dineIn = p.order_type === 'dine_in';
   for (const key of ['table_id', 'seating_id'] as const) {
@@ -76,12 +88,6 @@ function checkShape(p: Payload, rc: z.RefinementCtx): void {
   if (p.order_type !== 'takeaway' && p.takeaway !== undefined) issue('takeaway', 'only on takeaway');
   if (p.order_type === 'parking' && p.parking === undefined) issue('parking', 'parking needs car_number and car_type');
   if (p.order_type !== 'parking' && p.parking !== undefined) issue('parking', 'only on parking');
-  // §3.2 step 3 (O3, C6): an id repeated inside the payload → 400 at its path, before any read (step order).
-  const seen = new Set<string>([p.order_id]);
-  for (const { id, path } of payloadIds(p.lines)) {
-    if (seen.has(id)) rc.addIssue({ code: 'custom', path, message: 'id repeated in the payload' });
-    seen.add(id);
-  }
 }
 
 // Every line id of the payload (lines, linked option children, deal parts and their children), in payload order.
@@ -134,24 +140,15 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   requireIdsFree(ctx, state, payload);
 
   // §3.3 follow_up (dine-in): an order of the current seating has a served food line.
-  const follow_up = payload.order_type === 'dine_in' && seatingHasServedFood(ctx, payload.seating_id!);
+  const follow_up = payload.order_type === 'dine_in' && seatingHasServedFood(db, payload.seating_id!);
 
   // Step 4 (and 6, 7): lines from config. AD-21: isAvailable is the manual Off only; sold out is step 8's.
-  const availability = itemAvailability(db, reachedItemIds(config, payload));
-  const configStockUnits = Object.fromEntries(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit]));
-  const itemsById = new Map(config.items.map((i) => [i.item_id, i]));
+  const configStockUnits = stockUnitsOf(config);
   const { now_ms: now, utc_offset_ms } = hubTime(ctx.clock);
-  const built = buildSubmit(config, input, {
-    now,
-    utc_offset_ms,
-    isAvailable: (item_id) => availability.get(item_id) !== false,
-    draws: (item_id) => dayDraws(state, itemsById.get(item_id)!, configStockUnits),
-    primary_table_id,
-    follow_up,
-  });
+  const built = buildSubmit(config, input, submitBuildCtx(db, state, config, input, { now, utc_offset_ms }, primary_table_id, follow_up));
 
   // Step 5 (O5, §3.10, AD-8): the candidates the zone count covers are zone-served, the rest stay kitchen lines.
-  const zone = zoneServe(ctx, primary_table_id, built.itemAdded, built.zoneCandidates);
+  const zone = zoneServe(db, primary_table_id, built.itemAdded, built.zoneCandidates);
   const itemAdded = built.itemAdded.map((a) => (zone.served.has(a.order_item_id) ? { ...a, served_from_zone_id: zone.zone_id } : a));
   const proposed = { ...built.proposed, lines: built.proposed.lines.filter((l) => !zone.served.has(l.order_item_id)) };
   const kitchenAdded = itemAdded.filter((a) => !zone.served.has(a.order_item_id));
@@ -240,7 +237,37 @@ function handle(ctx: CommandCtx, payload: Payload, log: FastifyInstance['log']):
   };
 }
 
-interface ZoneServe {
+export type ConfigStockUnits = Record<string, BranchConfig['stock_items'][number]['stock_unit']>;
+
+export function stockUnitsOf(config: BranchConfig): ConfigStockUnits {
+  return Object.fromEntries(config.stock_items.map((s) => [s.stock_item_id, s.stock_unit]));
+}
+
+// §3.2 step 4 (AD-8, AD-12, AD-21): buildSubmit's ctx. 1 statement (item_availability over the items the lines reach);
+// isAvailable is the manual Off only (sold out is step 8's); draws are the day-frozen ones. Shared with eta-preview.
+export function submitBuildCtx(
+  db: Database.Database,
+  state: EngineState,
+  config: BranchConfig,
+  input: Pick<SubmitInput, 'lines'>,
+  time: { now: number; utc_offset_ms: number },
+  primary_table_id: string | null,
+  follow_up: boolean,
+): BuildSubmitCtx {
+  const availability = itemAvailability(db, reachedItemIds(config, input));
+  const configStockUnits = stockUnitsOf(config);
+  const itemsById = new Map(config.items.map((i) => [i.item_id, i]));
+  return {
+    now: time.now,
+    utc_offset_ms: time.utc_offset_ms,
+    isAvailable: (item_id) => availability.get(item_id) !== false,
+    draws: (item_id) => dayDraws(state, itemsById.get(item_id)!, configStockUnits),
+    primary_table_id,
+    follow_up,
+  };
+}
+
+export interface ZoneServe {
   zone_id: string | null;
   served: Set<string>;
   changes: Array<{ zone_id: string; item_id: string; before: number; after: number }>;
@@ -250,7 +277,7 @@ interface ZoneServe {
 // the item: buildSubmit's zoneCandidates) is zone-served when on_hand − claimed ≥ quantity, claims counted across the
 // payload in line order (as reserveStock counts draws); a failing line stays a kitchen line, never a refusal (run 4 M-4).
 // 1 statement (the zone counts of the candidates' items), none without a candidate. A zone without a count row holds 0.
-function zoneServe(ctx: CommandCtx, primary_table_id: string | null, itemAdded: readonly ItemAddedPayload[], candidates: readonly string[]): ZoneServe {
+export function zoneServe(db: Database.Database, primary_table_id: string | null, itemAdded: readonly ItemAddedPayload[], candidates: readonly string[]): ZoneServe {
   const none: ZoneServe = { zone_id: null, served: new Set(), changes: [] };
   if (candidates.length === 0 || primary_table_id === null) return none;
   const zone_id = zoneOf(primary_table_id).zone_id;
@@ -258,7 +285,7 @@ function zoneServe(ctx: CommandCtx, primary_table_id: string | null, itemAdded: 
   const ids = new Set(candidates);
   const lines = itemAdded.filter((a) => ids.has(a.order_item_id) && a.item_id !== null);
   const itemIds = [...new Set(lines.map((a) => a.item_id!))];
-  const rows = ctx.tx.db
+  const rows = db
     .prepare('SELECT item_id, on_hand FROM zone_stock WHERE zone_id = ? AND item_id IN (SELECT value FROM json_each(?))')
     .all(zone_id, JSON.stringify(itemIds)) as Array<{ item_id: string; on_hand: number }>;
   const before = new Map(itemIds.map((id) => [id, rows.find((r) => r.item_id === id)?.on_hand ?? 0]));
@@ -298,7 +325,7 @@ function requireIdsFree(ctx: CommandCtx, state: EngineState, payload: Payload): 
 
 // §3.2 step 4: the item ids whose manual Off buildSubmit can read: the payload's items and deal choices, and the
 // linked items of every option of their modifier groups (chosen options and required-group satisfiability).
-function reachedItemIds(config: BranchConfig, payload: Payload): string[] {
+function reachedItemIds(config: BranchConfig, payload: Pick<SubmitInput, 'lines'>): string[] {
   const ids = new Set<string>();
   for (const line of payload.lines) {
     if (line.item_id !== undefined) ids.add(line.item_id);
@@ -315,8 +342,8 @@ function reachedItemIds(config: BranchConfig, payload: Payload): string[] {
 }
 
 // §3.3: 02a's current seating_orders (P-1c) joined to 02b's own order_lines; 1 statement.
-function seatingHasServedFood(ctx: CommandCtx, seating_id: string): boolean {
-  const row = ctx.tx.db
+export function seatingHasServedFood(db: Database.Database, seating_id: string): boolean {
+  const row = db
     .prepare(
       `SELECT EXISTS (
          SELECT 1 FROM seating_orders so JOIN order_lines ol ON ol.order_id = so.order_id
@@ -333,17 +360,29 @@ function nextToken(ctx: CommandCtx, business_date: string): number {
   return row.token;
 }
 
-// §3.2 step 8 (O15, N-7): the first refused line's available = min over its draws of the sale units left after the
-// draws of earlier lines of this payload (as reserveStock counts them).
+// §3.2 step 8 (O15, N-7): the first refused line → ITEM_SOLD_OUT.
 function soldOut(
   state: EngineState,
   config: BranchConfig,
   lines: ReturnType<typeof buildSubmit>['proposed']['lines'],
   reserved: ReturnType<typeof reserveStock>,
   dayStart: number,
-  configStockUnits: Record<string, BranchConfig['stock_items'][number]['stock_unit']>,
+  configStockUnits: ConfigStockUnits,
 ): DomainError {
-  const refusedId = reserved.refused[0]!;
+  return new DomainError('ITEM_SOLD_OUT', soldOutDetails(state, config, lines, reserved, dayStart, configStockUnits, reserved.refused[0]!));
+}
+
+// §3.2 step 8 (O15, N-7): a refused line's available = min over its draws of the sale units left after the draws of
+// earlier lines of this payload (as reserveStock counts them). Shared with eta-preview (a refusal per line).
+export function soldOutDetails(
+  state: EngineState,
+  config: BranchConfig,
+  lines: ReturnType<typeof buildSubmit>['proposed']['lines'],
+  reserved: ReturnType<typeof reserveStock>,
+  dayStart: number,
+  configStockUnits: ConfigStockUnits,
+  refusedId: string,
+): { item_id: string | null; available: number } {
   const index = lines.findIndex((l) => l.order_item_id === refusedId);
   const line = lines[index]!;
   const earlier = new Set(lines.slice(0, index).map((l) => l.order_item_id));
@@ -359,7 +398,7 @@ function soldOut(
       return saleUnitsAvailable(Math.max(0, free - claimed), perUnit.get(d.stock_item_id) ?? d.quantity);
     }),
   );
-  return new DomainError('ITEM_SOLD_OUT', { item_id: line.item_id, available });
+  return { item_id: line.item_id, available };
 }
 
 // §3.14 (C8, last): take-order `my_floors` must cover the named table's floor; `branch` any; `own_tables` is the holder
