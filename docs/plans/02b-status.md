@@ -153,7 +153,7 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **AD-28:** §9 `ORDER_NOT_FOUND` details become `{ order_id } | { order_item_id }`.
 - **AD-29:** §3.7 / §3.4 say `MarkServed` naming a deal header → `400 VALIDATION_FAILED`, and a no-station line is served with no fired check.
 - **AD-36:**
-  - §3.14 / §6.1: write down how `SubmitOrder`'s scope `my_floors` applies to a named table, and align the text with 02a `OpenTable` Q1 (02a §3.x). 02a and 02b must say the same thing. If they differ, the next text bump of each (02a and 02b) states one rule.
+  - §3.14 / §6.1: write down how `SubmitOrder`'s scope `my_floors` applies to a named table, and align the text with 02a `OpenTable` (02a v1.1.4 §3.2: `take-order` `my_floors` "with the floor"; owner note Q1). 02a and 02b must say the same thing. If they differ, the next text bump of each (02a and 02b) states one rule.
   - §3.10 / §6.1: the zone statement count includes 01d's `listOpen`.
   - §6.5: `ReleaseItems` / `BoostOrder` statements are 1–2.
 - **AD-31–AD-35:** the §6.7 `ReturnToKitchen` error list gains:
