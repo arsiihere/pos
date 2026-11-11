@@ -119,9 +119,10 @@ describe('02b ledger (§3.4)', () => {
   });
 
   it('[02b #19 pure] comp then weight: a line with any unit out of billing is settled (LINE_ALREADY_SETTLED predicate)', () => {
-    const pending = fresh(0, 1); // g line, weight pending
-    expect(hasUnitOutOfBilling(pending)).toBe(false);
-    expect(hasUnitOutOfBilling(compUnits(pending, 1).after)).toBe(true);
+    // A weighed g line (LineWeightSet folded: refundable = line total); a pending one cannot be comped (LINE_WEIGHT_PENDING).
+    const weighed = fresh(275000, 1);
+    expect(hasUnitOutOfBilling(weighed)).toBe(false);
+    expect(hasUnitOutOfBilling(compUnits(weighed, 1).after)).toBe(true);
     expect(hasUnitOutOfBilling(removeUnits(fresh(100, 2), 1).after)).toBe(true);
     expect(hasUnitOutOfBilling(voidUnits(fresh(100, 2), 1).after)).toBe(true);
   });
@@ -486,7 +487,8 @@ describe('02b ledger (§3.4)', () => {
         const op = rng(4);
         kinds.add(`${l.line_kind}:${op}`);
         if (op === 0) {
-          if (l.line_kind === 'deal_part' || liveUnits(l) - l.comped_units === 0) continue;
+          // §3.6 / §3.9: a comp on a weight-pending line is refused (LINE_WEIGHT_PENDING), so never generated.
+          if (l.line_kind === 'deal_part' || liveUnits(l) - l.comped_units === 0 || (l.weighed && l.line_total_minor === null)) continue;
           apply(planComp(l, kids, 1 + rng(liveUnits(l) - l.comped_units - 1), meta).lines);
         } else if (op === 1) {
           apply(planRemove(l, kids, 1 + rng(liveUnits(l) - 1)).lines);
