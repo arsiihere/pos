@@ -1,0 +1,53 @@
+# The normal gate (CLAUDE.md "Test environment"), run by GitHub on every PR into main or a module-* branch
+# and on every push to them. Public repo: standard runners are free.
+name: gate
+
+on:
+  pull_request:
+    branches: [main, 'module-*']
+  push:
+    branches: [main, 'module-*']
+  workflow_dispatch:
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos_test
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      DATABASE_URL: postgres://pos:pos@127.0.0.1:5433/pos_test
+      TMPDIR: /dev/shm
+      npm_config_manage_package_manager_versions: 'false'   # pnpm must not switch versions under turbo's parallel spawns
+      TURBO_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6          # version from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Postgres test-only settings (CLAUDE.md, same as pos-pg-test)
+        run: >-
+          psql "$DATABASE_URL"
+          -c "ALTER SYSTEM SET fsync = off"
+          -c "ALTER SYSTEM SET synchronous_commit = off"
+          -c "ALTER SYSTEM SET full_page_writes = off"
+          -c "SELECT pg_reload_conf()"
+      - run: pnpm -w typecheck
+      - run: pnpm -w lint
+      - run: pnpm -w test
