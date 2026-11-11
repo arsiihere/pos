@@ -186,6 +186,20 @@ describe('03a order-stream events', () => {
     }
   });
 
+  it('[02b §3.8, AD-15] ItemAdded round-trips with return_of', () => {
+    const schema = payloadSchema('ItemAdded', 1);
+    const payload = { ...itemAdded, return_of: 'L0' };
+    expect(schema.parse(payload)).toEqual({ ...payload, served_from_zone_id: null, is_ready_item: false });
+  });
+
+  it('[02b §3.8, AD-15] ItemAdded round-trips without return_of and refuses a non-string', () => {
+    const schema = payloadSchema('ItemAdded', 1);
+    const parsed = schema.parse(itemAdded) as Record<string, unknown>;
+    expect('return_of' in parsed).toBe(false);
+    expect(schema.safeParse({ ...itemAdded, return_of: 5 }).success).toBe(false);
+    expect(schema.safeParse({ ...itemAdded, return_of: null }).success).toBe(false);
+  });
+
   it('[03a §4.2] ItemAdded round-trips every 01c §4.3 field for each line_kind', () => {
     const schema = payloadSchema('ItemAdded', 1);
     const deal = {
