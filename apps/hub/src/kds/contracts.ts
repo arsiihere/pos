@@ -89,7 +89,9 @@ export function handoversDue(db: Database.Database, now: number, older_than_ms: 
 
 export function undoReadyForLines(ctx: CommandCtx, order_item_ids: readonly string[]): UndoReadyResult {
   const fn = built.undoReadyForLines;
-  // Until b9b no Ready row can exist (the pass projection is b13), so nothing is undone.
+  // No-op until b9b provides the real function. This is NOT "no Ready row can exist yet": lane B4 runs
+  // b13 → b14 → b15 → b9b, so MarkReadyToServe (b14) can be merged while b9a's UndoDone still lands here, and
+  // until b9b an UndoDone leaves a Ready card standing (03b §3.2 step 5; plan rows b14 / b9b, AD-14).
   if (fn === undefined) return { events: [], ready_undone: [] };
   return fn(ctx, order_item_ids);
 }

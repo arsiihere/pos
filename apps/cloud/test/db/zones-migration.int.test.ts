@@ -78,7 +78,8 @@ describe('[01a §5.2] cloud migration 0009_zones.sql', () => {
     }
     // a migration is not an owner write
     expect((await q(`SELECT count(*)::int AS n FROM config_audit`)).rows[0]).toEqual({ n: 0 });
-    expect((await q(`SELECT DISTINCT config_version::int AS v FROM branches`)).rows).toEqual([{ v: 1 }]);
+    // 0009 bumps nothing; the whole folder runs, and 0012 (03b A-1, AD-9 owner 2026-11-11) bumps once → 2.
+    expect((await q(`SELECT DISTINCT config_version::int AS v FROM branches`)).rows).toEqual([{ v: 2 }]);
   });
 
   it('[01a A-1] zones: name 1–40 characters, a same-branch floor, unique active name per floor (case-insensitive)', async () => {

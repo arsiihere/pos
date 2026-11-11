@@ -122,4 +122,19 @@ describe('[03b G-3, 02b §3.14] orderCovered = checkOrderScope', () => {
     expect(orderCovered(o, { staffId: 'S_FLOOR', resolution: directory.resolve('S_FLOOR', 'mark-served') }, null, floorsOf)).toBe(false);
     expect(orderCovered(o, { staffId: 'S_FLOOR', resolution: directory.resolve('S_FLOOR', 'mark-served') }, currentTableOf(hub.deps.db, [dine]), floorsOf)).toBe(true);
   });
+
+  it('[03b §3.5 step 2, #25] orderCovered checks the scope only: a requires_approval resolution is covered, so callers check grant first', () => {
+    const dine = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'T1', item_id: FX.naan }], placed_by: 'S_HOLDER' }).order_id;
+    const o = scopedOrders(hub.deps.db, [dine]).get(dine)!;
+    const floorsOf = (s: string) => currentDirectory(hub.app).floorsOf(s);
+    const approval = { grant: 'requires_approval' as const, approver_role_ids: ['R_BRANCH'], scope: 'branch' as const };
+    // Documented parity: the pure function alone says "covered" for requires_approval …
+    expect(orderCovered(o, { staffId: 'S_OTHER', resolution: approval }, null, floorsOf)).toBe(true);
+    expect(orderCovered(o, { staffId: 'S_HOLDER', resolution: { ...approval, scope: 'own_tables' } }, null, floorsOf)).toBe(true);
+    // … so 03b's Handover receiver / pass-receivers must require grant === 'allowed' before calling it.
+    const receiverOk = (resolution: typeof approval | { grant: 'allowed'; scope: 'branch' }) =>
+      resolution.grant === 'allowed' && orderCovered(o, { staffId: 'S_OTHER', resolution }, null, floorsOf);
+    expect(receiverOk(approval)).toBe(false);
+    expect(receiverOk({ grant: 'allowed', scope: 'branch' })).toBe(true);
+  });
 });

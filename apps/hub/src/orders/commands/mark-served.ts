@@ -52,6 +52,12 @@ export function scopedOrders(db: Database.Database, order_ids: readonly string[]
  * (`tables`, 02a `currentTableOf`, read once by the caller; null → none) is on one of `floorsOf(staffId)`. Takeaway /
  * parking: `own_tables` and `my_floors` = placed by the staff (01b B-4). No staff or no scope → no. 0 statements.
  * 03b's Handover receiver and `pass-receivers` call it for staff other than the caller with one shared `tables`.
+ *
+ * It checks the SCOPE only, never the grant: a `requires_approval` resolution with a scope is covered like an
+ * `allowed` one. Callers must check `who.resolution.grant === 'allowed'` first (03b §3.5 step 2, #25). For the
+ * caller's own command that check is already done by `commands/route.ts` `authorize` (requires_approval passes only
+ * for an approvable command), so `checkOrderScope` needs none; a receiver or candidate who is not the caller has no
+ * such gate.
  */
 export function orderCovered(
   o: ScopedOrder,
