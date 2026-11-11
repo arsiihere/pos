@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineCommand } from '../../src/commands/registry';
 import { commandRegistry } from '../../src/commands/route';
 import { markServedCommand } from '../../src/orders/commands/mark-served';
+import { orderLines } from '../../src/orders/exports';
+import { voidUnits } from '../../src/orders/ledger';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -99,6 +101,12 @@ const start = (order_id: string, order_item_id: string) =>
 const done = (order_id: string, order_item_id: string) =>
   append(draft('order', order_id, 'ItemDone', { order_item_id, done_at: hub.clock.branchNow(), source: 'tap' }));
 const remove = (order_id: string, order_item_id: string) => append(draft('order', order_id, 'ItemRemoved', { order_item_id }));
+// 04's void of a started line, money from the §3.4 ledger (voidUnits over the line as folded).
+function void3(order_id: string): void {
+  const line = orderLines(hub.deps.db, [order_id]).get(order_id)!.find((l) => l.order_item_id === 'N3')!;
+  const { refund_minor, comp_voided_minor } = voidUnits(line, line.live_units);
+  append(draft('order', order_id, 'ItemVoided', { order_item_id: 'N3', units: line.live_units, refund_minor, comp_voided_minor }));
+}
 const lock = (table_id: string, seating_id: string, staff_id: string) =>
   append({ ...draft('table', table_id, 'TableLocked', { table_id, seating_id, staff_id }), actor_id: staff_id, device_id: 'D_HOLDER' });
 
@@ -299,17 +307,36 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
     expect(reply.result).toEqual({ served: 3, skipped: [] });
   });
 
-  it('[02b #22] abandoned order (out of the engine) → Served allowed on an unfired-free order, no stockEffects', async () => {
+  it('[02b #22] abandoned order (out of the engine, O16: counts as fired) → Served allowed, no stockEffects', async () => {
     openDay(hub, { stock: { [FX.stock]: 10_000 } });
     const o1 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'K1', item_id: FX.piece }] }).order_id;
     fire(FX.station, 'K1');
     hub.clock.advance(5 * 3_600_000); // past order_abandon_ms (4 h) and the planned land
     expect(isOrderInEngine(engine(), o1, hub.clock.branchNow())).toBe(false);
+    // K1 is fired, never started and still holds its reservation: in the engine, a serve would consume it (AD-29 Q7).
+    expect(engine().lines.K1).toMatchObject({ stage: 'added', started_at: null });
     const reply = await serve(signIn('S_WAITER'), [{ order_id: o1, order_item_ids: ['K1'] }]);
     expect(reply.status).toBe(200);
     expect(reply.result).toEqual({ served: 1, skipped: [] });
     expect(reply.events.map((e) => e.event_type)).toEqual(['ItemServed', 'OrderFoodServed']);
     expect(servedAt('K1').served_source).toBe('tap');
+  });
+
+  it('[02b §3.7 O16] an UNFIRED line cannot reach an out-of-engine order through real events: an unfired line keeps its order in the engine (03a §3.3 abandon)', async () => {
+    openDay(hub, { stock: { [FX.stock]: 10_000 } });
+    const o1 = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'K1', item_id: FX.piece },
+        { order_item_id: 'N1', item_id: FX.naan },
+      ],
+    }).order_id;
+    fire(FX.station, 'K1');
+    hub.clock.advance(5 * 3_600_000);
+    expect(engine().lines.N1).toMatchObject({ stage: 'added', fired_at: null });
+    expect(isOrderInEngine(engine(), o1, hub.clock.branchNow())).toBe(true);
+    const reply = await serve(signIn('S_WAITER'), [{ order_id: o1, order_item_ids: ['N1'] }]);
+    expect(reply.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'N1', stage: 'added' } });
   });
 
   it('[02b §3.7] removed / voided line → ITEM_WRONG_STAGE; unknown order → 404 ORDER_NOT_FOUND; a line not of the order → 404 ORDER_NOT_FOUND', async () => {
@@ -319,16 +346,23 @@ describe('MarkServed (02b §6.4, §3.7)', () => {
       lines: [
         { order_item_id: 'N1', item_id: FX.naan },
         { order_item_id: 'N2', item_id: FX.naan },
+        { order_item_id: 'N3', item_id: FX.naan },
       ],
     }).order_id;
     remove(o1, 'N1');
-    fire(FX.station, 'N2');
+    fire(FX.station, 'N2', 'N3');
+    start(o1, 'N3');
+    void3(o1);
     const waiter = signIn('S_WAITER');
     const before = eventCount();
 
     const removed = await serve(waiter, [{ order_id: o1, order_item_ids: ['N1'] }]);
     expect(removed.status).toBe(409);
     expect(removed.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'N1', stage: 'removed' } });
+
+    const voided = await serve(waiter, [{ order_id: o1, order_item_ids: ['N3'] }]);
+    expect(voided.status).toBe(409);
+    expect(voided.error).toEqual({ code: 'ITEM_WRONG_STAGE', details: { order_item_id: 'N3', stage: 'voided' } });
 
     const unknown = await serve(waiter, [{ order_id: 'O_NOPE', order_item_ids: ['N2'] }]);
     expect(unknown.status).toBe(404);

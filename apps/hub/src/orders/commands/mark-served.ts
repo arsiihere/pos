@@ -142,15 +142,17 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
     const p: ItemServedPayload = { order_item_ids: s.ids, source: 'tap' };
     return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...envelope };
   });
-  // AD-29 Q7: one stockEffects call over the in-engine serves; an ItemServed drafts nothing before itself, so each
-  // ItemServed is followed by its own effects up to the next one.
+  // AD-29 Q7: one stockEffects call over the in-engine serves, split back per ItemServed. The split relies on engine
+  // stock.ts effectsOf never giving an ItemServed `before` effects (its case returns `before: []`), so every effect
+  // follows its own ItemServed up to the next one; an effect ahead of the first ItemServed is a broken assumption.
   const effects = new Map<EventDraft, EventDraft[]>();
   let current: EventDraft[] | null = null;
   const inEngineDrafts = servedDrafts.filter((_, i) => serves[i]!.inEngine);
   const inEngineSet = new Set(inEngineDrafts);
   for (const d of stockEffects(ctx.state, inEngineDrafts)) {
     if (inEngineSet.has(d as EventDraft)) effects.set(d as EventDraft, (current = []));
-    else current!.push({ ...d, ...envelope });
+    else if (current === null) throw new Error('MarkServed: stockEffects drafted an effect before an ItemServed');
+    else current.push({ ...d, ...envelope });
   }
 
   const events: EventDraft[] = [];
