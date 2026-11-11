@@ -508,11 +508,11 @@ Acceptance criteria:
 *As a cook, I want a screen for my station that shows what to cook next, so that I always know the order of work.*
 
 Acceptance criteria:
-1. Any device opens a station KDS view by URL (web-based); one view can show a single station or all stations.
-2. Tickets are sorted by latest-start time (when the item must fire to meet its promised ETA), not by order submission time.
-3. Each ticket displays: item name, modifiers, item notes, table number / order type, target land time, and a countdown to latest-start.
+1. Any device opens a station KDS view by URL (web-based); one view can show a single station or all stations. ⚠️ Changed by 03b v1.0.1 (S-1, editorial): the "all stations" view is the **assembler view per point** on the Pass tablet (03b §3.4); a KDS shows one station.
+2. Tickets are sorted by latest-start time (when the item must fire to meet its promised ETA), not by order submission time. ⚠️ Changed by 03b v1.0.1 (S-1): the order is the **03a engine contract** (Now / Next / Later, `stationView`), which 03b only shows.
+3. Each ticket displays: item name, modifiers, item notes, table number / order type, target land time, and a countdown to latest-start. ⚠️ Changed by 03b v1.0.1 (S-1): times and countdowns come from the 03a contract (`stationPlan`).
 4. "Start" and "Done" are large tap targets; no confirmation dialogs for normal operation (usable with greasy hands).
-5. New ticket alert: configurable audio alert (volume per station) + ticket color change.
+5. New ticket alert: configurable audio alert (volume per station) + ticket color change. ⚠️ Changed by 03b v1.0.1 (S-1): the volume is set per station on the hub admin "Kitchen screens" page (`SetStationScreen`, 03b §3.8).
 6. Late ticket: color changes to red; slip warning dispatched to the order taker's device.
 7. Boosted ticket: distinct visual marker (e.g. highlighted border); sorted to top of queue.
 8. Batch station view: shows the current batch load, items in the next pending batch, and the fire countdown.
@@ -520,6 +520,7 @@ Acceptance criteria:
 10. Sync items marked Done before the rest of their order show "HOLD AT PASS" until the order's last sync item is Done (D36, D42).
 
 In scope (P1): web-based KDS, English labels, slot and batch station views.  
+> ⚠️ Changed by 03b v1.0.1 (S-1, R-1): **screen-first** — the KDS screen is the station's main surface; the printer is an optional accessory (03c), not the backup the cook depends on.  
 Out of scope (P1): audio callouts in other languages (P3).
 
 Edge cases:
