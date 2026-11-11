@@ -551,8 +551,23 @@ Not a GAP: estimated Served (G0-6 fallback, §6.11) is O14, registered when 03b'
 - **AD rows:** AD-40 (proposed): the perf cart has no deal and no stock draws.
 - **Next:** the owner runs `pnpm test:perf` on the real disk, alone (CLAUDE.md). It may first fail on the fixture setup rather than on time.
 
+## Perf run — owner, 2026-11-11 (G-7)
+
+- **Run:** `pnpm test:perf` on the dev laptop (HP ZBook 15 G2), by the owner, on the real disk.
+- **02b's own perf passes:**
+  - SubmitOrder p99 28 ms (< 60);
+  - eta-preview 6.6 ms (< 40);
+  - seating-orders 3.0 ms (< 30).
+- **03a `fires_alerts` fails one case at random.** It is **not a 02a / 02b regression**:
+  - p50 is flat across `2fa2db0`, `main` and `module-02b`: about 9.5 ms for work and about 15 ms for slips.
+  - The baseline `2fa2db0` itself fails the slips case (p99 36 ms).
+  - With 31 samples, p99 is the largest sample, so a single GC or fsync spike fails the case.
+- **Next platform batch:** raise the sample count (for example to 200+) so p99 is not the max sample. The bound stays unchanged. `docs/OPEN-QUESTIONS.md` §5 has the item.
+- **Authoritative run:** stays on the pilot box (03a task 28).
+- **G-7 status:** closed for 02b.
+
 ## Next
 
 1. **Owner:** the build review's verdict is **ready to merge** (`docs/reviews/02b_v1.0.4_build_review.md` §8, updated at `7bef4c0`). The full gate at the head is green: 420 files, 4142 tests, 581 s. Merging into `main` is the owner's call.
-2. **Owner:** run `pnpm test:perf` on the real disk, alone (G-7).
+2. ~~Owner: `pnpm test:perf` (G-7)~~ done 2026-11-11: 02b passes; the 03a `fires_alerts` flake goes to the next platform batch ("Perf run" above).
 3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
