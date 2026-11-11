@@ -3,6 +3,7 @@ import { hasTargetResolver, registerTargetResolver } from '../../alerts/targets.
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
 import { registerSetDeviceRole } from '../commands/device-role.js';
+import { registerSetLaneState } from '../commands/lane-state.js';
 import { registerSetStationScreen } from '../commands/screen.js';
 import { registerKdsConfigProjection } from '../config-projection.js';
 import { provideKds } from '../contracts.js';
@@ -22,6 +23,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   // b7, §6.9–6.10: admin commands
   registerSetStationScreen(app);
   registerSetDeviceRole(app);
+  // b10, §3.7 / §6.5
+  registerSetLaneState(app);
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
