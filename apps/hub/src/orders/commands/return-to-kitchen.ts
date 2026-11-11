@@ -120,6 +120,7 @@ function returnToKitchen(ctx: CommandCtx, payload: Payload): { events: EventDraf
   const line = lines.find((l) => l.order_item_id === id)!;
   checkReturnable(state, now, line, lines);
   const order = state.orders[order_id]!;
+  // Broken-invariant guard, not a client error: every order_lines row is folded from an ItemAdded on its order stream.
   if (found.copy === null) throw new Error(`ReturnToKitchen: no ItemAdded for ${id} on ${order_id}`);
   const copy = ItemAddedPayload.parse(JSON.parse(found.copy));
 

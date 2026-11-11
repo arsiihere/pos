@@ -528,6 +528,7 @@ describe('ReturnToKitchen (02b §6.7, §3.8)', () => {
     expect(returnToKitchenCommand.permission).toBe('mark-item-returned');
     const waiter = await ret(signIn('S_WAITER'), { order_item_id: 'N1', return_order_item_id: 'R1', mode: 'fix' });
     expect(waiter.status).toBe(403);
+    expect(waiter.error).toEqual({ code: 'PERMISSION_DENIED', details: { permission: 'mark-item-returned', grant: 'not_granted' } });
   });
 
   it('[02b §6.7] statements: 2 (line, return_order_item_id id check + the line copy) at branch; 3 with the holder (own_tables dine-in) or currentTableOf (my_floors dine-in)', async () => {
