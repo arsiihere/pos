@@ -65,8 +65,7 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
   it('[03b §4.2] every 03b export throws "not built" until its task; undoReadyForLines is a no-op (no Ready exists yet)', async () => {
     const kds = await import('../../src/kds/contracts');
     expect(() => kds.stationPresence()).toThrow(/not built/);
-    expect(() => kds.buildLineDetails({} as never, {} as never, ['L1'])).toThrow(/not built/);
-    expect(() => kds.pointOfLine({} as never, 'L1')).toThrow(/not built/);
+    // buildLineDetails, pointOfLine: built by b11 (test/kds/details.int.test.ts).
     expect(() => kds.devicePoint('D1')).toThrow(/not built/);
     expect(() => kds.handoversDue({} as never, WALL, 180_000)).toThrow(/not built/);
     expect(kds.undoReadyForLines({} as never, ['L1'])).toEqual({ events: [], ready_undone: [] });
