@@ -4,14 +4,16 @@ import type { FastifyInstance } from 'fastify';
 import type { CommandCtx } from '../../commands/registry.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
+import { branchConfig } from '../../sync/branch-config-holder.js';
 import { TEST_ALERT } from '../kinds.js';
 import { alerts } from '../raise.js';
 import { hasTargetResolver } from '../targets.js';
 
 // 01d §6.5 `SendTestAlert`, §3.10 `test_alert`: a manager (`manage-devices`, the normal permission check; not
 // handler-checked) sends a test to a person, a team (default depth 'direct', from the payload schema), a
-// device or a point. Processing: a point without a registered resolver → 422 points_not_available (stubbed
-// until 01a, §4.4); unknown staff (person or team lead) → 404 STAFF_NOT_FOUND (directory, in memory); unknown
+// device or a point. Processing: a point id that is not an active point of branchConfig().points → 404
+// POINT_NOT_FOUND (checked first, memory; v1.2.3 D-4, 03b B1-1); a point without a registered resolver → 422
+// points_not_available (§4.4); unknown staff (person or team lead) → 404 STAFF_NOT_FOUND (directory, in memory); unknown
 // or revoked device → 404 DEVICE_NOT_FOUND (1 statement); then `raise('test_alert')` on hub / branch_id with
 // dedupe_key 'test:' + command_id (the alert id is made inside raise). Statements: 1 (device only) + raise.
 // A team with no reports or an offline device is not an error: step 0 lists who it resolves to, with no
@@ -32,6 +34,9 @@ function knownStaff(ctx: CommandCtx, staffId: string): void {
 function checkTarget(ctx: CommandCtx, target: Payload['target']): string | null {
   switch (target.kind) {
     case 'point':
+      if (!(branchConfig()?.points.some((p) => p.point_id === target.point_id && !p.is_archived) ?? false)) {
+        throw new DomainError('POINT_NOT_FOUND', { point_id: target.point_id });
+      }
       if (!hasTargetResolver('point')) {
         throw new DomainError('CONFIG_REFERENCE_INVALID', { field: 'target.point_id', reason: 'points_not_available' });
       }
