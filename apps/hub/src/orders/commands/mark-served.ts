@@ -1,6 +1,6 @@
 // 02b §6.4 MarkServed (queueable), §3.7, O16, §3.3, §3.14. No lock (D39; 02a P-1e, #62).
 import { DomainError } from '@pos/domain';
-import { isOrderInEngine, stockEffects } from '@pos/engine';
+import { isOrderInEngine, stockEffects, type EngineState } from '@pos/engine';
 import type { EventDraft, ItemServedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -12,7 +12,7 @@ import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { currentTableOf } from '../../tables/reads.js';
-import type { OrderType } from '../contracts.js';
+import type { LineView, OrderType } from '../contracts.js';
 import { orderLines } from '../exports.js';
 import { foodDrafts } from '../food.js';
 
@@ -138,7 +138,7 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   const lines = orderLines(db, orderIds);
 
   const skipped: string[] = [];
-  const serves: Array<{ order_id: string; ids: string[]; inEngine: boolean }> = [];
+  const serves: ServeEntry[] = [];
   payload.lines.forEach((entry, i) => {
     if (!orders.has(entry.order_id)) throw new DomainError('ORDER_NOT_FOUND', { order_id: entry.order_id });
     const byId = new Map(lines.get(entry.order_id)!.map((l) => [l.order_item_id, l]));
@@ -169,34 +169,73 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
 
   checkOrderScope(ctx, orderIds.map((id) => orders.get(id)!));
 
-  const envelope = { occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
-  // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
-  const servedTime = ctx.queuedAt ?? now;
-  const servedDrafts = serves.map((s): EventDraft => {
-    const p: ItemServedPayload = { order_item_ids: s.ids, source: 'tap', ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }) };
-    return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...envelope };
+  const envelope: ServedEnvelope = {
+    occurred_at: now,
+    actor_id: ctx.actor.staffId,
+    device_id: ctx.actor.deviceId,
+    // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
+    ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }),
+  };
+  const events = servedDrafts(ctx.state, lines, serves, envelope, 'tap');
+  return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
+}
+
+/** One order's lines to serve (validated by the caller); `inEngine` = `isOrderInEngine` at the envelope time (O16). */
+export interface ServeEntry {
+  order_id: string;
+  ids: string[];
+  inEngine: boolean;
+}
+
+/** The serve envelope; `served_at` (a queued MarkServed's accepted queued_at, §3.12) goes on each ItemServed when set. */
+export interface ServedEnvelope {
+  occurred_at: number;
+  actor_id: string | null;
+  device_id: string;
+  served_at?: number;
+}
+
+/**
+ * §3.7 the serve drafts (⚠️ Changed by 03b v1.0.1 G-2; 02b v1.0.6 note): per entry, in order, `ItemServed
+ * { order_item_ids, source, served_at? }` → `OrderFoodServed` when it serves a food line (§3.3, AD-13) → its
+ * `stockEffects` (one call over the in-engine serves, array form, AD-29 Q7). `lines` = `orderLines` of the entries'
+ * orders (read by the caller). MarkServed calls it with `source: 'tap'`; 03b's `served_estimate` tick (task 0e,
+ * §6.11) with `'estimated'`. 0 statements.
+ */
+export function servedDrafts(
+  state: EngineState,
+  lines: ReadonlyMap<string, readonly LineView[]>,
+  serves: readonly ServeEntry[],
+  envelope: ServedEnvelope,
+  source: 'tap' | 'estimated',
+): EventDraft[] {
+  const { served_at, ...env } = envelope;
+  const servedTime = served_at ?? env.occurred_at;
+  const itemServed = serves.map((s): EventDraft => {
+    const p: ItemServedPayload = { order_item_ids: s.ids, source, ...(served_at === undefined ? {} : { served_at }) };
+    return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...env };
   });
   // AD-29 Q7: one stockEffects call over the in-engine serves, split back per ItemServed. The split relies on engine
   // stock.ts effectsOf never giving an ItemServed `before` effects (its case returns `before: []`), so every effect
   // follows its own ItemServed up to the next one; an effect ahead of the first ItemServed is a broken assumption.
   const effects = new Map<EventDraft, EventDraft[]>();
   let current: EventDraft[] | null = null;
-  const inEngineDrafts = servedDrafts.filter((_, i) => serves[i]!.inEngine);
+  const inEngineDrafts = itemServed.filter((_, i) => serves[i]!.inEngine);
   const inEngineSet = new Set(inEngineDrafts);
-  for (const d of stockEffects(ctx.state, inEngineDrafts)) {
+  for (const d of stockEffects(state, inEngineDrafts)) {
     if (inEngineSet.has(d as EventDraft)) effects.set(d as EventDraft, (current = []));
     else if (current === null) throw new Error('MarkServed: stockEffects drafted an effect before an ItemServed');
-    else current.push({ ...d, ...envelope });
+    else current.push({ ...d, ...env });
   }
 
   const events: EventDraft[] = [];
   serves.forEach((s, i) => {
-    const itemServed = servedDrafts[i]!;
-    const after = lines.get(s.order_id)!.map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: servedTime, served_source: 'tap' as const } : l));
-    const food = foodDrafts(s.order_id, after, { kind: 'served', order_item_ids: s.ids }).map((d): EventDraft => ({ ...d, ...envelope }));
-    events.push(itemServed, ...food, ...(effects.get(itemServed) ?? []));
+    const draft = itemServed[i]!;
+    const after = (lines.get(s.order_id) ?? []).map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: servedTime, served_source: source } : l));
+    const food = foodDrafts(s.order_id, after, { kind: 'served', order_item_ids: s.ids }).map((d): EventDraft => ({ ...d, ...env }));
+    events.push(draft, ...food, ...(effects.get(draft) ?? []));
   });
-  return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
+  return events;
 }
 
 export const markServedCommand = defineCommand({

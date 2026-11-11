@@ -23,6 +23,8 @@ import { registerOpenOrdersQuery } from './queries/open-orders.js';
 import { registerOrderContactQuery } from './queries/order-contact.js';
 import { registerSeatingOrdersQuery } from './queries/seating-orders.js';
 import { registerZoneStockQuery } from './queries/zone-stock.js';
+import { registeredTicks, registerTick } from '../alerts/tick.js';
+import { servedEstimateTick } from './served-estimate-tick.js';
 
 // 02b wiring entry (§4.2; plan "02b exports and contracts"): commands, kinds, queries, catch-up, audiences.
 // Called once from buildHubServer. Each lane appends its lines under its own marker (and its own import lines
@@ -69,6 +71,10 @@ export function registerOrders(app: FastifyInstance, deps: HubDeps): void {
 
   // wave 3 lane C (handover card amount, G-1)
   registerSeatingTotals(seatingTotals);
+
+  // 03b task 0e (G-2; §3.7, §6.11): tick served_estimate over 03b's handoversDue. The tick list is process-wide and
+  // registerTick throws on a second name; every server build gets here (before 03b's pass ticks: registerKds runs after).
+  if (!registeredTicks().some((t) => t.name === servedEstimateTick.name)) registerTick(servedEstimateTick);
 }
 
 // G-3: the `orders` projection (§5), registered where the hub's projection registry is created (boot, test hub).
