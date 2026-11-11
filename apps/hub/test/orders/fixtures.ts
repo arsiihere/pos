@@ -366,7 +366,8 @@ function buildLines(state: EngineState, config: BranchConfig, o: FixtureOrder, o
       const index = deal.parts.findIndex((p) => p.deal_part_id === l.deal_part_id);
       const part = deal.parts[index]!;
       const ci = itemOf(l.item_id ?? part.choices[0]!.item_id);
-      const quantity = ci.sale_unit === 'piece' ? part.quantity * dealQty : dealQty;
+      // 01c §3.4.2: part quantity × deal count, piece and g/ml alike (a g/ml part's units are still per deal, §3.4.8).
+      const quantity = part.quantity * dealQty;
       const allocated = allocateDealMinor(parent.line_total_minor ?? 0, weights)[index]!;
       line = {
         ...NONE,

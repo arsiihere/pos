@@ -91,4 +91,33 @@ describe('[02b fixtures] shared order fixtures', () => {
     });
     expect(engine().orders[parking.order_id]).toMatchObject({ table_key: 'parking:LEB1234' });
   });
+
+  it('[02b fixtures] 01c §3.4.2: a deal part quantity = part quantity × deal count (a 2× deal with a 500 g part → 1 000 g)', async () => {
+    hub = await createTestHub();
+    const base = fixtureMenu();
+    const rice = { ...base.items.find((i) => i.item_id === FX.naan)!, item_id: 'I_RICE', name: 'Rice', sort_order: 7, sale_unit: 'g' as const, price_minor: 200_000 };
+    const deal = base.deals[0]!;
+    const menu = {
+      ...base,
+      items: [...base.items, rice],
+      deals: [{ ...deal, parts: [...deal.parts, { deal_part_id: 'DP_RICE', quantity: 500, sort_order: 2, choices: [{ item_id: rice.item_id, extra_price_minor: 0, sort_order: 0 }] }] }],
+    };
+    openDay(hub, { menu, stock: { [FX.stock]: 10_000 } });
+    const placed = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'D2', deal_id: FX.deal, quantity: 2 },
+        { order_item_id: 'D2a', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D2' },
+        { order_item_id: 'D2b', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'D2' },
+        { order_item_id: 'D2c', deal_id: FX.deal, deal_part_id: 'DP_RICE', item_id: rice.item_id, parent_order_item_id: 'D2' },
+      ],
+    });
+    const added = new Map(logged(placed.order_id).filter((e) => e.type === 'ItemAdded').map((e) => [e.payload.order_item_id, e.payload]));
+    expect(added.get('D2')).toMatchObject({ line_kind: 'deal', quantity: 2 });
+    // Piece parts: 1 × 2 and 2 × 2; the g part: 500 g × 2 deals (never the deal count alone).
+    expect(added.get('D2a')).toMatchObject({ line_kind: 'deal_part', sale_unit: 'piece', quantity: 2 });
+    expect(added.get('D2b')).toMatchObject({ line_kind: 'deal_part', sale_unit: 'piece', quantity: 4 });
+    expect(added.get('D2c')).toMatchObject({ line_kind: 'deal_part', sale_unit: 'g', quantity: 1_000 });
+    expect(engine().diagnostics).toEqual([]);
+  });
 });
