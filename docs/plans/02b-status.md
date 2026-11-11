@@ -117,6 +117,9 @@ Duplication carried for the integrator:
 - the takeaway / parking scope helper is built in both 2B and 2C.
 
 Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or a later clean-up; (b) rule item by item. | **ruled (owner, 2026-11-11): (a) accepted as read**; text bump for 12, 18 and the scope note; dedupe carried |
+| AD-37 | 21 | Lane 3A S-1: §6.15 `seating-orders` `groups: [{ promise_ms }]` has no source in `EngineState` (only `EngineOrder.promise_ms`; per-group promises are only in `OrderPlaced`) | **ruled (owner, 2026-11-11): (d)** returns the order-level `promise_ms` (`EngineOrder.promise_ms`), no per-group list (text bump §6.15) |
+| AD-38 | 21 | Lane 3A S-2: §6.18 `order-contact` says "Statements: 1", but the shared MarkServed scope check reads `currentTableOf` under `my_floors` dine-in | **ruled (owner, 2026-11-11): (a)** 2 statements for `my_floors` + dine-in, 1 otherwise (text bump §6.18) |
+| AD-39 | 21 | Lane 3A readings R1–R12 (opus-reviewed) | **ruled (owner, 2026-11-11):** R1 (`abandoned=true` is managers only) accepted. **R2 changed:** an order with no engine lines (only no-station / ready / zone-served lines) is **never** in the abandoned list, since it isn't waiting on the kitchen; with a test. R12 (`abandoned` + `order_type` = any type) accepted. **R8 changed:** `seating-orders` adds `fired: boolean` per line from the engine state (0 statements), so the client can enable Mark served; with a test. R3–R7, R9–R11 accepted as read. (Text bump §6.15, §6.16, §12.2 row 16) |
 
 ## Owner rulings (this sprint)
 
@@ -131,8 +134,11 @@ Options: (a) accept all as read (text bump for 12, 18), and dedupe in wave 4 or 
 | 2026-11-11 | AD-26 hub `maxHeaderSize` 64 KB; AD-27 return line weight → 409 `LINE_NOT_WEIGHED`; AD-28 `ORDER_NOT_FOUND { order_item_id }`; AD-29 H-b header → 400, N-a no-station line can be served | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §6 |
 | 2026-11-11 | AD-30 land only lane 2A's socket test; AD-31 return to a paused station → 409 `STATION_PAUSED`; AD-32–AD-34 accepted; AD-35 stage `'not_engine_line'` | AD rows, "Next 02b text bump", `docs/OPEN-QUESTIONS.md` §5 |
 | 2026-11-11 | AD-36 (a) wave 2 lane readings accepted as read; the SubmitOrder / OpenTable scope note goes in the text bump; the three duplicates are carried | AD-36, "Next 02b text bump", Wave 2 entry |
+| 2026-11-11 | AD-37 (d) order-level promise; AD-38 (a) order-contact 1 / 2 statements; AD-39 lane 3A readings, R2 and R8 changed. **"Next 02b text bump" becomes spec v1.0.4, written in wave 4, APPROVED now** | AD-37–AD-39, "Next 02b text bump" |
 
 ## Next 02b text bump
+
+**Owner, 2026-11-11: wave 4 writes this list as `02b_Ordering_Spec_v1.0.4.md` (APPROVED now), with "⚠️ Changed by v1.0.4" markers and the README row.**
 
 Readings already accepted in code that the next 02b text patch writes into the spec (owner, 2026-11-10):
 
@@ -156,6 +162,12 @@ Readings already accepted in code that the next 02b text patch writes into the s
   - §3.14 / §6.1: write down how `SubmitOrder`'s scope `my_floors` applies to a named table, and align the text with 02a `OpenTable` (02a v1.1.4 §3.2: `take-order` `my_floors` "with the floor"; owner note Q1). 02a and 02b must say the same thing. If they differ, the next text bump of each (02a and 02b) states one rule.
   - §3.10 / §6.1: the zone statement count includes 01d's `listOpen`.
   - §6.5: `ReleaseItems` / `BoostOrder` statements are 1–2.
+- **AD-37:** §6.15 `seating-orders` gives `promise_ms` per order (order level), not `groups: [{ promise_ms }]`.
+- **AD-38:** §6.18 `order-contact` statements: 1, or 2 with `my_floors` on a dine-in order.
+- **AD-39:**
+  - §6.16: `abandoned=true` is managers only (§12.2 row 16 says staff: fix it), and an order with no engine lines is never abandoned.
+  - §6.15: lines carry `fired: boolean`.
+  - R3–R7 and R9–R11 are written down as read.
 - **AD-31–AD-35:** the §6.7 `ReturnToKitchen` error list gains:
   - `409 STATION_PAUSED` (paused station, no alternate);
   - `404 MENU_ITEM_NOT_FOUND` (`fix` with the item gone);
