@@ -71,9 +71,18 @@ export const AlertDetailsBaseV1 = z.object({
   reason: z.string().max(200).optional(),
 });
 // ⚠️ Changed by 03a v1.0 (03a AD-36), 01d v1.1.2 D-1: + minutes_late and lines, for 03a's slip_warning card.
-export const AlertDetailsBase = AlertDetailsBaseV1.extend({
+// ⚠️ Changed by 03b v1.0.1 D-2 (01d v1.2.2): frozen as V2, so AlertRaised v2 keeps the shape it was stored with (F D46).
+export const AlertDetailsBaseV2 = AlertDetailsBaseV1.extend({
   minutes_late: int.min(0).optional(),
   lines: z.array(z.object({ name: z.string().min(1), quantity: int.min(1), state: z.string().min(1) })).optional(),
+});
+// ⚠️ Changed by 03b v1.0.1 D-2 (01d v1.2.2): + identifier, station_name, printer_name, problem (each ≤ 40) for 03b's
+// ready_to_serve / served_card / kds_offline and 03c's printer_problem cards. Kinds use AlertDetailsBase.pick(...).
+export const AlertDetailsBase = AlertDetailsBaseV2.extend({
+  identifier: z.string().max(40).optional(),
+  station_name: z.string().max(40).optional(),
+  printer_name: z.string().max(40).optional(),
+  problem: z.string().max(40).optional(),
 });
 export type AlertDetails = z.infer<typeof AlertDetailsBase>;
 

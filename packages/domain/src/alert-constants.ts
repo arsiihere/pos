@@ -5,6 +5,8 @@ export const ALERT_CONSTANTS = Object.freeze({
   approval_branch_ms: 120_000,
   binding_route_idle_ms: 7_200_000,
   needs_pin: Object.freeze({ money: 'always', accept: 'never' } as const),
+  // ⚠️ Changed by 03c v1.0.1 D-3 (01d v1.2.2): a printer problem older than this raises printer_problem (03c §3.7).
+  printer_alert_ms: 30_000,
 } as const);
 
 export const ALERT_FAMILIES = ['urgent', 'action', 'info'] as const;
