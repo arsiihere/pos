@@ -15,6 +15,10 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 >
 > **2026-11-10 (owner ke faisle):** AD-7 ke liye schema sakht kar diya; AD-8, AD-9, AD-10 contracts mein aa gaye; AD-11 ke liye spec v1.0.3 approve hui aur code theek ho gaya. Gate green (3812).
 > - Review mein 2 aur khaliyan mili: AD-12 (hub ka UTC offset) aur AD-13 (serve ne kaun si lines serve kin). Wave 1 se pehle in par faisla chahiye.
+>
+> **2026-11-11 (wave 1):** projection, exports, ledger, food rules, buildSubmit ban gaye. Gate green (3909 tests).
+> - Lane 1A aur 1C ruke, owner ne faisle diye (AD-14 se AD-22). AD-23 (fixture ka deal weight) abhi khula hai, kuch nahi rokta.
+> - Agla qadam: wave 2.
 
 ## Task table
 
@@ -25,11 +29,11 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 3 | Migration `0013_orders.sql` | 3 | 0 | HIGH | **done (wave 0)** | `8ec74c0` |
 | 4 | `orders/contracts.ts`, `index.ts` skeleton, test fixtures | — | 0 | NORMAL | **done (wave 0); contract fix waits on AD-8–AD-10** | `c2a05b1` |
 | 5 | Zone kinds, `zoneAlertDrafts` | 15 | 0 | NORMAL | **done (wave 0)** | `81b365a` |
-| 6 | Projection `orders` | 3 | 1A | HIGH | todo | |
-| 7 | Exports `seatingTotals`, `orderLines`, `ordersOf` | 16 | 1A | NORMAL | todo | |
-| 8 | Ledger `lineShares`, cascades | 4 | 1B | HIGH | todo | |
-| 9 | Food rules `foodDrafts` | (9, 11, 13) | 1B | HIGH | todo | |
-| 10 | `buildSubmit`, zone routing | 5 | 1C | NORMAL | todo | |
+| 6 | Projection `orders` | 3 | 1A | HIGH | **done (wave 1)** | `c1593fe`, `80206ab` |
+| 7 | Exports `seatingTotals`, `orderLines`, `ordersOf` | 16 | 1A | NORMAL | **done (wave 1)** | `e44ee9d`, `a1933ef` |
+| 8 | Ledger `lineShares`, cascades | 4 | 1B | HIGH | **done (wave 1)** | `48905b8`, `fd8433d` |
+| 9 | Food rules `foodDrafts` | (9, 11, 13) | 1B | HIGH | **done (wave 1)** | `7fe766f`, `559cb2f` |
+| 10 | `buildSubmit`, zone routing | 5 | 1C | NORMAL | **done (wave 1)** | `3109fe8`, `8b513ac`, `575af53` |
 | 11 | `SubmitOrder` | 6 | 2A | HIGH | todo | |
 | 12 | Zone-served submit | 7 | 2A | HIGH | todo | |
 | 13 | `eta-preview` | 8 | 2A | NORMAL | todo | |
@@ -83,6 +87,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-20 | 10 | Lane 1C S-5: a `kitchen_note` on a deal line lands on the header, which no slip shows | **ruled (owner, 2026-11-11): (b)** copied to every engine part (text bump) |
 | AD-21 | 10, 11 | Lane 1C readings (task 10 review leftovers): deal parts in snapshot order, not `sort_order`; a weighed `from_zone` candidate cannot occur (01a A-1: zone stock items are piece); `isAvailable` = manual Off only, task 11 must not fold sold out into it; `order_note` of #2 tested in task 11 | **ruled (owner, 2026-11-11): accepted**; plan patch on task 11 |
 | AD-22 | 9 | `isEngineLine` is not exported from `@pos/engine` (plan "Exact names" row wrong); task 9 copied it in `food.ts` | **ruled (owner, 2026-11-11):** re-export from `packages/engine/src/index.ts`, `food.ts` imports it (fix commit, opus review) |
+| AD-23 | fixtures (test-only) | `appendOrder` weights deal parts by `lineTotalMinor(chosen price, qty, 'piece')`. 01c V11 c / M9 weight by the g/ml line total of the **reference** choice (first by `sort_order`, then `item_id`). No current assertion depends on it: every deal in use has piece parts and one choice each, and the new G3 test does not assert `allocated_price_minor` (fix G review). Options: (a) fix the fixture to the 01c rule (test-only); (b) leave it and document it. Recommendation: (a). | proposed (not yet ruled) |
 
 ## Owner rulings (this sprint)
 
@@ -156,8 +161,60 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **Plan path note:** the migration-list test is `apps/hub/test/db/alerts-migration.int.test.ts`. The plan says `test/alerts/`. Owner: noted here, no plan edit.
 - **Gate:** TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test". Result: 401 files (1 skipped), 3812 tests passed (1 skipped, 1 todo), 544 s wall. Green.
 
+## Wave 1 — projection, exports, ledger, food rules, buildSubmit (2026-11-10 → 2026-11-11)
+
+- **Lanes:**
+  - 1A: tasks 6, 7.
+  - 1B: tasks 8, 9.
+  - 1C: task 10.
+  - All cut from `f9a5fa0`. The laptop slept overnight, so the wave ran across two days.
+- **STOPs:**
+  - 1A: `return_of` → AD-15 (A).
+  - 1C: S-1–S-5 → AD-16–AD-20; its readings → AD-21.
+  - Ruled by the owner 2026-11-11. The integrator commits the lanes cherry-picked: `a3399b2`, `5d2773e`.
+- **Landed (cherry-picked in table order once each lane was done; lane copies of integrator commits skipped by content, 02a AD-21):**
+  - 1B: `48905b8`, `7fe766f`.
+  - 1A: `c1593fe`, `e44ee9d`, `a1933ef`, `80206ab` (copy `44b3d61` skipped).
+  - 1C: `3109fe8`, `8b513ac`, `575af53` (copy `de73033` skipped).
+  - No conflicts. The `index.ts` lines are additive under their markers.
+- **Integrator commits this wave:**
+  - `a3399b2` `ItemAdded.return_of` (+ types-only engine `Omit`).
+  - `5d2773e` `BuildSubmitCtx.draws`.
+  - `559cb2f` `isEngineLine` re-export, so `food.ts` imports it (AD-22).
+  - `fd8433d` ledger tests start from reachable states.
+  - `d4829b5` fixture g/ml deal part quantity (01c §3.4.2).
+  - `ea60f49` board / plan patch.
+  - Each passed review (opus, except `5d2773e`/`a3399b2`, which opus reviewed together).
+- **Reviews in the lanes:** one fresh opus implementer and one fresh opus reviewer per task.
+  - 8: approved first pass.
+  - 9: approved; its Important finding was a reading, now AD-14.
+  - 6: approved, plus the AD-15 follow-up, approved.
+  - 7: one fix round (3 addressed).
+  - 10: one fix round, then the rulings fix, approved.
+- **Gate:** `TMPDIR=/dev/shm flock /tmp/pos-gate.lock -c "pnpm -w typecheck && pnpm -w lint && pnpm -w test"`. 406 files (1 skipped), 3909 tests passed (1 skipped, 1 todo), 579 s wall. Green.
+- **Replay identity #28:** `[02b #28] live projection = replayed projection over a fixture day, orders registered before and after tables` (`projection.int.test.ts`). Green.
+- **Statement counts asserted:** `seatingTotals`, `orderLines` and `ordersOf` are 1 statement each over 40 orders (`exports.int.test.ts`, `[02b §4.2] one statement each`).
+- **§12.2 rows ticked:** none (no command yet).
+- **Files outside `orders/`:**
+  - G-3 lines in `lib/boot.ts` and `test/helpers/test-hub.ts` (lane 1A).
+  - The integrator commits above in `packages/events`, `packages/engine`.
+  - G-2 edits: none.
+- **AD rows:**
+  - AD-14–AD-22 ruled (owner 2026-11-11).
+  - **AD-23 proposed** (fixture deal weights).
+- **Carried (minor, deferred):**
+  - 1A:
+    - no `LineWeightSet` → `billed_minor` case in the exports tests;
+    - a return line sits in its own order (comment);
+    - the `returnLine` test helper spreads options / `stock_draws`;
+    - `LineWeightSet` ignores `return_of`.
+  - 1B: the ledger kinds coverage is recorded before the comp skip (`ledger.test.ts:488`). Deal-part ledger "units" ≠ `ItemAdded.quantity` by design (`menu-lines.voids.test.ts:225`); don't "fix" it.
+  - 1C:
+    - deal parts in snapshot order (AD-21);
+    - `plan.ts:1054` comment could cite 03a §4.2.
+
 ## Next
 
-1. **Claude Code:** wave 1. Lanes 1A (tasks 6, 7), 1B (8, 9) and 1C (10) are cut from `876dfdc`.
+1. **Owner:** review wave 1, then type `wave 2`. Rule AD-23 any time; it is test-only and blocks nothing.
 2. **Owner (any time):** AD-1–AD-6.
 3. **Design (parallel):** `docs/design/handoff/02b/` from the screen list in plan wave 5.
