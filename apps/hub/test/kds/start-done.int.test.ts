@@ -464,6 +464,33 @@ describe('[03b §3.2] b8 review fixes', () => {
     expectRebuildEqualsLive();
   });
 
+  it('[03b §3.2 step 1, AD-18] Done: a load member whose order left the engine is not done and draws no StockConsumed', async () => {
+    const station = kds(B);
+    const warm = { program_cook_time_ms: 8 * MIN, stock_program_cook_time_ms: 2 * MIN };
+    const o1 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'G1', item_id: 'I_BS', item: warm }] }).order_id;
+    const o2 = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'G2', item_id: 'I_BS', item: warm }] }).order_id;
+    expect(engine().lines.G1!.from_stock).toBe(true);
+    expect(engine().lines.G2!.from_stock).toBe(true);
+    fireLoad(B, ['G1', 'G2']);
+    // O1 is abandoned (03a §3.3: order_abandon_ms 4 h after its last fold); a boost keeps O2's clock fresh.
+    hub.clock.advance(4 * 60 * MIN - 5 * MIN);
+    append(hub, [{ stream_type: 'order', stream_id: o2, event_type: 'OrderBoosted', payload: { order_id: o2 } }]);
+    hub.clock.advance(10 * MIN);
+    const now = hub.clock.branchNow();
+    expect(isOrderInEngine(engine(), o1, now)).toBe(false);
+    expect(isOrderInEngine(engine(), o2, now)).toBe(true);
+    expect(engine().lines.G1).toMatchObject({ stage: 'added', started_at: null });
+
+    // From stock, never started: Done with no Start (§3.2 DoneItem step 3) on G2 only.
+    const r = await done(station, 'G2');
+    expect(r.status).toBe(200);
+    expect(r.result).toEqual({ done: ['G2'] });
+    expect(r.events.filter((e) => e.event_type === 'ItemDone').map((e) => e.payload.order_item_id)).toEqual(['G2']);
+    expect(r.events.filter((e) => e.event_type === 'StockConsumed').map((e) => e.payload.order_item_id)).toEqual(['G2']);
+    expect(engine().lines.G1!.stage).toBe('added');
+    expectRebuildEqualsLive();
+  });
+
   it('[03b §3.2 step 1, AD-8] a placeholder line (listed by OrderPlaced, no ItemAdded yet) is absent → 404 ORDER_NOT_FOUND', async () => {
     const station = kds(FX.station);
     const placed = appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'L0', item_id: FX.naan }] }).events.find((e) => e.event_type === 'OrderPlaced')!;
