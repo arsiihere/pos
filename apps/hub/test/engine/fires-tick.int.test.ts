@@ -58,6 +58,8 @@ describe('03a task 22: the fires tick', () => {
     hub = await createTestHub();
     unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
     for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
+    // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this file counts the ticks
+    unregisterTick('kds_presence');
     // 0006 seeds the no_approver flag dirty (01d's flag pass): start clean, so 01d's tick is idle (1 SELECT per pass).
     hub.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
     log.error.mockClear();

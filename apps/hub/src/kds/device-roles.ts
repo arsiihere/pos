@@ -32,7 +32,8 @@ export function loadDeviceMaps(db: Database.Database): void {
   const points = new Map<string, string>();
   const stations = new Map<string, string[]>();
   for (const row of rows) {
-    if (row.point_id !== null) points.set(row.device_id, row.point_id);
+    // 03b §3.1: a Pass tablet is a `tablet` with a point; any other device type is never one (b20 privacy review)
+    if (row.point_id !== null && row.device_type === 'tablet') points.set(row.device_id, row.point_id);
     if (row.device_type === 'kds' && row.station_id !== null) {
       const list = stations.get(row.station_id);
       if (list === undefined) stations.set(row.station_id, [row.device_id]);

@@ -215,6 +215,8 @@ describe('02a tick table_locks (§3.4, §6.5, T14)', () => {
       const counter = statementCounter(h.deps.db);
       expect(due()).toBe(false);
       expect(counter.count).toBe(1);
+      // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this test counts the ticks
+      unregisterTick('kds_presence');
       // the loop: only table_locks and the alerts tick are registered; no dirty alert flag
       for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
       h.deps.db.prepare('UPDATE alert_flags SET dirty = 0').run();
