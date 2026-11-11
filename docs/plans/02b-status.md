@@ -88,6 +88,8 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | AD-21 | 10, 11 | Lane 1C readings (task 10 review leftovers): deal parts in snapshot order, not `sort_order`; a weighed `from_zone` candidate cannot occur (01a A-1: zone stock items are piece); `isAvailable` = manual Off only, task 11 must not fold sold out into it; `order_note` of #2 tested in task 11 | **ruled (owner, 2026-11-11): accepted**; plan patch on task 11 |
 | AD-22 | 9 | `isEngineLine` is not exported from `@pos/engine` (plan "Exact names" row wrong); task 9 copied it in `food.ts` | **ruled (owner, 2026-11-11):** re-export from `packages/engine/src/index.ts`, `food.ts` imports it (fix commit, opus review) |
 | AD-23 | fixtures (test-only) | `appendOrder` weights deal parts by `lineTotalMinor(chosen price, qty, 'piece')`. 01c V11 c / M9 weight by the g/ml line total of the **reference** choice (first by `sort_order`, then `item_id`). No current assertion depends on it: every deal in use has piece parts and one choice each, and the new G3 test does not assert `allocated_price_minor` (fix G review). Options: (a) fix the fixture to the 01c rule (test-only); (b) leave it and document it. Recommendation: (a). | **ruled (owner, 2026-11-11): (a)** — test-only, with a two-choice g/ml deal `allocated_price_minor` test; `6e7bc46` (opus review approved; the fixture still writes deal-part `extra_price_minor` 0, so lanes must not seed extras through it) |
+| AD-24 | 20, 21 | Lane 2D STOP: the "order taker receives `ZoneStockAdded`" clause needs the zone audience, which is task 21's (`orders/audiences.ts`); `audienceAllows` is false for an unregistered type | **ruled (owner, 2026-11-11): (a)** — clause moves to task 21 (plan patch); task 20 asserts `403` for an order taker without `manage-zone-stock` |
+| AD-25 | 20 | §6.9 "1 branch stock read" = the in-memory engine state (`dayDraws` / `saleUnitsAvailable` on `ctx.state`), 0 SQL statements | **ruled (owner, 2026-11-11): accepted** (text bump: say "in memory") |
 
 ## Owner rulings (this sprint)
 
@@ -98,6 +100,7 @@ Plan: `docs/plans/02b-plan.md` (27 tasks; hub in **parallel waves 0–4**, promp
 | 2026-11-10 | AD-12 (a) `utc_offset_ms` in `BuildSubmitCtx`; AD-13 (a) `after: { kind: 'served'; order_item_ids } \| 'change' \| 'return'` | AD rows, "Next 02b text bump" |
 | 2026-11-11 | AD-14 keep as built; AD-15 (A) `ItemAdded.return_of`; AD-16 (a) draws resolver; AD-17 keep 400; AD-18 ignore `variant_id`; AD-19 `{ deal_id, opens_at_ms }`; AD-20 (b) note to every engine part; AD-21 lane 1C readings accepted, plus a plan patch for task 11; AD-22 `isEngineLine` re-export. Test-only: the ledger comp-then-weight test starts from a weighed line; the property test never comps a weight-pending g line; in the fixtures, a g/ml deal part's quantity = part quantity × deal count (01c §3.4.2) | AD-14–AD-22, "Next 02b text bump", plan task 11 |
 | 2026-11-11 | AD-1–AD-6 accepted as read; AD-23 (a) fixture deal weights by the 01c V11 c / M9 reference choice (test-only) | AD rows |
+| 2026-11-11 | AD-24 (a) zone-audience clause → task 21, task 20 asserts 403; AD-25 §6.9 branch stock read = in memory, 0 SQL | AD rows, plan tasks 20 / 21 |
 
 ## Next 02b text bump
 
@@ -114,6 +117,7 @@ Readings already accepted in code that the next 02b text patch writes into the s
 - **AD-18:** §6.1: drop `variant_id` from the payload, or mark it "accepted and ignored".
 - **AD-19:** §9: `ITEM_OUT_OF_HOURS { item_id | deal_id, opens_at_ms | null }`.
 - **AD-20:** §3.2 / 01c §4.3 row: a deal's `kitchen_note` is copied to every engine part.
+- **AD-25:** §6.9 statements: "1 branch stock read" → "branch stock read from the engine state in memory (0 SQL)".
 
 ## Wave entries
 
