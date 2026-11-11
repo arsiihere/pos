@@ -192,7 +192,7 @@ describe('[03b §6.3] UndoDone', () => {
     hub.clock.set(at1 + UNDO_DONE_MS);
     const ok = await undo(station, 'L1', true);
     expect(ok.status).toBe(200);
-    expect(lastStatements).toBe(1); // §6.3: the Handover read (the Ready read is b9b's, inside undoReadyForLines)
+    expect(lastStatements).toBe(2); // §6.3: the Handover read + b9b's Ready read inside undoReadyForLines (G-9 class, b9b)
     expect(ok.result).toEqual({ undone: ['L1'], ready_undone: [] });
     expect(ok.events).toEqual([
       { event_type: 'ItemDoneUndone', stream_type: 'order', stream_id: order_id, actor_id: null, device_id: station.deviceId, payload: { order_item_id: 'L1' } },

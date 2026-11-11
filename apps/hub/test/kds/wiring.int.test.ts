@@ -63,13 +63,13 @@ describe('[03b #53, 03c #10] 03b / 03c wiring (phase 0 skeleton)', () => {
 });
 
 describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => {
-  it('[03b §4.2] every 03b export throws "not built" until its task; undoReadyForLines is a no-op (no Ready exists yet)', async () => {
+  it('[03b §4.2] every 03b export throws "not built" until its task', async () => {
     const kds = await import('../../src/kds/contracts');
     expect(() => kds.stationPresence()).toThrow(/not built/);
     // buildLineDetails, pointOfLine: built by b11 (test/kds/details.int.test.ts).
     expect(() => kds.devicePoint('D1')).toThrow(/not built/);
     expect(() => kds.handoversDue({} as never, WALL, 180_000)).toThrow(/not built/);
-    expect(kds.undoReadyForLines({} as never, ['L1'])).toEqual({ events: [], ready_undone: [] });
+    // undoReadyForLines: built by b9b, provided by lane B4's register (test/pass/undo-ready.int.test.ts).
   });
 
   it('[03c §4.2] printDocument / renderText throw "not built"; the boot, worker and retention hooks are no-ops', async () => {
