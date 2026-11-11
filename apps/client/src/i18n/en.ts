@@ -946,6 +946,8 @@ export const en = {
   'perm.set-line-weight': 'Enter or correct the weight of a weighed item',
   'perm.manage-zone-stock': 'Refill and count zone stock',
   'perm.view-customer-contact': 'See a customer’s name and phone',
+  // 03b B-1 (01b v1.8), G-6
+  'perm.run-pass': 'Run the Pass: mark orders ready and hand them over',
   'errors.ROLE_NOT_FOUND': 'This role no longer exists. The page is refreshed.',
   'errors.STAFF_NAME_TAKEN': 'Someone working at this branch already has this name. Add a surname or an initial.',
   'errors.LAST_ADMIN_REQUIRED': 'Each branch needs someone who can sign in to the hub admin. Give that to someone else first.',
