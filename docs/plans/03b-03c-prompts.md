@@ -106,6 +106,10 @@ All 03b/03c hub tasks are merged. Do plan tasks Z1 and Z2 (03b-plan.md "Close") 
 
 After your merge: on your own machine run `pnpm test:perf` (if any perf file changed) and the two manual-check lists with the pilot printers and a KDS tablet.
 
+**Reporting from your machine to a PR** (the integrator reads the comment; your checkout is not touched):
+- `tools/local/perf-report.sh <PR>` — runs `pnpm test:perf` on the PR head in a temporary worktree on the real disk and comments PASS / FAIL + the last 80 lines.
+- `tools/local/checks-report.sh <PR> docs/plans/03c-manual-checks.md` — after you tick the list (`[x]` + notes), comments it on the PR.
+
 ---
 
 ## §6. Client (later)
