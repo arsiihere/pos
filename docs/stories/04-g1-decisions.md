@@ -46,3 +46,27 @@
 **Rec: (a)** — the foundation already defines the protocol, so it is built once and 06 grows on it.
 
 **G0 §6 questions still unanswered** (Rec in G0): Q2 what can be voided, Q3 disposition / no staff meal, Q4 fixed reason codes, Q5 one request per order cancel, Q6 one pending void per order, Q7 block comp / remove / weight on pending lines (now also needed by G1-1b), Q8 nothing on KDS while pending, Q9 no override in pilot, Q10 withdraw = never happened, Q11 reject notice to requester + holder, Q12 wrong own order = void + new order, Q14 curated action list, Q15 Owner + Manager see it, Q16 approver card contents.
+
+## 4. Owner answers on G0 §6 (2026-11-11 19:25 PKT)
+
+| # | Owner said | Ruling |
+|---|---|---|
+| Q1 | (through K-7) | (a) Cashier, Order taker `void-item` requires approval by Manager |
+| Q2 | a | Any unbilled line past stage 1, served and abandoned included |
+| Q3 | "options daalni hain; paki hui cheez pre-cooked mein add ho ke next person ko nazar aaye; baqi options bhi — waste ya jo bhi possible" | **More dispositions than G0 (a).** Draft list (owner to confirm, §5): `moved` (to pre-cooked stock, = 03a ready stock; next order takes it, 02b §3.2 step 8), `wastage`, `staff_meal`, `other` (+ note). `moved` only at stage 2–3 and only for an item with a stock draw (else shown disabled "Stock not tracked for this item"); served / abandoned → `wastage`, `staff_meal`, `other`. |
+| Q4 | "filhal fixed buttons" | (a) fixed reason codes; `other` needs a note |
+| Q5 | b | **One request per line.** A whole-order cancel sends one request per line (one `VoidItems` call may carry several lines and raise one request each, in one transaction) |
+| Q6 | b | **Pending per line**, not per order |
+| Q7 | "lock kar dein; void wali cheez pe doosri request na bhejein; cancel kar ke phir new request" | **A line with a pending void is locked**: a second void, comp, remove or weight on it → `409 VOID_PENDING { alert_id }`; withdraw first, then ask again. Served / Done still work. Symmetric with G1-1b: a line with a pending comp refuses a void request (`409 COMP_PENDING`). |
+| Q8 | a | Nothing on the KDS while pending |
+| Q9 | "samajh nahi aaya" | re-asked in plain words (§5) |
+| Q10 | a | Withdraw = as if never asked |
+| Q11 | a | Requester + dine-in table holder |
+| Q12 | a | Void + new order; no third return mode |
+| Q14 | a | Curated sensitive-action list; no cloud config changes |
+| Q15 | a | Owner and Manager by default |
+| Q16 | — | not answered yet (§5) |
+
+## 5. Still open after §4
+
+K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
