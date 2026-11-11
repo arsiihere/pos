@@ -165,7 +165,7 @@ describe('POST /commands/set-station-capacity (03a §6.6)', () => {
     ]);
   });
 
-  it('[03a §10.5] statements: exactly 9 + one checkpoint upsert per registered projection for a lane_off, the 00 pipeline with one appended event (the TestStation command) and 0 handler reads', async () => {
+  it('[03a §10.5] statements: exactly 9 + one checkpoint upsert per registered projection (+ 2 for the 03b kds_config fold) for a lane_off, the 00 pipeline with one appended event (the TestStation command) and 0 handler reads', async () => {
     const hub = await open();
     const kds = stationOn(hub, 'S1');
     const counter = statementCounter(hub.deps.db);
@@ -186,12 +186,14 @@ describe('POST /commands/set-station-capacity (03a §6.6)', () => {
     //   1  the route's beforeSeq MAX(seq) read;
     //   2  the one append in handle: MAX(seq) + INSERT events;
     //   N  projection checkpoint upserts, one per registered projection;
-    //   2  the route's event_ids read + INSERT processed_commands.
+    //   2  the route's event_ids read + INSERT processed_commands;
+    //   2  03b's kds_config fold of the lane-reason StationCapacitySet (03b §3.7 mirror, b5): lane-device count + station_lanes
+    //      upsert (TestStation's event is not folded there, so the baseline has them as 0).
     // The handler reads nothing (station data from the engine state), and since AD-34 the route's own
     // tx.append([]) after a handler that appended in handle runs no statement, so it equals TestStation.
     expect(projections).toBeGreaterThan(0);
-    expect(ours).toBe(9 + projections);
-    expect(counter.count).toBe(ours);
+    expect(ours).toBe(9 + projections + 2);
+    expect(counter.count).toBe(ours - 2);
   });
 
   it('[03a #68] 403: a staff session whose roles lack manage-stations (the cashier) → PERMISSION_DENIED { permission: manage-stations }; nothing written', async () => {
