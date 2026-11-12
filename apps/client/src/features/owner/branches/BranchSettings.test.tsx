@@ -164,20 +164,38 @@ describe('[01b §8] branch settings', () => {
   // 03b §4.5 B-2 (owner ruling (a), 2026-11-11): Ready window, KDS offline, Served estimate (1–30 min or Off).
   const servedSwitch = () => m.container.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t('branches.timing.served_estimate_switch')}"]`)!;
 
-  it('[03b §4.5 B-2] kitchen screens: the three boxes show the stored values; changes are sent as ms', async () => {
+  // 03b v1.0.3 §4.5 A-2 (01a v2.4.3, owner ruling P15-1 (a), 2026-11-11): Ready window and KDS offline are typed
+  // in seconds; Served estimate stays in minutes. The wire stays ms.
+  it('[03b §4.5 A-2] kitchen screens: Ready window and KDS offline show seconds, Served estimate minutes; changes are sent as ms', async () => {
     const calls = await render();
     const group = m.container.querySelector<HTMLElement>('[data-group="kitchen-timing"]')!;
     expect(group.textContent).toContain(t('branches.timing.kds'));
-    expect(field('ready_window_ms')!.value).toBe('1');
-    expect(field('kds_offline_ms')!.value).toBe('0.5');
+    expect(field('ready_window_ms')!.value).toBe('60');
+    expect(field('kds_offline_ms')!.value).toBe('30');
     expect(field('served_estimate_ms')!.value).toBe('3');
+    const unit = (name: string) => field(name)!.parentElement!.querySelector('span')!.textContent;
+    expect(unit('ready_window_ms')).toBe(t('branches.timing.unit_sec'));
+    expect(unit('kds_offline_ms')).toBe(t('branches.timing.unit_sec'));
+    expect(unit('served_estimate_ms')).toBe(t('branches.timing.unit_min'));
     expect(servedSwitch().getAttribute('aria-checked')).toBe('true');
-    setValue(field('ready_window_ms'), '1.5');
-    setValue(field('kds_offline_ms'), '0.25');
+    setValue(field('ready_window_ms'), '90');
+    setValue(field('kds_offline_ms'), '15');
     setValue(field('served_estimate_ms'), '5');
     await click(button(m.container, t('branches.save_settings')));
     const patch = calls.find((c) => c.method === 'PATCH')!;
     expect(patch.body).toEqual({ expected_version: 'v1', ready_window_ms: 90_000, kds_offline_ms: 15_000, served_estimate_ms: 300_000 });
+  });
+
+  it.each([
+    ['ready_window_ms', '15', 15_000],
+    ['ready_window_ms', '300', 300_000],
+    ['kds_offline_ms', '10', 10_000],
+    ['kds_offline_ms', '300', 300_000],
+  ])('[03b §4.5 A-2] %s = %s s is accepted and sent as %d ms', async (name, typed, ms) => {
+    const calls = await render();
+    setValue(field(name), typed);
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ expected_version: 'v1', [name]: ms });
   });
 
   it('[03b §4.5 B-2] served estimate Off sends null; the box is not checked while Off', async () => {
@@ -201,10 +219,21 @@ describe('[01b §8] branch settings', () => {
   });
 
   it.each([
-    ['ready_window_ms', '0.24', '0.25', '5'],
-    ['ready_window_ms', '5.01', '0.25', '5'],
-    ['kds_offline_ms', '0.16', '0.17', '5'],
-    ['kds_offline_ms', '5.01', '0.17', '5'],
+    ['ready_window_ms', '14', '15', '300'],
+    ['ready_window_ms', '301', '15', '300'],
+    ['ready_window_ms', '15.5', '15', '300'],
+    ['kds_offline_ms', '9', '10', '300'],
+    ['kds_offline_ms', '301', '10', '300'],
+    ['kds_offline_ms', '0.5', '10', '300'],
+  ])('[03b §4.5 A-2] %s = %s s is refused before sending, with a seconds range (%s to %s)', async (name, typed, min, max) => {
+    const calls = await render();
+    setValue(field(name), typed);
+    await click(button(m.container, t('branches.save_settings')));
+    expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+    expect(field(name)!.closest('.pos-field')!.textContent).toContain(fill(t('branches.timing_seconds_range'), { min, max }));
+  });
+
+  it.each([
     ['served_estimate_ms', '0.99', '1', '30'],
     ['served_estimate_ms', '30.01', '1', '30'],
   ])('[03b §4.5 B-2] %s = %s min is refused before sending (%s to %s)', async (name, typed, min, max) => {
