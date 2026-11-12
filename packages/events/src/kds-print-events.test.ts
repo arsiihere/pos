@@ -83,6 +83,10 @@ describe('[03b §6.22, 03c §6.11] 03b and 03c events', () => {
     bad({ ...printer, name: 'x'.repeat(41) });
     expect(() => parseEvent(envelope('PrinterSaved', 'hub', 'B1', { ...printer, connection: 'usb', address: '/dev/usb/lp0', paper_width_mm: 58 }))).not.toThrow();
     expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], mode: 'paper' }))).toThrow();
+    // 03c v1.0.6 §6.11 (Q-18): optional source, additive at v1
+    const configSet = envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], mode: 'screen', printer_id: null, source: 'config' });
+    expect(parseEvent(configSet)).toEqual(configSet);
+    expect(() => parseEvent(envelope('StationOutputSet', 'hub', 'B1', { ...CASES[9]![3], source: 'cloud' }))).toThrow();
     bad({ ...printer, archived: 'no' });
   });
 });

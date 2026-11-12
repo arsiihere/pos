@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails, devicePoint, pointOfLine } from '../kds/contracts.js';
 import { takeoverStations } from '../kds/presence.js';
+import { stationHasPrinter } from '../print/api.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type CatchUpPart } from './catch-up.js';
@@ -145,6 +146,9 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
 
   const dayOpen = state.business_day !== null && state.business_day.closed_at === null;
   const noSettings: SettingsRow = { station_id: '', sound_volume: null, lane_count: null, lanes_on: null, has_lanes: 0, labelled: 0 };
+  // ⚠️ Changed by 03b v1.0.6 (owner 2026-11-12, Q-20): a takeover body is a kds_station body, so it carries has_printer
+  // (03c stationHasPrinter): 1 statement for every takeover station together, 0 without a takeover (§6.15 "+1").
+  const printing = stationHasPrinter(db, takeovers);
   return {
     point_id,
     stations: stations.map((s) => ({
@@ -161,6 +165,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
         station_id,
         day_open: dayOpen,
         sound_volume: s.sound_volume ?? DEFAULT_SOUND_VOLUME,
+        has_printer: printing.has(station_id),
         lanes: lanesOf(s),
         now: view.now.flatMap((l) => {
           const d = details.get(l.order_item_id);

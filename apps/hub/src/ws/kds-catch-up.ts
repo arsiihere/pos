@@ -3,6 +3,7 @@ import type { KdsStationBody, WsKdsLines } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { buildLineDetails } from '../kds/contracts.js';
+import { stationHasPrinter } from '../print/api.js';
 import type { HubDeps } from '../server.js';
 import { registerCatchUp, type CatchUpPart } from './catch-up.js';
 import { wsHubFor } from './server.js';
@@ -10,7 +11,9 @@ import { wsHubFor } from './server.js';
 // 03b §6.14, §6.16 (task b18): the `kds_station` catch-up part (station sockets, own station) and the `kds_lines` frame.
 // - Body: day_open, sound_volume (default 70, §3.8), lanes (station_lanes, else all on over the labelled kds devices,
 //   §3.7), Now = stationView(...).now with details, details = the frozen Next lines (stationView(...).next).
-//   3 statements: settings + lanes 1, buildLineDetails 2.
+//   ⚠️ Changed by v1.0.6 (owner 2026-11-12, Q-20): has_printer from 03c's stationHasPrinter (03c v1.0.6 §3.8), so
+//   the KDS shows its Reprint action only when true. 4 statements: settings + lanes 1, buildLineDetails 2,
+//   stationHasPrinter 1 (was 3).
 // - Frame: after every commit, per connected station socket, the details of the lines its station shows (Now and every
 //   planned line) that this socket has not been given yet (by its catch-up or an earlier frame): once per id per socket.
 //   The record is per session id and each catch-up (a new socket) replaces it.
@@ -41,7 +44,7 @@ SELECT (SELECT sound_volume FROM kds_station_settings WHERE station_id = @id) AS
        (SELECT COUNT(*) FROM station_lanes WHERE station_id = @id) AS has_lanes,
        (SELECT COUNT(*) FROM devices WHERE station_id = @id AND device_type = 'kds' AND lane_label IS NOT NULL AND revoked_at IS NULL) AS labelled`;
 
-/** §6.14: the `kds_station` body (also the takeover frame's `view`, §3.6); 3 statements. */
+/** §6.14: the `kds_station` body (also the takeover frame's `view`, §3.6); 4 statements (v1.0.6 Q-20). */
 export function kdsStationBody(db: Database.Database, state: EngineState, station_id: string, now: number): KdsStationBody {
   const s = db.prepare(SETTINGS_SQL).get({ id: station_id }) as {
     sound_volume: number | null;
@@ -57,6 +60,7 @@ export function kdsStationBody(db: Database.Database, state: EngineState, statio
     station_id,
     day_open: state.business_day !== null && state.business_day.closed_at === null,
     sound_volume: s.sound_volume ?? DEFAULT_SOUND_VOLUME,
+    has_printer: stationHasPrinter(db, [station_id]).has(station_id),
     lanes: { lanes_on: s.has_lanes === 1 ? s.lanes_on : lane_count, lane_count },
     now: view.now.flatMap((l) => {
       const d = details.get(l.order_item_id);
