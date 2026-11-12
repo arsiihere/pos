@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, openReadOnly } from '../../src/db/connection';
+import { registerHubProjections } from '../../src/lib/boot';
 import { sha256hex } from '../../src/lib/hash';
+import type { ProjectionRegistry } from '../../src/projections/registry';
 
 const migrationsDir = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
 const BRANCH = 'branch-1';
@@ -12,16 +14,9 @@ const TENANT = 'tenant-a';
 const BASE = 1_700_000_000_000;
 const CHUNK = 50_000;
 // R4: every projection boot registers, checkpointed at n so the budget boot replays nothing.
-export const PROJECTIONS = [
-  'access_reconcile',
-  'branch_config',
-  'item_availability',
-  'alerts',
-  'alert_flags',
-  'alert_receipts',
-  'presence_today',
-  'device_bindings',
-] as const;
+// 04 §4.5 H-2 (G-3): derived from registerHubProjections through a recording stub registry, plus access_reconcile
+// (registered by boot after step 3a, outside registerHubProjections).
+export const PROJECTIONS: readonly string[] = [...registeredNames(), 'access_reconcile'];
 const PROJECTIONS_SQL = PROJECTIONS.map((name) => `'${name}'`).join(', ');
 // The cache is keyed on the migration files and the projection list, so a new migration or projection
 // builds a fresh fixture instead of reusing one with an older schema.
@@ -140,4 +135,20 @@ function applyMigrations(db: ReturnType<typeof openDb>): void {
       if (fkOff) db.pragma('foreign_keys = ON');
     }
   }
+}
+
+function registeredNames(): string[] {
+  const names: string[] = [];
+  const recorder: ProjectionRegistry = {
+    register(projection) {
+      names.push(projection.name);
+    },
+    applyAll() {},
+    catchUp() {
+      return { replayed: {} };
+    },
+    afterCatchUp() {},
+  };
+  registerHubProjections(recorder);
+  return names;
 }

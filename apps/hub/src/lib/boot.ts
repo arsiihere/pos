@@ -25,7 +25,7 @@ import { createWriter } from '../engine-host/writer.js';
 import { registerAccessReconcile, restoreEmptyStaffSessions } from '../projections/access-reconcile.js';
 import { registerAlertProjections } from '../projections/alerts.js';
 import { registerRestaurantProjections } from '../projections/branch-config.js';
-import { createProjectionRegistry } from '../projections/registry.js';
+import { createProjectionRegistry, type ProjectionRegistry } from '../projections/registry.js';
 import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
 import { registerKdsProjections } from '../kds/index.js';
@@ -298,6 +298,20 @@ function wallClock(wallNow: () => number, monoNow: () => number): Clock {
   return { branchNow: () => Math.floor(wall + (monoNow() - mono)) };
 }
 
+/**
+ * 00 §3.8 (04 §4.5 H-2): every projection the hub registers, in fold order, in one place — used by `createDeps`,
+ * the test hub and the big fixture. `access_reconcile` is registered apart, after boot step 3a.
+ */
+export function registerHubProjections(projections: ProjectionRegistry): void {
+  registerRestaurantProjections(projections);
+  registerAlertProjections(projections);
+  registerTablesProjection(projections);
+  registerOrdersProjection(projections);
+  // 03b §5, 03c §3.3: 02b orders → 03b kds → 03c print (the folds read 02b's rows).
+  registerKdsProjections(projections);
+  registerPrintProjections(projections);
+}
+
 function createDeps(
   config: HubConfig,
   db: Database.Database,
@@ -313,13 +327,7 @@ function createDeps(
   const state = createStateHolder<EngineState>((initialState ?? {}) as EngineState);
   state.setReducer(engineReducer, (s, events) => foldEngineBatch(s, events, () => clock.branchNow()));
   const projections = createProjectionRegistry();
-  registerRestaurantProjections(projections);
-  registerAlertProjections(projections);
-  registerTablesProjection(projections);
-  registerOrdersProjection(projections);
-  // 03b §5, 03c §3.3: 02b orders → 03b kds → 03c print (the folds read 02b's rows).
-  registerKdsProjections(projections);
-  registerPrintProjections(projections);
+  registerHubProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = ulidGen(clock);
   const deps: HubDeps = {

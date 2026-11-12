@@ -5,7 +5,10 @@ import { appendEvents } from '../../src/engine-host/append-events';
 import { runMigrations } from '../../src/db/migrate';
 import { fixedClock, T } from '../../src/lib/clock';
 import { testIdGen } from '../../src/lib/ids';
-import { createProjectionRegistry, type Projection } from '../../src/projections/registry';
+import type { Writer } from '../../src/engine-host/writer';
+import { registerHubProjections } from '../../src/lib/boot';
+import { registerAccessReconcile } from '../../src/projections/access-reconcile';
+import { createProjectionRegistry, type Projection, type ProjectionRegistry } from '../../src/projections/registry';
 import { freshDb } from '../helpers/db';
 
 const migrations = fileURLToPath(new URL('../../src/db/migrations', import.meta.url));
@@ -18,7 +21,7 @@ describe('projection registry', () => {
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
-  it('[00 §10 #67] checkpoint behind MAX(seq) → replay from the checkpoint gives the same rows as live application', async () => {
+  it('[00 §10 #67; 04 §4.5 H-2] checkpoint behind MAX(seq) → replay from the checkpoint gives the same rows as live application', async () => {
     const live = await migrated();
     const liveRows = applyLive(live.db, 5);
     const caught = await migrated();
@@ -35,6 +38,8 @@ describe('projection registry', () => {
     const registry = createProjectionRegistry();
     registry.register(seen);
     const ctx = context();
+    // 04 §4.5 H-2: as a booted hub, catchUp writes the row before the first live applyAll (update-only).
+    registry.catchUp(caught.db, BRANCH);
     caught.db.transaction(() => {
       const first = appendEvents(caught.db, drafts(3), ctx);
       registry.applyAll(caught.db, first, BRANCH);
@@ -50,18 +55,12 @@ describe('projection registry', () => {
     expect(modes).toEqual(['live', 'live', 'live', 'catchup', 'catchup']);
   });
 
-  it('[00 §3.1 M48] applyAll advances every checkpoint, including projections that ignore the events', async () => {
+  it('[00 §10 #161, §3.1 M48; 04 §4.5 H-2] applyAll advances an existing row (also of a projection that ignores the events); a missing row is not created; the next catchUp replays it from 0 (reset first)', async () => {
     const { db } = await migrated();
-    const matched: number[] = [];
+    db.exec('CREATE TABLE proj_missing (seq INTEGER PRIMARY KEY)');
     const ignored: number[] = [];
+    const folds: string[] = [];
     const registry = createProjectionRegistry();
-    registry.register({
-      name: 'matched',
-      eventTypes: ['HubProvisioned'],
-      apply(_tx, event) {
-        matched.push(event.seq);
-      },
-    });
     registry.register({
       name: 'ignored',
       eventTypes: ['SessionEnded'],
@@ -69,15 +68,38 @@ describe('projection registry', () => {
         ignored.push(event.seq);
       },
     });
+    registry.register({
+      name: 'missing',
+      eventTypes: ['HubProvisioned'],
+      reset(tx) {
+        folds.push('reset');
+        tx.exec('DELETE FROM proj_missing');
+      },
+      apply(tx, event, mode) {
+        folds.push(`${mode}:${event.seq}`);
+        tx.prepare('INSERT INTO proj_missing (seq) VALUES (?)').run(event.seq);
+      },
+    });
+    // As a booted hub: catchUp wrote every row; then a migration deleted 'missing'.
+    registry.catchUp(db, BRANCH);
+    expect(folds).toEqual(['reset']);
+    folds.length = 0;
+    db.prepare('DELETE FROM projection_checkpoints WHERE projection = ?').run('missing');
     db.transaction(() => {
       const events = appendEvents(db, drafts(2), context());
       registry.applyAll(db, events, BRANCH);
     }).immediate();
-    expect(matched).toEqual([1, 2]);
     expect(ignored).toEqual([]);
     expect(db.prepare('SELECT projection, last_seq FROM projection_checkpoints ORDER BY projection').all()).toEqual([
       { projection: 'ignored', last_seq: 2 },
-      { projection: 'matched', last_seq: 2 },
+    ]);
+    const caught = registry.catchUp(db, BRANCH);
+    expect(caught.replayed).toEqual({ ignored: 0, missing: 2 });
+    expect(folds).toEqual(['live:1', 'live:2', 'reset', 'catchup:1', 'catchup:2']);
+    expect(db.prepare('SELECT seq FROM proj_missing ORDER BY seq').pluck().all()).toEqual([1, 2]);
+    expect(db.prepare('SELECT projection, last_seq FROM projection_checkpoints ORDER BY projection').all()).toEqual([
+      { projection: 'ignored', last_seq: 2 },
+      { projection: 'missing', last_seq: 2 },
     ]);
   });
 
@@ -239,6 +261,32 @@ describe('projection registry', () => {
     registry.catchUp(db, BRANCH);
     expect(rows(db)).toEqual(Array.from({ length: 1001 }, (_, n) => n + 1));
     expect(db.prepare('SELECT last_seq FROM checkpoint_log ORDER BY rowid').pluck().all()).toEqual([1000, 1001]);
+  });
+
+  it('[04 §4.5 H-2] invariant: no projection without reset folds an event written before boot step 4 (setup, admin bootstrap, step 3a)', () => {
+    const registered: Projection[] = [];
+    const recorder: ProjectionRegistry = {
+      register(projection) {
+        registered.push(projection);
+      },
+      applyAll() {},
+      catchUp() {
+        return { replayed: {} };
+      },
+      afterCatchUp() {},
+    };
+    registerHubProjections(recorder);
+    registerAccessReconcile({ projections: recorder, writer: {} as Writer, clock: fixedClock(T) });
+    expect(registered.map((p) => p.name)).toContain('access_reconcile');
+    const preBoot = ['HubProvisioned', 'StaffDirectoryApplied', 'AdminBootstrapTokenIssued', 'ClockAlarm'];
+    const forwardOnly = registered.filter((p) => p.reset === undefined);
+    expect(forwardOnly.length).toBeGreaterThan(0);
+    for (const projection of forwardOnly) {
+      expect({ name: projection.name, folds: projection.eventTypes.filter((t) => preBoot.includes(t)) }).toEqual({
+        name: projection.name,
+        folds: [],
+      });
+    }
   });
 
   async function migrated() {
