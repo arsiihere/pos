@@ -11,6 +11,8 @@
 //     a voided comped unit's share is comp_voided (never a refund, O21), a removed one's is removed;
 //   - cascades: per parent unit `child units / parent units` child units, capped at the child's live units (live −
 //     comped for a comp); the parent's last (uncomped, for a comp) live unit takes every child unit left;
+//   - a later-added option child (option_quantity null, 01c §3.4.8 Q4, 02b v1.0.13; u11) gets nothing from a partial
+//     parent action and every unit left from the parent's last one;
 //   - billed: item / option child = Σ live-slot shares; deal part = 0; deal = line total − Σ its parts' shares out.
 // Deterministic: a fixed seed (mulberry32), no Math.random, no timing asserts. A refused command must append nothing.
 import { lineTotalMinor } from '@pos/domain';
@@ -56,6 +58,8 @@ interface ModelLine {
   next: number;
   /** a weighed g item whose weight is pending, then weighed */
   weighed: { price: number } | null;
+  /** an option child added later (option_quantity null): no cascade from a partial parent action */
+  later: boolean;
 }
 
 /** 01c §3.4.8 shares: floor per unit, the remainder on the last. */
@@ -75,6 +79,7 @@ interface StartLine {
   /** deal: deal price × quantity */
   line_total: number;
   weighed: { price: number } | null;
+  later: boolean;
 }
 
 /**
@@ -88,19 +93,27 @@ function startLines(fixture: readonly FixtureLine[], menu: BranchConfig): StartL
   const out: StartLine[] = [];
   for (const f of fixture) {
     const parent = f.parent_order_item_id === undefined ? null : out.find((o) => o.id === f.parent_order_item_id)!;
-    const base = { id: f.order_item_id, parent: parent?.id ?? null, line_total: 0, weighed: null };
-    if (f.option_id !== undefined) {
+    const base = { id: f.order_item_id, parent: parent?.id ?? null, line_total: 0, weighed: null, later: false };
+    if (f.option_id !== undefined && f.item?.option_quantity === null) {
+      // a later-added child: its own quantity and total (the synthetic ItemAdded of 04 #42)
+      out.push({ ...base, kind: 'option_child', units: f.item.quantity as number, refundable: f.item.line_total_minor as number, later: true });
+    } else if (f.option_id !== undefined) {
       const option = menu.modifier_groups.flatMap((g) => g.options).find((o) => o.option_id === f.option_id)!;
       const units = (f.quantity ?? 1) * parent!.units;
       out.push({ ...base, kind: 'option_child', units, refundable: option.price_minor * units });
     } else if (f.deal_part_id !== undefined) {
       const deal = menu.deals.find((d) => d.deal_id === f.deal_id)!;
-      const weights = deal.parts.map((p) => item(p.choices[0]!.item_id).price_minor * p.quantity * parent!.units);
+      // a g / ml part: its line total for the part quantity (lineTotalMinor) per deal unit; 1 unit per deal unit (01c :309)
+      const gml = (p: (typeof deal.parts)[number]) => item(p.choices[0]!.item_id).sale_unit !== 'piece';
+      const weights = deal.parts.map((p) => {
+        const it = item(p.choices[0]!.item_id);
+        return (gml(p) ? lineTotalMinor(it.price_minor, p.quantity, it.sale_unit) : it.price_minor * p.quantity) * parent!.units;
+      });
       const sum = weights.reduce((a, w) => a + w, 0);
       const floors = weights.map((w) => Math.floor((parent!.line_total * w) / sum));
       const k = deal.parts.findIndex((p) => p.deal_part_id === f.deal_part_id);
       const share = k === deal.parts.length - 1 ? parent!.line_total - floors.slice(0, -1).reduce((a, x) => a + x, 0) : floors[k]!;
-      out.push({ ...base, kind: 'deal_part', units: deal.parts[k]!.quantity * parent!.units, refundable: share });
+      out.push({ ...base, kind: 'deal_part', units: gml(deal.parts[k]!) ? parent!.units : deal.parts[k]!.quantity * parent!.units, refundable: share });
     } else if (f.deal_id !== undefined) {
       const deal = menu.deals.find((d) => d.deal_id === f.deal_id)!;
       const units = f.quantity ?? 1;
@@ -127,6 +140,7 @@ class Model {
       slots: shares(l.kind === 'deal' ? 0 : l.refundable, l.units).map((share) => ({ share, state: 'live' as const })),
       next: 0,
       weighed: l.weighed,
+      later: l.later,
     });
   }
 
@@ -150,6 +164,11 @@ class Model {
     return kind === null ? [] : [...this.lines.values()].filter((c) => c.parent === id && c.kind === kind);
   }
 
+  /** A later-added child with a live unit under this parent (the u11 path is exercised when it is acted on). */
+  hasLiveLater(id: string): boolean {
+    return this.children(id).some((c) => c.later && this.live(c.id) > 0);
+  }
+
   /** The cascade: [line, units] for the parent and each child, 0-unit children dropped. */
   private cascade(id: string, n: number, comp: boolean): Array<[ModelLine, number]> {
     const p = this.lines.get(id)!;
@@ -158,7 +177,7 @@ class Model {
     const out: Array<[ModelLine, number]> = [[p, n]];
     for (const c of this.children(id)) {
       const cap = comp ? this.live(c.id) - this.comped(c.id) : this.live(c.id);
-      const u = n === left ? cap : Math.min((c.units / p.units) * n, cap);
+      const u = n === left ? cap : c.later ? 0 : Math.min((c.units / p.units) * n, cap);
       if (u > 0) out.push([c, u]);
     }
     return out;
@@ -239,13 +258,23 @@ function orderLinesFor(rnd: () => number, p: string): FixtureLine[] {
   const n = int(1, 3);
   for (let i = 0; i < n; i++) {
     const id = `${p}L${i}`;
-    switch (pick(['karahi', 'naan', 'family', 'odd', 'fish', 'combo'] as const)) {
+    switch (pick(['karahi', 'naan', 'family', 'odd', 'fish', 'combo', 'kg'] as const)) {
       case 'karahi':
         out.push({ order_item_id: id, item_id: FX.piece, quantity: int(1, 3) });
         if (rnd() < 0.6) out.push({ order_item_id: `${id}r`, option_id: FX.option, parent_order_item_id: id, quantity: int(1, 2) });
+        if (rnd() < 0.7) {
+          // u11: a later-added raita (option_quantity null; 1–3 units, a multiple of the karahi's or not)
+          const q = int(1, 3);
+          out.push({ order_item_id: `${id}n`, option_id: FX.option, parent_order_item_id: id, quantity: 1, item: { option_quantity: null, quantity: q, line_total_minor: 10_000 * q + int(0, 2) } });
+        }
         break;
       case 'naan':
         out.push({ order_item_id: id, item_id: FX.naan, quantity: int(1, 4) });
+        break;
+      case 'kg':
+        // u11: 02b #37's kg deal (a 1 000 g part + 2 naan): partial removes / voids while the g part is open → 400
+        out.push({ order_item_id: id, deal_id: MX.kgDeal, quantity: int(1, 2) });
+        MX.kgParts.forEach((part, k) => out.push({ order_item_id: `${id}p${k}`, deal_id: MX.kgDeal, deal_part_id: part, item_id: k === 0 ? MX.kg : FX.naan, parent_order_item_id: id }));
         break;
       case 'family':
       case 'odd':
@@ -281,7 +310,7 @@ describe('[04 #46] property: 500 random comp / remove / void / weight sequences,
     const rnd = mulberry32(SEED);
     const int = (lo: number, hi: number) => lo + Math.floor(rnd() * (hi - lo + 1));
     const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
-    const done = { comp: 0, remove: 0, void: 0, weight: 0, refused: 0, cascades: 0, compVoided: 0 };
+    const done = { comp: 0, remove: 0, void: 0, weight: 0, refused: 0, cascades: 0, compVoided: 0, later: 0, kg: 0 };
 
     for (let seq = 0; seq < SEQUENCES; seq++) {
       const p = `P${seq}_`;
@@ -315,6 +344,8 @@ describe('[04 #46] property: 500 random comp / remove / void / weight sequences,
         const op = pick(['comp', 'remove', 'void', 'void', 'weight', 'stage'] as const);
         const live = model.live(id);
         const n = Math.max(1, int(1, Math.max(1, live)));
+        const withLater = model.hasLiveLater(id);
+        const kgLine = fixture.some((f) => f.order_item_id === id && f.deal_id === MX.kgDeal);
         let r: Reply | null = null;
         const events = eventCount();
         if (op === 'stage') {
@@ -352,6 +383,10 @@ describe('[04 #46] property: 500 random comp / remove / void / weight sequences,
             if (voided.length > 1) done.cascades += 1;
             if (voided.some((e) => (e.payload.comp_voided_minor as number) > 0)) done.compVoided += 1;
           }
+        }
+        if (r !== null && r.status === 200 && op !== 'weight') {
+          if (withLater) done.later += 1;
+          if (kgLine) done.kg += 1;
         }
         if (r !== null && r.status !== 200) {
           // a refusal is a 4xx business answer and writes nothing
@@ -391,5 +426,8 @@ describe('[04 #46] property: 500 random comp / remove / void / weight sequences,
     expect(done.cascades).toBeGreaterThan(50);
     expect(done.compVoided).toBeGreaterThan(20);
     expect(done.refused).toBeGreaterThan(0);
+    // u11: actions on a parent with a later-added (null) child, and on the kg deal / its parts
+    expect(done.later).toBeGreaterThan(20);
+    expect(done.kg).toBeGreaterThan(30);
   }, 600_000);
 });

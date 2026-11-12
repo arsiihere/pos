@@ -373,12 +373,14 @@ describe('[02b #51] order_lines.station_id (02b v1.0.12 §5, §4.2; 04 §4.5 Q-1
     expect(s.column).toEqual({ K: FX.station, R: FX.station, N: FX.zoneStation, D: null, P1: FX.station, P2: FX.zoneStation });
   });
 
-  it('[02b #51] readOrder returns station_id per line, still 1 statement', async () => {
+  it('[02b #51] [02b #39] readOrder returns station_id and option_quantity per line, still 1 statement', async () => {
     await start();
     const o = appendOrder(hub, {
       order_type: 'takeaway',
       lines: [
         { order_item_id: 'K', item_id: FX.piece },
+        { order_item_id: 'R', option_id: FX.option, parent_order_item_id: 'K' },
+        { order_item_id: 'RN', option_id: FX.option, parent_order_item_id: 'K', item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } }, // later child (04 Q-19)
         { order_item_id: 'D', deal_id: FX.deal },
         { order_item_id: 'P1', deal_part_id: FX.dealParts[0], parent_order_item_id: 'D' },
         { order_item_id: 'P2', deal_part_id: FX.dealParts[1], parent_order_item_id: 'D' },
@@ -392,7 +394,9 @@ describe('[02b #51] order_lines.station_id (02b v1.0.12 §5, §4.2; 04 §4.5 Q-1
       return { r, statements: counter.count };
     }).result;
     expect(out.statements).toBe(1);
-    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.station_id]))).toEqual({ K: FX.station, D: null, P1: FX.station, P2: FX.station, L: null });
+    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.station_id]))).toEqual({ K: FX.station, R: FX.station, RN: FX.station, D: null, P1: FX.station, P2: FX.station, L: null });
     expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.station_id]))).toEqual(stationsOf(o.order_id).column);
+    // ⚠️ 02b v1.0.13 (04 Q-19): option_quantity per line from the same row read (set on a placed child only)
+    expect(Object.fromEntries(out.r.lines.map((l) => [l.order_item_id, l.option_quantity]))).toEqual({ K: null, R: 1, RN: null, D: null, P1: null, P2: null, L: null });
   });
 });

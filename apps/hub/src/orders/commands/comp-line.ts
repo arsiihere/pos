@@ -72,14 +72,17 @@ type LineRow = Pick<
   | 'return_of'
   | 'served_from_zone_id'
   | 'added_at'
->;
+> &
+  // ⚠️ 02b v1.0.13 (04 Q-19): order_lines.option_quantity, so a child is a §3.4 LedgerRef (null-quantity child rule)
+  Pick<LedgerRef, 'option_quantity'>;
 type Row = LineRow & { billed_at: number | null; primary_table_id: string | null };
 
-// One statement: the named line and its children (a deal's parts, an item's option children), with the order's
+// One statement: the named line and its children (a deal's parts, an item's option children; each with its
+// option_quantity, 02b v1.0.13), with the order's
 // billed_at and its current table (02a seating_orders → seatings, read-only join, P-1c) for the request's display.
 const READ = `SELECT l.order_item_id, l.order_id, l.parent_order_item_id, l.line_kind, l.name, l.sale_unit, l.quantity, l.units,
        l.comped_units, l.removed_units, l.voided_units, l.refundable_minor, l.comp_minor, l.comp_voided_minor,
-       l.removed_minor, l.refund_minor, l.return_of, l.served_from_zone_id, l.added_at,
+       l.removed_minor, l.refund_minor, l.return_of, l.served_from_zone_id, l.added_at, l.option_quantity,
        o.billed_at, s.primary_table_id
   FROM order_lines t
   JOIN orders o ON o.order_id = t.order_id

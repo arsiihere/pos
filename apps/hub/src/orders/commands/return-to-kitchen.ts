@@ -67,7 +67,7 @@ interface ChildCopy {
 /**
  * 02b v1.0.8 §6.7 (B3-4): one statement, the served line's live option children (`order_lines WHERE
  * parent_order_item_id = ?`, live units > 0) in their order (added_at, rowid, as 03b buildLineDetails), each with its
- * ItemAdded copy (order_lines keeps no option_id, option_quantity or station).
+ * ItemAdded copy (order_lines keeps no option_id).
  */
 function optionChildren(db: Database.Database, order_id: string, order_item_id: string): ItemAddedPayload[] {
   const rows = db

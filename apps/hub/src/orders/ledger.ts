@@ -21,9 +21,14 @@ export type LedgerLine = Pick<
 >;
 type Money = Pick<LineView, 'comp_minor' | 'comp_voided_minor' | 'removed_minor' | 'refund_minor'>;
 export type LedgerAction = 'remove' | 'void' | 'comp';
-/** A line a command names (or a part / child it cascades to). */
-export type LedgerRef = LedgerLine & Pick<LineView, 'order_item_id'>;
-export type LedgerParent = LedgerRef & Pick<LineView, 'line_kind' | 'sale_unit'>;
+/**
+ * A part / child line a command cascades to. ⚠️ 02b v1.0.13 (owner 2026-11-12, 04 Q-19): `option_quantity` is the
+ * line's `ItemAdded.option_quantity` (`order_lines.option_quantity`): set on an option child placed in its parent's
+ * SubmitOrder; null on a deal part and on an option child added later (01c §3.4.8 Q4).
+ */
+export type LedgerRef = LedgerLine & Pick<LineView, 'order_item_id'> & { option_quantity: number | null };
+/** A line a command names. */
+export type LedgerParent = LedgerLine & Pick<LineView, 'order_item_id' | 'line_kind' | 'sale_unit'>;
 
 function count(fn: string, name: string, n: number): void {
   if (!Number.isSafeInteger(n) || n < 0) throw new Error(`${fn}: ${name} must be a non-negative integer`);
@@ -143,15 +148,24 @@ export function compUnits(line: LedgerLine, n: number): { after: LedgerLine; val
  * per-portion units and an option child its option quantity (both = child units / parent units), through childQuantity;
  * capped at the child's live units (remove / void) or live − comped (comp). The parent's last live unit (for comp, its
  * last uncomped live unit) takes every remaining part / child unit. Call with both lines as they are before the action.
+ * ⚠️ 02b v1.0.13 (04 Q-19; 01c §3.4.8 Q4): an option child with option_quantity null (added later) gets 0 on a partial
+ * action and its capped units left on the last unit; the multiple check applies only to the other children.
  */
-export function cascadeUnits(action: LedgerAction, parent: LedgerParent, n: number, child: LedgerLine): number {
+export function cascadeUnits(
+  action: LedgerAction,
+  parent: LedgerParent,
+  n: number,
+  child: LedgerLine & Pick<LedgerRef, 'option_quantity'>,
+): number {
   const fn = 'cascadeUnits';
   if (parent.line_kind !== 'item' && parent.line_kind !== 'deal') throw new Error(`${fn}: a ${parent.line_kind} line has no children`);
-  if (child.units % parent.units !== 0) throw new Error(`${fn}: child units are not a multiple of the parent's`);
+  const laterChild = parent.line_kind === 'item' && child.option_quantity === null;
+  if (!laterChild && child.units % parent.units !== 0) throw new Error(`${fn}: child units are not a multiple of the parent's`);
   const cap = action === 'comp' ? liveUnits(child) - child.comped_units : liveUnits(child);
   const parentLeft = action === 'comp' ? liveUnits(parent) - parent.comped_units : liveUnits(parent);
   units(fn, n, parentLeft);
   if (n === parentLeft) return cap;
+  if (laterChild) return 0;
   const perParentUnit = child.units / parent.units;
   // 01c §3.4.2: an option child follows its parent's sale unit; a deal part's quantity = part qty × deal qty.
   return Math.min(childQuantity(perParentUnit, n, parent.line_kind === 'deal' ? 'piece' : parent.sale_unit), cap);
@@ -166,8 +180,8 @@ export interface PlannedLine<P> {
 }
 
 // The parent's n units, then each part / child its cascaded units; a line the cascade gives 0 units gets no event.
-function targets(action: LedgerAction, parent: LedgerParent, children: readonly LedgerRef[], n: number): { line: LedgerRef; units: number }[] {
-  const out: { line: LedgerRef; units: number }[] = [{ line: parent, units: n }];
+function targets(action: LedgerAction, parent: LedgerParent, children: readonly LedgerRef[], n: number): { line: LedgerParent | LedgerRef; units: number }[] {
+  const out: { line: LedgerParent | LedgerRef; units: number }[] = [{ line: parent, units: n }];
   for (const c of children) {
     const u = cascadeUnits(action, parent, n, c);
     if (u > 0) out.push({ line: c, units: u });

@@ -18,6 +18,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, fixtureMenu, openDay, openSeating, setZoneStock, type FixtureLine } from './fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 // 02b §6.2 RemoveItems, §3.5, §3.4, §3.9 (stale requests), §3.3, §3.10, §3.14; §11 step 9. Orders are seeded with the
 // shared fixtures and every other event (fires, starts, comps, voids, bills, locks) is a real event through the writer.
@@ -147,7 +148,7 @@ function comp(order_id: string, id: string, units: number): void {
   const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
   const parent = lines.find((l) => l.order_item_id === id)!;
   const kids = lines.filter((l) => l.parent_order_item_id === id);
-  const plan = planComp(parent, kids, units, { reason_code: 'quality', note: null, requester_staff_id: 'S_ALI', alert_id: null, approver_staff_id: null });
+  const plan = planComp(parent, withOptionQuantity(hub.deps.db, kids), units, { reason_code: 'quality', note: null, requester_staff_id: 'S_ALI', alert_id: null, approver_staff_id: null });
   append(plan.lines.map((p) => on(order_id, 'LineComped', p.payload)));
 }
 
@@ -156,7 +157,7 @@ function voidUnits(order_id: string, id: string, units: number): void {
   const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
   const parent = lines.find((l) => l.order_item_id === id)!;
   const kids = lines.filter((l) => l.parent_order_item_id === id);
-  const plan = planVoid(parent, kids, units);
+  const plan = planVoid(parent, withOptionQuantity(hub.deps.db, kids), units);
   append(plan.lines.map((p) => on(order_id, 'ItemVoided', p.payload)));
 }
 
@@ -770,6 +771,39 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
     ]);
     expect(lineView(order_id, 'K1o')).toMatchObject({ removed_units: 3, live_units: 0 });
     expect(r.result).toMatchObject({ cancelled: true });
+  });
+
+  it('[02b #39 remove] [01c §3.4.8 Q4] a null-option_quantity child: removing 1 of 2 karahis leaves it alone, the last karahi removes it; 2 statements each, as without it', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const later = (id: string, quantity: number, line_total_minor: number): FixtureLine => ({ order_item_id: id, option_id: FX.option, parent_order_item_id: id.slice(0, 2), quantity: 1, item: { option_quantity: null, quantity, line_total_minor } });
+    const order_id = takeaway([{ order_item_id: 'K1', item_id: FX.piece, quantity: 2 }, { order_item_id: 'K1r', option_id: FX.option, parent_order_item_id: 'K1', quantity: 1 }, later('K1n', 1, 10_000)]);
+    expect(line('K1n')).toMatchObject({ units: 1, option_quantity: null });
+    expect(line('K1r')).toMatchObject({ units: 2, option_quantity: 1 });
+    const one = await remove(ali, { order_id, lines: [{ order_item_id: 'K1', units: 1 }] }, { counted: true });
+    expect(one.status, JSON.stringify(one.error)).toBe(200);
+    expect(ofType(one, 'ItemRemoved')).toEqual([
+      { order_item_id: 'K1', units: 1 },
+      { order_item_id: 'K1r', units: 1 },
+    ]);
+    expect(lastStatements).toBe(2);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ removed_units: 0, removed_minor: 0, live_units: 1 });
+    const last = await remove(ali, { order_id, lines: [{ order_item_id: 'K1', units: 1 }] }, { counted: true });
+    expect(last.status, JSON.stringify(last.error)).toBe(200);
+    expect(ofType(last, 'ItemRemoved')).toEqual([
+      { order_item_id: 'K1', units: 1 },
+      { order_item_id: 'K1r', units: 1 },
+      { order_item_id: 'K1n', units: 1 },
+    ]);
+    expect(lastStatements).toBe(2);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ removed_units: 1, removed_minor: 10_000, live_units: 0 });
+
+    // the multiple case: 3 later raita under karahi ×3 → a partial remove still leaves the child alone
+    const o2 = takeaway([{ order_item_id: 'K2', item_id: FX.piece, quantity: 3 }, later('K2n', 3, 30_000)]);
+    const p = await remove(ali, { order_id: o2, lines: [{ order_item_id: 'K2', units: 1 }] });
+    expect(p.status, JSON.stringify(p.error)).toBe(200);
+    expect(ofType(p, 'ItemRemoved')).toEqual([{ order_item_id: 'K2', units: 1 }]);
+    expect(lineView(o2, 'K2n')).toMatchObject({ removed_units: 0, live_units: 3 });
   });
 
   it('[02b §3.5] a parent and its child in one payload: the cascade is counted once, units > live → 400, nothing appended', async () => {
