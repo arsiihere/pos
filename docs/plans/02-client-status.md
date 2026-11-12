@@ -105,6 +105,9 @@ Plan: `02-client-plan.md`. Gaps + rulings: `02-client-gaps.md`. Hub gaps: `02-hu
 | AD-C1 | The zone / comp alert cards (02b-C03 `CompRequests`, 02b-C05 `ZoneAlert`) are built in 23b (lane D, which owns every `A/*` edit, Q-25) instead of lane L. | plan 23b, Self-review | proposed |
 | AD-C2 | 27a3 and 26b start once a merged 02a task proves the contract (22a, 23a in `module-02a-client`), without importing its code; they test against fakes of the W0 contract. | plan Branches "Cross-module rule" | proposed |
 | AD-C3 | The review m7 refetch filter for the map (which frames trigger a `table-map` read) needs a Q-5 text ruling; 21a ships the plan's list (Q-5, Q-35). | plan 21a, Self-review | proposed |
+| AD-C4 | `EnqueueResult` gains `{ status: 'refused', error }`: the hub's definitive 4xx to a direct online send, shown by the caller. A 5xx, 426, 403 DEVICE_REVOKED, a network error or a lost 2xx body is never `refused`: `queued` with a queue registered (the entry stays, 02b §3.12), else `needs_hub` (`tables/contracts.ts`, `tables/errors.ts` `definitiveRefusal`). | W0.4 (#133) | proposed (integrator, review #133) |
+| AD-C5 | `command()` options gain `actorId`, paired with `sessionToken` (the hub refuses actor_id ≠ the session's staff, `commands/route.ts:106`); a token without its person is refused locally (`CLIENT_SESSION_WITHOUT_ACTOR`, nothing sent). 25b passes the entry's `staff_id` as `actorId`. `X-Queued-At` = `Math.round` of the hub-clock value. | W0.4 (#133) | proposed (integrator, review #133) |
+| AD-C6 | `staffApi.staffId()`: the signed-in person's staff id, read by the queue at enqueue time (stored as the entry's `staff_id`, Q-2). | W0.4 (#133) | proposed (integrator, review #133) |
 
 ## STOPs / needs-ruling
 
