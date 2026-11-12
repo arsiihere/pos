@@ -6,7 +6,7 @@ import type { DirectoryInput, EventDraft, PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aBusinessDayOpened, aDevicePaired } from '@pos/events/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { defineAlertKind, kindOf } from '../../src/alerts/kinds';
+import { defineAlertKind, kindOf, unregisterAlertKind } from '../../src/alerts/kinds';
 import { alerts, type RaiseInput } from '../../src/alerts/raise';
 import { alertsTick, startTickLoop, TICK_MS } from '../../src/alerts/tick';
 import { applyStaffDirectory } from '../../src/auth/apply-directory';
@@ -15,6 +15,8 @@ import { activity, createSession } from '../../src/auth/session-store';
 import { boot } from '../../src/lib/boot';
 import { registerEngineBootSteps } from '../../src/engine-host/boot-steps';
 import { registerRestaurantBootSteps } from '../../src/sync/boot-steps';
+import { VOID_KIND } from '../../src/voids/contracts';
+import { VOID_APPROVAL } from '../../src/voids/kind';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { offlineCloud } from '../helpers/stub-cloud';
@@ -272,12 +274,18 @@ describe('01d no_approver and BF-7 (task 31)', () => {
     expect(openNoApprover()).toEqual(['no_approver:void-item']);
 
     // no kind registers void-item → approve-void: any approver role holder signed in counts
+    // (04 P0.7: 04's real `void_approval` kind registers void-item / approve-void too, so it is dropped here as well)
     resetFakes();
-    hub.deps.db.prepare(`UPDATE alert_flags SET dirty = 1`).run();
-    await pass();
-    expect(openNoApprover()).toEqual([]);
-    expect(rows('no_approver')[0]).toMatchObject({ close_reason: 'done' });
-    registerFakes();
+    unregisterAlertKind(VOID_KIND);
+    try {
+      hub.deps.db.prepare(`UPDATE alert_flags SET dirty = 1`).run();
+      await pass();
+      expect(openNoApprover()).toEqual([]);
+      expect(rows('no_approver')[0]).toMatchObject({ close_reason: 'done' });
+    } finally {
+      defineAlertKind({ ...VOID_APPROVAL });
+      registerFakes();
+    }
   });
 
   it('[01d §3.9] the requester being the only branch-scope approver signed in is not "no approver" (per-request warning deferred, §12.4)', async () => {

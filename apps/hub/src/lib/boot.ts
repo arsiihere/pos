@@ -30,6 +30,7 @@ import { buildHubServer, installHubErrors, type HubDeps } from '../server.js';
 import { registerOrdersProjection } from '../orders/index.js';
 import { registerKdsProjections } from '../kds/index.js';
 import { registerPrintProjections } from '../print/index.js';
+import { registerAuditProjections } from '../audit/index.js';
 import { startPrintWorker } from '../print/boot.js';
 import { registerTablesProjection } from '../tables/index.js';
 import { publisherFor } from '../ws/server.js';
@@ -310,6 +311,7 @@ export function registerHubProjections(projections: ProjectionRegistry): void {
   // 03b §5, 03c §3.3: 02b orders → 03b kds → 03c print (the folds read 02b's rows).
   registerKdsProjections(projections);
   registerPrintProjections(projections);
+  registerAuditProjections(projections); // 04 §6.6: events only, order free (§5)
 }
 
 function createDeps(
