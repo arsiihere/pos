@@ -69,10 +69,11 @@ describe('[04 §3.5, §6.6] kind void_approval (phase 0 skeleton)', () => {
     expect(VoidValues.safeParse({ ...VALUES, note: 'x'.repeat(201) }).success).toBe(false);
   });
 
-  it('[04 §3.5] details_schema (phase 0 placeholder until v6, G-10): item, quantity, amount, reason, identifier', () => {
-    const details = { item: 'Chicken karahi', quantity: 1, amount: 120_000, reason: 'customer_changed_mind', identifier: 'T4' };
+  it('[04 §3.5] details_schema (v6, G-10): item, quantity, amount, reason, identifier, disposition, lines (required, ≤ 10)', () => {
+    const details = { item: 'Chicken karahi', quantity: 1, amount: 120_000, reason: 'customer_changed_mind', identifier: 'T4', disposition: 'void.disposition.wastage', lines: [{ name: 'Chicken karahi', quantity: 1, state: 'cooking' as const }] };
     expect(VoidDetails.parse(details)).toEqual(details);
     expect(VoidDetails.safeParse({ ...details, identifier: 'x'.repeat(41) }).success).toBe(false);
+    expect(VoidDetails.safeParse({ ...details, lines: undefined }).success).toBe(false);
   });
 
   it('[04 §3.4, §6.2] request.apply throws "not built" until v7 (nothing raises one before v6); onWithdraw → []', () => {
