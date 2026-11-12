@@ -884,3 +884,100 @@ describe('@pos/engine stockEffects: consume at Done or Served without a Start (A
     expect(stockOf(s2, 'KB')).toMatchObject({ on_hand: 9, reserved: 0 });
   });
 });
+
+// ⚠️ Changed by 04 (row T-2; G-17), 03a v1.2.4 §3.7 / §6.1f, test 141: the array overload pre-scans every line named by
+// an ItemVoided / ItemRemoved anywhere in the array (earlier or later than the move, whole or partial; an ItemRemoved
+// without units counts) and excludes them, with the moved line, from the waiting-line reserve. Strict folds throughout
+// (04 #10f–#10h): a stock_reserved_past_added or a breach throws.
+describe('@pos/engine stockEffects: a line the array ends never takes a moved portion (04 T-2, G-17; 03a #141)', () => {
+  const P = T + 3_600_000;
+  const AT = T + 1_000;
+  type Head = { k1?: number; o1?: LineSpec[]; w4?: boolean; done?: boolean };
+  // O1: K1 (quantity k1, draw KB × k1) fired and started (reserved 0, nothing consumed: KB counted 0), maybe Done, plus
+  // the hidden waiting lines `o1`; O2 (another order, same pickup): the hidden waiting T4 line W4 (KB × 1), unless w4 false.
+  // Every hidden line has the same deadline, so the candidate order is by order_item_id and W4 sorts last.
+  const head = (o: Head): PosEvent[] => {
+    const q = o.k1 ?? 2;
+    return [
+      cfg(),
+      set('KB', 0, DAY),
+      ...hidden('O1', [{ id: 'K1', quantity: q, draws: kb(q) }, ...(o.o1 ?? [])], P),
+      fired(['K1'], T + 1),
+      started('O1', 'K1', T + 2),
+      ...(o.done === true ? [orderEv('ItemDone', 'O1', { order_item_id: 'K1', done_at: T + 3, source: 'tap' }, T + 3)] : []),
+      ...(o.w4 === false ? [] : hidden('O2', [{ id: 'W4', draws: kb() }], P)),
+    ];
+  };
+  const ev = (event_type: string, line: string, payload: Record<string, unknown>): PosEvent =>
+    orderEv(event_type, line.startsWith('W') ? 'O2' : 'O1', { order_item_id: line, ...payload }, AT);
+  const mv = (line: string, units: number) => ev('ItemMovedToStock', line, { units });
+  const vd = (line: string, units: number) => ev('ItemVoided', line, { units });
+  const rm = (line: string, units?: number) => ev('ItemRemoved', line, units === undefined ? {} : { units });
+  const reservedOf = (ds: ReadonlyArray<{ event_type: string; payload: Record<string, unknown> }>): string[] =>
+    ds.filter((d) => d.event_type === 'StockReserved').map((d) => d.payload.order_item_id as string);
+  // The writer's commit in strict mode; no breach, replay = live; returns the lines the batch reserved.
+  const run = (o: Head, causes: PosEvent[]): string[] => {
+    const h = head(o);
+    const s0 = fold(h);
+    const { events, state } = commit(s0, causes, AT);
+    expect(breaches(state)).toEqual([]);
+    expect(replay([...h, ...events])).toEqual(state);
+    return reservedOf(events);
+  };
+
+  it('[03a #141] [ItemMovedToStock L (2 of 4), ItemVoided L (2)] with a hidden waiting line of another order → it takes the portion, L does not', () => {
+    expect(run({ k1: 4 }, [mv('K1', 2), vd('K1', 2)])).toEqual(['W4']);
+  });
+
+  it('[04 #10c] deal part P2 of the same order, unstarted, on the same stock item and voided later in the array → the portion goes to T4, never to P2', () => {
+    expect(run({ o1: [{ id: 'P2', draws: kb() }] }, [mv('K1', 1), vd('K1', 1), vd('P2', 1)])).toEqual(['W4']);
+  });
+
+  it('[04 #10d] Void all on two karahi lines of one order (K1 moved), K2 named earlier or later in the array → T4 reserved', () => {
+    const o1 = [{ id: 'K2', draws: kb() }];
+    expect(run({ o1 }, [mv('K1', 1), vd('K1', 1), vd('K2', 1)])).toEqual(['W4']);
+    expect(run({ o1 }, [vd('K2', 1), mv('K1', 1), vd('K1', 1)])).toEqual(['W4']);
+  });
+
+  it('[04 #10e] same order, second-round karahi K2 waiting and not voided, K1 voided moved → K2 reserved (a live line of the same order may take it)', () => {
+    expect(run({ o1: [{ id: 'K2', draws: kb() }] }, [mv('K1', 1), vd('K1', 1)])).toEqual(['K2']);
+  });
+
+  it('[04 #10f] strict: [deal part P1 at added voided, karahi K1 done moved] in that order, with and without T4 → never StockReserved{P1}; T4 reserved when present', () => {
+    const o1 = [{ id: 'P1', draws: kb() }];
+    expect(run({ o1, done: true }, [vd('P1', 1), mv('K1', 1), vd('K1', 1)])).toEqual(['W4']);
+    expect(run({ o1, done: true, w4: false }, [vd('P1', 1), mv('K1', 1), vd('K1', 1)])).toEqual([]);
+  });
+
+  it('[04 #10g] strict, pure array: one at-added line named by two partial causes (one before the move, one after) plus a moved line → that line never reserved', () => {
+    const o1 = [{ id: 'A', quantity: 2, draws: kb(2) }];
+    expect(run({ o1 }, [vd('A', 1), mv('K1', 2), vd('K1', 2), rm('A', 1)])).toEqual(['W4']);
+    expect(run({ o1, w4: false }, [rm('A', 1), mv('K1', 2), vd('K1', 2), vd('A', 1)])).toEqual([]);
+  });
+
+  it('[04 #10h] strict: [deal ×2 part P (units 2) at added waiting voided 1, K1 ×2 done moved] and the reverse, T4 present → never StockReserved{P}, T4 reserved, no stock_breach', () => {
+    const o1 = [{ id: 'P', quantity: 2, draws: kb(2) }];
+    expect(run({ o1, done: true }, [vd('P', 1), mv('K1', 2), vd('K1', 2)])).toEqual(['W4']);
+    expect(run({ o1, done: true }, [mv('K1', 2), vd('K1', 2), vd('P', 1)])).toEqual(['W4']);
+  });
+
+  it('[03a #141] a third line K named by an ItemRemoved without units (whole), earlier or later in the array → K never takes the portion', () => {
+    const o1 = [{ id: 'K', draws: kb() }];
+    expect(run({ o1 }, [rm('K'), mv('K1', 1), vd('K1', 1)])).toEqual(['W4']);
+    expect(run({ o1 }, [mv('K1', 1), vd('K1', 1), rm('K')])).toEqual(['W4']);
+  });
+
+  it('[03a #141] the single-draft overload excludes only the moved line', () => {
+    const s0 = fold(head({ o1: [{ id: 'P2', draws: kb() }] }));
+    const one = stockEffects(s0, { ...draftOf(mv('K1', 1)), occurred_at: AT }, CTX);
+    expect(reservedOf(one)).toEqual(['P2']);
+  });
+
+  it('[03a #141] an array with no ItemVoided / ItemRemoved (a StockAdded alone) reserves as before: the same drafts as the single overload', () => {
+    const s0 = fold(head({ o1: [{ id: 'P2', draws: kb() }] }));
+    const add = { ...draftOf(added('KB', 1, AT)), occurred_at: AT };
+    const one = stockEffects(s0, add, CTX);
+    expect(reservedOf(one)).toEqual(['P2']);
+    expect(stockEffects(s0, [add], CTX)).toEqual([add, ...one]);
+  });
+});

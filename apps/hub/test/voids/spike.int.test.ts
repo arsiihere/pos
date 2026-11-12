@@ -8,7 +8,7 @@
 //   - `lineChangeDrafts` in its default mode for `{ stale_comps: 'keep' }` (u2), with the K-1 `AlertClosed` assert;
 //   - no line guard (u3): §10 #0's "the lock check does not refuse its own request" (H1-1) half is carried by test 21
 //     in v7, because no line guard exists until u3;
-//   - no T-2 pre-scan (u4): pinned by the `it.fails` below, which u4 turns green;
+//   - T-2 pre-scan (u4, G-17): pinned by the test 10c case below (an `it.fails` until u4 landed);
 //   - audit fold a no-op (a2): the audit-row half is an `it.todo`.
 import { DomainError, type VoidDisposition } from '@pos/domain';
 import { openDayStartMs, stockEffects, type EngineState } from '@pos/engine';
@@ -361,12 +361,12 @@ describe('[04 R-2] a read-only apply builds engine + stock drafts', () => {
     expect(() => VOID_APPROVAL.request!.apply({} as never, {} as never)).toThrow('not built');
   });
 
-  // T-2 (03a v1.2.4, G-17): the moved portion is never reserved by a line the array ends. Today's waitingReserve
-  // excludes only the moved line, and the scratch `book` ignores ItemVoided, so the hidden waiting line AW_K (same stock
+  // T-2 (03a v1.2.4, G-17): the moved portion is never reserved by a line the array ends. Before u4, waitingReserve
+  // excluded only the moved line, and the scratch `book` ignores ItemVoided, so the hidden waiting line AW_K (same stock
   // item, same deadline, first by order_item_id) — voided later in the same array — takes the 500 g and T4 gets nothing
   // (observed: StockReserved [AW_K]). Pure stockEffects form: VoidItems / apply cannot name a waiting line at `added`
-  // (rule 4), as test 10g. Fails until u4 adds the array pre-scan; u4 turns `it.fails` into `it`.
-  it.fails('[04 R-2 → u4, test 10c] a part the array ends is never reserved; another order\'s waiting line is', async () => {
+  // (rule 4), as test 10g. Green since u4 added the array pre-scan (was `it.fails`).
+  it('[04 R-2 → u4, test 10c] a part the array ends is never reserved; another order\'s waiting line is', async () => {
     hub = await startVoids();
     const s = stagedOrder(hub); // SO_K: a cooking karahi with a 500 g K1 draw, reserved 0 (K1 counted 0)
     openSeating(hub, { table_id: VX.tables.T5, seating_id: 'SEAT_AW' });
