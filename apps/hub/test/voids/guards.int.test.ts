@@ -102,6 +102,29 @@ describe('[04 §6.6] merge guard (02a §3.11 / §3.12)', () => {
     expect(moved.status, JSON.stringify(moved.error)).toBe(200);
   });
 
+  it('[04 #34] split: moving the order with a pending void → blocked; after approve / reject / withdraw → allowed', async () => {
+    for (const end of ['approve', 'reject', 'withdraw'] as const) {
+      hub = await startVoids();
+      const cashier = signIn(hub, STAFF.cashier);
+      const manager = signIn(hub, STAFF.manager);
+      openSeating(hub, { table_id: VX.tables.T4, seating_id: 'SEAT_T4', holder_staff_id: STAFF.manager });
+      const locked = stagedOrder(hub, { seating_id: 'SEAT_T4', prefix: 'SA' });
+      stagedOrder(hub, { seating_id: 'SEAT_T4', prefix: 'SB' }); // the seating keeps an order on T4
+      append(hub, [{ stream_type: 'table', stream_id: VX.tables.T4, event_type: 'TableLocked', payload: { table_id: VX.tables.T4, seating_id: 'SEAT_T4', staff_id: STAFF.manager } }], { actor: STAFF.manager, device: manager.deviceId });
+      const [alert_id] = await ask(cashier, locked.order_id, [{ order_item_id: locked.cooking, disposition: 'wastage' }]);
+      const split = () => command(manager, 'split-seating', 'SplitSeating', { from_table_id: VX.tables.T4, seating_id: 'SEAT_T4', to_table_id: VX.tables.T6, order_ids: [locked.order_id] });
+      const blocked = await split();
+      expect(blocked.status, end).toBe(409);
+      expect(blocked.error).toEqual({ code: 'MERGE_BLOCKED_BY_VOID', details: { order_item_ids: [locked.cooking] } });
+      const closed = await answer(hub, end === 'withdraw' ? cashier : manager, alert_id!, end);
+      expect(closed.status, `${end} ${JSON.stringify(closed.error)}`).toBe(200);
+      const moved = await split();
+      expect(moved.status, `${end} ${JSON.stringify(moved.error)}`).toBe(200);
+      await hub.close();
+      hub = undefined as unknown as TestHub;
+    }
+  });
+
   it('[04 §6.6] merge guard: 1 statement whether it blocks or not, by seatings (merge) or by order ids (split)', async () => {
     hub = await startVoids();
     const cashier = signIn(hub, STAFF.cashier);
