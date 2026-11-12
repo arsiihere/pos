@@ -13,7 +13,7 @@ You are building the UI of **module 03b · Kitchen screens and the Pass** and **
 
 - Follow specs 03b and 03c and their status-board rulings for every API name, field, limit and error code. **Do not change server code or API shapes.**
 - The **paper text is fixed by 03c §3.3 / §3.5** (`renderText`). Only build the on-screen preview look; never change ticket text.
-- **This is the core set (71 frames).** States without a frame follow the shared patterns below and `brief/03b-03c-brief.md`. Ask before you invent behaviour.
+- **This is the core set (71 frames).** States without a frame follow the shared patterns below and the repo brief `docs/design/inventory/03b-03c-design-brief.md`. Ask before you invent behaviour.
 
 **Two design stacks. Never mix them in one screen.**
 - **Staff screens (KDS, Pass, alert cards, phones):** Pulse Chatkhara.
@@ -26,7 +26,7 @@ You are building the UI of **module 03b · Kitchen screens and the Pass** and **
 ## Read first (in this order)
 1. `CHANGES.md`: owner decisions, the UX review, answers to brief §7 (Q-1 to Q-20), new string keys, open items.
 2. `MAPPING.md` (and `mapping.json`): screen ID → frames.
-3. `brief/03b-03c-brief.md`: behaviour, copy and error codes.
+3. `docs/design/inventory/03b-03c-design-brief.md` (in the repo, the source of truth for the brief; not copied into this folder): behaviour, copy and error codes.
    - If a frame and the brief disagree on **behaviour or copy**, follow the brief.
    - If they disagree on **layout or look**, follow the frame.
 4. `design/*.dc.html` and `design/screens/*.png`: the frames (static HTML at device size).
@@ -62,6 +62,7 @@ You are building the UI of **module 03b · Kitchen screens and the Pass** and **
      - Both are 72 px.
    - After Ready: the band "Ready · 1:21 PM · Asif", a count-up and Undo m:ss. HOLD AT PASS is an amber pill.
    - Takeover section `.tko` above the cards. It uses the same rows as the KDS, and its words stay English.
+   - Takeover rows show **Reprint only when that station’s `has_printer` is true**, the same rule as the KDS (03b v1.0.7 Q-P22b). `station_notice { kind: 'output' }` updates it live; never a greyed Reprint.
    - When the takeover ends: toast "{Station} screen is back".
    - Hand over sheet: 96 px receiver tiles, the table team first, no line picker. A tap hands over every done line, max 40, with an "N left" result.
    - States: offline, read-only, archived point, empty, loading, portrait (one column), Urdu RTL.

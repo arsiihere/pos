@@ -7,7 +7,7 @@
 | Question | Answer |
 |---|---|
 | Unslop A / B? | **Pulse as-is.** No restyle. KDS uses the dark Pulse tokens (`.pu.v-brand.kds`). Pass, alerts and phones use light Pulse. Hub admin pages use the 00 admin shell (owner kit). |
-| Brief | Full file supplied: `brief/03b-03c-brief.md`. |
+| Brief | Full file supplied; the repo copy `docs/design/inventory/03b-03c-design-brief.md` is the source. |
 
 Everything else was decided by design and is listed below.
 
@@ -80,5 +80,7 @@ Urdu for these goes to `docs/design/handoff/03b/urdu-todo.md` if it isn't suppli
 ## 6. Owner decisions 2026-11-12 (spec 03b/03c v1.0.6)
 
 Q-3, Q-14, Q-18 and Q-20 are decided; see §4. Changed or new frames: `KdsLaneStates` (new), `KdsLaneCustom` (new), `KdsLaneOff`, `KdsReprint`, `AlertCards`, `AlertCardsUrdu`, and every Printers frame that shows Station outputs (`Printers`, `PrintersPaperOut`, `PrintersUrdu`, `PrinterAdd`, `PrinterTest`, `PrinterArchive`, `OutputEditor`, `QueueCancel`).
+
+**Follow-up 2026-11-12 (owner, 03b v1.0.7 Q-P22b):** no new frame. **Takeover rows on the Pass show Reprint only when that station's `has_printer` is true**, the same rule as the KDS card (Q-20). The takeover body carries `has_printer`, and `station_notice { kind: 'output' }` to the point's Pass tablets keeps it current. When it is false, there is no Reprint at all, never a greyed one.
 
 No open owner questions left for this module.

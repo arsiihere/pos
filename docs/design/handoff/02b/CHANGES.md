@@ -1,4 +1,4 @@
-# Module 02b — Ordering · design decisions (core set, 60 frames)
+# Module 02b — Ordering · design decisions (core set, 67 frames)
 
 All frames are new, drawn from `brief/02b-brief.md` (spec 02b v1.0.5) after the hostile review (`brief/02-brief-review.md`). Sample: Ali, F4 + F5 (Family hall, 9 guests), Round 2 at 8:10 PM: Raita from the counter, Naan ×6, Seekh ×4, Chicken Karahi Full (+ extra naan ×2, "less spicy"). The cashier Sana works the kiosk (takeaway 57 for Usman); the runner takes parking LEB 1234 (Sedan).
 
@@ -15,7 +15,7 @@ Pulse Chatkhara maroon as in 01d (no unslop). Pulse table palette. The look buil
 | Table view bottom "Add items" + 02a "Take order" | **One button in the header** ("Add items · Round 4"). | Same command. |
 | Cart footer: total + ready ring + Order note + Hold + Send | Kept as in `PCOrder` (total 32 px, "All ready by 8:27 PM" ring, Order note · Hold, Send 64 px). | It already holds the minimum. |
 | Line shows "Ready-made" badge for `from_stock` | Dropped. A ready-made line just has an earlier time. | The time already says it. |
-| "Comp it?" auto prompt after Remake (Q6) | Not auto. The Comp action is on the line. | One less dialog in a rush. |
+| "Comp it?" auto prompt after Remake (Q6) | **Changed 2026-11-12 (owner): automatic, as spec §8 asks.** See §6. | The spec wants the prompt. |
 | Kitchen-note quick chips (Q2) | None, typing only (≤ 80 with a counter). | Not defined in setup. |
 | Takeaway order view showing stages | **Served / Not served only**, plus one info line naming the gap (Q19). | No data for stages. |
 | Abandoned list as a separate screen | A 4th tab on Open orders, **managers only**. | Same list shape. |
@@ -29,7 +29,7 @@ Pulse Chatkhara maroon as in 01d (no unslop). Pulse table palette. The look buil
 | Q3 Bill paid during Send | Hold / Discard only. |
 | Q4 Stage words | **Later · Sent to kitchen · Cooking · Ready · Served · 8:28 PM · Sent back · Served · closed · Not tracked · From the counter · Served · No kitchen — serve when ready · Weight pending** (frame `Stages`), each with an icon and a tone. |
 | Q5 Add items on takeaway/parking | Hidden. New order makes a new token/plate order. |
-| Q6 Comp after Remake | No auto prompt. |
+| Q6 Comp after Remake | **Automatic “Comp it?” prompt** (owner 2026-11-12, spec §8 E-7). See §6. |
 | Q7 Release sheet | Partners shown pre-ticked as "hurry it" (`ReleaseSheet`). |
 | Q8 Zone alert names | Generic "A zone item is running low" + tap to the zone screen. |
 | Q9 Slow chip | Station wait + cook time, in minutes ("25 min" clock chip). |
@@ -116,3 +116,30 @@ Pulse Chatkhara maroon as in 01d (no unslop). Pulse table palette. The look buil
 - Q19 takeaway lines view, Q17 kitchen progress push, Q18 plain options after Send, Q21 token/plate on comp alerts, Q8 zone alert names: all hub changes. The frames show the honest fallback.
 - Q23: who marks a counter takeaway served (grant `mark-served` to the cashier?).
 - **Next frame set**: Urdu for every remaining screen, phone sheets for D04/D30/D31–D35, kiosk table view, 40-line cart, `426`, the deal-part g/ml remove error, and the "Still sending…" state.
+
+## 6. Follow-up (owner 2026-11-12)
+
+**Automatic “Comp it?” (spec §8, E-7).**
+- **When it appears:** right after the hub accepts a round that re-sends a dish the guest already had. There are two cases:
+  1. **“Send it as a new item”** on a closed order (`409 ORDER_NOT_IN_ENGINE` from Return).
+  2. Adding a remade dish again after its replacement was removed.
+- **Where:** on the table view, after the Sent result closes. If the round was queued offline, the prompt waits until it is sent (comp is online only).
+- **The dialog** (`CompItPrompt`): “Comp the new Chicken Karahi?”, one line saying it is on the bill unless comped, and the item with its price.
+  - **No, keep on the bill** → nothing changes; toast “Kept on the bill · You can still comp it from the line.” (`CompItNo`).
+  - **Yes, comp it** (primary) → the usual Comp (`CompLine`) opens with the item and units filled in (`CompItYes`). The reason is still required; the button reads “Pick a reason” until one is chosen. After that the usual flow runs: Ask for approval → `CompWaiting` for order takers, or Comp at once with the grant.
+- **Before Send** (`CompItCart`): the order screen opens with the same item and options in the cart as a new round. An info line says the prompt will come, and the line has a “Sent again · asks to comp” badge.
+- **Copy change:** `SendBackClosed` now says “After it is sent you’ll be asked to comp it.”
+
+**Zone items (spec §8).**
+- **Zone empty** (`SentZoneEmpty`): a line sent `from_zone` that comes back with `zone_served: false` is shown **once**, in the Sent result, as a warn message “Zone empty — Raita sent to the kitchen” (or “…to the counter”, by the station it was routed to). That line keeps its new time, highlighted.
+- **Zone Undo** (`ZoneUndo`): on the table view, a zone-served line shows **Undo · m:ss** for `zone_undo_ms` (default 5 min) from its `ItemAdded`, with “Puts 2 back in the Family hall count”. Undo sends the usual remove of that line (the fold adds the units back).
+- **After 5 min** (`ZoneUndoLate`): there is no Undo. The line says “Too late to undo here. Fix the count on the zone screen.” with a **Zone stock** button.
+
+| Key | English |
+|---|---|
+| `compit.title` / `.body` / `.yes_hint` / `.no` / `.yes` | Comp the new {item}? / Sent again for a dish the guest already had. It’s on the bill unless you comp it. / Yes opens Comp with the item and units filled in. You pick the reason. / No, keep on the bill / Yes, comp it |
+| `compit.kept` / `.kept_sub` | Kept on the bill / You can still comp it from the line. |
+| `compit.cart_info` / `.badge` | {item} is in a new round for {table}. After Send you’ll be asked to comp it. / Sent again · asks to comp |
+| `comp.pick_reason` | Pick a reason |
+| `zone.empty_sent` | Zone empty — {item} sent to the {kitchen\|counter} |
+| `zone.undo` / `.undo_hint` / `.too_late` | Undo · {m:ss} / Puts {n} back in the {zone} count / Too late to undo here. Fix the count on the zone screen. |

@@ -1,6 +1,6 @@
 # Module 02a · Tables — mapping
 
-Every screen in the brief (§3 screen list) → its frames (one per state). Behaviour, data and error codes: the brief. Components and CSS: `CHANGES.md` §3 and `PROMPT.md` step 2. 60 frames, all new.
+Every screen in the brief (§3 screen list) → its frames (one per state). Behaviour, data and error codes: the brief. Components and CSS: `CHANGES.md` §3 and `PROMPT.md` step 2. 61 frames, all new.
 
 | Screen | Name | Kind · devices | Frames (state) |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Every screen in the brief (§3 screen list) → its frames (one per state). Beha
 | **02a-C03** | Handover waiting card (sender) | card · T K P | `HandoverWaiting.dc.html` — Sender — waiting card with live count + Withdraw; also in Needs you (tablet)<br>`HandoverWaitingLate.dc.html` — After 2 min — “ask her in person”, lead told (tablet) |
 | **02a-C04** | Handover result notice (sender) | card / banner · T K P | `HandoverDeclined.dc.html` — Result — “Sara declined”; offers Hand over to someone else (Q13) (tablet)<br>`HandoverAccepted.dc.html` — Result — “Sara accepted F4 + F5”, info banner, hides after 4 s (tablet) |
 | **02a-C05** | Call-waiter card (waiters) | card / banner · T K P | `CallWaiterCard.dc.html` — Waiter’s phone — “F4 · Call” banner and Inbox rows; no caller or chip (Q14) (phone) |
-| **02a-B10** | Lock banners: released / opened on another device / table taken by someone else | banner · T K P | `LockReleased.dc.html` — Order screen — “Your table F7 was released by Imran: Went home”, draft kept (tablet)<br>`LockHolderChanged.dc.html` — Order screen — “Ali now has this table. Keep as draft”; Send off (tablet)<br>`LockOtherDevice.dc.html` — Order screen — “Opened on another device” (tablet)<br>`LockTimedOut.dc.html` — Order screen — released after the branch lock time (15 min) (tablet)<br>`ForceMovedToMe.dc.html` — Force move — the new holder is told (Q21) (tablet) |
+| **02a-B10** | Lock banners: released / opened on another device / table taken by someone else | banner · T K P | `LockReleased.dc.html` — Order screen — “Your table F7 was released by Imran: Went home”, draft kept (tablet)<br>`LockHolderChanged.dc.html` — Order screen — “Ali now has this table. Keep as draft”; Send off (tablet)<br>`LockHolderChangedSend.dc.html` — Holder changed — staff with take-order-anywhere: Send stays on; the submit never takes the lock (spec §8, owner 2026-11-12) (tablet)<br>`LockOtherDevice.dc.html` — Order screen — “Opened on another device” (tablet)<br>`LockTimedOut.dc.html` — Order screen — released after the branch lock time (15 min) (tablet)<br>`ForceMovedToMe.dc.html` — Force move — the new holder is told (Q21) (tablet) |
 | **02-B02** | Hub offline bar and "Needs the hub" disabled state | bar / inline · T K P | `TableMapOffline.dc.html` — Hub offline — last known tables, 2 waiting to send (bill, clean) (tablet) |
 | **02a-T01** | Toasts of this module | toast · T K P | `Toasts.dc.html` — Toasts and the “Needs the hub” disabled state (component) |
 

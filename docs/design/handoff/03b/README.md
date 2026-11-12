@@ -6,5 +6,5 @@ Place at `docs/design/handoff/03b/`.
 - `CHANGES.md` — owner decisions, UX review, §7 answers, new strings, open items.
 - `MAPPING.md` / `mapping.json` — screen → frames.
 - `INDEX.html` — all 71 frames as thumbnails.
-- `brief/` — the design brief.
+- The design brief is not copied here: use `docs/design/inventory/03b-03c-design-brief.md` in the repo.
 - `design/` — frames, screenshots, CSS, `ds/` (tokens + fonts).

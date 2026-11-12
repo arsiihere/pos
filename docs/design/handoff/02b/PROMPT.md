@@ -34,6 +34,7 @@ You are building the UI of **module 02b · Ordering** (staff app) in the **Pulse
 6. **Send (02-D07):** freeze the cart, queue first, then submit. States: Sending, Sent (final times + "Time updated"), the big **token** for takeaway, the **plate** for parking, Queued ("Token after sending"), the queued-takeaway-sent card, and "Already sent" (409 own pending → show as Sent).
 7. **Table view orders part (02-S06):** rounds with promise and stage words (`Stages.dc.html`). Tapping a line opens its allowed actions under it. Kitchen progress is not pushed, so show the "updated · Refresh" line. Offline: queued round dashed, Mark served queues.
 8. **Line actions and cards:** as in `MarkServed`, `Remove`, `SendBack*`, `Comp`, `CompWaiting`, `CompRequests`/`CompAnswer` (01d sheet + PIN), `EnterWeight`, `Contact`, `Boost`, `TableViewLate`/`ReleaseSheet`.
+8a. **Follow-up 2026-11-12 (CHANGES §6):** the automatic “Comp it?” (`CompItCart` → `CompItPrompt` → `CompItYes` / `CompItNo`), the zone-empty line in the Sent result (`SentZoneEmpty`), and zone Undo on the table view (`ZoneUndo`, `ZoneUndoLate`).
 9. **Lists:** Open orders (kiosk home, tablet, phone; Abandoned tab for managers), the order view (Served / Not served until the hub adds stages), Held, Zone stock + Refill/Count, the zone alert.
 10. **Queue:** one offline bar shared with 02a; queue log rows with Send again as {name} / Copy to a new order / Discard; the idle lock sends the queue first.
 11. **Strings:** the keys in CHANGES §4. Put any Urdu you can't place in `docs/design/handoff/02b/urdu-todo.md`.

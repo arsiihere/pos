@@ -1,4 +1,4 @@
-# Module 02a — Tables · design decisions (core set, 60 frames)
+# Module 02a — Tables · design decisions (core set, 61 frames)
 
 All frames are new, drawn from `brief/02a-brief.md` (spec 02a v1.1.4) after the hostile review (`brief/02-brief-review.md`). The sample shift: **Ali** (order taker) on **Tablet 3**, Saturday 8:15 PM, **Family hall** (his zone, F1–F7) and **Cabins** (Sara's zone, F8–F12). F4 + F5 is a joined party of 9.
 
@@ -74,7 +74,7 @@ All frames are new, drawn from `brief/02a-brief.md` (spec 02a v1.1.4) after the 
 | 02a-C03 waiting (sender) | An info-tinted card in the sheet header: a ring with the live count, "Waiting for Sara", and **Withdraw** (tone). After 2 min: "ask her in person · Your lead was told". It also shows as the first Needs you row. |
 | 02a-C04 result | Info banner, max 2 stacked (01d rules). Declined → **Hand over to someone else**; accepted → OK, hides after 4 s. |
 | 02a-C05 call card | Waiter's phone: action banner "F4 · Call" with zone and time, plus Inbox rows. Closed calls are greyed. |
-| 02a-B10 lock banners | Warning-toned banner at the top end of the **order screen**, sticky, one tinted **Keep as draft**. Send is turned off underneath. Four frames: released by a manager, holder changed, other device, lock time. On the map, a force-move notice goes to the receiver. |
+| 02a-B10 lock banners | Warning-toned banner at the top end of the **order screen**, sticky, one tinted **Keep as draft**. Send is turned off underneath. Four frames: released by a manager, holder changed, other device, lock time. **Holder changed, with `take-order-anywhere`:** Send stays on and the banner reads “You can still send this order. The table stays Ali’s.” The submit never takes the lock (spec §8; `LockHolderChangedSend`, owner 2026-11-12). On the map, a force-move notice goes to the receiver. |
 | 02-B02 offline | A sticky warning bar under the top bar ("Reconnecting… 2 waiting to send" / "…showing the last known tables" + "Ask for bill, Clean and Mark served still work"). Live pill reads "Hub offline". Queued tiles show a "Waiting to send" flag. |
 | Sign-in | Reuses 01d tiles (104 px). A locked person is greyed with "Locked · 14 min". The 02b queue line sits under the grid. PIN pad (104 × 64 keys). 02-D01 and 02a-S00 are plain dialogs/pages. |
 
@@ -115,6 +115,7 @@ All frames are new, drawn from `brief/02a-brief.md` (spec 02a v1.1.4) after the 
 | `pair.again` / `.again_sub` / `.show_code` | This screen must be paired again / Ask a manager. Unsent orders stay on this screen. / Show pairing code |
 | `alert.table_handover.card` / `.lock` | Table handover / {table} · Table handover · {name} |
 | `alert.call_waiter.card` / `.lock` | Call / {table} · Call waiter |
+| `lock.holder_changed_can_send` | You can still send this order. The table stays {name}’s. |
 | Toasts | as in 02a-T01 (frame `Toasts`) |
 
 ## 5. Still open (owner)
@@ -123,3 +124,9 @@ All frames are new, drawn from `brief/02a-brief.md` (spec 02a v1.1.4) after the 
 - **Hub gaps** that keep frames generic: call card without the caller or chip (Q14), `my-requests` without the receiver/table (Q20), `my_floors` with no floor list (Q6), bill paid not pushed live (Q5).
 - **01d shared change**: a phone answer sheet now exists (`HandoverAnswerPhone`). 01d's approval kinds can reuse it.
 - **Next frame set** (after review): Urdu for every remaining screen, the portrait/phone variants of each dialog, kiosk dialogs, the queue-log rows for Bill/Clean (drawn in 02b), and `426 Update the app`.
+
+## 6. Follow-up (owner 2026-11-12)
+
+| Frame | What |
+|---|---|
+| `LockHolderChangedSend` | 02a-B10 holder-changed banner for staff **with `take-order-anywhere`** (spec §8): the banner keeps **Keep as draft**, Send to kitchen stays on, and the copy says the table stays with the new holder. Sending never takes the lock. Staff without the permission keep `LockHolderChanged` (Send off). |

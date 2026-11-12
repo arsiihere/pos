@@ -1,6 +1,6 @@
 # 03b + 03c · Kitchen screens, Pass and Printing — mapping
 
-Every screen in the brief (§2.1) → its frames. Behaviour, data and error codes: the brief. CSS and components: `CHANGES.md` §3. 71 frames. Staff frames use Pulse (`pulse*.css`); hub admin and paper frames use the owner kit (`ds/pos` + `kit-additions.css` + `admin-03.css`).
+Every screen in the brief (`docs/design/inventory/03b-03c-design-brief.md` §2.1) → its frames. Behaviour, data and error codes: that brief. CSS and components: `CHANGES.md` §3. 71 frames. Staff frames use Pulse (`pulse*.css`); hub admin and paper frames use the owner kit (`ds/pos` + `kit-additions.css` + `admin-03.css`).
 
 | Screen | Name | Kind · devices | Frames |
 |---|---|---|---|

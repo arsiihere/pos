@@ -489,6 +489,13 @@
      "state": "Closed (> 30 min) — “Send it as a new item” (tablet)",
      "w": 1280,
      "h": 800
+    },
+    {
+     "file": "design/CompItCart.dc.html",
+     "png": "design/screens/CompItCart.png",
+     "state": "“Send it as a new item” → order screen, same item and options in the cart as Round 4 (spec §8 E-7) (tablet)",
+     "w": 1280,
+     "h": 800
     }
    ]
   },
@@ -502,6 +509,27 @@
      "file": "design/Comp.dc.html",
      "png": "design/screens/Comp.png",
      "state": "Comp — units, reason chips; “Ask for approval” for order takers (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItPrompt.dc.html",
+     "png": "design/screens/CompItPrompt.png",
+     "state": "Automatic “Comp it?” after the new round is sent — Yes / No (spec §8 E-7, owner 2026-11-12) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItYes.dc.html",
+     "png": "design/screens/CompItYes.png",
+     "state": "Yes → Comp opens prefilled (item, units); reason still required; then the usual approval / waiting card (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItNo.dc.html",
+     "png": "design/screens/CompItNo.png",
+     "state": "No → nothing changes, toast “Kept on the bill” (tablet)",
      "w": 1280,
      "h": 800
     }

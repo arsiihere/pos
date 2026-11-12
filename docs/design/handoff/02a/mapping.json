@@ -606,6 +606,13 @@
      "h": 800
     },
     {
+     "file": "design/LockHolderChangedSend.dc.html",
+     "png": "design/screens/LockHolderChangedSend.png",
+     "state": "Holder changed — staff with take-order-anywhere: Send stays on; the submit never takes the lock (spec §8, owner 2026-11-12) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
      "file": "design/LockOtherDevice.dc.html",
      "png": "design/screens/LockOtherDevice.png",
      "state": "Order screen — “Opened on another device” (tablet)",

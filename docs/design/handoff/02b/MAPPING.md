@@ -1,6 +1,6 @@
 # Module 02b · Ordering — mapping
 
-Every screen in the brief (§3 screen list) → its frames (one per state). Behaviour, data and error codes: the brief. Components and CSS: `CHANGES.md` §3 and `PROMPT.md` step 2. 60 frames, all new.
+Every screen in the brief (§3 screen list) → its frames (one per state). Behaviour, data and error codes: the brief. Components and CSS: `CHANGES.md` §3 and `PROMPT.md` step 2. 67 frames, all new.
 
 | Screen | Name | Kind · devices | Frames (state) |
 |---|---|---|---|
@@ -25,8 +25,8 @@ Every screen in the brief (§3 screen list) → its frames (one per state). Beha
 | **02b-S11** | Takeaway / parking order view | screen · T K P | `OrderView.dc.html` — Takeaway order view — token big, Ready 1/3, Served / Not served only (data gap Q19) (tablet) |
 | **02-D08** | Mark served (pick lines) | sheet · T K P | `MarkServed.dc.html` — Mark served — ready lines pre-ticked (tablet) |
 | **02b-D31** | Remove lines (stage 1, units) | sheet · T K P | `Remove.dc.html` — Remove — units stepper; cooking lines point to Void (04) (tablet) |
-| **02b-D32** | Send back (fix / remake) and "Send it as a new item" | sheet / dialog · T K P | `SendBack.dc.html` — Send back — Fix or Remake, one tap (tablet)<br>`SendBackClosed.dc.html` — Closed (> 30 min) — “Send it as a new item” (tablet) |
-| **02b-D33** | Comp (units, reason) | sheet · T K P | `Comp.dc.html` — Comp — units, reason chips; “Ask for approval” for order takers (tablet) |
+| **02b-D32** | Send back (fix / remake) and "Send it as a new item" | sheet / dialog · T K P | `SendBack.dc.html` — Send back — Fix or Remake, one tap (tablet)<br>`SendBackClosed.dc.html` — Closed (> 30 min) — “Send it as a new item” (tablet)<br>`CompItCart.dc.html` — “Send it as a new item” → order screen, same item and options in the cart as Round 4 (spec §8 E-7) (tablet) |
+| **02b-D33** | Comp (units, reason) | sheet · T K P | `Comp.dc.html` — Comp — units, reason chips; “Ask for approval” for order takers (tablet)<br>`CompItPrompt.dc.html` — Automatic “Comp it?” after the new round is sent — Yes / No (spec §8 E-7, owner 2026-11-12) (tablet)<br>`CompItYes.dc.html` — Yes → Comp opens prefilled (item, units); reason still required; then the usual approval / waiting card (tablet)<br>`CompItNo.dc.html` — No → nothing changes, toast “Kept on the bill” (tablet) |
 | **02b-C03** | Comp waiting card (requester) + comp request card (approver) | card · T K P | `CompWaiting.dc.html` — Requester — “Waiting for approval — Rs 2,200 comp” + Withdraw on the line (tablet)<br>`CompRequests.dc.html` — Approver — comp cards in Requests; takeaway comp has no table code (Q21) (tablet)<br>`CompAnswer.dc.html` — Approver — answer sheet (01d), raw reason code mapped to “Quality”, then PIN (tablet) |
 | **02b-D34** | Enter weight | sheet · T K P | `EnterWeight.dc.html` — Enter weight — cashier, number pad in kg, live total (kiosk) |
 | **02b-D35** | Customer contact ("Call") | sheet · T K P | `Contact.dc.html` — Call — name and phone big, only with view-customer-contact (tablet) |
