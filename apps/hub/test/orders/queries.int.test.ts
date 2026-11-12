@@ -688,3 +688,63 @@ describe('zone audience and 02a readers (AD-24, AD-6)', () => {
     expect({ ...mapAfter, as_of_seq: 0 }).toEqual({ ...mapBefore, as_of_seq: 0 });
   });
 });
+
+// ------------------------------------------------------------------------------------------- #48 (H4, Q-9)
+
+describe('[02b #48] open-orders placed_by and table_id (§6.16 v1.0.11, Q-9)', () => {
+  it('[02b #48] rows carry placed_by { staff_id, name }', async () => {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', placed_by: OT1, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'parking', order_id: 'PC', placed_by: CASHIER, lines: [{ order_item_id: 'PC1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TX', placed_by: 'S_GONE', lines: [{ order_item_id: 'TX1', item_id: FX.naan }] });
+    const rows = (await query<Open>(signIn(CASHIER), 'open-orders')).data.orders;
+    expect(rows.find((o) => o.order_id === 'TA')!.placed_by).toEqual({ staff_id: OT1, name: 'Usman' });
+    expect(rows.find((o) => o.order_id === 'PC')!.placed_by).toEqual({ staff_id: CASHIER, name: 'Hina' });
+    // a placer no longer in the directory: the id stays, the name is null
+    expect(rows.find((o) => o.order_id === 'TX')!.placed_by).toEqual({ staff_id: 'S_GONE', name: null });
+    // non-table rows carry no table
+    for (const o of rows) expect(o.table_id).toBeNull();
+  });
+
+  it('[02b #48] an abandoned dine-in row carries table_id = the current primary table, after a MoveTable the new one', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', placed_by: OT1, lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', lines: [{ order_item_id: 'TA1', item_id: FX.piece }] });
+    fire('DI1', 'TA1');
+    hub.clock.advance(5 * 3_600_000); // fired, never tapped: both abandoned
+    const mgr = signIn(MGR);
+    const before = (await query<Open>(mgr, 'open-orders?abandoned=true')).data.orders;
+    expect(before.find((o) => o.order_id === 'DI')).toMatchObject({ abandoned: true, table_id: FX.table, placed_by: { staff_id: OT1, name: 'Usman' } });
+    expect(before.find((o) => o.order_id === 'TA')).toMatchObject({ abandoned: true, table_id: null });
+    // 02a moves the seating: the row follows the seating's current primary table
+    append(draft('table', FX.table, 'TableMoved', { seating_id: 'SEAT1', from_table_id: FX.table, to_table_id: FX.zoneTable, by_staff_id: 'S_WAIT' }));
+    const after = (await query<Open>(mgr, 'open-orders?abandoned=true')).data.orders;
+    expect(after.find((o) => o.order_id === 'DI')!.table_id).toBe(FX.zoneTable);
+  });
+
+  it('[02b #48] statements: 2 with no dine-in row, 3 with one', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1' });
+    appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: 'DI', lines: [{ order_item_id: 'DI1', item_id: FX.piece }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TA', placed_by: OT1, lines: [{ order_item_id: 'TA1', item_id: FX.naan }] });
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'TB', placed_by: OT2, lines: [{ order_item_id: 'TB1', item_id: FX.naan }] });
+    let mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    const count = async (path: string): Promise<{ n: number; rows: Open['orders'] }> => {
+      counter.reset();
+      const r = await query<Open>(mgr, path);
+      expect(r.status, path).toBe(200);
+      return { n: counter.count, rows: r.data.orders };
+    };
+    // the dine-in DI is open but not abandoned (unfired, still in the engine): no dine-in row is listed
+    expect(await count('open-orders')).toMatchObject({ n: 2 });
+    const quiet = await count('open-orders?abandoned=true');
+    expect(quiet.rows.map((o) => o.order_type)).not.toContain('dine_in');
+    expect(quiet.n).toBe(2);
+    fire('DI1');
+    hub.clock.advance(5 * 3_600_000);
+    mgr = signIn(MGR); // the earlier session went idle over the 5 h
+    const loud = await count('open-orders?abandoned=true');
+    expect(loud.rows.filter((o) => o.order_type === 'dine_in').map((o) => o.order_id)).toEqual(['DI']);
+    expect(loud.n).toBe(3);
+    expect(await count('open-orders')).toMatchObject({ n: 2 }); // without the flag no dine-in row is ever listed
+  });
+});
