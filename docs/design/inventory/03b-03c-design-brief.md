@@ -581,7 +581,7 @@ All four use 01d's card (C01), banner (B01), inbox row and lock text (F01) as de
 | `problem` values (hub: `print/status.ts`) | `paper_out` "out of paper"; `offline` "offline"; `not_printing` (the head job failed for ≥ 30 s) "not printing"; `ticket_not_built` (a ticket could not be built for a station that needs paper) |
 | Card shows | "Tandoor printer · Out of paper" (details `printer_name`, `problem`), "6 waiting" (`values.waiting`), the time; help per problem (copy §6.4) |
 | Lock shows | "Printer problem" |
-| Closes | paper_out / offline / not_printing: `done` at the next printed job with a clean or unknown status; `obsolete` on printer archive, or nothing pending and status clean or unknown. **`ticket_not_built` never closes by itself**, is always its own card (one per skipped fire), and its closing never closes the others (v1.0.5 C3-3). It expires at day close. See §7 Q-14: no close command exists yet. |
+| Closes | paper_out / offline / not_printing: `done` at the next printed job with a clean or unknown status; `obsolete` on printer archive, or nothing pending and status clean or unknown. **`ticket_not_built` never closes by itself**, is always its own card (one per skipped fire), and its closing never closes the others (v1.0.5 C3-3). It expires at day close. **Managers dismiss it by hand** (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6): a **"Dismiss"** action on the `ticket_not_built` card only, for people who receive printer alerts (`force-release-table-lock`) → `DismissPrintSkip { alert_id }`; on success the card closes ("Dismissed"); `409 ALERT_ALREADY_CLOSED` → the card is already gone, drop it quietly; other problems never show Dismiss (§7 Q-14). |
 | States | each problem; closed done ("Printing again"); closed obsolete; a `ticket_not_built` beside an open paper_out for the same printer (two cards) |
 
 ### 3.4 Hub admin "Kitchen screens" (03b-S04)
@@ -659,7 +659,7 @@ Fields (03c §3.2): **Name** 1–40, unique among active printers; **Connection*
 
 #### 3.5.3 03c-D02 Archive printer
 
-Confirm: "Archive Tandoor printer? It stops printing." → `SavePrinter { archived: true }`. `409 CONFIG_IN_USE { used_by: stations }` → "Tandoor and Cold still use this printer. Change their output first." (list the stations). An archived station's output row also holds a printer (shown in S02 under "Archived stations"); see §7 Q-18. Un-archive = edit with archived off.
+Confirm: "Archive Tandoor printer? It stops printing." → `SavePrinter { archived: true }`. `409 CONFIG_IN_USE { used_by: stations }` → "Tandoor and Cold still use this printer. Change their output first." (list the stations). An archived station no longer holds a printer: archiving or removing a station in the owner app releases its printer at the next config apply (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6), so only live stations appear in `used_by`; see §7 Q-18. Un-archive = edit with archived off.
 
 #### 3.5.4 03c-D03 Test print
 
@@ -693,7 +693,7 @@ Toggles (paper ticket only): **Show order taker** (default on), **Show order num
 
 `SetStationOutput { station_id, mode, printer_id, show_taker?, show_order_id? }`: `both` / `printer` without a printer → `400 VALIDATION_FAILED { field: 'printer_id' }` ("Pick a printer for paper"); `404 STATION_NOT_FOUND` (archived station: "This station is archived"); `404 PRINTER_NOT_FOUND` (archived printer). Changing a station's printer moves its waiting jobs to the new printer (03c §3.2).
 
-Rows with `archived: true` (an archived or unknown station's output that still holds a printer): listed under "Archived stations", read-only, with the printer name (§7 Q-18).
+Rows with `archived: true` (an archived or unknown station's output): listed under "Archived stations", read-only, **with no printer** — the apply that archived the station released it (output `screen`, no printer) (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6); its unsent tickets, if any, sit in the print queue until a manager cancels them (§7 Q-18).
 
 #### 3.5.6 03c-S03 Print queue and 03c-D05 Cancel
 
@@ -719,7 +719,7 @@ Rows with `archived: true` (an archived or unknown station's output that still h
 
 - **03c-C01 printed tag:** on KDS rows and Pass lines whose ticket printed (an uncancelled kitchen or reprint job was sent and acked). Sources: catch-up `kds_printed` and frame `printed_lines` (03c §3.8). Label "Printed" (data slot `{ key, label }`, `features/kds/slots.ts`). Small, neutral, with a printer icon. It never changes buttons.
 - **03c-C02 Reprint on the Pass card:** shown when `GET /queries/order-tickets?order_id` reports a ticket with `has_printer` and the person has `reprint-ticket` (Cook has it by default). Tap → `ReprintTicket { order_id }` → `{ ticket_ids, skipped }` → "Reprinting 2 tickets" / `skipped` "Nothing to reprint" / `404 ORDER_NOT_FOUND` "This order has no tickets" / `403 PERMISSION_DENIED` (hide the action). It prints on the station's printer, with a REPRINT header, the current table, every live line. It is queued if the printer is down ("It prints when the printer is back"). No PIN.
-- **03c-C03 Reprint on the KDS:** a station `both`'s KDS reprints its own station's tickets, no PIN, logged by device (03c §3.5, P13). Where the button sits and how the KDS knows its station prints: §7 Q-20.
+- **03c-C03 Reprint on the KDS:** a station `both`'s KDS reprints its own station's tickets, no PIN, logged by device (03c §3.5, P13). **Shown only when the station's `has_printer` is true** (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6): `kds_station` carries `has_printer` (output `both` / `printer` with an active printer) and `station_notice { kind: 'output', has_printer }` updates it live, so the action appears or disappears without a reload; placement as §7 Q-20.
 
 ### 3.7 03b-S05 Owner app "Kitchen screens and the pass" (built)
 
@@ -830,7 +830,7 @@ Each is a sequence of frames the owner can click through. Times are 12-hour hub 
 ### 4.12 Manager deals with printer alerts
 
 1. Imran gets N01 "Tandoor printer · Out of paper". Opens the Printers page from the card (spec silent on a link → §7 Q-13); puts paper in; status clean → the card closes by itself.
-2. A `ticket_not_built` card stays open after the printer recovers (it never closes by itself, v1.0.5 C3-3). The Printers page lists the skip under warnings. Imran checks the order on the screen. Closing the card by hand: §7 Q-14.
+2. A `ticket_not_built` card stays open after the printer recovers (it never closes by itself, v1.0.5 C3-3). The Printers page lists the skip under warnings. Imran checks the order on the screen. Imran taps **Dismiss** on the card when he has dealt with it (§7 Q-14, decided owner 2026-11-12).
 3. A job stuck because the station lost its printer (`no_printer`): Imran cancels it (D05) or gives the station a printer (D04).
 
 ### 4.13 Day open: lanes and day state
@@ -1117,6 +1117,7 @@ Proposed English. Keys follow the client's existing pattern (`apps/client/src/i1
 | `alert.printer_problem.help.offline` | Check the printer's power and cable. | — |
 | `alert.printer_problem.help.not_printing` | Tickets are not going out. Check the printer, then try a test print. | — |
 | `alert.printer_problem.help.ticket_not_built` | Check that order on the kitchen screen. It may not be on paper. | — |
+| `alert.printer_problem.dismiss` / `alerts.closed.dismissed` | Dismiss / Dismissed | — (managers only, `ticket_not_built` only; owner 2026-11-12, Q-14) |
 | `alerts.closed.undone` / `.moved` / `.screen_back` / `.screen_removed` / `.printing_again` | Pass took it back / Moved to {table} / Screen back / Screen removed / Printing again | closed result lines |
 
 (The 01d labels code fills `{table}`, `{point}`, `{requester}`, `{device}` today; `{identifier}`, `{station}`, `{printer}`, `{problem}`, `{waiting}` are new parameters for the builder.)
@@ -1201,13 +1202,13 @@ Only what the specs leave to design. Everything else is decided.
 | Q-11 | Pass target size: 56 px (staff rule) or 72 px (kitchen)? | 72 px for Ready to serve, Hand over, Start / Done and the receiver tiles; 56 px elsewhere. |
 | Q-12 | Start on a screenless station's line that is not fired yet (the Pass does not know fired / unfired; the hub answers `ITEM_WRONG_STAGE added`). | Show Start on every waiting line; on that error show "Not due yet". |
 | Q-13 | What tapping a Ready-to-serve / Served / Kitchen-offline / Printer-problem card opens. | 01d's notice detail (D04) with the facts. For printer and kitchen-screen cards on an admin-capable device, add a link "Open Printers" / "Open Kitchen screens" (pages exist). |
-| Q-14 | 03c C3-3 says only a manager closes a `ticket_not_built` alert, but no close command exists (01d has none; it expires at day close). | **Owner / spec question, not design.** Until a command exists, draw no Close button on that card; show "Stays until day close" on it. |
+| Q-14 | 03c C3-3 says only a manager closes a `ticket_not_built` alert, but no close command exists (01d has none; it expires at day close). | **Decided** (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6): new command `DismissPrintSkip { alert_id }` (permission `force-release-table-lock`, the managers who receive printer alerts; closes reason `done`; never closes another problem). Design: a **"Dismiss"** action on the `ticket_not_built` card only, for managers; after success the card closes; it still expires at day close if nobody dismisses it. |
 | Q-15 | Where "Kitchen screens" and "Printers" appear on the hub admin home (00 `AdminHome` tiles; no admin menu spec, 00-index). | Two tiles beside Devices: "Kitchen screens" and "Printers", each with a status line ("1 screen offline", "Out of paper"). |
 | Q-16 | Binding a tablet that is not yet a Pass tablet: `kds-config` lists only bound tablets. | A "Use as Pass tablet" action on the 00 Devices page rows of type tablet (opens D03), plus a picker on Kitchen screens fed by 00's devices query. |
 | Q-17 | A sound test on the Kitchen screens page. | A "Play on this device" button next to the volume, playing the chime at that volume locally; it does not ring the KDS (no such command). |
-| Q-18 | An archived station's output row still holds a printer, so that printer can't be archived (`CONFIG_IN_USE`) and `SetStationOutput` refuses archived stations. | **Owner / spec question.** Design: list it read-only under "Archived stations" with "Holds {printer}". |
+| Q-18 | An archived station's output row still holds a printer, so that printer can't be archived (`CONFIG_IN_USE`) and `SetStationOutput` refuses archived stations. | **Decided** (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6): the config apply that archives or removes a station releases its printer (output becomes `screen`, no printer), so the printer can then be archived. Design: the "Archived stations" rows are read-only and **show no printer** (drop "Holds {printer}"); unsent tickets of that station stay in the print queue for a manager to cancel. |
 | Q-19 | The print queue gives order ids, not identifiers. | Show station + kind + time + "REPRINT" / tries; identifier only if the builder can map it from data it already has. |
-| Q-20 | Reprint on the KDS: the slot API has a Pass-card action but no KDS-row action, and the KDS (station session) cannot read `order-tickets` to know its station prints. | **Spec gap for the builder / owner.** Design a small "Reprint" action on a row (or in a row's overflow) for `both` stations; the visibility rule waits for the answer. |
+| Q-20 | Reprint on the KDS: the slot API has a Pass-card action but no KDS-row action, and the KDS (station session) cannot read `order-tickets` to know its station prints. | **Decided** (decided, owner 2026-11-12, "teeno Rec"; spec PR #82: 03c v1.0.6, 03b v1.0.6): the KDS gets `has_printer` in its catch-up (`kds_station`) and live updates (`station_notice { kind: 'output' }`). Design: a small "Reprint" action on a row (or in a row's overflow), **shown only when `has_printer` is true**; no disabled state when false — the action is simply absent. |
 
 ---
 
