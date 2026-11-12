@@ -139,6 +139,8 @@ export interface PageSandbox {
   store: Map<string, unknown>;
   session: Map<string, string>;
   delays: number[];
+  /** every location.assign(url) the page made, in order */
+  assigned: string[];
   prompts: number;
   // document.activeElement: the element the script focused last.
   active: StubElement | null;
@@ -192,6 +194,7 @@ export async function runPage(
   const body = element('body');
   const timers: Array<{ id: number; fn: () => void }> = [];
   const delays: number[] = [];
+  const assigned: string[] = [];
   let nextTimer = 1;
   const counters = { prompts: 0 };
   const objectStore = {
@@ -225,7 +228,7 @@ export async function runPage(
       setItem: (key: string, value: string) => void session.set(key, String(value)),
       removeItem: (key: string) => void session.delete(key),
     },
-    location: { search: o.search ?? '', hash: o.hash ?? '', pathname: '/pair' },
+    location: { search: o.search ?? '', hash: o.hash ?? '', pathname: '/pair', assign: (url: string) => void assigned.push(String(url)) },
     history: { replaceState() {} },
     navigator: { userAgent: o.userAgent ?? 'test', language: o.language ?? 'en-US' },
     window: {
@@ -276,6 +279,7 @@ export async function runPage(
     store,
     session,
     delays,
+    assigned,
     get prompts() {
       return counters.prompts;
     },
