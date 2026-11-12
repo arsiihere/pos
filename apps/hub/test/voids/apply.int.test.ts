@@ -4,10 +4,12 @@ import type { EngineState } from '@pos/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AlertApplyCtx, AnswerFacts } from '../../src/alerts/kinds';
 import type { LineChangeDrafts } from '../../src/orders/contracts';
+import { checkLineGuard } from '../../src/orders/line-guard';
 import { lineChangeDrafts } from '../../src/orders/line-change';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { VOID_APPROVAL, voidApplyDeps, type VoidValues } from '../../src/voids/kind';
 import { statementCounter } from '../helpers/statement-counter';
+import { auditDirectory } from '../audit/fixtures';
 import type { TestHub } from '../helpers/test-hub';
 import {
   answer,
@@ -22,6 +24,9 @@ import {
   stagedOrder,
   startVoids,
   strictRefold,
+  optionChildOrder,
+  pendingWeight,
+  raiseVoid,
   toStage,
   voidsDirectory,
   VX,
@@ -63,7 +68,99 @@ async function ask(who: Who, order_id: string, lines: Line[]): Promise<{ reply: 
 }
 
 describe('[04 §3.4, §6.2] approve', () => {
-  it.todo('[04 #21/#27] comp / remove / weight on a locked line → VOID_PENDING — v8 lineGuard');
+  // v8: the line guard is live (registerVoids → lanes/V2.ts at boot), so these run against the real guard.
+  it('[04 #21/#27] comp on a locked line → VOID_PENDING, also by cascade: comp of the item whose option child is locked, comp of the deal whose part is locked', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const comp = (order_item_id: string) => post(hub, manager, 'comp-line', 'CompLine', { order_item_id, units: 1, reason_code: 'guest' });
+    const oc = optionChildOrder(hub);
+    toStage(hub, oc.order_id, [oc.child], 'cooking');
+    const child = await ask(cashier, oc.order_id, [{ order_item_id: oc.child, disposition: 'wastage' }]);
+    expect((await comp(oc.child)).error).toEqual({ code: 'VOID_PENDING', details: { alert_id: child.alert_ids[0], order_item_id: oc.child } });
+    expect((await comp(oc.item)).error).toEqual({ code: 'VOID_PENDING', details: { alert_id: child.alert_ids[0], order_item_id: oc.child } });
+    const d = dealX2(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const part = await ask(cashier, d.order_id, [{ order_item_id: d.karahiPart, units: 1, disposition: 'wastage' }]);
+    expect((await comp(d.deal)).error).toEqual({ code: 'VOID_PENDING', details: { alert_id: part.alert_ids[0], order_item_id: d.karahiPart } });
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE event_type = 'LineComped'").pluck().get()).toBe(0);
+    // the lock lifts with the request: the same comp then goes through
+    expect((await answer(hub, cashier, part.alert_ids[0]!, 'withdraw')).status).toBe(200);
+    const after = await comp(d.deal);
+    expect(after.status, JSON.stringify(after.error)).toBe(200);
+  });
+
+  it('[04 #21/#27] comp raise (requires_approval) on a locked line → VOID_PENDING; applyComp asks the guard too: a comp request whose planned lines meet a void lock (fixture) → the comp approve is refused VOID_PENDING (H1-7)', async () => {
+    hub = await startVoids({ directory: await auditDirectory() });
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const s = stagedOrder(hub);
+    const locked = await ask(cashier, s.order_id, [{ order_item_id: s.cooking, disposition: 'wastage' }]);
+    const raise = await post(hub, cashier, 'comp-line', 'CompLine', { order_item_id: s.cooking, units: 1, reason_code: 'guest' });
+    expect(raise.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: locked.alert_ids[0], order_item_id: s.cooking } });
+    // a state rule 6 (c) prevents in normal use: the comp request first, then a void request on its line (raiseVoid skips rule 6)
+    const asked = await post(hub, cashier, 'comp-line', 'CompLine', { order_item_id: s.done, units: 1, reason_code: 'guest' });
+    expect(asked.status, JSON.stringify(asked.error)).toBe(200);
+    const compId = asked.result!.alert_id as string;
+    const lock = raiseVoid(hub, { requester: cashier, order_id: s.order_id, order_item_id: s.done });
+    const approve = await answer(hub, manager, compId, 'approve');
+    expect(approve.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: lock.alert_id, order_item_id: s.done } });
+    expect(alertState(compId)).toBe('open');
+    expect(lineRow(s.done)).toMatchObject({ voided_units: 0 });
+    expect(hub.deps.db.prepare('SELECT comped_units FROM order_lines WHERE order_item_id = ?').pluck().get(s.done)).toBe(0);
+    expect(hub.deps.db.prepare("SELECT COUNT(*) FROM events WHERE event_type = 'LineComped'").pluck().get()).toBe(0);
+  });
+
+  it('[04 #21/#27] RemoveItems of a locked deal\'s stage-1 part → VOID_PENDING; SetLineWeight on a locked line → VOID_PENDING; after the withdraw both go through', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const d = dealX2(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const deal = await ask(cashier, d.order_id, [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }]);
+    const remove = () => post(hub, manager, 'remove-items', 'RemoveItems', { order_id: d.order_id, lines: [{ order_item_id: d.naanPart, units: 1 }] });
+    expect((await remove()).error).toEqual({ code: 'VOID_PENDING', details: { alert_id: deal.alert_ids[0], order_item_id: d.naanPart } });
+    const w = pendingWeight(hub);
+    const weighed = await ask(cashier, w.order_id, [{ order_item_id: w.line, disposition: 'wastage' }]);
+    const weigh = () => post(hub, manager, 'set-line-weight', 'SetLineWeight', { order_item_id: w.line, quantity: 500 });
+    expect((await weigh()).error).toEqual({ code: 'VOID_PENDING', details: { alert_id: weighed.alert_ids[0], order_item_id: w.line } });
+    expect((await answer(hub, cashier, deal.alert_ids[0]!, 'withdraw')).status).toBe(200);
+    expect((await answer(hub, cashier, weighed.alert_ids[0]!, 'withdraw')).status).toBe(200);
+    const removed = await remove();
+    expect(removed.status, JSON.stringify(removed.error)).toBe(200);
+    const set = await weigh();
+    expect(set.status, JSON.stringify(set.error)).toBe(200);
+  });
+
+  it('[04 H1-1] approve never asks the line guard on its own request: with the guard live (it locks every touched line) the approve applies', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const d = dealX2(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const { alert_ids } = await ask(cashier, d.order_id, [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }]);
+    for (const id of [d.deal, d.karahiPart, d.naanPart]) expect(checkLineGuard(hub.deps.db, d.order_id, [id])).toEqual({ alert_id: alert_ids[0], order_item_id: id });
+    const r = await answer(hub, manager, alert_ids[0]!, 'approve');
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(ofType(r, 'ItemVoided').map((e) => e.payload.order_item_id)).toEqual([d.deal, d.karahiPart, d.naanPart]);
+    expect(checkLineGuard(hub.deps.db, d.order_id, [d.deal, d.karahiPart, d.naanPart])).toBeNull();
+  });
+
+  it('[04 #47] with the guard live the approved refund = the raise-time refund (details.amount = Σ applied refund_minor); a comp tried in between is refused, so the plan cannot drift', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const d = dealX2(hub);
+    toStage(hub, d.order_id, [d.karahiPart], 'cooking');
+    const { alert_ids } = await ask(cashier, d.order_id, [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }]);
+    const details = JSON.parse(hub.deps.db.prepare('SELECT details_json FROM alerts WHERE alert_id = ?').pluck().get(alert_ids[0]) as string) as { amount: number };
+    expect(details.amount).toBeGreaterThan(0);
+    expect((await post(hub, manager, 'comp-line', 'CompLine', { order_item_id: d.deal, units: 1, reason_code: 'guest' })).error?.code).toBe('VOID_PENDING');
+    expect((await post(hub, manager, 'remove-items', 'RemoveItems', { order_id: d.order_id, lines: [{ order_item_id: d.naanPart, units: 1 }] })).error?.code).toBe('VOID_PENDING');
+    const r = await answer(hub, manager, alert_ids[0]!, 'approve');
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    expect(ofType(r, 'ItemVoided').reduce((sum, e) => sum + (e.payload.refund_minor as number), 0)).toBe(details.amount);
+  });
 
   it('[04 #21] approve → applied: alert_id on every draft (checkAlertIds passes), approver = answerer, requester = raiser; moved karahi re-reserved for T4; audit rows; strict refold', async () => {
     hub = await startVoids();

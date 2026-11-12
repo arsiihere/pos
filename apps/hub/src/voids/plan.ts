@@ -69,6 +69,15 @@ export interface PlannedEntry {
   states: Record<string, VoidLineState>;
 }
 
+/**
+ * V3 / §3.2 rule 7 / §3.4: a line `moved` can take — in engine state at cooking / done with a stock draw. One rule for
+ * the planner (raise, direct, `apply`'s re-check) and `pendingVoids`' `blocked` (exports.ts), so they never disagree.
+ */
+export function movableLine(state: Readonly<EngineState>, id: string): boolean {
+  const line = state.lines[id];
+  return line !== undefined && (line.stage === 'cooking' || line.stage === 'done') && line.draws.length > 0;
+}
+
 /** 02b §3.4: an engine stage open before served (the g/ml part rule's "open in the engine"). */
 const OPEN = new Set(['added', 'cooking', 'done']);
 
@@ -137,7 +146,7 @@ export function planVoidEntries(input: PlanInput): PlannedEntry[] {
 
   /** V3 moved: an open engine stage cooking / done (the line in state) with a stock draw; `inEngine` gates V1 (b) only. */
   const atCookingOrDone = (id: string): boolean => stageOf(id) === 'cooking' || stageOf(id) === 'done';
-  const movable = (id: string): boolean => atCookingOrDone(id) && (state.lines[id]?.draws.length ?? 0) > 0;
+  const movable = (id: string): boolean => movableLine(state, id);
 
   // rule 6 (b): every line some open void request locks
   const locks = new Map<string, string>();

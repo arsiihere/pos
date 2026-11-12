@@ -12,8 +12,8 @@ const LANES = [V1, V2];
 
 /** §6.6: called once from buildHubServer, right after registerPrint. */
 export function registerVoids(app: FastifyInstance, deps: HubDeps): void {
-  // §6.6: the void merge guard; a no-op until v8 provides it (contracts.ts). The line guard (Q-3) and the day-close
-  // guard (A-1) are registered by v8 from lanes/V2.ts once u3 / u8 add their registrars.
+  // §6.6: the void merge guard (contracts.ts delegates to voids/guards.ts once lanes/V2.ts provides it). The line guard
+  // (Q-3) and the day-close guard (A-1) are registered from lanes/V2.ts.
   registerMergeGuard(voidMergeGuard);
   for (const lane of LANES) lane.register(app, deps);
 }
