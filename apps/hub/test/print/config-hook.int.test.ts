@@ -136,6 +136,30 @@ describe('[03c v1.0.6 §3.2, Q-18] a config apply that archives / removes a stat
     expect(data.jobs).toMatchObject([{ station_id: FX.station, printer_id: null }]);
   });
 
+  it('[03c §3.2, F S43] an append / projection error is not swallowed: the apply fails, no StationOutputSet and no output change committed, the writer unchanged', async () => {
+    await printer('PR1');
+    await output(FX.station, 'both', 'PR1');
+    let boom = true;
+    hub.deps.projections.register({
+      name: 'test_throwing_station_output',
+      eventTypes: ['StationOutputSet'],
+      apply() {
+        if (boom) throw new Error('projection failed');
+      },
+    });
+    const sets = () => hub.deps.db.prepare(`SELECT COUNT(*) FROM events WHERE event_type = 'StationOutputSet'`).pluck().get() as number;
+    const before = { sets: sets(), seq: hub.deps.writer.lastSeq(), outputs: outputs() };
+    const config = branchConfig()!;
+    const next: BranchConfig = { ...config, config_version: config.config_version + 1, stations: config.stations.map((s) => (s.station_id === FX.station ? { ...s, is_archived: true } : s)) };
+    expect(() => hub.deps.writer.run((tx) => runBranchConfigHooks(config, next, tx))).toThrow('projection failed');
+    expect({ sets: sets(), seq: hub.deps.writer.lastSeq(), outputs: outputs() }).toEqual(before);
+    expect(outputs()).toMatchObject([{ station_id: FX.station, mode: 'both', printer_id: 'PR1' }]);
+    // the next poll retries the same apply and it goes through
+    boom = false;
+    expect(hub.deps.writer.run((tx) => runBranchConfigHooks(config, next, tx)).appended.filter((e) => e.event_type === 'StationOutputSet')).toHaveLength(1);
+    expect(outputs()).toMatchObject([{ station_id: FX.station, mode: 'screen', printer_id: null }]);
+  });
+
   it('[03c §3.2] total: an odd config shape (stations not a list) releases nothing and never throws', async () => {
     await printer('PR1');
     await output(FX.station, 'both', 'PR1');
