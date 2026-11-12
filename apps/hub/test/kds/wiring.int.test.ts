@@ -84,8 +84,7 @@ describe('[03b §4.2, 03c §4.2] contracts and hooks before their tasks', () => 
       hooks.registerPrintBootSteps();
       hooks.registerPrintBootSteps(); // once-guarded
     }).not.toThrow();
-    const retention = await import('../../src/print/retention');
-    expect(retention.purgePrint({} as never, 'branch-1', WALL)).toBe(0);
+    // purgePrint: built by c22 (test/print/retention.int.test.ts).
   });
 });
 
