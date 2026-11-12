@@ -251,6 +251,8 @@ export function registerOrdersProjection(projections): void;  // G-3
 
 ## Wave 5 — client · **BLOCKED on the design handoff**
 
+⚠️ Superseded by docs/plans/02-client-plan.md (owner 2026-11-12)
+
 There is no `docs/design/handoff/02b/` (inventory: `docs/design/inventory/02-ordering-tables.md`, 02-S05). Screens §8 needs: ordering screen (rail, search, tiles with Sold out / Not now / "4 left" / slow clock, cart by ETA with promise times, options sheet, notes, Hold, Send), zone tiles ("Raita · 6 here", zone-empty flip), takeaway (name, phone, big token) and parking (plate LTR mono, type icons), table view orders part (rounds, stages, Mark served, Send what's ready, Boost, Return fix / remake, Comp with waiting card, Remove with stepper, weight entry, Call, "Send it as a new item"), open orders (token / plate, ready n / m, "from <date>", abandoned for managers), zone stock screen (Refill, Count, low / out), queue banner and queue log, device idle lock, late cards grouped by current table (O18). Tasks 25 (queue + drafts, #35), 26 (ordering screen, #36), 27 (table view, comp card, zone stock, open orders, contact) get their TDD steps in a plan patch when the handoff lands.
 
 ---
