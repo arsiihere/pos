@@ -79,3 +79,12 @@ K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
 | Q9 | "jab tak approve nahi ho, close nahi ho sakta; permission based kaam kiya hai; manager nahi to uski sar dard; hub access ho to permission de de order taker ko" | **No override in 04.** A pending void ends only by approve, reject or withdraw; the bill stays blocked until then. Coverage is configuration: the owner / manager grants `approve-void` (or `void-item` as `allowed`) to whoever is on duty. F §4.5 OVERRIDDEN is **not built**; recorded in 04 §12 Deferred and as a foundation v1.13 note. |
 | Q16 | a | Card: table / token, item × units, amount, reason, disposition, stage, requester. |
 | K-8 (revised) | "isko module 6 mein rakh lete, log kar do ke module 6 mein karna hai; abhi module 4 ban raha hai" | **Supersedes §1 K-8 and §3.** 04 builds the **hub** audit log view only (LAN, `view-audit-log`, CSV in the browser). The **cloud / remote** audit view moves to **06** (hub → cloud event sync, F §5.5) with a cloud `audit_entries` projection built from the same curated action list; 04 §4.3 carries a row **To 06** and README gets that carried row. Whether 06's sync joins milestone A is 06's G0. G1-9 (timeline risk) is dropped from 04. |
+
+## 7. Owner answers on hostile run 1 questions (2026-11-12, all Rec)
+
+| # | Ruling |
+|---|---|
+| OQ-A | `move-item-to-stock` can never be "requires approval" (allowed / not granted only) — 01b v1.9 row B-2 |
+| OQ-B | A pending-weight line may be voided, refund 0 (README :213); a later weight on it is refused |
+| OQ-C | A deal's cooked parts may go to pre-cooked stock; unstarted parts are just released |
+| OQ-D | A `moved` void whose line is served meanwhile cannot be approved; withdraw and re-ask, with a clear message |
