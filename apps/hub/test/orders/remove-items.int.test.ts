@@ -10,6 +10,7 @@ import { orderLines, seatingTotals } from '../../src/orders/exports';
 import { registerOrdersProjection } from '../../src/orders/index';
 import { lineShares, planComp, planVoid } from '../../src/orders/ledger';
 import { lineChangeDrafts } from '../../src/orders/line-change';
+import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
 import { zoneAlertDrafts } from '../../src/orders/zone-alerts';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig, branchConfig } from '../../src/sync/branch-config-holder';
@@ -26,6 +27,7 @@ let counter: ReturnType<typeof statementCounter>;
 let lastStatements = -1;
 
 afterEach(async () => {
+  resetLineGuard();
   swapBranchConfig(null);
   await hub.close();
 });
@@ -74,6 +76,8 @@ async function directory(): Promise<DirectoryInput> {
 /** A fresh hub: directory, the menu applied, the day open (K1 stock 10 000), the counted copy of RemoveItems. */
 async function start(o: { menu?: BranchConfig } = {}): Promise<void> {
   hub = await createTestHub();
+  // counts below mean "no line guard registered": clear any guard boot registered (v8 registers 04's through registerVoids)
+  resetLineGuard();
   await seedDirectory(hub, await directory());
   openDay(hub, { stock: { [FX.stock]: 10_000 }, ...(o.menu === undefined ? {} : { menu: o.menu }) });
   // The real handler under a test-only name, so its own statements are counted (02a SG-3 pattern).
@@ -803,6 +807,68 @@ describe('RemoveItems (02b §6.2, §3.5)', () => {
     expect(types(r)).toEqual(['TableLocked', 'ItemRemoved', 'StockReleased', 'OrderFoodCleared']);
     expect(ofType(r, 'OrderFoodCleared')).toEqual([{ order_id: d.order_id, food_served: false }]);
     expect(r.events.find((e) => e.event_type === 'OrderFoodCleared')).toMatchObject({ actor_id: 'S_ALI', device_id: ali.deviceId });
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #43 (04 Q-3)
+
+/** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
+function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
+  const asks: Array<{ order_id: string; touched: string[] }> = [];
+  registerLineGuard((db, order_id, touched_ids) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push({ order_id, touched: [...touched_ids] });
+    const hit = touched_ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+  });
+  return asks;
+}
+
+describe('[02b #43] RemoveItems asks the line guard with its planRemove ids (04 §4.5 Q-3)', () => {
+  it('[02b #43] registered, not hit: asked once with the planned ids (deal + parts), exactly +1 statement (3)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), { order_item_id: 'L1', item_id: FX.naan, quantity: 2 }]);
+    const asks = lockLines(['L9']);
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1' }, { order_item_id: 'L1', units: 1 }] }, { counted: true });
+    expect(r.status).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(asks).toEqual([{ order_id, touched: ['D1', 'D1a', 'D1b', 'L1'] }]);
+  });
+
+  it('[02b #43] a locked option child blocks RemoveItems of its item (the option-child cascade) → VOID_PENDING, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([
+      { order_item_id: 'K1', item_id: FX.piece, quantity: 2 },
+      { order_item_id: 'K1r', option_id: FX.option, parent_order_item_id: 'K1', quantity: 1 },
+    ]);
+    const asks = lockLines(['K1r']);
+    const n = eventCount();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'K1' }] });
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'K1r' } });
+    expect(asks).toEqual([{ order_id, touched: ['K1', 'K1r'] }]);
+    expect(eventCount()).toBe(n);
+  });
+
+  it('[02b #43] a locked deal part blocks RemoveItems of the deal → 409 VOID_PENDING, nothing written; before scope', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1'));
+    lockLines(['D1a']);
+    const n = eventCount();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'D1' }] }, { counted: true });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1a' } });
+    expect(lastStatements).toBe(2); // order + lines, the guard
+    expect(eventCount()).toBe(n);
+
+    // S_ASIF (own_tables) on S_OMAR's order: outside scope, but the guard runs first
+    const omars = takeaway(deal('D2'), 'S_OMAR');
+    lockLines(['D2b']);
+    expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('VOID_PENDING');
+    resetLineGuard();
+    expect((await remove(signIn('S_ASIF'), { order_id: omars, lines: [{ order_item_id: 'D2' }] })).error?.code).toBe('PERMISSION_DENIED');
   });
 });
 

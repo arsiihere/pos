@@ -7,6 +7,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { setLineWeightCommand } from '../../src/orders/commands/set-line-weight';
 import { orderLines } from '../../src/orders/exports';
 import { planComp } from '../../src/orders/ledger';
+import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
@@ -21,6 +22,7 @@ let counter: ReturnType<typeof statementCounter>;
 let lastStatements = -1;
 
 afterEach(async () => {
+  resetLineGuard();
   swapBranchConfig(null);
   await hub.close();
 });
@@ -58,6 +60,8 @@ async function directory(): Promise<DirectoryInput> {
 /** A fresh hub: directory, the fixture menu, the day open, the counted copy of SetLineWeight. */
 async function start(): Promise<void> {
   hub = await createTestHub();
+  // counts below mean "no line guard registered": clear any guard boot registered (v8 registers 04's through registerVoids)
+  resetLineGuard();
   await seedDirectory(hub, await directory());
   openDay(hub, { stock: { [FX.stock]: 10_000 } });
   // The real handler under a test-only name, so its own statements are counted (02a SG-3 pattern).
@@ -367,5 +371,54 @@ describe('SetLineWeight (02b §6.3, §3.6)', () => {
     expect(first.status).toBe(409);
     expect(first.error?.code).toBe('LINE_NOT_WEIGHED');
     expect(eventCount()).toBe(before);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #43 (04 Q-3)
+
+/** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
+function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
+  const asks: Array<{ order_id: string; touched: string[] }> = [];
+  registerLineGuard((db, order_id, touched_ids) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push({ order_id, touched: [...touched_ids] });
+    const hit = touched_ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+  });
+  return asks;
+}
+
+describe('[02b #43] SetLineWeight asks the line guard with the line itself (04 §4.5 Q-3)', () => {
+  it('[02b #43] unregistered → 1 statement; registered, not hit → asked with [line], exactly +1 (2)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([fish('W1'), fish('W2')]);
+    expect((await weigh(ali, { order_item_id: 'W1', quantity: 500 }, { counted: true })).status).toBe(200);
+    expect(lastStatements).toBe(1);
+    const asks = lockLines(['W9']);
+    expect((await weigh(ali, { order_item_id: 'W2', quantity: 500 }, { counted: true })).status).toBe(200);
+    expect(lastStatements).toBe(2);
+    expect(asks).toEqual([{ order_id, touched: ['W2'] }]);
+  });
+
+  it('[02b #43] a locked line → 409 VOID_PENDING, nothing written; after LINE_ALREADY_SETTLED, before scope', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([fish('W1')]);
+    lockLines(['W1']);
+    const n = eventCount();
+    const r = await weigh(ali, { order_item_id: 'W1', quantity: 500 }, { counted: true });
+    expect(r.status).toBe(409);
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'W1' } });
+    expect(lastStatements).toBe(2);
+    expect(eventCount()).toBe(n);
+    expect((await weigh(signIn('S_ZAIN'), { order_item_id: 'W1', quantity: 500 })).error?.code).toBe('VOID_PENDING');
+
+    // settled first: LINE_ALREADY_SETTLED wins over the guard (its own 409 runs before the ask)
+    resetLineGuard();
+    expect((await weigh(ali, { order_item_id: 'W1', quantity: 500 })).status).toBe(200);
+    comp(order_id, 'W1', 1);
+    lockLines(['W1']);
+    expect((await weigh(ali, { order_item_id: 'W1', quantity: 550 })).error?.code).toBe('LINE_ALREADY_SETTLED');
   });
 });

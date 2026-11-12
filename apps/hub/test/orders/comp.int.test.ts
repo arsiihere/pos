@@ -13,6 +13,7 @@ import { orderLines } from '../../src/orders/exports';
 import { changeDrafts, lineChangeDrafts } from '../../src/orders/line-change';
 import { lineShares, planVoid } from '../../src/orders/ledger';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { registerLineGuard, resetLineGuard } from '../../src/orders/line-guard';
 import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
@@ -27,6 +28,7 @@ let counter: ReturnType<typeof statementCounter>;
 let lastStatements = -1;
 
 afterEach(async () => {
+  resetLineGuard();
   swapBranchConfig(null);
   await hub.close();
 });
@@ -68,6 +70,8 @@ async function directory(): Promise<DirectoryInput> {
 /** A fresh hub: directory, the menu applied, the day open (K1 stock 10 000), the counted copy of CompLine. */
 async function start(o: { menu?: BranchConfig } = {}): Promise<void> {
   hub = await createTestHub();
+  // counts below mean "no line guard registered": clear any guard boot registered (v8 registers 04's through registerVoids)
+  resetLineGuard();
   await seedDirectory(hub, await directory());
   openDay(hub, { stock: { [FX.stock]: 10_000 }, ...(o.menu === undefined ? {} : { menu: o.menu }) });
   // The real handler under a test-only name, so its own statements are counted (02a SG-3 pattern).
@@ -530,6 +534,133 @@ describe('CompLine (02b §6.8, §3.9)', () => {
     const r = await compLine(wait, quality('N1', 1));
     expect(r.status).toBe(403);
     expect(r.error?.code).toBe('PERMISSION_DENIED');
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #43 (04 Q-3)
+
+/** 04 row Q-3 stub line guard: 1 statement per ask; locks `locked` under alert A_VOID; records every ask. */
+function lockLines(locked: string[]): Array<{ order_id: string; touched: string[] }> {
+  const asks: Array<{ order_id: string; touched: string[] }> = [];
+  registerLineGuard((db, order_id, touched_ids) => {
+    db.prepare('SELECT 1 AS one').get();
+    asks.push({ order_id, touched: [...touched_ids] });
+    const hit = touched_ids.find((id) => locked.includes(id));
+    return hit === undefined ? null : { alert_id: 'A_VOID', order_item_id: hit };
+  });
+  return asks;
+}
+
+describe('[02b #43] CompLine and applyComp ask the line guard (04 §4.5 Q-3; G-12)', () => {
+  it('[02b #43] unregistered → never blocks, 2 statements; registered and not hit → asked with the plan ids, exactly +1 (3)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([...deal('D1'), ...deal('D2')]);
+    const free = await compLine(ali, quality('D1', 1), { counted: true });
+    expect(free.status).toBe(200);
+    expect(lastStatements).toBe(2);
+
+    const asks = lockLines(['D1a']);
+    const r = await compLine(ali, quality('D2', 1), { counted: true });
+    expect(r.status).toBe(200);
+    expect(lastStatements).toBe(3);
+    expect(asks).toEqual([{ order_id, touched: ['D2', 'D2a', 'D2b'] }]);
+  });
+
+  it('[02b #43] a locked deal part blocks CompLine of the deal: allowed and requires-approval grants → 409 VOID_PENDING, nothing written', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const omar = signIn('S_OMAR');
+    takeaway(deal('D1'));
+    lockLines(['D1b']);
+    const n = eventCount();
+    for (const who of [ali, omar]) {
+      const r = await compLine(who, quality('D1', 1), { counted: true });
+      expect(r.status).toBe(409);
+      expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1b' } });
+      expect(lastStatements).toBe(2); // the line read + the guard; no comp listOpen, no raise
+    }
+    expect(eventCount()).toBe(n);
+    expect(alerts.listOpen(hub.deps.db, { kind: 'comp' })).toEqual([]);
+  });
+
+  it('[02b #43] guard before scope: a caller outside scope on a locked line gets VOID_PENDING; unlocked → PERMISSION_DENIED', async () => {
+    await start();
+    const zain = signIn('S_ZAIN');
+    takeaway([NAANS]);
+    lockLines(['N1']);
+    const r = await compLine(zain, quality('N1', 1));
+    expect(r.error?.code).toBe('VOID_PENDING');
+    resetLineGuard();
+    expect((await compLine(zain, quality('N1', 1))).error?.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('[02b #43] a 0-unit cascade child is not asked (the plan drops it)', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(deal('D1'));
+    voidUnits(order_id, 'D1b', 2); // both bread units (part quantity 2): the cascade gives D1b 0 units
+    const asks = lockLines(['D1b']);
+    const r = await compLine(ali, quality('D1', 1));
+    expect(r.error).toBeUndefined();
+    expect(r.status).toBe(200);
+    expect(asks).toEqual([{ order_id, touched: ['D1', 'D1a'] }]);
+    expect(ofType(r, 'LineComped').map((p) => p.order_item_id)).toEqual(['D1', 'D1a']);
+  });
+
+  it('[02b #43] a locked option child blocks CompLine of its item (the option-child cascade) → VOID_PENDING', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const order_id = takeaway(karahiWithRaita('K1', 2));
+    const asks = lockLines(['K1r']);
+    const r = await compLine(ali, quality('K1', 2));
+    expect(r.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'K1r' } });
+    expect(asks).toEqual([{ order_id, touched: ['K1', 'K1r'] }]);
+    expect(compEvents()).toEqual([]);
+  });
+
+  it('[02b #43] requires-approval, not blocked: the raise path costs exactly +1 statement with a registered guard', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    takeaway([NAANS, { order_item_id: 'N2', item_id: FX.naan, quantity: 3 }]);
+    const free = await compLine(omar, quality('N1', 1), { counted: true });
+    expect(free.result).toMatchObject({ pending: true });
+    const unregistered = lastStatements;
+    expect(unregistered).toBeGreaterThan(0);
+
+    const asks = lockLines(['X9']);
+    const guarded = await compLine(omar, quality('N2', 1), { counted: true });
+    expect(guarded.result).toMatchObject({ pending: true });
+    expect(lastStatements).toBe(unregistered + 1);
+    expect(asks.map((a) => a.touched)).toEqual([['N2']]);
+  });
+
+  it('[02b #43] applyComp (the approve) asks with the plan ids: a lock → VOID_PENDING refuses the approve; 1 → 2 statements', async () => {
+    await start();
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    takeaway(deal('D1'));
+    const alert_id = (await compLine(omar, quality('D1', 1))).result!.alert_id as string;
+    const record = alerts.listOpen(hub.deps.db, { kind: 'comp' }).find((x) => x.alert_id === alert_id)!;
+    const kind = kindOf('comp')!;
+    const applyStatements = (): { statements: number; out: unknown } =>
+      hub.deps.writer.run((tx) => {
+        const ctx = { ...ctxOf(tx), tx: readOnlyTx(tx), alert: record } as unknown as AlertApplyCtx<Record<string, unknown>, never>;
+        counter.reset();
+        const out = kind.request!.apply(ctx, { decision: 'approve', answerer_staff_id: 'S_MGR', method: 'pin', device_id: 'D_MGR', answered_at: hub.clock.branchNow() });
+        return { statements: counter.count, out };
+      }).result;
+    expect(applyStatements().statements).toBe(1);
+    const asks = lockLines([]);
+    expect(applyStatements().statements).toBe(2);
+    expect(asks.map((a) => a.touched)).toEqual([['D1', 'D1a', 'D1b']]);
+
+    lockLines(['D1a']);
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(409);
+    expect(a.error).toEqual({ code: 'VOID_PENDING', details: { alert_id: 'A_VOID', order_item_id: 'D1a' } });
+    expect(compEvents()).toEqual([]);
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
   });
 });
 

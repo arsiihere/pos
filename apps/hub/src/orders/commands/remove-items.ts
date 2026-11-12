@@ -11,15 +11,18 @@ import { requireLock } from '../../tables/lock.js';
 import { readOrder, type ReadOrderHead, type ReadOrderLine } from '../exports.js';
 import { gmlDealPartPartial, liveUnits, planRemove } from '../ledger.js';
 import { changeDrafts, type LineChange } from '../line-change.js';
+import { requireNoVoidPending } from '../line-guard.js';
 import { zoneAlertDrafts } from '../zone-alerts.js';
 
 // 02b §6.2 RemoveItems, §3.5 (stage 1, zone undo, drafts), §3.4 (units, deals, cascades, g/ml parts), §3.9 (stale comp
 // requests), §3.3 (OrderFoodCleared), §3.10 (zone counts and alerts), §3.14 (scope). Not queueable (§3.12).
 // Order of checks: payload (Zod, C6) → order (404) → billed → dine-in seating + requireLock (02a) → each entry in
-// payload order (line of the order, zone rule before any engine stage, stage 1, units, g/ml parts) → scope last (C8).
+// payload order (line of the order, zone rule before any engine stage, stage 1, units, g/ml parts) → line guard with
+// the planRemove ids (⚠️ 04 row Q-3: 409 VOID_PENDING) → scope last (C8).
 // Statements: 1 order + lines (readOrder, orders/exports.ts: with the order's seating, its tables and the zone counts of
 // its zone lines), 1 seating / lock (requireLock, dine-in), 1 open comp requests (alerts.listOpen), +1 zone alerts
-// (listOpen for zone:<id>) only when a zone line is in the payload (m-6); 01d's own bounds and the append excluded.
+// (listOpen for zone:<id>) only when a zone line is in the payload (m-6), +1 line guard when registered (04 Q-3, G-23);
+// 01d's own bounds and the append excluded.
 
 const Entry = z.object({ order_item_id: z.string().min(1), units: z.number().int().min(1).optional() });
 
@@ -115,6 +118,9 @@ function removeItems(ctx: CommandCtx, p: Payload): { events: EventDraft[]; resul
       removed.set(planned.order_item_id, (removed.get(planned.order_item_id) ?? 0) + planned.units);
     }
   });
+
+  // §3.4 line guard (⚠️ 04 row Q-3): asked with every planned id (cascades with ≥ 1 unit), after the plan, before scope.
+  requireNoVoidPending(ctx.tx.db, order.order_id, [...removed.keys()]);
 
   checkScope(ctx, order);
 

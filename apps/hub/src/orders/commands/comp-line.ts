@@ -10,15 +10,18 @@ import { branchConfig } from '../../sync/branch-config-holder.js';
 import type { LineView } from '../contracts.js';
 import { liveUnits, planComp, type CompMeta, type LedgerParent, type LedgerRef } from '../ledger.js';
 import { COMP_KIND, staleCompCloses } from '../line-change.js';
+import { requireNoVoidPending } from '../line-guard.js';
 
 // 02b §6.8 CompLine, §3.9 (rules, value, approval, stale requests), §3.4 (comp takes the next free shares; deal actions;
 // cascades capped; one LineComped per line), §3.14 (scope `branch`). `approvable: true` (00 :470); online only (§3.12).
 // Order of checks: payload (Zod; 'other' needs a note) → line (404) → billed → COMP_NOT_ALLOWED → pending weight →
-// units ≤ live − comped → scope last (C8). Then: grant `allowed` → LineComped per line + stale request closes;
-// `requires_approval` → alerts.raise of kind `comp` (deduped → 409 COMP_PENDING).
+// units ≤ live − comped → the pure plan (compDrafts / planComp, 0 statements) → line guard with the plan's touched ids,
+// every grant (⚠️ 04 row Q-3; G-12: 409 VOID_PENDING) → scope last (C8). Then: grant `allowed` → LineComped per line +
+// stale request closes; `requires_approval` → alerts.raise of kind `comp` (deduped → 409 COMP_PENDING).
 // Statements: 1 (the line, its order, its current table, its children) + 1 open comp requests of the order
-// (alerts.listOpen, on the `allowed` path, where the comp is written); 01d's own bounds (raise, closeMany) and the
-// append excluded. The kind's `apply` (orders/comp-kind.ts) re-runs the same read and checks, read-only.
+// (alerts.listOpen, on the `allowed` path, where the comp is written), +1 line guard when registered (G-23); 01d's own
+// bounds (raise, closeMany) and the append excluded. The kind's `apply` (`applyComp` below) re-runs the same read and
+// checks, read-only.
 
 /** §6.12 labels (the kind itself is defined in orders/comp-kind.ts; its name is line-change.ts COMP_KIND). */
 export const COMP_LABELS = { card: 'alert.comp.card', lock: 'alert.comp.lock' } as const;
@@ -135,7 +138,12 @@ function checkScope(ctx: CommandCtx, order_id: string): void {
 }
 
 /** §3.4 / §3.9: LineComped per touched line (each its own share) and value_minor = the sum over every line touched. */
-function compDrafts(ctx: CommandCtx, r: Read, units: number, meta: CompMeta): { events: EventDraft[]; value_minor: number; after: Map<string, LineRow> } {
+function compDrafts(
+  ctx: CommandCtx,
+  r: Read,
+  units: number,
+  meta: CompMeta,
+): { events: EventDraft[]; value_minor: number; after: Map<string, LineRow>; touched_ids: string[] } {
   const plan = planComp(r.line, r.children, units, meta);
   const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   const events: EventDraft[] = plan.lines.map((p) => {
@@ -144,8 +152,10 @@ function compDrafts(ctx: CommandCtx, r: Read, units: number, meta: CompMeta): { 
   });
   const after = new Map<string, LineRow>([r.line, ...r.children].map((l) => [l.order_item_id, l]));
   for (const p of plan.lines) after.set(p.order_item_id, { ...after.get(p.order_item_id)!, ...p.after });
-  return { events, value_minor: plan.value_minor, after };
+  // the plan's lines: 0-unit cascade lines are already dropped (ledger.ts targets)
+  return { events, value_minor: plan.value_minor, after, touched_ids: plan.lines.map((p) => p.order_item_id) };
 }
+
 
 /** §3.12 lock-safe label: the primary table's config name (its id when the config does not know it). */
 function tableCode(table_id: string | null): string | null {
@@ -160,11 +170,14 @@ function tableCode(table_id: string | null): string | null {
 function compLine(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: unknown } {
   const r = readLine(ctx, p.order_item_id);
   check(ctx, r, p.units);
-  checkScope(ctx, r.line.order_id);
-  const caller = ctx.actor.staffId!; // checkScope: a staff session
+  // ⚠️ 04 row Q-3 (G-12): the pure plan (0 statements) runs before scope, so the line guard is asked with the plan's
+  // touched ids for every grant; a caller outside scope on a locked line gets VOID_PENDING (guard before scope, C8).
+  const caller = ctx.actor.staffId!; // a staff session (checkScope below refuses any other before anything is written)
   const note = p.note ?? null;
   const meta: CompMeta = { reason_code: p.reason_code, note, requester_staff_id: caller, alert_id: null, approver_staff_id: null };
   const comp = compDrafts(ctx, r, p.units, meta);
+  requireNoVoidPending(ctx.tx.db, r.line.order_id, comp.touched_ids); // §3.4 line guard (⚠️ 04 row Q-3)
+  checkScope(ctx, r.line.order_id);
 
   if (ctx.permission !== null && ctx.permission.grant === 'requires_approval') {
     // §3.9: the request; its amount is the value the comp would have now (the approve re-computes it).
@@ -202,10 +215,11 @@ function compLine(ctx: CommandCtx, p: Payload): { events: EventDraft[]; result: 
 }
 
 /**
- * §6.12 `apply` (approve): a read-only re-check of §3.9 on the current ledger (1 statement), then LineComped per line
- * with `value_minor` recomputed now, the request's note and requester, this alert's id and the answerer as approver
- * (01d: never `actor_id`, which is the requester for an in-person answer). Reject → []. A failed re-check throws its
- * error code and the answer is refused.
+ * §6.12 `apply` (approve): a read-only re-check of §3.9 on the current ledger (1 statement), the plan, then the line
+ * guard with the plan's touched ids (⚠️ 04 row Q-3; G-12: 409 VOID_PENDING refuses the approve; 1 → 2 statements when
+ * registered), then LineComped per line with `value_minor` recomputed now, the request's note and requester, this
+ * alert's id and the answerer as approver (01d: never `actor_id`, which is the requester for an in-person answer).
+ * Reject → []. A failed re-check throws its error code and the answer is refused.
  */
 export function applyComp(ctx: AlertApplyCtx<CompValues, AlertDetails>, answer: AnswerFacts): EventDraft[] {
   if (answer.decision !== 'approve') return [];
@@ -215,7 +229,9 @@ export function applyComp(ctx: AlertApplyCtx<CompValues, AlertDetails>, answer: 
   const r = readLine(ctx, v.order_item_id);
   check(ctx, r, v.units);
   const meta: CompMeta = { reason_code: v.reason_code, note: v.note, requester_staff_id: requester, alert_id: ctx.alert.alert_id, approver_staff_id: answer.answerer_staff_id };
-  return compDrafts(ctx, r, v.units, meta).events;
+  const comp = compDrafts(ctx, r, v.units, meta);
+  requireNoVoidPending(ctx.tx.db, r.line.order_id, comp.touched_ids); // §3.4 line guard (⚠️ 04 row Q-3)
+  return comp.events;
 }
 
 export const compLineCommand = defineCommand({
