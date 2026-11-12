@@ -88,3 +88,10 @@ K-8 (option a / b / c, §3); Q3 disposition list confirm; Q9 re-asked; Q16.
 | OQ-B | A pending-weight line may be voided, refund 0 (README :213); a later weight on it is refused |
 | OQ-C | A deal's cooked parts may go to pre-cooked stock; unstarted parts are just released |
 | OQ-D | A `moved` void whose line is served meanwhile cannot be approved; withdraw and re-ask, with a clear message |
+
+## 8. Owner answers on hostile run 2 questions (2026-11-12, both Rec)
+
+| # | Ruling |
+|---|---|
+| OQ-E | The hub keeps a never-deleted name list (`staff_names`, upserted on every directory apply incl. no-PIN staff); the audit log shows leavers' and no-PIN staff's names — 00 v1.10 row H-1 |
+| OQ-F | A part stored "not started" at raise that the kitchen started before the approve is written as `wastage` at approve; stored `moved` stays frozen (OQ-D) |
