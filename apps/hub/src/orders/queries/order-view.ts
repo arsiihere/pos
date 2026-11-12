@@ -5,11 +5,12 @@ import { defineQuery, queryRegistry, type QueryCtx } from '../../queries/registr
 import { orderCovered } from '../commands/mark-served.js';
 import type { OrderView } from '../contracts.js';
 import { orderLines } from '../exports.js';
-import { toSeatingOrder, type SeatingOrder } from './seating-orders.js';
+import { pendingComps, toSeatingOrder, type PendingCompLog, type SeatingOrder } from './seating-orders.js';
 
 // ⚠️ 02b v1.0.11 §6.18a GET /queries/order-view (owner ruling 2026-11-12, Q-8; scope Q-27, §12.3 Q6): `{ order_id }` →
 // one order in the §6.15 SeatingOrder shape (the shared builder `toSeatingOrder`), for the takeaway / parking token view.
-// Staff session; countsAsActivity false. Statements: 2 (the order row, its lines through orderLines).
+// Staff session; countsAsActivity false. Statements: 2 (the order row, its lines through orderLines) + 1 (the open comp
+// requests of `pending_comp`, ⚠️ Q-11, as §6.15) = 3.
 // Order: order (unknown → 404 ORDER_NOT_FOUND) → scope (C8, last):
 // - takeaway / parking: as MarkServed (§3.14), from placed_by — the caller's `mark-served` right through the shared
 //   pure rule `orderCovered` (branch → any; own_tables / my_floors → placed by the caller); 0 statements. orderCovered
@@ -29,7 +30,7 @@ type OrderRow = Omit<OrderView, 'follow_up' | 'cancelled' | 'billed' | 'sent_aft
   has_phone: number;
 };
 
-export function orderViewBody(ctx: QueryCtx, order_id: string): SeatingOrder {
+export function orderViewBody(ctx: QueryCtx, order_id: string, log: PendingCompLog): SeatingOrder {
   const r = ctx.db.prepare(ORDER).get(order_id) as OrderRow | undefined;
   if (r === undefined) throw new DomainError('ORDER_NOT_FOUND', { order_id });
   if (r.order_type !== 'dine_in') {
@@ -50,7 +51,7 @@ export function orderViewBody(ctx: QueryCtx, order_id: string): SeatingOrder {
     has_phone: r.has_phone === 1,
     lines: orderLines(ctx.db, [order_id]).get(order_id)!,
   };
-  return toSeatingOrder(ctx.state, ctx.directory, order, ctx.now);
+  return toSeatingOrder(ctx.state, ctx.directory, order, ctx.now, pendingComps(ctx.db, log));
 }
 
 export function registerOrderViewQuery(app: FastifyInstance): void {
@@ -61,7 +62,7 @@ export function registerOrderViewQuery(app: FastifyInstance): void {
       session: 'required',
       countsAsActivity: false,
       querySchema: z.object({ order_id: z.string().min(1) }),
-      handle: (ctx, q) => ({ data: orderViewBody(ctx, q.order_id) }),
+      handle: (ctx, q) => ({ data: orderViewBody(ctx, q.order_id, app.log) }),
     }),
   );
 }

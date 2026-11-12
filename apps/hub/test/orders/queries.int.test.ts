@@ -465,7 +465,7 @@ describe('zone-stock (§6.17)', () => {
 // ------------------------------------------------------------------------------------------- #33 counts
 
 describe('statement counts (§6.15–§6.18, catch-up)', () => {
-  it('[02b #33 queries] seating-orders 2, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 4 (orders, lines, zone_stock, open_slips)', async () => {
+  it('[02b #33 queries] seating-orders 3, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 4 (orders, lines, zone_stock, open_slips)', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
     for (let n = 1; n <= 6; n += 1) {
       appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: `D${n}`, lines: [{ order_item_id: `D${n}a`, item_id: FX.naan }, { order_item_id: `D${n}b`, item_id: FX.piece }] });
@@ -481,7 +481,7 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
       expect(r.status, path).toBe(200);
       return counter.count;
     };
-    expect(await count(mgr, 'seating-orders?seating_id=SEAT1')).toBe(2);
+    expect(await count(mgr, 'seating-orders?seating_id=SEAT1')).toBe(3); // ⚠️ 02b v1.0.11 §6.15 (Q-11): + the open comp requests (G-2)
     expect(await count(mgr, 'open-orders')).toBe(2);
     expect(await count(mgr, 'open-orders?abandoned=true')).toBe(2);
     expect(await count(mgr, 'zone-stock')).toBe(1);
@@ -921,7 +921,7 @@ describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', 
     ]);
   });
 
-  it('[02b #46] statement counts unchanged: seating-orders 2, orderLines 1, catch-up orders 4 (with #49 open_slips)', async () => {
+  it('[02b #46] statement counts unchanged by these fields: seating-orders (3 with #50), orderLines 1, catch-up orders 4 (with #49 open_slips)', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
     for (let n = 1; n <= 4; n += 1) {
       appendOrder(hub, {
@@ -936,7 +936,7 @@ describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', 
     const counter = statementCounter(hub.deps.readDb);
     const r = await query<Seating>(mgr, 'seating-orders?seating_id=SEAT1');
     expect(r.status).toBe(200);
-    expect(counter.count).toBe(2);
+    expect(counter.count).toBe(3); // the H2 fields add none; 3 = H6's open comp requests (#50, G-2)
     expect(r.data.orders.every((o) => o.lines[0]!.options.length === 2 && o.order_note === null)).toBe(true);
 
     const { orderLines } = await exportsOf();
@@ -949,5 +949,38 @@ describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', 
     const built = ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ order_id: string; lines: Array<{ options: unknown }> }> };
     expect(db.count).toBe(4); // orders, lines, zone_stock, open_slips (#49)
     expect(built.orders.find((o) => o.order_id === 'T2')!.lines[0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #50 (H6, lane HB)
+
+describe('[02b #50] pending_comp statement counts (§6.15, §6.18a; Q-11)', () => {
+  it('[02b #50] seating-orders 3 statements, order-view 2 + 1', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    for (let n = 1; n <= 4; n += 1) {
+      appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: `D${n}`, lines: [{ order_item_id: `D${n}a`, item_id: FX.naan }, { order_item_id: `D${n}b`, item_id: FX.piece }] });
+    }
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'T1', placed_by: OT1, lines: [{ order_item_id: 'T1a', item_id: FX.naan }] });
+    // open comp requests on several lines of several orders (OT1: apply-comp with approval), one on another order
+    const ot = signIn(OT1);
+    for (const id of ['D1a', 'D2b', 'D3a', 'T1a']) {
+      const r = await command(ot, 'comp-line', 'CompLine', { order_item_id: id, units: 1, reason_code: 'quality' });
+      expect(r.status, id).toBe(200);
+    }
+    const mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    counter.reset();
+    const seated = await query<Seating>(mgr, 'seating-orders?seating_id=SEAT1');
+    expect(seated.status).toBe(200);
+    expect(counter.count).toBe(3);
+    const marked = seated.data.orders.flatMap((o) => o.lines.filter((l) => l.pending_comp !== null).map((l) => l.order_item_id));
+    expect(marked.sort()).toEqual(['D1a', 'D2b', 'D3a']);
+    for (const id of ['T1', 'D1']) {
+      counter.reset();
+      const v = await query<Seating['orders'][number]>(mgr, `order-view?order_id=${id}`);
+      expect(v.status, id).toBe(200);
+      expect(counter.count, id).toBe(3);
+      expect(v.data.lines[0]!.pending_comp, id).toMatchObject({ units: 1 });
+    }
   });
 });
