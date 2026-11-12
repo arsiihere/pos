@@ -6,6 +6,11 @@ import { ur } from './ur';
 import { referenceKey } from '../features/owner/form';
 import todo from '../../../../docs/design/handoff/01b/urdu-todo.md?raw';
 import todo01a from '../../../../docs/design/handoff/01a/urdu-todo.md?raw';
+import changes02a from '../../../../docs/design/handoff/02a/CHANGES.md?raw';
+import changes02b from '../../../../docs/design/handoff/02b/CHANGES.md?raw';
+import todo02a from '../../../../docs/design/handoff/02a/urdu-todo.md?raw';
+import todo02b from '../../../../docs/design/handoff/02b/urdu-todo.md?raw';
+import enSource from './en.ts?raw';
 
 function memoryStorage(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial));
@@ -208,5 +213,95 @@ describe('[01a v2.1 §8.1; S49] Urdu on the owner timing pages', () => {
   it('a text keeps its placeholders', () => {
     const holes = (text: string) => [...text.matchAll(/\{\w+\}/g)].map((m) => m[0]).sort();
     expect(keys.filter((key) => ur[key] !== undefined && holes(ur[key]!).join() !== holes(en[key]).join())).toEqual([]);
+  });
+});
+
+// 02a / 02b client W0.3: the handoff CHANGES §4 + §6 key tables, expanded. `a.b.c` / `.d` is `a.b.c` and `a.b.d`;
+// `a.*` needs at least one `a.` key. Rows without a key (chips, Toasts) are covered by the W0.3 blocks below.
+function changesKeys(md: string): { keys: string[]; prefixes: string[] } {
+  const from = (head: string, until?: string) => {
+    const s = md.indexOf(head);
+    expect(s, head).toBeGreaterThanOrEqual(0);
+    return md.slice(s, until === undefined ? md.length : md.indexOf(until, s));
+  };
+  const part = from('## 4.', '## 5.') + from('## 6.');
+  const keys: string[] = [];
+  const prefixes: string[] = [];
+  for (const line of part.split('\n')) {
+    if (!line.startsWith('| `')) continue;
+    let base: string | null = null;
+    for (const [, tok] of (line.split('|')[1] ?? '').matchAll(/`([^`]+)`/g)) {
+      if (!tok!.includes('.')) continue; // a frame name (§6 "LockHolderChangedSend"), not a key
+      const key: string = tok!.startsWith('.') ? base!.slice(0, base!.lastIndexOf('.')) + tok : tok!;
+      if (!tok!.startsWith('.')) base = tok!;
+      if (key.endsWith('.*')) prefixes.push(key.slice(0, -1));
+      else keys.push(key);
+    }
+  }
+  return { keys, prefixes };
+}
+
+/** Keys of one W0.3 block of en.ts (`// ---- 02a client (W0.3)` up to the next `// ----` block). */
+function blockKeys(module: '02a' | '02b'): string[] {
+  const start = enSource.indexOf(`// ---- ${module} client (W0.3)`);
+  expect(start, module).toBeGreaterThan(0);
+  const end = enSource.indexOf('// ----', start + 10);
+  return [...enSource.slice(start, end).matchAll(/^ {2}'([^']+)':/gm)].map((m) => m[1]!);
+}
+
+const holes = (text: string) => [...text.matchAll(/\{\w+\}/g)].map((m) => m[0]).sort().join();
+
+function checkModule(module: '02a' | '02b', md: string, todoMd: string) {
+  const { keys, prefixes } = changesKeys(md);
+  expect(keys.length).toBeGreaterThan(100);
+  const all = new Set([...keys, ...blockKeys(module)]);
+  for (const prefix of prefixes) {
+    const found = Object.keys(en).filter((k) => k.startsWith(prefix));
+    expect(found.length, prefix).toBeGreaterThan(0);
+    for (const k of found) all.add(k);
+  }
+  for (const key of keys) expect(key in en, key).toBe(true);
+  for (const key of all) {
+    expect(key in en, key).toBe(true);
+    const urText = (ur as Record<string, string | undefined>)[key];
+    expect(urText !== undefined || todoMd.includes(`| \`${key}\` |`), key).toBe(true);
+    // a listed key has no Urdu yet; an Urdu text keeps the English placeholders
+    if (urText !== undefined) {
+      expect(todoMd.includes(`| \`${key}\` |`), key).toBe(false);
+      expect(holes(urText), key).toBe(holes((en as Record<string, string>)[key]!));
+    }
+  }
+}
+
+describe('[02a §8 Rules; 02b §8 Rules] client strings (W0.3, R20)', () => {
+  it('[02a §8 Rules] every 02a CHANGES §4/§6 key is in en, and in ur or 02a/urdu-todo.md', () => {
+    checkModule('02a', changes02a, todo02a);
+  });
+
+  it('[02b §8 Rules] every 02b CHANGES §4/§6 key is in en, and in ur or 02b/urdu-todo.md', () => {
+    checkModule('02b', changes02b, todo02b);
+  });
+
+  it('[02a Q-25] alert.table_handover.lock uses {requester}, not {name}', () => {
+    // 01d labels fill table, point, requester, device only (features/alerts/labels.ts params)
+    for (const text of [en['alert.table_handover.lock'], ur['alert.table_handover.lock']!]) {
+      expect(text).toContain('{requester}');
+      expect(text).not.toContain('{name}');
+    }
+    expect(en['alert.comp.lock']).toContain('{requester}');
+    expect(en['alert.comp.lock']).not.toContain('{name}');
+  });
+
+  it('[02a Q-18] reason tokens went_home, shift_ended, … have en and ur texts', () => {
+    // ForceRelease (Went home · Tablet dead · Left the table · Other), ForceMove (Shift ended · Went home · Rebalance ·
+    // Other), Move (AC · Bigger table · Guest asked · Other): the stable token is sent, the text is shown
+    const tokens = ['went_home', 'tablet_dead', 'left_table', 'shift_ended', 'rebalance', 'ac', 'bigger_table', 'guest_asked', 'other'];
+    for (const token of tokens) {
+      const key = `tables.reason.${token}`;
+      expect((en as Record<string, string | undefined>)[key], key).toBeTruthy();
+      expect((ur as Record<string, string | undefined>)[key], key).toBeTruthy();
+    }
+    expect(en['tables.reason.went_home']).toBe('Went home');
+    expect(en['tables.reason.shift_ended']).toBe('Shift ended');
   });
 });
