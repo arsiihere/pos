@@ -1,0 +1,809 @@
+{
+ "module": "02b · Ordering",
+ "design_language": "Pulse Chatkhara staff app (Puck+ tiles in a zone grid)",
+ "css": [
+  "design/pulse.css",
+  "design/v-brand.css",
+  "design/pulse-01d.css",
+  "design/pulse-02.css"
+ ],
+ "fonts": "design/ds/pos/fonts/",
+ "viewports": {
+  "tablet": "1280x800",
+  "tablet_portrait": "800x1280",
+  "kiosk": "1920x1080",
+  "phone": "390x844"
+ },
+ "screens": [
+  {
+   "id": "02-S04",
+   "name": "New order — choose type (takeaway / parking; dine-in comes from the map)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/NewOrder.dc.html",
+     "png": "design/screens/NewOrder.png",
+     "state": "New order — Takeaway or Parking (one primary on the map) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D03",
+   "name": "Takeaway details (name, phone — both optional)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Takeaway.dc.html",
+     "png": "design/screens/Takeaway.png",
+     "state": "Takeaway details — name, phone; phone error inline (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D02",
+   "name": "Parking details (plate, car type, phone)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Parking.dc.html",
+     "png": "design/screens/Parking.png",
+     "state": "Parking details — plate big mono LTR, car type pictures (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ParkingPhone.dc.html",
+     "png": "design/screens/ParkingPhone.png",
+     "state": "Parking at the car — runner’s phone (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "02-S05",
+   "name": "Order screen (menu + cart + live times)",
+   "kind": "screen",
+   "devices": "T K",
+   "frames": [
+    {
+     "file": "design/Order.dc.html",
+     "png": "design/screens/Order.png",
+     "state": "Order screen — live time per line, group promise, counter line, Send (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OrderEmpty.dc.html",
+     "png": "design/screens/OrderEmpty.png",
+     "state": "Empty cart — Send off (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OrderLoading.dc.html",
+     "png": "design/screens/OrderLoading.png",
+     "state": "Menu loading — skeleton tiles (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OrderKiosk.dc.html",
+     "png": "design/screens/OrderKiosk.png",
+     "state": "Cashier kiosk — takeaway, deal line open, wider cart (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/OrderPortrait.dc.html",
+     "png": "design/screens/OrderPortrait.png",
+     "state": "Tablet portrait — menu full width, summary bar; cart opens as a sheet (tablet portrait)",
+     "w": 800,
+     "h": 1280
+    },
+    {
+     "file": "design/OrderUrdu.dc.html",
+     "png": "design/screens/OrderUrdu.png",
+     "state": "Order screen — Urdu RTL; prices, times, table names LTR (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-S10",
+   "name": "Order screen, phone (Menu / Cart tabs)",
+   "kind": "screen",
+   "devices": "P",
+   "frames": [
+    {
+     "file": "design/OrderPhoneMenu.dc.html",
+     "png": "design/screens/OrderPhoneMenu.png",
+     "state": "Phone — Menu tab, zone count, sticky Send bar (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/OrderPhoneCart.dc.html",
+     "png": "design/screens/OrderPhoneCart.png",
+     "state": "Phone — Cart tab, line open (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "02b-C01",
+   "name": "Menu tile (all availability states)",
+   "kind": "component",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/MenuTiles.dc.html",
+     "png": "design/screens/MenuTiles.png",
+     "state": "Menu tile — every availability state, zone count (component)",
+     "w": 1280,
+     "h": 820
+    }
+   ]
+  },
+  {
+   "id": "02b-C02",
+   "name": "Zone tile \"Raita · 6 here\"",
+   "kind": "component",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/MenuTiles.dc.html",
+     "png": "design/screens/MenuTiles.png",
+     "state": "Menu tile — every availability state, zone count (component)",
+     "w": 1280,
+     "h": 820
+    }
+   ]
+  },
+  {
+   "id": "02-D04",
+   "name": "Item options sheet (variant, options, quantity, weight)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Options.dc.html",
+     "png": "design/screens/Options.png",
+     "state": "Item options — variant, defaults visible, linked option off with reason (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OptionsUnmet.dc.html",
+     "png": "design/screens/OptionsUnmet.png",
+     "state": "Required group not met — Add says what is missing (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OptionsWeight.dc.html",
+     "png": "design/screens/OptionsWeight.png",
+     "state": "Weighed item — Enter weight now (50 g steps) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OptionsWeighLater.dc.html",
+     "png": "design/screens/OptionsWeighLater.png",
+     "state": "Weighed item — Weigh later (“Weight pending”) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D30",
+   "name": "Deal sheet (parts and choices)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Deal.dc.html",
+     "png": "design/screens/Deal.png",
+     "state": "Deal — parts, choices with extra price, sold-out choice off (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D05",
+   "name": "Kitchen note (≤ 80)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/KitchenNote.dc.html",
+     "png": "design/screens/KitchenNote.png",
+     "state": "Kitchen note ≤ 80 (order note ≤ 200 is the same sheet); no quick chips (Q2) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D06",
+   "name": "Order note (≤ 200)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/KitchenNote.dc.html",
+     "png": "design/screens/KitchenNote.png",
+     "state": "Order note uses the same sheet, ≤ 200 chars",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B05",
+   "name": "Cart line problem (sold out / not now / off / station paused)",
+   "kind": "inline + banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderProblem.dc.html",
+     "png": "design/screens/OrderProblem.png",
+     "state": "Line problem — “Only 2 left”: Set to 2 / Remove; Send waits (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B04",
+   "name": "Times unavailable (preview failed / offline)",
+   "kind": "inline",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderOffline.dc.html",
+     "png": "design/screens/OrderOffline.png",
+     "state": "Hub offline — times “—”, “set when sent”; Send queues (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B03",
+   "name": "\"Your unsent order is back\" / kept as draft",
+   "kind": "banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderDraftBack.dc.html",
+     "png": "design/screens/OrderDraftBack.png",
+     "state": "Draft restored after sign-in — info banner (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B06",
+   "name": "Stock and slow chips (\"4 left\", clock \"25 min\")",
+   "kind": "chip",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/MenuTiles.dc.html",
+     "png": "design/screens/MenuTiles.png",
+     "state": "Menu tile — every availability state, zone count (component)",
+     "w": 1280,
+     "h": 820
+    }
+   ]
+  },
+  {
+   "id": "02-B07",
+   "name": "Last unit taken / time updated (inside 02-D07 and on the line)",
+   "kind": "inline",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderProblem.dc.html",
+     "png": "design/screens/OrderProblem.png",
+     "state": "Line problem — “Only 2 left”: Set to 2 / Remove; Send waits (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D07",
+   "name": "Send: sending / sent / queued / time updated / zone empty / token",
+   "kind": "dialog / sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Sending.dc.html",
+     "png": "design/screens/Sending.png",
+     "state": "Sending — no “sent” until the hub answers (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/Sent.dc.html",
+     "png": "design/screens/Sent.png",
+     "state": "Sent — final times, “Time updated: Karahi 8:29 PM” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/SentToken.dc.html",
+     "png": "design/screens/SentToken.png",
+     "state": "Takeaway sent — token 57, very big (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/SentParking.dc.html",
+     "png": "design/screens/SentParking.png",
+     "state": "Parking sent — plate big, car type (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/SentQueued.dc.html",
+     "png": "design/screens/SentQueued.png",
+     "state": "Queued offline — “Not sent yet”, token after sending (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/OpenOrdersQueued.dc.html",
+     "png": "design/screens/OpenOrdersQueued.png",
+     "state": "Queued takeaway sent on reconnect — sticky “token 57” card (kiosk)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "02-S06",
+   "name": "Table view — orders part (rounds, lines, stages, actions)",
+   "kind": "screen part",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Stages.dc.html",
+     "png": "design/screens/Stages.png",
+     "state": "Line stage words and badges (Q4) (component)",
+     "w": 1280,
+     "h": 880
+    },
+    {
+     "file": "design/TableView.dc.html",
+     "png": "design/screens/TableView.png",
+     "state": "Table view — rounds by time, stages in words, line actions on the selected line (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableViewWaiter.dc.html",
+     "png": "design/screens/TableViewWaiter.png",
+     "state": "Waiter — only Mark served (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableViewOffline.dc.html",
+     "png": "design/screens/TableViewOffline.png",
+     "state": "Offline — queued round “Waiting to send”, Mark served queues (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/TableViewPhone.dc.html",
+     "png": "design/screens/TableViewPhone.png",
+     "state": "Phone — rounds, selected line actions wrap (phone)",
+     "w": 390,
+     "h": 844
+    },
+    {
+     "file": "design/TableViewUrdu.dc.html",
+     "png": "design/screens/TableViewUrdu.png",
+     "state": "Table view — Urdu RTL (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-S11",
+   "name": "Takeaway / parking order view",
+   "kind": "screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderView.dc.html",
+     "png": "design/screens/OrderView.png",
+     "state": "Takeaway order view — token big, Ready 1/3, Served / Not served only (data gap Q19) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D08",
+   "name": "Mark served (pick lines)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/MarkServed.dc.html",
+     "png": "design/screens/MarkServed.png",
+     "state": "Mark served — ready lines pre-ticked (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D31",
+   "name": "Remove lines (stage 1, units)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Remove.dc.html",
+     "png": "design/screens/Remove.png",
+     "state": "Remove — units stepper; cooking lines point to Void (04) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D32",
+   "name": "Send back (fix / remake) and \"Send it as a new item\"",
+   "kind": "sheet / dialog",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/SendBack.dc.html",
+     "png": "design/screens/SendBack.png",
+     "state": "Send back — Fix or Remake, one tap (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/SendBackClosed.dc.html",
+     "png": "design/screens/SendBackClosed.png",
+     "state": "Closed (> 30 min) — “Send it as a new item” (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItCart.dc.html",
+     "png": "design/screens/CompItCart.png",
+     "state": "“Send it as a new item” → order screen, same item and options in the cart as Round 4 (spec §8 E-7) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D33",
+   "name": "Comp (units, reason)",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Comp.dc.html",
+     "png": "design/screens/Comp.png",
+     "state": "Comp — units, reason chips; “Ask for approval” for order takers (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItPrompt.dc.html",
+     "png": "design/screens/CompItPrompt.png",
+     "state": "Automatic “Comp it?” after the new round is sent — Yes / No (spec §8 E-7, owner 2026-11-12) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItYes.dc.html",
+     "png": "design/screens/CompItYes.png",
+     "state": "Yes → Comp opens prefilled (item, units); reason still required; then the usual approval / waiting card (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompItNo.dc.html",
+     "png": "design/screens/CompItNo.png",
+     "state": "No → nothing changes, toast “Kept on the bill” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-C03",
+   "name": "Comp waiting card (requester) + comp request card (approver)",
+   "kind": "card",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/CompWaiting.dc.html",
+     "png": "design/screens/CompWaiting.png",
+     "state": "Requester — “Waiting for approval — Rs 2,200 comp” + Withdraw on the line (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompRequests.dc.html",
+     "png": "design/screens/CompRequests.png",
+     "state": "Approver — comp cards in Requests; takeaway comp has no table code (Q21) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/CompAnswer.dc.html",
+     "png": "design/screens/CompAnswer.png",
+     "state": "Approver — answer sheet (01d), raw reason code mapped to “Quality”, then PIN (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D34",
+   "name": "Enter weight",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/EnterWeight.dc.html",
+     "png": "design/screens/EnterWeight.png",
+     "state": "Enter weight — cashier, number pad in kg, live total (kiosk)",
+     "w": 1920,
+     "h": 1080
+    }
+   ]
+  },
+  {
+   "id": "02b-D35",
+   "name": "Customer contact (\"Call\")",
+   "kind": "sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Contact.dc.html",
+     "png": "design/screens/Contact.png",
+     "state": "Call — name and phone big, only with view-customer-contact (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-D36",
+   "name": "Boost order",
+   "kind": "inline confirm",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Boost.dc.html",
+     "png": "design/screens/Boost.png",
+     "state": "Boost — confirm in place on the order (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-C04",
+   "name": "Late-food card (grouped per current table) + \"Send what's ready\" sheet",
+   "kind": "card / sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/TableViewLate.dc.html",
+     "png": "design/screens/TableViewLate.png",
+     "state": "Late card on top — “F4 + F5 — about 6 min late”, Send what’s ready (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ReleaseSheet.dc.html",
+     "png": "design/screens/ReleaseSheet.png",
+     "state": "Send what’s ready — ready lines and their partners to hurry (Q7) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-S07",
+   "name": "Open orders (takeaway, parking; abandoned for managers)",
+   "kind": "screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OpenOrdersKiosk.dc.html",
+     "png": "design/screens/OpenOrdersKiosk.png",
+     "state": "Cashier kiosk home — open orders by promise, Ready highlighted, Takeaway / Parking (kiosk)",
+     "w": 1920,
+     "h": 1080
+    },
+    {
+     "file": "design/OpenOrdersAbandoned.dc.html",
+     "png": "design/screens/OpenOrdersAbandoned.png",
+     "state": "Managers only — Abandoned tab (any type) (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/OpenOrdersPhone.dc.html",
+     "png": "design/screens/OpenOrdersPhone.png",
+     "state": "Phone — Orders tab, plates and tokens, Ready first (phone)",
+     "w": 390,
+     "h": 844
+    }
+   ]
+  },
+  {
+   "id": "02-S08",
+   "name": "Held orders (this screen's drafts)",
+   "kind": "screen / list",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Held.dc.html",
+     "png": "design/screens/Held.png",
+     "state": "Held orders — this screen, this person; Resume / Discard (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-S12",
+   "name": "Zone stock (my zones: counts, Refill, Count)",
+   "kind": "screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/ZoneStock.dc.html",
+     "png": "design/screens/ZoneStock.png",
+     "state": "Zone stock — counts, Low / Empty with icon + word, Refill + / Count = (tablet)",
+     "w": 1280,
+     "h": 800
+    },
+    {
+     "file": "design/ZoneRefill.dc.html",
+     "png": "design/screens/ZoneRefill.png",
+     "state": "Refill — stepper, new count preview (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-C05",
+   "name": "Zone running low / empty alert card",
+   "kind": "card / banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/ZoneAlert.dc.html",
+     "png": "design/screens/ZoneAlert.png",
+     "state": "“A zone item is running low” — generic until names are sent (Q8) (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B02",
+   "name": "Reconnecting — n waiting to send (queue bar)",
+   "kind": "bar",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderOffline.dc.html",
+     "png": "design/screens/OrderOffline.png",
+     "state": "Hub offline — times “—”, “set when sent”; Send queues (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-D14",
+   "name": "Queue log (not sent: Send again / Discard / Copy to a new order)",
+   "kind": "screen / sheet",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/QueueLog.dc.html",
+     "png": "design/screens/QueueLog.png",
+     "state": "Queue log — Send again as Ali / Copy to a new order / Discard (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02-B09",
+   "name": "Screen locked (idle)",
+   "kind": "full screen",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/IdleLock.dc.html",
+     "png": "design/screens/IdleLock.png",
+     "state": "Screen locked (idle) — queue sent first, draft kept (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-B11",
+   "name": "Day not started",
+   "kind": "inline / banner",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/OrderDayNotStarted.dc.html",
+     "png": "design/screens/OrderDayNotStarted.png",
+     "state": "Day not started — “Ask the manager” (tablet)",
+     "w": 1280,
+     "h": 800
+    }
+   ]
+  },
+  {
+   "id": "02b-T01",
+   "name": "Toasts of this module",
+   "kind": "toast",
+   "devices": "T K P",
+   "frames": [
+    {
+     "file": "design/Toasts.dc.html",
+     "png": "design/screens/Toasts.png",
+     "state": "Toasts of the ordering module (component)",
+     "w": 1280,
+     "h": 600
+    }
+   ]
+  }
+ ],
+ "components": [
+  {
+   "file": "design/MenuTiles.dc.html",
+   "title": "02b-C01 · C02 · B06 · Menu tile — every availability state, zone count (component)"
+  },
+  {
+   "file": "design/CartLines.dc.html",
+   "title": "02b · Cart line — times, counter, time moved, deal, weight, problems (02-B05) (component)"
+  },
+  {
+   "file": "design/Stages.dc.html",
+   "title": "02-S06 · Line stage words and badges (Q4) (component)"
+  },
+  {
+   "file": "design/Toasts.dc.html",
+   "title": "02b-T01 · Toasts of the ordering module (component)"
+  }
+ ]
+}
