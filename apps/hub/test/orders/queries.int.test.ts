@@ -465,7 +465,7 @@ describe('zone-stock (§6.17)', () => {
 // ------------------------------------------------------------------------------------------- #33 counts
 
 describe('statement counts (§6.15–§6.18, catch-up)', () => {
-  it('[02b #33 queries] seating-orders 2, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 3 (orders, lines, zone_stock)', async () => {
+  it('[02b #33 queries] seating-orders 2, open-orders 2, zone-stock 1, order-contact 1; catch-up part `orders` 4 (orders, lines, zone_stock, open_slips)', async () => {
     openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
     for (let n = 1; n <= 6; n += 1) {
       appendOrder(hub, { order_type: 'dine_in', seating_id: 'SEAT1', order_id: `D${n}`, lines: [{ order_item_id: `D${n}a`, item_id: FX.naan }, { order_item_id: `D${n}b`, item_id: FX.piece }] });
@@ -495,7 +495,7 @@ describe('statement counts (§6.15–§6.18, catch-up)', () => {
     const part = ordersCatchUpPart();
     const db = statementCounter(hub.deps.db);
     const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ lines: unknown[] }>; zone_stock: unknown };
-    expect(db.count).toBe(3);
+    expect(db.count).toBe(4); // 02b v1.0.11 (Q-10, #49): + open_slips (one alerts.listOpen)
     expect(built.orders).toHaveLength(12);
     expect(built.orders.every((o) => o.lines.length === 2)).toBe(true);
 
@@ -800,5 +800,69 @@ describe('[02b #45] kitchen progress frames to staff and kiosks (§6.19, Q-6)', 
     expect(progressOf(station)).toEqual(PROGRESS);
     expect(progressOf(pass)).toEqual(PROGRESS);
     expect(signedOut.messages.map((m) => (m as { type: string }).type)).toEqual(['alerts_open']);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #49 slips (H5)
+
+// 02b v1.0.11 §6.19, catch-up `orders` (Q-10): SlipWarned → staff sockets and cashier kiosks; catch-up `open_slips`.
+// The slip_warning is raised by the real fires_alerts tick (03a §6.2a) at the engine's own due time.
+describe('[02b #49] slip warnings to staff and open_slips (§6.19, catch-up, Q-10)', () => {
+  async function lateSeating(): Promise<{ order_id: string; alert_id: string }> {
+    const { firesAlertsTick, ENGINE_ALERT_KINDS } = await import('../../src/engine-host/fires-alerts-tick');
+    const { readOnlyDb } = await import('../../src/engine-host/read-only-tx');
+    openSeating(hub, { table_id: FX.table, seating_id: 'SLIP1', holder_staff_id: OT1 });
+    const { order_id } = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SLIP1', order_id: 'SL1', lines: [{ order_item_id: 'SL1a', item_id: FX.naan }, { order_item_id: 'SL1b', item_id: FX.naan }] });
+    fire('SL1a', 'SL1b');
+    const due = engine().next_alert_due_at;
+    expect(due).not.toBeNull();
+    hub.clock.set(Math.max(hub.clock.branchNow(), due!) + 1_000);
+    const now = hub.clock.branchNow();
+    expect(firesAlertsTick.due(readOnlyDb(hub.deps.db), engine(), now)).toBe(true);
+    hub.deps.writer.run((tx) => tx.append(firesAlertsTick.intents(tx, engine(), now)));
+    const row = hub.deps.db.prepare(`SELECT alert_id FROM alerts WHERE kind = ? AND state = 'open'`).get(ENGINE_ALERT_KINDS.slip) as { alert_id: string } | undefined;
+    expect(row).toBeDefined();
+    return { order_id, alert_id: row!.alert_id };
+  }
+
+  it('[02b #49] SlipWarned reaches staff sockets and cashier kiosks; never KDS stations', async () => {
+    const tabletWs = await authed(signIn(WAITER));
+    const kioskWs = await authed(signIn(CASHIER, 'cashier_kiosk'));
+    const kdsWs = await stationSocket();
+    const { order_id, alert_id } = await lateSeating();
+    await settle();
+    for (const ws of [tabletWs, kioskWs]) {
+      expect(frames(ws).find((f) => f.event_type === 'SlipWarned')?.payload).toMatchObject({ alert_id, order_ids: [order_id] });
+    }
+    expect(typesOf(kdsWs)).not.toContain('SlipWarned');
+    const counter = statementCounter(hub.deps.db);
+    const ev = { event_type: 'SlipWarned', actor_id: null, payload: { order_ids: [order_id], alert_id } } as unknown as PosEvent;
+    expect(audienceAllows(ev, socketCtx({ staffId: WAITER }))).toBe(true);
+    expect(audienceAllows(ev, socketCtx({ deviceType: 'cashier_kiosk', staffId: CASHIER }))).toBe(true);
+    expect(audienceAllows(ev, socketCtx({ deviceType: 'kds', kind: 'station', staffId: null, stationId: FX.station }))).toBe(false);
+    expect(counter.count).toBe(0);
+  });
+
+  it('[02b #49] catch-up orders.open_slips lists each open slip_warning with its order_ids; gone after the alert closes', async () => {
+    const before = catchUpOrders(await authed(signIn(OT1))) as unknown as { open_slips: unknown };
+    expect(before.open_slips).toEqual([]);
+    const { order_id, alert_id } = await lateSeating();
+    const open = catchUpOrders(await authed(signIn(OT2))) as unknown as { open_slips: unknown };
+    expect(open.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
+    const kioskPart = catchUpOrders(await authed(signIn(CASHIER, 'cashier_kiosk'))) as unknown as { open_slips: unknown };
+    expect(kioskPart.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
+    const { alerts } = await import('../../src/alerts/raise');
+    hub.deps.writer.run((tx) => tx.append(alerts.close(alerts.tickCtx(tx, hub.clock.branchNow()), alert_id, 'obsolete')));
+    const after = catchUpOrders(await authed(signIn(WAITER))) as unknown as { open_slips: unknown };
+    expect(after.open_slips).toEqual([]);
+  });
+
+  it('[02b #49] catch-up orders statements 3 → 4', async () => {
+    const { order_id, alert_id } = await lateSeating();
+    const part = ordersCatchUpPart();
+    const db = statementCounter(hub.deps.db);
+    const built = part.build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { open_slips: unknown };
+    expect(db.count).toBe(4);
+    expect(built.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
   });
 });
