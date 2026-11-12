@@ -152,6 +152,22 @@ Lanes read part 1 of `04-gaps.md` for exact names, and these rows as part of the
 | a3 | G-5 | Copies the alerts-inbox cursor (base64url JSON + Zod) into `audit/queries.ts` with cursor `{ r: recorded_at, s: seq }`. `querySchema` declares `cursor` and `limit`. |
 | UA | G-21 | Adds `items?: string[]` to `Message`, rendered in `Banner`. Test: a 409 on Close sends no Open. |
 
+## Follow-up tasks (owner rulings 2026-11-12 20:21)
+
+Owner "haan" on Q-14 (b), Q-15 (b), Q-16; spec text in **04 v1.0.3**, **02b v1.0.12**, **03c v1.0.8** (README rows). Global rules above apply (TDD, own files only, STOP on any spec–code mismatch).
+
+| Lane | Task | What | Spec | Files (own) | Tests first | Needs | Marker |
+|---|---|---|---|---|---|---|---|
+| **U1** 02b orders | u10 | Q-14 (b): migration `0019_order_line_station.sql` (`ALTER TABLE order_lines ADD COLUMN station_id TEXT` + delete the `orders` checkpoint → refold from seq 0, safe by H-2); the `ItemAdded` fold writes `station_id` (`NULL` for a deal header); `readOrder`'s line row gains `station_id` (still 1 statement); the planner judges "engine line" as `station_id IS NOT NULL` and not a deal, dropping v3's "order out of engine → every non-deal line is a station line" proxy | 04 §3.1, §4.5 Q-14; 02b v1.0.12 §5, §4.2 | `apps/hub/src/db/migrations/0019_*.sql`, `apps/hub/src/orders/projection.ts`, `apps/hub/src/orders/exports.ts`, tests; also edits V1's `apps/hub/src/voids/plan.ts` (Cross) | 02b #51 (column, deal header `NULL`, refold with a forced boot-time `ClockAlarm`, `readOrder` 1 statement); 04 #4g; 1–19b unchanged | v3 | HIGH, Cross |
+| **P** printing | p1 | Q-15 (b): the ticket fold queues the `cancel` job with `slip: 'moved'` for `ItemVoided { disposition: 'moved' }`; the renderer prints the MOVED TO STOCK slip (`print.slip.moved_to_stock`, en / ur) instead of CANCELLED; every other share still CANCELLED; suspect recovery keeps the payload; add the pilot manual-check row (moved line on the KDS) to `docs/plans/03c-manual-checks.md` | 03c v1.0.8 §3.3, §3.5, §11 task 28; 04 §3.3, §4.5 Q-15 | `apps/hub/src/print/**` as needed, i18n en / ur, tests | 03c #4b (golden bytes of `MOVED TO STOCK - FINISH & KEEP`), #25 (moved slip recovers as moved) | — (Q-17 ruled English, owner 2026-11-12 20:42) | Cross |
+| **V1** void core | v6b | Q-16: a deal header line's `details.lines` state = the most advanced part state, `served > cooked > cooking > not_started` | 04 §3.5 | `apps/hub/src/voids/kind.ts`, tests | 04 #20d | v6 | — |
+
+**module-04 → main merge (Z3)** — 02b has two sibling bumps (main's v1.0.11, module-04's v1.0.12):
+
+| # | Task | Needs |
+|---|---|---|
+| Z3a | Write 02b v1.0.13 = main's v1.0.11 + v1.0.12 (tests 41–51; README keeps v1.0.11 and v1.0.12) | Z3 |
+
 ## Self-review (writer, 2026-11-12)
 
 - **Coverage:** spec §11 rows 0, P0, P0b, P1–P6, 1–17 → P0.2 (0), u6 + P0.6 (P0 / H-1), P0.5 (P0b / H-2), P0.3 / P0.4 / u4 / u5 (P1), P0.4 (P2), P0.4 / u7 (P3), u1–u3 (P4), u9 + P0.6 (P5), u8 + UA (P6), P0.9 (1), P0.3 / v5 (2), v3 (3), v4 (4), v6 (5), v7 (6), v8 (7), v9 (8), t1 (9), t2 (10), a1 (11), a2 (12), a3 (13), VU1 (14), VU2 (15), Z2 (16), Z1 (17). Every §10 test 0–60b is named in a row.
