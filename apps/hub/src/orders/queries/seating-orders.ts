@@ -10,7 +10,8 @@ import { ordersOf, seatingTotals } from '../exports.js';
 // 02b v1.0.3 §6.15 GET /queries/seating-orders: the seating's orders (02a seating_orders, current, P-1c) by placed_at,
 // with their lines (LineView, §4.2) and each line's engine stage and `fired`, and the seating's total (§3.13).
 // Statements: 2 (ordersOf, seatingTotals); names from the directory, promise / stage / fired from EngineState, in memory.
-// No contact (O17).
+// No contact (O17). ⚠️ 02b v1.0.11 (Q-7): each order carries `order_note`, each line its `options` (LineView, §4.2);
+// 0 extra statements.
 //
 // Owner 2026-11-11 S-1 (d): each order carries the order-level `promise_ms` (EngineOrder.promise_ms, the max over its
 // groups, never moved) while the order is in the engine (the predicate, 03a §3.3), else null — as open-orders; no
@@ -51,6 +52,8 @@ export interface SeatingOrder {
   cancelled: boolean;
   billed: boolean;
   has_phone: boolean;
+  /** ⚠️ 02b v1.0.11 §6.15 (Q-7): OrderView.order_note */
+  order_note: string | null;
   /** S-1 (d): EngineOrder.promise_ms while the order is in the engine, else null */
   promise_ms: number | null;
   lines: Array<LineView & { stage: LineStage; fired: boolean }>;
@@ -76,6 +79,7 @@ export function seatingOrdersBody(
         cancelled: o.cancelled,
         billed: o.billed,
         has_phone: o.has_phone,
+        order_note: o.order_note,
         promise_ms: inEngine ? state.orders[o.order_id]!.promise_ms : null,
         lines: o.lines.map((l) => ({ ...l, stage: lineStage(state, l, inEngine), fired: lineFired(state, l, inEngine) })),
       };

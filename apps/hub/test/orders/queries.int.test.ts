@@ -866,3 +866,88 @@ describe('[02b #49] slip warnings to staff and open_slips (§6.19, catch-up, Q-1
     expect(built.open_slips).toEqual([{ alert_id, order_ids: [order_id] }]);
   });
 });
+
+// ------------------------------------------------------------------------------------------- #46 (H2, lane HB)
+
+describe('[02b #46] line options and order note in reads (§4.2, §6.15; Q-7)', () => {
+  // append-only shared file (lane rule): this block imports its own export inside the tests
+  const exportsOf = () => import('../../src/orders/exports');
+  const plain = (name: string, quantity: number, n: number) => ({ option_id: `OPT_${n}`, modifier_group_id: 'M_PLAIN', name, price_minor: 0, quantity, charge_minor: 0 });
+
+  it('[02b #46] a line with [No onion ×1, Less spicy ×2] → seating-orders / orderLines options in payload order; none → []', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    appendOrder(hub, {
+      order_type: 'dine_in',
+      seating_id: 'SEAT1',
+      order_id: 'O1',
+      placed_by: OT1,
+      lines: [
+        { order_item_id: 'A1', item_id: FX.piece, item: { options: [plain('No onion', 1, 1), plain('Less spicy', 2, 2)] } },
+        { order_item_id: 'A2', item_id: FX.naan },
+      ],
+    });
+    const r = await query<Seating>(signIn(WAITER), 'seating-orders?seating_id=SEAT1');
+    expect(r.status).toBe(200);
+    const lines = new Map(r.data.orders[0]!.lines.map((l) => [l.order_item_id, l] as const));
+    expect(lines.get('A1')!.options).toEqual([
+      { name: 'No onion', quantity: 1 },
+      { name: 'Less spicy', quantity: 2 },
+    ]);
+    expect(lines.get('A2')!.options).toEqual([]);
+    const { orderLines } = await exportsOf();
+    const read = orderLines(hub.deps.db, ['O1']).get('O1')!;
+    expect(read.map((l) => l.options)).toEqual([[{ name: 'No onion', quantity: 1 }, { name: 'Less spicy', quantity: 2 }], []]);
+  });
+
+  it('[02b #46] the order carries order_note', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    const ot = signIn(OT1);
+    const line = (order_item_id: string) => ({ order_item_id, item_id: FX.naan, quantity: 1 });
+    const noted = await command(ot, 'submit-order', 'SubmitOrder', {
+      order_id: 'O1',
+      order_type: 'dine_in',
+      table_id: FX.table,
+      seating_id: 'SEAT1',
+      order_note: 'birthday, bring together',
+      lines: [line('N1')],
+    });
+    expect(noted.status).toBe(200);
+    hub.clock.advance(1_000);
+    expect((await command(ot, 'submit-order', 'SubmitOrder', { order_id: 'O2', order_type: 'dine_in', table_id: FX.table, seating_id: 'SEAT1', lines: [line('N2')] })).status).toBe(200);
+    const r = await query<Seating>(signIn(WAITER), 'seating-orders?seating_id=SEAT1');
+    expect(r.data.orders.map((o) => [o.order_id, o.order_note])).toEqual([
+      ['O1', 'birthday, bring together'],
+      ['O2', null],
+    ]);
+  });
+
+  it('[02b #46] statement counts unchanged: seating-orders 2, orderLines 1, catch-up orders 4 (with #49 open_slips)', async () => {
+    openSeating(hub, { table_id: FX.table, seating_id: 'SEAT1', holder_staff_id: OT1 });
+    for (let n = 1; n <= 4; n += 1) {
+      appendOrder(hub, {
+        order_type: 'dine_in',
+        seating_id: 'SEAT1',
+        order_id: `D${n}`,
+        lines: [{ order_item_id: `D${n}a`, item_id: FX.piece, item: { options: [plain('No onion', 1, 1), plain('Less spicy', 2, 2)] } }, { order_item_id: `D${n}b`, item_id: FX.naan }],
+      });
+      appendOrder(hub, { order_type: 'takeaway', order_id: `T${n}`, placed_by: OT1, lines: [{ order_item_id: `T${n}a`, item_id: FX.piece, item: { options: [plain('Less spicy', 1, 2)] } }] });
+    }
+    const mgr = signIn(MGR);
+    const counter = statementCounter(hub.deps.readDb);
+    const r = await query<Seating>(mgr, 'seating-orders?seating_id=SEAT1');
+    expect(r.status).toBe(200);
+    expect(counter.count).toBe(2);
+    expect(r.data.orders.every((o) => o.lines[0]!.options.length === 2 && o.order_note === null)).toBe(true);
+
+    const { orderLines } = await exportsOf();
+    const db = statementCounter(hub.deps.db);
+    const read = orderLines(hub.deps.db, ['D1', 'T1']);
+    expect(db.count).toBe(1);
+    expect(read.get('T1')![0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
+
+    db.reset();
+    const built = ordersCatchUpPart().build(hub.deps.db, engine(), socketCtx({ staffId: OT1 })) as { orders: Array<{ order_id: string; lines: Array<{ options: unknown }> }> };
+    expect(db.count).toBe(4); // orders, lines, zone_stock, open_slips (#49)
+    expect(built.orders.find((o) => o.order_id === 'T2')!.lines[0]!.options).toEqual([{ name: 'Less spicy', quantity: 1 }]);
+  });
+});
