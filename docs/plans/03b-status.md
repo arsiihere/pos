@@ -8,6 +8,7 @@ Plans: `03b-plan.md`, `03c-plan.md`. Prompts: `03b-03c-prompts.md`. Gaps: `03b-0
 > - CI needs nothing (fresh `postgres:16` service per run).
 
 > **Status (owner summary, Hinglish, newest first):**
+> - 2026-11-12: owner "teeno Rec" (11:00) — design brief Q-14 (DismissPrintSkip), Q-18 (archived station printer chhorta hai), Q-20 (KDS `has_printer`); 03b v1.0.6, 03c v1.0.6; code P0.22.
 > - 2026-11-12: **saare 03b + 03c hub tasks merged** (PR #73 aakhri). Close: acceptance map (Z1) neeche, GAPs upar; manual-check lists (Z2); PR `module-03b` → `main` aapke merge ke liye (Z3). GAPs sirf client (BU / CU) aur do story lines (G5, G6).
 > - 2026-11-12: owner "sab Rec" (07:39) — C3-2, C3-3 (c15), C4-1 (c17), B2-3 + P18-1 (P0.21); 03b v1.0.5, 03c v1.0.5, 01d v1.2.4.
 > - 2026-11-11: owner ruling B3-5 (a) — 0016 ab options_json SQL se backfill karti hai (checkpoint delete nahi; 02b v1.0.9).
@@ -75,6 +76,7 @@ Acceptance map below, made on `module-03b` @ `14f9b6d` (all 03b + 03c hub tasks 
 | P0.19 | #64 | merged `ccbfcf2` |
 | P0.20 | #58 | merged `71cf05e` |
 | P0.21 | #71 | merged `f69b5b7` |
+| P0.22 | — | not started — Q-14 `DismissPrintSkip`, Q-18 printer released on station archive, Q-20 `has_printer` on the KDS (03c v1.0.6, 03b v1.0.6). Needs: this spec PR |
 
 ## Lanes (final: every hub task on `module-03b`)
 
@@ -169,6 +171,9 @@ Acceptance map below, made on `module-03b` @ `14f9b6d` (all 03b + 03c hub tasks 
 | AD-37 | P0.18 (P18-1) | `always_on` and tablets of an archived point. | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): point-bound tablets join `always_on` only when the point is active in `branchConfig().points` (01d v1.2.4); code P0.21 |
 | AD-38 | c17 #65 (C4-1) | Repeated COMING UP slips on a flapping screen. | **ruled (Rec)** (owner 2026-11-12 07:39, "sab Rec"): at most one COMING UP per station per 5 min; a new outage within 5 min of the last prints none (03c v1.0.5 §3.4 step 2) |
 | AD-39 | P0.18 (review LOW) | 01d §6.5 Errors row lacked `404 POINT_NOT_FOUND`. | done: 01d v1.2.4 |
+| AD-40 | design brief §7 (Q-14) | 03c C3-3 says only a manager closes a `ticket_not_built` alert, but no close command existed. | **ruled (Rec)** (owner 2026-11-12 11:00, "teeno Rec"): new `DismissPrintSkip { alert_id }`, permission `force-release-table-lock` (01d's `managers` set), `AlertClosed` reason `done`, 404 for any other alert / problem, 409 `ALERT_ALREADY_CLOSED` (03c v1.0.6 §6.12); code P0.22 |
+| AD-41 | design brief §7 (Q-18) | An archived station's output row still holds a printer, so the printer cannot be archived. | **ruled (Rec)** (owner 2026-11-12 11:00, "teeno Rec"): a config apply that archives / removes a station appends `StationOutputSet { mode: 'screen', printer_id: null, source: 'config' }` in the same apply; pending jobs follow the no-printer rule; `SavePrinter` archive then succeeds (03c v1.0.6 §3.2); code P0.22 |
+| AD-42 | design brief §7 (Q-20) | The KDS cannot know whether its station prints, so it cannot decide to show Reprint. | **ruled (Rec)** (owner 2026-11-12 11:00, "teeno Rec"): `kds_station.has_printer` (03b v1.0.6 §6.14, statements 4) from 03c `stationHasPrinter`, `station_notice { kind: 'output' }` on change; code P0.22 |
 
 ## Acceptance map (Z1)
 
