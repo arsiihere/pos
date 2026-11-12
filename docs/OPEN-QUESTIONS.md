@@ -87,3 +87,4 @@ These work today. Change one only if the owner disagrees.
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
 | 03b-N1 | **Kitchen timing set on the hub, synced both ways.** Ready window, KDS offline and served estimate (03b §4.5 A-1, B-2) are per-branch owner settings: the owner app edits them, the cloud delivers them to the hub (F §3.3, one-way), the hub keeps the last delivered value and falls back to its defaults (60 s / 30 s / 3 min). Wanted later: a manager changes them on the hub too (also offline) and the owner app shows the change. | Keep one-way for the pilot (owner, 2026-11-11); look again after the pilot. | Same design as 02a-N1 (hub → cloud config sync, conflict rule, offline edits, permission) — one foundation bump for both. |
+| 03b-N2 | **Strikethrough reprint** when a line is Done after its ticket already printed (story E3-PRT edge, Z1 GAP G5). | Deferred after the pilot (owner 2026-11-12). | 03c spec row + a print task. |
