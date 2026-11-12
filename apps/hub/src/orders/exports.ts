@@ -184,8 +184,11 @@ export interface ReadOrderHead {
   table_ids: string[];
 }
 
-/** 02b §4.2 `readOrder` line: the line view plus the zone count of a zone line (§3.10). */
-export type ReadOrderLine = LineView & { zone_on_hand: number | null };
+/**
+ * 02b §4.2 `readOrder` line: the line view plus the zone count of a zone line (§3.10) and (⚠️ Changed by v1.0.12, 04
+ * Q-14) `order_lines.station_id` — the line's ItemAdded.station_id, NULL for a deal header (04 §3.1 engine line).
+ */
+export type ReadOrderLine = LineView & { zone_on_hand: number | null; station_id: string | null };
 
 // One statement: the order, its seating (02a, P-1c) with its tables (aggregate ORDER BY inside, SQLite ≥ 3.44), and its
 // lines with the zone count of each zone line.
@@ -196,7 +199,7 @@ const READ_ORDER = `SELECT o.order_id, o.order_type, o.placed_by, o.billed_at, o
        l.order_item_id, l.parent_order_item_id, l.line_kind, l.item_id, l.deal_id, l.name, l.sale_unit, l.quantity,
        l.units, l.comped_units, l.removed_units, l.voided_units, l.returned_units, l.refundable_minor, l.comp_minor,
        l.comp_voided_minor, l.removed_minor, l.refund_minor, l.line_total_minor, l.return_of, l.served_from_zone_id,
-       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, zs.on_hand AS zone_on_hand
+       l.added_at, l.served_at, l.served_source, l.is_food, l.kitchen_note, l.station_id, zs.on_hand AS zone_on_hand
   FROM orders o
   LEFT JOIN seating_orders so ON so.order_id = o.order_id
   LEFT JOIN seatings s ON s.seating_id = so.seating_id
@@ -255,6 +258,7 @@ export function readOrder(ctx: CommandCtx, order_id: string): { order: ReadOrder
       is_food: r.is_food === 1,
       kitchen_note: r.kitchen_note,
       zone_on_hand: r.zone_on_hand,
+      station_id: r.station_id,
     }));
   // §3.4 billed_minor (the ledger's rule; a deal from its parts)
   for (const l of lines) l.billed_minor = billedMinor(l, l.line_kind === 'deal' ? lines.filter((p) => p.parent_order_item_id === l.order_item_id && p.line_kind === 'deal_part') : []);

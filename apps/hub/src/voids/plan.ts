@@ -88,14 +88,19 @@ function childrenOf(work: ReadonlyMap<string, ReadOrderLine>, line: ReadOrderLin
 export function planVoidEntries(input: PlanInput): PlannedEntry[] {
   const { state, now } = input;
   const inEngine = isOrderInEngine(state, input.order_id, now);
-  const held = state.orders[input.order_id] !== undefined;
   const read = new Map(input.lines.map((l) => [l.order_item_id, l]));
   const work = new Map(input.lines.map((l) => [l.order_item_id, { ...l }]));
 
-  // §3.1 engine line: in engine state (02b RemoveItems' rule for an order the engine holds). An order the engine no
-  // longer holds has no line in state: every non-deal line counts as a station line there (04 §12.6 Q-13: no real hub
-  // writes a non-deal line without a station), which §3.1 then counts as started.
-  const engine = (id: string): boolean => state.lines[id] !== undefined || (!held && read.get(id)?.line_kind !== 'deal');
+  // §3.1 engine line (⚠️ 04 v1.0.3 Q-14, task u10): read exactly from readOrder's station_id (02b v1.0.12) —
+  // station_id IS NOT NULL and not a deal (03a isEngineLine), whether or not the order is still in the engine. The stage
+  // still comes from engine state: a station line absent from it (its order left the engine) counts as started.
+  // A station line dropped from engine state on a non-strict boot (03a dropListed of a writer-bug line) is likewise
+  // "absent → started", per §3.1.
+  // `line_kind !== 'deal'` is defensive per §3.1: the fold always writes NULL for a deal header today.
+  const engine = (id: string): boolean => {
+    const l = read.get(id);
+    return l !== undefined && l.station_id !== null && l.line_kind !== 'deal';
+  };
   const stageOf = (id: string): string | undefined => state.lines[id]?.stage;
   const zoneInUndo = (l: ReadOrderLine): boolean => l.zone_served && now - l.added_at <= input.zone_undo_ms;
 

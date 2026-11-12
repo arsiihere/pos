@@ -1,6 +1,6 @@
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type Database from 'better-sqlite3';
@@ -51,10 +51,11 @@ function ordersWithOptions(hub: TestHub): void {
 
 const linesOf = (db: Database.Database) => db.prepare('SELECT order_item_id, options_json FROM order_lines ORDER BY order_item_id').all() as Array<{ order_item_id: string; options_json: string | null }>;
 
-/** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018) not applied; every projection (and
- *  checkpoint) as it was. */
-const LATER = ['0017_staff_names.sql', '0018_audit.sql'];
+/** Back to a pre-0016 hub: the column gone, 0016 (and the later 04 0017 / 0018, 02b v1.0.12 0019) not applied; every
+ *  projection (and checkpoint) as it was. */
+const LATER = ['0017_staff_names.sql', '0018_audit.sql', '0019_order_line_station.sql'];
 function toPre0016(db: Database.Database): void {
+  db.exec('ALTER TABLE order_lines DROP COLUMN station_id'); // 0019 (02b v1.0.12, 04 Q-14) re-adds it
   db.exec('ALTER TABLE order_lines DROP COLUMN options_json');
   db.exec('DROP TABLE staff_names; DROP TABLE audit_entries; DROP TABLE audit_requests; DROP TABLE audit_orders');
   db.prepare('DELETE FROM migration_checksums WHERE version >= 16').run();
@@ -103,15 +104,22 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
       Da: '[{"name":"Mild","quantity":1}]',
       Db: null,
     });
-    const all = db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all();
+    // station_id (0019) is filled by the boot-time refold, not by runMigrations; it is left out of this comparison.
+    const allRows = () => (db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all() as Array<Record<string, unknown>>).map((r) => {
+      delete r.station_id;
+      return r;
+    });
+    const all = allRows();
 
     toPre0016(db);
     expect((await runMigrations(db, { dir: migrations, clock: fixedClock(T) })).applied).toEqual([MIGRATION, ...LATER]);
     expect(linesOf(db)).toEqual(live);
-    expect(db.prepare('SELECT * FROM order_lines ORDER BY order_item_id').all(), 'nothing else on the rows changes').toEqual(all);
+    expect(allRows(), 'nothing else on the rows changes').toEqual(all);
   });
 
-  it('[02b v1.0.9 §5] a real boot() over a pre-0016 database with the wall clock behind the last event (ClockAlarm before catch-up) → options_json filled', async () => {
+  // Reading (u10, 02b v1.0.12): the boot now also applies 0019, whose orders refold rewrites options_json, so 0016's
+  // SQL backfill is asserted on its own first (migrations up to 0018 on the copy, before boot), then through the boot.
+  it('[02b v1.0.9 §5] a pre-0016 database: 0016–0018 alone (orders checkpoint kept) → options_json backfilled in SQL; then a real boot() with the wall clock behind the last event (ClockAlarm before catch-up, 0019 refold) → options_json still equal', async () => {
     const hub = await createTestHub({ provisioned: true });
     cleanups.push(() => hub.close());
     ordersWithOptions(hub);
@@ -126,13 +134,17 @@ describe('[02b v1.0.7 / v1.0.9 §5] hub migration 0016_order_line_options', () =
     toPre0016(copy);
     const checkpoints = copy.prepare('SELECT projection, last_seq FROM projection_checkpoints ORDER BY projection').all();
     expect(checkpoints.length).toBeGreaterThan(0);
+    // 0016's SQL backfill on its own: migrate to 0018 (before 0019's refold), no projection runs
+    expect((await runMigrations(copy, { dir: copyUpTo(dirname(cfg.path), '0018'), clock: fixedClock(T) })).applied).toEqual([MIGRATION, ...LATER.slice(0, 2)]);
+    expect(linesOf(copy), 'B3-5 SQL backfill, before any refold').toEqual(live);
+    expect(copy.prepare('SELECT projection, last_seq FROM projection_checkpoints ORDER BY projection').all(), 'B3-5: no checkpoint is deleted').toEqual(checkpoints);
     copy.close();
 
     const wall = lastRecordedAt - 60_000;
     const booted = await boot({ configPath: cfg.path, wallNow: () => wall, monoNow: () => 0, configClient: stubConfigCloud(), cloudClient: offlineCloud(), logStream: quiet() });
     cleanups.push(() => booted.stop());
     const db = booted.deps.db;
-    expect(db.pragma('user_version', { simple: true })).toBe(18);
+    expect(db.pragma('user_version', { simple: true })).toBe(19);
     const after = db.prepare('SELECT event_type FROM events WHERE seq > (SELECT MAX(seq) FROM events WHERE recorded_at <= ?) ORDER BY seq').pluck().all(lastRecordedAt);
     expect(after[0], 'boot wrote ClockAlarm before its catch-up').toBe('ClockAlarm');
     expect(linesOf(db)).toEqual(live);
