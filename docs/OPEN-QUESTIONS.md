@@ -92,7 +92,7 @@ These work today. Change one only if the owner disagrees.
 
 ## 8. From the 04 spec (owner, 2026-11-12) — Voids + Audit known gaps
 
-Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.md` §12.6.
+Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.2.md` §12.6.
 
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
@@ -103,6 +103,8 @@ Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.md` §12.6.
 | 04-G5 | Owner-editable void reasons. | Fixed codes for now (owner Q4). | 01a setting when asked. |
 | 04-G6 | Approver cannot change the disposition at approve (withdraw and re-ask instead). | Owner OQ-D. | Later 04 bump. |
 | 04-G8 | Wastage / staff-meal / moved-to-stock reports. | Data recorded; no report. | 05 Z report, 07, 08. |
+| 04-Q12 | **Default void approver (Manager) not checked for `approve-void`** — if the owner removes it, those voids cannot be approved and the bill / day close stay blocked until withdrawn. | Accepted gap (owner 2026-11-12 15:05, "Dono rec"). | Later bump: roles API guard or warning. |
+| 04-Q13 | Station-less non-deal line rules (V1 (c), V1 (d), T-3) are defensive only; no real hub writes one. | Accepted gap (owner 2026-11-12 15:05, "Dono rec"). | "No kitchen" item: 01a / 01c after the pilot. |
 | 04-R1 | **Cross-module bumps approved but not applied** (F, 00, 01a, 01b, 01d, 02b, 03a). | Task 0 takes next free numbers, STOPs on conflict. | 04 build task 0. |
 | 04-R4 | **05 must honour 04's four contracts** (refund_minor only, bill close refused while pending, keep the day-close guard, voided pending-weight lines). | §4.3 To 05. | 05 G0 / review. |
 
