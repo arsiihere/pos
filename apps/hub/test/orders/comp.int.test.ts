@@ -10,6 +10,7 @@ import { commandRegistry } from '../../src/commands/route';
 import { readOnlyTx } from '../../src/engine-host/read-only-tx';
 import { compLineCommand } from '../../src/orders/commands/comp-line';
 import { orderLines } from '../../src/orders/exports';
+import { changeDrafts, lineChangeDrafts } from '../../src/orders/line-change';
 import { lineShares, planVoid } from '../../src/orders/ledger';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory, PIN } from '../helpers/fixtures';
@@ -695,6 +696,86 @@ describe('CompLine with deals, remakes and children (02b §3.4)', () => {
     expect(a.status).toBe(409);
     expect(a.error?.code).toBe('ORDER_BILLED');
     expect(compEvents()).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------- #44 (04 Q-4)
+
+describe('[02b #44] line change judges changed lines only; stale_comps mode (04 §4.5 Q-4; G-15)', () => {
+  /** N1 × 3 with an open comp request on 2 units, then 2 units voided outside 02b: the request is stale but open. */
+  async function staleOnN1(): Promise<{ order_id: string; alert_id: string; ali: Who }> {
+    await start();
+    const omar = signIn('S_OMAR');
+    const ali = signIn('S_ALI');
+    const order_id = takeaway([NAANS, { order_item_id: 'N2', item_id: FX.naan, quantity: 2 }]);
+    const alert_id = (await compLine(omar, quality('N1', 2))).result!.alert_id as string;
+    voidUnits(order_id, 'N1', 2);
+    expect(lineView(order_id, 'N1')).toMatchObject({ live_units: 1, comped_units: 0 });
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+    return { order_id, alert_id, ali };
+  }
+
+  it('[02b #44] RemoveItems of line N2 leaves the already-stale comp request on N1 open', async () => {
+    const { order_id, alert_id, ali } = await staleOnN1();
+    const r = await remove(ali, { order_id, lines: [{ order_item_id: 'N2', units: 1 }] });
+    expect(r.status).toBe(200);
+    expect(r.result).toMatchObject({ comp_requests_closed: [] });
+    expect(types(r)).not.toContain('AlertClosed');
+    expect(alertRow(alert_id)).toMatchObject({ state: 'open' });
+
+    // the request left open cannot be approved into a wrong comp: applyComp's re-check refuses it (1 free < 2)
+    const mgr = signIn('S_MGR');
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status).toBe(400);
+    expect(a.error?.code).toBe('VALIDATION_FAILED');
+    expect(compEvents()).toEqual([]);
+    expect(lineView(order_id, 'N1')).toMatchObject({ live_units: 1, comped_units: 0, comp_minor: 0 });
+  });
+
+  it("[02b #44] lineChangeDrafts { stale_comps: 'keep' } on the stale line: 1 statement; its drafts = 'close' minus the comp-request closes", async () => {
+    const { order_id, alert_id } = await staleOnN1();
+    // empties the order: N1's last unit and both N2 units → OrderCancelled in either mode
+    const change = [
+      { order_item_id: 'N1', units_out: 1 },
+      { order_item_id: 'N2', units_out: 2 },
+    ];
+    const kept = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const drafts = lineChangeDrafts(ctxOf(tx), order_id, change, { stale_comps: 'keep' });
+      return { drafts, statements: counter.count };
+    }).result;
+    expect(kept.statements).toBe(1);
+    expect(kept.drafts.map((d) => d.event_type)).toEqual(['OrderCancelled']);
+
+    const closed = hub.deps.writer.run((tx) => lineChangeDrafts(ctxOf(tx), order_id, change)).result;
+    expect(closed.filter((d) => d.event_type === 'AlertClosed').map((d) => d.payload)).toEqual([expect.objectContaining({ alert_id, reason: 'obsolete' })]);
+    // the only difference is 01d's closeMany output: AlertClosed + the request_result to the requester (AlertRaised,
+    // AttemptSent); OrderCancelled is the same draft in both modes
+    const CLOSE_MANY = new Set(['AlertClosed', 'AlertRaised', 'AttemptSent']);
+    const closeManyDraft = (d: EventDraft): boolean => CLOSE_MANY.has(d.event_type);
+    expect(kept.drafts).toEqual(closed.filter((d) => !closeManyDraft(d)));
+  });
+
+  it("[02b #44] changeDrafts { stale_comps: 'keep' }: no AlertClosed, no comp listOpen (0 statements over the lines given)", async () => {
+    const { order_id } = await staleOnN1();
+    const before = orderLines(hub.deps.db, [order_id]).get(order_id)!;
+    const change = [{ order_item_id: 'N1', units_out: 1 }];
+    const kept = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const out = changeDrafts(ctxOf(tx), order_id, before, change, { stale_comps: 'keep' });
+      return { out, statements: counter.count };
+    }).result;
+    expect(kept.statements).toBe(0);
+    expect(kept.out.comp_requests_closed).toEqual([]);
+    expect(kept.out.drafts.map((d) => d.event_type)).not.toContain('AlertClosed');
+
+    const closing = hub.deps.writer.run((tx) => {
+      counter.reset();
+      const out = changeDrafts(ctxOf(tx), order_id, before, [{ order_item_id: 'N2', units_out: 1 }]);
+      return { out, statements: counter.count };
+    }).result;
+    expect(closing.statements).toBe(1); // default 'close': the comp listOpen; N1 not in changes → not judged
+    expect(closing.out.comp_requests_closed).toEqual([]);
   });
 });
 

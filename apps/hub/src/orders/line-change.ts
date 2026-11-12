@@ -5,7 +5,7 @@
 import type { EventDraft, OrderCancelledPayload } from '@pos/events';
 import { alerts, type CloseItem } from '../alerts/raise.js';
 import type { CommandCtx } from '../commands/registry.js';
-import type { LineChangeDrafts, LineView } from './contracts.js';
+import type { LineChangeDrafts, LineChangeOptions, LineView } from './contracts.js';
 import { orderLines } from './exports.js';
 import { foodDrafts } from './food.js';
 import { liveUnits, removeUnits } from './ledger.js';
@@ -62,23 +62,31 @@ export function linesAfter(before: readonly LineView[], changes: readonly LineCh
 
 /**
  * The shared core of RemoveItems and `lineChangeDrafts`, given the order's lines BEFORE the change (the caller read
- * them). 1 statement: `alerts.listOpen({ kind: 'comp', subject: order })` (+ closeMany's own when a request closes).
- * §3.9: an open request whose line is left with `live_units − comped_units` < its requested units closes `obsolete`
- * with a note; 01d tells the requester. §3.4 deal headers: "no live line" looks at parts only.
+ * them). 1 statement: `alerts.listOpen({ kind: 'comp', subject: order })` (+ closeMany's own when a request closes);
+ * 0 with `stale_comps: 'keep'`. §3.9 (⚠️ 04 row Q-4; G-15): only open requests on a line in `changes` are judged
+ * (`freeOf` → undefined for any other id); such a request whose line is left with `live_units − comped_units` < its
+ * requested units closes `obsolete` with a note; 01d tells the requester. `'keep'` judges none and skips
+ * `staleCompCloses` (04's void `apply`, K-1). §3.4 deal headers: "no live line" looks at parts only.
  */
 export function changeDrafts(
   ctx: CommandCtx,
   order_id: string,
   before: readonly LineView[],
   changes: readonly LineChange[],
+  opts: LineChangeOptions = { stale_comps: 'close' },
 ): { drafts: EventDraft[]; cancelled: boolean; comp_requests_closed: string[] } {
   const after = linesAfter(before, changes);
   const byId = new Map(after.map((l) => [l.order_item_id, l]));
-  // A request on a line the order no longer has counts as 0 free (closed).
-  const stale = staleCompCloses(ctx, order_id, (id) => {
-    const line = byId.get(id);
-    return line === undefined ? 0 : line.live_units - line.comped_units;
-  });
+  const changed = new Set(changes.map((c) => c.order_item_id));
+  // A changed id the order no longer has counts as 0 free (closed); an unchanged line is not judged.
+  const stale =
+    opts.stale_comps === 'keep'
+      ? { drafts: [], closed: [] }
+      : staleCompCloses(ctx, order_id, (id) => {
+          if (!changed.has(id)) return undefined;
+          const line = byId.get(id);
+          return line === undefined ? 0 : line.live_units - line.comped_units;
+        });
   const drafts: EventDraft[] = stale.drafts;
   const envelope = { occurred_at: ctx.clock.branchNow(), actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
   const cancelled = !after.some((l) => l.line_kind !== 'deal' && l.live_units > 0);
@@ -94,9 +102,10 @@ export function changeDrafts(
 
 /**
  * §3.5 Export (To 04): OrderCancelled (if the order is emptied), OrderFoodCleared { food_served } and the stale
- * comp-request closes for units leaving billing in the caller's transaction (`ctx.tx`, AD-9). `changes` lists every
- * line whose units leave (cascaded parts and children included, as their own events do); the lines are read as they
- * are before the change. 2 statements: the order's lines (`orderLines`), `alerts.listOpen` for the order.
+ * comp-request closes of the changed lines for units leaving billing in the caller's transaction (`ctx.tx`, AD-9).
+ * `changes` lists every line whose units leave (cascaded parts and children included, as their own events do); the
+ * lines are read as they are before the change. 2 statements: the order's lines (`orderLines`), `alerts.listOpen` for
+ * the order; `opts.stale_comps: 'keep'` (04 row Q-4) skips the comp read and closes none: 1 statement.
  */
-export const lineChangeDrafts: LineChangeDrafts = (ctx, order_id, changes) =>
-  changeDrafts(ctx, order_id, orderLines(ctx.tx.db, [order_id]).get(order_id) ?? [], changes).drafts;
+export const lineChangeDrafts: LineChangeDrafts = (ctx, order_id, changes, opts) =>
+  changeDrafts(ctx, order_id, orderLines(ctx.tx.db, [order_id]).get(order_id) ?? [], changes, opts).drafts;

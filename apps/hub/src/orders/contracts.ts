@@ -104,14 +104,24 @@ export type LineShares = (line: {
 }) => { next_share_minor(n: number): number; comped_take_back_minor(n: number): number };
 
 /**
- * §4.2: OrderCancelled, OrderFoodCleared, comp-request closes after units leave billing (04 voids); 2 statements.
- * AD-9: takes the caller's command ctx (`ctx.tx` is the transaction; §4.2's `tx` read as a name; 02a `RequireLock`
- * precedent), so the comp-request closes carry the caller's actor and device.
+ * §3.5 mode (⚠️ 04 row Q-4; G-15), default `'close'`: `'keep'` judges no comp request and skips the comp `listOpen`
+ * read — used only by 04's void `apply`, where a foreign `AlertClosed` would break 01d's `checkAlertIds` (K-1).
+ */
+export interface LineChangeOptions {
+  stale_comps: 'close' | 'keep';
+}
+
+/**
+ * §4.2: OrderCancelled, OrderFoodCleared, comp-request closes after units leave billing (04 voids); 2 statements
+ * (`'keep'`: 1). AD-9: takes the caller's command ctx (`ctx.tx` is the transaction; §4.2's `tx` read as a name; 02a
+ * `RequireLock` precedent), so the comp-request closes carry the caller's actor and device. ⚠️ 04 row Q-4: only comp
+ * requests of changed lines are judged; `opts.stale_comps` (default `'close'`).
  */
 export type LineChangeDrafts = (
   ctx: CommandCtx,
   order_id: string,
   changes: { order_item_id: string; units_out: number }[],
+  opts?: LineChangeOptions,
 ) => EventDraft[];
 
 /**
