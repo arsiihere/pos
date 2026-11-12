@@ -26,7 +26,7 @@ const ENGINE_DEFAULTS = {
   queue_auto_send_max_ms: 14_400_000,
   zone_undo_ms: 300_000,
   slow_item_threshold_ms: 900_000,
-  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+  comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest'], // 01a v2.4.4 (Q-19): 0014 drops "Other"
   // 03b §4.5 B-2 (P0.15): on the owner wire; a row written after 0012 has served_estimate_ms null.
   served_estimate_ms: null,
   ready_window_ms: 60_000,

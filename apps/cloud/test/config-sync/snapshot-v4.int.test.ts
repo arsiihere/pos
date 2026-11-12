@@ -135,7 +135,7 @@ describe('GET /v1/sync/config: snapshot V4', () => {
       zone_undo_ms: 300_000,
       slow_item_threshold_ms: 900_000,
       served_estimate_ms: null,
-      comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+      comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest'], // 01a v2.4.4 (Q-19): 0014 drops "Other"
     });
     expect(snapshot).not.toHaveProperty('settings'); // AD-10: beside the A-12 fields, no new key
     // stored values are what is delivered (no default in the builder)
