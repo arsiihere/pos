@@ -210,20 +210,26 @@ export function createPrintWorker(o: PrintWorkerOptions): PrintWorker {
       const at = now();
       if (result.ok) {
         // guarded: a manager cancel meanwhile wins; sent_at / sent_printer_id name this send (suspect marking, PRINTED)
-        o.db
+        const changed = o.db
           .prepare(
             `UPDATE print_jobs SET acked_at = ?, sent_at = ?, sent_printer_id = ?, last_error = NULL
              WHERE job_id = ? AND acked_at IS NULL AND cancelled_at IS NULL`,
           )
-          .run(at, sentAt, sent.printer_id, sent.job_id);
+          .run(at, sentAt, sent.printer_id, sent.job_id).changes;
         o.db
           .prepare(
             `INSERT INTO printer_runtime (printer_id, last_ack_at) VALUES (?, ?)
              ON CONFLICT (printer_id) DO UPDATE SET last_ack_at = excluded.last_ack_at, last_error = NULL`,
           )
           .run(sent.printer_id, at);
-        logInfo({ job_id: sent.job_id, printer_id: sent.printer_id }, 'print.acked');
-        hook('acked', () => o.hooks?.acked?.(sent, at));
+        // the acked hooks (status close, printed_lines) only for a row this ack really acked: a manager cancel during
+        // the send keeps the job cancelled and emits nothing (integrator ruling on #69, approved edit of c14's file)
+        if (changed === 1) {
+          logInfo({ job_id: sent.job_id, printer_id: sent.printer_id }, 'print.acked');
+          hook('acked', () => o.hooks?.acked?.(sent, at));
+        } else {
+          logInfo({ job_id: sent.job_id, printer_id: sent.printer_id }, 'print.ack_ignored');
+        }
       } else {
         const error = result.detail === null ? result.error : `${result.error}:${result.detail}`;
         const attempts = o.db
