@@ -256,19 +256,27 @@ describe('[04 §3.2 rule 4, V1] past stage 1 (plan half)', () => {
     expect(strictRefold(hub)).toEqual(state());
   });
 
-  it('[04 Q-1 (a)] an order the engine dropped from state: every non-deal line counts as started (chosen disposition), the deal is the only header, moved refused not_movable_stage', async () => {
+  // Reading (u10, 04 v1.0.3 Q-14): was v3's "[04 Q-1 (a)] every non-deal line counts as started"; engine line is now
+  // read from order_lines.station_id (§3.1), so the synthetic station-less lines GO_L / GO_H change result.
+  it('[04 #4g, Q-14] an order the engine dropped from state: a real station line → started (chosen disposition), moved refused not_movable_stage; a synthetic station-less line → non-engine, not started by served_at (null); a station-less item over an engine option child → header; a served station-less line → started; a deal header is never an engine line', async () => {
     hub = await startVoids();
     const { order_id } = appendOrder(hub, {
       order_type: 'takeaway',
       placed_by: STAFF.orderTaker,
       lines: [
         { order_item_id: 'GO_K', item_id: FX.piece },
-        { order_item_id: 'GO_D', deal_id: FX.deal, quantity: 1 },
+        // synthetic station on the deal header (the fold copies it): only §3.1's "not a deal" keeps it a non-engine line
+        { order_item_id: 'GO_D', deal_id: FX.deal, quantity: 1, item: { station_id: FX.station } },
         { order_item_id: 'GO_P1', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'GO_D' },
         { order_item_id: 'GO_P2', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'GO_D' },
+        { order_item_id: 'GO_L', item_id: FX.naan, item: { station_id: null } }, // synthetic (Q-13), unserved
+        { order_item_id: 'GO_S', item_id: FX.naan, item: { station_id: null } }, // synthetic (Q-13), served below
+        { order_item_id: 'GO_H', item_id: FX.piece, item: { station_id: null } }, // synthetic station-less item …
+        { order_item_id: 'GO_HR', option_id: FX.option, parent_order_item_id: 'GO_H' }, // … over an engine option child
       ],
     });
-    toStage(hub, order_id, ['GO_K', 'GO_P1'], 'cooking');
+    toStage(hub, order_id, ['GO_K', 'GO_P1', 'GO_HR'], 'cooking');
+    serveLines(hub, order_id, ['GO_S']);
     fireLines(hub, FX.station, ['GO_P2']); // no unfired line: the clock can abandon the order
     hub.clock.advance(5 * 3_600_000);
     appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: [] }); // the next fold drops the exited order
@@ -279,10 +287,23 @@ describe('[04 §3.2 rule 4, V1] past stage 1 (plan half)', () => {
       entries: [
         { order_item_id: 'GO_K', disposition: 'staff_meal' },
         { order_item_id: 'GO_D', disposition: 'wastage' },
+        { order_item_id: 'GO_L', disposition: 'staff_meal' },
+        { order_item_id: 'GO_H', disposition: 'wastage' },
+        { order_item_id: 'GO_S', disposition: 'staff_meal' },
       ],
     });
-    expect(x.planned.map((e) => e.header_ids)).toEqual([[], ['GO_D']]);
-    expect(x.planned.map((e) => e.line_dispositions)).toEqual([{ GO_K: 'staff_meal' }, { GO_D: null, GO_P1: 'wastage', GO_P2: 'wastage' }]);
+    expect(hub.deps.db.prepare("SELECT station_id FROM order_lines WHERE order_item_id = 'GO_D'").pluck().get()).toBe(FX.station);
+    // v3 proxy gave [[], ['GO_D'], [], []] and GO_L 'staff_meal', GO_H 'wastage' (both counted started station lines)
+    expect(x.planned.map((e) => e.header_ids)).toEqual([[], ['GO_D'], [], ['GO_H'], []]);
+    // the deal header with a station is still not an engine line: not started by its own served_at (null), not "absent → started"
+    expect(x.planned[1]!.states.GO_D).toBe('not_started');
+    expect(x.planned.map((e) => e.line_dispositions)).toEqual([
+      { GO_K: 'staff_meal' },
+      { GO_D: null, GO_P1: 'wastage', GO_P2: 'wastage' },
+      { GO_L: null },
+      { GO_H: null, GO_HR: 'wastage' },
+      { GO_S: 'staff_meal' }, // station-less and served → started by served_at
+    ]);
   });
 
   it('[04 V2, review #130] a comped unit is voided last: comp 1 of 2, void both → the uncomped unit to refund_minor, the comped one to comp_voided_minor', async () => {
