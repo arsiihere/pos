@@ -6,7 +6,10 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { connectWs, type WsClient } from '../helpers/ws-client';
-import { FX, appendOrder, append as kdsAppend, fireLines, openDay, pairDevice, pairKds } from '../kds/fixtures';
+import type { EngineState } from '@pos/engine';
+import { readOnlyDb } from '../../src/engine-host/read-only-tx';
+import { kdsPresenceTick, takeoverStations } from '../../src/kds/presence';
+import { FX, appendOrder, append as kdsAppend, fireLines, openDay, pairDevice, pairKds, pairPassTablet } from '../kds/fixtures';
 
 // ⚠️ 03c v1.0.6 §3.2 (Q-18) and §3.8 (Q-20), 03b v1.0.6 §3.10 (owner 2026-11-12; task P0.22):
 // - a config apply that archives a station, or removes it from the snapshot, appends StationOutputSet { mode: 'screen',
@@ -207,5 +210,70 @@ describe('[03c v1.0.6 §3.8, 03b v1.0.6 §3.10, Q-20] station_notice { kind: out
     saved(false);
     await settle();
     expect(notices(s1).map((m) => (m as { has_printer: boolean }).has_printer)).toEqual([false, true]);
+  });
+});
+
+describe('[03c v1.0.7 §3.8, 03b v1.0.7 §3.10, Q-P22b] the output notice also reaches the Pass tablets holding the station\'s takeover (P0.23)', () => {
+  // S1 and S2 are on P1 (fixtureMenu). S1 gets a kds screen that never connects and a line in Now, so the presence tick
+  // starts its takeover at P1. A Pass tablet on P2 never holds it.
+  async function passSocket(point_id: string): Promise<WsClient> {
+    const tablet = pairPassTablet(hub, { pointId: point_id });
+    const session = openSession(hub, { kind: 'staff', staffId: 'S_MGR', deviceId: tablet.deviceId });
+    const ws = await connectWs(hub.app);
+    sockets.push(ws);
+    ws.send({ type: 'auth', device_token: tablet.token, session_token: session.token });
+    await ws.untilCount(1);
+    return ws;
+  }
+  function takeOver(station_id: string): void {
+    pairKds(hub, { stationId: station_id });
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'T1', item_id: FX.piece, quantity: 1 }] });
+    fireLines(hub, station_id, ['T1']);
+    const t0 = hub.clock.branchNow();
+    const engine = () => hub.deps.state.get() as EngineState;
+    kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0);
+    expect(kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0 + 30_000)).toBe(true);
+    hub.deps.writer.run((tx) => tx.append(kdsPresenceTick.intents(tx, tx.state as EngineState, t0 + 30_000)));
+    expect([...takeoverStations(hub.deps.db)]).toEqual([[station_id, 'P1']]);
+  }
+  const outputNotices = (ws: WsClient) => notices(ws).filter((m) => m.kind === 'output');
+
+  it('[03c §3.8 Q-P22b] an output change of the dark station reaches the P1 Pass holding its takeover, not the P2 Pass; a P1 station not under takeover reaches no Pass', async () => {
+    await printer('PR1');
+    const p1 = await passSocket('P1');
+    const p2 = await passSocket('P2');
+    takeOver(FX.station);
+    await output(FX.station, 'both', 'PR1');
+    await output(FX.zoneStation, 'printer', 'PR1'); // S2 is on P1 but not under takeover
+    await output(FX.station, 'screen', null);
+    await settle();
+    expect(outputNotices(p1)).toEqual([
+      { type: 'station_notice', station_id: FX.station, kind: 'output', has_printer: true },
+      { type: 'station_notice', station_id: FX.station, kind: 'output', has_printer: false },
+    ]);
+    expect(outputNotices(p2)).toEqual([]);
+  });
+
+  it('[03c §3.8 Q-P22b] before the takeover the point\'s Pass gets no output notice (only the station\'s own sockets do); the takeover adds no statement to the command', async () => {
+    await printer('PR1');
+    const p1 = await passSocket('P1');
+    const s2 = await stationSocket(FX.zoneStation);
+    const counter = statementCounter(hub.deps.db);
+    await output(FX.station, 'both', 'PR1');
+    counter.reset();
+    await output(FX.station, 'screen', null);
+    const before = counter.count;
+    await settle();
+    expect(outputNotices(p1)).toEqual([]);
+    expect(outputNotices(s2)).toEqual([]);
+
+    takeOver(FX.station);
+    await output(FX.station, 'both', 'PR1');
+    counter.reset();
+    await output(FX.station, 'screen', null);
+    expect(counter.count, 'same statements with and without a takeover (audience is memory: takeoverStations, devicePoint)').toBe(before);
+    await settle();
+    expect(outputNotices(p1).map((m) => (m as { has_printer: boolean }).has_printer)).toEqual([true, false]);
+    expect(outputNotices(s2)).toEqual([]);
   });
 });
