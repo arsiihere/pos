@@ -31,7 +31,7 @@ Acceptance map below, made on `module-03b` @ `14f9b6d` (all 03b + 03c hub tasks 
 | G2 | 03b acceptance **E3-KDS AC5** "client sound test" | client | BU1 |
 | G3 | Client halves of **E3-KDS AC1–AC4, AC6–AC8, AC10** (what the screen shows) | hub halves are proven (map below); the screens are client | BU1–BU3 |
 | G4 | 03c §8 client (Printers admin page, `printed` tag, Reprint action; 03c tasks 23–27) | not built | CU1–CU2 |
-| G5 | **E3-PRT edge** "Done on screen after the ticket **already printed** → a strikethrough reprint" | not in 03c (§1.1 covers only the unsent half: an empty render is cancelled, #6); no test | owner: spec row or drop the story line |
+| G5 | **E3-PRT edge** "Done on screen after the ticket **already printed** → a strikethrough reprint" | not in 03c (§1.1 covers only the unsent half: an empty render is cancelled, #6); no test | **owner 2026-11-12: deferred to after the pilot** (KDS/Pass show printed + Done; add a strikethrough reprint later if the kitchen needs it) |
 | G6 | **E3-KDS edge** "multiple cooks at one station → each tap logged under the logged-in cook" | superseded: station sessions write `actor_id = null` + the KDS `device_id` (00 M30, README carried row :171); proven the other way by 03b #1 | none (spec wins); story wording could follow |
 | G7 | Manual checks 03b #41, 03c #28 | hardware; never in the cloud | owner, after merge: `03b-manual-checks.md`, `03c-manual-checks.md` |
 | G8 | DoD line "README 03b / 03c row → Implemented" | the module rows stay as they are until the client lanes land (G1, G4); only the carried rows are closed (Z1) | after BU / CU |
@@ -130,17 +130,17 @@ Acceptance map below, made on `module-03b` @ `14f9b6d` (all 03b + 03c hub tasks 
 
 | # | Task | Reading | State |
 |---|---|---|---|
-| AD-1 | P0.1 | The new scratch-db tests sit in `apps/cloud/test/helpers/scratch-db.int.test.ts` (the helper's own test file, not in the row). | final: **proposed, never ruled** — built as read (P0.1 #3); listed for the owner in the PR to main |
-| AD-2 | P0.1 | G-12 "log, ignore 57P01": every scratch / admin pool error is logged by code only and never rethrown. | final: **proposed, never ruled** — built as read (P0.1 #3); listed for the owner |
+| AD-1 | P0.1 | The new scratch-db tests sit in `apps/cloud/test/helpers/scratch-db.int.test.ts` (the helper's own test file, not in the row). | final: **accepted (owner 2026-11-12)** — built as read (P0.1 #3); listed for the owner in the PR to main |
+| AD-2 | P0.1 | G-12 "log, ignore 57P01": every scratch / admin pool error is logged by code only and never rethrown. | final: **accepted (owner 2026-11-12)** — built as read (P0.1 #3); listed for the owner |
 | AD-3 | P0.2 | Tests that pin AlertRaised's latest version / the fixture count follow the row (G-9 class): `packages/events/src/alerts.test.ts`, `fixtures.test.ts` (38 → 39), `apps/hub/test/engine/kinds.int.test.ts:339` (2 → 3). | accepted (owner 2026-11-11) |
-| AD-4 | P0.2 | The four new detail fields are `max(40)` only, no `min(1)`. | final: **proposed, never ruled** — built as read (P0.2 #4); listed for the owner |
+| AD-4 | P0.2 | The four new detail fields are `max(40)` only, no `min(1)`. | final: **accepted (owner 2026-11-12)** — built as read (P0.2 #4); listed for the owner |
 | AD-5 | P0.2 | `alerts/raise.ts` keeps its `AlertRaisedPayloadV2` type (plan: no hub change). | **rejected → retyped** (owner 2026-11-11): `raise.ts`, `projections/alerts.ts` use `AlertRaisedPayloadV3` (P0.F, no behaviour change) |
 | AD-7 | P0.4 | **STOP (ruled):** B-2 puts three keys on `BranchEngineSettings`, which the owner page `KitchenTiming.tsx` types from; (a) add the three boxes, (b) wire keys now + exclude them in the client type (rec), (c) wait. | **ruled (a)** (owner 2026-11-11): built fully in P0.15 |
 | AD-8 | P0.4 | Tests pinning engine_settings exactly follow A-1 (G-9 class): `config.test.ts`, cloud `builder*.int.test.ts`, `zones-migration.int.test.ts` (180 000 after the whole folder). | accepted (owner 2026-11-11) |
 | AD-9 | P0.4 | `HUB_ENGINE_SETTING_DEFAULTS` in `@pos/events` `config.ts`; 0012 bumps no `config_version` (0007 / 0009 precedent). | **changed** (owner 2026-11-11): 0012 bumps `config_version` for every branch with a settings row (P0.F); `HUB_ENGINE_SETTING_DEFAULTS` in `@pos/events` accepted |
 | AD-10 | P0.5 | `ConnectedSession` fakes in 01d tests gain `stationId` (required field). | accepted (owner 2026-11-11) |
-| AD-11 | P0.7 | `Doc` block value types: `size 1 \| 2`, `align left \| center \| right`, `{ rule / cut / drawer: true }`, `{ feed: number }`; union exported as `DocBlock`. | final: **proposed, never ruled** — built as read (P0.7 #9); listed for the owner |
-| AD-12 | P0.8 | Event value rules taken from the cited sections (Handover 1–40, sound 0–100, lane_label 1–20, printer name 1–40, paper 58 \| 80); `KdsStationBody.lanes.lanes_on` nullable (custom). | final: **proposed, never ruled** — built as read (P0.8 #10); listed for the owner |
+| AD-11 | P0.7 | `Doc` block value types: `size 1 \| 2`, `align left \| center \| right`, `{ rule / cut / drawer: true }`, `{ feed: number }`; union exported as `DocBlock`. | final: **accepted (owner 2026-11-12)** — built as read (P0.7 #9); listed for the owner |
+| AD-12 | P0.8 | Event value rules taken from the cited sections (Handover 1–40, sound 0–100, lane_label 1–20, printer name 1–40, paper 58 \| 80); `KdsStationBody.lanes.lanes_on` nullable (custom). | final: **accepted (owner 2026-11-12)** — built as read (P0.8 #10); listed for the owner |
 | AD-13 | P0.9 | `alerts-migration.int.test.ts` pins the migration list; now 0001–0015. | accepted (owner 2026-11-11) |
 | AD-14 | P0.11 | Contracts filled by `provideKds` / `providePrint` from the lane file; `undoReadyForLines` a no-op until b9b (b9a calls it first); slots hold data (`{ key, label }`, `{ key, label, run }`); hook homes `print/boot.ts` (c16), `print/retention.ts` (c22). | accepted, comment fixed (P0.F): B4 runs b13 → b14 → b15 → b9b, so until b9b an UndoDone does not undo Ready (plan rows b14 / b9b) |
 | AD-15 | P0.13 | 02b's bump is **v1.0.6** (the specs named v1.0.4; 02b took v1.0.4 and v1.0.5 itself). | accepted (owner 2026-11-11); wording fixed in 03b / 03c **v1.0.2** (P0.F, no behaviour change) |
