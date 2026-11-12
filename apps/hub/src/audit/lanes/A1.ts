@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { auditProjection } from '../projection.js';
 
 // 04 lane A1: this lane's wiring lines go here and only here (phase 0 P0.7). Only lane A1 edits this file.
 // register(): queries — called once per server by registerAudit.
@@ -12,7 +13,6 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
-  // §6.6, §3.6: phase 0 stand-in for projection `audit` (no event types, no reset, folds nothing); a2 replaces this
-  // line with its fold (audit/projection.ts).
-  projections.register({ name: 'audit', eventTypes: [], apply: () => undefined });
+  // §6.6, §3.6, §5: projection `audit` (events only, with reset).
+  projections.register(auditProjection());
 }

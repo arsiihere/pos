@@ -546,13 +546,16 @@ const BUILT_IN: Record<string, AuditMap> = {
 const NEVER_MAPPED: readonly string[] = ['OrderContactSet'];
 
 const registered = new Map<string, AuditMap>();
+let sealed = false;
 
 /**
  * 04 §4.2: a later module adds a mapped action (startup only, before the hub registers its projections). A
- * duplicate event type — registered twice or already mapped by 04 — is a startup error. A new mapping of an event
- * type with history ships with the checkpoint-delete migration (04 §3.6).
+ * duplicate event type — registered twice or already mapped by 04 — is a startup error, and so is a registration
+ * after `sealAuditActions()` (the projection has copied its event types; a late mapping would never be folded). A new
+ * mapping of an event type with history ships with the checkpoint-delete migration (04 §3.6).
  */
 export function registerAuditAction(event_type: string, map: AuditMap): void {
+  if (sealed) throw new Error(`audit: ${event_type} registered after the audit projection was built (startup only)`);
   if (NEVER_MAPPED.includes(event_type)) throw new Error(`audit: ${event_type} is never mapped (04 §3.6)`);
   if (event_type in BUILT_IN || registered.has(event_type)) {
     throw new Error(`audit: event type ${event_type} is already mapped`);
@@ -560,9 +563,15 @@ export function registerAuditAction(event_type: string, map: AuditMap): void {
   registered.set(event_type, map);
 }
 
-/** Tests only: drops every registered action (merge-guard precedent, `resetMergeGuard`). */
+/** Called when the `audit` projection takes its event types: from then on `registerAuditAction` throws. */
+export function sealAuditActions(): void {
+  sealed = true;
+}
+
+/** Tests only: drops every registered action and unseals (merge-guard precedent, `resetMergeGuard`). */
 export function resetAuditActions(): void {
   registered.clear();
+  sealed = false;
 }
 
 /** Every mapped event type (04's and registered ones): the `audit` projection's mapped event types. */
