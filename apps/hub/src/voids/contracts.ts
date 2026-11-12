@@ -25,14 +25,14 @@ export interface PendingVoid {
   blocked: 'not_movable_stage' | null;
 }
 
-/** 02b v1.0.10 §3.4 (row Q-3) line guard shape; registered by v8 once u3's `registerLineGuard` exists. */
+/** 02b v1.0.10 §3.4 (row Q-3) line guard shape; registered at boot by lanes/V2.ts (v8) through `registerLineGuard`. */
 export type VoidLineGuard = (
   db: Database.Database,
   order_id: string,
   touched_ids: readonly string[],
 ) => { alert_id: string; order_item_id: string } | null;
 
-/** 01a v2.5 §6.18b (row A-1) day-close guard shape; registered by v8 once u8's `registerDayCloseGuard` exists. */
+/** 01a v2.5 §6.18b (row A-1) day-close guard shape; registered at boot by lanes/V2.ts (v8) through `registerDayCloseGuard`. */
 export type VoidDayCloseGuard = (
   db: Database.Database,
   state: EngineState,
@@ -69,19 +69,19 @@ export function pendingVoids(db: Database.Database, order_ids: readonly string[]
   return fn(db, order_ids, state);
 }
 
-/** §6.6: registered by registerVoids (voids/index.ts); never blocks until v8 provides it (0 statements). */
+/** §6.6: registered by registerVoids (voids/index.ts); delegates to the guard lanes/V2.ts provides (voids/guards.ts, 1 statement). */
 export const voidMergeGuard: MergeGuard = (db, q) => {
   const fn = built.mergeGuard;
   return fn === undefined ? { blocked: false, order_item_ids: [] } : fn(db, q);
 };
 
-/** Row Q-3: never blocks until v8 provides it (0 statements). */
+/** Row Q-3: registered by lanes/V2.ts; delegates to the provided guard (voids/guards.ts, 1 statement). */
 export const voidLineGuard: VoidLineGuard = (db, order_id, touched_ids) => {
   const fn = built.lineGuard;
   return fn === undefined ? null : fn(db, order_id, touched_ids);
 };
 
-/** Row A-1: never blocks until v8 provides it (0 statements). */
+/** Row A-1: registered by lanes/V2.ts; delegates to the provided guard (voids/guards.ts, 1 statement). */
 export const voidDayCloseGuard: VoidDayCloseGuard = (db, state) => {
   const fn = built.dayCloseGuard;
   return fn === undefined ? null : fn(db, state);

@@ -1,7 +1,10 @@
 import type { EngineState } from '@pos/engine';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { APPROVAL_TIER_STEPS, kindOf, type AlertApplyCtx, type AnswerFacts } from '../../src/alerts/kinds';
+import { checkDayCloseGuard } from '../../src/commands/close-business-day';
+import { checkLineGuard } from '../../src/orders/line-guard';
 import { checkMergeGuard } from '../../src/tables/merge-guard';
+import { mergeGuard as realMergeGuard } from '../../src/voids/guards';
 import {
   pendingVoids,
   provideVoids,
@@ -15,8 +18,8 @@ import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, type TestHub } from '../helpers/test-hub';
 
 // 04 phase 0 P0.7 (04 §4.2, §3.5, §6.6): the module skeleton. Kind `void_approval` exists from module load with every
-// §3.5 setting; the §4.2 exports throw "not built" until their task; the guards are no-ops until v8, so registering
-// them changes no behaviour (02a's merge / split tests run with the guard registered).
+// §3.5 setting. The §4.2 exports threw "not built" and the guards were no-ops from P0.7 until v8; v8 restates the
+// second describe: they are built, and registerVoids registers all three guards at boot.
 
 const VALUES = {
   order_id: 'O1',
@@ -84,33 +87,37 @@ describe('[04 §3.5, §6.6] kind void_approval (definition and wiring)', () => {
   });
 });
 
-describe('[04 §4.2, §6.6] contracts and guards before their tasks', () => {
+describe('[04 §4.2, §6.6] contracts and guards (built by v8)', () => {
   let hub: TestHub;
   beforeEach(async () => {
     hub = await createTestHub({ provisioned: true });
   });
   afterEach(async () => {
-    provideVoids({ mergeGuard: undefined });
+    provideVoids({ mergeGuard: realMergeGuard });
     await hub.close();
   });
 
-  it('[04 §4.2] pendingVoids throws "not built" until v8', () => {
-    expect(() => pendingVoids(hub.deps.db, ['O1'])).toThrow(/not built \(task v8\)/);
-    expect(() => pendingVoids(hub.deps.db, ['O1'], {} as EngineState)).toThrow(/not built \(task v8\)/);
+  it('[04 §4.2] pendingVoids is built (v8): no open request → an empty map, 1 statement', () => {
+    const counter = statementCounter(hub.deps.db);
+    expect(pendingVoids(hub.deps.db, ['O1']).size).toBe(0);
+    expect(pendingVoids(hub.deps.db, ['O1'], {} as EngineState).size).toBe(0);
+    expect(counter.count).toBe(2);
   });
 
-  it('[04 §6.6] the guards are no-ops until v8: never blocked, 0 statements', () => {
+  it('[04 §6.6] the guards are real (v8): with no open request never blocked, 1 statement each', () => {
     const counter = statementCounter(hub.deps.db);
     expect(voidMergeGuard(hub.deps.db, { seating_ids: ['S1'], order_ids: ['O1'] })).toEqual({ blocked: false, order_item_ids: [] });
     expect(voidLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
     expect(voidDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
-    expect(counter.count).toBe(0);
+    expect(counter.count).toBe(3);
   });
 
-  it('[04 §6.6] registerVoids registers the merge guard: the no-op leaves merges unblocked, a provided guard is asked', () => {
+  it('[04 §6.6] registerVoids registers the merge, line and day-close guards: each is asked through its 02a / 02b / 01a check', () => {
     const counter = statementCounter(hub.deps.db);
     expect(checkMergeGuard(hub.deps.db, { seating_ids: ['S1', 'S2'] })).toEqual({ blocked: false, order_item_ids: [] });
-    expect(counter.count).toBe(0);
+    expect(checkLineGuard(hub.deps.db, 'O1', ['L1'])).toBeNull();
+    expect(checkDayCloseGuard(hub.deps.db, {} as EngineState)).toBeNull();
+    expect(counter.count).toBe(3);
     const calls: unknown[] = [];
     provideVoids({
       mergeGuard: (_db, q) => {
