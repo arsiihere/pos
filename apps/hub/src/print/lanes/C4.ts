@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerPrintCatchUp } from '../../ws/print-catch-up.js';
 import { printDocument } from '../api.js';
 import { providePrint } from '../contracts.js';
 
@@ -9,9 +10,8 @@ import { providePrint } from '../contracts.js';
 // registerProjections(): this lane's projections, in the order print/index.ts calls the lanes (after 03b's).
 
 export function register(app: FastifyInstance, deps: HubDeps): void {
-  void app;
-  void deps;
   providePrint({ printDocument }); // c18, §3.9 / §4.2
+  registerPrintCatchUp(app, deps); // c21, §3.8 / §6.9: kds_printed part + printed_lines frame host
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
