@@ -99,7 +99,12 @@ describe('[02b §4.2] contracts', () => {
       }) => { next_share_minor(n: number): number; comped_take_back_minor(n: number): number }
     >();
     expectTypeOf<LineChangeDrafts>().toEqualTypeOf<
-      (ctx: CommandCtx, order_id: string, changes: { order_item_id: string; units_out: number }[]) => EventDraft[]
+      (
+        ctx: CommandCtx,
+        order_id: string,
+        changes: { order_item_id: string; units_out: number }[],
+        opts?: { stale_comps: 'close' | 'keep' },
+      ) => EventDraft[]
     >();
     // AD-10: envelope-less drafts (no occurred_at / actor_id / device_id); the caller adds the envelope.
     expectTypeOf<FoodDrafts>().toEqualTypeOf<
