@@ -1,6 +1,6 @@
 // 04 §3.5 / §6.1 step 7 (task v6), §10 tests 20, 20b, 28, 29, 29b: VoidItems with grant `requires_approval` (the
 // Cashier of voidsDirectory) raises one `void_approval` request per entry through 01d's real raiseMany.
-import type { EngineState } from '@pos/engine';
+import { isOrderInEngine, type EngineState } from '@pos/engine';
 import { afterEach, describe, expect, it } from 'vitest';
 import { alerts } from '../../src/alerts/raise';
 import type { CommandCtx } from '../../src/commands/registry';
@@ -13,6 +13,9 @@ import { voidItemsCommand } from '../../src/voids/commands/void-items';
 import { statementCounter } from '../helpers/statement-counter';
 import type { TestHub } from '../helpers/test-hub';
 import {
+  appendOrder,
+  fireLines,
+  FX,
   dealX2,
   longLabelSeating,
   mergedSeating,
@@ -113,7 +116,7 @@ describe('[04 §3.5, §6.1 step 7] the raise path', () => {
     const w = raisedOf(await voidItems(cashier, d.order_id, [{ order_item_id: d.deal, units: 1, disposition: 'wastage' }]))[0]!;
     expect(w.details).toMatchObject({ item: 'Karahi combo', quantity: 1, disposition: 'void.disposition.wastage' });
     expect(w.details.lines).toEqual([
-      { name: 'Karahi combo', quantity: 1, state: 'not_started' },
+      { name: 'Karahi combo', quantity: 1, state: 'cooking' }, // Q-16: the header shows its most advanced part
       { name: 'Chicken Karahi', quantity: 1, state: 'cooking' },
       { name: 'Naan', quantity: 2, state: 'not_started' },
     ]);
@@ -270,5 +273,72 @@ describe('[04 §3.5, §6.1 step 7] the raise path', () => {
     const n3 = await counted(three.order_id, [three.cooking, three.done, three.served]);
     expect(n3).toBe(n1);
     expect(n1).toBeGreaterThan(3);
+  });
+
+});
+
+describe('[04 #20d] Q-16: a deal header line shows its most advanced part state (served > cooked > cooking > not_started)', () => {
+  /** A takeaway deal ×1: header, karahi part (1), naan part (2). */
+  const dealX1 = (p: string) =>
+    appendOrder(hub, {
+      order_type: 'takeaway',
+      placed_by: STAFF.orderTaker,
+      lines: [
+        { order_item_id: p, deal_id: FX.deal, quantity: 1 },
+        { order_item_id: `${p}_P1`, deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: p },
+        { order_item_id: `${p}_P2`, deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: p },
+      ],
+    }).order_id;
+  const linesOf = async (who: Who, order_id: string, p: string) => {
+    const r = await voidItems(who, order_id, [{ order_item_id: p, disposition: 'wastage' }]);
+    expect(r.status, JSON.stringify(r.error)).toBe(200);
+    return raisedOf(r)[0]!.details.lines;
+  };
+
+  it('[04 #20d] one part cooking, one not started → header cooking; the parts keep their own states', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const o = dealX1('QA');
+    toStage(hub, o, ['QA_P1'], 'cooking');
+    expect(await linesOf(cashier, o, 'QA')).toEqual([
+      { name: 'Karahi combo', quantity: 1, state: 'cooking' },
+      { name: 'Chicken Karahi', quantity: 1, state: 'cooking' },
+      { name: 'Naan', quantity: 2, state: 'not_started' },
+    ]);
+  });
+
+  it('[04 #20d] one part served, one cooked → header served; the parts keep their own states', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const o = dealX1('QB');
+    toStage(hub, o, ['QB_P1'], 'done');
+    toStage(hub, o, ['QB_P2'], 'served');
+    expect(await linesOf(cashier, o, 'QB')).toEqual([
+      { name: 'Karahi combo', quantity: 1, state: 'served' },
+      { name: 'Chicken Karahi', quantity: 1, state: 'cooked' },
+      { name: 'Naan', quantity: 2, state: 'served' },
+    ]);
+  });
+
+  it('[04 #20d] all parts at added (an abandoned order, V1 (b): voidable, parts not started) → header not_started', async () => {
+    hub = await startVoids();
+    const o = dealX1('QC');
+    fireLines(hub, FX.station, ['QC_P1', 'QC_P2']); // no unfired line: the clock can abandon the order (02b #22)
+    hub.clock.advance(5 * 3_600_000);
+    expect(isOrderInEngine(state(), o, hub.clock.branchNow())).toBe(false);
+    const cashier = signIn(hub, STAFF.cashier); // after the jump: a session from before it has expired
+    expect(await linesOf(cashier, o, 'QC')).toEqual([
+      { name: 'Karahi combo', quantity: 1, state: 'not_started' },
+      { name: 'Chicken Karahi', quantity: 1, state: 'not_started' },
+      { name: 'Naan', quantity: 2, state: 'not_started' },
+    ]);
+  });
+
+  it('[04 #20d] a line that is not a deal header is unchanged: a lone cooking karahi shows cooking, a served naan served', async () => {
+    hub = await startVoids();
+    const cashier = signIn(hub, STAFF.cashier);
+    const s = stagedOrder(hub);
+    expect(await linesOf(cashier, s.order_id, s.cooking)).toEqual([{ name: 'Chicken Karahi', quantity: 1, state: 'cooking' }]);
+    expect(await linesOf(cashier, s.order_id, s.served)).toEqual([{ name: 'Naan', quantity: 1, state: 'served' }]);
   });
 });
