@@ -12,6 +12,7 @@ import {
 import {
   AlertDetailsBase,
   AlertDetailsBaseV2,
+  AlertDetailsBaseV3,
   AlertLockSchema,
   AlertStepTargetSchema,
   AlertTargetSchema,
@@ -60,8 +61,8 @@ describe('01d alert events', () => {
       const parsed = parseEvent(fixture(type));
       expect(parsed.event_type, type).toBe(type);
       expect(parsed.stream_type, type).toBe(stream);
-      // 01d v1.1.2 D-2, v1.2.2 D-2 (03b): AlertRaised's latest is v3 (its v1 fixture upcasts); every other alert event is v1.
-      expect(parsed.schema_version, type).toBe(type === 'AlertRaised' ? 3 : 1);
+      // 01d v1.1.2 D-2, v1.2.2 D-2 (03b), v1.2.5 D-3 (04): AlertRaised's latest is v4 (its v1 fixture upcasts); every other alert event is v1.
+      expect(parsed.schema_version, type).toBe(type === 'AlertRaised' ? 4 : 1);
     }
   });
 
@@ -89,7 +90,7 @@ describe('01d alert events', () => {
     expect(v1.details).toEqual({});
     const stored = fixture('AlertRaised');
     const upcast = parseEvent(stored);
-    expect(upcast.schema_version).toBe(3);
+    expect(upcast.schema_version).toBe(4); // 04 D-3: latest is v4
     expect(upcast.payload).toEqual(stored.payload);
     const withDetails = parseEvent({ ...stored, payload: { ...stored.payload, details: { item: 'Mutton platter', quantity: 1 } } });
     expect(withDetails.payload.details).toEqual({ item: 'Mutton platter', quantity: 1 });
@@ -493,13 +494,61 @@ describe('[03b §4.5 D-2] AlertDetailsBase widened, AlertRaised v3', () => {
     expect(v3.details).toEqual(four);
   });
 
-  it('[03b §4.5 D-2] the upcaster v2 -> v3 is the identity; the v3 fixture is the latest', () => {
+  it('[03b §4.5 D-2] the upcaster v2 -> v3 is the identity (04 D-3: the chain now ends at v4)', () => {
     const stored = fixtureAt('AlertRaised', 2);
     const upcast = parseEvent(stored);
-    expect(upcast.schema_version).toBe(3);
+    expect(upcast.schema_version).toBe(4);
     expect(upcast.payload).toEqual(stored.payload);
     const v3 = parseEvent(fixtureAt('AlertRaised', 3));
-    expect(v3.schema_version).toBe(3);
+    expect(v3.schema_version).toBe(4);
     expect(v3.payload).toEqual(fixtureAt('AlertRaised', 3).payload);
+  });
+});
+
+// 04 §4.5 D-3 (01d v1.2.5 §3.12, §4.2): today's base frozen as V3; the live base adds `disposition` (≤ 60);
+// AlertRaised v4 over it with an identity upcaster v3 → v4 (F D46: a shipped version's shape never changes).
+describe('[04 §4.5 D-3] AlertDetailsBase + disposition, AlertRaised v4', () => {
+  const disposition = 'void.disposition.moved_partly';
+
+  it('[04 §4.5 D-3] AlertDetailsBase takes an optional disposition string of at most 60 chars', () => {
+    expect(AlertDetailsBase.parse({ disposition })).toEqual({ disposition });
+    expect(AlertDetailsBase.safeParse({}).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({ disposition: 'x'.repeat(60) }).success).toBe(true);
+    expect(AlertDetailsBase.safeParse({ disposition: 'x'.repeat(61) }).success).toBe(false);
+    expect(AlertDetailsBase.safeParse({ disposition: 1 }).success).toBe(false);
+  });
+
+  it('[04 §4.5 D-3, F D46] AlertDetailsBaseV3 is frozen: it strips disposition and keeps the 03b fields', () => {
+    const v3 = { item: 'Karahi', identifier: '#12', station_name: 'Tandoor', printer_name: 'K1', problem: 'paper_out' };
+    expect(AlertDetailsBaseV3.parse({ ...v3, disposition })).toEqual(v3);
+    expect(Object.keys(AlertDetailsBaseV3.shape).sort()).toEqual(
+      ['amount', 'identifier', 'item', 'lines', 'minutes_late', 'printer_name', 'problem', 'quantity', 'reason', 'station_name'],
+    );
+    expect(Object.keys(AlertDetailsBase.shape).sort()).toEqual([...Object.keys(AlertDetailsBaseV3.shape), 'disposition'].sort());
+  });
+
+  it('[04 §4.5 D-3, F D46] a shipped v3 AlertRaised still parses to the V3 shape: disposition is stripped', () => {
+    const v3 = fixtureAt('AlertRaised', 3);
+    const parsed = payloadSchema('AlertRaised', 3).parse({ ...v3.payload, details: { identifier: '#12', disposition } }) as { details: unknown };
+    expect(parsed.details).toEqual({ identifier: '#12' });
+  });
+
+  it('[04 §4.5 D-3] AlertRaised v4 keeps disposition and the 03b fields; a too-long disposition is refused', () => {
+    const base = fixtureAt('AlertRaised', 3).payload;
+    const details = { item: 'Naan', quantity: 2, identifier: 'T4 + T5', disposition };
+    const v4 = payloadSchema('AlertRaised', 4).parse({ ...base, details }) as { details: unknown };
+    expect(v4.details).toEqual(details);
+    expect(payloadSchema('AlertRaised', 4).safeParse({ ...base, details: { disposition: 'x'.repeat(61) } }).success).toBe(false);
+  });
+
+  it('[04 §4.5 D-3] the upcaster v3 -> v4 is the identity; the v4 fixture is the latest', () => {
+    const stored = { ...fixtureAt('AlertRaised', 3) };
+    stored.payload = { ...stored.payload, details: { identifier: '#12', station_name: 'Tandoor' } };
+    const upcast = parseEvent(stored);
+    expect(upcast.schema_version).toBe(4);
+    expect(upcast.payload).toEqual(stored.payload);
+    const v4 = parseEvent(fixtureAt('AlertRaised', 4));
+    expect(v4.schema_version).toBe(4);
+    expect(v4.payload).toEqual(fixtureAt('AlertRaised', 4).payload);
   });
 });

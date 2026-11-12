@@ -1,3 +1,4 @@
+import { VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
 import { z } from 'zod';
 import { defineEvent } from '../../registry.js';
 
@@ -7,6 +8,14 @@ export const ItemVoidedPayload = z.object({
   units: z.number().int().min(1),
   refund_minor: z.number().int().optional(),
   comp_voided_minor: z.number().int().optional(),
+  // ⚠️ Changed by 04 (row T-1, 03a v1.2.4 §4.2): additive, no version bump (R29); declared so they are not stripped.
+  alert_id: z.string().nullable().optional(),
+  approver_staff_id: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  disposition_note: z.string().nullable().optional(),
+  requester_staff_id: z.string().optional(),
+  reason_code: z.enum(VOID_REASON_CODES).optional(),
+  disposition: z.enum(VOID_DISPOSITIONS).nullable().optional(),
 });
 export type ItemVoidedPayload = z.infer<typeof ItemVoidedPayload>;
 

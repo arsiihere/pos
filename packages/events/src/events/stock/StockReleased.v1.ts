@@ -8,6 +8,8 @@ export const StockReleasedPayload = z.object({
   order_item_id: z.string(),
   quantity: z.number().int().min(1),
   reason: z.enum(['removed', 'voided', 'moved', 'recount', 'day_closed', 'abandoned']),
+  // ⚠️ Changed by 04 (row T-1, 03a v1.2.4 §4.2): stamped by 04's writer inside an approval; never by stockEffects.
+  alert_id: z.string().optional(),
 });
 export type StockReleasedPayload = z.infer<typeof StockReleasedPayload>;
 

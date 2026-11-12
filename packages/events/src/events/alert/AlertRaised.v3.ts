@@ -1,12 +1,13 @@
 import { z } from 'zod';
-import { AlertDetailsBase } from '../../alerts.js';
+import { AlertDetailsBaseV3 } from '../../alerts.js';
 import { defineEvent } from '../../registry.js';
 import { AlertRaisedPayloadV2 } from './AlertRaised.v2.js';
 
 // 01d v1.2.2 D-2 (03b v1.0.1 §4.5, F D46): `details` over the widened AlertDetailsBase (+ identifier, station_name,
 // printer_name, problem). The upcaster v2 → v3 is the identity: a v2 payload has none of the new fields.
+// ⚠️ Changed by 04 (row D-3, 01d v1.2.5): over the frozen AlertDetailsBaseV3, so v3's shape never changes.
 export const AlertRaisedPayloadV3 = AlertRaisedPayloadV2.extend({
-  details: AlertDetailsBase.nullable(),
+  details: AlertDetailsBaseV3.nullable(),
 });
 export type AlertRaisedPayloadV3 = z.infer<typeof AlertRaisedPayloadV3>;
 

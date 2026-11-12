@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { VOID_DISPOSITIONS, VOID_REASON_CODES } from '@pos/domain';
 import '../../index';
 import { parseEvent } from '../../codecs';
 import { payloadSchema } from '../../registry';
@@ -460,9 +461,9 @@ describe('02b §6.19: OrderContactSet, OrdersBilled', () => {
 
   it('[02b §6.19] the five schemas 02a built match §6.19 exactly', () => {
     const exact: Record<string, string[]> = {
-      OrderCancelled: ['order_id'],
+      OrderCancelled: ['order_id', 'alert_id'], // 04 Q-1 (02b v1.0.10)
       OrderFoodServed: ['order_id'],
-      OrderFoodCleared: ['order_id', 'food_served'],
+      OrderFoodCleared: ['order_id', 'food_served', 'alert_id'], // 04 Q-1 (02b v1.0.10)
       LineWeightSet: ['order_item_id', 'quantity', 'line_total_minor'],
       LineComped: [
         'order_item_id',
@@ -478,6 +479,67 @@ describe('02b §6.19: OrderContactSet, OrdersBilled', () => {
     for (const [type, keys] of Object.entries(exact)) {
       const shape = (payloadSchema(type, 1) as unknown as { shape: Record<string, unknown> }).shape;
       expect(Object.keys(shape).sort(), type).toEqual([...keys].sort());
+    }
+  });
+});
+
+// 04 §4.5 T-1 (03a v1.2.4 §4.2, test 140) and Q-1 (02b v1.0.10 §6.19, test 41): additive optional fields, no
+// payload version bump (R29). Non-strict schemas must declare them or they are stripped.
+describe('[04 §4.5 T-1, Q-1] void fields on order-stream events (04 #49)', () => {
+  const bare = { order_item_id: 'L1', units: 1, refund_minor: 5_000, comp_voided_minor: 0 };
+  const full = {
+    ...bare,
+    alert_id: 'A1',
+    approver_staff_id: 'S_MGR',
+    note: 'cold',
+    disposition_note: 'to staff table',
+    requester_staff_id: 'S_ALI',
+    reason_code: 'quality',
+    disposition: 'staff_meal',
+  };
+  const nulls = { ...bare, alert_id: null, approver_staff_id: null, note: null, disposition_note: null, disposition: null };
+
+  it('[04 #49] ItemVoided parses with the new fields set, null and absent, and keeps them (not stripped)', () => {
+    const schema = payloadSchema('ItemVoided', 1);
+    expect(schema.parse(full)).toEqual(full);
+    expect(schema.parse(nulls)).toEqual(nulls);
+    expect(schema.parse(bare)).toEqual(bare);
+    expect(Object.keys(schema.parse(bare) as object).sort()).toEqual(Object.keys(bare).sort());
+  });
+
+  it('[04 #49] ItemVoided takes every VOID_REASON_CODES / VOID_DISPOSITIONS value and refuses others', () => {
+    const schema = payloadSchema('ItemVoided', 1);
+    for (const reason_code of VOID_REASON_CODES) expect(schema.safeParse({ ...bare, reason_code }).success, reason_code).toBe(true);
+    for (const disposition of VOID_DISPOSITIONS) expect(schema.safeParse({ ...bare, disposition }).success, disposition).toBe(true);
+    expect(schema.safeParse({ ...bare, reason_code: 'bored' }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, reason_code: null }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, disposition: 'resold' }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, disposition: 'moved_partly' }).success).toBe(false);
+    expect(schema.safeParse({ ...bare, requester_staff_id: null }).success).toBe(false);
+    for (const key of ['alert_id', 'approver_staff_id', 'note', 'disposition_note', 'requester_staff_id']) {
+      expect(schema.safeParse({ ...bare, [key]: 1 }).success, key).toBe(false);
+    }
+  });
+
+  it('[04 #49] ItemMovedToStock keeps alert_id and parses without it', () => {
+    const schema = payloadSchema('ItemMovedToStock', 1);
+    const moved = { order_item_id: 'L1', units: 2 };
+    expect(schema.parse({ ...moved, alert_id: 'A1' })).toEqual({ ...moved, alert_id: 'A1' });
+    expect(schema.parse(moved)).toEqual(moved);
+    expect(schema.safeParse({ ...moved, alert_id: null }).success).toBe(false);
+  });
+
+  it('[04 #49, 02b #41] OrderCancelled and OrderFoodCleared parse with and without alert_id; .strict() still refuses an unknown key', () => {
+    const cases: Record<string, Record<string, unknown>> = {
+      OrderCancelled: { order_id: 'O1' },
+      OrderFoodCleared: { order_id: 'O1', food_served: false },
+    };
+    for (const [type, payload] of Object.entries(cases)) {
+      const schema = payloadSchema(type, 1);
+      expect(schema.parse(payload), type).toEqual(payload);
+      expect(schema.parse({ ...payload, alert_id: 'A1' }), type).toEqual({ ...payload, alert_id: 'A1' });
+      expect(schema.safeParse({ ...payload, alert_id: null }).success, type).toBe(false);
+      expect(schema.safeParse({ ...payload, alert_id: 'A1', extra: 1 }).success, type).toBe(false);
     }
   });
 });

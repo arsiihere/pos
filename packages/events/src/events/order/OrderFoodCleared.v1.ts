@@ -6,6 +6,8 @@ export const OrderFoodClearedPayload = z
   .object({
     order_id: z.string(),
     food_served: z.boolean(),
+    // ⚠️ Changed by 04 (row Q-1, 02b v1.0.10 §6.19): set inside a void approval; folds ignore it.
+    alert_id: z.string().optional(),
   })
   .strict();
 export type OrderFoodClearedPayload = z.infer<typeof OrderFoodClearedPayload>;
