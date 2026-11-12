@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { StaffDirectory } from '../../auth/staff-directory.js';
 import { defineQuery, queryRegistry } from '../../queries/registry.js';
-import type { LineView } from '../contracts.js';
+import type { LineView, OrderView } from '../contracts.js';
 import { ordersOf, seatingTotals } from '../exports.js';
 
 // 02b v1.0.3 §6.15 GET /queries/seating-orders: the seating's orders (02a seating_orders, current, P-1c) by placed_at,
@@ -59,6 +59,26 @@ export interface SeatingOrder {
   lines: Array<LineView & { stage: LineStage; fired: boolean }>;
 }
 
+/**
+ * ⚠️ 02b v1.0.11 §6.18a (Q-8): one order in the §6.15 shape, the builder `seating-orders` and `order-view` share
+ * (0 statements: names from the directory, promise / stage / fired from EngineState).
+ */
+export function toSeatingOrder(state: Readonly<EngineState>, directory: StaffDirectory, o: OrderView, now: number): SeatingOrder {
+  const inEngine = isOrderInEngine(state, o.order_id, now);
+  return {
+    order_id: o.order_id,
+    placed_by: { staff_id: o.placed_by, name: directory.get(o.placed_by)?.display_name ?? null },
+    placed_at: o.placed_at,
+    follow_up: o.follow_up,
+    cancelled: o.cancelled,
+    billed: o.billed,
+    has_phone: o.has_phone,
+    order_note: o.order_note,
+    promise_ms: inEngine ? state.orders[o.order_id]!.promise_ms : null,
+    lines: o.lines.map((l) => ({ ...l, stage: lineStage(state, l, inEngine), fired: lineFired(state, l, inEngine) })),
+  };
+}
+
 export function seatingOrdersBody(
   db: Database.Database,
   state: Readonly<EngineState>,
@@ -68,24 +88,7 @@ export function seatingOrdersBody(
 ): { orders: SeatingOrder[]; total_minor: number } {
   const orders = ordersOf(db, seating_id);
   const { total_minor } = seatingTotals(db, seating_id);
-  return {
-    orders: orders.map((o) => {
-      const inEngine = isOrderInEngine(state, o.order_id, now);
-      return {
-        order_id: o.order_id,
-        placed_by: { staff_id: o.placed_by, name: directory.get(o.placed_by)?.display_name ?? null },
-        placed_at: o.placed_at,
-        follow_up: o.follow_up,
-        cancelled: o.cancelled,
-        billed: o.billed,
-        has_phone: o.has_phone,
-        order_note: o.order_note,
-        promise_ms: inEngine ? state.orders[o.order_id]!.promise_ms : null,
-        lines: o.lines.map((l) => ({ ...l, stage: lineStage(state, l, inEngine), fired: lineFired(state, l, inEngine) })),
-      };
-    }),
-    total_minor,
-  };
+  return { orders: orders.map((o) => toSeatingOrder(state, directory, o, now)), total_minor };
 }
 
 export function registerSeatingOrdersQuery(app: FastifyInstance): void {
