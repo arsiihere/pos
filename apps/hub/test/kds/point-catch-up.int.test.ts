@@ -159,7 +159,7 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     expect(body('P2').stations.map((s) => s.station_id)).toEqual([FX.station]);
   });
 
-  it('[03b #65] point_view ≤ 4 statements with 50 lines; a takeover adds its kds_station body (and no statement)', async () => {
+  it('[03b #65, v1.0.6 Q-20] point_view ≤ 4 statements with 50 lines; a takeover adds its kds_station body and exactly 1 statement (has_printer) → 5', async () => {
     await start();
     for (let o = 0; o < 10; o += 1) {
       appendOrder(hub, { order_type: 'takeaway', lines: Array.from({ length: 5 }, (_, i) => ({ order_item_id: `O${o}L${i}`, item_id: i % 2 === 0 ? FX.piece : FX.naan })) });
@@ -178,9 +178,28 @@ describe('[03b §6.15] point_view catch-up part (b21)', () => {
     hub.deps.writer.run((tx) => tx.append(kdsPresenceTick.intents(tx, tx.state as EngineState, t0 + 30_000)));
     counter.reset();
     const withTakeover = body();
-    expect(counter.count).toBeLessThanOrEqual(4 + 1);
+    expect(counter.count, '4 + stationHasPrinter for the takeover stations (03b v1.0.6 §6.14, §6.15 "+1")').toBe(5);
     expect(withTakeover.stations.find((s) => s.station_id === FX.station)!.dark).toBe(true);
     expect(withTakeover.takeovers).toEqual([kdsStationBody(hub.deps.db, engine(), FX.station, now())]);
+  });
+
+  it('[03b v1.0.7 §6.15, Q-P22b] a takeover body carries the station\'s current has_printer (true with a printing output, false after screen)', async () => {
+    await start();
+    const branch = hub.deps.config.provisioned!.branch_id;
+    const setOutput = (mode: 'screen' | 'both', printer_id: string | null) =>
+      append(hub, [{ stream_type: 'hub', stream_id: branch, event_type: 'StationOutputSet', payload: { station_id: FX.station, mode, printer_id, show_taker: true, show_order_id: true } }], { actor: null });
+    append(hub, [{ stream_type: 'hub', stream_id: branch, event_type: 'PrinterSaved', payload: { printer_id: 'PR1', name: 'Printer PR1', connection: 'lan', address: '192.168.1.50:9100', paper_width_mm: 80, archived: false } }], { actor: null });
+    setOutput('both', 'PR1');
+    appendOrder(hub, { order_type: 'takeaway', lines: [{ order_item_id: 'A1', item_id: FX.piece }] });
+    fireLines(hub, FX.station, ['A1']);
+    pairKds(hub, { stationId: FX.station });
+    const t0 = now();
+    kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0);
+    expect(kdsPresenceTick.due(readOnlyDb(hub.deps.db), engine(), t0 + 30_000)).toBe(true);
+    hub.deps.writer.run((tx) => tx.append(kdsPresenceTick.intents(tx, tx.state as EngineState, t0 + 30_000)));
+    expect(body().takeovers.map((t) => [t.station_id, t.has_printer])).toEqual([[FX.station, true]]);
+    setOutput('screen', null);
+    expect(body().takeovers.map((t) => [t.station_id, t.has_printer])).toEqual([[FX.station, false]]);
   });
 });
 
