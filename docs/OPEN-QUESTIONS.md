@@ -81,3 +81,4 @@ These work today. Change one only if the owner disagrees.
 | # | Item | Decided | Where it goes |
 |---|---|---|---|
 | 02b AD-26 | **Hub HTTP `maxHeaderSize` = 64 KB.** 02b §6.14's eta-preview draft is GET-encoded and can exceed Node's 16 KB default, which gives `431` before the hub's own 400. Built in 02b as a 00 platform knob. | Yes (owner, 2026-11-11). | The next 00 / platform-batch spec text (00 server setup). |
+| 03b-N2 | **Strikethrough reprint** when a line is Done after its ticket already printed (story E3-PRT edge, Z1 GAP G5). | Deferred after the pilot (owner 2026-11-12). | 03c spec row + a print task. |
