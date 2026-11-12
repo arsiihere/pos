@@ -181,8 +181,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
   const inserted = tx.prepare(
     `INSERT INTO order_lines (order_item_id, order_id, parent_order_item_id, line_kind, item_id, deal_id, name, sale_unit,
                               quantity, units, line_total_minor, refundable_minor, return_of, served_from_zone_id, added_at,
-                              is_food, kitchen_note, options_json, station_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              is_food, kitchen_note, options_json, station_id, option_quantity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (order_item_id) DO NOTHING`,
   ).run(
     p.order_item_id,
@@ -206,6 +206,8 @@ function applyAdded(tx: Database.Database, p: ItemAddedPayload, at: number): voi
     p.options.length === 0 ? null : JSON.stringify(p.options.map((o) => ({ name: o.name, quantity: o.quantity }))),
     // ⚠️ Changed by v1.0.12 (04 Q-14): the line's ItemAdded.station_id (NULL for a deal header; a routed line keeps its route).
     p.station_id,
+    // ⚠️ Changed by v1.0.13 (owner 2026-11-12, 04 Q-19): the §3.4 cascade's null-quantity child rule reads it.
+    p.option_quantity,
   );
   if (inserted.changes === 1 && zoneServed && p.item_id !== null) {
     tx.prepare('UPDATE zone_stock SET on_hand = on_hand - ? WHERE zone_id = ? AND item_id = ?').run(units, p.served_from_zone_id, p.item_id);

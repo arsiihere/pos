@@ -40,6 +40,7 @@ import {
   waitingT4,
   type Reply,
 } from './fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 let hub: TestHub;
 
@@ -91,7 +92,7 @@ function spikeApply(calls: ApplyCall[]) {
     const children = lines.filter((l) => l.parent_order_item_id === named.order_item_id && l.line_kind === childKind);
     if (v.units > named.live_units) throw new DomainError('VALIDATION_FAILED', { issues: [{ path: 'lines.0.units' }] }); // rule 5
     // §3.3 step 1
-    const plan = planVoid(named, children, v.units);
+    const plan = planVoid(named, withOptionQuantity(ctx.tx.db, children), v.units);
     const header = (id: string) => id === named.order_item_id && named.line_kind === 'deal';
     const disposition = (id: string): VoidDisposition | null => {
       const stored = v.line_dispositions[id] ?? null;

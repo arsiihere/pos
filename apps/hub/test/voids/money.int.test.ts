@@ -5,11 +5,15 @@
 import { parseEvent, type PosEvent } from '@pos/events';
 import type { EngineState } from '@pos/engine';
 import { afterEach, describe, expect, it } from 'vitest';
+import { defineCommand } from '../../src/commands/registry';
+import { commandRegistry } from '../../src/commands/route';
 import { registerHubProjections } from '../../src/lib/boot';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import { swapBranchConfig } from '../../src/sync/branch-config-holder';
+import { voidItemsCommand } from '../../src/voids/commands/void-items';
+import { statementCounter } from '../helpers/statement-counter';
 import type { TestHub } from '../helpers/test-hub';
-import { answer, appendOrder, FX, openSeating, remakeLine, signIn, STAFF, strictRefold, toStage, voidLine, VX, waitingT4, type Reply } from './fixtures';
+import { answer, appendOrder, FX, openSeating, post, remakeLine, signIn, STAFF, strictRefold, toStage, voidLine, VX, waitingT4, type Reply } from './fixtures';
 import { compLine, linesOf, MX, removeItems, startMoney, sumOf, voidItems } from './money.fixtures';
 
 let hub: TestHub;
@@ -150,30 +154,31 @@ describe('[04 #42] option children', () => {
     expect(linesOf(hub, order_id).get('K')).toMatchObject({ voided_units: 0, refund_minor: 0 });
   });
 
-  // STOP Q-1 (PR body). 01c §3.4.8 / Q4 and 04 #42: a child with `option_quantity: null` (added to a submitted line
-  // later, "one more raita") is untouched by a partial parent void and voided alone, with the parent's last unit, or
-  // with the whole parent. 02b's cascadeUnits (orders/ledger.ts) has no option_quantity input and first requires
-  // `child.units % parent.units === 0`, so a 1-unit later child under a karahi ×2 / ×3 makes ANY parent void throw a
-  // plain Error → 500 INTERNAL_ERROR, nothing written (a 3-unit child would instead be cascaded into). Unreachable
-  // today: 02b writes option children only inside their parent's SubmitOrder (build-submit.ts: option_quantity set),
-  // so this ItemAdded is synthetic (the fixture's `item` override, as fixtures.ts does for Q-13's station-less lines).
+  // 01c §3.4.8 Q4 and 04 #42, fixed by 02b v1.0.13 (owner 2026-11-12, 04 Q-19 (b); u11; T1's STOP Q-1 in #138): a child
+  // with `option_quantity: null` (added to a submitted line later, "one more raita") is untouched by a partial parent
+  // void and voided alone, with the parent's last unit, or with the whole parent. Unreachable from 02b's SubmitOrder
+  // today (build-submit.ts: option_quantity set), so this ItemAdded is synthetic (the fixture's `item` override, as
+  // fixtures.ts does for Q-13's station-less lines). Was 3 × `it.fails` + a test pinning the 500 (deleted with the fix).
   const laterChild = (parentQty: number) => [
     { order_item_id: 'K', item_id: FX.piece, quantity: parentQty },
     { order_item_id: 'RN', option_id: FX.option, parent_order_item_id: 'K', quantity: 1, item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } },
   ];
 
-  it.fails('[04 #42] BUG Q-1 (02b cascadeUnits): partial parent void with a null-option_quantity child → only the parent voided (today: 500)', async () => {
+  it('[02b #39] [04 #42] partial parent void with a null-option_quantity child → only the parent voided, refund = the parent share (was 500)', async () => {
     hub = await startMoney();
     const mgr = signIn(hub, STAFF.manager);
     const order_id = takeaway(laterChild(3));
     toStage(hub, order_id, ['K', 'RN'], 'cooking');
+    expect(linesOf(hub, order_id).get('RN')).toMatchObject({ units: 1, refundable_minor: 10_000 });
+    const k = linesOf(hub, order_id).get('K')!;
     const one = await voidItems(hub, mgr, order_id, [{ order_item_id: 'K', units: 1, disposition: 'wastage' }]);
     expect(one.status, JSON.stringify(one.error)).toBe(200);
     expect(ofType(one, 'ItemVoided').map((p) => p.order_item_id)).toEqual(['K']);
+    expect(sumOf(one, 'ItemVoided', 'refund_minor')).toBe(k.refundable_minor / 3);
     expect(linesOf(hub, order_id).get('RN')).toMatchObject({ voided_units: 0, refund_minor: 0 });
   });
 
-  it.fails('[04 #42] BUG Q-1 (02b cascadeUnits): whole parent void takes the null-option_quantity child with it (today: 500)', async () => {
+  it('[02b #39] [04 #42] whole parent void takes the null-option_quantity child with it (was 500)', async () => {
     hub = await startMoney();
     const mgr = signIn(hub, STAFF.manager);
     const order_id = takeaway(laterChild(2));
@@ -183,26 +188,27 @@ describe('[04 #42] option children', () => {
     expect(ofType(whole, 'ItemVoided').map((p) => [p.order_item_id, p.units, p.refund_minor])).toEqual([['K', 2, expect.any(Number)], ['RN', 1, 10_000]]);
   });
 
-  // Pins today's behaviour exactly. Delete with the Q-1 fix (owner Q-19), when the two it.fails above turn green.
-  it('[04 #42] Q-1 as-is (delete with the Q-1 fix, owner Q-19): a parent void over a 1-unit null-option_quantity child → 500 INTERNAL_ERROR, nothing written, partial and whole', async () => {
+  it('[02b #39] [01c §3.4.8 Q4] the last parent unit takes the null child\'s units left (capped by its own earlier void); Σ refund = both totals', async () => {
     hub = await startMoney();
     const mgr = signIn(hub, STAFF.manager);
-    const order_id = takeaway(laterChild(3));
-    toStage(hub, order_id, ['K', 'RN'], 'cooking');
-    const events = () => hub.deps.db.prepare('SELECT COUNT(*) FROM events').pluck().get() as number;
-    const before = events();
-    for (const units of [1, 3]) {
-      const r = await voidItems(hub, mgr, order_id, [{ order_item_id: 'K', units, disposition: 'wastage' }]);
-      expect([r.status, r.error?.code], `units ${units}`).toEqual([500, 'INTERNAL_ERROR']);
-      expect(events(), `units ${units}`).toBe(before);
-    }
-    expect(linesOf(hub, order_id).get('K')).toMatchObject({ voided_units: 0, refund_minor: 0 });
+    const order_id = takeaway([
+      { order_item_id: 'K', item_id: FX.piece, quantity: 2 },
+      { order_item_id: 'RN', option_id: FX.option, parent_order_item_id: 'K', quantity: 1, item: { option_quantity: null, quantity: 3, line_total_minor: 30_000 } },
+    ]);
+    toStage(hub, order_id, ['K', 'RN'], 'served');
+    const k = linesOf(hub, order_id).get('K')!.refundable_minor;
+    const own = ok(await voidItems(hub, mgr, order_id, [{ order_item_id: 'RN', units: 1, disposition: 'wastage' }]));
+    const first = ok(await voidItems(hub, mgr, order_id, [{ order_item_id: 'K', units: 1, disposition: 'wastage' }]));
+    expect(ofType(first, 'ItemVoided').map((p) => [p.order_item_id, p.units])).toEqual([['K', 1]]);
+    const last = ok(await voidItems(hub, mgr, order_id, [{ order_item_id: 'K', units: 1, disposition: 'wastage' }]));
+    expect(ofType(last, 'ItemVoided').map((p) => [p.order_item_id, p.units, p.refund_minor])).toEqual([['K', 1, expect.any(Number)], ['RN', 2, 20_000]]);
+    expect([own, first, last].reduce((a, r) => a + sumOf(r, 'ItemVoided', 'refund_minor'), 0)).toBe(k + 30_000);
+    expect(linesOf(hub, order_id).get('RN')).toMatchObject({ voided_units: 3, refund_minor: 30_000, billed_minor: 0 });
   });
 
   // The worse case of Q-1: a null-option_quantity child whose units happen to be a multiple of the parent's (3 units
-  // under karahi ×3) passes cascadeUnits' modulo check, so a partial parent void silently cascades into it (1 unit,
-  // refunded) instead of leaving it alone. No 500 to notice it by.
-  it.fails('[04 #42] BUG Q-1 (02b cascadeUnits): partial parent void must not cascade into a null-option_quantity child whose units are a multiple (3 under karahi ×3)', async () => {
+  // under karahi ×3) passed cascadeUnits' modulo check, so a partial parent void silently cascaded into it.
+  it('[02b #39] [04 #42] partial parent void must not cascade into a null-option_quantity child whose units are a multiple (3 under karahi ×3)', async () => {
     hub = await startMoney();
     const mgr = signIn(hub, STAFF.manager);
     const order_id = takeaway([
@@ -215,6 +221,94 @@ describe('[04 #42] option children', () => {
     expect(one.status, JSON.stringify(one.error)).toBe(200);
     expect(ofType(one, 'ItemVoided').map((p) => p.order_item_id)).toEqual(['K']);
     expect(linesOf(hub, order_id).get('RN')).toMatchObject({ voided_units: 0, refund_minor: 0 });
+  });
+
+  it('[02b #39] [01c N1] a partial deal void: the parts are folded with option_quantity null and still cascade per portion (the null rule is option_child-only)', async () => {
+    hub = await startMoney();
+    const mgr = signIn(hub, STAFF.manager);
+    const order_id = takeaway([{ ...family('F1')[0]!, quantity: 2 }, ...family('F1').slice(1)]);
+    toStage(hub, order_id, ['F1a', 'F1b'], 'served');
+    const parts = hub.deps.db.prepare("SELECT order_item_id, units, option_quantity FROM order_lines WHERE parent_order_item_id = 'F1' ORDER BY order_item_id").all();
+    expect(parts).toEqual([
+      { order_item_id: 'F1a', units: 2, option_quantity: null },
+      { order_item_id: 'F1b', units: 8, option_quantity: null },
+    ]);
+    const one = ok(await voidItems(hub, mgr, order_id, [{ order_item_id: 'F1', units: 1, disposition: 'wastage' }]));
+    expect(ofType(one, 'ItemVoided').map((p) => [p.order_item_id, p.units])).toEqual([['F1', 1], ['F1a', 1], ['F1b', 4]]);
+    expect(linesOf(hub, order_id).get('F1')!.billed_minor).toBe(320_000);
+  });
+
+  it('[02b #39] statements: VoidItems direct with a null child = the same order without it (04 §6.1 3 + 2)', async () => {
+    hub = await startMoney();
+    const mgr = signIn(hub, STAFF.manager);
+    const counter = statementCounter(hub.deps.db);
+    let handled = -1;
+    commandRegistry(hub.app).register(
+      defineCommand({
+        ...voidItemsCommand,
+        commandType: 'TestVoidItemsCountedQ19',
+        handle(ctx, p, cmd) {
+          const before = counter.count;
+          try {
+            return voidItemsCommand.handle(ctx, p, cmd);
+          } finally {
+            handled = counter.count - before;
+          }
+        },
+      }),
+    );
+    const counted = async (k: string, lines: Parameters<typeof takeaway>[0]): Promise<number> => {
+      const order_id = takeaway(lines);
+      toStage(hub, order_id, [k], 'cooking');
+      const r = await post(hub, mgr, 'test-void-items-counted-q19', 'TestVoidItemsCountedQ19', {
+        order_id,
+        reason_code: 'quality',
+        note: null,
+        disposition_note: null,
+        lines: [{ order_item_id: k, units: 1, disposition: 'wastage' }],
+      });
+      expect(r.status, JSON.stringify(r.error)).toBe(200);
+      expect(ofType(r, 'ItemVoided').map((p) => p.order_item_id)).toEqual([k]);
+      return handled;
+    };
+    const plain = await counted('K0', [{ order_item_id: 'K0', item_id: FX.piece, quantity: 3 }]);
+    const withNull = await counted('K', laterChild(3));
+    expect(withNull).toBe(plain);
+    expect(withNull).toBe(5);
+    // the last unit, cascading into the null child: still 3 + 2 (one readOrder row read carries option_quantity)
+    const order_id = takeaway([
+      { order_item_id: 'KL', item_id: FX.piece, quantity: 1 },
+      { order_item_id: 'RL', option_id: FX.option, parent_order_item_id: 'KL', quantity: 1, item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } },
+    ]);
+    toStage(hub, order_id, ['KL'], 'cooking');
+    const last = await post(hub, mgr, 'test-void-items-counted-q19', 'TestVoidItemsCountedQ19', {
+      order_id,
+      reason_code: 'quality',
+      note: null,
+      disposition_note: null,
+      lines: [{ order_item_id: 'KL', units: 1, disposition: 'wastage' }],
+    });
+    expect(last.status, JSON.stringify(last.error)).toBe(200);
+    expect(ofType(last, 'ItemVoided').map((p) => [p.order_item_id, p.units])).toEqual([['KL', 1], ['RL', 1]]);
+    expect(handled).toBe(5);
+  });
+
+  it('[02b #39] [04 K-1] approval path: the last parent unit with a null child, approved → the child\'s cascaded ItemVoided carries the alert_id', async () => {
+    hub = await startMoney();
+    const mgr = signIn(hub, STAFF.manager);
+    const cashier = signIn(hub, STAFF.cashier);
+    const order_id = takeaway(laterChild(2));
+    toStage(hub, order_id, ['K', 'RN'], 'served');
+    ok(await voidItems(hub, mgr, order_id, [{ order_item_id: 'K', units: 1, disposition: 'wastage' }]));
+    const asked = ok(await voidItems(hub, cashier, order_id, [{ order_item_id: 'K', units: 1, disposition: 'wastage' }]));
+    expect(ofType(asked, 'ItemVoided')).toEqual([]);
+    const [p] = (asked.result as { pending: Array<{ order_item_id: string; alert_id: string }> }).pending;
+    const r = ok(await answer(hub, mgr, p!.alert_id, 'approve'));
+    expect(ofType(r, 'ItemVoided').map((v) => [v.order_item_id, v.units, v.refund_minor, v.alert_id])).toEqual([
+      ['K', 1, expect.any(Number), p!.alert_id],
+      ['RN', 1, 10_000, p!.alert_id],
+    ]);
+    expect(linesOf(hub, order_id).get('RN')).toMatchObject({ voided_units: 1, refund_minor: 10_000, billed_minor: 0 });
   });
 
   it('[04 #42] a null-option_quantity child voided alone → its own share, the parent untouched (passes today)', async () => {

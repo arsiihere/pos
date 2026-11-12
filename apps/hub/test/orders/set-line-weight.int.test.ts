@@ -13,6 +13,7 @@ import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, openDay, type FixtureLine } from './fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 // 02b §6.3 SetLineWeight, §3.6, §3.4 (Weights), §3.14; §11 step 10. Orders are seeded with the shared fixtures and
 // every other event (comps, bills) is a real event through the writer.
@@ -113,7 +114,7 @@ function comp(order_id: string, id: string, units: number): void {
   const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
   const parent = lines.find((l) => l.order_item_id === id)!;
   const kids = lines.filter((l) => l.parent_order_item_id === id);
-  const plan = planComp(parent, kids, units, { reason_code: 'quality', note: null, requester_staff_id: 'S_ALI', alert_id: null, approver_staff_id: null });
+  const plan = planComp(parent, withOptionQuantity(hub.deps.db, kids), units, { reason_code: 'quality', note: null, requester_staff_id: 'S_ALI', alert_id: null, approver_staff_id: null });
   append(plan.lines.map((p) => on(order_id, 'LineComped', p.payload)));
 }
 

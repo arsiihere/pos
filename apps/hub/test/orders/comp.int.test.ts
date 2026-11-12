@@ -18,6 +18,7 @@ import { aDirectory, PIN } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { appendOrder, FX, fixtureMenu, openDay, openSeating, type FixtureLine } from './fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 // 02b §6.8 CompLine, §6.12 kind `comp`, §3.9, §3.4 (comp, deal actions, cascades), §3.14; §11 step 14. Orders are seeded
 // with the shared fixtures; every other event (voids, remakes, bills) is a real event through the writer. The stale
@@ -148,7 +149,7 @@ function voidUnits(order_id: string, id: string, units: number): void {
   const lines = orderLines(hub.deps.db, [order_id]).get(order_id)!;
   const parent = lines.find((l) => l.order_item_id === id)!;
   const kids = lines.filter((l) => l.parent_order_item_id === id);
-  const plan = planVoid(parent, kids, units);
+  const plan = planVoid(parent, withOptionQuantity(hub.deps.db, kids), units);
   append(plan.lines.map((p) => on(order_id, 'ItemVoided', p.payload)));
 }
 
@@ -814,6 +815,33 @@ describe('CompLine with deals, remakes and children (02b §3.4)', () => {
       ['K1', 2, alert_id, 'S_MGR'],
       ['K1r', 2, alert_id, 'S_MGR'],
     ]);
+  });
+
+  it('[02b #39 comp] [01c §3.4.8 Q4] a null-option_quantity child: comping 1 of 2 karahis leaves it alone (2 statements), an approved last karahi comps it with the alert id', async () => {
+    await start();
+    const ali = signIn('S_ALI');
+    const omar = signIn('S_OMAR');
+    const mgr = signIn('S_MGR');
+    const order_id = takeaway([...karahiWithRaita('K1', 2), { order_item_id: 'K1n', option_id: FX.option, parent_order_item_id: 'K1', quantity: 1, item: { option_quantity: null, quantity: 1, line_total_minor: 10_000 } }]);
+    const one = await compLine(ali, quality('K1', 1), { counted: true });
+    expect(one.status, JSON.stringify(one.error)).toBe(200);
+    expect(ofType(one, 'LineComped').map((p) => [p.order_item_id, p.units])).toEqual([
+      ['K1', 1],
+      ['K1r', 1],
+    ]);
+    expect(lastStatements).toBe(2);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ comped_units: 0, comp_minor: 0 });
+    // the last uncomped karahi, through the approval (applyComp reads option_quantity in its own line read)
+    const req = await compLine(omar, quality('K1', 1));
+    const alert_id = req.result!.alert_id as string;
+    const a = await answer(mgr, alert_id, 'approve');
+    expect(a.status, JSON.stringify(a.error)).toBe(200);
+    expect(ofType(a, 'LineComped').map((p) => [p.order_item_id, p.units, p.value_minor, p.alert_id])).toEqual([
+      ['K1', 1, expect.any(Number), alert_id],
+      ['K1r', 1, expect.any(Number), alert_id],
+      ['K1n', 1, 10_000, alert_id],
+    ]);
+    expect(lineView(order_id, 'K1n')).toMatchObject({ comped_units: 1, comp_minor: 10_000, billed_minor: 0 });
   });
 
   it('[02b §3.9] approve after the line was billed → the re-check refuses (ORDER_BILLED), nothing comped', async () => {

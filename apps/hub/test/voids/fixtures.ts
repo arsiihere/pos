@@ -18,6 +18,7 @@ import { aDirectory, PIN } from '../helpers/fixtures';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
 import { append, appendOrder, FX, fixtureMenu, fireLines, openDay, openSeating, serveLines } from '../kds/fixtures';
 import type { FixtureLine } from '../orders/fixtures';
+import { withOptionQuantity } from '../helpers/ledger-refs';
 
 export { append, appendOrder, FX, fireLines, openDay, openSeating, PIN, serveLines };
 export { removeLine, voidLine } from '../kds/fixtures';
@@ -402,7 +403,7 @@ export function raiseVoid(hub: TestHub, r: RaiseVoid): { alert_id: string; dedup
   if (named === undefined) throw new Error(`raiseVoid: no line ${r.order_item_id} on ${r.order_id}`);
   const childKind = named.line_kind === 'deal' ? 'deal_part' : named.line_kind === 'item' ? 'option_child' : null;
   const children = lines.filter((l) => l.parent_order_item_id === named.order_item_id && l.line_kind === childKind);
-  const plan = planVoid(named, children, r.units ?? named.units - named.removed_units - named.voided_units);
+  const plan = planVoid(named, withOptionQuantity(hub.deps.db, children), r.units ?? named.units - named.removed_units - named.voided_units);
   const units = r.units ?? plan.lines[0]!.units;
   const disposition = r.disposition ?? 'wastage';
   const touched = plan.lines.map((l) => l.order_item_id);

@@ -32,7 +32,10 @@ const fresh = (refundable_minor: number, units: number): LedgerLine => ({
   removed_minor: 0,
   refund_minor: 0,
 });
-const ref = (order_item_id: string, l: LedgerLine) => ({ order_item_id, ...l });
+// A cascade child as LedgerRef (02b v1.0.13 §3.4): a deal part or a later-added option child has option_quantity null;
+// `opt` is an option child placed in its parent's SubmitOrder (option_quantity = its units per parent unit).
+const ref = (order_item_id: string, l: LedgerLine, option_quantity: number | null = null) => ({ order_item_id, option_quantity, ...l });
+const opt = (order_item_id: string, l: LedgerLine, option_quantity: number) => ref(order_item_id, l, option_quantity);
 const parent = (order_item_id: string, line_kind: Kind, sale_unit: Unit, l: LedgerLine) => ({
   order_item_id,
   line_kind,
@@ -252,7 +255,7 @@ describe('02b ledger (§3.4)', () => {
 
   it('[02b #39 pure] option child capped: remove 1 of 3 child naans, then the karahi → 2 child units; one event per line', () => {
     const karahi = parent('K', 'item', 'piece', fresh(220000, 1));
-    const naan = ref('C', removeUnits(fresh(9000, 3), 1).after);
+    const naan = opt('C', removeUnits(fresh(9000, 3), 1).after, 3);
     const r = planRemove(karahi, [naan], 1);
     expect(r.lines.map((l) => l.payload)).toEqual([
       { order_item_id: 'K', units: 1 },
@@ -262,24 +265,24 @@ describe('02b ledger (§3.4)', () => {
 
     // Partial piece parent: childQuantity per parent unit, clamped (01c #126): karahi ×3, naan 2 each, 5 naan gone.
     const k3 = parent('K', 'item', 'piece', fresh(660000, 3));
-    const n6 = ref('C', removeUnits(fresh(18000, 6), 5).after);
+    const n6 = opt('C', removeUnits(fresh(18000, 6), 5).after, 2);
     expect(cascadeUnits('remove', k3, 1, n6)).toBe(1);
-    expect(cascadeUnits('void', k3, 1, ref('C', fresh(18000, 6)))).toBe(2);
+    expect(cascadeUnits('void', k3, 1, opt('C', fresh(18000, 6), 2))).toBe(2);
     // A fully gone child yields no event.
-    const gone = ref('C', removeUnits(fresh(18000, 6), 6).after);
+    const gone = opt('C', removeUnits(fresh(18000, 6), 6).after, 2);
     expect(planVoid(k3, [gone], 1).lines.map((l) => l.order_item_id)).toEqual(['K']);
     // A g/ml parent (1 unit) takes every child unit.
     const g = parent('G', 'item', 'g', fresh(275000, 1));
-    expect(cascadeUnits('void', g, 1, ref('C', fresh(9000, 3)))).toBe(3);
+    expect(cascadeUnits('void', g, 1, opt('C', fresh(9000, 3), 3))).toBe(3);
     // The parent's last live unit takes every remaining child unit, even beyond its per-unit quantity (§3.4, 01c :312).
     const lastOne = parent('K', 'item', 'piece', voidUnits(fresh(440000, 2), 1).after);
-    expect(cascadeUnits('remove', lastOne, 1, ref('C', fresh(18000, 6)))).toBe(6);
-    expect(cascadeUnits('comp', lastOne, 1, ref('C', compUnits(fresh(18000, 6), 1).after))).toBe(5);
+    expect(cascadeUnits('remove', lastOne, 1, opt('C', fresh(18000, 6), 3))).toBe(6);
+    expect(cascadeUnits('comp', lastOne, 1, opt('C', compUnits(fresh(18000, 6), 1).after, 3))).toBe(5);
   });
 
   it('[02b #39 pure] comp cascade caps at live − comped; an approved comp: every LineComped carries the alert id and its own value', () => {
     const k2 = parent('K', 'item', 'piece', fresh(440000, 2));
-    const n6 = ref('C', fresh(18000, 6));
+    const n6 = opt('C', fresh(18000, 6), 3);
     const approved = { ...meta, alert_id: 'A1', approver_staff_id: 'S2' };
     const c = planComp(k2, [n6], 1, approved);
     expect(c.lines.map((l) => l.payload)).toEqual([
@@ -288,13 +291,104 @@ describe('02b ledger (§3.4)', () => {
     ]);
     expect(c.value_minor).toBe(229000);
 
-    const n4 = ref('C', compUnits(fresh(18000, 6), 4).after); // 4 naan comped alone: 2 left to comp
+    const n4 = opt('C', compUnits(fresh(18000, 6), 4).after, 3); // 4 naan comped alone: 2 left to comp
     expect(cascadeUnits('comp', k2, 1, n4)).toBe(2);
     // The parent's last compable unit takes every remaining compable child unit.
     const k2c = parent('K', 'item', 'piece', compUnits(fresh(440000, 2), 1).after);
-    const n3 = ref('C', compUnits(removeUnits(fresh(18000, 6), 2).after, 3).after); // live 4, comped 3
+    const n3 = opt('C', compUnits(removeUnits(fresh(18000, 6), 2).after, 3).after, 3); // live 4, comped 3
     expect(cascadeUnits('comp', k2c, 1, n3)).toBe(1);
     expect(() => planComp(parent('C', 'option_child', 'piece', fresh(1, 1)), [n6], 1, meta)).toThrow();
+  });
+
+  // ---- #39 null-option_quantity children (02b v1.0.13 §3.4, owner 2026-11-12, 04 Q-19; 01c §3.4.8 Q4, test 126) ----
+
+  it('[01c §3.4.8 Q4] cascadeUnits: a later-added child (option_quantity null) gets 0 on a partial void / remove / comp, even when its units are a multiple', () => {
+    const k3 = parent('K', 'item', 'piece', fresh(660000, 3));
+    const one = ref('RN', fresh(10000, 1)); // 1 unit under ×3: not a multiple (the 500 of Q-19)
+    const three = ref('RN', fresh(30000, 3)); // 3 units under ×3: a multiple (the silent cascade of Q-19)
+    for (const child of [one, three]) {
+      expect(cascadeUnits('void', k3, 1, child), `void ${child.units}`).toBe(0);
+      expect(cascadeUnits('remove', k3, 2, child), `remove ${child.units}`).toBe(0);
+      expect(cascadeUnits('comp', k3, 2, child), `comp ${child.units}`).toBe(0);
+    }
+  });
+
+  it('[01c §3.4.8 Q4] cascadeUnits: the parent\'s last unit (comp: last uncomped live unit) or a whole action takes a null child\'s units left, capped', () => {
+    const k3 = parent('K', 'item', 'piece', fresh(660000, 3));
+    expect(cascadeUnits('void', k3, 3, ref('RN', fresh(10000, 1)))).toBe(1);
+    expect(cascadeUnits('remove', k3, 3, ref('RN', fresh(30000, 3)))).toBe(3);
+    // last unit after two voided: the child had 1 of its 3 voided on its own → 2 left
+    const last = parent('K', 'item', 'piece', voidUnits(fresh(660000, 3), 2).after);
+    expect(cascadeUnits('void', last, 1, ref('RN', voidUnits(fresh(30000, 3), 1).after))).toBe(2);
+    expect(cascadeUnits('remove', last, 1, ref('RN', fresh(10000, 1)))).toBe(1);
+    // comp: 1 of 2 karahi comped → the other is the last compable unit; the child: 1 of 3 comped → 2 compable
+    const kc = parent('K', 'item', 'piece', compUnits(fresh(440000, 2), 1).after);
+    expect(cascadeUnits('comp', kc, 1, ref('RN', compUnits(fresh(30000, 3), 1).after))).toBe(2);
+    // a fully gone null child yields 0; a g/ml parent (1 unit) is always whole
+    expect(cascadeUnits('void', last, 1, ref('RN', voidUnits(fresh(10000, 1), 1).after))).toBe(0);
+    expect(cascadeUnits('void', parent('G', 'item', 'g', fresh(275000, 1)), 1, ref('RN', fresh(20000, 2)))).toBe(2);
+  });
+
+  it('[01c §3.4.8 Q4] cascadeUnits: the multiple check applies only to non-null children; deal parts keep the ratio rule', () => {
+    const k3 = parent('K', 'item', 'piece', fresh(660000, 3));
+    expect(() => cascadeUnits('void', k3, 1, opt('C', fresh(4000, 4), 1))).toThrow(/multiple/);
+    expect(cascadeUnits('void', k3, 1, opt('C', fresh(18000, 6), 2))).toBe(2);
+    // a deal part has option_quantity null too, but its parent is a deal: per-portion units by ratio
+    const deal = parent('D', 'deal', 'piece', fresh(0, 2));
+    expect(cascadeUnits('remove', deal, 1, ref('P', fresh(12000, 4)))).toBe(2);
+    expect(() => cascadeUnits('remove', deal, 1, ref('P', fresh(12000, 3)))).toThrow(/multiple/);
+  });
+
+  it('[02b #39] planVoid / planRemove / planComp: a partial parent action leaves a null child alone (refund = parent + placed child shares); the last unit cascades it', () => {
+    const k2 = parent('K', 'item', 'piece', fresh(440000, 2));
+    const placed = opt('C', fresh(18000, 6), 3);
+    const later = ref('RN', fresh(10000, 1));
+    const rows = (ls: readonly { payload: { order_item_id: string; units?: number } }[]) => ls.map((l) => [l.payload.order_item_id, l.payload.units]);
+
+    const v1 = planVoid(k2, [placed, later], 1);
+    expect(v1.lines.map((l) => l.payload)).toEqual([
+      { order_item_id: 'K', units: 1, refund_minor: 220000, comp_voided_minor: 0 },
+      { order_item_id: 'C', units: 3, refund_minor: 9000, comp_voided_minor: 0 },
+    ]);
+    expect([v1.refund_minor, v1.comp_voided_minor]).toEqual([229000, 0]);
+    const v2 = planVoid(k2, [placed, later], 2);
+    expect(v2.lines.map((l) => l.payload)).toEqual([
+      { order_item_id: 'K', units: 2, refund_minor: 440000, comp_voided_minor: 0 },
+      { order_item_id: 'C', units: 6, refund_minor: 18000, comp_voided_minor: 0 },
+      { order_item_id: 'RN', units: 1, refund_minor: 10000, comp_voided_minor: 0 },
+    ]);
+
+    const r1 = planRemove(k2, [placed, later], 1);
+    expect(rows(r1.lines)).toEqual([['K', 1], ['C', 3]]);
+    expect(r1.removed_minor).toBe(229000);
+    const r2 = planRemove(k2, [placed, later], 2);
+    expect(rows(r2.lines)).toEqual([['K', 2], ['C', 6], ['RN', 1]]);
+    expect(r2.removed_minor).toBe(468000);
+
+    const c1 = planComp(k2, [placed, later], 1, meta);
+    expect(c1.lines.map((l) => [l.payload.order_item_id, l.payload.units, l.payload.value_minor])).toEqual([['K', 1, 220000], ['C', 3, 9000]]);
+    const c2 = planComp(k2, [placed, later], 2, meta);
+    expect(c2.lines.map((l) => [l.payload.order_item_id, l.payload.units, l.payload.value_minor])).toEqual([['K', 2, 440000], ['C', 6, 18000], ['RN', 1, 10000]]);
+
+    // the multiple case: 3 later raita under karahi ×3, void 1 → the parent's share only
+    const v3 = planVoid(parent('K', 'item', 'piece', fresh(660000, 3)), [ref('RN', fresh(30000, 3))], 1);
+    expect([v3.lines.map((l) => l.order_item_id), v3.refund_minor]).toEqual([['K'], 220000]);
+  });
+
+  it('[02b #39] [01c N1, §3.4.8 Q4] a partial deal void / remove / comp: parts written with option_quantity null still cascade per portion (the null rule is option_child-only)', () => {
+    // family deal ×2: part a 1 naan per deal (2 units), part b 4 naan per deal (8 units); every deal part has option_quantity null
+    const deal = parent('D', 'deal', 'piece', fresh(0, 2));
+    const a = ref('Pa', fresh(128000, 2));
+    const b = ref('Pb', fresh(512000, 8));
+    expect([a.option_quantity, b.option_quantity]).toEqual([null, null]);
+    const v = planVoid(deal, [a, b], 1);
+    expect(v.lines.map((l) => [l.payload.order_item_id, l.payload.units, l.payload.refund_minor])).toEqual([['D', 1, 0], ['Pa', 1, 64000], ['Pb', 4, 256000]]);
+    expect(v.refund_minor).toBe(320000);
+    expect(planRemove(deal, [a, b], 1).lines.map((l) => [l.order_item_id, l.units])).toEqual([['D', 1], ['Pa', 1], ['Pb', 4]]);
+    expect(planComp(deal, [a, b], 1, meta).lines.map((l) => [l.order_item_id, l.units])).toEqual([['D', 1], ['Pa', 1], ['Pb', 4]]);
+    // capped as before: 5 of part b voided alone (3 left), then 1 of 2 deals → 4 per portion, capped at 3
+    const b3 = ref('Pb', voidUnits(fresh(512000, 8), 5).after);
+    expect(cascadeUnits('void', deal, 1, b3)).toBe(3);
   });
 
   // ---- #20 property tests ----
@@ -419,6 +513,8 @@ describe('02b ledger (§3.4)', () => {
       parent: string | null;
       returned_units: number;
       weighed: boolean;
+      /** 02b v1.0.13 (04 Q-19): set on a placed option child; null on a later-added one and on every other kind */
+      option_quantity: number | null;
     }
     const rng = makeRng(20261110020n);
     let steps = 0;
@@ -438,19 +534,24 @@ describe('02b ledger (§3.4)', () => {
         const qty = piece ? 1 + rng(4) : 1;
         const pending = !piece && rng(1) === 0;
         const total = pending ? null : rng(3) === 0 ? rng(3) : rng(5_000_000);
-        const p = add({ line_kind: 'item', sale_unit: piece ? 'piece' : 'g', line_total_minor: total, parent: null, weighed: !piece, refundable: total ?? 0, units: qty });
+        const p = add({ line_kind: 'item', sale_unit: piece ? 'piece' : 'g', line_total_minor: total, parent: null, weighed: !piece, refundable: total ?? 0, units: qty, option_quantity: null });
         for (let c = rng(3); c > 0; c--) {
           const optQty = 1 + rng(3);
           const ct = rng(3) === 0 ? rng(5) : rng(1_000_000);
-          add({ line_kind: 'option_child', sale_unit: 'piece', line_total_minor: ct, parent: p.order_item_id, weighed: false, refundable: ct, units: piece ? optQty * qty : optQty });
+          add({ line_kind: 'option_child', sale_unit: 'piece', line_total_minor: ct, parent: p.order_item_id, weighed: false, refundable: ct, units: piece ? optQty * qty : optQty, option_quantity: optQty });
+        }
+        // 01c §3.4.8 Q4 (02b v1.0.13): a later-added child (option_quantity null), any units (a multiple or not)
+        for (let c = rng(1); c > 0; c--) {
+          const ct = rng(3) === 0 ? rng(5) : rng(1_000_000);
+          add({ line_kind: 'option_child', sale_unit: 'piece', line_total_minor: ct, parent: p.order_item_id, weighed: false, refundable: ct, units: 1 + rng(4), option_quantity: null });
         }
       }
       // Deals and their parts (01c #119 generator).
       for (let n = rng(2); n > 0; n--) {
         const g = genDeal(rng);
-        const d = add({ line_kind: 'deal', sale_unit: 'piece', line_total_minor: g.lineTotal, parent: null, weighed: false, refundable: 0, units: g.qty });
+        const d = add({ line_kind: 'deal', sale_unit: 'piece', line_total_minor: g.lineTotal, parent: null, weighed: false, refundable: 0, units: g.qty, option_quantity: null });
         for (const part of g.parts) {
-          add({ line_kind: 'deal_part', sale_unit: 'piece', line_total_minor: 0, parent: d.order_item_id, weighed: false, refundable: part.refundable, units: part.units });
+          add({ line_kind: 'deal_part', sale_unit: 'piece', line_total_minor: 0, parent: d.order_item_id, weighed: false, refundable: part.refundable, units: part.units, option_quantity: null });
         }
       }
       const all = (): L[] => [...lines.values()];
@@ -486,14 +587,26 @@ describe('02b ledger (§3.4)', () => {
         const before = sum(all().map(billedOf));
         const op = rng(4);
         kinds.add(`${l.line_kind}:${op}`);
+        // 01c §3.4.8 Q4 (02b v1.0.13): a partial parent action leaves every later-added (null) child as it was.
+        const laterKids = l.line_kind === 'item' ? kids.filter((c) => c.option_quantity === null) : [];
+        const untouched = (n: number, left: number): void => {
+          if (n < left) for (const c of laterKids) expect(lines.get(c.order_item_id), `${c.order_item_id} under a partial ${op}`).toEqual(c);
+          if (laterKids.length > 0) kinds.add(n < left ? 'later:partial' : 'later:last');
+        };
         if (op === 0) {
           // §3.6 / §3.9: a comp on a weight-pending line is refused (LINE_WEIGHT_PENDING), so never generated.
           if (l.line_kind === 'deal_part' || liveUnits(l) - l.comped_units === 0 || (l.weighed && l.line_total_minor === null)) continue;
-          apply(planComp(l, kids, 1 + rng(liveUnits(l) - l.comped_units - 1), meta).lines);
+          const n = 1 + rng(liveUnits(l) - l.comped_units - 1);
+          apply(planComp(l, kids, n, meta).lines);
+          untouched(n, liveUnits(l) - l.comped_units);
         } else if (op === 1) {
-          apply(planRemove(l, kids, 1 + rng(liveUnits(l) - 1)).lines);
+          const n = 1 + rng(liveUnits(l) - 1);
+          apply(planRemove(l, kids, n).lines);
+          untouched(n, liveUnits(l));
         } else if (op === 2) {
-          apply(planVoid(l, kids, 1 + rng(liveUnits(l) - 1)).lines);
+          const n = 1 + rng(liveUnits(l) - 1);
+          apply(planVoid(l, kids, n).lines);
+          untouched(n, liveUnits(l));
         } else if (op === 3 && l.line_kind === 'item' && rng(1) === 0) {
           // Remake: engine view only, money unchanged (O20).
           lines.set(l.order_item_id, { ...l, returned_units: l.units });
@@ -517,5 +630,6 @@ describe('02b ledger (§3.4)', () => {
     }
     expect(steps).toBeGreaterThan(1000);
     for (const k of ['item', 'option_child', 'deal', 'deal_part']) for (const op of [0, 1, 2]) if (!(k === 'deal_part' && op === 0)) expect(kinds.has(`${k}:${op}`)).toBe(true);
+    expect([kinds.has('later:partial'), kinds.has('later:last')]).toEqual([true, true]);
   });
 });
