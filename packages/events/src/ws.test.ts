@@ -217,13 +217,16 @@ describe('ws', () => {
       day_open: true,
       sound_volume: 70,
       lanes: { lanes_on: null, lane_count: 2 },
-      now: [{ ...detail, stage: 'cooking', fired_at: 1, started_at: 2, mark: 'boost' }],
+      now: [{ ...detail, stage: 'cooking', fired_at: 1, started_at: 2, mark: 'boost', done_undone: true }], // v1.0.5 B2-3
       details: [detail],
     };
     const start = { type: 'station_takeover', station_id: 'S1', active: true, view };
     expect(WsServerMessage.parse(start)).toEqual(start);
     expect(WsServerMessage.parse({ type: 'station_takeover', station_id: 'S1', active: false })).toEqual({ type: 'station_takeover', station_id: 'S1', active: false });
     expect(WsServerMessage.safeParse({ ...start, view: { ...view, now: [{ ...view.now[0], stage: 'baking' }] } }).success).toBe(false);
+    const noFlag: Record<string, unknown> = { ...view.now[0] };
+    delete noFlag.done_undone;
+    expect(WsServerMessage.safeParse({ ...start, view: { ...view, now: [noFlag] } }).success, 'done_undone is required (v1.0.5 B2-3)').toBe(false);
   });
 
   it('[03b §3.10] station_notice { station_id, kind: archived, open_lines }', () => {

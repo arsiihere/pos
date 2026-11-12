@@ -136,6 +136,8 @@ export const KdsStationBody = z.object({
       fired_at: z.number().int().nullable(),
       started_at: z.number().int().nullable(),
       mark: z.enum(['expedite', 'boost', 'pulled', 'return', 'moved']).nullable(),
+      // ⚠️ Changed by v1.0.5 (owner 2026-11-12, B2-3): from the engine line (03a v1.2.2); the KDS shows "tap Done" (§3.3).
+      done_undone: z.boolean(),
     }),
   ),
   details: z.array(LineDetailSchema),

@@ -109,7 +109,7 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
       day_open: true,
       sound_volume: 70,
       lanes: { lanes_on: 1, lane_count: 1 },
-      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark }],
+      now: [{ ...details.get('A1')!, stage: 'added', fired_at: engine().lines.A1!.fired_at, started_at: null, mark: engine().lines.A1!.mark, done_undone: false }],
       details: view.next.map((l) => details.get(l.order_item_id)!),
     });
     expect(body.now[0]!.order_id).toBe(order_id);
@@ -170,6 +170,32 @@ describe('[03b §6.14] kds_station catch-up part (b18)', () => {
     expect(body.details.map((l) => l.order_item_id)).toEqual(view.next.map((l) => l.order_item_id));
     expect(body.now.map((l) => l.order_item_id)).not.toContain('L0_0');
     expect(body.now.length + body.details.length).toBeGreaterThan(20);
+  });
+
+  it('[03b §3.3, §6.14, v1.0.5 B2-2/B2-3] an undone Done: its Now row carries done_undone true (from the engine line), a normal line false; still 3 statements', async () => {
+    await start();
+    const { order_id } = appendOrder(hub, {
+      order_type: 'takeaway',
+      lines: [
+        { order_item_id: 'A1', item_id: FX.naan },
+        { order_item_id: 'A2', item_id: FX.naan },
+      ],
+    });
+    fireLines(hub, FX.station, ['A1', 'A2']);
+    // The auto_done path as 03a v1.2.2 folds it: an inferred Done, then its Undo (ItemDoneUndone sets done_undone).
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'ItemStarted', payload: { order_item_id: 'A1', started_at: now() + 1_000, source: 'tap' } }]);
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'ItemDone', payload: { order_item_id: 'A1', done_at: now() + 1_000, source: 'inferred' } }], { actor: null, device: 'hub' });
+    append(hub, [{ stream_type: 'order', stream_id: order_id, event_type: 'ItemDoneUndone', payload: { order_item_id: 'A1' } }]);
+    expect(engine().lines.A1).toMatchObject({ stage: 'cooking', done_undone: true });
+    expect(engine().lines.A2).toMatchObject({ done_undone: false });
+    const part = kdsStationPart(hub.deps);
+    const counter = statementCounter(hub.deps.db);
+    const body = KdsStationBody.strict().parse(part.build(hub.deps.db, engine(), stationSocket(FX.station)));
+    expect(counter.count).toBeLessThanOrEqual(3);
+    expect(body.now.map((l) => [l.order_item_id, l.stage, l.done_undone])).toEqual([
+      ['A1', 'cooking', true],
+      ['A2', 'added', false],
+    ]);
   });
 
   it('[03b #65] an abandoned order leaves Now with stationView', async () => {

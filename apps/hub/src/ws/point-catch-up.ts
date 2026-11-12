@@ -8,7 +8,7 @@ import { takeoverStations } from '../kds/presence.js';
 import type { HubDeps } from '../server.js';
 import { branchConfig } from '../sync/branch-config-holder.js';
 import { registerCatchUp, type CatchUpPart } from './catch-up.js';
-import { DEFAULT_SOUND_VOLUME } from './kds-catch-up.js';
+import { DEFAULT_SOUND_VOLUME, doneUndone } from './kds-catch-up.js';
 import { wsHubFor } from './server.js';
 
 // 03b §6.15, §6.16 (task b21): the `point_view` catch-up part (staff sockets on a device with a point, §3.4) and the
@@ -164,7 +164,7 @@ export function pointViewBody(db: Database.Database, state: EngineState, point_i
         lanes: lanesOf(s),
         now: view.now.flatMap((l) => {
           const d = details.get(l.order_item_id);
-          return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark }];
+          return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id) }];
         }),
         details: view.next.flatMap((l) => {
           const d = details.get(l.order_item_id);
