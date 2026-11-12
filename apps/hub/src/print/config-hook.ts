@@ -10,7 +10,8 @@ import { stationsWithPrinter } from './api.js';
 //
 // ⚠️ Changed by v1.0.6 (owner 2026-11-12, Q-18) 03c §3.2: a config apply that archives a station, or removes it from
 // the snapshot, releases its printer in the same apply. The onBranchConfigApplied hook (inside the applying writer.run,
-// before COMMIT; total: an odd shape is logged and skipped, never thrown, since a throw fails the whole apply) appends
+// before COMMIT; total over the shape and its read: an odd shape is logged and skipped; an append / projection error
+// propagates and fails the whole apply, S43) appends
 // one StationOutputSet { mode: 'screen', printer_id: null, show_taker, show_order_id, source: 'config' } per such
 // station whose station_outputs row holds a printer. Its pending station jobs then have no printer and stay unsent and
 // listed (a station job is sent only to its station's current printer) until a manager cancels them or the station
@@ -45,6 +46,10 @@ export function printConfigHook(app: FastifyInstance, deps: Pick<HubDeps, 'db'>)
   return (_prev, next, tx) => {
     // The hook list is process-wide: with two hubs in one process (tests only) each acts on its own connection.
     if (tx.db !== deps.db) return;
+    // Total over the config shape and the read only: an odd shape or a failed read is logged and skipped. The append
+    // is outside the try, so an append / projection error fails the whole apply (rolled back, retried at the next
+    // poll) instead of committing events the writer never recorded.
+    let released: OutputRow[];
     try {
       if (!Array.isArray(next.stations)) {
         app.log.error('print.config_hook: stations is not a list, skipped');
@@ -53,23 +58,24 @@ export function printConfigHook(app: FastifyInstance, deps: Pick<HubDeps, 'db'>)
       const rows = tx.db
         .prepare('SELECT station_id, show_taker, show_order_id FROM station_outputs WHERE printer_id IS NOT NULL ORDER BY station_id')
         .all() as OutputRow[];
-      const released = releasedOutputs(rows, next);
-      if (released.length === 0) return;
-      tx.append(
-        released.map((r) =>
-          draftOf(StationOutputSet, {
-            stream_type: 'hub',
-            stream_id: tx.branchId,
-            payload: { station_id: r.station_id, mode: 'screen', printer_id: null, show_taker: r.show_taker === 1, show_order_id: r.show_order_id === 1, source: 'config' },
-            occurred_at: tx.clock.branchNow(),
-            actor_id: null,
-            device_id: 'hub',
-          }),
-        ),
-      );
+      released = releasedOutputs(rows, next);
     } catch (err) {
       app.log.error({ err }, 'print.config_hook: skipped');
+      return;
     }
+    if (released.length === 0) return;
+    tx.append(
+      released.map((r) =>
+        draftOf(StationOutputSet, {
+          stream_type: 'hub',
+          stream_id: tx.branchId,
+          payload: { station_id: r.station_id, mode: 'screen', printer_id: null, show_taker: r.show_taker === 1, show_order_id: r.show_order_id === 1, source: 'config' },
+          occurred_at: tx.clock.branchNow(),
+          actor_id: null,
+          device_id: 'hub',
+        }),
+      ),
+    );
   };
 }
 
