@@ -748,3 +748,57 @@ describe('[02b #48] open-orders placed_by and table_id (§6.16 v1.0.11, Q-9)', (
     expect(await count('open-orders')).toMatchObject({ n: 2 }); // without the flag no dine-in row is ever listed
   });
 });
+
+// ------------------------------------------------------------------------------------------- #45 kitchen progress (H1)
+
+// 02b v1.0.11 §6.19 (Q-6): ItemStarted, ItemDone, ItemDoneUndone, FireDispatched → staff sockets and cashier kiosks too
+// (audiences OR-ed with 03b §6.17, G-10). Imports stay inside the block (this file is append-only per lane).
+describe('[02b #45] kitchen progress frames to staff and kiosks (§6.19, Q-6)', () => {
+  const PROGRESS = ['FireDispatched', 'ItemDone', 'ItemDoneUndone', 'ItemStarted'];
+  const progressOf = (ws: WsClient) => [...new Set(typesOf(ws).filter((t) => PROGRESS.includes(t)))].sort();
+
+  /** Fire, start, done, undo on one S1 line of a takeaway placed by OT1. */
+  function progress(): void {
+    appendOrder(hub, { order_type: 'takeaway', order_id: 'KP1', placed_by: OT1, lines: [{ order_item_id: 'KP1a', item_id: FX.piece }] });
+    fire('KP1a');
+    start('KP1', 'KP1a');
+    done('KP1', 'KP1a');
+    append(draft('order', 'KP1', 'ItemDoneUndone', { order_item_id: 'KP1a' }));
+  }
+
+  it('[02b #45] ItemStarted, ItemDone, ItemDoneUndone, FireDispatched reach a point-less ordering tablet and a cashier kiosk', async () => {
+    const tabletWs = await authed(signIn(OT1));
+    const kioskWs = await authed(signIn(CASHIER, 'cashier_kiosk'));
+    progress();
+    await settle();
+    expect(progressOf(tabletWs)).toEqual(PROGRESS);
+    expect(progressOf(kioskWs)).toEqual(PROGRESS);
+
+    // the audience is memory only: 0 statements
+    const counter = statementCounter(hub.deps.db);
+    const ev = (event_type: string) => ({ event_type, actor_id: null, payload: { order_item_id: 'KP1a', station_id: FX.station, order_item_ids: ['KP1a'] } }) as unknown as PosEvent;
+    for (const t of PROGRESS) {
+      expect(audienceAllows(ev(t), socketCtx({ staffId: WAITER })), t).toBe(true);
+      expect(audienceAllows(ev(t), socketCtx({ deviceType: 'cashier_kiosk', staffId: CASHIER })), t).toBe(true);
+    }
+    expect(counter.count).toBe(0);
+  });
+
+  it('[02b #45] station and Pass sockets still get them (03b sets unchanged); a signed-out kiosk (alert mode) does not', async () => {
+    const { loadDeviceMaps } = await import('../../src/kds/device-roles');
+    const station = await stationSocket();
+    const passDevice = pairDevice(hub, { type: 'tablet' });
+    hub.deps.db.prepare("UPDATE devices SET point_id = 'P1' WHERE device_id = ?").run(passDevice.deviceId);
+    loadDeviceMaps(hub.deps.db);
+    const pass = await authed({ token: passDevice.token, sessionToken: openSession(hub, { kind: 'staff', staffId: WAITER, deviceId: passDevice.deviceId }).token });
+    const signedOut = await connectWs(hub.app);
+    sockets.push(signedOut);
+    signedOut.send({ type: 'auth', device_token: pairDevice(hub, { type: 'cashier_kiosk' }).token });
+    await signedOut.untilCount(1);
+    progress();
+    await settle();
+    expect(progressOf(station)).toEqual(PROGRESS);
+    expect(progressOf(pass)).toEqual(PROGRESS);
+    expect(signedOut.messages.map((m) => (m as { type: string }).type)).toEqual(['alerts_open']);
+  });
+});

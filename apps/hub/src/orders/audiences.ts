@@ -28,7 +28,13 @@ export const ORDER_EVENT_TYPES = [
 /** Stream table / 'zone:' + zone_id; counts are not secret (run 4 M-3). 02a's readers select by event type (AD-6). */
 export const ZONE_EVENT_TYPES = ['ZoneStockAdded', 'ZoneStockSet'] as const;
 
-for (const eventType of [...ORDER_EVENT_TYPES, ...ZONE_EVENT_TYPES]) {
+/**
+ * 02b v1.0.11 §6.19 (Q-6): kitchen progress → staff sockets and cashier kiosks, so open views refetch on stage changes.
+ * OR-ed with 03b's station / point sets (ws/kds-audiences.ts, G-10); KDS station sockets still get them only from 03b.
+ */
+export const KITCHEN_PROGRESS_EVENT_TYPES = ['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'FireDispatched'] as const;
+
+for (const eventType of [...ORDER_EVENT_TYPES, ...ZONE_EVENT_TYPES, ...KITCHEN_PROGRESS_EVENT_TYPES]) {
   registerEventAudience(eventType, (_event, socket) => socket.kind === 'staff' || socket.deviceType === 'cashier_kiosk');
 }
 
