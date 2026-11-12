@@ -10,7 +10,7 @@ import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { aDirectory } from '../helpers/fixtures';
 import { statementCounter } from '../helpers/statement-counter';
 import { createTestHub, openSession, pairDevice, seedDirectory, type TestHub } from '../helpers/test-hub';
-import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, removeLine } from '../kds/fixtures';
+import { FX, append, appendOrder, fireLines, fixtureMenu, openDay, openSeating, removeLine, voidLine } from '../kds/fixtures';
 
 // 03c §3.3 (ticket layout), §3.5 (slips, REPRINT), §3.6 (Doc, mapping, renderText, render at send), task c10.
 // Orders, fires, merges, serves, returns and removals are real events (02b / 03b fixtures, real routes for
@@ -90,16 +90,21 @@ const kitchen = (ticket_id: string): RenderJob => ({ kind: 'kitchen', ticket_id,
 
 let jobSeq = 0;
 /** A `cancel` row as c8 writes it (§3.3 payload `{ ticket_id, order_item_id, units: p.units ?? null }`); 1 ms apart. */
-function cancelJob(ticket_id: string, order_item_id: string, units: number | null, is_reprint = false): RenderJob {
+function cancelJob(ticket_id: string, order_item_id: string, units: number | null, is_reprint = false, slip?: 'moved'): RenderJob {
   jobSeq += 1;
   const job_id = `E${String(jobSeq).padStart(4, '0')}:cancel:1`;
   hub.clock.advance(1);
   const created_at = hub.clock.branchNow();
+  const payload = slip === undefined ? { ticket_id, order_item_id, units } : { ticket_id, order_item_id, units, slip };
   hub.deps.db
     .prepare("INSERT INTO print_jobs (job_id, kind, station_id, ticket_id, payload, created_at, is_reprint) VALUES (?, 'cancel', ?, ?, ?, ?, ?)")
-    .run(job_id, FX.station, ticket_id, JSON.stringify({ ticket_id, order_item_id, units }), created_at, is_reprint ? 1 : 0);
-  return { kind: 'cancel', job_id, created_at, ticket_id, order_item_id, units, is_reprint };
+    .run(job_id, FX.station, ticket_id, JSON.stringify(payload), created_at, is_reprint ? 1 : 0);
+  return slip === undefined
+    ? { kind: 'cancel', job_id, created_at, ticket_id, order_item_id, units, is_reprint }
+    : { kind: 'cancel', job_id, created_at, ticket_id, order_item_id, units, is_reprint, slip };
 }
+/** 03c v1.0.8 §3.3 (04 Q-15): a `cancel` row with `payload.slip = 'moved'`, as the fold writes it for a moved void share. */
+const movedJob = (ticket_id: string, order_item_id: string, units: number, is_reprint = false): RenderJob => cancelJob(ticket_id, order_item_id, units, is_reprint, 'moved');
 
 async function command(command_type: string, url: string, payload: Record<string, unknown>): Promise<void> {
   const device = pairDevice(hub, { type: 'tablet' });
@@ -271,6 +276,72 @@ describe('[03c #1] kitchen ticket golden bytes 32 / 48', () => {
     const gone = renderText(renderJob(ctx(48, offsetFor(rt.fired_at), exited), kitchen(rt.ticket_id))!, 48);
     expect(gone.split('\n').slice(2, 5)).toEqual([centre2('T7', 48), `DINE-IN  Order taker  #${order_id.slice(-6)}`, '** RETURN - was T7 Naan **']);
     expect(text).not.toMatch(/Rs|PKR|COMP|[0-9]{3,}\.[0-9]/);
+  });
+});
+
+describe('[03c #4b] MOVED TO STOCK slip golden bytes 32 / 48 (04 Q-15, Q-17)', () => {
+  const MOVED = 'MOVED TO STOCK - FINISH & KEEP';
+  /** A dine-in karahi ×`quantity` at table "7" (T7), fired at S1 "Tandoor". */
+  function karahiT7(quantity: number): { order_id: string; ticket_id: string } {
+    openSeating(hub, { table_id: 'T3', seating_id: 'SE7' });
+    const { order_id } = appendOrder(hub, { order_type: 'dine_in', seating_id: 'SE7', lines: [{ order_item_id: 'K7', item_id: FX.piece, quantity }] });
+    return { order_id, ticket_id: fireTicket(FX.station, order_id, ['K7']).ticket_id };
+  }
+
+  it('[03c #4b, §3.5] whole moved share (2 of 2): bold MOVED TO STOCK line, then the CANCELLED body without the word; exact ESC/POS bytes', async () => {
+    await start();
+    const { order_id, ticket_id } = karahiT7(2);
+    voidLine(hub, order_id, 'K7', 2);
+    const job = movedJob(ticket_id, 'K7', 2);
+    const off = offsetFor(hub.clock.branchNow());
+    const ESC = 0x1b;
+    const GS = 0x1d;
+    const LF = 0x0a;
+    const line = (s: string): number[] => [...ascii(s), LF];
+    for (const cols of [32, 48] as const) {
+      const doc = renderJob(ctx(cols, off), job)!;
+      expect(renderText(doc, cols).split('\n')).toEqual(['TANDOOR' + ' '.repeat(cols - 14) + '1:22 PM', MOVED, 'T7  2 x Chicken Karahi']);
+      expect([...encodeDoc(doc, cols)], `golden bytes ${cols}`).toEqual([
+        ESC, 0x40,
+        ...line('TANDOOR' + ' '.repeat(cols - 14) + '1:22 PM'),
+        ESC, 0x45, 1, ...line(MOVED),
+        ...line('T7  2 x Chicken Karahi'),
+        GS, 0x56, 66, 0,
+      ]);
+    }
+  });
+
+  it('[03c #4b, §3.5] partial move (2 of 4) → "- 2 x … 2 left" under the MOVED header; REPRINT header on a re-send; done → nothing', async () => {
+    await start();
+    const { order_id, ticket_id } = karahiT7(4);
+    voidLine(hub, order_id, 'K7', 2);
+    const slip = (job: RenderJob, cols: 32 | 48 = 48): string[] | null => {
+      const doc = renderJob(ctx(cols, 0), job);
+      return doc === null ? null : renderText(doc, cols).split('\n');
+    };
+    expect(slip(movedJob(ticket_id, 'K7', 2))!.slice(1)).toEqual([MOVED, 'T7  - 2 x Chicken Karahi  2 left']);
+    expect(slip(movedJob(ticket_id, 'K7', 2), 32)!.slice(1)).toEqual([MOVED, 'T7  - 2 x Chicken Karahi  2 left']);
+    const resent = slip(movedJob(ticket_id, 'K7', 2, true))!;
+    expect(resent[0]).toBe(' '.repeat(17) + '** REPRINT **');
+    expect(resent.slice(2)).toEqual([MOVED, 'T7  - 2 x Chicken Karahi  2 left']);
+    hub.deps.db.prepare('UPDATE ticket_lines SET done_at = 1 WHERE order_item_id = ?').run('K7');
+    expect(slip(movedJob(ticket_id, 'K7', 2)), 'done → stale').toBeNull();
+  });
+
+  it('[03c #4b, §3.5] a moved slip and a CANCELLED slip of one line (2 moved, then 1 wastage, of 4) → each with its units; the moved units count as cancelled', async () => {
+    await start();
+    const { order_id, ticket_id } = karahiT7(4);
+    voidLine(hub, order_id, 'K7', 2);
+    voidLine(hub, order_id, 'K7', 1);
+    const moved = movedJob(ticket_id, 'K7', 2);
+    const cancelled = cancelJob(ticket_id, 'K7', 1);
+    const slip = (job: RenderJob): string[] => renderText(renderJob(ctx(48, 0), job)!, 48).split('\n').slice(1);
+    // units left are read at send (D2): both slips show the 1 still live
+    expect(slip(moved)).toEqual([MOVED, 'T7  - 2 x Chicken Karahi  1 left']);
+    expect(slip(cancelled)).toEqual(['CANCELLED  T7  - 1 x Chicken Karahi  1 left']);
+    // the moved job's units left the line: a later whole-line cancel counts it in earlier_cancelled
+    voidLine(hub, order_id, 'K7', 1);
+    expect(slip(cancelJob(ticket_id, 'K7', null))).toEqual(['CANCELLED  T7  1 x Chicken Karahi']);
   });
 });
 
