@@ -427,6 +427,117 @@ async function countedVoid(who: Who, payload: Record<string, unknown>): Promise<
   return { reply, statements: handled };
 }
 
+// 04 §10 tests 10b, 10d–10h end to end (Z1 gaps): one real VoidItems over HTTP on a real test hub, real events and tables.
+// Each run checks the batch's StockReserved lines, the engine state, the §6.1 direct-path statement count (3 + 2 = 5, no
+// stale comp request) and a strict re-fold of the whole log (03a applyEvents strict: a stock_reserved_past_added or a
+// breach throws) equal to the live state. 10g is not here: the spec makes it a pure stockEffects test (rule 4 keeps an
+// at-added line out of VoidItems); it stays in packages/engine/test/stock-effects.test.ts.
+// 10d here is a flow check only: rule 4 forces the voided K2 past stage 1 (it is `done`), so K2 is never a waiting
+// candidate and this test cannot catch a broken T-2 reserve exclusion. The T-2 coverage of 10d is the engine-level
+// `[04 #10d]` in packages/engine/test/stock-effects.test.ts, where K2 is a hidden waiting line.
+// 10e: 02b §10 #10 makes a second round a new order, so "same order, second-round K2" cannot be a later round of K1's
+// order; K2 is placed with K1 and held unfired (a VX.slow hold line), a live waiting line of the same order.
+describe('[04 §6.1, T-2] VoidItems moved: stock effects end to end (10b, 10d–10h)', () => {
+  type Entry = { order_item_id: string; units?: number; disposition: 'moved' | 'wastage' };
+  async function voidCounted(order_id: string, lines: Entry[]): Promise<{ reply: Reply; reserved: string[] }> {
+    const mgr = signIn(hub, STAFF.manager);
+    const { reply, statements } = await countedVoid(mgr, { order_id, reason_code: 'quality', note: null, disposition_note: null, lines });
+    expect(reply.status, JSON.stringify(reply.error)).toBe(200);
+    expect(statements).toBe(5);
+    expect(strictRefold(hub)).toEqual(state());
+    expect(state().diagnostics.filter((d) => d.kind === 'stock_breach')).toEqual([]);
+    return { reply, reserved: ofType(reply, 'StockReserved').map((e) => e.payload.order_item_id as string) };
+  }
+  /** One order: `lines` placed with a VX.slow hold line (the order's unfired lines stay hidden), then staged. */
+  function heldOrder(lines: Parameters<typeof appendOrder>[1]['lines'], stages: Array<[string, 'cooking' | 'done']>): string {
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: [...lines, { order_item_id: 'O1_HOLD', item_id: VX.slow }] });
+    for (const [id, stage] of stages) toStage(hub, order_id, [id], stage);
+    return order_id;
+  }
+  const deal = (quantity: number) => [
+    { order_item_id: 'D', deal_id: FX.deal, quantity },
+    { order_item_id: 'D_P1', deal_id: FX.deal, deal_part_id: FX.dealParts[0], item_id: FX.piece, parent_order_item_id: 'D' },
+    { order_item_id: 'D_P2', deal_id: FX.deal, deal_part_id: FX.dealParts[1], item_id: FX.naan, parent_order_item_id: 'D' },
+  ];
+
+  it('[04 #10b] two moved entries on lines of one stock item, one waiting T4 line → [move, void] per entry, exactly one StockReserved {T4}', async () => {
+    hub = await startVoids();
+    const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: [{ order_item_id: 'KA', item_id: FX.piece }, { order_item_id: 'KB', item_id: FX.piece }] });
+    toStage(hub, order_id, ['KA'], 'cooking');
+    toStage(hub, order_id, ['KB'], 'done');
+    const t4 = waitingT4(hub);
+    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'KA', disposition: 'moved' }, { order_item_id: 'KB', disposition: 'moved' }]);
+    expect(reply.events.filter((e) => e.event_type === 'ItemMovedToStock' || e.event_type === 'ItemVoided').map((e) => `${e.event_type} ${String(e.payload.order_item_id)}`)).toEqual([
+      'ItemMovedToStock KA',
+      'ItemVoided KA',
+      'ItemMovedToStock KB',
+      'ItemVoided KB',
+    ]);
+    expect(ofType(reply, 'StockAdded')).toHaveLength(2);
+    expect(reserved).toEqual([t4.line]);
+    expect(state().lines[t4.line]).toMatchObject({ from_stock: true, stage: 'added' });
+    expect(ofType(reply, 'ItemVoided').map((e) => e.payload.disposition)).toEqual(['moved', 'moved']);
+  });
+
+  it('[04 #10d] Void all on two karahi lines of one order (one moved), either array order, waiting T4 → T4 reserved, one OrderCancelled', async () => {
+    for (const movedFirst of [true, false]) {
+      hub = await startVoids();
+      const { order_id } = appendOrder(hub, { order_type: 'takeaway', placed_by: STAFF.orderTaker, lines: [{ order_item_id: 'K1', item_id: FX.piece }, { order_item_id: 'K2', item_id: FX.piece }] });
+      toStage(hub, order_id, ['K1'], 'cooking');
+      toStage(hub, order_id, ['K2'], 'done');
+      const t4 = waitingT4(hub);
+      const k1: Entry = { order_item_id: 'K1', disposition: 'moved' };
+      const k2: Entry = { order_item_id: 'K2', disposition: 'wastage' };
+      const { reply, reserved } = await voidCounted(order_id, movedFirst ? [k1, k2] : [k2, k1]);
+      expect(reserved, String(movedFirst)).toEqual([t4.line]);
+      expect(ofType(reply, 'OrderCancelled')).toHaveLength(1);
+      expect(state().lines[t4.line]).toMatchObject({ from_stock: true });
+      if (movedFirst) await hub.close(); // afterEach closes the last hub
+    }
+  });
+
+  it('[04 #10e] same order, karahi K2 waiting and not voided (placed with K1: 02b §10 #10 makes a second round a new order), K1 voided moved → K2 reserved', async () => {
+    hub = await startVoids();
+    const order_id = heldOrder([{ order_item_id: 'K1', item_id: FX.piece }, { order_item_id: 'K2', item_id: FX.piece }], [['K1', 'cooking']]);
+    expect(state().lines.K2).toMatchObject({ stage: 'added', from_stock: false, fired_at: null });
+    const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'K1', disposition: 'moved' }]);
+    expect(reserved).toEqual(['K2']);
+    expect(ofType(reply, 'OrderCancelled')).toHaveLength(0);
+    expect(state().lines.K2).toMatchObject({ from_stock: true });
+  });
+
+  it('[04 #10f] [deal D with karahi part P1 at added, karahi K1 done moved] in that order, with and without a waiting T4 → never StockReserved{P1}; T4 reserved when present', async () => {
+    for (const withT4 of [true, false]) {
+      hub = await startVoids();
+      const order_id = heldOrder([...deal(1), { order_item_id: 'K1', item_id: FX.piece }], [['D_P2', 'cooking'], ['K1', 'done']]);
+      expect(state().lines.D_P1).toMatchObject({ stage: 'added', from_stock: false, fired_at: null });
+      const t4 = withT4 ? waitingT4(hub) : null;
+      const { reply, reserved } = await voidCounted(order_id, [{ order_item_id: 'D', disposition: 'wastage' }, { order_item_id: 'K1', disposition: 'moved' }]);
+      expect(reserved, String(withT4)).not.toContain('D_P1');
+      expect(reserved, String(withT4)).toEqual(t4 === null ? [] : [t4.line]);
+      expect(ofType(reply, 'ItemVoided').find((e) => e.payload.order_item_id === 'D_P1')!.payload).toMatchObject({ disposition: null });
+      expect(state().lines.D_P1?.from_stock ?? false).toBe(false);
+      if (withT4) await hub.close(); // afterEach closes the last hub
+    }
+  });
+
+  it('[04 #10h] [deal D ×2 units 1 with karahi part P at added waiting, K1 ×2 done moved] and the reverse, waiting T4 → never StockReserved{P}, T4 reserved, no stock_breach', async () => {
+    for (const dealFirst of [true, false]) {
+      hub = await startVoids();
+      const order_id = heldOrder([...deal(2), { order_item_id: 'K1', item_id: FX.piece, quantity: 2 }], [['D_P2', 'cooking'], ['K1', 'done']]);
+      expect(state().lines.D_P1).toMatchObject({ stage: 'added', from_stock: false, fired_at: null, units: 2 });
+      const t4 = waitingT4(hub);
+      const d: Entry = { order_item_id: 'D', units: 1, disposition: 'wastage' };
+      const k: Entry = { order_item_id: 'K1', units: 2, disposition: 'moved' };
+      const { reserved } = await voidCounted(order_id, dealFirst ? [d, k] : [k, d]);
+      expect(reserved, String(dealFirst)).not.toContain('D_P1');
+      expect(reserved, String(dealFirst)).toEqual([t4.line]);
+      expect(state().lines.D_P1).toMatchObject({ units: 1, from_stock: false });
+      if (dealFirst) await hub.close(); // afterEach closes the last hub
+    }
+  });
+});
+
 describe('[04 §6.1] definition and statements', () => {
   it('[04 V15, §6.1] approvable, not queueable; permission void-item; device session', () => {
     expect(voidItemsCommand).toMatchObject({ commandType: 'VoidItems', permission: 'void-item', approvable: true, sessionKind: 'device' });
