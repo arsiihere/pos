@@ -28,6 +28,8 @@ import type { ConfigClient } from '../../src/sync/config-client';
 import { noteCommitted, setStockVersion } from '../../src/sync/stock-version';
 import { buildHubServer, type HubDeps } from '../../src/server';
 import { registerOrdersProjection } from '../../src/orders/index';
+import { registerKdsProjections } from '../../src/kds/index';
+import { registerPrintProjections } from '../../src/print/index';
 import { registerTablesProjection } from '../../src/tables/index';
 import { publisherFor } from '../../src/ws/server';
 import { freshDb } from './db';
@@ -70,6 +72,9 @@ export async function createTestHub(o?: {
   registerAlertProjections(projections);
   registerTablesProjection(projections);
   registerOrdersProjection(projections);
+  // 03b §5, 03c §3.3: as boot's createDeps (02b orders → 03b kds → 03c print).
+  registerKdsProjections(projections);
+  registerPrintProjections(projections);
   const authGeneration = createAuthGeneration();
   const ids = testIdGen();
   const published: PosEvent[][] = [];

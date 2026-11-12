@@ -164,7 +164,8 @@ describe('[01b §8] role editor', () => {
     expect(groupToggle('orders').querySelector('small')?.textContent).toBe(
       `${fill(t('role_editor.count_allowed'), { n: '2' })} · ${fill(t('role_editor.count_not'), { n: '9' })}`,
     );
-    expect(groupToggle('kitchen').querySelector('small')?.textContent).toBe(fill(t('role_editor.count_not'), { n: '4' }));
+    // 03b B-1: kitchen gains run-pass (5 not allowed).
+    expect(groupToggle('kitchen').querySelector('small')?.textContent).toBe(fill(t('role_editor.count_not'), { n: '5' }));
     expect(m.container.querySelector('.pos-grant__label')?.textContent).toBeTruthy();
     expect(() => grantRow(t('perm.reprint-ticket'))).toThrow();
 

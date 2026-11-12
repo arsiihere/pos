@@ -1,11 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import { DomainError } from '@pos/domain';
-import type { EventDraft, PosEvent } from '@pos/events';
+import type { BranchConfig, EventDraft, PosEvent } from '@pos/events';
 import { aBusinessDayClosed, aPresenceSet } from '@pos/events/testing';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { StepDef } from '../../src/alerts/kinds';
-import { resolveStep, resolveTargets, type AlertRow, type BatchReads } from '../../src/alerts/targets';
+import { batchReads, resolveStep, resolveTargets, type AlertRow, type BatchReads } from '../../src/alerts/targets';
 import { StaffDirectory } from '../../src/auth/staff-directory';
 import { runMigrations } from '../../src/db/migrate';
 import { createAuthGeneration } from '../../src/engine-host/auth-generation';
@@ -16,6 +16,7 @@ import { testIdGen } from '../../src/lib/ids';
 import { registerAlertProjections } from '../../src/projections/alerts';
 import { createProjectionRegistry } from '../../src/projections/registry';
 import type { WsHub } from '../../src/ws/server';
+import { swapBranchConfig } from '../../src/sync/branch-config-holder';
 import { freshDb } from '../helpers/db';
 import { statementCounter } from '../helpers/statement-counter';
 import { fakePoint, fakeTableOwner, registerFakes, resetFakes } from './fakes';
@@ -83,17 +84,17 @@ async function harness(cleanups: Array<() => void>) {
   return { db: fx.db, clock, writer };
 }
 
-function insertDevice(db: Database.Database, deviceId: string, type: string, o: { station?: string; owner?: string; revoked?: boolean } = {}): void {
+function insertDevice(db: Database.Database, deviceId: string, type: string, o: { station?: string; owner?: string; point?: string; revoked?: boolean } = {}): void {
   db.prepare(
-    `INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, paired_at, paired_by, revoked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'S_ADMIN', ?)`,
-  ).run(deviceId, BRANCH, `hash-${deviceId}`, deviceId, type, o.station ?? null, o.owner ?? null, T, o.revoked === true ? T : null);
+    `INSERT INTO devices (device_id, branch_id, token_hash, device_name, device_type, station_id, owner_staff_id, point_id, paired_at, paired_by, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'S_ADMIN', ?)`,
+  ).run(deviceId, BRANCH, `hash-${deviceId}`, deviceId, type, o.station ?? null, o.owner ?? null, o.point ?? null, T, o.revoked === true ? T : null);
 }
 
 // Hand-built BatchReads (task 18 builds the real one): presence_today and devices not revoked.
 function readsFrom(db: Database.Database, resolved: BatchReads['resolved'] = new Map()): BatchReads {
   const presence = db.prepare('SELECT staff_id, present FROM presence_today').all() as Array<{ staff_id: string; present: number }>;
-  const devices = db.prepare('SELECT device_id, device_type FROM devices WHERE revoked_at IS NULL ORDER BY device_id').all() as BatchReads['devices'];
+  const devices = db.prepare('SELECT device_id, device_type, point_id FROM devices WHERE revoked_at IS NULL ORDER BY device_id').all() as BatchReads['devices'];
   return {
     sessions: [],
     bindings: [],
@@ -119,6 +120,17 @@ function alert(over: Partial<AlertRow> = {}): AlertRow {
   };
 }
 
+// 01d v1.2.4 D-6 (03b P18-1): always_on reads the points part of branchConfig() only; P1 active, P_OLD archived.
+function withPoints(): void {
+  const config = {
+    points: [
+      { point_id: 'P1', name: 'Pass', is_archived: false },
+      { point_id: 'P_OLD', name: 'Old pass', is_archived: true },
+    ],
+  } as unknown as BranchConfig;
+  swapBranchConfig({ config, snapshotHash: 'h'.repeat(64), configVersion: 1, snapshotSchemaVersion: 4, appliedAt: 0 });
+}
+
 const raisedStep: StepDef = { at: { ms: 0 }, to: [{ target: 'raised_target', set: 'recipient' }] };
 const presence = (staff_ids: string[], present: boolean) =>
   aPresenceSet({ payload: { business_day_id: '01J00000000000000000000012', staff_ids, present, set_by: KAMRAN } });
@@ -128,6 +140,7 @@ describe('01d targets on the hub database', () => {
   beforeEach(() => registerFakes());
   afterEach(() => {
     resetFakes();
+    swapBranchConfig(null);
     for (const cleanup of cleanups.splice(0)) cleanup();
   });
 
@@ -208,15 +221,47 @@ describe('01d targets on the hub database', () => {
     registerFakes();
   });
 
-  it('[01d §3.4] always_on = kiosk + KDS devices not revoked', async () => {
+  it('[01d §3.4, 01d D-5 (03b B1-2), D-6 (03b P18-1)] always_on = kiosk + KDS + tablets of an active point, not revoked; not an unbound tablet, not one of an archived or unknown point', async () => {
     const h = await harness(cleanups);
+    withPoints();
     insertDevice(h.db, 'D_KDS', 'kds', { station: 'ST_GRILL' });
     insertDevice(h.db, 'D_KIOSK', 'cashier_kiosk');
     insertDevice(h.db, 'D_KIOSK_OLD', 'cashier_kiosk', { revoked: true });
+    insertDevice(h.db, 'D_PASS', 'tablet', { point: 'P1' });
+    insertDevice(h.db, 'D_PASS_ARCH', 'tablet', { point: 'P_OLD' });
+    insertDevice(h.db, 'D_PASS_GONE', 'tablet', { point: 'P_UNKNOWN' });
+    insertDevice(h.db, 'D_PASS_OLD', 'tablet', { point: 'P1', revoked: true });
     insertDevice(h.db, 'D_PHONE', 'phone', { owner: ALI });
     insertDevice(h.db, 'D_TAB', 'tablet');
     const out = resolveStep(raisedStep, alert({ target: { kind: 'always_on' } }), readsFrom(h.db), dir, ws);
-    expect(out.map((r) => r.device_id)).toEqual(['D_KDS', 'D_KIOSK']);
+    expect(out.map((r) => r.device_id)).toEqual(['D_KDS', 'D_KIOSK', 'D_PASS']);
+    // No config applied yet: no point is active, so no point-bound tablet (kiosk and KDS still reached).
+    swapBranchConfig(null);
+    const bare = resolveStep(raisedStep, alert({ target: { kind: 'always_on' } }), readsFrom(h.db), dir, ws);
+    expect(bare.map((r) => r.device_id)).toEqual(['D_KDS', 'D_KIOSK']);
+  });
+
+  it('[01d §3.4, 01d D-5 (03b B1-2)] batchReads: always_on point-bound tablets come from the same devices read (5); fixed reads stay 5 statements; the active-point filter (D-6) is memory only', async () => {
+    const h = await harness(cleanups);
+    withPoints();
+    insertDevice(h.db, 'D_KDS', 'kds', { station: 'ST_GRILL' });
+    insertDevice(h.db, 'D_PASS', 'tablet', { point: 'P1' });
+    insertDevice(h.db, 'D_PASS_ARCH', 'tablet', { point: 'P_OLD' });
+    insertDevice(h.db, 'D_PASS_OLD', 'tablet', { point: 'P1', revoked: true });
+    insertDevice(h.db, 'D_TAB', 'tablet');
+    const counter = statementCounter(h.db);
+    const { result } = h.writer.run((tx: WriterTx) => {
+      counter.reset();
+      const row = alert({ target: { kind: 'always_on' } });
+      const reads = batchReads(tx, [row], { previousStep: false, steps: new Map([['A1', [0]]]) });
+      const statements = counter.count;
+      const out = resolveStep(raisedStep, row, reads, dir, ws);
+      return { statements, after: counter.count, devices: out.map((r) => r.device_id) };
+    });
+    expect(result.devices).toEqual(['D_KDS', 'D_PASS']);
+    // (3) sessions, (4) bindings, (5) devices, (6) presence, (9) activity: always_on (and its D-6 point filter) adds no statement
+    expect(result.statements).toBe(5);
+    expect(result.after).toBe(5);
   });
 
   it('[01d BF-8] presence_today from PresenceSet: Ali 0, Bilal 1, Hamza not ticked → only Ali is skipped', async () => {

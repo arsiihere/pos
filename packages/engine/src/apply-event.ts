@@ -305,6 +305,7 @@ function listLines(
       routed_station_id: l.station_id,
       expedited: false,
       rounds: null,
+      done_undone: false, // 03a v1.2.2 B2-2: false at ItemAdded (fillLine keeps the placeholder's value)
     });
   }
   p.groups.forEach((g, i) => {
@@ -765,11 +766,12 @@ function foldItemDone(state: EngineState, event: PosEvent, o: FoldOptions): Engi
 
 // §3.4, D16 ItemDoneUndone: DONE → COOKING; done_at cleared, so liveInterval gives it its COOKING occupancy
 // again (test 51). A line done without a Start keeps its done time as the latest possible Start.
+// 03a v1.2.2 (owner 2026-11-11, B2-2): sets done_undone (never cleared), so the auto_done inference skips the line.
 function foldItemDoneUndone(state: EngineState, event: PosEvent, o: FoldOptions): EngineState {
   const p = event.payload as unknown as { order_item_id: string };
   const line = stageLine(state, event, p.order_item_id);
   if (line === undefined || line.stage !== 'done') return state;
-  const next = patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at }, o);
+  const next = patchLine(state, line.order_item_id, { stage: 'cooking', done_at: null, started_at: line.started_at ?? line.done_at, done_undone: true }, o);
   return touchOrder(next, line.order_id, event.recorded_at, o.scope);
 }
 

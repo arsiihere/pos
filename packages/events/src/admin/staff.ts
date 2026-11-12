@@ -88,7 +88,8 @@ export type ResponsibilitySetWire = z.infer<typeof ResponsibilitySetWire>;
 
 // 01a v2.1 §5.2a A-12 (01b v1.5 B-6): ranges equal the CHECKs of cloud 0007; the names are engine_settings of
 // BranchConfigSnapshotSchemaV4. 01a v2.3 §5.2a (02b A-1, 01b v1.7): three more times and the comp chips (CHECKs of
-// 0009). served_estimate_ms is not here: it is not writable until 03b (AD-20), stays null and is delivered as null.
+// 0009). 03b v1.0.2 §4.5 A-1 / B-2 (01b v1.8, owner ruling (a) 2026-11-11): served_estimate_ms is writable (was
+// read-only, AD-20; null = Off), plus ready_window_ms and kds_offline_ms; ranges = the CHECKs of cloud 0012.
 const WeightPct = z.number().int().min(10).max(1000);
 const PromisePaddingMs = z.number().int().min(0).max(1_800_000);
 export const BranchEngineSettings = z.object({
@@ -117,6 +118,10 @@ export const BranchEngineSettings = z.object({
     .min(1)
     .max(10)
     .refine((chips) => new Set(chips.map((chip) => chip.toLowerCase())).size === chips.length, { message: "labels must be unique ignoring case" }),
+  // 03b §4.5 A-1 / B-2: the 02b served estimate (null = Off), the Pass Ready window, the KDS offline threshold.
+  served_estimate_ms: z.number().int().min(60_000).max(1_800_000).nullable(),
+  ready_window_ms: z.number().int().min(15_000).max(300_000),
+  kds_offline_ms: z.number().int().min(10_000).max(300_000),
 });
 export type BranchEngineSettings = z.infer<typeof BranchEngineSettings>;
 export const BRANCH_ENGINE_SETTING_KEYS = Object.keys(BranchEngineSettings.shape) as (keyof BranchEngineSettings)[];

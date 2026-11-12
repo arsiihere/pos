@@ -80,7 +80,9 @@ describe('pre-migration backup', () => {
     db.close();
   });
 
-  it('[00 §10 #124] backup_dir missing → data_dir; both unwritable → throws and no migration applied', async () => {
+  // G-11 (owner 2026-11-11): root ignores the 0o555 mode bits, so the "both unwritable" half cannot
+  // fail as root (cloud sessions run as root). Skipped there; CI runs as non-root and still proves it.
+  it.skipIf(process.getuid?.() === 0)('[00 §10 #124] backup_dir missing → data_dir; both unwritable → throws and no migration applied', async () => {
     const missing = scratch(dirs);
     const db = openDb(join(missing.dataDir, 'hub.sqlite'));
     const migrations = join(missing.dataDir, 'migrations');

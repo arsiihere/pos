@@ -19,7 +19,7 @@ describe('permissions', () => {
     expect(() => assertKnownPermissions(['manage-devices', 'access-hub-admin'])).not.toThrow();
   });
 
-  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 27 unique entries', () => {
+  it('[00 §3.6, 01a S18, 01b B-1, B-2] catalogue has 28 unique entries (03b B-1: + run-pass)', () => {
     expect([...PERMISSIONS]).toEqual([
       'void-item',
       'move-item-to-stock',
@@ -48,8 +48,9 @@ describe('permissions', () => {
       'set-line-weight',
       'manage-zone-stock',
       'view-customer-contact',
+      'run-pass',
     ]);
-    expect(new Set(PERMISSIONS).size).toBe(27);
+    expect(new Set(PERMISSIONS).size).toBe(28);
   });
 
   it('[01b §3.3] PERMISSION_SCOPES', () => {

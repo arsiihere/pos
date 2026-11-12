@@ -29,6 +29,11 @@ const DEFAULTS = {
   zone_undo_ms: 300_000,
   slow_item_threshold_ms: 900_000,
   comp_reason_chips: ['Late', 'Wrong item', 'Quality', 'Guest', 'Other'],
+  // 03b v1.0.2 §4.5 A-1 / B-2 (01b v1.8, owner ruling (a) 2026-11-11): on the owner wire, writable. A row written after
+  // 0012 takes served_estimate_ms null (Off).
+  served_estimate_ms: null,
+  ready_window_ms: 60_000,
+  kds_offline_ms: 30_000,
 };
 const RANGES: Array<[string, number, number]> = [
   ['weight_dine_in_pct', 10, 1000],
@@ -49,6 +54,10 @@ const RANGES: Array<[string, number, number]> = [
   ['queue_auto_send_max_ms', 3_600_000, 86_400_000],
   ['zone_undo_ms', 0, 1_800_000],
   ['slow_item_threshold_ms', 60_000, 7_200_000],
+  // 03b §4.5 A-1 / B-2: the 0012 CHECKs.
+  ['ready_window_ms', 15_000, 300_000],
+  ['kds_offline_ms', 10_000, 300_000],
+  ['served_estimate_ms', 60_000, 1_800_000],
 ];
 const BRANCH_SETTINGS = { tax_enabled: false, day_stale_after_hours: 16, day_min_gap_hours: 4 };
 describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b v1.5 §6.10, B-6; 01a v2.1 A-12)', () => {
@@ -104,8 +113,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     );
   });
 
-  it('[01b B-6] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4, less the read-only served_estimate_ms (AD-20)', () => {
-    expect([...Object.keys(DEFAULTS), 'served_estimate_ms'].sort()).toEqual(
+  it('[01b B-6; 03b §4.5 B-2] the fields are exactly engine_settings of BranchConfigSnapshotSchemaV4 (served_estimate_ms, ready_window_ms, kds_offline_ms included)', () => {
+    expect(Object.keys(DEFAULTS).sort()).toEqual(
       Object.keys(BranchConfigSnapshotSchemaV4.shape.engine_settings.shape).sort(),
     );
   });
@@ -170,12 +179,42 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(reordered.json().data.branch.version).not.toBe(before.version);
   });
 
-  it('[01a v2.3 AD-20] served_estimate_ms is not writable: alone it is 400, beside a real field it changes nothing, and GET does not carry it', async () => {
-    expect((await patchCurrent({ served_estimate_ms: 600_000 })).statusCode).toBe(400);
-    const beside = await patchCurrent({ tax_enabled: true, served_estimate_ms: 600_000 });
-    expect(beside.statusCode, beside.body).toBe(200);
-    expect(beside.json().data.branch).not.toHaveProperty('served_estimate_ms');
+  it('[03b §4.5 B-2] served_estimate_ms is writable (AD-20 inverted): GET carries it, a value is stored, null turns it Off', async () => {
+    expect((await branchOf()).served_estimate_ms).toBeNull();
+    const on = await patchCurrent({ served_estimate_ms: 600_000 });
+    expect(on.statusCode, on.body).toBe(200);
+    expect(on.json().data.branch.served_estimate_ms).toBe(600_000);
+    expect((await engineRow()).served_estimate_ms).toBe(600_000);
+    const off = await patchCurrent({ served_estimate_ms: null });
+    expect(off.statusCode, off.body).toBe(200);
+    expect(off.json().data.branch.served_estimate_ms).toBeNull();
     expect((await engineRow()).served_estimate_ms).toBeNull();
+  });
+
+  it.each(['ready_window_ms', 'kds_offline_ms'])('[03b §4.5 B-2] %s has no Off: null is 400, nothing written', async (field) => {
+    const config = await configVersion();
+    const refused = await patchCurrent({ [field]: null });
+    expect(refused.statusCode, refused.body).toBe(400);
+    expect(refused.json().error.code).toBe('VALIDATION_FAILED');
+    expect(await audits()).toEqual([]);
+    expect(await configVersion()).toBe(config);
+  });
+
+  it('[03b §4.5 B-2] a PATCH of the three kitchen keys bumps config_version once and the next sync delivers them to the hub', async () => {
+    const held = await configVersion();
+    const directory = Number((await cloud.pool.query(`SELECT directory_version FROM tenants WHERE tenant_id = $1`, [f.tenantId])).rows[0].directory_version);
+    const patched = await patchCurrent({ ready_window_ms: 90_000, kds_offline_ms: 45_000, served_estimate_ms: 240_000 });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(await configVersion()).toBe(held + 1);
+    const next = await cloud.app.inject({
+      method: 'GET',
+      url: `/v1/sync/config?config_version=${held}&directory_version=${directory}`,
+      headers: { authorization: `Bearer ${f.branchKey}` },
+    });
+    expect(next.statusCode, next.body).toBe(200);
+    const snapshot = BranchConfigSnapshotSchemaV4.parse(next.json().data.config.snapshot);
+    expect(snapshot.config_version).toBe(held + 1);
+    expect(snapshot.engine_settings).toMatchObject({ ready_window_ms: 90_000, kds_offline_ms: 45_000, served_estimate_ms: 240_000 });
   });
 
   it('[01b B-6] returns_boost takes a boolean only', async () => {
@@ -296,6 +335,8 @@ describe('GET / PATCH /v1/admin/branches/:branch_id/settings: engine fields (01b
     expect(snapshot.engine_settings).toEqual({
       ...DEFAULTS,
       served_estimate_ms: null,
+      ready_window_ms: 60_000, // 03b A-1
+      kds_offline_ms: 30_000, // 03b A-1
       order_abandon_ms: 7_200_000,
       table_lock_ttl_ms: 120_000,
       returns_boost: false,

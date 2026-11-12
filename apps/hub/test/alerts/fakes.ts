@@ -187,6 +187,7 @@ export function registerFakes(): void {
   // 02a SG-6: registerTables (buildHubServer) registered the real resolvers; the fakes replace them
   unregisterTargetResolver('table_team');
   unregisterTargetResolver('zone_order_taker');
+  unregisterTargetResolver('point'); // 03b G-1: registerKds (buildHubServer) registers the real point resolver
   registerTargetResolver('table_team', fakeTableOwnerResolver);
   registerTargetResolver('point', fakePointResolver);
   registerTargetResolver('zone_order_taker', fakeZoneOrderTakerResolver);

@@ -278,8 +278,11 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'branches.timing_help': 'اس برانچ میں کچن وعدے اور آرڈر کیسے چلتے ہیں۔ معیاری قدریں زیادہ تر ریستورانوں کے لیے ٹھیک ہیں؛ وجہ معلوم ہو تو ہی بدلیں۔',
   'branches.timing_minutes_range': '{min} سے {max} منٹ لکھیں۔',
   'branches.timing_pct_range': '{min} سے {max} فیصد لکھیں۔',
+  // 01a v2.4.3 (03b §4.5 A-2, P15-1): draft, needs native review.
+  'branches.timing_seconds_range': '{min} سے {max} سیکنڈ لکھیں۔',
   'branches.timing.unit_min': 'منٹ',
   'branches.timing.unit_pct': '%',
+  'branches.timing.unit_sec': 'سیکنڈ',
   'branches.timing.weights': 'آرڈر کا وزن',
   'branches.timing.weights_help': 'ہر قسم کا آرڈر کچن کی قطار میں کتنی جگہ لیتا ہے۔ 100 عام ڈائن اِن آرڈر ہے؛ بڑا عدد اس قسم کو آگے رکھتا ہے۔',
   'branches.timing.weight_dine_in_pct': 'ڈائن اِن',
@@ -364,6 +367,8 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'perm.manage-devices': 'اسکرینیں جوڑنا اور ہٹانا',
   'perm.access-hub-admin': 'ہب ایڈمن کھولنا',
   'perm.manage-stock': 'اسٹاک گننا اور آئٹم بند کرنا',
+  // 03b B-1 (01b v1.8), G-6 — Urdu draft — needs native review
+  'perm.run-pass': 'پاس چلانا: آرڈر تیار بتانا اور حوالے کرنا',
   // 01c task 20: stock page per stock item (§8)
   'admin_stock.badge.unused': 'یہاں کسی ڈش میں استعمال نہیں',
   // Pulse 01a hand-off CHANGES §3 (stock page), 01c-B02 — Urdu draft — needs native review
@@ -899,6 +904,14 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'branches.timing.queue_auto_send_max_ms': 'انتظار میں آرڈر زیادہ سے زیادہ اتنے بعد کچن بھیجیں',
   'branches.timing.zone_undo_ms': 'زون اسٹاک میں واپسی کا وقت',
   'branches.timing.slow_item_threshold_ms': 'آئٹم اتنے بعد سست شمار کریں',
+  // 01a v2.4.2 (03b v1.0.2 §4.5 B-2): draft, needs native review.
+  'branches.timing.kds': 'کچن اسکرین اور پاس',
+  'branches.timing.kds_help': 'پہلے دو پورے سیکنڈ میں؛ پیش شدہ وقت منٹ میں۔',
+  'branches.timing.ready_window_ms': 'تیار ڈش کے لیے اتنے بعد مزید لوگوں کو بلائیں',
+  'branches.timing.kds_offline_ms': 'کچن اسکرین کو اتنے بعد بند سمجھیں',
+  'branches.timing.served_estimate_ms': 'حوالے کیا گیا کھانا اتنے بعد پیش شدہ شمار کریں',
+  'branches.timing.served_estimate_switch': 'حوالے کیا گیا کھانا خود پیش شدہ شمار کریں',
+  'branches.timing.served_estimate_help': 'بند: کھانا تب ہی پیش شدہ شمار ہو گا جب کوئی Served دبائے۔',
   'branches.chips': 'کامپ کی وجوہات',
   'branches.chips_help': 'لائن کامپ کرتے وقت یہ وجوہات دکھائی جاتی ہیں۔ 1 سے 10 وجوہات، ہر ایک الگ۔',
   'branches.chips.duplicate': 'دو وجوہات ایک جیسی ہیں۔ ہر وجہ الگ ہونی چاہیے، چاہے بڑے چھوٹے حروف کا فرق ہو۔',

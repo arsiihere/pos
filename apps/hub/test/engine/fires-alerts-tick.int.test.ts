@@ -74,6 +74,9 @@ describe('03a task 22a: the fires_alerts tick', () => {
     hub = await createTestHub();
     resetSlipReaders(); // SG-6: registerTables registered 02a's pair; these tests rely on the §4.4 stub or register fakes
     unregisterTick('table_locks'); // 02a §3.4: registerTables adds it to every test hub; this file counts the ticks
+    for (const name of ['pass_closures', 'ready_retarget', 'served_estimate']) unregisterTick(name); // 03b §6.18–6.19 (b16), 02b §6.11 (0e): lane B5 adds these to every test hub too
+    // 03b §6.20 (b20): registerKds adds kds_presence to every test hub too; this file counts the ticks
+    unregisterTick('kds_presence');
     await seedDirectory(hub);
     clean();
     log.error.mockClear();

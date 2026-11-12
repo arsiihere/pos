@@ -17,6 +17,7 @@ describe('alert constants', () => {
       approval_branch_ms: 120_000,
       binding_route_idle_ms: 7_200_000,
       needs_pin: { money: 'always', accept: 'never' },
+      printer_alert_ms: 30_000,
     });
   });
 

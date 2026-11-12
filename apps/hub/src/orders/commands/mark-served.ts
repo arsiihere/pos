@@ -1,16 +1,18 @@
 // 02b §6.4 MarkServed (queueable), §3.7, O16, §3.3, §3.14. No lock (D39; 02a P-1e, #62).
 import { DomainError } from '@pos/domain';
-import { isOrderInEngine, stockEffects } from '@pos/engine';
+import { isOrderInEngine, stockEffects, type EngineState } from '@pos/engine';
 import type { EventDraft, ItemServedPayload } from '@pos/events';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { Resolution } from '../../auth/staff-directory.js';
 import type { CommandCtx } from '../../commands/registry.js';
+import type { CurrentTableOf } from '../../engine-host/slip-readers.js';
 import { defineCommand } from '../../commands/registry.js';
 import { commandRegistry } from '../../commands/route.js';
 import { branchConfig } from '../../sync/branch-config-holder.js';
 import { currentTableOf } from '../../tables/reads.js';
-import type { OrderType } from '../contracts.js';
+import type { LineView, OrderType } from '../contracts.js';
 import { orderLines } from '../exports.js';
 import { foodDrafts } from '../food.js';
 
@@ -44,30 +46,54 @@ export function scopedOrders(db: Database.Database, order_ids: readonly string[]
 }
 
 /**
+ * §3.14 "as MarkServed", pure (⚠️ Changed by 03b v1.0.1 G-3, owner 2026-11-11; 02b v1.0.6 note): is order `o` inside the
+ * scope of `who.resolution` (the staff's resolved right, e.g. `mark-served`) for `who.staffId`? `branch` → yes. Dine-in:
+ * the current table — `own_tables` = the staff holds the order's open seating; `my_floors` = a table of the seating
+ * (`tables`, 02a `currentTableOf`, read once by the caller; null → none) is on one of `floorsOf(staffId)`. Takeaway /
+ * parking: `own_tables` and `my_floors` = placed by the staff (01b B-4). No staff or no scope → no. 0 statements.
+ * 03b's Handover receiver and `pass-receivers` call it for staff other than the caller with one shared `tables`.
+ *
+ * It checks the SCOPE only, never the grant: a `requires_approval` resolution with a scope is covered like an
+ * `allowed` one. Callers must check `who.resolution.grant === 'allowed'` first (03b §3.5 step 2, #25). For the
+ * caller's own command that check is already done by `commands/route.ts` `authorize` (requires_approval passes only
+ * for an approvable command), so `checkOrderScope` needs none; a receiver or candidate who is not the caller has no
+ * such gate.
+ */
+export function orderCovered(
+  o: ScopedOrder,
+  who: { staffId: string | null; resolution: Resolution | null },
+  tables: ReturnType<CurrentTableOf> | null,
+  floorsOf: (staffId: string) => string[],
+): boolean {
+  const { staffId, resolution } = who;
+  if (staffId === null) return false;
+  const scope = resolution !== null && 'scope' in resolution ? resolution.scope : null;
+  if (scope === 'branch') return true;
+  if (scope !== 'own_tables' && scope !== 'my_floors') return false;
+  if (o.order_type !== 'dine_in') return o.placed_by === staffId;
+  if (scope === 'own_tables') return o.holder_staff_id === staffId;
+  const myFloors = new Set(floorsOf(staffId));
+  const floors = branchConfig()?.floors ?? [];
+  return (tables?.get(o.order_id)?.table_ids ?? []).some((table_id) => {
+    const floor = floors.find((f) => f.tables.some((t) => t.table_id === table_id));
+    return floor !== undefined && myFloors.has(floor.floor_id);
+  });
+}
+
+/**
  * §3.14 "as MarkServed" (C8, call it last), on the scope of the command's own registered permission (`ctx.permission`:
- * `mark-served`, `boost-order`, `mark-item-returned`, …). `branch` → any order (0 statements). Dine-in: the current
- * table — `own_tables` = the caller holds the order's open seating; `my_floors` = a table of that seating is on one of
- * the caller's floors (02a `currentTableOf`, 1 statement, only then). Takeaway / parking: `own_tables` and `my_floors`
- * = placed by the caller (01b B-4). Else 403 PERMISSION_DENIED { reason: 'outside_scope', order_ids }.
+ * `mark-served`, `boost-order`, `mark-item-returned`, …), for the caller. `branch` → any order (0 statements); `my_floors`
+ * with a dine-in order reads 02a `currentTableOf` once (1 statement). The rule is `orderCovered` (G-3). Else
+ * 403 PERMISSION_DENIED { reason: 'outside_scope', order_ids }.
  */
 export function checkOrderScope(ctx: CommandCtx, orders: readonly ScopedOrder[]): void {
-  const staffId = ctx.actor.staffId;
+  const who = { staffId: ctx.actor.staffId, resolution: ctx.permission };
   const scope = ctx.permission !== null && 'scope' in ctx.permission ? ctx.permission.scope : null;
-  if (scope === 'branch' && staffId !== null) return;
+  if (scope === 'branch' && who.staffId !== null) return;
   const dineIn = orders.filter((o) => o.order_type === 'dine_in');
   const tables = scope === 'my_floors' && dineIn.length > 0 ? currentTableOf(ctx.tx.db, dineIn.map((o) => o.order_id)) : null;
-  const myFloors = scope === 'my_floors' && staffId !== null ? new Set(ctx.directory.floorsOf(staffId)) : new Set<string>();
-  const onMyFloor = (table_id: string): boolean => {
-    const floor = branchConfig()?.floors.find((f) => f.tables.some((t) => t.table_id === table_id));
-    return floor !== undefined && myFloors.has(floor.floor_id);
-  };
-  const covered = (o: ScopedOrder): boolean => {
-    if (staffId === null || (scope !== 'own_tables' && scope !== 'my_floors')) return false;
-    if (o.order_type !== 'dine_in') return o.placed_by === staffId;
-    if (scope === 'own_tables') return o.holder_staff_id === staffId;
-    return (tables?.get(o.order_id)?.table_ids ?? []).some(onMyFloor);
-  };
-  const outside = orders.filter((o) => !covered(o)).map((o) => o.order_id);
+  const floorsOf = (staffId: string): string[] => ctx.directory.floorsOf(staffId);
+  const outside = orders.filter((o) => !orderCovered(o, who, tables, floorsOf)).map((o) => o.order_id);
   if (outside.length > 0) throw new DomainError('PERMISSION_DENIED', { reason: 'outside_scope', order_ids: outside });
 }
 
@@ -112,7 +138,7 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
   const lines = orderLines(db, orderIds);
 
   const skipped: string[] = [];
-  const serves: Array<{ order_id: string; ids: string[]; inEngine: boolean }> = [];
+  const serves: ServeEntry[] = [];
   payload.lines.forEach((entry, i) => {
     if (!orders.has(entry.order_id)) throw new DomainError('ORDER_NOT_FOUND', { order_id: entry.order_id });
     const byId = new Map(lines.get(entry.order_id)!.map((l) => [l.order_item_id, l]));
@@ -143,34 +169,73 @@ function markServed(ctx: CommandCtx, payload: Payload): { events: EventDraft[]; 
 
   checkOrderScope(ctx, orderIds.map((id) => orders.get(id)!));
 
-  const envelope = { occurred_at: now, actor_id: ctx.actor.staffId, device_id: ctx.actor.deviceId };
-  // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
-  const servedTime = ctx.queuedAt ?? now;
-  const servedDrafts = serves.map((s): EventDraft => {
-    const p: ItemServedPayload = { order_item_ids: s.ids, source: 'tap', ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }) };
-    return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...envelope };
+  const envelope: ServedEnvelope = {
+    occurred_at: now,
+    actor_id: ctx.actor.staffId,
+    device_id: ctx.actor.deviceId,
+    // §3.7 / §3.12 (Q-6): a queued serve keeps the accepted (clamped) queued_at as served_at; absent on a live call.
+    ...(ctx.queuedAt === null ? {} : { served_at: ctx.queuedAt }),
+  };
+  const events = servedDrafts(ctx.state, lines, serves, envelope, 'tap');
+  return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
+}
+
+/** One order's lines to serve (validated by the caller); `inEngine` = `isOrderInEngine` at the envelope time (O16). */
+export interface ServeEntry {
+  order_id: string;
+  ids: string[];
+  inEngine: boolean;
+}
+
+/** The serve envelope; `served_at` (a queued MarkServed's accepted queued_at, §3.12) goes on each ItemServed when set. */
+export interface ServedEnvelope {
+  occurred_at: number;
+  actor_id: string | null;
+  device_id: string;
+  served_at?: number;
+}
+
+/**
+ * §3.7 the serve drafts (⚠️ Changed by 03b v1.0.1 G-2; 02b v1.0.6 note): per entry, in order, `ItemServed
+ * { order_item_ids, source, served_at? }` → `OrderFoodServed` when it serves a food line (§3.3, AD-13) → its
+ * `stockEffects` (one call over the in-engine serves, array form, AD-29 Q7). `lines` = `orderLines` of the entries'
+ * orders (read by the caller). MarkServed calls it with `source: 'tap'`; 03b's `served_estimate` tick (task 0e,
+ * §6.11) with `'estimated'`. 0 statements.
+ */
+export function servedDrafts(
+  state: EngineState,
+  lines: ReadonlyMap<string, readonly LineView[]>,
+  serves: readonly ServeEntry[],
+  envelope: ServedEnvelope,
+  source: 'tap' | 'estimated',
+): EventDraft[] {
+  const { served_at, ...env } = envelope;
+  const servedTime = served_at ?? env.occurred_at;
+  const itemServed = serves.map((s): EventDraft => {
+    const p: ItemServedPayload = { order_item_ids: s.ids, source, ...(served_at === undefined ? {} : { served_at }) };
+    return { stream_type: 'order', stream_id: s.order_id, event_type: 'ItemServed', schema_version: 1, payload: p, ...env };
   });
   // AD-29 Q7: one stockEffects call over the in-engine serves, split back per ItemServed. The split relies on engine
   // stock.ts effectsOf never giving an ItemServed `before` effects (its case returns `before: []`), so every effect
   // follows its own ItemServed up to the next one; an effect ahead of the first ItemServed is a broken assumption.
   const effects = new Map<EventDraft, EventDraft[]>();
   let current: EventDraft[] | null = null;
-  const inEngineDrafts = servedDrafts.filter((_, i) => serves[i]!.inEngine);
+  const inEngineDrafts = itemServed.filter((_, i) => serves[i]!.inEngine);
   const inEngineSet = new Set(inEngineDrafts);
-  for (const d of stockEffects(ctx.state, inEngineDrafts)) {
+  for (const d of stockEffects(state, inEngineDrafts)) {
     if (inEngineSet.has(d as EventDraft)) effects.set(d as EventDraft, (current = []));
     else if (current === null) throw new Error('MarkServed: stockEffects drafted an effect before an ItemServed');
-    else current.push({ ...d, ...envelope });
+    else current.push({ ...d, ...env });
   }
 
   const events: EventDraft[] = [];
   serves.forEach((s, i) => {
-    const itemServed = servedDrafts[i]!;
-    const after = lines.get(s.order_id)!.map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: servedTime, served_source: 'tap' as const } : l));
-    const food = foodDrafts(s.order_id, after, { kind: 'served', order_item_ids: s.ids }).map((d): EventDraft => ({ ...d, ...envelope }));
-    events.push(itemServed, ...food, ...(effects.get(itemServed) ?? []));
+    const draft = itemServed[i]!;
+    const after = (lines.get(s.order_id) ?? []).map((l) => (s.ids.includes(l.order_item_id) ? { ...l, served_at: servedTime, served_source: source } : l));
+    const food = foodDrafts(s.order_id, after, { kind: 'served', order_item_ids: s.ids }).map((d): EventDraft => ({ ...d, ...env }));
+    events.push(draft, ...food, ...(effects.get(draft) ?? []));
   });
-  return { events, result: { served: serves.reduce((n, s) => n + s.ids.length, 0), skipped } };
+  return events;
 }
 
 export const markServedCommand = defineCommand({

@@ -1,5 +1,5 @@
 import { canonicalJson, sha256hex } from '@pos/domain/hash';
-import { BranchConfigSnapshotSchemaV4, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
+import { BranchConfigSnapshotSchemaV4, HUB_ENGINE_SETTING_DEFAULTS, SNAPSHOT_SCHEMA_VERSION } from '@pos/events';
 import { aBranchConfig } from '@pos/events/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadBranchConfig } from '../../src/projections/branch-config';
@@ -35,7 +35,16 @@ const FLOORS = [
     ],
   },
 ];
-const V4_SETTING_KEYS = ['queue_auto_send_max_ms', 'zone_undo_ms', 'slow_item_threshold_ms', 'served_estimate_ms', 'comp_reason_chips'];
+// 03b A-1 (01a v2.4): + ready_window_ms, kds_offline_ms (optional V4 keys, no schema bump; R29).
+const V4_SETTING_KEYS = [
+  'queue_auto_send_max_ms',
+  'zone_undo_ms',
+  'slow_item_threshold_ms',
+  'served_estimate_ms',
+  'comp_reason_chips',
+  'ready_window_ms',
+  'kds_offline_ms',
+];
 
 function v4Body(version: number): Record<string, unknown> {
   const config = aBranchConfig({ branch_id: BRANCH, config_version: version, floors: FLOORS });
@@ -123,6 +132,26 @@ describe('hub config: snapshot schema 4 only (01a §4.3, S28 b)', () => {
       ['I2', true],
       ['I3', false],
     ]);
+  });
+
+  it('[03b §4.5 A-1] ready_window_ms / kds_offline_ms: absent → the hub defaults (60 s, 30 s); delivered → the delivered values', async () => {
+    const { h, cloud } = await hub();
+    const body = v4Body(3);
+    expect(body.engine_settings).not.toHaveProperty('ready_window_ms');
+    cloud.respondWithSnapshot(body);
+    await configPoller(h.app).pollOnce();
+    const read = () => {
+      const e = branchConfig()?.engine_settings;
+      return {
+        ready_window_ms: e?.ready_window_ms ?? HUB_ENGINE_SETTING_DEFAULTS.ready_window_ms,
+        kds_offline_ms: e?.kds_offline_ms ?? HUB_ENGINE_SETTING_DEFAULTS.kds_offline_ms,
+      };
+    };
+    expect(read()).toEqual({ ready_window_ms: 60_000, kds_offline_ms: 30_000 });
+    const next = v4Body(4);
+    cloud.respondWithSnapshot({ ...next, engine_settings: { ...(next.engine_settings as object), ready_window_ms: 90_000, kds_offline_ms: 45_000 } });
+    expect(await configPoller(h.app).pollOnce()).toMatchObject({ outcome: 'applied', config_version: 4 });
+    expect(read()).toEqual({ ready_window_ms: 90_000, kds_offline_ms: 45_000 });
   });
 
   it('[01a #193] Settings: `queue_auto_send_max_ms`, `zone_undo_ms`, `slow_item_threshold_ms`, `comp_reason_chips` … delivered (hub: the defaults in branchConfig().engine_settings, AD-10)', async () => {

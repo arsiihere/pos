@@ -2,6 +2,7 @@ import { DomainError, type DeviceType, type Permission } from '@pos/domain';
 import type { AlertRaisedPayloadV2, AlertTarget } from '@pos/events';
 import type { StaffDirectory } from '../auth/staff-directory.js';
 import type { WriterTx } from '../engine-host/writer.js';
+import { branchConfig } from '../sync/branch-config-holder.js';
 import type { WsHub } from '../ws/server.js';
 import { kindOf, type RecipientSet, type StepDef } from './kinds.js';
 import { cachedPrepare } from './statements.js';
@@ -78,6 +79,12 @@ export interface BindingRead {
 export interface DeviceRead {
   device_id: string;
   device_type: DeviceType;
+  /**
+   * 01d v1.2.3 D-5: the point a tablet is bound to (`devices.point_id`); `always_on` reaches point-bound tablets.
+   * Read (5) always selects it; optional only so hand-built reads for one binding (alert-sockets.ts) stay valid
+   * (absent = not bound).
+   */
+  point_id?: string | null;
 }
 
 /** §3.5 "Reads per tick": the fixed reads (3)–(9), read once per tick / raise. */
@@ -167,7 +174,7 @@ function readFixed(tx: WriterTx): FixedReads {
   // (4) device_bindings, whole table
   const bindings = cachedPrepare(tx.db, 'SELECT device_id, staff_id, session_id, since FROM device_bindings ORDER BY device_id').all() as BindingRead[];
   // (5) devices not revoked
-  const devices = cachedPrepare(tx.db, 'SELECT device_id, device_type FROM devices WHERE branch_id = ? AND revoked_at IS NULL ORDER BY device_id').all(
+  const devices = cachedPrepare(tx.db, 'SELECT device_id, device_type, point_id FROM devices WHERE branch_id = ? AND revoked_at IS NULL ORDER BY device_id').all(
     tx.branchId,
   ) as DeviceRead[];
   // (6) presence_today
@@ -406,12 +413,13 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
       const lead = alert.requester_staff_id === null ? null : directory.leadOf(alert.requester_staff_id);
       return staff(lead === null ? [] : [lead]);
     }
-    case 'always_on':
-      // point-bound tablets join once 01a points land (§3.4, stubbed)
-      return {
-        staff_ids: [],
-        device_ids: reads.devices.filter((d) => d.device_type === 'cashier_kiosk' || d.device_type === 'kds').map((d) => d.device_id),
-      };
+    case 'always_on': {
+      // §3.4 (v1.2.3 D-5, 03b B1-2): kiosks, KDS screens and the unrevoked tablets bound to a point, all from read (5).
+      // ⚠️ Changed by v1.2.4 (owner 2026-11-12, 03b P18-1, D-6): a tablet only when its point is active (not archived)
+      // in branchConfig().points; filtered in memory after read (5), no statement added. No config yet → no point.
+      const active = activePointIds();
+      return { staff_ids: [], device_ids: reads.devices.filter((d) => isAlwaysOn(d, active)).map((d) => d.device_id) };
+    }
     case 'table_team': {
       // D-1 (b): the resolver's staff_ids are the full set for both depths; no teamOf here, presence filter only
       const found = resolved(target, reads);
@@ -421,6 +429,16 @@ function resolveTarget(target: AlertTarget, alert: AlertRow, reads: BatchReads, 
     case 'zone_order_taker':
       return resolved(target, reads);
   }
+}
+
+function activePointIds(): ReadonlySet<string> {
+  return new Set((branchConfig()?.points ?? []).filter((p) => !p.is_archived).map((p) => p.point_id));
+}
+
+function isAlwaysOn(d: DeviceRead, activePoints: ReadonlySet<string>): boolean {
+  if (d.device_type === 'cashier_kiosk' || d.device_type === 'kds') return true;
+  const point = d.device_type === 'tablet' ? (d.point_id ?? null) : null;
+  return point !== null && activePoints.has(point);
 }
 
 function resolved(target: ResolverTarget<ResolverKind>, reads: BatchReads): ResolvedTarget {
