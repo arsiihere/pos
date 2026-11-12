@@ -28,6 +28,7 @@ export function applyStaffDirectory(
     console.warn(JSON.stringify({ msg: 'staff directory ignored', directory_version: d.directory_version, current }));
     return { applied: false };
   }
+  upsertStaffNames(tx, d);
   const previous = readCache(tx.db);
   const skipped: Skip[] = [];
   const roleIds = new Set(d.roles.map((role) => role.role_id));
@@ -216,6 +217,23 @@ export function applyStaffDirectory(
   ]);
   tx.onCommit(() => setDirectory(StaffDirectory.fromInput(stored)));
   return { applied: true };
+}
+
+// 00 v1.10 §5 / 04 §4.5 H-1 (G-2): every person in the **input** lists is named before any row skip (so a staff
+// row skipped for a bad pin_hash still has a name), staff first, then no_pin_staff; a repeated id keeps the first,
+// as the cache does. Rows are never deleted (a leaver keeps the last known name). Hub clock, same transaction.
+function upsertStaffNames(tx: WriterTx, d: DirectoryInput): void {
+  const upsert = tx.db.prepare(
+    `INSERT INTO staff_names (staff_id, display_name, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (staff_id) DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
+  );
+  const now = tx.clock.branchNow();
+  const seen = new Set<string>();
+  for (const row of [...d.staff, ...(d.no_pin_staff ?? [])]) {
+    if (seen.has(row.staff_id)) continue;
+    seen.add(row.staff_id);
+    upsert.run(row.staff_id, row.display_name, now);
+  }
 }
 
 function warnSkip(skipped: Skip[], skip: Skip): void {
