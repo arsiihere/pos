@@ -221,4 +221,16 @@ describe('[02b §9] ordering codes', () => {
   it('[03c v1.0.6 §9, Q-14] ALERT_ALREADY_CLOSED is 409', () => {
     expect(statusOf('ALERT_ALREADY_CLOSED')).toBe(409);
   });
+
+  it('[04 §9] VOID_NOT_ALLOWED is 409', () => {
+    expect(statusOf('VOID_NOT_ALLOWED')).toBe(409);
+  });
+
+  it('[04 §9] DAY_CLOSE_BLOCKED is 409', () => {
+    expect(statusOf('DAY_CLOSE_BLOCKED')).toBe(409);
+  });
+
+  it('[04 §9] VOID_PENDING (exists, D11) stays 409', () => {
+    expect(statusOf('VOID_PENDING')).toBe(409);
+  });
 });
