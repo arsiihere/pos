@@ -216,6 +216,7 @@ describe('ws', () => {
       station_id: 'S1',
       day_open: true,
       sound_volume: 70,
+      has_printer: true, // v1.0.6 Q-20
       lanes: { lanes_on: null, lane_count: 2 },
       now: [{ ...detail, stage: 'cooking', fired_at: 1, started_at: 2, mark: 'boost', done_undone: true }], // v1.0.5 B2-3
       details: [detail],
@@ -227,6 +228,9 @@ describe('ws', () => {
     const noFlag: Record<string, unknown> = { ...view.now[0] };
     delete noFlag.done_undone;
     expect(WsServerMessage.safeParse({ ...start, view: { ...view, now: [noFlag] } }).success, 'done_undone is required (v1.0.5 B2-3)').toBe(false);
+    const noPrinter: Record<string, unknown> = { ...view };
+    delete noPrinter.has_printer;
+    expect(WsServerMessage.safeParse({ ...start, view: noPrinter }).success, 'has_printer is required (v1.0.6 Q-20)').toBe(false);
   });
 
   it('[03b §3.10] station_notice { station_id, kind: archived, open_lines }', () => {
@@ -234,6 +238,13 @@ describe('ws', () => {
     expect(WsServerMessage.parse(notice)).toEqual(notice);
     expect(WsServerMessage.safeParse({ ...notice, kind: 'paused' }).success).toBe(false);
     expect(WsServerMessage.safeParse({ ...notice, open_lines: -1 }).success).toBe(false);
+  });
+
+  it('[03b v1.0.6 §3.10, Q-20] station_notice { kind: output, has_printer }; has_printer only with output, open_lines only with archived', () => {
+    const notice = { type: 'station_notice', station_id: 'S1', kind: 'output', has_printer: true };
+    expect(WsServerMessage.parse(notice)).toEqual(notice);
+    expect(WsServerMessage.safeParse({ type: 'station_notice', station_id: 'S1', kind: 'output', open_lines: 2 }).success).toBe(false);
+    expect(WsServerMessage.safeParse({ type: 'station_notice', station_id: 'S1', kind: 'archived', has_printer: true }).success).toBe(false);
   });
 
   it('[03c §3.8] printed_lines { station_id, order_item_ids }', () => {

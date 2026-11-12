@@ -129,6 +129,8 @@ export const KdsStationBody = z.object({
   station_id: Id,
   day_open: z.boolean(),
   sound_volume: z.number().int().min(0).max(100),
+  // ⚠️ Changed by v1.0.6 (owner 2026-11-12, Q-20): output mode both / printer with an active printer (03c stationHasPrinter).
+  has_printer: z.boolean(),
   lanes: z.object({ lanes_on: z.number().int().min(1).nullable(), lane_count: z.number().int().min(1) }), // null = custom (§5)
   now: z.array(
     LineDetailSchema.extend({
@@ -151,13 +153,13 @@ export const WsStationTakeover = z.object({
 });
 export type WsStationTakeover = z.infer<typeof WsStationTakeover>;
 
-// 03b §3.10: an archived station that still has lines in Now / Next.
-export const WsStationNotice = z.object({
-  type: z.literal('station_notice'),
-  station_id: Id,
-  kind: z.literal('archived'),
-  open_lines: z.number().int().min(0),
-});
+// 03b §3.10: `archived` = an archived station that still has lines in Now / Next. ⚠️ Changed by v1.0.6 (owner
+// 2026-11-12, Q-20): `output` = 03c changed the station's has_printer (03c v1.0.6 §3.8); the KDS shows or hides Reprint.
+// `open_lines` only for `archived`, `has_printer` only for `output` (a union on `kind`, nested in WsServerMessage's `type` union).
+export const WsStationNotice = z.discriminatedUnion('kind', [
+  z.object({ type: z.literal('station_notice'), station_id: Id, kind: z.literal('archived'), open_lines: z.number().int().min(0) }),
+  z.object({ type: z.literal('station_notice'), station_id: Id, kind: z.literal('output'), has_printer: z.boolean() }),
+]);
 export type WsStationNotice = z.infer<typeof WsStationNotice>;
 
 // 03c §3.8: after each ack of a kitchen / reprint job.
