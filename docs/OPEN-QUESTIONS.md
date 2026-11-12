@@ -106,3 +106,10 @@ Full list with reasons: `docs/specs/04_Voids_Audit_Spec_v1.0.md` §12.6.
 | 04-R1 | **Cross-module bumps approved but not applied** (F, 00, 01a, 01b, 01d, 02b, 03a). | Task 0 takes next free numbers, STOPs on conflict. | 04 build task 0. |
 | 04-R4 | **05 must honour 04's four contracts** (refund_minor only, bill close refused while pending, keep the day-close guard, voided pending-weight lines). | §4.3 To 05. | 05 G0 / review. |
 
+## 9. From the 02a / 02b client gap sweep (owner, 2026-11-12) — deferred
+
+| # | Item | Decided | Where it goes |
+|---|---|---|---|
+| 02a Q-14 | **Handover result facts from 01d:** `request_alert_id`, `request_kind` on the `request_result` view and the receiver's name on `my-requests` rows. Until then the sender's device remembers its own sends; after a reload "Waiting for an answer". | Deferred (owner 2026-11-12, Rec (a)). | A later 01d bump. |
+| 02a Q-15 | **`floor_ids` on `/queries/session`**, so buttons follow `my_floors` scope. Until then buttons by grant; `403 outside_scope` → "This table is outside your floors". | Deferred (owner 2026-11-12, Rec (a)). | A later 00 bump. |
+| 02b Q-7 | **`option_id` in `order_lines.options_json`** (migration 0017, like 0016) for an exact "Send it as a new item". Until then the options sheet is preselected by option name. | Deferred unless name match fails (owner 2026-11-12, Rec (a)). | 02b bump + hub migration. |
