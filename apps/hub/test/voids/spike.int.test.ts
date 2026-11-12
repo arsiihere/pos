@@ -9,7 +9,7 @@
 //   - no line guard (u3): §10 #0's "the lock check does not refuse its own request" (H1-1) half is carried by test 21
 //     in v7, because no line guard exists until u3;
 //   - T-2 pre-scan (u4, G-17): pinned by the test 10c case below (an `it.fails` until u4 landed);
-//   - audit fold a no-op (a2): the audit-row half is an `it.todo`.
+//   - the audit-row half runs on a2's real `audit` fold.
 import { DomainError, type VoidDisposition } from '@pos/domain';
 import { openDayStartMs, stockEffects, type EngineState } from '@pos/engine';
 import type { EventDraft } from '@pos/events';
@@ -330,7 +330,31 @@ describe('[04 #0] spike: raise → approve → move + void, end to end (throwawa
     expect(hub.deps.db.prepare('SELECT state FROM alerts WHERE alert_id = ?').pluck().get(req.alert_id)).toBe('open');
   });
 
-  it.todo('[04 #0] audit rows: item_voided (actor = requester, approver = answerer), item_moved_to_stock (from audit_requests), void_requested, void_answered — waits for a2 (the audit fold is a no-op until then)');
+  it('[04 #0] audit rows: item_voided (actor = requester, approver = answerer), item_moved_to_stock (from audit_requests), void_requested, void_answered', async () => {
+    hub = await startVoids({ stock: { [FX.stock]: 0, [VX.naanStock]: 4 } });
+    const cashier = signIn(hub, STAFF.cashier);
+    const manager = signIn(hub, STAFF.manager);
+    const order_id = stockNaan('cooking');
+    const req = raiseVoid(hub, { requester: cashier, order_id, order_item_id: 'N4', units: 2, disposition: 'moved' });
+    await withSpikeApply(async () => {
+      expect((await answer(hub, manager, req.alert_id, 'approve')).status).toBe(200);
+    });
+    // a2 (§3.6 columns per action): every envelope actor of the approve is the Manager's session; the rows say who did it
+    const audit = hub.deps.db
+      .prepare(
+        `SELECT action, actor_staff_id, approver_staff_id, method, order_id, outcome, amount_minor, json_extract(detail_json, '$.envelope_actor_id') AS envelope
+           FROM audit_entries WHERE action IN ('void_requested', 'void_answered', 'item_moved_to_stock', 'item_voided') ORDER BY seq`,
+      )
+      .all();
+    expect(audit).toEqual([
+      { action: 'void_requested', actor_staff_id: STAFF.cashier, approver_staff_id: null, method: null, order_id, outcome: 'moved', amount_minor: 6_000, envelope: STAFF.cashier },
+      { action: 'void_answered', actor_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager, method: 'pin', order_id, outcome: 'approved', amount_minor: null, envelope: STAFF.manager },
+      { action: 'item_moved_to_stock', actor_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager, method: null, order_id, outcome: null, amount_minor: null, envelope: STAFF.manager },
+      { action: 'item_voided', actor_staff_id: STAFF.cashier, approver_staff_id: STAFF.manager, method: null, order_id, outcome: 'moved', amount_minor: 6_000, envelope: STAFF.manager },
+    ]);
+    // the moved portion's StockAdded { reason: 'moved' } is covered by item_moved_to_stock, never a stock_added row
+    expect(hub.deps.db.prepare(`SELECT COUNT(*) FROM audit_entries WHERE action = 'stock_added'`).pluck().get()).toBe(0);
+  });
 });
 
 describe('[04 R-2] a read-only apply builds engine + stock drafts', () => {

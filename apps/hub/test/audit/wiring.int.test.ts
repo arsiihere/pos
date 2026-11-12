@@ -11,8 +11,8 @@ import { offlineCloud } from '../helpers/stub-cloud';
 import { stubConfigCloud } from '../helpers/stub-config-cloud';
 import { createTestHub } from '../helpers/test-hub';
 
-// 04 phase 0 P0.7 (04 §6.6, §3.6, §5): projection `audit` is registered inside registerHubProjections as a no-op fold
-// (no event types) until a2; catchUp writes its first checkpoint row (H-2).
+// 04 phase 0 P0.7 (04 §6.6, §3.6, §5): projection `audit` is registered inside registerHubProjections (a no-op fold
+// until a2, the real fold since); catchUp writes its first checkpoint row (H-2).
 
 const WALL = 1_761_000_000_000;
 
@@ -26,7 +26,7 @@ describe('[04 §6.6] projection audit (phase 0 skeleton)', () => {
     for (const cleanup of cleanups.splice(0)) await cleanup();
   });
 
-  it('[04 §6.6] registerHubProjections registers `audit` once, after 03c print; a no-op fold until a2', () => {
+  it('[04 §6.6] registerHubProjections registers `audit` once, after 03c print; the a2 fold with reset', () => {
     const seen: Projection[] = [];
     const recording = { register: (p: Projection) => seen.push(p), afterCatchUp: () => undefined } as unknown as ProjectionRegistry;
     registerHubProjections(recording);
@@ -34,8 +34,9 @@ describe('[04 §6.6] projection audit (phase 0 skeleton)', () => {
     expect(names.filter((name) => name === 'audit')).toHaveLength(1);
     expect(names.indexOf('audit')).toBeGreaterThan(names.indexOf('print_config'));
     const audit = seen.find((p) => p.name === 'audit')!;
-    expect(audit.eventTypes).toEqual([]);
-    expect(audit.reset).toBeUndefined();
+    // a2 (04 §6.6, AD-2): the real fold — mapped event types + its lookups — with reset.
+    expect(audit.eventTypes).toEqual(expect.arrayContaining(['AlertRaised', 'RequestAnswered', 'OrderPlaced', 'ItemVoided']));
+    expect(audit.reset).toBeTypeOf('function');
   });
 
   it('[04 §6.6, §3.6] createTestHub: catchUp writes the audit checkpoint row on the writer branch', async () => {
