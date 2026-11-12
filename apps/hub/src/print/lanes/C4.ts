@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectionRegistry } from '../../projections/registry.js';
 import type { HubDeps } from '../../server.js';
+import { registerPrintConfigQuery } from '../../queries/print-config.js';
+import { registerPrintQueueQuery } from '../../queries/print-queue.js';
 import { registerPrintCatchUp } from '../../ws/print-catch-up.js';
 import { printDocument } from '../api.js';
 import { providePrint } from '../contracts.js';
@@ -14,6 +16,8 @@ export function register(app: FastifyInstance, deps: HubDeps): void {
   providePrint({ printDocument }); // c18, §3.9 / §4.2
   registerPrintCatchUp(app, deps); // c21, §3.8 / §6.9: kds_printed part + printed_lines frame host
   registerPrintRoutes(app, deps); // c19, §6.4 / §6.5: POST /admin/print/test, /admin/print/jobs/:job_id/cancel
+  registerPrintConfigQuery(app); // c20, §6.6: GET /admin/queries/print-config
+  registerPrintQueueQuery(app); // c20, §6.7: GET /admin/queries/print-queue
 }
 
 export function registerProjections(projections: ProjectionRegistry): void {
