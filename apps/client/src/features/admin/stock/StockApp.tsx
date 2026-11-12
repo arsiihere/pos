@@ -39,7 +39,7 @@ export function StockApp({ api }: { api: HubAdmin }) {
   return <StockView api={api} onSignedOut={signedOut} />;
 }
 
-type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string; detail?: string };
+type Message = { tone: 'ok' | 'warn' | 'danger' | 'info'; text: string; detail?: string; items?: string[] };
 
 // A save or Add refused with 409 BUSINESS_DAY_NOT_OPEN, re-sent with the same command_id after Start day.
 type Blocked = { kind: 'save' } | { kind: 'add'; stockItemId: string; quantity: number };
@@ -53,10 +53,28 @@ function outsideScope(error: HubError): boolean {
   return error.kind === 'api' && error.code === 'PERMISSION_DENIED' && error.details['reason'] === 'outside_scope';
 }
 
+// 01a v2.5 §8.2 (04 §4.5 A-1, G-21): 409 DAY_CLOSE_BLOCKED { reason, voids (≤ 40), count } → the count
+// text and one row per void (identifier · item · requester), plus "and N more" when count > the list.
+// Missing or malformed details (an old hub) → the generic error text, no list.
+function dayCloseBlocked(details: Record<string, unknown>): Message {
+  const raw: unknown = details['voids'];
+  const count: unknown = details['count'];
+  const generic: Message = { tone: 'danger', text: t(adminErrorKey('DAY_CLOSE_BLOCKED')) };
+  if (!Array.isArray(raw) || typeof count !== 'number' || !Number.isInteger(count) || count < 0) return generic;
+  const voids = raw.filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null);
+  // The hub lists up to 40 of `count`, so a blocked close always lists at least one.
+  if (voids.length === 0) return generic;
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  const items = voids.map((v) => [text(v['identifier']), text(v['item']), text(v['requester_name'])].join(' · '));
+  if (count > voids.length) items.push(fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED_more'), { n: String(count - voids.length) }));
+  return { tone: 'danger', text: fill(t('admin_stock.errors.DAY_CLOSE_BLOCKED'), { count: String(count) }), items };
+}
+
 function errorMessage(error: HubError): Message {
   if (error.kind === 'network') return { tone: 'danger', text: t('admin_stock.errors.network') };
   if (error.kind === 'signed_out') return { tone: 'danger', text: t('errors.ADMIN_SESSION_REQUIRED') };
   if (outsideScope(error)) return { tone: 'danger', text: t('admin_stock.errors.outside_scope') };
+  if (error.code === 'DAY_CLOSE_BLOCKED') return dayCloseBlocked(error.details);
   return { tone: 'danger', text: t(adminErrorKey(error.code)) };
 }
 
@@ -604,7 +622,7 @@ function StockView({ api, onSignedOut }: { api: HubAdmin; onSignedOut: () => voi
           </div>
         )}
         {queryError !== null && <Banner tone={queryError.tone} text={queryError.text} />}
-        {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} />}
+        {message !== null && <Banner tone={message.tone} text={message.text} detail={message.detail} items={message.items} />}
         {kept !== null && (
           <div className="pos-banner pos-banner--ok" role="status" data-kept="">
             <Icon name="check" />
