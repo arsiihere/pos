@@ -34,7 +34,10 @@ export const ZONE_EVENT_TYPES = ['ZoneStockAdded', 'ZoneStockSet'] as const;
  */
 export const KITCHEN_PROGRESS_EVENT_TYPES = ['ItemStarted', 'ItemDone', 'ItemDoneUndone', 'FireDispatched'] as const;
 
-for (const eventType of [...ORDER_EVENT_TYPES, ...ZONE_EVENT_TYPES, ...KITCHEN_PROGRESS_EVENT_TYPES]) {
+/** 02b v1.0.11 §6.19 (Q-10): 03a's SlipWarned → staff sockets and cashier kiosks (late cards grouped by table, §8). */
+export const SLIP_EVENT_TYPES = ['SlipWarned'] as const;
+
+for (const eventType of [...ORDER_EVENT_TYPES, ...ZONE_EVENT_TYPES, ...KITCHEN_PROGRESS_EVENT_TYPES, ...SLIP_EVENT_TYPES]) {
   registerEventAudience(eventType, (_event, socket) => socket.kind === 'staff' || socket.deviceType === 'cashier_kiosk');
 }
 
