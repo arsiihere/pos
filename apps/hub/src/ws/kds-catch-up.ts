@@ -21,6 +21,13 @@ import { wsHubFor } from './server.js';
 //   after the engine host's hook, so a commit's `station_plan` goes first and the KDS shows a placeholder until the
 //   details arrive (§3.3).
 
+/**
+ * ⚠️ Changed by v1.0.5 (owner 2026-11-12, B2-3) §3.3, §6.14: a Now row's `done_undone`, copied from the engine line
+ * (03a v1.2.2: set by ItemDoneUndone, never cleared), so the KDS shows a "tap Done" cue on an undone `auto_done` line.
+ * Memory only. Shared with the Pass catch-up's takeover bodies (§6.15).
+ */
+export const doneUndone = (state: EngineState, order_item_id: string): boolean => state.lines[order_item_id]?.done_undone ?? false;
+
 /** §3.8: sound volume of a station with no StationScreenSet. */
 export const DEFAULT_SOUND_VOLUME = 70;
 
@@ -53,7 +60,7 @@ export function kdsStationBody(db: Database.Database, state: EngineState, statio
     lanes: { lanes_on: s.has_lanes === 1 ? s.lanes_on : lane_count, lane_count },
     now: view.now.flatMap((l) => {
       const d = details.get(l.order_item_id);
-      return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark }];
+      return d === undefined ? [] : [{ ...d, stage: l.stage, fired_at: l.fired_at, started_at: l.started_at, mark: l.mark, done_undone: doneUndone(state, l.order_item_id) }];
     }),
     details: view.next.flatMap((l) => {
       const d = details.get(l.order_item_id);
